@@ -17,7 +17,6 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
-import pandas as pd
 from portopt_db.repositories.market_data.etf_metadata_repository import (
     ETFMetadataRepository,
 )
@@ -511,9 +510,10 @@ class YFinanceDataService:
                     "Failed valuation_measures for %s: %s", yfinance_ticker, e
                 )
 
-        # 3b. EPS trend. yfinance returns string period labels ("0q", "+1q",
-        # "0y", "+1y"); coerce columns to datetimes and drop NaT so the
-        # repository's _safe_date does not silently drop rows.
+        # 3b. EPS trend — the consensus EPS estimate for each forward period as it
+        # stood now vs 7/30/60/90 days ago. The panel is indexed by period label
+        # ("0q", "+1q", "0y", "+1y") with snapshot-age columns; neither axis is a
+        # date, so it lands in the typed eps_trend table (not financial_statements).
         if (
             mode == "incremental"
             and staleness is not None
@@ -527,27 +527,18 @@ class YFinanceDataService:
                 eps_trend_df = self._timed(
                     lambda: self.yf_client.analysis.fetch_eps_trend(yfinance_ticker)
                 )
-                if eps_trend_df is not None and not eps_trend_df.empty:
-                    eps_trend_df = eps_trend_df.copy()
-                    eps_trend_df.columns = pd.to_datetime(
-                        eps_trend_df.columns, errors="coerce"
-                    )
-                    eps_trend_df = eps_trend_df.loc[:, eps_trend_df.columns.notna()]
-                if eps_trend_df is not None and not eps_trend_df.empty:
-                    counts["eps_trend"] = self.repo.upsert_financial_statements(
-                        instrument_id,
-                        eps_trend_df,
-                        "eps_trend",
-                        "estimate",
-                        currency_code=None,
-                    )
-                else:
-                    counts["eps_trend"] = 0
+                counts["eps_trend"] = (
+                    self.repo.upsert_eps_trend(instrument_id, eps_trend_df)
+                    if eps_trend_df is not None and not eps_trend_df.empty
+                    else 0
+                )
             except Exception as e:
                 errors.append(f"eps_trend: {e}")
                 logger.warning("Failed eps_trend for %s: %s", yfinance_ticker, e)
 
-        # 3c. EPS revisions. Same period-label coercion as eps_trend.
+        # 3c. EPS revisions — up/down revision counts over the trailing 7/30-day
+        # windows, per forward-period label. Same period-label index as eps_trend;
+        # stored in the typed eps_revisions table.
         if (
             mode == "incremental"
             and staleness is not None
@@ -561,22 +552,11 @@ class YFinanceDataService:
                 eps_rev_df = self._timed(
                     lambda: self.yf_client.analysis.fetch_eps_revisions(yfinance_ticker)
                 )
-                if eps_rev_df is not None and not eps_rev_df.empty:
-                    eps_rev_df = eps_rev_df.copy()
-                    eps_rev_df.columns = pd.to_datetime(
-                        eps_rev_df.columns, errors="coerce"
-                    )
-                    eps_rev_df = eps_rev_df.loc[:, eps_rev_df.columns.notna()]
-                if eps_rev_df is not None and not eps_rev_df.empty:
-                    counts["eps_revisions"] = self.repo.upsert_financial_statements(
-                        instrument_id,
-                        eps_rev_df,
-                        "eps_revisions",
-                        "estimate",
-                        currency_code=None,
-                    )
-                else:
-                    counts["eps_revisions"] = 0
+                counts["eps_revisions"] = (
+                    self.repo.upsert_eps_revisions(instrument_id, eps_rev_df)
+                    if eps_rev_df is not None and not eps_rev_df.empty
+                    else 0
+                )
             except Exception as e:
                 errors.append(f"eps_revisions: {e}")
                 logger.warning("Failed eps_revisions for %s: %s", yfinance_ticker, e)

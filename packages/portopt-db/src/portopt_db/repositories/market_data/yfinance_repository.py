@@ -20,6 +20,8 @@ from portopt_db.models.market_data.yfinance_data import (
     EarningsDate,
     EarningsEstimate,
     EarningsHistory,
+    EpsRevisions,
+    EpsTrend,
     FinancialStatement,
     GrowthEstimate,
     InsiderPurchaseSummary,
@@ -478,6 +480,52 @@ class YFinanceRepository(RepositoryBase):
             GrowthEstimate,
             rows,
             constraint_name="uq_growth_estimate_instrument_period",
+        )
+
+    def upsert_eps_trend(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert the EPS estimate trend (index = period labels "0q"/"+1q"/...).
+
+        Columns are snapshot ages (``current``/``7daysAgo``/``30daysAgo``/...); a
+        per-period ``currency`` column (yfinance 1.2.2+) is ignored here.
+        """
+        rows = [
+            {
+                "instrument_id": instrument_id,
+                "period": _safe_str(period, 10),
+                "current_estimate": _safe_float(row.get("current")),
+                "days_ago_7": _safe_float(row.get("7daysAgo")),
+                "days_ago_30": _safe_float(row.get("30daysAgo")),
+                "days_ago_60": _safe_float(row.get("60daysAgo")),
+                "days_ago_90": _safe_float(row.get("90daysAgo")),
+            }
+            for period, row in df.iterrows()
+        ]
+        return self._upsert(
+            EpsTrend,
+            rows,
+            constraint_name="uq_eps_trend_instrument_period",
+        )
+
+    def upsert_eps_revisions(self, instrument_id: UUID, df: pd.DataFrame) -> int:
+        """Upsert EPS revision counts (index = period labels "0q"/"+1q"/...).
+
+        Columns are up/down revision counts over the trailing 7/30-day windows.
+        """
+        rows = [
+            {
+                "instrument_id": instrument_id,
+                "period": _safe_str(period, 10),
+                "up_last_7days": _safe_int(row.get("upLast7days")),
+                "up_last_30days": _safe_int(row.get("upLast30days")),
+                "down_last_7days": _safe_int(row.get("downLast7days")),
+                "down_last_30days": _safe_int(row.get("downLast30days")),
+            }
+            for period, row in df.iterrows()
+        ]
+        return self._upsert(
+            EpsRevisions,
+            rows,
+            constraint_name="uq_eps_revisions_instrument_period",
         )
 
     def upsert_earnings_history(self, instrument_id: UUID, df: pd.DataFrame) -> int:

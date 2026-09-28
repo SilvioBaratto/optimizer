@@ -1,7 +1,7 @@
 ---
 name: db-context
 description: >
-  Complete knowledge of the optimizer PostgreSQL database: 55 ingestion tables, schema,
+  Complete knowledge of the optimizer PostgreSQL database: 57 ingestion tables, schema,
   relationships, live row counts, query patterns, and conventions. Load this skill proactively
   whenever working with database models (packages/portopt-db/src/portopt_db/models/), repositories
   (packages/portopt-db/src/portopt_db/repositories/ + ingestion/app/repositories/jobs/), Alembic
@@ -28,8 +28,8 @@ rather than reviving the table.
 and repositories from `portopt_db.repositories`; only the `jobs` repository *behavior* still lives
 in `ingestion/app/repositories/jobs/`.
 
-Live totals: **55 base tables** (53 documented below + `alembic_version` + `apscheduler_jobs`).
-Alembic head `d8e9f0a1b2c3`, 63 migrations. Row counts below are the last verified live snapshot.
+Live totals: **57 base tables** (55 documented below + `alembic_version` + `apscheduler_jobs`).
+Alembic head `c4d5e6f7a8b9`, 68 migrations. Row counts below are the last verified live snapshot.
 
 - Column-by-column schema → `references/full-schema.md`
 - Live volumes, FRED series, indicator lists → `references/data-inventory.md`
@@ -63,16 +63,18 @@ deliberately ahead of `weekly_refetch`). Now built from the yfinance source, so 
 |-------|-------|-----:|-----------|---------|
 | `ticker_profiles` | TickerProfile | 8,895 | instrument_id | 1:1 company profile/fundamentals from yf.info (~85 live cols; model maps ~60 — read the model) |
 | `ticker_profile_extras` | TickerProfileExtra | 8,895 | instrument_id | 1:1 overflow yf.info fields (short interest, ownership %, governance risk) |
-| `financial_statements` | FinancialStatement | 11,253,341 | (instrument_id, statement_type, period_type, period_date, line_item) | EAV; largest table. `statement_type` overloaded (also valuation_measures/eps_trend/eps_revisions/earnings) |
+| `financial_statements` | FinancialStatement | 11,253,341 | (instrument_id, statement_type, period_type, period_date, line_item) | EAV; largest table. `statement_type` overloaded (also valuation_measures/earnings). eps_trend/eps_revisions moved to their own typed tables |
 | `sec_filings` | SecFiling | 389,385 | (instrument_id, filing_date, form_type, title) | SEC filing index (US-only) |
 
-### Per-ticker — Estimates (5, FK → `instruments.id` CASCADE)
+### Per-ticker — Estimates (7, FK → `instruments.id` CASCADE)
 | Table | Model | Rows | Unique On | Purpose |
 |-------|-------|-----:|-----------|---------|
 | `earnings_estimate` | EarningsEstimate | 23,656 | (instrument_id, period) | Forward EPS estimates by period label (0q/+1q/0y/+1y) |
 | `revenue_estimate` | RevenueEstimate | 30,408 | (instrument_id, period) | Forward revenue estimates by period label |
 | `earnings_history` | EarningsHistory | 17,956 | (instrument_id, period_date) | Historical per-quarter EPS surprise |
 | `growth_estimates` | GrowthEstimate | 40,203 | (instrument_id, period) | Analyst growth estimates (stock vs index trend) |
+| `eps_trend` | EpsTrend | 0 | (instrument_id, period) | Consensus EPS estimate per period as of now vs 7/30/60/90 days ago (new; was a broken no-op into financial_statements) |
+| `eps_revisions` | EpsRevisions | 0 | (instrument_id, period) | Analyst up/down EPS revision counts (trailing 7/30d) per period (new; was a broken no-op) |
 | `earnings_dates` | EarningsDate | 106,647 | (instrument_id, earnings_date) | Past/upcoming earnings dates + EPS surprise (per-ticker; distinct from market-wide `earnings_calendar`) |
 
 ### Per-ticker — Analyst (3, FK → `instruments.id` CASCADE)
@@ -370,8 +372,10 @@ select(BackgroundJob).where(BackgroundJob.job_type == "yfinance_fetch").order_by
   across instruments can be mixed scale/currency. FX/scale normalization is the reader's job.
   `financial_statements.currency_code` is the MAJOR-unit code (GBX→GBP upstream), legacy-nullable.
 - **`financial_statements.statement_type` is overloaded** — also carries `valuation_measures`
-  (point_in_time), `eps_trend`/`eps_revisions` (estimate), `earnings`. Always filter with
-  `period_type`. `line_item` labels are raw yfinance strings — brittle for joins.
+  (point_in_time) and `earnings`. Always filter with `period_type`. `line_item` labels are raw
+  yfinance strings — brittle for joins. (`eps_trend`/`eps_revisions` used to be listed here but
+  never actually landed rows — the ingest coerced their metric-name columns to dates → all NaT →
+  dropped. Fixed to dedicated `eps_trend`/`eps_revisions` typed tables.)
 - **`earnings_dates` (per-ticker, FK) ≠ `earnings_calendar` (market-wide, no FK)** — likewise
   `stock_splits` (per-ticker Numeric ratio) vs `split_calendar` (market-wide String label ratio).
 - **`insider_transactions`** — sentinel date `1970-01-01` when yfinance omits `start_date`;

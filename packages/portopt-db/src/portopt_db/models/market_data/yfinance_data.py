@@ -353,6 +353,66 @@ class GrowthEstimate(BaseModel):
     index_trend: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
 
 
+class EpsTrend(BaseModel):
+    """EPS estimate trend from yf.Ticker.eps_trend.
+
+    The consensus EPS estimate for each forward period as it stood now vs 7/30/60/
+    90 days ago. Indexed by period label ("0q", "+1q", "0y", "+1y") — one row per
+    label — with the snapshot ages as columns. Neither axis is a date, so this is a
+    typed table rather than the date-keyed ``financial_statements`` EAV table.
+    """
+
+    __tablename__ = "eps_trend"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "period", name="uq_eps_trend_instrument_period"
+        ),
+        Index("ix_eps_trend_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    period: Mapped[str] = mapped_column(String(10), nullable=False)
+    current_estimate: Mapped[float | None] = mapped_column(
+        Numeric(20, 6), nullable=True
+    )
+    days_ago_7: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    days_ago_30: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    days_ago_60: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    days_ago_90: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+
+
+class EpsRevisions(BaseModel):
+    """EPS revision counts from yf.Ticker.eps_revisions.
+
+    How many analysts revised EPS up/down over the trailing 7/30-day windows, for
+    each forward period. Indexed by period label ("0q", "+1q", "0y", "+1y") — one
+    row per label.
+    """
+
+    __tablename__ = "eps_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "period", name="uq_eps_revisions_instrument_period"
+        ),
+        Index("ix_eps_revisions_instrument_id", "instrument_id"),
+    )
+
+    instrument_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    period: Mapped[str] = mapped_column(String(10), nullable=False)
+    up_last_7days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    up_last_30days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    down_last_7days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    down_last_30days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
 class EarningsHistory(BaseModel):
     """Historical EPS surprise from yf.Ticker.earnings_history (per past quarter)."""
 

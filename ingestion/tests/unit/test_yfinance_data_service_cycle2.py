@@ -1,11 +1,17 @@
 """Service-level tests for cycle 2 wiring: valuation / eps_trend / eps_revisions.
 
-Asserts that ``YFinanceDataService.fetch_and_store`` routes the three new
-fetchers through ``repo.upsert_financial_statements`` with the documented
-``statement_type`` / ``period_type`` / ``currency_code`` triples, and that
-the eps panels' string column labels are coerced via
-``pd.to_datetime(..., errors='coerce')`` with NaT columns dropped before
-upsert.
+Asserts that ``YFinanceDataService.fetch_and_store`` routes the three fetchers to
+the right repository methods:
+
+* ``valuation_measures`` → ``repo.upsert_financial_statements`` (date-keyed EAV
+  table) with the documented ``statement_type`` / ``period_type`` /
+  ``currency_code`` triple, and
+* ``eps_trend`` / ``eps_revisions`` → the dedicated typed
+  ``repo.upsert_eps_trend`` / ``repo.upsert_eps_revisions`` methods, untouched.
+
+The eps panels are indexed by forward-period label ("0q"/"+1q"/"0y"/"+1y") with
+metric-name columns — neither axis is a date, so the old ``pd.to_datetime`` column
+coercion (which dropped every column and stored nothing) is gone.
 """
 
 from __future__ import annotations
@@ -29,14 +35,31 @@ def _valuation_fixture() -> pd.DataFrame:
     return pd.DataFrame(rows, index=columns).T
 
 
-def _eps_dated_fixture() -> pd.DataFrame:
-    """Mixed-label fixture: real timestamp survives ``pd.to_datetime`` coercion."""
-    columns = ["0q", "+1q", pd.Timestamp("2025-03-31")]
-    rows = {
-        "current": [1.50, 1.65, 1.70],
-        "7daysAgo": [1.51, 1.66, 1.72],
-    }
-    return pd.DataFrame(rows, index=columns).T
+def _eps_trend_fixture() -> pd.DataFrame:
+    """Real yfinance shape: index = period labels, columns = snapshot ages."""
+    return pd.DataFrame(
+        {
+            "current": [1.50, 1.65, 6.10, 6.80],
+            "7daysAgo": [1.51, 1.66, 6.11, 6.82],
+            "30daysAgo": [1.52, 1.67, 6.14, 6.88],
+            "60daysAgo": [1.55, 1.70, 6.20, 6.95],
+            "90daysAgo": [1.58, 1.72, 6.25, 7.00],
+        },
+        index=["0q", "+1q", "0y", "+1y"],
+    )
+
+
+def _eps_revisions_fixture() -> pd.DataFrame:
+    """Real yfinance shape: index = period labels, columns = revision counts."""
+    return pd.DataFrame(
+        {
+            "upLast7days": [2, 1, 3, 0],
+            "upLast30days": [5, 4, 7, 2],
+            "downLast7days": [0, 1, 0, 1],
+            "downLast30days": [1, 2, 1, 3],
+        },
+        index=["0q", "+1q", "0y", "+1y"],
+    )
 
 
 def _build_yf_client(
@@ -70,6 +93,8 @@ def _build_repo() -> MagicMock:
     repo = MagicMock(name="repo")
     repo.get_staleness_info.return_value = None
     repo.upsert_financial_statements.return_value = 0
+    repo.upsert_eps_trend.return_value = 0
+    repo.upsert_eps_revisions.return_value = 0
     repo.upsert_profile.return_value = 0
     repo.upsert_price_history.return_value = 0
     repo.upsert_dividends.return_value = 0
@@ -114,20 +139,24 @@ def _statement_type_calls(repo: MagicMock) -> list[tuple[str, str, str | None]]:
     return triples
 
 
-def test_when_three_fetchers_return_data_then_upsert_uses_documented_triples() -> None:
+def test_when_fetchers_return_data_then_routed_to_correct_upserts() -> None:
     yf_client = _build_yf_client(
         valuation=_valuation_fixture(),
-        eps_trend=_eps_dated_fixture(),
-        eps_revisions=_eps_dated_fixture(),
+        eps_trend=_eps_trend_fixture(),
+        eps_revisions=_eps_revisions_fixture(),
     )
     repo = _build_repo()
 
     result = _run(yf_client, repo)
 
+    # valuation still uses the EAV financial_statements table...
     triples = _statement_type_calls(repo)
     assert ("valuation_measures", "point_in_time", "USD") in triples
-    assert ("eps_trend", "estimate", None) in triples
-    assert ("eps_revisions", "estimate", None) in triples
+    # ...but the eps panels route to their own typed tables, never the EAV one.
+    assert all(t[0] != "eps_trend" for t in triples)
+    assert all(t[0] != "eps_revisions" for t in triples)
+    repo.upsert_eps_trend.assert_called_once()
+    repo.upsert_eps_revisions.assert_called_once()
     assert "valuation_measures" in result["counts"]
     assert "eps_trend" in result["counts"]
     assert "eps_revisions" in result["counts"]
@@ -141,33 +170,30 @@ def test_when_fetchers_return_none_then_no_upsert_and_no_errors() -> None:
 
     triples = _statement_type_calls(repo)
     assert all(t[0] != "valuation_measures" for t in triples)
-    assert all(t[0] != "eps_trend" for t in triples)
-    assert all(t[0] != "eps_revisions" for t in triples)
+    repo.upsert_eps_trend.assert_not_called()
+    repo.upsert_eps_revisions.assert_not_called()
     assert not any(
         e.startswith(("valuation_measures", "eps_trend", "eps_revisions"))
         for e in result["errors"]
     )
 
 
-def test_when_eps_trend_columns_mixed_then_only_parseable_dates_survive() -> None:
+def test_when_eps_panels_present_then_passed_through_unchanged() -> None:
+    # The real period-labelled panels must reach the typed upserts with their index
+    # and columns intact — no date coercion mangling the metric-name axis.
+    trend = _eps_trend_fixture()
+    revisions = _eps_revisions_fixture()
     yf_client = _build_yf_client(
-        valuation=None,
-        eps_trend=_eps_dated_fixture(),
-        eps_revisions=None,
+        valuation=None, eps_trend=trend, eps_revisions=revisions
     )
     repo = _build_repo()
 
     _run(yf_client, repo)
 
-    eps_calls = [
-        call
-        for call in repo.upsert_financial_statements.call_args_list
-        if (call.args[2] if len(call.args) >= 3 else call.kwargs["statement_type"])
-        == "eps_trend"
-    ]
-    assert len(eps_calls) == 1
-    upserted_df = eps_calls[0].args[1]
-    assert all(isinstance(c, pd.Timestamp) for c in upserted_df.columns)
-    assert pd.Timestamp("2025-03-31") in upserted_df.columns
-    assert "0q" not in upserted_df.columns
-    assert "+1q" not in upserted_df.columns
+    trend_df = repo.upsert_eps_trend.call_args.args[1]
+    assert list(trend_df.index) == ["0q", "+1q", "0y", "+1y"]
+    assert "current" in trend_df.columns
+
+    rev_df = repo.upsert_eps_revisions.call_args.args[1]
+    assert list(rev_df.index) == ["0q", "+1q", "0y", "+1y"]
+    assert "upLast7days" in rev_df.columns

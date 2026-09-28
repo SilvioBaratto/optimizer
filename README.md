@@ -306,7 +306,7 @@ uv run --package portopt pytest
 
 # Shared DB layer (portopt-db)
 uv run --package portopt-db pytest
-cd packages/portopt-db && alembic upgrade head     # head: b3c4d5e6f7a8
+cd packages/portopt-db && alembic upgrade head     # head: c4d5e6f7a8b9
 
 # Fund bridge (portopt-fund)
 uv run --package portopt-fund pytest

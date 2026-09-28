@@ -80,10 +80,17 @@ steps, not the daily per-ticker loop — so empty is a schedule state, not a fai
 
 - **`financial_statements` — the EAV giant (~11.3M rows).** Long/EAV layout: yfinance
   statement DataFrames (columns = period dates, index = line-item names) melted to one row
-  per cell. Overloaded `statement_type` also carries `valuation_measures`, `eps_trend`,
-  `eps_revisions`, `earnings` — filter on `statement_type` + `period_type`, not type alone.
-  `line_item` labels are raw yfinance strings, not a controlled vocabulary. `value` is
-  `Numeric(38,6)` (Decimal on read).
+  per cell. Overloaded `statement_type` also carries `valuation_measures`, `earnings` — filter
+  on `statement_type` + `period_type`, not type alone. `line_item` labels are raw yfinance
+  strings, not a controlled vocabulary. `value` is `Numeric(38,6)` (Decimal on read).
+  (`eps_trend`/`eps_revisions` were once routed here but never stored a row — their metric-name
+  columns were coerced to dates → all NaT → dropped. Now in dedicated typed tables.)
+
+- **`eps_trend` / `eps_revisions` — typed forward-period estimate tables (new).** Indexed by
+  period label (`0q`/`+1q`/`0y`/`+1y`), one row per label per instrument. `eps_trend` holds the
+  consensus EPS estimate as of now vs 7/30/60/90 days ago; `eps_revisions` holds up/down
+  analyst-revision counts over trailing 7/30-day windows. Populated from the next fundamentals
+  refetch onward (both start at 0 rows).
 
 - **`price_history` — ~9.8M daily OHLCV bars.** One row per (instrument, date), plus sparse
   corporate-action columns (dividends / stock_splits / capital_gains). `price_unit` records

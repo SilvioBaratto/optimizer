@@ -49,7 +49,7 @@ uv run pyright                                       # scoped via [tool.pyright]
 
 # Shared DB layer (package portopt-db)
 uv run --package portopt-db pytest
-cd packages/portopt-db && alembic upgrade head      # single migration owner; head: b3c4d5e6f7a8
+cd packages/portopt-db && alembic upgrade head      # single migration owner; head: c4d5e6f7a8b9
 
 # Ingestion daemon (package portopt)
 uv run --package portopt pytest
@@ -117,7 +117,7 @@ Per-submodule detail (configs, presets, factories, shape contracts, exact estima
 
 Full tables and internals → **[`.claude/ARCHITECTURE.md`](.claude/ARCHITECTURE.md)**. Load-bearing points:
 
-- **DB layer (`portopt-db`)**: single schema + connection manager + Alembic tree (**head `b3c4d5e6f7a8`**, runs from `packages/portopt-db`). Pure structural extraction, no sklearn/optimizer import (guarded). `background_jobs` *model* lives here but `BackgroundJobRepository` *behavior* stays in `ingestion/app/repositories/jobs/`. Coverage floor line ≥ 90%
+- **DB layer (`portopt-db`)**: single schema + connection manager + Alembic tree (**head `c4d5e6f7a8b9`**, runs from `packages/portopt-db`). Pure structural extraction, no sklearn/optimizer import (guarded). `background_jobs` *model* lives here but `BackgroundJobRepository` *behavior* stays in `ingestion/app/repositories/jobs/`. Coverage floor line ≥ 90%
 - **Daemon layering**: Scheduler/CLI → Services → Repositories → Models, `_shared/` per layer. Models + most repos live in `portopt_db`; ingestion keeps only the `jobs` repo. No HTTP API. Sync SQLAlchemy sessions — everything opens its own via `database_manager.get_session`. PostgreSQL 16 on port **54320**. **Do not reintroduce `optimizer` as an ingestion dep**
 - **Import-cycle gotcha**: `app/services/_shared/__init__.py` must NOT re-export `bootstrap_benchmarks` — import from `app.services._shared._benchmark_bootstrap`
 - **Scheduler**: APScheduler in-process in `worker.py`, `SQLAlchemyJobStore`. **Seven jobs**: `daily_pipeline` (daily 07:00), `midday_news` (daily 14:00), `universe_build` (**Sat** 02:00), `weekly_refetch` (**Sat** 03:00), `weekly_market_wide` (**Sat** 04:00), `fred_monthly` (1st 08:00), `orphan_reaper` (interval). `universe_build` runs **before** `weekly_refetch` (every step iterates `instruments`, a stale universe caps yfinance). One public step function each in `scheduler.py` — **add new work as a step, not a CLI-only branch**

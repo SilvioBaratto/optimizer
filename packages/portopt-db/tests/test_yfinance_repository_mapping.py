@@ -83,6 +83,43 @@ class TestAnalystEstimates:
         r = _rows(repo)[0]
         assert (r["stock_trend"], r["index_trend"]) == (0.1, 0.4)
 
+    def test_eps_trend_maps_period_and_snapshot_ages(self, repo) -> None:
+        # index = period labels, columns = snapshot ages — neither axis is a date.
+        df = pd.DataFrame(
+            {
+                "current": [1.50, 6.10],
+                "7daysAgo": [1.51, 6.11],
+                "30daysAgo": [1.52, 6.14],
+                "60daysAgo": [1.55, 6.20],
+                "90daysAgo": [1.58, 6.25],
+            },
+            index=["0q", "0y"],
+        )
+        repo.upsert_eps_trend(_IID, df)
+        rows = _rows(repo)
+        assert [r["period"] for r in rows] == ["0q", "0y"]
+        assert rows[0]["current_estimate"] == 1.50
+        assert rows[0]["days_ago_7"] == 1.51
+        assert rows[1]["days_ago_90"] == 6.25
+        assert _constraint(repo) == "uq_eps_trend_instrument_period"
+
+    def test_eps_revisions_maps_period_and_counts(self, repo) -> None:
+        df = pd.DataFrame(
+            {
+                "upLast7days": [2, 3],
+                "upLast30days": [5, 7],
+                "downLast7days": [0, 1],
+                "downLast30days": [1, 2],
+            },
+            index=["0q", "+1q"],
+        )
+        repo.upsert_eps_revisions(_IID, df)
+        rows = _rows(repo)
+        assert [r["period"] for r in rows] == ["0q", "+1q"]
+        assert rows[0]["up_last_7days"] == 2
+        assert rows[1]["down_last_30days"] == 2
+        assert _constraint(repo) == "uq_eps_revisions_instrument_period"
+
 
 class TestPriceHistory:
     def test_nat_index_row_dropped(self, repo) -> None:
