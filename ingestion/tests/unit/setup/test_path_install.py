@@ -136,6 +136,20 @@ def test_install_launcher_wraps_oserror_as_pathinstallerror(
         path_install.install_launcher(bin_dir=tmp_path)
 
 
+def test_install_launcher_wraps_non_oserror_as_pathinstallerror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub_userpath: dict
+) -> None:
+    """A non-OSError from userpath (e.g. a UnicodeDecodeError from a malformed Windows
+    PATH) is still wrapped, so the wizard's best-effort catch keeps setup non-fatal."""
+
+    def boom(loc):
+        raise UnicodeDecodeError("utf-8", b"", 0, 1, "bad PATH")
+
+    monkeypatch.setattr(path_install.userpath, "in_current_path", boom)
+    with pytest.raises(path_install.PathInstallError):
+        path_install.install_launcher(bin_dir=tmp_path)
+
+
 def test_ensure_on_path_warns_when_append_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

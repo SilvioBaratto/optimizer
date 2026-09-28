@@ -125,6 +125,20 @@ def test_interactive_installs_launcher_by_default(patched: dict) -> None:
     assert patched["path_installed"] is True
 
 
+def test_interactive_skip_path_install(patched: dict) -> None:
+    """The interactive path honours skip_path_install (forwarded to the bootstrap)."""
+    prompter = NonInteractivePrompter(
+        {
+            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_CONNECT_T212: False,
+            wizard._MSG_CONNECT_FRED: False,
+            wizard._MSG_CONFIGURE_LLM: False,
+        }
+    )
+    wizard.run_setup_interactive(prompter, skip_path_install=True)
+    assert patched["path_installed"] is False
+
+
 def test_noninteractive_full_persists_all(patched: dict) -> None:
     wizard.run_setup_noninteractive(
         passphrase="pw",

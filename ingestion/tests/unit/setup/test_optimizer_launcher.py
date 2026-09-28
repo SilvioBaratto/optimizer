@@ -11,7 +11,12 @@ wrapper must locate ``bash`` and know the repo.
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 # unit -> setup -> tests -> ingestion -> repo root (scripts/ lives at the root).
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -24,8 +29,16 @@ def _launcher_text() -> str:
 
 
 def _attach_lines() -> list[str]:
-    """Return the launcher lines that invoke the cockpit entrypoint."""
-    return [line for line in _launcher_text().splitlines() if "fund-tui" in line]
+    """Return the launcher's executable cockpit-attach lines (comments excluded)."""
+    return [
+        line
+        for line in _launcher_text().splitlines()
+        if "fund-tui" in line and not line.lstrip().startswith("#")
+    ]
+
+
+def _bash() -> str | None:
+    return shutil.which("bash")
 
 
 def test_launcher_exists() -> None:
@@ -76,6 +89,12 @@ def test_launcher_attaches_the_tui() -> None:
     assert '"$@"' in _launcher_text()
 
 
+def test_launcher_attaches_under_the_fund_profile() -> None:
+    """Every attach line targets the fund profile, so `exec` finds the running service."""
+    for line in _attach_lines():
+        assert "--profile fund" in line
+
+
 def test_launcher_winpty_gated_under_mintty() -> None:
     """winpty wraps the attach only under mintty (MSYSTEM signal, per prompts.py)."""
     text = _launcher_text()
@@ -83,11 +102,58 @@ def test_launcher_winpty_gated_under_mintty() -> None:
     assert "MSYSTEM" in text
 
 
+def test_launcher_winpty_gated_on_a_real_tty() -> None:
+    """The winpty branch also requires a real bash tty (`-t 0`/`-t 1`), not MSYSTEM
+    alone — dropping the tty guard would break non-interactive/no-tty invocations."""
+    text = _launcher_text()
+    assert "-t 0" in text
+    assert "-t 1" in text
+
+
 def test_launcher_never_disables_tty_on_attach() -> None:
     """No fund-tui attach passes `-T`, which would kill the cockpit's TTY."""
     for line in _attach_lines():
         assert " -T " not in line
         assert "exec -T" not in line
+
+
+def test_launcher_bare_invocation_exits_with_usage() -> None:
+    """Running the launcher with no portfolio id exits nonzero with a usage message,
+    never reaching resolve_repo / `portopt start` (executed for real via bash)."""
+    bash = _bash()
+    if bash is None:
+        pytest.skip("bash not available")
+    result = subprocess.run(  # noqa: S603 - fixed bash path + our own launcher script
+        [bash, str(_LAUNCHER)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "usage" in result.stderr.lower()
+
+
+def test_launcher_outside_a_repo_reports_helpful_error(tmp_path: Path) -> None:
+    """Run from a non-repo location with no OPTIMIZER_REPO and no config, resolve_repo
+    surfaces the guided 'cannot locate the repo' message and exits 1 — it falls through
+    the resolution chain cleanly instead of crashing or reaching `portopt start`."""
+    bash = _bash()
+    if bash is None:
+        pytest.skip("bash not available")
+    stray = tmp_path / "bin" / "optimizer"
+    stray.parent.mkdir(parents=True)
+    stray.write_text(_launcher_text(), encoding="utf-8")  # a copy, no repo around it
+    home = tmp_path / "home"  # no ~/.portopt/config.toml here
+    home.mkdir()
+    env = {**os.environ, "HOME": str(home)}
+    env.pop("OPTIMIZER_REPO", None)
+    result = subprocess.run(  # noqa: S603 - fixed bash path + our own launcher script
+        [bash, str(stray), "some-portfolio-id"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode == 1
+    assert "cannot locate the repo" in result.stderr.lower()
 
 
 def test_cmd_wrapper_exists() -> None:

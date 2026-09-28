@@ -36,12 +36,17 @@ resolve_repo() {
       src="$(cd -P "$(dirname "$src")" && pwd)/${target}"
     fi
   done
-  local script_dir repo
-  script_dir="$(cd -P "$(dirname "$src")" && pwd)"
-  repo="$(cd -P "${script_dir}/.." && pwd)"
-  if [[ -f "${repo}/docker-compose.yml" ]]; then
-    printf '%s\n' "$repo"
-    return 0
+  # Tolerate a dangling link (a moved repo): the `cd -P` would fail, and under set -e
+  # that aborts the whole script with a raw `cd` error before the config fallback and
+  # the guided message below. `|| dir=""` keeps set -e happy so resolution continues.
+  local script_dir="" repo=""
+  script_dir="$(cd -P "$(dirname "$src")" 2>/dev/null && pwd)" || script_dir=""
+  if [[ -n "$script_dir" ]]; then
+    repo="$(cd -P "${script_dir}/.." 2>/dev/null && pwd)" || repo=""
+    if [[ -n "$repo" && -f "${repo}/docker-compose.yml" ]]; then
+      printf '%s\n' "$repo"
+      return 0
+    fi
   fi
 
   local cfg="${HOME}/.portopt/config.toml"

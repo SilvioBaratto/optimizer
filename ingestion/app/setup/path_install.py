@@ -59,7 +59,10 @@ def install_launcher(*, bin_dir: Path | None = None) -> Path:
             else _install_posix(target_dir, repo)
         )
         _ensure_on_path(target_dir)
-    except OSError as exc:
+    except Exception as exc:
+        # Deliberately broad: this is the last, non-critical setup step, and userpath
+        # can raise beyond OSError (e.g. UnicodeDecodeError on a malformed Windows PATH
+        # value). Any failure must degrade to a warning at the call site, never a crash.
         raise PathInstallError(str(exc)) from exc
     return installed
 
