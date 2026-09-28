@@ -83,15 +83,18 @@ _LLM_WORD_PATTERN = re.compile(r"\bllm\b", re.IGNORECASE)
 # The setup-wizard LLM-config surface: ``portopt setup`` configures the fund's
 # switchable-LLM backend without importing the agent stack. Provider *names* and
 # the ``llm`` word are legitimate config here; SDK imports + LLM libraries are
-# not (those stay forbidden everywhere). Paths are POSIX, relative to ingestion/.
-_WIZARD_LLM_CONFIG_PREFIX = "app/setup/"
+# not (those stay forbidden everywhere). The surface includes the wizard code
+# (``app/setup/`` + ``app/cli.py``) AND its own tests (``tests/unit/setup/``),
+# which must name providers to exercise the config — the SDK-import + library
+# checks still run there, so a real ``import openai`` in a setup test is caught.
+# Paths are POSIX, relative to ingestion/.
+_WIZARD_LLM_CONFIG_PREFIXES = ("app/setup/", "tests/unit/setup/")
 _WIZARD_LLM_CONFIG_FILES = ("app/cli.py",)
 
 
 def _is_wizard_llm_config(relative_path: str) -> bool:
-    return (
-        relative_path.startswith(_WIZARD_LLM_CONFIG_PREFIX)
-        or relative_path in _WIZARD_LLM_CONFIG_FILES
+    return relative_path in _WIZARD_LLM_CONFIG_FILES or any(
+        relative_path.startswith(prefix) for prefix in _WIZARD_LLM_CONFIG_PREFIXES
     )
 
 
@@ -247,9 +250,17 @@ def test_when_baml_token_appears_in_a_non_allowlisted_file_then_it_is_flagged():
 
 def test_provider_name_allowed_in_wizard_config_surface():
     # `portopt setup` configures the fund's per-provider secrets; the names are
-    # config identifiers, not a dependency.
-    for path in ("app/setup/compose_secrets.py", "app/cli.py"):
-        assert _scan_text_for_markers(path, '    "ollama_api_key",\n') == []
+    # config identifiers, not a dependency. The surface includes the wizard's own
+    # tests, which must name providers to exercise validate_llm.
+    for path in (
+        "app/setup/compose_secrets.py",
+        "app/setup/validators.py",
+        "app/cli.py",
+        "tests/unit/setup/test_validators.py",
+    ):
+        assert (
+            _scan_text_for_markers(path, '    validate_llm("openai", key="k")\n') == []
+        )
 
 
 def test_llm_word_allowed_in_wizard_config_surface():
