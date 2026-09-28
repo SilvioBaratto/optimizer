@@ -3,6 +3,9 @@ services:
   db:
     image: postgres:16-alpine
     container_name: optimizer_db
+    # Shared by both stacks: `--profile fund` and `--profile ingestion` each start
+    # db, so a bare `up` (no profile) starts nothing and every depends_on: db holds.
+    profiles: ["ingestion", "fund"]
     environment:
       POSTGRES_DB: optimizer_db
       POSTGRES_USER: postgres
@@ -23,6 +26,7 @@ services:
   adminer:
     image: adminer:latest
     container_name: optimizer_adminer
+    profiles: ["ingestion", "tools"]
     environment:
       ADMINER_DEFAULT_SERVER: db
     ports:
@@ -41,6 +45,7 @@ services:
       context: .
       dockerfile: ingestion/Dockerfile
     container_name: optimizer_scheduler
+    profiles: ["ingestion"]
     command: ["python", "-m", "app.worker"]
     # Sized above SCHEDULER_SHUTDOWN_DRAIN_TIMEOUT_SECONDS (default 30s) so the
     # daemon's in-process drain + forced-exit completes before Docker SIGKILLs
@@ -93,6 +98,7 @@ services:
       context: .
       dockerfile: fund/Dockerfile
     container_name: optimizer_fund
+    profiles: ["fund"]
     command: ["python", "-m", "fund.worker"]
     # Sized above fund_shutdown_drain_timeout_seconds (default 30s) so the daemon
     # drains the in-flight step before Docker SIGKILLs it (compose default 10s).
