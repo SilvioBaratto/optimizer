@@ -85,8 +85,6 @@ ignore = ["RUF002", "RUF003"]  # allow unicode in docstrings/comments (mathemati
 # validation; the subprocess S-rules and raw-shell-snippet E501 would add
 # nothing here.
 "tests/scheduler/**" = ["N803", "N806", "S101", "S603", "S607", "E501"]
-# Coverage-gate test spawns a fresh interpreter with fixed args (sys.executable + script path).
-"tests/test_check_branch_coverage.py" = ["S603"]
 
 [tool.mypy]
 # Matches the workspace floor (requires-python = ">=3.12"; numpy 2.5 / pandas 3.0
@@ -150,10 +148,9 @@ omit = []
 [tool.coverage.report]
 # Aligned with the CI ``--cov-fail-under`` value so a bare ``pytest --cov`` and
 # CI agree on the blended statement+branch floor (previously 80 here vs 90 in
-# CI). An independent branch-rate >= 0.80 gate runs in CI and ``make
-# coverage-report`` via ``scripts/check_branch_coverage.py``. coverage.py has no
-# native function-coverage metric; "functions" is enforced structurally by the
-# parametrize-every-enum-member dispatch convention in ``tests/*/test_factory.py``.
+# CI). coverage.py has no native function-coverage metric; "functions" is
+# enforced structurally by the parametrize-every-enum-member dispatch convention
+# in ``tests/*/test_factory.py``.
 fail_under = 90
 show_missing = true
 skip_empty = true

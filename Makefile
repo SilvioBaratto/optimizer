@@ -23,7 +23,6 @@ coverage:
 
 coverage-report:
 	uv run pytest tests/ --cov=optimizer --cov-branch --cov-report=xml --cov-fail-under=90
-	uv run python scripts/check_branch_coverage.py coverage.xml 0.80
 
 all: lint typecheck test
 

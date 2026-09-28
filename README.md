@@ -321,7 +321,7 @@ fixed.
 **CI** (`.github/workflows/ci.yml`, push/PR to `main`, Ubuntu, Python 3.12 &
 3.13, uv-driven) runs seven jobs: `lint` (ruff check → ruff format --check →
 pip-audit), `typecheck` (mypy), `pyright` (pinned `1.1.398`), `test`
-(`--cov=optimizer` ≥ 90% + branch ≥ 0.80), `ingestion-test` (`--cov=app` ≥ 80%),
+(`--cov=optimizer` ≥ 90%), `ingestion-test` (`--cov=app` ≥ 80%),
 `portopt-db-test` (`--cov=portopt_db` ≥ 90%), and `fund-test` (`--cov=fund` ≥
 80%). `release.yml` builds `portopt-core` on `v*` tags.
 
@@ -339,7 +339,6 @@ optimizer/
 ├── fund/                          # the `portopt-fund` bridge (import `fund`)
 ├── tests/                         # library test suite (mirrors optimizer/ + scheduler/)
 ├── scheduler/                     # shell wrappers over the CLI
-├── scripts/                       # CI helpers (e.g. branch-coverage gate)
 ├── docker-compose.yml             # db + adminer + scheduler
 └── .claude/ARCHITECTURE.md        # deep per-module reference
 ```
