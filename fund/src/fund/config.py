@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -142,6 +143,30 @@ class FundConfig:
         return dict.fromkeys(self.interrupt_on, True)
 
 
+def _read_secret(env: Mapping[str, str], name: str) -> str | None:
+    """Resolve a secret from a docker-secret file first, then an inline env var.
+
+    Reads the path in ``<name>_FILE`` (e.g. ``/run/secrets/ollama_api_key``) and
+    returns its stripped content when non-empty — the file-based docker-secret
+    path always wins. An empty/whitespace-only or unreadable secret file falls
+    through to the inline ``<name>`` value, then to ``None``. Compose renders
+    every declared secret file (empty placeholder when unset), so an empty file
+    must mean "unset", not ``""``.
+
+    Note: only true secrets are routed through this. ``SSL_CERT_FILE`` is *not* —
+    despite its ``_FILE`` suffix it is itself the CA-bundle path, read verbatim.
+    """
+    file_path = env.get(f"{name}_FILE")
+    if file_path:
+        try:
+            content = Path(file_path).read_text(encoding="utf-8").strip()
+        except OSError:
+            content = ""
+        if content:
+            return content
+    return env.get(name) or None
+
+
 def load_config(
     *,
     env: Mapping[str, str] | None = None,
@@ -173,8 +198,10 @@ def load_config(
     defaults = FundConfig()
     return FundConfig(
         database_url=env.get("DATABASE_URL"),
-        ollama_api_key=env.get("OLLAMA_API_KEY"),
-        fred_api_key=env.get("FRED_API_KEY"),
+        # Secret: file-based docker secret (`OLLAMA_API_KEY_FILE`) wins over inline.
+        ollama_api_key=_read_secret(env, "OLLAMA_API_KEY"),
+        fred_api_key=_read_secret(env, "FRED_API_KEY"),
+        # NOT a secret file: SSL_CERT_FILE is itself the CA-bundle path (verbatim).
         ssl_cert_file=env.get("SSL_CERT_FILE"),
         # D4 provider registry: LLM_PROVIDER + shared model ids + Ollama base_url;
         # missing → dataclass default (env-free load stays on DeepSeek/Ollama Cloud).
@@ -182,19 +209,20 @@ def load_config(
         primary_model=env.get("FUND_PRIMARY_MODEL", defaults.primary_model),
         fallback_model=env.get("FUND_FALLBACK_MODEL", defaults.fallback_model),
         ollama_base_url=env.get("OLLAMA_BASE_URL", defaults.ollama_base_url),
-        # Per-provider keys/endpoints: absent → None (validated at build time).
-        openai_api_key=env.get("OPENAI_API_KEY"),
+        # Per-provider secret keys → _read_secret (file-based docker secret wins);
+        # non-secret endpoints/urls/region stay plain env.get (absent → None).
+        openai_api_key=_read_secret(env, "OPENAI_API_KEY"),
         openai_base_url=env.get("OPENAI_BASE_URL"),
-        openrouter_api_key=env.get("OPENROUTER_API_KEY"),
-        anthropic_api_key=env.get("ANTHROPIC_API_KEY"),
-        google_api_key=env.get("GOOGLE_API_KEY"),
-        groq_api_key=env.get("GROQ_API_KEY"),
-        nvidia_api_key=env.get("NVIDIA_API_KEY"),
+        openrouter_api_key=_read_secret(env, "OPENROUTER_API_KEY"),
+        anthropic_api_key=_read_secret(env, "ANTHROPIC_API_KEY"),
+        google_api_key=_read_secret(env, "GOOGLE_API_KEY"),
+        groq_api_key=_read_secret(env, "GROQ_API_KEY"),
+        nvidia_api_key=_read_secret(env, "NVIDIA_API_KEY"),
         nvidia_base_url=env.get("NVIDIA_BASE_URL"),
-        hf_api_token=env.get("HUGGINGFACEHUB_API_TOKEN"),
+        hf_api_token=_read_secret(env, "HUGGINGFACEHUB_API_TOKEN"),
         hf_mode=env.get("FUND_HF_MODE", defaults.hf_mode),
         aws_region=env.get("AWS_REGION"),
-        azure_openai_api_key=env.get("AZURE_OPENAI_API_KEY"),
+        azure_openai_api_key=_read_secret(env, "AZURE_OPENAI_API_KEY"),
         azure_openai_endpoint=env.get("AZURE_OPENAI_ENDPOINT"),
         azure_openai_api_version=env.get("OPENAI_API_VERSION"),
         azure_openai_deployment_name=env.get("AZURE_OPENAI_DEPLOYMENT_NAME"),

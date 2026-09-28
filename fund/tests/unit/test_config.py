@@ -245,3 +245,116 @@ def test_provider_fields_default_safe_so_bare_import_never_fails():
     assert cfg.azure_openai_api_version is None
     assert cfg.azure_openai_deployment_name is None
     assert cfg.hf_mode == "cloud"
+
+
+# --- T2: file-based docker secrets (<NAME>_FILE wins over inline <NAME>) -------
+
+
+def test_read_secret_prefers_nonempty_file(tmp_path):
+    from fund.config import _read_secret
+
+    secret_file = tmp_path / "ollama_api_key"
+    secret_file.write_text("sk-from-file\n", encoding="utf-8")  # trailing NL stripped
+    env = {"OLLAMA_API_KEY_FILE": str(secret_file), "OLLAMA_API_KEY": "sk-inline"}
+
+    assert _read_secret(env, "OLLAMA_API_KEY") == "sk-from-file"
+
+
+def test_read_secret_empty_file_falls_through_to_inline(tmp_path):
+    from fund.config import _read_secret
+
+    # Compose always renders every secret file (empty placeholder when unset),
+    # so a whitespace-only file must mean "unset", not "".
+    secret_file = tmp_path / "ollama_api_key"
+    secret_file.write_text("   \n", encoding="utf-8")
+    env = {"OLLAMA_API_KEY_FILE": str(secret_file), "OLLAMA_API_KEY": "sk-inline"}
+
+    assert _read_secret(env, "OLLAMA_API_KEY") == "sk-inline"
+
+
+def test_read_secret_unreadable_file_falls_through_to_inline(tmp_path):
+    from fund.config import _read_secret
+
+    missing = tmp_path / "does_not_exist"
+    env = {"OLLAMA_API_KEY_FILE": str(missing), "OLLAMA_API_KEY": "sk-inline"}
+
+    assert _read_secret(env, "OLLAMA_API_KEY") == "sk-inline"
+
+
+def test_read_secret_inline_only_when_no_file():
+    from fund.config import _read_secret
+
+    assert _read_secret({"FRED_API_KEY": "fred"}, "FRED_API_KEY") == "fred"
+
+
+def test_read_secret_missing_both_returns_none():
+    from fund.config import _read_secret
+
+    assert _read_secret({}, "OLLAMA_API_KEY") is None
+
+
+def test_read_secret_empty_inline_is_none():
+    from fund.config import _read_secret
+
+    assert _read_secret({"FRED_API_KEY": ""}, "FRED_API_KEY") is None
+
+
+def test_provider_keys_and_fred_read_from_secret_files(tmp_path):
+    # Compose maps <NAME>_FILE=/run/secrets/<name>; load_config must resolve each
+    # secret from that file without requiring an inline env var.
+    def _mk(name: str, value: str) -> str:
+        path = tmp_path / name
+        path.write_text(value, encoding="utf-8")
+        return str(path)
+
+    cfg = load_config(
+        env={
+            "OLLAMA_API_KEY_FILE": _mk("ollama_api_key", "sk-ollama-file"),
+            "OPENAI_API_KEY_FILE": _mk("openai_api_key", "sk-openai-file"),
+            "OPENROUTER_API_KEY_FILE": _mk("openrouter_api_key", "sk-or-file"),
+            "ANTHROPIC_API_KEY_FILE": _mk("anthropic_api_key", "sk-anthropic-file"),
+            "GOOGLE_API_KEY_FILE": _mk("google_api_key", "goog-file"),
+            "GROQ_API_KEY_FILE": _mk("groq_api_key", "gsk-file"),
+            "NVIDIA_API_KEY_FILE": _mk("nvidia_api_key", "nvapi-file"),
+            "HUGGINGFACEHUB_API_TOKEN_FILE": _mk("huggingfacehub_api_token", "hf-file"),
+            "AZURE_OPENAI_API_KEY_FILE": _mk("azure_openai_api_key", "az-file"),
+            "FRED_API_KEY_FILE": _mk("fred_api_key", "fred-file"),
+        }
+    )
+
+    assert cfg.ollama_api_key == "sk-ollama-file"
+    assert cfg.openai_api_key == "sk-openai-file"
+    assert cfg.openrouter_api_key == "sk-or-file"
+    assert cfg.anthropic_api_key == "sk-anthropic-file"
+    assert cfg.google_api_key == "goog-file"
+    assert cfg.groq_api_key == "gsk-file"
+    assert cfg.nvidia_api_key == "nvapi-file"
+    assert cfg.hf_api_token == "hf-file"  # noqa: S105 (test fixture, not a secret)
+    assert cfg.azure_openai_api_key == "az-file"
+    assert cfg.fred_api_key == "fred-file"
+
+
+def test_secret_file_wins_over_inline_env(tmp_path):
+    secret_file = tmp_path / "anthropic_api_key"
+    secret_file.write_text("sk-file", encoding="utf-8")
+
+    cfg = load_config(
+        env={
+            "ANTHROPIC_API_KEY_FILE": str(secret_file),
+            "ANTHROPIC_API_KEY": "sk-inline",
+        }
+    )
+
+    assert cfg.anthropic_api_key == "sk-file"
+
+
+def test_ssl_cert_file_is_a_path_not_routed_through_read_secret(tmp_path):
+    # SSL_CERT_FILE literally ends in _FILE but is itself the CA-bundle path, not
+    # a docker-secret file whose *content* is the value. It must pass through
+    # verbatim, never be read as a secret file.
+    ca = tmp_path / "ca.pem"
+    ca.write_text("-----BEGIN CERT-----", encoding="utf-8")
+
+    cfg = load_config(env={"SSL_CERT_FILE": str(ca)})
+
+    assert cfg.ssl_cert_file == str(ca)
