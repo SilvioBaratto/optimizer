@@ -81,7 +81,6 @@ class TestSetupCommand:
         assert kwargs["llm_key"] == "sk-x"
 
     def test_skip_path_install_forwarded(self) -> None:
-        """`--skip-path-install` forwards skip_path_install=True to the wizard."""
         with patch("app.setup.wizard.run_setup_noninteractive") as mock_run:
             result = runner.invoke(
                 app, ["setup", "--non-interactive", "--skip-path-install"]
@@ -90,7 +89,7 @@ class TestSetupCommand:
         assert mock_run.call_args.kwargs["skip_path_install"] is True
 
     def test_non_interactive_skips_path_install_by_default(self) -> None:
-        """CI/non-interactive never mutates the User PATH unless asked (review #5):
+        """CI/non-interactive never mutates the User PATH unless explicitly asked;
         `--non-interactive` implies skip_path_install even without the flag."""
         with patch("app.setup.wizard.run_setup_noninteractive") as mock_run:
             result = runner.invoke(app, ["setup", "--non-interactive"])
@@ -116,7 +115,7 @@ class TestSetupCommand:
         assert result.exit_code == 1
 
     def test_wires_skip_validation_and_reconfigure_flags(self) -> None:
-        """--skip-validation / --reconfigure forward to the wizard (task T15)."""
+        """--skip-validation / --reconfigure forward to the wizard."""
         with patch("app.setup.wizard.run_setup_noninteractive") as mock_run:
             result = runner.invoke(
                 app,

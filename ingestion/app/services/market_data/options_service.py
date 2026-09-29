@@ -94,12 +94,22 @@ def run_bulk_options_fetch(
     request_timeout: float = _DEFAULT_TIMEOUT,
     on_progress: ProgressCallback = _noop,
 ) -> dict[str, Any]:
-    """Fetch + persist full option chains for every instrument.
+    """Fetch and persist full option chains for every instrument.
 
-    Own staleness gate (skip instruments with a fresh snapshot); logs total row
-    volume written. Best-effort per instrument — a ticker with no options simply
-    contributes nothing. Every yfinance call is bounded by ``request_timeout``
-    (a fresh daemon-thread watchdog) so one hung socket cannot stall the sweep.
+    Skips instruments whose snapshot is younger than ``staleness_hours``.
+    Best-effort per instrument — a ticker with no options simply contributes
+    nothing. Every yfinance call is bounded by ``request_timeout`` via a
+    daemon-thread watchdog, preventing a hung socket from stalling the sweep.
+
+    Args:
+        yf_client: Configured yfinance client.
+        staleness_hours: Skip instruments with a snapshot newer than this window.
+        request_timeout: Wall-clock deadline per yfinance call in seconds.
+        on_progress: Callback receiving progress updates.
+
+    Returns:
+        Dict with instrument counts (total, processed, fresh-skipped),
+        contract rows written, and error count.
     """
     from app.database import database_manager
 

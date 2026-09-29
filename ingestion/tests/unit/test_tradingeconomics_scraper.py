@@ -1,4 +1,4 @@
-"""Unit tests for TradingEconomicsIndicatorsScraper — GitHub issue #317.
+"""Unit tests for TradingEconomicsIndicatorsScraper.
 
 Covers ParseStructureError propagation, circuit breaker triggering,
 fetch failure handling, _extract_number edge cases, and unsupported

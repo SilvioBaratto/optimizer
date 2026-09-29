@@ -1,4 +1,4 @@
-"""Unit tests for ``_shared/_price_fetcher.fetch_close_prices`` (issue #826).
+"""Unit tests for ``_shared/_price_fetcher.fetch_close_prices``.
 
 NOTE on AC: the criterion 'zero-row DB path raises the expected error type'
 does NOT match this module. ``fetch_close_prices`` SILENTLY returns an empty
@@ -55,7 +55,7 @@ class TestFetchClosePrices:
             repo.get_price_history.return_value = rows
             result = fetch_close_prices(["AAPL"], MagicMock())
 
-        assert result["AAPL"].tolist() == [101.0]  # None close dropped
+        assert result["AAPL"].tolist() == [101.0]
 
     def test_when_one_of_two_tickers_missing_then_only_present_kept(self) -> None:
         def _instrument(ticker: str):

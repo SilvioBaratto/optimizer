@@ -1,4 +1,4 @@
-"""Compose `fund` healthcheck contract (task T7).
+"""Compose `fund` healthcheck contract.
 
 The fund service reports healthy only once the single portopt-db Alembic tree is
 at head, so `docker compose --profile fund up -d --wait` gates on migrations

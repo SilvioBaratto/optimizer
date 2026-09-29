@@ -1,4 +1,4 @@
-"""YFinanceUniverseSource contract (SPEC D1/D9/D14, task T9).
+"""YFinanceUniverseSource contract.
 
 The source implements the ``Trading212ApiClient`` seam (get_exchanges /
 get_instruments) from ``yf.screen`` results: no seed lists, no ISIN (identity is

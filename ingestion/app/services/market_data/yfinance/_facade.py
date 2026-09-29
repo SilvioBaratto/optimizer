@@ -1,3 +1,5 @@
+"""Singleton facade that composes all yfinance sub-clients behind one entry point."""
+
 import logging
 import threading
 from functools import cached_property
@@ -29,13 +31,18 @@ from .ticker import (
 
 logger = logging.getLogger(__name__)
 
-# Load environment variables from project root .env
 _env_path = Path(__file__).parent.parent / ".env"
 if _env_path.exists():
     load_dotenv(_env_path)
 
 
 class YFinanceClient:
+    """Process-wide singleton facade over the yfinance API.
+
+    Owns the shared cache, rate-limiter, and circuit-breaker; all sub-clients
+    hold references to the same instances so their internal state is consistent.
+    """
+
     _instance: "YFinanceClient | None" = None
     _lock = threading.Lock()
 
@@ -47,6 +54,16 @@ class YFinanceClient:
         rate_limit_delay: float = 0.1,
         default_max_retries: int = 3,
     ) -> "YFinanceClient":
+        """Return the singleton, constructing it on first call.
+
+        Args:
+            cache_size: Maximum number of ``yf.Ticker`` objects held in the LRU
+                cache.
+            cache_ttl: Seconds before a cached ticker entry expires.
+            rate_limit_delay: Minimum seconds between per-symbol requests.
+            default_max_retries: Retry budget used when callers omit
+                ``max_retries``.
+        """
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -61,10 +78,8 @@ class YFinanceClient:
                     )
         return cls._instance
 
-    # Exactly the registered @cached_property sub-client names. reset_instance
-    # pops each from __dict__. market / sectors / calendars were re-added for the
-    # market-wide ingestion steps (SPEC Gap B); only streaming / async_streaming
-    # remain unimplemented (batch-only daemon).
+    # Exactly the registered @cached_property sub-client names — reset_instance
+    # pops each from __dict__ to force re-creation against fresh infrastructure.
     _CACHED_SUBCLIENT_NAMES: tuple[str, ...] = (
         "financials",
         "analysis",
@@ -81,6 +96,10 @@ class YFinanceClient:
 
     @classmethod
     def reset_instance(cls) -> None:
+        """Destroy the singleton and evict all cached sub-clients.
+
+        Intended for tests that need a fresh instance with different parameters.
+        """
         with cls._lock:
             if cls._instance is not None:
                 cls._instance.cache.clear()
@@ -95,12 +114,26 @@ class YFinanceClient:
         circuit_breaker: CircuitBreakerProtocol,
         default_max_retries: int = 3,
     ) -> None:
+        """Prefer ``get_instance`` for normal use; this is exposed for tests.
+
+        Args:
+            cache: Ticker object cache; all sub-clients share the same instance.
+            rate_limiter: Throttles per-symbol request frequency.
+            circuit_breaker: Prevents cascading failures when Yahoo is degraded.
+            default_max_retries: Retry budget used when callers omit
+                ``max_retries``.
+        """
         self.cache = cache
         self.rate_limiter = rate_limiter
         self.circuit_breaker = circuit_breaker
         self.default_max_retries = default_max_retries
 
     def get_ticker(self, symbol: str) -> yf.Ticker:
+        """Return a cached ``yf.Ticker``, creating one on cache miss.
+
+        Args:
+            symbol: The ticker symbol to look up (e.g. ``"AAPL"``).
+        """
         ticker = self.cache.get(symbol)
 
         if ticker is not None:
@@ -121,6 +154,17 @@ class YFinanceClient:
         max_retries: int | None = None,
         min_fields: int = 10,
     ) -> dict[str, Any] | None:
+        """Fetch the ``info`` dict for *symbol*, retrying on transient errors.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Override the instance default retry budget.
+            min_fields: Minimum number of non-empty keys required to accept the
+                response as valid; guards against Yahoo returning a stub dict.
+
+        Returns:
+            The raw ``yf.Ticker.info`` dict, or ``None`` on failure.
+        """
         max_retries = max_retries or self.default_max_retries
         logger.debug("Fetching info for '%s' (max_retries=%d)", symbol, max_retries)
 
@@ -155,12 +199,6 @@ class YFinanceClient:
         *,
         auto_adjust: bool = True,
         back_adjust: bool = False,
-        # repair=True fixes bad Yahoo prices, but yfinance's repair path
-        # (_reconstruct_intervals_batch) imports sklearn (DBSCAN). scikit-learn
-        # is therefore a hard runtime dependency of ingestion — without it any
-        # ticker that triggers reconstruction raises ModuleNotFoundError -> empty
-        # result -> the universe filter silently drops a live stock (~22% of
-        # names, disproportionately non-US). See scripts/debug_universe_scale.py.
         repair: bool = True,
         actions: bool = False,
         prepost: bool = False,
@@ -168,6 +206,32 @@ class YFinanceClient:
         rounding: bool = False,
         timeout: float | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch OHLCV history for *symbol*, retrying on transient errors.
+
+        Args:
+            symbol: Ticker symbol.
+            period: Lookback period string accepted by yfinance (e.g. ``"5y"``).
+                Ignored when *start* is provided.
+            start: ISO date string for the start of the range (inclusive).
+            end: ISO date string for the end of the range (exclusive).
+            interval: Bar interval (e.g. ``"1d"``, ``"1h"``).
+            max_retries: Override the instance default retry budget.
+            min_rows: Minimum number of rows required to accept the response.
+            auto_adjust: Adjust OHLC for splits/dividends via yfinance.
+            back_adjust: Back-adjust prices (mutually exclusive with
+                ``auto_adjust`` in practice).
+            repair: Enable yfinance's bad-price reconstruction.  Requires
+                scikit-learn at runtime; disabling it silently drops ~22% of
+                tickers that trigger reconstruction.
+            actions: Include dividend and split columns.
+            prepost: Include pre/post-market data.
+            keepna: Retain NaN rows rather than dropping them.
+            rounding: Round prices to 2 decimal places.
+            timeout: Per-request network timeout in seconds.
+
+        Returns:
+            DataFrame with a DatetimeIndex, or ``None`` on failure.
+        """
         max_retries = max_retries or self.default_max_retries
         logger.debug("Fetching history for '%s' (max_retries=%d)", symbol, max_retries)
 
@@ -214,6 +278,19 @@ class YFinanceClient:
         period: str = "5y",
         max_retries: int | None = None,
     ) -> tuple[pd.DataFrame | None, pd.DataFrame | None, dict[str, Any] | None]:
+        """Fetch aligned price history and info for *symbol* and its benchmark.
+
+        Args:
+            symbol: Ticker symbol to fetch.
+            benchmark: Symbol used as the comparison benchmark.
+            period: Lookback period string accepted by yfinance (e.g. ``"5y"``).
+            max_retries: Override the instance default retry budget.
+
+        Returns:
+            A three-tuple of (stock_history, benchmark_history, stock_info).
+            Any element may be ``None`` when data is unavailable or the fetch
+            failed.
+        """
         max_retries = max_retries or self.default_max_retries
 
         stock_hist = self.fetch_history(symbol, period=period, max_retries=max_retries)
@@ -229,7 +306,9 @@ class YFinanceClient:
         if benchmark_hist is None or benchmark_hist.empty:
             return stock_hist, None, stock_info
 
-        # Align dates (timezone-agnostic matching)
+        # yfinance may return tz-aware or tz-naive indices depending on the
+        # exchange; normalising to date strings avoids spurious intersection
+        # misses.
         try:
             stock_date_strs = [ts.strftime("%Y-%m-%d") for ts in stock_hist.index]
             bench_date_strs = [ts.strftime("%Y-%m-%d") for ts in benchmark_hist.index]
@@ -265,6 +344,23 @@ class YFinanceClient:
         progress: bool = False,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Download price history for multiple symbols in a single yfinance call.
+
+        Args:
+            symbols: Ticker symbols to download.
+            start: ISO date string for the start of the range (inclusive).
+            end: ISO date string for the end of the range (exclusive).
+            period: Lookback period when *start* is not provided.
+            interval: Bar interval (e.g. ``"1d"``).
+            threads: Use threading inside yfinance for parallel downloads.
+            group_by: Column grouping strategy in the returned DataFrame.
+            auto_adjust: Adjust OHLC for splits/dividends.
+            progress: Show a yfinance progress bar.
+            max_retries: Override the instance default retry budget.
+
+        Returns:
+            A potentially MultiIndex DataFrame, or ``None`` on failure.
+        """
         max_retries = max_retries or self.default_max_retries
         logger.info(
             "Bulk downloading %d symbols (max_retries=%d)",
@@ -377,7 +473,8 @@ class YFinanceClient:
 
             prices = pd.DataFrame(frames)
             prices = prices.ffill().dropna(how="all")
-            # Drop leading rows where any column is NaN
+            # Trim to the date range where every ticker has data; portfolios
+            # need a consistent shared history with no leading gaps.
             prices = prices.dropna()
 
             if prices.empty:
@@ -438,6 +535,7 @@ class YFinanceClient:
         return prices
 
     def get_cache_stats(self) -> dict[str, Any]:
+        """Return a snapshot of cache and retry configuration for observability."""
         return {
             "size": self.cache.size(),
             "capacity": getattr(self.cache, "capacity", "unknown"),
@@ -520,6 +618,16 @@ def get_yfinance_client(
     rate_limit_delay: float = 0.1,
     default_max_retries: int = 3,
 ) -> YFinanceClient:
+    """Return the process-wide singleton ``YFinanceClient``.
+
+    Convenience wrapper over ``YFinanceClient.get_instance``.
+
+    Args:
+        cache_size: Maximum number of cached ticker objects.
+        cache_ttl: Seconds before a cached ticker expires.
+        rate_limit_delay: Minimum seconds between per-symbol requests.
+        default_max_retries: Retry budget for callers that omit ``max_retries``.
+    """
     return YFinanceClient.get_instance(
         cache_size=cache_size,
         cache_ttl=cache_ttl,

@@ -1,12 +1,12 @@
-"""Checkpoint: every hygiene guard actually bites (issues #7, #15).
+"""Checkpoint: every hygiene guard actually bites.
 
 Each guard is an absence assertion over a tree that is already clean, so it
 passes trivially on day one — indistinguishable from a broken pattern, wrong
 anchoring, or too-broad exclusion that would let it pass forever while
 catching nothing. This module drives each guard's scanner against a
-synthetic tree seeded with known violations (in-process, six guards' worth,
-issue #15) and, for the two guards whose contract spans working directories,
-against the real repository from two different process working directories.
+synthetic tree seeded with known violations (in-process, six guards' worth)
+and, for the two guards whose contract spans working directories, against the
+real repository from two different process working directories.
 """
 
 from __future__ import annotations

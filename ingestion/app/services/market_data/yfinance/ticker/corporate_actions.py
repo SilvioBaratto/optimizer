@@ -20,6 +20,15 @@ class CorporateActionsClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.Series | None:
+        """Fetch dividend payment history for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Dividend Series indexed by date, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching dividends for '%s'", symbol)
 
         def _action() -> pd.Series | None:
@@ -36,6 +45,15 @@ class CorporateActionsClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.Series | None:
+        """Fetch stock split history for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Splits Series indexed by date, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching splits for '%s'", symbol)
 
         def _action() -> pd.Series | None:
@@ -52,6 +70,15 @@ class CorporateActionsClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch combined dividends and splits history for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Actions DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching actions for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
@@ -70,6 +97,17 @@ class CorporateActionsClient(BaseClient):
         end: str | None = None,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch full share count series for symbol over a date range.
+
+        Args:
+            symbol: Ticker symbol.
+            start: Start date (ISO format); None fetches from earliest available.
+            end: End date (ISO format); None fetches to latest available.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Share count DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching shares full for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:

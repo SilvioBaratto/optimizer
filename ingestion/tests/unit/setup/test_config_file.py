@@ -1,4 +1,4 @@
-"""Non-secret config file contract (SPEC D6/wizard, task T2).
+"""Non-secret config file contract (SPEC D6/wizard).
 
 `~/.portopt/config.toml` holds only non-secret settings. These tests pin the
 round-trip, the empty-on-missing behaviour, and the guard that refuses to write

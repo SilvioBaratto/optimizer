@@ -50,7 +50,6 @@ _MULTI_ASSET = re.compile(
     re.I,
 )
 
-# A fund is fixed income if any bond marker appears in its name.
 _BOND_MARKER = re.compile(
     r"\bbond\b|treasur|\bgilt|\bbund\b|sovereign|government|\bgov(t|ies)?\b"
     r"|corporate|\bcredit\b|aggregate|fixed income|inflation|linker|\btips\b"
@@ -76,7 +75,6 @@ _FI_SUBCLASS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"corporate|\bcorp\b|\bcredit\b", re.I), FiSubclass.CORPORATE.value),
 ]
 
-# Duration buckets.
 _DURATION_SHORT = re.compile(
     r"ultra\s*short|short[\s-]?term|short[\s-]?duration|floating|money market"
     r"|\b0[\s-]?1(?=\D|$)|\b1[\s-]?3(?=\D|$)|\b0[\s-]?3(?=\D|$)|\b0[\s-]?5(?=\D|$)",

@@ -1,4 +1,4 @@
-"""Encrypted secret store contract (SPEC D5, task T2).
+"""Encrypted secret store contract (SPEC D5).
 
 Secrets are Fernet-encrypted at rest under a passphrase-derived key. These tests
 pin the security guarantees: round-trip, wrong-passphrase rejection, no plaintext

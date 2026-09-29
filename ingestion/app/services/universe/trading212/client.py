@@ -19,6 +19,13 @@ _BROWSER_USER_AGENT = (
 
 @dataclass
 class Trading212Client:
+    """HTTP client for the Trading 212 metadata endpoints.
+
+    Covers only the exchange and instrument lists used by universe
+    ingestion; account/portfolio/order endpoints are intentionally absent
+    (the daemon ingests market data, it does not trade).
+    """
+
     api_key: str
     api_secret: str
     mode: str = "live"
@@ -87,10 +94,6 @@ class Trading212Client:
             )
         return self._instruments_cache
 
-    # ------------------------------------------------------------------
-    # Internal HTTP helper
-    # ------------------------------------------------------------------
-
     def _get(
         self,
         path: str,
@@ -142,7 +145,6 @@ class Trading212Client:
         ) from last_error
 
     def _fetch_json(self, path: str) -> list[dict[str, Any]]:
-        """Fetch a JSON array from a metadata endpoint (via ``_get``)."""
         return self._get(path)
 
     def _capture_rate_limit(self, resp: Any) -> None:
@@ -165,6 +167,16 @@ class Trading212Client:
 
     @classmethod
     def from_settings(cls, mode: str | None = None) -> Optional["Trading212Client"]:
+        """Construct a client from ``app.config.settings``, or return ``None``.
+
+        Args:
+            mode: Override for ``live``/``demo``; falls back to
+                ``settings.trading_212_mode`` when omitted.
+
+        Returns:
+            A configured client, or ``None`` when either API credential is
+            absent from settings (universe build skips without claiming a slot).
+        """
         api_key = settings.trading_212_api_key
         api_secret = settings.trading_212_secret_key
         if not api_key or not api_secret:

@@ -61,7 +61,7 @@ def update_config(updates: Mapping[str, Any], *, path: Path | None = None) -> Pa
 
     Load-merge-save so a targeted write (e.g. persisting ``repo_path``) does not
     clobber the wizard's LLM selection already on disk. The secret-key guard in
-    :func:`save_config` still applies to the merged result.
+    ``save_config`` still applies to the merged result.
     """
     path = path or DEFAULT_CONFIG_PATH
     merged = load_config(path=path)

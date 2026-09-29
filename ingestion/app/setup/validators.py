@@ -5,7 +5,7 @@ Each validator issues one cheap request and returns ``True`` on HTTP 200,
 ``ValidationNetworkError`` when the request itself fails (network/timeout) so the
 wizard can tell "bad key" (retry) apart from "network down" (abort/inform).
 
-The LLM-backend validator (:func:`validate_llm`, SPEC "Switchable LLM Backends")
+The LLM-backend validator (``validate_llm()``, SPEC "Switchable LLM Backends")
 probes the fund's ten switchable providers over **httpx only** — never an
 agent-stack or provider SDK import, so ingestion keeps its ``⊬ agent stack``
 boundary. Most providers get a cheap authed GET (200 → ok, 401/403 → bad key);
@@ -242,10 +242,10 @@ def validate_llm(
     Returns ``True`` when the provider accepts the credentials (or, for the
     presence-only providers, when the required fields are present and the endpoint
     is reachable); ``False`` on a bad/absent key (the wizard re-prompts); raises
-    :class:`ValidationNetworkError` when the service is unreachable (abort/inform).
+    ``ValidationNetworkError`` when the service is unreachable (abort/inform).
 
     Args:
-        provider: One of :data:`SUPPORTED_LLM_PROVIDERS`.
+        provider: One of ``SUPPORTED_LLM_PROVIDERS``.
         key: The provider auth key/token (``None`` for keyless local/self-hosted
             or presence-only providers).
         base_url: Override the hosted default (local ollama, self-hosted NIM, an

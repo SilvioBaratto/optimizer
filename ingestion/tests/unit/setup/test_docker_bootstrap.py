@@ -1,4 +1,4 @@
-"""Docker/DB bootstrap contract (SPEC D4/D11/D12, task T6).
+"""Docker/DB bootstrap contract (SPEC D4/D11/D12).
 
 `check_docker` verifies the daemon + compose plugin cross-platform and aborts
 with a hint; `bring_up_db` runs `docker compose up -d --wait db`; `migrate` runs
@@ -48,7 +48,7 @@ def test_check_docker_daemon_down_raises(
 def test_check_docker_compose_missing_raises(
     mock_run: MagicMock, _which: MagicMock
 ) -> None:
-    mock_run.side_effect = [_cp(0), _cp(1, "no compose")]  # info ok, compose fails
+    mock_run.side_effect = [_cp(0), _cp(1, "no compose")]
     with pytest.raises(db.DockerError):
         db.check_docker()
 

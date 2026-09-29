@@ -20,13 +20,11 @@ from sqlalchemy.pool import StaticPool
 
 from tests._fixtures import seed_macro, seed_market_data, seed_universe
 
-# Test database URL - use SQLite for fast tests
 TEST_DATABASE_URL = "sqlite:///:memory:"
 
 
 @pytest.fixture(scope="session")
 def test_engine():
-    """Create a test database engine (session-scoped for performance)."""
     engine = create_engine(
         TEST_DATABASE_URL,
         connect_args={"check_same_thread": False},
@@ -90,7 +88,6 @@ def patched_session_factory(db_session: Session, monkeypatch):
 
 @pytest.fixture
 def mock_settings():
-    """Create mock settings for testing."""
     settings = MagicMock()
     settings.debug = True
     settings.environment = "test"
@@ -108,28 +105,22 @@ def mock_settings():
 
 @pytest.fixture
 def seeded_universe(db_session: Session):
-    """Seed an Exchange + Instrument."""
     return seed_universe(db_session)
 
 
 @pytest.fixture
 def seeded_market_data(db_session: Session):
-    """Seed an Exchange + Instrument + TickerProfile."""
     return seed_market_data(db_session)
 
 
 @pytest.fixture
 def seeded_macro(db_session: Session):
-    """Seed an EconomicIndicator + FredObservation."""
     return seed_macro(db_session)
 
 
 @pytest.fixture
 def job_service_mock():
-    """Expose the BackgroundJobService mock context manager.
-
-    Lazy import keeps test collection decoupled from the helper module.
-    """
+    # Lazy import keeps test collection decoupled from the helper module.
     from tests._fixtures.job_service_mock import mock_job_service
 
     return mock_job_service

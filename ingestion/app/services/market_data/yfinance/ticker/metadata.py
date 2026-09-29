@@ -20,6 +20,16 @@ class MetadataClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> str | None:
+        """Fetch ISIN for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            ISIN string, or None if unavailable (yfinance returns ``"-"`` for unknown
+            ISINs, which is treated as absent).
+        """
         logger.debug("Fetching ISIN for '%s'", symbol)
 
         def _action() -> str | None:
@@ -36,6 +46,15 @@ class MetadataClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> dict[str, Any] | None:
+        """Fetch lightweight info snapshot for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Fast-info dict, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching fast_info for '%s'", symbol)
 
         def _action() -> dict[str, Any] | None:
@@ -55,6 +74,15 @@ class MetadataClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> dict[str, Any] | None:
+        """Fetch earnings and dividend calendar for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Calendar dict, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching calendar for '%s'", symbol)
 
         def _action() -> dict[str, Any] | None:
@@ -76,6 +104,15 @@ class MetadataClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> tuple[str, ...] | None:
+        """Fetch available options expiration dates for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Tuple of ISO date strings, or None if no options are listed or all retries fail.
+        """
         logger.debug("Fetching options expirations for '%s'", symbol)
 
         def _action() -> tuple[str, ...] | None:
@@ -93,6 +130,16 @@ class MetadataClient(BaseClient):
         date: str | None = None,
         max_retries: int | None = None,
     ) -> Any | None:
+        """Fetch option chain for symbol, optionally for a specific expiration date.
+
+        Args:
+            symbol: Ticker symbol.
+            date: Expiration date (ISO format); None fetches the nearest expiration.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Named-tuple with ``.calls`` and ``.puts`` DataFrames, or None on failure.
+        """
         logger.debug("Fetching option chain for '%s' (date=%s)", symbol, date)
 
         def _action() -> Any | None:
@@ -113,6 +160,16 @@ class MetadataClient(BaseClient):
         limit: int = 12,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch upcoming and past earnings dates for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            limit: Maximum number of earnings events to return.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Earnings dates DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching earnings dates for '%s' (limit=%d)", symbol, limit)
 
         def _action() -> pd.DataFrame | None:
@@ -129,6 +186,15 @@ class MetadataClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> dict[str, Any] | None:
+        """Fetch price history metadata (exchange, timezone, currency) for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            History metadata dict, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching history metadata for '%s'", symbol)
 
         def _action() -> dict[str, Any] | None:
@@ -145,14 +211,21 @@ class MetadataClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch valuation measures panel for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Valuation measures DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching valuation measures for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
-            # yfinance 1.3.0 exposes the 9-metric panel as the property
-            # ``Ticker.valuation`` (NOT ``valuation_measures``). The method
-            # ``Ticker.get_valuation_measures()`` exists but is not used here
-            # to keep the property/attribute access pattern shared by every
-            # other MetadataClient method.
+            # yfinance names this panel ``Ticker.valuation`` (not
+            # ``valuation_measures``); property access keeps parity with all
+            # other MetadataClient methods.
             return self._get_ticker(symbol).valuation
 
         return self._fetch_with_resilience(

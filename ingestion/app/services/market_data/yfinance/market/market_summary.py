@@ -76,7 +76,15 @@ class MarketClient:
     def fetch_summary(
         self, market: str, max_retries: int | None = None
     ) -> list[dict[str, Any]] | None:
-        """Return the regional market summary as a flat list of record dicts."""
+        """Return the regional market summary as a flat list of record dicts.
+
+        Args:
+            market: Regional market identifier (e.g. ``"US"``, ``"EUROPE"``).
+            max_retries: Override the instance default retry count.
+
+        Returns:
+            List of record dicts, or ``None`` on unrecoverable failure.
+        """
         logger.debug("Fetching market summary for '%s'", market)
         retries = max_retries if max_retries is not None else self.default_max_retries
 

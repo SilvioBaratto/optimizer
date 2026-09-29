@@ -1,4 +1,4 @@
-"""Clone-free installer contract (task T14).
+"""Clone-free installer contract.
 
 ``install.sh`` is the ``curl … | bash`` path: piping the script into bash binds the
 shell's stdin to the pipe, so an interactive ``portopt setup`` would read EOF and

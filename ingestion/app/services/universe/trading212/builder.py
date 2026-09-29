@@ -17,6 +17,8 @@ from app.services.universe.trading212.protocols import (
 
 @dataclass
 class BuildProgress:
+    """Snapshot of per-instrument progress for an in-flight universe build."""
+
     current: int = 0
     total: int = 0
     current_exchange: str = ""
@@ -27,6 +29,8 @@ class BuildProgress:
 
 @dataclass
 class BuildResult:
+    """Aggregate outcome of a completed universe build."""
+
     exchanges_saved: int = 0
     instruments_saved: int = 0
     total_processed: int = 0
@@ -34,12 +38,19 @@ class BuildResult:
     errors: list[str] = field(default_factory=list)
 
 
-# Type alias for progress callback
 ProgressCallback = Callable[[BuildProgress], None]
 
 
 @dataclass
 class UniverseBuilder:
+    """Orchestrates a full Trading 212 universe build.
+
+    Fetches exchange and instrument metadata from the T212 API, maps each
+    instrument to a yfinance ticker, classifies it, and persists it via the
+    repository. Applies no investability filtering — that is a fund-layer
+    concern.
+    """
+
     config: UniverseBuilderConfig
     api_client: Trading212ApiClient
     ticker_mapper: TickerMapper
@@ -57,28 +68,30 @@ class UniverseBuilder:
     _errors: list[str] = field(default_factory=list, init=False)
 
     def build(self) -> BuildResult:
+        """Run a full universe build from the Trading 212 API.
+
+        Returns:
+            Aggregate counts and any per-instrument errors encountered.
+        """
         self._errors = []
 
-        # Fetch from T212 API
         exchanges = self.api_client.get_exchanges()
         instruments = self.api_client.get_instruments()
 
-        # Build mappings
         self._build_schedule_mappings(exchanges, instruments)
 
-        # Prepare for processing (stocks + FI/MA ETFs). No investability
-        # filtering: every classified + mapped instrument is admitted.
+        # No investability filtering: every classified + mapped instrument is
+        # admitted; liquidity/price/history screening is a fund-layer concern.
         exchange_stocks = self._prepare_exchange_stocks(exchanges)
         exchange_etfs = self._prepare_exchange_etfs(exchanges)
 
-        # Calculate totals
         total = sum(len(insts) for _, insts in exchange_stocks) + sum(
             len(insts) for _, insts in exchange_etfs
         )
 
-        # Process stocks, then ETFs. Delisting reconciliation is scoped per
-        # instrument_type so the two passes over shared exchanges don't mark
-        # each other's instruments delisted.
+        # Delisting reconciliation is scoped per instrument_type so the stock
+        # and ETF passes over shared exchanges don't falsely mark each other's
+        # instruments as delisted.
         exchanges_saved, instruments_saved, total_processed = self._process_exchanges(
             exchange_stocks, total, instrument_type="STOCK"
         )
@@ -102,6 +115,7 @@ class UniverseBuilder:
         )
 
     def fetch_metadata(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Return raw exchange and instrument lists from the T212 API."""
         exchanges = self.api_client.get_exchanges()
         instruments = self.api_client.get_instruments()
         return exchanges, instruments
@@ -109,6 +123,7 @@ class UniverseBuilder:
     def get_exchange_stocks(
         self, exchanges: list[dict[str, Any]], instruments: list[dict[str, Any]]
     ) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+        """Return (exchange, stocks) pairs after building the schedule mappings."""
         self._build_schedule_mappings(exchanges, instruments)
         return self._prepare_exchange_stocks(exchanges)
 
@@ -137,16 +152,14 @@ class UniverseBuilder:
             if not exchange_name:
                 continue
 
-            # Debug mode: only process specified exchanges
+            # only_exchanges set means a targeted debug run; bypass normal filter.
             if self.only_exchanges is not None:
                 if exchange_name not in self.only_exchanges:
                     continue
             else:
-                # Normal mode: filter by portfolio countries
                 if exchange_name not in allowed_exchanges:
                     continue
 
-            # Collect all instruments for this exchange
             all_exchange_instruments = []
             for schedule in ex.get("workingSchedules", []):
                 schedule_id = schedule["id"]
@@ -155,7 +168,6 @@ class UniverseBuilder:
                 )
                 all_exchange_instruments.extend(schedule_instruments)
 
-            # Filter: only STOCK type
             stocks = [i for i in all_exchange_instruments if i.get("type") == "STOCK"]
             if stocks:
                 exchange_stocks.append((ex, stocks))
@@ -210,21 +222,18 @@ class UniverseBuilder:
         processed_here = 0
 
         for ex_data, instruments in exchange_stocks:
-            # Save exchange
             exchange_dto = self.repository.save_exchange(ex_data)
             total_exchanges_saved += 1
 
-            # Snapshot active tickers before processing (for delisting detection).
-            # Scoped by instrument_type: the stock and ETF passes reconcile their
-            # own kind, so the ETF pass never marks a stock delisted (or v.v.) on
-            # an exchange shared by both.
+            # Snapshot before the build so absent tickers can be marked
+            # delisted after; scoped per instrument_type so the stock and ETF
+            # passes don't interfere on shared exchanges.
             tickers_before: set[str] = set()
             if hasattr(self.repository, "get_active_tickers"):
                 tickers_before = self.repository.get_active_tickers(
                     exchange_dto.id, instrument_type=instrument_type
                 )
 
-            # Process instruments concurrently
             processed = self._process_instruments(
                 instruments,
                 ex_data["name"],
@@ -233,7 +242,6 @@ class UniverseBuilder:
             )
             processed_here += len(instruments)
 
-            # Save in batches
             tickers_saved: set[str] = set()
             if processed:
                 saved = self.repository.save_instruments_batch(
@@ -242,7 +250,6 @@ class UniverseBuilder:
                 total_instruments_saved += saved
                 tickers_saved = {d.get("ticker", "") for d in processed}
 
-            # Detect instruments that dropped out of the T212 universe
             self._mark_delisted_instruments(
                 tickers_before, tickers_saved, exchange_dto.id
             )
@@ -304,7 +311,6 @@ class UniverseBuilder:
                     if result is not None:
                         processed.append(result)
 
-                    # Report progress via callback
                     if self.progress_callback:
                         progress = BuildProgress(
                             current=current_offset + local_count,
@@ -342,7 +348,6 @@ class UniverseBuilder:
         try:
             short_name = instrument.get("shortName", "unknown")
 
-            # Build instrument data
             instrument_data = {
                 "ticker": instrument.get("ticker"),
                 "type": instrument.get("type"),
@@ -355,8 +360,6 @@ class UniverseBuilder:
                 "exchange": exchange_name,
             }
 
-            # Classify into the asset-class taxonomy (STOCK -> equity; ETFs ->
-            # fixed_income/multi_asset, or None to reject equity/leveraged ETFs).
             classification = classify_instrument(
                 instrument.get("name"), instrument.get("type")
             )
@@ -366,7 +369,6 @@ class UniverseBuilder:
             instrument_data["fiSubclass"] = classification.fi_subclass
             instrument_data["durationBucket"] = classification.duration_bucket
 
-            # Discover yfinance ticker
             yf_ticker = self.ticker_mapper.discover(short_name, exchange_name)
 
             if not yf_ticker:

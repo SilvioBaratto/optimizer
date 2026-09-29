@@ -8,7 +8,6 @@ import exchange_calendars as xcals
 
 logger = logging.getLogger(__name__)
 
-# Map exchange names (as stored in DB) to ISO 10383 MIC codes
 EXCHANGE_NAME_TO_MIC = {
     "NYSE": "XNYS",
     "NASDAQ": "XNAS",
@@ -34,8 +33,16 @@ def get_expected_trading_sessions(
 ) -> int | None:
     """Compute expected trading sessions for an exchange over a period.
 
-    Returns None when validation should be skipped (unknown exchange,
-    non-year period, etc.).
+    Args:
+        exchange_name: Exchange name as stored in the database (must appear in
+            ``EXCHANGE_NAME_TO_MIC`` to resolve a calendar).
+        period: yfinance period string (e.g. ``"5y"``).
+        reference_date: End of the period window; defaults to today.
+
+    Returns:
+        Number of scheduled trading sessions in the window, or ``None``
+        when validation should be skipped (unknown exchange, non-year
+        period, calendar bounds issue, etc.).
     """
     years = parse_period_years(period)
     if years is None:
@@ -48,7 +55,6 @@ def get_expected_trading_sessions(
     if reference_date is None:
         reference_date = date.today()
 
-    # Compute start date, handling Feb 29 edge case
     try:
         start = reference_date.replace(year=reference_date.year - years)
     except ValueError:
@@ -57,7 +63,6 @@ def get_expected_trading_sessions(
 
     try:
         cal = xcals.get_calendar(mic)
-        # Clamp to calendar bounds
         cal_start = (
             cal.first_session.date()
             if hasattr(cal.first_session, "date")
@@ -92,11 +97,19 @@ def has_sufficient_history(
 ) -> tuple[bool, int | None, int | None]:
     """Check whether fetched row count meets expected trading sessions.
 
+    Args:
+        row_count: Number of price rows actually stored for this ticker.
+        exchange_name: Exchange name as stored in the database; ``None``
+            skips validation entirely (returns sufficient=True).
+        period: yfinance period string (e.g. ``"5y"``).
+        tolerance: Fraction of expected sessions required to pass
+            (default 0.95 allows for minor calendar gaps).
+
     Returns:
-        (sufficient, expected, minimum) where:
-        - sufficient: True if data passes validation or validation was skipped
-        - expected: expected number of sessions (None when skipped)
-        - minimum: minimum required rows (None when skipped)
+        ``(sufficient, expected, minimum)`` where *sufficient* is ``True``
+        when the data passes validation or validation was skipped,
+        *expected* is the scheduled session count (``None`` when skipped),
+        and *minimum* is the required row threshold (``None`` when skipped).
     """
     if exchange_name is None:
         return (True, None, None)

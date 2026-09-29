@@ -1,4 +1,4 @@
-"""Shared internals for the per-domain seed builders (issue #804).
+"""Shared internals for the per-domain seed builders.
 
 Builders insert via ``session.add`` + ``session.flush()`` and never call
 ``session.commit()`` — the SAVEPOINT ``db_session`` fixture owns the

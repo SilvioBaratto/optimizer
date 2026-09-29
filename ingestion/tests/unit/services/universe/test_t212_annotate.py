@@ -1,4 +1,4 @@
-"""Trading 212 annotation-step contract (SPEC D14, task T11b).
+"""Trading 212 annotation-step contract.
 
 Attaches T212 tickers to the yfinance universe by ISIN. ISIN is fetched lazily
 (injected here), T212 metadata is mocked, and the repo + session are patched —

@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+"""IlSole24Ore macroeconomic data scraper.
+
+Scrapes the ``mercati.ilsole24ore.com`` country-comparison tables for
+economic forecasts (previsione-economica) and real indicators
+(indicatori-reali). The two pages use different HTML attribute conventions
+for country cells (``id`` vs ``name``), reflected in the two country maps.
+"""
+
 import logging
 from datetime import datetime
 
@@ -20,9 +28,10 @@ _ilsole_rate_limiter = RateLimiter(delay=0.5)
 
 
 class IlSoleScraper:
+    """Scraper for IlSole24Ore macroeconomic country-comparison tables."""
+
     BASE_URL = "https://mercati.ilsole24ore.com/dati-macroeconomici/paesi-a-confronto"
 
-    # Country name mapping for FORECAST table (previsione-economica)
     COUNTRY_MAP_FORECAST = {
         "Usa": "USA",
         "Germania": "Germany",
@@ -61,7 +70,6 @@ class IlSoleScraper:
         "Sudafrica": "South Africa",
     }
 
-    # Country name mapping for REAL INDICATORS table (indicatori-reali)
     COUNTRY_MAP_REAL = {
         "Stati Uniti": "USA",
         "Germania": "Germany",
@@ -137,17 +145,24 @@ class IlSoleScraper:
         )
 
     def get_real_indicators(self, country: str = "USA") -> dict | None:
+        """Fetch real economic indicators for a country.
+
+        Args:
+            country: English country name (must be in ``COUNTRY_MAP_REAL``).
+
+        Returns:
+            Dict of indicator values, or ``None`` if the page is unreachable
+            or the country is not found in the table.
+        """
         soup = self._fetch_page("indicatori-reali")
         if soup is None:
             return None
 
         try:
-            # Find the table
             table = soup.find("table", {"class": "mainTable"})
             if not table:
                 return None
 
-            # Find country row (use REAL indicators mapping)
             country_italian = [
                 k for k, v in self.COUNTRY_MAP_REAL.items() if v == country
             ]
@@ -156,12 +171,11 @@ class IlSoleScraper:
 
             country_name = country_italian[0]
 
-            # Find table body
             tbody = table.find("tbody")
             if not tbody:
                 return None
 
-            # Search for country row (indicatori-reali uses 'name' attribute)
+            # indicatori-reali uses 'name' attribute; previsione-economica uses 'id'
             country_row = None
             for row in tbody.find_all("tr"):
                 paese_cell = row.find("td", {"name": "Paese"})
@@ -172,19 +186,16 @@ class IlSoleScraper:
             if not country_row:
                 return None
 
-            # Extract data from cells with name attributes
             cells = {}
             for cell in country_row.find_all("td"):
                 cell_name = cell.get("name")
                 if cell_name:
                     cells[cell_name] = cell.text.strip()
 
-            # Map to output format - using exact HTML attribute names from table
-            # Based on actual cell names: TassoSconto, TassoInteresse, Pil_TT, ProdIndustriale_AA, etc.
             data = {
                 "gdp_growth_qq": self._safe_float(
                     cells.get("Pil_TT")
-                ),  # T/T only (Quarter-over-Quarter)
+                ),  # Quarter-over-Quarter only
                 "industrial_production": self._safe_float(
                     cells.get("ProdIndustriale_AA")
                 ),
@@ -209,17 +220,24 @@ class IlSoleScraper:
             return None
 
     def get_forecasts(self, country: str = "USA") -> dict | None:
+        """Fetch consensus forecast data for a country.
+
+        Args:
+            country: English country name (must be in ``COUNTRY_MAP_FORECAST``).
+
+        Returns:
+            Dict of forecast values, or ``None`` if the page is unreachable
+            or the country is not found.
+        """
         soup = self._fetch_page("previsione-economica")
         if soup is None:
             return None
 
         try:
-            # Find the table
             table = soup.find("table", {"class": "mainTable"})
             if not table:
                 return None
 
-            # Find country row (use FORECAST mapping)
             country_italian = [
                 k for k, v in self.COUNTRY_MAP_FORECAST.items() if v == country
             ]
@@ -228,12 +246,11 @@ class IlSoleScraper:
 
             country_name = country_italian[0]
 
-            # Find table body
             tbody = table.find("tbody")
             if not tbody:
                 return None
 
-            # Search for country row (previsione-economica uses 'id' for Paese)
+            # previsione-economica uses 'id' for Paese; indicatori-reali uses 'name'
             country_row = None
             for row in tbody.find_all("tr"):
                 paese_cell = row.find("td", {"id": "Paese"})
@@ -244,14 +261,12 @@ class IlSoleScraper:
             if not country_row:
                 return None
 
-            # Extract data from cells with id attributes
             cells = {}
             for cell in country_row.find_all("td"):
                 cell_id = cell.get("id")
                 if cell_id:
                     cells[cell_id] = cell.text.strip()
 
-            # Map to output format
             data = {
                 "last_inflation": self._safe_float(cells.get("UltimaInflazione")),
                 "inflation_6m": self._safe_float(cells.get("ConsensoInflazione")),
@@ -277,6 +292,16 @@ class IlSoleScraper:
             return None
 
     def get_country_data(self, country: str = "USA") -> dict:
+        """Fetch both real indicators and forecasts for a country.
+
+        Args:
+            country: English country name.
+
+        Returns:
+            Dict with ``real_indicators``, ``forecasts``, ``status``, and
+            ``timestamp``. ``status`` is ``"error"`` only when both sources
+            return ``None``.
+        """
         real_data = self.get_real_indicators(country)
         forecast_data = self.get_forecasts(country)
 
@@ -292,12 +317,20 @@ class IlSoleScraper:
         }
 
     def get_all_data(self, country: str = "USA") -> dict:
+        """Fetch country data with keys remapped for downstream classifier compatibility.
+
+        Args:
+            country: English country name.
+
+        Returns:
+            Same shape as ``get_country_data`` but with ``real`` and ``forecast``
+            keys instead of ``real_indicators`` / ``forecasts``.
+        """
         result = self.get_country_data(country)
 
         if result["status"] == "error":
             return result
 
-        # Rename keys to match classifier expectations
         return {
             "country": result["country"],
             "real": result.get("real_indicators"),
@@ -307,50 +340,58 @@ class IlSoleScraper:
         }
 
     def get_multiple_countries(self, countries: list[str]) -> dict:
+        """Fetch country data for each country in the list.
+
+        Args:
+            countries: English country names. Unknown names produce
+                ``status: "error"`` entries.
+
+        Returns:
+            Dict mapping country name → ``get_country_data`` result.
+        """
         results = {}
 
         for country in countries:
             data = self.get_country_data(country)
             results[country] = data
-            # Rate limiting handled by _ilsole_rate_limiter inside _fetch_page
+            # Rate limiting is applied by _ilsole_rate_limiter inside _fetch_page
 
         return results
 
     @staticmethod
     def _safe_float(value) -> float | None:
+        """Convert an IlSole24Ore cell value to float, returning None for missing data.
+
+        Handles Italian conventions: comma as decimal separator, range format
+        like ``"0-4,25%"`` (takes the upper bound), and various dash characters
+        used as placeholders for missing values.
+        """
         if value is None or pd.isna(value):
             return None
         try:
             if isinstance(value, str):
-                # Strip whitespace and work with cleaned value
                 value = value.strip()
 
-                # Check if string contains only dashes/hyphens (various unicode variants)
-                # Remove all spaces and check if what remains is only dash-like characters
                 value_no_spaces = value.replace(" ", "")
                 if value_no_spaces and all(c in "--—−" for c in value_no_spaces):
-                    # Only dashes (ASCII hyphen, en dash, em dash, minus sign)
+                    # ASCII hyphen, en dash, em dash, minus sign all mean "no data"
                     return None
 
-                # Check for other missing data markers
                 if value in ["N/A", "n/a", ""]:
                     return None
 
-                # Handle range format like "0-4,25%" - take the upper bound
-                # But NOT if it's a negative number
+                # Range like "0-4,25%" — take upper bound, but guard against
+                # negative numbers that also contain a leading "-"
                 if "-" in value and not value.startswith("-"):
                     value = value.split("-")[-1]
 
-                # Remove % signs and convert comma to dot
                 value = value.replace("%", "").replace(",", ".").strip()
 
-                # Final check for empty string
                 if not value:
                     return None
 
             return float(value)
         except (ValueError, TypeError):
-            # If conversion fails, return None instead of raising
             return None
 
 
@@ -360,8 +401,8 @@ class IlSoleScraper:
 PORTFOLIO_COUNTRIES = [
     "USA",  # 55-65% - AI infrastructure leadership, profit margin superiority
     "Germany",  # Europe's largest economy (part of 15-20% Europe allocation)
-    "France",  # Major European economy
-    "UK",  # Major European economy
+    "France",
+    "UK",
 ]
 
 # G7 countries excluding Italy (legacy - for backward compatibility)
@@ -397,6 +438,5 @@ MAJOR_ECONOMIES = [
 
 
 if __name__ == "__main__":
-    # Test scraper with portfolio countries
     scraper = IlSoleScraper()
     portfolio_data = scraper.get_multiple_countries(PORTFOLIO_COUNTRIES)

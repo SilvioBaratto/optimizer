@@ -1,4 +1,4 @@
-"""Tests for FRED_API_KEY environment-aware messaging (issue #564)."""
+"""Tests for FRED_API_KEY environment-aware messaging."""
 
 from __future__ import annotations
 

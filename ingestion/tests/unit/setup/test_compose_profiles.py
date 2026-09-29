@@ -1,4 +1,4 @@
-"""Compose service `profiles:` contract (task T6).
+"""Compose service `profiles:` contract.
 
 Every service carries a profile so a bare `docker compose up` starts nothing;
 `--profile fund` brings up db+fund and `--profile ingestion` brings up

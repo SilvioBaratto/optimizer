@@ -1,4 +1,4 @@
-"""Shim-parity tests for the yfinance infrastructure re-export layer (issue #823).
+"""Shim-parity tests for the yfinance infrastructure re-export layer.
 
 ``market_data/yfinance/infrastructure/{cache,circuit_breaker,rate_limiter,retry}``
 re-export the shared resilience primitives so legacy yfinance import paths stay

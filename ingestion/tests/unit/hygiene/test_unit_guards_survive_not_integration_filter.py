@@ -1,7 +1,7 @@
-"""
-Pins acceptance criterion scope-4: the two `@pytest.mark.integration` decorators on
-modules under `tests/unit/` are corrected (or those modules removed), so a
-`-m "not integration"` expression does not silently drop unit guards.
+"""Guard: a ``-m "not integration"`` filter must not silently drop unit guards.
+
+No module under ``tests/unit/`` should carry ``@pytest.mark.integration`` — that
+marker would exclude it from the filtered run.
 """
 
 import subprocess

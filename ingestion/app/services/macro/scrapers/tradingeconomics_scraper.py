@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Trading Economics web scraper for macroeconomic indicators and bond yields."""
+
 import logging
 import re
 from datetime import datetime
@@ -27,14 +29,12 @@ _MIN_BOND_YIELDS = 1
 _MIN_INDUSTRIAL_PRODUCTION_ROWS = 3
 _MIN_CAPACITY_UTILIZATION_ROWS = 3
 
-# Country code mapping to Trading Economics URL slugs
 COUNTRY_MAPPING = {
     "USA": "united-states",
     "Germany": "germany",
     "France": "france",
     "UK": "united-kingdom",
     "Japan": "japan",
-    # Emerging markets
     "China": "china",
     "India": "india",
     "Brazil": "brazil",
@@ -42,7 +42,6 @@ COUNTRY_MAPPING = {
     "Mexico": "mexico",
 }
 
-# Country code to full name mapping (for industrial production page)
 COUNTRY_NAME_MAPPING = {
     "USA": "United States",
     "Germany": "Germany",
@@ -56,9 +55,10 @@ COUNTRY_NAME_MAPPING = {
     "Mexico": "Mexico",
 }
 
-# Indicator name variations (Trading Economics uses different naming conventions)
+# Maps canonical indicator keys to the name variants Trading Economics uses on
+# its indicators page. Variants are matched case-insensitively against the
+# scraped indicator names so we survive minor phrasing changes.
 INDICATOR_PATTERNS = {
-    # --- GDP & Growth ---
     "gdp_growth_rate": [
         "GDP Growth Rate",
     ],
@@ -75,7 +75,6 @@ INDICATOR_PATTERNS = {
     "monthly_gdp_yoy": [
         "Monthly GDP YoY",
     ],
-    # --- Labour Market ---
     "unemployment_rate": [
         "Unemployment Rate",
     ],
@@ -91,7 +90,6 @@ INDICATOR_PATTERNS = {
     "employment_change": [
         "Employment Change",
     ],
-    # --- Prices ---
     "inflation_rate": [
         "Inflation Rate",
     ],
@@ -101,11 +99,9 @@ INDICATOR_PATTERNS = {
     "core_inflation": [
         "Core Inflation Rate",
     ],
-    # --- Monetary Policy ---
     "interest_rate": [
         "Interest Rate",
     ],
-    # --- Business Cycle / PMI ---
     "manufacturing_pmi": [
         "Manufacturing PMI",
     ],
@@ -121,7 +117,6 @@ INDICATOR_PATTERNS = {
     "construction_pmi": [
         "Construction PMI",
     ],
-    # --- Business Surveys (country-specific) ---
     "business_confidence": [
         "Business Confidence",
     ],
@@ -143,7 +138,6 @@ INDICATOR_PATTERNS = {
     "nfib_business_optimism": [
         "NFIB Business Optimism Index",
     ],
-    # --- Consumer ---
     "consumer_confidence": [
         "Consumer Confidence",
     ],
@@ -159,7 +153,6 @@ INDICATOR_PATTERNS = {
     "personal_savings": [
         "Personal Savings",
     ],
-    # --- Production & Output ---
     "industrial_production": [
         "Industrial Production",
     ],
@@ -178,7 +171,6 @@ INDICATOR_PATTERNS = {
     "durable_goods_orders": [
         "Durable Goods Orders",
     ],
-    # --- Leading Indicators ---
     "leading_economic_index": [
         "Leading Economic Index",
     ],
@@ -188,7 +180,6 @@ INDICATOR_PATTERNS = {
     "chicago_fed_national_activity": [
         "Chicago Fed National Activity Index",
     ],
-    # --- Regional US Manufacturing (for cross-validation) ---
     "ny_empire_state_manufacturing": [
         "NY Empire State Manufacturing Index",
     ],
@@ -198,7 +189,6 @@ INDICATOR_PATTERNS = {
     "dallas_fed_manufacturing": [
         "Dallas Fed Manufacturing Index",
     ],
-    # --- ISM Sub-Components ---
     "ism_manufacturing_new_orders": [
         "ISM Manufacturing New Orders",
     ],
@@ -208,7 +198,6 @@ INDICATOR_PATTERNS = {
     "ism_manufacturing_employment": [
         "ISM Manufacturing Employment",
     ],
-    # --- Fiscal & External ---
     "government_debt_gdp": [
         "Government Debt to GDP",
     ],
@@ -228,6 +217,8 @@ INDICATOR_PATTERNS = {
 
 
 class TradingEconomicsIndicatorsScraper:
+    """Scraper for Trading Economics indicator, bond-yield, and production tables."""
+
     BASE_URL = "https://tradingeconomics.com"
 
     def __init__(self, timeout: int = 20, rate_limit_delay: float = 1.0):
@@ -235,7 +226,7 @@ class TradingEconomicsIndicatorsScraper:
         self.rate_limit_delay = rate_limit_delay
         self.session = requests.Session()
 
-        # Browser-like headers to avoid blocking
+        # Browser-like UA to avoid bot detection.
         self.session.headers.update(
             {
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -255,6 +246,17 @@ class TradingEconomicsIndicatorsScraper:
         )
 
     def get_country_indicators(self, country: str, include_bonds: bool = True) -> dict:
+        """Fetch all tracked indicators (and optionally bond yields) for a country.
+
+        Args:
+            country: English country name — must be a key in ``COUNTRY_MAPPING``.
+            include_bonds: Whether to also fetch government bond yields.
+
+        Returns:
+            Dict with ``status``, ``indicators``, and (when ``include_bonds``)
+            ``bond_yields``. ``status`` is ``"error"`` on any fetch or parse
+            failure; ``"success"`` otherwise.
+        """
         if country not in COUNTRY_MAPPING:
             return {
                 "country": country,
@@ -339,7 +341,6 @@ class TradingEconomicsIndicatorsScraper:
     def _parse_indicators_table(self, soup: BeautifulSoup) -> dict:
         indicators = {}
 
-        # Find all tables with class "table table-hover"
         tables = soup.find_all("table", class_="table-hover")
 
         for table in tables:
@@ -348,7 +349,6 @@ class TradingEconomicsIndicatorsScraper:
             for row in rows:
                 cells = row.find_all("td")
 
-                # Need at least 7 columns: Indicator | Last | Previous | Highest | Lowest | Unit | Reference
                 if len(cells) >= 3:
                     try:
                         # Column 0: Indicator name (inside <a> tag)
@@ -365,20 +365,18 @@ class TradingEconomicsIndicatorsScraper:
                         # Column 2: Previous value
                         previous_text = cells[2].get_text(strip=True)
 
-                        # Column 5: Unit (if exists)
+                        # Column 5: Unit (if present)
                         unit = cells[5].get_text(strip=True) if len(cells) > 5 else ""
 
-                        # Column 6: Reference date (if exists)
+                        # Column 6: Reference date (if present)
                         reference = (
                             cells[6].get_text(strip=True) if len(cells) > 6 else ""
                         )
 
-                        # Extract numeric values
                         last_value = self._extract_number(last_text)
                         previous_value = self._extract_number(previous_text)
 
                         if last_value is not None:
-                            # Match indicator to our standard naming
                             matched_key = self._match_indicator_name(indicator_name)
 
                             if matched_key:
@@ -391,7 +389,6 @@ class TradingEconomicsIndicatorsScraper:
                                 }
 
                     except (ValueError, IndexError, AttributeError):
-                        # Skip rows that don't match expected format
                         continue
 
         if len(indicators) < _MIN_INDICATORS:
@@ -410,7 +407,6 @@ class TradingEconomicsIndicatorsScraper:
 
         for standard_key, patterns in INDICATOR_PATTERNS.items():
             for pattern in patterns:
-                # Exact match (case-insensitive)
                 if pattern.lower() == name_lower:
                     return standard_key
 
@@ -420,10 +416,7 @@ class TradingEconomicsIndicatorsScraper:
         if not text or text.strip().upper() in ["N/A", "NA", "-", ""]:
             return None
 
-        # Remove common non-numeric characters but keep decimal, negative, and digits
         cleaned = re.sub(r"[%,$€£¥\s]", "", text)
-
-        # Extract number (handles negative, decimal)
         match = re.search(r"(-?\d+\.?\d*)", cleaned)
 
         if match:
@@ -435,6 +428,15 @@ class TradingEconomicsIndicatorsScraper:
         return None
 
     def get_bond_yields(self, country: str) -> dict:
+        """Fetch government bond yields for 2Y, 5Y, 10Y, and 30Y maturities.
+
+        Args:
+            country: English country name — must be a key in ``COUNTRY_MAPPING``.
+
+        Returns:
+            Dict with ``status`` and, on success, ``yields`` mapping maturity
+            label (e.g. ``"10Y"``) to yield value and change statistics.
+        """
         if country not in COUNTRY_MAPPING:
             return {
                 "status": "error",
@@ -503,7 +505,6 @@ class TradingEconomicsIndicatorsScraper:
     def _parse_bond_yields_table(self, soup: BeautifulSoup, _country: str) -> dict:
         yields = {}
 
-        # Find the bonds table (table-heatmap class)
         tables = soup.find_all("table", class_="table-heatmap")
 
         # Fallback: find any table with sortable theme
@@ -516,7 +517,6 @@ class TradingEconomicsIndicatorsScraper:
             for row in rows:
                 cells = row.find_all("td")
 
-                # Need at least 7 columns
                 if len(cells) >= 4:
                     try:
                         # Column 0: Bond name (inside <a> tag)
@@ -605,6 +605,12 @@ class TradingEconomicsIndicatorsScraper:
         return yields
 
     def get_industrial_production_all(self) -> dict:
+        """Fetch industrial production values for all countries from a single page.
+
+        Returns:
+            Dict with ``status`` and, on success, ``data`` mapping country name
+            to value, previous, reference, and unit.
+        """
         url = f"{self.BASE_URL}/country-list/industrial-production"
 
         def _fetch() -> requests.Response:
@@ -651,6 +657,12 @@ class TradingEconomicsIndicatorsScraper:
             return {"status": "error", "error": f"Parsing failed: {e!s}"}
 
     def get_capacity_utilization_all(self) -> dict:
+        """Fetch capacity utilization values for G20 countries from a single page.
+
+        Returns:
+            Dict with ``status`` and, on success, ``data`` mapping country name
+            to value, previous, reference, and unit.
+        """
         url = f"{self.BASE_URL}/country-list/capacity-utilization?continent=g20"
 
         def _fetch() -> requests.Response:
@@ -699,7 +711,6 @@ class TradingEconomicsIndicatorsScraper:
     def _parse_industrial_production_table(self, soup: BeautifulSoup) -> dict:
         production = {}
 
-        # Find the industrial production table (table-heatmap class)
         tables = soup.find_all("table", class_="table-heatmap")
 
         for table in tables:
@@ -708,7 +719,6 @@ class TradingEconomicsIndicatorsScraper:
             for row in rows:
                 cells = row.find_all("td")
 
-                # Need at least 5 columns
                 if len(cells) >= 3:
                     try:
                         # Column 0: Country name (inside <a> tag)
@@ -765,7 +775,6 @@ class TradingEconomicsIndicatorsScraper:
     def _parse_capacity_utilization_table(self, soup: BeautifulSoup) -> dict:
         capacity = {}
 
-        # Find the capacity utilization table (table-heatmap class)
         tables = soup.find_all("table", class_="table-heatmap")
 
         for table in tables:
@@ -774,7 +783,6 @@ class TradingEconomicsIndicatorsScraper:
             for row in rows:
                 cells = row.find_all("td")
 
-                # Need at least 3 columns
                 if len(cells) >= 3:
                     try:
                         # Column 0: Country name (inside <a> tag)
@@ -835,9 +843,25 @@ class TradingEconomicsIndicatorsScraper:
         include_industrial_production: bool = True,
         include_capacity_utilization: bool = True,
     ) -> dict[str, dict]:
+        """Fetch indicators for multiple countries, merging bulk endpoint data.
+
+        Args:
+            countries: English country names to fetch (must be in
+                ``COUNTRY_MAPPING``).
+            include_bonds: Whether to include bond yields per country.
+            include_industrial_production: Whether to merge production data from
+                the ``country-list`` bulk endpoint.
+            include_capacity_utilization: Whether to merge capacity utilization
+                data from the ``country-list`` bulk endpoint.
+
+        Returns:
+            Dict mapping country name → ``get_country_indicators`` result,
+            optionally extended with ``industrial_production`` and
+            ``capacity_utilization`` keys.
+        """
         results = {}
 
-        # Fetch industrial production data once for all countries (more efficient)
+        # Bulk endpoints fetched once per call rather than per country.
         industrial_production_data = {}
         if include_industrial_production:
             prod_result = self.get_industrial_production_all()
@@ -849,7 +873,6 @@ class TradingEconomicsIndicatorsScraper:
                     prod_result.get("error"),
                 )
 
-        # Fetch capacity utilization data once for all countries (more efficient)
         capacity_utilization_data = {}
         if include_capacity_utilization:
             capacity_result = self.get_capacity_utilization_all()
@@ -866,7 +889,6 @@ class TradingEconomicsIndicatorsScraper:
                 country, include_bonds=include_bonds
             )
 
-            # Add industrial production data if available
             if include_industrial_production and industrial_production_data:
                 country_full_name = COUNTRY_NAME_MAPPING.get(country)
                 if (
@@ -877,7 +899,6 @@ class TradingEconomicsIndicatorsScraper:
                         industrial_production_data[country_full_name]
                     )
 
-            # Add capacity utilization data if available
             if include_capacity_utilization and capacity_utilization_data:
                 country_full_name = COUNTRY_NAME_MAPPING.get(country)
                 if country_full_name and country_full_name in capacity_utilization_data:
@@ -890,9 +911,22 @@ class TradingEconomicsIndicatorsScraper:
         return results
 
     def get_all_portfolio_countries(self) -> dict[str, dict]:
+        """Fetch indicators for every country in ``COUNTRY_MAPPING``.
+
+        Returns:
+            Dict mapping country name → ``get_country_indicators`` result.
+        """
         return self.get_multiple_countries(list(COUNTRY_MAPPING.keys()))
 
     def get_indicator_summary(self, country_data: dict) -> str:
+        """Format a human-readable summary of country indicators and yields.
+
+        Args:
+            country_data: Result dict from ``get_country_indicators``.
+
+        Returns:
+            Multi-line string report suitable for logging or display.
+        """
         if country_data.get("status") != "success":
             return f"{country_data['country']}: Error - {country_data.get('error', 'Unknown')}"
 
@@ -902,7 +936,6 @@ class TradingEconomicsIndicatorsScraper:
         lines = [f"\n{country} Economic Indicators:"]
         lines.append("=" * 80)
 
-        # Key indicators to highlight
         key_indicators = [
             ("gdp_growth_rate", "GDP Growth Rate (QoQ)"),
             ("gdp_growth_yoy", "GDP Annual Growth Rate"),
@@ -940,7 +973,6 @@ class TradingEconomicsIndicatorsScraper:
 
         lines.append(f"\nTotal indicators fetched: {len(indicators)}")
 
-        # Show bond yields if available
         bond_yields = country_data.get("bond_yields", {})
         if bond_yields:
             lines.append("\nGovernment Bond Yields:")
@@ -961,7 +993,6 @@ class TradingEconomicsIndicatorsScraper:
                         f"(day: {day_change:+.3f}%) [{date}]"
                     )
 
-        # Show industrial production if available
         industrial_production = country_data.get("industrial_production")
         if industrial_production:
             value = industrial_production.get("value")
@@ -986,7 +1017,6 @@ class TradingEconomicsIndicatorsScraper:
                     f"(prev: {prev_str}) [{reference}]"
                 )
 
-        # Show capacity utilization if available
         capacity_utilization = country_data.get("capacity_utilization")
         if capacity_utilization:
             value = capacity_utilization.get("value")
@@ -1017,7 +1047,6 @@ class TradingEconomicsIndicatorsScraper:
 
 
 if __name__ == "__main__":
-    # Test scraper with portfolio countries
     scraper = TradingEconomicsIndicatorsScraper()
     scraper.get_country_indicators("UK")
     scraper.get_all_portfolio_countries()

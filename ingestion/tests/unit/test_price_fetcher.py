@@ -1,6 +1,5 @@
-"""Unit tests for _price_fetcher.fetch_close_prices (issue #382).
+"""Unit tests for _price_fetcher.fetch_close_prices.
 
-TDD: Red phase — tests written before implementation.
 All tests are isolated via mocks; no real DB calls.
 """
 

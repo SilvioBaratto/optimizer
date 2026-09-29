@@ -1,6 +1,6 @@
-"""Structural checks for the `optimizer` daily launcher (task T11).
+"""Structural checks for the `optimizer` daily launcher.
 
-The launcher is Docker-driven and only smoke-tested by hand (see tasks/todo.md), so
+The launcher is Docker-driven and only smoke-tested by hand, so
 these tests pin the load-bearing structure a manual run can't guard on every commit:
 the POSIX shim must stay LF (a CRLF ``#!/usr/bin/env bash`` shebang fails in Git Bash),
 resolve its repo, bring the fund stack up gated on the alembic-at-head healthcheck

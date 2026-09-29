@@ -19,6 +19,15 @@ class HoldersClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch major holder breakdown for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Major holders DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching major holders for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
@@ -35,6 +44,15 @@ class HoldersClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch institutional holder positions for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Institutional holders DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching institutional holders for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
@@ -51,6 +69,15 @@ class HoldersClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch mutual fund holder positions for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Mutual fund holders DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching mutual fund holders for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
@@ -67,6 +94,15 @@ class HoldersClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch insider transaction history for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Insider transactions DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching insider transactions for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
@@ -83,6 +119,15 @@ class HoldersClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch insider purchase history for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Insider purchases DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching insider purchases for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
@@ -99,6 +144,15 @@ class HoldersClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch current insider roster and holdings for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Insider roster DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching insider roster holders for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:

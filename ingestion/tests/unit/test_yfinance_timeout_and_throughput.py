@@ -95,7 +95,7 @@ def _fully_fresh_staleness() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# TASK 1 — call_with_timeout unit tests
+# call_with_timeout unit tests
 # ---------------------------------------------------------------------------
 
 
@@ -124,7 +124,7 @@ class TestCallWithTimeout:
 
 
 # ---------------------------------------------------------------------------
-# TASK 1 — timeout applied per-category, job continues on TimeoutError
+# timeout applied per-category, job continues on TimeoutError
 # ---------------------------------------------------------------------------
 
 
@@ -274,7 +274,7 @@ class TestTimeoutPerCategory:
 
 
 # ---------------------------------------------------------------------------
-# TASK 2a — Whole-ticker incremental short-circuit
+# Whole-ticker incremental short-circuit
 # ---------------------------------------------------------------------------
 
 
@@ -356,7 +356,7 @@ class TestIncrementalShortCircuit:
 
 
 # ---------------------------------------------------------------------------
-# TASK 2b — Scheduler uses workers from settings
+# Scheduler uses workers from settings
 # ---------------------------------------------------------------------------
 
 
@@ -434,7 +434,7 @@ class TestSchedulerWorkerSettings:
 
 
 # ---------------------------------------------------------------------------
-# TASK 2c — Parallel path: on_progress current/total advances correctly
+# Parallel path: on_progress current/total advances correctly
 # ---------------------------------------------------------------------------
 
 

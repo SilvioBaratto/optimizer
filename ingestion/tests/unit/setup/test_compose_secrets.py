@@ -1,4 +1,4 @@
-"""Compose-secret rendering contract (SPEC D6, task T6).
+"""Compose-secret rendering contract (SPEC D6).
 
 `render` writes every declared secret to `<secrets_dir>/<name>` (empty for
 unconfigured ones so `docker compose up` never fails on a missing file), each
@@ -39,10 +39,10 @@ def test_compose_declares_a_file_for_every_secret_name() -> None:
 
 
 def test_secret_names_grew_beyond_the_original_three() -> None:
-    # T3 added the fund's per-provider auth secret keys; guard against a
-    # regression that drops them back to the original trading212 + fred trio.
+    # The fund's per-provider auth secret keys must be present alongside
+    # the original trading212 + fred trio.
     assert len(cs.SECRET_NAMES) >= 12
-    assert len(set(cs.SECRET_NAMES)) == len(cs.SECRET_NAMES)  # no dupes
+    assert len(set(cs.SECRET_NAMES)) == len(cs.SECRET_NAMES)
 
 
 @pytest.mark.skipif(

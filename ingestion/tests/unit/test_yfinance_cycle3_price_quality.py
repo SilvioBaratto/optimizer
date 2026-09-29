@@ -1,6 +1,6 @@
 """Cycle 3 regression: kwarg forwarding + NVDA split-day continuity (hermetic).
 
-Locks in the post-#598 contract:
+Locks in the regression contract:
 * ``fetch_history`` forwards the eight price-quality kwargs to ``ticker.history``
   on both branches (period and start/end).
 * ``bulk_download`` defaults to ``auto_adjust=True``.

@@ -51,12 +51,10 @@ class BackgroundJobRepository(RepositoryBase):
         from portopt_db.base import Base
 
         try:
-            # Try to check if table exists
             inspector = __import__(
                 "sqlalchemy.inspection", fromlist=["inspect"]
             ).inspect(self.session.bind)
             if "background_jobs" not in inspector.get_table_names():
-                # Create tables if missing
                 Base.metadata.create_all(bind=self.session.bind)  # type: ignore[arg-type]
         except Exception:
             # Inspector unavailable (e.g. dialect quirk): not fatal — fall back
@@ -349,7 +347,6 @@ class BackgroundJobRepository(RepositoryBase):
             self.session.flush()
             return result.rowcount or 0
         except Exception as e:
-            # If the table doesn't exist, skip cleanup
             if "no such table" in str(e).lower():
                 return 0
             raise

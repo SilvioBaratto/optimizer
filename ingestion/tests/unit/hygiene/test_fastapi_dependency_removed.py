@@ -1,7 +1,5 @@
-"""Example tests for issue #2: drop the leftover ``fastapi`` dependency
-declaration from ``ingestion/pyproject.toml``. (``ingestion/requirements.txt``
-has since been removed — ``pyproject.toml`` is the daemon's single source of
-truth for dependencies.)
+"""Guards ``fastapi`` is absent from ``ingestion/pyproject.toml``.
+``pyproject.toml`` is the daemon's single source of truth for dependencies.
 
 Source-blind by construction: every assertion reads the tracked file's raw
 text. No implementation module is imported or exercised.

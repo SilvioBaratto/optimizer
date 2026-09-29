@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 
 def _build_config() -> DbConfig:
-    """Map ``app.config.settings`` onto the injected ``DbConfig``."""
     return DbConfig(
         url=settings.database_url,
         echo=settings.database_echo,
@@ -35,7 +34,6 @@ def _build_config() -> DbConfig:
     )
 
 
-# Global database manager instance.
 database_manager = DatabaseManager(_build_config())
 
 

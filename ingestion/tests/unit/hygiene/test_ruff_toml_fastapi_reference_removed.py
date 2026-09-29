@@ -1,18 +1,11 @@
-"""Example test for issue #3, criterion scope-2.
+"""Guard: ``ingestion/ruff.toml`` carries no FastAPI reference, retains the
+``B008`` and ``E402`` ignore entries, and uses "ingestion code" not "api code"
+in rationale comments.
 
-``ingestion/ruff.toml`` must carry no FastAPI reference, while the ``B008``
-and ``E402`` ignore entries it already carries for other reasons must be
-retained.
-
-Ambiguity resolved in this test: the criterion does not name the exact ignore
-list the two codes live in (global ``ignore`` vs. a per-file-ignores table),
-so this test asserts the literal tokens ``"B008"`` and ``"E402"`` are present
-somewhere in the file rather than pinning a specific list shape.
-
-Also covers the issue-comment addendum: the ``E501``/``RUF001`` rationale
-comments said "api code" — reworded to "ingestion code" so no residual
-FastAPI-era naming survives even where the word "FastAPI" itself never
-appeared.
+Ambiguity resolved: the criterion does not name the exact ignore list the two
+codes live in (global ``ignore`` vs. a per-file-ignores table), so this test
+asserts the literal tokens ``"B008"`` and ``"E402"`` are present somewhere in
+the file rather than pinning a specific list shape.
 
 Source-blind by construction: reads the raw text of a tracked config file, no
 implementation module is imported or exercised.

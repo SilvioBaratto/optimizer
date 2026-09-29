@@ -21,6 +21,16 @@ class FinancialsClient(BaseClient):
         quarterly: bool = False,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch income statement for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            quarterly: Fetch quarterly data when True, else annual.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Income statement DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug(
             "Fetching income statement for '%s' (quarterly=%s)", symbol, quarterly
         )
@@ -41,6 +51,16 @@ class FinancialsClient(BaseClient):
         quarterly: bool = False,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch balance sheet for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            quarterly: Fetch quarterly data when True, else annual.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Balance sheet DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug(
             "Fetching balance sheet for '%s' (quarterly=%s)", symbol, quarterly
         )
@@ -61,6 +81,16 @@ class FinancialsClient(BaseClient):
         quarterly: bool = False,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch cash flow statement for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            quarterly: Fetch quarterly data when True, else annual.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Cash flow DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching cashflow for '%s' (quarterly=%s)", symbol, quarterly)
         attr = "quarterly_cashflow" if quarterly else "cashflow"
 
@@ -78,6 +108,15 @@ class FinancialsClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> list[dict[str, Any]] | None:
+        """Fetch SEC filing metadata for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            List of filing dicts, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching SEC filings for '%s'", symbol)
 
         def _action() -> list[dict[str, Any]] | None:

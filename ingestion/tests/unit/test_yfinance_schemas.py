@@ -1,4 +1,4 @@
-"""Validation tests for yfinance request schemas (issue #573)."""
+"""Validation tests for yfinance request schemas."""
 
 from __future__ import annotations
 

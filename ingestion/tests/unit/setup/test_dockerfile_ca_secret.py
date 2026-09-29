@@ -1,4 +1,4 @@
-"""Build-time CA-secret parity across the two service Dockerfiles (task T9).
+"""Build-time CA-secret parity across the two service Dockerfiles.
 
 Both images resolve their Python deps with `uv sync` over HTTPS to PyPI, which
 fails behind a TLS-inspecting proxy when the slim image lacks the corporate root.

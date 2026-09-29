@@ -1,4 +1,4 @@
-"""Unit tests for ``_shared/_json_safe.safe_float`` (issue #826)."""
+"""Unit tests for ``_shared/_json_safe.safe_float``."""
 
 from __future__ import annotations
 

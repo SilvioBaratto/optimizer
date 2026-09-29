@@ -1,10 +1,9 @@
-"""Example test for issue #3, criterion scope-5.
+"""Guard: no tracked file references the deleted smoke fixture by name.
 
-``cd ingestion && pytest tests/`` remains green after the smoke fixture is
-deleted — meaning nothing in the tracked tree still imports or references
-``smoke_prices.sql`` by name. A dangling reference to a deleted fixture is
-what would make the suite fail, so this test asserts the absence of the
-reference directly rather than re-running the whole suite from within itself.
+Nothing in the tracked tree should import or reference ``smoke_prices.sql``
+— a dangling reference to the deleted fixture would silently fail the suite,
+so this guard asserts the absence of the reference directly rather than
+re-running the whole suite from within itself.
 
 Source-blind by construction: scans the raw text of tracked files for the
 absence of a dead filename. No implementation module is imported or

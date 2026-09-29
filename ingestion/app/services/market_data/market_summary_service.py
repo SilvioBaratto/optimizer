@@ -24,7 +24,16 @@ def run_market_summary_fetch(
     markets: tuple[str, ...] = MARKET_IDENTIFIERS,
     on_progress: ProgressCallback = _noop,
 ) -> dict[str, Any]:
-    """Fetch + persist regional market summaries for every identifier."""
+    """Fetch and persist regional market summaries for every identifier.
+
+    Args:
+        yf_client: Configured yfinance client.
+        markets: Market identifiers to sweep; defaults to ``MARKET_IDENTIFIERS``.
+        on_progress: Callback receiving progress updates.
+
+    Returns:
+        Dict with per-market row counts, total rows written, and error count.
+    """
     from portopt_db.repositories.market_data.market_summary_repository import (
         MarketSummaryRepository,
     )

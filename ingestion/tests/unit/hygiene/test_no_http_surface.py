@@ -1,4 +1,4 @@
-"""Guard: no HTTP surface anywhere under ``ingestion/`` (issue #5).
+"""Guard: no HTTP surface anywhere under ``ingestion/``.
 
 Source-blind by construction: scans the raw text of tracked files for dead
 FastAPI/ASGI markers (``fastapi``, ``uvicorn``, ``TestClient``, references to
@@ -135,9 +135,9 @@ def _iter_scanned_files() -> Iterator[Path]:
 def find_http_violations(root: Path) -> list[str]:
     """Scan ``root`` for dead FastAPI/ASGI markers.
 
-    Injectable-root sibling of ``_iter_scanned_files`` (issue #7): callers
-    outside this module — the cross-guard checkpoint — point the scan at a
-    synthetic tree instead of the real ``ingestion/`` root.
+    Injectable-root sibling of ``_iter_scanned_files``: callers outside this
+    module — the cross-guard checkpoint — point the scan at a synthetic tree
+    instead of the real ``ingestion/`` root.
 
     Args:
         root: Directory tree to scan.

@@ -1,9 +1,6 @@
-"""Shared price-fetching helper (issue #382).
+"""Shared price-fetching helper.
 
-Single Responsibility: fetch close prices from price_history table.
-
-Public API:
-  - fetch_close_prices(tickers, session, start_date, end_date) -> pd.DataFrame
+Fetches close prices from the price_history table.
 """
 
 from __future__ import annotations

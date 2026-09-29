@@ -222,8 +222,6 @@ class FredScraper:
                 try:
                     value = float(raw_value)
                 except ValueError:
-                    # Non-numeric value (FRED uses "." for missing): treat as
-                    # missing → None, per the method docstring.
                     value = None
 
             try:

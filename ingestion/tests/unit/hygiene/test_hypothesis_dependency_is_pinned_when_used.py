@@ -1,6 +1,5 @@
 """Guard: ``hypothesis`` is either unused anywhere under ``ingestion/tests``,
-or declared with an exact-pinned version in ``ingestion/pyproject.toml``
-(issue #11, scope-2).
+or declared with an exact-pinned version in ``ingestion/pyproject.toml``.
 
 Source-blind by construction: scans raw tracked-file text for the
 ``hypothesis`` import marker and for a pinned dependency entry. No

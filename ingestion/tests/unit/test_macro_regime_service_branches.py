@@ -325,7 +325,6 @@ class TestFetchMacroNews:
     """fetch_macro_news imports get_yfinance_client and MacroNewsFetcher lazily
     inside the method body; patch target is the fully-qualified path used at call time."""
 
-    # Both are imported lazily inside the method body; patch at their source module.
     _YF_CLIENT_PATCH = "app.services.market_data.yfinance.get_yfinance_client"
     _FETCHER_PATCH = (
         "app.services.market_data.yfinance.news.macro_news.MacroNewsFetcher"

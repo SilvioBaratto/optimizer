@@ -1,3 +1,5 @@
+"""Exponential-backoff circuit breaker for rate-limited external services."""
+
 import threading
 import time
 from dataclasses import dataclass, field
@@ -5,6 +7,20 @@ from dataclasses import dataclass, field
 
 @dataclass
 class CircuitBreaker:
+    """Exponential-backoff circuit breaker for rate-limited services.
+
+    Tracks consecutive failures and blocks callers via ``check()`` for a
+    back-off window proportional to ``base_wait_minutes * 2**attempt``.
+    Decays the attempt counter on each successful recovery so the breaker
+    self-heals over time.
+
+    Args:
+        service_name: Human-readable name used in error messages.
+        max_attempts: Failure count at which ``check()`` raises
+            ``RuntimeError`` instead of sleeping.
+        base_wait_minutes: Scaling factor for the back-off formula.
+    """
+
     service_name: str = "external service"
     max_attempts: int = 10
     base_wait_minutes: float = 2.0
@@ -14,8 +30,12 @@ class CircuitBreaker:
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def trigger(self) -> None:
+        """Record a failure and extend the back-off window.
+
+        Idempotent while the current window is still open — a second trigger
+        during an active back-off does not reset the window.
+        """
         with self._lock:
-            # If circuit breaker is already active, don't increment counter again
             if self._active:
                 now = time.time()
                 if now < self._until:
@@ -29,11 +49,15 @@ class CircuitBreaker:
             self._active = True
 
     def check(self) -> None:
+        """Block until the back-off window elapses, then return.
+
+        Raises:
+            RuntimeError: If *max_attempts* has been reached.
+        """
         should_wait = False
         wait_time = 0.0
 
         with self._lock:
-            # Permanent abort if max attempts exceeded
             if self._attempt >= self.max_attempts:
                 raise RuntimeError(
                     f"{self.service_name} rate limit persists after "
@@ -62,12 +86,14 @@ class CircuitBreaker:
             time.sleep(wait_time)
 
     def reset(self) -> None:
+        """Decay the attempt counter by one on a successful outcome."""
         with self._lock:
             if self._attempt > 0:
                 self._attempt = max(0, self._attempt - 1)
 
     @property
     def is_active(self) -> bool:
+        """True while the back-off window has not yet elapsed."""
         with self._lock:
             if not self._active:
                 return False
@@ -79,10 +105,12 @@ class CircuitBreaker:
 
     @property
     def attempt_count(self) -> int:
+        """Current consecutive-failure count."""
         with self._lock:
             return self._attempt
 
     def force_reset(self) -> None:
+        """Clear all state unconditionally (for testing or administrative recovery)."""
         with self._lock:
             self._active = False
             self._until = 0.0

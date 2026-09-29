@@ -16,7 +16,6 @@ T = TypeVar("T")
 # Transient network error indicators shared across all external clients.
 # Both HTTP-layer rate limits and TCP-layer resets must trigger backoff.
 TRANSIENT_NETWORK_INDICATORS = [
-    # HTTP rate limiting
     "Too Many Requests",
     "Rate limited",
     "429",
@@ -25,7 +24,6 @@ TRANSIENT_NETWORK_INDICATORS = [
     "[Errno 104]",
     "ConnectionResetError",
     "RemoteDisconnected",
-    # Other transient network failures
     "ChunkedEncodingError",
     "IncompleteRead",
     "ReadTimeout",
@@ -61,31 +59,26 @@ def retry_with_backoff(
 ) -> T | None:
     """Execute *action* up to *max_retries* times with exponential-jitter backoff.
 
-    Parameters
-    ----------
-    action:
-        Zero-arg callable that returns the desired value or raises.
-    max_retries:
-        Total number of attempts (including the first).
-    base_delay:
-        Base delay in seconds for the exponential-jitter formula.
-        Actual sleep = uniform(0, min(max_delay, base_delay * 2**attempt)).
-        Defaults to 2.0 s -> [0-2 s, 0-4 s, 0-8 s, ...] up to max_delay.
-    max_delay:
-        Maximum sleep cap in seconds. Defaults to 120 s.
-    is_valid:
-        Optional predicate applied to the return value of *action*.
-        When it returns ``False`` the attempt is treated as a failure.
-    is_rate_limit_error:
-        Optional predicate applied to caught exceptions. When it
-        returns ``True``, *on_rate_limit* is called instead of the
-        normal backoff sleep (e.g. to trigger a circuit breaker).
-    on_rate_limit:
-        Callback invoked when *is_rate_limit_error* fires (e.g.
-        ``circuit_breaker.trigger``). The circuit breaker's own
-        exponential sleep handles the long wait on the next check().
-    on_success:
-        Callback invoked with the valid result before returning.
+    Args:
+        action: Zero-arg callable that returns the desired value or raises.
+        max_retries: Total number of attempts (including the first).
+        base_delay: Base seconds for the exponential-jitter formula.
+            Actual sleep = uniform(0, min(max_delay, base_delay * 2**attempt)).
+            Defaults to 2.0 s.
+        max_delay: Maximum sleep cap in seconds. Defaults to 120 s.
+        is_valid: Optional predicate on the return value of *action*. When it
+            returns ``False`` the attempt is treated as a failure.
+        is_rate_limit_error: Optional predicate on caught exceptions. When it
+            returns ``True``, *on_rate_limit* is called instead of the normal
+            backoff sleep.
+        on_rate_limit: Callback invoked when *is_rate_limit_error* fires (e.g.
+            ``circuit_breaker.trigger``). The circuit breaker's own exponential
+            sleep handles the long wait on the next ``check()``.
+        on_success: Callback invoked with the valid result before returning.
+
+    Returns:
+        The value returned by *action* on success, or ``None`` after all
+        retries are exhausted.
     """
     for attempt in range(max_retries):
         try:

@@ -23,7 +23,15 @@ def run_calendars_fetch(
     *,
     on_progress: ProgressCallback = _noop,
 ) -> dict[str, Any]:
-    """Fetch + persist all four market-wide calendars."""
+    """Fetch and persist all four market-wide calendar rollups.
+
+    Args:
+        yf_client: Configured yfinance client.
+        on_progress: Callback receiving progress updates.
+
+    Returns:
+        Dict with per-calendar upsert counts and total error count.
+    """
     from portopt_db.repositories.market_data.calendars_repository import (
         CalendarsRepository,
     )

@@ -42,9 +42,7 @@ _MAX_AGE_DAYS = 60
 _DEFAULT_MAX_RESULTS = 8
 
 
-# ---------------------------------------------------------------------------
-# Helpers (mirrors logic in app.services.market_data.yfinance.news aggregator/_process)
-# ---------------------------------------------------------------------------
+# Mirrors logic in app.services.market_data.yfinance.news aggregator/_process.
 
 
 def _extract_publisher(raw: dict[str, Any]) -> str:
@@ -81,16 +79,17 @@ def _is_recent(pt: Any, cutoff: datetime) -> bool:
     return d is not None and d >= cutoff
 
 
-# ---------------------------------------------------------------------------
-# Per-query evaluation
-# ---------------------------------------------------------------------------
-
-
 def evaluate_query(query: str, cutoff: datetime) -> dict[str, Any]:
     """Run a single yfinance.Search query and report totals + recency.
 
-    Returns a dict with ``total``, ``recent``, ``publishers`` (set[str]),
-    and an optional ``error`` string.
+    Args:
+        query: Search string passed to yf.Search.
+        cutoff: Datetime threshold; articles older than this are not counted
+            as recent.
+
+    Returns:
+        Dict with keys ``total`` (int), ``recent`` (int), ``publishers``
+        (set[str]), and ``error`` (str or None if the query succeeded).
     """
     try:
         result = yf.Search(query, max_results=_DEFAULT_MAX_RESULTS)
@@ -116,11 +115,6 @@ def evaluate_query(query: str, cutoff: datetime) -> dict[str, Any]:
         "publishers": publishers,
         "error": None,
     }
-
-
-# ---------------------------------------------------------------------------
-# Main entry point
-# ---------------------------------------------------------------------------
 
 
 def main() -> int:

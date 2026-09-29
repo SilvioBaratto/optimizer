@@ -1,4 +1,4 @@
-"""Heartbeat thread + cancellation event tests for BackgroundJobService (issue #587)."""
+"""Heartbeat thread + cancellation event tests for BackgroundJobService."""
 
 from __future__ import annotations
 
@@ -49,7 +49,6 @@ def _track(event: threading.Event, thread: threading.Thread | None = None) -> No
 
 
 def _make_session_factory(repo_mock: MagicMock):
-    """Return a callable that yields a context-manager wrapping repo_mock."""
     session = MagicMock()
     session.commit.return_value = None
 

@@ -1,4 +1,4 @@
-"""Example test for issue #15, [scope-3]: ``_iter_python_files`` and
+"""[scope-3]: ``_iter_python_files`` and
 ``_EXCLUDE_DIR_PARTS`` exist in exactly one place, shared by
 ``test_synchronous_only.py`` and ``test_no_optimizer_import.py``.
 
@@ -12,9 +12,9 @@ whichever hygiene module the two named consumers actually import
 ``_iter_python_files`` from. It also does not assume every other hygiene
 file is barred from ever defining a same-named local for an unrelated
 purpose (``test_no_http_surface.py`` has its own broader, differently-typed
-variant scanning more than ``.py`` files; issue #15's Context section marks
-that one as deliberately staying local) — only that the two *named*
-consumers collapse to a single shared definition between them.
+variant scanning more than ``.py`` files and stays deliberately local) —
+only that the two *named* consumers collapse to a single shared definition
+between them.
 """
 
 from __future__ import annotations

@@ -8,10 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas._shared import AsyncJobCreateResponse, AsyncJobProgress
 
-# ---------------------------------------------------------------------------
-# Request schemas
-# ---------------------------------------------------------------------------
-
 
 class YFinanceFetchRequest(BaseModel):
     """Request body for bulk yfinance data fetch."""
@@ -36,11 +32,6 @@ class YFinanceSingleFetchRequest(BaseModel):
     )
 
 
-# ---------------------------------------------------------------------------
-# Job progress schemas
-# ---------------------------------------------------------------------------
-
-
 class YFinanceFetchJobResponse(AsyncJobCreateResponse):
     """Returned when a bulk fetch job is created."""
 
@@ -61,12 +52,9 @@ class YFinanceSingleFetchResponse(BaseModel):
     skipped: list[str] = Field(default_factory=list)
 
 
-# ---------------------------------------------------------------------------
-# Read response schemas
-# ---------------------------------------------------------------------------
-
-
 class TickerProfileResponse(BaseModel):
+    """ORM-backed response schema for a ticker's full profile snapshot."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -130,6 +118,8 @@ class TickerProfileResponse(BaseModel):
 
 
 class PriceHistoryResponse(BaseModel):
+    """ORM-backed response schema for a single daily OHLCV price bar."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -147,6 +137,8 @@ class PriceHistoryResponse(BaseModel):
 
 
 class FinancialStatementResponse(BaseModel):
+    """ORM-backed response schema for a single financial statement line item."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -161,6 +153,8 @@ class FinancialStatementResponse(BaseModel):
 
 
 class DividendResponse(BaseModel):
+    """ORM-backed response schema for a dividend payment record."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -172,6 +166,8 @@ class DividendResponse(BaseModel):
 
 
 class StockSplitResponse(BaseModel):
+    """ORM-backed response schema for a stock split event."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -183,6 +179,8 @@ class StockSplitResponse(BaseModel):
 
 
 class AnalystRecommendationResponse(BaseModel):
+    """ORM-backed response schema for analyst recommendation counts by period."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -198,6 +196,8 @@ class AnalystRecommendationResponse(BaseModel):
 
 
 class AnalystPriceTargetResponse(BaseModel):
+    """ORM-backed response schema for analyst price target statistics."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -212,6 +212,8 @@ class AnalystPriceTargetResponse(BaseModel):
 
 
 class InstitutionalHolderResponse(BaseModel):
+    """ORM-backed response schema for an institutional holder record."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -226,6 +228,8 @@ class InstitutionalHolderResponse(BaseModel):
 
 
 class MutualFundHolderResponse(BaseModel):
+    """ORM-backed response schema for a mutual fund holder record."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -240,6 +244,8 @@ class MutualFundHolderResponse(BaseModel):
 
 
 class InsiderTransactionResponse(BaseModel):
+    """ORM-backed response schema for a single insider transaction."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -256,6 +262,8 @@ class InsiderTransactionResponse(BaseModel):
 
 
 class TickerNewsResponse(BaseModel):
+    """ORM-backed response schema for a ticker news article."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID

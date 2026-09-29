@@ -59,11 +59,19 @@ class SearchClient:
     ) -> dict[str, Any] | None:
         """Run a Yahoo search and return ``quotes``/``news`` plus opt-in extras.
 
-        ``max_results`` controls the quote count; ``news_count`` controls the
-        news count (forwarded to ``yf.Search``). ``include_lists`` /
-        ``include_research`` / ``include_nav`` toggle inclusion of the
-        corresponding key in the returned dict (value via ``getattr`` so a
-        missing attribute resolves to ``None`` rather than raising).
+        Args:
+            query: Free-text search term forwarded to ``yf.Search``.
+            max_results: Maximum number of quote results.
+            news_count: Maximum number of news articles.
+            include_lists: Include the ``lists`` attribute in the result.
+            include_research: Include the ``research`` attribute in the result.
+            include_nav: Include the ``nav`` attribute in the result.
+                Missing attributes resolve to ``None`` rather than raising.
+            max_retries: Override the instance default retry count.
+
+        Returns:
+            Dict with ``quotes`` and ``news`` keys plus any opt-in extras,
+            or ``None`` on unrecoverable failure.
         """
         logger.debug(
             "Searching for '%s' (max_results=%d, news_count=%d, "
@@ -105,6 +113,19 @@ class SearchClient:
         count: int = 25,
         max_retries: int | None = None,
     ) -> list[dict[str, Any]] | None:
+        """Look up securities by name or keyword using ``yf.Lookup``.
+
+        Args:
+            query: Free-text search term forwarded to ``yf.Lookup``.
+            asset_type: Asset class to search; must be one of ``stock``,
+                ``etf``, ``mutualfund``, ``index``, ``future``, ``currency``,
+                ``cryptocurrency``. Returns ``None`` for unknown types.
+            count: Maximum number of results to return.
+            max_retries: Override the instance default retry count.
+
+        Returns:
+            List of result dicts, or ``None`` on unrecoverable failure.
+        """
         logger.debug("Lookup '%s' (type=%s, count=%d)", query, asset_type, count)
         retries = max_retries if max_retries is not None else self.default_max_retries
 

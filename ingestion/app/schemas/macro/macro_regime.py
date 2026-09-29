@@ -8,10 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas._shared import AsyncJobCreateResponse, AsyncJobProgress
 
-# ---------------------------------------------------------------------------
-# Request schemas
-# ---------------------------------------------------------------------------
-
 
 class MacroFetchRequest(BaseModel):
     """Request body for macro data fetch."""
@@ -53,12 +49,9 @@ class MacroFetchProgress(AsyncJobProgress):
     current_country: str = ""
 
 
-# ---------------------------------------------------------------------------
-# Response schemas
-# ---------------------------------------------------------------------------
-
-
 class EconomicIndicatorResponse(BaseModel):
+    """ORM-backed response schema for a country-level economic indicator snapshot."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -77,6 +70,8 @@ class EconomicIndicatorResponse(BaseModel):
 
 
 class TradingEconomicsIndicatorResponse(BaseModel):
+    """ORM-backed response schema for a single Trading Economics indicator."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -92,6 +87,8 @@ class TradingEconomicsIndicatorResponse(BaseModel):
 
 
 class BondYieldResponse(BaseModel):
+    """ORM-backed response schema for a country bond yield record."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -107,6 +104,8 @@ class BondYieldResponse(BaseModel):
 
 
 class FredObservationResponse(BaseModel):
+    """ORM-backed response schema for a single FRED series observation."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -118,6 +117,8 @@ class FredObservationResponse(BaseModel):
 
 
 class EconomicIndicatorObservationResponse(BaseModel):
+    """ORM-backed response schema for a time-stamped economic indicator observation."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -137,6 +138,8 @@ class EconomicIndicatorObservationResponse(BaseModel):
 
 
 class TradingEconomicsObservationResponse(BaseModel):
+    """ORM-backed response schema for a time-stamped Trading Economics observation."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -149,6 +152,8 @@ class TradingEconomicsObservationResponse(BaseModel):
 
 
 class BondYieldObservationResponse(BaseModel):
+    """ORM-backed response schema for a time-stamped bond yield observation."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -161,6 +166,8 @@ class BondYieldObservationResponse(BaseModel):
 
 
 class MacroNewsResponse(BaseModel):
+    """ORM-backed response schema for a macro news article."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID

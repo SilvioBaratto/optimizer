@@ -23,17 +23,14 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )
 
-    # Project Information
     project_name: str = "Optimizer Ingestion Daemon"
     version: str = "1.0.0"
 
-    # Database Configuration - Local PostgreSQL via Docker
     database_url: str = Field(
         default="postgresql://postgres:postgres@localhost:54320/optimizer_db",
         alias="DATABASE_URL",
     )
 
-    # Pool Configuration - Standard settings for local PostgreSQL
     database_pool_size: int = Field(default=5)
     database_max_overflow: int = Field(default=10)
     database_pool_timeout: int = Field(default=30)
@@ -42,7 +39,6 @@ class Settings(BaseSettings):
     database_echo: bool = Field(default=False)
     database_pool_reset_on_return: str = Field(default="rollback")
 
-    # Logging
     log_level: str = Field(default="INFO")
     log_format: str = Field(default="json")
 
@@ -52,12 +48,10 @@ class Settings(BaseSettings):
     enable_metrics: bool = Field(default=True)
     metrics_port: int = Field(default=9000, alias="METRICS_PORT")
 
-    # Trading212 API
     trading_212_api_key: str = Field(default="", alias="TRADING_212_API_KEY")
     trading_212_secret_key: str = Field(default="", alias="TRADING_212_SECRET_KEY")
     trading_212_mode: str = Field(default="live", alias="TRADING_212_MODE")
 
-    # FRED API
     fred_api_key: str = Field(default="", alias="FRED_API_KEY")
 
     # Scheduler — cron expressions (5-field: min hour dom month dow)
@@ -108,9 +102,8 @@ class Settings(BaseSettings):
         default=3600,
         alias="SCHEDULER_MISFIRE_GRACE_TIME_SECONDS",
     )
-    # Liveness reaper (issues #585-#590): heartbeat cadence written by each
-    # background worker, and the staleness threshold past which the orphan
-    # reaper marks a row failed.
+    # Liveness reaper: heartbeat cadence written by each background worker,
+    # and the staleness threshold past which the orphan reaper marks a row failed.
     scheduler_heartbeat_cadence_seconds: int = Field(
         default=30,
         ge=1,
@@ -169,7 +162,6 @@ class Settings(BaseSettings):
         ),
     )
 
-    # yfinance fetch settings
     yfinance_request_timeout_seconds: int = Field(
         default=30,
         alias="YFINANCE_REQUEST_TIMEOUT_SECONDS",
@@ -190,13 +182,11 @@ class Settings(BaseSettings):
         ),
     )
 
-    # Notifications
     notification_webhook_url: str | None = Field(
         default=None,
         alias="NOTIFICATION_WEBHOOK_URL",
     )
 
-    # Environment detection helpers
     debug: bool = Field(default=False)
     environment: str = Field(default="development")
 
@@ -218,14 +208,11 @@ class Settings(BaseSettings):
 
     @property
     def is_production(self) -> bool:
-        """Check if running in production"""
         return self.environment == "production"
 
     @property
     def is_development(self) -> bool:
-        """Check if running in development"""
         return self.environment == "development" or self.debug
 
 
-# Create global settings instance
 settings = Settings()

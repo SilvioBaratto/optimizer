@@ -1,5 +1,5 @@
-"""Example test for the cross-cycle guard: no stale intra-repository
-``api/`` path survives, outside the recorded allowlist.
+"""Guard: no stale intra-repository ``api/`` path survives, outside the
+recorded allowlist.
 
 Source-blind by construction: every assertion reads tracked files' raw text
 and checks for the absence of a dead path string. No implementation module
@@ -98,9 +98,9 @@ def _iter_repo_files(root: Path) -> Iterator[str]:
 def find_legacy_api_violations(root: Path) -> list[str]:
     """Scan ``root`` for stale intra-repository ``api/`` path references.
 
-    Injectable-root sibling of the module-level real-repository scan (issue
-    #7): callers outside this module — the cross-guard checkpoint — point
-    the scan at a synthetic tree instead of the real repository root.
+    Injectable-root sibling of the module-level real-repository scan: callers
+    outside this module — the cross-guard checkpoint — point the scan at a
+    synthetic tree instead of the real repository root.
 
     Args:
         root: Directory tree to scan.
@@ -129,10 +129,8 @@ def test_when_repository_is_scanned_then_no_unallowlisted_legacy_api_reference_r
     assert find_legacy_api_violations(_REPO_ROOT) == []
 
 
-# Folded from the deleted test_legacy_api_reference_allowlist_covers_known_files.py
-# (issue #15): the unique assertion it added over the guard above was that the
-# three known residual matches are the *reason* the whole-repo scan stays clean,
-# not an accident of them being absent from the tree.
+# The three known allowlisted files are the *reason* the whole-repo scan stays
+# clean, not an accident of their absence from the tree.
 _KNOWN_ALLOWLISTED_FILES = (
     "CHANGELOG.md",
     "CLAUDE.md",

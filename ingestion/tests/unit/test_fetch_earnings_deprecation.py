@@ -1,4 +1,4 @@
-"""Regression tests for issue #591: dead `fetch_earnings` path removal.
+"""Regression guard: dead `fetch_earnings` path removal.
 
 Asserts that ``YFinanceDataService.fetch_and_store`` never invokes any code
 that triggers the ``'Ticker.earnings' is deprecated`` warning emitted by
@@ -55,7 +55,6 @@ class _StubFinancials:
 
 
 def _build_yf_client(financials: _StubFinancials) -> MagicMock:
-    """Return a MagicMock yf client whose only real attribute is ``financials``."""
     yf_client = MagicMock(name="yf_client")
     yf_client.financials = financials
     yf_client.fetch_info.return_value = None

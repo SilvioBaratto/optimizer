@@ -56,6 +56,7 @@ class UniverseBuilderConfig:
         return set(self.yahoo_suffix_map)
 
     def get_etf_allowed_exchanges(self) -> set[str]:
+        """Same scope as stocks: every exchange with a Yahoo suffix mapping."""
         return set(self.yahoo_suffix_map)
 
     def is_exchange_allowed(self, exchange_name: str) -> bool:

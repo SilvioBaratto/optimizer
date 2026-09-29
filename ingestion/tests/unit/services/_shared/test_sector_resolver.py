@@ -1,4 +1,4 @@
-"""Unit tests for ``_shared/_sector_resolver.resolve_sector_map`` (issue #826).
+"""Unit tests for ``_shared/_sector_resolver.resolve_sector_map``.
 
 Session is mocked — the ``TickerProfile`` join is exercised by stubbing
 ``session.execute(...).all()``.

@@ -1,7 +1,7 @@
-"""Example test for issue #3, criterion scope-3.
+"""Guard: the smoke fixture and its parent directory are absent from the tree.
 
-``ingestion/tests/fixtures/smoke_prices.sql`` is deleted, and the now-empty
-``ingestion/tests/fixtures/`` directory is removed along with it.
+``ingestion/tests/fixtures/smoke_prices.sql`` must not exist, and neither
+should the now-empty ``ingestion/tests/fixtures/`` directory.
 
 Source-blind by construction: asserts on filesystem paths under the tracked
 tree, no implementation module is imported or exercised.

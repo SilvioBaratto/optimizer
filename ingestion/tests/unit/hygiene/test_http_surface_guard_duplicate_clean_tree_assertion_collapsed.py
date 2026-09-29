@@ -1,4 +1,4 @@
-"""Example test for issue #15, [scope-5]: the duplicate assertion pair at
+"""[scope-5]: the duplicate assertion pair at
 ``test_no_http_surface.py:160-161`` and ``:184-186`` (both asserting
 ``find_http_violations(_INGESTION_ROOT) == []``) is collapsed to one.
 

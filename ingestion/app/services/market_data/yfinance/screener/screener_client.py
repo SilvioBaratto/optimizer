@@ -45,13 +45,25 @@ class ScreenerClient:
         sort_asc: bool = True,
         max_retries: int | None = None,
     ) -> dict[str, Any] | None:
-        """Run one screen. ``query`` is an ``EquityQuery``/``FundQuery``/``ETFQuery``
-        or a predefined-screen name.
+        """Run one screen with a custom or predefined query.
 
-        yfinance sizes **custom** ``*Query`` objects via ``size=`` (default 100, max 250)
-        and **predefined** name strings via ``count=`` (default 25, max 250). Pass
-        ``count`` for a predefined name (see :meth:`screen_predefined`); otherwise ``size``
-        is used. Page with ``offset``.
+        yfinance sizes custom ``*Query`` objects via ``size`` (max 250) and predefined
+        name strings via ``count`` (max 250). Passing ``count`` signals a predefined
+        name; otherwise ``size`` applies. Page results with ``offset``.
+
+        Args:
+            query: An ``EquityQuery``, ``FundQuery``, ``ETFQuery``, or a predefined-
+                screen name string.
+            size: Result page size for custom queries (max 250).
+            offset: Pagination offset.
+            count: Result page size when ``query`` is a predefined name; overrides
+                ``size``.
+            sort_field: yfinance field name to sort results by.
+            sort_asc: Sort ascending when True.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Screen result dict from yfinance, or None if all retries fail.
         """
         retries = max_retries if max_retries is not None else self.default_max_retries
 
@@ -91,9 +103,19 @@ class ScreenerClient:
         offset: int = 0,
         max_retries: int | None = None,
     ) -> dict[str, Any] | None:
-        """Run a predefined screen by name (see ``yf.PREDEFINED_SCREENER_QUERIES``).
+        """Run a predefined screen by name from ``yf.PREDEFINED_SCREENER_QUERIES``.
 
-        Predefined screens are sized via ``count`` (default 25, max 250), not ``size``.
+        Predefined screens are sized via ``count`` (max 250), not ``size``.
+
+        Args:
+            name: Predefined screen name; must be in ``yf.PREDEFINED_SCREENER_QUERIES``.
+            count: Maximum results to return (max 250).
+            offset: Pagination offset.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Screen result dict from yfinance, or None if the name is unrecognised or
+            all retries fail.
         """
         if name not in yf.PREDEFINED_SCREENER_QUERIES:
             logger.error(

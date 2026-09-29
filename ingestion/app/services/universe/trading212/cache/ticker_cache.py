@@ -15,6 +15,7 @@ class TickerMappingCache:
     _misses: int = field(default=0, repr=False)
 
     def get_mapping(self, symbol: str, exchange_name: str) -> str | None:
+        """Return the cached yfinance ticker for (symbol, exchange), or None on a miss."""
         key = (symbol, exchange_name)
         result = self._store.get(key)
         if result is not None:
@@ -24,9 +25,17 @@ class TickerMappingCache:
         return result
 
     def save_mapping(self, symbol: str, exchange_name: str, yf_ticker: str) -> None:
+        """Store the resolved yfinance ticker for (symbol, exchange)."""
         self._store[(symbol, exchange_name)] = yf_ticker
 
     def get_stats(self) -> dict:
+        """Return cache performance counters for the current build job.
+
+        Returns:
+            Mapping with keys ``size``, ``hits``, ``misses``, and
+            ``hit_rate`` (rounded to 4 decimal places; 0.0 when no
+            lookups have occurred yet).
+        """
         total = self._hits + self._misses
         return {
             "size": len(self._store),

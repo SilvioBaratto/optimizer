@@ -300,7 +300,8 @@ class YFinanceUniverseSource:
         return collected[:cap]
 
     def _build_shape(self, quotes: list[dict[str, Any]]) -> None:
-        # 1. Parse in-allowlist quotes -> Listing; drop cross-query dups by (symbol, code).
+        # Same ticker can appear in both stock and ETF queries; deduplicate by
+        # (symbol, exchange code) before the canonical pass.
         parsed: list[Listing] = []
         kind_by_key: dict[tuple[str, str | None], str] = {}
         seen_raw: set[tuple[str, str | None]] = set()
@@ -318,12 +319,11 @@ class YFinanceUniverseSource:
             parsed.append(_quote_to_listing(quote))
             kind_by_key[raw_key] = quote.get("_kind", "STOCK")
 
-        # 2. Resolve FX for the major currencies present (USD-numeraire floor).
+        # USD rates are needed for the anti-junk floor normalization.
         majors = {m for m in (split_currency(lst.currency)[0] for lst in parsed) if m}
         fx = self.fx_resolver(majors) if majors else {"USD": 1.0}
         fx.setdefault("USD", 1.0)
 
-        # 3. Collapse cross-listings to one canonical listing per entity.
         survivors = (
             dedup_canonical(
                 parsed, fx, config=self.floor_config, exchange_pref=_EXCHANGE_PREF
@@ -332,7 +332,6 @@ class YFinanceUniverseSource:
             else parsed
         )
 
-        # 4. Coarse anti-junk floor, then bucket survivors by config exchange name.
         schedule_ids: dict[str, int] = {}
         by_exchange: dict[str, list[dict[str, Any]]] = defaultdict(list)
         floored = 0

@@ -1,3 +1,5 @@
+"""yfinance market-data integration: facade, sub-clients, and resilience primitives."""
+
 from ._base import BaseClient
 from ._facade import YFinanceClient, get_yfinance_client
 from .infrastructure import (
@@ -40,14 +42,11 @@ from .ticker import (
 )
 
 __all__ = [
-    # Sub-clients (ticker-based)
     "AnalysisClient",
     "AnalysisClientProtocol",
     "ArticleResult",
     "ArticleScraper",
-    # Protocols
     "ArticleScraperProtocol",
-    # Base
     "BaseClient",
     "CacheProtocol",
     "CircuitBreaker",
@@ -59,26 +58,21 @@ __all__ = [
     "FinancialsClientProtocol",
     "HoldersClient",
     "HoldersClientProtocol",
-    # Implementations
     "LRUCache",
     "MacroNewsFetcher",
     "MacroTheme",
     "MetadataClient",
     "MetadataClientProtocol",
-    # News/Articles
     "NewsClient",
     "RateLimiter",
     "RateLimiterProtocol",
     "ScreenerClient",
     "ScreenerClientProtocol",
-    # Sub-clients (module-level)
     "SearchClient",
     "SearchClientProtocol",
-    # Core client
     "YFinanceClient",
     "YFinanceClientProtocol",
     "get_yfinance_client",
     "is_rate_limit_error",
-    # Utilities
     "retry_with_backoff",
 ]

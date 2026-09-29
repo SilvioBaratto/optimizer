@@ -8,6 +8,13 @@ from app.services.universe.trading212.config import UniverseBuilderConfig
 
 @dataclass
 class YFinanceTickerMapper:
+    """Maps Trading 212 symbols to verified yfinance tickers.
+
+    Attempts the exchange-suffixed form first (e.g. ``AAPL.L``), then
+    the bare symbol. Uses the in-memory ``TickerMappingCache`` to avoid
+    redundant yfinance round-trips within a single universe build job.
+    """
+
     config: UniverseBuilderConfig
     cache: TickerMappingCache | None = None
     _yf_client: YFinanceClient | None = field(default=None, repr=False)
@@ -24,8 +31,21 @@ class YFinanceTickerMapper:
         return self._yf_client
 
     def discover(self, symbol: str, exchange_name: str | None = None) -> str | None:
+        """Return the verified yfinance ticker for a T212 symbol, or ``None``.
+
+        Checks the cache before issuing any yfinance request. On a miss,
+        tries the exchange-suffixed form then the bare symbol. A verified
+        ticker is written back to the cache for the remainder of the build.
+
+        Args:
+            symbol: The T212 ``shortName`` (e.g. ``AAPL_US_EQ``).
+            exchange_name: T212 exchange name used to look up the Yahoo suffix.
+
+        Returns:
+            A yfinance ticker string with live price data, or ``None`` when
+            no matching ticker can be verified.
+        """
         try:
-            # Check cache first
             if exchange_name and self.cache:
                 cached = self.cache.get_mapping(symbol, exchange_name)
                 if cached and self._verify_ticker(cached):
@@ -34,10 +54,8 @@ class YFinanceTickerMapper:
             # Yahoo Finance uses dashes instead of slashes for share classes
             clean_symbol = symbol.replace("/", "-")
 
-            # Build list of tickers to try
             ticker_attempts = self._build_ticker_attempts(clean_symbol, exchange_name)
 
-            # Try each ticker
             for attempt_ticker in ticker_attempts:
                 if self._verify_ticker(attempt_ticker):
                     if exchange_name and self.cache:

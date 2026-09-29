@@ -141,8 +141,19 @@ class CalendarsClient:
     def fetch_earnings(
         self, max_retries: int | None = None
     ) -> list[dict[str, Any]] | None:
-        # Whole market, not just most-active names. Backward pass backfills realized
-        # EPS + surprise for names that already reported.
+        """Fetch the earnings calendar for the whole market.
+
+        Uses ``filter_most_active=False`` to capture all reporting companies, not
+        just the most-active names. The backward pass backfills realized EPS and
+        surprise for companies that have already reported within the past
+        ``_EARNINGS_LOOKBACK_DAYS`` days.
+
+        Args:
+            max_retries: Override the instance default retry count.
+
+        Returns:
+            List of record dicts, or ``None`` on unrecoverable failure.
+        """
         return self._fetch_windowed(
             "get_earnings_calendar",
             {"filter_most_active": False},
@@ -151,19 +162,44 @@ class CalendarsClient:
         )
 
     def fetch_ipos(self, max_retries: int | None = None) -> list[dict[str, Any]] | None:
+        """Fetch upcoming IPO calendar entries.
+
+        Args:
+            max_retries: Override the instance default retry count.
+
+        Returns:
+            List of record dicts, or ``None`` on unrecoverable failure.
+        """
         return self._paginate("get_ipo_info_calendar", {}, max_retries)
 
     def fetch_splits(
         self, max_retries: int | None = None
     ) -> list[dict[str, Any]] | None:
+        """Fetch upcoming stock-split calendar entries.
+
+        Args:
+            max_retries: Override the instance default retry count.
+
+        Returns:
+            List of record dicts, or ``None`` on unrecoverable failure.
+        """
         return self._paginate("get_splits_calendar", {}, max_retries)
 
     def fetch_economic_events(
         self, max_retries: int | None = None
     ) -> list[dict[str, Any]] | None:
-        # Backward pass backfills the realized "actual" prints for events that have
-        # already occurred (a forward-only window only ever carries the prior value;
-        # Yahoo does not populate the "Expected" forecast at all).
+        """Fetch the economic events calendar.
+
+        The backward pass backfills the realized "actual" prints for events that
+        have already occurred. A forward-only window only ever carries the prior
+        value; Yahoo does not populate the "Expected" forecast column at all.
+
+        Args:
+            max_retries: Override the instance default retry count.
+
+        Returns:
+            List of record dicts, or ``None`` on unrecoverable failure.
+        """
         return self._fetch_windowed(
             "get_economic_events_calendar",
             {},

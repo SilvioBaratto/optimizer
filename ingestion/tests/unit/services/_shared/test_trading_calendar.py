@@ -1,4 +1,4 @@
-"""Unit tests for ``_shared/trading_calendar`` (issue #826).
+"""Unit tests for ``_shared/trading_calendar``.
 
 NOTE on AC: this module has NO ``is_trading_day(date) -> bool`` function. The
 public surface is ``parse_period_years``, ``get_expected_trading_sessions``

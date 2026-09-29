@@ -1,4 +1,4 @@
-"""Unit tests for IlSoleScraper (issue #822).
+"""Unit tests for IlSoleScraper.
 
 Covers: row parsing, empty/unknown country, _safe_float, Accept-Encoding
 regression guard, and circuit-breaker trip on repeated network failure.

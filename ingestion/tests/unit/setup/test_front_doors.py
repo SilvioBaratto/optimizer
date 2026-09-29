@@ -1,4 +1,4 @@
-"""Front-door funnel contract (task T13).
+"""Front-door funnel contract.
 
 ``setup.sh`` / ``setup.ps1`` / ``setup.cmd`` / ``make setup`` are razor-thin funnels:
 ensure ``uv``, install the ``portopt`` CLI from the local checkout, export

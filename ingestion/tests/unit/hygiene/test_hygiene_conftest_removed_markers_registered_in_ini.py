@@ -1,4 +1,4 @@
-"""Example test for issue #15, [scope-6]: ``tests/unit/hygiene/conftest.py``
+"""[scope-6]: ``tests/unit/hygiene/conftest.py``
 is deleted, and the suite still collects cleanly under ``--strict-markers``.
 
 Source-blind by construction: checks for file absence and scans the raw text

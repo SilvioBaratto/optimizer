@@ -1,4 +1,4 @@
-"""Unit tests for the shared ``LRUCache`` resilience primitive (issue #823).
+"""Unit tests for the shared ``LRUCache`` resilience primitive.
 
 Covers the gaps left by ``test_shared_infrastructure.py``: TTL expiry, LRU
 eviction at capacity, ``contains``/``keys()`` TTL respect, and thread-safe

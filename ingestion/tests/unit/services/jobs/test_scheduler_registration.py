@@ -1,4 +1,4 @@
-"""Scheduler registration tests (issue #824).
+"""Scheduler registration tests.
 
 Asserts ``create_scheduler()`` registers exactly the 7 expected job ids with
 the expected trigger types, without starting the scheduler or invoking any

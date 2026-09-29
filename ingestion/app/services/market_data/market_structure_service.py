@@ -44,7 +44,17 @@ def run_market_structure_fetch(
     regions: tuple[str, ...] = DEFAULT_REGIONS,
     on_progress: ProgressCallback = _noop,
 ) -> dict[str, Any]:
-    """Fetch + persist sector/industry rollups for every (sector, region)."""
+    """Fetch and persist sector/industry rollups for every (sector, region) pair.
+
+    Args:
+        yf_client: Configured yfinance client.
+        regions: ISO country codes to sweep; defaults to ``DEFAULT_REGIONS``.
+        on_progress: Callback receiving progress updates.
+
+    Returns:
+        Dict with regions swept, row counts per layer (sectors, industries,
+        top companies), and total error count.
+    """
     from portopt_db.repositories.market_data.market_structure_repository import (
         MarketStructureRepository,
     )

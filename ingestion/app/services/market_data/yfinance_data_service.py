@@ -1,6 +1,6 @@
 """Service layer orchestrating yfinance data fetching and storage.
 
-Bulk-ingestion error policy (issue #850): each per-field fetch (profile,
+Bulk-ingestion error policy: each per-field fetch (profile,
 prices, financials, dividends, holders, news, …) runs under its own
 ``except Exception`` that logs at WARNING and appends the failure to the
 per-ticker ``errors`` list before continuing. One bad field never aborts the
@@ -256,9 +256,9 @@ class YFinanceDataService:
 
         # Lazy ticker construction: only materialise the yf.Ticker (and
         # acquire the rate-limiter) when at least one category will be fetched.
-        # The ticker object is used only by the news fetch (section 11); all
-        # other categories call through the sub-clients which call _get_ticker
-        # internally (and share the same cache).
+        # The ticker object is needed only by the news fetch; all other
+        # categories call through sub-clients that invoke _get_ticker
+        # internally and share the same cache.
         _ticker_holder: list[Any] = []  # mutable cell for lazy init
 
         def _get_lazy_ticker() -> Any:
@@ -266,7 +266,6 @@ class YFinanceDataService:
                 _ticker_holder.append(self.yf_client.get_ticker(yfinance_ticker))
             return _ticker_holder[0]
 
-        # 1. Profile (info)
         if (
             mode == "incremental"
             and staleness is not None
@@ -287,8 +286,8 @@ class YFinanceDataService:
                     if isin:
                         info["isin"] = isin
                     counts["profile"] = self.repo.upsert_profile(instrument_id, info)
-                    # SPEC A9: extra info fields (short interest, momentum,
-                    # governance risk) reuse the same fetched dict — no re-fetch.
+                    # Extra info fields (short interest, momentum, governance risk)
+                    # reuse the already-fetched dict — no separate network call.
                     counts["profile_extras"] = self.repo.upsert_profile_extras(
                         instrument_id, info
                     )
@@ -298,7 +297,6 @@ class YFinanceDataService:
                 errors.append(f"profile: {e}")
                 logger.warning("Failed to fetch profile for %s: %s", yfinance_ticker, e)
 
-        # 2. Price history
         # fetch_history accepts a native `timeout` kwarg (passed to requests),
         # so we pass it directly without an extra watchdog thread.
         try:
@@ -307,10 +305,9 @@ class YFinanceDataService:
                 and staleness is not None
                 and staleness.get("price_max_date") is not None
             ):
-                # Incremental: fetch from max_date - overlap_days to today
                 max_date = staleness["price_max_date"]
                 start_date = max_date - timedelta(days=thresholds.price_overlap_days)
-                # auto_adjust=True (default) — split-adjusted Close required by prices_to_returns() downstream
+                # Split-adjusted close (the yfinance default) is required by prices_to_returns() downstream.
                 history = self.yf_client.fetch_history(
                     yfinance_ticker,
                     start=start_date.isoformat(),
@@ -323,8 +320,7 @@ class YFinanceDataService:
                     timeout=self._request_timeout,
                 )
             else:
-                # Full mode or no existing data: use period
-                # auto_adjust=True (default) — split-adjusted Close required by prices_to_returns() downstream
+                # Split-adjusted close (the yfinance default) is required by prices_to_returns() downstream.
                 history = self.yf_client.fetch_history(
                     yfinance_ticker,
                     period=period,
@@ -337,7 +333,6 @@ class YFinanceDataService:
                 )
 
             if history is not None and not history.empty:
-                # Validate history length for full-period fetches only
                 is_full_period = not (
                     mode == "incremental"
                     and staleness is not None
@@ -394,7 +389,7 @@ class YFinanceDataService:
 
             if history is not None and not history.empty:
                 # Store the listing currency as the price unit (raw, unconverted) so
-                # sub-unit series (GBX pence) are unambiguous downstream (SPEC OQ2).
+                # sub-unit series (GBX pence) are unambiguous downstream.
                 counts["prices"] = self.repo.upsert_price_history(
                     instrument_id, history, price_unit=currency_code
                 )
@@ -404,7 +399,6 @@ class YFinanceDataService:
             errors.append(f"prices: {e}")
             logger.warning("Failed to fetch prices for %s: %s", yfinance_ticker, e)
 
-        # 3. Financial statements (income, balance, cashflow - annual + quarterly)
         # Financial statements from yfinance are in the company's reporting
         # currency (e.g. GBP for UK companies), not the listing quote
         # currency (e.g. GBX).  Store the major-unit code for auditability.

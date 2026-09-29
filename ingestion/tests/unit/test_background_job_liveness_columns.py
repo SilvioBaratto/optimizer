@@ -1,4 +1,4 @@
-"""Verify worker liveness columns + composite index on background_jobs (issue #585)."""
+"""Verify worker liveness columns + composite index on background_jobs."""
 
 from __future__ import annotations
 

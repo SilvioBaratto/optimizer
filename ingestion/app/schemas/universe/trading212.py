@@ -9,6 +9,11 @@ from app.schemas._shared import AsyncJobCreateResponse, AsyncJobProgress
 
 
 def _coerce_uuid_to_str(value: object) -> object:
+    """Coerce a UUID object to str, leaving other types unchanged.
+
+    Pydantic v2 from_attributes mode surfaces UUID instances from SQLAlchemy
+    ORM rows; field validators declared as ``str`` need explicit coercion.
+    """
     return str(value) if isinstance(value, UUID) else value
 
 
@@ -28,6 +33,8 @@ class UniverseBuildRequest(BaseModel):
 
 
 class ExchangeResponse(BaseModel):
+    """ORM-backed response schema for a Trading212 exchange record."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: str = Field(..., description="Exchange UUID")
@@ -43,6 +50,8 @@ class ExchangeResponse(BaseModel):
 
 
 class InstrumentResponse(BaseModel):
+    """ORM-backed response schema for a tradable instrument from Trading212."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: str = Field(..., description="Instrument UUID")
@@ -66,11 +75,15 @@ class InstrumentResponse(BaseModel):
 
 
 class InstrumentListResponse(BaseModel):
+    """Paginated list of instruments."""
+
     items: list[InstrumentResponse]
     total: int = Field(..., description="Total number of instruments")
 
 
 class BuildResultResponse(BaseModel):
+    """Counts and error list produced by a completed universe build."""
+
     exchanges_saved: int = Field(..., description="Number of exchanges saved")
     instruments_saved: int = Field(..., description="Number of instruments saved")
     total_processed: int = Field(0, description="Total instruments processed")
@@ -81,10 +94,14 @@ class BuildResultResponse(BaseModel):
 
 
 class BuildJobResponse(AsyncJobCreateResponse):
+    """Returned when a universe build job is created."""
+
     build_id: str = Field(..., description="Unique build job ID")
 
 
 class BuildProgressResponse(AsyncJobProgress):
+    """Live progress for a running universe build job."""
+
     build_id: str = Field(..., description="Unique build job ID")
     current_exchange: str = Field("", description="Exchange currently being processed")
     current_stock: str = Field("", description="Stock currently being processed")
@@ -94,6 +111,8 @@ class BuildProgressResponse(AsyncJobProgress):
 
 
 class CacheStatsResponse(BaseModel):
+    """Statistics for the Trading212 instrument cache file."""
+
     total: int = Field(..., description="Total cached mappings")
     fresh: int = Field(..., description="Fresh (non-expired) mappings")
     expired: int = Field(..., description="Expired mappings")
@@ -102,5 +121,7 @@ class CacheStatsResponse(BaseModel):
 
 
 class UniverseStatsResponse(BaseModel):
+    """Summary instrument and exchange counts for the current universe."""
+
     exchange_count: int = Field(..., description="Number of exchanges")
     instrument_count: int = Field(..., description="Number of instruments")

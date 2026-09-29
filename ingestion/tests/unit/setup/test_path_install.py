@@ -1,4 +1,4 @@
-"""PATH-install for the `optimizer` launcher (task T12).
+"""PATH-install for the `optimizer` launcher.
 
 POSIX installs a *symlink* (so a `git pull` updates the launcher in place); Windows
 writes a ``.cmd`` with the repo path baked in. Both put ``~/.local/bin`` on the User
@@ -174,7 +174,7 @@ def test_ensure_on_path_warns_when_append_fails(
     assert "PATH" in caplog.text
 
 
-# --- T13: repo resolution self-heal (review item #3) --------------------------
+# --- repo resolution self-heal ------------------------------------------------
 
 
 @pytest.fixture

@@ -1,4 +1,4 @@
-"""Gap-fill: webhook error branch is LOGGED, not silently dropped (issue #826).
+"""Gap-fill: webhook error branch is LOGGED, not silently dropped.
 
 ``test_notifications.py`` already asserts the network exception is swallowed
 (no raise). The missing branch is the 'no silent drop' guarantee: the failure

@@ -1,4 +1,4 @@
-"""Tests for the parallel bulk yfinance fetch path (issue #575).
+"""Tests for the parallel bulk yfinance fetch path.
 
 Patches ``database_manager.get_session`` at module level so workers receive
 distinct mock sessions. Never hits Postgres.

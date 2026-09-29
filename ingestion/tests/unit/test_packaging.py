@@ -1,4 +1,4 @@
-"""Packaging contract for the ``portopt`` distribution (SPEC D2/D7, task T1).
+"""Packaging contract for the ``portopt`` distribution (SPEC D2/D7).
 
 The ingestion daemon becomes the ``portopt`` console app; the optimizer library
 is renamed ``portopt-core``. These tests pin that contract so a future edit to

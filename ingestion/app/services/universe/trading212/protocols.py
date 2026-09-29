@@ -1,11 +1,4 @@
-"""
-Universe Building Protocols - Interface definitions for universe construction.
-
-Defines contracts for:
-- TickerMapper: Maps Trading212 symbols to yfinance tickers
-- TickerCache: Caches ticker mappings
-- Trading212ApiClient: Trading212 API access
-- UniverseRepository: Data access for universe building
+"""Structural interfaces for universe construction components.
 
 Ingestion applies no investability filtering, so there are no filter/pipeline
 protocols here — screening lives in the downstream fund layer.
@@ -16,11 +9,15 @@ from typing import Any, Protocol, runtime_checkable
 
 @runtime_checkable
 class TickerMapper(Protocol):
+    """Resolve a Trading 212 symbol + exchange to a yfinance ticker."""
+
     def discover(self, symbol: str, exchange_name: str | None = None) -> str | None: ...
 
 
 @runtime_checkable
 class TickerCache(Protocol):
+    """Per-build in-memory store for resolved (symbol, exchange) → ticker mappings."""
+
     def get_mapping(
         self, symbol: str, exchange_name: str, max_age_days: int = 90
     ) -> str | None: ...
@@ -30,12 +27,16 @@ class TickerCache(Protocol):
 
 @runtime_checkable
 class Trading212ApiClient(Protocol):
+    """Fetch the raw exchange and instrument metadata lists from T212."""
+
     def get_exchanges(self) -> list[dict[str, Any]]: ...
     def get_instruments(self) -> list[dict[str, Any]]: ...
 
 
 @runtime_checkable
 class UniverseRepository(Protocol):
+    """Persist and query universe state (exchanges, instruments, delistings)."""
+
     def save_exchange(self, exchange_data: dict[str, Any]) -> Any: ...
     def save_instruments_batch(
         self, instruments_data: list[dict[str, Any]], exchange_id: Any

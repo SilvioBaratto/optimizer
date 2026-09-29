@@ -1,5 +1,5 @@
-"""Example test for issue #15, [scope-7]: every invariant guarded before the
-change is still guarded after it, demonstrated by the fail-injection tests in
+"""[scope-7]: every invariant guarded before the helper consolidation is still
+guarded after it, demonstrated by the fail-injection tests in
 ``test_guards_detect_violations.py``.
 
 Source-blind by construction: scans the raw text of

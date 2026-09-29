@@ -2,7 +2,7 @@
 
 All user interaction goes through a ``Prompter`` so the wizard is testable
 without a TTY (questionary needs one and cannot run under Typer's CliRunner).
-Runtime prompters are chosen by :func:`make_prompter`: ``QuestionaryPrompter``
+Runtime prompters are chosen by ``make_prompter()``: ``QuestionaryPrompter``
 where prompt_toolkit can bind a real console, and the plain-stdin
 ``FallbackPrompter`` under Git Bash mintty (where prompt_toolkit crashes with
 ``NoConsoleScreenBufferError``). ``NonInteractivePrompter`` serves
@@ -170,8 +170,8 @@ def _under_mintty() -> bool:
     """True on Windows Git Bash / MSYS2 / mintty.
 
     prompt_toolkit's Win32 backend crashes there (no console screen buffer), and
-    mintty also makes ``isatty()`` report no TTY — so :func:`make_prompter`
-    checks this first and hands back a :class:`FallbackPrompter`. ``MSYSTEM``
+    mintty also makes ``isatty()`` report no TTY — so ``make_prompter()``
+    checks this first and hands back a ``FallbackPrompter``. ``MSYSTEM``
     (e.g. ``MINGW64``) or an ``xterm*`` ``TERM`` is the reliable signal.
     """
     if os.name != "nt":

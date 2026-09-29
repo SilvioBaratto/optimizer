@@ -72,7 +72,6 @@ class BackgroundJobService:
         repo.cleanup_expired(self._ttl_seconds)
         new_id = repo.claim_or_create(self._job_type, attempt=attempt, **extra)
         if new_id is None:
-            # A job is already running — find its id for the error
             _, existing_id = repo.is_any_running(self._job_type)
             session.commit()
             return None, (existing_id or "unknown")
@@ -91,10 +90,8 @@ class BackgroundJobService:
         raise RuntimeError("Unexpected state in create_job")
 
     def _get_session_context_manager(self) -> Any:
-        """Get a context manager that safely handles nested context managers.
-
-        In tests, session_factory might return a context manager that yields
-        another context manager. This helper handles that case.
+        """Wrap the test-fixture quirk where session_factory may yield a nested
+        context manager rather than a plain SQLAlchemy Session.
         """
         from contextlib import contextmanager
 
@@ -137,16 +134,13 @@ class BackgroundJobService:
             else {}
         )
 
-        # Get session, handling test isolation issues where _session_factory
-        # may return a context manager instead of a session due to conftest mocking
+        # Test conftest may return a nested CM instead of a plain Session.
         session_or_cm = self._session_factory()
 
-        # If we got a context manager instead of a session, enter it
         if hasattr(session_or_cm, "__enter__") and not hasattr(
             session_or_cm, "execute"
         ):
             with session_or_cm as potential_session:
-                # Handle case where context manager yields another context manager
                 if hasattr(potential_session, "__enter__") and not hasattr(
                     potential_session, "execute"
                 ):
@@ -155,13 +149,11 @@ class BackgroundJobService:
                             *self._execute_create_job(session, extra, attempt)
                         )
                 else:
-                    # Got the actual session
                     session = potential_session
                     return self._resolve(
                         *self._execute_create_job(session, extra, attempt)
                     )
         else:
-            # session_or_cm is already a session, not a context manager
             session = session_or_cm
             return self._resolve(*self._execute_create_job(session, extra, attempt))
 
@@ -344,7 +336,6 @@ class BackgroundJobService:
                     self._start_times[job_id] = time.monotonic()
             return
 
-        # Terminal status: completed or failed
         if settings.enable_metrics:
             from app import metrics
 

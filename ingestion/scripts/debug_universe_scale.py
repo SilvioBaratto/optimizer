@@ -236,7 +236,6 @@ def main() -> None:
         print(
             f"  idx {b * 50 + 1:4}-{b * 50 + 50:<4}: history {hok:2}/{len(rs):2}  (info {iok}/{len(rs)})"
         )
-    # Sample errors
     if hist_err:
         print("\nsample history errors:")
         for r in hist_err[:5]:

@@ -1,4 +1,4 @@
-"""Example test for issue #15, [scope-4]: all six tautological
+"""[scope-4]: all six tautological
 ``parents[3] == _INGESTION_ROOT`` assertions are removed from the hygiene
 guard suite; the meaningful ``.name == "ingestion"`` companion assertions are
 retained.

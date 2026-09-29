@@ -1,4 +1,4 @@
-"""Unified ticker → sector resolver shared by Attribution and Dashboard (issue #427).
+"""Unified ticker → sector resolver shared by Attribution and Dashboard.
 
 Two authoritative sources exist in the codebase:
 
@@ -8,14 +8,12 @@ Two authoritative sources exist in the codebase:
 2. ``TickerProfile.sector`` — yfinance-populated table joined via
    ``Instrument.yfinance_ticker``.
 
-Before #427, Attribution queried ``TickerProfile`` via ``Instrument.ticker``
-(the T212-style key ``ENGIp_EQ``), which never matched the ``.PA`` keys in
-the weights dict. Dashboard went straight to the snapshot mapping. The two
-paths diverged on both data source and lookup key.
-
-This resolver unifies them with **snapshot-first, TickerProfile fallback**
-semantics. Missing tickers default to ``Unclassified`` so downstream code can
-always look up every input key without raising ``KeyError``.
+Snapshot-first, TickerProfile-fallback ordering is required because the
+snapshot weights use yfinance-style ``.PA`` keys while ``Instrument.ticker``
+carries T212-style keys (``ENGIp_EQ``); a DB-only lookup against the wrong
+key column would always miss. Missing tickers default to ``Unclassified`` so
+downstream code can always look up every input key without raising
+``KeyError``.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Shared filesystem-scan primitives for the hygiene guard suite (issue #15).
+"""Shared filesystem-scan primitives for the hygiene guard suite.
 
 ``_iter_python_files`` and ``_EXCLUDE_DIR_PARTS`` used to be copy-pasted
 verbatim into ``test_synchronous_only.py`` and ``test_no_optimizer_import.py``

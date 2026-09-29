@@ -76,7 +76,7 @@ def install_launcher(*, repo: Path | None = None, bin_dir: Path | None = None) -
     config ``repo_path`` so the launcher self-heals a moved repo on a later run.
 
     Args:
-        repo: The checkout to point the launcher at; resolved via :func:`resolve_repo`
+        repo: The checkout to point the launcher at; resolved via ``resolve_repo()``
             when omitted.
         bin_dir: Directory to install into; defaults to ``~/.local/bin`` (which uv
             already exposes on PATH on POSIX). Created if absent.

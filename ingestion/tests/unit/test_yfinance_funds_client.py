@@ -1,4 +1,4 @@
-"""T2 — yfinance funds sub-client (re-added after the strip).
+"""yfinance funds sub-client.
 
 Fetches ETF fund data (asset-class split, top holdings, sector weights) and the
 headline profile (AUM/NAV/fund-family/…). ``yf.Ticker`` is mocked — no network.

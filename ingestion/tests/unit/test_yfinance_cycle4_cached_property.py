@@ -4,8 +4,6 @@ Validates that all 13 ``YFinanceClient`` sub-client properties are constructed
 exactly once even when 50 threads race on first access, that the cache lives
 under the un-prefixed attribute name in ``__dict__`` (not ``_<name>``), and that
 ``reset_instance`` evicts every cached entry before nulling the singleton.
-
-Issue: #601
 """
 
 from __future__ import annotations

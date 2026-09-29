@@ -213,19 +213,17 @@ class TestBuildValuesMerge:
     def test_when_extras_provided_then_merged_with_existing_extra(
         self, db_session: Session
     ) -> None:
-        # Seed a row that already has extra data.
         repo = _new_repo(db_session)
         row = repo.create("build_values_merge", existing_key="old_value")
         db_session.flush()
 
-        # Update with a non-core kwarg: triggers _build_values extras path.
+        # Triggers _build_values extras merge path.
         count = repo.update(row.id, status="running", new_key="new_value")
         db_session.flush()
 
         assert count == 1
         refreshed = repo.get(row.id)
         assert refreshed is not None
-        # Merged: both keys present.
         assert refreshed.extra is not None
         assert refreshed.extra.get("new_key") == "new_value"
 
@@ -303,11 +301,9 @@ class TestReplaceErrorEntries:
         jid = _pending(db_session, "replace_errors_non_list")
         repo = _new_repo(db_session)
 
-        # Set some entries first.
         repo.update(jid, status="running", errors=["pre_existing"])
         db_session.flush()
 
-        # Now call _replace_error_entries directly with a non-list value.
         repo._replace_error_entries(jid, "not a list")
         db_session.flush()
 
@@ -495,7 +491,6 @@ class TestUpdateStatusGuard:
         repo.update(jid, status="failed", finished_at=datetime.now(timezone.utc))
         db_session.flush()
 
-        # Try to push a non-terminal update onto a terminal row.
         count = repo.update(jid, current=99)
         assert count == 0
         row = repo.get(jid)

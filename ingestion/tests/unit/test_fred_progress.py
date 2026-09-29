@@ -1,4 +1,4 @@
-"""Lock per-series progress contract for fetch_fred_series (#569).
+"""Lock per-series progress contract for fetch_fred_series.
 
 No DB. No network. Repo and scraper are mocked.
 """

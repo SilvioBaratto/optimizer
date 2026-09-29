@@ -30,6 +30,15 @@ class BaseClient:
         circuit_breaker: CircuitBreakerProtocol,
         default_max_retries: int = 3,
     ) -> None:
+        """Initialize the base client with shared resilience infrastructure.
+
+        Args:
+            cache: Ticker object cache shared across all sub-clients.
+            rate_limiter: Throttles per-symbol request frequency.
+            circuit_breaker: Prevents cascading failures when Yahoo is degraded.
+            default_max_retries: Retry budget used when callers omit
+                ``max_retries``.
+        """
         self.cache = cache
         self.rate_limiter = rate_limiter
         self.circuit_breaker = circuit_breaker

@@ -1,4 +1,4 @@
-"""Shared fixtures for deployment-verification tests (issue #4).
+"""Shared fixtures for deployment-verification tests.
 
 Source-blind by construction: fixtures here drive real collaborators named
 by the acceptance criteria — a fresh virtualenv's ``pip``/``python``, and the
@@ -7,7 +7,7 @@ the daemon or of Docker. No implementation module under ``app/`` is imported
 by the test process itself; ``app.worker`` is imported only inside the
 *subprocess* running in the fresh venv, exactly as the criterion states.
 
-Opt-in (issue #12): ``pytest.ini`` already excludes this package from the
+Opt-in guard: ``pytest.ini`` already excludes this package from the
 default ``pytest tests/`` run via ``--ignore``, but that only protects the
 *default* invocation — a developer or CI job can still target this directory
 (or a single module in it) directly, bypassing ``--ignore``. Both
@@ -151,7 +151,7 @@ def running_scheduler_container(request: pytest.FixtureRequest):
         pytest.fail(f"docker compose build scheduler failed:\n{build.stderr}")
 
     up = subprocess.run(  # noqa: S603
-        # Every service is profile-gated (T6); a bare `up` starts nothing. The
+        # Every service is profile-gated; a bare `up` starts nothing. The
         # ingestion profile is db + scheduler + adminer — exactly what this
         # scheduler-deployment smoke test polls for below.
         [docker, "compose", "--profile", "ingestion", "up", "-d"],

@@ -1,7 +1,6 @@
-"""Example test for issue #15, [scope-1]: the five
-``test_legacy_api_reference_*.py`` satellite modules and
-``test_legacy_api_comment_purge.py`` are removed from
-``tests/unit/hygiene/``, with any genuinely unique assertion folded into
+"""Guard: the five ``test_legacy_api_reference_*.py`` satellite modules and
+``test_legacy_api_comment_purge.py`` are absent from ``tests/unit/hygiene/``,
+with any genuinely unique assertion folded into
 ``test_no_legacy_api_references.py`` or ``test_guards_detect_violations.py``.
 
 Source-blind by construction: this test only checks for the *absence* of

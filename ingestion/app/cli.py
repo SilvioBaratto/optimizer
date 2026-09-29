@@ -64,7 +64,6 @@ def _boot() -> None:
 
 
 def _exit(ok: bool) -> None:
-    """Exit non-zero when the step did not complete."""
     raise typer.Exit(code=0 if ok else 1)
 
 
@@ -259,7 +258,7 @@ def setup(
     from app.setup.prompts import PromptError, make_prompter
     from app.setup.validators import ValidationNetworkError
 
-    # Non-interactive/CI must never silently mutate the User PATH (review item #5):
+    # Non-interactive/CI must never silently mutate the User PATH:
     # `--non-interactive` implies skip unless the operator opts in via interactive setup.
     effective_skip_path_install = skip_path_install or non_interactive
     try:
@@ -309,7 +308,6 @@ def setup(
 
 
 def _print_post_install_note() -> None:
-    """Print the post-setup guidance: passphrase backup, service ports, reopen note."""
     typer.echo("Setup complete.")
     typer.echo(
         "  - Back up your PORTOPT_PASSPHRASE — it is never stored and is the only key "

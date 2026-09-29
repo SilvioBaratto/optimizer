@@ -1,3 +1,5 @@
+"""Thread-safe LRU cache with optional per-entry TTL."""
+
 import threading
 import time
 from collections import OrderedDict
@@ -5,6 +7,15 @@ from typing import Any
 
 
 class LRUCache:
+    """Thread-safe LRU cache with optional per-entry TTL.
+
+    Args:
+        capacity: Maximum number of entries before evicting the
+            least-recently used.
+        default_ttl: Seconds until an entry expires. ``None`` means entries
+            never expire unless evicted by capacity pressure.
+    """
+
     def __init__(
         self,
         capacity: int = 3000,
@@ -19,6 +30,7 @@ class LRUCache:
         return expiry is not None and time.monotonic() > expiry
 
     def get(self, key: str) -> Any | None:
+        """Return the cached value for *key*, or ``None`` on miss or expiry."""
         with self._lock:
             if key not in self._cache:
                 return None
@@ -28,37 +40,46 @@ class LRUCache:
                 del self._cache[key]
                 return None
 
-            # Move to end (most recently used)
             self._cache.move_to_end(key)
             return value
 
     def put(self, key: str, value: Any, ttl: float | None = None) -> None:
+        """Insert or update *key* with *value*.
+
+        Args:
+            key: Cache key.
+            value: Value to store.
+            ttl: Per-entry lifetime in seconds. Overrides *default_ttl* when
+                provided; ``None`` falls back to *default_ttl*.
+        """
         effective_ttl = ttl if ttl is not None else self._default_ttl
         expiry = time.monotonic() + effective_ttl if effective_ttl is not None else None
 
         with self._lock:
             if key in self._cache:
-                # Update existing - move to end
                 self._cache.move_to_end(key)
             self._cache[key] = (value, expiry)
 
-            # Evict oldest if over capacity
             if len(self._cache) > self._capacity:
                 self._cache.popitem(last=False)
 
     def clear(self) -> None:
+        """Evict all entries."""
         with self._lock:
             self._cache.clear()
 
     def size(self) -> int:
+        """Return the current number of non-expired entries."""
         with self._lock:
             return len(self._cache)
 
     @property
     def capacity(self) -> int:
+        """Maximum number of entries this cache will hold."""
         return self._capacity
 
     def contains(self, key: str) -> bool:
+        """Return whether *key* is present and not expired."""
         with self._lock:
             if key not in self._cache:
                 return False
@@ -69,6 +90,7 @@ class LRUCache:
             return True
 
     def keys(self) -> list[str]:
+        """Return a snapshot of all non-expired keys."""
         with self._lock:
             now = time.monotonic()
             expired = [

@@ -1,8 +1,4 @@
-"""Country-level news aggregation with deduplication and recency filtering.
-
-Extracted from ``services/macro_regime/news_fetcher.py`` and refactored to
-accept dependencies via constructor injection.
-"""
+"""Country-level news aggregation with deduplication and recency filtering."""
 
 from __future__ import annotations
 
@@ -17,7 +13,6 @@ from ..protocols import ArticleScraperProtocol, YFinanceClientProtocol
 
 logger = logging.getLogger(__name__)
 
-# Default country → index ticker mapping used for news retrieval.
 DEFAULT_COUNTRY_TICKERS: dict[str, list[str]] = {
     "USA": ["^GSPC", "^DJI"],
     "Germany": ["^GDAXI"],
@@ -26,7 +21,6 @@ DEFAULT_COUNTRY_TICKERS: dict[str, list[str]] = {
     "Japan": ["^N225"],
 }
 
-# Maximum age for news articles (60 days / ~2 months).
 _MAX_AGE_DAYS = 60
 
 
@@ -72,17 +66,12 @@ def _is_article_recent(pub_time: Any, max_days: int = _MAX_AGE_DAYS) -> bool:
 class CountryNewsFetcher:
     """Fetches, deduplicates, and enriches financial news per country.
 
-    Parameters
-    ----------
-    yf_client:
-        A ``YFinanceClientProtocol``-compatible client used to create
-        a ``NewsClient`` internally.
-    scraper:
-        Optional article scraper.  When *None*, a default
-        ``ArticleScraper`` is created lazily.
-    country_tickers:
-        Mapping of country name → list of index tickers whose news
-        feeds are aggregated.  Defaults to ``DEFAULT_COUNTRY_TICKERS``.
+    Attributes:
+        yf_client: YFinanceClientProtocol used to build the internal NewsClient.
+        scraper: Article scraper; when ``None``, a default ``ArticleScraper``
+            is created lazily inside the NewsClient.
+        country_tickers: Country name → index ticker list whose feeds are
+            aggregated. Defaults to ``DEFAULT_COUNTRY_TICKERS``.
     """
 
     yf_client: YFinanceClientProtocol
@@ -108,6 +97,21 @@ class CountryNewsFetcher:
         max_articles: int = 50,
         fetch_full_content: bool = True,
     ) -> list[dict[str, Any]]:
+        """Fetch, deduplicate, and sort news articles for a single country.
+
+        Aggregates feeds from every ticker mapped to ``country``, deduplicates
+        by title, filters by recency, and returns articles sorted newest-first.
+
+        Args:
+            country: Country name key present in ``country_tickers``.
+            max_articles: Maximum number of articles to return.
+            fetch_full_content: When ``True``, scrape full article body via
+                the configured scraper.
+
+        Returns:
+            List of article dicts sorted by publish time (newest first).
+            Empty list when the country has no configured tickers.
+        """
         tickers = self.country_tickers.get(country, [])
         if not tickers:
             return []
@@ -146,6 +150,16 @@ class CountryNewsFetcher:
         max_articles_per_country: int = 50,
         fetch_full_content: bool = True,
     ) -> dict[str, list[dict[str, Any]]]:
+        """Fetch news for every country in ``country_tickers``.
+
+        Args:
+            max_articles_per_country: Per-country article cap forwarded to
+                ``fetch_for_country``.
+            fetch_full_content: When ``True``, scrape full article body.
+
+        Returns:
+            Mapping of country name → article list.
+        """
         return {
             country: self.fetch_for_country(
                 country,

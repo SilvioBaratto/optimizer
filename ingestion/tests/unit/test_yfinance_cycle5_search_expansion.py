@@ -1,4 +1,4 @@
-"""Tests for issue #604: SearchClient.search exposes news_count + extras flags.
+"""Tests for SearchClient.search: exposes news_count and extras flags.
 
 Forward ``news_count`` to ``yf.Search`` constructor and conditionally include
 ``lists``, ``research``, ``nav`` keys in the returned dict via opt-in

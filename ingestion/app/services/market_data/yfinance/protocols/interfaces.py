@@ -10,6 +10,8 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class CacheProtocol(Protocol):
+    """Generic key-value cache with optional per-entry TTL."""
+
     def get(self, key: str) -> Any | None: ...
 
     def put(self, key: str, value: Any, ttl: float | None = None) -> None: ...
@@ -21,11 +23,15 @@ class CacheProtocol(Protocol):
 
 @runtime_checkable
 class RateLimiterProtocol(Protocol):
+    """Per-key rate limiter; blocks until the allotted slot is available."""
+
     def acquire(self, key: str) -> None: ...
 
 
 @runtime_checkable
 class CircuitBreakerProtocol(Protocol):
+    """Open/close circuit breaker that short-circuits calls after repeated failures."""
+
     def check(self) -> None: ...
 
     def trigger(self) -> None: ...
@@ -38,6 +44,8 @@ class CircuitBreakerProtocol(Protocol):
 
 @runtime_checkable
 class ArticleScraperProtocol(Protocol):
+    """Fetches and parses article body text from a URL."""
+
     def fetch(self, url: str) -> ArticleResult: ...
 
     def fetch_multiple(
@@ -49,6 +57,8 @@ class ArticleScraperProtocol(Protocol):
 
 @runtime_checkable
 class YFinanceClientProtocol(Protocol):
+    """Core yfinance client — price history, ticker info, and bulk downloads."""
+
     def get_ticker(self, symbol: str) -> Any: ...
 
     def fetch_info(
@@ -112,13 +122,10 @@ class YFinanceClientProtocol(Protocol):
     ) -> pd.DataFrame | None: ...
 
 
-# ---------------------------------------------------------------------------
-# Sub-client protocols
-# ---------------------------------------------------------------------------
-
-
 @runtime_checkable
 class FinancialsClientProtocol(Protocol):
+    """Fetches financial statement tables from yfinance."""
+
     def fetch_income_stmt(
         self, symbol: str, quarterly: bool = False, max_retries: int | None = None
     ) -> pd.DataFrame | None: ...
@@ -138,6 +145,8 @@ class FinancialsClientProtocol(Protocol):
 
 @runtime_checkable
 class AnalysisClientProtocol(Protocol):
+    """Fetches analyst research data from yfinance."""
+
     def fetch_recommendations(
         self, symbol: str, max_retries: int | None = None
     ) -> pd.DataFrame | None: ...
@@ -181,6 +190,8 @@ class AnalysisClientProtocol(Protocol):
 
 @runtime_checkable
 class HoldersClientProtocol(Protocol):
+    """Fetches holder-composition data from yfinance."""
+
     def fetch_major_holders(
         self, symbol: str, max_retries: int | None = None
     ) -> pd.DataFrame | None: ...
@@ -208,6 +219,8 @@ class HoldersClientProtocol(Protocol):
 
 @runtime_checkable
 class CorporateActionsClientProtocol(Protocol):
+    """Fetches corporate action history from yfinance."""
+
     def fetch_dividends(
         self, symbol: str, max_retries: int | None = None
     ) -> pd.Series | None: ...
@@ -231,6 +244,8 @@ class CorporateActionsClientProtocol(Protocol):
 
 @runtime_checkable
 class MetadataClientProtocol(Protocol):
+    """Fetches ticker-level metadata from yfinance."""
+
     def fetch_isin(self, symbol: str, max_retries: int | None = None) -> str | None: ...
 
     def fetch_fast_info(
@@ -264,6 +279,8 @@ class MetadataClientProtocol(Protocol):
 
 @runtime_checkable
 class SearchClientProtocol(Protocol):
+    """Queries the yfinance search endpoint."""
+
     def search(
         self,
         query: str,
@@ -286,6 +303,8 @@ class SearchClientProtocol(Protocol):
 
 @runtime_checkable
 class ScreenerClientProtocol(Protocol):
+    """Screens equities, funds, and ETFs via yfinance's screen API."""
+
     def screen(
         self,
         query: Any,

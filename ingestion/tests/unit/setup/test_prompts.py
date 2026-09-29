@@ -1,4 +1,4 @@
-"""Prompt seam contract (task T2).
+"""Prompt seam contract.
 
 The wizard talks to the user only through a `Prompter` seam so tests can inject
 answers (questionary needs a real TTY and cannot run under CliRunner). Two

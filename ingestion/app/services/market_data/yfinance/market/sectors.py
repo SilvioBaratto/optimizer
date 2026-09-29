@@ -84,7 +84,17 @@ class SectorsClient:
         region: str = "US",
         max_retries: int | None = None,
     ) -> dict[str, Any] | None:
-        """Return overview + industries + top companies for a sector/region."""
+        """Return overview + industries + top companies for a sector/region.
+
+        Args:
+            key: Sector key from ``SECTOR_KEYS`` (e.g. ``"technology"``).
+            region: Regional scope for list-style rollups (default ``"US"``).
+            max_retries: Override the instance default retry count.
+
+        Returns:
+            Dict with ``key``, ``name``, ``symbol``, ``overview``,
+            ``industries``, and ``top_companies``, or ``None`` on failure.
+        """
         logger.debug("Fetching sector '%s' (region=%s)", key, region)
         retries = max_retries if max_retries is not None else self.default_max_retries
 

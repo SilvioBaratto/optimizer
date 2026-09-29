@@ -1,5 +1,5 @@
 """Guard: the ingestion daemon never depends on ``optimizer`` or the portfolio-
-optimization stack (``skfolio``) (issue #8).
+optimization stack (``skfolio``).
 
 ``scikit-learn`` is intentionally NOT forbidden: yfinance's price-repair path
 (``repair=True``) imports ``sklearn.cluster.DBSCAN`` to reconstruct bad prints,
@@ -12,15 +12,13 @@ the presence of any ML library — the daemon ingests, it does not optimize.
 Source-blind by construction: scans raw tracked-file text for dead import
 and dependency markers. No implementation module is imported.
 
-Anchoring reuses the shape established by ``test_no_http_surface.py`` (issue
-#5, the checkpoint guard): ``Path(__file__).resolve().parents[3]`` resolves
-directly to the ``ingestion/`` directory from this file's location, never
+Anchoring reuses the shape established by ``test_no_http_surface.py`` (the
+checkpoint guard): ``Path(__file__).resolve().parents[3]`` resolves directly
+to the ``ingestion/`` directory from this file's location, never
 ``Path.cwd()``. The scans take an injectable ``root``/text so the
 fail-injection tests below never mutate real source.
 
-``_iter_python_files`` / ``_EXCLUDE_DIR_PARTS`` live in ``_shared_scan.py``
-(issue #15) — this module used to carry a byte-identical copy of both,
-shared verbatim with ``test_synchronous_only.py``.
+``_iter_python_files`` / ``_EXCLUDE_DIR_PARTS`` live in ``_shared_scan.py``.
 """
 
 from __future__ import annotations
@@ -48,8 +46,7 @@ _FORBIDDEN_STACK_PACKAGES = ("skfolio",)
 def find_optimizer_import_violations(root: Path) -> list[str]:
     """Scan ``root`` for ``optimizer`` import statements.
 
-    Injectable-root sibling of the checkpoint guard's
-    ``find_http_violations`` (issue #5).
+    Injectable-root sibling of the checkpoint guard's ``find_http_violations``.
 
     Args:
         root: Directory tree to scan (an ``app/``-shaped root).

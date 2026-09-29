@@ -1,6 +1,6 @@
 """Service layer orchestrating macro regime data fetching and storage.
 
-Bulk-ingestion error policy (issue #850): macro data is aggregated per country
+Bulk-ingestion error policy: macro data is aggregated per country
 across multiple scrapers (IlSole, Trading Economics, FRED). Each per-country /
 per-source ``except`` logs and accumulates the failure into an ``errors`` /
 ``all_errors`` list, then continues — one failing source or country must not
@@ -28,7 +28,18 @@ logger = logging.getLogger(__name__)
 
 
 class MacroRegimeService:
-    """Fetches macroeconomic data from scrapers and stores via repository."""
+    """Fetches macroeconomic data from scrapers and stores via repository.
+
+    Args:
+        repo: Repository for persisting macro indicators, observations, and
+            FRED series.
+        ilsole_scraper: Override for the IlSole24Ore scraper; defaults to a
+            fresh ``IlSoleScraper()`` if omitted.
+        te_scraper: Override for the Trading Economics scraper; defaults to a
+            fresh ``TradingEconomicsIndicatorsScraper()``.
+        fred_scraper: Override for the FRED scraper; constructed lazily from
+            ``settings.fred_api_key`` when ``None``.
+    """
 
     def __init__(
         self,
@@ -65,15 +76,15 @@ class MacroRegimeService:
         countries: list[str] | None = None,
         include_bonds: bool = True,
     ) -> dict[str, Any]:
-        """
-        Fetch macro data for all specified countries and store in database.
+        """Fetch macro data for all specified countries and store in database.
 
         Args:
-            countries: List of countries to fetch. None means PORTFOLIO_COUNTRIES.
-            include_bonds: Whether to fetch bond yield data.
+            countries: Countries to fetch. ``None`` means ``PORTFOLIO_COUNTRIES``.
+            include_bonds: Whether to include bond yield data.
 
         Returns:
-            Dict with "counts" (per-category totals) and "errors" (list of error strings).
+            Dict with ``"counts"`` (per-category totals) and ``"errors"``
+            (list of error strings).
         """
         if countries is None:
             countries = list(PORTFOLIO_COUNTRIES)
@@ -92,11 +103,9 @@ class MacroRegimeService:
             try:
                 result = self.fetch_country(country, include_bonds=include_bonds)
 
-                # Accumulate counts
                 for key, count in result["counts"].items():
                     total_counts[key] = total_counts.get(key, 0) + count
 
-                # Accumulate errors with country prefix
                 for err in result["errors"]:
                     all_errors.append(f"{country}: {err}")
 
@@ -111,16 +120,18 @@ class MacroRegimeService:
         country: str,
         include_bonds: bool = True,
     ) -> dict[str, Any]:
-        """
-        Fetch and store macro data for a single country.
+        """Fetch and store macro data for a single country.
+
+        Args:
+            country: English country name (must be in ``PORTFOLIO_COUNTRIES``).
+            include_bonds: Whether to include bond yield data.
 
         Returns:
-            Dict with "counts" and "errors" for this country.
+            Dict with ``"counts"`` and ``"errors"`` for this country.
         """
         counts: dict[str, int] = {}
         errors: list[str] = []
 
-        # 1. IlSole forecasts (real indicators sourced from TradingEconomics)
         today = datetime.date.today()
         try:
             forecast_data = self.ilsole_scraper.get_forecasts(country)
@@ -129,7 +140,6 @@ class MacroRegimeService:
                     country=country,
                     data=forecast_data,
                 )
-                # Also write to time-series observation table
                 counts["ilsole_observations"] = (
                     self.repo.upsert_economic_indicator_observation(
                         country=country,
@@ -146,21 +156,18 @@ class MacroRegimeService:
             counts.setdefault("ilsole_observations", 0)
             logger.warning("Failed IlSole forecasts for %s: %s", country, e)
 
-        # 3. Trading Economics indicators (+ bonds)
         try:
             te_data = self.te_scraper.get_country_indicators(
                 country, include_bonds=include_bonds
             )
 
             if te_data.get("status") == "success":
-                # Store indicators (latest-snapshot table)
                 indicators = te_data.get("indicators", {})
                 if indicators:
                     counts["te_indicators"] = self.repo.upsert_te_indicators(
                         country=country,
                         indicators_dict=indicators,
                     )
-                    # Also write to time-series observation table
                     n_obs = self.repo.upsert_te_observations(
                         country=country,
                         snapshot_date=today,
@@ -177,7 +184,6 @@ class MacroRegimeService:
                         country,
                     )
 
-                # Store bond yields (latest-snapshot table)
                 if include_bonds:
                     bond_yields = te_data.get("bond_yields", {})
                     if bond_yields:
@@ -185,7 +191,6 @@ class MacroRegimeService:
                             country=country,
                             yields_dict=bond_yields,
                         )
-                        # Also write to time-series observation table
                         n_bond_obs = self.repo.upsert_bond_yield_observations(
                             country=country,
                             snapshot_date=today,
@@ -299,6 +304,11 @@ class MacroRegimeService:
     ) -> dict[str, Any]:
         """Fetch macro-themed news from yfinance and store in DB.
 
+        Args:
+            max_articles: Maximum number of articles to fetch.
+            fetch_full_content: Whether to scrape full article body in addition
+                to the headline snippet.
+
         Returns:
             Dict with ``"count"`` and ``"errors"`` keys.
         """
@@ -377,7 +387,7 @@ class MacroRegimeService:
 
 
 # ---------------------------------------------------------------------------
-# Standalone bulk functions (callable from routes and scheduler)
+# Standalone bulk functions (called from the scheduler and CLI)
 # ---------------------------------------------------------------------------
 
 
@@ -437,11 +447,9 @@ def run_bulk_macro_fetch(
             "counts": total_counts,
             "error_count": len(all_errors),
         }
-        # Per-country fetch errors (e.g. Trading Economics circuit-breaker
-        # trips) are accumulated but were previously swallowed — the job still
-        # reported "completed", so a 16-day data outage stayed invisible.
-        # Surface any error as a failed terminal status so the jobs API and
-        # the failure webhook report it.
+        # A partial failure (e.g. one country's Trading Economics circuit
+        # breaker tripping) must not produce a "completed" status — callers
+        # rely on the status to detect gaps in the macro dataset.
         had_errors = len(all_errors) > 0
         on_progress(
             status="failed" if had_errors else "completed",

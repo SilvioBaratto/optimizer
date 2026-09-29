@@ -1,4 +1,4 @@
-"""T4 — ETF screen + builder branch.
+"""ETF screen + builder branch.
 
 The equity screens don't apply to funds, so ETFs run their own pipeline
 (classification upstream + the history bar) and are deduped to one listing per

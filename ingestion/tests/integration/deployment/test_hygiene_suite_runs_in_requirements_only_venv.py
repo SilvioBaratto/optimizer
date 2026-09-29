@@ -1,8 +1,7 @@
 """Integration test proving the migrations-reversible hygiene guard runs to
 green using only the packages the daemon declares in
 ``ingestion/pyproject.toml`` (its runtime deps + the ``[test]`` extra) — no
-dev-only extra may be silently relied upon from the outer/dev environment
-(issue #11, scope-1).
+dev-only extra may be silently relied upon from the outer/dev environment.
 
 Source-blind by construction: drives a real subprocess (the fresh venv's
 own ``pytest``) against the real guard file. No implementation module is

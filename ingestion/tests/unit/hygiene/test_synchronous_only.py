@@ -1,22 +1,19 @@
 """Guard: the ingestion daemon stays synchronous-only — no ``AsyncSession``,
-``asyncpg``, or asyncio worker primitive anywhere under ``ingestion/app``
-(issue #8).
+``asyncpg``, or asyncio worker primitive anywhere under ``ingestion/app``.
 
 Source-blind by construction: scans the raw text of tracked ``app/`` files
 for dead async markers. No implementation module is imported — this is a
 pure text-content guard.
 
-Anchoring reuses the shape established by ``test_no_http_surface.py`` (issue
-#5, the checkpoint guard): ``Path(__file__).resolve().parents[3]`` resolves
-directly to the ``ingestion/`` directory from this file's location
+Anchoring reuses the shape established by ``test_no_http_surface.py`` (the
+checkpoint guard): ``Path(__file__).resolve().parents[3]`` resolves directly
+to the ``ingestion/`` directory from this file's location
 (``ingestion/tests/unit/hygiene/``) — no separate climb to the repository
 root, and never ``Path.cwd()``. The scan takes an injectable ``root`` so the
 fail-injection test below can point it at a synthetic tree instead of
 mutating real source.
 
-``_iter_python_files`` / ``_EXCLUDE_DIR_PARTS`` live in ``_shared_scan.py``
-(issue #15) — this module used to carry a byte-identical copy of both,
-shared verbatim with ``test_no_optimizer_import.py``.
+``_iter_python_files`` / ``_EXCLUDE_DIR_PARTS`` live in ``_shared_scan.py``.
 """
 
 from __future__ import annotations
@@ -37,9 +34,9 @@ _FORBIDDEN_MARKERS = ("AsyncSession", "asyncpg", "asyncio.", "async def ")
 def find_async_violations(root: Path) -> list[str]:
     """Scan ``root`` for dead async markers.
 
-    Injectable-root sibling of the checkpoint guard's
-    ``find_http_violations`` (issue #5): a caller can point the scan at a
-    synthetic tree instead of the real ``ingestion/app`` root.
+    Injectable-root sibling of the checkpoint guard's ``find_http_violations``:
+    a caller can point the scan at a synthetic tree instead of the real
+    ``ingestion/app`` root.
 
     Args:
         root: Directory tree to scan (an ``app/``-shaped root).

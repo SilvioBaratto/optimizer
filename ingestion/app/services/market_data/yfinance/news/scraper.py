@@ -1,3 +1,5 @@
+"""Article fetching and content extraction from financial news URLs."""
+
 import time
 from dataclasses import dataclass, field
 from typing import TypedDict
@@ -5,7 +7,6 @@ from typing import TypedDict
 import requests
 from bs4 import BeautifulSoup
 
-# Default HTTP headers for article fetching
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -29,6 +30,15 @@ ARTICLE_SELECTORS = [
 
 
 class ArticleResult(TypedDict):
+    """Result returned by ``ArticleScraper.fetch``.
+
+    Attributes:
+        success: Whether the fetch and parse succeeded.
+        content: Extracted article body text, or ``None`` on failure.
+        content_length: Character count of ``content``, or ``None``.
+        error: Failure message when ``success`` is ``False``.
+    """
+
     success: bool
     content: str | None
     content_length: int | None
@@ -37,11 +47,28 @@ class ArticleResult(TypedDict):
 
 @dataclass
 class ArticleScraper:
+    """Scrapes full article text from a URL using common CSS selectors.
+
+    Attributes:
+        timeout: Request timeout in seconds.
+        delay: Seconds to wait between requests to avoid overwhelming servers.
+        headers: HTTP headers forwarded with each request.
+    """
+
     timeout: int = 10
     delay: float = 1.0
     headers: dict[str, str] = field(default_factory=lambda: DEFAULT_HEADERS.copy())
 
     def fetch(self, url: str) -> ArticleResult:
+        """Fetch and extract the main article text from a URL.
+
+        Args:
+            url: Article URL to fetch.
+
+        Returns:
+            ``ArticleResult`` with ``success=True`` and the extracted text,
+            or ``success=False`` with an error description.
+        """
         try:
             # Add delay to be respectful to servers
             if self.delay > 0:
@@ -52,13 +79,11 @@ class ArticleScraper:
 
             soup = BeautifulSoup(response.content, "html.parser")
 
-            # Remove script and style elements
             for element in soup(
                 ["script", "style", "nav", "header", "footer", "aside"]
             ):
                 element.decompose()
 
-            # Try to find article content using common selectors
             article_content = self._find_article_content(soup)
 
             if article_content:
@@ -117,6 +142,16 @@ class ArticleScraper:
         urls: list[str],
         max_articles: int | None = None,
     ) -> list[ArticleResult]:
+        """Fetch and extract article text from multiple URLs sequentially.
+
+        Args:
+            urls: List of article URLs to fetch.
+            max_articles: Cap on the number of URLs to process. ``None``
+                means all.
+
+        Returns:
+            List of ``ArticleResult`` instances in the same order as ``urls``.
+        """
         results = []
         fetch_count = (
             len(urls) if max_articles is None else min(len(urls), max_articles)

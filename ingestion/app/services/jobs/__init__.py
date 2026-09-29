@@ -1,4 +1,4 @@
-"""Jobs Services."""
+"""Job lifecycle management: background job service and APScheduler factory."""
 
 from app.services.jobs.background_job import (
     BackgroundJobService,

@@ -1,4 +1,4 @@
-"""Lifecycle tests for BackgroundJobService + progress + orphan reaper (issue #824).
+"""Lifecycle tests for BackgroundJobService + progress + orphan reaper.
 
 Fills the gaps left by ``test_background_job_service_heartbeat.py`` (which
 covers heartbeat ticks, the start_background return shape, and the cancellable

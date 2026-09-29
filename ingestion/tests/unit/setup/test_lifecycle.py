@@ -1,4 +1,4 @@
-"""Lifecycle orchestration contract (SPEC D6/D10, task T7b).
+"""Lifecycle orchestration contract (SPEC D6/D10).
 
 `run_start` decrypts the store, renders compose secrets, and brings the stack up;
 `run_stop` tears it down and wipes the plaintext secret files; `run_status`
@@ -76,7 +76,7 @@ def test_run_start_propagates_bad_passphrase(
     monkeypatch.setattr(lifecycle.secret_store, "load_secrets", _boom)
     with pytest.raises(InvalidPassphraseError):
         lifecycle.run_start("wrong")
-    assert patched["compose"] == []  # nothing brought up
+    assert patched["compose"] == []
 
 
 def test_run_stop_tears_down_and_cleans(patched: dict) -> None:
@@ -130,7 +130,7 @@ def test_run_start_renders_secrets_and_env_before_bringing_up(
 
 def test_run_start_brings_up_the_fund_profile(patched: dict) -> None:
     """run_start must target the fund profile: every compose service is
-    profile-gated (T6), so a bare `up` would start nothing."""
+    profile-gated, so a bare `up` would start nothing."""
     lifecycle.run_start("pw")
     assert patched["build_profile"] == "fund"
 

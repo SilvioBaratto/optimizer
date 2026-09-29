@@ -1,5 +1,5 @@
-"""Example test for issue #15, [scope-2]: no test under ``tests/unit/hygiene/``
-spawns a nested ``pytest`` subprocess, except the cwd-independence check in
+"""[scope-2]: no test under ``tests/unit/hygiene/`` spawns a nested
+``pytest`` subprocess, except the cwd-independence check in
 ``test_guards_detect_violations.py``.
 
 Source-blind by construction: scans the raw text of tracked hygiene modules
@@ -15,15 +15,10 @@ and on legitimate non-pytest subprocess use (``_shared_scan.py`` shells out
 to ``git``; ``test_ruff_clean_after_fastapi_purge.py`` shells out to
 ``ruff``).
 
-Scope resolution: issue #15's Context section enumerates the exact ten
-nested-pytest launches it exists to remove — all ten sit in the six files
-named there (the five deleted ``test_legacy_api_reference_*.py`` satellites
-plus ``test_guards_detect_violations.py``). The deployment-suite guards
-(``test_deployment_*.py``) and ``test_unit_guards_survive_not_integration_
-filter.py`` predate this issue, pin unrelated acceptance criteria from
-issues #7/#12 (verifying real subprocess pytest collection/exec behaviour
-is their whole point), and are not named anywhere in issue #15 — they are
-out of scope and allowlisted rather than modified.
+Scope resolution: the deployment-suite guards (``test_deployment_*.py``) and
+``test_unit_guards_survive_not_integration_filter.py`` verify real subprocess
+pytest collection/exec behaviour as their whole point, so they are allowlisted
+rather than modified.
 """
 
 from __future__ import annotations

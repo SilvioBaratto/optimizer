@@ -1,9 +1,5 @@
-"""Example test for issue #3, criterion scope-4.
-
-After purging the residual FastAPI references from ``ingestion/pytest.ini``
-and ``ingestion/ruff.toml`` and deleting the dead smoke fixture, both
-``ruff check ingestion/`` and ``ruff format --check ingestion/`` must be
-clean.
+"""Guard: ``ruff check ingestion/`` and ``ruff format --check ingestion/`` are
+both clean.
 
 Source-blind by construction: shells out to the ``ruff`` binary on the
 tracked tree, no implementation module is imported or exercised. Skips if

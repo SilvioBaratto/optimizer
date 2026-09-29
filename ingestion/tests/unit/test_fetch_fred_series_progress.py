@@ -1,7 +1,7 @@
 """TDD coverage for per-series on_progress in fetch_fred_series.
 
 Asserts the service-layer surface only — wiring through run_bulk_fred_fetch
-is covered by behavioural tests in issue #569.
+is covered by behavioural tests elsewhere.
 """
 
 from __future__ import annotations

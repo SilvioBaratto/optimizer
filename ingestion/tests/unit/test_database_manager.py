@@ -60,7 +60,6 @@ class TestModuleLevelHelpers:
 
 class TestConfigMapping:
     def test_singleton_builds_dbconfig_from_settings(self) -> None:
-        """app.database maps settings onto the injected DbConfig."""
         from app.config import settings
         from app.database import _build_config
 

@@ -1,4 +1,4 @@
-"""Settings exposure for liveness reaper (issue #590)."""
+"""Settings exposure for liveness reaper."""
 
 from __future__ import annotations
 

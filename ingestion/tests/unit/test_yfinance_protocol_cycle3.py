@@ -3,8 +3,6 @@
 Validates that ``fetch_history`` exposes the eight price-quality kwargs and
 that ``bulk_download`` flips ``auto_adjust`` default to ``True`` and gains
 ``max_retries`` to align with the facade signature.
-
-Issue: #597
 """
 
 from __future__ import annotations

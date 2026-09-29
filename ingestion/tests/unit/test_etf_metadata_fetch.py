@@ -85,7 +85,7 @@ def test_fetch_etf_metadata_writes_all_tables(db_session) -> None:
 
 
 def test_fetch_etf_metadata_writes_depth_tables(db_session) -> None:
-    """SPEC A8: equity/bond holdings, bond ratings, fund operations, and the
+    """Equity/bond holdings, bond ratings, fund operations, and the
     fund overview (category/description) are persisted from funds_data depth."""
     from portopt_db.models.market_data.etf_metadata import (
         ETFBondHoldings,
@@ -192,8 +192,6 @@ def test_incremental_skips_when_metadata_is_fresh(db_session) -> None:
 
 
 def test_dispatch_calls_etf_branch_only_for_funds(db_session) -> None:
-    """fetch_and_store runs the ETF metadata branch for fixed_income /
-    multi_asset instruments, and skips it for equity."""
     from unittest.mock import patch
 
     inst = _fi_instrument(db_session)

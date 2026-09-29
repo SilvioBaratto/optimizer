@@ -1,5 +1,5 @@
 """Guard: ``app/services/_shared/__init__.py`` never re-exports
-``bootstrap_benchmarks`` (issue #8).
+``bootstrap_benchmarks``.
 
 Load-bearing, not stylistic: ``_benchmark_bootstrap`` imports
 ``market_data.reference_index_seeder``, which imports back into ``_shared``
@@ -12,10 +12,8 @@ for the absence of the re-export, stripping prose first so a docstring
 explaining the omission does not read as a violation. No implementation
 module is imported.
 
-Anchoring reuses the shape established by ``test_no_http_surface.py`` (issue
-#5, the checkpoint guard): ``Path(__file__).resolve().parents[3]`` resolves
-directly to the ``ingestion/`` directory from this file's location, never
-``Path.cwd()``.
+Anchored on ``Path(__file__).resolve().parents[3]``: resolves directly to the
+``ingestion/`` directory from this file's location, never ``Path.cwd()``.
 """
 
 from __future__ import annotations

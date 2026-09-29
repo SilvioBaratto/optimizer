@@ -1,4 +1,4 @@
-"""Data-ingestion error-surfacing tests (issue #850).
+"""Data-ingestion error-surfacing tests.
 
 Each previously-silent per-item drop now logs before continuing. These tests
 lock that behaviour: a malformed item is skipped/degraded *and* logged, never

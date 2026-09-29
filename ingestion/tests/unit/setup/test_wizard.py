@@ -1,4 +1,4 @@
-"""Install-wizard setup-flow contract (SPEC D4/D8, task T7a).
+"""Install-wizard setup-flow contract (SPEC D4/D8).
 
 Covers both entry points: `run_setup_noninteractive` (CI/flags) and
 `run_setup_interactive` (prompt seam). Validation, encryption, and Docker calls
@@ -329,7 +329,7 @@ def test_interactive_docker_down_propagates(
     assert patched["saved_secrets"] is None
 
 
-# --- T5: LLM prompt group + --llm-* flags -------------------------------------
+# --- LLM prompt group + --llm-* flags -----------------------------------------
 
 
 def _llm_prompter(answers: dict) -> NonInteractivePrompter:
@@ -532,7 +532,7 @@ def test_interactive_llm_azure_persists_fields_and_secret(patched: dict) -> None
     assert patched["saved_secrets"]["azure_openai_api_key"] == "az-key"
 
 
-# --- T15: idempotency / --reconfigure / --skip-validation / auto-launch -------
+# --- idempotency / --reconfigure / --skip-validation / auto-launch -----------
 
 
 def test_noninteractive_idempotent_rerun_preserves_untouched_secrets(

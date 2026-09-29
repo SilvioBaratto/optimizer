@@ -8,11 +8,11 @@ from pydantic.alias_generators import to_camel
 
 
 class CamelCaseModel(BaseModel):
-    """Base model that serializes field names to camelCase.
+    """Base model with camelCase JSON serialization.
 
-    All response models returned to the Angular frontend must extend this class
-    to ensure consistent camelCase JSON serialization.
-    Request models that are not exposed to the frontend may use plain BaseModel.
+    Extend for any response schema that must serialize field names to camelCase.
+    Internal service schemas that are never serialized to JSON may use plain
+    ``BaseModel`` instead.
     """
 
     model_config = ConfigDict(
@@ -22,7 +22,6 @@ class CamelCaseModel(BaseModel):
 
 
 def _coerce_uuid(v: Any) -> str:
-    """Coerce uuid.UUID to str for Pydantic v2 from_attributes mode."""
     if isinstance(v, uuid.UUID):
         return str(v)
     return str(v)

@@ -1,18 +1,11 @@
-"""Example test for issue #3, criterion scope-1.
+"""Guard: ``ingestion/pytest.ini`` no longer describes the tree as "FastAPI
+application" and instead describes the headless ingestion daemon it actually is.
 
-``ingestion/pytest.ini`` carries a header comment. The criterion requires the
-header to no longer describe the tree as "FastAPI application" and to instead
-describe the headless ingestion daemon it actually is.
-
-Ambiguity resolved in this test: the criterion names the phrase "FastAPI
-application" verbatim as the one to remove, and "headless ingestion daemon" as
-the replacement description in spirit. ``pytest.ini`` is INI syntax, so a
-``[section]`` marker starts on line 1 before any header comment — scoping the
-check to "before the first bracket" would inspect an empty string. This test
-instead scans the whole file for the absence of the removed phrase and the
-presence of both "headless" and "ingestion daemon", rather than requiring one
-exact sentence — the criterion does not mandate specific wording beyond that
-meaning.
+Ambiguity resolved: ``pytest.ini`` is INI syntax, so a ``[section]`` marker
+starts on line 1 before any header comment — scoping the check to "before the
+first bracket" would inspect an empty string. This test instead scans the whole
+file for the absence of "fastapi application" and the presence of both
+"headless" and "ingestion daemon", rather than requiring one exact sentence.
 
 Source-blind by construction: reads the raw text of a tracked config file, no
 implementation module is imported or exercised.

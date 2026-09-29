@@ -1,4 +1,4 @@
-"""ScreenerClient contract (SPEC D1, task T8).
+"""ScreenerClient contract.
 
 Wraps yfinance 1.6.0 ``yf.screen`` (there is no ``yf.Screener`` class) with the
 shared rate-limiter / circuit-breaker / retry infrastructure, and is exposed on

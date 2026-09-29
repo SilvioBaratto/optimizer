@@ -1,4 +1,4 @@
-"""Tests for BackgroundJobRepository — dialect-agnostic SQL (issue #314).
+"""Tests for BackgroundJobRepository — dialect-agnostic SQL.
 
 Covers claim_or_create atomicity and cleanup_expired cutoff arithmetic
 on SQLite (the test dialect).  Regression guards against reintroduction
@@ -165,8 +165,6 @@ class TestCleanupExpired:
 
 
 class TestGetLatestByType:
-    """get_latest_by_type returns the most recently finished job."""
-
     def test_returns_none_when_no_jobs(self, db_session: Session) -> None:
         repo = BackgroundJobRepository(db_session)
         result = repo.get_latest_by_type("no_such_type_375")
@@ -238,8 +236,6 @@ class TestGetLatestByType:
 
 
 class TestReconcileOrphans:
-    """reconcile_orphans marks pending/running rows as failed at startup."""
-
     def test_when_pending_job_exists_marks_failed(self, db_session: Session) -> None:
         repo = BackgroundJobRepository(db_session)
         jid = repo.claim_or_create("test_557_pending")
@@ -422,8 +418,6 @@ class TestReconcileOrphans:
 
 
 class TestReapOrphans:
-    """R3/§5.3 — reap_orphans fails stale orphans and returns them to re-run."""
-
     def test_reaps_stale_and_returns_job_type_and_attempt(
         self, db_session: Session
     ) -> None:
@@ -470,7 +464,7 @@ class TestReapOrphans:
 
 
 class TestLivenessPredicate:
-    """T2.1 / §5.3 — lease-based liveness: only a stale heartbeat reaps a claim.
+    """Lease-based liveness: only a stale heartbeat reaps a claim.
 
     Host and PID no longer participate (they false-reaped across a host/
     container change and were inert off Linux). A fresh lease is never reaped,

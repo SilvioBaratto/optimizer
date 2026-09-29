@@ -278,14 +278,10 @@ def _make_news_id(title: str, link: str) -> str:
 class MacroNewsFetcher:
     """Fetches macro-themed news from yfinance tickers and search queries.
 
-    Parameters
-    ----------
-    yf_client:
-        YFinance client used for ticker-based news fetching.
-    search_client:
-        Search client used for query-based news fetching.
-    scraper:
-        Optional article scraper for full content retrieval.
+    Attributes:
+        yf_client: YFinanceClientProtocol used for ticker-based news fetching.
+        search_client: SearchClientProtocol used for query-based news fetching.
+        scraper: Optional article scraper for full content retrieval.
     """
 
     yf_client: YFinanceClientProtocol
@@ -309,9 +305,7 @@ class MacroNewsFetcher:
     ) -> list[dict[str, Any]]:
         """Fetch macro news from all configured tickers and search queries.
 
-        Returns a list of article dicts sorted by publish time (newest first),
-        deduplicated by title, classified by theme, and curated for signal
-        density:
+        Curates articles for signal density with three passes:
 
         * **Per-ticker cap** (``max_per_ticker``, default 3) prevents a
           single ticker from dominating the budget.
@@ -320,9 +314,18 @@ class MacroNewsFetcher:
         * **Theme diversity** — after search + capped ticker selection,
           remaining budget is filled by picking the most-recent article
           from any under-represented theme.
+
+        Args:
+            max_articles: Overall cap on the returned list.
+            fetch_full_content: When ``True``, scrape the full article body
+                via the configured scraper.
+            max_per_ticker: Per-ticker article cap to prevent domination.
+
+        Returns:
+            List of article dicts sorted by publish time (newest first),
+            deduplicated by title and classified by macro theme.
         """
         self._seen_titles.clear()
-        # ticker -> list of articles from that ticker
         ticker_buckets: dict[str, list[dict[str, Any]]] = {}
         search_articles: list[dict[str, Any]] = []
 
@@ -344,7 +347,6 @@ class MacroNewsFetcher:
                     if article is not None:
                         bucket.append(article)
                 if bucket:
-                    # Sort each bucket by recency, keep top N
                     bucket.sort(
                         key=lambda a: a.get("publish_time") or "",
                         reverse=True,
@@ -475,14 +477,12 @@ class MacroNewsFetcher:
         pub_date = _parse_article_date(pub_time)
         pub_time_iso = pub_date.isoformat() if pub_date else None
 
-        # Snippet from summary or first 300 chars of content
         snippet = content.get("summary", "")
         if not snippet:
             snippet = content.get("description", "")
         if snippet and len(snippet) > 500:
             snippet = snippet[:497] + "..."
 
-        # Classify themes using title + snippet
         classify_text = f"{title} {snippet}"
         themes = _classify_themes(classify_text, seed_themes)
         themes_str = ",".join(t.value for t in themes)

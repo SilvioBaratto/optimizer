@@ -1,4 +1,4 @@
-"""Unit tests for MacroRegimeService.fetch_country and run_bulk_macro_fetch (issue #822).
+"""Unit tests for MacroRegimeService.fetch_country and run_bulk_macro_fetch.
 
 Covers gaps NOT already in test_macro_regime_service_fred_key.py:
   - fetch_country success: counts populated, repo upserts called correctly
@@ -335,7 +335,6 @@ class TestRunBulkMacroFetch:
 
     def test_when_two_countries_then_session_commit_called_twice(self) -> None:
         mock_session, _ = self._run_bulk(["USA", "Germany"])
-        # One session.commit() per country = 2
         assert mock_session.commit.call_count == 2
 
     def test_when_no_errors_then_final_progress_status_is_completed(self) -> None:

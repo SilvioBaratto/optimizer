@@ -1,4 +1,4 @@
-"""Sub-client for ETF / fund data (re-added after the strip).
+"""Sub-client for ETF / fund data.
 
 Wraps ``yf.Ticker.funds_data`` (asset-class split, top holdings, sector weights)
 and the fund fields on ``yf.Ticker.info`` (AUM / NAV / family / expense ratio).
@@ -92,8 +92,8 @@ class FundsClient(BaseClient):
             "asset_classes": asset_classes,
             "sector_weightings": sector_weightings,
             "top_holdings": top_holdings,
-            # Depth (SPEC A8): metric-indexed DataFrames flattened to {metric:
-            # value}; bond_ratings / fund_overview are already dict-shaped.
+            # Metric-indexed DataFrames are flattened to {metric: value};
+            # bond_ratings / fund_overview are already dict-shaped.
             "equity_holdings": _first_col_dict(getattr(fd, "equity_holdings", None)),
             "bond_holdings": _first_col_dict(getattr(fd, "bond_holdings", None)),
             "fund_operations": _first_col_dict(getattr(fd, "fund_operations", None)),

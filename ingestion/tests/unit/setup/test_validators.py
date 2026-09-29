@@ -1,4 +1,4 @@
-"""On-the-spot key-validation contract (SPEC D8 wizard, task T4).
+"""On-the-spot key-validation contract (SPEC D8 wizard).
 
 Each validator makes one cheap request and returns True (200) / False (auth or
 other non-200), or raises `ValidationNetworkError` when the request itself fails
@@ -48,7 +48,7 @@ def test_validate_fred_bad_key(mock_get: MagicMock) -> None:
     assert validators.validate_fred("bad") is False
 
 
-# --- validate_llm (T4): httpx-only per-provider probe, no SDK import -----------
+# --- validate_llm: httpx-only per-provider probe, no SDK import ---------------
 
 import httpx
 import pytest

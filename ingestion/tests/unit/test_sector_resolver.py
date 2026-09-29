@@ -1,4 +1,4 @@
-"""Unit tests for ``app.services._sector_resolver`` (issue #427).
+"""Unit tests for ``app.services._sector_resolver``.
 
 Covers the two-tier sector-mapping resolver shared by Attribution and
 Dashboard:
@@ -83,7 +83,7 @@ class TestResolveSectorMapTickerProfileFallback:
     def test_european_yfinance_tickers_resolve(
         self, db_session: Session, seeded_instruments: None
     ) -> None:
-        """Regression for #427: `.PA` tickers now resolve via yfinance_ticker."""
+        """Regression: `.PA` tickers now resolve via yfinance_ticker."""
         from app.services._shared import resolve_sector_map
 
         result = resolve_sector_map(

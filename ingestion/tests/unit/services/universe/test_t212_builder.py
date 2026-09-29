@@ -210,7 +210,7 @@ class TestUniverseBuilderBuild:
 
 
 # ---------------------------------------------------------------------------
-# UniverseBuilder.build() — discover returns None (T1: still dropped; T4 flips)
+# UniverseBuilder.build() — discover returns None
 # ---------------------------------------------------------------------------
 
 
@@ -238,7 +238,7 @@ class TestUniverseBuilderDiscoverNone:
 
 
 # ---------------------------------------------------------------------------
-# UniverseBuilder — exchange scoping (T1: still restricted; T3 opens it up)
+# UniverseBuilder — exchange scoping
 # ---------------------------------------------------------------------------
 
 

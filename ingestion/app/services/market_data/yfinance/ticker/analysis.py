@@ -20,6 +20,15 @@ class AnalysisClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch analyst buy/sell/hold recommendations for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Recommendations DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching recommendations for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
@@ -36,6 +45,15 @@ class AnalysisClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch aggregated recommendation counts by period for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Recommendations summary DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching recommendations summary for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
@@ -52,6 +70,15 @@ class AnalysisClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch analyst upgrades and downgrades history for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Upgrades/downgrades DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching upgrades/downgrades for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
@@ -68,6 +95,15 @@ class AnalysisClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> dict[str, Any] | None:
+        """Fetch analyst consensus price targets for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Price targets dict, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching analyst price targets for '%s'", symbol)
 
         def _action() -> dict[str, Any] | None:
@@ -84,6 +120,15 @@ class AnalysisClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch forward earnings estimates by period for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Earnings estimate DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching earnings estimate for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
@@ -100,6 +145,15 @@ class AnalysisClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch forward revenue estimates by period for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Revenue estimate DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching revenue estimate for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
@@ -116,6 +170,15 @@ class AnalysisClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch historical EPS actuals vs. estimates for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Earnings history DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching earnings history for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
@@ -132,6 +195,15 @@ class AnalysisClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch analyst growth estimates for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            Growth estimates DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching growth estimates for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
@@ -148,6 +220,15 @@ class AnalysisClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch EPS trend (current vs. revised estimates) for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            EPS trend DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching EPS trend for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
@@ -164,6 +245,15 @@ class AnalysisClient(BaseClient):
         symbol: str,
         max_retries: int | None = None,
     ) -> pd.DataFrame | None:
+        """Fetch EPS estimate revision history for symbol.
+
+        Args:
+            symbol: Ticker symbol.
+            max_retries: Retry attempts; None uses the client default.
+
+        Returns:
+            EPS revisions DataFrame, or None if unavailable or all retries fail.
+        """
         logger.debug("Fetching EPS revisions for '%s'", symbol)
 
         def _action() -> pd.DataFrame | None:
