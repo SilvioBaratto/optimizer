@@ -115,6 +115,44 @@ class TestSetupCommand:
             )
         assert result.exit_code == 1
 
+    def test_wires_skip_validation_and_reconfigure_flags(self) -> None:
+        """--skip-validation / --reconfigure forward to the wizard (task T15)."""
+        with patch("app.setup.wizard.run_setup_noninteractive") as mock_run:
+            result = runner.invoke(
+                app,
+                ["setup", "--non-interactive", "--skip-validation", "--reconfigure"],
+            )
+        assert result.exit_code == 0
+        kwargs = mock_run.call_args.kwargs
+        assert kwargs["skip_validation"] is True
+        assert kwargs["reconfigure"] is True
+
+    def test_non_interactive_failure_wipes_rendered_plaintext(self) -> None:
+        """A failed setup wipes any rendered plaintext secret/env files (AC3)."""
+        from app.setup.wizard import SetupError
+
+        with (
+            patch(
+                "app.setup.wizard.run_setup_noninteractive",
+                side_effect=SetupError("bad key"),
+            ),
+            patch("app.setup.compose_secrets.cleanup") as secrets_cleanup,
+            patch("app.setup.compose_env.cleanup") as env_cleanup,
+        ):
+            result = runner.invoke(
+                app, ["setup", "--non-interactive", "--fred-key", "x"]
+            )
+        assert result.exit_code == 1
+        secrets_cleanup.assert_called_once()
+        env_cleanup.assert_called_once()
+
+    def test_success_prints_post_install_note(self) -> None:
+        """A successful setup surfaces the passphrase-backup + reopen guidance (AC3)."""
+        with patch("app.setup.wizard.run_setup_noninteractive"):
+            result = runner.invoke(app, ["setup", "--non-interactive"])
+        assert result.exit_code == 0
+        assert "PORTOPT_PASSPHRASE" in result.stdout
+
     def test_interactive_invokes_wizard(self) -> None:
         with (
             patch("app.setup.wizard.run_setup_interactive") as mock_run,

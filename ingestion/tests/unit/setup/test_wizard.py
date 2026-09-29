@@ -15,12 +15,18 @@ from app.setup.prompts import NonInteractivePrompter
 
 @pytest.fixture
 def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
-    """Patch all wizard collaborators; record persistence + bootstrap calls."""
+    """Patch all wizard collaborators; record persistence + bootstrap calls.
+
+    Defaults model a first-run with an empty store: ``load_secrets`` raises
+    NotFound (so the merge starts empty), ``load_config`` is empty, and
+    ``_is_first_run`` is False so no auto-launch fires unless a test opts in.
+    """
     calls: dict = {
         "saved_secrets": None,
         "saved_config": None,
         "bootstrapped": [],
         "path_installed": False,
+        "launched": False,
     }
     monkeypatch.setattr(wizard.docker_bootstrap, "check_docker", lambda: None)
     monkeypatch.setattr(
@@ -43,10 +49,20 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
         "save_secrets",
         lambda secrets, passphrase, **kw: calls.update(saved_secrets=dict(secrets)),
     )
+
+    def _no_store(passphrase: str, **kw: object) -> dict:
+        raise wizard.secret_store.SecretStoreNotFoundError("none")
+
+    monkeypatch.setattr(wizard.secret_store, "load_secrets", _no_store)
     monkeypatch.setattr(
         wizard.config_file,
-        "save_config",
+        "update_config",
         lambda config, **kw: calls.update(saved_config=dict(config)),
+    )
+    monkeypatch.setattr(wizard.config_file, "load_config", lambda **kw: {})
+    monkeypatch.setattr(wizard, "_is_first_run", lambda: False)
+    monkeypatch.setattr(
+        wizard.lifecycle, "run_start", lambda pw: calls.update(launched=True)
     )
     monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s: True)
     monkeypatch.setattr(wizard.validators, "validate_fred", lambda k: True)
@@ -514,3 +530,193 @@ def test_interactive_llm_azure_persists_fields_and_secret(patched: dict) -> None
     )
     assert patched["saved_config"]["azure_openai_deployment_name"] == "gpt4o-deploy"
     assert patched["saved_secrets"]["azure_openai_api_key"] == "az-key"
+
+
+# --- T15: idempotency / --reconfigure / --skip-validation / auto-launch -------
+
+
+def test_noninteractive_idempotent_rerun_preserves_untouched_secrets(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A re-run with no flags must NOT wipe secrets stored by an earlier run."""
+    monkeypatch.setattr(
+        wizard.secret_store, "load_secrets", lambda pw, **k: {"fred_api_key": "fk"}
+    )
+    wizard.run_setup_noninteractive(passphrase="pw")
+    assert patched["saved_secrets"] == {"fred_api_key": "fk"}
+
+
+def test_noninteractive_idempotent_rerun_merges_new_secret(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A new secret merges with the existing store rather than replacing it."""
+    monkeypatch.setattr(
+        wizard.secret_store, "load_secrets", lambda pw, **k: {"fred_api_key": "fk"}
+    )
+    wizard.run_setup_noninteractive(passphrase="pw", t212_key="tk", t212_secret="ts")
+    assert patched["saved_secrets"] == {
+        "fred_api_key": "fk",
+        "trading_212_api_key": "tk",
+        "trading_212_secret_key": "ts",
+    }
+
+
+def test_noninteractive_first_run_saves_only_new_secrets(patched: dict) -> None:
+    """With no existing store (NotFound), the merge is just the new secrets."""
+    wizard.run_setup_noninteractive(passphrase="pw", fred_key="fk")
+    assert patched["saved_secrets"] == {"fred_api_key": "fk"}
+
+
+def test_noninteractive_rerun_wrong_passphrase_fails_without_wiping(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A wrong passphrase on a re-run fails loud and never overwrites the store."""
+
+    def _bad(pw: str, **k: object) -> dict:
+        raise wizard.secret_store.InvalidPassphraseError("wrong")
+
+    monkeypatch.setattr(wizard.secret_store, "load_secrets", _bad)
+    with pytest.raises(wizard.SetupError):
+        wizard.run_setup_noninteractive(passphrase="wrong", fred_key="fk")
+    assert patched["saved_secrets"] is None
+
+
+def test_noninteractive_skip_validation_bypasses_t212(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--skip-validation persists T212 without a live call, even if it would fail."""
+    monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s: False)
+    wizard.run_setup_noninteractive(
+        passphrase="pw", t212_key="tk", t212_secret="ts", skip_validation=True
+    )
+    assert patched["saved_secrets"]["trading_212_api_key"] == "tk"
+
+
+def test_noninteractive_skip_validation_bypasses_fred(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--skip-validation persists FRED without a live call."""
+    monkeypatch.setattr(wizard.validators, "validate_fred", lambda k: False)
+    wizard.run_setup_noninteractive(
+        passphrase="pw", fred_key="fk", skip_validation=True
+    )
+    assert patched["saved_secrets"]["fred_api_key"] == "fk"
+
+
+def test_noninteractive_skip_validation_forwarded_to_validate_llm(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The skip_validation flag reaches validators.validate_llm."""
+    seen: dict = {}
+
+    def _capture(provider, key=None, base_url=None, skip_validation=False, **f):
+        seen["skip"] = skip_validation
+        return True
+
+    monkeypatch.setattr(wizard.validators, "validate_llm", _capture)
+    wizard.run_setup_noninteractive(
+        passphrase="pw",
+        llm_provider="openai",
+        llm_key="sk",
+        skip_validation=True,
+    )
+    assert seen["skip"] is True
+
+
+def test_noninteractive_never_auto_launches(patched: dict) -> None:
+    """Non-interactive/CI setup persists + bootstraps but never brings the stack up."""
+    wizard.run_setup_noninteractive(passphrase="pw")
+    assert patched["bootstrapped"] == ["db", "migrate"]
+    assert patched["launched"] is False
+
+
+def test_interactive_first_run_auto_launches(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A first interactive run brings the stack up unless told not to."""
+    monkeypatch.setattr(wizard, "_is_first_run", lambda: True)
+    prompter = NonInteractivePrompter(
+        {
+            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_CONNECT_T212: False,
+            wizard._MSG_CONNECT_FRED: False,
+            wizard._MSG_CONFIGURE_LLM: False,
+        }
+    )
+    wizard.run_setup_interactive(prompter)
+    assert patched["launched"] is True
+
+
+def test_interactive_no_launch_suppresses_auto_launch(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--no-launch keeps a first interactive run from bringing the stack up."""
+    monkeypatch.setattr(wizard, "_is_first_run", lambda: True)
+    prompter = NonInteractivePrompter(
+        {
+            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_CONNECT_T212: False,
+            wizard._MSG_CONNECT_FRED: False,
+            wizard._MSG_CONFIGURE_LLM: False,
+        }
+    )
+    wizard.run_setup_interactive(prompter, no_launch=True)
+    assert patched["launched"] is False
+
+
+def test_interactive_rerun_never_auto_launches(patched: dict) -> None:
+    """A re-run (not first run) never auto-launches, even interactively."""
+    prompter = NonInteractivePrompter(
+        {
+            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_CONNECT_T212: False,
+            wizard._MSG_CONNECT_FRED: False,
+            wizard._MSG_CONFIGURE_LLM: False,
+        }
+    )
+    wizard.run_setup_interactive(prompter)  # fixture _is_first_run -> False
+    assert patched["launched"] is False
+
+
+def test_interactive_auto_launch_failure_is_non_fatal(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed auto-launch warns but does not undo a completed setup."""
+    monkeypatch.setattr(wizard, "_is_first_run", lambda: True)
+
+    def _boom(pw: str) -> None:
+        raise wizard.docker_bootstrap.DockerError("up failed")
+
+    monkeypatch.setattr(wizard.lifecycle, "run_start", _boom)
+    prompter = NonInteractivePrompter(
+        {
+            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_CONNECT_T212: False,
+            wizard._MSG_CONNECT_FRED: False,
+            wizard._MSG_CONFIGURE_LLM: False,
+        }
+    )
+    wizard.run_setup_interactive(prompter)  # must not raise
+    assert patched["saved_secrets"] == {}
+    assert patched["bootstrapped"] == ["db", "migrate"]
+
+
+def test_interactive_reconfigure_reruns_the_llm_prompt(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--reconfigure re-prompts the LLM group even when a provider is already set."""
+    monkeypatch.setattr(
+        wizard.config_file,
+        "load_config",
+        lambda **k: {"llm_provider": "anthropic", "llm_model": "old"},
+    )
+    prompter = _llm_prompter(
+        {
+            wizard._MSG_LLM_PROVIDER: "openai",
+            wizard._MSG_LLM_MODEL: "gpt-4o",
+            wizard._MSG_LLM_KEY: "sk-openai",
+        }
+    )
+    wizard.run_setup_interactive(prompter, reconfigure=True)
+    assert patched["saved_config"]["llm_provider"] == "openai"
+    assert patched["saved_secrets"]["openai_api_key"] == "sk-openai"

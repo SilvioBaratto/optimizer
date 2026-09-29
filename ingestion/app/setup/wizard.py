@@ -16,6 +16,7 @@ import os
 from app.setup import (
     config_file,
     docker_bootstrap,
+    lifecycle,
     path_install,
     secret_store,
     validators,
@@ -68,6 +69,39 @@ class SetupError(RuntimeError):
     """Raised when the wizard cannot complete (validation or config error)."""
 
 
+def _is_first_run() -> bool:
+    """True when neither the secret store nor the config file exists yet.
+
+    Gates the one-time auto-launch: a first interactive setup brings the stack up,
+    but a re-run never does (the plan's ``interactive + TTY + not --no-launch``, once).
+    """
+    return not (
+        secret_store.DEFAULT_SECRETS_PATH.exists()
+        or config_file.DEFAULT_CONFIG_PATH.exists()
+    )
+
+
+def _merge_with_existing_secrets(
+    new: dict[str, str], passphrase: str
+) -> dict[str, str]:
+    """Merge ``new`` over the already-stored secrets so a re-run never wipes them.
+
+    A missing store (first run) starts empty. A store that will not decrypt with the
+    given passphrase fails loud — overwriting it would silently destroy the user's
+    secrets (the Immich anti-pattern the spec forbids).
+    """
+    try:
+        existing = secret_store.load_secrets(passphrase)
+    except secret_store.SecretStoreNotFoundError:
+        existing = {}
+    except secret_store.InvalidPassphraseError as exc:
+        raise SetupError(
+            "The existing secret store could not be decrypted with this passphrase; "
+            "re-run with the original passphrase."
+        ) from exc
+    return {**existing, **new}
+
+
 def _persist_and_bootstrap(
     secrets: dict[str, str],
     config: dict[str, object],
@@ -75,8 +109,11 @@ def _persist_and_bootstrap(
     *,
     skip_path_install: bool = False,
 ) -> None:
-    secret_store.save_secrets(secrets, passphrase)
-    config_file.save_config(config)
+    merged = _merge_with_existing_secrets(secrets, passphrase)
+    secret_store.save_secrets(merged, passphrase)
+    # Merge, never clobber: a re-run that omits a section must keep the config the
+    # earlier run persisted (and the repo_path the launcher install records).
+    config_file.update_config(config)
     docker_bootstrap.bring_up_db()
     docker_bootstrap.migrate()
     if not skip_path_install:
@@ -90,6 +127,24 @@ def _persist_and_bootstrap(
                 "Add scripts/optimizer to PATH manually.",
                 exc,
             )
+
+
+def _auto_launch(passphrase: str) -> None:
+    """Bring the stack up after a first setup; a failure is a warning, not a rollback.
+
+    Setup has already persisted secrets and migrated, so a launch failure (Docker
+    down, image build error) must not undo it — the operator can retry with
+    ``portopt start``.
+    """
+    try:
+        lifecycle.run_start(passphrase)
+    except Exception as exc:
+        # Deliberately broad: setup is already persisted + migrated, so no launch
+        # error (Docker down, build failure, bad passphrase) may undo it.
+        logging.getLogger(__name__).warning(
+            "Could not auto-launch the stack: %s. Run `portopt start` to bring it up.",
+            exc,
+        )
 
 
 def _llm_key_env(provider: str) -> str:
@@ -151,6 +206,7 @@ def _configure_llm_noninteractive(
     llm_model: str | None,
     llm_base_url: str | None,
     llm_key: str | None,
+    skip_validation: bool = False,
 ) -> None:
     """Stage the fund LLM backend from flags/env; validate before anything persists.
 
@@ -174,7 +230,11 @@ def _configure_llm_noninteractive(
                 f"(--llm-key or {_llm_key_env(llm_provider)})."
             )
     if not validators.validate_llm(
-        llm_provider, key=key, base_url=llm_base_url, **fields
+        llm_provider,
+        key=key,
+        base_url=llm_base_url,
+        skip_validation=skip_validation,
+        **fields,
     ):
         raise SetupError(f"{llm_provider} credentials failed validation.")
     _stage_llm(
@@ -223,12 +283,20 @@ def _validate_llm_key_with_retry(
     provider: str,
     base_url: str | None,
     fields: dict[str, str | None],
+    *,
+    skip_validation: bool = False,
 ) -> str:
     """Prompt for the key and validate; re-prompt on rejection (network → abort)."""
     env_key = os.getenv(_llm_key_env(provider))
     for _ in range(_LLM_KEY_ATTEMPTS):
         key = env_key or prompter.password(_MSG_LLM_KEY)
-        if validators.validate_llm(provider, key=key, base_url=base_url, **fields):
+        if validators.validate_llm(
+            provider,
+            key=key,
+            base_url=base_url,
+            skip_validation=skip_validation,
+            **fields,
+        ):
             return key
         env_key = None  # discard a bad env key so the next round prompts
         prompter.error("That LLM key was rejected; try again.")
@@ -238,27 +306,48 @@ def _validate_llm_key_with_retry(
 
 
 def _configure_llm_interactive(
-    prompter: Prompter, config: dict[str, object], secrets: dict[str, str]
+    prompter: Prompter,
+    config: dict[str, object],
+    secrets: dict[str, str],
+    *,
+    existing: dict[str, object] | None = None,
+    reconfigure: bool = False,
+    skip_validation: bool = False,
 ) -> None:
     """Prompt for the fund LLM backend, validate before persist.
 
-    Declining keeps fund.config's env-free default. A rejected key re-prompts; an
-    unreachable service raises ``ValidationNetworkError`` so setup aborts clean.
+    Declining keeps fund.config's env-free default (or, on a re-run, the provider the
+    earlier run persisted — the merge preserves it). The "configure?" prompt defaults
+    to reconfigure: off on a first run / a reuse re-run, on when ``--reconfigure`` asks
+    to change it. Prompt defaults are pre-filled from ``existing`` config. A rejected
+    key re-prompts; an unreachable service raises ``ValidationNetworkError``.
     """
-    if not prompter.confirm(_MSG_CONFIGURE_LLM, default=False):
+    existing = existing or {}
+    if not prompter.confirm(_MSG_CONFIGURE_LLM, default=reconfigure):
         return
     provider = prompter.select(_MSG_LLM_PROVIDER, validators.SUPPORTED_LLM_PROVIDERS)
     model = prompter.text(
-        _MSG_LLM_MODEL, default=_LLM_DEFAULT_MODEL.get(provider, "")
+        _MSG_LLM_MODEL,
+        default=_LLM_DEFAULT_MODEL.get(provider)
+        or str(existing.get("llm_model") or ""),
     ).strip()
-    base_url = prompter.text(_MSG_LLM_BASE_URL, default="").strip() or None
+    base_url = (
+        prompter.text(
+            _MSG_LLM_BASE_URL, default=str(existing.get("llm_base_url") or "")
+        ).strip()
+        or None
+    )
     fields = _prompt_llm_fields(prompter, provider)
 
     secret_name = _LLM_SECRET_NAMES.get(provider)
     key: str | None = None
     if secret_name and _llm_needs_key(provider, base_url):
-        key = _validate_llm_key_with_retry(prompter, provider, base_url, fields)
-    elif not validators.validate_llm(provider, base_url=base_url, **fields):
+        key = _validate_llm_key_with_retry(
+            prompter, provider, base_url, fields, skip_validation=skip_validation
+        )
+    elif not validators.validate_llm(
+        provider, base_url=base_url, skip_validation=skip_validation, **fields
+    ):
         raise SetupError(f"{provider} configuration failed validation.")
 
     _stage_llm(
@@ -284,8 +373,15 @@ def run_setup_noninteractive(
     llm_base_url: str | None = None,
     llm_key: str | None = None,
     skip_path_install: bool = False,
+    skip_validation: bool = False,
+    reconfigure: bool = False,
 ) -> None:
-    """Non-interactive setup from flags/env — fails loud, persists nothing on error."""
+    """Non-interactive setup from flags/env — fails loud, persists nothing on error.
+
+    A re-run merges the given flags over the existing store/config (never wiping an
+    untouched secret); ``skip_validation`` bypasses the live credential checks; CI
+    never auto-launches (that is an interactive-only, first-run step).
+    """
     if not passphrase:
         raise SetupError("A master passphrase is required (set PORTOPT_PASSPHRASE).")
     docker_bootstrap.check_docker()
@@ -296,13 +392,13 @@ def run_setup_noninteractive(
     if t212_key or t212_secret:
         if not (t212_key and t212_secret):
             raise SetupError("Trading212 needs both an API key and a secret key.")
-        if not validators.validate_t212(t212_key, t212_secret):
+        if not skip_validation and not validators.validate_t212(t212_key, t212_secret):
             raise SetupError("Trading212 credentials failed validation.")
         secrets["trading_212_api_key"] = t212_key
         secrets["trading_212_secret_key"] = t212_secret
 
     if fred_key:
-        if not validators.validate_fred(fred_key):
+        if not skip_validation and not validators.validate_fred(fred_key):
             raise SetupError("FRED API key failed validation.")
         secrets["fred_api_key"] = fred_key
 
@@ -313,6 +409,7 @@ def run_setup_noninteractive(
         llm_model=llm_model,
         llm_base_url=llm_base_url,
         llm_key=llm_key,
+        skip_validation=skip_validation,
     )
 
     _persist_and_bootstrap(
@@ -325,9 +422,19 @@ def run_setup_interactive(
     *,
     passphrase: str | None = None,
     skip_path_install: bool = False,
+    skip_validation: bool = False,
+    reconfigure: bool = False,
+    no_launch: bool = False,
 ) -> None:
-    """Interactive setup via the prompt seam; each credential validates before persist."""
+    """Interactive setup via the prompt seam; each credential validates before persist.
+
+    A first run (no store/config) brings the stack up at the end unless ``no_launch``;
+    a re-run never auto-launches and merges over the existing store/config, pre-filling
+    the LLM prompts from what was persisted. ``skip_validation`` bypasses live checks.
+    """
     docker_bootstrap.check_docker()
+    first_run = _is_first_run()
+    existing = config_file.load_config()
 
     pw = (
         passphrase
@@ -346,17 +453,27 @@ def run_setup_interactive(
         t212_secret = os.getenv("TRADING_212_SECRET_KEY") or prompter.password(
             _MSG_T212_SECRET
         )
-        if not validators.validate_t212(t212_key, t212_secret):
+        if not skip_validation and not validators.validate_t212(t212_key, t212_secret):
             raise SetupError("Trading212 credentials failed validation.")
         secrets["trading_212_api_key"] = t212_key
         secrets["trading_212_secret_key"] = t212_secret
 
     if prompter.confirm(_MSG_CONNECT_FRED, default=False):
         fred_key = os.getenv("FRED_API_KEY") or prompter.password(_MSG_FRED_KEY)
-        if not validators.validate_fred(fred_key):
+        if not skip_validation and not validators.validate_fred(fred_key):
             raise SetupError("FRED API key failed validation.")
         secrets["fred_api_key"] = fred_key
 
-    _configure_llm_interactive(prompter, config, secrets)
+    _configure_llm_interactive(
+        prompter,
+        config,
+        secrets,
+        existing=existing,
+        reconfigure=reconfigure,
+        skip_validation=skip_validation,
+    )
 
     _persist_and_bootstrap(secrets, config, pw, skip_path_install=skip_path_install)
+
+    if first_run and not no_launch:
+        _auto_launch(pw)

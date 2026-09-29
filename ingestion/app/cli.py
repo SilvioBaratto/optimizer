@@ -230,10 +230,31 @@ def setup(
         "--skip-path-install",
         help="Do not install the `optimizer` launcher onto PATH (CI / manual PATH setup).",
     ),
+    skip_validation: bool = typer.Option(
+        False,
+        "--skip-validation",
+        help="Persist credentials without the live pre-flight checks (offline / CI).",
+    ),
+    no_launch: bool = typer.Option(
+        False,
+        "--no-launch",
+        help="Configure only; do not bring the stack up at the end of a first setup.",
+    ),
+    reconfigure: bool = typer.Option(
+        False,
+        "--reconfigure",
+        help="Re-prompt configured sections on a re-run (existing secrets are kept).",
+    ),
 ) -> None:
     """Install wizard: verify Docker, validate keys live, encrypt secrets, migrate the DB."""
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
-    from app.setup import ca_bundle, docker_bootstrap, wizard
+    from app.setup import (
+        ca_bundle,
+        compose_env,
+        compose_secrets,
+        docker_bootstrap,
+        wizard,
+    )
     from app.setup.ca_bundle import CABundleError
     from app.setup.prompts import PromptError, make_prompter
     from app.setup.validators import ValidationNetworkError
@@ -260,10 +281,16 @@ def setup(
                 llm_base_url=llm_base_url,
                 llm_key=llm_key,
                 skip_path_install=effective_skip_path_install,
+                skip_validation=skip_validation,
+                reconfigure=reconfigure,
             )
         else:
             wizard.run_setup_interactive(
-                make_prompter(), skip_path_install=effective_skip_path_install
+                make_prompter(),
+                skip_path_install=effective_skip_path_install,
+                skip_validation=skip_validation,
+                reconfigure=reconfigure,
+                no_launch=no_launch,
             )
     except (
         wizard.SetupError,
@@ -272,9 +299,27 @@ def setup(
         PromptError,
         CABundleError,
     ) as exc:
+        # All-or-nothing: wipe any plaintext secret/env files a partial run rendered so
+        # a failed setup never leaves decrypted credentials on disk.
+        compose_secrets.cleanup()
+        compose_env.cleanup()
         typer.echo(f"Setup failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-    typer.echo("Setup complete. Run `portopt start` to launch the daemon.")
+    _print_post_install_note()
+
+
+def _print_post_install_note() -> None:
+    """Print the post-setup guidance: passphrase backup, service ports, reopen note."""
+    typer.echo("Setup complete.")
+    typer.echo(
+        "  - Back up your PORTOPT_PASSPHRASE — it is never stored and is the only key "
+        "to your encrypted secrets."
+    )
+    typer.echo("  - Adminer: http://localhost:18081   metrics: http://localhost:9000")
+    typer.echo(
+        "  - Open a new terminal (or run `hash -r`) so the `optimizer` launcher "
+        "resolves on PATH, then run `optimizer <portfolio_id>`."
+    )
 
 
 @app.command()
