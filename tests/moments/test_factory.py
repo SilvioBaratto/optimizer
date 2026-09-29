@@ -142,9 +142,7 @@ class TestEquilibriumMuWiring:
     def test_cap_weighted_equilibrium_prior_fits(self) -> None:
         rng = np.random.default_rng(0)
         cols = [f"A{i}" for i in range(4)]
-        returns = pd.DataFrame(
-            rng.normal(0.001, 0.02, (200, 4)), columns=cols
-        )
+        returns = pd.DataFrame(rng.normal(0.001, 0.02, (200, 4)), columns=cols)
         weights = np.array([0.4, 0.3, 0.2, 0.1])
         cfg = MomentEstimationConfig(
             mu_estimator=MuEstimatorType.EQUILIBRIUM,

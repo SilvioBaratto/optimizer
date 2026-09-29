@@ -164,9 +164,7 @@ class TestBuildAnalystBlViews:
 
     def test_precision_formatting_avoids_scientific_notation(self) -> None:
         signals = {"AAPL": AnalystSignal(current_price=100.0, target_mean=120.0)}
-        views, _ = build_analyst_bl_views(
-            signals, horizon_periods=252.0, precision=8
-        )
+        views, _ = build_analyst_bl_views(signals, horizon_periods=252.0, precision=8)
         # fixed-point, no 'e' exponent
         assert "e" not in views[0]
         assert views[0].startswith("AAPL == 0.000")
@@ -177,9 +175,7 @@ class TestBuildAnalystBlViews:
                 current_price=100.0, target_mean=110.0, target_high=150.0
             )
         }
-        views, _ = build_analyst_bl_views(
-            signals, statistic=PriceTargetStatistic.HIGH
-        )
+        views, _ = build_analyst_bl_views(signals, statistic=PriceTargetStatistic.HIGH)
         assert views == ("AAPL == 0.500000",)
 
     def test_skip_incomplete_skips_missing_target(self) -> None:
@@ -221,9 +217,7 @@ class TestBuildAnalystBlViews:
 
     def test_with_confidence_skips_ticker_missing_votes(self) -> None:
         signals = {
-            "AAPL": AnalystSignal(
-                current_price=100.0, target_mean=110.0, strong_buy=8
-            ),
+            "AAPL": AnalystSignal(current_price=100.0, target_mean=110.0, strong_buy=8),
             "MSFT": AnalystSignal(current_price=200.0, target_mean=210.0),  # no votes
         }
         views, confidences = build_analyst_bl_views(
@@ -255,9 +249,7 @@ class TestBuildBlackLittermanConfigFromSignals:
                 current_price=100.0, target_mean=110.0, strong_buy=9, buy=1
             )
         }
-        cfg = build_black_litterman_config_from_signals(
-            signals, with_confidence=True
-        )
+        cfg = build_black_litterman_config_from_signals(signals, with_confidence=True)
         assert cfg.uncertainty_method == ViewUncertaintyMethod.IDZOREK
         assert cfg.view_confidences is not None
         assert len(cfg.view_confidences) == 1

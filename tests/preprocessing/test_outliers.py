@@ -201,9 +201,7 @@ class TestProtectedMask:
         """Noisy body (so sigma > 0) with one extreme spike on the last row."""
         rng = np.random.default_rng(seed)
         col = [*rng.normal(0.0, scale, size=n - 1).tolist(), spike]
-        return pd.DataFrame(
-            {"X": col}, index=pd.date_range("2024-01-01", periods=n)
-        )
+        return pd.DataFrame({"X": col}, index=pd.date_range("2024-01-01", periods=n))
 
     @staticmethod
     def _mask_last(df: pd.DataFrame) -> pd.DataFrame:

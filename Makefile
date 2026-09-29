@@ -9,14 +9,14 @@ sync:
 	uv sync --all-packages --all-extras
 
 lint:
-	uv run ruff check optimizer/ tests/
-	uv run ruff format --check optimizer/ tests/
+	uv run ruff check packages/portopt-core/optimizer/ tests/
+	uv run ruff format --check packages/portopt-core/optimizer/ tests/
 
 format:
-	uv run ruff format optimizer/ tests/
+	uv run ruff format packages/portopt-core/optimizer/ tests/
 
 typecheck:
-	uv run mypy optimizer/
+	uv run mypy packages/portopt-core/optimizer/
 
 test:
 	uv run pytest tests/ -v --cov=optimizer --cov-report=term-missing --cov-fail-under=90

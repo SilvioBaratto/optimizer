@@ -30,8 +30,8 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --all-packages --all-extras
-      - run: uv run ruff check optimizer/ tests/
-      - run: uv run ruff format --check optimizer/ tests/
+      - run: uv run ruff check packages/portopt-core/optimizer/ tests/
+      - run: uv run ruff format --check packages/portopt-core/optimizer/ tests/
       # pip-audit the resolved third-party set. The three editable workspace
       # members (portopt-core/-db/-fund) aren't on PyPI, so auditing the live env
       # trips --strict on "not found on PyPI". Export the locked deps WITHOUT the
@@ -48,7 +48,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --all-packages --all-extras
-      - run: uv run mypy optimizer/
+      - run: uv run mypy packages/portopt-core/optimizer/
       # portopt-db ships py.typed; hold it to its own strict [tool.mypy] gate.
       - run: cd packages/portopt-db && uv run mypy src/portopt_db
 
