@@ -44,10 +44,14 @@ class TestSetupSh:
         assert "OPTIMIZER_REPO" in _read("setup.sh")
 
     def test_installs_cli_from_local_checkout(self) -> None:
-        """It installs the CLI from the local project, not PyPI."""
+        """It installs the CLI from the ingestion member (which provides `portopt`).
+
+        `--from .` (the workspace root = portopt-core) does NOT provide the `portopt`
+        command; it must target ``./ingestion``.
+        """
         text = _read("setup.sh")
         assert "uv tool install" in text
-        assert "--from ." in text
+        assert "--from ./ingestion portopt" in text
 
     def test_ensures_uv(self) -> None:
         """It bootstraps uv when missing."""
@@ -84,10 +88,10 @@ class TestSetupPs1:
         assert "OPTIMIZER_REPO" in _read("setup.ps1")
 
     def test_installs_cli_from_local_checkout(self) -> None:
-        """It installs the CLI from the local project, not PyPI."""
+        """It installs the CLI from the ingestion member, not PyPI."""
         text = _read("setup.ps1")
         assert "uv tool install" in text
-        assert "--from ." in text
+        assert "--from ./ingestion portopt" in text
 
     def test_ensures_uv(self) -> None:
         """It bootstraps uv when missing."""
@@ -112,10 +116,10 @@ class TestSetupCmd:
         assert "OPTIMIZER_REPO" in _read("setup.cmd")
 
     def test_installs_cli_from_local_checkout(self) -> None:
-        """It installs the CLI from the local project, not PyPI."""
+        """It installs the CLI from the ingestion member, not PyPI."""
         text = _read("setup.cmd")
         assert "uv tool install" in text
-        assert "--from ." in text
+        assert "--from ./ingestion portopt" in text
 
     def test_hands_off_to_portopt_setup_with_args(self) -> None:
         """It hands off to ``portopt setup`` forwarding %* (all args)."""

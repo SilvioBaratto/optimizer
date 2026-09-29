@@ -4,9 +4,9 @@
 #   powershell -File setup.ps1
 #
 # Razor-thin funnel — no logic lives here. It ensures uv, installs the `portopt`
-# CLI from THIS checkout (the workspace, not PyPI), sets OPTIMIZER_REPO so the
-# out-of-repo tool venv can still locate scripts\optimizer, then hands off to the
-# tested core `portopt setup` with the caller's args.
+# CLI from THIS checkout (the `ingestion` member provides the `portopt` dist; not
+# PyPI), sets OPTIMIZER_REPO so the out-of-repo tool venv can still locate
+# scripts\optimizer, then hands off to the tested core `portopt setup` with args.
 $ErrorActionPreference = "Stop"
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -19,6 +19,6 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 
 Set-Location $here
 Write-Host "Installing the portopt CLI from this checkout..."
-uv tool install --from . portopt
+uv tool install --from ./ingestion portopt
 
 portopt setup @args

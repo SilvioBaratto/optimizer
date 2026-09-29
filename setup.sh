@@ -5,10 +5,11 @@
 #   ./setup.sh
 #
 # Razor-thin funnel — no logic lives here. It ensures uv, installs the `portopt`
-# CLI from THIS checkout (the workspace, not PyPI: `portopt` pulls `portopt-db`
-# via a workspace source that isn't published), exports OPTIMIZER_REPO so the
-# out-of-repo tool venv can still locate scripts/optimizer, then hands off to the
-# tested core `portopt setup` with the caller's args. Keep LF-only (.gitattributes).
+# CLI from THIS checkout (the `ingestion` member provides the `portopt` dist; it
+# pulls `portopt-db` via a workspace source that isn't on PyPI), exports
+# OPTIMIZER_REPO so the out-of-repo tool venv can still locate scripts/optimizer,
+# then hands off to the tested core `portopt setup` with the caller's args.
+# Keep LF-only (.gitattributes).
 set -euo pipefail
 
 here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,6 +23,6 @@ fi
 
 cd "$here"
 echo "Installing the portopt CLI from this checkout..."
-uv tool install --from . portopt
+uv tool install --from ./ingestion portopt
 
 exec portopt setup "$@"
