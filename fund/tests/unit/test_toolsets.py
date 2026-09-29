@@ -1,6 +1,6 @@
-"""T7.3 — per-run toolset binding (``fund.agents.toolsets``).
+"""Per-run toolset binding (``fund.agents.toolsets``).
 
-Each frozen Phase-3 tool takes ``session`` as its first positional arg. Phase 7
+Each frozen tool takes ``session`` as its first positional arg. ``bind_toolset``
 binds it, per run, into a langchain ``@tool`` closure that exposes **only**
 model-facing args (never a ``Session``) — mirroring the profiler's
 ``_make_save_profile``. These tests pin, over a seeded SQLite panel + an in-memory
@@ -222,7 +222,7 @@ def test_bound_universe_filter_runs_with_esg_translation(db_session) -> None:
     result = ufilter.invoke({"universe": _UNIVERSE})
 
     # ESG exclusions are translated into the tool's `criteria` arg; the frozen
-    # backbone ignores keys it does not model (R2), so the call still succeeds.
+    # backbone ignores keys it does not model, so the call still succeeds.
     assert result["ok"] is True
     assert set(result["data"]).issubset(set(_UNIVERSE))
 
@@ -412,7 +412,7 @@ def test_place_orders_idempotent_rerun_appends_once(db_session) -> None:
     second = place.invoke({"weights": _WEIGHTS})
 
     assert first["data"]["idempotent"] is False
-    assert second["data"]["idempotent"] is True  # HITL re-run (SPEC D3)
+    assert second["data"]["idempotent"] is True  # HITL re-run
 
     rows = (
         db_session.execute(

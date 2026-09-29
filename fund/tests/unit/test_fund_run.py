@@ -1,4 +1,4 @@
-"""T7.6 — ``run_fund`` + ``FundRun``: the one complete paper-run path.
+"""``run_fund`` + ``FundRun``: the one complete paper-run path.
 
 Drives ``run_fund`` with a fully-scripted, network-free chat model
 (:mod:`_fund_fakes`): the PM deep agent delegates economist → allocator → risk →
@@ -9,10 +9,9 @@ paper ticket (approve → completed) or discards it (reject → rejected). Zero 
 LLM, zero network — a ``MemorySaver`` + ``InMemoryStore`` + the in-memory
 ``db_session``.
 
-Pins the SPEC-§4d contract: pause at the gate, approve/reject outcomes, the
-missing-ConstraintSet guard, the blocking risk gate (executor un-invoked, no
-ticket), the delegation round cap (incomplete), and the reproducibility record
-(seed + temperature=0 + 3y lookback).
+Covers: pause at the gate, approve/reject outcomes, the missing-ConstraintSet guard,
+the blocking risk gate (executor un-invoked, no ticket), the delegation round cap
+(incomplete), and the reproducibility record (seed + temperature=0 + 3y lookback).
 """
 
 from __future__ import annotations
@@ -188,16 +187,13 @@ def test_approve_writes_ticket_and_completes(db_session) -> None:
     run = _run(model, db_session, store=_store_with_cs())
     run.resume("approve")
 
-    # (1) exactly one paper ticket, carrying the optimizer's weights.
     orders = _paper_orders(db_session)
     assert len(orders) == 1
     assert orders[0].weights == expected
-    # (2) the run is finalised completed with those same optimizer weights.
     finalized = AgentRunRepository(db_session).get_run(run.run_id)
     assert finalized.status == "completed"
     assert finalized.weights == expected
     assert math.isclose(sum(finalized.weights.values()), 1.0, abs_tol=1e-6)
-    # (3) the executor's execution decision + HITL approve is on the audit trail.
     executor = [
         d
         for d in _decisions(db_session, run.run_id)
@@ -225,7 +221,6 @@ def test_place_orders_ignores_llm_weights_uses_optimizer(db_session) -> None:
 
     orders = _paper_orders(db_session)
     assert len(orders) == 1
-    # The ticket holds the optimizer's audited weights, not the LLM's proposal.
     assert orders[0].weights == expected
     finalized = AgentRunRepository(db_session).get_run(run.run_id)
     assert finalized.weights == expected
@@ -244,12 +239,10 @@ def test_reject_places_no_order_and_records_hitl(db_session) -> None:
     run = _run(model, db_session, store=_store_with_cs())
     run.resume("reject")
 
-    # No ticket was written — the adviser declined the commit.
     assert _paper_orders(db_session) == []
     finalized = AgentRunRepository(db_session).get_run(run.run_id)
     assert finalized.status == "rejected"
     assert finalized.weights == {}
-    # The HITL rejection is recorded in the audit trail.
     assert any(
         d.hitl_decision and d.hitl_decision.get("decision") == "reject"
         for d in _decisions(db_session, run.run_id)
@@ -293,7 +286,6 @@ def test_risk_violation_skips_executor_and_places_no_order(db_session) -> None:
     assert run.status == "incomplete"
     assert run.interrupt is None
     assert _paper_orders(db_session) == []
-    # The executor never proposed a rebalance — no executor decision was logged.
     assert not [d for d in _decisions(db_session, run.run_id) if d.agent == "executor"]
     finalized = AgentRunRepository(db_session).get_run(run.run_id)
     assert finalized.status == "incomplete"
@@ -315,14 +307,14 @@ def test_round_cap_finalizes_incomplete(db_session) -> None:
     assert _paper_orders(db_session) == []
     finalized = AgentRunRepository(db_session).get_run(run.run_id)
     assert finalized.status == "incomplete"
-    # The round-cap outcome is surfaced for the adviser (D22).
+    # The round-cap outcome is surfaced for the adviser.
     assert any(
         d.hitl_decision and d.hitl_decision.get("reason") == "round_cap"
         for d in _decisions(db_session, run.run_id)
     )
 
 
-# --- reproducibility: seed + temperature=0 + 3y lookback (D31/D18) -----------
+# --- reproducibility: seed + temperature=0 + 3y lookback -----------
 
 
 def test_records_seed_temperature_and_lookback(db_session) -> None:

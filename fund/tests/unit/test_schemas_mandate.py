@@ -1,8 +1,8 @@
-"""Task 2 — ``fund.schemas.mandate`` pins the operational mandate (D13).
+"""``fund.schemas.mandate`` pins the operational mandate.
 
 ``PortfolioMandate`` + nested ``RunTriggers`` are pure serialisable data — no
-``optimizer`` import. This module also establishes the pydantic **v2**
-``frozen=True`` pattern the rest of Phase 4 copies; the venv resolves pydantic
+``optimizer`` import. This module establishes the pydantic **v2**
+``frozen=True`` pattern; the venv resolves pydantic
 2.13.4 (``python -c "import pydantic; pydantic.VERSION"`` → ``2.13.4``), so the
 v2 ``ConfigDict`` / ``model_dump`` surface is available.
 """
@@ -29,7 +29,6 @@ def _valid_mandate() -> PortfolioMandate:
 
 
 def test_pydantic_major_is_two():
-    # Task 2 verifies the installed major before the pattern is reused five times.
     assert pydantic.VERSION.startswith("2")
 
 

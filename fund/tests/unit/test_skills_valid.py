@@ -1,13 +1,9 @@
-"""Phase 6 D1 — static validation of every deepagents skill.
+"""Static validation of every deepagents skill.
 
-The machine-checked half of SPEC §5. For each ``skills/<dir>/`` it asserts the
-``SKILL.md`` frontmatter shape, the load-bearing rule, a non-empty ``reference.md``,
-that theory citations resolve to real ``optimizer-theory/docs`` chapters, and that
-the skill routes to its expected real ``@tool``s. No model, no DB, no optimizer
-import (``__all__`` is read via AST).
-
-TDD note: until the 7 stub skills are authored, their parametrised cases are RED;
-``mifid-profiling`` (Phase 5) is GREEN and proves the rules are mifid-compatible.
+For each ``skills/<dir>/`` it asserts the ``SKILL.md`` frontmatter shape, the
+load-bearing rule, a non-empty ``reference.md``, that theory citations resolve to
+real ``optimizer-theory/docs`` chapters, and that the skill routes to its expected
+real ``@tool``s. No model, no DB, no optimizer import (``__all__`` is read via AST).
 """
 
 from __future__ import annotations
@@ -38,7 +34,7 @@ _BUILTINS = frozenset(
     }
 )
 
-# The 8 real @tools (SPEC §1); kept in sync with fund.tools.__all__ by a test below.
+# The 8 real @tools; kept in sync with fund.tools.__all__ by a test below.
 _REAL_TOOLS = frozenset(
     {
         "get_prices",

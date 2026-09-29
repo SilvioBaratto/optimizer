@@ -1,10 +1,10 @@
-"""T5 — ``MifidProfileRepository`` (append-only versioning) + Store helper.
+"""``MifidProfileRepository`` (append-only versioning) + Store helper.
 
 The ``mifid_profiles`` *model* lives in ``portopt_db``; its *behavior* lives here
 in ``fund`` (mirroring the ``agent_runs`` / ``paper_orders`` model/repo split).
 The repo appends an immutable version per portfolio and reads the newest one
 back. The Store helper writes the active ``ConstraintSet`` under namespace
-``(portfolio_id,)`` / key = ``store_key`` so a Phase-4 ``ConstraintSetRef``
+``(portfolio_id,)`` / key = ``store_key`` so a ``ConstraintSetRef``
 resolves — proven here against an in-memory LangGraph store (zero network, zero
 Postgres, no live LLM).
 """

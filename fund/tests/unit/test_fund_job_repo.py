@@ -1,4 +1,4 @@
-"""T2 — ``FundJobRepository``: atomic job slot + heartbeat-lease reaper.
+"""``FundJobRepository``: atomic job slot + heartbeat-lease reaper.
 
 Boundary-clean job mechanics over the shared ``background_jobs`` model, with two
 fund-specific ``job_type``s (:data:`FUND_JOB_TYPES`). Mirrors the ingestion

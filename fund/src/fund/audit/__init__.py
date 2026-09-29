@@ -2,6 +2,12 @@
 
 The ``agent_runs`` / ``agent_decisions`` models live in ``portopt_db``; this
 package holds the fund-side ``AgentRunRepository`` behavior over them.
+
+Note:
+    Importing this package eagerly loads ``fund.audit.persistence``, which
+    pulls in the full langgraph stack.  Code that must remain agent-stack-free
+    (scheduler, worker entrypoints) must import repositories directly from
+    their submodules instead of from ``fund.audit``.
 """
 
 from fund.audit.fund_job_repository import FUND_JOB_TYPES, FundJobRepository

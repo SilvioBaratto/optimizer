@@ -6,7 +6,6 @@
 # (SKILL.md / reference.md). This ignore keeps all of that and drops only the
 # heavy/irrelevant paths. Patterns are relative to the build context root (`.`).
 
-# VCS / editor / tooling
 .git/
 **/.git/
 .github/
@@ -17,7 +16,6 @@
 .vscode/
 .idea/
 
-# Local virtualenvs & Python caches
 .venv/
 venv/
 **/__pycache__/

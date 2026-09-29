@@ -1,8 +1,8 @@
-"""Model-agnostic structured-output helper (Task 6): validate → retry → fallback.
+"""Model-agnostic structured-output helper: validate → retry → fallback.
 
 Every structured LLM step in the fund routes through ``structured_call``: it binds
-``with_structured_output(schema, method="function_calling")`` (D4 pin —
-``json_schema`` fell through in Phase-0 probing), invokes the model, and validates
+``with_structured_output(schema, method="function_calling")`` (``json_schema``
+fell through in initial probing), invokes the model, and validates
 the result with pydantic. A weak model that returns malformed output (or raises) is
 retried on the primary ``retries`` times, then handed once to an optional
 ``fallback`` model. Only when every attempt fails does it raise
@@ -12,7 +12,7 @@ retried on the primary ``retries`` times, then handed once to an optional
 The helper is deliberately **model-agnostic**: it is duck-typed over a
 ``SupportsStructuredOutput`` ``Protocol`` and imports nothing from ``deepagents`` /
 ``langchain_ollama`` / ``app`` (the concrete DeepSeek-on-Ollama primary/fallback
-instances are wired at the call site in Fase 7). A mock model drives every test
+instances are wired at the call site). A mock model drives every test
 path with zero network.
 """
 
@@ -93,7 +93,7 @@ def structured_call(
     ``fallback`` model exactly once. Any failure — a model error or a payload that
     fails pydantic validation — is swallowed and the next attempt tried; only after
     every attempt is exhausted does it raise ``StructuredOutputError`` (chaining the
-    last failure). ``method`` defaults to ``"function_calling"`` (D4 pin).
+    last failure). ``method`` defaults to ``"function_calling"``.
     """
     candidates: list[SupportsStructuredOutput] = [model] * (retries + 1)
     if fallback is not None:

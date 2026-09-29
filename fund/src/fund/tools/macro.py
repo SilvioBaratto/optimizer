@@ -1,9 +1,9 @@
-"""T3.5 — ``get_macro_series``: pull macro time-series for the regime/views agents.
+"""``get_macro_series``: pull macro time-series for the regime/views agents.
 
 Reads FRED observations out of the shared ``portopt_db`` layer via
 :class:`~portopt_db.repositories.macro.macro_regime_repository.MacroRegimeRepository`
 and hands the agent a JSON-serialisable shape/coverage **summary** — never the
-raw observation matrix (SPEC Fase 3). The tool is a pure function of ``(session,
+raw observation matrix. The tool is a pure function of ``(session,
 names, asof)``: same seeded data + same args ⇒ identical output.
 
 Contract (via :func:`fund.tools._base.tool_envelope`):
@@ -52,7 +52,7 @@ def load_macro_frame(
     ``asof``. The caller validates non-empty ``names``.
 
     Args:
-        session: A sync ``portopt_db`` session (D1); the loader does not own it.
+        session: A sync ``portopt_db`` session; the loader does not own it.
         names: FRED series ids, in the order the panel columns should follow.
         asof: Inclusive upper bound; observations strictly after it are excluded.
 
@@ -88,7 +88,7 @@ def get_macro_series(
     """Return a macro-series-panel summary for ``names`` as of ``asof``.
 
     Args:
-        session: A sync ``portopt_db`` session (D1); the tool does not own it.
+        session: A sync ``portopt_db`` session; the tool does not own it.
         names: FRED series ids to resolve, in the order the panel columns should
             follow.
         asof: Inclusive upper bound; observations strictly after it are excluded

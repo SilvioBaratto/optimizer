@@ -1,4 +1,4 @@
-"""Task 5 — Phase-7 subagents + the PM deep agent (``fund.agents.graph``).
+"""Structural tests for ``fund.agents.graph``.
 
 Assert on the **constructed shapes**, never an LLM call (SPEC §5 — no network in
 CI). The four subagent builders return well-formed ``SubAgent`` dicts
@@ -163,7 +163,6 @@ def test_build_fund_agent_wires_the_pm_create_deep_agent(tmp_path, monkeypatch) 
     # HITL gate at the PM level.
     assert captured["interrupt_on"] == {"place_orders": True}
     assert captured["interrupt_on"] == settings.interrupt_on_map()
-    # Root-relative orchestrator skills + virtual-mode backend + persistence.
     assert captured["skills"] == skill_sources("orchestrator")
     assert captured["backend"] is fake_backend
     assert captured["backend"].virtual_mode is True

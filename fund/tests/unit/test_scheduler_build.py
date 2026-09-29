@@ -1,4 +1,4 @@
-"""T6 — ``create_scheduler`` registration + the agent-stack-free import guard.
+"""``create_scheduler`` registration + the agent-stack-free import guard.
 
 Asserts ``create_scheduler()`` registers exactly the three fund jobs with the
 right trigger types, on a single-worker executor, a **distinct** jobstore table
@@ -45,7 +45,6 @@ _ALL_JOBS = _CRON_JOBS | _INTERVAL_JOBS
 
 
 def _build_scheduler(jobstore_calls: list[dict] | None = None):
-    """Create a scheduler with a mocked engine + in-memory jobstore."""
     dm = MagicMock()
     dm.engine = MagicMock()  # non-None
 
@@ -78,7 +77,7 @@ def test_interval_jobs_use_interval_triggers():
 
 
 def test_rebalance_cron_fires_saturday_not_monday():
-    # R7: the default cron uses the weekday NAME `sat`; a bare `0` fires Monday.
+    # the default cron uses the weekday NAME `sat`; a bare `0` fires Monday.
     scheduler = _build_scheduler()
     trigger = scheduler.get_job(JOB_REBALANCE_SWEEP).trigger
     assert "day_of_week='sat'" in str(trigger)

@@ -1,7 +1,7 @@
 """``fund.agents.model`` — the provider-registry chat-model factory (unit slice).
 
 Construction only: the SDK class is built but never invoked, so no network is
-touched. The tests assert the frozen ``FundConfig`` (D4) is threaded onto the
+touched. The tests assert the frozen ``FundConfig`` is threaded onto the
 model — base URL, model id, ``temperature``, non-thinking ``reasoning`` route, and
 the ``OLLAMA_API_KEY`` bearer header — that ``build_chat_model`` dispatches on
 ``config.llm_provider`` (unknown provider / uninstalled extra raise clear
@@ -20,7 +20,7 @@ import pytest
 from fund.agents import model
 from fund.config import FundConfig
 
-# A config carrying every D4 default plus a key, so build never hits use-time None.
+# A config carrying every default plus a key, so build never hits use-time None.
 _CFG = FundConfig(ollama_api_key="sk-ollama-test")
 
 
@@ -68,7 +68,7 @@ def test_import_needs_no_env_and_defers_key_validation_to_build_time():
         model.build_primary(FundConfig(ollama_api_key=None))
 
 
-# --- provider registry / dispatch (Task 2) ----------------------------------
+# --- provider registry / dispatch -------------------------------------------
 
 
 def test_ollama_is_the_registered_default_provider():
@@ -91,8 +91,6 @@ def test_unknown_provider_error_lists_the_valid_providers():
 
 
 def test_uninstalled_provider_extra_reraises_as_runtimeerror_with_hint(monkeypatch):
-    # A builder whose SDK is absent raises ImportError; build_chat_model catches
-    # it and re-raises a RuntimeError naming the `uv sync ... --extra` command.
     def _boom(_config, _model_name):
         raise ImportError("No module named 'langchain_openai'")
 
@@ -102,7 +100,7 @@ def test_uninstalled_provider_extra_reraises_as_runtimeerror_with_hint(monkeypat
         model.build_chat_model(cfg, model_name="m")
 
 
-# --- Ollama cloud-vs-local key rule (Task 2) --------------------------------
+# --- Ollama cloud-vs-local key rule -----------------------------------------
 
 
 def test_ollama_cloud_default_without_key_raises_naming_the_env_var():
@@ -132,7 +130,7 @@ def test_ollama_local_with_key_still_sends_the_bearer_header():
     assert llm.client_kwargs["headers"]["Authorization"] == "Bearer sk-local"
 
 
-# --- openai / openrouter (Task 3; langchain-openai / ChatOpenAI) -------------
+# --- openai / openrouter (langchain-openai / ChatOpenAI) ---------------------
 
 
 def _install_fake_chat_class(
@@ -236,7 +234,7 @@ def test_openrouter_without_key_raises_runtimeerror(monkeypatch):
         model.build_chat_model(cfg, model_name="m")
 
 
-# --- anthropic (Task 4; langchain-anthropic / ChatAnthropic) ----------------
+# --- anthropic (langchain-anthropic / ChatAnthropic) ------------------------
 
 
 def test_anthropic_is_a_registered_provider():
@@ -281,7 +279,7 @@ def test_anthropic_without_key_raises_runtimeerror(monkeypatch):
         model.build_chat_model(cfg, model_name="claude-sonnet-4")
 
 
-# --- groq (Task 5; langchain-groq / ChatGroq) -------------------------------
+# --- groq (langchain-groq / ChatGroq) ---------------------------------------
 
 
 def test_groq_is_a_registered_provider():
@@ -320,7 +318,7 @@ def test_groq_without_key_raises_runtimeerror(monkeypatch):
         model.build_chat_model(cfg, model_name="llama-3.3-70b-versatile")
 
 
-# --- google / Gemini (Task 6; langchain-google-genai / ChatGoogleGenerativeAI)
+# --- google / Gemini (langchain-google-genai / ChatGoogleGenerativeAI) -------
 
 
 def test_google_is_a_registered_provider():
@@ -364,7 +362,7 @@ def test_google_without_key_raises_runtimeerror(monkeypatch):
         model.build_chat_model(cfg, model_name="gemini-2.5-flash")
 
 
-# --- aws / Bedrock Converse (Task 7; langchain-aws / ChatBedrockConverse) -----
+# --- aws / Bedrock Converse (langchain-aws / ChatBedrockConverse) ------------
 #
 # AWS is the first non-key provider: creds arrive via boto3 (AWS_ACCESS_KEY_ID /
 # AWS_SECRET_ACCESS_KEY / IAM role), so the builder requires only `region_name`.
@@ -417,7 +415,7 @@ def test_aws_without_region_raises_runtimeerror(monkeypatch):
         model.build_chat_model(cfg, model_name="anthropic.claude-3")
 
 
-# --- microsoft / Azure OpenAI (Task 8; langchain-openai / AzureChatOpenAI) -----
+# --- microsoft / Azure OpenAI (langchain-openai / AzureChatOpenAI) -----------
 #
 # Azure reuses the `openai` extra (no new package): `AzureChatOpenAI` is wired from
 # four Azure env vars, not one key. The class exposes `model` / `api_key` /
@@ -491,7 +489,7 @@ def test_microsoft_missing_any_azure_var_raises_naming_it(
         model.build_chat_model(cfg, model_name="gpt-4o")
 
 
-# --- nvidia (Task 9; langchain-nvidia-ai-endpoints / ChatNVIDIA) --------------
+# --- nvidia (langchain-nvidia-ai-endpoints / ChatNVIDIA) ---------------------
 #
 # NVIDIA has two paths, branched on `nvidia_base_url`: hosted (build.nvidia.com)
 # *requires* `NVIDIA_API_KEY`; a self-hosted NIM sets `NVIDIA_BASE_URL` and needs
@@ -564,9 +562,9 @@ def test_nvidia_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):
     assert "reasoning" not in llm.kwargs
 
 
-# --- huggingface (Task 10; langchain-huggingface, cloud-only) -----------------
+# --- huggingface (langchain-huggingface, cloud-only) -------------------------
 #
-# HF is cloud-only in this delivery: `ChatHuggingFace(llm=HuggingFaceEndpoint(...))`
+# HF is cloud-only: `ChatHuggingFace(llm=HuggingFaceEndpoint(...))`
 # from HUGGINGFACEHUB_API_TOKEN. `hf_mode == "local"` raises a deferral RuntimeError
 # *before* the SDK import (so it fires even without the extra installed). The
 # builder imports two names from one module, so a dedicated recording fake is used.

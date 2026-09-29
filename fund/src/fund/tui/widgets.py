@@ -1,6 +1,6 @@
-"""The four observer panels for :class:`fund.tui.app.FundTUI` (Phase 8, Task 8).
+"""The four observer panels for FundTUI.
 
-Dumb renderers, thin over :mod:`fund.observe`: each panel exposes a ``show_*``
+Dumb renderers, thin over fund.observe: each panel exposes a ``show_*``
 method that takes the model-free read-model dataclasses (``RunSummary`` /
 ``TranscriptEntry`` / ``PortfolioState``) or the interrupt dict and paints itself.
 All data flow — the polling read session, the run selection, the worker-thread

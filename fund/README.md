@@ -27,16 +27,14 @@ Alembic stays the sole owner of `public`.
 ## Commands
 
 ```bash
-# Workspace sync (installs fund editable into the shared venv)
+# installs fund editable into the shared venv
 uv sync --all-packages --all-extras
 
-# Tests
 cd fund && uv run pytest tests/ -v
 
-# Entrypoints (modules filled in later phases)
 fund          # human CLI      -> fund.cli:app
 fund-tui      # watch terminal -> fund.tui.app:main
-fund-worker   # D6 daemon      -> fund.worker:main
+fund-worker   # daemon         -> fund.worker:main
 ```
 
 See [`../SPEC.md`](../SPEC.md) for the Phase 0 architecture contract (D1–D4) and

@@ -1,8 +1,6 @@
-"""T6 — profiler system prompt + ``mifid-profiling`` skill (frontmatter + smoke).
+"""Profiler system prompt and ``mifid-profiling`` skill (frontmatter + smoke).
 
-The LLM half of Fase 5 needs an English, ESMA-2022-derived system prompt and a
-routing skill. This phase creates them; wiring the agent is Task 7. These tests
-assert:
+Tests assert:
 
 * ``PROFILER_SYSTEM_PROMPT`` imports (no heavy deps), is English, walks the four
   ESMA pillars, and states the load-bearing boundary — the LLM interprets answers
@@ -11,7 +9,7 @@ assert:
   a specific ``description``) and a body that routes to the deterministic mapping.
 * ``skills/mifid-profiling/reference.md`` carries the pillar→knob table + citations.
 * No ``deepagents`` / ``langchain`` hard-import leaks into ``fund/schemas/`` (the
-  schemas stay a pure, importable data layer — SPEC §6 "Never").
+  schemas stay a pure, importable data layer).
 """
 
 from __future__ import annotations
@@ -50,7 +48,6 @@ def test_profiler_prompt_is_english_and_substantial():
 
 def test_profiler_prompt_walks_the_four_esma_pillars():
     lower = PROFILER_SYSTEM_PROMPT.lower()
-    # The four ESMA suitability pillars.
     assert "knowledge" in lower  # + experience
     assert "capacity" in lower  # financial situation / loss capacity
     assert "objectives" in lower  # incl. horizon + risk tolerance
@@ -87,7 +84,7 @@ def test_skill_md_body_routes_to_the_deterministic_mapping():
     text = (_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").lower()
     assert "build_constraint_set" in text
     assert "pillar" in text
-    # Points to the theory, never copies it (SPEC §3).
+    # Points to the theory, never copies it.
     assert "deep_agent" in text
 
 

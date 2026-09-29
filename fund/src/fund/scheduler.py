@@ -1,8 +1,8 @@
-"""Fund daemon step functions + APScheduler assembly (Phase 9C, Task 6).
+"""Fund daemon step functions + APScheduler assembly.
 
-The testable daemon logic, split from the wiring (Task 7's ``fund.worker`` builds
-and drives the scheduler; this module holds the plain step functions that are
-unit-tested headless). Three scheduled steps — the weekly rebalance sweep, the
+The testable daemon logic, split from the wiring (``fund.worker`` builds and drives
+the scheduler; this module holds the plain step functions that are unit-tested
+headless). Three scheduled steps — the weekly rebalance sweep, the
 15-minute drift monitor, and the orphan reaper — plus the shared per-portfolio
 driver :func:`_drive_rebalance` and the :func:`create_scheduler` factory. **None
 of these start a scheduler.**
@@ -77,7 +77,7 @@ JOB_ORPHAN_REAPER = "fund_orphan_reaper"
 class SchedulerRuntime:
     """The chat model + fallback + persistence a run needs.
 
-    The daemon (Task 7) builds these **once** for its lifetime and installs them
+    The daemon builds these **once** for its lifetime and installs them
     via :func:`configure_runtime`; the scheduled zero-arg steps then reuse them.
     A manual single run (``python -m fund.scheduler ...``) builds a throwaway one
     and closes its pool afterwards. Tests inject a scripted model + an in-memory

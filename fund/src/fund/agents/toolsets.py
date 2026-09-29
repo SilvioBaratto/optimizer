@@ -1,4 +1,4 @@
-"""T7.3 — per-run toolset binding: the load-bearing tool adapter.
+"""Per-run toolset binding: the load-bearing tool adapter.
 
 Each Phase-3 tool (``fund.tools.*``) is a frozen ``@tool_envelope`` function whose
 **first positional arg is a ``Session``**. A deep agent must never see that
@@ -15,7 +15,7 @@ The bound closures also carry the load-bearing invariant into the audit trail:
   tools' existing arg dicts** (``optimize_portfolio`` honours the ``bounds``
   subset; ESG exclusions → ``universe_filter`` criteria; bounds → ``risk_check``
   constraints). The Phase-3 backbone stays frozen — no new tool business logic
-  (Risk R2: structural ``nu``/ESG enforcement is ask-first, out of Phase-7 exit,
+  (structural ``nu``/ESG enforcement is ask-first, out of Phase-7 exit,
   so a criterion the frozen tool does not model is passed but ignored). The full
   MiFID mapping (objective/risk-measure/risk-aversion/beta/l1/l2/cardinality) is
   inert on the allocation today, so it is **not** logged as applied — the client's
@@ -31,7 +31,7 @@ instead of raising across the tool boundary.
 
 The langchain import (``langchain_core.tools.tool``) lives **inside**
 :func:`bind_toolset`'s builders, so ``import fund.agents.toolsets`` pulls in no
-agent-stack runtime (Task 7 keeps the bare package import agent-stack-free).
+agent-stack runtime (keeping the bare package import agent-stack-free).
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ class RunContext:
     """Immutable per-run binding context for the toolset closures.
 
     Carries everything a bound tool needs but the model must not choose: the
-    injected sync ``session`` (D1), the ``asof`` decision bar that bounds every
+    injected sync ``session``, the ``asof`` decision bar that bounds every
     price read (no look-ahead), the LangGraph ``store`` the active
     ``ConstraintSet`` is resolved from, the run ``config`` (store key, etc.), the
     audit ``run_id``, and the owning ``portfolio_id``.
@@ -92,12 +92,12 @@ class RunContext:
     config: FundConfig
     run_id: uuid.UUID
     portfolio_id: uuid.UUID
-    # D18: the moments/backtest lookback — 3y rolling (~756 trading days), a
+    # The moments/backtest lookback — 3y rolling (~756 trading days), a
     # run-config value (never a ``ConstraintSet`` field). Wired into ``backtest``
     # (which accepts a ``window``); ``estimate_moments`` / ``optimize_portfolio``
     # take no start bound in the frozen Phase-3 backbone, so it is recorded on the
-    # run but inert there (the ESG-exclusions precedent — R2, structural
-    # enforcement is ask-first). Additive default keeps existing callers unchanged.
+    # run but inert there (the ESG-exclusions precedent). Additive default keeps
+    # existing callers unchanged.
     lookback_days: int = 756
 
 
@@ -134,7 +134,7 @@ def _universe_criteria(cs: ConstraintSet) -> dict[str, Any] | None:
     """ESG exclusions as ``universe_filter`` criteria (``None`` when empty).
 
     The frozen ``universe_filter`` only honours ``PreSelectionConfig`` fields, so
-    ``exclusions`` is passed but ignored today (R2 — structural ESG enforcement is
+    ``exclusions`` is passed but ignored today (structural ESG enforcement is
     ask-first). Translating it here keeps the intent auditable and wires the arg
     for the day the tool models it, without touching the frozen backbone.
     """
@@ -146,9 +146,9 @@ def _universe_criteria(cs: ConstraintSet) -> dict[str, Any] | None:
 
 def _effective_optimizer_config(constraints: dict[str, Any] | None) -> dict[str, Any]:
     """The ``MeanRiskConfig`` ``optimize_portfolio`` ACTUALLY applied: min-variance
-    defaults (D17) + the honoured min/max/budget bounds. The mapped MiFID knobs
+    defaults + the honoured min/max/budget bounds. The mapped MiFID knobs
     (objective/risk_measure/risk_aversion/beta/l1/l2/cardinality) are NOT consumed
-    by the frozen Phase-3 tool (R2, ask-first), so they are intentionally absent
+    by the frozen Phase-3 tool, so they are intentionally absent
     here — the client's full mapped intent stays in the decision's ``constraint_set``.
     Logging only the applied config keeps the audit honest (reuses the tool's own
     ``_resolve_config`` as the single source of truth)."""
@@ -232,7 +232,7 @@ def _universe_filter_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
 
 @tool_envelope
 def _estimate_moments_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
-    # D18: ``ctx.lookback_days`` is recorded on the run but inert here — the frozen
+    # ``ctx.lookback_days`` is recorded on the run but inert here — the frozen
     # ``estimate_moments`` takes no start bound, so moments use full history up to
     # ``asof`` (the ESG-exclusion precedent; structural enforcement is ask-first).
     return _tools.estimate_moments(ctx.session, ctx.asof, universe)
@@ -267,7 +267,7 @@ def _risk_check_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
 
 @tool_envelope
 def _backtest_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
-    # D18: bound the walk-forward training block to the run's 3y rolling lookback
+    # Bound the walk-forward training block to the run's 3y rolling lookback
     # (the one frozen tool that accepts a window). A panel shorter than the window
     # falls back to the full sample inside ``backtest`` (no leakage either way).
     return _tools.backtest(
@@ -288,7 +288,7 @@ def _place_orders_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult
     audited = AgentRunRepository(ctx.session).latest_optimizer_weights(ctx.run_id)
     result = _tools.place_orders(ctx.session, ctx.asof, audited, ctx.portfolio_id)
     data = result.get("data") if result.get("ok") else None
-    # Log once, on the real placement; the idempotent HITL re-run (D3) does not
+    # Log once, on the real placement; the idempotent HITL re-run does not
     # double-log (mirrors the profiler's save_profile).
     if data is not None and not data.get("idempotent", False):
         _append_executor_decision(ctx, data)

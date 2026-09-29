@@ -61,6 +61,13 @@ def normalize_conninfo(database_url: str) -> str:
 
     ``DATABASE_URL`` may carry an SQLAlchemy driver suffix (e.g.
     ``postgresql+psycopg2://``); psycopg wants a bare ``postgresql://``.
+
+    Args:
+        database_url: A ``postgresql[+driver]://`` URL, as stored in
+            ``DATABASE_URL``.
+
+    Returns:
+        The same URL with any ``+driver`` qualifier removed.
     """
     return re.sub(r"^postgresql\+\w+://", "postgresql://", database_url)
 
@@ -84,6 +91,11 @@ def create_schema(conninfo: str, schema: str) -> None:
 
     Out-of-band because ``search_path`` redirects unqualified DDL but does not
     create the target schema.
+
+    Args:
+        conninfo: A bare ``postgresql://`` connection string (no SQLAlchemy
+            driver suffix).
+        schema: Name of the schema to create (e.g. ``"langgraph"``).
     """
     with psycopg.connect(conninfo, autocommit=True) as conn:
         conn.execute(SQL("CREATE SCHEMA IF NOT EXISTS {}").format(Identifier(schema)))
@@ -95,6 +107,15 @@ def build_pool(config: FundConfig) -> ConnectionPool[Connection[DictRow]]:
     ``row_factory=dict_row`` is set at runtime via ``kwargs`` (invisible to the
     type checker, which infers the default tuple-row pool), so the dict-row pool
     type is asserted with a ``cast``.
+
+    Args:
+        config: Fund config supplying the database URL and pool kwargs
+            (``autocommit``, ``row_factory``, ``prepare_threshold``,
+            ``search_path``).
+
+    Returns:
+        An open, dict-row connection pool ready for use by both the saver and
+        the store.
     """
     conninfo = _require_conninfo(config)
     pool = ConnectionPool(

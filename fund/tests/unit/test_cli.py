@@ -1,4 +1,4 @@
-"""Task 7 — ``fund.cli``: the headless human operating cycle under ``CliRunner``.
+"""``fund.cli``: the headless human operating cycle under ``CliRunner``.
 
 Exercises every command (mandate set|show, profile, run, approve, reject, status,
 report) with the network-free fakes: ``ScriptedFundModel`` / ``ScriptedProfilerModel``

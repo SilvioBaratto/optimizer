@@ -1,4 +1,4 @@
-"""Task 4 — ``fund.schemas.views`` pins the Black-Litterman view schema.
+"""``fund.schemas.views`` pins the Black-Litterman view schema.
 
 ``View`` / ``ViewSet`` are pure serialisable data: constructing one imports **no**
 ``optimizer`` code — rendering onto ``BlackLittermanConfig`` is deferred to the
@@ -52,7 +52,7 @@ def _view_set(**overrides: object) -> ViewSet:
 def test_absolute_view_is_accepted():
     v = _abs_view()
     assert v.target == "AAPL"
-    assert v.relative_to is None  # absolute
+    assert v.relative_to is None
     assert v.kind is ViewKind.ASSET  # default
     assert v.confidence == 0.5
 

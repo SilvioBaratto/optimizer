@@ -14,24 +14,22 @@ requires-python = ">=3.12"
 # `optimizer` (portopt-core) and `portopt_db` — guarded the other way by the
 # ingestion/db hygiene tests. deepagents/langgraph live here and NOWHERE else.
 dependencies = [
-    # Workspace bridge deps (resolved from local paths, see [tool.uv.sources]).
     "portopt-core",
     "portopt-db",
     # Agent runtime. deepagents is pre-1.0 and moves fast — pinned exactly to the
-    # version whose API was verified by the Phase 0 exit probes (StoreBackend
-    # instance, ModelFallbackMiddleware, skills preload). See SPEC.md D2/D4.
+    # version whose API was verified by live exit probes (StoreBackend
+    # instance, ModelFallbackMiddleware, skills preload).
     "deepagents==0.7.14",
     "langgraph",
-    # Durable checkpointer + store on a dedicated `langgraph` Postgres schema (D3).
+    # Durable checkpointer + store on a dedicated `langgraph` Postgres schema.
     # psycopg + pool are the connection layer PostgresSaver/PostgresStore drive.
     "langgraph-checkpoint-postgres",
     "psycopg[binary]",
     "psycopg-pool",
-    # Model path (D4): DeepSeek on Ollama Cloud via ChatOllama.
+    # Default provider: DeepSeek on Ollama Cloud via ChatOllama.
     "langchain-ollama",
-    # D6 daemon: cron + drift-monitor scheduler (same lib the ingestion daemon uses).
+    # Cron + drift-monitor scheduler (same lib the ingestion daemon uses).
     "APScheduler",
-    # Config / env / CLI / TUI.
     "python-dotenv",
     "pydantic",
     "typer",
@@ -40,15 +38,15 @@ dependencies = [
 
 [project.optional-dependencies]
 # Test-only deps, versions matched to the rest of the workspace so the single
-# shared venv resolves one pytest/pytest-cov. pytest-asyncio kept for the async
-# agent/worker paths that arrive in later phases.
+# shared venv resolves one pytest/pytest-cov. pytest-asyncio covers the async
+# agent/worker paths.
 test = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
 ]
 
-# Optional per-provider LLM backends (SPEC D4, "Switchable LLM Backends"). Each is
+# Optional per-provider LLM backends (switchable). Each is
 # a plain extra; `langchain-ollama` stays a hard dep above (the default provider).
 # Install one with `uv sync --package portopt-fund --extra <provider>`. `openai`
 # also backs the `openrouter` provider (ChatOpenAI at OpenRouter's base_url) and,
@@ -76,9 +74,9 @@ all-llm = [
     "portopt-fund[openai,anthropic,groq,google,aws,nvidia,huggingface]",
 ]
 
-# Human CLI, watch TUI, and the D6 daemon. Entrypoints reference modules filled
-# in later phases (cli/tui/worker are empty stubs today); `uv sync` does not
-# import them, so the scaffold syncs green before those modules exist.
+# Human CLI, watch TUI, and the worker daemon. Entrypoints reference stub modules
+# (cli/tui/worker); `uv sync` does not import them, so the scaffold syncs green
+# before those modules exist.
 [project.scripts]
 fund = "fund.cli:app"
 fund-tui = "fund.tui.app:main"
@@ -89,7 +87,7 @@ fund-worker = "fund.worker:main"
 portopt-core = { workspace = true }
 portopt-db = { workspace = true }
 
-# fund-scoped pytest config: register the `integration` marker so the D3
+# fund-scoped pytest config: register the `integration` marker so the live
 # Postgres round-trip test (skipped without DATABASE_URL) doesn't warn.
 [tool.pytest.ini_options]
 markers = [

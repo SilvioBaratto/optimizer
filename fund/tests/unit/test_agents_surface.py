@@ -1,12 +1,12 @@
-"""Task 7 — ``fund.agents`` public surface (Phase-7 orchestration entry points).
+"""``fund.agents`` public surface — orchestration and profiler exports.
 
-The package ``__init__`` re-exports the three Phase-7 orchestration entry points
+The package ``__init__`` re-exports the three orchestration entry points
 — ``run_fund``, ``build_fund_agent``, ``FundRun`` (from ``fund.agents.graph``) —
-alongside the pre-existing MiFID profiler surface, so callers import from one
-place instead of reaching into ``fund.agents.graph``.
+alongside the MiFID profiler surface, so callers import from one place instead of
+reaching into ``fund.agents.graph``.
 
-The load-bearing invariant (SPEC §5 / plan Task 7): a *bare* ``import fund.agents``
-must stay **agent-stack-free** — pulling in no ``deepagents`` / ``langchain`` /
+Load-bearing invariant: a *bare* ``import fund.agents`` must stay
+**agent-stack-free** — pulling in no ``deepagents`` / ``langchain`` /
 ``langgraph`` runtime and needing no environment. ``graph.py`` keeps the agent
 stack lazy (imported inside its builders), so re-exporting its symbols must not
 regress that. The subprocess test asserts the *transitive* closure stays clean in
@@ -22,9 +22,9 @@ import textwrap
 
 import fund.agents as agents
 
-# The three Phase-7 orchestration names §7 promises callers import directly.
+# Names the orchestration API contract promises callers can import directly.
 _ORCHESTRATION_SURFACE = ("FundRun", "build_fund_agent", "run_fund")
-# The pre-existing MiFID profiler surface must keep resolving (regression guard).
+# The MiFID profiler surface must keep resolving (regression guard).
 _PROFILER_SURFACE = (
     "ProfilerRun",
     "SuitabilityBreachError",
@@ -42,7 +42,7 @@ def test_orchestration_surface_resolves():
 
 
 def test_profiler_surface_still_resolves():
-    # Task 7 adds names; it must not drop the Fase-5 profiler exports.
+    # Adding orchestration names must not silently drop pre-existing profiler exports.
     for name in _PROFILER_SURFACE:
         assert hasattr(agents, name), f"profiler export {name!r} went missing"
 
@@ -57,7 +57,6 @@ def test_orchestration_reexports_are_identical_objects():
 
 
 def test_all_has_no_dangling_names():
-    # Every name advertised in ``__all__`` must be a real attribute.
     for name in agents.__all__:
         assert hasattr(agents, name), f"__all__ lists {name!r} but it is not exported"
 

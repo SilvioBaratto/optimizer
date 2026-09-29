@@ -1,4 +1,4 @@
-"""T3.5 — ``get_macro_series`` tool over ``MacroRegimeRepository``.
+"""``get_macro_series`` tool over ``MacroRegimeRepository``.
 
 The macro tool feeds the regime/views agents. These tests pin its contract as a
 pure function of a seeded SQLite DB of FRED observations:

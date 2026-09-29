@@ -1,10 +1,10 @@
-"""T2.2 — ``AgentRunRepository`` CRUD round-trips on SQLite.
+"""``AgentRunRepository`` CRUD round-trips on SQLite.
 
 The repo is the fund-side behavior layer over the ``agent_runs`` /
 ``agent_decisions`` models that live in ``portopt_db`` (the split mirrors
 ``background_jobs``: model in the shared DB package, behavior in the consumer).
 It sits on ``portopt_db.repository.RepositoryBase`` and opens no session of its
-own — the caller injects one (sync, D1).
+own — the caller injects one (sync).
 """
 
 from __future__ import annotations

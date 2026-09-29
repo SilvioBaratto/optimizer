@@ -1,25 +1,25 @@
-"""T3.4 — ``risk_check`` + ``backtest``: the risk agent's blocking-gate primitives.
+"""``risk_check`` and ``backtest``: the risk agent's blocking-gate primitives.
 
 Two deterministic tools the risk agent calls before an allocation is allowed
 through:
 
-* :func:`risk_check` validates a weight vector against a ConstraintSet placeholder
+* ``risk_check`` validates a weight vector against a ConstraintSet placeholder
   (``min_weights`` / ``max_weights`` / ``budget`` — the same keys ``optimize``
   honours, SPEC D17). It is pure arithmetic on the weights: no DB, no RNG. In-norm
   weights return ``passed=True`` with an empty ``violations`` list; every breach
   adds a structured entry and flips ``passed`` to ``False``.
-* :func:`backtest` holds the given weights fixed and evaluates them *out of
-  sample* with a walk-forward split from :mod:`optimizer.validation`
+* ``backtest`` holds the given weights fixed and evaluates them *out of sample*
+  with a walk-forward split from ``optimizer.validation``
   (``shuffle=False`` — the test window strictly follows the training block, so no
   future data leaks). Returns are computed **outside** any pipeline via
-  :func:`optimizer.preprocessing.prices_to_returns` (linear returns); metrics come
-  from a skfolio :class:`~skfolio.Portfolio`. When the panel is too short for even
-  one fold the tool falls back to the full IN-SAMPLE series (``n_folds == 0``); those
-  metrics are then in-sample, not walk-forward, and are flagged ``out_of_sample=False``.
+  ``optimizer.preprocessing.prices_to_returns`` (linear returns); metrics come
+  from a skfolio ``Portfolio``. When the panel is too short for even one fold the
+  tool falls back to the full IN-SAMPLE series (``n_folds == 0``); those metrics
+  are then in-sample, not walk-forward, and are flagged ``out_of_sample=False``.
 
-Contract (via :func:`fund.tools._base.tool_envelope`): every failure — empty
-weights, no priced assets, a bad constraint value, an invalid walk-forward
-window — is returned as ``{ok: false, error}``, never raised.
+Contract (via ``tool_envelope``): every failure — empty weights, no priced
+assets, a bad constraint value, an invalid walk-forward window — is returned as
+``{ok: false, error}``, never raised.
 """
 
 from __future__ import annotations
@@ -41,8 +41,7 @@ from fund.tools.prices import load_price_frame
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-# ConstraintSet placeholder honoured by ``risk_check`` (Fase-4 schema fills this in
-# later). Defaults are long-only, fully invested (D17): 0 <= w <= 1, sum(w) = 1.
+# Defaults are long-only, fully invested (D17): 0 <= w <= 1, sum(w) = 1.
 _DEFAULT_CONSTRAINTS: dict[str, float] = {
     "min_weights": 0.0,
     "max_weights": 1.0,
@@ -51,8 +50,8 @@ _DEFAULT_CONSTRAINTS: dict[str, float] = {
 _WEIGHT_TOL = 1e-9
 _BUDGET_TOL = 1e-6
 
-# ``WalkForwardConfig`` field names — ``window`` keys outside this set are ignored
-# (placeholder for the Fase-4 schema), mirroring ``optimize`` / ``universe_filter``.
+# ``WalkForwardConfig`` field names — ``window`` keys outside this set are ignored,
+# mirroring ``optimize`` / ``universe_filter``.
 _WINDOW_FIELDS: frozenset[str] = frozenset(
     f.name for f in dataclasses.fields(WalkForwardConfig)
 )

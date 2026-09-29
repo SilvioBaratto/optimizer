@@ -107,14 +107,14 @@ class CapacityAnswers(BaseModel):
             "Largest tolerable one-year loss as a FRACTION of capital in [0, 1] "
             "(e.g. 0.4 means 40%)."
         ),
-    )  # fraction of capital
+    )
     buffer_months: float = Field(
         ge=0.0,
         description=(
             "Emergency cash buffer in months of essential expenses, held OUTSIDE "
             "this portfolio."
         ),
-    )  # months of expenses covered
+    )
 
 
 class ObjectivesAnswers(BaseModel):
@@ -157,8 +157,8 @@ class ObjectivesAnswers(BaseModel):
 
 class EsgAnswers(BaseModel):
     """Pillar 4 — ESG preferences. ``exclusions`` are GICS sectors the client
-    refuses to hold; the profiler turns them into a HARD ``EsgPolicy`` block
-    (D16, exclusions-only now). Defaults to no stated preference."""
+    refuses to hold; the profiler turns them into a HARD ``EsgPolicy`` block.
+    Defaults to no stated preference."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -174,7 +174,7 @@ class EsgAnswers(BaseModel):
 class MiFIDAnswers(BaseModel):
     """The four ESMA pillars a suitability assessment consumes.
 
-    ``base_currency`` is the client's reporting currency (ISO-4217 alpha, D8).
+    ``base_currency`` is the client's reporting currency (ISO-4217 alpha).
     The ``portfolio_id`` is **not** carried here — it is a persistence concern
     supplied to ``build_constraint_set`` / ``run_profiler`` at mapping time.
     """
@@ -184,7 +184,7 @@ class MiFIDAnswers(BaseModel):
     base_currency: str = Field(
         pattern=r"^[A-Z]{3}$",
         description="Client reporting currency as an ISO-4217 alpha code, e.g. EUR, USD.",
-    )  # ISO-4217 alpha (D8)
+    )
     knowledge: KnowledgeAnswers
     capacity: CapacityAnswers
     objectives: ObjectivesAnswers
@@ -203,11 +203,11 @@ class SuitabilityAssessment(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    answers: MiFIDAnswers  # per-pillar inputs snapshot
+    answers: MiFIDAnswers
     appetite_from_tolerance: float = Field(ge=0.0, le=1.0)
     appetite_from_capacity: float = Field(ge=0.0, le=1.0)
     a_gamma: float = Field(gt=0.0)  # binding min(tolerance, capacity) aversion
-    band: RiskToleranceBand  # recorded named MiFID category
+    band: RiskToleranceBand
     esg_exclusions: tuple[GicsSector, ...] = ()  # derived HARD block
     inconsistency_flags: tuple[str, ...] = ()  # surfaced at the HITL gate
     rationale: str = ""

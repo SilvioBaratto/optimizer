@@ -1,4 +1,4 @@
-"""T3.3 — ``universe_filter``: pre-selection over a seeded price panel.
+"""``universe_filter``: pre-selection over a seeded price panel.
 
 Pins the tool as a pure, deterministic function over a seeded SQLite panel:
 

@@ -1,11 +1,11 @@
-"""T3.6 — ``place_orders``: the idempotent paper-execution tool.
+"""``place_orders``: the idempotent paper-execution tool.
 
 ``place_orders`` turns a target-weight vector into a **simulated** order ticket
-(D5) filled at the **next close strictly after** the decision bar (D30 — no
-look-ahead), with a simple slippage + commission model, and persists it to the
+filled at the **next close strictly after** the decision bar (no look-ahead),
+with a simple slippage + commission model, and persists it to the
 ``paper_orders`` table. It must be **idempotent**: on a HITL ``Command(resume=…)``
-the interrupting node re-runs from the top (SPEC D3 gotcha), so two calls with
-the same ``(portfolio_id, asof, weights)`` must yield exactly **one** ticket.
+the interrupting node re-runs from the top, so two calls with the same
+``(portfolio_id, asof, weights)`` must yield exactly **one** ticket.
 
 These tests pin, over a seeded SQLite price panel:
 
@@ -90,13 +90,11 @@ class TestPlaceOrders:
         assert ticket["status"] == "filled"
         assert {line["ticker"] for line in ticket["lines"]} == set(_UNIVERSE)
 
-        # The raw fill price is the next close after the decision bar.
         idx = _fill_index()
         by_ticker = {line["ticker"]: line for line in ticket["lines"]}
         for ticker, start in _SERIES.items():
             assert by_ticker[ticker]["fill_price"] == _close_on(start, idx)
 
-        # Persisted exactly once, retrievable by the idempotency key.
         stored = db_session.execute(select(PaperOrder)).scalars().all()
         assert len(stored) == 1
         assert str(stored[0].id) == ticket["order_id"]
@@ -256,12 +254,10 @@ class TestPlaceOrders:
 
         assert first["ok"] is True
         assert second["ok"] is True
-        # Same key ⇒ same ticket id, and the second call is flagged idempotent.
         assert second["data"]["order_id"] == first["data"]["order_id"]
         assert second["data"]["idempotent"] is True
         assert first["data"]["idempotent"] is False
 
-        # Exactly one row survives the double call.
         count = db_session.execute(
             select(func.count()).select_from(PaperOrder)
         ).scalar_one()
@@ -285,7 +281,6 @@ class TestPlaceOrders:
         first = place_orders(db_session, _ASOF, _WEIGHTS, _PORTFOLIO_ID)
         second = place_orders(db_session, _ASOF, _WEIGHTS, _PORTFOLIO_ID)
 
-        # Idempotent ⇒ the second envelope equals the first bar the flag.
         assert first["data"]["weights_hash"] == second["data"]["weights_hash"]
         assert first["data"]["lines"] == second["data"]["lines"]
 

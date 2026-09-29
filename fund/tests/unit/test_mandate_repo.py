@@ -1,15 +1,3 @@
-"""T3 — ``MandateRepository`` upsert/get + ``AgentRunRepository`` thread/pause ext.
-
-``MandateRepository`` is the single writer of the ``portfolio_mandates`` row
-(one per portfolio, UNIQUE ``portfolio_id``): the pydantic
-``fund.schemas.PortfolioMandate`` is the input, the DB model
-(``PortfolioMandateModel``) is stored — full mandate in the ``mandate`` JSON
-source-of-truth column, scalars mirrored out. The ``AgentRunRepository`` gains
-the two mutators (``set_thread_id`` / ``mark_paused``) and the paused-run query
-the resume path and observers need. Both sit on ``portopt_db.repository``'s
-``RepositoryBase`` and open no session of their own (sync, D1).
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -76,7 +64,7 @@ def test_upsert_inserts_then_updates_same_row(db_session):
         .filter_by(portfolio_id=uuid.UUID(pid))
         .all()
     )
-    assert len(rows) == 1  # one row per portfolio_id — the second upsert updated
+    assert len(rows) == 1
     assert second.id == first.id
     assert float(second.capital) == 250000.0
     assert second.drift_l1_threshold == 0.2
@@ -115,7 +103,6 @@ def test_upsert_stores_full_mandate_json_that_round_trips(db_session):
     fetched = repo.get(uuid.UUID(pid))
     assert fetched is not None
     assert fetched.mandate == mandate.model_dump(mode="json")
-    # The JSON source of truth reconstructs the exact pydantic mandate.
     assert PortfolioMandate.model_validate(fetched.mandate) == mandate
 
 
@@ -154,7 +141,7 @@ def test_list_active_orders_deterministically_by_portfolio_id(db_session):
 
     returned = [str(r.portfolio_id) for r in rows]
     assert set(returned) == set(pids)
-    assert returned == sorted(returned)  # deterministic ascending order
+    assert returned == sorted(returned)
 
 
 def test_list_active_rows_rehydrate_to_pydantic_mandate_with_triggers(db_session):

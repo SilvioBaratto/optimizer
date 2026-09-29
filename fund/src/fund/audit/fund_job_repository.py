@@ -201,7 +201,6 @@ class FundJobRepository(RepositoryBase):
         return result.rowcount or 0
 
     def get(self, job_id: uuid.UUID) -> BackgroundJob | None:
-        """Return the job row by id, or ``None``."""
         return self.session.get(BackgroundJob, job_id)
 
 

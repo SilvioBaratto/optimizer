@@ -1,4 +1,4 @@
-"""Task 6 — ``resume_fund`` + ``_finalize_hitl``: rebuild-to-resume + parity.
+"""resume_fund + _finalize_hitl: rebuild-to-resume + parity.
 
 ``run_fund`` drives the PM deep agent to the ``place_orders`` HITL gate, marking
 the run ``paused`` and persisting ``thread_id = str(run_id)`` on the row. A human
@@ -10,7 +10,7 @@ one shared ``_finalize_hitl``, so the two paths cannot diverge — asserted dire
 a parity test that resumes two identical runs one each way and compares DB state.
 
 Zero live LLM, zero network: ``ScriptedFundModel`` + ``MemorySaver`` +
-``InMemoryStore`` + the in-memory ``db_session`` (SPEC §5 / §4d).
+``InMemoryStore`` + the in-memory ``db_session``.
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ def _positions_map(
     }
 
 
-# --- run_fund persists the per-run thread + marks paused (the Phase-7 touch) --
+# --- run_fund persists the per-run thread + marks paused -----------------------
 
 
 def test_run_fund_persists_thread_id_and_marks_paused(db_session) -> None:
@@ -105,7 +105,7 @@ def test_run_fund_persists_thread_id_and_marks_paused(db_session) -> None:
     run = _run_to_gate(model, db_session, MemorySaver(), _store_with_cs())
 
     row = AgentRunRepository(db_session).get_run(run.run_id)
-    # thread_id defaults to str(run_id) (was str(portfolio_id)) and is persisted.
+    # thread_id defaults to str(run_id) when not set explicitly.
     assert row.thread_id == str(run.run_id)
     # the DB row is flipped to "paused" at the gate so observers can find it.
     assert row.status == "paused"
@@ -160,9 +160,7 @@ def test_resume_fund_approve_commits_ticket_positions_and_completes(db_session) 
     row = AgentRunRepository(db_session).get_run(run.run_id)
     assert row.status == "completed"
     assert row.weights == expected
-    # positions snapshot upserted from the optimizer weights.
     assert _positions_map(db_session) == expected
-    # executor execution decision + HITL approve recorded (via the resumed tool).
     executor = [
         d
         for d in _decisions(db_session, run.run_id)
@@ -197,7 +195,6 @@ def test_resume_fund_reject_places_no_order(db_session) -> None:
     row = AgentRunRepository(db_session).get_run(run.run_id)
     assert row.status == "rejected"
     assert row.weights == {}
-    # no positions are written on reject (the snapshot stays empty).
     assert _positions_map(db_session) == {}
     assert any(
         d.hitl_decision and d.hitl_decision.get("decision") == "reject"

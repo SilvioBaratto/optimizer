@@ -1,13 +1,7 @@
-"""Contract: ``.env.example`` documents the D4 switchable-LLM-backend env vars.
+"""Contract: ``.env.example`` documents the switchable-LLM-backend env vars.
 
-Task 13 (SPEC "Switchable LLM Backends", success criterion 8) requires the
-repo-root ``.env.example`` to carry a per-provider block: the provider selector
-(``LLM_PROVIDER``), the shared model-id pair (``FUND_PRIMARY_MODEL`` /
-``FUND_FALLBACK_MODEL``), and each provider's primary auth env var. This guard
-fails the build if a provider is wired into ``fund.config`` but its env var is
-never documented for an operator.
-
-The env-var names below are the D4 contract sourced in
+Fails the build if a provider is wired into ``fund.config`` but its env var is
+not documented for an operator. Sourced from
 ``fund/src/fund/config.py::load_config``.
 
 ``Path(__file__).resolve().parents[3]`` resolves to the repo root
@@ -23,8 +17,6 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _ENV_EXAMPLE = _REPO_ROOT / ".env.example"
 
-# The D4 switchable-backend env-var contract (fund.config.load_config). One
-# primary auth/selection var per provider plus the shared selector + model pair.
 _REQUIRED_ENV_VARS = [
     "LLM_PROVIDER",
     "FUND_PRIMARY_MODEL",

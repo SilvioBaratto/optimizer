@@ -1,9 +1,8 @@
-"""Task 1 — ``fund.schemas.enums`` pins the MiFID-facing ``str, Enum`` vocabulary.
+"""``fund.schemas.enums`` pins the MiFID-facing ``str, Enum`` vocabulary.
 
-These are the fund-side vocabulary shared by the Phase-4 schemas. They map onto
-the ``optimizer.optimization`` enums only inside the schema methods (Tasks 3-4);
-this module itself imports nothing from ``optimizer`` / ``deepagents`` / ``app``.
-Each test asserts the exact member set so an accidental rename fails loud.
+These enums map onto the ``optimizer.optimization`` enums only inside the schema
+methods; this module itself imports nothing from ``optimizer`` / ``deepagents`` /
+``app``. Each test asserts the exact member set so an accidental rename fails loud.
 """
 
 from __future__ import annotations
@@ -103,7 +102,7 @@ def test_values_are_lowercase_snake_case():
 
 
 def test_ledoit_wolf_is_the_first_moments_estimator():
-    # D23 default is ledoit_wolf; first member documents the intended default.
+    # Enum ordering is meaningful — first member encodes the default for new mandates.
     assert next(iter(enums.MomentsEstimator)) is enums.MomentsEstimator.LEDOIT_WOLF
 
 
@@ -122,7 +121,6 @@ def test_all_lists_exactly_the_nine_public_enums():
 
 
 def test_new_mifid_pillar_enums_have_expected_cardinality():
-    # Phase-5 additions: K&E level, loss-reaction, and the 5 named risk bands.
     assert len(enums.KnowledgeLevel) == 4
     assert len(enums.LossReaction) == 4
     assert len(enums.RiskToleranceBand) == 5

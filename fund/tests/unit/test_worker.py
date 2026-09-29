@@ -1,11 +1,10 @@
-"""T7 — fund daemon entrypoint (``fund.worker``): boot, drain, startup reconcile.
+"""Fund daemon entrypoint (``fund.worker``): boot, drain, startup reconcile.
 
-The wiring counterpart to Task 6's ``fund.scheduler`` (the steps). ``worker.py``
-builds the lifetime runtime once (model + fallback + LangGraph pool), installs it
-via ``configure_runtime``, reconciles orphan slots on startup, starts the
+``worker.py`` builds the lifetime runtime once (model + fallback + LangGraph pool),
+installs it via ``configure_runtime``, reconciles orphan slots on startup, starts the
 scheduler, then blocks until SIGTERM/SIGINT and drains within a time bound.
 
-Contracts under test (SPEC §Phase-9D / plan Task 7):
+Contracts under test:
 
 * ``_reconcile_orphans`` fails lease-expired fund slots on startup (heartbeat
   lease — NULL/stale ``last_heartbeat_at``), spares fresh ones, and is
@@ -52,9 +51,9 @@ from fund import worker
 def job_factory() -> Generator[object, None, None]:
     """A fresh in-memory DB per test + a session-context factory.
 
-    Mirrors the T2 ``job_session`` rationale: ``_reconcile_orphans`` commits, so
-    its test needs a private engine (a StaticPool ``:memory:`` DB shares one
-    connection across sessions on the same engine — fine single-threaded).
+    ``_reconcile_orphans`` commits, so its test needs a private engine (a StaticPool
+    ``:memory:`` DB shares one connection across sessions on the same engine —
+    fine single-threaded).
     """
     engine = create_engine(
         "sqlite:///:memory:",
@@ -246,7 +245,7 @@ def test_main_boots_starts_and_drains(monkeypatch) -> None:
     worker.main()
 
     stubs.scheduler.start.assert_called_once()
-    stubs.scheduler.shutdown.assert_called_once_with(wait=True)  # drain ran
+    stubs.scheduler.shutdown.assert_called_once_with(wait=True)
     stubs.runtime.persistence.pool.close.assert_called_once()
     assert "init_db" in stubs.calls
     assert "reconcile" in stubs.calls
@@ -263,7 +262,7 @@ def test_main_warns_but_continues_on_failed_health_check(monkeypatch, caplog) ->
         worker.main()
 
     assert any("health check" in r.message.lower() for r in caplog.records)
-    stubs.scheduler.start.assert_called_once()  # boot continued despite the warning
+    stubs.scheduler.start.assert_called_once()
 
 
 # --- import hygiene ---------------------------------------------------------

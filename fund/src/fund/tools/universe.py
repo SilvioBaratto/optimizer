@@ -1,12 +1,11 @@
-"""T3.3 — ``universe_filter``: prune a candidate universe with the optimizer's
+"""``universe_filter``: prune a candidate universe with the optimizer's
 pre-selection stack before moments/optimization run.
 
-Wraps :func:`optimizer.pre_selection.build_preselection_pipeline` over a seeded
-price panel: it loads prices as of ``asof``, converts them to linear returns
-(:func:`optimizer.preprocessing.prices_to_returns`, run **outside** the pipeline),
-fits the data-cleaning + selection pipeline, and returns the **surviving
-tickers** as a ``list[str]`` in requested order — never the returns frame (SPEC
-Fase 3).
+Wraps ``build_preselection_pipeline`` over a seeded price panel: it loads prices
+as of ``asof``, converts them to linear returns (``prices_to_returns``, run
+**outside** the pipeline), fits the data-cleaning + selection pipeline, and
+returns the **surviving tickers** as a ``list[str]`` in requested order — never
+the returns frame.
 
 ``sector_mapping`` is injected as a plain ``dict[str, str]`` (SPEC: not queried
 from the DB here), forwarded to the pipeline's ``SectorImputer``.
@@ -15,13 +14,13 @@ The tool is a pure, deterministic function of ``(session, asof, universe,
 criteria, sector_mapping)``: pre-selection carries no RNG, so identical seeded
 data + identical criteria ⇒ identical list.
 
-Contract (via :func:`fund.tools._base.tool_envelope`):
+Contract (via ``tool_envelope``):
 
 * an empty ``universe``, a universe with nothing priced, or too little history ⇒
   ``{ok: true, data: []}`` — an empty result is a valid outcome, not an error;
 * a bad selection criterion (e.g. an unknown ``select_k_measure`` enum) is caught
-  by :class:`~optimizer.pre_selection.PreSelectionConfig` validation and returned
-  as ``{ok: false, error}``, never raised;
+  by ``PreSelectionConfig`` validation and returned as ``{ok: false, error}``,
+  never raised;
 * every other failure is caught by the envelope and returned as ``{ok: false}``.
 """
 
@@ -41,8 +40,8 @@ from fund.tools.prices import load_price_frame
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-# ``PreSelectionConfig`` field names — criteria keys outside this set are ignored
-# (placeholder for the Fase-4 ConstraintSet schema), mirroring ``optimize``.
+# ``PreSelectionConfig`` field names — criteria keys outside this set are silently
+# dropped, mirroring ``optimize``.
 _CONFIG_FIELDS: frozenset[str] = frozenset(
     f.name for f in dataclasses.fields(PreSelectionConfig)
 )

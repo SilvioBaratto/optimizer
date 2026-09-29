@@ -61,7 +61,7 @@ class EsgPolicy(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    exclusions: tuple[GicsSector, ...] = ()  # excluded GICS sectors
+    exclusions: tuple[GicsSector, ...] = ()
     min_taxonomy: float | None = Field(default=None, ge=0.0, le=1.0)
     min_sfdr: float | None = Field(default=None, ge=0.0, le=1.0)
     pai_flags: tuple[str, ...] = ()
@@ -93,28 +93,39 @@ class ConstraintSet(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    portfolio_id: str  # D1 namespacing
-    base_currency: str = Field(pattern=r"^[A-Z]{3}$")  # D8 ISO-4217
-    a_gamma: float = Field(gt=0.0)  # min(tolerance, capacity), double-binding
+    portfolio_id: str
+    base_currency: str = Field(pattern=r"^[A-Z]{3}$")  # ISO-4217
+    a_gamma: float = Field(gt=0.0)
     objective: ObjectiveChoice
     risk_measure: RiskMeasureChoice
     beta: float = Field(default=0.95, gt=0.0, lt=1.0)  # tail confidence (CVaR/CDaR)
     nu1: float = Field(ge=0.0, le=1.0)  # drawdown ceiling tiers (fractions of
     nu2: float = Field(ge=0.0, le=1.0)  # capital) — stored/validated only, mapped
-    nu3: float = Field(ge=0.0, le=1.0)  # to nothing here (Fase-7 risk_check, D20:75)
+    nu3: float = Field(ge=0.0, le=1.0)  # to nothing here (Fase-7 risk_check)
     horizon: Horizon
     esg: EsgPolicy = EsgPolicy()
     universe_filters: UniverseFilters = UniverseFilters()
     bounds: Bounds = Bounds()
-    cardinality: int | None = Field(default=None, gt=0)  # D27 cap per profile
-    moments_estimator: MomentsEstimator = MomentsEstimator.LEDOIT_WOLF  # D23
-    uncertainty_level: UncertaintyLevel = UncertaintyLevel.NONE  # D35
-    l1_coef: float = Field(default=0.0, ge=0.0)  # D26
-    l2_coef: float = Field(default=0.0, ge=0.0)  # D26
-    risk_free_rate: float | None = None  # D24; None → 0.0 at map time
+    cardinality: int | None = Field(default=None, gt=0)
+    moments_estimator: MomentsEstimator = MomentsEstimator.LEDOIT_WOLF
+    uncertainty_level: UncertaintyLevel = UncertaintyLevel.NONE
+    l1_coef: float = Field(default=0.0, ge=0.0)
+    l2_coef: float = Field(default=0.0, ge=0.0)
+    risk_free_rate: float | None = None  # None → 0.0 at map time
 
     def to_mean_risk_config(self) -> MeanRiskConfig:
-        """Map onto ``MeanRiskConfig``. fund is the bridge → the import is OK."""
+        """Map this constraint set onto a ``MeanRiskConfig``.
+
+        Imports ``optimizer`` lazily so that constructing a ``ConstraintSet``
+        never pulls in the optimizer stack; see module docstring for rationale.
+
+        Returns:
+            A ``MeanRiskConfig`` populated from this constraint set's fields.
+
+        Raises:
+            KeyError: If ``objective`` or ``risk_measure`` holds a value absent
+                from the mapping tables.
+        """
         from optimizer.optimization import (
             MeanRiskConfig,
             ObjectiveFunctionType,
@@ -140,10 +151,10 @@ class ConstraintSet(BaseModel):
 # ---------------------------------------------------------------------------
 # MiFID → optimizer enum maps (total; plain strings keep construction lazy).
 # ---------------------------------------------------------------------------
-# Objective spectrum (deep_agent.md:300 + :336): protection → MinRisk, the
-# income/growth middle rides the risk-aversion slider via MAXIMIZE_UTILITY, max →
-# MAXIMIZE_RATIO. Values are optimizer enum *strings*; to_mean_risk_config rebuilds
-# the enum so this module imports no optimizer code at construction time.
+# Objective spectrum: protection → MinRisk, the income/growth middle rides the
+# risk-aversion slider via MAXIMIZE_UTILITY, max → MAXIMIZE_RATIO. Values are
+# optimizer enum *strings*; to_mean_risk_config rebuilds the enum so this module
+# imports no optimizer code at construction time.
 _OBJECTIVE_MAP: dict[ObjectiveChoice, str] = {
     ObjectiveChoice.PROTECTION: "minimize_risk",
     ObjectiveChoice.INCOME: "maximize_utility",
@@ -151,7 +162,7 @@ _OBJECTIVE_MAP: dict[ObjectiveChoice, str] = {
     ObjectiveChoice.MAX: "maximize_ratio",
 }
 
-# D34: the downside subset maps 1:1 by name onto RiskMeasureType.
+# The downside subset maps 1:1 by name onto RiskMeasureType.
 _RISK_MEASURE_MAP: dict[RiskMeasureChoice, str] = {
     RiskMeasureChoice.VARIANCE: "variance",
     RiskMeasureChoice.SEMI_VARIANCE: "semi_variance",

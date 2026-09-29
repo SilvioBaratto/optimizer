@@ -1,9 +1,9 @@
-"""Allocator's committed structured decision (Task 5) — never weights.
+"""Allocator's committed structured decision — never weights.
 
 ``AllocDecision`` is what the allocator agent emits: the filtered ``universe``,
 a *reference* to the persisted risk profile (``constraint_set_ref`` = portfolio
-id + store key, resolved in Fase 7 — never an inline copy, so a decision cannot
-drift from the profile) and an *embedded* per-run ``ViewSet`` (Q1), plus the
+id + store key, resolved at decision time — never an inline copy, so a decision
+cannot drift from the profile) and an *embedded* per-run ``ViewSet``, plus the
 chosen ``objective`` and a free-text ``rationale``.
 
 It deliberately carries **no weight field**: the no-weights invariant (weights
@@ -26,9 +26,8 @@ __all__ = ["AllocDecision", "ConstraintSetRef"]
 class ConstraintSetRef(BaseModel):
     """Reference to a persisted ``ConstraintSet`` (portfolio id + store key).
 
-    The risk profile is persisted once per portfolio (Fase 5) and looked up by
-    ``store_key`` at decision time (Fase 7). Referencing — not copying — keeps a
-    decision from drifting away from the persisted profile.
+    Referencing — not copying — keeps a decision from drifting away from the
+    persisted profile.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -49,8 +48,8 @@ class AllocDecision(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     portfolio_id: str
-    universe: tuple[str, ...]  # filtered ticker set
-    constraint_set_ref: ConstraintSetRef  # reference to the persisted profile
+    universe: tuple[str, ...]
+    constraint_set_ref: ConstraintSetRef
     objective: ObjectiveChoice
     rationale: str
-    views: ViewSet | None = None  # embedded per-run views (None → none active)
+    views: ViewSet | None = None

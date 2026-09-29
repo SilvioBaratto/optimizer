@@ -102,7 +102,7 @@ class FundConfig:
     # --- D10 HITL: tools gated behind interrupt_on (checkpointer required) ---
     interrupt_on: tuple[str, ...] = field(default=("place_orders",))
 
-    # --- Fase-5 persistence: Store key the active ConstraintSet is cached under
+    # --- Phase-5 persistence: Store key the active ConstraintSet is cached under
     # (namespace = (portfolio_id,)) so a Phase-4 ``ConstraintSetRef`` resolves. ---
     constraint_set_store_key: str = "constraint_set"
 
@@ -198,7 +198,6 @@ def load_config(
     defaults = FundConfig()
     return FundConfig(
         database_url=env.get("DATABASE_URL"),
-        # Secret: file-based docker secret (`OLLAMA_API_KEY_FILE`) wins over inline.
         ollama_api_key=_read_secret(env, "OLLAMA_API_KEY"),
         fred_api_key=_read_secret(env, "FRED_API_KEY"),
         # NOT a secret file: SSL_CERT_FILE is itself the CA-bundle path (verbatim).

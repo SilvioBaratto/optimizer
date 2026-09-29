@@ -36,11 +36,10 @@ import yaml
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _COMPOSE = _REPO_ROOT / "docker-compose.yml"
 
-# T3: the fund service consumes these as file-based docker secrets (rendered by
-# `portopt start` to /run/secrets/<name>). Keys are the lower-case secret-file
-# names (name-agree with compose_secrets.SECRET_NAMES); values are the env-var
-# prefix fund.config._read_secret reads (<PREFIX>_FILE wins over inline). aws is
-# intentionally absent — it authenticates via IAM/region, not a secret file.
+# Keys are the lower-case secret-file names (name-agree with
+# compose_secrets.SECRET_NAMES); values are the env-var prefix fund.config._read_secret
+# reads (<PREFIX>_FILE wins over inline). aws is intentionally absent — it authenticates
+# via IAM/region, not a secret file.
 _FUND_SECRET_ENV = {
     "ollama_api_key": "OLLAMA_API_KEY",
     "openrouter_api_key": "OPENROUTER_API_KEY",
@@ -123,7 +122,7 @@ def test_non_secret_llm_var_not_declared_under_environment(var: str):
     assert var not in _fund_service().get("environment", {})
 
 
-# --- T3: per-provider file-based docker secrets reach the fund container -------
+# --- per-provider file-based docker secrets reach the fund container -----------
 
 
 def test_fund_service_mounts_every_provider_secret():

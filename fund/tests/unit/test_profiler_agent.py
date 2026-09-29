@@ -1,4 +1,4 @@
-"""Task 7 — the ``deepagents`` profiler agent (mock model), normalisation + persist.
+"""The ``deepagents`` profiler agent (mock model), normalisation + persist.
 
 Drives ``run_profiler`` with a fully-scripted chat model (``_profiler_fakes``): the
 agent normalises free-text answers into a typed ``MiFIDAnswers`` via
@@ -61,7 +61,7 @@ def test_normalises_free_text_into_typed_answers(db_session):
 
     assert run.answers == answers
     assert model.with_structured_output_calls >= 1
-    assert model.structured_invoke_calls == 1  # one clean normalisation
+    assert model.structured_invoke_calls == 1
 
 
 def test_maps_answers_to_a_valid_constraint_set(db_session):
@@ -108,10 +108,10 @@ def test_falls_back_when_primary_normalisation_is_exhausted(db_session):
 
     assert run.answers == answers
     assert primary.structured_invoke_calls == 2  # retries=1 → two primary tries
-    assert fallback.structured_invoke_calls == 1  # fallback tried exactly once
+    assert fallback.structured_invoke_calls == 1
 
 
-# --- per-provider structured-output method (Task 11) ------------------------
+# --- per-provider structured-output method ----------------------------------
 
 
 def test_profiler_defaults_to_function_calling_structured_output(db_session):
@@ -120,7 +120,7 @@ def test_profiler_defaults_to_function_calling_structured_output(db_session):
 
     _run(model, db_session, portfolio_id=pid)
 
-    # Default config (D4 pin) → normalisation uses ``function_calling``.
+    # Default config → normalisation uses ``function_calling``.
     assert model.structured_output_methods == ["function_calling"]
 
 
@@ -138,7 +138,6 @@ def test_profiler_forwards_configured_structured_output_method(db_session):
         config=config,
     )
 
-    # The profiler threads ``config.structured_output_method`` into structured_call.
     assert model.structured_output_methods == ["json_mode"]
 
 
@@ -160,7 +159,7 @@ def test_approve_persists_profile_store_and_audit(db_session):
     assert profile.status == "active"
     # (2) the persisted ConstraintSet is the deterministically-mapped one.
     assert profile.constraint_set == run.constraint_set.model_dump(mode="json")
-    # (3) the active ConstraintSet resolves through a Phase-4 ConstraintSetRef.
+    # (3) the active ConstraintSet resolves through a ConstraintSetRef.
     ref = ConstraintSetRef(portfolio_id=str(pid), store_key=profile.store_key)
     assert resolve_constraint_set(store, ref) == run.constraint_set
 
@@ -213,9 +212,9 @@ def test_esg_breach_finalizes_run_no_orphan_pending(db_session):
 
 
 def test_build_profiler_agent_wires_the_theory_backend_and_skill(tmp_path, monkeypatch):
-    """The profiler (step 0) must run under the theory-staged, virtual-mode backend
-    and load its ``mifid-profiling`` skill through it (Risk R1) — the same wiring the
-    PM gets — so the consultation protocol can reach ``optimizer-theory/``."""
+    """The profiler must run under the theory-staged, virtual-mode backend and load
+    its ``mifid-profiling`` skill through it — the same wiring the PM gets — so the
+    consultation protocol can reach ``optimizer-theory/``."""
     import deepagents
     from deepagents.backends import FilesystemBackend
 
@@ -241,7 +240,6 @@ def test_build_profiler_agent_wires_the_theory_backend_and_skill(tmp_path, monke
 
     assert agent == "PROFILER_AGENT"
     assert captured["system_prompt"] == PROFILER_SYSTEM_PROMPT
-    # Root-relative profiler skill + the virtual-mode theory backend.
     assert captured["skills"] == skill_sources("profiler")
     assert captured["backend"] is fake_backend
     assert captured["backend"].virtual_mode is True

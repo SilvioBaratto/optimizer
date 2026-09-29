@@ -1,4 +1,4 @@
-"""Task 2 — ``fund.agents.backend`` theory-staged virtual backend (unit slice).
+"""``fund.agents.backend`` theory-staged virtual backend (unit slice).
 
 Staging is pure stdlib (``shutil``/``pathlib``): it regenerates a runtime workdir
 from the canonical in-repo ``optimizerwiki/`` tree, preserving the
@@ -95,7 +95,7 @@ def test_stage_theory_returns_workdir_and_preserves_citation_prefix(tmp_path):
     # The openwiki routing map the consultation protocol points every role to first.
     quickstart = root / "optimizer-theory" / "openwiki" / "quickstart.md"
     assert quickstart.read_text(encoding="utf-8") == "routing map"
-    # The raw chapter prefix the Phase-6 skills cite by ``NN:line``.
+    # The raw chapter prefix the skills cite by ``NN:line``.
     intro = root / "optimizer-theory" / "docs" / "00_introduction_and_scope.md"
     assert intro.read_text(encoding="utf-8") == "intro"
 
@@ -199,7 +199,7 @@ def test_build_backend_threads_virtual_mode_from_config(tmp_path, monkeypatch):
     assert fs.virtual_mode is False
 
 
-# --- Risk R1: per-role skills staged under the backend root --------------------
+# --- Per-role skills staged under the backend root ---------------------------
 # deepagents loads skills THROUGH the backend, so per-role skills must live under
 # the staged root as ``skills/<role>/<skill-name>/SKILL.md`` and be reachable by a
 # root-relative source (``skills/<role>``) under ``virtual_mode``.
@@ -220,7 +220,7 @@ def test_stage_theory_stages_per_role_skills(tmp_path):
 
 
 def test_staged_skills_resolve_through_virtual_backend(tmp_path):
-    """The R1 check: each role's root-relative source resolves under the staged,
+    """Verify each role's root-relative source resolves under the staged,
     virtual-mode backend (an absolute path outside the root would be blocked)."""
     from deepagents.backends import FilesystemBackend
 

@@ -33,10 +33,17 @@ class MandateRepository(RepositoryBase):
         """Insert (or update in place) the portfolio's mandate; return the row.
 
         Idempotent on the UNIQUE ``portfolio_id``: the first call inserts, later
-        calls update the same row's scalar mirror + JSON source of truth. The
-        pydantic ``portfolio_id`` is a string; it maps to the model's ``Uuid``
-        column. ``status`` is left untouched on update (only stamped ``"active"``
-        on insert, mirroring the model's server default).
+        calls update the same row's scalar mirror + JSON source of truth.
+        ``status`` is left untouched on update (only stamped ``"active"`` on
+        insert, mirroring the model's server default).
+
+        Args:
+            mandate: Mandate to upsert. ``portfolio_id`` is a string in the
+                Pydantic schema; it is coerced to ``uuid.UUID`` before the
+                DB write.
+
+        Returns:
+            The flushed, not-yet-committed model row.
         """
         portfolio_id = uuid.UUID(mandate.portfolio_id)
         payload = mandate.model_dump(mode="json")

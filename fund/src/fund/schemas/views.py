@@ -1,4 +1,4 @@
-"""Black-Litterman view schema (Task 4) → optimizer BL config.
+"""Black-Litterman view schema → optimizer BL config.
 
 ``View`` is a single analyst opinion: an absolute expected-return view on one
 asset/factor (``AAPL == 0.012300``) or a relative one (``AAPL - MSFT ==
@@ -60,18 +60,18 @@ class View(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    kind: ViewKind = ViewKind.ASSET  # asset ticker vs factor name
-    target: str  # the asset ticker / factor name the view is expressed on
-    expected_return: float  # per-period expected return (the view RHS)
-    relative_to: str | None = None  # None → absolute; else a relative view
-    confidence: float = Field(ge=0.0, le=1.0)  # Idzorek confidence in [0, 1]
+    kind: ViewKind = ViewKind.ASSET
+    target: str
+    expected_return: float
+    relative_to: str | None = None
+    confidence: float = Field(ge=0.0, le=1.0)
 
     def to_view_string(self) -> str:
         """Render to a skfolio view-string (fixed-point, no sci-notation)."""
         rhs = f"{self.expected_return:.{_RETURN_PRECISION}f}"
         if self.relative_to is None:
-            return f"{self.target} == {rhs}"  # absolute view
-        return f"{self.target} - {self.relative_to} == {rhs}"  # relative view
+            return f"{self.target} == {rhs}"
+        return f"{self.target} - {self.relative_to} == {rhs}"
 
 
 class ViewSet(BaseModel):
@@ -84,10 +84,19 @@ class ViewSet(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     views: tuple[View, ...]
-    moments_estimator: MomentsEstimator | None = None  # None → BL-standard prior
+    moments_estimator: MomentsEstimator | None = None
 
     def to_black_litterman_config(self) -> BlackLittermanConfig:
-        """Map onto ``BlackLittermanConfig``. fund is the bridge → the import is OK."""
+        """Build a ``BlackLittermanConfig`` from this view set.
+
+        Optimizer symbols are imported lazily so constructing a ``ViewSet``
+        carries no optimizer dependency; ``fund`` is the boundary layer
+        permitted to cross it.
+
+        Returns:
+            A ``BlackLittermanConfig`` with Idzorek per-view uncertainties and
+            the covariance prior selected by ``moments_estimator``.
+        """
         from optimizer.moments import (
             CovEstimatorType,
             MomentEstimationConfig,

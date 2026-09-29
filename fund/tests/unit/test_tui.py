@@ -1,9 +1,9 @@
-"""Task 8 — ``fund.tui``: the four-panel observer under Textual's headless Pilot.
+"""``fund.tui``: the four-panel observer under Textual's headless Pilot.
 
 Drives :class:`fund.tui.app.FundTUI` end-to-end with the network-free fakes — an
 isolated in-memory SQLite engine + ``MemorySaver`` + ``InMemoryStore`` + a
 ``ScriptedFundModel`` — exactly the stack the resume/CLI tests use, so the cockpit
-is exercised with zero live LLM/network/PG (SPEC §5). A paused ``run_fund`` gate is
+is exercised with zero live LLM/network/PG. A paused ``run_fund`` gate is
 seeded once per test; the App then reads it through :mod:`fund.observe`, shows the
 gate, and resumes it on a worker thread via ``resume_fund``.
 
@@ -166,7 +166,6 @@ async def test_selecting_paused_run_shows_gate(tui_env) -> None:
         await pilot.pause()
         gate = app.query_one(HitlQueuePanel).gate_text
         assert "place_orders" in gate
-        # the transcript panel filled for the selected run.
         assert app.query_one(TranscriptPanel).entry_count >= 1
 
 

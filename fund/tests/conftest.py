@@ -1,11 +1,11 @@
 """Pytest configuration for the fund test suite.
 
 ``fund`` is installed editable into the shared workspace venv (src-layout), so
-``import fund`` resolves with no ``sys.path`` surgery. The Phase 1 hygiene guard
-is source-blind (it scans tracked file text, imports no implementation module),
+``import fund`` resolves with no ``sys.path`` surgery. The hygiene guard is
+source-blind (it scans tracked file text, imports no implementation module),
 so it needs no fixtures.
 
-Fase 2+ persistence/tool tests need a real (in-memory) database. The ``db_session``
+Persistence and tool tests need a real (in-memory) database. The ``db_session``
 fixture mirrors the portopt-db harness: StaticPool SQLite with a per-test
 SAVEPOINT rollback, built off ``portopt_db.models`` so every table — including
 the ``agent_runs`` / ``agent_decisions`` audit tables — is on ``Base.metadata``

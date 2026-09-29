@@ -1,9 +1,9 @@
-"""T2.1 — ``fund.config`` pins the SPEC §8 Phase-0 contract.
+"""Tests for ``fund.config`` defaults and the ``load_config`` env-sourcing contract.
 
 The config is a frozen dataclass (mirrors ``portopt_db.config.DbConfig``) plus a
 ``load_config`` factory that sources secrets from the environment. Pinned
 constants (LangGraph schema, model ids, pool kwargs, HITL, recursion guard) are
-dataclass defaults so a bare import yields the verified Phase-0 values; secrets
+dataclass defaults so a bare import yields the verified values; secrets
 (``DATABASE_URL``/``OLLAMA_API_KEY``/``FRED_API_KEY``/``SSL_CERT_FILE``) come from
 ``env`` and stay ``None`` when absent so import never fails in CI.
 """
@@ -18,30 +18,25 @@ from fund.config import FundConfig, load_config, settings
 def test_defaults_pin_the_spec8_contract():
     cfg = load_config(env={})
 
-    # D2 agent backend
     assert cfg.agent_virtual_mode is True
-    # D3 LangGraph schema + pool
     assert cfg.langgraph_schema == "langgraph"
     assert cfg.pool_autocommit is True
     assert cfg.pool_prepare_threshold == 0
-    # D4 model
     assert cfg.ollama_base_url == "https://ollama.com"
     assert cfg.primary_model == "deepseek-v4.1-flash:cloud"
     assert cfg.fallback_model == "deepseek-v4-pro:cloud"
     assert cfg.model_temperature == 0.0
     assert cfg.model_reasoning is False
     assert cfg.structured_output_method == "function_calling"
-    # D22 recursion guard — LOW, explicit
     assert cfg.recursion_limit == 50
-    # D10 HITL
     assert cfg.interrupt_on == ("place_orders",)
-    # Fase-5 persistence: pinned Store key resolving a ConstraintSetRef
+    # pinned Store key so a ConstraintSetRef resolves at runtime
     assert cfg.constraint_set_store_key == "constraint_set"
 
 
 def test_constraint_set_store_key_is_pinned():
-    # The active ConstraintSet is cached under this key so a Phase-4
-    # ConstraintSetRef resolves; it is a fixed contract, not env-sourced.
+    # The active ConstraintSet is cached under this key so a ConstraintSetRef
+    # resolves; it is a fixed contract, not env-sourced.
     assert load_config(env={}).constraint_set_store_key == "constraint_set"
     assert settings.constraint_set_store_key == "constraint_set"
 
@@ -98,7 +93,7 @@ def test_config_module_does_not_import_optimizer_at_top():
 
 
 def test_daemon_fields_default_to_the_phase9_contract():
-    # Phase-9 Task 1 daemon knobs: defaults present with a bare (env-free) load.
+    # Daemon knobs must all have defaults so a bare (env-free) load succeeds.
     cfg = load_config(env={})
 
     # Cron uses the weekday NAME `sat` — a bare `0` fires Monday under
@@ -140,8 +135,7 @@ def test_daemon_fields_parse_from_fund_env_aliases():
 
 
 def test_cost_cap_fields_unchanged_by_daemon_additions():
-    # The D22 cost caps are pre-existing and must not shift when the daemon
-    # fields land (max_pm_rounds is finalised — wired in — by Task 4).
+    # Cost caps are pre-existing and must not shift when daemon fields land.
     cfg = load_config(env={})
 
     assert cfg.max_pm_rounds == 10
@@ -149,7 +143,7 @@ def test_cost_cap_fields_unchanged_by_daemon_additions():
 
 
 def test_no_prometheus_metrics_port_field():
-    # Prometheus is out of scope for Phase 9 — no FUND_METRICS_PORT knob.
+    # Prometheus metrics export is not in scope — no metrics-port knob on FundConfig.
     cfg = load_config(env={"FUND_METRICS_PORT": "9100"})
 
     assert not hasattr(cfg, "fund_metrics_port")
@@ -167,8 +161,7 @@ def test_llm_provider_defaults_to_ollama():
 
 
 def test_model_ids_and_ollama_base_url_are_env_sourced():
-    # FUND_PRIMARY_MODEL / FUND_FALLBACK_MODEL / OLLAMA_BASE_URL become live env
-    # (previously dataclass-only); defaults are preserved when unset.
+    # Model ids and Ollama URL are env-sourced; defaults apply when unset.
     cfg = load_config(
         env={
             "FUND_PRIMARY_MODEL": "gpt-4o",
@@ -180,7 +173,6 @@ def test_model_ids_and_ollama_base_url_are_env_sourced():
     assert cfg.fallback_model == "gpt-4o-mini"
     assert cfg.ollama_base_url == "http://localhost:11434"
 
-    # Env-free load keeps the pinned D4 defaults.
     default_cfg = load_config(env={})
     assert default_cfg.primary_model == "deepseek-v4.1-flash:cloud"
     assert default_cfg.fallback_model == "deepseek-v4-pro:cloud"
@@ -227,7 +219,7 @@ def test_provider_keys_and_endpoints_sourced_from_env():
 
 def test_provider_fields_default_safe_so_bare_import_never_fails():
     # Every provider key/endpoint stays None with no env; hf_mode defaults to
-    # "cloud" (local is deferred). A bare load must not require any secret.
+    # "cloud". A bare load must not require any secret.
     cfg = load_config(env={})
 
     assert cfg.openai_api_key is None
@@ -247,7 +239,7 @@ def test_provider_fields_default_safe_so_bare_import_never_fails():
     assert cfg.hf_mode == "cloud"
 
 
-# --- T2: file-based docker secrets (<NAME>_FILE wins over inline <NAME>) -------
+# --- file-based docker secrets (<NAME>_FILE wins over inline <NAME>) -----------
 
 
 def test_read_secret_prefers_nonempty_file(tmp_path):

@@ -150,6 +150,14 @@ def build_backend(config: FundConfig = settings) -> FilesystemBackend:
 
     ``deepagents`` is imported here (not at module top) so importing this module
     needs no agent stack; ``virtual_mode`` blocks path traversal outside the root.
+
+    Args:
+        config: Frozen run config; ``preload_theory`` gates theory/skills staging
+            and ``agent_virtual_mode`` controls path-traversal enforcement.
+
+    Returns:
+        A ``FilesystemBackend`` rooted at the staged workdir, ready to pass to a
+        deepagents role constructor.
     """
     from deepagents.backends import FilesystemBackend
 

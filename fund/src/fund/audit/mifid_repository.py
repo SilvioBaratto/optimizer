@@ -56,6 +56,17 @@ class MifidProfileRepository(RepositoryBase):
         Append-only: the new ``version`` is ``max(version) + 1`` scoped to
         ``portfolio_id`` (``1`` when the portfolio has no prior profile), so an
         amended assessment never overwrites the previous one.
+
+        Args:
+            portfolio_id: The portfolio whose suitability is being assessed.
+            questionnaire: Raw investor questionnaire answers as submitted.
+            constraint_set: Serialised ConstraintSet derived from the assessment.
+            suitability: Suitability classification output from the profiler agent.
+            store_key: LangGraph store key under which the constraint set is cached.
+            status: Lifecycle state of this version; defaults to ``"active"``.
+
+        Returns:
+            The newly inserted and refreshed profile row.
         """
         current_max = self.session.execute(
             select(func.max(MifidProfile.version)).where(
@@ -82,6 +93,12 @@ class MifidProfileRepository(RepositoryBase):
 
         Latest-by-version is the active assessment under the append-only model.
         ``None`` when the portfolio has never been profiled.
+
+        Args:
+            portfolio_id: Portfolio whose current suitability profile to retrieve.
+
+        Returns:
+            The highest-version profile row, or ``None`` if none exists.
         """
         stmt = (
             select(MifidProfile)
@@ -103,6 +120,14 @@ def put_constraint_set(
     Writes ``constraint_set`` (JSON-dumped for portability across the Postgres /
     in-memory stores) under namespace ``(portfolio_id,)`` / key ``store_key``, and
     returns the :class:`ConstraintSetRef` a later decision resolves it by.
+
+    Args:
+        store: LangGraph store instance (Postgres in production, in-memory in tests).
+        constraint_set: The active constraint set to persist.
+        store_key: Key under which the set is stored; also embedded in the returned ref.
+
+    Returns:
+        A ref that ``resolve_constraint_set`` can use to retrieve the cached set.
     """
     store.put(
         (constraint_set.portfolio_id,),
@@ -121,6 +146,13 @@ def resolve_constraint_set(
 
     Reads the Store item at namespace ``(ref.portfolio_id,)`` / key
     ``ref.store_key``; ``None`` when nothing is cached for that reference.
+
+    Args:
+        store: LangGraph store instance to query.
+        ref: Reference produced by a prior ``put_constraint_set`` call.
+
+    Returns:
+        The cached constraint set, or ``None`` if the reference is stale or missing.
     """
     item = store.get((ref.portfolio_id,), ref.store_key)
     if item is None:

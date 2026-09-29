@@ -1,4 +1,4 @@
-"""Task 7 — the always-on HITL gate: the profiler never persists silently.
+"""The always-on HITL gate: the profiler never persists silently.
 
 Every profiling run pauses at the ``save_profile`` tool (behind ``interrupt_on`` +
 a ``MemorySaver`` checkpointer) before any write. ``Command(resume=approve)``
@@ -94,7 +94,7 @@ def test_inconsistency_flags_surface_in_interrupt_payload(db_session):
 
     run = _run(model, db_session, portfolio_id=pid)
 
-    assert run.suitability.inconsistency_flags  # contradiction detected
+    assert run.suitability.inconsistency_flags
     description = run.interrupt["action_requests"][0]["description"]
     for flag in run.suitability.inconsistency_flags:
         assert flag in description
@@ -140,7 +140,6 @@ def test_reprofile_idempotent_hit_finalizes_run_and_logs_decision(db_session):
     pid = uuid.uuid4()
     store = InMemoryStore()
 
-    # First profile -> writes v1, finalises run1.
     run1 = _run(
         make_model(make_answers(), portfolio_id=str(pid)),
         db_session,
@@ -166,7 +165,7 @@ def test_reprofile_idempotent_hit_finalizes_run_and_logs_decision(db_session):
     )
     run2.resume("approve")
 
-    # Deferred-by-design (D11, Phase 9): no v2; v1 (run1's mapping) stays active.
+    # Deferred-by-design: no v2; v1 (run1's mapping) stays active.
     active = MifidProfileRepository(db_session).get_active(pid)
     assert active.version == 1
     assert active.constraint_set == run1.constraint_set.model_dump(mode="json")

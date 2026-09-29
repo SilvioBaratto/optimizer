@@ -1,4 +1,4 @@
-"""T5 — ``fund.observe.reprofile_status`` annual-only, model-free stale marker.
+"""``fund.observe.reprofile_status`` annual-only, model-free stale marker.
 
 A derived re-profiling flag over the append-only ``mifid_profiles`` table: the
 active (highest-version) profile's ``created_at`` is compared against ``now``; a

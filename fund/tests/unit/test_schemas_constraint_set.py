@@ -1,4 +1,4 @@
-"""Task 3 — ``fund.schemas.constraint_set`` pins the MiFID risk-profile schema.
+"""``fund.schemas.constraint_set`` pins the MiFID risk-profile schema.
 
 ``ConstraintSet`` (+ nested ``Bounds`` / ``EsgPolicy`` / ``UniverseFilters``) is
 pure serialisable data: constructing one imports **no** ``optimizer`` code — the
@@ -63,13 +63,13 @@ def test_valid_input_is_accepted():
 def test_nested_defaults_are_long_only_fully_invested():
     cs = _valid_constraint_set()
     assert cs.bounds == Bounds()
-    assert cs.bounds.min_weights == 0.0  # long-only (D17)
+    assert cs.bounds.min_weights == 0.0  # long-only
     assert cs.bounds.max_weights == 1.0
     assert cs.bounds.budget == 1.0  # fully invested
     assert cs.esg == EsgPolicy()
     assert cs.universe_filters == UniverseFilters()
-    assert cs.moments_estimator is MomentsEstimator.LEDOIT_WOLF  # D23 default
-    assert cs.uncertainty_level is UncertaintyLevel.NONE  # D35 default
+    assert cs.moments_estimator is MomentsEstimator.LEDOIT_WOLF
+    assert cs.uncertainty_level is UncertaintyLevel.NONE
     assert cs.cardinality is None
     assert cs.risk_free_rate is None
 

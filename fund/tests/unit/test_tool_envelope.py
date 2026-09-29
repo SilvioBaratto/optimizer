@@ -1,8 +1,8 @@
-"""T3.0 — the shared tool envelope: ``{ok,data}`` / ``{ok:false,error}`` contract.
+"""Tests for the shared tool envelope: ``{ok,data}`` / ``{ok:false,error}`` contract.
 
-The envelope is the load-bearing invariant of the whole Fase-3 backbone: a tool
-NEVER raises across its boundary, and never hands a raw DataFrame back. These
-tests pin both, plus the small ``ok``/``err``/``summarize_frame`` helpers.
+The envelope is the load-bearing invariant: a tool NEVER raises across its boundary,
+and never hands a raw DataFrame back. These tests pin both, plus the small
+``ok``/``err``/``summarize_frame`` helpers.
 """
 
 from __future__ import annotations

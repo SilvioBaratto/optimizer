@@ -1,15 +1,14 @@
-"""Fund-side database wiring (Phase 8, Task 7).
+"""Fund-side database wiring.
 
-Mirrors ``ingestion/app/database.py``: builds a :class:`portopt_db.config.DbConfig`
-from :data:`fund.config.settings` and constructs the module-level
-``database_manager`` singleton every CLI/TUI command opens sessions through.
+Mirrors ``ingestion/app/database.py``: builds a ``DbConfig`` from ``settings``
+and constructs the module-level ``database_manager`` singleton every CLI/TUI
+command opens sessions through.
 
-Construction is **lazy** — :class:`~portopt_db.engine.DatabaseManager` creates no
-engine until the first :func:`get_session` (or :func:`init_db`), so
-``import fund.database`` never fails when ``DATABASE_URL`` is unset (CI, a bare
-import). Each command owns its transaction: it opens ``with get_session() as
-session:`` and commits/rolls back at the block boundary; the repositories never
-``commit`` themselves.
+Construction is **lazy** — ``DatabaseManager`` creates no engine until the first
+``get_session`` (or ``init_db``), so ``import fund.database`` never fails when
+``DATABASE_URL`` is unset (CI, a bare import). Each command owns its transaction:
+it opens ``with get_session() as session:`` and commits/rolls back at the block
+boundary; the repositories never ``commit`` themselves.
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ from fund.config import settings
 
 
 def _build_config() -> DbConfig:
-    """Map :data:`fund.config.settings` onto the injected :class:`DbConfig`.
+    """Map ``settings`` onto the injected ``DbConfig``.
 
     ``database_url`` may be ``None`` at import (CI/dev without a DB); an empty URL
     is harmless because the engine is built lazily and only a real ``get_session``

@@ -1,12 +1,12 @@
-"""T3.1 — ``get_prices``: the first node of the allocator critical path.
+"""``get_prices``: the first node of the allocator critical path.
 
 Reads daily price history out of the shared ``portopt_db`` layer via
-:class:`~portopt_db.repositories.market_data.yfinance_repository.YFinanceRepository`
-and hands the agent a JSON-serialisable shape/coverage **summary** — never the
-raw price matrix (SPEC Fase 3). The tool is a pure function of ``(session, asof,
-tickers, field)``: same seeded data + same args ⇒ identical output.
+``YFinanceRepository`` and hands the agent a JSON-serialisable shape/coverage
+**summary** — never the raw price matrix. The tool is a pure function of
+``(session, asof, tickers, field)``: same seeded data + same args ⇒ identical
+output.
 
-Contract (via :func:`fund.tools._base.tool_envelope`):
+Contract (via ``tool_envelope``):
 
 * empty ``tickers`` or an unknown price column ⇒ ``{ok: false, error}``;
 * a ticker with no instrument row or no priced days ⇒ **flagged** in
@@ -61,14 +61,14 @@ def load_price_frame(
 ) -> tuple[pd.DataFrame, list[str]]:
     """Build a wide price frame for ``tickers`` as of ``asof``, plus the missing.
 
-    Shared loader behind :func:`get_prices` and the moment/optimize tools (T3.2),
-    so every allocator node re-derives the same panel from the same DB state. The
+    Shared loader behind ``get_prices`` and the moment/optimize tools, so every
+    allocator node re-derives the same panel from the same DB state. The
     frame carries one column per *priced* ticker (in requested order) on a sorted
     ``DatetimeIndex``; ``missing`` lists requested tickers with no instrument row
     or no priced days. The caller validates ``field`` and non-empty ``tickers``.
 
     Args:
-        session: A sync ``portopt_db`` session (D1); the loader does not own it.
+        session: A sync ``portopt_db`` session; the loader does not own it.
         asof: Inclusive upper bound; rows strictly after it are excluded.
         tickers: yfinance tickers, in the order the panel columns should follow.
         field: Which ``PriceHistory`` column to pull (default ``"close"``).
@@ -114,7 +114,7 @@ def get_prices(
     """Return a price-panel summary for ``tickers`` as of ``asof``.
 
     Args:
-        session: A sync ``portopt_db`` session (D1); the tool does not own it.
+        session: A sync ``portopt_db`` session; the tool does not own it.
         asof: Inclusive upper bound; rows strictly after it are excluded (no
             look-ahead). Accepts a ``date`` or an ISO ``YYYY-MM-DD`` string.
         tickers: yfinance tickers to resolve, in the order the panel columns

@@ -1,9 +1,9 @@
-"""T2.3 — D3 LangGraph persistence, integration slice (Postgres-only).
+"""D3 LangGraph persistence, integration slice (Postgres-only).
 
-Promoted from ``.phase0-probes/probe_d3_pg_schema.py``. Proves the SPEC D3
-contract against a real database: ``setup_langgraph`` lands all six LangGraph
-tables in the dedicated ``langgraph`` schema with **zero** leak into Alembic's
-``public``, and a checkpoint + a namespaced store item round-trip.
+Proves the SPEC D3 contract against a real database: ``setup_langgraph`` lands
+all six LangGraph tables in the dedicated ``langgraph`` schema with **zero**
+leak into Alembic's ``public``, and a checkpoint + a namespaced store item
+round-trip.
 
 Marked ``integration`` and skipped unless ``DATABASE_URL`` is set, so the default
 unit run (and CI without Postgres) stays green. The test owns its schema: it
@@ -38,6 +38,7 @@ SCHEMA = "langgraph"
 
 def _conninfo() -> str:
     url = os.environ["DATABASE_URL"]
+    # psycopg rejects SQLAlchemy's driver-qualified scheme (postgresql+psycopg://)
     return re.sub(r"^postgresql\+\w+://", "postgresql://", url)
 
 

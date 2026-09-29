@@ -1,4 +1,4 @@
-"""T3.2 — ``estimate_moments``: the second node of the allocator critical path.
+"""``estimate_moments``: the second node of the allocator critical path.
 
 Wraps ``optimizer.moments`` to turn a seeded price panel into the expected-return
 vector ``mu`` and the **full covariance matrix** the optimiser needs. The default
@@ -8,9 +8,9 @@ consumes, never the 1-D ``variance_`` a variance estimator would (SPEC D23).
 
 The tool is a pure function of ``(session, asof, universe, config)``: same seeded
 DB + same args ⇒ identical ``{mu, cov}``. Returns are computed **outside** any
-pipeline via :func:`optimizer.preprocessing.prices_to_returns` (linear returns).
+pipeline via ``prices_to_returns`` (linear returns).
 
-Contract (via :func:`fund.tools._base.tool_envelope`):
+Contract (via ``tool_envelope``):
 
 * empty ``universe`` ⇒ ``{ok: false, error}``;
 * a ticker with no priced days is **flagged** in ``data["missing"]``, never raised;

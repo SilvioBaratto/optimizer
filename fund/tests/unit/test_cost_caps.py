@@ -1,4 +1,4 @@
-"""Task 4 — cost caps: the PM round-cap middleware + the profiler recursion guard.
+"""Cost caps: the PM round-cap middleware + the profiler recursion guard.
 
 Two deterministic, network-free caps land here:
 
@@ -89,7 +89,6 @@ def test_pm_round_cap_ends_run_incomplete(db_session) -> None:
 
     assert run.status == "incomplete"
     assert run.interrupt is None
-    # The cap left nothing to commit — no paper ticket.
     assert db_session.query(PaperOrder).all() == []
 
 

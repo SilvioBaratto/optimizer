@@ -1,14 +1,14 @@
-"""``fund-tui`` — the four-panel Textual observer over :mod:`fund.observe` (Task 8).
+"""``fund-tui`` — the four-panel Textual observer over ``fund.observe``.
 
 A read-mostly "Bloomberg" cockpit for one portfolio: a transcript, the current-vs-
 target state, the HITL approval queue, and the run history. All four panels are thin
-over the model-free read model (:mod:`fund.observe`); the App owns every side effect:
+over the model-free read model (``fund.observe``); the App owns every side effect:
 
-* **Polling, not pushing.** :meth:`FundTUI._refresh` runs on a ``set_interval`` timer
+* **Polling, not pushing.** ``FundTUI._refresh`` runs on a ``set_interval`` timer
   (``poll_interval``, ~2s), opening a *short read-only* session, extracting plain
   dataclasses, and rolling back — the UI never holds a transaction or an ORM row
   across ticks.
-* **Resume off the event loop.** Approve/Reject dispatch :meth:`_resume_worker`, a
+* **Resume off the event loop.** Approve/Reject dispatch ``_resume_worker``, a
   ``@work(thread=True)`` worker: the synchronous ``resume_run`` (which dispatches to
   the profiler or rebalance resumer by gate and drives ``agent.invoke``) runs on a
   background thread so the event loop never blocks, then marshals its UI updates back
@@ -17,10 +17,10 @@ over the model-free read model (:mod:`fund.observe`); the App owns every side ef
   agent-stack-free read model — no ``deepagents`` / ``langgraph`` / model, so it needs
   no ``OLLAMA_API_KEY`` and no ``DATABASE_URL``. The chat model is built lazily via the
   injected ``model_factory`` only when the adviser approves/rejects; the persistence
-  handles (checkpointer + store, needing ``DATABASE_URL``) are built in :func:`main`.
+  handles (checkpointer + store, needing ``DATABASE_URL``) are built in ``main``.
 
 Every collaborator is injected (``session_factory`` / ``persistence`` /
-``model_factory``), so :meth:`App.run_test` can drive the whole cockpit headlessly
+``model_factory``), so ``App.run_test`` can drive the whole cockpit headlessly
 over SQLite + ``MemorySaver`` + a scripted model with zero network.
 """
 
@@ -54,7 +54,7 @@ _PAST = {"approve": "approved", "reject": "rejected"}
 
 
 class FundTUI(App):
-    """The four-panel observer App for a single portfolio (Phase 8, Task 8)."""
+    """The four-panel observer App for a single portfolio."""
 
     CSS = """
     Screen { layout: grid; grid-size: 2 2; grid-gutter: 1; }
@@ -83,6 +83,25 @@ class FundTUI(App):
         config: FundConfig = settings,
         poll_interval: float = 2.0,
     ) -> None:
+        """Initialise the cockpit for a single portfolio.
+
+        All collaborators are injected so the App can be driven headlessly in
+        tests over SQLite + MemorySaver without any network dependencies.
+
+        Args:
+            portfolio_id: Portfolio to observe and act on.
+            session_factory: Callable returning a context-manager-managed
+                SQLAlchemy Session used for read ticks and resume commits.
+            persistence: Langgraph persistence bundle exposing ``.saver``
+                (checkpointer) and ``.store`` for transcript and interrupt
+                reads.
+            model_factory: Called lazily on the first approve/reject to build
+                the chat model; failures surface as a status-bar message rather
+                than crashing the App.
+            config: Application settings; defaults to the process-level
+                singleton.
+            poll_interval: Refresh timer cadence in seconds.
+        """
         super().__init__()
         self._portfolio_id = portfolio_id
         self._session_factory = session_factory

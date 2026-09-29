@@ -1,13 +1,12 @@
-"""Task 3 — inconsistency / anti-overconfidence check + suitability assembly.
+"""Inconsistency / anti-overconfidence check and suitability assembly.
 
-The deterministic layer flags contradictory answers (SPEC §5, deep_agent.md
-``01:338`` anti-overconfidence) **without auto-clamping** — the flags are surfaced
-to the adviser at the HITL gate, the ``a_gamma`` still comes from the
+The deterministic layer flags contradictory answers without auto-clamping — flags
+are surfaced to the adviser at the HITL gate; ``a_gamma`` still comes from the
 ``min(tolerance, capacity)`` binding. Only a legal breach (an empty ESG universe)
 hard-blocks outright.
 
-``run_mapping`` is the pure Task-3 wrapper the LLM agent (Task 7) calls: it returns
-the ``(ConstraintSet, SuitabilityAssessment)`` pair, imports no ``deepagents`` and
+``run_mapping`` is the pure wrapper the LLM agent calls: it returns the
+``(ConstraintSet, SuitabilityAssessment)`` pair, imports no ``deepagents`` and
 touches no DB.
 """
 
@@ -78,7 +77,7 @@ def test_consistent_answers_produce_no_flags() -> None:
 
 
 def test_aggressive_objective_with_low_capacity_flags_mismatch() -> None:
-    # "max growth" + "cannot lose anything" — the SPEC canonical contradiction.
+    # "max growth" + "cannot lose anything" — the canonical contradiction.
     _, sa = run_mapping(
         _answers(goal=ObjectiveChoice.MAX, max_loss=0.02, buffer=0.0),
         portfolio_id="pf-1",
@@ -128,7 +127,6 @@ def test_flags_do_not_auto_clamp_a_gamma() -> None:
     # further, it merely surfaces at the HITL gate.
     assert cs.a_gamma == 12.0
     assert sa.inconsistency_flags != ()
-    # a_gamma is exactly the min-binding output, unchanged by the flag.
     assert sa.a_gamma == build_constraint_set(answers, portfolio_id="pf-1").a_gamma
 
 

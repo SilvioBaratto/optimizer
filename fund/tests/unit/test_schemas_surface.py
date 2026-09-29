@@ -1,4 +1,4 @@
-"""Task 7 — ``fund.schemas`` public surface.
+"""``fund.schemas`` public surface tests.
 
 The package ``__init__`` re-exports the four schemas (plus their nested models),
 the shared MiFID enums, and the ``structured_call`` helper (with
@@ -28,7 +28,6 @@ _SUBMODULES = (
 
 
 def test_documented_surface_resolves():
-    # The names §7 promises callers can import from ``fund.schemas`` directly.
     from fund.schemas import (
         AllocDecision,
         ConstraintSet,
@@ -66,13 +65,11 @@ def test_documented_surface_resolves():
 
 
 def test_all_has_no_dangling_names():
-    # Every name advertised in ``__all__`` must be a real attribute.
     for name in schemas.__all__:
         assert hasattr(schemas, name), f"__all__ lists {name!r} but it is not exported"
 
 
 def test_all_covers_every_submodule_surface():
-    # The package surface is the union of the sub-modules' own ``__all__``.
     for modname in _SUBMODULES:
         mod = importlib.import_module(f"fund.schemas.{modname}")
         for name in mod.__all__:

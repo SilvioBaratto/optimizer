@@ -1,20 +1,3 @@
-"""T4 — ``PositionRepository`` (current-snapshot holdings) + ``OrderRepository`` reads.
-
-Resolved contracts (SPEC §8, 2026-09-21):
-
-* **O1 = Option B** — ``set_holdings(portfolio_id, holdings: list[dict], *, asof,
-  paper_order_id=None) -> None`` **replaces** the whole snapshot (delete-then-insert),
-  each ``holdings`` row dict carrying ``ticker``/``weight`` + optional ``shares``/
-  ``notional``; ``get_holdings(portfolio_id) -> list[Position]`` (full rows — no
-  ``list_positions``, no ``lines`` channel; ``asof`` keyword-only).
-* **O2 = Option A** — ``list_for_portfolio(portfolio_id)`` (newest-first) +
-  ``latest_for_portfolio(portfolio_id)`` (most recent / ``None`` when empty); no
-  ``run_id`` filter (``paper_orders`` has no ``run_id`` column).
-
-Both repos sit on ``RepositoryBase``, take an injected sync session, and never
-``commit`` (the caller owns the transaction, D1).
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -61,7 +44,7 @@ def test_position_repository_exported_from_audit():
     assert Exported is PositionRepository
 
 
-# --- PositionRepository.set_holdings / get_holdings (O1 = Option B) ---------
+# --- PositionRepository.set_holdings / get_holdings -------------------------
 
 
 def test_set_holdings_persists_snapshot_rows(db_session):
@@ -155,7 +138,7 @@ def test_set_holdings_does_not_commit(db_session, monkeypatch):
     assert called["commit"] is False
 
 
-# --- OrderRepository.list_for_portfolio / latest_for_portfolio (O2 = A) -----
+# --- OrderRepository.list_for_portfolio / latest_for_portfolio ---------------
 
 
 def test_list_for_portfolio_newest_first(db_session):

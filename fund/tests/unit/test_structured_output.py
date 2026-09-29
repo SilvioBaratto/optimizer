@@ -1,14 +1,14 @@
-"""Task 6 — ``fund.schemas.structured.structured_call`` (validate → retry → fallback).
+"""Tests for ``fund.schemas.structured.structured_call``: validate, retry, fallback.
 
 Every structured LLM step in the fund routes through ``structured_call``. It binds
-``with_structured_output(schema, method="function_calling")`` (D4 pin), invokes the
-model, validates the result with pydantic, retries the primary on failure, then
-hands off once to an optional ``fallback`` model, and only then raises
+``with_structured_output(schema, method="function_calling")``, invokes the model,
+validates the result with pydantic, retries the primary on failure, then hands off
+once to an optional ``fallback`` model, and only then raises
 ``StructuredOutputError`` — never a bare ``pydantic.ValidationError``.
 
 The helper is model-agnostic (duck-typed over a ``Protocol``); these tests drive
 all four paths with an in-file **mock** chat model that records its call counts,
-so no live LLM is touched and "no network" is structurally guaranteed (SPEC §5).
+so no live LLM is touched and no network is required.
 """
 
 from __future__ import annotations
@@ -90,7 +90,8 @@ def test_returns_validated_instance_on_success():
 
 
 def test_binds_function_calling_method_by_default():
-    # D4 pin: json_schema fell through in Phase-0 probing.
+    # json_schema fell through during early probing;
+    # function_calling is the reliable default.
     model = _MockChatModel([_Answer(value=7)])
     structured_call(model, _Answer, _MESSAGES)
     assert model.methods == ["function_calling"]
@@ -148,7 +149,7 @@ def test_falls_back_when_the_primary_is_always_malformed():
     result = structured_call(primary, _Answer, _MESSAGES, fallback=fallback)
     assert result == _Answer(value=9)
     assert primary.invoke_calls == 2  # retries=1 → two primary attempts
-    assert fallback.invoke_calls == 1  # fallback tried exactly once
+    assert fallback.invoke_calls == 1
 
 
 # -- exhaustion --------------------------------------------------------------

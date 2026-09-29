@@ -1,6 +1,6 @@
-"""T6 — fund scheduler step functions, exercised headless (no started scheduler).
+"""Fund scheduler step functions, exercised headless (no started scheduler).
 
-Contracts under test (SPEC §Phase-9C / plan Task 6):
+Contracts under test:
 
 * ``run_rebalance_sweep`` drives every ``triggers.cron`` mandate once, in
   deterministic ``portfolio_id`` order, skips non-cron mandates, survives one
@@ -16,9 +16,9 @@ Contracts under test (SPEC §Phase-9C / plan Task 6):
 Because ``FundJobRepository`` owns its own transactions (each mutator ``commit``s
 so the slot lands for a reaper in another process — and the heartbeat pulses from
 a **separate thread + connection**), these tests use a private, function-scoped
-**file-based** SQLite engine (mirrors the T2 ``job_session`` rationale) rather than
-the shared SAVEPOINT ``db_session``. A file DB gives each session/thread its own
-connection, so the cross-thread heartbeat is safe.
+**file-based** SQLite engine rather than the shared SAVEPOINT ``db_session``. A
+file DB gives each session/thread its own connection, so the cross-thread heartbeat
+is safe.
 """
 
 from __future__ import annotations

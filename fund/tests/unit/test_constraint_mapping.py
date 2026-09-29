@@ -1,4 +1,4 @@
-"""Task 3 — ``ConstraintSet.to_mean_risk_config`` maps MiFID knobs onto the optimizer.
+"""``ConstraintSet.to_mean_risk_config`` maps MiFID knobs onto the optimizer.
 
 fund is the bridge, so this is the one place a schema imports ``optimizer``
 (lazily, inside the method). These tests assert the mapping field-by-field, that
@@ -62,7 +62,7 @@ def test_scalar_fields_map_field_by_field():
         risk_free_rate=0.03,
     )
     cfg = cs.to_mean_risk_config()
-    assert cfg.risk_aversion == 3.0  # a_gamma → risk_aversion
+    assert cfg.risk_aversion == 3.0
     assert cfg.min_weights == 0.01
     assert cfg.max_weights == 0.2
     assert cfg.budget == 1.0

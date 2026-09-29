@@ -1,4 +1,4 @@
-"""Task 5 — ``fund.schemas.decision`` pins the allocator's structured output.
+"""``fund.schemas.decision`` pins the allocator's structured output.
 
 ``AllocDecision`` is the allocator's committed decision: it *references* the
 persisted risk profile by key (``constraint_set_ref``) and *embeds* the per-run

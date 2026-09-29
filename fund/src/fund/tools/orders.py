@@ -1,4 +1,4 @@
-"""T3.6 — ``place_orders``: idempotent paper execution, the last allocator node.
+"""``place_orders``: idempotent paper execution, the last allocator node.
 
 Turns a target-weight vector into a **simulated** order ticket (SPEC D5): each
 line fills at the **next close strictly after** the decision bar ``asof`` (D30 —
@@ -12,7 +12,7 @@ not double-place. The tool looks the ticket up by that key first and returns the
 stored one (``idempotent: true``) instead of writing again; the DB-level
 ``UNIQUE(portfolio_id, asof, weights_hash)`` is the backstop.
 
-Contract (via :func:`fund.tools._base.tool_envelope`):
+Contract (via ``tool_envelope``):
 
 * empty ``weights`` ⇒ ``{ok: false, error}``;
 * a ticker with no instrument row, or no close strictly after ``asof`` (no fill

@@ -43,12 +43,16 @@ class PositionRepository(RepositoryBase):
     ) -> None:
         """Replace the portfolio's current holdings with ``holdings``.
 
-        Delete-then-insert: every existing row for ``portfolio_id`` is removed and
-        the ``holdings`` rows inserted fresh, so the snapshot is exactly the new
-        set (one row per ticker, ``UNIQUE(portfolio_id, ticker)``). Each ``holdings``
-        row is ``{"ticker": str, "weight": float, "shares"?: float, "notional"?:
-        float}``; ``asof`` and ``paper_order_id`` stamp every row. No ``commit`` —
-        the caller owns the transaction.
+        Delete-then-insert keeps the snapshot exactly equal to the new set
+        (one row per ticker, ``UNIQUE(portfolio_id, ticker)``). The caller owns
+        the transaction; this method only flushes.
+
+        Args:
+            portfolio_id: Portfolio whose snapshot to replace.
+            holdings: Per-ticker rows, each requiring ``ticker`` and ``weight``
+                keys; ``shares`` and ``notional`` are optional.
+            asof: Rebalance date stamped on every inserted row.
+            paper_order_id: Originating paper order, if any, stamped on every row.
         """
         self.session.execute(
             delete(Position)
@@ -70,7 +74,14 @@ class PositionRepository(RepositoryBase):
         self.session.flush()
 
     def get_holdings(self, portfolio_id: uuid.UUID) -> list[Position]:
-        """Return the portfolio's current-snapshot rows, ordered by ticker."""
+        """Return the portfolio's current-snapshot rows, ordered by ticker.
+
+        Args:
+            portfolio_id: Portfolio to query.
+
+        Returns:
+            All ``Position`` rows for the portfolio, sorted by ticker.
+        """
         stmt = (
             select(Position)
             .where(Position.portfolio_id == portfolio_id)

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# Absolute path to the skills resource tree (``fund/src/fund/skills``).
 SKILLS_DIR: Path = Path(__file__).resolve().parent.parent / "skills"
 
 # Backend-root-relative subdir the Phase-7 backend stages the per-role skills into

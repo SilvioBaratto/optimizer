@@ -1,4 +1,4 @@
-"""T5 — ``fund.observe`` shared model-free read model.
+"""``fund.observe`` shared model-free read model.
 
 The single read model both frontends (CLI + TUI) use. It builds **no** LLM: every
 function takes an injected ``Session`` (read-only, no ``commit``) and — where a run
@@ -10,7 +10,7 @@ directly (no compiled graph, no model), asserting:
 * ``drift_l1`` is exact on hand-checked vectors (union of tickers, empty sides);
 * ``list_portfolio_runs`` is newest-first with ``awaiting_hitl`` set on paused rows;
 * ``pending_hitl`` returns only paused runs whose checkpoint carries a **live**
-  interrupt (the §4f cross-check) — a paused row with no interrupt is excluded;
+  interrupt — a paused row with no interrupt is excluded;
 * ``load_run_transcript`` interleaves checkpoint messages **and** ``agent_decisions``
   in order, tolerating agents that log no decision row;
 * ``portfolio_state`` computes ``current`` (from ``positions``) vs ``target`` (latest
@@ -191,7 +191,7 @@ def test_list_portfolio_runs_empty_for_unknown_portfolio(db_session):
     assert observe.list_portfolio_runs(db_session, uuid.uuid4()) == []
 
 
-# --- pending_hitl (paused + live-interrupt cross-check, §4f) -----------------
+# --- pending_hitl (paused + live-interrupt cross-check) ---------------------
 
 
 def test_pending_hitl_returns_only_paused_runs_with_a_live_interrupt(db_session):
@@ -446,7 +446,7 @@ def test_get_mandate_none_for_unknown_portfolio(db_session):
     assert observe.get_mandate(db_session, uuid.uuid4()) is None
 
 
-# --- edge branches / Checkpoint-B review hardening --------------------------
+# --- edge branches -----------------------------------------------------------
 
 
 def test_pending_hitl_ignores_paused_run_with_null_thread_id(db_session):
@@ -601,10 +601,10 @@ def test_portfolio_state_target_fallback_skips_run_without_a_proposal(db_session
 
 
 def test_metrics_uses_newest_allocator_decision_within_a_run(db_session):
-    # Regression for the confirmed review finding: a rebuild-to-resume appends a
-    # second allocator optimize_portfolio decision to the SAME run. The metrics must
-    # come from the NEWEST decision (aligned with the target-weights source), not the
-    # stale first one — and non-allocator decisions in between are skipped.
+    # A rebuild-to-resume appends a second allocator optimize_portfolio decision to
+    # the same run. The metrics must come from the newest decision (aligned with the
+    # target-weights source), not the stale first one — non-allocator decisions in
+    # between are skipped.
     run = _make_run(
         db_session,
         portfolio_id=_PID,

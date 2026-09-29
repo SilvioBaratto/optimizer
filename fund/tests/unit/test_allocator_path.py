@@ -1,12 +1,12 @@
-"""T3.2 — ``estimate_moments`` + ``optimize_portfolio`` ★ walking skeleton.
+"""``estimate_moments`` + ``optimize_portfolio`` ★ walking skeleton.
 
 These tests pin the allocator critical path as a chain of pure functions over a
 seeded SQLite price panel:
 
 * ``estimate_moments`` wraps ``optimizer.moments`` (Ledoit-Wolf **covariance**
-  estimator by default, D23) and returns a JSON-serialisable ``{mu, cov}``;
+  estimator by default) and returns a JSON-serialisable ``{mu, cov}``;
 * ``optimize_portfolio`` lets **skfolio** compute the weights — long-only, Σw=1
-  (D17) — never the caller;
+  — never the caller;
 * both are deterministic: same seeded data ⇒ identical output;
 * bad input degrades to ``{ok: false, error}`` (never raised);
 * the ★ walking skeleton drives ``get_prices → estimate_moments →
@@ -98,7 +98,7 @@ class TestEstimateMoments:
         data = result["data"]
         assert data["assets"] == _UNIVERSE
         assert set(data["mu"]) == set(_UNIVERSE)
-        # D23: a covariance estimator yields a full N x N matrix, not a 1-D variance.
+        # a covariance estimator yields a full N x N matrix, not a 1-D variance.
         cov = data["cov"]
         assert len(cov) == len(_UNIVERSE)
         assert all(len(row) == len(_UNIVERSE) for row in cov)
@@ -174,8 +174,8 @@ class TestOptimizePortfolio:
         assert result["ok"] is True
         weights = result["data"]["weights"]
         assert set(weights) == set(_UNIVERSE)
-        assert all(w >= -1e-9 for w in weights.values())  # long-only (D17)
-        assert math.isclose(sum(weights.values()), 1.0, abs_tol=1e-6)  # Σw = 1
+        assert all(w >= -1e-9 for w in weights.values())  # long-only
+        assert math.isclose(sum(weights.values()), 1.0, abs_tol=1e-6)
 
     def test_reports_metrics(self, db_session) -> None:
         _seed_panel(db_session)
@@ -303,7 +303,6 @@ class TestWalkingSkeleton:
         assert finalized.optimizer_config == optimizer_config
         assert math.isclose(sum(finalized.weights.values()), 1.0, abs_tol=1e-6)
 
-        # The persisted row survives a fresh read.
         reread = repo.get_run(run.id)
         assert reread is not None
         assert reread.weights == weights

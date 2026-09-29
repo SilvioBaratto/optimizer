@@ -1,11 +1,11 @@
-"""Task 1 — ``fund.schemas.questionnaire`` pins the MiFID questionnaire I/O.
+"""``fund.schemas.questionnaire`` pins the MiFID questionnaire I/O.
 
 ``MiFIDQuestion`` (+ the ``QUESTION_BANK`` constant), ``MiFIDAnswers`` (the four
 ESMA pillars: knowledge & experience, financial/loss-capacity, objectives incl.
 the risk-tolerance Likert + horizon, and ESG) and ``SuitabilityAssessment`` are
 pure, frozen, serialisable pydantic-v2 data — building one imports **no**
 ``optimizer`` / ``deepagents`` code. These tests assert validation (accept good,
-reject the SPEC §5 bad cases: bad currency, out-of-range Likert, unknown GICS),
+reject bad cases: bad currency, out-of-range Likert, unknown GICS),
 the JSON round-trip invariant, and the question-bank shape.
 """
 
@@ -105,7 +105,7 @@ def test_models_are_hashable():
     assert hash(_valid_suitability()) == hash(_valid_suitability())
 
 
-# --- SPEC §5 bad cases: bad currency / out-of-range Likert / unknown GICS --
+# --- bad cases: bad currency / out-of-range Likert / unknown GICS -----------
 
 
 @pytest.mark.parametrize("bad_currency", ["eur", "EURO", "EU", "E1R", "US$"])
@@ -116,7 +116,7 @@ def test_rejects_non_iso_currency(bad_currency: str):
 
 @pytest.mark.parametrize("bad", [0, 8, -1, 100])
 def test_rejects_out_of_range_likert(bad: int):
-    # SPEC §8.2 rescales the Likert mean by (x-1)/6, so responses live in [1, 7].
+    # Rescales the Likert mean by (x-1)/6, so responses live in [1, 7].
     with pytest.raises(pydantic.ValidationError):
         ObjectivesAnswers(
             goal=ObjectiveChoice.GROWTH,

@@ -4,11 +4,11 @@ Runtime *step 0*: turn a validated ``MiFIDAnswers`` (the four ESMA pillars) into
 ``ConstraintSet`` (the risk profile every later agent reads) plus a structured
 ``SuitabilityAssessment`` for MiFID record-keeping. This module owns the **pure,
 total, auditable** core — the deterministic mapping, the ESG hard-gate, the K&E
-universe filters, and the inconsistency / anti-overconfidence check. The LLM
-profiler agent + HITL persistence land in a later Task-7 slice.
+universe filters, and the inconsistency / anti-overconfidence check, plus the LLM
+profiler agent and always-on HITL persistence.
 
-Building a ``ConstraintSet`` imports **no** ``optimizer`` code — the mapping is
-plain dict/arithmetic; the optimizer only appears when the caller feeds the result
+Building a ``ConstraintSet`` pulls in **no** ``optimizer`` symbols — the mapping is
+plain dict/arithmetic; the optimizer only enters when the caller feeds the result
 through ``ConstraintSet.to_mean_risk_config()``.
 
 Correctness-critical (SPEC §8, deep_agent.md ``01:142`` / ``30:41``):
@@ -79,7 +79,7 @@ __all__ = [
 _SAVE_PROFILE_TOOL = "save_profile"
 
 # Named inconsistency-flag vocabulary the suitability check can emit. These are
-# surfaced (never auto-clamped) at the HITL gate in Task 7 (SPEC §8.3).
+# surfaced (never auto-clamped) at the HITL gate (SPEC §8.3).
 FLAG_OBJECTIVE_CAPACITY_MISMATCH = "objective_capacity_mismatch"
 FLAG_OVERCONFIDENCE = "overconfidence"
 FLAG_REACTION_TOLERANCE_MISMATCH = "reaction_tolerance_mismatch"
@@ -210,7 +210,7 @@ def _nu_tiers(capacity: CapacityAnswers) -> tuple[float, float, float]:
 
     Anchored on the stated one-year loss tolerance: a soft warning at half the
     tolerance, the hard ceiling at the tolerance itself, and an absolute stop at
-    1.5x (clamped to 1.0). Emitted here, enforced by the Fase-7 ``risk_check``.
+    1.5x (clamped to 1.0). Emitted here, enforced by the ``risk_check`` step.
     """
     ceiling = capacity.max_1yr_loss_pct
     nu1 = ceiling * 0.5
@@ -389,10 +389,10 @@ def run_mapping(
     portfolio_id: str,
     base_currency: str | None = None,
 ) -> tuple[ConstraintSet, SuitabilityAssessment]:
-    """Pure Task-3 wrapper: ``answers -> (ConstraintSet, SuitabilityAssessment)``.
+    """Pure entry point: ``answers -> (ConstraintSet, SuitabilityAssessment)``.
 
-    The LLM profiler agent (Task 7) calls this after normalising free-text into a
-    typed ``MiFIDAnswers``; it runs no LLM and touches no DB. An ESG/legal breach
+    The LLM profiler agent calls this after normalising free-text into a typed
+    ``MiFIDAnswers``; it runs no LLM and touches no DB. An ESG/legal breach
     hard-blocks here via ``build_constraint_set``.
     """
     constraint_set = build_constraint_set(
@@ -402,15 +402,15 @@ def run_mapping(
 
 
 # ---------------------------------------------------------------------------
-# Task 7 — the LLM profiler agent + always-on HITL persistence (SPEC §8.5).
+# LLM profiler agent + always-on HITL persistence (SPEC §8.5).
 #
 # The LLM *interprets* free-text answers into a typed ``MiFIDAnswers`` (via the
-# Fase-4 ``structured_call`` helper) and *decides* to persist; the deterministic
-# mapping above computes every knob. Persistence is a single ``save_profile`` tool
-# gated behind ``interrupt_on`` + a checkpointer, so the profiler *always* pauses
-# for adviser sign-off before writing. Heavy deps (deepagents / langchain /
-# langgraph / the audit repos) are imported lazily so the pure mapping above stays
-# cheap to import (test_profiler_mapping imports it without the agent stack).
+# ``structured_call`` helper) and *decides* to persist; the deterministic mapping
+# above computes every knob. Persistence is a single ``save_profile`` tool gated
+# behind ``interrupt_on`` + a checkpointer, so the profiler *always* pauses for
+# adviser sign-off before writing. Heavy deps (deepagents / langchain / langgraph
+# / the audit repos) are imported lazily so the pure mapping above stays cheap to
+# import (test_profiler_mapping imports it without the agent stack).
 # ---------------------------------------------------------------------------
 
 
@@ -580,7 +580,7 @@ def _make_save_profile(
     — the LLM-supplied ``portfolio_id`` argument is advisory only, so no knob can
     enter through a tool argument (the load-bearing rule). Idempotent per the HITL
     re-run contract (SPEC D3): a second call for an already-profiled portfolio
-    never writes a new version (re-profiling is deferred to Phase 9, D11), but it
+    never writes a new version (re-profiling is deferred, D11), but it
     still finalises the (otherwise orphaned) run and records the idempotent
     approve so the audit trail reflects what actually applied. A same-run replay
     (already finalised) is a true no-op — no double-log.
@@ -604,7 +604,7 @@ def _make_save_profile(
         repo = MifidProfileRepository(session)
         existing = repo.get_active(portfolio_id_uuid)
         if existing is not None:
-            # Re-profiling to a new version is deferred (D11, Phase 9). A fresh
+            # Re-profiling to a new version is deferred (D11). A fresh
             # run that hits this branch (a manual re-profile) is otherwise
             # orphaned at "pending"; finalise it + record the idempotent approve
             # so the audit trail reflects what actually applied. A same-run
@@ -748,13 +748,12 @@ def run_profiler(
         universe=[],
         optimizer_config={"step": "profiler"},
     )
-    # Per-run thread (Phase 8): default the checkpointer thread to str(run_id) (was
-    # str(portfolio_id)) so each profiling run keeps its own transcript and the
-    # rebuild-to-resume path can recover it. Persist it on the nullable column.
+    # Scoped to the run (not the portfolio) so the rebuild-to-resume path can
+    # recover the exact transcript for a specific profiling attempt. Persisted on
+    # the nullable column so resume_profiler can recover it cross-process.
     resolved_thread_id = thread_id or str(run.id)
     audit.set_thread_id(run.id, resolved_thread_id)
 
-    # (1) The LLM interprets the client's answers into typed inputs.
     answers = structured_call(
         model,
         MiFIDAnswers,
@@ -773,7 +772,6 @@ def run_profiler(
         llm_response_hash=_hash(answers_json),
     )
 
-    # (2) The deterministic mapping computes every knob (may hard-block).
     try:
         constraint_set, suitability = run_mapping(
             answers, portfolio_id=pid_str, base_currency=base_currency
@@ -792,7 +790,6 @@ def run_profiler(
         audit.finalize_run(run.id, weights={}, status="blocked")
         raise
 
-    # (3) Persist behind the always-on HITL gate.
     save_profile = _make_save_profile(
         session=session,
         store=store,

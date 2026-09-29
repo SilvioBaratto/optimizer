@@ -1,6 +1,6 @@
 """Contract: the ``all-llm`` aggregate extra fans out to every provider extra.
 
-``all-llm`` (SPEC D4, Task 12) is the single extra that installs *every* optional
+``all-llm`` is the single extra that installs *every* optional
 LLM backend at once — it is what CI's ``uv sync --all-extras`` pulls in. It is
 declared as a self-referential extra (``portopt-fund[openai,anthropic,...]``) so
 each provider's package list stays defined in exactly one place (its own extra).

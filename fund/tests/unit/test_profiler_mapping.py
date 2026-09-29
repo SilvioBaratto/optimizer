@@ -1,9 +1,9 @@
-"""Task 2 — ``build_constraint_set`` deterministic MiFID → knob mapping.
+"""``build_constraint_set`` deterministic MiFID → knob mapping.
 
 Pure, total, auditable — building a ``ConstraintSet`` from ``MiFIDAnswers`` imports
 no optimizer code (the optimizer only appears when the produced ``ConstraintSet``
 is fed through ``.to_mean_risk_config()``). These tests pin the correctness-critical
-bits SPEC §8 calls out:
+bits:
 
 * the appetite → aversion **inversion** (low appetite ⇒ high ``a_gamma``), so a
   naive ``a_gamma = min(gamma_tol, gamma_cap)`` regression is caught;
@@ -16,7 +16,7 @@ bits SPEC §8 calls out:
   validation + ``.to_mean_risk_config()``.
 
 ESG hard-gate + K&E universe filters + the ``SuitabilityAssessment`` assembly are
-Task 3 — here ``esg`` / ``universe_filters`` stay at their schema defaults.
+tested separately — here ``esg`` / ``universe_filters`` stay at their schema defaults.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def _answers(
     )
 
 
-# --- appetite scoring (SPEC §8.2 — normalized-average composite) -----------
+# --- appetite scoring (normalized-average composite) -----------------------
 
 
 @pytest.mark.parametrize(
@@ -167,7 +167,7 @@ def test_a_gamma_is_inverse_to_appetite() -> None:
     assert seq == sorted(seq, reverse=True)  # strictly decreasing
 
 
-# --- 5-band lookup (SPEC §8.1) ---------------------------------------------
+# --- 5-band lookup ---------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -270,7 +270,8 @@ def test_output_is_a_valid_constraint_set() -> None:
     cs = build_constraint_set(_answers(), portfolio_id="pf-42")
     assert isinstance(cs, ConstraintSet)
     assert cs.portfolio_id == "pf-42"
-    # esg / universe_filters untouched in Task 2 (Task 3 derives them).
+    # esg / universe_filters stay at schema defaults; ESG/universe derivation
+    # is tested separately.
     assert cs.esg.exclusions == ()
     assert cs.universe_filters.no_complex is False
 
@@ -322,8 +323,9 @@ def test_module_imports_no_optimizer_at_construction() -> None:
     assert mod.__file__ is not None
     tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
 
-    # profiler MAY import optimizer / the agent stack (fund is the bridge and Task 7
-    # adds the LLM profiler), but the deterministic mapping must stay import-light:
+    # profiler MAY import optimizer / the agent stack (fund is the bridge and the
+    # LLM profiler adds heavy deps), but the deterministic mapping must stay
+    # import-light:
     # every heavy dep is imported lazily inside a function (or guarded by
     # TYPE_CHECKING), never at module top level. Scanning only the module body's
     # direct import statements skips both lazy (in-function) and TYPE_CHECKING

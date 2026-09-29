@@ -198,7 +198,7 @@ def _task_call(subagent: str, index: int) -> AIMessage:
 
 
 # ---------------------------------------------------------------------------
-# Shared run-seeding helpers (reused by the Task-6 run + resume test files).
+# Shared run-seeding helpers used by the fund-run and resume test modules.
 #
 # A deterministic ``N_DAYS`` x 3 close panel extending past ``ASOF`` so the real
 # bound ``optimize_portfolio`` computes stable weights over a seeded SQLite panel

@@ -1,4 +1,4 @@
-"""T3.4 — ``risk_check`` + ``backtest``: the risk agent's blocking-gate primitives.
+"""``risk_check`` + ``backtest``: the risk agent's blocking-gate primitives.
 
 Pins both tools as pure functions with the ``{ok,data}`` / ``{ok:false,error}``
 contract:
@@ -8,7 +8,7 @@ contract:
   ``passed=True`` with no violations; out-of-norm ⇒ ``passed=False`` with a
   populated ``violations`` list. Pure math on the weights — no DB, no RNG;
 * ``backtest`` holds the given weights fixed and evaluates them out-of-sample with
-  a walk-forward split (``shuffle=False`` — no future leak, SPEC gotcha) over a
+  a walk-forward split (``shuffle=False`` — no future leak) over a
   seeded price panel, returning skfolio ``Portfolio`` metrics. The out-of-sample
   window strictly follows the training block, so temporal order is preserved;
 * both degrade bad input to ``{ok: false, error}`` (never raised) and are

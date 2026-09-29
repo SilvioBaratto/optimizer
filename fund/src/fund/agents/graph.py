@@ -1,4 +1,4 @@
-"""T7.5 — Phase-7 orchestration graph: the subagents + the PM deep agent.
+"""Phase-7 orchestration graph: the subagents + the PM deep agent.
 
 Assembles the Phase-7A foundations (model / backend / toolsets / prompts / skills)
 into one running deep agent. A PM/orchestrator (``create_deep_agent``) delegates
@@ -69,7 +69,7 @@ __all__ = [
     "run_fund",
 ]
 
-# D18: the moments/backtest lookback recorded on every run (mirrors the
+# The moments/backtest lookback recorded on every run (mirrors the
 # ``RunContext.lookback_days`` default — 3y rolling, ~756 trading days).
 _LOOKBACK_DAYS = 756
 
@@ -282,7 +282,7 @@ def build_fund_agent(
 
 
 # ---------------------------------------------------------------------------
-# Task 6 — ``run_fund`` + ``FundRun``: the one complete paper-run path.
+# ``run_fund`` + ``FundRun``: the one complete paper-run path.
 #
 # Mirrors ``run_profiler`` / ``ProfilerRun``: resolve the run's inputs, build the
 # PM agent, invoke it so the ``place_orders`` gate pauses for the adviser, and hand
@@ -498,7 +498,7 @@ def run_fund(
             f"first to establish a risk profile."
         )
 
-    # (2) Open the pending run; record seed + temperature=0 + lookback (D31).
+    # (2) Open the pending run; record seed + temperature=0 + lookback.
     run_seed = seed if seed is not None else secrets.randbits(32)
     audit = AgentRunRepository(session)
     run = audit.create_run(
@@ -512,13 +512,11 @@ def run_fund(
             "lookback_days": _LOOKBACK_DAYS,
         },
     )
-    # Per-run thread (Phase 8): default the checkpointer thread to str(run_id) (was
-    # str(portfolio_id)) so each run keeps its own verbatim transcript and the
-    # rebuild-to-resume path can recover it. Persist it on the new nullable column.
+    # Default the checkpointer thread to str(run_id) so each run keeps its own
+    # verbatim transcript and the rebuild-to-resume path can recover it.
     resolved_thread_id = thread_id or str(run.id)
     audit.set_thread_id(run.id, resolved_thread_id)
 
-    # (3) Bind the per-run toolsets and assemble the PM agent.
     ctx = RunContext(
         session=session,
         asof=asof,
@@ -540,7 +538,7 @@ def run_fund(
         "recursion_limit": config.recursion_limit,
     }
 
-    # (4) Invoke; the place_orders gate pauses the run for the adviser.
+    # The place_orders gate pauses the run for the adviser.
     try:
         result = agent.invoke(
             {
@@ -554,8 +552,8 @@ def run_fund(
             config=thread_config,
         )
     except GraphRecursionError:
-        # Round cap: the PM kept delegating past the bound without committing. Stop,
-        # finalise incomplete, and surface the open issue for the adviser (D22).
+        # Round cap: the PM kept delegating past the bound without committing —
+        # finalise incomplete and surface for the adviser.
         audit.append_decision(
             run.id,
             agent="orchestrator",

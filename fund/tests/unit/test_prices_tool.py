@@ -1,4 +1,4 @@
-"""T3.1 — ``get_prices`` tool over ``YFinanceRepository``.
+"""``get_prices`` tool over ``YFinanceRepository``.
 
 The tool is the first node of the allocator critical path. These tests pin its
 contract as a pure function of a seeded SQLite DB:

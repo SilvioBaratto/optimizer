@@ -1,6 +1,6 @@
 """Smoke test: the fund package imports and exposes its version.
 
-Beyond asserting the version, this test's real job in Phase 1 is to make
+Beyond asserting the version, this test's real job is to make
 ``import fund`` happen under coverage measurement — without it, ``--cov=fund``
 collects no data on the scaffold-only package and the coverage gate reports 0%.
 """

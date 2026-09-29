@@ -1,12 +1,12 @@
-"""Task 4 — the five role system prompts for the Phase-7 deep agent.
+"""System prompts for the five fund-agent roles (PM + four subagents).
 
 The PM/orchestrator and its four subagents (economist → allocator → risk →
 executor) each run under an English, plain-string system prompt living in
 ``fund/agents/prompts.py`` (no ``deepagents`` / ``langchain`` import — the prompts
 stay a cheap, agent-stack-free text layer; the agent is assembled in
-``agents/graph.py``, Task 5).
+``agents/graph.py``).
 
-These tests assert the SPEC/plan contract for Task 4:
+These tests assert the prompt contract:
 
 * every role prompt is a non-empty English string that states the **load-bearing
   rule** — the LLM chooses structured inputs, the optimizer computes the weights,
@@ -47,9 +47,6 @@ _ROLE_PROMPTS = {
 _ALL_SIX_PROMPTS = {**_ROLE_PROMPTS, "PROFILER_SYSTEM_PROMPT": PROFILER_SYSTEM_PROMPT}
 
 
-# --- shared shape: every role prompt is substantial English --------------------
-
-
 def test_every_role_prompt_is_a_substantial_english_string():
     for name, prompt in _ROLE_PROMPTS.items():
         assert isinstance(prompt, str), name
@@ -67,15 +64,11 @@ def test_every_role_prompt_states_the_load_bearing_rule():
         assert "never" in lower, name
 
 
-# --- PM: delegation order, blocking gate, round cap ----------------------------
-
-
 def test_pm_prompt_names_the_fixed_delegation_order():
     lower = PM_SYSTEM_PROMPT.lower()
     assert "economist → allocator → risk → executor" in lower
     # Delegation is via the built-in ``task`` tool.
     assert "task" in lower
-    # Routing skill.
     assert "fund-orchestration" in lower
 
 
@@ -91,18 +84,12 @@ def test_pm_prompt_respects_the_round_cap():
     assert "incomplete" in lower
 
 
-# --- economist: narrative regime read, its tools + skills ----------------------
-
-
 def test_economist_prompt_names_its_tools_and_skills():
     lower = ECONOMIST_SYSTEM_PROMPT.lower()
     assert "get_macro_series" in lower
     assert "get_prices" in lower
     assert "macro-regime-read" in lower
     assert "views-construction" in lower
-
-
-# --- allocator: universe → moments → optimizer, its tools + skills -------------
 
 
 def test_allocator_prompt_names_its_tools_and_skills():
@@ -112,9 +99,6 @@ def test_allocator_prompt_names_its_tools_and_skills():
     assert "optimize_portfolio" in lower
     assert "universe-preselection" in lower
     assert "optimization-objective-map" in lower
-
-
-# --- risk: pass/fail with violations; breaches hard-block ----------------------
 
 
 def test_risk_prompt_reports_pass_fail_with_explicit_violations():
@@ -135,9 +119,6 @@ def test_risk_prompt_hard_blocks_mifid_esg_validation_breach():
     assert "validation" in lower
 
 
-# --- executor: paper-only, next-close, idempotent, HITL, no fabricated weights -
-
-
 def test_executor_prompt_describes_paper_orders_semantics():
     lower = EXECUTOR_SYSTEM_PROMPT.lower()
     assert "place_orders" in lower
@@ -151,9 +132,6 @@ def test_executor_prompt_forbids_fabricating_weights():
     lower = EXECUTOR_SYSTEM_PROMPT.lower()
     assert "fabricate" in lower
     assert "weight" in lower
-
-
-# --- theory consultation: every role grounds decisions in the staged tree ------
 
 
 def test_every_role_prompt_directs_to_the_staged_theory():
@@ -180,9 +158,6 @@ def test_theory_protocol_forbids_writing_under_the_theory_tree():
     assert "docs/nn" in lower or "nn:line" in lower
 
 
-# --- public surface ------------------------------------------------------------
-
-
 def test_all_exports_the_six_prompts():
     expected = {
         "PROFILER_SYSTEM_PROMPT",
@@ -193,5 +168,4 @@ def test_all_exports_the_six_prompts():
         "EXECUTOR_SYSTEM_PROMPT",
     }
     assert expected <= set(prompts.__all__)
-    # The pre-existing profiler prompt is untouched and still exported.
     assert isinstance(PROFILER_SYSTEM_PROMPT, str)

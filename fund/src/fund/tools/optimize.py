@@ -1,17 +1,16 @@
-"""T3.2 — ``optimize_portfolio``: the ★ walking-skeleton milestone.
+"""``optimize_portfolio``: skfolio computes the weights, never the LLM.
 
-The load-bearing tool of the whole architecture: **skfolio computes the weights,
-never the LLM.** Given a price panel as of ``asof`` it builds a ``MeanRisk``
-optimiser (default: minimum-variance, long-only, fully invested — ``min_weights=0``,
-``max_weights=1``, ``budget=1``, SPEC D17), fits it on linear returns, and returns
+Given a price panel as of ``asof``, builds a ``MeanRisk`` optimiser
+(minimum-variance, long-only, fully invested — ``min_weights=0``,
+``max_weights=1``, ``budget=1``), fits it on linear returns, and returns
 the resulting weights plus a small metrics summary.
 
 The tool is a pure, deterministic function of ``(session, asof, universe,
 constraints)``: the min-variance QP is convex, so identical seeded data ⇒
 identical weights. Returns are computed **outside** any pipeline via
-:func:`optimizer.preprocessing.prices_to_returns` (linear returns, D-gotcha).
+``prices_to_returns`` (linear, not log).
 
-Contract (via :func:`fund.tools._base.tool_envelope`):
+Contract (via ``tool_envelope``):
 
 * empty ``universe`` ⇒ ``{ok: false, error}``;
 * no priced assets, or fewer than two observations, ⇒ ``{ok: false, error}``;
@@ -35,13 +34,15 @@ from fund.tools.prices import load_price_frame
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-# ``constraints`` keys honoured today (placeholder for the Fase-4 ConstraintSet
-# schema). Each maps 1:1 onto a ``MeanRiskConfig`` field; anything else is ignored.
+# Each key maps 1:1 onto a ``MeanRiskConfig`` field; anything else is silently ignored.
 _CONSTRAINT_FIELDS: frozenset[str] = frozenset({"min_weights", "max_weights", "budget"})
 
 
 def _resolve_config(constraints: dict[str, Any] | None) -> MeanRiskConfig:
-    """Build the ``MeanRiskConfig`` — min-variance long-only, D17 — with overrides."""
+    """Build a long-only, minimum-variance ``MeanRiskConfig``.
+
+    Caller-supplied ``constraints`` override the defaults field by field.
+    """
     base = MeanRiskConfig()
     if not constraints:
         return base
@@ -60,11 +61,11 @@ def optimize_portfolio(
     """Optimise weights for ``universe`` from prices as of ``asof``.
 
     Args:
-        session: A sync ``portopt_db`` session (D1); the tool does not own it.
+        session: A sync ``portopt_db`` session; the tool does not own it.
         asof: Inclusive upper bound on price history (no look-ahead).
         universe: yfinance tickers to allocate across.
         constraints: Optional overrides for ``min_weights`` / ``max_weights`` /
-            ``budget``; defaults to long-only, fully invested (D17).
+            ``budget``; defaults to long-only, fully invested.
 
     Returns:
         ``ok`` with ``weights`` (``{ticker: float}`` from skfolio), ``metrics``

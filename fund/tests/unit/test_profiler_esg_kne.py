@@ -1,19 +1,17 @@
-"""Task 3 — ESG hard gate + K&E universe filters (deterministic, zero LLM).
+"""ESG hard gate and K&E universe filter tests (deterministic, zero LLM).
 
-Two HARD MiFID rules land here (deep_agent.md ``01:335`` / ``01:331``,
-SPEC §5 required-coverage rows):
+Two MiFID rules under test:
 
-* **ESG gate = hard block (D9/D16).** The client's declared GICS-sector
-  exclusions are copied verbatim into ``ConstraintSet.esg.exclusions`` and no
-  other answer can re-admit an excluded sector — the gate is applied from the ESG
-  pillar alone. Excluding *every* sector leaves no investable universe and is a
-  legal breach that hard-blocks outright.
-* **Low K&E ⇒ tightened universe (D32).** A ``none`` / ``basic`` knowledge level
-  sets ``UniverseFilters.no_complex`` / ``no_leverage`` and a tightened
-  ``max_position_cap``; ``informed`` / ``advanced`` leave the defaults.
+* **ESG gate = hard block.** The client's declared GICS-sector exclusions are
+  copied verbatim into ``ConstraintSet.esg.exclusions`` and no other answer can
+  re-admit an excluded sector — the gate is applied from the ESG pillar alone.
+  Excluding *every* sector leaves no investable universe and is a legal breach
+  that hard-blocks outright.
+* **Low K&E ⇒ tightened universe.** A ``none``/``basic`` knowledge level sets
+  ``UniverseFilters.no_complex``/``no_leverage`` and a tightened
+  ``max_position_cap``; ``informed``/``advanced`` leave the defaults.
 
-Both maps are **total** over their driving enum (unmapped ⇒ hard ``KeyError``),
-matching the ``fund/schemas`` ethos and Task 2's mapping tables.
+Both maps are **total** over their driving enum (unmapped ⇒ hard ``KeyError``).
 """
 
 from __future__ import annotations

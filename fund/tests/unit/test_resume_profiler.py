@@ -12,7 +12,7 @@ rejects (writes nothing) — parity with the in-process ``ProfilerRun.resume``.
 ``resume_run`` dispatches a paused run to this path (vs ``resume_fund``) by its
 recorded ``optimizer_config["step"]``. Zero live LLM, zero network:
 ``ScriptedProfilerModel`` + ``MemorySaver`` + ``InMemoryStore`` + the in-memory
-``db_session`` (SPEC §5 / §4d).
+``db_session``.
 """
 
 from __future__ import annotations

@@ -1,10 +1,10 @@
-"""MiFID-facing ``str, Enum`` vocabulary shared by the Phase-4 schemas.
+"""MiFID-facing ``str, Enum`` vocabulary shared across fund schemas.
 
 These are the fund-side vocabulary: a client-friendly subset/rename of the
 ``optimizer.optimization`` enums. The mapping onto the optimizer enums lives in
-the schema methods (``ConstraintSet.to_mean_risk_config`` etc., Tasks 3-4), never
-here — this module imports nothing from ``optimizer`` / ``deepagents`` / ``app``
-so schema construction stays optimizer-free. Values are lowercase snake_case
+the schema methods (``ConstraintSet.to_mean_risk_config`` etc.), never here —
+this module imports nothing from ``optimizer`` / ``deepagents`` / ``app`` so
+schema construction stays optimizer-free. Values are lowercase snake_case
 (repo-wide ``str, Enum`` idiom).
 """
 
@@ -26,7 +26,7 @@ __all__ = [
 
 
 class ObjectiveChoice(str, Enum):
-    """MiFID suitability objective (D13). Maps onto ``ObjectiveFunctionType``."""
+    """MiFID suitability objective. Maps onto ``ObjectiveFunctionType``."""
 
     PROTECTION = "protection"
     INCOME = "income"
@@ -35,7 +35,7 @@ class ObjectiveChoice(str, Enum):
 
 
 class RiskMeasureChoice(str, Enum):
-    """Downside risk-measure subset (D34). Maps onto ``RiskMeasureType``."""
+    """Downside risk-measure subset. Maps onto ``RiskMeasureType``."""
 
     VARIANCE = "variance"
     SEMI_VARIANCE = "semi_variance"
@@ -45,7 +45,7 @@ class RiskMeasureChoice(str, Enum):
 
 
 class Horizon(str, Enum):
-    """Investment horizon bucket (D13)."""
+    """Investment horizon bucket."""
 
     SHORT = "short"
     MEDIUM = "medium"
@@ -53,7 +53,7 @@ class Horizon(str, Enum):
 
 
 class GicsSector(str, Enum):
-    """The 11 GICS sectors — ESG exclusions / sector caps (D16, D39)."""
+    """The 11 GICS sectors used for ESG exclusions and sector caps."""
 
     ENERGY = "energy"
     MATERIALS = "materials"
@@ -69,7 +69,7 @@ class GicsSector(str, Enum):
 
 
 class MomentsEstimator(str, Enum):
-    """Moments-estimator selector (D23). ``LEDOIT_WOLF`` is the default."""
+    """Moments-estimator selector. ``LEDOIT_WOLF`` is the default."""
 
     LEDOIT_WOLF = "ledoit_wolf"
     EMPIRICAL = "empirical"
@@ -77,7 +77,7 @@ class MomentsEstimator(str, Enum):
 
 
 class UncertaintyLevel(str, Enum):
-    """Robust-optimization uncertainty level (D35)."""
+    """Robust-optimization uncertainty level."""
 
     NONE = "none"
     LOW = "low"
@@ -85,9 +85,11 @@ class UncertaintyLevel(str, Enum):
 
 
 class KnowledgeLevel(str, Enum):
-    """MiFID knowledge-&-experience pillar (Fase 5). Low levels (``none`` /
-    ``basic``) drive the ``UniverseFilters`` restrictions (no complex / no
-    leverage, tighter caps)."""
+    """MiFID knowledge-and-experience pillar.
+
+    Low ``none``/``basic`` levels restrict the investable universe: no complex
+    products, no leverage, tighter position caps.
+    """
 
     NONE = "none"
     BASIC = "basic"
@@ -96,9 +98,12 @@ class KnowledgeLevel(str, Enum):
 
 
 class LossReaction(str, Enum):
-    """Client's reaction to an extreme drawdown scenario (Fase 5). Drives the
-    downside ``risk_measure`` + tail ``beta`` (protection → CVaR/CDaR/MaxDD),
-    distinct from the attitudinal risk-tolerance Likert that scores appetite."""
+    """Client's reaction to an extreme drawdown scenario.
+
+    Drives the downside ``risk_measure`` and tail ``beta`` selection
+    (``sell_all``/protection → CVaR/CDaR/MaxDD), distinct from the attitudinal
+    risk-tolerance score that measures appetite.
+    """
 
     SELL_ALL = "sell_all"
     SELL_SOME = "sell_some"
@@ -107,9 +112,11 @@ class LossReaction(str, Enum):
 
 
 class RiskToleranceBand(str, Enum):
-    """The 5 named MiFID risk categories (Fase 5, SPEC §8.1). The appetite score
-    buckets into one of these; the category name is recorded in the suitability
-    assessment alongside the derived ``a_gamma``."""
+    """The five named MiFID risk categories.
+
+    The appetite score buckets into one of these; the category name is recorded
+    in the suitability assessment alongside the derived ``a_gamma``.
+    """
 
     DEFENSIVE = "defensive"
     CONSERVATIVE = "conservative"

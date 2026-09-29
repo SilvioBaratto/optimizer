@@ -1,4 +1,4 @@
-"""T2.3 — ``fund.audit.persistence`` LangGraph bootstrap (unit slice).
+"""``fund.audit.persistence`` LangGraph bootstrap (unit slice).
 
 The Postgres-touching round-trip is proved by the marked integration test
 (``fund/tests/integration/test_langgraph_persistence.py``). These unit tests

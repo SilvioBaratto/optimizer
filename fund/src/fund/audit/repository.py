@@ -163,8 +163,8 @@ class AgentRunRepository(RepositoryBase):
     def set_thread_id(self, run_id: uuid.UUID, thread_id: str) -> AgentRun | None:
         """Stamp the run's LangGraph checkpointer thread id; ``None`` if not found.
 
-        Phase 8 defaults this to ``str(run_id)`` at run start so the resume path
-        can rebuild the PM agent against the same thread.
+        Defaults to ``str(run_id)`` at run start so the resume path can rebuild
+        the PM agent against the same thread.
         """
         run = self.get_run(run_id)
         if run is None:

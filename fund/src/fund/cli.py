@@ -1,4 +1,4 @@
-"""Manual fund operating cycle: ``python -m fund.cli <command>`` (Phase 8, Task 7).
+"""Manual fund operating cycle: ``python -m fund.cli <command>``.
 
 The complete headless human driver, mirroring ``ingestion/app/cli.py``. Every
 command is a thin wrapper over :mod:`fund.observe` (the model-free read model),
@@ -90,18 +90,15 @@ def _boot() -> None:
 
 
 def _exit(ok: bool) -> None:
-    """Exit zero on success, non-zero otherwise."""
     raise typer.Exit(code=0 if ok else 1)
 
 
 def _fail(message: str) -> NoReturn:
-    """Print a clear error to stderr and exit non-zero."""
     typer.echo(f"error: {message}", err=True)
     raise typer.Exit(code=1)
 
 
 def _uuid(value: str, *, label: str) -> uuid.UUID:
-    """Parse ``value`` as a UUID, or fail with a clear message."""
     try:
         return uuid.UUID(value)
     except (ValueError, AttributeError):
@@ -109,7 +106,6 @@ def _uuid(value: str, *, label: str) -> uuid.UUID:
 
 
 def _parse_date(value: str) -> dt.date:
-    """Parse an ISO ``YYYY-MM-DD`` date, or fail with a clear message."""
     try:
         return dt.date.fromisoformat(value)
     except (ValueError, TypeError):
