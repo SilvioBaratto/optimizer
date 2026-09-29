@@ -53,3 +53,27 @@ def test_string_values_are_escaped(tmp_path: Path) -> None:
 def test_rejects_unsupported_value_type(tmp_path: Path) -> None:
     with pytest.raises(TypeError):
         config_file.save_config({"nested": {"a": 1}}, path=tmp_path / "config.toml")
+
+
+def test_update_config_merges_into_existing(tmp_path: Path) -> None:
+    """update_config adds a key without clobbering the keys already on disk."""
+    path = tmp_path / "config.toml"
+    config_file.save_config({"llm_provider": "openai"}, path=path)
+    config_file.update_config({"repo_path": "/home/u/optimizer"}, path=path)
+    assert config_file.load_config(path=path) == {
+        "llm_provider": "openai",
+        "repo_path": "/home/u/optimizer",
+    }
+
+
+def test_update_config_creates_file_when_absent(tmp_path: Path) -> None:
+    """update_config on a missing file writes just the update."""
+    path = tmp_path / "config.toml"
+    config_file.update_config({"repo_path": "/repo"}, path=path)
+    assert config_file.load_config(path=path) == {"repo_path": "/repo"}
+
+
+def test_update_config_still_rejects_secret_keys(tmp_path: Path) -> None:
+    """The secret-key guard applies to merged updates too."""
+    with pytest.raises(ValueError, match="secret"):
+        config_file.update_config({"fred_api_key": "x"}, path=tmp_path / "config.toml")

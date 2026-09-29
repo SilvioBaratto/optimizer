@@ -56,6 +56,19 @@ def save_config(config: Mapping[str, Any], *, path: Path | None = None) -> Path:
     return path
 
 
+def update_config(updates: Mapping[str, Any], *, path: Path | None = None) -> Path:
+    """Merge ``updates`` into the existing config, preserving the other keys.
+
+    Load-merge-save so a targeted write (e.g. persisting ``repo_path``) does not
+    clobber the wizard's LLM selection already on disk. The secret-key guard in
+    :func:`save_config` still applies to the merged result.
+    """
+    path = path or DEFAULT_CONFIG_PATH
+    merged = load_config(path=path)
+    merged.update(updates)
+    return save_config(merged, path=path)
+
+
 def load_config(*, path: Path | None = None) -> dict[str, Any]:
     """Load config from ``path``; return an empty dict if it does not exist."""
     path = path or DEFAULT_CONFIG_PATH

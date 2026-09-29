@@ -20,14 +20,23 @@ from app.setup import path_install
 
 @pytest.fixture
 def stub_userpath(monkeypatch: pytest.MonkeyPatch) -> dict:
-    """Stub userpath so no real PATH edit runs; record append() locations."""
-    calls: dict = {"appended": []}
+    """Stub userpath + config persistence so no real PATH/config edit runs.
+
+    Records ``append()`` locations and the ``repo_path`` install_launcher persists,
+    keeping the suite hermetic against the developer's real ``~/.portopt/config.toml``.
+    """
+    calls: dict = {"appended": [], "repo_saved": None}
     monkeypatch.setattr(path_install.userpath, "in_current_path", lambda loc: False)
     monkeypatch.setattr(path_install.userpath, "in_new_path", lambda loc: False)
     monkeypatch.setattr(
         path_install.userpath,
         "append",
         lambda loc, app_name=None: bool(calls["appended"].append(loc)) or True,
+    )
+    monkeypatch.setattr(
+        path_install.config_file,
+        "update_config",
+        lambda updates, **kw: calls.update(repo_saved=dict(updates)),
     )
     return calls
 
@@ -163,3 +172,87 @@ def test_ensure_on_path_warns_when_append_fails(
     with caplog.at_level("WARNING"):
         path_install._ensure_on_path(tmp_path)
     assert "PATH" in caplog.text
+
+
+# --- T13: repo resolution self-heal (review item #3) --------------------------
+
+
+@pytest.fixture
+def _no_repo_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear OPTIMIZER_REPO + the real config so resolution is deterministic."""
+    monkeypatch.delenv("OPTIMIZER_REPO", raising=False)
+    monkeypatch.setattr(path_install.config_file, "load_config", lambda **kw: {})
+
+
+def test_resolve_repo_prefers_explicit_arg(tmp_path: Path, _no_repo_env: None) -> None:
+    """An explicit repo argument wins over env, config, and __file__."""
+    assert path_install.resolve_repo(tmp_path) == tmp_path
+
+
+def test_resolve_repo_uses_env_when_it_holds_a_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _no_repo_env: None
+) -> None:
+    """OPTIMIZER_REPO is used when it points at a directory holding docker-compose.yml."""
+    (tmp_path / "docker-compose.yml").write_text("x", encoding="utf-8")
+    monkeypatch.setenv("OPTIMIZER_REPO", str(tmp_path))
+    assert path_install.resolve_repo() == tmp_path
+
+
+def test_resolve_repo_ignores_env_without_compose_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _no_repo_env: None
+) -> None:
+    """A stale OPTIMIZER_REPO (no compose file) is ignored, not trusted blindly."""
+    monkeypatch.setenv("OPTIMIZER_REPO", str(tmp_path))
+    assert path_install.resolve_repo() == path_install._repo_root()
+
+
+def test_resolve_repo_falls_back_to_config_repo_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no env, a valid config ``repo_path`` self-heals a moved/relocated repo."""
+    monkeypatch.delenv("OPTIMIZER_REPO", raising=False)
+    repo = tmp_path / "clone"
+    repo.mkdir()
+    (repo / "docker-compose.yml").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(
+        path_install.config_file, "load_config", lambda **kw: {"repo_path": str(repo)}
+    )
+    assert path_install.resolve_repo() == repo
+
+
+def test_resolve_repo_final_fallback_is_file_root(_no_repo_env: None) -> None:
+    """With nothing set, resolution falls back to the __file__-derived repo root."""
+    assert path_install.resolve_repo() == path_install._repo_root()
+
+
+def test_install_launcher_persists_repo_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub_userpath: dict
+) -> None:
+    """install_launcher records the resolved repo as config ``repo_path`` for self-heal."""
+    monkeypatch.setattr(path_install, "resolve_repo", lambda repo=None: tmp_path)
+    monkeypatch.setattr(
+        path_install, "_install_windows", lambda b, r: b / "optimizer.cmd"
+    )
+    monkeypatch.setattr(path_install, "_install_posix", lambda b, r: b / "optimizer")
+    monkeypatch.setattr(path_install.os, "name", "posix")
+    path_install.install_launcher(bin_dir=tmp_path)
+    assert stub_userpath["repo_saved"] == {"repo_path": str(tmp_path)}
+
+
+def test_install_launcher_accepts_repo_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub_userpath: dict
+) -> None:
+    """A ``repo=`` override reaches the install branch (used by the front-door path)."""
+    seen: dict = {}
+    monkeypatch.setattr(
+        path_install,
+        "_install_posix",
+        lambda b, r: seen.setdefault("repo", r) or (b / "optimizer"),
+    )
+    monkeypatch.setattr(
+        path_install, "_install_windows", lambda b, r: b / "optimizer.cmd"
+    )
+    monkeypatch.setattr(path_install.os, "name", "posix")
+    override = tmp_path / "override"
+    path_install.install_launcher(bin_dir=tmp_path, repo=override)
+    assert seen["repo"] == override

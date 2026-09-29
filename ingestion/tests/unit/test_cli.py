@@ -89,12 +89,13 @@ class TestSetupCommand:
         assert result.exit_code == 0
         assert mock_run.call_args.kwargs["skip_path_install"] is True
 
-    def test_skip_path_install_defaults_false(self) -> None:
-        """Without the flag the wizard is told to install the launcher."""
+    def test_non_interactive_skips_path_install_by_default(self) -> None:
+        """CI/non-interactive never mutates the User PATH unless asked (review #5):
+        `--non-interactive` implies skip_path_install even without the flag."""
         with patch("app.setup.wizard.run_setup_noninteractive") as mock_run:
             result = runner.invoke(app, ["setup", "--non-interactive"])
         assert result.exit_code == 0
-        assert mock_run.call_args.kwargs["skip_path_install"] is False
+        assert mock_run.call_args.kwargs["skip_path_install"] is True
 
     def test_non_interactive_failure_exits_nonzero(self) -> None:
         from app.setup.wizard import SetupError

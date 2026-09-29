@@ -1,4 +1,8 @@
-.PHONY: sync lint format typecheck test coverage coverage-report all clean contract-snapshots
+.PHONY: setup sync lint format typecheck test coverage coverage-report all clean contract-snapshots
+
+# One-command onboarding: delegate to the thin POSIX front door (no logic here).
+setup:
+	./setup.sh
 
 # uv workspace: one venv for portopt-core + ingestion + packages/portopt-db.
 sync:

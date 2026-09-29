@@ -238,6 +238,9 @@ def setup(
     from app.setup.prompts import PromptError, make_prompter
     from app.setup.validators import ValidationNetworkError
 
+    # Non-interactive/CI must never silently mutate the User PATH (review item #5):
+    # `--non-interactive` implies skip unless the operator opts in via interactive setup.
+    effective_skip_path_install = skip_path_install or non_interactive
     try:
         if corp_ca:
             # Generate the merged bundle first and point this process's TLS stack at
@@ -256,11 +259,11 @@ def setup(
                 llm_model=llm_model,
                 llm_base_url=llm_base_url,
                 llm_key=llm_key,
-                skip_path_install=skip_path_install,
+                skip_path_install=effective_skip_path_install,
             )
         else:
             wizard.run_setup_interactive(
-                make_prompter(), skip_path_install=skip_path_install
+                make_prompter(), skip_path_install=effective_skip_path_install
             )
     except (
         wizard.SetupError,
