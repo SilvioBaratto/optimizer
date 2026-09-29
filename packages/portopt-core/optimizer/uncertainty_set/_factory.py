@@ -16,7 +16,7 @@ from skfolio.uncertainty_set._base import (
     BaseCovarianceUncertaintySet,
     BaseMuUncertaintySet,
 )
-from skfolio.uncertainty_set._orthogonal import CSWeighting
+from skfolio.utils.stats import CSWeighting
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.uncertainty_set._config import (
