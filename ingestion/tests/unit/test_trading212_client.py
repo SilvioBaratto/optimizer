@@ -29,11 +29,14 @@ def _make_client(mode: str = "live", max_retries: int = 3) -> Trading212Client:
     )
 
 
-def _mock_response(json_data, status_code: int = 200) -> MagicMock:
+def _mock_response(
+    json_data, status_code: int = 200, headers: dict[str, str] | None = None
+) -> MagicMock:
     resp = MagicMock()
     resp.status_code = status_code
     resp.json.return_value = json_data
     resp.raise_for_status.return_value = None
+    resp.headers = headers if headers is not None else {}
     return resp
 
 
@@ -74,11 +77,26 @@ class TestTrading212ClientInit:
         import base64
 
         expected = base64.b64encode(b"test-key-abc:test-secret-xyz").decode()
-        assert c.headers == {"Authorization": f"Basic {expected}"}
+        assert c.headers["Authorization"] == f"Basic {expected}"
 
     def test_default_max_retries(self):
         c = Trading212Client(api_key="k", api_secret="s")
         assert c.max_retries == 5
+
+
+# ---------------------------------------------------------------------------
+# Browser headers — Cloudflare 403 dodge on the metadata endpoints
+# ---------------------------------------------------------------------------
+
+
+class TestBrowserHeaders:
+    def test_headers_include_browser_user_agent(self):
+        c = _make_client()
+        assert "Mozilla/5.0" in c.headers["User-Agent"]
+
+    def test_headers_include_json_accept(self):
+        c = _make_client()
+        assert c.headers["Accept"] == "application/json"
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +211,70 @@ class TestFetchJson:
         result = c._fetch_json("/path")
         mock_get.assert_called_once_with("/path")
         assert result == [{"id": 1}]
+
+
+# ---------------------------------------------------------------------------
+# get_instruments — caching + rate-limit capture
+# ---------------------------------------------------------------------------
+
+
+@patch("app.services.universe.trading212.client.time.sleep")
+@patch("app.services.universe.trading212.client.requests.get")
+class TestInstrumentCachingAndRateLimit:
+    def test_second_call_serves_from_cache(self, mock_get, _sleep):
+        mock_get.return_value = _mock_response([{"ticker": "AAPL_US_EQ"}])
+        c = _make_client()
+        first = c.get_instruments()
+        second = c.get_instruments()
+        assert first == second == [{"ticker": "AAPL_US_EQ"}]
+        assert mock_get.call_count == 1
+
+    def test_force_refresh_bypasses_cache(self, mock_get, _sleep):
+        mock_get.side_effect = [
+            _mock_response([{"ticker": "AAPL_US_EQ"}]),
+            _mock_response([{"ticker": "MSFT_US_EQ"}]),
+        ]
+        c = _make_client()
+        assert c.get_instruments() == [{"ticker": "AAPL_US_EQ"}]
+        assert c.get_instruments(force_refresh=True) == [{"ticker": "MSFT_US_EQ"}]
+        assert mock_get.call_count == 2
+
+    def test_exchanges_are_not_cached(self, mock_get, _sleep):
+        mock_get.return_value = _mock_response([{"id": 1, "name": "NASDAQ"}])
+        c = _make_client()
+        c.get_exchanges()
+        c.get_exchanges()
+        assert mock_get.call_count == 2
+
+    def test_get_sends_browser_user_agent(self, mock_get, _sleep):
+        mock_get.return_value = _mock_response([])
+        c = _make_client()
+        c.get_instruments()
+        _, kwargs = mock_get.call_args
+        assert "Mozilla/5.0" in kwargs["headers"]["User-Agent"]
+        assert kwargs["headers"]["Accept"] == "application/json"
+
+    def test_captures_rate_limit_headers(self, mock_get, _sleep):
+        mock_get.return_value = _mock_response(
+            [{"ticker": "AAPL_US_EQ"}],
+            headers={
+                "x-ratelimit-remaining": "0",
+                "x-ratelimit-reset": "1700000000",
+                "content-type": "application/json",
+            },
+        )
+        c = _make_client()
+        c.get_instruments()
+        assert c.rate_limit == {
+            "x-ratelimit-remaining": "0",
+            "x-ratelimit-reset": "1700000000",
+        }
+
+    def test_rate_limit_defaults_empty_without_headers(self, mock_get, _sleep):
+        mock_get.return_value = _mock_response([{"ticker": "AAPL_US_EQ"}])
+        c = _make_client()
+        c.get_instruments()
+        assert c.rate_limit == {}
 
 
 # ---------------------------------------------------------------------------

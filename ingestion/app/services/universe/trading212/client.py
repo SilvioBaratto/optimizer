@@ -1,11 +1,20 @@
 import base64
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import requests
 
 from app.config import settings
+
+# Trading 212's metadata endpoints sit behind Cloudflare, which 403s the default
+# python-requests User-Agent. A browser UA (paired with an explicit JSON Accept)
+# clears the challenge.
+_BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 
 
 @dataclass
@@ -15,6 +24,10 @@ class Trading212Client:
     mode: str = "live"
     max_retries: int = 5
     base_url: str = field(init=False)
+    rate_limit: dict[str, str] = field(default_factory=dict, init=False, repr=False)
+    _instruments_cache: list[dict[str, Any]] | None = field(
+        default=None, init=False, repr=False
+    )
 
     def __post_init__(self):
         if self.mode == "demo":
@@ -24,11 +37,20 @@ class Trading212Client:
 
     @property
     def headers(self) -> dict[str, str]:
-        """HTTP Basic Auth — T212 requires Base64(api_key:api_secret)."""
+        """Basic-auth plus the browser headers that clear Cloudflare.
+
+        T212 requires Base64(api_key:api_secret) Basic auth; the metadata
+        endpoints additionally 403 the default requests UA, so every request
+        also carries a browser User-Agent and a JSON Accept.
+        """
         credentials = base64.b64encode(
             f"{self.api_key}:{self.api_secret}".encode()
         ).decode()
-        return {"Authorization": f"Basic {credentials}"}
+        return {
+            "Authorization": f"Basic {credentials}",
+            "User-Agent": _BROWSER_USER_AGENT,
+            "Accept": "application/json",
+        }
 
     # ------------------------------------------------------------------
     # Metadata endpoints — the ONLY Trading 212 surface the ingestion
@@ -44,8 +66,26 @@ class Trading212Client:
     def get_exchanges(self) -> list[dict[str, Any]]:
         return self._fetch_json("/api/v0/equity/metadata/exchanges")
 
-    def get_instruments(self) -> list[dict[str, Any]]:
-        return self._fetch_json("/api/v0/equity/metadata/instruments")
+    def get_instruments(self, *, force_refresh: bool = False) -> list[dict[str, Any]]:
+        """Return the T212 instrument universe, cached per client instance.
+
+        T212 rate-limits ``/metadata/instruments`` aggressively (one call per
+        account per window), so the list is fetched once and cached for the life
+        of the client — the natural span of a single universe build. This is the
+        primary way the strict per-account limit is respected; the latest
+        ``x-ratelimit-*`` headers are also captured onto :attr:`rate_limit`.
+
+        Args:
+            force_refresh: When True, bypass the cache and re-fetch.
+
+        Returns:
+            The list of instrument-metadata dicts.
+        """
+        if self._instruments_cache is None or force_refresh:
+            self._instruments_cache = self._fetch_json(
+                "/api/v0/equity/metadata/instruments"
+            )
+        return self._instruments_cache
 
     # ------------------------------------------------------------------
     # Internal HTTP helper
@@ -69,6 +109,7 @@ class Trading212Client:
                     params=params,
                     timeout=30,
                 )
+                self._capture_rate_limit(resp)
                 resp.raise_for_status()
                 return resp.json()
 
@@ -103,6 +144,24 @@ class Trading212Client:
     def _fetch_json(self, path: str) -> list[dict[str, Any]]:
         """Fetch a JSON array from a metadata endpoint (via ``_get``)."""
         return self._get(path)
+
+    def _capture_rate_limit(self, resp: Any) -> None:
+        """Record the latest ``x-ratelimit-*`` headers for backpressure.
+
+        Preserves the last-known limit across responses that omit the headers
+        (e.g. non-metadata calls) rather than clobbering it with an empty map.
+        Guards against mock/non-mapping ``headers`` in tests.
+        """
+        headers = getattr(resp, "headers", None)
+        if not isinstance(headers, Mapping):
+            return
+        captured = {
+            key.lower(): value
+            for key, value in headers.items()
+            if key.lower().startswith("x-ratelimit")
+        }
+        if captured:
+            self.rate_limit = captured
 
     @classmethod
     def from_settings(cls, mode: str | None = None) -> Optional["Trading212Client"]:
