@@ -35,32 +35,23 @@ class FxDataSource(str, Enum):
 class FxConfig:
     """Immutable configuration for multi-currency FX conversion.
 
-    Parameters
-    ----------
-    base_currency : BaseCurrency
-        Target currency for price conversion.
-    mode : FxConversionMode
-        ``NONE`` disables conversion (default, backward-compatible).
-        ``TO_BASE`` converts all prices to the base currency.
-        ``DECOMPOSE`` converts and also produces an FX return
-        decomposition.
-    data_source : FxDataSource
-        Where to source FX rates.
-    fill_limit : int
-        Maximum number of trading days to forward-fill missing FX
-        rates (weekends, holidays).
-    require_full_coverage : bool
-        If ``True``, raise ``DataError`` when any required FX pair
-        has insufficient data.  If ``False``, log a warning and
-        leave base-currency-denominated tickers unchanged.
-    cross_via_usd : bool
-        When ``True``, compute cross-rates via USD (e.g. GBP/EUR =
-        GBP/USD / EUR/USD) rather than looking up direct pairs.
-        yfinance direct cross pairs are often sparse.
-    strict : bool
-        If ``True``, raise ``ConfigurationError`` when ``mode != NONE``
-        but ``currency_map`` or ``fx_rates`` is ``None``.  If ``False``
-        (default), log a ``WARNING`` and silently skip conversion.
+    Attributes:
+        base_currency: Target currency for price conversion.
+        mode: ``NONE`` disables conversion (default, backward-compatible).
+            ``TO_BASE`` converts all prices to the base currency.
+            ``DECOMPOSE`` converts and also produces an FX return decomposition.
+        data_source: Where to source FX rates.
+        fill_limit: Maximum number of trading days to forward-fill missing FX
+            rates (weekends, holidays).
+        require_full_coverage: If ``True``, raise ``DataError`` when any
+            required FX pair has insufficient data. If ``False``, log a
+            warning and leave base-currency-denominated tickers unchanged.
+        cross_via_usd: When ``True``, compute cross-rates via USD
+            (e.g. GBP/EUR = GBP/USD / EUR/USD) rather than looking up direct
+            pairs. yfinance direct cross pairs are often sparse.
+        strict: If ``True``, raise ``ConfigurationError`` when ``mode != NONE``
+            but ``currency_map`` or ``fx_rates`` is ``None``. If ``False``
+            (default), log a ``WARNING`` and silently skip conversion.
     """
 
     base_currency: BaseCurrency = BaseCurrency.EUR

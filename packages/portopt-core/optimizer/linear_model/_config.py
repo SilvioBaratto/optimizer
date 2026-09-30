@@ -1,7 +1,6 @@
 """Configuration for cross-sectional linear regression.
 
-Wraps :class:`skfolio.linear_model.CSLinearRegression` and
-:class:`skfolio.linear_model.CSLinearRegressorWrapper` (skfolio 1.0.6).
+Wraps `CSLinearRegression` and `CSLinearRegressorWrapper` (skfolio 1.0.6).
 ``weighted`` and ``min_observations`` are caller-side hints (consumed by
 downstream IC computation); they are not constructor arguments of the
 underlying skfolio classes.
@@ -18,18 +17,14 @@ from optimizer.exceptions import ConfigurationError
 class CSLinearRegressionConfig:
     """Immutable configuration for a CS linear regression estimator.
 
-    Parameters
-    ----------
-    fit_intercept : bool
-        Whether to fit a per-period intercept. Default ``True``.
-        Forwarded to :class:`skfolio.linear_model.CSLinearRegression`.
-    weighted : bool
-        Caller hint signalling that ``cs_weights`` will be supplied at
-        ``fit`` time. Not forwarded to skfolio (no constructor arg).
-    min_observations : int
-        Minimum non-NaN cross-sectional observations per period required
-        before downstream consumers (e.g. factor IC) accept the period.
-        Not forwarded to skfolio.
+    Args:
+        fit_intercept: Whether to fit a per-period intercept. Default ``True``.
+            Forwarded to `CSLinearRegression`.
+        weighted: Caller hint signalling that ``cs_weights`` will be supplied at
+            ``fit`` time. Not forwarded to skfolio (no constructor arg).
+        min_observations: Minimum non-NaN cross-sectional observations per period
+            required before downstream consumers (e.g. factor IC) accept the period.
+            Not forwarded to skfolio.
     """
 
     fit_intercept: bool = True
@@ -56,27 +51,22 @@ class CSLinearRegressorWrapperConfig:
     """Immutable configuration for a wrapped per-period sklearn regressor.
 
     Adapts any scikit-learn ``Regressor`` (Ridge, Lasso, tree-based, ...) to
-    the cross-sectional contract via
-    :class:`skfolio.linear_model.CSLinearRegressorWrapper`: the wrapped
+    the cross-sectional contract via `CSLinearRegressorWrapper`: the wrapped
     regressor is fit independently for each observation ``t``.
 
     The regressor instance itself is **not** a serialisable primitive, so it
     is passed to the factory as a ``**kwargs`` argument rather than stored on
     the (frozen, serialisable) config.
 
-    Parameters
-    ----------
-    n_jobs : int
-        Number of parallel jobs for the per-period fits. Forwarded to
-        :class:`skfolio.linear_model.CSLinearRegressorWrapper`. ``-1`` uses
-        all processors. Default ``1``.
-    weighted : bool
-        Caller hint signalling that ``cs_weights`` will be supplied at
-        ``fit`` time. Not forwarded to skfolio.
-    min_observations : int
-        Minimum non-NaN cross-sectional observations per period required
-        before downstream consumers accept the period. Not forwarded to
-        skfolio.
+    Args:
+        n_jobs: Number of parallel jobs for the per-period fits. Forwarded to
+            `CSLinearRegressorWrapper`. ``-1`` uses
+            all processors. Default ``1``.
+        weighted: Caller hint signalling that ``cs_weights`` will be supplied at
+            ``fit`` time. Not forwarded to skfolio.
+        min_observations: Minimum non-NaN cross-sectional observations per period
+            required before downstream consumers accept the period. Not forwarded
+            to skfolio.
     """
 
     n_jobs: int = 1

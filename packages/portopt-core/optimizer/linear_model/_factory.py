@@ -19,19 +19,15 @@ if TYPE_CHECKING:
 def build_cs_linear_regression(
     config: CSLinearRegressionConfig,
 ) -> CSLinearRegression:
-    """Build a skfolio :class:`CSLinearRegression` from *config*.
+    """Build a skfolio CSLinearRegression from config.
 
-    Parameters
-    ----------
-    config : CSLinearRegressionConfig
-        CS linear regression configuration.
+    Args:
+        config: CS linear regression configuration.
 
-    Returns
-    -------
-    CSLinearRegression
-        A fitted-ready estimator. Expects ``X: (T, N, K)``, ``y: (T, N)``
-        and an optional ``cs_weights: (T, N)`` at ``fit`` time. Zero-weight
-        pairs are excluded and may contain NaN.
+    Returns:
+        A fitted-ready estimator. Expects X of shape (T, N, K), y of shape
+        (T, N), and an optional cs_weights of shape (T, N) at fit time.
+        Zero-weight pairs are excluded and may contain NaN.
     """
     return CSLinearRegression(fit_intercept=config.fit_intercept)
 
@@ -41,32 +37,25 @@ def build_cs_linear_regressor_wrapper(
     *,
     regressor: BaseEstimator,
 ) -> CSLinearRegressorWrapper:
-    """Build a skfolio :class:`CSLinearRegressorWrapper` from *config*.
+    """Build a skfolio CSLinearRegressorWrapper from config.
 
-    Adapts an arbitrary scikit-learn ``Regressor`` to the cross-sectional
+    Adapts an arbitrary scikit-learn regressor to the cross-sectional
     contract, fitting it independently per observation. Use when a
     regularised or non-linear per-period estimator (Ridge, Lasso, a tree
     ensemble) is needed instead of plain OLS.
 
-    Parameters
-    ----------
-    config : CSLinearRegressorWrapperConfig
-        Wrapper configuration (parallelism + caller-side hints).
-    regressor : sklearn.base.BaseEstimator
-        The per-period estimator (non-serialisable, hence a keyword-only
-        factory argument rather than a config field). Must implement the
-        scikit-learn ``fit`` / ``predict`` regressor API.
+    Args:
+        config: Wrapper configuration (parallelism + caller-side hints).
+        regressor: The per-period estimator (non-serialisable, hence a
+            keyword-only factory argument rather than a config field). Must
+            implement the scikit-learn fit / predict regressor API.
 
-    Returns
-    -------
-    CSLinearRegressorWrapper
-        A fitted-ready estimator. Expects ``X: (T, N, K)``, ``y: (T, N)``
-        and an optional ``cs_weights: (T, N)`` at ``fit`` time.
+    Returns:
+        A fitted-ready estimator. Expects X of shape (T, N, K), y of shape
+        (T, N), and an optional cs_weights of shape (T, N) at fit time.
 
-    Raises
-    ------
-    ConfigurationError
-        If ``regressor`` is ``None``.
+    Raises:
+        ConfigurationError: If regressor is None.
     """
     if regressor is None:
         raise ConfigurationError("regressor must be provided (got None)")

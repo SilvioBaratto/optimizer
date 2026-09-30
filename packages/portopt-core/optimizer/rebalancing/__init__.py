@@ -1,6 +1,6 @@
-"""Rebalancing frameworks for portfolio management.
+"""Expose rebalancing frameworks for portfolio management.
 
-Includes calendar-based, threshold-based, and hybrid rebalancing logic,
+Covers calendar-based, threshold-based, and hybrid rebalancing logic,
 turnover computation, and transaction cost estimation.
 """
 

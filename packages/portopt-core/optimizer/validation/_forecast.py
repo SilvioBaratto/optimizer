@@ -28,21 +28,14 @@ from optimizer.exceptions import ConfigurationError
 class CovarianceForecastConfig:
     """Immutable configuration for offline covariance forecast evaluation.
 
-    Fields mirror :func:`skfolio.model_selection.covariance_forecast_evaluation`
-    (skfolio 1.0) — verified against the installed signature via
-    ``inspect.signature``.
+    Fields mirror `covariance_forecast_evaluation` (skfolio 1.0) — verified
+    against the installed signature via ``inspect.signature``.
 
-    Parameters
-    ----------
-    train_size : int
-        Walk-forward training window size. Default ``252``.
-    test_size : int
-        Walk-forward evaluation window size. Default ``1``.
-    expand_train : bool
-        ``True`` for expanding window, ``False`` for rolling. Default
-        ``False``.
-    purged_size : int
-        Embargo gap between train and test (days).
+    Attributes:
+        train_size: Walk-forward training window size.
+        test_size: Walk-forward evaluation window size.
+        expand_train: True for expanding window, False for rolling.
+        purged_size: Embargo gap between train and test in days.
     """
 
     train_size: int = 252
@@ -55,18 +48,13 @@ class CovarianceForecastConfig:
 class OnlineCovarianceForecastConfig:
     """Immutable configuration for online covariance forecast evaluation.
 
-    Fields mirror
-    :func:`skfolio.model_selection.online_covariance_forecast_evaluation`.
+    Fields mirror `online_covariance_forecast_evaluation`.
 
-    Parameters
-    ----------
-    warmup_size : int
-        Number of initial observations consumed by the first
-        ``partial_fit`` call. Default ``252``.
-    test_size : int
-        Walk-forward evaluation window size. Default ``1``.
-    purged_size : int
-        Embargo gap between warmup-tail and test (days).
+    Attributes:
+        warmup_size: Number of initial observations consumed by the first
+            ``partial_fit`` call.
+        test_size: Walk-forward evaluation window size.
+        purged_size: Embargo gap between warmup-tail and test in days.
     """
 
     warmup_size: int = 252
@@ -104,21 +92,20 @@ def run_covariance_forecast_evaluation(
 ) -> CovarianceForecastComparison:
     """Rank a set of covariance estimators using walk-forward evaluation.
 
-    Parameters
-    ----------
-    estimators : sequence of (name, BaseCovariance)
-        Named candidate estimators. Pass positionally — ``BaseCovariance``
-        instances are not frozen-serialisable.
-    X : array-like
-        Asset returns of shape ``(n_observations, n_assets)``.
-    config : CovarianceForecastConfig or None
-        Evaluation configuration. ``None`` triggers default.
-    params : dict or None
-        Auxiliary metadata routed to the estimator via sklearn metadata
-        routing (e.g. ``{"implied_vol": implied_vol_df}`` for
-        :class:`~skfolio.moments.ImpliedCovariance`).  Requires
-        ``sklearn.set_config(enable_metadata_routing=True)`` and the
-        relevant ``set_fit_request`` call on the estimator.
+    Args:
+        estimators: Named candidate estimators. Pass positionally —
+            ``BaseCovariance`` instances are not frozen-serialisable.
+        X: Asset returns of shape ``(n_observations, n_assets)``.
+        config: Evaluation configuration. ``None`` triggers default.
+        params: Auxiliary metadata routed to the estimator via sklearn
+            metadata routing (e.g. ``{"implied_vol": implied_vol_df}`` for
+            `ImpliedCovariance`). Requires
+            ``sklearn.set_config(enable_metadata_routing=True)`` and the
+            relevant ``set_fit_request`` call on the estimator.
+
+    Returns:
+        Comparison object holding per-estimator evaluation results and
+        summary statistics.
     """
     if config is None:
         config = CovarianceForecastConfig()
@@ -172,24 +159,24 @@ def run_online_covariance_forecast_evaluation(
 ) -> CovarianceForecastComparison:
     """Rank a set of ``partial_fit``-capable covariance estimators.
 
-    Parameters
-    ----------
-    estimators : sequence of (name, BaseCovariance)
-        Named candidate estimators. Each must implement ``partial_fit``.
-    X : array-like
-        Asset returns of shape ``(n_observations, n_assets)``.
-    config : OnlineCovarianceForecastConfig or None
-        Evaluation configuration. ``None`` triggers default.
-    params : dict or None
-        Auxiliary metadata routed to each estimator via sklearn metadata
-        routing.  Requires ``sklearn.set_config(enable_metadata_routing=True)``
-        and the relevant ``set_fit_request`` call on the estimator.
+    Args:
+        estimators: Named candidate estimators. Each must implement
+            ``partial_fit``.
+        X: Asset returns of shape ``(n_observations, n_assets)``.
+        config: Evaluation configuration. ``None`` triggers default.
+        params: Auxiliary metadata routed to each estimator via sklearn
+            metadata routing. Requires
+            ``sklearn.set_config(enable_metadata_routing=True)`` and the
+            relevant ``set_fit_request`` call on the estimator.
 
-    Raises
-    ------
-    ConfigurationError
-        If any estimator lacks ``partial_fit``. The message lists every
-        offending name so the caller can fix them in one pass.
+    Returns:
+        Comparison object holding per-estimator evaluation results and
+        summary statistics.
+
+    Raises:
+        ConfigurationError: If any estimator lacks ``partial_fit``. The
+            message lists every offending name so the caller can fix them
+            in one pass.
     """
     if config is None:
         config = OnlineCovarianceForecastConfig()

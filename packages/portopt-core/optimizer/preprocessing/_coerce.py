@@ -4,11 +4,10 @@ The DB ``price_history`` OHLCV columns are SQL ``Numeric(20, 6)`` and read back
 as Python ``Decimal`` (pandas ``object`` dtype).  A return frame derived from
 them (or built directly from DB values) is therefore object-dtype, which either
 crashes numpy/skfolio math outright (``float`` - ``Decimal`` raises
-``TypeError`` — e.g. in :class:`~optimizer.preprocessing.OutlierTreater`'s
-z-scores) or silently propagates ``Decimal`` cells.  Every time-series
-transformer casts its input here, at its own boundary, so it is independently
-safe on DB-sourced data.  The cast preserves ``NaN`` gaps and is a no-op for
-already-float frames.
+``TypeError`` — e.g. in ``OutlierTreater``'s z-scores) or silently propagates
+``Decimal`` cells.  Every time-series transformer casts its input here, at its
+own boundary, so it is independently safe on DB-sourced data.  The cast
+preserves ``NaN`` gaps and is a no-op for already-float frames.
 """
 
 from __future__ import annotations
@@ -21,24 +20,18 @@ __all__ = ["_coerce_numeric"]
 
 
 def _coerce_numeric(X: pd.DataFrame, who: str) -> pd.DataFrame:
-    """Return *X* cast to ``float64`` when it carries object-dtype columns.
+    """Return X cast to ``float64`` when it carries object-dtype columns.
 
-    Parameters
-    ----------
-    X : pd.DataFrame
-        Return frame that may contain ``Decimal`` (object-dtype) columns.
-    who : str
-        Caller name, used in the error message.
+    Args:
+        X: Return frame that may contain ``Decimal`` (object-dtype) columns.
+        who: Caller name embedded in the error message for diagnostics.
 
-    Returns
-    -------
-    pd.DataFrame
-        ``X`` unchanged when already float, else a float64 copy.
+    Returns:
+        X unchanged when already float, else a float64 copy.
 
-    Raises
-    ------
-    DataError
-        If an object-dtype column cannot be cast to float (non-numeric data).
+    Raises:
+        DataError: If an object-dtype column cannot be cast to float
+            (non-numeric data encountered).
     """
     if all(pd.api.types.is_float_dtype(dt) for dt in X.dtypes):
         return X

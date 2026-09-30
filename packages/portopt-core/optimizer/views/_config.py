@@ -12,7 +12,7 @@ class ViewUncertaintyMethod(str, Enum):
     """View uncertainty calibration method for Black-Litterman.
 
     Maps to the ``view_confidences`` parameter in
-    :class:`skfolio.prior.BlackLitterman`.
+    `BlackLitterman`.
     """
 
     HE_LITTERMAN = "he_litterman"
@@ -24,31 +24,23 @@ class ViewUncertaintyMethod(str, Enum):
 class BlackLittermanConfig:
     """Immutable configuration for the Black-Litterman prior.
 
-    All parameters map 1:1 to :class:`skfolio.prior.BlackLitterman`
-    constructor arguments, keeping the config serialisable and suitable
-    for hyperparameter sweeps.
+    All parameters map 1:1 to skfolio.prior.BlackLitterman constructor
+    arguments, keeping the config serialisable and suitable for
+    hyperparameter sweeps.
 
-    Parameters
-    ----------
-    views : tuple[str, ...]
-        View expressions (absolute or relative).
-    tau : float
-        Uncertainty scaling parameter.
-    risk_free_rate : float
-        Risk-free rate added to posterior expected returns.
-    uncertainty_method : ViewUncertaintyMethod
-        How to calibrate view uncertainty (omega matrix).
-    view_confidences : tuple[float, ...] or None
-        Per-view confidence levels in [0, 1] for the Idzorek method.
-    groups : dict[str, list[str]] or None
-        Asset group mapping for group-relative views.
-    prior_config : MomentEstimationConfig or None
-        Inner prior configuration.  Defaults to
-        ``MomentEstimationConfig.for_equilibrium_ledoitwolf()``.
-    use_factor_model : bool
-        If ``True``, wrap the Black-Litterman prior in a
-        :class:`skfolio.prior.TimeSeriesFactorModel`. Fit with factor
-        returns via the keyword ``factors=`` (skfolio 1.0).
+    Args:
+        views: View expressions (absolute or relative).
+        tau: Uncertainty scaling parameter; must be strictly positive.
+        risk_free_rate: Risk-free rate added to posterior expected returns.
+        uncertainty_method: How to calibrate view uncertainty (omega matrix).
+        view_confidences: Per-view confidence levels in [0, 1] for the
+            Idzorek method; must have one entry per view.
+        groups: Asset group mapping for group-relative views.
+        prior_config: Inner prior configuration. Defaults to
+            ``MomentEstimationConfig.for_equilibrium_ledoitwolf()``.
+        use_factor_model: When True, wraps the Black-Litterman prior in a
+            skfolio.prior.TimeSeriesFactorModel. Fit with factor returns
+            via the keyword ``factors=`` (skfolio 1.0).
     """
 
     views: tuple[str, ...]
@@ -112,39 +104,28 @@ class BlackLittermanConfig:
 class EntropyPoolingConfig:
     """Immutable configuration for the Entropy Pooling prior.
 
-    All parameters map 1:1 to :class:`skfolio.prior.EntropyPooling`
-    constructor arguments.
+    All parameters map 1:1 to skfolio.prior.EntropyPooling constructor
+    arguments.
 
-    Parameters
-    ----------
-    mean_views : tuple[str, ...] or None
-        Mean view expressions.
-    variance_views : tuple[str, ...] or None
-        Variance view expressions.
-    correlation_views : tuple[str, ...] or None
-        Correlation view expressions.
-    skew_views : tuple[str, ...] or None
-        Skewness view expressions.
-    kurtosis_views : tuple[str, ...] or None
-        Kurtosis view expressions.
-    value_at_risk_views : tuple[str, ...] or None
-        Value-at-Risk (VaR) view expressions (skfolio 1.0).  Supports
-        both inequalities and ``prior()`` references, e.g.
-        ``"SPX >= 0.03"`` or ``"SX5E == 1.5 * prior(SX5E)"``.
-    cvar_views : tuple[str, ...] or None
-        CVaR view expressions.
-    value_at_risk_beta : float
-        Confidence level for VaR views (skfolio 1.0).
-    cvar_beta : float
-        Confidence level for CVaR views.
-    groups : dict[str, list[str]] or None
-        Asset group mapping for group-relative views.
-    solver : str
-        Scipy solver for the dual optimisation.
-    solver_params : dict[str, object] or None
-        Additional solver parameters.
-    prior_config : MomentEstimationConfig or None
-        Inner prior configuration.  Defaults to ``EmpiricalPrior()``.
+    Args:
+        mean_views: Mean equality view expressions.
+        mean_inequality_views: Mean inequality view expressions.
+        variance_views: Variance view expressions.
+        relative_mean_views: Relative mean views as (asset, multiplier) pairs.
+        relative_variance_views: Relative variance views as (asset, multiplier) pairs.
+        correlation_views: Correlation view expressions.
+        skew_views: Skewness view expressions.
+        kurtosis_views: Kurtosis view expressions.
+        value_at_risk_views: Value-at-Risk (VaR) view expressions (skfolio 1.0).
+            Supports both inequalities and ``prior()`` references, e.g.
+            ``"SPX >= 0.03"`` or ``"SX5E == 1.5 * prior(SX5E)"``.
+        cvar_views: CVaR view expressions.
+        value_at_risk_beta: Confidence level for VaR views; must be in (0, 1).
+        cvar_beta: Confidence level for CVaR views; must be in (0, 1).
+        groups: Asset group mapping for group-relative views.
+        solver: Scipy solver for the dual optimisation.
+        solver_params: Additional solver parameters passed through to the solver.
+        prior_config: Inner prior configuration. Defaults to ``EmpiricalPrior()``.
     """
 
     mean_views: tuple[str, ...] | None = None
@@ -226,23 +207,19 @@ class EntropyPoolingConfig:
 class OpinionPoolingConfig:
     """Immutable configuration for the Opinion Pooling prior.
 
-    The ``estimators`` argument is passed directly to the factory
-    function (not stored here) because estimator objects are not
-    serialisable in a frozen dataclass.
+    The ``estimators`` argument is passed directly to the factory function
+    (not stored here) because estimator objects are not serialisable in a
+    frozen dataclass.
 
-    Parameters
-    ----------
-    opinion_probabilities : tuple[float, ...] or None
-        Per-expert weight.
-    is_linear_pooling : bool
-        ``True`` for arithmetic (linear) pooling, ``False`` for
-        geometric (logarithmic) pooling.
-    divergence_penalty : float
-        KL-divergence penalty for robust pooling.
-    n_jobs : int or None
-        Number of parallel jobs for expert fitting.
-    prior_config : MomentEstimationConfig or None
-        Common prior configuration.
+    Args:
+        opinion_probabilities: Per-expert weight; each value must be in [0, 1]
+            and the sum must not exceed 1.0.
+        is_linear_pooling: When True, uses arithmetic (linear) pooling; when
+            False, uses geometric (logarithmic) pooling.
+        divergence_penalty: KL-divergence penalty for robust pooling; must be
+            non-negative.
+        n_jobs: Number of parallel jobs for expert fitting.
+        prior_config: Common prior configuration shared across experts.
     """
 
     opinion_probabilities: tuple[float, ...] | None = None

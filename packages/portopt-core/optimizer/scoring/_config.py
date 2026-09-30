@@ -11,8 +11,8 @@ from optimizer.optimization._config import RatioMeasureType, RiskMeasureType
 class PerfMeasureType(str, Enum):
     """Performance (return) measure selection for scoring.
 
-    Maps to :class:`skfolio.measures.PerfMeasure`.  Higher is better, so
-    scorers built from a performance measure use ``greater_is_better=True``.
+    Maps to `skfolio.measures.PerfMeasure`. Higher is better, so scorers
+    built from a performance measure use ``greater_is_better=True``.
     """
 
     MEAN = "mean"
@@ -28,37 +28,32 @@ class ScorerConfig:
     * ``ratio_measure`` set (default): score by a ratio measure such as the
       Sharpe, Sortino or Calmar ratio (higher is better).
     * ``perf_measure`` set: score by a performance measure such as the mean
-      or annualized mean return (higher is better).  Requires
+      or annualized mean return (higher is better). Requires
       ``ratio_measure=None``.
     * ``risk_measure`` set: score by a risk measure such as variance, CVaR
       or maximum drawdown (lower is better -- the scorer sign-flips so that
-      higher is always better for model selection).  Requires
+      higher is always better for model selection). Requires
       ``ratio_measure=None``.
     * all three ``None``: a custom callable ``score_func`` must be passed to
-      :func:`~optimizer.scoring.build_scorer`.
+      `optimizer.scoring.build_scorer`.
 
-    Parameters
-    ----------
-    ratio_measure : RatioMeasureType or None
-        Built-in ratio measure.  ``None`` indicates that another measure
-        family or a custom scorer is used.
-    perf_measure : PerfMeasureType or None
-        Performance measure.  Requires ``ratio_measure=None``.
-    risk_measure : RiskMeasureType or None
-        Risk measure (minimised).  Requires ``ratio_measure=None``.
-    greater_is_better : bool or None
-        Whether higher scores are better.  ``None`` auto-detects
-        from the measure family (ratio/perf -> True, risk -> False).
-    risk_free_rate : float
-        Per-period risk-free rate applied to the predicted portfolio before
-        the (ratio) measure is read.  Defaults to 0.0.  Only affects ratio
-        measures whose definition depends on the risk-free rate (Sharpe,
-        Sortino, ...); ignored for perf/risk measures.
-    annualization_factor : float or None
-        Number of periods per year applied to the predicted portfolio before
-        the measure is read (affects annualized measures) and used to
-        annualise the custom Information Ratio scorer.  ``None`` keeps the
-        skfolio default (252 trading days).
+    Attributes:
+        ratio_measure: Built-in ratio measure. ``None`` indicates that another
+            measure family or a custom scorer is used.
+        perf_measure: Performance measure. Requires ``ratio_measure=None``.
+        risk_measure: Risk measure (minimised). Requires ``ratio_measure=None``.
+        greater_is_better: Whether higher scores are better. ``None``
+            auto-detects from the measure family (ratio/perf -> True,
+            risk -> False).
+        risk_free_rate: Per-period risk-free rate applied to the predicted
+            portfolio before the (ratio) measure is read. Defaults to 0.0.
+            Only affects ratio measures whose definition depends on the
+            risk-free rate (Sharpe, Sortino, ...); ignored for perf/risk
+            measures.
+        annualization_factor: Number of periods per year applied to the
+            predicted portfolio before the measure is read (affects annualized
+            measures) and used to annualise the custom Information Ratio
+            scorer. ``None`` keeps the skfolio default (252 trading days).
     """
 
     ratio_measure: RatioMeasureType | None = RatioMeasureType.SHARPE_RATIO
@@ -115,7 +110,7 @@ class ScorerConfig:
         """Information Ratio scorer (active return / tracking error).
 
         Requires ``benchmark_returns`` to be passed to
-        :func:`~optimizer.scoring.build_scorer`.
+        `optimizer.scoring.build_scorer`.
         """
         return cls(ratio_measure=RatioMeasureType.INFORMATION_RATIO)
 

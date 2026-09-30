@@ -47,8 +47,7 @@ def _renormalized_weighted_composite(
     scores = group_scores[cols]
     available = scores.notna()
 
-    # Broadcast raw weights and mask where score is NaN
-    w_matrix = available.values * w_arr  # (tickers, groups)
+    w_matrix = available.values * w_arr
     row_sums = w_matrix.sum(axis=1)
 
     # Avoid division by zero: tickers with no coverage get NaN
@@ -103,22 +102,16 @@ def compute_group_scores(
 ) -> pd.DataFrame:
     """Average factor scores within each group.
 
-    Parameters
-    ----------
-    standardized_factors : pd.DataFrame
-        Tickers x factors matrix of standardized scores.
-    coverage : pd.DataFrame
-        Boolean matrix of non-NaN coverage.
+    Args:
+        standardized_factors: Tickers x factors matrix of standardized scores.
+        coverage: Boolean matrix of non-NaN coverage.
 
-    Returns
-    -------
-    pd.DataFrame
+    Returns:
         Tickers x groups matrix of group-level scores.
     """
     group_scores: dict[str, pd.Series] = {}
 
     for group in FactorGroupType:
-        # Find columns belonging to this group
         group_cols = [
             ft.value
             for ft, fg in FACTOR_GROUP_MAPPING.items()
@@ -145,19 +138,13 @@ def compute_equal_weight_composite(
 ) -> pd.Series:
     """Equal-weight composite with core/supplementary tiering.
 
-    Parameters
-    ----------
-    group_scores : pd.DataFrame
-        Tickers x groups matrix.
-    config : CompositeScoringConfig or None
-        Scoring configuration.
-    group_weights : dict[str, float] or None
-        Pre-computed group weights (e.g. from regime tilts). When provided,
-        skip tier-based derivation and use these weights directly.
+    Args:
+        group_scores: Tickers x groups matrix.
+        config: Scoring configuration.
+        group_weights: Pre-computed group weights (e.g. from regime tilts). When
+            provided, skip tier-based derivation and use these weights directly.
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         Composite score per ticker.
     """
     if config is None:
@@ -205,32 +192,24 @@ def compute_ic_weighted_composite(
 
     Uses trailing information coefficient history to weight groups.
 
-    Parameters
-    ----------
-    group_scores : pd.DataFrame
-        Tickers x groups matrix.
-    ic_history : pd.DataFrame
-        Periods x groups matrix of IC values.
-    config : CompositeScoringConfig or None
-        Scoring configuration.
-    group_weights : dict[str, float] or None
-        Pre-computed group weights (e.g. from regime tilts). When provided,
-        use as tier multipliers instead of config core/supplementary weights.
+    Args:
+        group_scores: Tickers x groups matrix.
+        ic_history: Periods x groups matrix of IC values.
+        config: Scoring configuration.
+        group_weights: Pre-computed group weights (e.g. from regime tilts). When
+            provided, use as tier multipliers instead of config
+            core/supplementary weights.
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         Composite score per ticker.
     """
     if config is None:
         config = CompositeScoringConfig()
 
-    # Use trailing IC mean, capped at lookback window
     lookback = min(config.ic_lookback, len(ic_history))
     trimmed_ic = ic_history.iloc[-lookback:]
     recent_ic = _summarize_ic_history(trimmed_ic, config.ic_decay_halflife)
 
-    # Apply core/supplementary tiering as a multiplier
     weights: dict[str, float] = {}
     n_negative = 0
     for group in FactorGroupType:
@@ -277,21 +256,16 @@ def compute_icir_weighted_composite(
     receive zero weight.  Falls back to equal-weight when all groups have
     ICIR <= 0.
 
-    Parameters
-    ----------
-    group_scores : pd.DataFrame
-        Tickers x groups matrix.
-    ic_series_per_group : dict[str, pd.Series]
-        Per-group IC time series.  Keys must match ``group_scores`` columns.
-    config : CompositeScoringConfig or None
-        Scoring configuration.
-    group_weights : dict[str, float] or None
-        Pre-computed group weights (e.g. from regime tilts). When provided,
-        use as tier multipliers instead of config core/supplementary weights.
+    Args:
+        group_scores: Tickers x groups matrix.
+        ic_series_per_group: Per-group IC time series. Keys must match
+            ``group_scores`` columns.
+        config: Scoring configuration.
+        group_weights: Pre-computed group weights (e.g. from regime tilts). When
+            provided, use as tier multipliers instead of config
+            core/supplementary weights.
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         Composite score per ticker.
     """
     if config is None:
@@ -341,21 +315,16 @@ def compute_ml_composite(
     The training window must end strictly before the prediction date to
     avoid look-ahead bias; callers are responsible for this temporal split.
 
-    Parameters
-    ----------
-    standardized_factors : pd.DataFrame
-        Current-period tickers x factors matrix (prediction target).
-    training_scores : pd.DataFrame
-        Historical tickers x factors matrix aligned with
-        ``training_returns``.
-    training_returns : pd.Series
-        Forward return per ticker for the training period.
-    config : CompositeScoringConfig
-        Must have ``method`` set to ``RIDGE_WEIGHTED`` or ``GBT_WEIGHTED``.
+    Args:
+        standardized_factors: Current-period tickers x factors matrix
+            (prediction target).
+        training_scores: Historical tickers x factors matrix aligned with
+            ``training_returns``.
+        training_returns: Forward return per ticker for the training period.
+        config: Must have ``method`` set to ``RIDGE_WEIGHTED`` or
+            ``GBT_WEIGHTED``.
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         Normalised composite score per ticker (zero mean, unit variance).
     """
     model: FittedMLModel
@@ -406,35 +375,26 @@ def compute_composite_score(
 ) -> pd.Series | pd.DataFrame:
     """Compute composite score from standardized factors.
 
-    Parameters
-    ----------
-    standardized_factors : pd.DataFrame
-        Tickers x factors matrix.
-    coverage : pd.DataFrame
-        Boolean coverage matrix.
-    config : CompositeScoringConfig or None
-        Scoring configuration.
-    ic_history : pd.DataFrame or None
-        Required when ``config.method`` is ``IC_WEIGHTED`` or
-        ``ICIR_WEIGHTED``.  Columns must match group names; each column
-        is treated as the IC time series for that group.
-    training_scores : pd.DataFrame or None
-        Required when ``config.method`` is ``RIDGE_WEIGHTED`` or
-        ``GBT_WEIGHTED``.  Historical tickers x factors matrix used to
-        train the ML model (must not overlap with current-period data).
-    training_returns : pd.Series or None
-        Required when ``config.method`` is ``RIDGE_WEIGHTED`` or
-        ``GBT_WEIGHTED``.  Forward returns aligned with ``training_scores``.
-    group_weights : dict[str, float] or None
-        Pre-computed group weights (e.g. from regime tilts). Threaded
-        through to the inner scoring functions.
+    Args:
+        standardized_factors: Tickers x factors matrix.
+        coverage: Boolean coverage matrix.
+        config: Scoring configuration.
+        ic_history: Required when ``config.method`` is ``IC_WEIGHTED`` or
+            ``ICIR_WEIGHTED``. Columns must match group names; each column
+            is treated as the IC time series for that group.
+        training_scores: Required when ``config.method`` is
+            ``RIDGE_WEIGHTED`` or ``GBT_WEIGHTED``. Historical tickers x
+            factors matrix used to train the ML model (must not overlap with
+            current-period data).
+        training_returns: Required when ``config.method`` is
+            ``RIDGE_WEIGHTED`` or ``GBT_WEIGHTED``. Forward returns aligned
+            with ``training_scores``.
+        group_weights: Pre-computed group weights (e.g. from regime tilts).
+            Threaded through to the inner scoring functions.
 
-    Returns
-    -------
-    pd.Series or pd.DataFrame
-        Composite score per ticker.  When ``config.return_coverage`` is
-        True, returns a DataFrame with ``composite`` and ``coverage_ratio``
-        columns.
+    Returns:
+        Composite score per ticker. When ``config.return_coverage`` is True,
+        returns a DataFrame with ``composite`` and ``coverage_ratio`` columns.
     """
     if config is None:
         config = CompositeScoringConfig()

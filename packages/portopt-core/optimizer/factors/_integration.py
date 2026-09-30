@@ -20,28 +20,21 @@ logger = logging.getLogger(__name__)
 class FactorExposureConstraints:
     """Enforceable linear constraints on portfolio factor exposure.
 
-    Encodes the set of per-factor inequalities::
+    Encodes per-factor inequalities lb_g <= sum_i w_i * z_{i,g} <= ub_g as
+    a pair of matrices ready to be passed directly to
+    ``skfolio.optimization.MeanRisk`` (or any optimizer that accepts
+    ``left_inequality`` / ``right_inequality``).
 
-        lb_g <= sum_i w_i * z_{i,g} <= ub_g
-
-    as a pair of matrices ready to be passed directly to
-    :class:`skfolio.optimization.MeanRisk` (or any optimizer that
-    accepts ``left_inequality`` / ``right_inequality``).
-
-    Parameters
-    ----------
-    left_inequality : np.ndarray of shape (2 * n_factors, n_assets)
-        Inequality matrix ``A`` in the constraint ``A @ w <= b``.
-        Two rows per factor: ``-z`` (lower bound) and ``+z`` (upper bound).
-    right_inequality : np.ndarray of shape (2 * n_factors,)
-        Bound vector ``b`` in the constraint ``A @ w <= b``.
-    factor_names : list[str]
-        Names of the constrained factors (in the same order as the row
-        pairs in ``left_inequality``).
-    lower_bounds : np.ndarray of shape (n_factors,)
-        Lower exposure bound per factor.
-    upper_bounds : np.ndarray of shape (n_factors,)
-        Upper exposure bound per factor.
+    Attributes:
+        left_inequality: Inequality matrix ``A`` in the constraint
+            ``A @ w <= b`` with shape ``(2 * n_factors, n_assets)``.
+            Two rows per factor: ``-z`` (lower bound) and ``+z`` (upper bound).
+        right_inequality: Bound vector ``b`` in the constraint
+            ``A @ w <= b`` with shape ``(2 * n_factors,)``.
+        factor_names: Names of the constrained factors in the same order as
+            the row pairs in ``left_inequality``.
+        lower_bounds: Lower exposure bound per factor, shape ``(n_factors,)``.
+        upper_bounds: Upper exposure bound per factor, shape ``(n_factors,)``.
     """
 
     left_inequality: np.ndarray
@@ -62,20 +55,15 @@ def build_factor_bl_views(
 
         E[r_i] = (rf + market_premium + z_i * score_premium) / 252
 
-    Parameters
-    ----------
-    composite_scores : pd.Series
-        Composite factor scores indexed by ticker.
-    selected_tickers : pd.Index
-        Tickers in the portfolio.
-    config : FactorIntegrationConfig
-        Integration configuration with rf, market premium, and score premium.
+    Args:
+        composite_scores: Composite factor scores indexed by ticker.
+        selected_tickers: Tickers in the portfolio.
+        config: Integration configuration with rf, market premium, and score
+            premium.
 
-    Returns
-    -------
-    tuple[tuple[str, ...], tuple[float, ...]]
-        ``(views, confidences)`` where views are BL-compatible strings
-        like ``"AAPL == 0.00045"`` and confidences are in [0, 1].
+    Returns:
+        ``(views, confidences)`` where views are BL-compatible strings like
+        ``"AAPL == 0.00045"`` and confidences are in [0, 1].
     """
     scores = composite_scores.reindex(selected_tickers).dropna()
     if len(scores) == 0:
@@ -118,37 +106,33 @@ def build_factor_exposure_constraints(
 
     The result is expressed as ``left_inequality @ w <= right_inequality``
     (two rows per factor) and can be passed directly to
-    :class:`skfolio.optimization.MeanRisk` via its
+    ``skfolio.optimization.MeanRisk`` via its
     ``left_inequality`` / ``right_inequality`` constructor arguments.
 
-    Parameters
-    ----------
-    factor_scores : pd.DataFrame
-        Tickers x factors matrix of standardised factor scores.
-        The tickers must match the assets used in the optimizer ``fit``.
-    bounds : tuple[float, float] or dict[str, tuple[float, float]]
-        Exposure bounds applied to every factor (uniform) when given as a
-        single ``(lower, upper)`` tuple, or per-factor bounds when given as
-        a dict mapping factor name → ``(lower, upper)``.
+    Args:
+        factor_scores: Tickers x factors matrix of standardised factor scores.
+            The tickers must match the assets used in the optimizer ``fit``.
+        bounds: Exposure bounds applied to every factor (uniform) when given as
+            a single ``(lower, upper)`` tuple, or per-factor bounds when given
+            as a dict mapping factor name to ``(lower, upper)``.
 
-    Returns
-    -------
-    FactorExposureConstraints
+    Returns:
         Dataclass holding ``left_inequality``, ``right_inequality``, and
-        metadata.  Pass ``left_inequality`` and ``right_inequality`` as
-        keyword arguments to the optimizer.
+        metadata. Pass ``left_inequality`` and ``right_inequality`` as keyword
+        arguments to the optimizer.
 
-    Warns
-    -----
-    UserWarning
-        If the equal-weight portfolio exposure lies outside ``[lb, ub]``
-        for any factor (i.e. the constraint may be infeasible or very
-        tight under a balanced allocation).
+    Raises:
+        ConfigurationError: If ``bounds`` is a dict and a factor name has no
+            corresponding entry.
+
+    Warns:
+        UserWarning: If the equal-weight portfolio exposure lies outside
+            ``[lb, ub]`` for any factor, meaning the constraint may be
+            infeasible or very tight under a balanced allocation.
     """
     n_assets, n_factors = factor_scores.shape
     factor_names = list(factor_scores.columns)
 
-    # Resolve per-factor bounds
     lower_arr = np.empty(n_factors)
     upper_arr = np.empty(n_factors)
     if isinstance(bounds, dict):
@@ -169,7 +153,6 @@ def build_factor_exposure_constraints(
     # z @ w <= ub
     scores_matrix = factor_scores.to_numpy(dtype=float)  # (n_assets, n_factors)
 
-    # Each factor contributes 2 rows
     A = np.empty((2 * n_factors, n_assets))
     b = np.empty(2 * n_factors)
     for k in range(n_factors):
@@ -179,7 +162,6 @@ def build_factor_exposure_constraints(
         A[2 * k + 1] = z
         b[2 * k + 1] = upper_arr[k]
 
-    # Feasibility warning: check equal-weight exposure
     equal_weight = np.ones(n_assets) / n_assets
     for k, name in enumerate(factor_names):
         z = scores_matrix[:, k]
@@ -207,24 +189,16 @@ def estimate_factor_premia(
 ) -> dict[str, float]:
     """Estimate annualized factor premia from long-short returns.
 
-    Parameters
-    ----------
-    factor_mimicking_returns : pd.DataFrame
-        Dates x factors matrix of factor-mimicking portfolio returns.
+    Args:
+        factor_mimicking_returns: Dates x factors matrix of factor-mimicking
+            portfolio returns.
 
-    Returns
-    -------
-    dict[str, float]
+    Returns:
         Annualized premium per factor.
     """
     mean_daily = factor_mimicking_returns.mean()
     annualized = mean_daily * 252
     return dict(annualized)
-
-
-# ---------------------------------------------------------------------------
-# Factor integration factory
-# ---------------------------------------------------------------------------
 
 
 def build_factor_integration(
@@ -239,22 +213,15 @@ def build_factor_integration(
     Black-Litterman prior from composite scores or builds linear
     factor exposure constraints.
 
-    Parameters
-    ----------
-    config : FactorIntegrationConfig
-        Integration configuration.
-    composite_scores : pd.Series
-        Composite factor scores indexed by ticker.
-    standardized_factors : pd.DataFrame
-        Standardized factor scores (tickers x factors).
-    selected_tickers : pd.Index
-        Tickers selected for the portfolio.
+    Args:
+        config: Integration configuration.
+        composite_scores: Composite factor scores indexed by ticker.
+        standardized_factors: Standardized factor scores (tickers x factors).
+        selected_tickers: Tickers selected for the portfolio.
 
-    Returns
-    -------
-    tuple[BasePrior | None, FactorExposureConstraints | None]
-        ``(prior, constraints)`` — one of the two will be set,
-        the other ``None``.
+    Returns:
+        ``(prior, constraints)`` — one of the two will be set, the other
+        ``None``.
     """
     if config.use_black_litterman:
         views, confidences = build_factor_bl_views(
@@ -292,31 +259,21 @@ def build_factor_integration(
         return None, constraints
 
 
-# ---------------------------------------------------------------------------
-# Net alpha
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class NetAlphaResult:
     """Result of net alpha calculation after transaction cost deduction.
 
-    Attributes
-    ----------
-    gross_alpha : float
-        Annualised IC-based alpha proxy: ``mean(IC) * sqrt(annualisation)``.
-    avg_turnover : float
-        Mean one-way turnover across consecutive rebalancing dates, computed
-        via :func:`~optimizer.rebalancing._rebalancer.compute_turnover`.
-    total_cost : float
-        Cost deduction: ``avg_turnover * cost_bps / 10_000``.
-    net_alpha : float
-        Net annualised alpha after cost deduction:
-        ``gross_alpha - total_cost``.
-    net_icir : float
-        Net information coefficient information ratio:
-        ``net_alpha / (std(IC) * sqrt(annualisation))``.
-        ``0.0`` when the IC series has zero variance.
+    Attributes:
+        gross_alpha: Annualised IC-based alpha proxy:
+            ``mean(IC) * sqrt(annualisation)``.
+        avg_turnover: Mean one-way turnover across consecutive rebalancing
+            dates, computed via ``compute_turnover``.
+        total_cost: Cost deduction: ``avg_turnover * cost_bps / 10_000``.
+        net_alpha: Net annualised alpha after cost deduction:
+            ``gross_alpha - total_cost``.
+        net_icir: Net information coefficient information ratio:
+            ``net_alpha / (std(IC) * sqrt(annualisation))``. Zero when the
+            IC series has zero variance.
     """
 
     gross_alpha: float
@@ -343,24 +300,18 @@ def compute_net_alpha(
         net_alpha    = gross_alpha - total_cost
         net_icir     = net_alpha / (std(IC) * sqrt(annualisation))
 
-    Parameters
-    ----------
-    ic_series : pd.Series
-        Time series of period information coefficients (Spearman or
-        Pearson rank correlation between factor scores and forward returns),
-        one value per rebalancing period.
-    weights_history : pd.DataFrame
-        Portfolio weights at each rebalancing date: rows = dates,
-        columns = assets.  Turnover is computed between every pair of
-        consecutive rows.
-    cost_bps : float, default=10.0
-        Round-trip transaction cost in basis points.
-    annualisation : int, default=252
-        Number of periods per year (252 for daily, 12 for monthly).
+    Args:
+        ic_series: Time series of period information coefficients (Spearman or
+            Pearson rank correlation between factor scores and forward returns),
+            one value per rebalancing period.
+        weights_history: Portfolio weights at each rebalancing date: rows are
+            dates, columns are assets. Turnover is computed between every pair
+            of consecutive rows.
+        cost_bps: Round-trip transaction cost in basis points.
+        annualisation: Number of periods per year (252 for daily, 12 for
+            monthly).
 
-    Returns
-    -------
-    NetAlphaResult
+    Returns:
         Dataclass with ``gross_alpha``, ``avg_turnover``, ``total_cost``,
         ``net_alpha``, and ``net_icir``.
     """
@@ -370,7 +321,6 @@ def compute_net_alpha(
 
     gross_alpha = ic_mean * float(np.sqrt(annualisation))
 
-    # Compute mean one-way turnover across consecutive rebalancing dates
     turnovers: list[float] = []
     for i in range(1, len(weights_history)):
         t = compute_turnover(

@@ -10,10 +10,6 @@ from __future__ import annotations
 
 from optimizer.factors._config import MacroRegime
 
-# ---------------------------------------------------------------------------
-# Sector constants
-# ---------------------------------------------------------------------------
-
 ALL_11_SECTORS: tuple[str, ...] = (
     "Energy",
     "Basic Materials",
@@ -27,10 +23,6 @@ ALL_11_SECTORS: tuple[str, ...] = (
     "Utilities",
     "Real Estate",
 )
-
-# ---------------------------------------------------------------------------
-# Regime → sector → (floor, cap) matrix
-# ---------------------------------------------------------------------------
 
 SECTOR_REGIME_BANDS: dict[MacroRegime, dict[str, tuple[float, float]]] = {
     MacroRegime.RECOVERY: {
@@ -88,23 +80,15 @@ SECTOR_REGIME_BANDS: dict[MacroRegime, dict[str, tuple[float, float]]] = {
     MacroRegime.UNKNOWN: dict.fromkeys(ALL_11_SECTORS, (0.03, 0.16)),
 }
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
 
 def _matrix_to_bands_tuple() -> tuple[tuple[str, str, float, float], ...]:
-    """Flatten ``SECTOR_REGIME_BANDS`` into a serialisable tuple.
+    """Flatten SECTOR_REGIME_BANDS into a serialisable tuple.
 
-    Returns a tuple of ``(regime_value, sector, floor, cap)`` entries
-    ordered deterministically by regime then sector.  Used as the default
-    value for :class:`~optimizer.factors._config.SectorRegimeBandsConfig`.
+    Returns entries ordered deterministically by regime then sector, used as
+    the default value for SectorRegimeBandsConfig.
 
-    Returns
-    -------
-    tuple[tuple[str, str, float, float], ...]
-        Flattened bands where each entry is
-        ``(regime.value, sector_name, floor, cap)``.
+    Returns:
+        Tuple of (regime_value, sector_name, floor, cap) entries.
     """
     rows: list[tuple[str, str, float, float]] = []
     for regime in MacroRegime:
@@ -115,39 +99,28 @@ def _matrix_to_bands_tuple() -> tuple[tuple[str, str, float, float], ...]:
     return tuple(rows)
 
 
-# ---------------------------------------------------------------------------
-# Public resolver
-# ---------------------------------------------------------------------------
-
-
 def resolve_sector_bands(
     regime: MacroRegime,
     config: object | None = None,
 ) -> dict[str, tuple[float, float]]:
-    """Return sector ``(floor, cap)`` bands for the given macro regime.
+    """Return sector (floor, cap) bands for the given macro regime.
 
-    Performs a hard switch on ``regime``: when the regime value matches an
-    entry in the config bands, that entry's floor/cap is used.  Falls back
-    to ``UNKNOWN`` when the regime does not appear in the config.  Returns
-    a fresh copy so callers cannot mutate the source data.
+    Performs a hard switch on regime: when the regime value matches an entry
+    in the config bands, that entry's floor/cap is used. Falls back to UNKNOWN
+    when the regime does not appear in the config. Returns a fresh copy so
+    callers cannot mutate the source data.
 
-    Parameters
-    ----------
-    regime : MacroRegime
-        The classified macro-economic regime.
-    config : SectorRegimeBandsConfig or None
-        Optional config holding a custom bands tuple.  When ``None``,
-        the module-level ``SECTOR_REGIME_BANDS`` is used directly.
+    Args:
+        regime: The classified macro-economic regime.
+        config: Optional config holding a custom bands tuple. When None,
+            the module-level SECTOR_REGIME_BANDS is used directly.
 
-    Returns
-    -------
-    dict[str, tuple[float, float]]
-        Mapping from sector name to ``(floor, cap)`` for the resolved regime.
+    Returns:
+        Mapping from sector name to (floor, cap) for the resolved regime.
     """
     from optimizer.factors._config import SectorRegimeBandsConfig  # avoid circular
 
     if config is not None and isinstance(config, SectorRegimeBandsConfig):
-        # Build a regime → sector → (floor, cap) map from the config tuple.
         custom: dict[str, dict[str, tuple[float, float]]] = {}
         for regime_val, sector, floor, cap in config.bands:
             custom.setdefault(regime_val, {})[sector] = (floor, cap)
@@ -155,14 +128,11 @@ def resolve_sector_bands(
         regime_key = regime.value
         if regime_key in custom:
             return dict(custom[regime_key])
-        # Fallback to UNKNOWN
         unknown_key = MacroRegime.UNKNOWN.value
         if unknown_key in custom:
             return dict(custom[unknown_key])
-        # Last resort: uniform bands from the full matrix
         return dict.fromkeys(ALL_11_SECTORS, (0.03, 0.16))
 
-    # Default: use module-level matrix with UNKNOWN fallback.
     resolved = SECTOR_REGIME_BANDS.get(regime)
     if resolved is None:
         resolved = SECTOR_REGIME_BANDS[MacroRegime.UNKNOWN]

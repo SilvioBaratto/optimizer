@@ -14,19 +14,18 @@ a caller maps from DB rows:
 
 The output is the ``(views, confidences)`` tuple of skfolio view *strings*
 (``"AAPL == 0.0123"``) plus aligned confidences that
-:class:`~optimizer.views._config.BlackLittermanConfig` consumes — mirroring the
+`BlackLittermanConfig` consumes — mirroring the
 existing ``optimizer.factors.build_factor_bl_views`` bridge, but sourced from raw
 analyst snapshots instead of composite factor z-scores.
 
-Scale gotcha
-------------
-Analyst price targets are **12-month** figures, but Black-Litterman expects a view
-on the *same periodicity as the returns passed to* ``fit`` (typically daily linear
-returns from :func:`skfolio.preprocessing.prices_to_returns`).  Pass
-``horizon_periods`` (e.g. ``252`` for a 12-month target against daily returns) to
-de-annualise the implied return; the default ``1.0`` assumes the caller already
-supplies a per-period figure, so a raw 12-month target would otherwise be injected
-as a single-period view and blow up the posterior.
+Note:
+    Analyst price targets are **12-month** figures, but Black-Litterman expects a
+    view on the *same periodicity as the returns passed to* ``fit`` (typically daily
+    linear returns from `prices_to_returns`).  Pass
+    ``horizon_periods`` (e.g. ``252`` for a 12-month target against daily returns)
+    to de-annualise the implied return; the default ``1.0`` assumes the caller
+    already supplies a per-period figure, so a raw 12-month target would otherwise
+    be injected as a single-period view and blow up the posterior.
 """
 
 from __future__ import annotations
@@ -68,17 +67,19 @@ class AnalystSignal:
     ``float`` on construction (the "cast before numpy" rule).  Vote counts accept
     ``None`` and are coerced to ``0``.
 
-    Parameters
-    ----------
-    current_price : float or Decimal or None
-        Latest price (``analyst_price_targets.current`` or the profile's
-        ``current_price``).  Required to compute an implied return.
-    target_mean, target_median, target_low, target_high : float or Decimal or None
-        12-month price-target aggregates (``analyst_price_targets``).
-    num_analysts : int or None
-        Coverage count (``number_of_analyst_opinions``); metadata only.
-    strong_buy, buy, hold, sell, strong_sell : int
-        Trailing recommendation vote counts (``analyst_recommendations``).
+    Attributes:
+        current_price: Latest price (``analyst_price_targets.current`` or the
+            profile's ``current_price``).  Required to compute an implied return.
+        target_mean: 12-month mean price-target aggregate (``analyst_price_targets``).
+        target_median: 12-month median price-target aggregate.
+        target_low: 12-month low price-target aggregate.
+        target_high: 12-month high price-target aggregate.
+        num_analysts: Coverage count (``number_of_analyst_opinions``); metadata only.
+        strong_buy: Trailing strong-buy vote count (``analyst_recommendations``).
+        buy: Trailing buy vote count.
+        hold: Trailing hold vote count.
+        sell: Trailing sell vote count.
+        strong_sell: Trailing strong-sell vote count.
     """
 
     current_price: float | Decimal | None = None
@@ -134,23 +135,22 @@ def implied_return_from_price_target(
     ``horizon_periods`` return periods so it matches the periodicity of the
     returns fed to Black-Litterman ``fit`` (see the module scale gotcha).
 
-    Parameters
-    ----------
-    current_price, target_price : float or Decimal
-        Latest price and the (12-month) target.  Both must be strictly positive.
-    horizon_periods : float, default 1.0
-        Number of return periods until the target is expected to realise
-        (e.g. ``252`` for a 12-month target against daily returns).  ``1.0``
-        returns the raw cumulative implied return unchanged.
-    compounding : bool, default True
-        When de-annualising, ``True`` uses geometric compounding
-        ``(1 + total) ** (1 / horizon) - 1``; ``False`` uses the simple
-        ``total / horizon``.
+    Args:
+        current_price: Latest price. Must be strictly positive.
+        target_price: The (12-month) target. Must be strictly positive.
+        horizon_periods: Number of return periods until the target is expected to
+            realise (e.g. ``252`` for a 12-month target against daily returns).
+            ``1.0`` returns the raw cumulative implied return unchanged.
+        compounding: When de-annualising, ``True`` uses geometric compounding
+            ``(1 + total) ** (1 / horizon) - 1``; ``False`` uses simple
+            ``total / horizon``.
 
-    Returns
-    -------
-    float
+    Returns:
         The per-period implied expected return.
+
+    Raises:
+        DataError: If ``current_price`` or ``target_price`` is not strictly positive.
+        ConfigurationError: If ``horizon_periods`` is not strictly positive.
     """
     current: float = float(current_price)
     target: float = float(target_price)
@@ -181,16 +181,21 @@ def recommendation_confidence(
     Confidence reflects analyst *agreement*: it is ``1 - dispersion`` of the
     bucket scores (strong_buy=5 ... strong_sell=1).  Unanimous votes → ``cap``;
     a maximal split between the two extreme buckets → ``0``.  The ``cap`` mirrors
-    :attr:`FactorIntegrationConfig.view_confidence_cap` — Idzorek confidence
+    `view_confidence_cap` — Idzorek confidence
     ``1.0`` forces the posterior onto the view exactly (extreme concentration),
     so callers typically cap at ``0.25``-``0.50`` to blend with the prior.
 
-    Raises
-    ------
-    DataError
-        If fewer than ``min_votes`` total votes are present.
-    ConfigurationError
-        If ``cap`` is outside ``(0, 1]``.
+    Args:
+        signal: Per-ticker analyst snapshot with recommendation vote counts.
+        min_votes: Minimum total votes required; fewer raises ``DataError``.
+        cap: Upper bound on the returned confidence.
+
+    Returns:
+        Confidence score in ``[0, cap]``.
+
+    Raises:
+        DataError: If fewer than ``min_votes`` total votes are present.
+        ConfigurationError: If ``cap`` is outside ``(0, 1]``.
     """
     if not (0.0 < cap <= 1.0):
         raise ConfigurationError(f"cap must be in (0, 1], got {cap}")
@@ -232,42 +237,31 @@ def build_analyst_bl_views(
     current price and target, emits a view string ``"<ticker> == <return>"``.
     When ``with_confidence`` is set, an aligned Idzorek confidence derived from
     the ticker's recommendation votes is produced too (see
-    :func:`recommendation_confidence`).
+    `recommendation_confidence`).
 
-    Parameters
-    ----------
-    signals : Mapping[str, AnalystSignal]
-        Ticker → analyst snapshot.  Order defines the view/confidence order.
-    statistic : PriceTargetStatistic, default MEAN
-        Which price-target aggregate drives the view.
-    horizon_periods, compounding : see :func:`implied_return_from_price_target`.
-    with_confidence : bool, default False
-        Emit aligned Idzorek confidences from recommendation votes.
-    min_votes : int, default 1
-        Minimum recommendation votes required when ``with_confidence`` is set.
-    confidence_cap : float, default 0.5
-        Upper bound for the emitted confidences.
-    precision : int, default 6
-        Decimal places used to format each view's return (fixed-point, so no
-        scientific notation reaches skfolio's parser).  Use a larger value for
-        small per-period returns (e.g. ``8`` for daily).
-    skip_incomplete : bool, default True
-        Skip tickers missing a target/current price (or, under
-        ``with_confidence``, enough votes) rather than raising.
+    Args:
+        signals: Ticker → analyst snapshot.  Order defines the view/confidence order.
+        statistic: Which price-target aggregate drives the view.
+        horizon_periods: See `implied_return_from_price_target`.
+        compounding: See `implied_return_from_price_target`.
+        with_confidence: Emit aligned Idzorek confidences from recommendation votes.
+        min_votes: Minimum recommendation votes required when ``with_confidence``
+            is set.
+        confidence_cap: Upper bound for the emitted confidences.
+        precision: Decimal places used to format each view's return (fixed-point,
+            so no scientific notation reaches skfolio's parser).  Use a larger
+            value for small per-period returns (e.g. ``8`` for daily).
+        skip_incomplete: Skip tickers missing a target/current price (or, under
+            ``with_confidence``, enough votes) rather than raising.
 
-    Returns
-    -------
-    tuple[tuple[str, ...], tuple[float, ...] or None]
+    Returns:
         ``(views, confidences)``; ``confidences`` is ``None`` when
         ``with_confidence`` is ``False``.
 
-    Raises
-    ------
-    DataError
-        If no usable view could be generated, or if ``skip_incomplete`` is
-        ``False`` and a ticker is incomplete.
-    ConfigurationError
-        If ``precision`` is negative.
+    Raises:
+        DataError: If no usable view could be generated, or if ``skip_incomplete``
+            is ``False`` and a ticker is incomplete.
+        ConfigurationError: If ``precision`` is negative.
     """
     if precision < 0:
         raise ConfigurationError(f"precision must be non-negative, got {precision}")
@@ -323,14 +317,36 @@ def build_black_litterman_config_from_signals(
     skip_incomplete: bool = True,
     **bl_kwargs: object,
 ) -> BlackLittermanConfig:
-    """Build a :class:`BlackLittermanConfig` directly from analyst *signals*.
+    """Build a `BlackLittermanConfig` directly from analyst *signals*.
 
-    A thin convenience over :func:`build_analyst_bl_views`: when
+    A thin convenience over `build_analyst_bl_views`: when
     ``with_confidence`` is set, the config uses the Idzorek uncertainty method
     with the generated confidences; otherwise it uses the He-Litterman default.
     Extra ``bl_kwargs`` (e.g. ``tau``, ``groups``, ``prior_config``) pass through
     to the config, but ``views`` / ``uncertainty_method`` / ``view_confidences``
     must not be supplied (they are derived here).
+
+    Args:
+        signals: Ticker → analyst snapshot; forwarded to
+            `build_analyst_bl_views`.
+        statistic: Which price-target aggregate drives the view.
+        horizon_periods: See `implied_return_from_price_target`.
+        compounding: See `implied_return_from_price_target`.
+        with_confidence: When ``True``, the config uses the Idzorek uncertainty
+            method with recommendation-derived confidences.
+        min_votes: Minimum recommendation votes required when ``with_confidence``
+            is set.
+        confidence_cap: Upper bound for the emitted confidences.
+        precision: Decimal places used to format each view's return.
+        skip_incomplete: Skip tickers missing required data rather than raising.
+        **bl_kwargs: Extra keyword arguments passed through to
+            `BlackLittermanConfig` (e.g. ``tau``, ``groups``,
+            ``prior_config``).  Do not supply ``views``,
+            ``uncertainty_method``, or ``view_confidences``.
+
+    Returns:
+        A fully configured `BlackLittermanConfig` with views derived
+        from *signals*.
     """
     views, confidences = build_analyst_bl_views(
         signals,

@@ -29,25 +29,23 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
        winsorised to ``mu ± winsorize_threshold * sigma``.
     3. **Normal** — ``|z| < winsorize_threshold`` → kept as-is.
 
-    Parameters
-    ----------
-    winsorize_threshold : float, default=3.0
-        Z-score boundary between normal observations and outliers.
-    remove_threshold : float, default=10.0
-        Z-score boundary between outliers and data errors.
-    protected_mask : pd.DataFrame or None, default=None
-        Optional boolean matrix (dates x tickers) flagging cells that are
-        genuine economic events, not data errors, and so must be exempt from
-        outlier treatment.  Protected cells are (a) excluded from the ``mu_`` /
-        ``sigma_`` estimate during ``fit`` so a single extreme value cannot
-        inflate the scale and mask real outliers elsewhere, and (b) never
-        removed or winsorised during ``transform``.  The mask is realigned to
-        each ``X`` by label (``reindex(..., fill_value=False)``), so it works
-        unchanged across CV folds and any column subset.  The canonical
-        producer is ``delisting_protection_mask`` (in
-        :mod:`optimizer.preprocessing._delisting`), which flags each delisted
-        asset's terminal-return cell.  ``None`` (default) protects nothing —
-        identical to the pre-existing behaviour.
+    Args:
+        winsorize_threshold: Z-score boundary between normal observations and
+            outliers.
+        remove_threshold: Z-score boundary between outliers and data errors.
+        protected_mask: Boolean matrix (dates × tickers) flagging cells that
+            are genuine economic events rather than data errors, exempt from
+            outlier treatment. Protected cells are (a) excluded from the
+            ``mu_`` / ``sigma_`` estimate during ``fit`` so a single extreme
+            value cannot inflate the scale and mask real outliers elsewhere,
+            and (b) never removed or winsorised during ``transform``. The mask
+            is realigned to each ``X`` by label
+            (``reindex(..., fill_value=False)``), so it works unchanged across
+            CV folds and any column subset. The canonical producer is
+            ``delisting_protection_mask`` in
+            ``optimizer.preprocessing._delisting``, which flags each delisted
+            asset's terminal-return cell. Pass ``None`` (default) to protect
+            nothing.
     """
 
     winsorize_threshold: float
@@ -64,7 +62,15 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
         self.protected_mask = protected_mask
 
     def fit(self, X: pd.DataFrame, y: object = None) -> OutlierTreater:
-        """Compute per-column mean and std from training data."""
+        """Fit mean and standard deviation from training data.
+
+        Args:
+            X: Returns DataFrame, shape (n_dates, n_assets).
+            y: Ignored; present for sklearn API compatibility.
+
+        Returns:
+            The fitted estimator.
+        """
         X = self._validate_input(X)
         self.n_features_in_: int = X.shape[1]
         self.feature_names_in_: np.ndarray = np.asarray(X.columns)
@@ -77,7 +83,16 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
-        """Apply three-group treatment based on z-scores."""
+        """Apply three-group outlier treatment to the input returns.
+
+        Args:
+            X: Returns DataFrame with the same columns as the training data.
+
+        Returns:
+            DataFrame of the same shape with data errors replaced by ``NaN``
+            and outliers winsorised to ``mu ± winsorize_threshold * sigma``.
+            Protected cells pass through unmodified.
+        """
         check_is_fitted(self)
         X = self._validate_input(X)
 
@@ -104,7 +119,14 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
         return out
 
     def get_feature_names_out(self, input_features: object = None) -> np.ndarray:
-        """Return feature names (pass-through)."""
+        """Return the feature names seen during fit.
+
+        Args:
+            input_features: Ignored; present for sklearn Pipeline compatibility.
+
+        Returns:
+            Array of column names from the training DataFrame.
+        """
         check_is_fitted(self)
         return self.feature_names_in_
 

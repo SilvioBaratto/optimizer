@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -27,27 +28,20 @@ def apply_screen(
     New stocks must exceed ``hysteresis.entry``; existing members
     are retained until they fall below ``hysteresis.exit_``.
 
-    Parameters
-    ----------
-    values : pd.Series
-        Metric values indexed by ticker.
-    hysteresis : HysteresisConfig
-        Entry/exit thresholds.
-    current_members : pd.Index or None
-        Tickers currently in the universe.  If ``None``, entry
-        thresholds are applied to all stocks.
+    Args:
+        values: Metric values indexed by ticker.
+        hysteresis: Entry/exit thresholds.
+        current_members: Tickers currently in the universe. If ``None``,
+            entry thresholds are applied to all stocks.
 
-    Returns
-    -------
-    pd.Index
+    Returns:
         Tickers passing the screen.
     """
-    new_entrants = values.index[values >= hysteresis.entry]
+    new_entrants = cast(pd.Index, values.index[values >= hysteresis.entry])
 
     if current_members is None or len(current_members) == 0:
         return new_entrants
 
-    # Current members survive if they remain above exit threshold
     surviving = current_members.intersection(values.index)
     surviving = surviving[values.loc[surviving] >= hysteresis.exit_]
 
@@ -61,22 +55,17 @@ def compute_addv(
 ) -> pd.Series:
     """Compute average daily dollar volume over a trailing window.
 
-    Parameters
-    ----------
-    price_history : pd.DataFrame
-        Price matrix (dates x tickers).  Must be denominated in major
-        currency units (e.g. GBP, not GBX).  ``price_history.price_unit``
-        carries the listing currency; minor-unit normalisation must be
-        applied upstream via :mod:`optimizer.fx` (e.g.
-        :class:`optimizer.fx.FxPriceConverter`).
-    volume_history : pd.DataFrame
-        Volume matrix (dates x tickers), aligned with price_history.
-    window : int
-        Number of trailing trading days.
+    Args:
+        price_history: Price matrix (dates x tickers). Must be denominated
+            in major currency units (e.g. GBP, not GBX).
+            ``price_history.price_unit`` carries the listing currency;
+            minor-unit normalisation must be applied upstream via
+            `fx` (e.g. `FxPriceConverter`).
+        volume_history: Volume matrix (dates x tickers), aligned with
+            price_history.
+        window: Number of trailing trading days.
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         Average daily dollar volume per ticker.
     """
     dollar_volume = price_history * volume_history
@@ -93,16 +82,11 @@ def compute_trading_frequency(
 ) -> pd.Series:
     """Compute fraction of trading days with nonzero volume.
 
-    Parameters
-    ----------
-    volume_history : pd.DataFrame
-        Volume matrix (dates x tickers).
-    window : int
-        Number of trailing trading days.
+    Args:
+        volume_history: Volume matrix (dates x tickers).
+        window: Number of trailing trading days.
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         Trading frequency per ticker (0 to 1).
     """
     if len(volume_history) >= window:
@@ -115,14 +99,10 @@ def compute_trading_frequency(
 def compute_listing_age(price_history: pd.DataFrame) -> pd.Series:
     """Compute listing age in trading days for each ticker.
 
-    Parameters
-    ----------
-    price_history : pd.DataFrame
-        Price matrix (dates x tickers).
+    Args:
+        price_history: Price matrix (dates x tickers).
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         Number of non-NaN trading days per ticker.
     """
     return price_history.notna().sum()
@@ -135,21 +115,16 @@ def count_financial_statements(
 ) -> pd.Series:
     """Count financial statements per ticker.
 
-    Parameters
-    ----------
-    statements : pd.DataFrame
-        Must contain columns ``ticker``, ``period_type``, and
-        optionally ``period_date``.
-    period_type : str
-        Filter to this period type (e.g. ``"annual"`` or
-        ``"quarterly"``).
-    min_lookback_days : int or None
-        If provided, only count statements with ``period_date``
-        within this many calendar days from the latest date.
+    Args:
+        statements: Must contain columns ``ticker``, ``period_type``, and
+            optionally ``period_date``.
+        period_type: Filter to this period type (e.g. ``"annual"`` or
+            ``"quarterly"``).
+        min_lookback_days: If provided, only count statements with
+            ``period_date`` within this many calendar days from the
+            latest date.
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         Statement count indexed by ticker.
     """
     filtered = statements[statements["period_type"] == period_type]
@@ -162,7 +137,7 @@ def count_financial_statements(
             cutoff = latest - pd.Timedelta(days=min_lookback_days)
             filtered = filtered[filtered["period_date"] >= cutoff]
 
-    return filtered.groupby("ticker").size()
+    return cast(pd.Series, filtered.groupby("ticker").size())
 
 
 def compute_exchange_mcap_percentile_thresholds(
@@ -178,23 +153,16 @@ def compute_exchange_mcap_percentile_thresholds(
     exchange.  Exchanges with fewer than ``min_exchange_size`` stocks
     receive a threshold of 0 (no filter applied).
 
-    Parameters
-    ----------
-    market_caps : pd.Series
-        Free-float market caps indexed by ticker.
-    exchange_mapping : pd.Series
-        Exchange labels indexed by ticker.
-    percentile : float
-        Percentile to compute on a 0-1 scale (e.g. 0.10 for the 10th
-        percentile).
-    min_exchange_size : int
-        Minimum number of stocks an exchange must have before the
-        percentile threshold is applied.  Smaller exchanges default to
-        a threshold of 0.
+    Args:
+        market_caps: Free-float market caps indexed by ticker.
+        exchange_mapping: Exchange labels indexed by ticker.
+        percentile: Percentile to compute on a 0-1 scale (e.g. 0.10 for
+            the 10th percentile).
+        min_exchange_size: Minimum number of stocks an exchange must have
+            before the percentile threshold is applied. Smaller exchanges
+            default to a threshold of 0.
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         Per-ticker threshold values (same index as ``market_caps``).
     """
     common = market_caps.index.intersection(exchange_mapping.index)
@@ -229,20 +197,13 @@ def _apply_mcap_percentile_screen(
 ) -> pd.Index:
     """Apply exchange-percentile market-cap screen with hysteresis.
 
-    Parameters
-    ----------
-    market_caps : pd.Series
-        Free-float market caps indexed by ticker.
-    exchange_mapping : pd.Series
-        Exchange labels indexed by ticker.
-    config : InvestabilityScreenConfig
-        Screening configuration supplying percentile thresholds.
-    current_members : pd.Index or None
-        Tickers currently in the universe for hysteresis.
+    Args:
+        market_caps: Free-float market caps indexed by ticker.
+        exchange_mapping: Exchange labels indexed by ticker.
+        config: Screening configuration supplying percentile thresholds.
+        current_members: Tickers currently in the universe for hysteresis.
 
-    Returns
-    -------
-    pd.Index
+    Returns:
         Tickers passing the percentile screen.
     """
     entry_thresholds = compute_exchange_mcap_percentile_thresholds(
@@ -253,7 +214,9 @@ def _apply_mcap_percentile_screen(
     )
 
     entry_thresh_aligned = entry_thresholds.reindex(market_caps.index, fill_value=0.0)
-    new_entrants = market_caps.index[market_caps >= entry_thresh_aligned]
+    new_entrants = cast(
+        pd.Index, market_caps.index[market_caps >= entry_thresh_aligned]
+    )
 
     if current_members is None or len(current_members) == 0:
         return new_entrants
@@ -275,46 +238,36 @@ def apply_investability_screens(
 ) -> pd.Index:
     """Apply all investability screens to produce a universe.
 
-    Parameters
-    ----------
-    fundamentals : pd.DataFrame
-        Cross-sectional data with one row per ticker.  The index is the join
-        key (``instruments.yfinance_ticker`` for the ingestion DB) and must
-        align with the columns of ``price_history`` / ``volume_history``.
-        Required columns: ``market_cap`` (``ticker_profiles.market_cap``),
-        ``current_price`` (``ticker_profiles.current_price``).  Optional
-        columns consumed when present: ``exchange``
-        (``exchanges.name`` via ``instruments.exchange``) for the per-exchange
-        market-cap percentile screen, ``delisted_at``
-        (``instruments.delisted_at``) for the survivorship policy, and
-        ``is_etf`` (``etf_metadata`` presence) to exempt funds from the
-        equity-only financial-statement screen.
-        All monetary columns (``market_cap``, ``current_price``, etc.) must be
-        denominated in major currency units (e.g. GBP, not GBX); minor-unit
-        normalisation must be applied upstream via :mod:`optimizer.fx` before
-        this function is called.
-    price_history : pd.DataFrame
-        Price matrix (dates x tickers).
-    volume_history : pd.DataFrame
-        Volume matrix (dates x tickers).
-    financial_statements : pd.DataFrame or None
-        Statement-level data with ``ticker``, ``period_type``,
-        and optionally ``period_date`` columns.
-    config : InvestabilityScreenConfig or None
-        Screening configuration.  Defaults to developed-market
-        thresholds.
-    current_members : pd.Index or None
-        Tickers currently in the universe for hysteresis.
+    Args:
+        fundamentals: Cross-sectional data with one row per ticker. The index
+            is the join key (``instruments.yfinance_ticker`` for the ingestion
+            DB) and must align with the columns of ``price_history`` /
+            ``volume_history``. Required columns: ``market_cap``
+            (``ticker_profiles.market_cap``), ``current_price``
+            (``ticker_profiles.current_price``). Optional columns consumed when
+            present: ``exchange`` (``exchanges.name`` via
+            ``instruments.exchange``) for the per-exchange market-cap percentile
+            screen, ``delisted_at`` (``instruments.delisted_at``) for the
+            survivorship policy, and ``is_etf`` (``etf_metadata`` presence) to
+            exempt funds from the equity-only financial-statement screen. All
+            monetary columns (``market_cap``, ``current_price``, etc.) must be
+            denominated in major currency units (e.g. GBP, not GBX); minor-unit
+            normalisation must be applied upstream via `fx`
+            before this function is called.
+        price_history: Price matrix (dates x tickers).
+        volume_history: Volume matrix (dates x tickers).
+        financial_statements: Statement-level data with ``ticker``,
+            ``period_type``, and optionally ``period_date`` columns.
+        config: Screening configuration. Defaults to developed-market
+            thresholds.
+        current_members: Tickers currently in the universe for hysteresis.
 
-    Returns
-    -------
-    pd.Index
+    Returns:
         Tickers passing all investability screens.
     """
     if config is None:
         config = InvestabilityScreenConfig()
 
-    # Start with all tickers present in fundamentals
     candidates = fundamentals.index
 
     # 0. Survivorship / delisting policy (maps to ``instruments.delisted_at``,
@@ -329,7 +282,6 @@ def apply_investability_screens(
         active = fundamentals.index[fundamentals["delisted_at"].isna()]
         candidates = candidates.intersection(active)
 
-    # 1. Market capitalization (absolute floor + optional exchange percentile)
     if "market_cap" in fundamentals.columns:
         mcap = fundamentals["market_cap"].dropna()
         passed = apply_screen(mcap, config.market_cap, current_members)
@@ -343,28 +295,24 @@ def apply_investability_screens(
 
         candidates = candidates.intersection(passed)
 
-    # 2. ADDV 12-month
     if len(price_history) > 0 and len(volume_history) > 0:
         addv_12 = compute_addv(price_history, volume_history, window=252)
         addv_12 = addv_12.reindex(candidates).dropna()
         passed = apply_screen(addv_12, config.addv_12m, current_members)
         candidates = candidates.intersection(passed)
 
-    # 3. ADDV 3-month
     if len(price_history) > 0 and len(volume_history) > 0:
         addv_3 = compute_addv(price_history, volume_history, window=63)
         addv_3 = addv_3.reindex(candidates).dropna()
         passed = apply_screen(addv_3, config.addv_3m, current_members)
         candidates = candidates.intersection(passed)
 
-    # 4. Trading frequency
     if len(volume_history) > 0:
         freq = compute_trading_frequency(volume_history, window=252)
         freq = freq.reindex(candidates).dropna()
         passed = apply_screen(freq, config.trading_frequency, current_members)
         candidates = candidates.intersection(passed)
 
-    # 5. Price filter (region-dependent)
     if "current_price" in fundamentals.columns:
         prices = fundamentals["current_price"].reindex(candidates).dropna()
         price_thresh = (
@@ -375,19 +323,16 @@ def apply_investability_screens(
         passed = apply_screen(prices, price_thresh, current_members)
         candidates = candidates.intersection(passed)
 
-    # 6. Trading history
     listing_age = compute_listing_age(price_history)
     listing_age = listing_age.reindex(candidates).dropna()
     candidates = candidates.intersection(
         listing_age.index[listing_age >= config.min_trading_history]
     )
 
-    # 7. IPO seasoning
     candidates = candidates.intersection(
         listing_age.index[listing_age >= config.min_ipo_seasoning]
     )
 
-    # 8. Financial statement availability
     if financial_statements is not None and len(financial_statements) > 0:
         annual_counts = count_financial_statements(
             financial_statements, period_type="annual"
@@ -399,7 +344,6 @@ def apply_investability_screens(
         annual_ok = annual_counts.reindex(candidates, fill_value=0)
         quarterly_ok = quarterly_counts.reindex(candidates, fill_value=0)
 
-        # Pass if either annual OR quarterly threshold is met
         has_enough = (annual_ok >= config.min_annual_reports) | (
             quarterly_ok >= config.min_quarterly_reports
         )

@@ -35,17 +35,22 @@ def build_mu_uncertainty_set(
     *,
     prior_estimator: BasePrior | None = None,
 ) -> BaseMuUncertaintySet:
-    """Build a skfolio mu uncertainty-set estimator from *config*.
+    """Build a skfolio mu uncertainty-set estimator from config.
 
-    Parameters
-    ----------
-    config : MuUncertaintySetConfig
-        Serialisable configuration selecting the variant and its knobs.
-    prior_estimator : BasePrior or None
-        Non-serialisable prior estimator (e.g. a factor model or a
-        shrinkage prior) forwarded to the empirical/bootstrap sets. Not
-        supported for the orthogonal set, which reads its factor model from
-        the ``return_distribution`` supplied at fit time.
+    Args:
+        config: Serialisable configuration selecting the variant and its knobs.
+        prior_estimator: Non-serialisable prior estimator (e.g. a factor model
+            or a shrinkage prior) forwarded to the empirical/bootstrap sets. Not
+            supported for the orthogonal set, which reads its factor model from
+            the ``return_distribution`` supplied at fit time.
+
+    Returns:
+        A configured mu uncertainty-set estimator ready for use in a
+        DR-CVaR or robust mean-risk optimizer.
+
+    Raises:
+        ConfigurationError: If ``prior_estimator`` is provided for the
+            ORTHOGONAL variant, which does not accept an external prior.
     """
     if config.kind == MuUncertaintySetType.EMPIRICAL:
         return EmpiricalMuUncertaintySet(
@@ -80,15 +85,22 @@ def build_covariance_uncertainty_set(
     *,
     prior_estimator: BasePrior | None = None,
 ) -> BaseCovarianceUncertaintySet:
-    """Build a skfolio covariance uncertainty-set estimator from *config*.
+    """Build a skfolio covariance uncertainty-set estimator from config.
 
-    Parameters
-    ----------
-    config : CovarianceUncertaintySetConfig
-        Serialisable configuration selecting the variant and its knobs.
-    prior_estimator : BasePrior or None
-        Non-serialisable prior estimator forwarded to the
-        empirical/bootstrap sets. Not supported for the orthogonal set.
+    Args:
+        config: Serialisable configuration selecting the variant and its knobs.
+        prior_estimator: Non-serialisable prior estimator forwarded to the
+            empirical/bootstrap sets. Not supported for the orthogonal set,
+            which derives its ellipsoidal radius from the factor structure
+            at fit time.
+
+    Returns:
+        A configured covariance uncertainty-set estimator ready for use in a
+        DR-CVaR or robust mean-risk optimizer.
+
+    Raises:
+        ConfigurationError: If ``prior_estimator`` is provided for the
+            ORTHOGONAL variant, which does not accept an external prior.
     """
     if config.kind == CovarianceUncertaintySetType.EMPIRICAL:
         return EmpiricalCovarianceUncertaintySet(

@@ -1,10 +1,9 @@
 """Configuration for hierarchical clustering selection.
 
-The :class:`HierarchicalClusteringConfig` is a serialisable dataclass
-mirroring the parameter surface of
-:class:`skfolio.cluster.HierarchicalClustering`. The
-:class:`LinkageMethodType` enum mirrors :class:`skfolio.cluster.LinkageMethod`
-verbatim — every member is enforced equal in the test suite.
+The `HierarchicalClusteringConfig` is a serialisable dataclass
+mirroring the parameter surface of `HierarchicalClustering`. The
+`LinkageMethodType` enum mirrors `LinkageMethod` verbatim — every member is
+enforced equal in the test suite.
 """
 
 from __future__ import annotations
@@ -31,19 +30,15 @@ class LinkageMethodType(str, Enum):
 class HierarchicalClusteringConfig:
     """Immutable configuration for hierarchical clustering construction.
 
-    Parameters
-    ----------
-    linkage_method : LinkageMethodType
-        Agglomerative linkage rule. Default :attr:`LinkageMethodType.WARD`.
-    max_clusters : int or None
-        Cap on the number of clusters returned by ``fit``. ``None`` lets
-        skfolio select the optimum via :func:`compute_optimal_n_clusters`.
-        When set, must be a positive integer; skfolio passes it to
-        ``scipy.cluster.hierarchy.fcluster`` with ``criterion="maxclust"``,
-        which requires ``t >= 1``.
-    min_cluster_size : int
-        Reserved minimum cluster size. Not exposed by skfolio 1.0.6
-        :class:`HierarchicalClustering`; must remain ``1``.
+    Attributes:
+        linkage_method: Agglomerative linkage rule. Default ``LinkageMethodType.WARD``.
+        max_clusters: Cap on the number of clusters returned by ``fit``. ``None`` lets
+            skfolio select the optimum via `compute_optimal_n_clusters`.
+            When set, must be a positive integer; skfolio passes it to
+            ``scipy.cluster.hierarchy.fcluster`` with ``criterion="maxclust"``,
+            which requires ``t >= 1``.
+        min_cluster_size: Reserved minimum cluster size. Not exposed by skfolio 1.0.6
+            `HierarchicalClustering`; must remain ``1``.
     """
 
     linkage_method: LinkageMethodType = LinkageMethodType.WARD
@@ -97,11 +92,9 @@ class HierarchicalClusteringConfig:
     ) -> HierarchicalClusteringConfig:
         """Preset that fixes the cluster count instead of auto-selecting it.
 
-        Parameters
-        ----------
-        max_clusters : int
-            Positive cap on the number of clusters returned by ``fit``.
-        linkage_method : LinkageMethodType
-            Agglomerative linkage rule. Default :attr:`LinkageMethodType.WARD`.
+        Args:
+            max_clusters: Positive cap on the number of clusters returned by ``fit``.
+            linkage_method: Agglomerative linkage rule. Defaults to
+                ``LinkageMethodType.WARD``.
         """
         return cls(linkage_method=linkage_method, max_clusters=max_clusters)

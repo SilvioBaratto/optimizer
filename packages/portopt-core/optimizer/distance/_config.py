@@ -1,10 +1,10 @@
 """Configuration for distance estimator selection.
 
-The :class:`DistanceConfig` is a serialisable dataclass with a
-:class:`DistanceEstimatorType` enum field plus estimator-specific knobs.
+``DistanceConfig`` is a serialisable dataclass with a
+``DistanceEstimatorType`` enum field plus estimator-specific knobs.
 Every field holds only primitives / enums so the config round-trips through
 serialisation. Non-serialisable objects (e.g. a covariance estimator instance
-for :class:`skfolio.distance.CovarianceDistance`) are passed as factory kwargs,
+for ``skfolio.distance.CovarianceDistance``) are passed as factory kwargs,
 never stored on the config.
 
 skfolio 1.0.6 distance estimators expose a common codependence-to-distance
@@ -20,7 +20,7 @@ These apply to the correlation / covariance family (Pearson, Kendall, Spearman,
 Covariance). ``DistanceCorrelation`` instead exposes a ``threshold`` and
 ``MutualInformation`` exposes ``n_bins`` / ``n_bins_method`` / ``normalize``.
 Setting a knob that does not belong to the selected estimator raises a
-:class:`ConfigurationError` to surface configuration mistakes early.
+``ConfigurationError`` to surface configuration mistakes early.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ class DistanceEstimatorType(str, Enum):
 
 
 class NBinsMethod(str, Enum):
-    """Histogram bin-count rule for :class:`skfolio.distance.MutualInformation`.
+    """Histogram bin-count rule for ``skfolio.distance.MutualInformation``.
 
     Mirrors ``skfolio.distance.NBinsMethod``. Only consulted when ``n_bins`` is
     ``None`` (an explicit ``n_bins`` overrides the rule).
@@ -53,7 +53,8 @@ class NBinsMethod(str, Enum):
     KNUTH = "knuth"
 
 
-#: Estimators that support the ``absolute`` / ``power`` codependence transform.
+# Only these estimators expose the ``absolute``/``power`` codependence-to-distance
+# transform.
 _CORR_FAMILY = frozenset(
     {
         DistanceEstimatorType.PEARSON,
@@ -68,39 +69,28 @@ _CORR_FAMILY = frozenset(
 class DistanceConfig:
     """Immutable configuration for distance estimator construction.
 
-    Parameters
-    ----------
-    estimator : DistanceEstimatorType
-        Which skfolio distance estimator to instantiate.
-    absolute : bool
-        Take the absolute value of the codependence before mapping to a
-        distance. Only valid for the correlation / covariance family
-        (Pearson, Kendall, Spearman, Covariance).
-    power : float
-        Exponent applied to the ``(1 - codependence)`` term. Must be strictly
-        positive. Only valid for the correlation / covariance family.
-    threshold : float or None
-        Codependence threshold for
-        :class:`skfolio.distance.DistanceCorrelation`. Only valid when
-        ``estimator`` is ``DISTANCE_CORRELATION``. ``None`` keeps the skfolio
-        default (``0.5``).
-    n_bins : int or None
-        Explicit histogram bin count for
-        :class:`skfolio.distance.MutualInformation`. Only valid when
-        ``estimator`` is ``MUTUAL_INFORMATION``. ``None`` defers to
-        ``n_bins_method``.
-    n_bins_method : NBinsMethod or None
-        Bin-count rule used when ``n_bins`` is ``None``. Only valid when
-        ``estimator`` is ``MUTUAL_INFORMATION``. ``None`` keeps the skfolio
-        default (Freedman-Diaconis).
-    normalize : bool or None
-        Whether :class:`skfolio.distance.MutualInformation` normalises the
-        mutual information into ``[0, 1]``. Only valid when ``estimator`` is
-        ``MUTUAL_INFORMATION``. ``None`` keeps the skfolio default (``True``).
-    bandwidth : float or None
-        Reserved for kernel-based mutual-information estimators. Not supported
-        by skfolio 1.0.6 — must be ``None``. Retained for backward
-        compatibility only.
+    Attributes:
+        estimator: Which skfolio distance estimator to instantiate.
+        absolute: Take the absolute value of the codependence before mapping to a
+            distance. Only valid for the correlation / covariance family
+            (Pearson, Kendall, Spearman, Covariance).
+        power: Exponent applied to the ``(1 - codependence)`` term. Must be strictly
+            positive. Only valid for the correlation / covariance family.
+        threshold: Codependence threshold for ``skfolio.distance.DistanceCorrelation``.
+            Only valid when ``estimator`` is ``DISTANCE_CORRELATION``. ``None`` keeps
+            the skfolio default (0.5).
+        n_bins: Explicit histogram bin count for ``skfolio.distance.MutualInformation``.
+            Only valid when ``estimator`` is ``MUTUAL_INFORMATION``. ``None`` defers to
+            ``n_bins_method``.
+        n_bins_method: Bin-count rule used when ``n_bins`` is ``None``. Only valid when
+            ``estimator`` is ``MUTUAL_INFORMATION``. ``None`` keeps the skfolio default
+            (Freedman-Diaconis).
+        normalize: Whether ``skfolio.distance.MutualInformation`` normalises the mutual
+            information into [0, 1]. Only valid when ``estimator`` is
+            ``MUTUAL_INFORMATION``. ``None`` keeps the skfolio default (``True``).
+        bandwidth: Reserved for kernel-based mutual-information estimators. Not
+            supported by skfolio 1.0.6 — must be ``None``. Retained for backward
+            compatibility only.
     """
 
     estimator: DistanceEstimatorType = DistanceEstimatorType.PEARSON
@@ -135,7 +125,6 @@ class DistanceConfig:
         if self.threshold is not None and not 0.0 <= self.threshold <= 1.0:
             raise ConfigurationError("threshold must lie in [0, 1]")
 
-        # MI-only knobs.
         mi_only_set = (
             self.n_bins is not None
             or self.n_bins_method is not None
@@ -195,7 +184,7 @@ class DistanceConfig:
         """Covariance-induced distance preset.
 
         A non-default covariance estimator instance is passed to
-        :func:`optimizer.distance.build_distance` as a kwarg, not stored here.
+        ``optimizer.distance.build_distance`` as a kwarg, not stored here.
         """
         return cls(
             estimator=DistanceEstimatorType.COVARIANCE,

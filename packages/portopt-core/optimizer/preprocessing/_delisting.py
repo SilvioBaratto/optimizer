@@ -21,8 +21,7 @@ def apply_delisting_returns(
     This prevents survivorship bias by incorporating the terminal return an
     investor would have realised when a stock was delisted.
 
-    DB contract (``instruments.delisting_return``)
-    ----------------------------------------------
+    DB contract (``instruments.delisting_return``):
     The value is a **simple (linear) return** already signed as a return, and
     is written verbatim onto the terminal period — it is *not* negated,
     scaled, or defaulted here:
@@ -50,25 +49,19 @@ def apply_delisting_returns(
     ``NaN`` (a late listing) is left untouched, so genuinely short-history assets
     are still dropped rather than fabricated.
 
-    Parameters
-    ----------
-    returns : pd.DataFrame
-        Dates x tickers return matrix.
-    delisting_returns : dict[str, float]
-        Mapping of ticker to its (finite) delisting return.  Each ticker's
-        last valid (non-NaN) return is replaced with this value.  Tickers whose
-        column is entirely ``NaN`` are skipped.
+    Args:
+        returns: Dates x tickers return matrix.
+        delisting_returns: Mapping of ticker to its (finite) delisting return.
+            Each ticker's last valid (non-NaN) return is replaced with this
+            value. Tickers whose column is entirely ``NaN`` are skipped.
 
-    Returns
-    -------
-    pd.DataFrame
+    Returns:
         A copy of *returns* with delisting returns applied.
 
-    Raises
-    ------
-    DataError
-        If a ticker in *delisting_returns* is not in *returns* columns, or its
-        delisting return is ``None`` / non-finite (unresolved ``NULL``).
+    Raises:
+        DataError: If a ticker in *delisting_returns* is not in *returns*
+            columns, or its delisting return is ``None`` / non-finite
+            (unresolved ``NULL``).
     """
     result = returns.copy()
 
@@ -106,9 +99,9 @@ def delisting_protection_mask(
     returns: pd.DataFrame,
     delisting_returns: dict[str, float],
 ) -> pd.DataFrame:
-    """Boolean mask marking each ticker's delisting (terminal-return) cell.
+    """Return a boolean mask marking each ticker's delisting (terminal-return) cell.
 
-    Companion to :func:`apply_delisting_returns`: it flags exactly the cells
+    Companion to `apply_delisting_returns`: it flags exactly the cells
     that function overwrites with a delisting return — each ticker's last valid
     (non-``NaN``) observation — so a downstream ``OutlierTreater`` can exempt
     those cells from outlier removal/winsorisation.  A genuine delisting return
@@ -120,23 +113,19 @@ def delisting_protection_mask(
     silently defeating the survivorship correction.
 
     Built from the *pre-fill* ``returns`` (the same input passed to
-    :func:`apply_delisting_returns`), so the marked cell is the original last
+    `apply_delisting_returns`), so the marked cell is the original last
     valid observation — the one that receives the terminal return — not the
     ``0.0`` post-death padding written after it.
 
-    Parameters
-    ----------
-    returns : pd.DataFrame
-        Dates x tickers return matrix, *before* delisting is applied.
-    delisting_returns : dict[str, float]
-        The same mapping passed to :func:`apply_delisting_returns`.  Tickers
-        absent from *returns* or whose column is entirely ``NaN`` contribute no
-        mark (mirroring that function's skip logic); no validation is repeated
-        here — :func:`apply_delisting_returns` is the validator.
+    Args:
+        returns: Dates x tickers return matrix, *before* delisting is applied.
+        delisting_returns: The same mapping passed to
+            `apply_delisting_returns`. Tickers absent from *returns* or
+            whose column is entirely ``NaN`` contribute no mark (mirroring that
+            function's skip logic); no validation is repeated here —
+            `apply_delisting_returns` is the validator.
 
-    Returns
-    -------
-    pd.DataFrame
+    Returns:
         Boolean matrix aligned to *returns* (same index and columns); ``True``
         only at each ticker's terminal-return cell, ``False`` everywhere else.
     """

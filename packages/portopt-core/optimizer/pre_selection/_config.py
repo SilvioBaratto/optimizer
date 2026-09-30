@@ -7,18 +7,16 @@ from enum import Enum
 
 
 class SelectKMeasure(str, Enum):
-    """Serialisable performance measure for :class:`SelectKExtremes`.
+    """Serialisable performance measure for `SelectKExtremes`.
 
     Maps to a member of one of skfolio's measure enums
-    (:class:`skfolio.measures.RatioMeasure`,
-    :class:`skfolio.measures.PerfMeasure` or
-    :class:`skfolio.measures.RiskMeasure`).  The factory resolves the string
-    to the concrete skfolio enum member so the config stays serialisable.
+    (`RatioMeasure`, `PerfMeasure` or `RiskMeasure`).  The factory resolves
+    the string to the concrete skfolio enum member so the config stays
+    serialisable.
 
     ``SHARPE_RATIO`` reproduces skfolio's default ranking measure.  ``MEAN``
-    ranks purely on average return (the behaviour the legacy docstring
-    described).  Risk measures rank by risk, so ``highest=False`` selects the
-    *lowest*-risk assets.
+    ranks purely on average return.  Risk measures rank by risk, so
+    ``highest=False`` selects the *lowest*-risk assets.
     """
 
     SHARPE_RATIO = "sharpe_ratio"
@@ -40,57 +38,45 @@ class PreSelectionConfig:
     All parameters map 1:1 to transformer/selector constructor arguments,
     making the config serialisable and suitable for hyperparameter sweeps.
 
-    Parameters
-    ----------
-    max_abs_return : float
-        Maximum absolute return before treating as data error (DataValidator).
-    winsorize_threshold : float
-        Z-score threshold for winsorisation (OutlierTreater).
-    remove_threshold : float
-        Z-score threshold for removal as data error (OutlierTreater).
-    outlier_method : str
-        Outlier detection approach. Currently only ``"time_series"`` is
-        supported (per-column z-scores).
-    imputation_fallback : str
-        Fallback when sector data is unavailable. ``"global_mean"`` uses the
-        cross-sectional mean across all assets.
-    zero_variance_threshold : float
-        Variance below which an asset is treated as constant and dropped
-        (``DropZeroVariance``).  Must be non-negative.
-    drop_internal_nan : bool
-        Forwarded to ``SelectComplete.drop_assets_with_internal_nan``.  When
-        ``True``, assets carrying NaNs *inside* their history (not just
-        leading/trailing gaps) are also removed.
-    correlation_threshold : float
-        Pairwise correlation above which an asset is dropped
-        (``DropCorrelated``).
-    correlation_absolute : bool
-        If ``True``, use absolute correlation values.
-    top_k : int or None
-        If set, keep only the *k* assets ranked most extreme on
-        ``select_k_measure`` via ``SelectKExtremes``.
-    top_k_highest : bool
-        Select assets with the highest measure when ``True``, lowest when
-        ``False``.
-    select_k_measure : SelectKMeasure
-        Performance measure used by ``SelectKExtremes`` to rank assets.
-        Defaults to Sharpe ratio (skfolio's own default).
-    use_pareto : bool
-        If ``True``, apply ``SelectNonDominated`` Pareto filter.
-    pareto_min_assets : int or None
-        Minimum number of assets to retain after Pareto filtering.
-    pareto_threshold : float
-        Domination threshold forwarded to ``SelectNonDominated.threshold``
-        (skfolio default ``-0.5``).
-    use_non_expiring : bool
-        If ``True``, apply ``SelectNonExpiring`` to remove soon-expiring
-        assets.
-    expiration_lookahead : int or None
-        Number of calendar days to look ahead for expiring assets,
-        forwarded to ``SelectNonExpiring`` as a ``timedelta``.
-    is_log_normal : bool
-        Whether returns are assumed log-normal for multi-period scaling
-        (deferred to Chapter 2, stored here for completeness).
+    Attributes:
+        max_abs_return: Maximum absolute return before treating as a data
+            error (DataValidator).
+        winsorize_threshold: Z-score threshold for winsorisation
+            (OutlierTreater).
+        remove_threshold: Z-score threshold for removal as a data error
+            (OutlierTreater).
+        outlier_method: Outlier detection approach. Currently only
+            ``"time_series"`` is supported (per-column z-scores).
+        imputation_fallback: Fallback when sector data is unavailable.
+            ``"global_mean"`` uses the cross-sectional mean across all assets.
+        zero_variance_threshold: Variance below which an asset is treated as
+            constant and dropped (``DropZeroVariance``). Must be non-negative.
+        drop_internal_nan: Forwarded to
+            ``SelectComplete.drop_assets_with_internal_nan``. When ``True``,
+            assets carrying NaNs inside their history (not just leading/trailing
+            gaps) are also removed.
+        correlation_threshold: Pairwise correlation above which an asset is
+            dropped (``DropCorrelated``).
+        correlation_absolute: If ``True``, use absolute correlation values.
+        top_k: If set, keep only the `k` assets ranked most extreme on
+            ``select_k_measure`` via ``SelectKExtremes``.
+        top_k_highest: Select assets with the highest measure when ``True``,
+            lowest when ``False``.
+        select_k_measure: Performance measure used by ``SelectKExtremes`` to
+            rank assets. Defaults to Sharpe ratio (skfolio's own default).
+        use_pareto: If ``True``, apply ``SelectNonDominated`` Pareto filter.
+        pareto_min_assets: Minimum number of assets to retain after Pareto
+            filtering.
+        pareto_threshold: Domination threshold forwarded to
+            ``SelectNonDominated.threshold`` (skfolio default ``-0.5``).
+        use_non_expiring: If ``True``, apply ``SelectNonExpiring`` to remove
+            soon-expiring assets.
+        expiration_lookahead: Number of calendar days to look ahead for
+            expiring assets, forwarded to ``SelectNonExpiring`` as a
+            ``timedelta``.
+        is_log_normal: Whether returns are assumed log-normal for multi-period
+            scaling. Stored for completeness; not consumed by the
+            pre-selection pipeline itself.
     """
 
     max_abs_return: float = 10.0

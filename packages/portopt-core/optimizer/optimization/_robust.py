@@ -32,15 +32,13 @@ from optimizer.uncertainty_set._factory import (
 class RobustMeanRiskConfig:
     """Immutable configuration for the robust ``MeanRisk`` family.
 
-    Parameters
-    ----------
-    mean_risk_config : MeanRiskConfig
-        Forwarded to :func:`build_mean_risk`. Default
-        :class:`MeanRiskConfig` (minimum-variance).
-    mu_uncertainty_set_config : MuUncertaintySetConfig or None
-        Mu uncertainty-set configuration. ``None`` disables it.
-    covariance_uncertainty_set_config : CovarianceUncertaintySetConfig or None
-        Covariance uncertainty-set configuration. ``None`` disables it.
+    Attributes:
+        mean_risk_config: Forwarded to `build_mean_risk`. Default
+            `MeanRiskConfig` (minimum-variance).
+        mu_uncertainty_set_config: Mu uncertainty-set configuration. ``None``
+            disables it.
+        covariance_uncertainty_set_config: Covariance uncertainty-set
+            configuration. ``None`` disables it.
     """
 
     mean_risk_config: MeanRiskConfig = field(default_factory=MeanRiskConfig)
@@ -60,11 +58,9 @@ class RobustMeanRiskConfig:
     def for_moderate(cls, *, uncertainty_level: float = 0.95) -> RobustMeanRiskConfig:
         """Moderate confidence preset (default 95%).
 
-        Parameters
-        ----------
-        uncertainty_level : float, default=0.95
-            Confidence level forwarded to
-            :meth:`MuUncertaintySetConfig.for_empirical`.  Keyword-only.
+        Args:
+            uncertainty_level: Confidence level forwarded to
+                `for_empirical`. Keyword-only.
         """
         return cls(
             mu_uncertainty_set_config=MuUncertaintySetConfig.for_empirical(
@@ -102,18 +98,12 @@ def build_robust_mean_risk(
     When both uncertainty configs are ``None``, the returned estimator
     is identical (in fitted weights) to ``build_mean_risk(config.mean_risk_config)``.
 
-    Parameters
-    ----------
-    config : RobustMeanRiskConfig or None
-        Robust configuration. ``None`` triggers default.
-    prior_estimator : BasePrior or None
-        Forwarded to :func:`build_mean_risk`.
-    **kwargs
-        Additional kwargs forwarded to the wrapped ``MeanRisk``.
+    Args:
+        config: Robust configuration. ``None`` triggers default.
+        prior_estimator: Forwarded to `build_mean_risk`.
+        **kwargs: Additional kwargs forwarded to the wrapped ``MeanRisk``.
 
-    Returns
-    -------
-    MeanRisk
+    Returns:
         A fitted-ready skfolio optimiser with optional uncertainty-set
         estimators attached.
     """

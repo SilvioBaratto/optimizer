@@ -23,20 +23,16 @@ from optimizer.optimization._factory import build_mean_risk
 
 @dataclass(frozen=True)
 class StackingConfig:
-    """Immutable configuration for :class:`StackingOptimization`.
+    """Immutable configuration for StackingOptimization.
 
     Base estimators are non-serialisable — pass them as the
     ``estimators`` factory kwarg.
 
-    Parameters
-    ----------
-    prior_config : MomentEstimationConfig or None
-        Inner prior configuration for the final estimator's prior.
-    quantile : float
-        Quantile threshold passed to the wrapped optimizer.
-    final_default : MeanRiskConfig
-        Preset used to build the default ``final_estimator`` when the
-        ``final_estimator`` factory kwarg is omitted.
+    Attributes:
+        prior_config: Inner prior configuration for the final estimator's prior.
+        quantile: Quantile threshold passed to the wrapped optimizer.
+        final_default: Preset used to build the default final_estimator when
+            the final_estimator factory kwarg is omitted.
     """
 
     prior_config: MomentEstimationConfig | None = None
@@ -62,34 +58,24 @@ def build_stacking(
     prior_estimator: BasePrior | None = None,
     **kwargs: Any,
 ) -> StackingOptimization:
-    """Build a skfolio :class:`StackingOptimization` from *config*.
+    """Build a StackingOptimization from config.
 
-    Parameters
-    ----------
-    config : StackingConfig or None
-        Stacking configuration. ``None`` triggers default.
-    estimators : list[tuple[str, BaseOptimization]]
-        Base estimators ``[(name, estimator), ...]``. **Required** —
-        non-serialisable, must be supplied at factory time.
-    final_estimator : BaseOptimization or None
-        Meta-optimizer. When ``None``, ``build_mean_risk`` is called
-        with ``config.final_default``.
-    prior_estimator : BasePrior or None
-        Optional prior built from ``config.prior_config`` and forwarded
-        to the auto-built ``final_estimator`` (only used when
-        ``final_estimator`` is omitted).
-    **kwargs
-        Additional kwargs forwarded to :class:`StackingOptimization`.
+    Args:
+        config: Stacking configuration. None triggers default.
+        estimators: Base estimators as [(name, estimator), ...]. Required —
+            non-serialisable, must be supplied at factory time.
+        final_estimator: Meta-optimizer. When None, build_mean_risk is called
+            with config.final_default.
+        prior_estimator: Optional prior built from config.prior_config and
+            forwarded to the auto-built final_estimator (only used when
+            final_estimator is omitted).
+        **kwargs: Additional kwargs forwarded to StackingOptimization.
 
-    Returns
-    -------
-    StackingOptimization
+    Returns:
         A fitted-ready ensemble estimator.
 
-    Raises
-    ------
-    ConfigurationError
-        If ``estimators`` is omitted.
+    Raises:
+        ConfigurationError: If estimators is omitted.
     """
     if estimators is None:
         raise ConfigurationError(

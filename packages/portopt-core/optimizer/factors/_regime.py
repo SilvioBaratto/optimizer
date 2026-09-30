@@ -8,7 +8,7 @@ yield curve, credit spreads, sentiment).  The resulting regime drives
 
 The macro-indicator regime system is intentionally independent from
 statistical regime systems (such as the regime-blended covariance in
-``optimizer.optimization``).  Use :func:`check_regime_disagreement`
+``optimizer.optimization``).  Use `check_regime_disagreement`
 to surface disagreements between any two regime classifications.
 """
 
@@ -42,16 +42,11 @@ def classify_regime_composite(
     ``pmi`` (Manufacturing PMI), ``spread_2s10s`` (10Y-2Y spread in %),
     ``hy_oas`` (HY OAS in basis points), ``sentiment`` (news score).
 
-    Parameters
-    ----------
-    macro_data : pd.DataFrame
-        Macro indicators indexed by date.
-    thresholds : RegimeThresholdConfig or None
-        Scoring thresholds.  Defaults to the empirical calibration.
+    Args:
+        macro_data: Macro indicators indexed by date.
+        thresholds: Scoring thresholds. Defaults to the empirical calibration.
 
-    Returns
-    -------
-    MacroRegime
+    Returns:
         Regime classification based on composite score.
     """
     thresholds = thresholds or RegimeThresholdConfig()
@@ -65,7 +60,7 @@ def classify_regime_composite(
 
     latest = macro_data.iloc[-1]
 
-    # Component scores (default 0 when data missing)
+    # Default to 0 so missing indicators are neutral, not penalizing.
     s_pmi = 0
     if "pmi" in macro_data.columns and pd.notna(latest.get("pmi")):
         pmi = float(latest["pmi"])
@@ -102,10 +97,8 @@ def classify_regime_composite(
             else (-1 if sent < thresholds.sentiment_negative else 0)
         )
 
-    # 3-indicator composite
     s_t = s_pmi + s_2s10s + s_hy
 
-    # Use augmented score when sentiment is available
     if s_sent != 0:
         s_aug = s_t + s_sent
         if s_aug >= 3:
@@ -118,7 +111,6 @@ def classify_regime_composite(
             return MacroRegime.SLOWDOWN
         return MacroRegime.RECOVERY
 
-    # 3-indicator mapping
     if s_t >= 2:
         return MacroRegime.EXPANSION
     if s_t <= -2:
@@ -141,20 +133,15 @@ def classify_regime(
     observation's position relative to trend.
 
     When richer indicators (``pmi``, ``spread_2s10s``, ``hy_oas``)
-    are present, delegates to :func:`classify_regime_composite`.
+    are present, delegates to `classify_regime_composite`.
 
-    Parameters
-    ----------
-    macro_data : pd.DataFrame
-        Macro indicators with columns that may include
-        ``gdp_growth``, ``leading_indicator``, ``yield_spread``,
-        ``unemployment_rate``.  Index is date.
-    thresholds : RegimeThresholdConfig or None
-        Scoring thresholds forwarded to the composite classifier.
+    Args:
+        macro_data: Macro indicators with columns that may include
+            ``gdp_growth``, ``leading_indicator``, ``yield_spread``,
+            ``unemployment_rate``.  Index is date.
+        thresholds: Scoring thresholds forwarded to the composite classifier.
 
-    Returns
-    -------
-    MacroRegime
+    Returns:
         Current regime classification.
     """
     if len(macro_data) == 0:
@@ -164,12 +151,10 @@ def classify_regime(
         )
         return MacroRegime.UNKNOWN
 
-    # Delegate to composite classifier when richer indicators are available.
     _composite_cols = {"pmi", "spread_2s10s", "hy_oas"}
     if _composite_cols & set(macro_data.columns):
         return classify_regime_composite(macro_data, thresholds=thresholds)
 
-    # Use GDP growth as primary signal
     if "gdp_growth" in macro_data.columns:
         gdp = macro_data["gdp_growth"].dropna()
         if len(gdp) >= 2:
@@ -191,7 +176,6 @@ def classify_regime(
                 return MacroRegime.RECESSION
             return MacroRegime.RECOVERY
 
-    # Fallback: use yield spread if available
     if "yield_spread" in macro_data.columns:
         spread = macro_data["yield_spread"].dropna()
         if len(spread) > 0:
@@ -218,18 +202,12 @@ def get_regime_tilts(
 ) -> dict[FactorGroupType, float]:
     """Get multiplicative tilts for a given regime.
 
-    Parameters
-    ----------
-    regime : MacroRegime
-        Current macro regime.
-    config : RegimeTiltConfig or None
-        Tilt configuration.
+    Args:
+        regime: Current macro regime.
+        config: Tilt configuration.
 
-    Returns
-    -------
-    dict[FactorGroupType, float]
-        Multiplicative tilt per group.  Groups not listed
-        get a tilt of 1.0.
+    Returns:
+        Multiplicative tilt per group. Groups not listed get a tilt of 1.0.
     """
     if config is None:
         config = RegimeTiltConfig()
@@ -264,23 +242,7 @@ def apply_regime_tilts(
 ) -> dict[FactorGroupType, float]:
     """Apply regime-conditional multiplicative tilts to group weights.
 
-    Parameters
-    ----------
-    group_weights : dict[FactorGroupType, float]
-        Base group weights.
-    regime : MacroRegime
-        Current macro regime.
-    config : RegimeTiltConfig or None
-        Tilt configuration.
-
-    Returns
-    -------
-    dict[FactorGroupType, float]
-        Tilted group weights (re-normalized to sum to original total).
-
-    Notes
-    -----
-    The bounding sequence is:
+    The bounding sequence applied to each group:
 
     1. Look up raw tilts from ``get_regime_tilts``.
     2. Clamp each multiplier to ``[0, config.max_tilt_multiplier]``.
@@ -288,6 +250,14 @@ def apply_regime_tilts(
     4. Floor each result to ``config.min_post_tilt_weight * total``
        so no group is compressed to near-zero.
     5. Re-normalize to preserve the original total weight.
+
+    Args:
+        group_weights: Base group weights.
+        regime: Current macro regime.
+        config: Tilt configuration.
+
+    Returns:
+        Tilted group weights (re-normalized to sum to original total).
     """
     if config is None:
         config = RegimeTiltConfig()
@@ -299,19 +269,16 @@ def apply_regime_tilts(
 
     original_total = sum(group_weights.values())
 
-    # Step 1-3: clamp each multiplier and apply to weight
     tilted: dict[FactorGroupType, float] = {}
     for group, weight in group_weights.items():
         raw_tilt = tilts.get(group, 1.0)
         capped_tilt = max(min(raw_tilt, config.max_tilt_multiplier), 0.0)
         tilted[group] = weight * capped_tilt
 
-    # Step 4: floor — no group may fall below min_post_tilt_weight * total
     if original_total > 0:
         floor = config.min_post_tilt_weight * original_total
         tilted = {g: max(w, floor) for g, w in tilted.items()}
 
-    # Step 5: re-normalize to preserve total weight
     tilted_total = sum(tilted.values())
     if tilted_total > 0 and original_total > 0:
         scale = original_total / tilted_total
@@ -332,17 +299,13 @@ def check_regime_disagreement(
     produce different classifications, this function logs a ``WARNING``
     and returns ``True``.  Returns ``False`` when they agree.
 
-    Parameters
-    ----------
-    regime_a, regime_b : MacroRegime
-        Regime classifications from two different subsystems.
-    label_a, label_b : str
-        Human-readable labels for the two sources (used in the log
-        message).
+    Args:
+        regime_a: Regime classification from the first subsystem.
+        regime_b: Regime classification from the second subsystem.
+        label_a: Human-readable label for the first source, used in the log message.
+        label_b: Human-readable label for the second source, used in the log message.
 
-    Returns
-    -------
-    bool
+    Returns:
         ``True`` if the regimes disagree, ``False`` otherwise.
     """
     if regime_a != regime_b:

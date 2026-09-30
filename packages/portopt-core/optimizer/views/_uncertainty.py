@@ -29,24 +29,20 @@ def calibrate_omega_from_track_record(
     and ``r_{k,t}`` is the realised return for that view.  The diagonal
     entries are non-negative by construction (they are sample variances).
 
-    Parameters
-    ----------
-    view_history : pd.DataFrame, shape (n_dates, n_views)
-        Historical forecasted Q values, one column per view.
-    return_history : pd.DataFrame, shape (n_dates, n_views)
-        Realised returns aligned to each view, same shape as
-        ``view_history``.
+    Args:
+        view_history: Historical forecasted Q values, one column per view,
+            indexed by date.
+        return_history: Realised returns aligned to each view, same shape
+            and columns as ``view_history``.
 
-    Returns
-    -------
-    ndarray, shape (n_views, n_views)
-        Diagonal Ω matrix where ``Ω_{kk} = Var(Q_k − r_k)``.
+    Returns:
+        Diagonal Ω matrix of shape (n_views, n_views) where
+        ``Ω_{kk} = Var(Q_k − r_k)``.
 
-    Raises
-    ------
-    ValueError
-        If the two DataFrames have different shapes or column sets,
-        or if fewer than 5 aligned observations are available per view.
+    Raises:
+        DataError: If the two DataFrames differ in shape or column names,
+            or if fewer than 5 aligned observations remain after dropping
+            NaN rows.
     """
     if view_history.shape != return_history.shape:
         raise DataError(
@@ -60,7 +56,8 @@ def calibrate_omega_from_track_record(
 
     errors: pd.DataFrame = view_history - return_history
 
-    # Drop rows where any view has a NaN (aligned drop across both inputs)
+    # NaN in either input propagates into errors, so this drop aligns both DataFrames
+    # implicitly.
     errors = errors.dropna()
 
     n_obs = len(errors)

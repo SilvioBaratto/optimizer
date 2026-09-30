@@ -30,32 +30,23 @@ def build_grid_search_cv(
     score_func: Callable[..., float] | None = None,
     benchmark_returns: pd.Series | None = None,
 ) -> GridSearchCV:
-    """Build a :class:`GridSearchCV` with temporal cross-validation.
+    """Build a GridSearchCV with temporal cross-validation.
 
-    Parameters
-    ----------
-    estimator : BaseEstimator
-        The skfolio optimiser or pipeline to tune.
-    param_grid : dict or list of dict
-        Parameter grid.  Keys use sklearn double-underscore
-        notation for nested estimators (e.g.
-        ``"prior_estimator__mu_estimator__half_life"``).  A list of
-        dicts defines disjoint sub-spaces.
-    config : GridSearchConfig or None
-        Tuning configuration.  Defaults to ``GridSearchConfig()``
-        (quarterly walk-forward, Sharpe ratio scoring).
-    score_func : callable or None
-        Custom per-portfolio scorer, required when
-        ``config.scorer_config.ratio_measure`` is ``None``.  Forwarded to
-        :func:`~optimizer.scoring.build_scorer`.
-    benchmark_returns : pd.Series or None
-        Benchmark return series, required when the scorer config selects
-        the Information Ratio.  Forwarded to
-        :func:`~optimizer.scoring.build_scorer`.
+    Args:
+        estimator: The skfolio optimiser or pipeline to tune.
+        param_grid: Parameter grid. Keys use sklearn double-underscore notation
+            for nested estimators (e.g.
+            ``"prior_estimator__mu_estimator__half_life"``). A list of dicts
+            defines disjoint sub-spaces.
+        config: Tuning configuration. Defaults to ``GridSearchConfig()``
+            (quarterly walk-forward, Sharpe ratio scoring).
+        score_func: Custom per-portfolio scorer, required when
+            ``config.scorer_config.ratio_measure`` is ``None``. Forwarded to
+            ``build_scorer``.
+        benchmark_returns: Benchmark return series, required when the scorer
+            config selects the Information Ratio. Forwarded to ``build_scorer``.
 
-    Returns
-    -------
-    GridSearchCV
+    Returns:
         A fitted-ready grid search estimator.
     """
     from optimizer.scoring._factory import build_scorer
@@ -79,7 +70,8 @@ def build_grid_search_cv(
         n_jobs=config.n_jobs,
         refit=config.refit,
         verbose=config.verbose,
-        error_score=config.error_score,
+        # sklearn accepts "raise" or a float for error_score; its stub types it float.
+        error_score=config.error_score,  # pyright: ignore[reportArgumentType]
         return_train_score=config.return_train_score,
     )
 
@@ -92,30 +84,20 @@ def build_randomized_search_cv(
     score_func: Callable[..., float] | None = None,
     benchmark_returns: pd.Series | None = None,
 ) -> RandomizedSearchCV:
-    """Build a :class:`RandomizedSearchCV` with temporal cross-validation.
+    """Build a RandomizedSearchCV with temporal cross-validation.
 
-    Parameters
-    ----------
-    estimator : BaseEstimator
-        The skfolio optimiser or pipeline to tune.
-    param_distributions : dict
-        Parameter distributions.  Values may be lists (discrete)
-        or ``scipy.stats`` distributions (continuous, e.g.
-        ``scipy.stats.loguniform(0.01, 1)``).
-    config : RandomizedSearchConfig or None
-        Tuning configuration.  Defaults to
-        ``RandomizedSearchConfig()`` (50 iterations, quarterly
-        walk-forward, Sharpe ratio scoring).
-    score_func : callable or None
-        Custom per-portfolio scorer, forwarded to
-        :func:`~optimizer.scoring.build_scorer`.
-    benchmark_returns : pd.Series or None
-        Benchmark return series for Information-Ratio scoring, forwarded
-        to :func:`~optimizer.scoring.build_scorer`.
+    Args:
+        estimator: The skfolio optimiser or pipeline to tune.
+        param_distributions: Parameter distributions. Values may be lists
+            (discrete) or ``scipy.stats`` distributions (continuous, e.g.
+            ``scipy.stats.loguniform(0.01, 1)``).
+        config: Tuning configuration. Defaults to ``RandomizedSearchConfig()``
+            (50 iterations, quarterly walk-forward, Sharpe ratio scoring).
+        score_func: Custom per-portfolio scorer, forwarded to ``build_scorer``.
+        benchmark_returns: Benchmark return series for Information-Ratio
+            scoring, forwarded to ``build_scorer``.
 
-    Returns
-    -------
-    RandomizedSearchCV
+    Returns:
         A fitted-ready randomised search estimator.
     """
     from optimizer.scoring._factory import build_scorer
@@ -140,7 +122,8 @@ def build_randomized_search_cv(
         n_jobs=config.n_jobs,
         refit=config.refit,
         verbose=config.verbose,
-        error_score=config.error_score,
+        # sklearn accepts "raise" or a float for error_score; its stub types it float.
+        error_score=config.error_score,  # pyright: ignore[reportArgumentType]
         random_state=config.random_state,
         return_train_score=config.return_train_score,
     )
@@ -151,27 +134,20 @@ def search_results_dataframe(
 ) -> pd.DataFrame:
     """Return a tidy, rank-sorted view of a fitted search's ``cv_results_``.
 
-    Convenience wrapper that materialises ``search.cv_results_`` into a
-    :class:`pandas.DataFrame` sorted by ``rank_test_score`` (best first),
-    so the outcome of a hyperparameter sweep can be inspected or logged
-    without hand-indexing the raw results dict.
+    Materialises ``search.cv_results_`` into a DataFrame sorted by
+    ``rank_test_score`` (best first), so the outcome of a hyperparameter sweep
+    can be inspected or logged without hand-indexing the raw results dict.
 
-    Parameters
-    ----------
-    search : GridSearchCV or RandomizedSearchCV
-        A **fitted** search estimator (``.fit`` already called).
+    Args:
+        search: A **fitted** search estimator (``.fit`` already called).
 
-    Returns
-    -------
-    pd.DataFrame
-        ``cv_results_`` as a DataFrame, ascending by ``rank_test_score``
-        when that column is present (it is absent only for degenerate
+    Returns:
+        ``cv_results_`` as a DataFrame, ascending by ``rank_test_score`` when
+        that column is present (it is absent only for degenerate
         single-candidate multimetric setups).
 
-    Raises
-    ------
-    AttributeError
-        If *search* has not been fitted (no ``cv_results_``).
+    Raises:
+        AttributeError: If *search* has not been fitted (no ``cv_results_``).
     """
     import pandas as pd
 

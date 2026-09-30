@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import pandas as pd
 
@@ -21,24 +22,17 @@ def select_fixed_count(
 ) -> pd.Index:
     """Select top N stocks by composite score with buffer.
 
-    Parameters
-    ----------
-    scores : pd.Series
-        Composite scores indexed by ticker.
-    target_count : int
-        Target number of stocks.
-    buffer_fraction : float
-        Buffer as a fraction of target_count.  Current members within
-        the buffer zone are retained in preference to the lowest-ranked
-        direct entrants, but the returned index always contains exactly
-        ``min(len(valid_scores), target_count)`` tickers.
-    current_members : pd.Index or None
-        Tickers currently selected.
+    Args:
+        scores: Composite scores indexed by ticker.
+        target_count: Target number of stocks.
+        buffer_fraction: Buffer as a fraction of target_count. Current members
+            within the buffer zone are retained in preference to the
+            lowest-ranked direct entrants, but the returned index always
+            contains exactly ``min(len(valid_scores), target_count)`` tickers.
+        current_members: Tickers currently selected.
 
-    Returns
-    -------
-    pd.Index
-        Selected tickers.  Length is always
+    Returns:
+        Selected tickers. Length is always
         ``min(len(scores.dropna()), target_count)``.
     """
     ranked = scores.dropna().sort_values(ascending=False)
@@ -46,18 +40,15 @@ def select_fixed_count(
     if len(ranked) <= target_count:
         return ranked.index
 
-    # Direct entrants: top target_count
-    direct = ranked.index[:target_count]
+    direct = cast(pd.Index, ranked.index[:target_count])
 
     if current_members is None or len(current_members) == 0:
         return direct
 
-    # Buffer zone: extend selection by buffer_fraction
     buffer_size = max(1, int(target_count * buffer_fraction))
     extended_idx = min(target_count + buffer_size, len(ranked))
     buffer_zone = ranked.index[target_count:extended_idx]
 
-    # Retain current members that fall in the buffer zone
     retained = current_members.intersection(buffer_zone)
 
     # Retained members outside `direct` consume slots; evict an equal number
@@ -67,9 +58,7 @@ def select_fixed_count(
         return direct
 
     non_retained_direct_set = set(direct) - set(retained)
-    # Walk ranked (descending) to recover rank order among non-retained direct
     ranked_non_retained = [t for t in ranked.index if t in non_retained_direct_set]
-    # Evict the weakest (last in rank order) to make room for retained members
     to_remove = pd.Index(ranked_non_retained[-len(overflow) :])
     return direct.difference(to_remove).union(overflow)
 
@@ -82,21 +71,14 @@ def select_quantile(
 ) -> pd.Index:
     """Select stocks above a quantile threshold.
 
-    Parameters
-    ----------
-    scores : pd.Series
-        Composite scores indexed by ticker.
-    target_quantile : float
-        Quantile threshold for entry (0-1).
-    exit_quantile : float or None
-        Quantile threshold for exit (hysteresis).  If ``None``,
-        uses ``target_quantile``.
-    current_members : pd.Index or None
-        Currently selected tickers.
+    Args:
+        scores: Composite scores indexed by ticker.
+        target_quantile: Quantile threshold for entry (0-1).
+        exit_quantile: Quantile threshold for exit (hysteresis). If ``None``,
+            uses ``target_quantile``.
+        current_members: Currently selected tickers.
 
-    Returns
-    -------
-    pd.Index
+    Returns:
         Selected tickers.
     """
     if exit_quantile is None:
@@ -107,7 +89,7 @@ def select_quantile(
         return pd.Index([])
 
     entry_threshold = valid.quantile(target_quantile)
-    new_entrants = valid.index[valid >= entry_threshold]
+    new_entrants = cast(pd.Index, valid.index[valid >= entry_threshold])
 
     if current_members is None or len(current_members) == 0:
         return new_entrants
@@ -136,7 +118,7 @@ def _cap_per_sector(
         if len(members) <= max_per_sector:
             continue
         ranked = scores.reindex(members).dropna().sort_values(ascending=False)
-        capped -= set(ranked.index[max_per_sector:])
+        capped -= set(cast(pd.Index, ranked.index[max_per_sector:]))
     return capped
 
 
@@ -154,22 +136,15 @@ def apply_sector_balance(
     removes are needed) or until ``_MAX_BALANCE_ITERATIONS`` is reached.
     A warning is logged if the cap is hit before convergence.
 
-    Parameters
-    ----------
-    selected : pd.Index
-        Initially selected tickers.
-    scores : pd.Series
-        Composite scores for all candidates.
-    sector_labels : pd.Series
-        Sector label per ticker.
-    parent_universe : pd.Index
-        Full universe for computing target sector weights.
-    tolerance : float
-        Maximum deviation from parent sector weights.
+    Args:
+        selected: Initially selected tickers.
+        scores: Composite scores for all candidates.
+        sector_labels: Sector label per ticker.
+        parent_universe: Full universe for computing target sector weights.
+        tolerance: Maximum deviation from parent sector weights.
+        max_per_sector: Hard cap on members per sector; 0 means no cap.
 
-    Returns
-    -------
-    pd.Index
+    Returns:
         Sector-balanced selection.
     """
     parent_sectors = sector_labels.reindex(parent_universe).dropna()
@@ -197,7 +172,7 @@ def apply_sector_balance(
                 candidate_scores = (
                     scores.reindex(candidates).dropna().sort_values(ascending=False)
                 )
-                to_add = candidate_scores.index[: min_n - current_n]
+                to_add = cast(pd.Index, candidate_scores.index[: min_n - current_n])
                 if len(to_add) > 0:
                     result_set.update(to_add)
                     selected_sectors = sector_labels.reindex(
@@ -208,7 +183,9 @@ def apply_sector_balance(
             elif current_n > max_n:
                 sector_members = selected_sectors[selected_sectors == sector].index
                 sector_scores = scores.reindex(sector_members).dropna().sort_values()
-                to_remove = set(sector_scores.index[: current_n - max_n])
+                to_remove = set(
+                    cast(pd.Index, sector_scores.index[: current_n - max_n])
+                )
                 if to_remove:
                     result_set -= to_remove
                     selected_sectors = sector_labels.reindex(
@@ -240,18 +217,12 @@ def compute_selection_turnover(
 ) -> float:
     """Compute selection turnover as fraction of universe changed.
 
-    Parameters
-    ----------
-    current : pd.Index
-        Currently selected tickers.
-    new : pd.Index
-        Newly selected tickers.
-    universe : pd.Index
-        Full investable universe.
+    Args:
+        current: Currently selected tickers.
+        new: Newly selected tickers.
+        universe: Full investable universe.
 
-    Returns
-    -------
-    float
+    Returns:
         ``len(added | removed) / len(universe)``, or 0.0 if universe
         is empty.
     """
@@ -272,24 +243,15 @@ def select_stocks(
 ) -> pd.Index | tuple[pd.Index, float]:
     """Select stocks from scored universe.
 
-    Parameters
-    ----------
-    scores : pd.Series
-        Composite scores indexed by ticker.
-    config : SelectionConfig or None
-        Selection configuration.
-    current_members : pd.Index or None
-        Currently selected tickers for buffer/hysteresis.
-    sector_labels : pd.Series or None
-        Sector labels for sector balancing.
-    parent_universe : pd.Index or None
-        Full universe for sector weight targets.
-    return_turnover : bool
-        When ``True``, return ``(selected, turnover)`` tuple.
+    Args:
+        scores: Composite scores indexed by ticker.
+        config: Selection configuration.
+        current_members: Currently selected tickers for buffer/hysteresis.
+        sector_labels: Sector labels for sector balancing.
+        parent_universe: Full universe for sector weight targets.
+        return_turnover: When ``True``, return ``(selected, turnover)`` tuple.
 
-    Returns
-    -------
-    pd.Index or tuple[pd.Index, float]
+    Returns:
         Selected tickers, optionally with turnover.
     """
     if config is None:

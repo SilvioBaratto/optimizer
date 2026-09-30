@@ -20,7 +20,7 @@ Minor code   Major currency      Units / major   Market
 
 A naive FX conversion keyed on the currency code alone treats ``GBp`` prices
 (pence) as if they were GBP (pounds) and applies the GBP FX rate directly — a
-**100x error**.  :func:`normalize_currency_code` maps a (possibly minor) code
+**100x error**.  `normalize_currency_code` maps a (possibly minor) code
 to its ``(major_code, minor_units_per_major)`` pair so that a reader can divide
 prices by the scale *before* applying an FX rate quoted in the major unit.
 
@@ -39,7 +39,6 @@ _MINOR_UNIT_DEFS: tuple[tuple[tuple[str, ...], str, int], ...] = (
     (("ILA", "ILa"), "ILS", 100),  # agorot — Tel Aviv
 )
 
-# Public, verbatim registry: exact code (as stored) -> (major code, scale).
 MINOR_UNIT_SCALES: dict[str, tuple[str, int]] = {
     code: (major, scale) for codes, major, scale in _MINOR_UNIT_DEFS for code in codes
 }
@@ -59,31 +58,26 @@ _MINOR_UNIT_SCALES_CI: dict[str, tuple[str, int]] = {
 def normalize_currency_code(code: str) -> tuple[str, int]:
     """Resolve a (possibly minor-unit) currency code to major code + scale.
 
-    Parameters
-    ----------
-    code : str
-        A currency / price-unit code as stored in the DB, e.g. ``"USD"``,
-        ``"GBP"``, ``"GBp"`` (pence), ``"ZAc"`` (cents), ``"ILA"`` (agorot).
+    Args:
+        code: A currency / price-unit code as stored in the DB, e.g. ``"USD"``,
+            ``"GBP"``, ``"GBp"`` (pence), ``"ZAc"`` (cents), ``"ILA"`` (agorot).
 
-    Returns
-    -------
-    tuple[str, int]
+    Returns:
         ``(major_code, minor_units_per_major)``.  ``major_code`` is the
         upper-cased ISO code of the *major* unit; the scale is the number of
         minor units in one major unit (``100`` for pence/cents/agorot, ``1``
         for a code that is already a major unit).  Dividing a quoted price by
         the scale expresses it in the major unit.
 
-    Examples
-    --------
-    >>> normalize_currency_code("GBp")
-    ('GBP', 100)
-    >>> normalize_currency_code("GBP")
-    ('GBP', 1)
-    >>> normalize_currency_code("ZAc")
-    ('ZAR', 100)
-    >>> normalize_currency_code("usd")
-    ('USD', 1)
+    Examples:
+        >>> normalize_currency_code("GBp")
+        ('GBP', 100)
+        >>> normalize_currency_code("GBP")
+        ('GBP', 1)
+        >>> normalize_currency_code("ZAc")
+        ('ZAR', 100)
+        >>> normalize_currency_code("usd")
+        ('USD', 1)
     """
     raw = str(code).strip()
     # Case-sensitive exact match first (handles GBp/GBP ambiguity).

@@ -33,31 +33,20 @@ from optimizer.optimization._hierarchical_common import (
 
 @dataclass(frozen=True)
 class SchurComplementaryConfig:
-    """Immutable configuration for :class:`SchurComplementary`.
+    """Immutable configuration for `SchurComplementary`.
 
-    Parameters
-    ----------
-    gamma : float
-        HRP↔MVP interpolation parameter in :math:`[0, 1]`.
-        ``0.0`` recovers HRP, ``1.0`` recovers MVP, ``0.5`` is the
-        balanced skfolio default.
-    keep_monotonic : bool
-        Forwarded to skfolio; preserves monotonicity of risk
-        contributions across the dendrogram.
-    prior_config : MomentEstimationConfig or None
-        Inner prior configuration.
-    distance_config : DistanceConfig or None
-        Distance estimator configuration.
-    clustering_config : HierarchicalClusteringConfig or None
-        Hierarchical-clustering configuration.
-    min_weights : float
-        Lower bound on asset weights.
-    max_weights : float
-        Upper bound on asset weights.
-    transaction_costs : float
-        Linear transaction costs penalising turnover.
-    management_fees : float
-        Linear management fees proportional to position size.
+    Attributes:
+        gamma: HRP↔MVP interpolation parameter in [0, 1]. 0.0 recovers
+            HRP, 1.0 recovers MVP, 0.5 is the balanced skfolio default.
+        keep_monotonic: Forwarded to skfolio; preserves monotonicity of
+            risk contributions across the dendrogram.
+        prior_config: Inner prior configuration.
+        distance_config: Distance estimator configuration.
+        clustering_config: Hierarchical-clustering configuration.
+        min_weights: Lower bound on asset weights.
+        max_weights: Upper bound on asset weights.
+        transaction_costs: Linear transaction costs penalising turnover.
+        management_fees: Linear management fees proportional to position size.
     """
 
     gamma: float = 0.5
@@ -76,17 +65,17 @@ class SchurComplementaryConfig:
 
     @classmethod
     def for_hrp_anchor(cls) -> SchurComplementaryConfig:
-        """``gamma=0`` — recovers HRP exactly."""
+        """Return a config with gamma=0.0 to recover pure HRP."""
         return cls(gamma=0.0)
 
     @classmethod
     def for_mvp_anchor(cls) -> SchurComplementaryConfig:
-        """``gamma=1`` — recovers Minimum Variance Portfolio."""
+        """Return a config with gamma=1.0 to recover the Minimum Variance Portfolio."""
         return cls(gamma=1.0)
 
     @classmethod
     def for_balanced(cls) -> SchurComplementaryConfig:
-        """``gamma=0.5`` — balanced HRP/MVP interpolation (skfolio default)."""
+        """Return a config with gamma=0.5 (skfolio default) balancing HRP and MVP."""
         return cls(gamma=0.5)
 
 
@@ -96,21 +85,15 @@ def build_schur_complementary(
     prior_estimator: BasePrior | None = None,
     **kwargs: Any,
 ) -> SchurComplementary:
-    """Build a skfolio :class:`SchurComplementary` optimiser from *config*.
+    """Build a skfolio `SchurComplementary` optimiser from `config`.
 
-    Parameters
-    ----------
-    config : SchurComplementaryConfig or None
-        Configuration. ``None`` triggers default ``gamma=0.5``.
-    prior_estimator : BasePrior or None
-        Prior estimator. When ``None``, one is built from
-        ``config.prior_config`` (or skfolio default).
-    **kwargs
-        Additional kwargs forwarded to the wrapped optimizer.
+    Args:
+        config: Configuration. ``None`` triggers default ``gamma=0.5``.
+        prior_estimator: When ``None``, one is built from
+            ``config.prior_config`` (or the skfolio default).
+        **kwargs: Additional kwargs forwarded to the wrapped optimizer.
 
-    Returns
-    -------
-    SchurComplementary
+    Returns:
         A fitted-ready skfolio optimiser.
     """
     if config is None:

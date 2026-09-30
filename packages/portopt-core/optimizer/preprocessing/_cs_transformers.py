@@ -7,8 +7,8 @@ preprocessors for CSLinearRegression or factor signals. They preserve
 (T, N) shape and skip NaN per row.
 
 In addition to the raw skfolio re-exports this module ships the project's
-frozen-config + factory convention (:class:`CSTransformerConfig` +
-:func:`make_cs_transformer`) so a cross-sectional transformer can be selected
+frozen-config + factory convention (`CSTransformerConfig` +
+`make_cs_transformer`) so a cross-sectional transformer can be selected
 and configured from serialisable primitives — grid-searchable and round-trippable
 like every other optimizer sub-module.
 """
@@ -55,30 +55,22 @@ class CSTransformerConfig:
     """Frozen, serialisable config selecting one cross-sectional transformer.
 
     Only the fields relevant to the chosen ``transformer`` are consumed by
-    :func:`make_cs_transformer`; the rest are ignored, so a single config can
+    `make_cs_transformer`; the rest are ignored, so a single config can
     be reused across a grid of transformer types.
 
-    Parameters
-    ----------
-    transformer : CSTransformerType, default=STANDARD
-        Which cross-sectional transformer to build.
-    min_group_size : int, default=8
-        Minimum ``cs_groups`` size before falling back to the global
-        cross-section.  Used by STANDARD, GAUSSIAN_RANK, PERCENTILE_RANK.
-        Lower it for narrow universes (< ~30 assets).
-    atol : float, default=1e-12
-        Absolute tolerance for near-constant rows.  Used by STANDARD,
-        GAUSSIAN_RANK, TANH_SHRINKER.
-    scale : bool, default=True
-        GAUSSIAN_RANK only — rescale to unit std after the Gaussianising
-        transform.  Set ``False`` when a downstream model standardises.
-    low : float, default=0.01
-        WINSORIZER only — lower clip quantile (``0 <= low < high <= 1``).
-    high : float, default=0.99
-        WINSORIZER only — upper clip quantile.
-    knee : float, default=3.0
-        TANH_SHRINKER only — knee in robust-scale units; smaller compresses
-        more aggressively.
+    Attributes:
+        transformer: Which cross-sectional transformer to build.
+        min_group_size: Minimum ``cs_groups`` size before falling back to the
+            global cross-section. Used by STANDARD, GAUSSIAN_RANK,
+            PERCENTILE_RANK. Lower it for narrow universes (< ~30 assets).
+        atol: Absolute tolerance for near-constant rows. Used by STANDARD,
+            GAUSSIAN_RANK, TANH_SHRINKER.
+        scale: GAUSSIAN_RANK only — rescale to unit std after the Gaussianising
+            transform. Set ``False`` when a downstream model standardises.
+        low: WINSORIZER only — lower clip quantile (``0 <= low < high <= 1``).
+        high: WINSORIZER only — upper clip quantile.
+        knee: TANH_SHRINKER only — knee in robust-scale units; smaller
+            compresses more aggressively.
     """
 
     transformer: CSTransformerType = CSTransformerType.STANDARD
@@ -93,15 +85,11 @@ class CSTransformerConfig:
 def make_cs_transformer(config: CSTransformerConfig | None = None) -> BaseCSTransformer:
     """Build a skfolio cross-sectional transformer from a serialisable config.
 
-    Parameters
-    ----------
-    config : CSTransformerConfig or None, default=None
-        Selection + hyper-parameters.  ``None`` builds a default
-        :class:`CSStandardScaler`.
+    Args:
+        config: Selection + hyper-parameters. ``None`` builds a default
+            `CSStandardScaler`.
 
-    Returns
-    -------
-    BaseCSTransformer
+    Returns:
         A fitted-ready cross-sectional transformer.
     """
     cfg = config or CSTransformerConfig()

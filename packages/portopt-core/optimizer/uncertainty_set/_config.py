@@ -1,8 +1,8 @@
 """Configuration for skfolio uncertainty-set estimators.
 
 Two parallel Configs (mu, covariance) carry the same field surface and
-dispatch to the matching skfolio class via :class:`MuUncertaintySetType`
-and :class:`CovarianceUncertaintySetType` enums.
+dispatch to the matching skfolio class via `MuUncertaintySetType`
+and `CovarianceUncertaintySetType` enums.
 
 Three variants are supported per side:
 
@@ -79,23 +79,20 @@ def _validate_shared_fields(
 ) -> None:
     """Reject kind-specific fields set on the wrong variant.
 
-    Parameters
-    ----------
-    is_empirical, is_bootstrap, is_orthogonal : bool
-        Exactly one is ``True`` — the selected variant.
-    n_bootstrap_samples : int
-        Bootstrap sample count; default ``1000``. Bootstrap-only.
-    block_size : float or None
-        Politis-White block size; ``None`` triggers auto. Bootstrap-only.
-    random_state : int or None
-        Bootstrap RNG seed. Bootstrap-only.
-    n_eff : float or None
-        Effective number of observations. Empirical-only.
-    diagonal : bool
-        Whether the set is diagonal (box) rather than a full ellipsoid.
-        Empirical / bootstrap only.
-    cs_weighting : CrossSectionalWeighting
-        Orthogonality metric. Orthogonal-only.
+    Args:
+        is_empirical: True when the selected variant is EMPIRICAL.
+        is_bootstrap: True when the selected variant is BOOTSTRAP.
+        is_orthogonal: True when the selected variant is ORTHOGONAL.
+        n_bootstrap_samples: Bootstrap sample count; default ``1000``. Bootstrap-only.
+        block_size: Politis-White block size; ``None`` triggers auto. Bootstrap-only.
+        random_state: Bootstrap RNG seed. Bootstrap-only.
+        n_eff: Effective number of observations. Empirical-only.
+        diagonal: Whether the set is diagonal (box) rather than a full ellipsoid.
+            Empirical / bootstrap only.
+        cs_weighting: Orthogonality metric. Orthogonal-only.
+
+    Raises:
+        ConfigurationError: When a kind-specific field is set for the wrong variant.
     """
     if not is_bootstrap:
         if n_bootstrap_samples != 1000:
@@ -120,32 +117,21 @@ def _validate_shared_fields(
 class MuUncertaintySetConfig:
     """Immutable configuration for a mu uncertainty-set estimator.
 
-    Parameters
-    ----------
-    kind : MuUncertaintySetType
-        Empirical, bootstrap, or orthogonal uncertainty set.
-    confidence_level : float
-        Confidence ball level in :math:`(0, 1)`. Default ``0.95``. Used by
-        every variant (the orthogonal set converts it to a chi-squared
-        radius).
-    diagonal : bool
-        Whether the empirical/bootstrap set is diagonal (box, ``True``,
-        default) or a full ellipsoid (``False``). Empirical/bootstrap only.
-    n_eff : float or None
-        Effective number of observations overriding the sample count in the
-        empirical confidence radius. Empirical-only.
-    n_bootstrap_samples : int
-        Stationary bootstrap sample count. Bootstrap-only.
-    block_size : float or None
-        Stationary bootstrap mean block size; ``None`` defaults to the
-        Politis-White rule of thumb. Bootstrap-only.
-    random_state : int or None
-        RNG seed for the stationary bootstrap. Bootstrap-only. Mapped to
-        ``seed`` when forwarded to skfolio.
-    cs_weighting : CrossSectionalWeighting
-        Cross-sectional orthogonality metric. Orthogonal-only.
-    uncertainty_shape : OrthogonalUncertaintyShape
-        Shape used inside the orthogonal subspace. Orthogonal-only.
+    Attributes:
+        kind: Empirical, bootstrap, or orthogonal uncertainty set.
+        confidence_level: Confidence ball level in (0, 1). Default ``0.95``. Used by
+            every variant (the orthogonal set converts it to a chi-squared radius).
+        diagonal: Whether the empirical/bootstrap set is diagonal (box, ``True``,
+            default) or a full ellipsoid (``False``). Empirical/bootstrap only.
+        n_eff: Effective number of observations overriding the sample count in the
+            empirical confidence radius. Empirical-only.
+        n_bootstrap_samples: Stationary bootstrap sample count. Bootstrap-only.
+        block_size: Stationary bootstrap mean block size; ``None`` defaults to the
+            Politis-White rule of thumb. Bootstrap-only.
+        random_state: RNG seed for the stationary bootstrap. Bootstrap-only. Mapped to
+            ``seed`` when forwarded to skfolio.
+        cs_weighting: Cross-sectional orthogonality metric. Orthogonal-only.
+        uncertainty_shape: Shape used inside the orthogonal subspace. Orthogonal-only.
     """
 
     kind: MuUncertaintySetType = MuUncertaintySetType.EMPIRICAL
@@ -235,33 +221,23 @@ class MuUncertaintySetConfig:
 class CovarianceUncertaintySetConfig:
     """Immutable configuration for a covariance uncertainty-set estimator.
 
-    Parameters
-    ----------
-    kind : CovarianceUncertaintySetType
-        Empirical, bootstrap, or orthogonal uncertainty set.
-    confidence_level : float
-        Confidence ball level in :math:`(0, 1)`. Default ``0.95``. Used by
-        the empirical and bootstrap variants; the orthogonal covariance set
-        is parameterised by ``radius`` instead.
-    diagonal : bool
-        Whether the empirical/bootstrap set is diagonal (box, ``True``,
-        default) or a full ellipsoid (``False``). Empirical/bootstrap only.
-    n_eff : float or None
-        Effective number of observations overriding the sample count in the
-        empirical confidence radius. Empirical-only.
-    n_bootstrap_samples : int
-        Stationary bootstrap sample count. Bootstrap-only.
-    block_size : float or None
-        Stationary bootstrap mean block size; ``None`` defaults to the
-        Politis-White rule of thumb. Bootstrap-only.
-    random_state : int or None
-        RNG seed for the stationary bootstrap. Bootstrap-only. Mapped to
-        ``seed`` when forwarded to skfolio.
-    cs_weighting : CrossSectionalWeighting
-        Cross-sectional orthogonality metric. Orthogonal-only.
-    radius : float
-        Radius :math:`\\kappa` of the orthogonal covariance ball.
-        Orthogonal-only. Default ``1.0``.
+    Attributes:
+        kind: Empirical, bootstrap, or orthogonal uncertainty set.
+        confidence_level: Confidence ball level in (0, 1). Default ``0.95``. Used by
+            the empirical and bootstrap variants; the orthogonal covariance set is
+            parameterised by ``radius`` instead.
+        diagonal: Whether the empirical/bootstrap set is diagonal (box, ``True``,
+            default) or a full ellipsoid (``False``). Empirical/bootstrap only.
+        n_eff: Effective number of observations overriding the sample count in the
+            empirical confidence radius. Empirical-only.
+        n_bootstrap_samples: Stationary bootstrap sample count. Bootstrap-only.
+        block_size: Stationary bootstrap mean block size; ``None`` defaults to the
+            Politis-White rule of thumb. Bootstrap-only.
+        random_state: RNG seed for the stationary bootstrap. Bootstrap-only. Mapped to
+            ``seed`` when forwarded to skfolio.
+        cs_weighting: Cross-sectional orthogonality metric. Orthogonal-only.
+        radius: Radius of the orthogonal covariance ball. Orthogonal-only. Defaults
+            to ``1.0``.
     """
 
     kind: CovarianceUncertaintySetType = CovarianceUncertaintySetType.EMPIRICAL

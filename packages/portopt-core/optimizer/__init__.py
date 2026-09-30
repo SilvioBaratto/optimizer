@@ -1,7 +1,7 @@
 """Portfolio optimization library built on skfolio and scikit-learn.
 
-Modules
--------
+Submodules:
+
 universe
     Investability screening with hysteresis-based entry/exit
     thresholds for market cap, liquidity, price, and data availability.
@@ -67,11 +67,9 @@ from importlib.metadata import version as _pkg_version
 
 logging.getLogger("optimizer").addHandler(logging.NullHandler())
 
-# Public API: the shared exception hierarchy plus a curated set of top-level
-# convenience re-exports for the public symbols added during the skfolio 1.0.6
-# hardening (the "expansions").  Every re-exported symbol also remains reachable
-# via its owning submodule (``optimizer.<module>``); these re-exports are purely
-# additive and do not change the submodule-access surface.
+# Top-level convenience re-exports for the public API; every symbol is also
+# reachable via its owning submodule (``optimizer.<module>``). Purely additive —
+# does not alter the submodule-access surface.
 from optimizer.distance import NBinsMethod
 from optimizer.exceptions import (
     ConfigurationError,

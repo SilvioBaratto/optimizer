@@ -100,18 +100,14 @@ def _build_ir_scorer(
       active return  = portfolio return - benchmark return (per period)
       tracking error = std(active returns, ddof=1) x sqrt(annualization_factor)
 
-    Parameters
-    ----------
-    benchmark_returns : pd.Series
-        Full benchmark return series indexed by date.  The scorer
-        aligns on ``portfolio.observations`` before computing active
-        returns.
-    annualization_factor : float
-        Number of periods per year used to annualise the ratio.
+    Args:
+        benchmark_returns: Full benchmark return series indexed by date.
+            The scorer aligns on ``portfolio.observations`` before computing
+            active returns.
+        annualization_factor: Number of periods per year used to annualise
+            the ratio.
 
-    Returns
-    -------
-    callable
+    Returns:
         A scorer accepting a skfolio ``Portfolio`` and returning the
         annualised IR as a float.
     """
@@ -185,32 +181,25 @@ def build_scorer(
 ) -> Callable[..., float]:
     """Build a scoring callable compatible with sklearn cross-validation.
 
-    Parameters
-    ----------
-    config : ScorerConfig or None
-        Scorer configuration.  Defaults to ``ScorerConfig()``
-        (Sharpe ratio).
-    score_func : callable or None
-        Custom scoring function that accepts a portfolio and returns
-        a scalar.  Required when no measure family is selected (all of
-        ``ratio_measure`` / ``perf_measure`` / ``risk_measure`` are
-        ``None``).
-    benchmark_returns : pd.Series or None
-        Full benchmark return series indexed by date.  Required when
-        ``config.ratio_measure`` is
-        ``RatioMeasureType.INFORMATION_RATIO``; ignored otherwise.
+    Args:
+        config: Scorer configuration. Defaults to ``ScorerConfig()``
+            (Sharpe ratio).
+        score_func: Custom scoring function that accepts a portfolio and
+            returns a scalar. Required when no measure family is selected
+            (all of ``ratio_measure`` / ``perf_measure`` / ``risk_measure``
+            are ``None``).
+        benchmark_returns: Full benchmark return series indexed by date.
+            Required when ``config.ratio_measure`` is
+            ``RatioMeasureType.INFORMATION_RATIO``; ignored otherwise.
 
-    Returns
-    -------
-    callable
+    Returns:
         A scorer callable compatible with ``GridSearchCV`` and
         ``RandomizedSearchCV``.
 
-    Raises
-    ------
-    ConfigurationError
-        If no measure family is selected and no ``score_func`` is provided,
-        or if the Information Ratio is requested without ``benchmark_returns``.
+    Raises:
+        ConfigurationError: If no measure family is selected and no
+            ``score_func`` is provided, or if the Information Ratio is
+            requested without ``benchmark_returns``.
     """
     if config is None:
         config = ScorerConfig()
@@ -266,17 +255,19 @@ def build_online_measure(
     """Return the bare skfolio measure for online model selection.
 
     ``OnlineGridSearch`` / ``online_score`` score the aggregated
-    :class:`~skfolio.portfolio.MultiPeriodPortfolio` and therefore expect a
-    :ref:`measure <measures_ref>` passed directly to ``scoring`` -- **not** a
+    `MultiPeriodPortfolio` and therefore expect a
+    `measure` passed directly to ``scoring`` -- not a
     ``make_scorer`` wrapper (which averages per-fold scores).  This helper
-    resolves a :class:`ScorerConfig` to that measure.
+    resolves a `ScorerConfig` to that measure.
 
-    Raises
-    ------
-    ConfigurationError
-        For the custom Information Ratio scorer or a custom ``score_func``
-        config -- neither maps onto a native skfolio measure and so cannot be
-        used with the online utilities.
+    Args:
+        config: Scorer configuration. Defaults to ``ScorerConfig()``
+            (Sharpe ratio).
+
+    Raises:
+        ConfigurationError: For the custom Information Ratio scorer or a
+            custom ``score_func`` config -- neither maps onto a native skfolio
+            measure and so cannot be used with the online utilities.
     """
     if config is None:
         config = ScorerConfig()

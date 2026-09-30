@@ -14,21 +14,16 @@ def build_fx_converter(
     fx_rates: pd.DataFrame,
     currency_map: dict[str, str],
 ) -> FxPriceConverter:
-    """Build a ready-to-use :class:`FxPriceConverter` from config.
+    """Build a ready-to-use FxPriceConverter from config.
 
-    Parameters
-    ----------
-    config : FxConfig
-        FX conversion configuration.
-    fx_rates : pd.DataFrame
-        Pre-loaded FX rate DataFrame (dates x currencies).  Each
-        column holds units-of-base per one unit-of-foreign.
-    currency_map : dict[str, str]
-        Ticker → ISO currency code mapping.
+    Args:
+        config: FX conversion settings (base currency, fill limit, coverage policy).
+        fx_rates: Pre-loaded rate DataFrame (dates × currency columns).  Each
+            column holds units-of-base per one unit-of-foreign.
+        currency_map: Ticker-to-ISO-currency-code mapping used to look up each
+            asset's denomination.
 
-    Returns
-    -------
-    FxPriceConverter
+    Returns:
         Configured converter ready for ``fit()`` / ``transform()``.
     """
     return FxPriceConverter(

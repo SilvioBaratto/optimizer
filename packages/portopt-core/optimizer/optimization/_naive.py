@@ -17,14 +17,10 @@ from skfolio.prior._base import BasePrior
 from optimizer.moments._config import MomentEstimationConfig
 from optimizer.moments._factory import build_prior
 
-# ---------------------------------------------------------------------------
-# Configs
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class EqualWeightedConfig:
-    """Immutable configuration for :class:`EqualWeighted`.
+    """Immutable configuration for `EqualWeighted`.
 
     The optimizer has no tunable parameters; this Config exists only
     to keep the build pattern uniform across the optimization module.
@@ -33,19 +29,16 @@ class EqualWeightedConfig:
 
 @dataclass(frozen=True)
 class InverseVolatilityConfig:
-    """Immutable configuration for :class:`InverseVolatility`.
+    """Immutable configuration for `InverseVolatility`.
 
-    Parameters
-    ----------
-    prior_config : MomentEstimationConfig or None
-        Inner prior configuration. ``None`` defers to skfolio default
-        (``EmpiricalPrior`` with ``EmpiricalCovariance``).
-    ew_half_life : float or None
-        When set, the factory composes
-        ``EmpiricalPrior(covariance_estimator=EWCovariance(half_life=...))``
-        and passes it as ``prior_estimator`` (non-serialisable).
-        Mutually exclusive with ``prior_config`` — populated via
-        :meth:`for_ew_covariance`.
+    Attributes:
+        prior_config: Inner prior configuration. ``None`` defers to skfolio
+            default (``EmpiricalPrior`` with ``EmpiricalCovariance``).
+        ew_half_life: When set, the factory composes
+            ``EmpiricalPrior(covariance_estimator=EWCovariance(half_life=...))``
+            and passes it as ``prior_estimator`` (non-serialisable).
+            Mutually exclusive with ``prior_config`` — populated via
+            `for_ew_covariance`.
     """
 
     prior_config: MomentEstimationConfig | None = None
@@ -64,20 +57,16 @@ class InverseVolatilityConfig:
 
 @dataclass(frozen=True)
 class RandomConfig:
-    """Immutable configuration for :class:`Random`.
+    """Immutable configuration for `Random`.
 
-    Note: ``skfolio.optimization.Random`` (1.0.6) draws a single
-    portfolio from a Dirichlet distribution and has NO ``n_portfolios``
-    or ``random_state`` constructor parameter. The fields below are
-    reserved for forward compatibility and currently have no runtime
-    effect.
+    ``skfolio.optimization.Random`` draws a single portfolio from a Dirichlet
+    distribution and has no ``n_portfolios`` or ``random_state`` constructor
+    parameter. Fields below are reserved for forward compatibility and have
+    no runtime effect.
 
-    Parameters
-    ----------
-    n_portfolios : int
-        Reserved sample-count field. Default ``100`` per spec.
-    random_state : int or None
-        Reserved RNG seed. Default ``None``.
+    Attributes:
+        n_portfolios: Reserved sample-count field.
+        random_state: Reserved RNG seed.
     """
 
     n_portfolios: int = 100
@@ -93,16 +82,11 @@ class RandomConfig:
         return cls(n_portfolios=n_portfolios, random_state=random_state)
 
 
-# ---------------------------------------------------------------------------
-# Factories
-# ---------------------------------------------------------------------------
-
-
 def build_equal_weighted(
     config: EqualWeightedConfig | None = None,
     **kwargs: Any,
 ) -> EqualWeighted:
-    """Build a skfolio :class:`EqualWeighted` from *config*."""
+    """Build a skfolio `EqualWeighted` from *config*."""
     _ = config
     return EqualWeighted(**kwargs)
 
@@ -113,7 +97,7 @@ def build_inverse_volatility(
     prior_estimator: BasePrior | None = None,
     **kwargs: Any,
 ) -> InverseVolatility:
-    """Build a skfolio :class:`InverseVolatility` from *config*.
+    """Build a skfolio `InverseVolatility` from *config*.
 
     When ``config.ew_half_life`` is set, an
     ``EmpiricalPrior(EWCovariance(half_life=...))`` is composed at
@@ -130,7 +114,7 @@ def build_inverse_volatility(
 def _resolve_inverse_volatility_prior(
     config: InverseVolatilityConfig,
 ) -> BasePrior | None:
-    """Compose the inner prior for :class:`InverseVolatility`."""
+    """Compose the inner prior for `InverseVolatility`."""
     if config.ew_half_life is not None:
         return EmpiricalPrior(
             covariance_estimator=EWCovariance(half_life=config.ew_half_life)
@@ -144,7 +128,7 @@ def build_random(
     config: RandomConfig | None = None,
     **kwargs: Any,
 ) -> Random:
-    """Build a skfolio :class:`Random` from *config*.
+    """Build a skfolio `Random` from *config*.
 
     Note: ``n_portfolios`` and ``random_state`` Config fields are
     reserved — skfolio 1.0.6 does NOT accept these as constructor

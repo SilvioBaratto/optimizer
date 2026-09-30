@@ -26,7 +26,9 @@ from optimizer.preprocessing._validation import DataValidator
 logger = logging.getLogger(__name__)
 
 # Serialisable SelectKMeasure -> concrete skfolio measure enum member.
-_SELECT_K_MEASURE_MAP: dict[SelectKMeasure, object] = {
+_SELECT_K_MEASURE_MAP: dict[
+    SelectKMeasure, PerfMeasure | RatioMeasure | RiskMeasure
+] = {
     SelectKMeasure.SHARPE_RATIO: RatioMeasure.SHARPE_RATIO,
     SelectKMeasure.SORTINO_RATIO: RatioMeasure.SORTINO_RATIO,
     SelectKMeasure.CALMAR_RATIO: RatioMeasure.CALMAR_RATIO,
@@ -48,7 +50,7 @@ def build_preselection_pipeline(
 ) -> Pipeline:
     """Build an sklearn Pipeline for data cleaning and asset pre-selection.
 
-    The pipeline is assembled from *config* and follows this order::
+    The pipeline is assembled from `config` and follows this order::
 
         validate → outliers → SelectComplete → impute → DropZeroVariance
         → DropCorrelated → [SelectKExtremes] → [SelectNonDominated]
@@ -69,31 +71,28 @@ def build_preselection_pipeline(
     ``pipeline.get_params()`` for cross-validation tuning (e.g.
     ``outliers__winsorize_threshold``).
 
-    Parameters
-    ----------
-    config : PreSelectionConfig or None
-        Pipeline configuration.  Defaults to ``PreSelectionConfig()``
-        (sensible defaults for daily equity returns).
-    sector_mapping : dict[str, str] or None
-        Ticker → sector mapping forwarded to :class:`SectorImputer`.
-        When ``None``, global cross-sectional mean imputation is used.
-    expiration_dates : dict[str, datetime.datetime] or None
-        Ticker → expiration date, forwarded to :class:`SelectNonExpiring`
-        (non-serialisable, so a factory keyword rather than a config field).
-        Only used when ``config.use_non_expiring`` is set with a positive
-        ``expiration_lookahead``.  Without it, ``SelectNonExpiring`` has no
-        expiry information and retains every asset.
-    outlier_protection_mask : pd.DataFrame or None
-        Boolean matrix (dates x tickers) forwarded to :class:`OutlierTreater`
-        as ``protected_mask``.  Flags cells that are real economic events (e.g.
-        a delisted asset's terminal return) so the outlier stage does not remove
-        or winsorise them.  Data-dependent, hence a factory keyword rather than
-        a config field.  ``None`` (default) protects nothing.  Produced by
-        :func:`optimizer.preprocessing._delisting.delisting_protection_mask`.
+    Args:
+        config: Pipeline configuration.  Defaults to ``PreSelectionConfig()``
+            (sensible defaults for daily equity returns).
+        sector_mapping: Ticker → sector mapping forwarded to
+            `SectorImputer`.  When ``None``, global cross-sectional
+            mean imputation is used.
+        expiration_dates: Ticker → expiration date, forwarded to
+            `SelectNonExpiring` (non-serialisable, so a factory keyword
+            rather than a config field).  Only used when
+            ``config.use_non_expiring`` is set with a positive
+            ``expiration_lookahead``.  Without it, ``SelectNonExpiring`` has no
+            expiry information and retains every asset.
+        outlier_protection_mask: Boolean matrix (dates x tickers) forwarded to
+            `OutlierTreater` as ``protected_mask``.  Flags cells that
+            are real economic events (e.g. a delisted asset's terminal return)
+            so the outlier stage does not remove or winsorise them.
+            Data-dependent, hence a factory keyword rather than a config field.
+            ``None`` (default) protects nothing.  Produced by
+            `delisting_protection_mask`.
 
-    Returns
-    -------
-    sklearn.pipeline.Pipeline
+    Returns:
+        Assembled sklearn Pipeline with output set to pandas.
     """
     if config is None:
         config = PreSelectionConfig()
@@ -197,43 +196,36 @@ def build_portfolio_pipeline(
     and hyperparameter tuning.  Pre-selection is performed *within*
     each CV fold, preventing data leakage.
 
-    Parameters
-    ----------
-    optimizer : BaseOptimization
-        A skfolio optimiser (e.g. from ``build_mean_risk()``)
-        used as the final pipeline estimator.
-    pre_selection_config : PreSelectionConfig or None
-        Pre-selection configuration.  ``None`` uses default settings.
-    sector_mapping : dict[str, str] or None
-        Ticker → sector mapping for :class:`SectorImputer`.
-    expiration_dates : dict[str, datetime.datetime] or None
-        Ticker → expiration date, forwarded to the pre-selection pipeline's
-        ``SelectNonExpiring`` step (non-serialisable, hence a factory keyword
-        rather than a config field).  Only takes effect when the pre-selection
-        config sets ``use_non_expiring`` with a positive
-        ``expiration_lookahead``; ``None`` (default) retains every asset.
-    outlier_protection_mask : pd.DataFrame or None
-        Boolean matrix (dates x tickers) forwarded to the pre-selection
-        ``OutlierTreater`` so genuine economic events (e.g. delisting returns)
-        are exempt from outlier removal/winsorisation.  ``None`` (default)
-        protects nothing.
+    Args:
+        optimizer: A skfolio optimiser (e.g. from ``build_mean_risk()``)
+            used as the final pipeline estimator.
+        pre_selection_config: Pre-selection configuration.  ``None`` uses
+            default settings.
+        sector_mapping: Ticker → sector mapping for `SectorImputer`.
+        expiration_dates: Ticker → expiration date, forwarded to the
+            pre-selection pipeline's ``SelectNonExpiring`` step
+            (non-serialisable, hence a factory keyword rather than a config
+            field).  Only takes effect when the pre-selection config sets
+            ``use_non_expiring`` with a positive ``expiration_lookahead``;
+            ``None`` (default) retains every asset.
+        outlier_protection_mask: Boolean matrix (dates x tickers) forwarded
+            to the pre-selection ``OutlierTreater`` so genuine economic events
+            (e.g. delisting returns) are exempt from outlier
+            removal/winsorisation.  ``None`` (default) protects nothing.
 
-    Returns
-    -------
-    sklearn.pipeline.Pipeline
+    Returns:
         A fitted-ready pipeline whose ``fit(X)`` cleans and filters
         returns then optimises, and whose ``predict(X)`` produces
         a skfolio ``Portfolio``.
 
-    Examples
-    --------
-    >>> from optimizer.optimization import MeanRiskConfig, build_mean_risk
-    >>> from optimizer.pre_selection import build_portfolio_pipeline
-    >>> optimizer = build_mean_risk(MeanRiskConfig.for_max_sharpe())
-    >>> pipeline = build_portfolio_pipeline(optimizer)
-    >>> pipeline.fit(X)            # X = returns DataFrame
-    >>> portfolio = pipeline.predict(X)
-    >>> print(portfolio.sharpe_ratio)
+    Examples:
+        >>> from optimizer.optimization import MeanRiskConfig, build_mean_risk
+        >>> from optimizer.pre_selection import build_portfolio_pipeline
+        >>> optimizer = build_mean_risk(MeanRiskConfig.for_max_sharpe())
+        >>> pipeline = build_portfolio_pipeline(optimizer)
+        >>> pipeline.fit(X)
+        >>> portfolio = pipeline.predict(X)
+        >>> print(portfolio.sharpe_ratio)
     """
     preselection = build_preselection_pipeline(
         config=pre_selection_config,

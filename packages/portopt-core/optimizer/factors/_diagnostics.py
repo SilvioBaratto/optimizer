@@ -22,18 +22,14 @@ logger = logging.getLogger(__name__)
 class FactorPCAResult:
     """Principal component analysis result for a factor score matrix.
 
-    Attributes
-    ----------
-    explained_variance_ratio : ndarray, shape (n_components,)
-        Fraction of variance explained by each principal component,
-        sorted in descending order.
-    loadings : pd.DataFrame, shape (n_factors, n_components)
-        PCA loading matrix.  Rows are factor names; columns are
-        ``PC1``, ``PC2``, ... .  Each column is a unit eigenvector of
-        the correlation matrix of the factor scores.
-    n_components_95pct : int
-        Smallest number of components whose cumulative explained
-        variance ratio is ≥ 0.95.
+    Attributes:
+        explained_variance_ratio: Fraction of variance explained by each principal
+            component, sorted in descending order.
+        loadings: PCA loading matrix. Rows are factor names; columns are
+            ``PC1``, ``PC2``, ... . Each column is a unit eigenvector of
+            the correlation matrix of the factor scores.
+        n_components_95pct: Smallest number of components whose cumulative explained
+            variance ratio is ≥ 0.95.
     """
 
     explained_variance_ratio: npt.NDArray[np.float64]
@@ -47,30 +43,23 @@ def compute_factor_pca(
 ) -> FactorPCAResult:
     """Compute PCA on a cross-sectional factor score matrix.
 
-    Rows with any NaN are dropped before fitting.  Scores are
+    Rows with any NaN are dropped before fitting. Scores are
     standardised (zero mean, unit variance per factor) so that PCA
     operates on the correlation structure rather than the covariance
     structure.
 
-    Parameters
-    ----------
-    scores : pd.DataFrame
-        Tickers × factors matrix of factor scores.  Columns are factor
-        names; rows are asset observations.
-    n_components : int or None, default None
-        Number of principal components to retain.  ``None`` keeps all
-        components (min(n_samples, n_features)).
+    Args:
+        scores: Tickers × factors matrix of factor scores. Columns are factor
+            names; rows are asset observations.
+        n_components: Number of principal components to retain. ``None`` keeps all
+            components (min(n_samples, n_features)).
 
-    Returns
-    -------
-    FactorPCAResult
-        See :class:`FactorPCAResult` for field descriptions.
+    Returns:
+        See ``FactorPCAResult`` for field descriptions.
 
-    Raises
-    ------
-    ValueError
-        If fewer than 2 factors or fewer than 2 observations are
-        available after dropping NaN rows.
+    Raises:
+        DataError: If fewer than 2 factors or fewer than 2 observations are
+            available after dropping NaN rows.
     """
     if scores.shape[1] < 2:
         raise DataError(
@@ -119,33 +108,25 @@ def flag_redundant_factors(
     scores: pd.DataFrame,
     vif_threshold: float = 10.0,
 ) -> list[str]:
-    """Return factor names whose VIF exceeds *vif_threshold*.
+    """Return factor names whose VIF exceeds ``vif_threshold``.
 
     A VIF above the threshold indicates that the factor's variance is
     largely explained by the remaining factors, making it a candidate
     for merging or removal from the composite score.
 
-    Parameters
-    ----------
-    scores : pd.DataFrame
-        Tickers × factors matrix of factor scores.  Must contain at
-        least 2 factor columns.
-    vif_threshold : float, default 10.0
-        VIF cutoff above which a factor is considered redundant.
-        Commonly used values: 5 (conservative) or 10 (standard).
+    Args:
+        scores: Tickers × factors matrix of factor scores. Must contain at
+            least 2 factor columns.
+        vif_threshold: VIF cutoff above which a factor is considered redundant.
+            Commonly used values: 5 (conservative) or 10 (standard).
 
-    Returns
-    -------
-    list[str]
-        Factor names with ``VIF > vif_threshold``, in the order they
-        appear in ``scores.columns``.  Empty list if none exceed the
-        threshold.
+    Returns:
+        Factor names with VIF > ``vif_threshold``, in the order they appear in
+        ``scores.columns``. Empty list if none exceed the threshold.
 
-    Raises
-    ------
-    ValueError
-        Propagated from :func:`compute_vif` if fewer than 2 factors
-        are provided.
+    Raises:
+        ValueError: Propagated from ``compute_vif`` if fewer than 2 factors
+            are provided.
     """
     vif = compute_vif(scores)
     return [str(name) for name, val in vif.items() if val > vif_threshold]
@@ -159,23 +140,16 @@ def check_survivorship_bias(
     """Check for potential survivorship bias in a return panel.
 
     Survivorship bias occurs when delisted or failed assets are excluded
-    from the sample.  A simple heuristic: if **no** asset has near-zero
-    returns in the final ``final_periods`` rows (i.e., no asset appears
-    to have stopped trading), the panel may suffer from survivorship
-    bias.
+    from the sample. A simple heuristic: if no asset has near-zero returns
+    in the final ``final_periods`` rows (i.e., no asset appears to have
+    stopped trading), the panel may suffer from survivorship bias.
 
-    Parameters
-    ----------
-    returns : pd.DataFrame
-        Dates × assets return matrix.
-    final_periods : int
-        Number of trailing periods to inspect.
-    zero_threshold : float
-        Absolute threshold below which a return is considered "zero".
+    Args:
+        returns: Dates × assets return matrix.
+        final_periods: Number of trailing periods to inspect.
+        zero_threshold: Absolute threshold below which a return is considered "zero".
 
-    Returns
-    -------
-    bool
+    Returns:
         ``True`` if survivorship bias is suspected, ``False`` otherwise.
     """
     if len(returns) < final_periods:

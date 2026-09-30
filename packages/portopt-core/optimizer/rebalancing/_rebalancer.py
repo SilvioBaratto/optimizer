@@ -50,19 +50,14 @@ def compute_drifted_weights(
 ) -> npt.NDArray[np.float64]:
     """Compute portfolio weights after one period of returns.
 
-    Parameters
-    ----------
-    weights : ndarray, shape (n_assets,)
-        Current portfolio weights (must sum to 1).
-    returns : ndarray, shape (n_assets,)
-        Single-period asset returns.
+    Args:
+        weights: Current portfolio weights (must sum to 1), shape (n_assets,).
+        returns: Single-period asset returns, shape (n_assets,).
 
-    Returns
-    -------
-    ndarray, shape (n_assets,)
-        Drifted weights after applying returns.  If the post-drift portfolio
-        value is zero or non-finite the raw grown weights are returned
-        unnormalised.
+    Returns:
+        Drifted weights after applying returns, shape (n_assets,). If the
+        post-drift portfolio value is zero or non-finite the raw grown weights
+        are returned unnormalised.
     """
     w = _as_1d("weights", weights)
     r = _as_1d("returns", returns)
@@ -80,16 +75,11 @@ def compute_turnover(
 ) -> float:
     """Compute one-way turnover between current and target weights.
 
-    Parameters
-    ----------
-    current_weights : ndarray, shape (n_assets,)
-        Current portfolio weights.
-    target_weights : ndarray, shape (n_assets,)
-        Target portfolio weights.
+    Args:
+        current_weights: Current portfolio weights, shape (n_assets,).
+        target_weights: Target portfolio weights, shape (n_assets,).
 
-    Returns
-    -------
-    float
+    Returns:
         One-way turnover (sum of absolute weight changes / 2).
     """
     cur = _as_1d("current_weights", current_weights)
@@ -105,19 +95,13 @@ def compute_rebalancing_cost(
 ) -> float:
     """Compute the total transaction cost of rebalancing.
 
-    Parameters
-    ----------
-    current_weights : ndarray, shape (n_assets,)
-        Current portfolio weights.
-    target_weights : ndarray, shape (n_assets,)
-        Target portfolio weights.
-    transaction_costs : float or ndarray
-        Per-unit transaction cost (scalar for uniform costs,
-        array for asset-specific costs).
+    Args:
+        current_weights: Current portfolio weights, shape (n_assets,).
+        target_weights: Target portfolio weights, shape (n_assets,).
+        transaction_costs: Per-unit transaction cost; scalar for uniform costs
+            or array for asset-specific costs.
 
-    Returns
-    -------
-    float
+    Returns:
         Total rebalancing cost as a fraction of portfolio value.
     """
     cur = _as_1d("current_weights", current_weights)
@@ -142,26 +126,21 @@ def drift_breach_mask(
     target_weights: npt.ArrayLike,
     config: ThresholdRebalancingConfig | None = None,
 ) -> npt.NDArray[np.bool_]:
-    """Per-asset boolean mask of which positions breach the drift threshold.
+    """Return a per-asset boolean mask of which positions breach the drift threshold.
 
-    Parameters
-    ----------
-    current_weights : ndarray, shape (n_assets,)
-        Current (drifted) portfolio weights.
-    target_weights : ndarray, shape (n_assets,)
-        Target portfolio weights from the optimiser.
-    config : ThresholdRebalancingConfig or None
-        Threshold configuration.  Defaults to absolute 5pp threshold.
+    Args:
+        current_weights: Current (drifted) portfolio weights, shape (n_assets,).
+        target_weights: Target portfolio weights from the optimiser, shape
+            (n_assets,).
+        config: Threshold configuration. Defaults to absolute 5pp threshold.
 
-    Returns
-    -------
-    ndarray of bool, shape (n_assets,)
-        ``True`` for each asset whose drift breaches the threshold.  Under a
-        relative threshold, a zero-target position that still carries weight is
-        always flagged (explicit exit intent).  Short (negative) target weights
-        are handled by measuring relative drift against the *magnitude* of the
-        target, so a short book optimised with ``min_weights < 0`` is treated
-        symmetrically with a long book.
+    Returns:
+        Boolean array, shape (n_assets,), with ``True`` for each asset whose
+        drift breaches the threshold. Under a relative threshold, a zero-target
+        position that still carries weight is always flagged (explicit exit
+        intent). Short (negative) target weights are measured against the
+        magnitude of the target so a short book is treated symmetrically with
+        a long book.
     """
     if config is None:
         config = ThresholdRebalancingConfig()
@@ -192,18 +171,13 @@ def should_rebalance(
 ) -> bool:
     """Determine whether any asset breaches the drift threshold.
 
-    Parameters
-    ----------
-    current_weights : ndarray, shape (n_assets,)
-        Current (drifted) portfolio weights.
-    target_weights : ndarray, shape (n_assets,)
-        Target portfolio weights from the optimiser.
-    config : ThresholdRebalancingConfig or None
-        Threshold configuration.  Defaults to absolute 5pp threshold.
+    Args:
+        current_weights: Current (drifted) portfolio weights, shape (n_assets,).
+        target_weights: Target portfolio weights from the optimiser, shape
+            (n_assets,).
+        config: Threshold configuration. Defaults to absolute 5pp threshold.
 
-    Returns
-    -------
-    bool
+    Returns:
         ``True`` if at least one asset breaches the threshold.
     """
     return bool(np.any(drift_breach_mask(current_weights, target_weights, config)))
@@ -218,26 +192,21 @@ def apply_no_trade_band(
 
     Turnover-reducing partial rebalance: positions whose drift breaches the
     threshold snap to their target weight; the rest keep their current
-    (drifted) weight.  The resulting vector is renormalised to sum to 1 so it
+    (drifted) weight. The resulting vector is renormalised to sum to 1 so it
     remains a valid fully-invested allocation.
 
     When no asset breaches the band the current weights are returned unchanged
     (renormalised), i.e. no trading occurs.
 
-    Parameters
-    ----------
-    current_weights : ndarray, shape (n_assets,)
-        Current (drifted) portfolio weights.
-    target_weights : ndarray, shape (n_assets,)
-        Target portfolio weights from the optimiser.
-    config : ThresholdRebalancingConfig or None
-        Threshold configuration.  Defaults to absolute 5pp threshold.
+    Args:
+        current_weights: Current (drifted) portfolio weights, shape (n_assets,).
+        target_weights: Target portfolio weights from the optimiser, shape
+            (n_assets,).
+        config: Threshold configuration. Defaults to absolute 5pp threshold.
 
-    Returns
-    -------
-    ndarray, shape (n_assets,)
-        Post-band weights, renormalised to sum to 1 (unless the total is zero
-        or non-finite, in which case the un-normalised blend is returned).
+    Returns:
+        Post-band weights renormalised to sum to 1, shape (n_assets,). If the
+        total is zero or non-finite the un-normalised blend is returned.
     """
     cur = _as_1d("current_weights", current_weights)
     tgt = _as_1d("target_weights", target_weights)
@@ -272,27 +241,19 @@ def should_rebalance_hybrid(
     ``(False, "between_review_dates")`` regardless of how much drift has
     accumulated.
 
-    Parameters
-    ----------
-    current_weights : ndarray, shape (n_assets,)
-        Current (drifted) portfolio weights.
-    target_weights : ndarray, shape (n_assets,)
-        Target portfolio weights from the optimiser.
-    config : HybridRebalancingConfig
-        Hybrid configuration combining calendar and threshold rules.
-    current_date : pd.Timestamp
-        The date being evaluated.
-    last_review_date : pd.Timestamp
-        Date of the last calendar review.
+    Args:
+        current_weights: Current (drifted) portfolio weights, shape (n_assets,).
+        target_weights: Target portfolio weights from the optimiser, shape
+            (n_assets,).
+        config: Hybrid configuration combining calendar and threshold rules.
+        current_date: The date being evaluated.
+        last_review_date: Date of the last calendar review.
 
-    Returns
-    -------
-    decision : bool
-        ``True`` only if it is a calendar review date AND drift exceeds
-        the threshold.
-    reason : str
-        One of ``"between_review_dates"``, ``"threshold_met"``,
-        ``"threshold_not_met"`` — explains the decision branch taken.
+    Returns:
+        A ``(decision, reason)`` tuple where ``decision`` is ``True`` only if
+        it is a calendar review date AND drift exceeds the threshold, and
+        ``reason`` is one of ``"between_review_dates"``, ``"threshold_met"``,
+        or ``"threshold_not_met"``.
     """
     next_review = last_review_date + pd.offsets.BDay(config.calendar.trading_days)
     if current_date < next_review:
@@ -313,49 +274,38 @@ def build_rebalancing_walk_forward(
     reduce_test: bool = False,
     freq_offset: str | pd.offsets.BaseOffset | None = None,
 ) -> WalkForward:
-    """Build a calendar-driven :class:`skfolio.model_selection.WalkForward`.
+    """Build a calendar-driven `WalkForward`.
 
-    Turns a :class:`CalendarRebalancingConfig` into a skfolio walk-forward
+    Turns a `CalendarRebalancingConfig` into a skfolio walk-forward
     cross-validator whose test windows land on the real trading calendar
     (period-starts) matching the rebalancing cadence, rather than on a raw
-    observation count.  ``test_size`` / ``train_size`` are counted in units of
+    observation count. ``test_size`` / ``train_size`` are counted in units of
     the calendar frequency (``config.pandas_freq``), e.g. quarters for a
     quarterly cadence.
 
     The returned CV feeds ``cross_val_predict`` / ``GridSearchCV`` and honours
-    skfolio 1.0 calendar semantics (``freq``, ``freq_offset``, ``previous``,
-    ``reduce_test``, ``expand_train``, ``purged_size``).  The input ``X`` must
-    be a returns ``DataFrame`` with a ``DatetimeIndex``.
+    skfolio 1.0 calendar semantics. The input ``X`` must be a returns
+    ``DataFrame`` with a ``DatetimeIndex``.
 
-    Parameters
-    ----------
-    config : CalendarRebalancingConfig or None
-        Rebalancing cadence supplying the calendar frequency.  Defaults to
-        quarterly.
-    train_size : int, default=12
-        Number of ``freq`` periods in each training window (ignored beyond the
-        first fold when ``expand_train`` is ``True``).
-    test_size : int, default=1
-        Number of ``freq`` periods in each test window (one rebalancing period
-        by default).
-    purged_size : int, default=0
-        Observations purged between train and test to model execution latency.
-        Use ``>= 1`` when execution is delayed relative to the signal.
-    expand_train : bool, default=False
-        Expanding (anchored) window instead of rolling.
-    previous : bool, default=False
-        If a period boundary is absent from the index, use the previous
-        observation instead of the next.
-    reduce_test : bool, default=False
-        Keep the final partial test window instead of discarding it.
-    freq_offset : str or pandas offset or None
-        Optional offset applied to each period boundary (e.g. ``"2D"`` to
-        rebalance two days after the period start).  Parsed with
-        :func:`pandas.tseries.frequencies.to_offset` when a string.
+    Args:
+        config: Rebalancing cadence supplying the calendar frequency. Defaults
+            to quarterly.
+        train_size: Number of ``freq`` periods in each training window. Ignored
+            beyond the first fold when ``expand_train`` is ``True``.
+        test_size: Number of ``freq`` periods in each test window (one
+            rebalancing period by default).
+        purged_size: Observations purged between train and test to model
+            execution latency. Use ``>= 1`` when execution is delayed relative
+            to the signal.
+        expand_train: Expanding (anchored) window instead of rolling.
+        previous: If a period boundary is absent from the index, use the
+            previous observation instead of the next.
+        reduce_test: Keep the final partial test window instead of discarding it.
+        freq_offset: Optional offset applied to each period boundary (e.g.
+            ``"2D"`` to rebalance two days after the period start). Parsed with
+            `to_offset` when a string.
 
-    Returns
-    -------
-    skfolio.model_selection.WalkForward
+    Returns:
         Configured walk-forward cross-validator.
     """
     from skfolio.model_selection import WalkForward

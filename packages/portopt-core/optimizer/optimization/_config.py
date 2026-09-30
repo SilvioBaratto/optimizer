@@ -7,15 +7,11 @@ from enum import Enum
 
 from optimizer.moments._config import MomentEstimationConfig
 
-# ---------------------------------------------------------------------------
-# Enums
-# ---------------------------------------------------------------------------
-
 
 class ObjectiveFunctionType(str, Enum):
     """Objective function selection.
 
-    Maps to :class:`skfolio.optimization.convex._base.ObjectiveFunction`.
+    Maps to `ObjectiveFunction`.
     """
 
     MINIMIZE_RISK = "minimize_risk"
@@ -27,7 +23,7 @@ class ObjectiveFunctionType(str, Enum):
 class RiskMeasureType(str, Enum):
     """Convex risk measure selection.
 
-    Maps to :class:`skfolio.measures.RiskMeasure`.
+    Maps to `RiskMeasure`.
     """
 
     VARIANCE = "variance"
@@ -50,10 +46,10 @@ class RiskMeasureType(str, Enum):
 class RatioMeasureType(str, Enum):
     """Ratio measure selection for scoring.
 
-    Most members map directly to :class:`skfolio.measures.RatioMeasure`.
+    Most members map directly to `RatioMeasure`.
     ``INFORMATION_RATIO`` is implemented as a custom scorer (active return
     divided by tracking error) because skfolio does not expose it natively;
-    use :func:`~optimizer.scoring.build_scorer` with a ``benchmark_returns``
+    use `build_scorer` with a ``benchmark_returns``
     argument to build the corresponding callable.
     """
 
@@ -95,92 +91,60 @@ class FallbackPolicy(str, Enum):
     PREVIOUS_WEIGHTS = "previous_weights"
 
 
-# ---------------------------------------------------------------------------
-# Main optimiser config
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class MeanRiskConfig:
-    """Immutable configuration for :class:`skfolio.optimization.MeanRisk`.
+    """Immutable configuration for `MeanRisk`.
 
     Serialisable parameters only.  Non-serialisable objects
     (``prior_estimator``, ``previous_weights``, ``groups``,
     ``linear_constraints``, etc.) are passed as keyword arguments
     to the factory function.
 
-    Parameters
-    ----------
-    objective : ObjectiveFunctionType
-        Objective function.
-    risk_measure : RiskMeasureType
-        Convex risk measure.
-    risk_aversion : float
-        Risk-aversion coefficient (``MAXIMIZE_UTILITY``).
-    efficient_frontier_size : int or None
-        Number of points on the efficient frontier (``None`` = single
-        portfolio).
-    min_weights : float or None
-        Lower bound on asset weights.
-    max_weights : float or None
-        Upper bound on asset weights.
-    budget : float or None
-        Portfolio budget (sum of weights).
-    max_short : float or None
-        Maximum short position.
-    max_long : float or None
-        Maximum long position.
-    cardinality : int or None
-        Maximum number of assets.
-    transaction_costs : float
-        Linear transaction costs penalising turnover relative to
-        ``previous_weights``.
-    management_fees : float
-        Linear management fees proportional to position size.
-    max_tracking_error : float or None
-        Maximum tracking error relative to benchmark returns
-        (passed as ``y`` in ``fit(X, y)``).
-    l1_coef : float
-        L1 regularisation coefficient.
-    l2_coef : float
-        L2 regularisation coefficient.
-    risk_free_rate : float
-        Risk-free rate for ratio objectives.
-    cvar_beta : float
-        CVaR confidence level.
-    evar_beta : float
-        EVaR confidence level.
-    cdar_beta : float
-        CDaR confidence level.
-    edar_beta : float
-        EDaR confidence level.
-    solver : str
-        CVXPY solver name.
-    solver_params : dict or None
-        Additional solver parameters.
-    prior_config : MomentEstimationConfig or None
-        Inner prior configuration.
-    max_sector_weight : float or None
-        Maximum total weight allocated to any single sector.  When set,
-        ``build_mean_risk()`` requires a ``sector_mapping`` kwarg to
-        resolve sector membership.  ``None`` disables sector constraints
-        (default).
-    raise_on_failure : bool
-        Resilience switch forwarded to ``MeanRisk.raise_on_failure``
-        (skfolio 1.0).  When ``True`` (default) an infeasible / unsolved
-        optimisation raises; when ``False`` the estimator yields a
-        ``FailedPortfolio`` sentinel on ``predict`` and records the reason
-        in ``error_`` instead of raising — useful inside walk-forward
-        backtests that must survive an infeasible fold.  An explicit
-        ``raise_on_failure`` factory kwarg overrides this field.
-    fallback_policy : FallbackPolicy
-        Serialisable fallback strategy forwarded to ``MeanRisk.fallback``
-        (skfolio 1.0).  ``NONE`` (default) attaches no fallback;
-        ``PREVIOUS_WEIGHTS`` reuses the last good allocation when a
-        rebalance is infeasible (supply ``previous_weights`` at factory
-        time for it to reuse).  For an estimator/list fallback (non-
-        serialisable) pass the ``fallback`` factory kwarg directly, which
-        overrides this field.
+    Attributes:
+        objective: Objective function.
+        risk_measure: Convex risk measure.
+        risk_aversion: Risk-aversion coefficient (``MAXIMIZE_UTILITY``).
+        efficient_frontier_size: Number of points on the efficient frontier;
+            ``None`` yields a single portfolio.
+        min_weights: Lower bound on asset weights.
+        max_weights: Upper bound on asset weights.
+        budget: Portfolio budget (sum of weights).
+        max_short: Maximum short position.
+        max_long: Maximum long position.
+        cardinality: Maximum number of assets.
+        transaction_costs: Linear transaction costs penalising turnover relative
+            to ``previous_weights``.
+        management_fees: Linear management fees proportional to position size.
+        max_tracking_error: Maximum tracking error relative to benchmark returns
+            (passed as ``y`` in ``fit(X, y)``).
+        l1_coef: L1 regularisation coefficient.
+        l2_coef: L2 regularisation coefficient.
+        risk_free_rate: Risk-free rate for ratio objectives.
+        cvar_beta: CVaR confidence level.
+        evar_beta: EVaR confidence level.
+        cdar_beta: CDaR confidence level.
+        edar_beta: EDaR confidence level.
+        solver: CVXPY solver name.
+        solver_params: Additional solver parameters.
+        prior_config: Inner prior configuration.
+        max_sector_weight: Maximum total weight allocated to any single sector.
+            When set, ``build_mean_risk()`` requires a ``sector_mapping`` kwarg
+            to resolve sector membership.  ``None`` disables sector constraints.
+        raise_on_failure: Resilience switch forwarded to
+            ``MeanRisk.raise_on_failure`` (skfolio 1.0).  When ``True``
+            (default) an infeasible / unsolved optimisation raises; when
+            ``False`` the estimator yields a ``FailedPortfolio`` sentinel on
+            ``predict`` and records the reason in ``error_`` instead of raising
+            — useful inside walk-forward backtests that must survive an
+            infeasible fold.  An explicit ``raise_on_failure`` factory kwarg
+            overrides this field.
+        fallback_policy: Serialisable fallback strategy forwarded to
+            ``MeanRisk.fallback`` (skfolio 1.0).  ``NONE`` (default) attaches
+            no fallback; ``PREVIOUS_WEIGHTS`` reuses the last good allocation
+            when a rebalance is infeasible (supply ``previous_weights`` at
+            factory time for it to reuse).  For an estimator/list fallback
+            (non-serialisable) pass the ``fallback`` factory kwarg directly,
+            which overrides this field.
     """
 
     objective: ObjectiveFunctionType = ObjectiveFunctionType.MINIMIZE_RISK
@@ -209,8 +173,6 @@ class MeanRiskConfig:
     max_sector_weight: float | None = None
     raise_on_failure: bool = True
     fallback_policy: FallbackPolicy = FallbackPolicy.NONE
-
-    # -- factory methods -----------------------------------------------------
 
     @classmethod
     def for_min_variance(cls) -> MeanRiskConfig:
@@ -274,10 +236,8 @@ class MeanRiskConfig:
 
         Uses ShrunkMu + DenoiseCovariance for robust moment estimates.
 
-        Parameters
-        ----------
-        max_sector_weight : float
-            Maximum total weight for any single sector.  Default 0.25.
+        Args:
+            max_sector_weight: Maximum total weight for any single sector.
         """
         return cls(
             objective=ObjectiveFunctionType.MAXIMIZE_RATIO,
@@ -312,7 +272,7 @@ class MeanRiskConfig:
         size: int = 20,
         risk_measure: RiskMeasureType = RiskMeasureType.VARIANCE,
     ) -> MeanRiskConfig:
-        """Efficient frontier with *size* portfolios."""
+        """Efficient frontier with `size` portfolios."""
         return cls(
             objective=ObjectiveFunctionType.MINIMIZE_RISK,
             risk_measure=risk_measure,
@@ -330,11 +290,9 @@ class MeanRiskConfig:
         ``fit(X, y)`` — skfolio raises when ``max_tracking_error`` is set
         but ``y`` is omitted.
 
-        Parameters
-        ----------
-        max_tracking_error : float
-            Upper bound on annualised tracking error vs. the benchmark.
-            Default 0.05.
+        Args:
+            max_tracking_error: Upper bound on annualised tracking error vs.
+                the benchmark.
         """
         return cls(
             objective=ObjectiveFunctionType.MAXIMIZE_RATIO,

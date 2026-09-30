@@ -23,21 +23,14 @@ class FxReturnDecomposition:
 
     For base-currency assets, ``r_fx = 0`` and ``r_total = r_local``.
 
-    Attributes
-    ----------
-    total_returns : pd.DataFrame
-        Base-currency total returns (dates x tickers).
-    local_returns : pd.DataFrame
-        Local-currency stock returns (dates x tickers).
-    fx_returns : pd.DataFrame
-        FX contribution (dates x tickers).  Zero for base-currency
-        tickers.
-    cross_terms : pd.DataFrame
-        Interaction term ``r_local * r_fx`` (dates x tickers).
-    currency_map : dict[str, str]
-        Ticker → ISO currency code mapping used.
-    base_currency : str
-        Base currency for the decomposition.
+    Attributes:
+        total_returns: Base-currency total returns (dates x tickers).
+        local_returns: Local-currency stock returns (dates x tickers).
+        fx_returns: FX contribution (dates x tickers). Zero for
+            base-currency tickers.
+        cross_terms: Interaction term ``r_local * r_fx`` (dates x tickers).
+        currency_map: Ticker → ISO currency code mapping used.
+        base_currency: Base currency for the decomposition.
     """
 
     total_returns: pd.DataFrame
@@ -61,22 +54,16 @@ class FxReturnDecomposition:
         - ``hedge_ratio=0.0`` (unhedged) returns the base-currency total
           returns.
 
-        Parameters
-        ----------
-        hedge_ratio : float
-            Fraction of FX exposure hedged, in ``[0, 1]``.  Values
-            outside the unit interval are allowed (over/under hedging)
-            but emit no special handling.
+        Args:
+            hedge_ratio: Fraction of FX exposure hedged, in ``[0, 1]``.
+                Values outside the unit interval are allowed
+                (over/under hedging) but emit no special handling.
 
-        Returns
-        -------
-        pd.DataFrame
+        Returns:
             Hedged returns (dates x tickers).
 
-        Raises
-        ------
-        DataError
-            If ``hedge_ratio`` is not finite.
+        Raises:
+            DataError: If ``hedge_ratio`` is not finite.
         """
         if not pd.notna(hedge_ratio) or hedge_ratio in (float("inf"), float("-inf")):
             raise DataError(f"hedge_ratio must be finite, got {hedge_ratio!r}.")
@@ -88,15 +75,13 @@ class FxReturnDecomposition:
         """Aggregate compounded return contribution per ticker.
 
         Compounds each component series over the full window and returns
-        a per-ticker summary.  The ``total`` column equals
+        a per-ticker summary. The ``total`` column equals
         ``(1 + total_returns).prod() - 1`` and the local/fx/cross columns
         are the compounded component series; they sum only approximately
         to ``total`` because compounding is multiplicative.
 
-        Returns
-        -------
-        pd.DataFrame
-            Indexed by ticker with columns
+        Returns:
+            DataFrame indexed by ticker with columns
             ``["local", "fx", "cross", "total"]``.
         """
 
@@ -122,25 +107,17 @@ def decompose_fx_returns(
 ) -> FxReturnDecomposition:
     """Decompose total returns into local, FX, and cross components.
 
-    Parameters
-    ----------
-    local_prices : pd.DataFrame
-        Price matrix in local currencies (dates x tickers).
-    base_prices : pd.DataFrame
-        Price matrix in base currency (dates x tickers), as produced
-        by :class:`FxPriceConverter`.
-    fx_rates_aligned : pd.DataFrame
-        FX rates aligned to the price index (from
-        :func:`align_fx_rates`).  Columns are currency codes; values
-        are units-of-base per one unit-of-foreign.
-    currency_map : dict[str, str]
-        Ticker → ISO currency code mapping.
-    base_currency : str
-        Base currency ISO code.
+    Args:
+        local_prices: Price matrix in local currencies (dates x tickers).
+        base_prices: Price matrix in base currency (dates x tickers), as
+            produced by `FxPriceConverter`.
+        fx_rates_aligned: FX rates aligned to the price index (from
+            `align_fx_rates`). Columns are currency codes; values
+            are units-of-base per one unit-of-foreign.
+        currency_map: Ticker → ISO currency code mapping.
+        base_currency: Base currency ISO code.
 
-    Returns
-    -------
-    FxReturnDecomposition
+    Returns:
         Decomposition with total, local, FX, and cross-term returns.
     """
     base_ccy, _base_scale = normalize_currency_code(base_currency)
@@ -153,10 +130,8 @@ def decompose_fx_returns(
     local_returns = local_prices.pct_change().iloc[1:]
     total_returns = base_prices.pct_change().iloc[1:]
 
-    # Case-insensitive currency-column lookup on the aligned FX frame.
     fx_col_by_ccy = {str(c).upper(): c for c in fx_rates_aligned.columns}
 
-    # Build per-ticker FX return series
     fx_returns = pd.DataFrame(
         0.0, index=local_returns.index, columns=local_returns.columns
     )

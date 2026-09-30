@@ -1,12 +1,12 @@
 """Bridge factor-mimicking returns to a skfolio factor-model prior.
 
 This module turns observed factor-return panels (e.g. the output of
-:func:`build_all_factor_mimicking_portfolios`) into a fitted
-:class:`skfolio.prior.TimeSeriesFactorModel` — the skfolio prior that
+`build_all_factor_mimicking_portfolios`) into a fitted
+`TimeSeriesFactorModel` — the skfolio prior that
 regresses asset returns on factor returns and rebuilds ``mu``/``covariance``
 from the estimated loadings.  It follows the module convention: a frozen
-serialisable config (:class:`FactorPriorConfig`) plus a factory
-(:func:`build_time_series_factor_model`); non-serialisable estimator
+serialisable config (`FactorPriorConfig`) plus a factory
+(`build_time_series_factor_model`); non-serialisable estimator
 instances (loading-matrix / inner-prior estimators, factor-family arrays)
 are passed as factory ``**kwargs``.
 
@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -43,23 +43,19 @@ class FactorPriorConfig:
     """Immutable configuration for a time-series factor-model prior.
 
     Holds only the serialisable, primitive constructor arguments of
-    :class:`skfolio.prior.TimeSeriesFactorModel`.  Non-serialisable objects
+    `TimeSeriesFactorModel`.  Non-serialisable objects
     (the loading-matrix estimator, the inner factor prior, and the
     factor-family labels) are supplied at build time as factory ``**kwargs``.
 
-    Parameters
-    ----------
-    higham : bool, default False
-        When ``True``, use Higham's nearest-correlation-matrix projection to
-        repair a non-PSD reconstructed covariance instead of clipping
-        eigenvalues.  Forwarded to ``TimeSeriesFactorModel(higham=...)``.
-    max_iteration : int, default 100
-        Maximum iterations for the Higham projection.  Must be positive.
-        Forwarded to ``TimeSeriesFactorModel(max_iteration=...)``.
-    min_observations : int, default 12
-        Caller-side hint: minimum number of aligned, fully-finite periods
-        required by :func:`fit_factor_prior` before it will fit.  Not a
-        skfolio constructor argument.
+    Attributes:
+        higham: When True, use Higham's nearest-correlation-matrix projection
+            to repair a non-PSD reconstructed covariance instead of clipping
+            eigenvalues.  Forwarded to ``TimeSeriesFactorModel(higham=...)``.
+        max_iteration: Maximum iterations for the Higham projection.  Must be
+            positive.  Forwarded to ``TimeSeriesFactorModel(max_iteration=...)``.
+        min_observations: Caller-side hint: minimum number of aligned,
+            fully-finite periods required by `fit_factor_prior` before it
+            will fit.  Not a skfolio constructor argument.
     """
 
     higham: bool = False
@@ -90,36 +86,30 @@ def build_time_series_factor_model(
     factor_prior_estimator: BasePrior | None = None,
     factor_families: Sequence[object] | None = None,
 ) -> TimeSeriesFactorModel:
-    """Build an unfitted :class:`skfolio.prior.TimeSeriesFactorModel`.
+    """Build an unfitted `TimeSeriesFactorModel`.
 
-    Parameters
-    ----------
-    config : FactorPriorConfig or None
-        Serialisable configuration.  ``None`` uses
-        :meth:`FactorPriorConfig.for_default`.
-    loading_matrix_estimator : BaseLoadingMatrix or None
-        Estimator producing the asset-on-factor loading matrix (e.g.
-        ``skfolio.prior.LoadingMatrixRegression``).  ``None`` defers to the
-        skfolio default.
-    factor_prior_estimator : BasePrior or None
-        Inner prior estimating the factors' own return distribution.
-        ``None`` defers to the skfolio default (``EmpiricalPrior``).
-    factor_families : sequence or None
-        Optional family label per factor (aligned to the ``factors`` columns)
-        used by skfolio to group factors.  ``None`` treats each factor
-        independently.
+    Args:
+        config: Serialisable configuration.  ``None`` uses
+            `for_default`.
+        loading_matrix_estimator: Estimator producing the asset-on-factor
+            loading matrix (e.g. ``skfolio.prior.LoadingMatrixRegression``).
+            ``None`` defers to the skfolio default.
+        factor_prior_estimator: Inner prior estimating the factors' own return
+            distribution.  ``None`` defers to the skfolio default
+            (``EmpiricalPrior``).
+        factor_families: Optional family label per factor (aligned to the
+            ``factors`` columns) used by skfolio to group factors.  ``None``
+            treats each factor independently.
 
-    Returns
-    -------
-    TimeSeriesFactorModel
-        An unfitted estimator; call :meth:`fit` with ``factors=`` keyword.
+    Returns:
+        An unfitted estimator; call `fit` with ``factors=`` keyword.
     """
     from skfolio.prior import TimeSeriesFactorModel
 
     if config is None:
         config = FactorPriorConfig.for_default()
 
-    kwargs: dict[str, object] = {
+    kwargs: dict[str, Any] = {
         "higham": config.higham,
         "max_iteration": config.max_iteration,
     }
@@ -147,36 +137,31 @@ def fit_factor_prior(
     Aligns *asset_returns* and *factor_returns* on their common date index,
     drops any period that is not fully finite across both frames (skfolio
     rejects NaN), and fits
-    :class:`skfolio.prior.TimeSeriesFactorModel` via the keyword-only
+    `TimeSeriesFactorModel` via the keyword-only
     ``factors=`` argument.  The fitted model exposes ``return_distribution_``
     (``mu``, ``covariance``, ...) for downstream optimisation / Black-Litterman.
 
-    Parameters
-    ----------
-    asset_returns : pd.DataFrame
-        Dates × assets matrix of asset (linear) returns — the regression
-        target ``X``.
-    factor_returns : pd.DataFrame
-        Dates × factors matrix of factor returns, e.g. the output of
-        :func:`build_all_factor_mimicking_portfolios` — the regressors
-        passed as ``factors=``.
-    config : FactorPriorConfig or None
-        Serialisable configuration.  ``None`` uses the default preset;
-        also supplies ``min_observations``.
-    loading_matrix_estimator, factor_prior_estimator, factor_families
-        Non-serialisable overrides forwarded to
-        :func:`build_time_series_factor_model`.
+    Args:
+        asset_returns: Dates × assets matrix of asset (linear) returns — the
+            regression target ``X``.
+        factor_returns: Dates × factors matrix of factor returns, e.g. the
+            output of `build_all_factor_mimicking_portfolios` — the
+            regressors passed as ``factors=``.
+        config: Serialisable configuration.  ``None`` uses the default preset;
+            also supplies ``min_observations``.
+        loading_matrix_estimator: Non-serialisable override forwarded to
+            `build_time_series_factor_model`.
+        factor_prior_estimator: Non-serialisable override forwarded to
+            `build_time_series_factor_model`.
+        factor_families: Non-serialisable override forwarded to
+            `build_time_series_factor_model`.
 
-    Returns
-    -------
-    TimeSeriesFactorModel
+    Returns:
         The fitted prior.
 
-    Raises
-    ------
-    DataError
-        If either frame is empty, they share no dates, or fewer than
-        ``config.min_observations`` fully-finite aligned periods remain.
+    Raises:
+        DataError: If either frame is empty, they share no dates, or fewer
+            than ``config.min_observations`` fully-finite aligned periods remain.
     """
     if config is None:
         config = FactorPriorConfig.for_default()

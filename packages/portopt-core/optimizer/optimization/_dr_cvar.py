@@ -25,29 +25,19 @@ from optimizer.moments._factory import build_prior
 
 @dataclass(frozen=True)
 class DRCVaRConfig:
-    """Immutable configuration for :class:`DistributionallyRobustCVaR`.
+    """Immutable configuration for `DistributionallyRobustCVaR`.
 
-    Parameters
-    ----------
-    epsilon : float
-        Wasserstein-ball radius. ``0`` falls back to empirical CVaR.
-        Default ``0.05``.
-    cvar_beta : float
-        CVaR confidence level. Default ``0.95``.
-    risk_aversion : float
-        Risk-aversion coefficient.
-    prior_config : MomentEstimationConfig or None
-        Inner prior configuration.
-    min_weights : float
-        Lower bound on asset weights.
-    max_weights : float
-        Upper bound on asset weights.
-    risk_free_rate : float
-        Risk-free rate.
-    solver : str
-        CVXPY solver name.
-    solver_params : dict or None
-        Additional solver parameters.
+    Attributes:
+        epsilon: Wasserstein-ball radius. ``0`` falls back to empirical CVaR.
+            Default ``0.05``.
+        cvar_beta: CVaR confidence level. Default ``0.95``.
+        risk_aversion: Risk-aversion coefficient.
+        prior_config: Inner prior configuration.
+        min_weights: Lower bound on asset weights.
+        max_weights: Upper bound on asset weights.
+        risk_free_rate: Risk-free rate.
+        solver: CVXPY solver name.
+        solver_params: Additional solver parameters.
     """
 
     epsilon: float = 0.05
@@ -92,30 +82,23 @@ def build_dr_cvar(
     prior_estimator: BasePrior | None = None,
     **kwargs: Any,
 ) -> BaseOptimization:
-    """Build a skfolio :class:`DistributionallyRobustCVaR` from *config*.
+    """Build a skfolio `DistributionallyRobustCVaR` from `config`.
 
     When ``epsilon == 0``, this falls back to plain ``MeanRisk(CVaR)``
     so the empirical-CVaR fallback is exact (the DRCVaR formulation
     and ``MeanRisk(CVaR)`` use different solver paths and produce
     weights that differ at ~1e-3 even at ``wasserstein_ball_radius=0``).
 
-    Parameters
-    ----------
-    config : DRCVaRConfig or None
-        DR-CVaR configuration. ``None`` triggers default.
-    prior_estimator : BasePrior or None
-        Prior estimator. When ``None``, one is built from
-        ``config.prior_config`` (or skfolio default).
-    **kwargs
-        Additional kwargs forwarded to the wrapped optimizer.
+    Args:
+        config: DR-CVaR configuration. ``None`` triggers default.
+        prior_estimator: Prior estimator. When ``None``, one is built from
+            ``config.prior_config`` (or skfolio default).
+        **kwargs: Additional kwargs forwarded to the wrapped optimizer.
 
-    Returns
-    -------
-    BaseOptimization
+    Returns:
         A fitted-ready skfolio optimiser. Concrete type is
-        :class:`DistributionallyRobustCVaR` when ``epsilon > 0``, or
-        :class:`MeanRisk` when ``epsilon == 0`` (empirical-CVaR
-        fallback).
+        `DistributionallyRobustCVaR` when ``epsilon > 0``, or
+        `MeanRisk` when ``epsilon == 0`` (empirical-CVaR fallback).
     """
     if config is None:
         config = DRCVaRConfig()
@@ -145,7 +128,7 @@ def _build_empirical_cvar_fallback(
     prior_estimator: BasePrior | None,
     **kwargs: Any,
 ) -> MeanRisk:
-    """Empirical-CVaR fallback for ``epsilon=0`` — plain :class:`MeanRisk`."""
+    """Empirical-CVaR fallback for ``epsilon=0`` — plain `MeanRisk`."""
     return MeanRisk(
         objective_function=ObjectiveFunction.MINIMIZE_RISK,
         risk_measure=RiskMeasure.CVAR,

@@ -20,31 +20,21 @@ from optimizer.moments._factory import build_prior
 
 @dataclass(frozen=True)
 class MaxDiversificationConfig:
-    """Immutable configuration for :class:`MaximumDiversification`.
+    """Immutable configuration for `MaximumDiversification`.
 
     Default is long-only (``min_weights=0.0``); the diversification
     ratio is undefined for short positions.
 
-    Parameters
-    ----------
-    prior_config : MomentEstimationConfig or None
-        Inner prior configuration. ``None`` defers to skfolio default.
-    min_weights : float
-        Lower bound on asset weights. Default ``0.0`` (long-only).
-    max_weights : float
-        Upper bound on asset weights.
-    transaction_costs : float
-        Linear transaction costs penalising turnover.
-    management_fees : float
-        Linear management fees proportional to position size.
-    l1_coef : float
-        L1 regularisation coefficient.
-    l2_coef : float
-        L2 regularisation coefficient.
-    solver : str
-        CVXPY solver name.
-    solver_params : dict or None
-        Additional solver parameters.
+    Attributes:
+        prior_config: Inner prior configuration. None defers to the skfolio default.
+        min_weights: Lower bound on asset weights. Default 0.0 (long-only).
+        max_weights: Upper bound on asset weights.
+        transaction_costs: Linear transaction costs penalising turnover.
+        management_fees: Linear management fees proportional to position size.
+        l1_coef: L1 regularisation coefficient.
+        l2_coef: L2 regularisation coefficient.
+        solver: CVXPY solver name.
+        solver_params: Additional solver keyword arguments passed through to CVXPY.
     """
 
     prior_config: MomentEstimationConfig | None = None
@@ -77,22 +67,19 @@ def build_max_diversification(
     prior_estimator: BasePrior | None = None,
     **kwargs: Any,
 ) -> MaximumDiversification:
-    """Build a skfolio :class:`MaximumDiversification` from *config*.
+    """Build a skfolio `MaximumDiversification` from `config`.
 
-    Parameters
-    ----------
-    config : MaxDiversificationConfig or None
-        Max-diversification configuration. ``None`` triggers default.
-    prior_estimator : BasePrior or None
-        Prior estimator. When ``None``, one is built from
-        ``config.prior_config`` (or skfolio default).
-    **kwargs
-        Additional kwargs forwarded to the wrapped optimizer.
+    Args:
+        config: Max-diversification configuration. None triggers the default
+            long-only preset.
+        prior_estimator: Pre-built prior estimator. When None, one is
+            constructed from ``config.prior_config`` (or the skfolio default
+            when that is also None).
+        **kwargs: Additional keyword arguments forwarded verbatim to the
+            underlying skfolio optimiser.
 
-    Returns
-    -------
-    MaximumDiversification
-        A fitted-ready skfolio optimiser.
+    Returns:
+        A fitted-ready skfolio optimiser instance.
     """
     if config is None:
         config = MaxDiversificationConfig()

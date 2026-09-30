@@ -1,6 +1,6 @@
 """sklearn-composable investability-screen selector.
 
-Bridges fundamental investability screening (:mod:`optimizer.universe`) into an
+Bridges fundamental investability screening (`universe`) into an
 sklearn / skfolio ``Pipeline``.  Most pre-selection transformers in this library
 operate on the return matrix alone; this selector additionally consults injected
 fundamentals / price / volume data to decide which assets are *investable* before
@@ -33,44 +33,33 @@ logger = logging.getLogger(__name__)
 class InvestabilityScreenSelector(SelectorMixin, BaseEstimator):
     """Select investable assets from a return matrix via fundamental screens.
 
-    ``fit`` runs :func:`apply_investability_screens` over the injected
+    ``fit`` runs `apply_investability_screens` over the injected
     fundamentals / price / volume data and records which columns of ``X``
     (linear-return series, one column per ticker) survive.  ``transform`` returns
     the surviving columns, preserving ``X``'s column order.
 
-    The frozen :class:`InvestabilityScreenConfig` carries the *serialisable*
+    The frozen `InvestabilityScreenConfig` carries the *serialisable*
     thresholds; the (non-serialisable) cross-sectional DataFrames and the
     current-membership index are passed as constructor arguments, mirroring the
     library convention that estimator instances / arrays / frames are estimator
     kwargs rather than config fields.
 
-    Parameters
-    ----------
-    fundamentals : pd.DataFrame or None
-        Cross-sectional data, one row per ticker (see
-        :func:`apply_investability_screens`).  Required at ``fit`` time.
-    price_history : pd.DataFrame or None
-        Price matrix (dates x tickers).  Required at ``fit`` time.
-    volume_history : pd.DataFrame or None
-        Volume matrix (dates x tickers).  Required at ``fit`` time.
-    financial_statements : pd.DataFrame or None
-        Optional statement-level data for the data-availability screen.
-    config : InvestabilityScreenConfig or None
-        Screening configuration.  ``None`` uses developed-market defaults.
-    current_members : pd.Index or None
-        Tickers currently in the universe, for hysteresis.
+    Args:
+        fundamentals: Cross-sectional data, one row per ticker (see
+            `apply_investability_screens`).  Required at ``fit`` time.
+        price_history: Price matrix (dates x tickers).  Required at ``fit`` time.
+        volume_history: Volume matrix (dates x tickers).  Required at ``fit`` time.
+        financial_statements: Optional statement-level data for the
+            data-availability screen.
+        config: Screening configuration.  ``None`` uses developed-market defaults.
+        current_members: Tickers currently in the universe, for hysteresis.
 
-    Attributes
-    ----------
-    to_keep_ : ndarray of shape (n_assets,)
-        Boolean mask over the columns of ``X`` seen during ``fit``.
-    investable_universe_ : pd.Index
-        Tickers that passed every screen (intersected with ``X``'s columns,
-        preserving ``X`` order).
-    n_features_in_ : int
-        Number of assets (columns) seen during ``fit``.
-    feature_names_in_ : ndarray of shape (n_features_in_,)
-        Column names (tickers) seen during ``fit``.
+    Attributes:
+        to_keep_: Boolean mask over the columns of ``X`` seen during ``fit``.
+        investable_universe_: Tickers that passed every screen (intersected with
+            ``X``'s columns, preserving ``X`` order).
+        n_features_in_: Number of assets (columns) seen during ``fit``.
+        feature_names_in_: Column names (tickers) seen during ``fit``.
     """
 
     to_keep_: NDArray[np.bool_]
@@ -95,17 +84,13 @@ class InvestabilityScreenSelector(SelectorMixin, BaseEstimator):
     def fit(self, X: pd.DataFrame, y: object = None) -> InvestabilityScreenSelector:
         """Screen the universe and record which columns of ``X`` survive.
 
-        Parameters
-        ----------
-        X : pd.DataFrame of shape (n_observations, n_assets)
-            Linear returns with tickers as columns.  Feature names are
-            required to map screen results onto the columns.
-        y : Ignored
-            Present for API consistency.
+        Args:
+            X: Linear returns with tickers as columns.  Feature names are
+                required to map screen results onto the columns.
+            y: Ignored; present for sklearn API consistency.
 
-        Returns
-        -------
-        self : InvestabilityScreenSelector
+        Returns:
+            Fitted selector.
         """
         if (
             self.fundamentals is None
@@ -118,9 +103,9 @@ class InvestabilityScreenSelector(SelectorMixin, BaseEstimator):
             )
             raise DataError(msg)
 
-        # Validate X (allow NaN — returns legitimately contain gaps) and record
-        # n_features_in_ / feature_names_in_.
-        validate_data(self, X, ensure_all_finite="allow-nan")
+        # Returns legitimately contain gaps, so NaN must be permitted. sklearn's
+        # validate_data stub mistypes X as str; it accepts array-like at runtime.
+        validate_data(self, X, ensure_all_finite="allow-nan")  # pyright: ignore
         if not hasattr(self, "feature_names_in_"):
             msg = (
                 "InvestabilityScreenSelector requires X to be a DataFrame with "

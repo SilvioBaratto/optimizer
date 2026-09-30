@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from itertools import combinations
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -18,23 +19,15 @@ from optimizer.validation._config import CPCVConfig
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Config and result containers
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class FactorOOSConfig:
     """Configuration for rolling block OOS validation.
 
-    Parameters
-    ----------
-    train_periods : int
-        Length of the training window in index periods.  Default: 36.
-    val_periods : int
-        Length of the validation window in index periods.  Default: 12.
-    step_periods : int
-        Number of index periods to roll forward between folds.  Default: 6.
+    Args:
+        train_periods: Length of the training window in index periods.
+        val_periods: Length of the validation window in index periods.
+        step_periods: Number of index periods to roll forward between folds.
     """
 
     train_periods: int = 36
@@ -46,18 +39,12 @@ class FactorOOSConfig:
 class FactorOOSResult:
     """Results from rolling block OOS factor validation.
 
-    Attributes
-    ----------
-    per_fold_ic : pd.DataFrame
-        ``n_folds × factors`` matrix of mean IC per fold per factor.
-    per_fold_spread : pd.DataFrame
-        ``n_folds × factors`` matrix of mean quintile spread per fold.
-    mean_oos_ic : pd.Series
-        Mean OOS IC aggregated across folds (one value per factor).
-    mean_oos_icir : pd.Series
-        OOS ICIR (mean IC / std IC across folds) per factor.
-    n_folds : int
-        Number of folds generated.
+    Attributes:
+        per_fold_ic: ``n_folds × factors`` matrix of mean IC per fold per factor.
+        per_fold_spread: ``n_folds × factors`` matrix of mean quintile spread per fold.
+        mean_oos_ic: Mean OOS IC aggregated across folds (one value per factor).
+        mean_oos_icir: OOS ICIR (mean IC / std IC across folds) per factor.
+        n_folds: Number of folds generated.
     """
 
     per_fold_ic: pd.DataFrame
@@ -65,11 +52,6 @@ class FactorOOSResult:
     mean_oos_ic: pd.Series
     mean_oos_icir: pd.Series
     n_folds: int
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
 
 
 def _make_folds(
@@ -110,16 +92,11 @@ def _make_cpcv_folds(
     selected blocks form the test set and the rest form the train set,
     with purging and embargo applied at train-test boundaries.
 
-    Parameters
-    ----------
-    dates : pd.Index
-        Sorted date index.
-    cpcv_config : CPCVConfig
-        CPCV parameters (n_folds, n_test_folds, purged_size, embargo_size).
+    Args:
+        dates: Sorted date index.
+        cpcv_config: CPCV parameters (n_folds, n_test_folds, purged_size, embargo_size).
 
-    Returns
-    -------
-    list[tuple[pd.Index, pd.Index]]
+    Returns:
         (train_dates, test_dates) pairs.
     """
     n = len(dates)
@@ -128,7 +105,6 @@ def _make_cpcv_folds(
     purged_size = cpcv_config.purged_size
     embargo_size = cpcv_config.embargo_size
 
-    # Split into n_folds contiguous blocks
     block_indices: list[tuple[int, int]] = []
     block_size = n // n_folds
     for i in range(n_folds):
@@ -141,20 +117,17 @@ def _make_cpcv_folds(
         test_set = set(test_combo)
         train_set = set(range(n_folds)) - test_set
 
-        # Collect test indices
         test_idx: list[int] = []
         for b in test_combo:
             s, e = block_indices[b]
             test_idx.extend(range(s, e))
 
-        # Collect train indices
         train_idx: list[int] = []
         for b in sorted(train_set):
             s, e = block_indices[b]
             train_idx.extend(range(s, e))
 
-        # Apply purging: remove train indices within purged_size of any
-        # train-test boundary
+        # Purging prevents look-ahead bias from train samples adjacent to test data.
         if purged_size > 0:
             purge_exclusions: set[int] = set()
             for t_idx in test_idx:
@@ -163,8 +136,8 @@ def _make_cpcv_folds(
                     purge_exclusions.add(t_idx + offset)
             train_idx = [i for i in train_idx if i not in purge_exclusions]
 
-        # Apply embargo: remove train indices in embargo_size positions
-        # after each test block
+        # Embargo prevents autocorrelation leakage from train samples
+        # immediately following test blocks.
         if embargo_size > 0:
             embargo_exclusions: set[int] = set()
             for b in test_combo:
@@ -181,11 +154,6 @@ def _make_cpcv_folds(
     return folds
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
 def run_factor_oos_validation(
     scores: pd.DataFrame,
     returns: pd.DataFrame,
@@ -194,32 +162,24 @@ def run_factor_oos_validation(
 ) -> FactorOOSResult:
     """Rolling block or CPCV out-of-sample validation of factor IC and spreads.
 
-    Parameters
-    ----------
-    scores : pd.DataFrame
-        Panel of standardised factor scores with a two-level row MultiIndex
-        ``(date, ticker)`` and one column per factor.
-    returns : pd.DataFrame
-        Forward returns panel with the same ``(date, ticker)`` MultiIndex
-        and a single return column.
-    config : FactorOOSConfig or None
-        Rolling window parameters.  Defaults to ``FactorOOSConfig()``.
-        Ignored when ``cpcv_config`` is provided.
-    cpcv_config : CPCVConfig or None
-        When provided, uses combinatorial purged cross-validation
-        instead of rolling blocks.  Overrides ``config``.
+    Args:
+        scores: Panel of standardised factor scores with a two-level row MultiIndex
+            ``(date, ticker)`` and one column per factor.
+        returns: Forward returns panel with the same ``(date, ticker)`` MultiIndex
+            and a single return column.
+        config: Rolling window parameters.  Defaults to ``FactorOOSConfig()``.
+            Ignored when ``cpcv_config`` is provided.
+        cpcv_config: When provided, uses combinatorial purged cross-validation
+            instead of rolling blocks.  Overrides ``config``.
 
-    Returns
-    -------
-    FactorOOSResult
+    Returns:
         Per-fold and aggregate IC and quintile spread statistics.
 
-    Notes
-    -----
-    The validation window computation uses **only val-window dates**; no
-    training-window data is used.  Fold count equals
-    ``floor((total_periods - train_periods) / step_periods)`` for rolling,
-    or ``C(n_folds, n_test_folds)`` for CPCV.
+    Note:
+        The validation window computation uses **only val-window dates**; no
+        training-window data is used.  Fold count equals
+        ``floor((total_periods - train_periods) / step_periods)`` for rolling,
+        or ``C(n_folds, n_test_folds)`` for CPCV.
     """
     if config is None:
         config = FactorOOSConfig()
@@ -251,7 +211,6 @@ def run_factor_oos_validation(
 
     factors = list(scores.columns)
 
-    # Pivot to wide format: date × (factor, ticker) and date × ticker
     scores_wide = scores.unstack()  # date index, (factor, ticker) column MultiIndex
     returns_wide = returns.iloc[:, 0].unstack()  # date index, ticker columns
 
@@ -290,7 +249,7 @@ def run_factor_oos_validation(
     per_fold_ic = pd.DataFrame(per_fold_ic_rows, columns=factors)
     per_fold_spread = pd.DataFrame(per_fold_spread_rows, columns=factors)
     mean_oos_ic = per_fold_ic.mean(axis=0)
-    mean_oos_icir = per_fold_ic.apply(compute_icir, axis=0)
+    mean_oos_icir = cast(pd.Series, per_fold_ic.apply(compute_icir, axis=0))
 
     return FactorOOSResult(
         per_fold_ic=per_fold_ic,

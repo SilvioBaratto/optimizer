@@ -18,34 +18,26 @@ def make_cleaning_pipeline(
     *,
     sector_mapping: dict[str, str] | None = None,
 ) -> Pipeline:
-    """Build a return-cleaning ``sklearn.pipeline.Pipeline`` from a config.
+    """Build a return-cleaning sklearn Pipeline from a config.
 
-    Steps (each optional per ``config``): ``validate`` (DataValidator),
-    ``outliers`` (OutlierTreater), ``impute`` (Sector/Regression imputer).
-    The pipeline consumes and returns a return DataFrame — run
-    ``prices_to_returns`` (see :func:`optimizer.preprocessing.to_returns`)
-    upstream, since that changes data semantics and must stay outside the
-    pipeline.
+    Steps (each optional per config): validate (DataValidator),
+    outliers (OutlierTreater), impute (Sector/Regression imputer).
+    Run prices_to_returns upstream — that step changes data semantics
+    and must stay outside the pipeline.
 
-    Parameters
-    ----------
-    config : CleaningConfig or None, default=None
-        Serialisable step configuration.  ``None`` uses defaults (validate +
-        outlier-treat, no imputation).
-    sector_mapping : dict[str, str] or None, default=None
-        Ticker -> sector label, injected into the sector/regression imputer.
-        Non-serialisable, so passed here rather than stored on the config.
-        ``None`` degrades sector imputation to a global cross-sectional mean.
+    Args:
+        config: Serialisable step configuration. None uses defaults
+            (validate + outlier-treat, no imputation).
+        sector_mapping: Ticker -> sector label, injected into the
+            sector/regression imputer. Non-serialisable, so passed here
+            rather than stored on the config. None degrades sector
+            imputation to a global cross-sectional mean.
 
-    Returns
-    -------
-    sklearn.pipeline.Pipeline
+    Returns:
         Pipeline with at least one step.
 
-    Raises
-    ------
-    ValueError
-        If ``config`` disables every step (empty pipeline).
+    Raises:
+        ValueError: If config disables every step (empty pipeline).
     """
     cfg = config or CleaningConfig()
 

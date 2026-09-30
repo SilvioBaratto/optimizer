@@ -5,10 +5,10 @@ Time-series transformers (``DataValidator``, ``OutlierTreater``,
 (axis=0). Cross-sectional transformers (``CS*``) operate per-period
 across assets (axis=1). They are not interchangeable.
 
-``prices_to_returns`` / :func:`to_returns` convert a price panel to linear
+``prices_to_returns`` / ``to_returns`` convert a price panel to linear
 returns and run *outside* the pipeline (they change data semantics).
-:func:`make_cleaning_pipeline` assembles the axis=0 transformers into a
-single ``sklearn.pipeline.Pipeline``; :func:`make_cs_transformer` builds a
+``make_cleaning_pipeline`` assembles the axis=0 transformers into a
+single ``sklearn.pipeline.Pipeline``; ``make_cs_transformer`` builds a
 cross-sectional transformer from a serialisable config.
 """
 

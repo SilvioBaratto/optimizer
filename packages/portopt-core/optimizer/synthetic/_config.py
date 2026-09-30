@@ -16,7 +16,7 @@ from optimizer.exceptions import ConfigurationError
 class DependenceMethodType(str, Enum):
     """Dependence method for vine copula tree construction.
 
-    Maps to :class:`skfolio.distribution.DependenceMethod`.
+    Maps to `DependenceMethod`.
     """
 
     KENDALL_TAU = "kendall_tau"
@@ -27,7 +27,7 @@ class DependenceMethodType(str, Enum):
 class SelectionCriterionType(str, Enum):
     """Information criterion for copula family selection.
 
-    Maps to :class:`skfolio.distribution.SelectionCriterion`.
+    Maps to `SelectionCriterion`.
     """
 
     AIC = "aic"
@@ -41,7 +41,7 @@ class SelectionCriterionType(str, Enum):
 
 @dataclass(frozen=True)
 class VineCopulaConfig:
-    """Immutable configuration for :class:`skfolio.distribution.VineCopula`.
+    """Immutable configuration for `VineCopula`.
 
     Vine copulas decompose a multivariate distribution into marginal
     distributions and bivariate copulas organised in a tree structure.
@@ -51,37 +51,24 @@ class VineCopulaConfig:
     estimator instances at factory call time); ``central_assets``
     carries asset-symbol strings.
 
-    Parameters
-    ----------
-    fit_marginals : bool
-        Whether to fit univariate marginals.
-    max_depth : int or None
-        Maximum depth of the vine tree.  ``None`` lets skfolio build a
-        full-depth (truncation-free) vine.  When set, must be ``>= 1``.
-    log_transform : bool
-        Whether to apply log transformation.
-    dependence_method : DependenceMethodType
-        Method for measuring pairwise dependence when building
-        the vine structure.
-    selection_criterion : SelectionCriterionType
-        Information criterion for selecting copula families.
-    independence_level : float
-        Significance level for independence testing.
-    n_jobs : int or None
-        Number of parallel jobs.
-    random_state : int or None
-        Random state for reproducibility.
-    marginal_candidates : tuple[str, ...] or None
-        Names of skfolio univariate distribution classes
-        (e.g. ``("Gaussian", "StudentT")``). ``None`` defers to
-        skfolio default.
-    copula_candidates : tuple[str, ...] or None
-        Names of skfolio bivariate copula classes
-        (e.g. ``("ClaytonCopula", "GaussianCopula")``). ``None``
-        defers to skfolio default.
-    central_assets : tuple[str, ...] or None
-        Asset symbols treated as central nodes in vine
-        construction. ``None`` lets skfolio choose.
+    Args:
+        fit_marginals: Whether to fit univariate marginals.
+        max_depth: Maximum depth of the vine tree. None lets skfolio build a
+            full-depth (truncation-free) vine. When set, must be >= 1.
+        log_transform: Whether to apply log transformation.
+        dependence_method: Method for measuring pairwise dependence when
+            building the vine structure.
+        selection_criterion: Information criterion for selecting copula families.
+        independence_level: Significance level for independence testing.
+        n_jobs: Number of parallel jobs.
+        random_state: Random state for reproducibility.
+        marginal_candidates: Names of skfolio univariate distribution classes
+            (e.g. ``("Gaussian", "StudentT")``). None defers to skfolio default.
+        copula_candidates: Names of skfolio bivariate copula classes
+            (e.g. ``("ClaytonCopula", "GaussianCopula")``). None defers to
+            skfolio default.
+        central_assets: Asset symbols treated as central nodes in vine
+            construction. None lets skfolio choose.
     """
 
     fit_marginals: bool = True
@@ -137,12 +124,12 @@ class VineCopulaConfig:
         cls,
         central_assets: Iterable[str],
     ) -> VineCopulaConfig:
-        """Preset that marks *central_assets* central for efficient conditioning.
+        """Preset that marks `central_assets` central for efficient conditioning.
 
         skfolio recommends conditioning variables be set as central during
         vine construction, otherwise conditional sampling is materially
-        slower and less accurate.  Pairs with
-        :func:`optimizer.synthetic.build_conditional_synthetic_data`.
+        slower and less accurate. Pairs with
+        `build_conditional_synthetic_data`.
         """
         central = tuple(central_assets)
         if not central:
@@ -152,7 +139,7 @@ class VineCopulaConfig:
 
 @dataclass(frozen=True)
 class SyntheticDataConfig:
-    """Immutable configuration for :class:`skfolio.prior.SyntheticData`.
+    """Immutable configuration for `SyntheticData`.
 
     Generates synthetic return scenarios from a fitted distribution
     model (typically a vine copula).  Supports conditional stress
@@ -162,14 +149,11 @@ class SyntheticDataConfig:
     ``sample_args``) are passed as keyword arguments to the factory
     function.
 
-    Parameters
-    ----------
-    n_samples : int
-        Number of synthetic scenarios to generate.
-    vine_copula_config : VineCopulaConfig or None
-        Configuration for building a ``VineCopula`` distribution
-        estimator.  Ignored when ``distribution_estimator`` is
-        passed to the factory directly.
+    Args:
+        n_samples: Number of synthetic scenarios to generate.
+        vine_copula_config: Configuration for building a VineCopula distribution
+            estimator. Ignored when distribution_estimator is passed to the
+            factory directly.
     """
 
     n_samples: int = 1_000
@@ -218,9 +202,8 @@ class SyntheticDataConfig:
     ) -> SyntheticDataConfig:
         """Stress-test preset wired for efficient conditional sampling.
 
-        Marks *central_assets* central in the underlying vine so that
-        conditioning on them (via
-        :func:`optimizer.synthetic.build_conditional_synthetic_data` or
+        Marks `central_assets` central in the underlying vine so that
+        conditioning on them (via `build_conditional_synthetic_data` or
         ``sample_args={"conditioning": ...}``) is accurate and fast.
         Uses BIC selection and a deeper vine (``max_depth=6``) to capture
         tail dependence.

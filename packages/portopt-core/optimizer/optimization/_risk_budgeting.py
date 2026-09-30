@@ -1,7 +1,7 @@
 """RiskBudgeting configuration and factory.
 
-Wraps :class:`skfolio.optimization.RiskBudgeting` behind a frozen
-:class:`RiskBudgetingConfig`. ERC (Equal Risk Contribution) is the
+Wraps `RiskBudgeting` behind a frozen `RiskBudgetingConfig`. ERC (Equal
+Risk Contribution) is the
 default; custom risk budgets are supplied as a dict mapping ticker to
 target risk share (must sum to 1).
 """
@@ -21,40 +21,27 @@ from optimizer.moments._factory import build_prior
 
 _BUDGET_SUM_ATOL = 1e-6
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class RiskBudgetingConfig:
-    """Immutable configuration for :class:`skfolio.optimization.RiskBudgeting`.
+    """Immutable configuration for `RiskBudgeting`.
 
     Serialisable parameters only. Non-serialisable objects
     (``prior_estimator``, ``previous_weights``, ``groups``, etc.) are
-    passed as keyword arguments to :func:`build_risk_budgeting`.
+    passed as keyword arguments to `build_risk_budgeting`.
 
-    Parameters
-    ----------
-    budgets : tuple[tuple[str, float], ...] or None
-        Custom risk budgets ``((ticker, share), ...)``. ``None`` selects
-        the equal-risk-contribution (ERC) special case (skfolio default).
-        Must sum to 1 within ``1e-6``.
-    prior_config : MomentEstimationConfig or None
-        Inner prior configuration. ``None`` defers to skfolio default
-        (``EmpiricalPrior``).
-    min_weights : float
-        Lower bound on asset weights.
-    max_weights : float
-        Upper bound on asset weights.
-    transaction_costs : float
-        Linear transaction costs penalising turnover.
-    management_fees : float
-        Linear management fees proportional to position size.
-    solver : str
-        CVXPY solver name.
-    solver_params : dict or None
-        Additional solver parameters.
+    Attributes:
+        budgets: Custom risk budgets as ``((ticker, share), ...)``. ``None``
+            selects the equal-risk-contribution (ERC) special case (skfolio
+            default). Must sum to 1 within 1e-6.
+        prior_config: Inner prior configuration. ``None`` defers to the
+            skfolio default (``EmpiricalPrior``).
+        min_weights: Lower bound on asset weights.
+        max_weights: Upper bound on asset weights.
+        transaction_costs: Linear transaction costs penalising turnover.
+        management_fees: Linear management fees proportional to position size.
+        solver: CVXPY solver name.
+        solver_params: Additional solver parameters.
     """
 
     budgets: tuple[tuple[str, float], ...] | None = None
@@ -86,35 +73,24 @@ class RiskBudgetingConfig:
         return cls(budgets=tuple(budgets.items()))
 
 
-# ---------------------------------------------------------------------------
-# Public factory
-# ---------------------------------------------------------------------------
-
-
 def build_risk_budgeting(
     config: RiskBudgetingConfig | None = None,
     *,
     prior_estimator: BasePrior | None = None,
     **kwargs: Any,
 ) -> RiskBudgeting:
-    """Build a skfolio :class:`RiskBudgeting` optimiser from *config*.
+    """Build a skfolio `RiskBudgeting` optimiser from *config*.
 
-    Parameters
-    ----------
-    config : RiskBudgetingConfig or None
-        Risk-budgeting configuration. ``None`` triggers the ERC default.
-    prior_estimator : BasePrior or None
-        Prior estimator. When ``None``, one is built from
-        ``config.prior_config`` (or skfolio default).
-    **kwargs
-        Additional keyword arguments forwarded to the
-        :class:`RiskBudgeting` constructor (for non-serialisable
-        parameters such as ``previous_weights``, ``groups``,
-        ``linear_constraints``, etc.).
+    Args:
+        config: Risk-budgeting configuration. ``None`` triggers the ERC
+            default.
+        prior_estimator: Prior estimator. When ``None``, one is built from
+            ``config.prior_config`` (or the skfolio default).
+        **kwargs: Additional keyword arguments forwarded to the
+            ``RiskBudgeting`` constructor for non-serialisable parameters
+            such as ``previous_weights``, ``groups``, ``linear_constraints``.
 
-    Returns
-    -------
-    RiskBudgeting
+    Returns:
         A fitted-ready skfolio optimiser.
     """
     if config is None:

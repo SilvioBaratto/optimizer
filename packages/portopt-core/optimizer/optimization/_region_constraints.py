@@ -1,9 +1,9 @@
-"""Region-level linear-constraint helper for skfolio :class:`MeanRisk`.
+"""Region-level linear-constraint helper for skfolio ``MeanRisk``.
 
 Region is not a native skfolio constraint family.  This helper composes a
 ``ticker -> region`` group map (from a ``ticker -> country`` map and a
 ``country -> region`` map) and emits ``"region <= cap"`` constraint rows
-in the same shape as :func:`build_sector_constraints`.
+in the same shape as ``build_sector_constraints``.
 
 skfolio's ``equations_to_matrix`` tokenises constraint strings using
 arithmetic operators including ``-`` (minus).  Region labels that contain a
@@ -33,24 +33,19 @@ def sanitize_group_token(label: str) -> str:
     Spaces, ``&``, ``/`` and other punctuation are DSL-safe and are left
     unchanged.  The transformation is idempotent.
 
-    Parameters
-    ----------
-    label : str
-        Arbitrary region or group label string.
+    Args:
+        label: Arbitrary region or group label string.
 
-    Returns
-    -------
-    str
+    Returns:
         Label with every ``"-"`` replaced by ``" "``.
 
-    Examples
-    --------
-    >>> sanitize_group_token("Asia-Pacific")
-    'Asia Pacific'
-    >>> sanitize_group_token("Middle East & Africa")
-    'Middle East & Africa'
-    >>> sanitize_group_token("Americas")
-    'Americas'
+    Examples:
+        >>> sanitize_group_token("Asia-Pacific")
+        'Asia Pacific'
+        >>> sanitize_group_token("Middle East & Africa")
+        'Middle East & Africa'
+        >>> sanitize_group_token("Americas")
+        'Americas'
     """
     return label.replace("-", " ")
 
@@ -62,7 +57,7 @@ def build_region_linear_constraints(
 ) -> tuple[dict[str, str], list[str]]:
     """Build skfolio ``groups`` and ``linear_constraints`` for region caps.
 
-    Region labels are sanitized via :func:`sanitize_group_token` before use:
+    Region labels are sanitized via ``sanitize_group_token`` before use:
     hyphens in labels such as ``"Asia-Pacific"`` are replaced with spaces so
     that the skfolio DSL parser does not mis-interpret them as arithmetic
     subtraction operators.  The ``"Other"`` fallback bucket (tickers with no
@@ -71,24 +66,22 @@ def build_region_linear_constraints(
     semantically meaningless and would trigger a skfolio warning when no
     assets resolve to that label.
 
-    Parameters
-    ----------
-    country_map : dict[str, str]
-        Mapping from ticker to country name
-        (e.g. ``{"AAPL": "United States"}``).
-    region_map : dict[str, str]
-        Mapping from country name to region label
-        (e.g. ``{"United States": "Americas"}``).  Tickers whose country is
-        absent from ``region_map`` fall back to ``"Other"``.
-    max_region_weight : float, default=0.60
-        Maximum total weight for any single region.  Must lie in ``(0, 1]``.
+    Args:
+        country_map: Mapping from ticker to country name
+            (e.g. ``{"AAPL": "United States"}``).
+        region_map: Mapping from country name to region label
+            (e.g. ``{"United States": "Americas"}``). Tickers whose country is
+            absent from ``region_map`` fall back to ``"Other"``.
+        max_region_weight: Maximum total weight for any single region.
+            Must lie in ``(0, 1]``.
 
-    Returns
-    -------
-    groups : dict[str, str]
-        Ticker -> sanitized region label, suitable for ``MeanRisk.groups``.
-    linear_constraints : list[str]
-        One sorted ``"<region> <= <cap>"`` row per unique non-Other region.
+    Returns:
+        groups: Ticker -> sanitized region label, suitable for ``MeanRisk.groups``.
+        linear_constraints: One sorted ``"<region> <= <cap>"`` row per unique
+            non-Other region.
+
+    Raises:
+        ValueError: If ``max_region_weight`` is not in ``(0, 1]``.
     """
     if not 0.0 < max_region_weight <= 1.0:
         raise ValueError(f"max_region_weight={max_region_weight!r} must be in (0, 1].")

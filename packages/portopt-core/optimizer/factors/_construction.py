@@ -16,10 +16,6 @@ from optimizer.factors._config import (
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Point-in-time alignment
-# ---------------------------------------------------------------------------
-
 
 def align_to_pit(
     data: pd.DataFrame,
@@ -39,28 +35,20 @@ def align_to_pit(
     constraint is returned so that callers receive a cross-sectional view
     as of ``as_of_date``.
 
-    Parameters
-    ----------
-    data : pd.DataFrame
-        Time-series data containing ``period_date_col`` and optionally
-        ``ticker_col``.
-    period_date_col : str
-        Name of the column holding the period end date.
-    as_of_date : pd.Timestamp or str
-        The computation date.  Only records available on or before this
-        date (after the lag has elapsed) are returned.
-    lag_days : int
-        Calendar days between period end and data availability.
-    ticker_col : str
-        Column holding the ticker identifier.  Defaults to ``"ticker"``.
+    Args:
+        data: Time-series data containing ``period_date_col`` and optionally
+            ``ticker_col``.
+        period_date_col: Name of the column holding the period end date.
+        as_of_date: The computation date.  Only records available on or before
+            this date (after the lag has elapsed) are returned.
+        lag_days: Calendar days between period end and data availability.
+        ticker_col: Column holding the ticker identifier.  Defaults to
+            ``"ticker"``.
 
-    Returns
-    -------
-    pd.DataFrame
-        Cross-sectional view: one row per ticker (the most recent
-        available record), indexed by ``ticker_col`` when present.
-        Returns an empty DataFrame with the same columns if no records
-        pass the cutoff.
+    Returns:
+        Cross-sectional view: one row per ticker (the most recent available
+        record), indexed by ``ticker_col`` when present.  Returns an empty
+        DataFrame with the same columns if no records pass the cutoff.
     """
     as_of = pd.Timestamp(as_of_date)
     cutoff = as_of - pd.Timedelta(days=lag_days)
@@ -82,11 +70,6 @@ def align_to_pit(
         return result
 
     return available
-
-
-# ---------------------------------------------------------------------------
-# Individual factor calculators
-# ---------------------------------------------------------------------------
 
 
 def _compute_book_to_price(fundamentals: pd.DataFrame) -> pd.Series:
@@ -328,12 +311,11 @@ def _compute_recommendation_change(
     if analyst_data is None or len(analyst_data) == 0:
         return pd.Series(dtype=float)
     if "recommendation_change" in analyst_data.columns:
-        result: pd.Series = analyst_data.groupby("ticker")[
-            "recommendation_change"
-        ].mean()
+        result: pd.Series = cast(
+            pd.Series, analyst_data.groupby("ticker")["recommendation_change"].mean()
+        )
         return result
     if "strong_buy" in analyst_data.columns:
-        # Compute from raw counts: positive = bullish
         bull = analyst_data.get("strong_buy")
         buy = analyst_data.get("buy")
         strong_sell = analyst_data.get("strong_sell")
@@ -346,7 +328,9 @@ def _compute_recommendation_change(
         ) + (cast(pd.Series, sell) if sell is not None else 0)
         score = pd.Series(bull_total - bear_total, dtype=float)
         if "ticker" in analyst_data.columns:
-            grouped: pd.Series = score.groupby(analyst_data["ticker"]).mean()
+            grouped: pd.Series = cast(
+                pd.Series, score.groupby(analyst_data["ticker"]).mean()
+            )
             return grouped
         return score
     return pd.Series(dtype=float)
@@ -370,15 +354,15 @@ def _compute_net_insider_buying(
         insider["signed_shares"] = insider["shares"].where(
             is_purchase, -insider["shares"]
         )
-        result: pd.Series = insider.groupby("ticker")["signed_shares"].sum()
+        result: pd.Series = cast(
+            pd.Series, insider.groupby("ticker")["signed_shares"].sum()
+        )
         return result
-    result_sum: pd.Series = insider_data.groupby("ticker")["shares"].sum()
+    result_sum: pd.Series = cast(
+        pd.Series, insider_data.groupby("ticker")["shares"].sum()
+    )
     return result_sum
 
-
-# ---------------------------------------------------------------------------
-# Dispatch
-# ---------------------------------------------------------------------------
 
 _FUNDAMENTAL_FACTORS: dict[FactorType, Callable[[pd.DataFrame], pd.Series]] = {
     FactorType.BOOK_TO_PRICE: _compute_book_to_price,
@@ -408,42 +392,29 @@ def compute_factor(
 ) -> pd.Series:
     """Compute a single factor.
 
-    Parameters
-    ----------
-    factor_type : FactorType
-        Which factor to compute.
-    fundamentals : pd.DataFrame
-        Cross-sectional data indexed by ticker.
-    price_history : pd.DataFrame
-        Price matrix (dates x tickers).
-    volume_history : pd.DataFrame or None
-        Volume matrix (dates x tickers).
-    analyst_data : pd.DataFrame or None
-        Analyst recommendation data.
-    insider_data : pd.DataFrame or None
-        Insider transaction data.
-    config : FactorConstructionConfig or None
-        Construction parameters.
-    market_returns : pd.Series or None
-        Pre-computed market return series for beta estimation.
-        When provided, used as the benchmark instead of the
-        equal-weight cross-sectional mean.  Pass a currency-
-        consistent broad index (e.g. SPY daily returns) when
-        ``price_history`` spans multiple currency zones.
+    Args:
+        factor_type: Which factor to compute.
+        fundamentals: Cross-sectional data indexed by ticker.
+        price_history: Price matrix (dates x tickers).
+        volume_history: Volume matrix (dates x tickers).
+        analyst_data: Analyst recommendation data.
+        insider_data: Insider transaction data.
+        config: Construction parameters.
+        market_returns: Pre-computed market return series for beta estimation.
+            When provided, used as the benchmark instead of the equal-weight
+            cross-sectional mean.  Pass a currency-consistent broad index (e.g.
+            SPY daily returns) when ``price_history`` spans multiple currency
+            zones.
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         Factor values indexed by ticker.
     """
     if config is None:
         config = FactorConstructionConfig()
 
-    # Fundamental factors
     if factor_type in _FUNDAMENTAL_FACTORS:
         return _FUNDAMENTAL_FACTORS[factor_type](fundamentals)
 
-    # Price-based factors
     match factor_type:
         case FactorType.MOMENTUM_12_1:
             return _compute_momentum(
@@ -489,27 +460,17 @@ def compute_all_factors(
 ) -> pd.DataFrame:
     """Compute all configured factors.
 
-    Parameters
-    ----------
-    fundamentals : pd.DataFrame
-        Cross-sectional data indexed by ticker.
-    price_history : pd.DataFrame
-        Price matrix (dates x tickers).
-    volume_history : pd.DataFrame or None
-        Volume matrix.
-    analyst_data : pd.DataFrame or None
-        Analyst recommendation data.
-    insider_data : pd.DataFrame or None
-        Insider transaction data.
-    config : FactorConstructionConfig or None
-        Construction parameters.
-    market_returns : pd.Series or None
-        Pre-computed market return series for beta estimation.
-        See :func:`compute_factor` for details.
+    Args:
+        fundamentals: Cross-sectional data indexed by ticker.
+        price_history: Price matrix (dates x tickers).
+        volume_history: Volume matrix.
+        analyst_data: Analyst recommendation data.
+        insider_data: Insider transaction data.
+        config: Construction parameters.
+        market_returns: Pre-computed market return series for beta estimation.
+            See `compute_factor` for details.
 
-    Returns
-    -------
-    pd.DataFrame
+    Returns:
         Tickers x factors matrix.
     """
     if config is None:

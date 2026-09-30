@@ -26,7 +26,6 @@ class ThresholdType(str, Enum):
     RELATIVE = "relative"
 
 
-# Trading days per frequency
 TRADING_DAYS: dict[RebalancingFrequency, int] = {
     RebalancingFrequency.MONTHLY: 21,
     RebalancingFrequency.QUARTERLY: 63,
@@ -57,10 +56,8 @@ class CalendarRebalancingConfig:
     Triggers portfolio reconstruction at fixed intervals regardless
     of portfolio drift.
 
-    Parameters
-    ----------
-    frequency : RebalancingFrequency
-        Rebalancing frequency.
+    Attributes:
+        frequency: Rebalancing frequency.
     """
 
     frequency: RebalancingFrequency = RebalancingFrequency.QUARTERLY
@@ -109,14 +106,11 @@ class ThresholdRebalancingConfig:
     Rebalances only when portfolio drift exceeds specified limits,
     avoiding unnecessary turnover during stable periods.
 
-    Parameters
-    ----------
-    threshold_type : ThresholdType
-        Whether to use absolute or relative drift thresholds.
-    threshold : float
-        Drift threshold.  For absolute: percentage points of weight
-        (e.g. 0.05 = 5pp).  For relative: fraction of target weight
-        (e.g. 0.25 = 25% deviation).
+    Attributes:
+        threshold_type: Whether to use absolute or relative drift thresholds.
+        threshold: Drift threshold.  For absolute: percentage points of weight
+            (e.g. 0.05 = 5pp).  For relative: fraction of target weight
+            (e.g. 0.25 = 25% deviation).
     """
 
     threshold_type: ThresholdType = ThresholdType.ABSOLUTE
@@ -148,12 +142,9 @@ class HybridRebalancingConfig:
     exceeds the threshold at that review date.  Between review dates,
     ``should_rebalance_hybrid`` always returns ``False`` regardless of drift.
 
-    Parameters
-    ----------
-    calendar : CalendarRebalancingConfig
-        Calendar schedule that defines review dates.
-    threshold : ThresholdRebalancingConfig
-        Drift threshold evaluated at each review date.
+    Attributes:
+        calendar: Calendar schedule that defines review dates.
+        threshold: Drift threshold evaluated at each review date.
     """
 
     calendar: CalendarRebalancingConfig = field(

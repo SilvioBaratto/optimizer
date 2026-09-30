@@ -21,10 +21,6 @@ from optimizer.optimization._config import (
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Mapping dicts
-# ---------------------------------------------------------------------------
-
 _OBJECTIVE_MAP: dict[ObjectiveFunctionType, ObjectiveFunction] = {
     ObjectiveFunctionType.MINIMIZE_RISK: ObjectiveFunction.MINIMIZE_RISK,
     ObjectiveFunctionType.MAXIMIZE_RETURN: ObjectiveFunction.MAXIMIZE_RETURN,
@@ -51,45 +47,36 @@ _RISK_MEASURE_MAP: dict[RiskMeasureType, RiskMeasure] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Helper factory
-# ---------------------------------------------------------------------------
-
-
 def build_sector_constraints(
     sector_mapping: dict[str, str],
     max_sector_weight: float,
 ) -> tuple[dict[str, str], list[str]]:
     """Build skfolio ``groups`` and ``linear_constraints`` from a sector mapping.
 
-    Parameters
-    ----------
-    sector_mapping : dict[str, str]
-        Mapping from asset ticker to sector name
-        (e.g. ``{"AAPL": "Technology", "JPM": "Financials"}``).
-    max_sector_weight : float
-        Maximum total weight for any single sector (e.g. 0.25 = 25%).
+    Args:
+        sector_mapping: Mapping from asset ticker to sector name
+            (e.g. ``{"AAPL": "Technology", "JPM": "Financials"}``).
+        max_sector_weight: Maximum total weight for any single sector
+            (e.g. 0.25 = 25%).
 
-    Returns
-    -------
-    groups : dict[str, str]
-        Ticker -> sector label, as required by
-        :class:`skfolio.optimization.MeanRisk` (converted to a 2-D
-        group array at fit-time via ``input_to_array``).
-    linear_constraints : list[str]
-        One constraint string per sector (``"SectorName <= cap"``).
+    Returns:
+        A tuple of (groups, linear_constraints) where groups is the
+        ticker->sector label dict required by `MeanRisk` (converted to a
+        2-D group array at fit-time via ``input_to_array``), and
+        linear_constraints
+        is one constraint string per sector (``"SectorName <= cap"``).
 
-    Notes
-    -----
-    Tickers whose sector is missing (``None`` or empty string) are excluded
-    from constraint emission.  ``TickerProfile.sector`` is nullable in the
-    source DB (ETFs and some equities carry no GICS sector), so a
-    DB-sourced mapping can legitimately contain such values.  skfolio maps
-    an asset that is ``None`` / absent in ``groups`` to its own singleton
-    group, leaving it unconstrained by sector — the correct behaviour for an
-    unknown-sector asset.  Emitting a ``"None <= cap"`` row (or sorting a set
-    that mixes ``str`` and ``None``) would instead raise ``TypeError`` or
-    attach a bogus constraint, so those values are skipped here.
+    Note:
+        Tickers whose sector is missing (``None`` or empty string) are
+        excluded from constraint emission.  ``TickerProfile.sector`` is
+        nullable in the source DB (ETFs and some equities carry no GICS
+        sector), so a DB-sourced mapping can legitimately contain such
+        values.  skfolio maps an asset that is ``None`` / absent in
+        ``groups`` to its own singleton group, leaving it unconstrained by
+        sector — the correct behaviour for an unknown-sector asset.
+        Emitting a ``"None <= cap"`` row (or sorting a set that mixes
+        ``str`` and ``None``) would instead raise ``TypeError`` or attach a
+        bogus constraint, so those values are skipped here.
     """
     sectors = sorted({sector for sector in sector_mapping.values() if sector})
     cap = round(max_sector_weight, 6)
@@ -113,18 +100,14 @@ def _build_sector_cap_constraints(
 ) -> list[str]:
     """Emit ``"<sector> >= <floor>"`` and ``"<sector> <= <cap>"`` rows.
 
-    Used by :func:`build_mean_risk` when ``sector_bands`` is provided
+    Used by `build_mean_risk` when ``sector_bands`` is provided
     directly (factory-level injection without going through the orchestrator).
 
-    Parameters
-    ----------
-    sector_bands : dict[str, tuple[float, float]]
-        Mapping from sector name to ``(floor, cap)``.  Sectors with
-        ``floor == 0.0`` emit no floor row.
+    Args:
+        sector_bands: Mapping from sector name to ``(floor, cap)``. Sectors
+            with ``floor == 0.0`` emit no floor row.
 
-    Returns
-    -------
-    list[str]
+    Returns:
         Constraint rows sorted by sector name then constraint type
         (floor rows precede cap rows).
     """
@@ -168,11 +151,6 @@ def _validate_sector_floors(
                 )
 
 
-# ---------------------------------------------------------------------------
-# Main optimiser factory
-# ---------------------------------------------------------------------------
-
-
 def build_mean_risk(
     config: MeanRiskConfig | None = None,
     *,
@@ -183,62 +161,50 @@ def build_mean_risk(
     sector_bands: dict[str, tuple[float, float]] | None = None,
     **kwargs: Any,
 ) -> MeanRisk:
-    """Build a skfolio :class:`MeanRisk` optimiser from *config*.
+    """Build a skfolio `MeanRisk` optimiser from `config`.
 
-    Parameters
-    ----------
-    config : MeanRiskConfig or None
-        Mean-risk configuration.  Defaults to ``MeanRiskConfig()``
-        (minimum-variance).
-    prior_estimator : BasePrior or None
-        Prior estimator.  When ``None``, one is built from
-        ``config.prior_config`` (or skfolio default).
-    factor_exposure_constraints : FactorExposureConstraints or None
-        Enforceable factor exposure constraints produced by
-        :func:`~optimizer.factors.build_factor_exposure_constraints`.
-        When provided, ``left_inequality`` and ``right_inequality`` are
-        injected into the :class:`MeanRisk` constructor.  Any explicit
-        ``left_inequality`` / ``right_inequality`` entries in ``kwargs``
-        take precedence.
-    sector_mapping : dict[str, str] or None
-        Ticker -> sector name mapping.  Used to build ``groups`` and
-        ``linear_constraints`` when ``config.max_sector_weight`` is set
-        or when ``min_sector_weights`` is supplied.  Any explicit
-        ``groups`` or ``linear_constraints`` in ``kwargs`` take
-        precedence.
-    min_sector_weights : dict[str, float] or None
-        Per-sector floor weights (e.g. ``{"Healthcare": 0.08}``).  Each
-        entry emits a ``"<sector> >= <floor>"`` row appended to the
-        sector-cap rows.  Requires ``sector_mapping``; raises
-        ``ValueError`` if not supplied, if floors sum to > 1.0, or if
-        any floor exceeds ``config.max_sector_weight``.  Empty dict is
-        a no-op.  The input dict is not mutated.
-    sector_bands : dict[str, tuple[float, float]] or None
-        Regime-conditional per-sector ``(floor, cap)`` bands from
-        :func:`~optimizer.factors.resolve_sector_bands`.  When provided,
-        both floor rows (``"<sector> >= <floor>"``) and cap rows
-        (``"<sector> <= <cap>"``) are appended to ``linear_constraints``
-        after any ``min_sector_weights`` rows.  Sectors with
-        ``floor == 0.0`` emit no floor row.  This is the low-level
-        factory path for injecting regime-conditional sector bands into a
-        :class:`MeanRisk` optimizer.  ``None`` is a no-op.
-    **kwargs
-        Additional keyword arguments forwarded to the
-        :class:`MeanRisk` constructor (for non-serialisable
-        parameters such as ``previous_weights``, ``groups``,
-        ``linear_constraints``, etc.).  Notable skfolio 1.0 passthroughs:
+    Args:
+        config: Mean-risk configuration. Defaults to ``MeanRiskConfig()``
+            (minimum-variance).
+        prior_estimator: Prior estimator. When ``None``, one is built from
+            ``config.prior_config`` (or skfolio default).
+        factor_exposure_constraints: Enforceable factor exposure constraints
+            produced by `build_factor_exposure_constraints`. When provided,
+            ``left_inequality`` and ``right_inequality`` are injected into
+            the `MeanRisk` constructor. Any explicit
+            ``left_inequality`` / ``right_inequality`` entries in ``kwargs``
+            take precedence.
+        sector_mapping: Ticker -> sector name mapping. Used to build
+            ``groups`` and ``linear_constraints`` when
+            ``config.max_sector_weight`` is set or when
+            ``min_sector_weights`` is supplied. Any explicit ``groups`` or
+            ``linear_constraints`` in ``kwargs`` take precedence.
+        min_sector_weights: Per-sector floor weights
+            (e.g. ``{"Healthcare": 0.08}``). Each entry emits a
+            ``"<sector> >= <floor>"`` row appended to the sector-cap rows.
+            Requires ``sector_mapping``; raises ``ValueError`` if not
+            supplied, if floors sum to > 1.0, or if any floor exceeds
+            ``config.max_sector_weight``. Empty dict is a no-op. The input
+            dict is not mutated.
+        sector_bands: Regime-conditional per-sector ``(floor, cap)`` bands
+            from `resolve_sector_bands`. When provided, both floor rows
+            (``"<sector> >= <floor>"``) and cap rows
+            (``"<sector> <= <cap>"``) are appended to
+            ``linear_constraints`` after any ``min_sector_weights`` rows.
+            Sectors with ``floor == 0.0`` emit no floor row. This is the
+            low-level factory path for injecting regime-conditional sector
+            bands into a `MeanRisk` optimizer. ``None`` is a no-op.
+        **kwargs: Additional keyword arguments forwarded to the
+            `MeanRisk` constructor (for non-serialisable parameters
+            such as ``previous_weights``, ``groups``,
+            ``linear_constraints``, etc.). Notable skfolio 1.0
+            passthroughs: ``target_weights`` — L1/L2 regularisation anchor
+            applied to ``w - target_weights``, distinct from
+            ``max_tracking_error``; ``fallback`` — overrides
+            ``config.fallback_policy``; ``raise_on_failure`` — overrides
+            ``config.raise_on_failure``.
 
-        * ``target_weights`` — L1/L2 regularisation anchor; the penalty
-          is applied to ``w - target_weights`` (a float, per-asset array,
-          or dict).  Distinct from ``max_tracking_error``, which is a hard
-          bound relative to the benchmark ``y``.
-        * ``fallback`` — estimator, list of estimators, or the literal
-          ``"previous_weights"``; overrides ``config.fallback_policy``.
-        * ``raise_on_failure`` — overrides ``config.raise_on_failure``.
-
-    Returns
-    -------
-    MeanRisk
+    Returns:
         A fitted-ready skfolio optimiser.
     """
     if config is None:

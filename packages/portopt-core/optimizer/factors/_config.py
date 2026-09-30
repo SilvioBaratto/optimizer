@@ -7,10 +7,6 @@ from enum import Enum
 
 from optimizer.exceptions import ConfigurationError
 
-# ---------------------------------------------------------------------------
-# Enums
-# ---------------------------------------------------------------------------
-
 
 class FactorGroupType(str, Enum):
     """Factor group taxonomy."""
@@ -29,32 +25,23 @@ class FactorGroupType(str, Enum):
 class FactorType(str, Enum):
     """Individual factor identifiers."""
 
-    # Value
     BOOK_TO_PRICE = "book_to_price"
     EARNINGS_YIELD = "earnings_yield"
     CASH_FLOW_YIELD = "cash_flow_yield"
     SALES_TO_PRICE = "sales_to_price"
     EBITDA_TO_EV = "ebitda_to_ev"
-    # Profitability
     GROSS_PROFITABILITY = "gross_profitability"
     ROE = "roe"
     OPERATING_MARGIN = "operating_margin"
     PROFIT_MARGIN = "profit_margin"
     ACCRUALS = "accruals"
-    # Investment
     ASSET_GROWTH = "asset_growth"
-    # Momentum
     MOMENTUM_12_1 = "momentum_12_1"
-    # Low risk
     VOLATILITY = "volatility"
     BETA = "beta"
-    # Liquidity
     AMIHUD_ILLIQUIDITY = "amihud_illiquidity"
-    # Dividend
     DIVIDEND_YIELD = "dividend_yield"
-    # Sentiment
     RECOMMENDATION_CHANGE = "recommendation_change"
-    # Ownership
     NET_INSIDER_BUYING = "net_insider_buying"
 
 
@@ -147,10 +134,6 @@ class GroupWeight(str, Enum):
     SUPPLEMENTARY = "supplementary"
 
 
-# ---------------------------------------------------------------------------
-# Mapping constants
-# ---------------------------------------------------------------------------
-
 FACTOR_GROUP_MAPPING: dict[FactorType, FactorGroupType] = {
     FactorType.BOOK_TO_PRICE: FactorGroupType.VALUE,
     FactorType.EARNINGS_YIELD: FactorGroupType.VALUE,
@@ -212,11 +195,6 @@ FACTOR_DIRECTION: dict[str, int] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Frozen dataclass configs
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class PublicationLagConfig:
     """Differentiated publication lags by data source type.
@@ -226,20 +204,15 @@ class PublicationLagConfig:
     Using source-specific lags avoids look-ahead bias when aligning
     fundamental data to price dates.
 
-    Parameters
-    ----------
-    annual_days : int
-        Lag for annual financial statements (days after fiscal year end).
-        Default: 90 days (~3 months for 10-K filing).
-    quarterly_days : int
-        Lag for quarterly financial statements (days after quarter end).
-        Default: 45 days (~6 weeks for 10-Q filing).
-    analyst_days : int
-        Lag for analyst estimates and recommendations.
-        Default: 5 days (short dissemination buffer).
-    macro_days : int
-        Lag for macroeconomic indicators (release lag + revision lag).
-        Default: 63 days (~2 months).
+    Attributes:
+        annual_days: Lag for annual financial statements in days after fiscal
+            year end. Default 90 days (~3 months for 10-K filing).
+        quarterly_days: Lag for quarterly financial statements in days after
+            quarter end. Default 45 days (~6 weeks for 10-Q filing).
+        analyst_days: Lag for analyst estimates and recommendations.
+            Default 5 days (short dissemination buffer).
+        macro_days: Lag for macroeconomic indicators in days (release lag +
+            revision lag). Default 63 days (~2 months).
     """
 
     annual_days: int = 90
@@ -262,25 +235,17 @@ class PublicationLagConfig:
 class FactorConstructionConfig:
     """Configuration for factor computation.
 
-    Parameters
-    ----------
-    factors : tuple[FactorType, ...]
-        Which factors to compute.
-    momentum_lookback : int
-        Lookback window for momentum in trading days.
-    momentum_skip : int
-        Recent days to skip for momentum (reversal avoidance).
-    volatility_lookback : int
-        Lookback window for volatility in trading days.
-    beta_lookback : int
-        Lookback window for beta estimation in trading days.
-    amihud_lookback : int
-        Lookback window for Amihud illiquidity in trading days.
-    publication_lag : PublicationLagConfig
-        Per-source publication lags for point-in-time correctness.
-        Pass a plain ``int`` for a uniform lag across all sources
-        (backward-compatible; converted to :class:`PublicationLagConfig`
-        automatically).
+    Attributes:
+        factors: Which factors to compute.
+        momentum_lookback: Lookback window for momentum in trading days.
+        momentum_skip: Recent days to skip for momentum (reversal avoidance).
+        volatility_lookback: Lookback window for volatility in trading days.
+        beta_lookback: Lookback window for beta estimation in trading days.
+        amihud_lookback: Lookback window for Amihud illiquidity in trading days.
+        publication_lag: Per-source publication lags for point-in-time
+            correctness. Accepts a plain ``int`` for a uniform lag across all
+            sources (backward-compatible; converted to
+            ``PublicationLagConfig`` automatically).
     """
 
     factors: tuple[FactorType, ...] = (
@@ -327,28 +292,22 @@ class FactorConstructionConfig:
 class StandardizationConfig:
     """Configuration for cross-sectional factor standardization.
 
-    Parameters
-    ----------
-    method : StandardizationMethod
-        Z-score or rank-normal standardization.  Default is ``RANK_NORMAL``
-        following MSCI Barra USE4 and Gu/Kelly/Xiu (2020) best practice for
-        heavy-tailed financial factor distributions.
-    winsorize_method : WinsorizeMethod
-        Outlier treatment method.  ``PERCENTILE`` clips at fixed quantiles;
-        ``MAD`` clips at median +/- k * 1.4826 * MAD.
-    winsorize_lower : float
-        Lower percentile for winsorization (0-1, used with PERCENTILE).
-    winsorize_upper : float
-        Upper percentile for winsorization (0-1, used with PERCENTILE).
-    neutralize_sector : bool
-        Whether to sector-neutralize scores.
-    neutralize_country : bool
-        Whether to country-neutralize scores.
-    factor_method_overrides : tuple[tuple[str, str], ...]
-        Per-factor standardization method overrides as
-        ``(factor_name, method_value)`` pairs.  When non-empty, each factor
-        is standardized with its assigned method; factors not in the map
-        fall back to ``method``.
+    Attributes:
+        method: Z-score or rank-normal standardization. Default is
+            ``RANK_NORMAL`` following MSCI Barra USE4 and Gu/Kelly/Xiu (2020)
+            best practice for heavy-tailed financial factor distributions.
+        winsorize_method: Outlier treatment method. ``PERCENTILE`` clips at
+            fixed quantiles; ``MAD`` clips at median +/- k * 1.4826 * MAD.
+        winsorize_lower: Lower percentile for winsorization (0-1, used with
+            PERCENTILE).
+        winsorize_upper: Upper percentile for winsorization (0-1, used with
+            PERCENTILE).
+        neutralize_sector: Whether to sector-neutralize scores.
+        neutralize_country: Whether to country-neutralize scores.
+        factor_method_overrides: Per-factor standardization method overrides as
+            ``(factor_name, method_value)`` pairs. When non-empty, each factor
+            is standardized with its assigned method; factors not in the map
+            fall back to ``method``.
     """
 
     method: StandardizationMethod = StandardizationMethod.RANK_NORMAL
@@ -411,44 +370,37 @@ class StandardizationConfig:
 class CompositeScoringConfig:
     """Configuration for composite score construction.
 
-    Parameters
-    ----------
-    method : CompositeMethod
-        Equal-weight, IC-weighted, ICIR-weighted, ridge, or GBT composite.
-    ic_lookback : int
-        Number of periods for IC estimation when using IC weighting.
-    core_weight : float
-        Relative weight for core factor groups.
-    supplementary_weight : float
-        Relative weight for supplementary factor groups.
-    ridge_alpha : float
-        L2 regularisation strength for ``RIDGE_WEIGHTED``.  Passed as the
-        single candidate to ``RidgeCV``; increase for more shrinkage.
-    gbt_max_depth : int
-        Maximum tree depth for ``GBT_WEIGHTED``.
-    gbt_n_estimators : int
-        Number of boosting rounds for ``GBT_WEIGHTED``.
-    gbt_random_state : int
-        Random state for ``GBT_WEIGHTED`` ``GradientBoostingRegressor``.
-        Change for sensitivity analysis or ensemble diversity.
-    min_coverage_groups : int
-        Minimum number of non-NaN group scores required.  Tickers with
-        fewer available groups receive NaN composite and are excluded from
-        selection.  0 disables the threshold (default).
-    return_coverage : bool
-        When True, ``compute_composite_score`` returns a DataFrame with
-        columns ``["composite", "coverage_ratio"]`` instead of a Series.
-    ic_fallback_strategy : ICFallbackStrategy
-        Strategy when all IC/ICIR weights resolve to zero (all groups have
-        non-positive IC or ICIR).  ``EQUAL_WEIGHT`` preserves the current
-        behavior.  ``NAN`` returns all-NaN scores to suppress trading.
-        ``RAISE`` raises ``ConfigurationError``.  Default is ``EQUAL_WEIGHT``.
-    ic_decay_halflife : int
-        EWM half-life (in IC observation periods) for IC-weighted scoring.
-        ``0`` (default) disables decay and uses the simple trailing mean over
-        ``ic_lookback`` periods.  Positive values apply
-        ``ic_history.ewm(halflife=N, min_periods=1).mean().iloc[-1]`` so the
-        most recent fold dominates older folds.
+    Attributes:
+        method: Equal-weight, IC-weighted, ICIR-weighted, ridge, or GBT
+            composite.
+        ic_lookback: Number of periods for IC estimation when using IC
+            weighting.
+        core_weight: Relative weight for core factor groups.
+        supplementary_weight: Relative weight for supplementary factor groups.
+        ridge_alpha: L2 regularisation strength for ``RIDGE_WEIGHTED``.
+            Passed as the single candidate to ``RidgeCV``; increase for more
+            shrinkage.
+        gbt_max_depth: Maximum tree depth for ``GBT_WEIGHTED``.
+        gbt_n_estimators: Number of boosting rounds for ``GBT_WEIGHTED``.
+        gbt_random_state: Random state for the ``GBT_WEIGHTED``
+            ``GradientBoostingRegressor``. Change for sensitivity analysis or
+            ensemble diversity.
+        min_coverage_groups: Minimum number of non-NaN group scores required.
+            Tickers with fewer available groups receive NaN composite and are
+            excluded from selection. 0 disables the threshold (default).
+        return_coverage: When True, ``compute_composite_score`` returns a
+            DataFrame with columns ``["composite", "coverage_ratio"]`` instead
+            of a Series.
+        ic_fallback_strategy: Strategy when all IC/ICIR weights resolve to
+            zero (all groups have non-positive IC or ICIR).
+            ``EQUAL_WEIGHT`` preserves the current behavior. ``NAN`` returns
+            all-NaN scores to suppress trading. ``RAISE`` raises
+            ``ConfigurationError``. Default is ``EQUAL_WEIGHT``.
+        ic_decay_halflife: EWM half-life in IC observation periods for
+            IC-weighted scoring. ``0`` (default) disables decay and uses the
+            simple trailing mean over ``ic_lookback`` periods. Positive values
+            apply ``ic_history.ewm(halflife=N, min_periods=1).mean().iloc[-1]``
+            so the most recent fold dominates older folds.
     """
 
     method: CompositeMethod = CompositeMethod.EQUAL_WEIGHT
@@ -478,11 +430,10 @@ class CompositeScoringConfig:
     def for_ic_weighted(cls, ic_decay_halflife: int = 0) -> CompositeScoringConfig:
         """IC-weighted composite scoring (raw IC magnitude).
 
-        Parameters
-        ----------
-        ic_decay_halflife : int
-            EWM half-life in IC observation periods. ``0`` (default) keeps the
-            simple trailing mean; positive values weight recent folds higher.
+        Args:
+            ic_decay_halflife: EWM half-life in IC observation periods.
+                ``0`` (default) keeps the simple trailing mean; positive values
+                weight recent folds higher.
         """
         return cls(
             method=CompositeMethod.IC_WEIGHTED,
@@ -544,30 +495,22 @@ class CompositeScoringConfig:
 class SelectionConfig:
     """Configuration for stock selection from scored universe.
 
-    Parameters
-    ----------
-    method : SelectionMethod
-        Fixed-count or quantile-based selection.
-    target_count : int
-        Number of stocks to select (for FIXED_COUNT).
-    target_quantile : float
-        Quantile threshold for selection (for QUANTILE, 0-1).
-    exit_quantile : float
-        Exit quantile for hysteresis (for QUANTILE).
-    buffer_fraction : float
-        Buffer zone fraction around selection boundary.
-    sector_balance : bool
-        Whether to enforce sector-proportional representation.
-    sector_tolerance : float
-        Maximum deviation from parent universe sector weights (fraction,
-        0–1).  Default 0.05 (5 pp) matches MSCI, S&P DJI, and FTSE Russell
-        factor-index methodology.  Use ``for_low_tracking_error()`` for a
-        tighter 3% band suited to institutional low-active-risk mandates.
-    max_per_sector : int
-        Hard ceiling on the number of stocks selected from any single
-        sector.  ``0`` (default) disables the cap; ``> 0`` evicts the
-        lowest-scoring excess members from any sector after the
-        tolerance-based balance loop.
+    Attributes:
+        method: Fixed-count or quantile-based selection.
+        target_count: Number of stocks to select (for FIXED_COUNT).
+        target_quantile: Quantile threshold for selection (for QUANTILE, 0-1).
+        exit_quantile: Exit quantile for hysteresis (for QUANTILE).
+        buffer_fraction: Buffer zone fraction around selection boundary.
+        sector_balance: Whether to enforce sector-proportional representation.
+        sector_tolerance: Maximum deviation from parent universe sector weights
+            as a fraction (0–1). Default 0.05 (5 pp) matches MSCI, S&P DJI,
+            and FTSE Russell factor-index methodology. Use
+            ``for_low_tracking_error()`` for a tighter 3% band suited to
+            institutional low-active-risk mandates.
+        max_per_sector: Hard ceiling on the number of stocks selected from any
+            single sector. ``0`` (default) disables the cap; positive values
+            evict the lowest-scoring excess members from any sector after the
+            tolerance-based balance loop.
     """
 
     method: SelectionMethod = SelectionMethod.FIXED_COUNT
@@ -637,36 +580,26 @@ class RegimeTiltConfig:
     Per-regime multiplicative tilts stored as tuples of
     ``(group_name, tilt_factor)`` for frozen-dataclass compatibility.
 
-    Parameters
-    ----------
-    enable : bool
-        Whether to apply regime tilts.
-    expansion_tilts : tuple[tuple[str, float], ...]
-        Group tilts during expansion.
-    slowdown_tilts : tuple[tuple[str, float], ...]
-        Group tilts during slowdown.
-    recession_tilts : tuple[tuple[str, float], ...]
-        Group tilts during recession.
-    recovery_tilts : tuple[tuple[str, float], ...]
-        Group tilts during recovery.
-    unknown_tilts : tuple[tuple[str, float], ...]
-        Group tilts when regime is unknown (neutral — all multipliers
-        default to 1.0 via empty tuple).
-    max_tilt_multiplier : float
-        Upper bound on any single raw tilt multiplier (default 2.0).
-        Multipliers exceeding this value are clamped before application.
-        Must be >= 1.0.
-    min_post_tilt_weight : float
-        Minimum weight any group may hold after tilting, expressed as a
-        fraction of the original total weight (default 0.05).  Groups
-        suppressed below this floor are raised to it before
-        renormalization.  Must be in [0.0, 1.0).
+    Attributes:
+        enable: Whether to apply regime tilts.
+        expansion_tilts: Group tilts during expansion.
+        slowdown_tilts: Group tilts during slowdown.
+        recession_tilts: Group tilts during recession.
+        recovery_tilts: Group tilts during recovery.
+        unknown_tilts: Group tilts when regime is unknown (neutral — all
+            multipliers default to 1.0 via empty tuple).
+        max_tilt_multiplier: Upper bound on any single raw tilt multiplier
+            (default 2.0). Multipliers exceeding this value are clamped before
+            application. Must be >= 1.0.
+        min_post_tilt_weight: Minimum weight any group may hold after tilting,
+            expressed as a fraction of the original total weight (default 0.05).
+            Groups suppressed below this floor are raised to it before
+            renormalization. Must be in [0.0, 1.0).
     """
 
     enable: bool = False
-    # Cycle-2 spec: EXPANSION boosts cyclicals (Momentum, Value), dampens
-    # defensives (Low-Risk, Profitability).  RECESSION inverts: defensives up,
-    # cyclicals down.
+    # EXPANSION rewards cyclical exposures and penalises defensives; RECESSION
+    # inverts this to prioritise capital preservation.
     expansion_tilts: tuple[tuple[str, float], ...] = (
         ("momentum", 1.2),
         ("value", 1.2),
@@ -738,31 +671,27 @@ class SectorRegimeBandsConfig:
     Stores the full regime × sector band matrix as a serialisable tuple of
     ``(regime_value, sector_name, floor, cap)`` entries.  The default bands
     are loaded from the module-level ``SECTOR_REGIME_BANDS`` matrix via the
-    :meth:`for_default` classmethod.
+    `for_default` classmethod.
 
     Single-regime-per-run semantics: the regime is resolved once from the
     lagged classified macro regime and injected into the optimizer before
     it is fit.  Backtest folds and the final fit therefore share the same
-    regime-conditional bands.  This is a deliberate
-    design choice: it avoids leaking future regime information into
-    walk-forward folds while keeping the implementation simple.
+    regime-conditional bands.  This is a deliberate design choice: it avoids
+    leaking future regime information into walk-forward folds while keeping
+    the implementation simple.
 
-    Parameters
-    ----------
-    enable : bool
-        Whether to apply dynamic sector bands.  When ``False``, the
-        optimizer constraints are left unchanged.
-    bands : tuple[tuple[str, str, float, float], ...]
-        Serialisable flat representation of the band matrix.  Each entry
-        is ``(regime_value, sector_name, floor, cap)`` with
-        ``0.0 <= floor <= cap <= 1.0``.
+    Attributes:
+        enable: Whether to apply dynamic sector bands. When ``False``, the
+            optimizer constraints are left unchanged.
+        bands: Serialisable flat representation of the band matrix. Each entry
+            is ``(regime_value, sector_name, floor, cap)`` with
+            ``0.0 <= floor <= cap <= 1.0``.
 
-    Examples
-    --------
-    >>> cfg = SectorRegimeBandsConfig.for_default()
-    >>> bands = resolve_sector_bands(MacroRegime.RECESSION, cfg)
-    >>> bands["Technology"]
-    (0.0, 0.06)
+    Examples:
+        >>> cfg = SectorRegimeBandsConfig.for_default()
+        >>> bands = resolve_sector_bands(MacroRegime.RECESSION, cfg)
+        >>> bands["Technology"]
+        (0.0, 0.06)
     """
 
     enable: bool = True
@@ -824,33 +753,30 @@ class RegimeThresholdConfig:
     """Classification thresholds for the composite macro regime scorer.
 
     All eight thresholds drive the {-1, 0, +1} component scores used by
-    :func:`~optimizer.factors._regime.classify_regime_composite` and the
+    `classify_regime_composite` and the
     research-layer scoring functions in ``research/_macro.py``.
 
-    Parameters
-    ----------
-    hy_oas_risk_on : float
-        HY OAS level (bps) below which credit conditions are benign (+1).
-        Empirical basis: ~40th pctl of ICE BofA HY OAS 1997-2023.
-    hy_oas_risk_off : float
-        HY OAS level (bps) above which credit stress is elevated (-1).
-        Empirical basis: ~75th pctl of ICE BofA HY OAS historically.
-    pmi_expansion : float
-        ISM Manufacturing PMI above which growth is accelerating (+1).
-        2-point buffer above the 50 neutral line (Koenig 2002).
-    pmi_contraction : float
-        ISM Manufacturing PMI below which growth is contracting (-1).
-        Symmetric 2-point band around 50.
-    spread_2s10s_steep : float
-        10Y-2Y spread (percentage points) above which the curve is steep (+1).
-        100 bps historically associated with early-cycle acceleration.
-    spread_2s10s_inversion : float
-        10Y-2Y spread (percentage points) at/below which the curve is inverted (-1).
-        Conventional inversion definition (Estrella & Mishkin 1998).
-    sentiment_positive : float
-        Normalized NLP sentiment score above which sentiment is positive (+1).
-    sentiment_negative : float
-        Normalized NLP sentiment score below which sentiment is negative (-1).
+    Attributes:
+        hy_oas_risk_on: HY OAS level in bps below which credit conditions are
+            benign (+1). Empirical basis: ~40th pctl of ICE BofA HY OAS
+            1997-2023.
+        hy_oas_risk_off: HY OAS level in bps above which credit stress is
+            elevated (-1). Empirical basis: ~75th pctl of ICE BofA HY OAS
+            historically.
+        pmi_expansion: ISM Manufacturing PMI above which growth is accelerating
+            (+1). 2-point buffer above the 50 neutral line (Koenig 2002).
+        pmi_contraction: ISM Manufacturing PMI below which growth is
+            contracting (-1). Symmetric 2-point band around 50.
+        spread_2s10s_steep: 10Y-2Y spread in percentage points above which the
+            curve is steep (+1). 100 bps historically associated with
+            early-cycle acceleration.
+        spread_2s10s_inversion: 10Y-2Y spread in percentage points at/below
+            which the curve is inverted (-1). Conventional inversion definition
+            (Estrella & Mishkin 1998).
+        sentiment_positive: Normalized NLP sentiment score above which
+            sentiment is positive (+1).
+        sentiment_negative: Normalized NLP sentiment score below which
+            sentiment is negative (-1).
     """
 
     hy_oas_risk_on: float = 350.0
@@ -927,30 +853,21 @@ class RegimeThresholdConfig:
 class FactorValidationConfig:
     """Configuration for factor validation and statistical testing.
 
-    Parameters
-    ----------
-    newey_west_lags : int
-        Number of lags for Newey-West t-statistic.
-    t_stat_threshold : float
-        Minimum absolute t-statistic for significance.
-    fdr_alpha : float
-        False discovery rate alpha level.
-    n_quantiles : int
-        Number of quantiles for spread analysis.
-    fmp_top_pct : float
-        Top percentile for factor-mimicking portfolios.
-    fmp_bottom_pct : float
-        Bottom percentile for factor-mimicking portfolios.
-    composite_min_observations : int
-        Minimum non-NaN observations per cross-section for composite IC.
-        Default: 24. Newey-West with 6 lags requires at least 13 observations
-        (2*lags+1); 24 provides two years of monthly IC for reliable
-        Spearman rank correlations.
-    min_ic_observations : int
-        Minimum non-NaN observations per cross-section date for per-factor
-        IC computation in ``run_factor_validation``. Default: 24, matching
-        ``composite_min_observations`` so both paths apply consistent
-        minimum-data guards.
+    Attributes:
+        newey_west_lags: Number of lags for Newey-West t-statistic.
+        t_stat_threshold: Minimum absolute t-statistic for significance.
+        fdr_alpha: False discovery rate alpha level.
+        n_quantiles: Number of quantiles for spread analysis.
+        fmp_top_pct: Top percentile for factor-mimicking portfolios.
+        fmp_bottom_pct: Bottom percentile for factor-mimicking portfolios.
+        composite_min_observations: Minimum non-NaN observations per
+            cross-section for composite IC. Default 24. Newey-West with 6 lags
+            requires at least 13 observations (2*lags+1); 24 provides two years
+            of monthly IC for reliable Spearman rank correlations.
+        min_ic_observations: Minimum non-NaN observations per cross-section
+            date for per-factor IC computation in ``run_factor_validation``.
+            Default 24, matching ``composite_min_observations`` so both paths
+            apply consistent minimum-data guards.
     """
 
     newey_west_lags: int = 6
@@ -977,27 +894,20 @@ class FactorValidationConfig:
 class FactorIntegrationConfig:
     """Configuration for bridging factor scores to optimization.
 
-    Parameters
-    ----------
-    risk_free_rate : float
-        Annual risk-free rate for expected return mapping.
-    market_risk_premium : float
-        Annual equity risk premium.
-    score_premium : float
-        Annualized premium per unit of composite z-score.
-    use_black_litterman : bool
-        Whether to generate Black-Litterman views from factor scores.
-    view_confidence_cap : float
-        Maximum Idzorek confidence for BL views (0–1).  At 1.0 the
-        posterior equals the view exactly, causing extreme concentration.
-        Values 0.25–0.50 blend the view with the equilibrium prior.
-    max_weight : float
-        Maximum per-asset weight enforced on the optimizer when the
-        integration injects a BL prior.  0.0 disables the constraint.
-    exposure_lower_bound : float
-        Lower bound for factor exposure constraints.
-    exposure_upper_bound : float
-        Upper bound for factor exposure constraints.
+    Attributes:
+        risk_free_rate: Annual risk-free rate for expected return mapping.
+        market_risk_premium: Annual equity risk premium.
+        score_premium: Annualized premium per unit of composite z-score.
+        use_black_litterman: Whether to generate Black-Litterman views from
+            factor scores.
+        view_confidence_cap: Maximum Idzorek confidence for BL views (0–1).
+            At 1.0 the posterior equals the view exactly, causing extreme
+            concentration. Values 0.25–0.50 blend the view with the
+            equilibrium prior.
+        max_weight: Maximum per-asset weight enforced on the optimizer when
+            the integration injects a BL prior. 0.0 disables the constraint.
+        exposure_lower_bound: Lower bound for factor exposure constraints.
+        exposure_upper_bound: Upper bound for factor exposure constraints.
     """
 
     risk_free_rate: float = 0.04
@@ -1026,19 +936,15 @@ class GroupICAggregationConfig:
 
     Controls how per-factor ICs are combined within each factor group.
 
-    Parameters
-    ----------
-    weighting : ICWeightingMethod
-        Method for weighting per-factor ICs within a group.
-    negative_filter : ICNegativeFilterPolicy
-        Policy for handling factors with consistently negative IC.
-    min_observations_tstat : int
-        Minimum IC observations to compute a valid t-stat.
-        Factors below this threshold fall back to equal weight
-        when ``weighting=TSTAT_WEIGHTED``. Default: 24.
-    newey_west_lags : int
-        Number of lags for Newey-West HAC standard errors when
-        computing t-stat weights.
+    Attributes:
+        weighting: Method for weighting per-factor ICs within a group.
+        negative_filter: Policy for handling factors with consistently
+            negative IC.
+        min_observations_tstat: Minimum IC observations to compute a valid
+            t-stat. Factors below this threshold fall back to equal weight
+            when ``weighting=TSTAT_WEIGHTED``. Default 24.
+        newey_west_lags: Number of lags for Newey-West HAC standard errors
+            when computing t-stat weights.
     """
 
     weighting: ICWeightingMethod = ICWeightingMethod.SIMPLE_MEAN
@@ -1070,28 +976,19 @@ class GroupICAggregationConfig:
         )
 
 
-# ---------------------------------------------------------------------------
-# Result containers (mutable dataclasses)
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class FactorBuildHealth:
     """Diagnostic report from build_factor_scores_history().
 
-    Parameters
-    ----------
-    total_dates : int
-        Number of rebalancing dates attempted.
-    succeeded_dates : int
-        Number of dates for which factor computation succeeded.
-    failed_dates : int
-        Number of dates skipped due to errors.
-    failures : dict[str, str]
-        Mapping of ISO-date string to exception message for each failure.
-    min_success_fraction : float
-        Minimum fraction of succeeded/total required before
-        FactorCoverageError is raised.
+    Attributes:
+        total_dates: Number of rebalancing dates attempted.
+        succeeded_dates: Number of dates for which factor computation
+            succeeded.
+        failed_dates: Number of dates skipped due to errors.
+        failures: Mapping of ISO-date string to exception message for each
+            failure.
+        min_success_fraction: Minimum fraction of succeeded/total required
+            before ``FactorCoverageError`` is raised.
     """
 
     total_dates: int

@@ -22,13 +22,11 @@ class DataValidator(BaseEstimator, TransformerMixin):
     pre-selection pipeline so that downstream transformers receive
     well-formed numeric data.
 
-    Parameters
-    ----------
-    max_abs_return : float, default=10.0
-        Any return whose absolute value exceeds this threshold is replaced
-        with ``NaN``.  The default of 10.0 (i.e. 1 000 %) is deliberately
-        generous — it catches data errors while preserving legitimate
-        large moves.
+    Args:
+        max_abs_return: Threshold above which absolute return values are
+            replaced with NaN. The default (10.0, i.e. 1 000 %) is
+            deliberately generous — it catches data errors while preserving
+            legitimate large moves.
     """
 
     max_abs_return: float
@@ -37,14 +35,29 @@ class DataValidator(BaseEstimator, TransformerMixin):
         self.max_abs_return = max_abs_return
 
     def fit(self, X: pd.DataFrame, y: object = None) -> DataValidator:
-        """Store metadata.  This transformer is stateless."""
+        """Record input column count and names for downstream compatibility checks.
+
+        Args:
+            X: Return DataFrame with assets as columns.
+            y: Ignored; present for sklearn API compatibility.
+
+        Returns:
+            The fitted transformer.
+        """
         X = self._validate_input(X)
         self.n_features_in_: int = X.shape[1]
         self.feature_names_in_: np.ndarray = np.asarray(X.columns)
         return self
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
-        """Replace ``inf`` / ``-inf`` and extreme returns with ``NaN``."""
+        """Replace inf/-inf and extreme returns with NaN.
+
+        Args:
+            X: Return DataFrame to clean.
+
+        Returns:
+            Copy of X with infinities and returns beyond max_abs_return set to NaN.
+        """
         check_is_fitted(self)
         X = self._validate_input(X)
 
@@ -54,11 +67,16 @@ class DataValidator(BaseEstimator, TransformerMixin):
         return out
 
     def get_feature_names_out(self, input_features: object = None) -> np.ndarray:
-        """Return feature names (pass-through)."""
+        """Return feature names recorded during fit.
+
+        Args:
+            input_features: Ignored; present for sklearn API compatibility.
+
+        Returns:
+            Array of column names recorded during fit.
+        """
         check_is_fitted(self)
         return self.feature_names_in_
-
-    # -- internals -----------------------------------------------------------
 
     @staticmethod
     def _validate_input(X: pd.DataFrame) -> pd.DataFrame:

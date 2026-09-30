@@ -1,12 +1,10 @@
 """Factory functions for building synthetic data and vine copula estimators.
 
-Input contract (real DB data)
------------------------------
+Input contract (real DB data):
 These factories build **data-free** skfolio estimators; the calibration data
 is supplied later at ``fit(X)`` time and is validated by skfolio via
 ``sklearn.utils.validation.validate_data`` with ``ensure_all_finite=True``.
-Both :class:`~skfolio.distribution.VineCopula` and
-:class:`~skfolio.prior.SyntheticData` therefore **reject NaN/inf** and have no
+Both `VineCopula` and `SyntheticData` therefore **reject NaN/inf** and have no
 native NaN mask. When seeding a generator from the DB's real price history,
 prepare ``X`` upstream (in ``preprocessing``/``moments``, not here):
 
@@ -17,7 +15,7 @@ prepare ``X`` upstream (in ``preprocessing``/``moments``, not here):
 * drop/align ragged listing history so no leading or interior NaN remain
   (unequal-length series across assets otherwise trip the finite check);
 * keep ticker **column names** on the DataFrame -- symbol-keyed conditioning
-  (see :func:`build_conditional_synthetic_data`) resolves asset names to
+  (see `build_conditional_synthetic_data`) resolves asset names to
   column positions, so a bare ndarray breaks conditioning by symbol.
 """
 
@@ -91,10 +89,6 @@ def _resolve_distributions(
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Mapping dicts
-# ---------------------------------------------------------------------------
-
 _DEPENDENCE_MAP: dict[DependenceMethodType, DependenceMethod] = {
     DependenceMethodType.KENDALL_TAU: DependenceMethod.KENDALL_TAU,
     DependenceMethodType.MUTUAL_INFORMATION: DependenceMethod.MUTUAL_INFORMATION,
@@ -107,31 +101,20 @@ _SELECTION_MAP: dict[SelectionCriterionType, SelectionCriterion] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Factory functions
-# ---------------------------------------------------------------------------
-
-
 def build_vine_copula(
     config: VineCopulaConfig | None = None,
     **kwargs: Any,
 ) -> VineCopula:
-    """Build a skfolio :class:`VineCopula` from *config*.
+    """Build a skfolio `VineCopula` from `config`.
 
-    Parameters
-    ----------
-    config : VineCopulaConfig or None
-        Vine copula configuration.  Defaults to
-        ``VineCopulaConfig()``.
-    **kwargs
-        Additional keyword arguments forwarded to the
-        :class:`VineCopula` constructor (for non-serialisable
-        parameters such as ``marginal_candidates``,
-        ``copula_candidates``, ``central_assets``).
+    Args:
+        config: Vine copula configuration. Defaults to ``VineCopulaConfig()``.
+        **kwargs: Additional keyword arguments forwarded to the
+            `VineCopula` constructor (for non-serialisable
+            parameters such as ``marginal_candidates``,
+            ``copula_candidates``, ``central_assets``).
 
-    Returns
-    -------
-    VineCopula
+    Returns:
         A fitted-ready skfolio vine copula estimator.
     """
     if config is None:
@@ -170,29 +153,19 @@ def build_synthetic_data(
     sample_args: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> SyntheticData:
-    """Build a skfolio :class:`SyntheticData` prior from *config*.
+    """Build a skfolio `SyntheticData` prior from `config`.
 
-    Parameters
-    ----------
-    config : SyntheticDataConfig or None
-        Synthetic data configuration.  Defaults to
-        ``SyntheticDataConfig()``.
-    distribution_estimator : VineCopula or None
-        Pre-built distribution estimator.  When ``None``, one is
-        built from ``config.vine_copula_config`` (or skfolio default).
-    sample_args : dict or None
-        Arguments passed to the distribution's ``sample`` method.
-        Use ``{"conditioning": {"AAPL": -0.10}}`` for conditional
-        stress testing.
-    **kwargs
-        Additional keyword arguments forwarded to the
-        :class:`SyntheticData` constructor.
+    Args:
+        config: Synthetic data configuration. Defaults to ``SyntheticDataConfig()``.
+        distribution_estimator: Pre-built distribution estimator. When ``None``, one is
+            built from ``config.vine_copula_config`` (or skfolio default).
+        sample_args: Arguments passed to the distribution's ``sample`` method.
+            Use ``{"conditioning": {"AAPL": -0.10}}`` for conditional stress testing.
+        **kwargs: Additional keyword arguments forwarded to the
+            `SyntheticData` constructor.
 
-    Returns
-    -------
-    SyntheticData
-        A fitted-ready skfolio prior estimator generating synthetic
-        return scenarios.
+    Returns:
+        A fitted-ready skfolio prior estimator generating synthetic return scenarios.
     """
     if config is None:
         config = SyntheticDataConfig()
@@ -216,38 +189,30 @@ def build_conditional_synthetic_data(
     warn_non_central: bool = True,
     **kwargs: Any,
 ) -> SyntheticData:
-    """Build a conditional (stressed) :class:`SyntheticData` prior.
+    """Build a conditional (stressed) `SyntheticData` prior.
 
-    Convenience wrapper over :func:`build_synthetic_data` that wires the
-    *conditioning* mapping into ``sample_args={"conditioning": ...}`` for
+    Convenience wrapper over `build_synthetic_data` that wires the
+    `conditioning` mapping into ``sample_args={"conditioning": ...}`` for
     CCAR-style stress scenarios (e.g. ``{"AAPL": -0.10}`` shocks AAPL by
     -10%).  Conditioning values may be a fixed float, a ``(low, high)``
     bound tuple, or a per-sample 1-D array (kept out of the serialisable
     config on purpose).
 
-    skfolio recommends the conditioned assets be *central* in the vine.
+    skfolio recommends the conditioned assets be `central` in the vine.
     When ``warn_non_central`` is set, a warning is logged for any
     conditioned asset not present in the estimator's ``central_assets``;
-    build the estimator with
-    :meth:`SyntheticDataConfig.for_conditional_stress` /
-    :meth:`VineCopulaConfig.for_conditional_sampling` to avoid it.
+    build the estimator with `for_conditional_stress` /
+    `for_conditional_sampling` to avoid it.
 
-    Parameters
-    ----------
-    conditioning : mapping of str to float, (float, float) tuple, or array-like
-        Per-asset conditioning specification.  Must be non-empty.
-    config : SyntheticDataConfig or None
-        Synthetic data configuration.  Defaults to ``SyntheticDataConfig()``.
-    distribution_estimator : VineCopula or None
-        Pre-built distribution estimator (overrides ``config``'s vine).
-    warn_non_central : bool
-        Emit a warning when a conditioned asset is not central.
-    **kwargs
-        Forwarded to the :class:`SyntheticData` constructor.
+    Args:
+        conditioning: Per-asset conditioning specification. Must be non-empty.
+        config: Synthetic data configuration. Defaults to ``SyntheticDataConfig()``.
+        distribution_estimator: Pre-built distribution estimator (overrides the vine
+            in ``config``).
+        warn_non_central: Emit a warning when a conditioned asset is not central.
+        **kwargs: Forwarded to the `SyntheticData` constructor.
 
-    Returns
-    -------
-    SyntheticData
+    Returns:
         A conditional synthetic-data prior estimator.
     """
     if not conditioning:

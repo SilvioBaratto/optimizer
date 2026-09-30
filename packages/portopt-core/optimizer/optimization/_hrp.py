@@ -25,29 +25,19 @@ from optimizer.optimization._hierarchical_common import (
 
 @dataclass(frozen=True)
 class HRPConfig:
-    """Immutable configuration for :class:`HierarchicalRiskParity`.
+    """Immutable configuration for HierarchicalRiskParity.
 
-    Parameters
-    ----------
-    risk_measure : RiskMeasureType
-        Risk measure used in recursive bisection. Default ``VARIANCE``.
-    prior_config : MomentEstimationConfig or None
-        Inner prior configuration. ``None`` defers to skfolio default.
-    distance_config : DistanceConfig or None
-        Distance estimator configuration. ``None`` lets skfolio pick the
-        default (Pearson). Built via :func:`build_distance` when set.
-    clustering_config : HierarchicalClusteringConfig or None
-        Hierarchical-clustering configuration. ``None`` lets skfolio
-        pick the default. Built via :func:`build_hierarchical_clustering`
-        when set.
-    min_weights : float
-        Lower bound on asset weights.
-    max_weights : float
-        Upper bound on asset weights.
-    transaction_costs : float
-        Linear transaction costs penalising turnover.
-    management_fees : float
-        Linear management fees proportional to position size.
+    Attributes:
+        risk_measure: Risk measure used in recursive bisection.
+        prior_config: Inner prior configuration. None defers to skfolio default.
+        distance_config: Distance estimator configuration. None lets skfolio pick
+            the default (Pearson).
+        clustering_config: Hierarchical-clustering configuration. None lets skfolio
+            pick the default.
+        min_weights: Lower bound on asset weights.
+        max_weights: Upper bound on asset weights.
+        transaction_costs: Linear transaction costs penalising turnover.
+        management_fees: Linear management fees proportional to position size.
     """
 
     risk_measure: RiskMeasureType = RiskMeasureType.VARIANCE
@@ -81,21 +71,15 @@ def build_hrp(
     prior_estimator: BasePrior | None = None,
     **kwargs: Any,
 ) -> HierarchicalRiskParity:
-    """Build a skfolio :class:`HierarchicalRiskParity` optimiser from *config*.
+    """Build a skfolio HierarchicalRiskParity optimiser from config.
 
-    Parameters
-    ----------
-    config : HRPConfig or None
-        HRP configuration. ``None`` triggers default.
-    prior_estimator : BasePrior or None
-        Prior estimator. When ``None``, one is built from
-        ``config.prior_config`` (or skfolio default).
-    **kwargs
-        Additional kwargs forwarded to the wrapped optimizer.
+    Args:
+        config: HRP configuration. None triggers default.
+        prior_estimator: Prior estimator. When None, one is built from
+            config.prior_config (or skfolio default).
+        **kwargs: Additional kwargs forwarded to the wrapped optimizer.
 
-    Returns
-    -------
-    HierarchicalRiskParity
+    Returns:
         A fitted-ready skfolio optimiser.
     """
     if config is None:

@@ -21,14 +21,14 @@ if TYPE_CHECKING:
 
 
 def _default_grid_search() -> Any:
-    """Lazily construct the default :class:`GridSearchConfig`."""
+    """Lazily construct the default ``GridSearchConfig``."""
     from optimizer.tuning._config import GridSearchConfig
 
     return GridSearchConfig()
 
 
 def _default_randomized_search() -> Any:
-    """Lazily construct the default :class:`RandomizedSearchConfig`."""
+    """Lazily construct the default ``RandomizedSearchConfig``."""
     from optimizer.tuning._config import RandomizedSearchConfig
 
     return RandomizedSearchConfig()
@@ -41,7 +41,7 @@ class OnlinePredictConfig:
     Online estimators are NOT thread-safe — caller is responsible for
     using a fresh instance per thread.
 
-    Walk-forward semantics mirror :class:`WalkForward`: after an initial
+    Walk-forward semantics mirror ``WalkForward``: after an initial
     ``warmup_size`` observation window, the estimator predicts the next
     ``test_size`` observations, then ``partial_fit`` folds them in and the
     window advances. ``purged_size`` excises a gap between the fitted window
@@ -50,41 +50,32 @@ class OnlinePredictConfig:
     trading-calendar dates instead of a fixed observation count and require
     the input ``X`` to carry a ``DatetimeIndex``.
 
-    Parameters
-    ----------
-    warmup_size : int
-        Number of initial observations consumed by the first
-        ``partial_fit`` call (or number of ``freq`` periods when ``freq``
-        is set). skfolio default ``252``.
-    test_size : int
-        Number of observations advanced per rebalance step (or number of
-        ``freq`` periods when ``freq`` is set). skfolio default ``1``.
-    purged_size : int
-        Number of observations excised between the fitted window and the
-        test window to prevent look-ahead bias from autocorrelated
-        returns. Defaults to ``0``.
-    freq : str or None
-        Optional pandas frequency/offset alias (e.g. ``"MS"``, ``"QS"``,
-        ``"WOM-3FRI"``). When set, ``warmup_size`` and ``test_size`` count
-        ``freq`` periods and ``X`` must have a ``DatetimeIndex``. ``None``
-        (default) counts raw observations.
-    freq_offset : str or None
-        Optional pandas offset alias shifting each ``freq`` period boundary
-        (e.g. ``"2D"``). Only used when ``freq`` is set; parsed with
-        :func:`pandas.tseries.frequencies.to_offset`.
-    previous : bool
-        Only used when ``freq`` is set. When ``True`` and a period boundary
-        is absent from the ``DatetimeIndex``, the previous observation is
-        used; otherwise the next observation is used.
-    reduce_test : bool
-        When ``True``, the final test window may be shorter than
-        ``test_size`` to avoid discarding trailing observations.
-    n_jobs : int or None
-        Parallelism hint forwarded to :class:`OnlineGridSearch` /
-        :class:`OnlineRandomizedSearch`. Not consumed by
-        ``online_predict`` / ``online_score`` themselves.
-    verbose : bool
-        Verbosity hint forwarded to the online search wrappers.
+    Args:
+        warmup_size: Number of initial observations consumed by the first
+            ``partial_fit`` call (or number of ``freq`` periods when ``freq``
+            is set). skfolio default ``252``.
+        test_size: Number of observations advanced per rebalance step (or
+            number of ``freq`` periods when ``freq`` is set). skfolio default
+            ``1``.
+        purged_size: Number of observations excised between the fitted window
+            and the test window to prevent look-ahead bias from autocorrelated
+            returns. Defaults to ``0``.
+        freq: Optional pandas frequency/offset alias (e.g. ``"MS"``,
+            ``"QS"``, ``"WOM-3FRI"``). When set, ``warmup_size`` and
+            ``test_size`` count ``freq`` periods and ``X`` must have a
+            ``DatetimeIndex``. ``None`` (default) counts raw observations.
+        freq_offset: Optional pandas offset alias shifting each ``freq``
+            period boundary (e.g. ``"2D"``). Only used when ``freq`` is set;
+            parsed with ``pandas.tseries.frequencies.to_offset``.
+        previous: Only used when ``freq`` is set. When ``True`` and a period
+            boundary is absent from the ``DatetimeIndex``, the previous
+            observation is used; otherwise the next observation is used.
+        reduce_test: When ``True``, the final test window may be shorter than
+            ``test_size`` to avoid discarding trailing observations.
+        n_jobs: Parallelism hint forwarded to ``OnlineGridSearch`` /
+            ``OnlineRandomizedSearch``. Not consumed by ``online_predict`` /
+            ``online_score`` themselves.
+        verbose: Verbosity hint forwarded to the online search wrappers.
     """
 
     warmup_size: int = 252
@@ -125,7 +116,7 @@ class OnlinePredictConfig:
 
 @dataclass(frozen=True)
 class OnlineGridSearchConfig:
-    """Immutable configuration for :class:`OnlineGridSearch`.
+    """Immutable configuration for `OnlineGridSearch`.
 
     Online instances are NOT thread-safe — caller is responsible for
     using a fresh instance per thread.
@@ -141,7 +132,7 @@ class OnlineGridSearchConfig:
 
 @dataclass(frozen=True)
 class OnlineRandomizedSearchConfig:
-    """Immutable configuration for :class:`OnlineRandomizedSearch`.
+    """Immutable configuration for `OnlineRandomizedSearch`.
 
     Online instances are NOT thread-safe — caller is responsible for
     using a fresh instance per thread.
@@ -158,26 +149,21 @@ class CovarianceForecastConfig:
     Diagnoses a covariance estimator's out-of-sample calibration
     *independently of any optimizer* (Mahalanobis / diagonal calibration
     ratios, portfolio standardized returns, QLIKE loss). Drives both the
-    walk-forward evaluator (:func:`covariance_forecast_evaluation`, refit
-    each split) and the online evaluator
-    (:func:`online_covariance_forecast_evaluation`, ``partial_fit``-based).
+    walk-forward evaluator (``covariance_forecast_evaluation``, refit each
+    split) and the online evaluator
+    (``online_covariance_forecast_evaluation``, ``partial_fit``-based).
 
-    Parameters
-    ----------
-    train_size : int
-        Length of the initial training / warmup window. For the online
-        evaluator this is forwarded as ``warmup_size``. skfolio default
-        ``252``.
-    test_size : int
-        Number of observations per forecast-evaluation step. Defaults to
-        ``1``.
-    expand_train : bool
-        Walk-forward evaluator only: when ``True`` the training window
-        expands, otherwise it rolls. Ignored by the online evaluator
-        (``partial_fit`` is inherently cumulative).
-    purged_size : int
-        Number of observations excised between the training window and the
-        forecast window. Defaults to ``0``.
+    Args:
+        train_size: Length of the initial training / warmup window. For the
+            online evaluator this is forwarded as ``warmup_size``. skfolio
+            default ``252``.
+        test_size: Number of observations per forecast-evaluation step.
+            Defaults to ``1``.
+        expand_train: Walk-forward evaluator only: when ``True`` the training
+            window expands, otherwise it rolls. Ignored by the online
+            evaluator (``partial_fit`` is inherently cumulative).
+        purged_size: Number of observations excised between the training
+            window and the forecast window. Defaults to ``0``.
     """
 
     train_size: int = 252

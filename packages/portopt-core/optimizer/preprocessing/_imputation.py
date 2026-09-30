@@ -29,14 +29,12 @@ class SectorImputer(BaseEstimator, TransformerMixin):
     belonging to a single sector — effectively a global cross-sectional
     mean imputation.
 
-    Parameters
-    ----------
-    sector_mapping : dict[str, str] or None, default=None
-        Maps column name (ticker) → sector label.  Columns absent from
-        the mapping are assigned to a ``"__unmapped__"`` catch-all sector.
-    fallback_strategy : str, default="global_mean"
-        What to do when the sector has no data for a timestep.  Currently
-        only ``"global_mean"`` is supported.
+    Args:
+        sector_mapping: Maps column name (ticker) to sector label. Columns
+            absent from the mapping are assigned to a ``"__unmapped__"``
+            catch-all sector.
+        fallback_strategy: What to do when the sector has no data for a
+            timestep. Currently only ``"global_mean"`` is supported.
     """
 
     sector_mapping: dict[str, str] | None
@@ -51,12 +49,19 @@ class SectorImputer(BaseEstimator, TransformerMixin):
         self.fallback_strategy = fallback_strategy
 
     def fit(self, X: pd.DataFrame, y: object = None) -> SectorImputer:
-        """Build the internal sector → columns index."""
+        """Compute sector groupings from the training data.
+
+        Args:
+            X: Asset return DataFrame where columns are tickers.
+            y: Ignored; present for sklearn compatibility.
+
+        Returns:
+            The fitted imputer (self).
+        """
         X = self._validate_input(X)
         self.n_features_in_: int = X.shape[1]
         self.feature_names_in_: np.ndarray = np.asarray(X.columns)
 
-        # Build sector groups
         self.sector_groups_: dict[str, list[str]] = defaultdict(list)
         mapping = self.sector_mapping or {}
         for col in X.columns:
@@ -66,7 +71,14 @@ class SectorImputer(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
-        """Fill NaN with leave-one-out sector averages."""
+        """Fill NaN with leave-one-out sector averages.
+
+        Args:
+            X: Asset return DataFrame; must have the same columns seen in fit.
+
+        Returns:
+            DataFrame with the same shape as X, missing values filled.
+        """
         check_is_fitted(self)
         X = self._validate_input(X)
 
@@ -95,15 +107,20 @@ class SectorImputer(BaseEstimator, TransformerMixin):
                 others = [c for c in sector_cols if c != col]
                 sector_mean = X[others].mean(axis=1) if others else global_mean
 
-                # Fill with sector mean; fall back to global mean where
-                # the sector itself is entirely NaN
                 fill = sector_mean.where(sector_mean.notna(), global_mean)
                 out.loc[mask, col] = fill.loc[mask]
 
         return out
 
     def get_feature_names_out(self, input_features: object = None) -> np.ndarray:
-        """Return feature names (pass-through)."""
+        """Return the feature names seen during fit.
+
+        Args:
+            input_features: Ignored; present for sklearn compatibility.
+
+        Returns:
+            Array of column names from the fitted DataFrame.
+        """
         check_is_fitted(self)
         return self.feature_names_in_
 

@@ -32,7 +32,7 @@ from optimizer.online._config import (
 
 
 def _resolve_measure(scorer_config: Any) -> Any:
-    """Resolve a :class:`ScorerConfig` to a skfolio ``BaseMeasure``.
+    """Resolve a `ScorerConfig` to a skfolio ``BaseMeasure``.
 
     Online *portfolio* evaluation (``OnlineGridSearch`` / ``online_score``
     on optimizers) rejects ``make_scorer`` objects and requires a
@@ -91,9 +91,9 @@ def run_online_predict(
     config: OnlinePredictConfig,
     portfolio_params: dict[str, Any] | None = None,
 ) -> Any:
-    """Forward to :func:`skfolio.model_selection.online_predict`.
+    """Forward to `online_predict`.
 
-    The returned :class:`MultiPeriodPortfolio` is fitted out-of-sample
+    The returned `MultiPeriodPortfolio` is fitted out-of-sample
     by repeatedly calling ``estimator.partial_fit`` after the warmup.
     Online state is mutated on ``estimator``; pass a fresh instance
     per thread.
@@ -123,7 +123,7 @@ def run_online_score(
     config: OnlinePredictConfig,
     per_step: bool = False,
 ) -> Any:
-    """Forward to :func:`skfolio.model_selection.online_score`.
+    """Forward to `online_score`.
 
     ``scorer`` must be a skfolio ``BaseMeasure`` (e.g.
     ``RatioMeasure.SHARPE_RATIO``) or ``None`` for portfolio optimizers —
@@ -153,7 +153,7 @@ def build_online_grid_search(
     estimator: Any,
     param_grid: dict[str, list[Any]] | list[dict[str, list[Any]]],
 ) -> OnlineGridSearch:
-    """Build an :class:`OnlineGridSearch` with online cross-validation.
+    """Build an `OnlineGridSearch` with online cross-validation.
 
     Scoring is resolved from ``config.base.scorer_config`` to a skfolio
     ``BaseMeasure`` (online portfolio search rejects ``make_scorer``).
@@ -183,7 +183,7 @@ def build_online_randomized_search(
     estimator: Any,
     param_distributions: dict[str, Any],
 ) -> OnlineRandomizedSearch:
-    """Build an :class:`OnlineRandomizedSearch` with online CV.
+    """Build an `OnlineRandomizedSearch` with online CV.
 
     Scoring is resolved from ``config.base.scorer_config`` to a skfolio
     ``BaseMeasure`` (online portfolio search rejects ``make_scorer``).
@@ -226,7 +226,7 @@ def run_covariance_forecast_evaluation(
 
     Diagnoses a covariance estimator's out-of-sample calibration
     independently of any optimizer. Accepts a plain covariance estimator
-    or a :class:`~sklearn.pipeline.Pipeline` (unlike the online path).
+    or a `Pipeline` (unlike the online path).
     ``portfolio_weights`` optionally scores portfolio-direction
     calibration; ``None`` defaults to an inverse-volatility direction.
     """
@@ -275,9 +275,9 @@ def build_covariance_forecast_comparison(
     evaluations: list[CovarianceForecastEvaluation],
     names: list[str] | None = None,
 ) -> CovarianceForecastComparison:
-    """Build a side-by-side :class:`CovarianceForecastComparison`.
+    """Build a side-by-side `CovarianceForecastComparison`.
 
-    Ranks several fitted :class:`CovarianceForecastEvaluation` results
+    Ranks several fitted `CovarianceForecastEvaluation` results
     (e.g. EW vs regime-adjusted covariance) before embedding one in a
     prior.
     """

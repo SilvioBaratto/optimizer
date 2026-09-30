@@ -1,7 +1,7 @@
 """Regime-conditional subperiod Sharpe validation.
 
 Splits out-of-sample portfolio returns by macro regime (from
-:func:`~optimizer.factors._regime.classify_regime_composite`) and computes
+`classify_regime_composite`) and computes
 per-regime and per-subperiod performance statistics.  Flags strategies where
 alpha is concentrated in a single regime rather than being persistent.
 """
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -21,32 +22,22 @@ from optimizer.factors._regime import classify_regime
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class RegimeValidationConfig:
     """Immutable configuration for regime-conditional Sharpe analysis.
 
-    Parameters
-    ----------
-    min_regime_obs : int
-        Minimum trading days required to compute meaningful statistics
-        for a subperiod or regime aggregate.  Subperiods shorter than
-        this produce ``NaN`` metrics.
-    single_regime_alpha_threshold : float
-        Fraction of total positive alpha above which a single regime
-        is flagged as concentrated (acceptance criterion 4).
-    trading_days_per_year : int
-        Annualization constant for Sharpe, return, and volatility.
-    risk_free_rate : float
-        Annual risk-free rate for Sharpe ratio computation.
-    include_unknown_regime : bool
-        Whether to include ``MacroRegime.UNKNOWN`` periods in the
-        per-regime breakdown.  Default ``False`` since UNKNOWN days
-        are typically data gaps.
+    Attributes:
+        min_regime_obs: Minimum trading days required to compute meaningful
+            statistics for a subperiod or regime aggregate. Subperiods
+            shorter than this produce ``NaN`` metrics.
+        single_regime_alpha_threshold: Fraction of total positive alpha
+            above which a single regime is flagged as concentrated.
+        trading_days_per_year: Annualization constant for Sharpe, return,
+            and volatility.
+        risk_free_rate: Annual risk-free rate for Sharpe ratio computation.
+        include_unknown_regime: Whether to include ``MacroRegime.UNKNOWN``
+            periods in the per-regime breakdown. ``False`` by default
+            since UNKNOWN days are typically data gaps.
     """
 
     min_regime_obs: int = 21
@@ -88,11 +79,6 @@ class RegimeValidationConfig:
         return cls(include_unknown_regime=True)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _safe_float(value: object) -> float | None:
     """Convert to float, returning ``None`` for NaN."""
     try:
@@ -102,35 +88,25 @@ def _safe_float(value: object) -> float | None:
         return None
 
 
-# ---------------------------------------------------------------------------
-# Result container
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class RegimeValidationResult:
     """Result of regime-conditional subperiod Sharpe analysis.
 
-    Attributes
-    ----------
-    per_regime_metrics : pd.DataFrame
-        Index is regime name strings.  Columns:
-        ``obs``, ``coverage_pct``, ``ann_return``, ``ann_vol``,
-        ``sharpe``, ``max_drawdown``, ``obs_sufficient``.
-    per_subperiod_metrics : pd.DataFrame
-        One row per contiguous regime block.  Columns:
-        ``start``, ``end``, ``regime``, ``obs``, ``ann_return``,
-        ``ann_vol``, ``sharpe``, ``max_drawdown``.
-    regime_alpha_concentration : pd.Series
-        Fraction of total positive alpha attributable to each regime.
-    concentrated_regimes : list[str]
-        Regimes exceeding ``single_regime_alpha_threshold``.
-    regime_timeline : pd.Series
-        DatetimeIndex → regime name string for every OOS observation.
-    total_obs : int
-        Total number of OOS observations.
-    n_regimes_observed : int
-        Distinct regimes with at least one observation.
+    Attributes:
+        per_regime_metrics: DataFrame indexed by regime name. Columns:
+            ``obs``, ``coverage_pct``, ``ann_return``, ``ann_vol``,
+            ``sharpe``, ``max_drawdown``, ``obs_sufficient``.
+        per_subperiod_metrics: One row per contiguous regime block. Columns:
+            ``start``, ``end``, ``regime``, ``obs``, ``ann_return``,
+            ``ann_vol``, ``sharpe``, ``max_drawdown``.
+        regime_alpha_concentration: Fraction of total positive alpha
+            attributable to each regime.
+        concentrated_regimes: Regimes exceeding
+            ``single_regime_alpha_threshold``.
+        regime_timeline: DatetimeIndex to regime name string for every OOS
+            observation.
+        total_obs: Total number of OOS observations.
+        n_regimes_observed: Distinct regimes with at least one observation.
     """
 
     per_regime_metrics: pd.DataFrame
@@ -144,48 +120,52 @@ class RegimeValidationResult:
     def to_attribution_dict(self) -> dict[str, object]:
         """Serialize performance attribution across regimes.
 
-        Returns a dict suitable for frontend charting (ECharts) or CLI
-        reporting.  Structure::
+        Returns:
+            Dict suitable for frontend charting (ECharts) or CLI reporting.
+            Structure::
 
-            {
-              "regimes": [
                 {
-                  "regime": "expansion",
-                  "obs": 120,
-                  "coverage_pct": 0.667,
-                  "ann_return": 0.52,
-                  "ann_vol": 0.16,
-                  "sharpe": 3.2,
-                  "max_drawdown": -0.03,
-                  "alpha_concentration": 0.95,
-                  "is_concentrated": True,
-                },
-                ...
-              ],
-              "subperiods": [
-                {
-                  "start": "2024-01-02",
-                  "end": "2024-03-28",
-                  "regime": "expansion",
-                  "obs": 60,
-                  "ann_return": 0.50,
-                  "ann_vol": 0.16,
-                  "sharpe": 3.1,
-                  "max_drawdown": -0.02,
-                },
-                ...
-              ],
-              "summary": {
-                "total_obs": 180,
-                "n_regimes_observed": 2,
-                "concentrated_regimes": ["expansion"],
-                "has_concentration_warning": True,
-              },
-            }
+                  "regimes": [
+                    {
+                      "regime": "expansion",
+                      "obs": 120,
+                      "coverage_pct": 0.667,
+                      "ann_return": 0.52,
+                      "ann_vol": 0.16,
+                      "sharpe": 3.2,
+                      "max_drawdown": -0.03,
+                      "alpha_concentration": 0.95,
+                      "is_concentrated": True,
+                    },
+                    ...
+                  ],
+                  "subperiods": [
+                    {
+                      "start": "2024-01-02",
+                      "end": "2024-03-28",
+                      "regime": "expansion",
+                      "obs": 60,
+                      "ann_return": 0.50,
+                      "ann_vol": 0.16,
+                      "sharpe": 3.1,
+                      "max_drawdown": -0.02,
+                    },
+                    ...
+                  ],
+                  "summary": {
+                    "total_obs": 180,
+                    "n_regimes_observed": 2,
+                    "concentrated_regimes": ["expansion"],
+                    "has_concentration_warning": True,
+                  },
+                }
         """
         regime_rows = []
         for regime_name in self.per_regime_metrics.index:
             row = self.per_regime_metrics.loc[regime_name]
+            alpha_conc = cast(
+                float, self.regime_alpha_concentration.get(regime_name, 0.0)
+            )
             regime_rows.append(
                 {
                     "regime": str(regime_name),
@@ -195,9 +175,7 @@ class RegimeValidationResult:
                     "ann_vol": _safe_float(row["ann_vol"]),
                     "sharpe": _safe_float(row["sharpe"]),
                     "max_drawdown": _safe_float(row["max_drawdown"]),
-                    "alpha_concentration": float(
-                        self.regime_alpha_concentration.get(regime_name, 0.0)
-                    ),
+                    "alpha_concentration": float(alpha_conc),
                     "is_concentrated": str(regime_name) in self.concentrated_regimes,
                 }
             )
@@ -217,7 +195,7 @@ class RegimeValidationResult:
                         else str(sp["end"])
                     ),
                     "regime": str(sp["regime"]),
-                    "obs": int(sp["obs"]),
+                    "obs": int(cast(int, sp["obs"])),
                     "ann_return": _safe_float(sp["ann_return"]),
                     "ann_vol": _safe_float(sp["ann_vol"]),
                     "sharpe": _safe_float(sp["sharpe"]),
@@ -237,11 +215,6 @@ class RegimeValidationResult:
         }
 
 
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
-
-
 def _build_regime_series(
     macro_data: pd.DataFrame,
     thresholds: RegimeThresholdConfig | None,
@@ -249,7 +222,7 @@ def _build_regime_series(
     """Build a point-in-time regime series from macro data.
 
     Each date's classification uses only data up to that date to avoid
-    look-ahead bias.  Uses :func:`classify_regime` which dispatches to
+    look-ahead bias.  Uses `classify_regime` which dispatches to
     the composite classifier when PMI/spread/HY columns are present and
     falls back to the GDP heuristic otherwise.
     """
@@ -266,7 +239,6 @@ def _compute_period_metrics(
     trading_days: int,
     rf_daily: float,
 ) -> dict[str, float]:
-    """Compute annualized return, volatility, Sharpe, and max drawdown."""
     n = len(returns_slice)
     if n == 0:
         return {
@@ -286,7 +258,6 @@ def _compute_period_metrics(
         else np.nan
     )
 
-    # Max drawdown from cumulative returns
     cum = (1.0 + returns_slice).cumprod()
     running_max = cum.cummax()
     drawdown = (cum - running_max) / running_max
@@ -351,7 +322,7 @@ def _identify_subperiods(
 
     blocks: list[tuple[pd.Timestamp, pd.Timestamp, str]] = []
     values = regime_timeline.values
-    index = regime_timeline.index
+    index = cast(pd.DatetimeIndex, regime_timeline.index)
 
     block_start = index[0]
     current_regime = values[0]
@@ -362,14 +333,8 @@ def _identify_subperiods(
             block_start = index[i]
             current_regime = values[i]
 
-    # Final block
     blocks.append((block_start, index[-1], current_regime))
     return blocks
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 
 def run_regime_validation(
@@ -380,28 +345,19 @@ def run_regime_validation(
 ) -> RegimeValidationResult:
     """Run regime-conditional subperiod Sharpe analysis.
 
-    Parameters
-    ----------
-    oos_returns : pd.Series
-        Daily portfolio returns indexed by ``DatetimeIndex``.
-    macro_data : pd.DataFrame
-        Macro indicators indexed by date, compatible with
-        :func:`~optimizer.factors._regime.classify_regime_composite`.
-    config : RegimeValidationConfig or None
-        Validation configuration.  Defaults to standard.
-    thresholds : RegimeThresholdConfig or None
-        Regime classification thresholds.
+    Args:
+        oos_returns: Daily portfolio returns indexed by ``DatetimeIndex``.
+        macro_data: Macro indicators indexed by date, compatible with
+            `classify_regime_composite`.
+        config: Validation configuration. Defaults to standard.
+        thresholds: Regime classification thresholds.
 
-    Returns
-    -------
-    RegimeValidationResult
-        Per-regime and per-subperiod statistics with alpha
-        concentration flags.
+    Returns:
+        Per-regime and per-subperiod statistics with alpha concentration
+        flags.
 
-    Raises
-    ------
-    DataError
-        If ``oos_returns`` is empty.
+    Raises:
+        DataError: If ``oos_returns`` is empty.
     """
     if config is None:
         config = RegimeValidationConfig()
@@ -412,7 +368,6 @@ def run_regime_validation(
     rf_daily = config.risk_free_rate / config.trading_days_per_year
     tdays = config.trading_days_per_year
 
-    # --- Build regime timeline ---
     overlap = macro_data.index.intersection(oos_returns.index).size
     if len(macro_data) == 0 or not overlap:
         logger.warning(
@@ -423,12 +378,10 @@ def run_regime_validation(
 
     regime_series = _build_regime_series(macro_data, thresholds)
 
-    # Align to OOS returns index via forward-fill
     regime_timeline = regime_series.reindex(oos_returns.index, method="ffill")
     # Days before macro data starts → UNKNOWN
     regime_timeline = regime_timeline.fillna(MacroRegime.UNKNOWN.value)
 
-    # Optionally drop UNKNOWN
     if not config.include_unknown_regime:
         mask = regime_timeline != MacroRegime.UNKNOWN.value
         regime_timeline = regime_timeline[mask]
@@ -448,7 +401,6 @@ def run_regime_validation(
         )
         return _empty_result(total_obs)
 
-    # --- Identify subperiods ---
     subperiods = _identify_subperiods(regime_timeline)
 
     subperiod_rows: list[dict[str, object]] = []
@@ -476,14 +428,13 @@ def run_regime_validation(
 
     per_subperiod_metrics = pd.DataFrame(subperiod_rows)
 
-    # --- Aggregate per regime ---
     observed_regimes = sorted(regime_timeline.unique())
     n_regimes_observed = len(observed_regimes)
 
     regime_rows: list[dict[str, object]] = []
     for regime_name in observed_regimes:
         regime_mask = regime_timeline == regime_name
-        regime_returns = oos_filtered[regime_mask]
+        regime_returns = cast(pd.Series, oos_filtered[regime_mask])
         n_obs = len(regime_returns)
         sufficient = n_obs >= config.min_regime_obs
         if sufficient:
@@ -507,7 +458,6 @@ def run_regime_validation(
 
     per_regime_metrics = pd.DataFrame(regime_rows).set_index("regime")
 
-    # --- Alpha concentration ---
     cum_return_per_regime: dict[str, float] = {}
     for regime_name in observed_regimes:
         regime_mask = regime_timeline == regime_name

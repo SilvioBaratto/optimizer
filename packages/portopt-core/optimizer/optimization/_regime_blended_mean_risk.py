@@ -1,13 +1,13 @@
 """Regime-blended MeanRisk configuration and factory.
 
-Composes :class:`_ExternallyControlledRegimeCovariance` →
-:class:`~skfolio.prior.EmpiricalPrior` →
-:class:`~skfolio.prior.TimeSeriesFactorModel` →
-:func:`build_mean_risk` → :func:`~optimizer.pre_selection.build_portfolio_pipeline`.
+Composes `_ExternallyControlledRegimeCovariance` →
+`EmpiricalPrior` →
+`TimeSeriesFactorModel` →
+`build_mean_risk` → `build_portfolio_pipeline`.
 
 Factor returns are passed via the optimizer step's ``factors`` fit param —
 ``pipeline.fit(X, optimizer__factors=factor_returns)``, or through
-:func:`~optimizer.validation.run_cross_val` with
+`run_cross_val` with
 ``params={"factors": factor_returns}`` (skfolio 1.0 replaced the former
 positional ``y`` factor argument).
 """
@@ -37,26 +37,18 @@ from optimizer.validation._factory import build_walk_forward
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class RegimeBlendedMeanRiskConfig:
-    """Immutable configuration for :func:`build_regime_blended_mean_risk`.
+    """Immutable configuration for `build_regime_blended_mean_risk`.
 
-    Parameters
-    ----------
-    mean_risk_config : MeanRiskConfig
-        Configuration forwarded to :func:`build_mean_risk`.
-        Defaults to max-Sharpe.
-    walk_forward_config : WalkForwardConfig
-        Walk-forward cross-validator configuration.
-        Defaults to quarterly rolling with a one-year training window.
-    half_life : int
-        Exponential-weighting half-life in trading days used when
-        computing per-regime covariance matrices.  Defaults to 40.
+    Attributes:
+        mean_risk_config: Configuration forwarded to `build_mean_risk`.
+            Defaults to max-Sharpe.
+        walk_forward_config: Walk-forward cross-validator configuration.
+            Defaults to quarterly rolling with a one-year training window.
+        half_life: Exponential-weighting half-life in trading days used when
+            computing per-regime covariance matrices. Defaults to 40.
     """
 
     mean_risk_config: MeanRiskConfig = field(
@@ -68,33 +60,22 @@ class RegimeBlendedMeanRiskConfig:
     half_life: int = 40
 
 
-# ---------------------------------------------------------------------------
-# Private covariance estimator
-# ---------------------------------------------------------------------------
-
-
 class _ExternallyControlledRegimeCovariance(BaseCovariance):
     """Regime-probability-blended EW covariance driven by external HMM output.
 
-    For each regime *k* computes an exponentially-weighted covariance
+    For each regime `k` computes an exponentially-weighted covariance
     where observation weights equal ``ew(t) × p_k(t)``.  The per-regime
     matrices are then blended using the terminal (last-period) regime
     probabilities.
 
-    Parameters
-    ----------
-    half_life : int
-        EW decay half-life in trading days.
-    regime_probabilities : pd.DataFrame or None
-        Pre-computed HMM regime probabilities indexed by date,
-        shape ``(T, n_regimes)``.  Must cover every date in the
-        training window passed to :meth:`fit`.
-    nearest : bool
-        Passed to :class:`~skfolio.moments.covariance._base.BaseCovariance`.
-    higham : bool
-        Passed to :class:`~skfolio.moments.covariance._base.BaseCovariance`.
-    higham_max_iteration : int
-        Passed to :class:`~skfolio.moments.covariance._base.BaseCovariance`.
+    Args:
+        half_life: EW decay half-life in trading days.
+        regime_probabilities: Pre-computed HMM regime probabilities indexed by
+            date, shape ``(T, n_regimes)``. Must cover every date in the
+            training window passed to `fit`.
+        nearest: Passed to `BaseCovariance`.
+        higham: Passed to `BaseCovariance`.
+        higham_max_iteration: Passed to `BaseCovariance`.
     """
 
     def __init__(
@@ -117,20 +98,17 @@ class _ExternallyControlledRegimeCovariance(BaseCovariance):
     def fit(
         self, X: npt.ArrayLike, y: Any = None
     ) -> _ExternallyControlledRegimeCovariance:
-        """Fit the regime-blended covariance on the training window *X*.
+        """Fit the regime-blended covariance on the training window `X`.
 
-        Parameters
-        ----------
-        X : DataFrame of shape (n_observations, n_assets)
-            Asset return slice for the training fold.  Must be a
-            :class:`pandas.DataFrame` with a :class:`~pandas.DatetimeIndex`
-            so that ``regime_probabilities`` can be aligned by date.
-        y : Ignored
-            Present for API consistency.
+        Args:
+            X: Asset return slice for the training fold, shape
+                ``(n_observations, n_assets)``. Must be a
+                `DataFrame` with a `DatetimeIndex`
+                so that ``regime_probabilities`` can be aligned by date.
+            y: Ignored. Present for API consistency.
 
-        Returns
-        -------
-        self : _ExternallyControlledRegimeCovariance
+        Returns:
+            The fitted estimator instance.
         """
         if self.regime_probabilities is None:
             raise ConfigurationError(
@@ -144,7 +122,6 @@ class _ExternallyControlledRegimeCovariance(BaseCovariance):
                 "Ensure the pipeline uses set_output(transform='pandas')."
             )
 
-        # Align and row-normalise regime probabilities to the training window.
         aligned = self.regime_probabilities.reindex(X.index).fillna(0.0)
         overlap = self.regime_probabilities.index.intersection(X.index)
         if len(overlap) < 30:
@@ -184,17 +161,11 @@ class _ExternallyControlledRegimeCovariance(BaseCovariance):
             blended_cov += terminal_probs[k] * cov_k
             blended_loc += terminal_probs[k] * mu_k
 
-        # Set sklearn bookkeeping attributes.
         self.n_features_in_ = n_assets
         self.feature_names_in_ = np.array(X.columns.tolist())
         self.location_ = blended_loc
         self._set_covariance(blended_cov)
         return self
-
-
-# ---------------------------------------------------------------------------
-# Public factory
-# ---------------------------------------------------------------------------
 
 
 def build_regime_blended_mean_risk(
@@ -208,9 +179,7 @@ def build_regime_blended_mean_risk(
 ) -> tuple[Pipeline, WalkForward]:
     """Build a regime-blended MeanRisk pipeline and walk-forward CV splitter.
 
-    Composes a regime-aware prior chain:
-
-    .. code-block:: text
+    Composes a regime-aware prior chain::
 
         _ExternallyControlledRegimeCovariance  (baked-in HMM probs)
           └─ EmpiricalPrior
@@ -221,46 +190,34 @@ def build_regime_blended_mean_risk(
     Pass factor returns (aligned to the asset return index) via the
     ``optimizer`` step's ``factors`` fit param:
     ``pipeline.fit(X, optimizer__factors=factor_returns)``, or through
-    :func:`~optimizer.validation.run_cross_val` with
+    `run_cross_val` with
     ``params={"factors": factor_returns}`` (skfolio 1.0).
 
-    Parameters
-    ----------
-    config : RegimeBlendedMeanRiskConfig or None
-        Configuration.  Defaults to
-        :class:`RegimeBlendedMeanRiskConfig` with max-Sharpe objective and
-        quarterly rolling walk-forward.
-    factor_returns : pd.DataFrame
-        Factor return time series indexed by date, shape
-        ``(T, n_factors)``.  Pass this via the ``optimizer`` step's
-        ``factors`` fit param: ``pipeline.fit(X, optimizer__factors=...)``
-        or :func:`~optimizer.validation.run_cross_val` with
-        ``params={"factors": factor_returns}``.
-    regime_probabilities : pd.DataFrame
-        Pre-computed HMM regime probabilities indexed by date,
-        shape ``(T, n_regimes)``.  Baked into the covariance estimator;
-        sliced to each CV fold's training window automatically during fit.
-    pre_selection_config : PreSelectionConfig or None
-        Pre-selection pipeline configuration.
-    sector_mapping : dict[str, str] or None
-        Ticker → sector mapping forwarded to
-        :func:`~optimizer.pre_selection.build_portfolio_pipeline`.
-    previous_weights : np.ndarray or None
-        Previous portfolio weights for turnover control.  Forwarded to
-        :func:`build_mean_risk` via ``**kwargs``.
+    Args:
+        config: Configuration. Defaults to `RegimeBlendedMeanRiskConfig`
+            with max-Sharpe objective and quarterly rolling walk-forward.
+        factor_returns: Factor return time series indexed by date, shape
+            ``(T, n_factors)``. Pass via the ``optimizer`` step's ``factors``
+            fit param: ``pipeline.fit(X, optimizer__factors=...)`` or through
+            `run_cross_val` with
+            ``params={"factors": factor_returns}``.
+        regime_probabilities: Pre-computed HMM regime probabilities indexed by
+            date, shape ``(T, n_regimes)``. Baked into the covariance estimator;
+            sliced to each CV fold's training window automatically during fit.
+        pre_selection_config: Pre-selection pipeline configuration.
+        sector_mapping: Ticker → sector mapping forwarded to
+            `build_portfolio_pipeline`.
+        previous_weights: Previous portfolio weights for turnover control.
+            Forwarded to `build_mean_risk` via ``**kwargs``.
 
-    Returns
-    -------
-    pipeline : sklearn.pipeline.Pipeline
-        Pre-selection → MeanRisk(TimeSeriesFactorModel) pipeline.
-    cv : skfolio.model_selection.WalkForward
-        Temporal cross-validator configured from
+    Returns:
+        A 2-tuple of the pre-selection → MeanRisk(TimeSeriesFactorModel)
+        pipeline and a temporal walk-forward cross-validator configured from
         ``config.walk_forward_config``.
 
-    Raises
-    ------
-    ConfigurationError
-        If ``factor_returns`` or ``regime_probabilities`` are empty.
+    Raises:
+        ConfigurationError: If ``factor_returns`` or ``regime_probabilities``
+            are empty.
     """
     if config is None:
         config = RegimeBlendedMeanRiskConfig()
@@ -274,20 +231,14 @@ def build_regime_blended_mean_risk(
             "regime_probabilities must not be empty; provide a non-empty DataFrame."
         )
 
-    # 1. Regime-blended covariance with baked-in HMM probabilities.
     regime_cov = _ExternallyControlledRegimeCovariance(
         half_life=config.half_life,
         regime_probabilities=regime_probabilities,
     )
 
-    # 2. Empirical prior wrapping the regime covariance.
     empirical_prior = EmpiricalPrior(covariance_estimator=regime_cov)
-
-    # 3. Factor model: empirical_prior provides regime-aware Σ; factor
-    #    returns are supplied via the optimizer step's `factors` fit param.
     factor_model = TimeSeriesFactorModel(factor_prior_estimator=empirical_prior)
 
-    # 4. MeanRisk optimizer with optional turnover control.
     extra_kwargs: dict[str, Any] = {}
     if previous_weights is not None:
         extra_kwargs["previous_weights"] = previous_weights
@@ -298,14 +249,12 @@ def build_regime_blended_mean_risk(
         **extra_kwargs,
     )
 
-    # 5. Full pre-selection → optimizer pipeline.
     pipeline = build_portfolio_pipeline(
         optimizer,
         pre_selection_config=pre_selection_config,
         sector_mapping=sector_mapping,
     )
 
-    # 6. Walk-forward cross-validator.
     cv = build_walk_forward(config.walk_forward_config)
 
     return pipeline, cv

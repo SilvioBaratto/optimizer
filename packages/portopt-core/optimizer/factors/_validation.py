@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -32,10 +32,6 @@ FACTOR_SPREAD_BENCHMARKS: dict[str, tuple[float, float]] = {
     "ownership": (0.005, 0.02),
 }
 
-# ---------------------------------------------------------------------------
-# Result containers
-# ---------------------------------------------------------------------------
-
 
 @dataclass
 class ICResult:
@@ -53,25 +49,16 @@ class ICResult:
 class CompositeICResult:
     """IC analysis results for the composite score signal.
 
-    Attributes
-    ----------
-    mean_ic : float
-        Mean IC of the composite score over the evaluation period.
-    ic_std : float
-        Standard deviation of the IC series.
-    t_stat : float
-        Newey-West adjusted t-statistic.
-    p_value : float
-        Two-tailed p-value from the Newey-West t-statistic.
-    icir : float
-        IC Information Ratio: ``mean(IC) / std(IC)``.
-    significant : bool
-        True when ``abs(t_stat) >= t_stat_threshold``.
-    best_individual_ic : float
-        Highest mean IC among individual factors.  ``NaN`` when
-        no individual factors were validated alongside.
-    outperforms_best_individual : bool
-        True when ``mean_ic > best_individual_ic``.
+    Attributes:
+        mean_ic: Mean IC of the composite score over the evaluation period.
+        ic_std: Standard deviation of the IC series.
+        t_stat: Newey-West adjusted t-statistic.
+        p_value: Two-tailed p-value from the Newey-West t-statistic.
+        icir: IC Information Ratio: ``mean(IC) / std(IC)``.
+        significant: True when ``abs(t_stat) >= t_stat_threshold``.
+        best_individual_ic: Highest mean IC among individual factors.
+            ``NaN`` when no individual factors were validated alongside.
+        outperforms_best_individual: True when ``mean_ic > best_individual_ic``.
     """
 
     mean_ic: float
@@ -88,16 +75,13 @@ class CompositeICResult:
 class GroupICResult:
     """Result of group-level IC aggregation with per-factor breakdown.
 
-    Attributes
-    ----------
-    group_ic : pd.DataFrame
-        (dates x groups) group-level IC history.  Identical in shape to
-        the legacy ``build_group_ic_history`` return value.
-    factor_ic : pd.DataFrame
-        (dates x factors) per-factor IC time series.
-    excluded_factors : dict[str, list[str]]
-        Group name → list of factor names excluded by the negative-IC
-        filter policy.  Empty when ``ICNegativeFilterPolicy.INCLUDE``.
+    Attributes:
+        group_ic: (dates x groups) group-level IC history.  Identical in shape
+            to the legacy ``build_group_ic_history`` return value.
+        factor_ic: (dates x factors) per-factor IC time series.
+        excluded_factors: Group name → list of factor names excluded by the
+            negative-IC filter policy.  Empty when
+            ``ICNegativeFilterPolicy.INCLUDE``.
     """
 
     group_ic: pd.DataFrame
@@ -133,18 +117,14 @@ class FactorValidationReport:
 class ICStats:
     """Full IC statistics for a single factor including Newey-West inference.
 
-    Attributes
-    ----------
-    mean : float
-        Mean IC over the evaluation period.
-    variance_nw : float
-        Newey-West HAC variance of the IC series.
-    t_stat_nw : float
-        Newey-West adjusted t-statistic: ``IC_mean / sqrt(Var_NW / T)``.
-    p_value : float
-        Two-tailed p-value derived from the Newey-West t-statistic.
-    icir : float
-        Information Coefficient Information Ratio: ``mean(IC) / std(IC)``.
+    Attributes:
+        mean: Mean IC over the evaluation period.
+        variance_nw: Newey-West HAC variance of the IC series.
+        t_stat_nw: Newey-West adjusted t-statistic:
+            ``IC_mean / sqrt(Var_NW / T)``.
+        p_value: Two-tailed p-value derived from the Newey-West t-statistic.
+        icir: Information Coefficient Information Ratio:
+            ``mean(IC) / std(IC)``.
     """
 
     mean: float
@@ -158,21 +138,13 @@ class ICStats:
 class CorrectedPValues:
     """Multiple-testing corrected p-values.
 
-    Attributes
-    ----------
-    holm : ndarray
-        Holm-Bonferroni adjusted p-values (controls FWER).
-    bh : ndarray
-        Benjamini-Hochberg adjusted p-values (controls FDR).
+    Attributes:
+        holm: Holm-Bonferroni adjusted p-values (controls FWER).
+        bh: Benjamini-Hochberg adjusted p-values (controls FDR).
     """
 
     holm: npt.NDArray[np.float64]
     bh: npt.NDArray[np.float64]
-
-
-# ---------------------------------------------------------------------------
-# IC analysis
-# ---------------------------------------------------------------------------
 
 
 def compute_monthly_ic(
@@ -182,19 +154,13 @@ def compute_monthly_ic(
 ) -> float:
     """Compute rank information coefficient (Spearman correlation).
 
-    Parameters
-    ----------
-    factor_scores : pd.Series
-        Cross-sectional factor scores.
-    forward_returns : pd.Series
-        Forward returns for the same tickers.
-    min_observations : int, default 3
-        Minimum number of common non-NaN observations required.
-        Returns NaN if fewer are available.
+    Args:
+        factor_scores: Cross-sectional factor scores.
+        forward_returns: Forward returns for the same tickers.
+        min_observations: Minimum number of common non-NaN observations
+            required.  Returns NaN if fewer are available.
 
-    Returns
-    -------
-    float
+    Returns:
         Rank IC (Spearman correlation).
     """
     common = factor_scores.dropna().index.intersection(
@@ -218,29 +184,23 @@ def compute_ic_series(
 ) -> pd.Series:
     """Compute IC time series for a factor.
 
-    Parameters
-    ----------
-    factor_scores_history : pd.DataFrame
-        Dates x tickers matrix of factor scores.
-    returns_history : pd.DataFrame
-        Dates x tickers matrix of forward returns.
-    factor_name : str
-        Used only for labeling.
-    min_observations : int, default 3
-        Minimum number of common non-NaN observations per date.
-    use_cs_regression : bool, default False
-        When ``True``, replace the per-period rank correlation with the
-        slope coefficient of a per-period cross-sectional regression
-        (built via :func:`build_cs_linear_regression`). The default
-        preserves the original Spearman-rank IC exactly.
-    cs_config : CSLinearRegressionConfig or None
-        Configuration forwarded to :func:`build_cs_linear_regression`
-        when ``use_cs_regression`` is ``True``. ``None`` defers to
-        :class:`CSLinearRegressionConfig` defaults.
+    Args:
+        factor_scores_history: Dates x tickers matrix of factor scores.
+        returns_history: Dates x tickers matrix of forward returns.
+        factor_name: Used only for labeling.
+        min_observations: Minimum number of common non-NaN observations per
+            date.
+        use_cs_regression: When ``True``, replace the per-period rank
+            correlation with the slope coefficient of a per-period
+            cross-sectional regression (built via
+            `build_cs_linear_regression`).  The default preserves the
+            original Spearman-rank IC exactly.
+        cs_config: Configuration forwarded to
+            `build_cs_linear_regression` when ``use_cs_regression`` is
+            ``True``.  ``None`` defers to `CSLinearRegressionConfig`
+            defaults.
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         IC values indexed by date.
     """
     if use_cs_regression:
@@ -332,14 +292,10 @@ def compute_icir(ic_series: pd.Series) -> float:
     volatility (inconsistent predictors).  Use this as the weighting
     signal in ICIR-weighted composite scoring.
 
-    Parameters
-    ----------
-    ic_series : pd.Series
-        Time series of IC values (one per cross-section date).
+    Args:
+        ic_series: Time series of IC values (one per cross-section date).
 
-    Returns
-    -------
-    float
+    Returns:
         ICIR value, or 0.0 if ``std(IC) == 0`` or fewer than
         2 non-NaN observations.
     """
@@ -347,7 +303,7 @@ def compute_icir(ic_series: pd.Series) -> float:
     if len(clean) < 2:
         return 0.0
     mean_ic = float(clean.mean())
-    ic_std = float(clean.std(ddof=1))
+    ic_std = float(cast(float, clean.std(ddof=1)))
     return mean_ic / ic_std if ic_std > 0.0 else 0.0
 
 
@@ -357,16 +313,11 @@ def compute_newey_west_tstat(
 ) -> tuple[float, float]:
     """Compute Newey-West t-statistic for IC significance.
 
-    Parameters
-    ----------
-    ic_series : pd.Series
-        Time series of IC values.
-    n_lags : int
-        Number of lags for HAC standard errors.
+    Args:
+        ic_series: Time series of IC values.
+        n_lags: Number of lags for HAC standard errors.
 
-    Returns
-    -------
-    tuple[float, float]
+    Returns:
         (t_statistic, p_value).
     """
     n = len(ic_series)
@@ -376,7 +327,6 @@ def compute_newey_west_tstat(
     mean_ic = float(ic_series.mean())
     demeaned = ic_series - mean_ic
 
-    # Newey-West variance estimator
     gamma_0 = float((demeaned**2).mean())
     nw_var = gamma_0
 
@@ -411,16 +361,11 @@ def compute_ic_stats(
 ) -> ICStats:
     """Compute full IC statistics including Newey-West t-stat and ICIR.
 
-    Parameters
-    ----------
-    ic_series : pd.Series
-        Time series of IC values (one per cross-section date).
-    lags : int
-        Number of lags for Newey-West HAC standard errors.
+    Args:
+        ic_series: Time series of IC values (one per cross-section date).
+        lags: Number of lags for Newey-West HAC standard errors.
 
-    Returns
-    -------
-    ICStats
+    Returns:
         Dataclass containing ``mean``, ``variance_nw``, ``t_stat_nw``,
         ``p_value``, and ``icir``.
     """
@@ -437,7 +382,7 @@ def compute_ic_stats(
         )
 
     mean_ic = float(ic_series.mean())
-    ic_std = float(ic_series.std(ddof=1))
+    ic_std = float(cast(float, ic_series.std(ddof=1)))
     icir = mean_ic / ic_std if ic_std > 0.0 else 0.0
 
     demeaned = ic_series - mean_ic
@@ -475,17 +420,12 @@ def correct_pvalues(
 ) -> CorrectedPValues:
     """Apply Holm-Bonferroni and Benjamini-Hochberg multiple testing corrections.
 
-    Parameters
-    ----------
-    p_values : ndarray, shape (m,)
-        Raw p-values in any order.
-    alpha : float
-        Significance level used to compute the adjustments (does not filter
-        here; callers compare adjusted p-values against ``alpha``).
+    Args:
+        p_values: Raw p-values in any order, shape (m,).
+        alpha: Significance level used to compute the adjustments (does not
+            filter here; callers compare adjusted p-values against ``alpha``).
 
-    Returns
-    -------
-    CorrectedPValues
+    Returns:
         ``holm`` — FWER-controlling Holm-Bonferroni adjusted p-values.
         ``bh``   — FDR-controlling Benjamini-Hochberg adjusted p-values.
         Both arrays are returned in the **same order** as the input.
@@ -508,7 +448,6 @@ def correct_pvalues(
     bh_sorted = np.minimum(1.0, sorted_p * (m / ranks))
     bh_sorted = np.minimum.accumulate(bh_sorted[::-1])[::-1]
 
-    # Restore original order
     holm_out = np.empty(m, dtype=np.float64)
     bh_out = np.empty(m, dtype=np.float64)
     holm_out[sort_idx] = holm_sorted
@@ -524,19 +463,14 @@ def validate_factor_universe(
 ) -> pd.DataFrame:
     """Validate all factors simultaneously with multiple testing correction.
 
-    Parameters
-    ----------
-    ic_matrix : pd.DataFrame
-        Dates × factors matrix of IC values (one IC per period per factor).
-    lags : int
-        Number of Newey-West HAC lags.
-    alpha : float
-        Significance level for both FWER and FDR rejection decisions.
+    Args:
+        ic_matrix: Dates x factors matrix of IC values (one IC per period
+            per factor).
+        lags: Number of Newey-West HAC lags.
+        alpha: Significance level for both FWER and FDR rejection decisions.
 
-    Returns
-    -------
-    pd.DataFrame
-        Factor × statistic summary with columns:
+    Returns:
+        Factor x statistic summary with columns:
         ``ic_mean``, ``icir``, ``t_stat_nw``, ``p_value_raw``,
         ``p_value_holm``, ``p_value_bh``, ``significant_holm``,
         ``significant_bh``.
@@ -569,11 +503,6 @@ def validate_factor_universe(
     return pd.DataFrame(records, index=factors)
 
 
-# ---------------------------------------------------------------------------
-# Composite IC validation
-# ---------------------------------------------------------------------------
-
-
 def compute_composite_ic(
     composite_scores_history: pd.DataFrame,
     returns_history: pd.DataFrame,
@@ -583,22 +512,14 @@ def compute_composite_ic(
 ) -> CompositeICResult:
     """Compute IC statistics for the composite score signal.
 
-    Parameters
-    ----------
-    composite_scores_history : pd.DataFrame
-        Dates x tickers matrix of composite scores.
-    returns_history : pd.DataFrame
-        Dates x tickers matrix of forward returns.
-    newey_west_lags : int, default 6
-        Number of lags for HAC standard errors.
-    t_stat_threshold : float, default 2.0
-        Threshold for significance decision.
-    min_observations : int, default 3
-        Minimum non-NaN observations per cross-section date.
+    Args:
+        composite_scores_history: Dates x tickers matrix of composite scores.
+        returns_history: Dates x tickers matrix of forward returns.
+        newey_west_lags: Number of lags for HAC standard errors.
+        t_stat_threshold: Threshold for significance decision.
+        min_observations: Minimum non-NaN observations per cross-section date.
 
-    Returns
-    -------
-    CompositeICResult
+    Returns:
         IC statistics for the composite score.  The
         ``best_individual_ic`` and ``outperforms_best_individual``
         fields are populated by ``run_factor_validation`` when
@@ -624,7 +545,7 @@ def compute_composite_ic(
         )
 
     mean_ic = float(ic_series.mean())
-    ic_std = float(ic_series.std(ddof=1))
+    ic_std = float(cast(float, ic_series.std(ddof=1)))
     icir = mean_ic / ic_std if ic_std > 0.0 else 0.0
 
     t_stat, p_value = compute_newey_west_tstat(ic_series, n_lags=newey_west_lags)
@@ -642,11 +563,6 @@ def compute_composite_ic(
     )
 
 
-# ---------------------------------------------------------------------------
-# Quantile spread
-# ---------------------------------------------------------------------------
-
-
 def compute_quantile_spread(
     factor_scores: pd.Series,
     forward_returns: pd.Series,
@@ -654,18 +570,12 @@ def compute_quantile_spread(
 ) -> float:
     """Compute long-short quantile spread return.
 
-    Parameters
-    ----------
-    factor_scores : pd.Series
-        Cross-sectional factor scores.
-    forward_returns : pd.Series
-        Forward returns.
-    n_quantiles : int
-        Number of quantile buckets.
+    Args:
+        factor_scores: Cross-sectional factor scores.
+        forward_returns: Forward returns.
+        n_quantiles: Number of quantile buckets.
 
-    Returns
-    -------
-    float
+    Returns:
         Top quantile return minus bottom quantile return.
     """
     common = factor_scores.dropna().index.intersection(
@@ -687,10 +597,6 @@ def compute_quantile_spread(
     return float(quantile_returns.iloc[-1] - quantile_returns.iloc[0])
 
 
-# ---------------------------------------------------------------------------
-# VIF
-# ---------------------------------------------------------------------------
-
 # Guard near-singular regressions: if 1 - R² falls below this threshold the
 # residual variance is dominated by floating-point noise and VIF is meaningless.
 # 1e-10 preserves all diagnostically meaningful VIF values (up to ~1e10) while
@@ -702,20 +608,15 @@ _VIF_R2_SINGULARITY_TOL: float = 1e-10
 def compute_vif(factor_matrix: pd.DataFrame) -> pd.Series:
     """Compute variance inflation factors for multicollinearity.
 
-    Parameters
-    ----------
-    factor_matrix : pd.DataFrame
-        Tickers x factors matrix (no NaN).  Must contain at least 2 factors.
+    Args:
+        factor_matrix: Tickers x factors matrix (no NaN).  Must contain at
+            least 2 factors.
 
-    Returns
-    -------
-    pd.Series
-        VIF per factor.  Values are ≥ 1.0 by construction.
+    Returns:
+        VIF per factor.  Values are >= 1.0 by construction.
 
-    Raises
-    ------
-    ValueError
-        If fewer than 2 factor columns are provided.
+    Raises:
+        ValueError: If fewer than 2 factor columns are provided.
     """
     if len(factor_matrix.columns) < 2:
         raise DataError(
@@ -733,10 +634,8 @@ def compute_vif(factor_matrix: pd.DataFrame) -> pd.Series:
         y = X[:, i]
         X_other = X[:, mask]
 
-        # Add intercept
         X_aug = np.column_stack([np.ones(len(y)), X_other])
 
-        # OLS: R^2 = 1 - RSS/TSS
         try:
             coeffs = np.linalg.lstsq(X_aug, y, rcond=None)[0]
             y_hat = X_aug @ coeffs
@@ -754,27 +653,17 @@ def compute_vif(factor_matrix: pd.DataFrame) -> pd.Series:
     return pd.Series(vifs)
 
 
-# ---------------------------------------------------------------------------
-# FDR correction
-# ---------------------------------------------------------------------------
-
-
 def benjamini_hochberg(
     p_values: pd.Series,
     alpha: float = 0.05,
 ) -> pd.Series:
-    """Benjamini-Hochberg FDR correction.
+    """Apply Benjamini-Hochberg FDR correction.
 
-    Parameters
-    ----------
-    p_values : pd.Series
-        Raw p-values indexed by factor name.
-    alpha : float
-        FDR significance level.
+    Args:
+        p_values: Raw p-values indexed by factor name.
+        alpha: FDR significance level.
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         Boolean series indicating significant factors.
     """
     sorted_pvals = p_values.sort_values()
@@ -791,11 +680,6 @@ def benjamini_hochberg(
     return pd.Series(significant, index=sorted_pvals.index, dtype=bool).reindex(
         p_values.index
     )
-
-
-# ---------------------------------------------------------------------------
-# Full validation
-# ---------------------------------------------------------------------------
 
 
 def _factor_to_group_name(factor_name: str) -> str:
@@ -817,22 +701,15 @@ def run_factor_validation(
 ) -> FactorValidationReport:
     """Run complete factor validation suite.
 
-    Parameters
-    ----------
-    factor_scores_history : dict[str, pd.DataFrame]
-        Factor name -> (dates x tickers) score history.
-    returns_history : pd.DataFrame
-        Dates x tickers forward return matrix.
-    config : FactorValidationConfig or None
-        Validation parameters.
-    composite_scores_history : pd.DataFrame or None
-        Dates x tickers matrix of composite scores.  When provided,
-        IC analysis is run on the composite signal and compared
-        against the best individual factor IC.
+    Args:
+        factor_scores_history: Factor name -> (dates x tickers) score history.
+        returns_history: Dates x tickers forward return matrix.
+        config: Validation parameters.
+        composite_scores_history: Dates x tickers matrix of composite scores.
+            When provided, IC analysis is run on the composite signal and
+            compared against the best individual factor IC.
 
-    Returns
-    -------
-    FactorValidationReport
+    Returns:
         Complete validation results.
     """
     if config is None:
@@ -842,7 +719,6 @@ def run_factor_validation(
     p_values: dict[str, float] = {}
 
     for factor_name, scores_df in factor_scores_history.items():
-        # IC analysis
         ic_series = compute_ic_series(
             scores_df,
             returns_history,
@@ -859,7 +735,7 @@ def run_factor_validation(
             ICResult(
                 factor_name=factor_name,
                 mean_ic=float(ic_series.mean()),
-                ic_std=float(ic_series.std()),
+                ic_std=float(cast(float, ic_series.std())),
                 t_stat=t_stat,
                 p_value=p_value,
                 significant=significant,
@@ -867,7 +743,6 @@ def run_factor_validation(
         )
         p_values[factor_name] = p_value
 
-        # Quantile spread (use latest cross-section)
         common_dates = scores_df.index.intersection(
             returns_history.index,
         )
@@ -893,7 +768,6 @@ def run_factor_validation(
                     )
                 )
 
-    # Multiple testing correction (Holm FWER + BH FDR)
     if p_values:
         factor_names = list(p_values.keys())
         pval_arr = np.array([p_values[f] for f in factor_names], dtype=np.float64)
@@ -910,7 +784,6 @@ def run_factor_validation(
             if p <= config.fdr_alpha
         ]
 
-    # Composite score IC validation
     if composite_scores_history is not None:
         composite_result = compute_composite_ic(
             composite_scores_history,

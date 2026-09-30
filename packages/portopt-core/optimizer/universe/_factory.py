@@ -23,27 +23,18 @@ def screen_universe(
 ) -> pd.Index:
     """Screen a stock universe for investability.
 
-    Convenience wrapper around :func:`apply_investability_screens`
-    that applies default configuration when none is provided.
+    Convenience wrapper around ``apply_investability_screens`` that applies
+    default configuration when none is provided.
 
-    Parameters
-    ----------
-    fundamentals : pd.DataFrame
-        Cross-sectional data with one row per ticker.
-    price_history : pd.DataFrame
-        Price matrix (dates x tickers).
-    volume_history : pd.DataFrame
-        Volume matrix (dates x tickers).
-    financial_statements : pd.DataFrame or None
-        Statement-level data.
-    config : InvestabilityScreenConfig or None
-        Screening configuration.
-    current_members : pd.Index or None
-        Tickers currently in the universe for hysteresis.
+    Args:
+        fundamentals: Cross-sectional data with one row per ticker.
+        price_history: Price matrix (dates x tickers).
+        volume_history: Volume matrix (dates x tickers).
+        financial_statements: Optional statement-level data.
+        config: Screening configuration. ``None`` uses developed-market defaults.
+        current_members: Tickers currently in the universe for hysteresis.
 
-    Returns
-    -------
-    pd.Index
+    Returns:
         Tickers passing all investability screens.
     """
     if config is None:
@@ -69,32 +60,22 @@ def build_investability_screen(
 ) -> InvestabilityScreenSelector:
     """Build a pipeline-composable investability-screen selector.
 
-    Convenience factory that wires the screening data and configuration into an
-    :class:`InvestabilityScreenSelector`.  The returned transformer runs the
-    fundamental screens at ``fit`` time and, at ``transform`` time, restricts a
-    linear-return matrix ``X`` (tickers as columns) to the investable universe —
-    so an investability gate can precede skfolio pre-selection / optimisation in
-    a single :class:`sklearn.pipeline.Pipeline`.
+    Wires screening data and configuration into an ``InvestabilityScreenSelector``.
+    The returned transformer runs fundamental screens at ``fit`` time and, at
+    ``transform`` time, restricts a linear-return matrix ``X`` (tickers as columns)
+    to the investable universe — allowing an investability gate to precede skfolio
+    pre-selection or optimisation inside a single ``sklearn.pipeline.Pipeline``.
 
-    Parameters
-    ----------
-    fundamentals : pd.DataFrame
-        Cross-sectional data with one row per ticker.
-    price_history : pd.DataFrame
-        Price matrix (dates x tickers).
-    volume_history : pd.DataFrame
-        Volume matrix (dates x tickers).
-    financial_statements : pd.DataFrame or None
-        Optional statement-level data.
-    config : InvestabilityScreenConfig or None
-        Screening configuration.  ``None`` uses developed-market defaults.
-    current_members : pd.Index or None
-        Tickers currently in the universe for hysteresis.
+    Args:
+        fundamentals: Cross-sectional data with one row per ticker.
+        price_history: Price matrix (dates x tickers).
+        volume_history: Volume matrix (dates x tickers).
+        financial_statements: Optional statement-level data.
+        config: Screening configuration. ``None`` uses developed-market defaults.
+        current_members: Tickers currently in the universe for hysteresis.
 
-    Returns
-    -------
-    InvestabilityScreenSelector
-        Unfitted selector; call ``fit(X)`` with a return DataFrame.
+    Returns:
+        Unfitted selector; call ``fit(X)`` with a linear-return DataFrame.
     """
     return InvestabilityScreenSelector(
         fundamentals=fundamentals,

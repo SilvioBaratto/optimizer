@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -29,34 +30,27 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
     The minor-unit step is essential for this DB: ``price_history.price_unit``
     is the listing currency as-is and yfinance keeps pence/cents/agorot in
     their sub-unit, so a code-only FX conversion would be a 100x error for
-    London / Johannesburg / Tel Aviv listings.  See
-    :mod:`optimizer.fx._minor_units`.
+    London / Johannesburg / Tel Aviv listings.  See `_minor_units`.
 
     This transformer operates on *prices* (not returns) and must be
     applied **before** ``prices_to_returns()`` — scale differences make
     converting returns instead of prices incorrect.
 
-    Parameters
-    ----------
-    base_currency : str
-        Target base currency ISO code (e.g. ``"EUR"``).
-    currency_map : dict[str, str]
-        Mapping of ticker → currency / price-unit code as stored in the DB
-        (``price_history.price_unit``).  Minor-unit codes (``GBp``, ``ZAc``,
-        ``ILA``, ...) are recognised and rescaled; do **not** pre-normalise
-        them to the major code, or the sub-unit scale would be lost.
-    fx_rates : pd.DataFrame
-        Pre-loaded FX rate DataFrame indexed by date, with one column
-        per foreign **major** currency.  Each column holds the rate expressed
-        as units-of-base per one unit-of-foreign.  For example, if
-        base is EUR and column is ``"GBP"``, values are EUR per 1 GBP
-        (≈ 1.16).  (Pence tickers are rescaled to GBP first, so only the
-        major-unit ``GBP`` rate is needed — never a ``GBp`` column.)
-    fill_limit : int
-        Forward-fill limit for aligning FX rates to the price index.
-    require_full_coverage : bool
-        If ``True``, raise ``DataError`` when any non-base currency
-        lacks FX rate data.
+    Args:
+        base_currency: Target base currency ISO code (e.g. ``"EUR"``).
+        currency_map: Mapping of ticker → currency / price-unit code as stored in the DB
+            (``price_history.price_unit``).  Minor-unit codes (``GBp``, ``ZAc``,
+            ``ILA``, ...) are recognised and rescaled; do **not** pre-normalise
+            them to the major code, or the sub-unit scale would be lost.
+        fx_rates: Pre-loaded FX rate DataFrame indexed by date, with one column
+            per foreign **major** currency.  Each column holds the rate expressed
+            as units-of-base per one unit-of-foreign.  For example, if
+            base is EUR and column is ``"GBP"``, values are EUR per 1 GBP
+            (≈ 1.16).  (Pence tickers are rescaled to GBP first, so only the
+            major-unit ``GBP`` rate is needed — never a ``GBp`` column.)
+        fill_limit: Forward-fill limit for aligning FX rates to the price index.
+        require_full_coverage: If ``True``, raise ``DataError`` when any non-base
+            currency lacks FX rate data.
     """
 
     base_currency: str
@@ -85,16 +79,12 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
     def fit(self, X: pd.DataFrame, y: object = None) -> FxPriceConverter:
         """Validate FX rate coverage and align rates to the price index.
 
-        Parameters
-        ----------
-        X : pd.DataFrame
-            Price matrix (dates x tickers).
-        y : ignored
-            Not used; present for sklearn API compatibility.
+        Args:
+            X: Price matrix (dates x tickers).
+            y: Not used; present for sklearn API compatibility.
 
-        Returns
-        -------
-        self
+        Returns:
+            The fitted transformer instance.
         """
         self._validate_input(X)
         self.n_features_in_: int = X.shape[1]
@@ -143,7 +133,6 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
         else:
             fx_rates = raw_fx_rates
 
-        # Determine which FX columns we need
         needed = set(foreign_tickers.values())
         available = set(fx_rates.columns) if not fx_rates.empty else set()
         self.missing_currencies_: set[str] = needed - available
@@ -157,10 +146,9 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
                 raise DataError(msg)
             logger.warning(msg + " Affected tickers will not be converted.")
 
-        # Align FX rates to the price index
         if not fx_rates.empty:
             self.fx_aligned_: pd.DataFrame = align_fx_rates(
-                fx_rates, X.index, fill_limit=self.fill_limit
+                fx_rates, cast(pd.DatetimeIndex, X.index), fill_limit=self.fill_limit
             )
         else:
             self.fx_aligned_ = pd.DataFrame(index=X.index)
@@ -170,14 +158,10 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         """Convert prices from local currencies to the base currency.
 
-        Parameters
-        ----------
-        X : pd.DataFrame
-            Price matrix (dates x tickers) in local currencies.
+        Args:
+            X: Price matrix (dates x tickers) in local currencies.
 
-        Returns
-        -------
-        pd.DataFrame
+        Returns:
             Price matrix with all values expressed in the base currency.
         """
         check_is_fitted(self)
@@ -207,7 +191,6 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
             rate = self.fx_aligned_[ccy].reindex(out.index)
             out[ticker] = out[ticker] * rate
 
-        # Warn about tickers with NaN prices due to fill_limit exhaustion
         nan_mask = out.isnull() & ~X.isnull()
         if nan_mask.any().any():
             affected = nan_mask.any(axis=0)

@@ -29,26 +29,19 @@ from optimizer.optimization._hierarchical_common import (
 
 @dataclass(frozen=True)
 class NCOConfig:
-    """Immutable configuration for :class:`NestedClustersOptimization`.
+    """Immutable configuration for NestedClustersOptimization.
 
-    Inner and outer estimators are NOT stored on the Config because
-    skfolio estimator instances are not serialisable. Pass them as
-    factory kwargs to :func:`build_nco`.
+    Inner and outer estimators are NOT stored here because skfolio estimator
+    instances are not serialisable. Pass them as factory kwargs to build_nco.
 
-    Parameters
-    ----------
-    distance_config : DistanceConfig or None
-        Distance estimator configuration.
-    clustering_config : HierarchicalClusteringConfig or None
-        Hierarchical-clustering configuration.
-    quantile : float
-        Quantile threshold passed to the wrapped optimizer.
-    inner_default : MeanRiskConfig
-        Preset used to construct the default inner ``MeanRisk`` when
-        the ``inner_estimator`` factory kwarg is omitted.
-    outer_default : MeanRiskConfig
-        Preset used to construct the default outer ``MeanRisk`` when
-        the ``outer_estimator`` factory kwarg is omitted.
+    Attributes:
+        distance_config: Distance estimator configuration, or None for default.
+        clustering_config: Hierarchical-clustering configuration, or None for default.
+        quantile: Quantile threshold passed to the wrapped optimizer.
+        inner_default: Preset used to construct the default inner MeanRisk when
+            the inner_estimator factory kwarg is omitted.
+        outer_default: Preset used to construct the default outer MeanRisk when
+            the outer_estimator factory kwarg is omitted.
     """
 
     distance_config: DistanceConfig | None = None
@@ -81,25 +74,18 @@ def build_nco(
     outer_estimator: BaseOptimization | None = None,
     **kwargs: Any,
 ) -> NestedClustersOptimization:
-    """Build a skfolio :class:`NestedClustersOptimization` from *config*.
+    """Build a NestedClustersOptimization from config.
 
-    Parameters
-    ----------
-    config : NCOConfig or None
-        NCO configuration. ``None`` triggers default.
-    inner_estimator : BaseOptimization or None
-        Within-cluster optimizer. When ``None``, ``build_mean_risk`` is
-        called with ``config.inner_default``.
-    outer_estimator : BaseOptimization or None
-        Across-cluster optimizer. When ``None``, ``build_mean_risk`` is
-        called with ``config.outer_default``.
-    **kwargs
-        Additional kwargs forwarded to the wrapped optimizer.
+    Args:
+        config: NCO configuration. None triggers the default NCOConfig.
+        inner_estimator: Within-cluster optimizer. When None, build_mean_risk
+            is called with config.inner_default.
+        outer_estimator: Across-cluster optimizer. When None, build_mean_risk
+            is called with config.outer_default.
+        **kwargs: Additional kwargs forwarded to the wrapped optimizer.
 
-    Returns
-    -------
-    NestedClustersOptimization
-        A fitted-ready skfolio optimiser.
+    Returns:
+        A fitted-ready skfolio NestedClustersOptimization instance.
     """
     if config is None:
         config = NCOConfig()

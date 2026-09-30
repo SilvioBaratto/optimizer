@@ -33,21 +33,18 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
     the ``fallback`` strategy at transform time.  The same fallback applies
     per-row when any neighbor is itself ``NaN`` at the imputation timestep.
 
-    Parameters
-    ----------
-    n_neighbors : int, default=5
-        Number of most-correlated assets used as regression predictors.
-    min_train_periods : int, default=60
-        Minimum complete-row count required to fit the OLS regression for
-        an asset.  Assets below this threshold use the fallback strategy.
-    fallback : str, default="sector_mean"
-        Imputation strategy when regression is unavailable.  Only
-        ``"sector_mean"`` is currently supported (delegates to
-        :class:`SectorImputer`).
-    sector_mapping : dict[str, str] or None, default=None
-        Maps ticker → sector label.  Passed to the internal
-        :class:`SectorImputer` used for fallback imputation.  When
-        ``None``, the fallback uses a global cross-sectional mean.
+    Args:
+        n_neighbors: Number of most-correlated assets used as regression
+            predictors.
+        min_train_periods: Minimum complete-row count required to fit the OLS
+            regression for an asset. Assets below this threshold use the
+            fallback strategy.
+        fallback: Imputation strategy when regression is unavailable. Only
+            ``"sector_mean"`` is currently supported (delegates to
+            SectorImputer).
+        sector_mapping: Maps ticker to sector label. Passed to the internal
+            SectorImputer used for fallback imputation. When None, the
+            fallback uses a global cross-sectional mean.
     """
 
     n_neighbors: int
@@ -67,22 +64,15 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
         self.fallback = fallback
         self.sector_mapping = sector_mapping
 
-    # ------------------------------------------------------------------
-    # Fit
-    # ------------------------------------------------------------------
-
     def fit(self, X: pd.DataFrame, y: object = None) -> RegressionImputer:
         """Compute neighbor rankings and fit per-asset OLS regressions.
 
-        Parameters
-        ----------
-        X : pd.DataFrame
-            Asset return DataFrame (dates × assets).  May contain NaN.
-        y : ignored
+        Args:
+            X: Asset return DataFrame (dates x assets). May contain NaN.
+            y: Ignored; present for sklearn pipeline compatibility.
 
-        Returns
-        -------
-        self
+        Returns:
+            Fitted estimator.
         """
         X = self._validate_input(X)
         self.n_features_in_: int = X.shape[1]
@@ -94,17 +84,14 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
                 "Only 'sector_mean' is supported."
             )
 
-        # 1. Pairwise absolute correlations (pairwise complete obs).
         corr = X.corr().abs()
 
-        # 2. Top-K neighbors per asset (excluding self).
         self.neighbors_: dict[str, list[str]] = {}
         for col in X.columns:
             others = corr[col].drop(col)
             k = min(self.n_neighbors, len(others))
             self.neighbors_[col] = others.nlargest(k).index.tolist()
 
-        # 3. OLS regression per asset.
         self.coefs_: dict[str, np.ndarray | None] = {}
         for col in X.columns:
             nbrs = self.neighbors_[col]
@@ -126,34 +113,24 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
             coefs, *_ = np.linalg.lstsq(X_design, y_train, rcond=None)
             self.coefs_[col] = coefs  # shape (K+1,)
 
-        # 4. Fallback SectorImputer (fitted on training data).
         self._fallback_imputer_: SectorImputer = SectorImputer(
             sector_mapping=self.sector_mapping
         ).fit(X)
 
         return self
 
-    # ------------------------------------------------------------------
-    # Transform
-    # ------------------------------------------------------------------
-
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         """Impute NaN values using fitted regressions and/or fallback.
 
-        Parameters
-        ----------
-        X : pd.DataFrame
-            Asset return DataFrame (dates × assets).  May contain NaN.
+        Args:
+            X: Asset return DataFrame (dates x assets). May contain NaN.
 
-        Returns
-        -------
-        pd.DataFrame
-            Copy of ``X`` with NaN values filled.
+        Returns:
+            Copy of X with NaN values filled.
         """
         check_is_fitted(self)
         X = self._validate_input(X)
 
-        # Pre-compute full fallback values (sector / global mean).
         fallback_df = self._fallback_imputer_.transform(X)
         out = X.copy()
 
@@ -175,7 +152,6 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
                 # depend on column ordering. Only genuinely observed neighbor
                 # returns should drive the OLS prediction.
                 nbr_data = X.loc[nan_idx, nbrs]
-                # Rows where every neighbor is available.
                 rows_complete = ~nbr_data.isna().any(axis=1)
 
                 if rows_complete.any():
@@ -192,18 +168,10 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
 
         return out
 
-    # ------------------------------------------------------------------
-    # sklearn protocol
-    # ------------------------------------------------------------------
-
     def get_feature_names_out(self, input_features: object = None) -> np.ndarray:
         """Return feature names (pass-through)."""
         check_is_fitted(self)
         return self.feature_names_in_
-
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _validate_input(X: pd.DataFrame) -> pd.DataFrame:

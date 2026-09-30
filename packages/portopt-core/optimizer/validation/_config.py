@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class WalkForwardConfig:
-    """Immutable configuration for :class:`skfolio.model_selection.WalkForward`.
+    """Immutable configuration for `WalkForward`.
 
     Walk-forward backtesting partitions time series into successive
     train/test windows that respect the causal arrow of time.
@@ -28,41 +28,33 @@ class WalkForwardConfig:
     observation count.  When ``freq`` is set the input ``X`` must carry a
     ``DatetimeIndex``.
 
-    Parameters
-    ----------
-    test_size : int
-        Number of observations in each test window (or number of ``freq``
-        periods when ``freq`` is set).
-    train_size : int
-        Number of observations in each training window (or number of
-        ``freq`` periods when ``freq`` is set).  When ``expand_train`` is
-        ``True``, this is the *initial* training window size.
-    purged_size : int
-        Number of observations purged between the end of the training
-        window and the start of the test window to prevent look-ahead
-        bias from autocorrelated returns.  Defaults to 5 (one trading
-        week).  Presets use 21 (one trading month).
-    expend_train : bool
-        When ``True``, the training window expands as new data arrives
-        (expanding window).  When ``False``, the training window rolls
-        forward (rolling window).  ``expand_train`` (the skfolio 1.0
-        spelling) is available as a read-only alias.
-    reduce_test : bool
-        When ``True``, the last test window may be shorter than
-        ``test_size`` to avoid discarding data.
-    freq : str or None
-        Optional pandas frequency/offset alias (e.g. ``"MS"``,
-        ``"QS"``, ``"WOM-3FRI"``).  When set, ``test_size`` and
-        ``train_size`` count ``freq`` periods and ``X`` must have a
-        ``DatetimeIndex``.  ``None`` (default) counts raw observations.
-    freq_offset : str or None
-        Optional pandas offset alias applied to shift each ``freq``
-        period boundary (e.g. ``"2D"``).  Only used when ``freq`` is set;
-        parsed with :func:`pandas.tseries.frequencies.to_offset`.
-    previous : bool
-        Only used when ``freq`` is set.  When ``True`` and a period
-        boundary is not present in the ``DatetimeIndex``, the previous
-        observation is used; otherwise the next observation is used.
+    Args:
+        test_size: Number of observations in each test window (or number of
+            ``freq`` periods when ``freq`` is set).
+        train_size: Number of observations in each training window (or number
+            of ``freq`` periods when ``freq`` is set).  When ``expand_train``
+            is ``True``, this is the *initial* training window size.
+        purged_size: Number of observations purged between the end of the
+            training window and the start of the test window to prevent
+            look-ahead bias from autocorrelated returns.  Defaults to 5 (one
+            trading week).  Presets use 21 (one trading month).
+        expend_train: When ``True``, the training window expands as new data
+            arrives (expanding window).  When ``False``, the training window
+            rolls forward (rolling window).  ``expand_train`` (the skfolio 1.0
+            spelling) is available as a read-only alias.
+        reduce_test: When ``True``, the last test window may be shorter than
+            ``test_size`` to avoid discarding data.
+        freq: Optional pandas frequency/offset alias (e.g. ``"MS"``,
+            ``"QS"``, ``"WOM-3FRI"``).  When set, ``test_size`` and
+            ``train_size`` count ``freq`` periods and ``X`` must have a
+            ``DatetimeIndex``.  ``None`` (default) counts raw observations.
+        freq_offset: Optional pandas offset alias applied to shift each
+            ``freq`` period boundary (e.g. ``"2D"``).  Only used when
+            ``freq`` is set; parsed with
+            `to_offset`.
+        previous: Only used when ``freq`` is set.  When ``True`` and a period
+            boundary is not present in the ``DatetimeIndex``, the previous
+            observation is used; otherwise the next observation is used.
     """
 
     test_size: int = 63
@@ -86,7 +78,7 @@ class WalkForwardConfig:
 
     @property
     def expand_train(self) -> bool:
-        """Correct-spelling read alias for :attr:`expend_train` (skfolio 1.0)."""
+        """Correct-spelling read alias for `expend_train` (skfolio 1.0)."""
         return self.expend_train
 
     @classmethod
@@ -130,24 +122,20 @@ class WalkForwardConfig:
 
 @dataclass(frozen=True)
 class CPCVConfig:
-    """Configuration for :class:`skfolio.model_selection.CombinatorialPurgedCV`.
+    """Configuration for `CombinatorialPurgedCV`.
 
     Generates a population of backtest paths from all combinatorial
     selections of test folds, with purging and embargoing to prevent
     information leakage.
 
-    Parameters
-    ----------
-    n_folds : int
-        Number of non-overlapping temporal blocks.
-    n_test_folds : int
-        Number of blocks assigned to the test set in each combination.
-    purged_size : int
-        Number of observations excised on each side of the
-        train-test boundary.
-    embargo_size : int
-        Number of observations embargoed immediately following
-        each test block to avoid autocorrelation contamination.
+    Args:
+        n_folds: Number of non-overlapping temporal blocks.
+        n_test_folds: Number of blocks assigned to the test set in each
+            combination.
+        purged_size: Number of observations excised on each side of the
+            train-test boundary.
+        embargo_size: Number of observations embargoed immediately following
+            each test block to avoid autocorrelation contamination.
     """
 
     n_folds: int = 10
@@ -185,24 +173,19 @@ class CPCVConfig:
 
 @dataclass(frozen=True)
 class MultipleRandomizedCVConfig:
-    """Configuration for :class:`skfolio.model_selection.MultipleRandomizedCV`.
+    """Configuration for `MultipleRandomizedCV`.
 
     Dual randomisation across temporal windows and asset subsets
     to test robustness of the strategy to both dimensions.
 
-    Parameters
-    ----------
-    walk_forward_config : WalkForwardConfig
-        Inner walk-forward configuration for temporal splitting.
-    n_subsamples : int
-        Number of random trials.
-    asset_subset_size : int
-        Number of assets drawn per trial.
-    window_size : int or None
-        Length of the random temporal window drawn per trial.
-        ``None`` uses the full sample.
-    random_state : int or None
-        Seed for reproducibility.
+    Args:
+        walk_forward_config: Inner walk-forward configuration for temporal
+            splitting.
+        n_subsamples: Number of random trials.
+        asset_subset_size: Number of assets drawn per trial.
+        window_size: Length of the random temporal window drawn per trial.
+            ``None`` uses the full sample.
+        random_state: Seed for reproducibility.
     """
 
     walk_forward_config: WalkForwardConfig = field(default_factory=WalkForwardConfig)

@@ -23,16 +23,16 @@ class DelistingPolicy(str, Enum):
     it is still listed).  The screen only acts on this policy when the
     injected ``fundamentals`` frame carries a ``delisted_at`` column.
 
-    ``EXCLUDE``
-        Drop instruments whose ``delisted_at`` is set — appropriate for a
-        *live, tradable* universe (you cannot trade a delisted name).  This is
-        the default so a plain point-in-time build never quietly holds dead
-        tickers.
-    ``INCLUDE``
-        Keep delisted instruments so a historical build stays
-        *survivorship-bias free*.  Pair this with as-of-date-windowed price /
-        volume history (which naturally caps a name at its delisting) and use
-        ``instruments.delisting_return`` in the downstream return assembly.
+    Attributes:
+        EXCLUDE: Drop instruments whose ``delisted_at`` is set — appropriate
+            for a *live, tradable* universe (you cannot trade a delisted name).
+            This is the default so a plain point-in-time build never quietly
+            holds dead tickers.
+        INCLUDE: Keep delisted instruments so a historical build stays
+            *survivorship-bias free*.  Pair this with as-of-date-windowed
+            price / volume history (which naturally caps a name at its
+            delisting) and use ``instruments.delisting_return`` in the
+            downstream return assembly.
     """
 
     EXCLUDE = "exclude"
@@ -46,13 +46,10 @@ class HysteresisConfig:
     Setting exit below entry prevents marginal stocks from
     oscillating in and out of the universe with small fluctuations.
 
-    Parameters
-    ----------
-    entry : float
-        Threshold a stock must exceed to enter the universe.
-    exit_ : float
-        Threshold below which a current member is removed.
-        Must be <= ``entry``.
+    Attributes:
+        entry: Threshold a stock must exceed to enter the universe.
+        exit_: Threshold below which a current member is removed.
+            Must be <= ``entry``.
     """
 
     entry: float
@@ -73,47 +70,32 @@ class InvestabilityScreenConfig:
     hysteresis thresholds use separate entry/exit values to reduce
     turnover at screen boundaries.
 
-    Parameters
-    ----------
-    market_cap : HysteresisConfig
-        Free-float market capitalization thresholds (USD).
-    addv_12m : HysteresisConfig
-        12-month average daily dollar volume thresholds (USD).
-    addv_3m : HysteresisConfig
-        3-month average daily dollar volume thresholds (USD).
-    trading_frequency : HysteresisConfig
-        Fraction of trading days with nonzero volume (0-1).
-    price_us : HysteresisConfig
-        Minimum price for US-listed equities (USD).
-    price_europe : HysteresisConfig
-        Minimum price for European-listed equities (local currency).
-    min_trading_history : int
-        Minimum trading days of price history required.
-    min_ipo_seasoning : int
-        Minimum trading days since first price observation.
-    min_annual_reports : int
-        Minimum annual financial statements required.
-    min_quarterly_reports : int
-        Minimum quarterly financial statements required.
-    exchange_region : ExchangeRegion
-        Region for price threshold selection.
-    mcap_percentile_entry : float
-        Minimum exchange-percentile rank (0-1) for entry.  A stock must
-        exceed BOTH the absolute ``market_cap.entry`` floor AND this
-        percentile within its exchange to enter the universe.  Defaults
-        to the 10th percentile (0.10).  Requires an ``exchange`` column
-        in the ``fundamentals`` DataFrame passed to
-        ``apply_investability_screens``.
-    mcap_percentile_exit : float
-        Minimum exchange-percentile rank (0-1) for existing members to
-        avoid removal.  Must be <= ``mcap_percentile_entry``.  Defaults
-        to the 7.5th percentile (0.075).
-    delisting_policy : DelistingPolicy
-        How to treat instruments flagged delisted (maps to
-        ``instruments.delisted_at``).  ``EXCLUDE`` (default) drops them for a
-        live tradable universe; ``INCLUDE`` keeps them for survivorship-bias-
-        free backtests.  Only active when the ``fundamentals`` frame carries a
-        ``delisted_at`` column.
+    Attributes:
+        market_cap: Free-float market capitalization thresholds (USD).
+        addv_12m: 12-month average daily dollar volume thresholds (USD).
+        addv_3m: 3-month average daily dollar volume thresholds (USD).
+        trading_frequency: Fraction of trading days with nonzero volume (0-1).
+        price_us: Minimum price for US-listed equities (USD).
+        price_europe: Minimum price for European-listed equities (local currency).
+        min_trading_history: Minimum trading days of price history required.
+        min_ipo_seasoning: Minimum trading days since first price observation.
+        min_annual_reports: Minimum annual financial statements required.
+        min_quarterly_reports: Minimum quarterly financial statements required.
+        exchange_region: Region for price threshold selection.
+        mcap_percentile_entry: Minimum exchange-percentile rank (0-1) for entry.
+            A stock must exceed BOTH the absolute ``market_cap.entry`` floor AND
+            this percentile within its exchange to enter the universe.  Defaults
+            to the 10th percentile (0.10).  Requires an ``exchange`` column in
+            the ``fundamentals`` DataFrame passed to
+            ``apply_investability_screens``.
+        mcap_percentile_exit: Minimum exchange-percentile rank (0-1) for existing
+            members to avoid removal.  Must be <= ``mcap_percentile_entry``.
+            Defaults to the 7.5th percentile (0.075).
+        delisting_policy: How to treat instruments flagged delisted (maps to
+            ``instruments.delisted_at``).  ``EXCLUDE`` (default) drops them for a
+            live tradable universe; ``INCLUDE`` keeps them for survivorship-bias-
+            free backtests.  Only active when the ``fundamentals`` frame carries a
+            ``delisted_at`` column.
     """
 
     market_cap: HysteresisConfig = field(

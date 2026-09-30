@@ -21,35 +21,25 @@ from optimizer.optimization._factory import _RISK_MEASURE_MAP
 
 @dataclass(frozen=True)
 class BenchmarkTrackerConfig:
-    """Immutable configuration for :class:`BenchmarkTracker`.
+    """Immutable configuration for BenchmarkTracker.
 
-    Note: the benchmark return series is NOT a Config field. Pass it as
-    ``y`` to ``fit(X, y)`` after building the optimizer.
+    Attributes:
+        risk_measure: Tracking-error risk measure. Defaults to STANDARD_DEVIATION.
+        prior_config: Inner prior configuration. None defers to the skfolio default.
+        min_weights: Lower bound on asset weights.
+        max_weights: Upper bound on asset weights.
+        transaction_costs: Linear transaction costs penalising turnover.
+        management_fees: Linear management fees proportional to position size.
+        l1_coef: L1 regularisation coefficient.
+        l2_coef: L2 regularisation coefficient.
+        risk_free_rate: Risk-free rate.
+        solver: CVXPY solver name.
+        solver_params: Additional solver keyword arguments.
 
-    Parameters
-    ----------
-    risk_measure : RiskMeasureType
-        Tracking-error risk measure. Default ``STANDARD_DEVIATION``.
-    prior_config : MomentEstimationConfig or None
-        Inner prior configuration. ``None`` defers to skfolio default.
-    min_weights : float
-        Lower bound on asset weights.
-    max_weights : float
-        Upper bound on asset weights.
-    transaction_costs : float
-        Linear transaction costs penalising turnover.
-    management_fees : float
-        Linear management fees proportional to position size.
-    l1_coef : float
-        L1 regularisation coefficient.
-    l2_coef : float
-        L2 regularisation coefficient.
-    risk_free_rate : float
-        Risk-free rate.
-    solver : str
-        CVXPY solver name.
-    solver_params : dict or None
-        Additional solver parameters.
+    Note:
+        The benchmark return series is NOT a config field. Pass it as ``y``
+        to ``fit(X, y)`` after building the optimizer; it is a non-serialisable
+        runtime object and cannot be held in a frozen dataclass.
     """
 
     risk_measure: RiskMeasureType = RiskMeasureType.STANDARD_DEVIATION
@@ -66,21 +56,31 @@ class BenchmarkTrackerConfig:
 
     @classmethod
     def for_te_target(cls, target: float = 0.01) -> BenchmarkTrackerConfig:
-        """Tracking-error target preset.
+        """Return a config with a soft L2 tracking-error penalty.
 
         Uses a soft L2 penalty proportional to ``target`` to discourage
         large deviations from the benchmark.  ``BenchmarkTracker``
         minimises tracking error as its objective and exposes NO hard
         tracking-error bound parameter — for an explicit cap use
-        :meth:`MeanRiskConfig.for_tracking_error` (which sets
+        ``MeanRiskConfig.for_tracking_error`` (which sets
         ``max_tracking_error`` and takes the benchmark as ``y`` at fit
         time), or pass custom ``linear_constraints`` via factory kwargs.
+
+        Args:
+            target: Desired tracking-error level; mapped to ``l2_coef``.
+
+        Returns:
+            A BenchmarkTrackerConfig with l2_coef set to target.
         """
         return cls(l2_coef=target)
 
     @classmethod
     def for_information_ratio(cls) -> BenchmarkTrackerConfig:
-        """Preset tuned for information-ratio maximisation."""
+        """Return a config preset for information-ratio maximisation.
+
+        Returns:
+            A BenchmarkTrackerConfig with STANDARD_DEVIATION as the risk measure.
+        """
         return cls(risk_measure=RiskMeasureType.STANDARD_DEVIATION)
 
 
@@ -90,24 +90,19 @@ def build_benchmark_tracker(
     prior_estimator: BasePrior | None = None,
     **kwargs: Any,
 ) -> BenchmarkTracker:
-    """Build a skfolio :class:`BenchmarkTracker` from *config*.
+    """Build a skfolio BenchmarkTracker from config.
 
     The benchmark return series must be supplied as ``y`` in
     ``fit(X, y)`` after construction — the Config does NOT carry it.
 
-    Parameters
-    ----------
-    config : BenchmarkTrackerConfig or None
-        Benchmark-tracker configuration. ``None`` triggers default.
-    prior_estimator : BasePrior or None
-        Prior estimator. When ``None``, one is built from
-        ``config.prior_config`` (or skfolio default).
-    **kwargs
-        Additional kwargs forwarded to the wrapped optimizer.
+    Args:
+        config: Benchmark-tracker configuration. Defaults to
+            BenchmarkTrackerConfig() when None.
+        prior_estimator: Prior estimator. When None, one is built from
+            config.prior_config (or the skfolio default).
+        **kwargs: Additional keyword arguments forwarded to BenchmarkTracker.
 
-    Returns
-    -------
-    BenchmarkTracker
+    Returns:
         A fitted-ready skfolio optimiser. Call
         ``estimator.fit(X, y=benchmark_returns)`` to fit it.
     """

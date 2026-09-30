@@ -21,28 +21,21 @@ def build_fx_pair_ticker(
 ) -> str | tuple[str, str] | None:
     """Build yfinance FX pair ticker(s) for converting *from_ccy* to *to_ccy*.
 
-    Parameters
-    ----------
-    from_ccy : str
-        Source currency ISO code (e.g. ``"GBP"``).
-    to_ccy : str
-        Target currency ISO code (e.g. ``"EUR"``).
-    cross_via_usd : bool
-        When ``True`` and neither currency is USD, return a tuple of
-        two USD-based tickers for cross-rate computation.
+    Args:
+        from_ccy: Source currency ISO code (e.g. ``"GBP"``).
+        to_ccy: Target currency ISO code (e.g. ``"EUR"``).
+        cross_via_usd: When ``True`` and neither currency is USD, return a tuple
+            of two USD-based tickers for cross-rate computation.
 
-    Returns
-    -------
-    str or tuple[str, str] or None
+    Returns:
         ``None`` when ``from_ccy == to_ccy``.
         A single ticker string when one side is USD.
         A tuple ``(FROM/USD, TO/USD)`` when crossing via USD.
 
-    Notes
-    -----
-    Minor-unit codes (``GBp``, ``ZAc``, ``ILA``, ...) are resolved to their
-    major currency first, so ``build_fx_pair_ticker("GBp", "EUR")`` builds the
-    GBP pair — there is no ``GBp`` FX market to quote.
+    Note:
+        Minor-unit codes (``GBp``, ``ZAc``, ``ILA``, ...) are resolved to their
+        major currency first, so ``build_fx_pair_ticker("GBp", "EUR")`` builds
+        the GBP pair — there is no ``GBp`` FX market to quote.
     """
     from_ccy, _ = normalize_currency_code(from_ccy)
     to_ccy, _ = normalize_currency_code(to_ccy)
@@ -73,16 +66,11 @@ def compute_cross_rate(
 
     One unit of FROM currency buys ``FROM/TO`` units of TO currency.
 
-    Parameters
-    ----------
-    fx_from_usd : pd.Series
-        FROM/USD exchange rate series.
-    fx_to_usd : pd.Series
-        TO/USD exchange rate series.
+    Args:
+        fx_from_usd: FROM/USD exchange rate series.
+        fx_to_usd: TO/USD exchange rate series.
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         Cross rate series (FROM per 1 unit of TO is the reciprocal;
         this returns units-of-TO per 1 unit of FROM).
     """
@@ -102,26 +90,18 @@ def align_fx_rates(
     Reindexes FX rates to the ``price_index`` and forward-fills gaps
     (weekends, holidays) up to ``fill_limit`` days.
 
-    Parameters
-    ----------
-    fx_rates : pd.DataFrame
-        FX rates indexed by date with currency codes as columns.
-        Each column holds the rate from that currency to the base
-        currency (units of base per one unit of foreign).
-    price_index : pd.DatetimeIndex
-        Target date index (from the price DataFrame).
-    fill_limit : int
-        Maximum consecutive NaN days to forward-fill.
+    Args:
+        fx_rates: FX rates indexed by date with currency codes as columns.
+            Each column holds the rate from that currency to the base
+            currency (units of base per one unit of foreign).
+        price_index: Target date index (from the price DataFrame).
+        fill_limit: Maximum consecutive NaN days to forward-fill.
 
-    Returns
-    -------
-    pd.DataFrame
+    Returns:
         Aligned FX rates on the ``price_index``.
 
-    Raises
-    ------
-    DataError
-        If ``fx_rates`` is empty.
+    Raises:
+        DataError: If ``fx_rates`` is empty.
     """
     if fx_rates.empty:
         raise DataError("fx_rates DataFrame is empty.")
@@ -141,14 +121,10 @@ def invert_fx_rates(
     taking the element-wise reciprocal.  Zeros map to ``NaN`` rather than
     raising or producing ``inf``.
 
-    Parameters
-    ----------
-    fx_rates : pd.DataFrame or pd.Series
-        FX rate quotes.
+    Args:
+        fx_rates: FX rate quotes.
 
-    Returns
-    -------
-    pd.DataFrame or pd.Series
+    Returns:
         Reciprocal of ``fx_rates`` with the same shape/labels.
     """
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -162,16 +138,11 @@ def required_fx_currencies(
 ) -> set[str]:
     """Return the set of foreign currencies that need FX data.
 
-    Parameters
-    ----------
-    currency_map : dict[str, str]
-        Ticker → ISO currency code mapping.
-    base_currency : str
-        The portfolio base currency.
+    Args:
+        currency_map: Ticker → ISO currency code mapping.
+        base_currency: The portfolio base currency.
 
-    Returns
-    -------
-    set[str]
+    Returns:
         The set of *major* currencies in ``currency_map`` that differ from
         ``base_currency``.  Minor-unit codes are resolved to their major
         currency (``GBp``/``ZAc``/``ILA`` -> ``GBP``/``ZAR``/``ILS``) so the

@@ -1,8 +1,8 @@
 """View integration frameworks (Black-Litterman, Entropy Pooling, Opinion Pooling).
 
 Also exposes DB-agnostic adapters that turn analyst/estimate snapshots
-(``analyst_price_targets``, ``analyst_recommendations``) into Black-Litterman
-views + Idzorek confidences (:mod:`optimizer.views._builder`).
+(`analyst_price_targets`, `analyst_recommendations`) into Black-Litterman
+views + Idzorek confidences (`optimizer.views._builder`).
 """
 
 from optimizer.views._builder import (

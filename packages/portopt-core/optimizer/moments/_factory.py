@@ -4,32 +4,30 @@
 the 2-D ``covariance_`` attribute. Not interchangeable with covariance
 estimators inside priors that need a full covariance matrix.
 
-Input contract (load-bearing)
------------------------------
-Every estimator built here consumes, at ``fit`` time, a **linear** (simple)
-return ``DataFrame`` produced by ``prices_to_returns`` (see
-``optimizer.preprocessing``) — never log returns and never raw prices. This
-module has no notion of the database ``price_history.price_unit`` (mixed
-currency *and* scale, e.g. ``GBX`` = pence): computing a mean/covariance over
-mixed-currency, unnormalised prices is meaningless, so FX + sub-unit scale
-normalisation is the caller's responsibility and happens **upstream**
-(``optimizer.fx.FxPriceConverter`` on the price frame, *before*
-``prices_to_returns``). ``price_history`` values arrive as SQL
-``Numeric(20, 6)`` → Python ``Decimal``; that cast to ``float`` also happens
-upstream (in the read/FX/preprocessing layer). By the time a frame reaches
-these estimators it is float, single-base-currency, linear returns.
+Input contract (load-bearing):
+    Every estimator built here consumes, at ``fit`` time, a **linear** (simple)
+    return ``DataFrame`` produced by ``prices_to_returns`` (see
+    ``optimizer.preprocessing``) — never log returns and never raw prices. This
+    module has no notion of the database ``price_history.price_unit`` (mixed
+    currency *and* scale, e.g. ``GBX`` = pence): computing a mean/covariance over
+    mixed-currency, unnormalised prices is meaningless, so FX + sub-unit scale
+    normalisation is the caller's responsibility and happens **upstream**
+    (``optimizer.fx.FxPriceConverter`` on the price frame, *before*
+    ``prices_to_returns``). ``price_history`` values arrive as SQL
+    ``Numeric(20, 6)`` → Python ``Decimal``; that cast to ``float`` also happens
+    upstream (in the read/FX/preprocessing layer). By the time a frame reaches
+    these estimators it is float, single-base-currency, linear returns.
 
-NaN / ragged robustness
------------------------
-The 5y history is ragged (unequal-length series across the universe), so the
-returns frame can carry NaN. Only the **EW family** — ``EWMu``, ``EWCovariance``,
-``EWVariance`` and the ``RegimeAdjusted*`` variants — is NaN-aware (skfolio 1.0
-``active_mask`` / ``estimation_mask``). The remaining covariance estimators
-(``EmpiricalCovariance``, ``LedoitWolf``, ``OAS``, ``ShrunkCovariance``,
-``GerberCovariance``, ``GraphicalLassoCV``, ``DenoiseCovariance``,
-``DetoneCovariance``) and ``EmpiricalMu`` require a NaN-dense matrix and raise
-on NaN — impute upstream (``optimizer.preprocessing``) or prefer an EW-family
-estimator for changing/ragged universes.
+NaN / ragged robustness:
+    The 5y history is ragged (unequal-length series across the universe), so the
+    returns frame can carry NaN. Only the **EW family** — ``EWMu``, ``EWCovariance``,
+    ``EWVariance`` and the ``RegimeAdjusted*`` variants — is NaN-aware (skfolio 1.0
+    ``active_mask`` / ``estimation_mask``). The remaining covariance estimators
+    (``EmpiricalCovariance``, ``LedoitWolf``, ``OAS``, ``ShrunkCovariance``,
+    ``GerberCovariance``, ``GraphicalLassoCV``, ``DenoiseCovariance``,
+    ``DetoneCovariance``) and ``EmpiricalMu`` require a NaN-dense matrix and raise
+    on NaN — impute upstream (``optimizer.preprocessing``) or prefer an EW-family
+    estimator for changing/ragged universes.
 """
 
 from __future__ import annotations
@@ -114,25 +112,20 @@ def build_mu_estimator(
     *,
     market_weights: np.ndarray | None = None,
 ) -> BaseMu:
-    """Build a skfolio expected return estimator from *config*.
+    """Build a skfolio expected return estimator from config.
 
-    Parameters
-    ----------
-    config : MomentEstimationConfig
-        Moment estimation configuration.
-    market_weights : numpy.ndarray or None, keyword-only, default=None
-        Market-capitalisation weights (aligned to the asset-column order of
-        the returns frame passed to ``fit``) for ``EquilibriumMu``'s
-        reverse-optimisation :math:`\\Pi = \\delta\\,\\Sigma\\,w_{mkt}`. Sourced
-        from the DB (``shares_outstanding`` x price, or
-        ``ticker_profiles.market_cap``); as a non-serialisable array it is a
-        factory keyword, never a config field. ``None`` falls back to skfolio's
-        equal-weight default (i.e. a degenerate, non-cap-weighted equilibrium).
-        Ignored for non-``EQUILIBRIUM`` estimators.
+    Args:
+        config: Moment estimation configuration.
+        market_weights: Market-capitalisation weights (aligned to the
+            asset-column order of the returns frame passed to ``fit``) for
+            ``EquilibriumMu``'s reverse-optimisation. Sourced from the DB
+            (``shares_outstanding`` x price, or
+            ``ticker_profiles.market_cap``); as a non-serialisable array it is
+            a factory keyword, never a config field. ``None`` falls back to
+            skfolio's equal-weight default (i.e. a degenerate, non-cap-weighted
+            equilibrium). Ignored for non-``EQUILIBRIUM`` estimators.
 
-    Returns
-    -------
-    BaseMu
+    Returns:
         A fitted-ready skfolio expected return estimator.
     """
     match config.mu_estimator:
@@ -162,16 +155,12 @@ def build_mu_estimator(
 
 
 def build_cov_estimator(config: MomentEstimationConfig) -> BaseCovariance:
-    """Build a skfolio covariance estimator from *config*.
+    """Build a skfolio covariance estimator from config.
 
-    Parameters
-    ----------
-    config : MomentEstimationConfig
-        Moment estimation configuration.
+    Args:
+        config: Moment estimation configuration.
 
-    Returns
-    -------
-    BaseCovariance
+    Returns:
         A fitted-ready skfolio covariance estimator.
     """
     match config.cov_estimator:
@@ -225,24 +214,18 @@ def build_cov_estimator(config: MomentEstimationConfig) -> BaseCovariance:
 
 
 def build_variance_estimator(config: MomentEstimationConfig) -> BaseVariance:
-    """Build a skfolio variance estimator from *config*.
+    """Build a skfolio variance estimator from config.
 
-    Parameters
-    ----------
-    config : MomentEstimationConfig
-        Moment estimation configuration. ``config.variance_estimator``
-        must be set.
+    Args:
+        config: Moment estimation configuration. ``config.variance_estimator``
+            must be set.
 
-    Returns
-    -------
-    BaseVariance
-        A fitted-ready 1-D variance estimator. Exposes ``variance_`` of
-        shape ``(n_assets,)`` after ``.fit(X)``.
+    Returns:
+        A fitted-ready 1-D variance estimator. Exposes ``variance_`` of shape
+        ``(n_assets,)`` after ``.fit(X)``.
 
-    Raises
-    ------
-    ConfigurationError
-        If ``config.variance_estimator`` is ``None``.
+    Raises:
+        ConfigurationError: If ``config.variance_estimator`` is ``None``.
     """
     if config.variance_estimator is None:
         raise ConfigurationError(
@@ -276,36 +259,29 @@ def build_prior(
     *,
     market_weights: np.ndarray | None = None,
 ) -> BasePrior:
-    """Build a complete prior estimator from *config*.
+    """Build a complete prior estimator from config.
 
     Composes expected return and covariance estimators into an
     ``EmpiricalPrior``, optionally wrapping it in a ``TimeSeriesFactorModel``
     when ``config.use_factor_model`` is ``True`` and
     ``config.factor_model_type`` is ``TIME_SERIES``.
 
-    Parameters
-    ----------
-    config : MomentEstimationConfig or None
-        Moment estimation configuration.  Defaults to
-        ``MomentEstimationConfig()`` (EmpiricalMu + LedoitWolf).
-    market_weights : numpy.ndarray or None, keyword-only, default=None
-        Market-capitalisation weights forwarded to
-        :func:`build_mu_estimator` for ``EquilibriumMu`` (see there). Only
-        used when ``config.mu_estimator`` is ``EQUILIBRIUM``.
+    Args:
+        config: Moment estimation configuration. Defaults to
+            ``MomentEstimationConfig()`` (EmpiricalMu + LedoitWolf).
+        market_weights: Market-capitalisation weights forwarded to
+            ``build_mu_estimator`` for ``EquilibriumMu`` (see there). Only
+            used when ``config.mu_estimator`` is ``EQUILIBRIUM``.
 
-    Returns
-    -------
-    BasePrior
+    Returns:
         A fitted-ready skfolio prior estimator.
 
-    Raises
-    ------
-    ConfigurationError
-        If ``config.use_factor_model`` is ``True`` and
-        ``config.factor_model_type`` is ``CHARACTERISTICS`` — a
-        ``CharacteristicsFactorModel`` needs an ``AssetPanel`` and
-        factor-exposure estimators, so build it with
-        :func:`build_characteristics_factor_model` instead.
+    Raises:
+        ConfigurationError: If ``config.use_factor_model`` is ``True`` and
+            ``config.factor_model_type`` is ``CHARACTERISTICS`` — a
+            ``CharacteristicsFactorModel`` needs an ``AssetPanel`` and
+            factor-exposure estimators, so build it with
+            ``build_characteristics_factor_model`` instead.
     """
     if config is None:
         config = MomentEstimationConfig()
@@ -344,42 +320,36 @@ def build_characteristics_factor_model(
 ) -> CharacteristicsFactorModel:
     """Build a cross-sectional (BARRA-style) characteristics factor model.
 
-    New in skfolio 1.0.  ``CharacteristicsFactorModel`` estimates asset
-    exposures cross-sectionally from fundamental/price *descriptors* carried
-    on an :class:`skfolio.containers.AssetPanel` (fit with
-    ``characteristics=``), rather than by regressing on observed factor
-    return series (that is ``TimeSeriesFactorModel``).
+    New in skfolio 1.0. ``CharacteristicsFactorModel`` estimates asset
+    exposures cross-sectionally from fundamental/price descriptors carried
+    on an ``AssetPanel`` (fit with ``characteristics=``), rather than by
+    regressing on observed factor return series (that is
+    ``TimeSeriesFactorModel``).
 
-    The ``factors`` list and ``currency_factor`` hold
-    ``BaseFactorExposure`` estimator instances (and ``neutralize_against``
-    references live factor names), so they are non-serialisable and are
-    passed as keyword arguments rather than living on the frozen config.
-    Serialisable knobs (``exposure_lag``, ``min_regression_assets``) and the
-    factor prior (mu/covariance estimators) are read from *config*.
+    The ``factors`` list and ``currency_factor`` hold ``BaseFactorExposure``
+    estimator instances (and ``neutralize_against`` references live factor
+    names), so they are non-serialisable and are passed as keyword arguments
+    rather than living on the frozen config. Serialisable knobs
+    (``exposure_lag``, ``min_regression_assets``) and the factor prior
+    (mu/covariance estimators) are read from config.
 
-    Parameters
-    ----------
-    config : MomentEstimationConfig or None
-        Moment estimation configuration.  Defaults to
-        ``MomentEstimationConfig()``.  Its mu/covariance estimators become
-        the model's ``factor_prior_estimator``; ``exposure_lag`` and
-        ``min_regression_assets`` are forwarded.
-    factors : list[tuple[str, BaseFactorExposure]]
-        Named factor-exposure estimators (keyword-only, required), e.g.
-        ``[("market", GlobalFactor()), ("value", FixedWeightedFactor(...))]``.
-    currency_factor : BaseFactorExposure or None
-        Optional currency factor-exposure estimator.
-    neutralize_against : dict[str, list[str]] or None
-        Optional map of factor name -> factors to neutralise it against
-        (e.g. ``{"non_linear_size": ["size"]}``).
-    market_weights : numpy.ndarray or None
-        Market-capitalisation weights forwarded to :func:`build_mu_estimator`
-        for the factor prior's ``EquilibriumMu`` (see there). Only used when
-        ``config.mu_estimator`` is ``EQUILIBRIUM``.
+    Args:
+        config: Moment estimation configuration. Defaults to
+            ``MomentEstimationConfig()``. Its mu/covariance estimators become
+            the model's ``factor_prior_estimator``; ``exposure_lag`` and
+            ``min_regression_assets`` are forwarded.
+        factors: Named factor-exposure estimators (keyword-only, required),
+            e.g.
+            ``[("market", GlobalFactor()), ("value", FixedWeightedFactor(...))]``.
+        currency_factor: Optional currency factor-exposure estimator.
+        neutralize_against: Optional map of factor name -> factors to
+            neutralise it against (e.g. ``{"non_linear_size": ["size"]}``).
+        market_weights: Market-capitalisation weights forwarded to
+            ``build_mu_estimator`` for the factor prior's ``EquilibriumMu``
+            (see there). Only used when ``config.mu_estimator`` is
+            ``EQUILIBRIUM``.
 
-    Returns
-    -------
-    CharacteristicsFactorModel
+    Returns:
         A fitted-ready cross-sectional factor model.
     """
     if config is None:

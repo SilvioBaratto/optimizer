@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 class _EmpiricalOmegaBlackLitterman(BlackLitterman):
     """BlackLitterman variant using a pre-computed empirical omega matrix.
 
-    Extends :class:`skfolio.prior.BlackLitterman` by accepting a
+    Extends `BlackLitterman` by accepting a
     diagonal omega matrix calibrated from a forecast error track record.
     After the parent ``fit()`` completes (handling view parsing and prior
     estimation), the posterior mean and covariance are recomputed with the
@@ -54,7 +54,8 @@ class _EmpiricalOmegaBlackLitterman(BlackLitterman):
     ) -> _EmpiricalOmegaBlackLitterman:
         """Fit prior then recompute posterior with empirical omega."""
         # Let the parent handle view parsing, prior fitting, and validation.
-        super().fit(X, y, **fit_params)
+        # Parent ignores y but its stub types it None; forwarding a value trips pyright.
+        super().fit(X, y, **fit_params)  # pyright: ignore[reportArgumentType]
 
         prior_mu = self.prior_estimator_.return_distribution_.mu
         prior_cov = self.prior_estimator_.return_distribution_.covariance
@@ -97,28 +98,21 @@ def build_black_litterman(
 ) -> BasePrior:
     """Build a skfolio Black-Litterman prior from *config*.
 
-    Parameters
-    ----------
-    config : BlackLittermanConfig
-        Black-Litterman configuration.
-    view_history : pd.DataFrame or None
-        Historical forecasted Q values (dates × views).  Required when
-        ``config.uncertainty_method`` is ``EMPIRICAL_TRACK_RECORD`` and
-        ``omega`` is not pre-supplied.
-    return_history : pd.DataFrame or None
-        Realised returns aligned to each view (dates × views).  Required
-        together with ``view_history`` for empirical omega calibration.
-    omega : ndarray of shape (n_views, n_views) or None
-        Pre-computed diagonal omega matrix.  When provided and method is
-        ``EMPIRICAL_TRACK_RECORD``, used directly (skipping the history
-        computation).
+    Args:
+        config: Black-Litterman configuration.
+        view_history: Historical forecasted Q values (dates × views). Required when
+            ``config.uncertainty_method`` is ``EMPIRICAL_TRACK_RECORD`` and
+            ``omega`` is not pre-supplied.
+        return_history: Realised returns aligned to each view (dates × views). Required
+            together with ``view_history`` for empirical omega calibration.
+        omega: Pre-computed diagonal omega matrix. When provided and method is
+            ``EMPIRICAL_TRACK_RECORD``, used directly (skipping the history
+            computation).
 
-    Returns
-    -------
-    BasePrior
-        A fitted-ready :class:`skfolio.prior.BlackLitterman` (or
-        :class:`_EmpiricalOmegaBlackLitterman` for the empirical method),
-        optionally wrapped in a :class:`skfolio.prior.TimeSeriesFactorModel`.
+    Returns:
+        A fitted-ready `BlackLitterman` (or `_EmpiricalOmegaBlackLitterman`
+        for the empirical method), optionally wrapped in a
+        `TimeSeriesFactorModel`.
     """
     prior_cfg = (
         config.prior_config
@@ -184,22 +178,16 @@ def build_entropy_pooling(
 ) -> EntropyPooling:
     """Build a skfolio Entropy Pooling prior from *config*.
 
-    Parameters
-    ----------
-    config : EntropyPoolingConfig
-        Entropy Pooling configuration.
-    prior_moments : tuple[ndarray, ndarray] or None
-        ``(mu, cov)`` arrays from a fitted prior.  Required when
-        ``config.relative_mean_views`` or ``config.relative_variance_views``
-        are set.
-    asset_names : list[str] or None
-        Asset names corresponding to rows/columns of *prior_moments*.
-        Required together with *prior_moments*.
+    Args:
+        config: Entropy Pooling configuration.
+        prior_moments: ``(mu, cov)`` arrays from a fitted prior. Required when
+            ``config.relative_mean_views`` or ``config.relative_variance_views``
+            are set.
+        asset_names: Asset names corresponding to rows/columns of *prior_moments*.
+            Required together with *prior_moments*.
 
-    Returns
-    -------
-    EntropyPooling
-        A fitted-ready :class:`skfolio.prior.EntropyPooling`.
+    Returns:
+        A fitted-ready `EntropyPooling`.
     """
     inner_prior = build_prior(config.prior_config)
     merged_mean_views = _merge_mean_views(config)
@@ -263,19 +251,14 @@ def build_opinion_pooling(
 ) -> OpinionPooling:
     """Build a skfolio Opinion Pooling prior from *config*.
 
-    Parameters
-    ----------
-    estimators : list[tuple[str, BasePrior]]
-        Named expert prior estimators.  Passed directly because
-        estimator objects are not serialisable in a frozen dataclass.
-    config : OpinionPoolingConfig or None
-        Opinion Pooling configuration.  Defaults to
-        ``OpinionPoolingConfig()``.
+    Args:
+        estimators: Named expert prior estimators. Passed directly because
+            estimator objects are not serialisable in a frozen dataclass.
+        config: Opinion Pooling configuration. Defaults to
+            ``OpinionPoolingConfig()``.
 
-    Returns
-    -------
-    OpinionPooling
-        A fitted-ready :class:`skfolio.prior.OpinionPooling`.
+    Returns:
+        A fitted-ready `OpinionPooling`.
     """
     if config is None:
         config = OpinionPoolingConfig()

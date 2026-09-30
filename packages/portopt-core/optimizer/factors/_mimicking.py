@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -16,30 +17,20 @@ logger = logging.getLogger(__name__)
 _WEIGHTING_MODES = frozenset({"equal", "value"})
 
 
-# ---------------------------------------------------------------------------
-# Result container
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class QuintileSpreadResult:
     """Quintile spread analysis result for a single factor.
 
-    Attributes
-    ----------
-    quintile_returns : pd.DataFrame
-        Dates × Q1..Qn equal-weight portfolio returns per quantile bucket.
-        Q1 = bottom (lowest scores), Qn = top (highest scores).
-    spread_returns : pd.Series
-        Qn − Q1 long-short spread return series indexed by date.
-        Equals ``quintile_returns.iloc[:, -1] - quintile_returns.iloc[:, 0]``
-        element-wise.
-    annualised_mean : float
-        ``spread_returns.mean() * 252``.
-    t_stat : float
-        Two-tailed t-statistic: ``mean / (std / sqrt(T))``.
-    sharpe : float
-        Annualised Sharpe ratio: ``mean * sqrt(252) / std``.
+    Attributes:
+        quintile_returns: Dates × Q1..Qn equal-weight portfolio returns per quantile
+            bucket.
+            Q1 = bottom (lowest scores), Qn = top (highest scores).
+        spread_returns: Qn − Q1 long-short spread return series indexed by date.
+            Equals ``quintile_returns.iloc[:, -1] - quintile_returns.iloc[:, 0]``
+            element-wise.
+        annualised_mean: ``spread_returns.mean() * 252``.
+        t_stat: Two-tailed t-statistic: ``mean / (std / sqrt(T))``.
+        sharpe: Annualised Sharpe ratio: ``mean * sqrt(252) / std``.
     """
 
     quintile_returns: pd.DataFrame
@@ -57,20 +48,13 @@ def _long_short_return_at(
 ) -> float:
     """Compute a single period's long-short factor-mimicking return.
 
-    Parameters
-    ----------
-    scores_t : pd.Series
-        Cross-sectional factor scores for a single date, indexed by ticker.
-    returns_t : pd.Series
-        Asset returns for the same date, indexed by ticker.
-    k : int
-        Number of assets in each leg.
-    weighting : str
-        ``"equal"`` or ``"value"`` weighting within each leg.
+    Args:
+        scores_t: Cross-sectional factor scores for a single date, indexed by ticker.
+        returns_t: Asset returns for the same date, indexed by ticker.
+        k: Number of assets in each leg.
+        weighting: ``"equal"`` or ``"value"`` weighting within each leg.
 
-    Returns
-    -------
-    float
+    Returns:
         Long return minus short return, or NaN on insufficient data.
     """
     common = scores_t.dropna().index.intersection(returns_t.dropna().index)
@@ -112,16 +96,11 @@ def _compute_leg_beta(
 ) -> float:
     """Compute OLS beta of leg returns against market returns.
 
-    Parameters
-    ----------
-    leg_returns : pd.Series
-        Return series for the portfolio leg.
-    market_returns : pd.Series
-        Market return series.
+    Args:
+        leg_returns: Return series for the portfolio leg.
+        market_returns: Market return series.
 
-    Returns
-    -------
-    float
+    Returns:
         OLS beta coefficient.
     """
     common = leg_returns.dropna().index.intersection(market_returns.dropna().index)
@@ -146,12 +125,12 @@ def build_factor_mimicking_portfolios(
 ) -> pd.DataFrame:
     """Build long-short factor-mimicking portfolio return time series.
 
-    For each date the top *quantile* fraction of assets (by factor score)
-    are held long and the bottom *quantile* fraction are held short.  The
+    For each date the top `quantile` fraction of assets (by factor score)
+    are held long and the bottom `quantile` fraction are held short.  The
     long-short return is the equal- or value-weighted long leg minus the
     corresponding short leg.
 
-    The function handles **one factor at a time**: *scores* is a dates ×
+    The function handles **one factor at a time**: `scores` is a dates ×
     assets DataFrame encoding cross-sectional scores for a single factor.
     For multiple factors, call once per factor and concatenate the results::
 
@@ -165,44 +144,34 @@ def build_factor_mimicking_portfolios(
             axis=1,
         )
 
-    Parameters
-    ----------
-    scores : pd.DataFrame
-        Dates × assets matrix of cross-sectional factor scores.
-        Index = dates; columns = asset tickers.
-    returns : pd.DataFrame
-        Dates × assets matrix of asset returns, aligned with *scores*
-        on the date index.  Columns may be a superset or subset of
-        *scores* columns; the intersection is used.
-    quantile : float, default 0.30
-        Fraction of the asset universe assigned to each leg.  Must be
-        in ``(0, 0.5]``.
-    weighting : {"equal", "value"}, default "equal"
-        Weighting scheme within each leg.
-        ``"equal"`` — every asset in the leg receives the same weight.
-        ``"value"``  — assets are weighted by the absolute value of
-        their factor score.
-    beta_neutral : bool, default False
-        When ``True``, hedge the long-short portfolio against market
-        beta exposure.  The hedge ratio adjusts the short-leg weight
-        so that the portfolio beta is approximately zero.  In this path
-        both legs are **equal-weighted**; the *weighting* argument only
-        applies to the non-hedged (``beta_neutral=False``) path.
-    market_returns : pd.Series or None
-        Market return series, required when ``beta_neutral=True``.
+    Args:
+        scores: Dates × assets matrix of cross-sectional factor scores.
+            Index = dates; columns = asset tickers.
+        returns: Dates × assets matrix of asset returns, aligned with `scores`
+            on the date index.  Columns may be a superset or subset of
+            `scores` columns; the intersection is used.
+        quantile: Fraction of the asset universe assigned to each leg.  Must be
+            in ``(0, 0.5]``.
+        weighting: Weighting scheme within each leg.
+            ``"equal"`` — every asset in the leg receives the same weight.
+            ``"value"``  — assets are weighted by the absolute value of
+            their factor score.
+        beta_neutral: When ``True``, hedge the long-short portfolio against market
+            beta exposure.  The hedge ratio adjusts the short-leg weight
+            so that the portfolio beta is approximately zero.  In this path
+            both legs are **equal-weighted**; the *weighting* argument only
+            applies to the non-hedged (``beta_neutral=False``) path.
+        market_returns: Market return series, required when ``beta_neutral=True``.
 
-    Returns
-    -------
-    pd.DataFrame
+    Returns:
         Dates × 1 DataFrame of long-short portfolio returns.  Column
         name is ``"factor_return"``.  Index is the intersection of
         *scores* and *returns* dates.  Missing periods (fewer than
         ``2 * k`` valid observations) are filled with NaN.
 
-    Raises
-    ------
-    ValueError
-        If *quantile* is outside ``(0, 0.5]`` or *weighting* is unknown.
+    Raises:
+        ConfigurationError: If ``quantile`` is outside ``(0, 0.5]`` or ``weighting``
+            is unknown.
     """
     if not (0.0 < quantile <= 0.5):
         raise ConfigurationError(f"quantile must be in (0, 0.5], got {quantile}")
@@ -271,43 +240,31 @@ def build_all_factor_mimicking_portfolios(
 ) -> pd.DataFrame:
     """Build a dates × factors matrix of long-short factor-mimicking returns.
 
-    Convenience wrapper that calls :func:`build_factor_mimicking_portfolios`
+    Convenience wrapper that calls `build_factor_mimicking_portfolios`
     once per factor and concatenates the resulting long-short series into a
     single wide DataFrame whose columns are the factor names.  This is exactly
     the ``factors`` panel consumed by
-    :meth:`skfolio.prior.TimeSeriesFactorModel.fit` (via
-    :func:`optimizer.factors.fit_factor_prior`), so it bridges cross-sectional
+    `fit` (via `fit_factor_prior`), so it bridges cross-sectional
     factor scores to a factor-model prior in one call.
 
-    Parameters
-    ----------
-    factor_scores : dict[str, pd.DataFrame]
-        Factor name → dates × assets matrix of cross-sectional scores for
-        that factor.  Column order of the output follows the mapping's
-        insertion order.  Must be non-empty.
-    returns : pd.DataFrame
-        Dates × assets matrix of asset returns, shared by every factor.
-    quantile : float, default 0.30
-        Fraction of the universe per leg.  Forwarded unchanged.
-    weighting : {"equal", "value"}, default "equal"
-        Intra-leg weighting scheme.  Forwarded unchanged.
-    beta_neutral : bool, default False
-        Market-beta hedging.  Forwarded unchanged.
-    market_returns : pd.Series or None
-        Market return series, required when ``beta_neutral=True``.
+    Args:
+        factor_scores: Factor name → dates × assets matrix of cross-sectional scores for
+            that factor.  Column order of the output follows the mapping's
+            insertion order.  Must be non-empty.
+        returns: Dates × assets matrix of asset returns, shared by every factor.
+        quantile: Fraction of the universe per leg.  Forwarded unchanged.
+        weighting: Intra-leg weighting scheme.  Forwarded unchanged.
+        beta_neutral: Market-beta hedging.  Forwarded unchanged.
+        market_returns: Market return series, required when ``beta_neutral=True``.
 
-    Returns
-    -------
-    pd.DataFrame
+    Returns:
         Dates × factors DataFrame of long-short returns.  The row index is
         the union of every factor's date index (outer-aligned); periods a
         given factor could not price are ``NaN`` in that column.
 
-    Raises
-    ------
-    ConfigurationError
-        If *factor_scores* is empty, or any per-factor argument is invalid
-        (propagated from :func:`build_factor_mimicking_portfolios`).
+    Raises:
+        ConfigurationError: If ``factor_scores`` is empty, or any per-factor argument
+            is invalid (propagated from ``build_factor_mimicking_portfolios``).
     """
     if not factor_scores:
         raise ConfigurationError("factor_scores must be a non-empty mapping")
@@ -334,16 +291,12 @@ def compute_cross_factor_correlation(
 ) -> pd.DataFrame:
     """Compute the Pearson correlation matrix across factor-mimicking portfolios.
 
-    Parameters
-    ----------
-    factor_returns : pd.DataFrame
-        Dates × factors DataFrame of long-short factor returns, as
-        returned by ``build_factor_mimicking_portfolios`` (possibly
-        concatenated across multiple factors).
+    Args:
+        factor_returns: Dates × factors DataFrame of long-short factor returns, as
+            returned by ``build_factor_mimicking_portfolios`` (possibly
+            concatenated across multiple factors).
 
-    Returns
-    -------
-    pd.DataFrame
+    Returns:
         Factors × factors symmetric correlation matrix.  Diagonal
         entries are exactly 1.0.  Computed on the rows where all
         factors have non-NaN returns (pairwise-complete otherwise).
@@ -359,32 +312,24 @@ def compute_quintile_spread(
     """Compute quintile portfolio returns and spread for a single factor.
 
     At each date assets are ranked by factor score and split into
-    *n_quantiles* equal-count buckets (Q1 = lowest scores, Qn = highest).
+    `n_quantiles` equal-count buckets (Q1 = lowest scores, Qn = highest).
     Each bucket return is the equal-weight average of its members.  The
     long-short spread is Qn − Q1.
 
     Ties in scores are broken by rank order (``method="first"``), ensuring
     every bucket is populated at every date.
 
-    Parameters
-    ----------
-    scores : pd.DataFrame
-        Dates × assets matrix of cross-sectional factor scores.
-    returns : pd.DataFrame
-        Dates × assets matrix of asset returns, aligned with *scores*.
-    n_quantiles : int, default 5
-        Number of equal-count buckets.  5 = quintiles, 10 = deciles.
-        Must be ≥ 2.
+    Args:
+        scores: Dates × assets matrix of cross-sectional factor scores.
+        returns: Dates × assets matrix of asset returns, aligned with `scores`.
+        n_quantiles: Number of equal-count buckets.  5 = quintiles, 10 = deciles.
+            Must be ≥ 2.
 
-    Returns
-    -------
-    QuintileSpreadResult
-        See :class:`QuintileSpreadResult` for field descriptions.
+    Returns:
+        See `QuintileSpreadResult` for field descriptions.
 
-    Raises
-    ------
-    ValueError
-        If *n_quantiles* < 2.
+    Raises:
+        ConfigurationError: If `n_quantiles` < 2.
     """
     if n_quantiles < 2:
         raise ConfigurationError(f"n_quantiles must be >= 2, got {n_quantiles}")
@@ -422,8 +367,7 @@ def compute_quintile_spread(
 
     quintile_returns = pd.DataFrame(rows, dtype=float).T
     quintile_returns.index = pd.Index(list(rows.keys()))
-    # Ensure column order Q1..Qn
-    quintile_returns = quintile_returns[labels]
+    quintile_returns = cast(pd.DataFrame, quintile_returns[labels])
 
     top_label = labels[-1]
     bot_label = labels[0]

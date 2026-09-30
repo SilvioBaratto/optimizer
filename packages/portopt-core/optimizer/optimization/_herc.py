@@ -25,30 +25,19 @@ from optimizer.optimization._hierarchical_common import (
 
 @dataclass(frozen=True)
 class HERCConfig:
-    """Immutable configuration for :class:`HierarchicalEqualRiskContribution`.
+    """Immutable configuration for `HierarchicalEqualRiskContribution`.
 
-    Parameters
-    ----------
-    risk_measure : RiskMeasureType
-        Risk measure for risk-contribution equalisation across clusters.
-    prior_config : MomentEstimationConfig or None
-        Inner prior configuration.
-    distance_config : DistanceConfig or None
-        Distance estimator configuration.
-    clustering_config : HierarchicalClusteringConfig or None
-        Hierarchical-clustering configuration.
-    min_weights : float
-        Lower bound on asset weights.
-    max_weights : float
-        Upper bound on asset weights.
-    transaction_costs : float
-        Linear transaction costs penalising turnover.
-    management_fees : float
-        Linear management fees proportional to position size.
-    solver : str
-        CVXPY solver used by the inner ERC step.
-    solver_params : dict or None
-        Additional solver parameters.
+    Attributes:
+        risk_measure: Risk measure for risk-contribution equalisation across clusters.
+        prior_config: Inner prior configuration.
+        distance_config: Distance estimator configuration.
+        clustering_config: Hierarchical-clustering configuration.
+        min_weights: Lower bound on asset weights.
+        max_weights: Upper bound on asset weights.
+        transaction_costs: Linear transaction costs penalising turnover.
+        management_fees: Linear management fees proportional to position size.
+        solver: CVXPY solver used by the inner ERC step.
+        solver_params: Additional solver parameters.
     """
 
     risk_measure: RiskMeasureType = RiskMeasureType.VARIANCE
@@ -79,21 +68,15 @@ def build_herc(
     prior_estimator: BasePrior | None = None,
     **kwargs: Any,
 ) -> HierarchicalEqualRiskContribution:
-    """Build a skfolio :class:`HierarchicalEqualRiskContribution` from *config*.
+    """Build a skfolio `HierarchicalEqualRiskContribution` from `config`.
 
-    Parameters
-    ----------
-    config : HERCConfig or None
-        HERC configuration. ``None`` triggers default.
-    prior_estimator : BasePrior or None
-        Prior estimator. When ``None``, one is built from
-        ``config.prior_config`` (or skfolio default).
-    **kwargs
-        Additional kwargs forwarded to the wrapped optimizer.
+    Args:
+        config: HERC configuration. ``None`` triggers default.
+        prior_estimator: Prior estimator. When ``None``, one is built from
+            ``config.prior_config`` (or skfolio default).
+        **kwargs: Additional kwargs forwarded to the wrapped optimizer.
 
-    Returns
-    -------
-    HierarchicalEqualRiskContribution
+    Returns:
         A fitted-ready skfolio optimiser.
     """
     if config is None:

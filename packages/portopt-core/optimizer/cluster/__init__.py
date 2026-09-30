@@ -1,7 +1,7 @@
 """Hierarchical clustering for portfolio construction.
 
-Wraps :class:`skfolio.cluster.HierarchicalClustering` behind a typed
-:class:`HierarchicalClusteringConfig`. Consumed by HRP/HERC/NCO/Schur
+Wraps `HierarchicalClustering` behind a typed
+`HierarchicalClusteringConfig`. Consumed by HRP/HERC/NCO/Schur
 optimizers, which take a fitted clustering estimator as input.
 """
 

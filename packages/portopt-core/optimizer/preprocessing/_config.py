@@ -16,7 +16,7 @@ class ImputerStrategy(str, Enum):
 
 @dataclass(frozen=True)
 class CleaningConfig:
-    """Frozen, serialisable config for :func:`make_cleaning_pipeline`.
+    """Frozen, serialisable config for `make_cleaning_pipeline`.
 
     Assembles the module's per-asset (axis=0) time-series transformers into a
     single ``sklearn.pipeline.Pipeline`` operating on a return DataFrame:
@@ -24,29 +24,21 @@ class CleaningConfig:
     so the config round-trips and is grid-searchable; the non-serialisable
     ``sector_mapping`` is injected as a factory keyword, never stored here.
 
-    Parameters
-    ----------
-    validate : bool, default=True
-        Prepend a :class:`~optimizer.preprocessing.DataValidator` step.
-    max_abs_return : float, default=10.0
-        ``DataValidator`` threshold — returns beyond ``|max_abs_return|`` (and
-        infinities) become NaN.
-    treat_outliers : bool, default=True
-        Insert an :class:`~optimizer.preprocessing.OutlierTreater` step.
-    winsorize_threshold : float, default=3.0
-        ``OutlierTreater`` z-score boundary between normal and winsorised.
-    remove_threshold : float, default=10.0
-        ``OutlierTreater`` z-score boundary between winsorised and NaN-removed.
-    imputer : ImputerStrategy, default=NONE
-        Final imputation step.  ``NONE`` leaves NaN in place (the pipeline
-        step is omitted), ``SECTOR`` uses
-        :class:`~optimizer.preprocessing.SectorImputer`, ``REGRESSION`` uses
-        :class:`~optimizer.preprocessing.RegressionImputer`.
-    n_neighbors : int, default=5
-        ``RegressionImputer`` neighbour count (REGRESSION only).
-    min_train_periods : int, default=60
-        ``RegressionImputer`` minimum complete rows before falling back
-        (REGRESSION only).
+    Attributes:
+        validate: Prepend a `DataValidator` step.
+        max_abs_return: ``DataValidator`` threshold — returns beyond
+            ``|max_abs_return|`` (and infinities) become NaN.
+        treat_outliers: Insert an `OutlierTreater` step.
+        winsorize_threshold: ``OutlierTreater`` z-score boundary between
+            normal and winsorised.
+        remove_threshold: ``OutlierTreater`` z-score boundary between
+            winsorised and NaN-removed.
+        imputer: Final imputation step. ``NONE`` leaves NaN in place (the
+            pipeline step is omitted), ``SECTOR`` uses `SectorImputer`,
+            ``REGRESSION`` uses `RegressionImputer`.
+        n_neighbors: ``RegressionImputer`` neighbour count (REGRESSION only).
+        min_train_periods: ``RegressionImputer`` minimum complete rows before
+            falling back (REGRESSION only).
     """
 
     validate: bool = True

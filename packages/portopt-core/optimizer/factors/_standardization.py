@@ -28,19 +28,13 @@ def winsorize_cross_section(
 ) -> pd.Series:
     """Clip scores at percentile boundaries.
 
-    Parameters
-    ----------
-    scores : pd.Series
-        Raw factor scores.
-    lower_pct : float
-        Lower percentile (0-1).
-    upper_pct : float
-        Upper percentile (0-1).
+    Args:
+        scores: Raw factor scores.
+        lower_pct: Lower percentile boundary, in [0, 1].
+        upper_pct: Upper percentile boundary, in [0, 1].
 
-    Returns
-    -------
-    pd.Series
-        Winsorized scores.
+    Returns:
+        Winsorized scores with values outside [lower_pct, upper_pct] clipped.
     """
     valid = scores.dropna()
     if len(valid) == 0:
@@ -60,16 +54,11 @@ def winsorize_cross_section_mad(
     boundaries at ``median +/- mad_multiplier * scale``, following the
     MSCI Barra USE4 convention (+/-3 MAD).
 
-    Parameters
-    ----------
-    scores : pd.Series
-        Raw factor scores (may contain NaN).
-    mad_multiplier : float
-        Number of scaled-MAD units for clip boundaries.
+    Args:
+        scores: Raw factor scores (may contain NaN).
+        mad_multiplier: Number of scaled-MAD units for clip boundaries.
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         Winsorized scores.
     """
     valid = scores.dropna()
@@ -86,17 +75,13 @@ def winsorize_cross_section_mad(
 
 
 def z_score_standardize(scores: pd.Series) -> pd.Series:
-    """Z-score standardization: (x - mean) / std.
+    """Standardize scores as (x - mean) / std.
 
-    Parameters
-    ----------
-    scores : pd.Series
-        Factor scores (may contain NaN).
+    Args:
+        scores: Factor scores (may contain NaN).
 
-    Returns
-    -------
-    pd.Series
-        Standardized scores with mean 0 and std 1.
+    Returns:
+        Scores with mean 0 and std 1; a zero-filled series when std is 0 or NaN.
     """
     mean = scores.mean()
     std = scores.std()
@@ -106,20 +91,16 @@ def z_score_standardize(scores: pd.Series) -> pd.Series:
 
 
 def rank_normal_standardize(scores: pd.Series) -> pd.Series:
-    """Rank-normal (inverse normal) standardization.
+    """Standardize scores via rank-normal (inverse normal) transform.
 
     Uses ``Phi^-1((rank - 0.5) / N)`` to map ranks to a normal
     distribution, robust to heavy-tailed distributions.
 
-    Parameters
-    ----------
-    scores : pd.Series
-        Factor scores (may contain NaN).
+    Args:
+        scores: Factor scores (may contain NaN).
 
-    Returns
-    -------
-    pd.Series
-        Rank-normalized scores.
+    Returns:
+        Rank-normalized scores; NaN positions in the input remain NaN.
     """
     valid = scores.dropna()
     if len(valid) == 0:
@@ -141,18 +122,13 @@ def neutralize_sector(
 ) -> pd.Series:
     """Demean scores within each sector (and optionally country).
 
-    Parameters
-    ----------
-    scores : pd.Series
-        Standardized factor scores.
-    sector_labels : pd.Series
-        Sector label per ticker.
-    country_labels : pd.Series or None
-        Country label per ticker for country neutralization.
+    Args:
+        scores: Standardized factor scores.
+        sector_labels: Sector label per ticker.
+        country_labels: Country label per ticker for country neutralization.
+            When provided, neutralization groups by (sector, country) pairs.
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         Sector-neutralized scores.
     """
     if country_labels is not None:
@@ -185,32 +161,24 @@ def standardize_factor(
     *,
     factor_name: str = "",
 ) -> pd.Series:
-    """Full standardization pipeline for a single factor.
+    """Apply the full standardization pipeline to a single factor.
 
-    Parameters
-    ----------
-    raw_scores : pd.Series
-        Raw factor values.
-    config : StandardizationConfig or None
-        Standardization parameters.
-    sector_labels : pd.Series or None
-        Sector labels for neutralization.
-    country_labels : pd.Series or None
-        Country labels for neutralization.
-    factor_name : str
-        Column name of the factor, used to look up per-factor method
-        overrides in ``config.factor_method_overrides`` and the
-        ``FACTOR_DIRECTION`` sign convention.
+    Args:
+        raw_scores: Raw factor values.
+        config: Standardization parameters; defaults to ``StandardizationConfig()``
+            when ``None``.
+        sector_labels: Sector labels for neutralization.
+        country_labels: Country labels for neutralization.
+        factor_name: Column name of the factor, used to look up per-factor method
+            overrides in ``config.factor_method_overrides`` and the
+            ``FACTOR_DIRECTION`` sign convention.
 
-    Returns
-    -------
-    pd.Series
+    Returns:
         Standardized factor scores.
     """
     if config is None:
         config = StandardizationConfig()
 
-    # 1. Winsorize
     if config.winsorize_method == WinsorizeMethod.MAD:
         scores = winsorize_cross_section_mad(raw_scores)
     else:
@@ -220,29 +188,25 @@ def standardize_factor(
             upper_pct=config.winsorize_upper,
         )
 
-    # 2. Apply factor direction: invert "lower is better" factors so that
-    #    all downstream standardized scores share the same convention
-    #    (higher score = more desirable).  Direction is +1 for all factors
-    #    not listed in FACTOR_DIRECTION.
+    # Invert "lower is better" factors so all downstream scores share the
+    # same convention (higher = more desirable). Direction is +1 for factors
+    # not listed in FACTOR_DIRECTION.
     direction = FACTOR_DIRECTION.get(factor_name, 1)
     if direction == -1:
         scores = scores * -1
 
-    # 3. Standardize (with per-factor override support)
     method = _resolve_method(factor_name, config)
     if method == StandardizationMethod.Z_SCORE:
         scores = z_score_standardize(scores)
     else:
         scores = rank_normal_standardize(scores)
 
-    # 4. Sector/country neutralize
     neutralized = False
     if config.neutralize_sector and sector_labels is not None:
         country = country_labels if config.neutralize_country else None
         scores = neutralize_sector(scores, sector_labels, country)
         neutralized = True
 
-    # 5. Re-standardize after neutralization (optional)
     if config.re_standardize_after_neutralization and neutralized:
         scores = z_score_standardize(scores)
 
@@ -255,24 +219,18 @@ def standardize_all_factors(
     sector_labels: pd.Series | None = None,
     country_labels: pd.Series | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Standardize all factors and compute coverage.
+    """Standardize all factors and compute per-ticker coverage.
 
-    Parameters
-    ----------
-    raw_factors : pd.DataFrame
-        Tickers x factors matrix of raw values.
-    config : StandardizationConfig or None
-        Standardization parameters.
-    sector_labels : pd.Series or None
-        Sector labels for neutralization.
-    country_labels : pd.Series or None
-        Country labels for neutralization.
+    Args:
+        raw_factors: Tickers x factors matrix of raw values.
+        config: Standardization parameters; defaults to ``StandardizationConfig()``
+            when ``None``.
+        sector_labels: Sector labels for neutralization.
+        country_labels: Country labels for neutralization.
 
-    Returns
-    -------
-    tuple[pd.DataFrame, pd.DataFrame]
-        (standardized_scores, coverage) where coverage is a
-        boolean DataFrame indicating non-NaN values.
+    Returns:
+        A tuple ``(standardized_scores, coverage)`` where ``coverage`` is a
+        boolean DataFrame indicating non-NaN values in the standardized output.
     """
     if config is None:
         config = StandardizationConfig()
@@ -304,29 +262,20 @@ def orthogonalize_factors(
     number of components that explain at least ``min_variance_explained``
     of the total variance.
 
-    Parameters
-    ----------
-    factor_scores : pd.DataFrame
-        Tickers × factors matrix of factor scores.
-    method : str
-        Projection method.  Only ``"pca"`` is supported.
-    min_variance_explained : float
-        Minimum cumulative explained variance ratio for retained
-        components.  Must be in ``(0, 1]``.
+    Args:
+        factor_scores: Tickers x factors matrix of factor scores.
+        method: Projection method.  Only ``"pca"`` is supported.
+        min_variance_explained: Minimum cumulative explained variance ratio
+            for retained components.  Must be in ``(0, 1]``.
 
-    Returns
-    -------
-    pd.DataFrame
-        Tickers × PCs matrix with columns named ``PC1``, ``PC2``, ....
+    Returns:
+        Tickers x PCs matrix with columns named ``PC1``, ``PC2``, ....
         Rows with NaN in the input are filled with NaN in the output
         but otherwise preserve the original index.
 
-    Raises
-    ------
-    ConfigurationError
-        If *method* is not ``"pca"``.
-    DataError
-        If fewer than 2 factors or fewer than 2 non-NaN observations.
+    Raises:
+        ConfigurationError: If *method* is not ``"pca"``.
+        DataError: If fewer than 2 factors or fewer than 2 non-NaN observations.
     """
     if method != "pca":
         raise ConfigurationError(
