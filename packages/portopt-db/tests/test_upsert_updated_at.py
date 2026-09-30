@@ -1,4 +1,4 @@
-"""Regression tests for _upsert() updated_at stamping (issue #311).
+"""Regression tests for _upsert() updated_at stamping.
 
 Verifies that on ON CONFLICT DO UPDATE, updated_at is stamped with the
 server's current time rather than the stale excluded.updated_at value.

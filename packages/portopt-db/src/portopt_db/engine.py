@@ -1,9 +1,7 @@
-"""Synchronous SQLAlchemy engine/session manager (config-injected).
+"""Synchronous SQLAlchemy engine and session manager, configuration-injected.
 
-Moved out of the ingestion daemon (``app.database``) so any consumer can own a
-connection. Construct with a :class:`portopt_db.config.DbConfig`; the daemon
-builds that from its ``settings`` and keeps the module-level singleton +
-``init_db``/``close_db`` lifecycle on its side.
+Construct with a `DbConfig`; the daemon builds that from its settings and keeps
+the module-level singleton with `init_db`/`close_db` lifecycle on its side.
 """
 
 import logging
@@ -24,13 +22,18 @@ logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
-    """Connection pooling + health check + session context manager.
+    """Connection pooling, health check, and session context manager.
 
-    Thread-safe; lazy-initializes on first ``get_session`` if ``initialize``
+    Thread-safe; lazy-initializes on first `get_session` if `initialize`
     was not called at startup.
     """
 
     def __init__(self, config: DbConfig):
+        """
+        Args:
+            config: Pool sizing, URL, echo flag, and per-dialect connect args
+                for this manager instance.
+        """
         self.config = config
         self._engine: Engine | None = None
         self._session_factory: sessionmaker[Session] | None = None
@@ -163,7 +166,7 @@ class DatabaseManager:
                 logger.debug(f"Error closing session: {e}")
 
     def create_all_tables(self) -> None:
-        """Create every table registered on ``Base.metadata`` (idempotent)."""
+        """Create every table registered on `Base.metadata` (idempotent)."""
         if not self._engine:
             raise RuntimeError("Database engine not initialized")
         logger.info("Creating database tables...")

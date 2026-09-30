@@ -1,5 +1,3 @@
-"""P1 plumbing unit tests: Base registry, DbConfig, RepositoryBase._upsert guards."""
-
 from __future__ import annotations
 
 from unittest.mock import MagicMock

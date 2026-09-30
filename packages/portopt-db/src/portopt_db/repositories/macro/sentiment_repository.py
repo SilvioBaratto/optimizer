@@ -30,7 +30,6 @@ _ETF_TO_SECTOR: dict[str, str] = {
     "XLC": "Communication Services",
 }
 
-# Reverse: sector name → set of ETF source_tickers
 _SECTOR_TO_ETFS: dict[str, set[str]] = {}
 for _etf, _sector in _ETF_TO_SECTOR.items():
     _SECTOR_TO_ETFS.setdefault(_sector, set()).add(_etf)
@@ -53,7 +52,15 @@ class SentimentRepository(RepositoryBase):
         instrument_id: UUID,
         cutoff: datetime,
     ) -> Sequence[TickerNews]:
-        """Return news rows published after *cutoff* in ascending order."""
+        """Return news rows for an instrument published at or after a cutoff.
+
+        Args:
+            instrument_id: Primary key of the instrument to query.
+            cutoff: Lower bound (inclusive) on ``publish_time``.
+
+        Returns:
+            Rows ordered by ``publish_time`` ascending; empty if none found.
+        """
         return (
             self.session.execute(
                 select(TickerNews)
@@ -76,20 +83,25 @@ class SentimentRepository(RepositoryBase):
     ) -> Sequence[MacroNews]:
         """Search ``macro_news`` for articles relevant to *ticker*.
 
-        Uses a cascading strategy:
-          A) Direct ``source_ticker`` match
-          B) Sector ETF match (look up ticker's sector → matching ETF feeds)
-          C) Title/content text search for the ticker symbol
+        Uses a cascading strategy, returning as soon as one yields results:
+        direct ``source_ticker`` match, then sector-ETF feed match (resolves
+        the ticker's GICS sector to corresponding ETF tickers), then a
+        case-insensitive text search on title and full content.
 
-        Returns ``MacroNews`` rows which have the same ``.title`` and
-        ``.publish_time`` attributes that ``fetch_news_sentiment`` reads.
+        Args:
+            ticker: Equity ticker symbol to find relevant macro news for.
+            cutoff: Only rows with ``publish_time`` at or after this value.
+            limit: Maximum rows fetched per strategy attempt, not a total cap.
+
+        Returns:
+            MacroNews rows ordered by ``publish_time`` ascending; empty if no
+            strategy yields results.
         """
         base_filters = [
             MacroNews.title.isnot(None),
             MacroNews.publish_time >= cutoff,
         ]
 
-        # Strategy A: direct source_ticker match
         rows: Sequence[MacroNews] = (
             self.session.execute(
                 select(MacroNews)
@@ -103,7 +115,6 @@ class SentimentRepository(RepositoryBase):
         if rows:
             return rows
 
-        # Strategy B: sector ETF match
         sector = self.session.execute(
             select(TickerProfile.sector)
             .join(Instrument, TickerProfile.instrument_id == Instrument.id)
@@ -129,7 +140,6 @@ class SentimentRepository(RepositoryBase):
                 if rows:
                     return rows
 
-        # Strategy C: text search in title or full_content
         pattern = f"%{ticker}%"
         rows = (
             self.session.execute(

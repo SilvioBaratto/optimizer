@@ -1,13 +1,9 @@
 """Branch-coverage tests for SentimentRepository.
 
-Covers the missed lines reported at 47%:
-  43      get_instrument_id_by_ticker — None branch
-  47      get_instrument_id_by_ticker — found branch
-  57      get_recent_news — empty branch
-  87-150  get_macro_news_fallback — all three cascading strategies:
-            A) direct source_ticker match
-            B) sector-ETF match via TickerProfile.sector
-            C) title/content ilike text-search fallback
+Tests the three cascading fallback strategies in get_macro_news_fallback:
+  A) direct source_ticker match
+  B) sector-ETF match via TickerProfile.sector
+  C) title/content ilike text-search fallback
 
 Uses real db_session (SAVEPOINT) only — no mocks.
 """
@@ -22,10 +18,6 @@ from sqlalchemy.orm import Session
 from portopt_db.models.macro.macro_regime import MacroNews
 from portopt_db.models.market_data.yfinance_data import TickerNews, TickerProfile
 from portopt_db.repositories.macro.sentiment_repository import SentimentRepository
-
-# ---------------------------------------------------------------------------
-# Seed helpers
-# ---------------------------------------------------------------------------
 
 _NOW = datetime(2024, 6, 10, 12, 0, 0, tzinfo=timezone.utc)
 _CUTOFF = datetime(2024, 6, 9, 0, 0, 0, tzinfo=timezone.utc)  # 1 day before _NOW
@@ -88,11 +80,6 @@ def _seed_macro_news(
     )
 
 
-# ---------------------------------------------------------------------------
-# get_instrument_id_by_ticker
-# ---------------------------------------------------------------------------
-
-
 class TestGetInstrumentIdByTicker:
     def test_when_ticker_absent_returns_none(self, db_session: Session) -> None:
         repo = SentimentRepository(db_session)
@@ -104,11 +91,6 @@ class TestGetInstrumentIdByTicker:
         repo = SentimentRepository(db_session)
         result = repo.get_instrument_id_by_ticker("AAPL")
         assert result == inst.id
-
-
-# ---------------------------------------------------------------------------
-# get_recent_news
-# ---------------------------------------------------------------------------
 
 
 class TestGetRecentNews:
@@ -165,12 +147,9 @@ class TestGetRecentNews:
         assert list(result) == []
 
 
-# ---------------------------------------------------------------------------
-# get_macro_news_fallback — Strategy A: direct source_ticker match
-# ---------------------------------------------------------------------------
-
-
 class TestMacroNewsFallbackStrategyA:
+    """Covers the direct source_ticker match path (Strategy A)."""
+
     def test_when_direct_source_ticker_matches_returns_rows(
         self, db_session: Session
     ) -> None:
@@ -194,7 +173,6 @@ class TestMacroNewsFallbackStrategyA:
         inst = _seed_instrument(db_session, "INTC")
         _seed_profile(db_session, inst, sector="Technology")
 
-        # Direct match
         direct = _seed_macro_news(
             db_session,
             news_id="macro-direct-1",
@@ -231,12 +209,9 @@ class TestMacroNewsFallbackStrategyA:
         assert result == []
 
 
-# ---------------------------------------------------------------------------
-# get_macro_news_fallback — Strategy B: sector ETF match
-# ---------------------------------------------------------------------------
-
-
 class TestMacroNewsFallbackStrategyB:
+    """Covers the sector-ETF fallback when no direct source_ticker match exists (Strategy B)."""
+
     def test_when_no_direct_match_sector_etf_used(self, db_session: Session) -> None:
         # XLK maps to "Technology" in _ETF_TO_SECTOR
         inst = _seed_instrument(db_session, "CRM")
@@ -310,12 +285,9 @@ class TestMacroNewsFallbackStrategyB:
         assert result == []
 
 
-# ---------------------------------------------------------------------------
-# get_macro_news_fallback — Strategy C: title/content text search
-# ---------------------------------------------------------------------------
-
-
 class TestMacroNewsFallbackStrategyC:
+    """Covers the title/content ilike text-search fallback when A and B both miss (Strategy C)."""
+
     def test_when_ticker_in_title_returns_row(self, db_session: Session) -> None:
         _seed_instrument(db_session, "PLTR")
         # No direct match, no profile → falls to C
@@ -348,7 +320,6 @@ class TestMacroNewsFallbackStrategyC:
 
     def test_when_no_strategy_matches_returns_empty(self, db_session: Session) -> None:
         _seed_instrument(db_session, "ZZZZ")
-        # Seed an unrelated macro news row
         _seed_macro_news(
             db_session,
             news_id="macro-unrelated",

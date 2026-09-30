@@ -1,8 +1,8 @@
-"""UniverseRepository T212-annotation surface (SPEC D13/D14, task T11a).
+"""Tests for UniverseRepository T212-annotation helpers.
 
-Adds the nullable ``t212_ticker`` column and the repo helpers the annotation
-step uses: ``set_t212_ticker`` (update by (ticker, exchange)) and
-``get_active_instruments`` (non-delisted rows to resolve ISINs for).
+Covers ``set_t212_ticker`` (update by ticker + exchange),
+``get_active_instruments`` (non-delisted rows), and
+``backfill_isin_from_profiles``.
 """
 
 from __future__ import annotations
@@ -77,9 +77,7 @@ def test_backfill_isin_fills_null_from_profile(db_session) -> None:
         db_session, Instrument(ticker="AAPL", short_name="Apple", exchange=ex)
     )
     assert inst.isin is None
-    add_and_flush(
-        db_session, TickerProfile(instrument_id=inst.id, isin="US0378331005")
-    )
+    add_and_flush(db_session, TickerProfile(instrument_id=inst.id, isin="US0378331005"))
 
     filled = _repo(db_session).backfill_isin_from_profiles()
 

@@ -45,8 +45,7 @@ SIX_NEW_TABLES = {
 
 
 def _load_migration() -> types.ModuleType:
-    """Load the migration module from its file path."""
-    module_name = MIGRATION_FILENAME[:-3]  # strip .py
+    module_name = MIGRATION_FILENAME[:-3]
     spec = importlib.util.spec_from_file_location(module_name, MIGRATION_PATH)
     assert spec is not None, f"Cannot find migration at {MIGRATION_PATH}"
     mod = importlib.util.module_from_spec(spec)
@@ -95,8 +94,6 @@ def _create_prereq_tables(engine) -> None:
 
 
 class TestMigrationMetadata:
-    """Migration module must declare correct revision identifiers."""
-
     def test_module_is_importable(self) -> None:
         mod = _load_migration()
         assert mod is not None
@@ -147,8 +144,6 @@ def upgraded_engine():
 
 
 class TestUpgradeCreatesAllSixTables:
-    """After upgrade(), all six new tables must exist."""
-
     def test_factor_scores_table_exists(self, upgraded_engine) -> None:
         assert "factor_scores" in inspect(upgraded_engine).get_table_names()
 
@@ -169,8 +164,6 @@ class TestUpgradeCreatesAllSixTables:
 
 
 class TestUpgradeIndexes:
-    """Expected indexes must be present after upgrade."""
-
     def _index_names(self, engine, table: str) -> set[str]:
         return {idx["name"] for idx in inspect(engine).get_indexes(table)}
 
@@ -245,8 +238,6 @@ class TestUpgradeIndexes:
 
 
 class TestUpgradeUniqueConstraints:
-    """Unique constraints must be enforced after upgrade."""
-
     def test_factor_scores_rejects_duplicate_ticker_date_factor(
         self, upgraded_engine
     ) -> None:
@@ -349,8 +340,6 @@ class TestUpgradeUniqueConstraints:
 
 
 class TestDowngradeDropsAllSixTables:
-    """After downgrade(), none of the six tables must exist."""
-
     def test_downgrade_removes_all_six_tables(self) -> None:
         engine = _sqlite_engine()
         _create_prereq_tables(engine)

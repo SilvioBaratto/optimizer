@@ -25,7 +25,12 @@ from portopt_db.base import BaseModel
 
 
 class SectorSnapshot(BaseModel):
-    """Sector overview (market cap / weight / counts) per region, per snapshot."""
+    """Sector overview (market cap / weight / counts) per region, per snapshot.
+
+    Attributes:
+        sector_key: yfinance sector slug (e.g. ``"technology"``).
+        market_weight: Sector's fraction of total market cap (0–1 range).
+    """
 
     __tablename__ = "sector_snapshots"
     __table_args__ = (
@@ -46,7 +51,12 @@ class SectorSnapshot(BaseModel):
 
 
 class SectorIndustry(BaseModel):
-    """Industry belonging to a sector (region-scoped taxonomy row)."""
+    """Industry belonging to a sector (region-scoped taxonomy row).
+
+    Attributes:
+        industry_key: yfinance industry slug; forms the dedup key within a
+            sector + region + snapshot triple.
+    """
 
     __tablename__ = "sector_industries"
     __table_args__ = (
@@ -68,7 +78,12 @@ class SectorIndustry(BaseModel):
 
 
 class SectorTopCompany(BaseModel):
-    """Top constituent company of a sector (region-scoped)."""
+    """Top constituent company of a sector (region-scoped).
+
+    Attributes:
+        weight: Company's market-cap share within the sector (0–1 range).
+        rating: Analyst consensus rating string (e.g. ``"Strong Buy"``).
+    """
 
     __tablename__ = "sector_top_companies"
     __table_args__ = (

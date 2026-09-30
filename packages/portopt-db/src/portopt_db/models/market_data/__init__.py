@@ -1,4 +1,13 @@
-"""Market Data models."""
+"""SQLAlchemy ORM models for market-data storage.
+
+Covers four domains exported via ``__all__``:
+
+- **Calendars** — earnings, economic events, IPO, and split schedules.
+- **ETF** — metadata, holdings, asset-class weights, and sector weights.
+- **Market structure** — sector/industry hierarchy, snapshots, and top companies.
+- **Ticker data** — price history, dividends, analyst targets, financial statements,
+  insider transactions, institutional/mutual-fund holders, news, and profiles.
+"""
 
 from portopt_db.models.market_data.calendars import (
     EarningsCalendar,

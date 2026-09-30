@@ -66,7 +66,25 @@ def _str(v: Any, n: int) -> str | None:
 
 
 class CalendarsRepository(RepositoryBase):
+    """Persist market-wide calendar data via idempotent upserts.
+
+    Each upsert method deduplicates on the natural key before writing,
+    so callers may pass the raw yfinance payload repeatedly without
+    accumulating duplicates.
+    """
+
     def upsert_earnings(self, rows: list[dict[str, Any]]) -> int:
+        """Upsert earnings-calendar records and return the count written.
+
+        Args:
+            rows: Raw yfinance DataFrame rows as dicts.  Ticker and event
+                date are extracted defensively across all known Yahoo
+                column-name variants; rows missing either field are skipped.
+
+        Returns:
+            Number of rows passed to the upsert (including no-ops where
+            the natural key already existed).
+        """
         out: dict[tuple[Any, ...], dict[str, Any]] = {}
         for r in rows:
             ticker = _str(_col(r, "Symbol", "ticker", "symbol", "index"), 30)
@@ -96,6 +114,16 @@ class CalendarsRepository(RepositoryBase):
         )
 
     def upsert_ipos(self, rows: list[dict[str, Any]]) -> int:
+        """Upsert IPO-calendar records and return the count written.
+
+        Args:
+            rows: Raw yfinance DataFrame rows as dicts.  Ticker and IPO
+                date are extracted defensively; rows missing either are
+                skipped.
+
+        Returns:
+            Number of rows passed to the upsert.
+        """
         out: dict[tuple[Any, ...], dict[str, Any]] = {}
         for r in rows:
             ticker = _str(_col(r, "Symbol", "ticker", "symbol", "index"), 30)
@@ -125,6 +153,16 @@ class CalendarsRepository(RepositoryBase):
         )
 
     def upsert_splits(self, rows: list[dict[str, Any]]) -> int:
+        """Upsert split-calendar records and return the count written.
+
+        Args:
+            rows: Raw yfinance DataFrame rows as dicts.  The split ratio
+                is derived from ``Old Share Worth`` and ``Share Worth``
+                columns and serialised as ``old:new`` (e.g. ``5:1``).
+
+        Returns:
+            Number of rows passed to the upsert.
+        """
         out: dict[tuple[Any, ...], dict[str, Any]] = {}
         for r in rows:
             ticker = _str(_col(r, "Symbol", "ticker", "symbol", "index"), 30)
@@ -158,6 +196,16 @@ class CalendarsRepository(RepositoryBase):
         )
 
     def upsert_economic_events(self, rows: list[dict[str, Any]]) -> int:
+        """Upsert economic-event calendar records and return the count written.
+
+        Args:
+            rows: Raw yfinance DataFrame rows as dicts.  Country defaults
+                to ``"?"`` when absent so the natural key (event, country,
+                event_date) remains non-null.
+
+        Returns:
+            Number of rows passed to the upsert.
+        """
         out: dict[tuple[Any, ...], dict[str, Any]] = {}
         for r in rows:
             event = _str(_col(r, "Event", "event", "eventName"), 255)

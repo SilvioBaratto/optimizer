@@ -1,4 +1,4 @@
-"""T2.2 — the ``add_agent_audit_tables`` Alembic revision.
+"""Tests for the ``add_agent_audit_tables`` Alembic revision.
 
 Mirrors ``test_new_tables_migration.py``: loads the revision module by path and
 replays ``upgrade()`` / ``downgrade()`` against an in-memory SQLite engine via a

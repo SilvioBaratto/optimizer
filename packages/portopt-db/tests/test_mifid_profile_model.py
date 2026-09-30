@@ -1,4 +1,4 @@
-"""T4 — ``mifid_profiles`` ORM model on SQLite.
+"""``mifid_profiles`` ORM model on SQLite.
 
 The MiFID suitability-profile model lives in ``portopt_db`` (mirroring
 ``agent_run.py`` / ``paper_order.py``: UUID PK, ``_JSON`` variant, indexes) so

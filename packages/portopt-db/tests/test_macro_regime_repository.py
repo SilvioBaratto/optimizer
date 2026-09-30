@@ -30,7 +30,7 @@ def _themes_of(session: Session, news_id: str) -> set[str]:
 
 
 class TestUpsertMacroNewsThemes:
-    """T1.4 / §5.4: theme children converge on re-run and on a changed set."""
+    """Verify theme children converge on re-run and on a changed set."""
 
     def test_when_rerun_with_same_themes_then_no_duplicate_children(
         self, db_session: Session

@@ -42,12 +42,11 @@ class MacroRegimeRepository(RepositoryBase):
         country: str,
         data: dict[str, Any],
     ) -> int:
-        """
-        Upsert a single economic indicator (forecast) row for a country.
+        """Upsert a single economic indicator (forecast) row for a country.
 
         Args:
-            country: Country name (e.g. "USA", "Germany")
-            data: Dict of forecast column values from the scraper
+            country: Country name (e.g. "USA", "Germany").
+            data: Forecast column values from the scraper.
 
         Returns:
             Number of rows processed (always 1 on success, 0 if data is empty).
@@ -78,7 +77,14 @@ class MacroRegimeRepository(RepositoryBase):
     def get_economic_indicators(
         self, country: str | None = None
     ) -> Sequence[EconomicIndicator]:
-        """Query economic indicators with optional country filter."""
+        """Return stored economic indicator rows.
+
+        Args:
+            country: Filter to this country. ``None`` returns all countries.
+
+        Returns:
+            Rows ordered by country. Empty sequence if no data matches.
+        """
         stmt = select(EconomicIndicator)
         if country:
             stmt = stmt.where(EconomicIndicator.country == country)
@@ -112,7 +118,7 @@ class MacroRegimeRepository(RepositoryBase):
         Args:
             country: Country name.
             snapshot_date: The date this snapshot was taken.
-            data: Dict of forecast column values from the scraper.
+            data: Forecast column values from the scraper.
 
         Returns:
             Number of rows processed (1 on success, 0 if data is empty).
@@ -148,7 +154,16 @@ class MacroRegimeRepository(RepositoryBase):
         start_date: datetime.date | None = None,
         end_date: datetime.date | None = None,
     ) -> Sequence[EconomicIndicatorObservation]:
-        """Query IlSole forecast time-series observations."""
+        """Return IlSole forecast time-series observations.
+
+        Args:
+            country: Filter to this country. ``None`` returns all countries.
+            start_date: Inclusive lower bound on observation date.
+            end_date: Inclusive upper bound on observation date.
+
+        Returns:
+            Rows ordered by country then date. Empty sequence if no data matches.
+        """
         stmt = select(EconomicIndicatorObservation)
         if country:
             stmt = stmt.where(EconomicIndicatorObservation.country == country)
@@ -171,12 +186,12 @@ class MacroRegimeRepository(RepositoryBase):
         country: str,
         indicators_dict: dict[str, dict[str, Any]],
     ) -> int:
-        """
-        Bulk upsert Trading Economics indicator rows for a country.
+        """Bulk upsert Trading Economics indicator rows for a country.
 
         Args:
-            country: Country name (e.g. "USA")
-            indicators_dict: Dict of indicator_key -> {value, previous, unit, reference, raw_name}
+            country: Country name (e.g. "USA").
+            indicators_dict: Mapping of indicator_key to
+                ``{value, previous, unit, reference, raw_name}``.
 
         Returns:
             Number of rows processed.
@@ -209,7 +224,14 @@ class MacroRegimeRepository(RepositoryBase):
     def get_te_indicators(
         self, country: str | None = None
     ) -> Sequence[TradingEconomicsIndicator]:
-        """Query Trading Economics indicators with optional country filter."""
+        """Return stored Trading Economics indicator rows.
+
+        Args:
+            country: Filter to this country. ``None`` returns all countries.
+
+        Returns:
+            Rows ordered by country and indicator key.
+        """
         stmt = select(TradingEconomicsIndicator)
         if country:
             stmt = stmt.where(TradingEconomicsIndicator.country == country)
@@ -228,12 +250,12 @@ class MacroRegimeRepository(RepositoryBase):
         country: str,
         yields_dict: dict[str, dict[str, Any]],
     ) -> int:
-        """
-        Bulk upsert bond yield rows for a country.
+        """Bulk upsert bond yield rows for a country.
 
         Args:
-            country: Country name (e.g. "USA")
-            yields_dict: Dict of maturity -> {yield, day_change, month_change, year_change, date, raw_name}
+            country: Country name (e.g. "USA").
+            yields_dict: Mapping of maturity label to
+                ``{yield, day_change, month_change, year_change, date, raw_name}``.
 
         Returns:
             Number of rows processed.
@@ -264,7 +286,14 @@ class MacroRegimeRepository(RepositoryBase):
         )
 
     def get_bond_yields(self, country: str | None = None) -> Sequence[BondYield]:
-        """Query bond yields with optional country filter."""
+        """Return stored bond yield rows.
+
+        Args:
+            country: Filter to this country. ``None`` returns all countries.
+
+        Returns:
+            Rows ordered by country and maturity.
+        """
         stmt = select(BondYield)
         if country:
             stmt = stmt.where(BondYield.country == country)
@@ -286,10 +315,10 @@ class MacroRegimeRepository(RepositoryBase):
         Args:
             country: Country name (e.g. "USA").
             snapshot_date: The date this snapshot was taken.
-            indicators_dict: Dict of indicator_key -> {value, ...}.
+            indicators_dict: Mapping of indicator_key to ``{value, ...}``.
 
         Returns:
-            Number of rows processed.
+            Number of rows processed. Rows with a ``None`` value are skipped.
         """
         if not indicators_dict:
             return 0
@@ -323,7 +352,17 @@ class MacroRegimeRepository(RepositoryBase):
         start_date: datetime.date | None = None,
         end_date: datetime.date | None = None,
     ) -> Sequence[TradingEconomicsObservation]:
-        """Query TE time-series observations with optional filters."""
+        """Return Trading Economics time-series observations.
+
+        Args:
+            country: Filter to this country. ``None`` returns all countries.
+            indicator_keys: Restrict to these indicator keys. ``None`` returns all.
+            start_date: Inclusive lower bound on observation date.
+            end_date: Inclusive upper bound on observation date.
+
+        Returns:
+            Rows ordered by country, indicator key, then date.
+        """
         stmt = select(TradingEconomicsObservation)
         if country:
             stmt = stmt.where(TradingEconomicsObservation.country == country)
@@ -357,10 +396,10 @@ class MacroRegimeRepository(RepositoryBase):
         Args:
             country: Country name (e.g. "USA").
             snapshot_date: The date this snapshot was taken.
-            yields_dict: Dict of maturity -> {yield, ...}.
+            yields_dict: Mapping of maturity label to ``{yield, ...}``.
 
         Returns:
-            Number of rows processed.
+            Number of rows processed. Rows with a ``None`` yield are skipped.
         """
         if not yields_dict:
             return 0
@@ -394,7 +433,17 @@ class MacroRegimeRepository(RepositoryBase):
         start_date: datetime.date | None = None,
         end_date: datetime.date | None = None,
     ) -> Sequence[BondYieldObservation]:
-        """Query bond yield time-series observations with optional filters."""
+        """Return bond yield time-series observations.
+
+        Args:
+            country: Filter to this country. ``None`` returns all countries.
+            maturities: Restrict to these maturity labels. ``None`` returns all.
+            start_date: Inclusive lower bound on observation date.
+            end_date: Inclusive upper bound on observation date.
+
+        Returns:
+            Rows ordered by country, maturity, then date.
+        """
         stmt = select(BondYieldObservation)
         if country:
             stmt = stmt.where(BondYieldObservation.country == country)
@@ -456,11 +505,18 @@ class MacroRegimeRepository(RepositoryBase):
         end_date: datetime.date | None = None,
         limit: int | None = None,
     ) -> Sequence[FredObservation]:
-        """Query FRED observations with optional filters.
+        """Return FRED observations with optional filters.
 
-        When *limit* is supplied the most-recent rows are returned in
-        ascending date order, so callers can read ``result[-1]`` for the
-        latest value.
+        Args:
+            series_id: Filter to this series. ``None`` returns all series.
+            start_date: Inclusive lower bound on observation date.
+            end_date: Inclusive upper bound on observation date.
+            limit: When supplied, the *limit* most-recent rows are fetched and
+                re-sorted ascending so ``result[-1]`` is always the latest value.
+
+        Returns:
+            Rows ordered by series_id and date ascending. When *limit* is
+            applied the bounded window is still returned in ascending order.
         """
         stmt = select(FredObservation)
         if series_id:
@@ -483,7 +539,15 @@ class MacroRegimeRepository(RepositoryBase):
         return self.session.execute(stmt).scalars().all()
 
     def get_fred_latest_date(self, series_id: str) -> datetime.date | None:
-        """Return the most recent stored observation date for a series."""
+        """Return the most recent observation date for a series.
+
+        Args:
+            series_id: FRED series identifier to query.
+
+        Returns:
+            The latest stored date, or ``None`` if no observations exist for
+            the series.
+        """
         result = self.session.execute(
             select(sa_func.max(FredObservation.date)).where(
                 FredObservation.series_id == series_id
@@ -501,17 +565,17 @@ class MacroRegimeRepository(RepositoryBase):
         Extracts ``themes`` from each row dict, upserts the MacroNews rows,
         then manages MacroNewsTheme child rows for each article.
 
-        T1.4 / ARCHITECTURE.md §5.4: parent rows use ``INSERT ... ON CONFLICT
-        DO UPDATE`` on ``uq_macro_news_id``. The theme children are replaced
-        (clear-then-re-add) rather than upserted on ``uq_macro_news_theme``,
-        deliberately: a re-run must converge to *exactly* the current theme set,
-        and a bare per-theme upsert would leave stale themes behind when an
-        article's classification changes. The clear+re-add runs inside the
-        caller's single transaction (atomic — a crash rolls back both halves),
-        and the one-daemon-per-DB invariant precludes a concurrent writer, so
-        the sequence is idempotent on re-run and convergent on a changed set.
+        Parent rows use ``INSERT ... ON CONFLICT DO UPDATE`` on
+        ``uq_macro_news_id``. The theme children are replaced (clear-then-re-add)
+        rather than upserted on ``uq_macro_news_theme``, deliberately: a re-run
+        must converge to *exactly* the current theme set, and a bare per-theme
+        upsert would leave stale themes behind when an article's classification
+        changes. The clear+re-add runs inside the caller's single transaction
+        (atomic — a crash rolls back both halves), and the one-daemon-per-DB
+        invariant precludes a concurrent writer, so the sequence is idempotent
+        on re-run and convergent on a changed set.
         """
-        # Extract themes before upsert (themes is no longer a column)
+        # themes is no longer a DB column; must be extracted before upsert
         themes_by_news_id: dict[str, list[str]] = {}
         clean_rows = []
         for row in rows:
@@ -529,7 +593,6 @@ class MacroRegimeRepository(RepositoryBase):
             constraint_name="uq_macro_news_id",
         )
 
-        # Now manage theme child rows
         if themes_by_news_id:
             news_ids = list(themes_by_news_id.keys())
             stmt = select(MacroNews).where(MacroNews.news_id.in_(news_ids))
@@ -538,7 +601,6 @@ class MacroRegimeRepository(RepositoryBase):
                 theme_list = themes_by_news_id.get(news_row.news_id, [])
                 if not theme_list:
                     continue
-                # Clear existing themes and re-add
                 news_row.theme_entries.clear()
                 self.session.flush()
                 for theme_str in theme_list:
@@ -559,7 +621,18 @@ class MacroRegimeRepository(RepositoryBase):
         end_date: datetime.datetime | None = None,
         limit: int = 50,
     ) -> Sequence[MacroNews]:
-        """Query stored macro news with optional theme/date filters."""
+        """Return stored macro news, most-recent first.
+
+        Args:
+            theme: Filter to articles tagged with this theme. ``None`` returns
+                all themes.
+            start_date: Inclusive lower bound on publish_time.
+            end_date: Inclusive upper bound on publish_time.
+            limit: Maximum rows to return.
+
+        Returns:
+            Up to *limit* rows ordered by publish_time descending.
+        """
         stmt = select(MacroNews)
         if theme:
             stmt = stmt.join(MacroNewsTheme).where(MacroNewsTheme.theme == theme)
@@ -571,7 +644,15 @@ class MacroRegimeRepository(RepositoryBase):
         return self.session.execute(stmt).scalars().all()
 
     def delete_old_macro_news(self, before_date: datetime.datetime) -> int:
-        """Delete macro news older than the given date. Returns count deleted."""
+        """Delete macro news articles published before the given datetime.
+
+        Args:
+            before_date: Articles with publish_time strictly before this value
+                are deleted.
+
+        Returns:
+            Number of rows deleted.
+        """
         stmt = select(MacroNews).where(MacroNews.publish_time < before_date)
         rows = self.session.execute(stmt).scalars().all()
         count = len(rows)
@@ -584,11 +665,14 @@ class MacroRegimeRepository(RepositoryBase):
     # ------------------------------------------------------------------
 
     def get_country_summary(self, country: str) -> dict[str, Any]:
-        """
-        Get all three data types for a single country.
+        """Return all macro data types for a single country.
+
+        Args:
+            country: Country name to look up.
 
         Returns:
-            Dict with keys: economic_indicators, te_indicators, bond_yields
+            Dict with keys ``economic_indicators``, ``te_indicators``,
+            ``bond_yields``.
         """
         return {
             "economic_indicators": self.get_economic_indicators(country=country),
@@ -601,7 +685,7 @@ class MacroRegimeRepository(RepositoryBase):
     # ------------------------------------------------------------------
 
     def get_distinct_countries(self) -> list[str]:
-        """Return a deduplicated sorted list of all countries with stored data."""
+        """Return a deduplicated sorted list of all countries with stored macro data."""
         from sqlalchemy import distinct, union_all
 
         q1 = select(EconomicIndicator.country.label("country"))

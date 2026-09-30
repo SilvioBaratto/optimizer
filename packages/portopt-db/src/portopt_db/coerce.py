@@ -1,8 +1,4 @@
-"""Value-coercion utilities shared by the repositories.
-
-Currently: multi-format reference-date parsing. Repo-local ``_safe_*`` / numeric
-coercers are consolidated here when their repositories move (P3).
-"""
+"""Value-coercion utilities shared by the repositories."""
 
 import logging
 from datetime import date, datetime
@@ -10,7 +6,6 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Month abbreviation mapping for parsing reference dates like "Dec 2024"
 _MONTH_ABBR = {
     "jan": 1,
     "feb": 2,
@@ -28,18 +23,18 @@ _MONTH_ABBR = {
 
 
 def parse_reference_date(value: Any) -> date | None:
-    """Parse a reference date string into a :class:`date` object.
+    """Parse a multi-format reference date value into a date.
 
-    Supported formats:
-    - ``date`` objects (returned as-is)
-    - ``"Mon YYYY"`` (e.g. ``"Dec 2024"``) → ``date(2024, 12, 1)``
-    - ``"MM/YY"`` or ``"MM/ YY"`` IlSole-style → ``date(20YY, MM, 1)``
-    - ``"Mon/DD"`` → current year
-    - ISO format ``"YYYY-MM-DD"``
-    - US/EU date formats ``"M/D/YYYY"``, ``"D/M/YYYY"``
+    Accepts date objects, month-year strings ("Dec 2024"), IlSole compact
+    dates ("12/25" or "12/ 25"), abbreviated month-day ("Mon/DD"), ISO dates
+    ("2024-12-01"), and US/EU slash formats ("M/D/YYYY", "D/M/YYYY").
+
+    Args:
+        value: Raw value from an external data source; may be a date, a
+            string in any of the supported formats, or None/non-string.
 
     Returns:
-        Parsed date or ``None`` if parsing fails.
+        Parsed date, or None if value is None, empty, or unparseable.
     """
     if value is None:
         return None
@@ -50,7 +45,6 @@ def parse_reference_date(value: Any) -> date | None:
 
     text = value.strip()
 
-    # Try "Mon YYYY" format (e.g. "Dec 2024", "Jan 2025")
     parts = text.split()
     if len(parts) == 2:
         month_str, year_str = parts
@@ -61,7 +55,7 @@ def parse_reference_date(value: Any) -> date | None:
             except (ValueError, TypeError):
                 pass
 
-    # Try "MM/ YY" or "MM/YY" format (e.g. "12/ 25", "01/26") — IlSole style
+    # IlSole publishes compact MM/YY dates with an optional space after the slash.
     normalized = text.replace(" ", "")
     if "/" in normalized:
         slash_parts = normalized.split("/")
@@ -82,13 +76,11 @@ def parse_reference_date(value: Any) -> date | None:
                 except (ValueError, TypeError):
                     pass
 
-    # Try ISO format (e.g. "2024-12-01")
     try:
         return date.fromisoformat(text)
     except (ValueError, TypeError):
         pass
 
-    # Try parsing via datetime for other formats (e.g. "1/15/2025")
     for fmt in ("%m/%d/%Y", "%d/%m/%Y", "%Y-%m-%d"):
         try:
             return datetime.strptime(text, fmt).date()

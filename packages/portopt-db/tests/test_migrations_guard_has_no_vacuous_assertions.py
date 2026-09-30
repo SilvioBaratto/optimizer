@@ -1,7 +1,6 @@
 """Guard: the migrations-reversible hygiene guard contains no tautological
 "vacuous" test — a test whose entire body is a single assertion that holds
-for every possible implementation, so it can never turn red (issue #11,
-scope-3).
+for every possible implementation, so it can never turn red.
 
 Source-blind by construction: parses the guard file's raw text with ``ast``
 and inspects test-function bodies structurally. No implementation module is
@@ -26,7 +25,6 @@ from pathlib import Path
 
 import pytest
 
-# The reversibility guard is now a sibling in packages/portopt-db/tests/.
 _GUARD_FILE = Path(__file__).resolve().parent / "test_migrations_reversible.py"
 
 

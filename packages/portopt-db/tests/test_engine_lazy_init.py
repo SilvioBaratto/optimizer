@@ -1,4 +1,4 @@
-"""DatabaseManager.get_session lazy-init guard (relocated from ingestion; #562/#563)."""
+"""Tests for DatabaseManager.get_session lazy-init guard."""
 
 from __future__ import annotations
 

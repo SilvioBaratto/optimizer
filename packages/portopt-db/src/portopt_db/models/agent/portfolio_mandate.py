@@ -1,12 +1,9 @@
 """SQLAlchemy model for persisted portfolio mandates (``portfolio_mandates``).
 
-Phase 8 of the ``fund`` bridge: the mandate a run resolves before it starts. One
-row per portfolio (``UNIQUE(portfolio_id)``, upserted): the full mandate lives in
-the ``mandate`` JSON column — the **source of truth** — with a few scalar
+One row per portfolio (``UNIQUE(portfolio_id)``, upserted): the full mandate lives
+in the ``mandate`` JSON column — the **source of truth** — with a few scalar
 conveniences (``base_currency`` / ``capital`` / ``drift_l1_threshold`` /
-``benchmark``) mirrored out and indexed for the state panel and a future Phase-9
-drift monitor. ``run_fund``'s signature is unchanged — only the *source* of the
-mandate object moves to this table.
+``benchmark``) mirrored out and indexed for the state panel and drift monitor.
 
 The model lives here in ``portopt_db`` — pure SQLAlchemy, no
 ``optimizer``/``deepagents`` import — while the ``MandateRepository`` behavior
@@ -40,16 +37,15 @@ class PortfolioMandate(BaseModel):
         Index("ix_portfolio_mandates_base_currency", "base_currency"),
     )
 
-    # No FK: the `portfolios` table was dropped in the ingestion strip. Portable
-    # ``Uuid`` (matching ``PaperOrder``): the pg ``UUID`` result processor
-    # mis-binds on non-PK UUID columns alongside ``Float`` columns on SQLite, and
-    # this table carries ``capital`` / ``drift_l1_threshold``.
+    # No FK: the ``portfolios`` table no longer exists. Portable ``Uuid``
+    # (matching ``PaperOrder``): the pg ``UUID`` result processor mis-binds on
+    # non-PK UUID columns alongside ``Float`` columns on SQLite, and this table
+    # carries ``capital`` / ``drift_l1_threshold``.
     portfolio_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     base_currency: Mapped[str] = mapped_column(String(3), nullable=False)
     capital: Mapped[float] = mapped_column(Float, nullable=False)
     drift_l1_threshold: Mapped[float] = mapped_column(Float, nullable=False)
     benchmark: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    # Full mandate payload — the source of truth (scalar columns mirror it).
     mandate: Mapped[dict[str, Any]] = mapped_column(_JSON, nullable=False)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="active"

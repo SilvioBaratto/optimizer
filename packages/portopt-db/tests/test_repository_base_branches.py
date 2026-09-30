@@ -19,10 +19,6 @@ from sqlalchemy.orm import Session
 from portopt_db.models.jobs.background_job import BackgroundJob
 from portopt_db.repository import BaseRepository, RepositoryBase
 
-# ---------------------------------------------------------------------------
-# Minimal Pydantic schemas that mirror the BackgroundJob create/update surface
-# ---------------------------------------------------------------------------
-
 
 class JobCreate(PydanticBase):
     job_type: str
@@ -35,11 +31,6 @@ class JobUpdate(PydanticBase):
     status: str | None = None
     current: int | None = None
     total: int | None = None
-
-
-# ---------------------------------------------------------------------------
-# Helper
-# ---------------------------------------------------------------------------
 
 
 def _make_repo(session: Session) -> BaseRepository[BackgroundJob, JobCreate, JobUpdate]:
@@ -59,14 +50,7 @@ def _seed_job(session: Session, job_type: str = "base_branch_test") -> Backgroun
     )
 
 
-# ===========================================================================
-# RepositoryBase._upsert — empty-rows early-return (PG-only upsert NOT called)
-# ===========================================================================
-
-
 class TestUpsertEmptyRowsGuard:
-    """_upsert with an empty rows list returns 0 without any DB interaction."""
-
     def test_when_rows_empty_then_returns_zero(self, db_session: Session) -> None:
         # _upsert ON CONFLICT is Postgres-only; only the early-return branch
         # (if not rows: return 0) executes on SQLite safely.
@@ -84,11 +68,6 @@ class TestUpsertEmptyRowsGuard:
         assert result == 0
 
 
-# ===========================================================================
-# get — found and not-found branches
-# ===========================================================================
-
-
 class TestGet:
     def test_when_id_exists_then_returns_instance(self, db_session: Session) -> None:
         row = _seed_job(db_session)
@@ -101,11 +80,6 @@ class TestGet:
         repo = _make_repo(db_session)
         result = repo.get(uuid.uuid4())
         assert result is None
-
-
-# ===========================================================================
-# get_by_field — found and not-found branches
-# ===========================================================================
 
 
 class TestGetByField:
@@ -124,11 +98,6 @@ class TestGetByField:
         repo = _make_repo(db_session)
         result = repo.get_by_field("job_type", "no_such_type_xyz_base_branch")
         assert result is None
-
-
-# ===========================================================================
-# get_multi — ordering branches
-# ===========================================================================
 
 
 class TestGetMulti:
@@ -157,7 +126,6 @@ class TestGetMulti:
         _seed_job(db_session, "gm_fallback_a")
         repo = _make_repo(db_session)
         rows = repo.get_multi(order_by="no_such_column_xyz")
-        # fallback ordering still returns the seeded row (created_at branch)
         assert len(rows) >= 1
 
     def test_desc_false_uses_asc_ordering(self, db_session: Session) -> None:
@@ -169,11 +137,6 @@ class TestGetMulti:
         assert len(rows) >= 2
 
 
-# ===========================================================================
-# get_all
-# ===========================================================================
-
-
 class TestGetAll:
     def test_returns_all_rows(self, db_session: Session) -> None:
         before = _make_repo(db_session).count()
@@ -181,11 +144,6 @@ class TestGetAll:
         _seed_job(db_session, "ga_b")
         rows = _make_repo(db_session).get_all()
         assert len(rows) == before + 2
-
-
-# ===========================================================================
-# create — via Pydantic schema (model_dump path)
-# ===========================================================================
 
 
 class TestCreate:
@@ -207,7 +165,6 @@ class TestCreate:
         updated = repo.update(existing.id, schema)
         assert updated is not None
         assert updated.current == 99
-        # status was not in schema, should remain unchanged
         assert updated.status == "pending"
 
     def test_update_when_id_not_found_returns_none(self, db_session: Session) -> None:
@@ -215,11 +172,6 @@ class TestCreate:
         schema = JobUpdate(current=5)
         result = repo.update(uuid.uuid4(), schema)
         assert result is None
-
-
-# ===========================================================================
-# create_from_dict and update_from_dict
-# ===========================================================================
 
 
 class TestCreateFromDict:
@@ -272,11 +224,6 @@ class TestUpdateFromDict:
         assert result.current == 7
 
 
-# ===========================================================================
-# delete
-# ===========================================================================
-
-
 class TestDelete:
     def test_when_row_exists_then_returns_true(self, db_session: Session) -> None:
         row = _seed_job(db_session, "del_exists")
@@ -289,11 +236,6 @@ class TestDelete:
         repo = _make_repo(db_session)
         ok = repo.delete(uuid.uuid4())
         assert ok is False
-
-
-# ===========================================================================
-# count, exists, exists_by_field
-# ===========================================================================
 
 
 class TestCountAndExists:

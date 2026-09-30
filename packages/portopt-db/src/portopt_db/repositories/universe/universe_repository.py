@@ -25,13 +25,19 @@ class UniverseRepository(RepositoryBase):
     def save_exchange(self, exchange_data: dict[str, Any]) -> Exchange:
         """Insert or update an exchange by name, returning the persisted row.
 
-        T1.2 / ARCHITECTURE.md §5.4: written as an idempotent
-        ``INSERT ... ON CONFLICT DO UPDATE`` on the unique ``exchanges.name``
-        column (``index_elements=["name"]``, since the column carries a
-        column-level ``unique=True`` with no named constraint) rather than a
-        SELECT-then-INSERT, so an at-least-once re-run converges to one row
-        without racing the unique index. Only ``t212_id`` (and ``updated_at``)
-        are in the conflict update set, preserving the row's id.
+        Written as an idempotent ``INSERT ... ON CONFLICT DO UPDATE`` on the
+        unique ``exchanges.name`` column (``index_elements=["name"]``, since the
+        column carries a column-level ``unique=True`` with no named constraint)
+        rather than a SELECT-then-INSERT, so an at-least-once re-run converges
+        to one row without racing the unique index. Only ``t212_id`` (and
+        ``updated_at``) are in the conflict update set, preserving the row's id.
+
+        Args:
+            exchange_data: Dict with at least ``name`` and optionally ``id``
+                (the Trading 212 exchange ID stored as ``t212_id``).
+
+        Returns:
+            The persisted Exchange ORM row with identity-map refreshed.
         """
         name = exchange_data.get("name", "")
         t212_id = exchange_data.get("id")
@@ -55,6 +61,21 @@ class UniverseRepository(RepositoryBase):
     def save_instruments_batch(
         self, instruments_data: list[dict[str, Any]], exchange_id: Any
     ) -> int:
+        """Upsert a batch of instruments for the given exchange.
+
+        Matched on the ``uq_instrument_ticker_exchange`` constraint (ticker +
+        exchange). On conflict every mutable field is overwritten and
+        ``delisted_at``/``delisting_return`` are cleared so a re-listed
+        instrument is automatically re-activated. The session is flushed but
+        not committed.
+
+        Args:
+            instruments_data: Raw attribute dicts as returned by the T212 API.
+            exchange_id: UUID of the owning exchange row.
+
+        Returns:
+            Number of rows in the batch (including no-op conflicts).
+        """
         if not instruments_data:
             return 0
 
@@ -108,22 +129,17 @@ class UniverseRepository(RepositoryBase):
     ) -> bool:
         """Mark an instrument as delisted.
 
-        Parameters
-        ----------
-        ticker : str
-            Trading 212 ticker of the instrument.
-        exchange_id : UUID
-            Exchange the instrument belongs to.
-        delisted_at : date
-            The date the instrument was last seen in the T212 universe.
-        delisting_return : float, default=-0.30
-            CRSP-style default delisting return.  Use the actual value
-            when known (e.g. acquisition premium or -1.0 for bankruptcy).
+        Args:
+            ticker: Trading 212 ticker of the instrument.
+            exchange_id: UUID of the exchange the instrument belongs to.
+            delisted_at: Date the instrument was last seen in the T212 universe.
+            delisting_return: Final return to assign. Defaults to the CRSP
+                convention (-30%). Pass -1.0 for bankruptcy or the actual
+                acquisition premium when known.
 
-        Returns
-        -------
-        bool
-            ``True`` if the record was updated, ``False`` if not found.
+        Returns:
+            True if the row was updated, False if no matching active instrument
+            was found.
         """
         result: CursorResult[Any] = self.session.execute(  # type: ignore[assignment]
             update(Instrument)
@@ -159,7 +175,7 @@ class UniverseRepository(RepositoryBase):
     def set_t212_ticker(
         self, *, ticker: str, exchange_id: Any, t212_ticker: str
     ) -> bool:
-        """Attach a Trading 212 ticker to a yfinance-sourced instrument (D14).
+        """Attach a Trading 212 ticker to a yfinance-sourced instrument.
 
         Matched by ``(ticker, exchange_id)`` — the unique key. Returns ``True``
         if a row was updated, ``False`` if none matched.
@@ -214,6 +230,11 @@ class UniverseRepository(RepositoryBase):
         )
 
     def clear_all(self) -> tuple[int, int]:
+        """Delete all instruments and exchanges, returning pre-deletion counts.
+
+        Returns:
+            Tuple of (exchange_count, instrument_count) recorded before deletion.
+        """
         inst_count = self.session.execute(
             select(func.count()).select_from(Instrument)
         ).scalar_one()
@@ -228,11 +249,13 @@ class UniverseRepository(RepositoryBase):
         return ex_count, inst_count
 
     def get_instrument_count(self) -> int:
+        """Return the total number of instruments, including delisted ones."""
         return self.session.execute(
             select(func.count()).select_from(Instrument)
         ).scalar_one()
 
     def get_exchange_count(self) -> int:
+        """Return the total number of exchanges."""
         return self.session.execute(
             select(func.count()).select_from(Exchange)
         ).scalar_one()
@@ -244,6 +267,17 @@ class UniverseRepository(RepositoryBase):
         skip: int = 0,
         limit: int = 100,
     ) -> Sequence[Instrument]:
+        """Query instruments with optional exchange filter and text search.
+
+        Args:
+            exchange_name: Restrict results to instruments on this exchange.
+            search: Case-insensitive substring matched against ticker or name.
+            skip: Rows to skip before returning (for offset pagination).
+            limit: Maximum number of rows to return.
+
+        Returns:
+            Instruments eager-loaded with their exchange, deduplicated.
+        """
         stmt = select(Instrument).options(joinedload(Instrument.exchange))
         if exchange_name:
             stmt = stmt.join(Exchange).where(Exchange.name == exchange_name)
@@ -256,6 +290,7 @@ class UniverseRepository(RepositoryBase):
         return self.session.execute(stmt).scalars().unique().all()
 
     def get_exchanges(self) -> Sequence[Exchange]:
+        """Return all exchanges ordered alphabetically by name."""
         return (
             self.session.execute(select(Exchange).order_by(Exchange.name))
             .scalars()

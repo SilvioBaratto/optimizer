@@ -116,7 +116,6 @@ class TestUpsertEmptyInputGuards:
 
     This drives the ``if not data / if not indicators_dict / if not rows``
     guard branch (the 'True' side) without executing the pg ON CONFLICT stmt.
-    # Postgres-only ON CONFLICT — not executable on SQLite
     """
 
     def test_upsert_economic_indicator_empty_data_returns_zero(
@@ -183,7 +182,6 @@ class TestUpsertTeObservationsNoneValue:
 
     When ALL indicator entries have value=None the ``rows`` list stays empty,
     so ``_upsert`` returns 0 via its own empty-rows guard — still no PG stmt.
-    # Postgres-only ON CONFLICT — not executable on SQLite (main path)
     """
 
     def test_all_none_values_skipped_returns_zero(self, db_session: Session) -> None:
@@ -200,9 +198,7 @@ class TestUpsertTeObservationsNoneValue:
 
 
 class TestUpsertBondYieldObservationsNoneYield:
-    """Drive the ``if yield_val is None: continue`` branch similarly.
-    # Postgres-only ON CONFLICT — not executable on SQLite (main path)
-    """
+    """Drive the ``if yield_val is None: continue`` branch similarly."""
 
     def test_all_none_yields_skipped_returns_zero(self, db_session: Session) -> None:
         repo = MacroRegimeRepository(db_session)
@@ -679,7 +675,6 @@ class TestGetFredObservations:
         )
         repo = MacroRegimeRepository(db_session)
         results = repo.get_fred_observations(series_id="S", limit=2)
-        # Most-recent 2 rows returned in ascending date order
         assert len(results) == 2
         assert results[0].date < results[1].date
         assert results[0].date >= self._D3  # D3 and D4 are the two most recent
@@ -943,7 +938,7 @@ class TestGetDistinctCountries:
         repo = MacroRegimeRepository(db_session)
         countries = repo.get_distinct_countries()
         assert sorted(countries) == ["EU", "JP", "USA"]
-        assert len(countries) == len(set(countries))  # no duplicates
+        assert len(countries) == len(set(countries))
 
     def test_returns_sorted_order(self, db_session: Session) -> None:
         _flush(db_session, _by("USA", "10Y"), _by("AU", "2Y"), _by("EU", "30Y"))

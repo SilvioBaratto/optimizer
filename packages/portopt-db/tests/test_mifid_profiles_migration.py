@@ -1,11 +1,7 @@
-"""T4 — the ``add_mifid_profiles`` Alembic revision.
+"""Migration tests for the ``add_mifid_profiles`` Alembic revision.
 
-Mirrors ``test_paper_orders_migration.py``: loads the revision module by path
-and replays ``upgrade()`` / ``downgrade()`` against an in-memory SQLite engine
-via a raw ``MigrationContext`` + ``Operations`` (no Postgres needed, so it runs
-in CI). Asserts the ``mifid_profiles`` table, its index and the append-only
-``UNIQUE(portfolio_id, version)`` constraint appear on upgrade and are gone on
-downgrade, and that the revision chains from the paper-orders head.
+Uses a raw ``MigrationContext`` + ``Operations`` against in-memory SQLite so the
+suite is Postgres-free and can run in CI without a live database.
 """
 
 from __future__ import annotations

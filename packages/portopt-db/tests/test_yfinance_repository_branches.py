@@ -1,16 +1,13 @@
 """Branch coverage for YFinanceRepository and its module-level helpers.
 
-Strategy
---------
-* All ``upsert_*`` methods call ``RepositoryBase._upsert`` which issues a
-  PostgreSQL ``INSERT … ON CONFLICT`` statement.  That dialect construct is
-  **not executable on SQLite** — those methods are skipped with an inline
-  comment where relevant.
-* Every ``get_*`` / query method is a plain SELECT — seeded via
-  ``session.add(obj); session.flush()`` and fully testable.
-* Module-level helpers (``_safe_val``, ``_safe_int``, ``_safe_float``,
-  ``_safe_str``, ``_safe_date``) have no DB dependency — tested directly.
-* ``get_staleness_info`` uses ``func.max()`` SELECTs — fully testable.
+All ``upsert_*`` methods call ``RepositoryBase._upsert`` which issues a
+PostgreSQL ``INSERT … ON CONFLICT`` statement.  That dialect construct is
+**not executable on SQLite** — those methods are skipped with a block comment
+where relevant.  Every ``get_*`` / query method is a plain SELECT seeded via
+``session.add(obj); session.flush()`` and fully testable.  Module-level helpers
+(``_safe_val``, ``_safe_int``, ``_safe_float``, ``_safe_str``, ``_safe_date``)
+have no DB dependency and are tested directly.  ``get_staleness_info`` uses
+``func.max()`` SELECTs — fully testable.
 """
 
 from __future__ import annotations
@@ -169,7 +166,6 @@ class TestSafeFloat:
         assert _safe_float(float("inf")) is None
 
     def test_nan_after_float_conversion_returns_none(self) -> None:
-        # _safe_val passes through; float("nan") produced inside _safe_float
         assert _safe_float(math.nan) is None
 
     def test_non_numeric_str_returns_none(self) -> None:
@@ -250,7 +246,6 @@ class TestSafeDate:
         assert _safe_date("not-a-date") is None
 
     def test_unix_timestamp_int_returns_date(self) -> None:
-        # 2024-01-01 00:00:00 UTC → date
         ts = int(datetime(2024, 1, 1).timestamp())
         result = _safe_date(ts)
         assert isinstance(result, date)
@@ -812,7 +807,6 @@ class TestGetNews:
         result = repo.get_news(inst.id)
 
         assert len(result) == 2
-        # dated article comes first; null-time article last
         assert result[0].publish_time is not None
         assert result[-1].publish_time is None
 
@@ -918,9 +912,7 @@ class TestGetInstrumentsWithYfinanceTicker:
         self, db_session: Session
     ) -> None:
         ex = _exchange(db_session)
-        # null yfinance_ticker
         null_inst = _instrument(db_session, ex, ticker="NULL1", yfinance_ticker=None)
-        # empty-string yfinance_ticker
         empty_inst = _instrument(db_session, ex, ticker="EMPTY1", yfinance_ticker="")
         db_session.flush()
 
@@ -1068,7 +1060,6 @@ class TestUpsertProfilePreprocessing:
         ts = int(datetime(2024, 3, 15).timestamp())
         rows, _ = self._call(db_session, {"exDividendDate": ts, "symbol": "AAPL"})
         assert len(rows) == 1
-        # exDividendDate converted to a date object or None
         assert rows[0]["ex_dividend_date"] is None or isinstance(
             rows[0]["ex_dividend_date"], date
         )
@@ -1695,7 +1686,6 @@ class TestUpsertInsiderTransactionsPreprocessing:
         repo._upsert = fake_upsert  # type: ignore[method-assign]
         repo.upsert_insider_transactions(inst_id, df)
 
-        # Dedup: only one row remains — the last occurrence
         assert len(captured) == 1
         assert captured[0]["shares"] == 2000
 
@@ -1845,7 +1835,6 @@ class TestUpsertNewsPreprocessing:
         assert rows[0]["link"] == "https://preview.example.com/1"
 
     def test_pub_date_iso_string_parsed_tz_stripped(self, db_session: Session) -> None:
-        # pubDate ISO 8601 with timezone → tz stripped
         ex = _exchange(db_session, name="NewsEx6")
         inst = _instrument(db_session, ex, ticker="N6", yfinance_ticker="N6")
         article = {
@@ -1869,7 +1858,6 @@ class TestUpsertNewsPreprocessing:
             "providerPublishTime": ts,
         }
         rows = self._call(db_session, inst.id, [article])
-        # pubDate parse fails; providerPublishTime succeeds
         assert rows[0]["publish_time"] is not None
 
     def test_no_publish_time_at_all_yields_none(self, db_session: Session) -> None:

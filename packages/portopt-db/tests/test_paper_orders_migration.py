@@ -1,11 +1,8 @@
-"""T3.6 — the ``add_paper_orders`` Alembic revision.
+"""Tests for the ``add_paper_orders`` Alembic revision.
 
-Mirrors ``test_agent_audit_migration.py``: loads the revision module by path and
-replays ``upgrade()`` / ``downgrade()`` against an in-memory SQLite engine via a
-raw ``MigrationContext`` + ``Operations`` (no Postgres needed, so it runs in CI).
-Asserts the ``paper_orders`` table, its indexes and the idempotency UNIQUE
-constraint appear on upgrade and are gone on downgrade, and that the revision
-chains from the agent-audit head.
+Loads the revision module by path via importlib and drives ``upgrade()`` /
+``downgrade()`` through a raw ``MigrationContext`` + ``Operations`` on an
+in-memory SQLite engine — no live Postgres required, so the suite runs in CI.
 """
 
 from __future__ import annotations
@@ -84,7 +81,9 @@ def test_upgrade_creates_paper_orders_table(upgraded_engine) -> None:
 
 
 def test_upgrade_creates_expected_indexes(upgraded_engine) -> None:
-    names = {idx["name"] for idx in inspect(upgraded_engine).get_indexes("paper_orders")}
+    names = {
+        idx["name"] for idx in inspect(upgraded_engine).get_indexes("paper_orders")
+    }
     assert names >= EXPECTED_INDEXES
 
 

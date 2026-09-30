@@ -26,12 +26,22 @@ _FORBIDDEN_PACKAGES = ("skfolio",)
 
 def _iter_python_files(root: Path) -> Iterator[Path]:
     for path in root.rglob("*.py"):
+        # Exclude self so the guard pattern in this file never trips the scan.
         if "__pycache__" in path.parts or path.resolve() == _SELF:
             continue
         yield path
 
 
 def find_optimizer_import_violations(root: Path) -> list[str]:
+    """Return paths of files that import the optimizer library, relative to root.
+
+    Args:
+        root: Directory tree to scan recursively for ``.py`` files.
+
+    Returns:
+        Relative path strings for every file containing a bare
+        ``import optimizer`` or ``from optimizer …`` statement.
+    """
     offending: list[str] = []
     for path in _iter_python_files(root):
         try:
@@ -44,6 +54,15 @@ def find_optimizer_import_violations(root: Path) -> list[str]:
 
 
 def find_forbidden_stack_dependencies(text: str) -> list[str]:
+    """Return forbidden package names found in a pyproject.toml body.
+
+    Args:
+        text: Raw text content of a pyproject.toml file.
+
+    Returns:
+        Names from ``_FORBIDDEN_PACKAGES`` that appear (case-insensitive)
+        in *text*.
+    """
     lowered = text.lower()
     return [pkg for pkg in _FORBIDDEN_PACKAGES if pkg in lowered]
 

@@ -32,6 +32,15 @@ def _iter_python_files(root: Path) -> Iterator[Path]:
 
 
 def find_agent_import_violations(root: Path) -> list[str]:
+    """Scan Python files under root for imports of the forbidden agent stack.
+
+    Args:
+        root: Directory tree to scan recursively for ``*.py`` files.
+
+    Returns:
+        Paths of offending files, relative to root, in discovery order.
+        Empty list means no violations.
+    """
     offending: list[str] = []
     for path in _iter_python_files(root):
         try:
@@ -44,6 +53,15 @@ def find_agent_import_violations(root: Path) -> list[str]:
 
 
 def find_forbidden_agent_dependencies(text: str) -> list[str]:
+    """Return forbidden distribution names found in the given pyproject text.
+
+    Args:
+        text: Raw contents of a ``pyproject.toml`` to inspect.
+
+    Returns:
+        Subset of ``_FORBIDDEN_DISTS`` that appear (case-insensitively) in text.
+        Empty list means no forbidden deps declared.
+    """
     lowered = text.lower()
     return [dist for dist in _FORBIDDEN_DISTS if dist in lowered]
 
@@ -53,11 +71,15 @@ def test_when_src_is_scanned_then_no_agent_stack_import_is_found():
 
 
 def test_when_pyproject_is_read_then_no_agent_stack_dependency_is_declared():
-    assert find_forbidden_agent_dependencies(_PYPROJECT.read_text(encoding="utf-8")) == []
+    assert (
+        find_forbidden_agent_dependencies(_PYPROJECT.read_text(encoding="utf-8")) == []
+    )
 
 
 def test_when_a_deepagents_import_is_injected_then_the_guard_fails(tmp_path):
-    (tmp_path / "offender.py").write_text("from deepagents import x\n", encoding="utf-8")
+    (tmp_path / "offender.py").write_text(
+        "from deepagents import x\n", encoding="utf-8"
+    )
     assert find_agent_import_violations(tmp_path)
 
 

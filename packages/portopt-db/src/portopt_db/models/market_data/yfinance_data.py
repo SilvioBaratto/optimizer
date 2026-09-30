@@ -46,7 +46,6 @@ class TickerProfile(BaseModel):
     )
     instrument: Mapped[Instrument] = relationship(back_populates="profiles")
 
-    # Identifiers
     symbol: Mapped[str | None] = mapped_column(String(50), nullable=True)
     short_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
     long_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -55,14 +54,12 @@ class TickerProfile(BaseModel):
     quote_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
-    # Classification
     sector: Mapped[str | None] = mapped_column(String(200), nullable=True)
     industry: Mapped[str | None] = mapped_column(String(200), nullable=True)
     country: Mapped[str | None] = mapped_column(String(100), nullable=True)
     website: Mapped[str | None] = mapped_column(String(500), nullable=True)
     long_business_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Market data
     market_cap: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     enterprise_value: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     shares_outstanding: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
@@ -71,7 +68,6 @@ class TickerProfile(BaseModel):
         BigInteger, nullable=True
     )
 
-    # Price & volume
     current_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     previous_close: Mapped[float | None] = mapped_column(Float, nullable=True)
     open_price: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -90,7 +86,6 @@ class TickerProfile(BaseModel):
     ask_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     beta: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    # Valuation ratios
     trailing_pe: Mapped[float | None] = mapped_column(Float, nullable=True)
     forward_pe: Mapped[float | None] = mapped_column(Float, nullable=True)
     trailing_eps: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -104,7 +99,6 @@ class TickerProfile(BaseModel):
     peg_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     book_value: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    # Profitability
     profit_margins: Mapped[float | None] = mapped_column(Float, nullable=True)
     operating_margins: Mapped[float | None] = mapped_column(Float, nullable=True)
     gross_margins: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -112,7 +106,6 @@ class TickerProfile(BaseModel):
     return_on_assets: Mapped[float | None] = mapped_column(Float, nullable=True)
     return_on_equity: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    # Income & revenue
     total_revenue: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     revenue_per_share: Mapped[float | None] = mapped_column(Float, nullable=True)
     revenue_growth: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -131,7 +124,6 @@ class TickerProfile(BaseModel):
     current_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     quick_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    # Dividends
     dividend_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
     dividend_yield: Mapped[float | None] = mapped_column(Float, nullable=True)
     ex_dividend_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
@@ -147,7 +139,6 @@ class TickerProfile(BaseModel):
     )
     last_dividend_value: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    # Analyst & target
     target_high_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     target_low_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     target_mean_price: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -158,7 +149,6 @@ class TickerProfile(BaseModel):
     recommendation_key: Mapped[str | None] = mapped_column(String(50), nullable=True)
     recommendation_mean: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    # Employees
     full_time_employees: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
@@ -783,7 +773,6 @@ class TickerProfileExtra(BaseModel):
         nullable=False,
     )
 
-    # Short interest
     shares_short: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     shares_short_prior_month: Mapped[int | None] = mapped_column(
         BigInteger, nullable=True
@@ -794,7 +783,6 @@ class TickerProfileExtra(BaseModel):
         Float, nullable=True
     )
 
-    # Ownership + momentum
     held_percent_insiders: Mapped[float | None] = mapped_column(Float, nullable=True)
     held_percent_institutions: Mapped[float | None] = mapped_column(
         Float, nullable=True

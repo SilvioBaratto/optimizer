@@ -26,12 +26,30 @@ def _str(v: Any, n: int) -> str | None:
 
 
 class MarketSummaryRepository(RepositoryBase):
+    """Persists and refreshes per-market equity/ETF summary snapshots."""
+
     def upsert_summaries(
         self,
         market: str,
         as_of: dt.date,
         rows: list[dict[str, Any]],
     ) -> int:
+        """Write or refresh summary rows for one market snapshot.
+
+        Deduplicates by symbol within the batch before upserting, so callers
+        need not pre-deduplicate.  Rows missing a ``symbol`` key are silently
+        skipped.
+
+        Args:
+            market: Market or exchange identifier stored on every row.
+            as_of: Trading date these summaries represent.
+            rows: Raw dicts; recognised keys are ``symbol``, ``short_name``,
+                ``price``, ``change``, ``change_percent``, ``previous_close``,
+                and ``market_state``.
+
+        Returns:
+            Number of rows written after deduplication and symbol filtering.
+        """
         by_symbol: dict[str, dict[str, Any]] = {}
         for r in rows:
             symbol = r.get("symbol")

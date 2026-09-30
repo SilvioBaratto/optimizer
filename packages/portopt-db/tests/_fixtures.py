@@ -1,8 +1,7 @@
 """DB seed builders for the portopt-db test suite.
 
-Copied from the ingestion daemon's ``tests/_fixtures`` (the subset the relocated
-repository tests use). Builders insert via ``session.add`` + ``flush()`` and
-never ``commit()`` — the SAVEPOINT ``db_session`` fixture owns the transaction.
+Builders insert via ``session.add`` + ``flush()`` and never ``commit()`` —
+the SAVEPOINT ``db_session`` fixture owns the transaction.
 """
 
 from __future__ import annotations

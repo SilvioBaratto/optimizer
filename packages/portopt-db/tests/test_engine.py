@@ -1,6 +1,6 @@
-"""Tests for portopt_db.engine.DatabaseManager (relocated from the ingestion
-daemon in the portopt-db extraction). Config-injected; ``create_engine`` patched
-throughout — no server is contacted.
+"""Tests for portopt_db.engine.DatabaseManager.
+
+Config-injected; ``create_engine`` patched throughout — no server is contacted.
 """
 
 from __future__ import annotations

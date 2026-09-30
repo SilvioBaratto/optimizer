@@ -37,7 +37,6 @@ class EconomicIndicator(BaseModel):
 
     country: Mapped[str] = mapped_column(String(100), nullable=False)
 
-    # Forecast columns (from get_forecasts)
     last_inflation: Mapped[float | None] = mapped_column(Float, nullable=True)
     inflation_6m: Mapped[float | None] = mapped_column(Float, nullable=True)
     inflation_10y_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -47,7 +46,7 @@ class EconomicIndicator(BaseModel):
     peg_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     lt_rate_forecast: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    # Reference date (e.g. first day of the reference month)
+    # First day of the reference month, not the actual indicator event date.
     reference_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
 
 
@@ -231,7 +230,6 @@ class MacroNews(BaseModel):
     snippet: Mapped[str | None] = mapped_column(Text, nullable=True)
     full_content: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Relationships
     theme_entries: Mapped[list[MacroNewsTheme]] = relationship(
         back_populates="news",
         cascade="all, delete-orphan",
@@ -240,6 +238,7 @@ class MacroNews(BaseModel):
 
     @property
     def themes(self) -> str | None:
+        """Return comma-separated sorted theme names, or None when no themes are linked."""
         if not self.theme_entries:
             return None
         return ",".join(sorted(e.theme for e in self.theme_entries))

@@ -1,4 +1,4 @@
-"""Tests for migration a7b8c9d0e1f2: seed_reference_indices_expanded (issue #430).
+"""Tests for migration a7b8c9d0e1f2: seed_reference_indices_expanded.
 
 Covers:
 - Migration module imports, revision + down_revision chain.
@@ -44,11 +44,6 @@ EXPECTED_TICKERS = (
 )
 NASDAQ_TICKERS = {"QQQ"}
 NYSE_TICKERS = {"IWM", "EFA", "EEM", "AGG", "VGK", "VWO", "TLT", "GLD"}
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _load_migration() -> types.ModuleType:
@@ -164,11 +159,6 @@ def _count(engine, ticker: str | None = None) -> int:
         ).scalar()
 
 
-# ---------------------------------------------------------------------------
-# Metadata
-# ---------------------------------------------------------------------------
-
-
 class TestMigrationMetadata:
     def test_module_imports(self) -> None:
         assert _load_migration() is not None
@@ -184,11 +174,6 @@ class TestMigrationMetadata:
 
     def test_depends_on_is_none(self) -> None:
         assert _load_migration().depends_on is None
-
-
-# ---------------------------------------------------------------------------
-# INDICES catalogue
-# ---------------------------------------------------------------------------
 
 
 class TestIndicesCatalogue:
@@ -207,11 +192,6 @@ class TestIndicesCatalogue:
         """SPY is owned by the predecessor migration x4y5z6a7b8c9, not this one."""
         mod = _load_migration()
         assert all(row[0] != "SPY" for row in mod.INDICES)
-
-
-# ---------------------------------------------------------------------------
-# Upgrade SQL content
-# ---------------------------------------------------------------------------
 
 
 class TestUpgradeSQLContent:
@@ -259,11 +239,6 @@ def _single_statement_for(ticker: str) -> str:
         if f"'{ticker}'" in sql:
             return sql
     raise AssertionError(f"No upgrade statement found for {ticker}")
-
-
-# ---------------------------------------------------------------------------
-# Functional SQLite smoke — WHERE EXISTS + idempotency
-# ---------------------------------------------------------------------------
 
 
 class TestWhereExistsGuardBehavior:
@@ -338,11 +313,6 @@ class TestWhereExistsGuardBehavior:
 
         for ticker in EXPECTED_TICKERS:
             assert _count(engine, ticker) == 1
-
-
-# ---------------------------------------------------------------------------
-# Downgrade
-# ---------------------------------------------------------------------------
 
 
 class TestDowngradeSQLContent:

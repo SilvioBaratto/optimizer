@@ -28,10 +28,6 @@ from _fixtures import add_and_flush, seed_universe
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repositories.universe.universe_repository import UniverseRepository
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _make_exchange(session, name: str = "NYSE") -> Exchange:
     return add_and_flush(session, Exchange(name=name))
@@ -48,11 +44,6 @@ def _repo(session) -> UniverseRepository:
     return UniverseRepository(session)
 
 
-# ---------------------------------------------------------------------------
-# save_exchange — lines 22, 25-39
-# ---------------------------------------------------------------------------
-
-
 class TestSaveExchange:
     def test_when_exchange_does_not_exist_creates_new_row(self, db_session):
         repo = _repo(db_session)
@@ -63,7 +54,6 @@ class TestSaveExchange:
         assert ex.id is not None
 
     def test_when_exchange_already_exists_updates_t212_id(self, db_session):
-        # Seed it first
         _make_exchange(db_session, "LSE")
         repo = _repo(db_session)
 
@@ -71,7 +61,6 @@ class TestSaveExchange:
 
         assert updated.name == "LSE"
         assert updated.t212_id == 42
-        # Only one row must exist
         count = repo.get_exchange_count()
         assert count == 1
 
@@ -84,9 +73,8 @@ class TestSaveExchange:
         assert ex1.id == ex2.id
 
     def test_when_called_repeatedly_then_one_row_and_latest_t212_id(self, db_session):
-        """R1/§5.4 (T1.3): repeated saves converge to a single row via
-        INSERT ... ON CONFLICT DO UPDATE on exchanges.name — id stable,
-        latest t212_id reflected, no duplicate."""
+        """Repeated saves converge to a single row via INSERT ... ON CONFLICT DO UPDATE
+        on exchanges.name — id stable, latest t212_id reflected, no duplicate."""
         repo = _repo(db_session)
         first = repo.save_exchange({"name": "XETRA", "id": 1})
         first_id = first.id
@@ -96,11 +84,6 @@ class TestSaveExchange:
         assert repo.get_exchange_count() == 1
         assert again.id == first_id
         assert again.t212_id == 2
-
-
-# ---------------------------------------------------------------------------
-# get_exchange_count / get_instrument_count — lines 141-148
-# ---------------------------------------------------------------------------
 
 
 class TestCounts:
@@ -127,11 +110,6 @@ class TestCounts:
         assert repo.get_instrument_count() == 2
 
 
-# ---------------------------------------------------------------------------
-# get_exchanges — line 170
-# ---------------------------------------------------------------------------
-
-
 class TestGetExchanges:
     def test_when_empty_returns_empty_sequence(self, db_session):
         result = _repo(db_session).get_exchanges()
@@ -147,11 +125,6 @@ class TestGetExchanges:
         seed_universe(db_session)
         result = _repo(db_session).get_exchanges()
         assert all(isinstance(e, Exchange) for e in result)
-
-
-# ---------------------------------------------------------------------------
-# get_instruments — lines 158-167
-# ---------------------------------------------------------------------------
 
 
 class TestGetInstruments:
@@ -228,11 +201,6 @@ class TestGetInstruments:
         assert len(result) == 2
 
 
-# ---------------------------------------------------------------------------
-# mark_delisted — lines 108-116
-# ---------------------------------------------------------------------------
-
-
 class TestMarkDelisted:
     def test_when_instrument_exists_and_active_marks_delisted_returns_true(
         self, db_session
@@ -275,13 +243,7 @@ class TestMarkDelisted:
 
         assert result is False
         db_session.refresh(inst)
-        # Original date must be unchanged
         assert inst.delisted_at == date(2023, 1, 1)
-
-
-# ---------------------------------------------------------------------------
-# get_active_tickers — lines 120-125
-# ---------------------------------------------------------------------------
 
 
 class TestGetActiveTickers:
@@ -319,11 +281,6 @@ class TestGetActiveTickers:
         _make_instrument(db_session, ex2, "EX2T")
         result = _repo(db_session).get_active_tickers(ex1.id)
         assert result == {"EX1T"}
-
-
-# ---------------------------------------------------------------------------
-# clear_all — lines 128-139
-# ---------------------------------------------------------------------------
 
 
 class TestClearAll:

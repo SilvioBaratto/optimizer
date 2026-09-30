@@ -1,11 +1,8 @@
 """
-Criterion scope-1: ecf0a9a2bfdc's downgrade() no longer raises; it is a no-op
-matching its no-op upgrade(), with a comment explaining why.
-
-Assumption (source-blind): the migration module is loaded dynamically by file
-path and both upgrade() and downgrade() are invoked with no Alembic runtime
-context (no `op`/connection available). This only succeeds if both bodies are
-pure no-ops -- exactly the shape the criterion demands.
+The migration module is loaded dynamically by file path and both upgrade() and
+downgrade() are invoked with no Alembic runtime context (no ``op``/connection
+available). This only succeeds if both bodies are pure no-ops — exactly the
+invariant the test verifies.
 """
 
 import importlib.util

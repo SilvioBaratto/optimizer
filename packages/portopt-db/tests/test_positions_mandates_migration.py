@@ -1,17 +1,11 @@
-"""T2 — the ``add_positions_mandates_run_thread_id`` Alembic revision.
+"""Tests for the ``add_positions_mandates_run_thread_id`` Alembic revision.
 
-Mirrors ``test_agent_audit_migration.py`` / ``test_paper_orders_migration.py``:
-loads the revision module by path and replays ``upgrade()`` / ``downgrade()``
-against an in-memory SQLite engine via a raw ``MigrationContext`` +
-``Operations`` (no Postgres needed, so it runs in CI). Unlike its siblings this
-revision both *creates* tables (``positions``, ``portfolio_mandates``) and *adds
-a column* (``agent_runs.thread_id``), so the fixture first stands up the minimal
-prerequisite tables from earlier migrations — ``paper_orders`` (the
-``positions.paper_order_id`` FK target) and ``agent_runs`` (the table the column
-is added to) — before replaying the revision. Asserts the two new tables + their
-indexes + unique constraints appear and ``agent_runs`` gains ``thread_id`` on
-upgrade, that all of it is gone on downgrade, and that the revision chains from
-the current (mifid-profiles) head.
+Unlike its sibling migration tests, this revision both creates tables
+(``positions``, ``portfolio_mandates``) and adds a column to an existing table
+(``agent_runs.thread_id``), so the fixture must pre-create the minimal
+predecessor tables — ``paper_orders`` (FK target for ``positions.paper_order_id``)
+and ``agent_runs`` (receiving the new column) — before replaying the revision
+under a raw ``MigrationContext`` / ``Operations`` against SQLite in-memory.
 """
 
 from __future__ import annotations

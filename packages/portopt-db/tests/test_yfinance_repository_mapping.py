@@ -178,7 +178,7 @@ class TestEarningsTimeline:
         )
         repo.upsert_earnings_history(_IID, df)
         rows = _rows(repo)
-        assert len(rows) == 1  # the NaT row is dropped
+        assert len(rows) == 1
         assert rows[0]["period_date"] == dt.date(2024, 3, 31)
 
     def test_earnings_dates_defensive_columns(self, repo) -> None:
@@ -226,7 +226,7 @@ class TestSecFilings:
         ]
         repo.upsert_sec_filings(_IID, filings)
         rows = _rows(repo)
-        assert len(rows) == 2  # first two dedup
+        assert len(rows) == 2
         forms = {r["form_type"] for r in rows}
         assert forms == {"10-K", "10-Q"}
 
@@ -239,7 +239,7 @@ class TestCorpActionExtras:
         )
         repo.upsert_shares_outstanding(_IID, s)
         rows = _rows(repo)
-        assert len(rows) == 2  # duplicate 2024-06-01 collapsed
+        assert len(rows) == 2
         assert rows[0]["shares"] == 1000
 
     def test_shares_outstanding_accepts_dataframe(self, repo) -> None:

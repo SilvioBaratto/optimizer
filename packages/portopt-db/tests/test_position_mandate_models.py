@@ -1,18 +1,8 @@
-"""T1 — ``positions`` / ``portfolio_mandates`` models + ``agent_runs.thread_id``.
+"""Phase 8 ``positions`` / ``portfolio_mandates`` models + ``agent_runs.thread_id``.
 
-Phase 8 of the ``fund`` bridge adds two pure-SQLAlchemy ``BaseModel`` subclasses
-and one nullable column on the shared ``Base.metadata`` so SQLite builds them in
-tests (mirroring ``agent_run.py`` / ``paper_order.py``: UUID PK, ``_JSON``
-variant, named indexes/constraints). These tests prove:
-
-* both new tables register on ``Base.metadata``;
-* ``Position`` round-trips its snapshot columns, ``shares``/``notional`` default
-  ``None``, and ``(portfolio_id, ticker)`` rejects a duplicate holding while the
-  same ticker under a *different* portfolio is allowed;
-* ``PortfolioMandate`` round-trips the ``mandate`` JSONB→JSON payload + scalar
-  mirror columns, ``status`` carries its ``"active"`` server default, and the
-  ``portfolio_id`` UNIQUE collapses a second mandate;
-* the new nullable ``agent_runs.thread_id`` accepts ``None`` and a set value.
+Both models follow the ``agent_run.py`` / ``paper_order.py`` conventions (UUID PK,
+``_JSON`` JSONB-to-SQLite variant, named indexes and constraints) so they participate
+in ``Base.metadata`` and remain testable against SQLite in-memory.
 """
 
 from __future__ import annotations

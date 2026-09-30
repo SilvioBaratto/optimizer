@@ -1,5 +1,5 @@
-"""SPEC review #4 — batched staleness (one grouped query per category for a
-whole sweep) must match the per-instrument get_staleness_info shape/values.
+"""Batched staleness (one grouped query per category for a whole sweep) must
+match the per-instrument get_staleness_info shape/values.
 Runs against real SQLite via the db_session fixture.
 """
 
@@ -31,7 +31,7 @@ def _instrument(db_session, ticker: str) -> Instrument:
 def test_bulk_matches_single_and_covers_empty(db_session) -> None:
     repo = YFinanceRepository(db_session)
     a = _instrument(db_session, "AAA")
-    b = _instrument(db_session, "BBB")  # no rows at all
+    b = _instrument(db_session, "BBB")
 
     db_session.add(PriceHistory(instrument_id=a.id, date=dt.date(2024, 6, 1), close=10))
     db_session.add(TickerProfile(instrument_id=a.id, symbol="AAA"))
@@ -39,7 +39,6 @@ def test_bulk_matches_single_and_covers_empty(db_session) -> None:
 
     bulk = repo.get_staleness_info_bulk([a.id, b.id])
 
-    # Every requested id present with the full key set (all-None for the empty one).
     assert set(bulk) == {a.id, b.id}
     single_a = repo.get_staleness_info(a.id)
     assert set(bulk[a.id]) == set(single_a)
@@ -50,7 +49,6 @@ def test_bulk_matches_single_and_covers_empty(db_session) -> None:
     )
     assert bulk[a.id]["profile_updated_at"] is not None
 
-    # B has no data → all values None (matches a fresh instrument's single query).
     assert bulk[b.id]["price_max_date"] is None
     assert all(v is None for v in bulk[b.id].values())
 

@@ -1,4 +1,4 @@
-"""T3 — ETF metadata repository: idempotent upserts on the natural keys.
+"""ETF metadata repository: idempotent upserts on the natural keys.
 
 Convert-then-rerun: the same payload twice converges to one row per table
 (no duplicates); a changed payload updates in place.
@@ -179,7 +179,7 @@ def test_depth_upserts_map_yfinance_display_labels(db_session) -> None:
     assert float(eq.price_to_earnings) == 22.5
     assert float(eq.price_to_book) == 3.1
     assert float(eq.median_market_cap) == 1.0e11
-    assert eq.price_to_sales is None  # label absent -> NULL
+    assert eq.price_to_sales is None
 
     bh = db_session.query(ETFBondHoldings).filter_by(instrument_id=inst.id).one()
     assert float(bh.duration) == 6.2

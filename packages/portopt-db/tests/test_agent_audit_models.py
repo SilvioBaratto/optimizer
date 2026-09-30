@@ -1,4 +1,4 @@
-"""T2.2 — ``agent_runs`` / ``agent_decisions`` ORM models on SQLite.
+"""``agent_runs`` / ``agent_decisions`` ORM models on SQLite.
 
 The two audit models live in ``portopt_db`` (mirroring ``background_job.py``:
 UUID PK, ``_JSON`` variant, indexes) so the shared ``Base.metadata`` builds them

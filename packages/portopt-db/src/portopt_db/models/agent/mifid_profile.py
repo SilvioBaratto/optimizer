@@ -1,6 +1,6 @@
 """SQLAlchemy model for MiFID II suitability profiles (``mifid_profiles``).
 
-Fase 5 of the ``fund`` bridge: the profiler's *step 0* system of record. A
+Phase 5 of the ``fund`` bridge: the profiler's *step 0* system of record. A
 client questionnaire is mapped to a persisted ``ConstraintSet`` (the risk
 profile every later agent reads) and stored **append-only** with a per-portfolio
 ``version`` — an amended assessment never overwrites the prior one, so a
@@ -32,7 +32,24 @@ _JSON = JSON().with_variant(JSONB, "postgresql")
 
 
 class MifidProfile(BaseModel):
-    """One MiFID suitability-profile version: questionnaire → ConstraintSet."""
+    """One MiFID suitability-profile version: questionnaire → ConstraintSet.
+
+    Attributes:
+        portfolio_id: Portfolio this profile belongs to; bare UUID (no FK) because
+            the ``portfolios`` table was removed in the ingestion strip.
+        version: 1-based counter per portfolio. Each amendment inserts a new row;
+            prior versions are never overwritten.
+        questionnaire: Raw snapshot of the four MiFID pillar responses, retained
+            for regulatory record-keeping.
+        constraint_set: Risk profile derived from the questionnaire; every
+            downstream agent reads this to constrain optimization.
+        suitability: Structured per-pillar inputs, flags, and rationale for MiFID
+            record-keeping.
+        store_key: Cache key in the LangGraph ``PostgresStore`` under which the
+            active ``ConstraintSet`` is stored; lets a ``ConstraintSetRef`` resolve
+            without a DB round-trip.
+        status: Lifecycle state of this profile version (e.g. ``"active"``).
+    """
 
     __tablename__ = "mifid_profiles"
     __table_args__ = (

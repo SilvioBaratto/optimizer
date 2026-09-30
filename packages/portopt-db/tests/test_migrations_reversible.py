@@ -1,7 +1,8 @@
-"""Guard: every Alembic revision under ``ingestion/alembic/versions/``
-defines both ``upgrade()`` and ``downgrade()``, and no ``downgrade()`` is
-a bare no-op — unless ``upgrade()`` is itself bare, in which case there is
-nothing to reverse and a bare ``downgrade()`` is correct.
+"""Guard: every Alembic revision under the portopt-db alembic tree
+(``alembic/versions/``) defines both ``upgrade()`` and ``downgrade()``,
+and no ``downgrade()`` is a bare no-op — unless ``upgrade()`` is itself
+bare, in which case there is nothing to reverse and a bare
+``downgrade()`` is correct.
 
 Parses each revision with ``ast`` rather than regex — an AST walk
 distinguishes a bare ``pass`` (or docstring-only) body from a
@@ -18,10 +19,10 @@ exempt rather than flagged).
 The scan enumerates whatever revisions are present — it does not require a
 migration to exist, so it passes vacuously in a cycle that adds none.
 
-Anchored on ``Path(__file__).resolve().parents[3]`` to reach ``ingestion/``
-(never ``Path.cwd()``, per the issue's explicit instruction), then
-``alembic/versions``. ``__pycache__`` is skipped by construction: the
-directory glob only matches ``*.py`` file siblings, never descends into it.
+Anchored on ``Path(__file__).resolve().parents[1]`` to reach the portopt-db
+package root (never ``Path.cwd()``), then ``alembic/versions``.
+``__pycache__`` is skipped by construction: the directory glob only matches
+``*.py`` file siblings, never descends into it.
 """
 
 from __future__ import annotations
@@ -199,18 +200,13 @@ def test_when_any_number_of_well_formed_revisions_are_scanned_then_none_are_repo
 ):
     """Cover 0..5 well-formed revisions, including the empty-directory case.
 
-    Replaces a prior ``hypothesis`` ``@given`` property: the CI job installs
-    only ``ingestion/pyproject.toml`` (deps + the ``[test]`` extra), which
-    does not declare ``hypothesis``, so collecting a module-level
-    ``from hypothesis import given`` raised
-    ``ModuleNotFoundError`` and failed the whole ``ingestion-test`` job before
-    a single test ran. ``_well_formed_revision_text`` is a hardcoded template
-    whose ``downgrade()`` is a ``raise`` by construction, so the property added
-    no coverage a fixed 0..5 sweep does not already give — including
-    ``revision_count=0``, which exercises the same empty-directory path a
-    dedicated vacuous test previously asserted in isolation
-    (``assert _scan_texts({}) == []``, unconditionally true and unable to
-    fail regardless of implementation).
+    Uses ``pytest.mark.parametrize`` rather than ``hypothesis`` because the
+    portopt-db test extra does not declare ``hypothesis`` as a dependency; a
+    module-level ``from hypothesis import given`` would raise
+    ``ModuleNotFoundError`` and abort the entire test job before a single
+    test ran. ``_well_formed_revision_text`` is a hardcoded template whose
+    ``downgrade()`` is a ``raise`` by construction, so a 0..5 sweep gives
+    equivalent coverage, including the empty-dict case (``revision_count=0``).
     """
     texts = {
         f"revision_{i}.py": _well_formed_revision_text(i) for i in range(revision_count)

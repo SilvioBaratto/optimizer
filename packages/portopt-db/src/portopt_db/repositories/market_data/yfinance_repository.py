@@ -136,8 +136,15 @@ class YFinanceRepository(RepositoryBase):
     # ------------------------------------------------------------------
 
     def upsert_profile(self, instrument_id: UUID, info: dict[str, Any]) -> int:
-        """Upsert a ticker profile from yf.Ticker.info dict."""
-        # Map yfinance info keys to model columns
+        """Upsert a ticker profile from a ``yf.Ticker.info`` dict.
+
+        Args:
+            instrument_id: The instrument this profile belongs to.
+            info: The raw dict from ``yf.Ticker.info``.
+
+        Returns:
+            Number of rows written (0 or 1).
+        """
         ex_div = info.get("exDividendDate")
         if isinstance(ex_div, int | float):
             ex_div = _safe_date(ex_div)
@@ -250,6 +257,7 @@ class YFinanceRepository(RepositoryBase):
         )
 
     def get_profile(self, instrument_id: UUID) -> TickerProfile | None:
+        """Return the ticker profile for an instrument, or None if not yet fetched."""
         stmt = select(TickerProfile).where(TickerProfile.instrument_id == instrument_id)
         return self.session.execute(stmt).scalar_one_or_none()
 
@@ -286,7 +294,7 @@ class YFinanceRepository(RepositoryBase):
         )
 
     # ------------------------------------------------------------------
-    # Options chain (SPEC A10 — high-volume, own scheduler step)
+    # Options chain (high-volume, own scheduler step)
     # ------------------------------------------------------------------
 
     def get_options_as_of(self, instrument_id: UUID) -> date | None:
@@ -378,7 +386,7 @@ class YFinanceRepository(RepositoryBase):
         """Upsert daily OHLCV rows from a yfinance history DataFrame.
 
         ``price_unit`` records the listing currency the prices are quoted in
-        (e.g. "GBX"); the values are stored as-is (SPEC OQ2).
+        (e.g. ``"GBX"``); values are stored as-is without currency conversion.
         """
         rows = []
         for idx, row_data in history_df.iterrows():
@@ -693,17 +701,19 @@ class YFinanceRepository(RepositoryBase):
     ) -> int:
         """Upsert financial statement rows (EAV format).
 
-        yfinance returns DataFrames where:
-         - columns are period dates
-         - index rows are line item names
+        yfinance returns DataFrames where columns are period dates and index
+        rows are line-item names (e.g. ``"TotalRevenue"``).
 
-        Parameters
-        ----------
-        currency_code : str or None
-            Reporting currency for these rows (e.g. ``"GBP"`` for UK
-            companies).  Should be the **major-unit** code — convert
-            listing currencies like ``"GBX"`` via
-            :func:`app.utils.currency.to_major_currency` before passing.
+        Args:
+            instrument_id: The instrument these rows belong to.
+            df: The yfinance financial statement DataFrame.
+            statement_type: Category label, e.g. ``"income_stmt"`` or ``"balance_sheet"``.
+            period_type: Frequency label, e.g. ``"annual"`` or ``"quarterly"``.
+            currency_code: Reporting currency in major-unit form (e.g. ``"GBP"``).
+                Convert listing currencies like ``"GBX"`` before passing.
+
+        Returns:
+            Number of rows written.
         """
         rows = []
         for col in df.columns:
@@ -736,6 +746,16 @@ class YFinanceRepository(RepositoryBase):
         statement_type: str | None = None,
         period_type: str | None = None,
     ) -> Sequence[FinancialStatement]:
+        """Return financial statement rows for an instrument.
+
+        Args:
+            instrument_id: The instrument to query.
+            statement_type: Optional filter, e.g. ``"income_stmt"`` or ``"balance_sheet"``.
+            period_type: Optional filter, e.g. ``"annual"`` or ``"quarterly"``.
+
+        Returns:
+            Rows ordered by statement type then period date descending.
+        """
         stmt = select(FinancialStatement).where(
             FinancialStatement.instrument_id == instrument_id
         )
@@ -776,6 +796,7 @@ class YFinanceRepository(RepositoryBase):
         )
 
     def get_dividends(self, instrument_id: UUID) -> Sequence[Dividend]:
+        """Return dividend rows for an instrument, ordered newest-first."""
         stmt = (
             select(Dividend)
             .where(Dividend.instrument_id == instrument_id)
@@ -810,6 +831,7 @@ class YFinanceRepository(RepositoryBase):
         )
 
     def get_splits(self, instrument_id: UUID) -> Sequence[StockSplit]:
+        """Return stock split rows for an instrument, ordered newest-first."""
         stmt = (
             select(StockSplit)
             .where(StockSplit.instrument_id == instrument_id)
@@ -880,6 +902,7 @@ class YFinanceRepository(RepositoryBase):
     def get_recommendations(
         self, instrument_id: UUID
     ) -> Sequence[AnalystRecommendation]:
+        """Return analyst recommendation summary rows for an instrument."""
         stmt = (
             select(AnalystRecommendation)
             .where(AnalystRecommendation.instrument_id == instrument_id)
@@ -909,6 +932,7 @@ class YFinanceRepository(RepositoryBase):
         )
 
     def get_price_targets(self, instrument_id: UUID) -> AnalystPriceTarget | None:
+        """Return the analyst price target row for an instrument, or None."""
         stmt = select(AnalystPriceTarget).where(
             AnalystPriceTarget.instrument_id == instrument_id
         )
@@ -947,6 +971,7 @@ class YFinanceRepository(RepositoryBase):
     def get_institutional_holders(
         self, instrument_id: UUID
     ) -> Sequence[InstitutionalHolder]:
+        """Return institutional holder rows for an instrument, ordered by holder name."""
         stmt = (
             select(InstitutionalHolder)
             .where(InstitutionalHolder.instrument_id == instrument_id)
@@ -985,6 +1010,7 @@ class YFinanceRepository(RepositoryBase):
         )
 
     def get_mutualfund_holders(self, instrument_id: UUID) -> Sequence[MutualFundHolder]:
+        """Return mutual fund holder rows for an instrument, ordered by holder name."""
         stmt = (
             select(MutualFundHolder)
             .where(MutualFundHolder.instrument_id == instrument_id)
@@ -1053,6 +1079,7 @@ class YFinanceRepository(RepositoryBase):
     def get_insider_transactions(
         self, instrument_id: UUID
     ) -> Sequence[InsiderTransaction]:
+        """Return insider transaction rows for an instrument, ordered newest-first."""
         stmt = (
             select(InsiderTransaction)
             .where(InsiderTransaction.instrument_id == instrument_id)
@@ -1174,7 +1201,6 @@ class YFinanceRepository(RepositoryBase):
         ``providerPublishTime``) and new format (nested ``content`` dict with
         ``pubDate`` ISO 8601 string).
         """
-        # Look up instrument name once for all articles
         ticker_name = self.session.execute(
             select(Instrument.name).where(Instrument.id == instrument_id)
         ).scalar_one_or_none()
@@ -1189,7 +1215,6 @@ class YFinanceRepository(RepositoryBase):
             if not news_uuid:
                 continue
 
-            # Title
             title = _safe_str(content.get("title") or article.get("title"))
 
             # Publisher: new format nests under provider dict
@@ -1224,7 +1249,6 @@ class YFinanceRepository(RepositoryBase):
                     with contextlib.suppress(ValueError, TypeError, OSError):
                         publish_time = datetime.fromtimestamp(int(pt))
 
-            # News type
             news_type = _safe_str(
                 content.get("contentType") or article.get("type"), 100
             )
@@ -1253,6 +1277,7 @@ class YFinanceRepository(RepositoryBase):
         )
 
     def get_news(self, instrument_id: UUID) -> Sequence[TickerNews]:
+        """Return news articles for an instrument, ordered by publish time descending."""
         stmt = (
             select(TickerNews)
             .where(TickerNews.instrument_id == instrument_id)
@@ -1273,7 +1298,6 @@ class YFinanceRepository(RepositoryBase):
         """
         result: dict[str, Any] = {}
 
-        # Price: get the latest date
         price_row = self.session.execute(
             select(func.max(PriceHistory.date)).where(
                 PriceHistory.instrument_id == instrument_id
@@ -1281,7 +1305,6 @@ class YFinanceRepository(RepositoryBase):
         ).scalar_one_or_none()
         result["price_max_date"] = price_row
 
-        # For each other category, get MAX(updated_at)
         category_models = [
             ("profile", TickerProfile),
             ("financials", FinancialStatement),

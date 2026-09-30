@@ -23,10 +23,6 @@ from datetime import date
 
 from portopt_db.coerce import parse_reference_date
 
-# ---------------------------------------------------------------------------
-# None / non-string edge cases
-# ---------------------------------------------------------------------------
-
 
 class TestNoneAndNonStringInputs:
     def test_when_none_then_returns_none(self) -> None:
@@ -48,11 +44,6 @@ class TestNoneAndNonStringInputs:
 
     def test_when_whitespace_only_string_then_returns_none(self) -> None:
         assert parse_reference_date("   ") is None
-
-
-# ---------------------------------------------------------------------------
-# "Mon YYYY" format (e.g. "Dec 2024")
-# ---------------------------------------------------------------------------
 
 
 class TestMonYearFormat:
@@ -94,7 +85,6 @@ class TestMonYearFormat:
     def test_when_unknown_month_abbr_then_falls_through(self) -> None:
         # "Xyz 2024" — month not in _MONTH_ABBR, falls through to other formats
         result = parse_reference_date("Xyz 2024")
-        # Not parseable by any format; should return None
         assert result is None
 
     def test_when_year_is_not_integer_then_falls_through(self) -> None:
@@ -103,12 +93,9 @@ class TestMonYearFormat:
         assert result is None
 
 
-# ---------------------------------------------------------------------------
-# "MM/YY" IlSole-style (two-digit year, normalises internal spaces)
-# ---------------------------------------------------------------------------
-
-
 class TestMmYyFormat:
+    """IlSole24Ore-style two-digit-year format; internal spaces are normalised before parsing."""
+
     def test_when_mm_slash_yy_then_returns_first_of_month(self) -> None:
         result = parse_reference_date("12/25")
         assert result == date(2025, 12, 1)
@@ -124,7 +111,6 @@ class TestMmYyFormat:
 
     def test_when_right_side_is_four_digits_then_not_mm_yy_branch(self) -> None:
         # "01/2025" — right side len != 2, should NOT enter MM/YY branch
-        # It will eventually be parsed as a date via datetime.strptime
         result = parse_reference_date("01/2025")
         # Parsed by strptime "%m/%d/%Y" where day=2025 is invalid, or "%d/%m/%Y"
         # Both invalid day=2025; should be None (no format succeeds)
@@ -134,11 +120,6 @@ class TestMmYyFormat:
         # "99/25" → month=99 → date(2025, 99, 1) raises ValueError, caught
         result = parse_reference_date("99/25")
         assert result is None
-
-
-# ---------------------------------------------------------------------------
-# "Mon/DD" slash format (e.g. "Jan/15")
-# ---------------------------------------------------------------------------
 
 
 class TestMonDdSlashFormat:
@@ -164,11 +145,6 @@ class TestMonDdSlashFormat:
         assert result is None
 
 
-# ---------------------------------------------------------------------------
-# ISO format "YYYY-MM-DD"
-# ---------------------------------------------------------------------------
-
-
 class TestIsoFormat:
     def test_when_iso_date_string_then_returns_date(self) -> None:
         result = parse_reference_date("2024-12-01")
@@ -182,11 +158,6 @@ class TestIsoFormat:
     def test_when_iso_format_boundary_jan_1(self) -> None:
         result = parse_reference_date("2000-01-01")
         assert result == date(2000, 1, 1)
-
-
-# ---------------------------------------------------------------------------
-# US / EU datetime strptime formats
-# ---------------------------------------------------------------------------
 
 
 class TestStrptimeFormats:

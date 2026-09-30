@@ -34,6 +34,14 @@ if TYPE_CHECKING:
 
 
 class Exchange(BaseModel):
+    """Trading venue that hosts instruments.
+
+    Attributes:
+        name: Exchange identifier (e.g. "XNAS", "XNYS"); unique across all rows.
+        t212_id: Trading 212 internal exchange ID; absent for venues not in T212.
+        instruments: All instruments listed on this exchange.
+    """
+
     __tablename__ = "exchanges"
 
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
@@ -48,6 +56,30 @@ class Exchange(BaseModel):
 
 
 class Instrument(BaseModel):
+    """Tradable instrument listed on an exchange.
+
+    Serves as the central anchor for all ingested market data; every yfinance,
+    ETF, and fundamental table foreign-keys back here. Delisted instruments are
+    retained (delisted_at / delisting_return) for survivorship-bias correction
+    rather than hard-deleted.
+
+    Attributes:
+        ticker: Exchange-native symbol.
+        short_name: Abbreviated display name.
+        name: Full legal name; absent when the data source does not supply it.
+        isin: International Securities Identification Number; absent for some instruments.
+        instrument_type: Broad category as returned by the data source (e.g. "STOCK").
+        currency_code: ISO 4217 trading currency.
+        yfinance_ticker: Symbol as understood by yfinance; may differ from ticker after normalisation.
+        t212_ticker: Trading 212 cross-reference; populated by the T212 annotation step.
+        asset_class: Coarse asset class string ("equity", "fixed_income", …); always present.
+        fi_subclass: Fixed-income sub-category; None for non-fixed-income instruments.
+        duration_bucket: Duration bracket for fixed-income; None for all other asset classes.
+        delisted_at: Date the instrument left the active T212 universe; None while active.
+        delisting_return: Final price return on the delisting date; None while active.
+        exchange_id: Foreign key to the hosting exchange row.
+    """
+
     __tablename__ = "instruments"
     __table_args__ = (
         UniqueConstraint("ticker", "exchange_id", name="uq_instrument_ticker_exchange"),
@@ -91,7 +123,6 @@ class Instrument(BaseModel):
     )
     exchange: Mapped[Exchange] = relationship(back_populates="instruments")
 
-    # Yfinance data relationships
     profiles: Mapped[list[TickerProfile]] = relationship(
         back_populates="instrument", passive_deletes=True
     )

@@ -27,10 +27,10 @@ _JSON = JSON().with_variant(JSONB, "postgresql")
 
 
 class BackgroundJob(BaseModel):
-    """Persistent background job record.
+    """Persist background job state across process restarts and multiple workers.
 
-    Replaces the in-memory dict in ``BackgroundJobService`` so that job state
-    survives API restarts and is visible across processes.
+    Tracks progress, heartbeat timestamps, error entries, and reclaim attempts
+    for a single scheduled task execution slot.
     """
 
     __tablename__ = "background_jobs"
@@ -73,12 +73,11 @@ class BackgroundJob(BaseModel):
         DateTime(timezone=True),
         nullable=True,
     )
-    # Reclaim-retry counter (R3/§5.3): how many times the orphan reaper has
-    # re-dispatched this job's lineage. 0 for normal jobs; the reaper caps
-    # re-dispatch at SCHEDULER_ORPHAN_MAX_RECLAIM_ATTEMPTS.
+    # How many times the orphan reaper has re-dispatched this job's lineage.
+    # 0 for normal jobs; the reaper caps re-dispatch at
+    # SCHEDULER_ORPHAN_MAX_RECLAIM_ATTEMPTS.
     attempt: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
-    # Relationships
     error_entries: Mapped[list[BackgroundJobError]] = relationship(
         back_populates="job",
         cascade="all, delete-orphan",
@@ -88,6 +87,11 @@ class BackgroundJob(BaseModel):
 
     @property
     def errors(self) -> list[str] | None:
+        """Return the ordered error messages for this job, or ``None`` when there are none.
+
+        Returns ``None`` rather than an empty list so callers can distinguish
+        "job has never recorded an error" from "job has no rows yet loaded".
+        """
         if not self.error_entries:
             return None
         return [e.message for e in self.error_entries]

@@ -15,7 +15,17 @@ from portopt_db.base import BaseModel
 
 
 class MarketSummary(BaseModel):
-    """One summarized index/quote for a regional market at a snapshot date."""
+    """Row in ``market_summaries`` for one index/quote in a regional market.
+
+    Attributes:
+        market: yfinance market identifier (e.g. ``"us_market"``, ``"gb_market"``).
+        symbol: ticker within that market (e.g. ``"^GSPC"``).
+        as_of: date the snapshot was captured.
+        market_state: exchange session state as reported by yfinance
+            (e.g. ``OPEN``, ``CLOSED``, ``PRE``, ``POST``); ``None`` when absent.
+        change: absolute price change from the previous close; ``None`` when unavailable.
+        change_percent: percentage change from the previous close; ``None`` when unavailable.
+    """
 
     __tablename__ = "market_summaries"
     __table_args__ = (

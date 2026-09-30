@@ -18,7 +18,6 @@ UpdateSchemaType = TypeVar("UpdateSchemaType", bound=BaseModel)
 
 
 def _get_table(model: type[DeclarativeBase]) -> Table:
-    """Extract the SQLAlchemy Table from a mapped class."""
     return cast(Table, model.__table__)
 
 
@@ -60,7 +59,6 @@ class RepositoryBase:
         if update_columns:
             update_dict = {col: stmt.excluded[col] for col in update_columns}
         else:
-            # Update all columns except the primary key and created_at
             exclude = {"id", "created_at"}
             update_dict = {
                 col.name: stmt.excluded[col.name]
@@ -94,12 +92,10 @@ class BaseRepository(
     RepositoryBase,
     Generic[ModelType, CreateSchemaType, UpdateSchemaType],
 ):
-    """Generic repository with synchronous CRUD operations.
+    """Generic CRUD repository for a single SQLAlchemy model, bound at construction.
 
-    Type Parameters:
-        ModelType: SQLAlchemy model class
-        CreateSchemaType: Pydantic schema for creation
-        UpdateSchemaType: Pydantic schema for updates
+    Flush-based: every write calls ``flush()`` then ``refresh()`` to populate server
+    defaults (e.g. generated PKs, ``created_at``).  The caller controls commit/rollback.
     """
 
     def __init__(self, model: type[ModelType], session: Session):
@@ -107,12 +103,29 @@ class BaseRepository(
         self.model = model
 
     def get(self, id: Any) -> ModelType | None:
+        """Fetch a single record by primary key.
+
+        Args:
+            id: Primary key value for the lookup.
+
+        Returns:
+            The mapped instance, or ``None`` if no row matches.
+        """
         id_column = cast(Any, self.model).id
         stmt = select(self.model).where(id_column == id)
         result = self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     def get_by_field(self, field: str, value: Any) -> ModelType | None:
+        """Fetch the first record matching ``field == value``.
+
+        Args:
+            field: Attribute name on the model to filter by.
+            value: Value to compare against.
+
+        Returns:
+            The matched instance, or ``None`` if no row matches.
+        """
         column = getattr(self.model, field)
         stmt = select(self.model).where(column == value)
         result = self.session.execute(stmt)
@@ -126,6 +139,20 @@ class BaseRepository(
         order_by: str | None = None,
         desc: bool = True,
     ) -> Sequence[ModelType]:
+        """Fetch a paginated slice of records.
+
+        Falls back to ``created_at`` ordering when ``order_by`` is ``None`` or
+        names an attribute that does not exist on the model.
+
+        Args:
+            skip: Number of rows to skip before returning results.
+            limit: Maximum number of rows to return.
+            order_by: Model attribute name to sort by.
+            desc: Sort descending when ``True`` (default); ascending otherwise.
+
+        Returns:
+            Sequence of matched instances, possibly empty.
+        """
         stmt = select(self.model)
 
         if order_by and hasattr(self.model, order_by):
@@ -145,6 +172,15 @@ class BaseRepository(
         return result.scalars().all()
 
     def create(self, obj_in: CreateSchemaType) -> ModelType:
+        """Insert a new record and return the refreshed instance.
+
+        Args:
+            obj_in: Pydantic create schema; all fields are written.
+
+        Returns:
+            The persisted instance with server-generated values (e.g. PK, timestamps)
+            populated via ``refresh()``.
+        """
         obj_data = obj_in.model_dump()
         db_obj = self.model(**obj_data)
         self.session.add(db_obj)
@@ -153,6 +189,14 @@ class BaseRepository(
         return db_obj
 
     def create_from_dict(self, obj_data: dict[str, Any]) -> ModelType:
+        """Insert a new record from a raw mapping and return the refreshed instance.
+
+        Args:
+            obj_data: Column-name to value mapping passed directly to the model constructor.
+
+        Returns:
+            The persisted instance with server-generated values populated.
+        """
         db_obj = self.model(**obj_data)
         self.session.add(db_obj)
         self.session.flush()
@@ -160,6 +204,18 @@ class BaseRepository(
         return db_obj
 
     def update(self, id: Any, obj_in: UpdateSchemaType) -> ModelType | None:
+        """Apply a partial update via a Pydantic schema.
+
+        Only fields explicitly set in ``obj_in`` are written (``exclude_unset=True``),
+        so callers may omit unchanged fields for patch semantics.
+
+        Args:
+            id: Primary key of the record to update.
+            obj_in: Pydantic update schema; unset fields are ignored.
+
+        Returns:
+            The refreshed instance, or ``None`` if no record with ``id`` exists.
+        """
         db_obj = self.get(id)
         if not db_obj:
             return None
@@ -173,6 +229,18 @@ class BaseRepository(
         return db_obj
 
     def update_from_dict(self, id: Any, obj_data: dict[str, Any]) -> ModelType | None:
+        """Apply a partial update from a raw mapping.
+
+        Keys in ``obj_data`` that do not correspond to model attributes are silently
+        skipped, so callers may pass superset dicts without error.
+
+        Args:
+            id: Primary key of the record to update.
+            obj_data: Column-name to value mapping; unknown keys are ignored.
+
+        Returns:
+            The refreshed instance, or ``None`` if no record with ``id`` exists.
+        """
         db_obj = self.get(id)
         if not db_obj:
             return None
@@ -186,6 +254,14 @@ class BaseRepository(
         return db_obj
 
     def delete(self, id: Any) -> bool:
+        """Delete a record by primary key.
+
+        Args:
+            id: Primary key of the record to remove.
+
+        Returns:
+            ``True`` if the record existed and was deleted; ``False`` if not found.
+        """
         db_obj = self.get(id)
         if not db_obj:
             return False

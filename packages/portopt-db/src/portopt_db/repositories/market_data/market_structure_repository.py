@@ -34,6 +34,12 @@ def _int(v: Any) -> int | None:
 
 
 class MarketStructureRepository(RepositoryBase):
+    """Repository for market-structure rollups (sector snapshots, industries, top companies).
+
+    All writes are idempotent upserts; re-running any method converges to one row
+    per natural key.
+    """
+
     def upsert_sector_snapshot(
         self,
         sector_key: str,
@@ -48,6 +54,20 @@ class MarketStructureRepository(RepositoryBase):
         industries_count: int | None,
         employee_count: int | None,
     ) -> None:
+        """Upsert one sector-level snapshot for a given date.
+
+        Args:
+            sector_key: Classification key used as part of the natural key (e.g. ``"technology"``).
+            region: Geographic region tag (e.g. ``"US"``).
+            as_of: Observation date the snapshot represents.
+            name: Human-readable sector label; ``None`` if unavailable.
+            symbol: Representative ETF or index ticker; ``None`` if unavailable.
+            market_cap: Aggregate market capitalisation in USD; ``None`` if unavailable.
+            market_weight: Fractional weight in the parent index; ``None`` if unavailable.
+            companies_count: Number of constituents; ``None`` if unavailable.
+            industries_count: Number of sub-industries; ``None`` if unavailable.
+            employee_count: Aggregate headcount across constituents; ``None`` if unavailable.
+        """
         self._upsert(
             SectorSnapshot,
             [
@@ -85,6 +105,18 @@ class MarketStructureRepository(RepositoryBase):
         as_of: dt.date,
         industries: list[dict[str, Any]],
     ) -> int:
+        """Upsert industry rows for a sector snapshot, deduplicating by industry key.
+
+        Args:
+            sector_key: Sector classification key, part of the composite natural key.
+            region: Geographic region tag.
+            as_of: Observation date.
+            industries: Raw industry dicts expected to contain ``"key"`` and optionally ``"name"``.
+                Entries missing ``"key"`` are silently skipped.
+
+        Returns:
+            Number of rows written (after deduplication).
+        """
         by_key: dict[str, dict[str, Any]] = {}
         for ind in industries:
             key = ind.get("key")
@@ -116,6 +148,19 @@ class MarketStructureRepository(RepositoryBase):
         as_of: dt.date,
         companies: list[dict[str, Any]],
     ) -> int:
+        """Upsert top-company rows for a sector snapshot, deduplicating by ticker symbol.
+
+        Args:
+            sector_key: Sector classification key, part of the composite natural key.
+            region: Geographic region tag.
+            as_of: Observation date.
+            companies: Raw company dicts expected to contain ``"symbol"`` and optionally
+                ``"name"``, ``"weight"``, and ``"rating"``. Entries missing ``"symbol"``
+                are silently skipped.
+
+        Returns:
+            Number of rows written (after deduplication).
+        """
         by_symbol: dict[str, dict[str, Any]] = {}
         for c in companies:
             symbol = c.get("symbol")
@@ -143,6 +188,15 @@ class MarketStructureRepository(RepositoryBase):
         return len(rows)
 
     def get_latest_sector_as_of(self, sector_key: str, region: str) -> dt.date | None:
+        """Return the most recent snapshot date recorded for a sector/region pair.
+
+        Args:
+            sector_key: Sector classification key.
+            region: Geographic region tag.
+
+        Returns:
+            Most recent ``as_of`` date, or ``None`` if no snapshot exists.
+        """
         stmt = (
             select(SectorSnapshot.as_of)
             .where(
@@ -157,6 +211,15 @@ class MarketStructureRepository(RepositoryBase):
     def get_sector_snapshot(
         self, sector_key: str, region: str
     ) -> SectorSnapshot | None:
+        """Return the most recent SectorSnapshot for a sector/region pair.
+
+        Args:
+            sector_key: Sector classification key.
+            region: Geographic region tag.
+
+        Returns:
+            Most recent ``SectorSnapshot`` row, or ``None`` if none exists.
+        """
         stmt = (
             select(SectorSnapshot)
             .where(

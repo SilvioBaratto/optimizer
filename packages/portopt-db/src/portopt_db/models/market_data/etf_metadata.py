@@ -54,7 +54,7 @@ class ETFMetadata(BaseModel):
     legal_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     expense_ratio: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
     base_currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    # Fund overview (SPEC A8): Morningstar-style category + prospectus summary.
+    # Morningstar-style category and prospectus summary sourced from fund overview.
     category: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     as_of: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)

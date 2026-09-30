@@ -14,7 +14,12 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
-    """Base class for all SQLAlchemy models."""
+    """ORM registry root for all portopt_db models.
+
+    Registers timezone-aware DateTime as the default column type for
+    ``datetime`` annotations, so individual models need not repeat the
+    dialect option on every timestamp column.
+    """
 
     type_annotation_map: ClassVar[dict[Any, Any]] = {
         datetime: DateTime(timezone=True),
@@ -22,7 +27,12 @@ class Base(DeclarativeBase):
 
 
 class TimestampMixin:
-    """Mixin to add created_at and updated_at timestamps."""
+    """Adds server-managed ``created_at`` and ``updated_at`` audit columns.
+
+    Both columns default to the DB server clock on INSERT; ``updated_at``
+    refreshes automatically on every UPDATE without any application-side
+    involvement.
+    """
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -36,7 +46,11 @@ class TimestampMixin:
 
 
 class UUIDPrimaryKeyMixin:
-    """Mixin to add a UUID primary key."""
+    """Adds a UUID v4 primary key column named ``id``.
+
+    The default is generated Python-side via ``uuid.uuid4``, so the value is
+    available before the row is flushed to the database.
+    """
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False
@@ -44,11 +58,19 @@ class UUIDPrimaryKeyMixin:
 
 
 class BaseModel(Base, UUIDPrimaryKeyMixin, TimestampMixin):
-    """Abstract base model: UUID primary key + created/updated timestamps."""
+    """Abstract model combining a UUID PK with server-managed audit timestamps.
+
+    Cannot be mapped to a table directly (``__abstract__ = True``); subclass
+    it to inherit the ``id``, ``created_at``, and ``updated_at`` columns.
+    """
 
     __abstract__ = True
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a plain dict mapping column name to value for this instance.
+
+        Covers only mapped table columns; ORM relationships are excluded.
+        """
         return {
             column.name: getattr(self, column.name) for column in self.__table__.columns
         }
