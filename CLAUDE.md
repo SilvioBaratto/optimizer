@@ -2,9 +2,8 @@
 
 Guidance for Claude Code in this repository. These instructions OVERRIDE default behavior.
 
-> **Deep reference lives in [`.claude/ARCHITECTURE.md`](.claude/ARCHITECTURE.md)** — per-module
-> API detail, scheduler internals, full env-var list, DB/ingestion layer tables. Read the
-> relevant section there on demand; this file is the contract + commands + gotchas only.
+This file is the contract + commands + gotchas. For per-module detail, read the relevant
+source and its docstrings on demand.
 
 ## Agent & Skill Requirements
 
@@ -88,7 +87,7 @@ All transformers follow sklearn `BaseEstimator + TransformerMixin` and compose i
 
 **18 submodules.** Module flow: `prices → preprocessing → pre_selection → moments → views → optimization → validation → tuning → rebalancing`. Plus `factors/`, `synthetic/`, `scoring/`, `universe/`, `distance/`, `cluster/`, `uncertainty_set/`, `linear_model/`, `online/`, `fx/`. The `optimization` module ships **fifteen optimizer builders** (config + `build_*`): mean-risk (+ regime-blended, robust), HRP, HERC, NCO, Schur-complementary, risk-budgeting, max-diversification, DR-CVaR, stacking, benchmark-tracker, and three naive baselines (equal-weighted, inverse-volatility, random).
 
-Per-submodule detail (configs, presets, factories, shape contracts, exact estimator/factor/screen inventories) → **[`.claude/ARCHITECTURE.md`](.claude/ARCHITECTURE.md)**.
+Per-submodule detail (configs, presets, factories, shape contracts, exact estimator/factor/screen inventories) lives in each submodule's source and docstrings.
 
 ### Key conventions
 
@@ -113,7 +112,7 @@ Per-submodule detail (configs, presets, factories, shape contracts, exact estima
 
 ## Ingestion / DB / Scheduler (summary)
 
-Full tables and internals → **[`.claude/ARCHITECTURE.md`](.claude/ARCHITECTURE.md)**. Load-bearing points:
+Full tables and internals live in the `portopt_db` models and the ingestion service/scheduler source. Load-bearing points:
 
 - **DB layer (`portopt-db`)**: single schema + connection manager + Alembic tree (**head `c4d5e6f7a8b9`**, runs from `packages/portopt-db`). Pure structural extraction, no sklearn/optimizer import (guarded). `background_jobs` *model* lives here but `BackgroundJobRepository` *behavior* stays in `ingestion/app/repositories/jobs/`. Coverage floor line ≥ 90%
 - **Daemon layering**: Scheduler/CLI → Services → Repositories → Models, `_shared/` per layer. Models + most repos live in `portopt_db`; ingestion keeps only the `jobs` repo. No HTTP API. Sync SQLAlchemy sessions — everything opens its own via `database_manager.get_session`. PostgreSQL 16 on port **54320**. **Do not reintroduce `optimizer` as an ingestion dep**
@@ -125,7 +124,7 @@ Full tables and internals → **[`.claude/ARCHITECTURE.md`](.claude/ARCHITECTURE
 - **Gotcha — transient-error detection** (`infrastructure/retry.py`): case-sensitive substring match. `"Too Many Requests"` trips the breaker; `"too many requests"` does not
 - **Cron weekday gotcha**: APScheduler `from_crontab` numbers days `0=Mon..6=Sun`. Use weekday names (`sat`); a bare `0` fires Monday
 
-Key env vars: `DATABASE_URL`, `TRADING_212_API_KEY` (absent ⇒ `universe_build` skips without claiming a slot), `FRED_API_KEY`, `METRICS_PORT` (9000), `YFINANCE_FETCH_WORKERS` (1-16, default 4). Full list + `SCHEDULER_*` crons → ARCHITECTURE.md.
+Key env vars: `DATABASE_URL`, `TRADING_212_API_KEY` (absent ⇒ `universe_build` skips without claiming a slot), `FRED_API_KEY`, `METRICS_PORT` (9000), `YFINANCE_FETCH_WORKERS` (1-16, default 4). The full list + `SCHEDULER_*` crons are documented in `ingestion/.env.example` and `app/config.py`.
 
 ## Fund bridge (`fund/`, LIVE)
 

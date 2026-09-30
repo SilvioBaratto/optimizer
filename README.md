@@ -87,8 +87,8 @@ regime-blended and robust variants, HRP, HERC, NCO, Schur-Complementary, Risk
 Budgeting, Max-Diversification, Distributionally-Robust CVaR, Stacking,
 Benchmark-Tracker, and three naive baselines (Equal-Weighted,
 Inverse-Volatility, Random). Full per-module inventories (covariance/mu
-estimators, factor definitions, investability screens, presets) live in
-[`.claude/ARCHITECTURE.md`](.claude/ARCHITECTURE.md).
+estimators, factor definitions, investability screens, presets) live in each
+submodule's source and docstrings under `packages/portopt-core/optimizer/`.
 
 ---
 
@@ -193,8 +193,9 @@ weights = pipeline[-1].weights_          # fitted skfolio optimizer exposes weig
 `sector_mapping`, `expiration_dates` and an `outlier_protection_mask` are
 optional keyword arguments (plain values, not queried from any database).
 
-See [`.claude/ARCHITECTURE.md`](.claude/ARCHITECTURE.md) for every config,
-factory, preset and shape contract, and the `skfolio`/`yfinance` skills under
+See each submodule's source and docstrings under
+`packages/portopt-core/optimizer/` for every config, factory, preset and shape
+contract, and the `skfolio`/`yfinance` skills under
 [`.claude/skills/`](.claude/skills/) for API-level guidance.
 
 ### The ingestion daemon
@@ -339,8 +340,7 @@ optimizer/
 ├── fund/                          # the `portopt-fund` bridge (import `fund`)
 ├── tests/                         # library test suite (mirrors optimizer/ + scheduler/)
 ├── scheduler/                     # shell wrappers over the CLI
-├── docker-compose.yml             # db + adminer + scheduler
-└── .claude/ARCHITECTURE.md        # deep per-module reference
+└── docker-compose.yml             # db + adminer + scheduler
 ```
 
 ---

@@ -1,7 +1,7 @@
 """Add attempt counter to background_jobs.
 
-R3 / ARCHITECTURE.md §5.3: the orphan reaper's RECLAIM strategy re-dispatches a
-dead-worker job. ``attempt`` records how many reclaim retries a job carries so
+The orphan reaper's RECLAIM strategy re-dispatches a dead-worker job.
+``attempt`` records how many reclaim retries a job carries so
 the scheduler can cap re-dispatch (``SCHEDULER_ORPHAN_MAX_RECLAIM_ATTEMPTS``)
 and not loop forever on a job whose worker keeps dying. Non-null, defaults 0;
 pre-migration rows and normal (fail-strategy) jobs stay at 0.

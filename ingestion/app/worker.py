@@ -110,9 +110,9 @@ def _force_exit() -> None:  # pragma: no cover - terminates the process
 def _drain_and_shutdown(scheduler: object, drain_timeout_seconds: int) -> bool:
     """Stop claiming new jobs, then drain in-flight work within a time bound.
 
-    ARCHITECTURE.md §5.5: intercept SIGTERM → stop claiming new jobs → drain and
-    commit in-flight work → exit, with a time-bounded drain and a forced-exit
-    fallback so a stuck worker cannot hang forever.
+    Intercept SIGTERM → stop claiming new jobs → drain and commit in-flight work
+    → exit, with a time-bounded drain and a forced-exit fallback so a stuck
+    worker cannot hang forever.
 
     ``scheduler.pause()`` stops new triggers from firing (no new claims), then
     ``scheduler.shutdown(wait=True)`` blocks until running jobs finish. That call

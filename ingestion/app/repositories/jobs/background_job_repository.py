@@ -358,8 +358,8 @@ class BackgroundJobRepository(RepositoryBase):
     ) -> list[dict[str, Any]]:
         """Fail lease-expired pending/running rows; return one entry per row.
 
-        T2.1 / ARCHITECTURE.md §5.3: liveness is a **heartbeat lease**, not a
-        host/PID identity check. A worker renews ``last_heartbeat_at`` every
+        Liveness is a **heartbeat lease**, not a host/PID identity check. A
+        worker renews ``last_heartbeat_at`` every
         ``SCHEDULER_HEARTBEAT_CADENCE_SECONDS`` (default 30s); a claim is reaped
         only once the lease TTL (``heartbeat_timeout_seconds``, a multiple of the
         cadence — default 300s = 10x) has elapsed with no renewal. It is the
