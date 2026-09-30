@@ -28,6 +28,7 @@ from portopt_db.models.market_data.etf_metadata import (
     ETFMetadata,
     ETFSectorWeight,
 )
+from portopt_db.models.market_data.market_journal import MarketJournal
 from portopt_db.models.market_data.market_structure import (
     SectorIndustry,
     SectorSnapshot,
@@ -48,6 +49,7 @@ from portopt_db.models.market_data.yfinance_data import (
     TickerProfile,
 )
 from portopt_db.models.orders.paper_order import PaperOrder
+from portopt_db.models.orders.portfolio_journal import PortfolioJournal
 from portopt_db.models.orders.position import Position
 from portopt_db.models.universe.universe import Exchange, Instrument
 
@@ -77,10 +79,12 @@ __all__ = [
     "IpoCalendar",
     "MacroNews",
     "MacroNewsTheme",
+    "MarketJournal",
     "MarketSummary",
     "MifidProfile",
     "MutualFundHolder",
     "PaperOrder",
+    "PortfolioJournal",
     "PortfolioMandate",
     "Position",
     "PriceHistory",

@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from collections.abc import Sequence
 from typing import Any
+
+from sqlalchemy import func, select
 
 from portopt_db.models.market_data.market_summary import MarketSummary
 from portopt_db.repository import RepositoryBase
@@ -85,3 +88,38 @@ class MarketSummaryRepository(RepositoryBase):
             ],
         )
         return len(prepared)
+
+    def get_summaries(self, market: str, as_of: dt.date) -> Sequence[MarketSummary]:
+        """Return all summary rows for a given market on a specific date.
+
+        Args:
+            market: Market identifier to filter by (e.g. ``"us_market"``).
+            as_of: Trading date to filter by.
+
+        Returns:
+            Sequence of matching rows, possibly empty.
+        """
+        stmt = (
+            select(MarketSummary)
+            .where(MarketSummary.market == market, MarketSummary.as_of == as_of)
+            .order_by(MarketSummary.symbol)
+        )
+        return self.session.execute(stmt).scalars().all()
+
+    def get_latest_as_of(self, market: str) -> dt.date | None:
+        """Return the most recent ``as_of`` date available for the given market.
+
+        Useful for the digest builder to discover the freshest snapshot without
+        scanning all rows.
+
+        Args:
+            market: Market identifier to query.
+
+        Returns:
+            The latest ``as_of`` date, or ``None`` when no rows exist for the
+            market.
+        """
+        stmt = select(func.max(MarketSummary.as_of)).where(
+            MarketSummary.market == market
+        )
+        return self.session.execute(stmt).scalar_one_or_none()

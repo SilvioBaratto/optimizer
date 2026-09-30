@@ -21,6 +21,7 @@ from portopt_db.models.market_data.etf_metadata import (
     ETFMetadata,
     ETFSectorWeight,
 )
+from portopt_db.models.market_data.market_journal import MarketJournal
 from portopt_db.models.market_data.market_structure import (
     SectorIndustry,
     SectorSnapshot,
@@ -55,6 +56,7 @@ __all__ = [
     "InsiderTransaction",
     "InstitutionalHolder",
     "IpoCalendar",
+    "MarketJournal",
     "MarketSummary",
     "MutualFundHolder",
     "PriceHistory",
