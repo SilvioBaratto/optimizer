@@ -70,21 +70,17 @@ class ScreenerClient:
         def _action() -> dict[str, Any] | None:
             self.circuit_breaker.check()
             self.rate_limiter.acquire("screener")
+            # count signals a predefined-name query (sized by count); otherwise size.
+            kwargs: dict[str, Any] = {
+                "offset": offset,
+                "sortField": sort_field,
+                "sortAsc": sort_asc,
+            }
             if count is not None:
-                return yf.screen(
-                    query,
-                    offset=offset,
-                    count=min(count, MAX_SIZE),
-                    sortField=sort_field,
-                    sortAsc=sort_asc,
-                )
-            return yf.screen(
-                query,
-                offset=offset,
-                size=min(size, MAX_SIZE),
-                sortField=sort_field,
-                sortAsc=sort_asc,
-            )
+                kwargs["count"] = min(count, MAX_SIZE)
+            else:
+                kwargs["size"] = min(size, MAX_SIZE)
+            return yf.screen(query, **kwargs)
 
         return retry_with_backoff(
             _action,

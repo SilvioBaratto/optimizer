@@ -167,9 +167,15 @@ exclude_lines = [
 pythonVersion = "3.10"
 pythonPlatform = "All"
 typeCheckingMode = "standard"
-include = ["packages/portopt-core/optimizer"]
+include = [
+    "packages/portopt-core/optimizer",
+    "packages/portopt-db/src/portopt_db",
+    "ingestion/app",
+    "fund/src/fund",
+]
 exclude = [
     "**/__pycache__",
+    "**/build",
 ]
 
 # Libraries with missing/incomplete stubs (sklearn, skfolio)

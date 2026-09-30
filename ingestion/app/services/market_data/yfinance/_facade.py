@@ -4,7 +4,7 @@ import logging
 import threading
 from functools import cached_property
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 import yfinance as yf
@@ -319,8 +319,8 @@ class YFinanceClient:
                 stock_mask = pd.Series(stock_date_strs).isin(common_date_strs).values
                 bench_mask = pd.Series(bench_date_strs).isin(common_date_strs).values
 
-                stock_hist = stock_hist[stock_mask]
-                benchmark_hist = benchmark_hist[bench_mask]
+                stock_hist = cast("pd.DataFrame", stock_hist[stock_mask])
+                benchmark_hist = cast("pd.DataFrame", benchmark_hist[bench_mask])
             else:
                 benchmark_hist = None
         except Exception:
@@ -456,11 +456,11 @@ class YFinanceClient:
                     if sym in data.columns.get_level_values(0):
                         col = data[sym]["Close"]
                         if col is not None and not col.empty:
-                            frames[sym] = col
+                            frames[sym] = cast("pd.Series", col)
                     elif ("Close", sym) in data.columns:
                         col = data["Close"][sym]
                         if col is not None and not col.empty:
-                            frames[sym] = col
+                            frames[sym] = cast("pd.Series", col)
             else:
                 # Single ticker — columns are just price fields
                 if "Close" in data.columns:

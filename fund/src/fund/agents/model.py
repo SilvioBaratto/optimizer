@@ -124,12 +124,13 @@ def _build_openrouter(config: FundConfig, model_name: str) -> BaseChatModel:
     from langchain_openai import ChatOpenAI
 
     api_key = _require(config.openrouter_api_key, "OPENROUTER_API_KEY")
-    return ChatOpenAI(
-        model=model_name,
-        api_key=api_key,
-        base_url=_OPENROUTER_BASE_URL,
-        temperature=config.model_temperature,
-    )
+    kwargs: dict[str, Any] = {
+        "model": model_name,
+        "api_key": api_key,
+        "base_url": _OPENROUTER_BASE_URL,
+        "temperature": config.model_temperature,
+    }
+    return ChatOpenAI(**kwargs)
 
 
 def _build_anthropic(config: FundConfig, model_name: str) -> BaseChatModel:
@@ -143,11 +144,12 @@ def _build_anthropic(config: FundConfig, model_name: str) -> BaseChatModel:
     from langchain_anthropic import ChatAnthropic
 
     api_key = _require(config.anthropic_api_key, "ANTHROPIC_API_KEY")
-    return ChatAnthropic(
-        model=model_name,
-        api_key=api_key,
-        temperature=config.model_temperature,
-    )
+    kwargs: dict[str, Any] = {
+        "model": model_name,
+        "api_key": api_key,
+        "temperature": config.model_temperature,
+    }
+    return ChatAnthropic(**kwargs)
 
 
 def _build_groq(config: FundConfig, model_name: str) -> BaseChatModel:
@@ -160,11 +162,12 @@ def _build_groq(config: FundConfig, model_name: str) -> BaseChatModel:
     from langchain_groq import ChatGroq
 
     api_key = _require(config.groq_api_key, "GROQ_API_KEY")
-    return ChatGroq(
-        model=model_name,
-        api_key=api_key,
-        temperature=config.model_temperature,
-    )
+    kwargs: dict[str, Any] = {
+        "model": model_name,
+        "api_key": api_key,
+        "temperature": config.model_temperature,
+    }
+    return ChatGroq(**kwargs)
 
 
 def _build_google(config: FundConfig, model_name: str) -> BaseChatModel:
@@ -221,16 +224,19 @@ def _build_microsoft(config: FundConfig, model_name: str) -> BaseChatModel:
     """
     from langchain_openai import AzureChatOpenAI
 
-    return AzureChatOpenAI(
-        model=model_name,
-        api_key=_require(config.azure_openai_api_key, "AZURE_OPENAI_API_KEY"),
-        azure_endpoint=_require(config.azure_openai_endpoint, "AZURE_OPENAI_ENDPOINT"),
-        api_version=_require(config.azure_openai_api_version, "OPENAI_API_VERSION"),
-        azure_deployment=_require(
+    kwargs: dict[str, Any] = {
+        "model": model_name,
+        "api_key": _require(config.azure_openai_api_key, "AZURE_OPENAI_API_KEY"),
+        "azure_endpoint": _require(
+            config.azure_openai_endpoint, "AZURE_OPENAI_ENDPOINT"
+        ),
+        "api_version": _require(config.azure_openai_api_version, "OPENAI_API_VERSION"),
+        "azure_deployment": _require(
             config.azure_openai_deployment_name, "AZURE_OPENAI_DEPLOYMENT_NAME"
         ),
-        temperature=config.model_temperature,
-    )
+        "temperature": config.model_temperature,
+    }
+    return AzureChatOpenAI(**kwargs)
 
 
 def _build_nvidia(config: FundConfig, model_name: str) -> BaseChatModel:
@@ -280,11 +286,12 @@ def _build_huggingface(config: FundConfig, model_name: str) -> BaseChatModel:
     from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 
     token = _require(config.hf_api_token, "HUGGINGFACEHUB_API_TOKEN")
-    endpoint = HuggingFaceEndpoint(
-        repo_id=model_name,
-        huggingfacehub_api_token=token,
-        temperature=config.model_temperature,
-    )
+    endpoint_kwargs: dict[str, Any] = {
+        "repo_id": model_name,
+        "huggingfacehub_api_token": token,
+        "temperature": config.model_temperature,
+    }
+    endpoint = HuggingFaceEndpoint(**endpoint_kwargs)
     return ChatHuggingFace(llm=endpoint, model_id=model_name)
 
 

@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager
 
     from sqlalchemy.orm import Session
+    from textual.binding import BindingType
     from textual.widgets import DataTable
     from textual.worker import Worker
 
@@ -67,7 +68,7 @@ class FundTUI(App):
     #status-bar { dock: bottom; height: 1; background: $panel; padding: 0 1; }
     """
 
-    BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         ("a", "approve", "Approve"),
         ("r", "reject", "Reject"),
         ("q", "quit", "Quit"),

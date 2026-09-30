@@ -78,7 +78,7 @@ class FundJobRepository(RepositoryBase):
             literal(now, type_=tbl.c.created_at.type).label("created_at"),
             literal(now, type_=tbl.c.updated_at.type).label("updated_at"),
         ).where(~conflict_exists)
-        stmt = insert(tbl).from_select(
+        stmt = insert(BackgroundJob).from_select(
             [
                 "id",
                 "job_type",

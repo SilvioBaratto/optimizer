@@ -271,10 +271,10 @@ def build_fund_agent(
         model=model,
         tools=bind_toolset("orchestrator", ctx),
         system_prompt=PM_SYSTEM_PROMPT,
-        subagents=subagents,
+        subagents=cast("list[Any]", subagents),
         skills=skill_sources("orchestrator"),
         backend=build_backend(config),
-        interrupt_on=config.interrupt_on_map(),
+        interrupt_on=cast("dict[str, Any]", config.interrupt_on_map()),
         middleware=[_pm_round_cap_middleware(config.max_pm_rounds)],
         checkpointer=checkpointer,
         store=store,
@@ -429,6 +429,10 @@ class FundRun:
             config=self.thread_config,
         )
         run = AgentRunRepository(self.session).get_run(self.run_id)
+        if run is None:
+            raise LookupError(f"no agent_run {self.run_id}")
+        if run.portfolio_id is None:
+            raise ValueError(f"agent_run {self.run_id} has no portfolio_id")
         _finalize_hitl(
             self.session,
             run_id=self.run_id,
@@ -659,6 +663,8 @@ def resume_fund(
     run = audit.get_run(rid)
     if run is None:
         raise LookupError(f"no agent_run {rid}")
+    if run.portfolio_id is None:
+        raise ValueError(f"agent_run {rid} has no portfolio_id")
 
     portfolio_id = run.portfolio_id
     pid_str = str(portfolio_id)

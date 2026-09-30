@@ -132,7 +132,7 @@ def _parse_holdings(frame: Any) -> list[dict[str, Any]]:
         return []
     holdings: list[dict[str, Any]] = []
     for symbol, row in frame.iterrows():
-        pct = row.get("Holding Percent")
+        pct: Any = row.get("Holding Percent")
         holdings.append(
             {
                 "symbol": str(symbol),

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
@@ -161,7 +161,7 @@ def run_bulk_options_fetch(
                     )
                     if chain is None:
                         continue
-                    expiry_date = pd.Timestamp(expiry).date()
+                    expiry_date = cast("date", pd.Timestamp(expiry).date())
                     rows = _flatten_chain(chain, as_of, expiry_date)
                     if rows:
                         inst_rows += repo.upsert_option_chain(instrument.id, rows)
