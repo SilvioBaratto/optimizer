@@ -6,9 +6,10 @@ as a standalone wheel. Depending on ``portopt-db`` (or SQLAlchemy / psycopg2 /
 alembic) would drag the whole data stack into that wheel and break the "usable
 without a database" property. Inverse of ingestion's no-optimizer guard.
 
-Source-blind scan of ``optimizer/`` + a tomllib parse of the root ``pyproject``
-dependencies (parsing, not raw text, so the ``[tool.uv.workspace]`` member entry
-``packages/portopt-db`` does not false-positive).
+Source-blind scan of ``packages/portopt-core/optimizer`` + a tomllib parse of
+the root ``pyproject`` dependencies (parsing, not raw text, so the
+``[tool.uv.workspace]`` member entry ``packages/portopt-db`` does not
+false-positive).
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from pathlib import Path
 import tomllib
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_OPTIMIZER_SRC = _REPO_ROOT / "optimizer"
+_OPTIMIZER_SRC = _REPO_ROOT / "packages" / "portopt-core" / "optimizer"
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
 
 _DB_IMPORT = re.compile(
@@ -67,6 +68,9 @@ def find_db_dependencies(pyproject_text: str) -> list[str]:
 
 
 def test_when_optimizer_src_is_scanned_then_no_db_import_is_found():
+    # A missing path makes rglob yield nothing, silently disabling the guard, so
+    # require the directory to resolve — a future layout move then fails loudly.
+    assert _OPTIMIZER_SRC.is_dir(), f"optimizer source not found at {_OPTIMIZER_SRC}"
     assert find_db_import_violations(_OPTIMIZER_SRC) == []
 
 

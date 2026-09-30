@@ -23,8 +23,6 @@ Python-only **uv workspace**, **four packages** (one shared venv):
 
 **Boundary (guarded, load-bearing)**: `ingestion/` and `portopt-db/` do **not** import `optimizer`; `portopt-db/` carries no sklearn/skfolio stack. `optimizer` (`portopt-core`) does **not** import `portopt_db`. The daemon **does** ship `scikit-learn` (scipy transitively): yfinance's price-repair path (`repair=True`) imports `sklearn.cluster.DBSCAN`, so without it ~22% of tickers return empty history and get dropped. sklearn here is a data-layer dep, not optimization. With a single shared venv there is no install isolation — static import-scan tests are the **sole** enforcement: `ingestion/tests/unit/hygiene/test_no_optimizer_import.py`, `packages/portopt-db/tests/test_no_optimizer_import.py`, root `tests/test_no_portopt_db_import.py`. The `fund/` bridge adds a second axis: `fund` **may** import `optimizer` + `portopt_db` (the only member that may), but `deepagents`/`langgraph` live only in `fund/` — guarded by `fund/tests/unit/hygiene/test_no_ingestion_import.py` (fund ⊬ `app`) plus `test_no_agent_stack_import.py` in both `ingestion` and `packages/portopt-db` (neither imports `deepagents`/`langgraph`/`fund`).
 
-> **Gotcha — the optimizer⊬portopt_db guard is currently a no-op.** `tests/test_no_portopt_db_import.py` scans `_OPTIMIZER_SRC = _REPO_ROOT / "optimizer"`, a path that no longer exists after the src-layout move. `Path.rglob` on a missing dir yields nothing, so `test_when_optimizer_src_is_scanned_then_no_db_import_is_found` passes trivially without scanning a single file. Repoint it at `packages/portopt-core/optimizer` to restore the guard. (The pyproject-dependency half of the test still works.)
-
 Supporting dirs: `tests/` (library suite, mirrors `optimizer/` + `tests/scheduler/`), `ingestion/tests/` (SQLite in-memory), `packages/portopt-db/tests/` (SQLite in-memory), `fund/tests/` (SQLite in-memory + `integration` marker for live-Postgres round-trips), `scheduler/` (shell wrappers over the CLI).
 
 **No frontend, no docs site, no `examples/`/`research/`/`cli/`, no HTTP API** — deleted in the strip (branch `refactor/strip-to-ingestion-pipeline`). Any leftover reference (a route, `TestClient`, `uvicorn`, `app.main`, `/api/v1/`) is dead — delete it, don't revive the dependency.
@@ -72,7 +70,7 @@ fund run <portfolio_id> --asof DATE  # run a decision round for a rebalance bar
 fund approve <run_id> | reject <run_id> | status [portfolio_id] | report <run_id>
 ```
 
-> **Gotcha — stale lint/typecheck paths.** The root `Makefile` (`make lint | typecheck`) and the CI `lint`/`typecheck` jobs still pass the bare path `optimizer/`, which no longer exists after the src-layout move — `ruff check optimizer/` errors with `E902` (file not found) locally on `development`. It has not turned CI red because **CI runs only on `main`** (`on: push/pull_request: branches: [main]`) where the move may not have landed. Use `packages/portopt-core/optimizer/` explicitly; fixing `Makefile` + `ci.yml` is pending.
+> **Gotcha — CI only gates `main`.** The `Makefile` (`make lint | typecheck`) and CI jobs now target `packages/portopt-core/optimizer/` (repointed in `570a01b`), but `ci.yml` still triggers only `on: push/pull_request: branches: [main]`. Work on `development` (the active integration branch) is **not** gated until merged — a green local run does not mean CI has seen it. Verify on a `main`-targeted PR before relying on the pipeline.
 
 ## CI Pipeline
 
