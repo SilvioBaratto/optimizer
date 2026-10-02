@@ -66,9 +66,9 @@ if TYPE_CHECKING:
 # built separately (not one of these eight), so ``profiler``/``executor`` bind no
 # tool from this set.
 TOOLS_BY_AGENT: dict[str, tuple[str, ...]] = {
-    "orchestrator": ("place_orders",),
+    "orchestrator": ("place_orders", "get_portfolio_history"),
     "profiler": (),
-    "economist": ("get_macro_series", "get_prices"),
+    "economist": ("get_macro_series", "get_prices", "get_recent_events"),
     "allocator": ("universe_filter", "estimate_moments", "optimize_portfolio"),
     "risk": ("risk_check", "backtest"),
     "executor": (),
@@ -295,6 +295,20 @@ def _place_orders_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult
     return result
 
 
+@tool_envelope
+def _get_recent_events_impl(ctx: RunContext, window: int = 14) -> ToolResult:
+    return _tools.get_recent_events(ctx.session, ctx.asof, window=window)
+
+
+@tool_envelope
+def _get_portfolio_history_impl(ctx: RunContext, lookback: int = 90) -> ToolResult:
+    # ``portfolio_id`` is bound from the run context, never chosen by the model —
+    # an agent reads only its own portfolio's history.
+    return _tools.get_portfolio_history(
+        ctx.session, ctx.portfolio_id, ctx.asof, lookback=lookback
+    )
+
+
 # ---------------------------------------------------------------------------
 # Builders — wrap each bound impl in a langchain ``@tool`` (agent-stack import is
 # lazy, keeping ``import fund.agents.toolsets`` agent-stack-free).
@@ -404,15 +418,43 @@ def _bind_place_orders(ctx: RunContext) -> BaseTool:
     return place_orders
 
 
+def _bind_get_recent_events(ctx: RunContext) -> BaseTool:
+    from langchain_core.tools import tool
+
+    @tool
+    def get_recent_events(window: int = 14) -> ToolResult:
+        """Recent global market/macro/news digests in the ``window`` days up to the
+        run date (no look-ahead). Returns the ``{ok, data}`` envelope with one
+        compact entry per day (narrative + top themes) — never a raw matrix."""
+        return _get_recent_events_impl(ctx, window)
+
+    return get_recent_events
+
+
+def _bind_get_portfolio_history(ctx: RunContext) -> BaseTool:
+    from langchain_core.tools import tool
+
+    @tool
+    def get_portfolio_history(lookback: int = 90) -> ToolResult:
+        """This portfolio's own recent activity in the ``lookback`` days up to the
+        run date: prior rebalances, runs, orders, and current holdings. Returns the
+        ``{ok, data}`` envelope with compact summaries — never a raw matrix."""
+        return _get_portfolio_history_impl(ctx, lookback)
+
+    return get_portfolio_history
+
+
 _BUILDERS: dict[str, Any] = {
     "get_prices": _bind_get_prices,
     "get_macro_series": _bind_get_macro,
+    "get_recent_events": _bind_get_recent_events,
     "universe_filter": _bind_universe_filter,
     "estimate_moments": _bind_estimate_moments,
     "optimize_portfolio": _bind_optimize,
     "risk_check": _bind_risk_check,
     "backtest": _bind_backtest,
     "place_orders": _bind_place_orders,
+    "get_portfolio_history": _bind_get_portfolio_history,
 }
 
 

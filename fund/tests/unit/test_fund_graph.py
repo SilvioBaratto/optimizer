@@ -156,10 +156,11 @@ def test_build_fund_agent_wires_the_pm_create_deep_agent(tmp_path, monkeypatch) 
     assert agent == "PM_AGENT"
     assert captured["model"] is model
     assert captured["system_prompt"] == PM_SYSTEM_PROMPT
-    # PM's own tool is the top-level gated place_orders (the orchestrator toolset).
+    # PM's own tools are the orchestrator toolset: the top-level gated place_orders
+    # plus the read-only get_portfolio_history (Phase-4 T9).
     pm_tools = captured["tools"]
     assert {t.name for t in pm_tools} == set(TOOLS_BY_AGENT["orchestrator"])
-    assert {t.name for t in pm_tools} == {"place_orders"}
+    assert {t.name for t in pm_tools} == {"place_orders", "get_portfolio_history"}
     # HITL gate at the PM level.
     assert captured["interrupt_on"] == {"place_orders": True}
     assert captured["interrupt_on"] == settings.interrupt_on_map()

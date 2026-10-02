@@ -28,6 +28,9 @@ from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
+from portopt_db.repositories.market_data.market_journal_repository import (
+    MarketJournalRepository,
+)
 from sqlalchemy import select
 
 from fund import tools as fund_tools
@@ -199,6 +202,47 @@ def test_bound_macro_flags_missing_series(db_session) -> None:
 
     assert result["ok"] is True
     assert result["data"]["missing"] == ["CPIAUCSL"]
+
+
+# --- history tools: role binding + envelope round-trips (T9) ------------------
+
+
+def test_recent_events_binds_to_economist_history_to_orchestrator() -> None:
+    assert "get_recent_events" in TOOLS_BY_AGENT["economist"]
+    assert "get_portfolio_history" in TOOLS_BY_AGENT["orchestrator"]
+    # Each is bound to exactly one role (the bijection guards this globally too).
+    assert "get_recent_events" not in TOOLS_BY_AGENT["orchestrator"]
+    assert "get_portfolio_history" not in TOOLS_BY_AGENT["economist"]
+
+
+def test_bound_get_recent_events_returns_window_digests(db_session) -> None:
+    MarketJournalRepository(db_session).upsert_journal(
+        dt.date(2024, 1, 25),
+        macro_deltas={},
+        market_moves={},
+        news_themes={"themes": {"rates": 1}},
+        narrative="digest",
+        source_counts={},
+    )
+    ctx = _make_context(db_session)
+    events = _find(bind_toolset("economist", ctx), "get_recent_events")
+
+    result = events.invoke({})
+
+    assert result["ok"] is True
+    assert result["data"]["asof"] == _ASOF.isoformat()
+    assert result["data"]["count"] == 1
+
+
+def test_bound_get_portfolio_history_returns_envelope(db_session) -> None:
+    ctx = _make_context(db_session)
+    history = _find(bind_toolset("orchestrator", ctx), "get_portfolio_history")
+
+    result = history.invoke({})
+
+    assert result["ok"] is True
+    assert result["data"]["portfolio_id"] == str(_PORTFOLIO_ID)
+    assert result["data"]["current_holdings"] == {}
 
 
 def test_bound_estimate_moments_returns_full_covariance(db_session) -> None:
