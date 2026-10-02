@@ -203,6 +203,80 @@ def test_approve_writes_ticket_and_completes(db_session) -> None:
     assert executor[0].hitl_decision == {"decision": "approve"}
 
 
+# --- approve → portfolio_journal overlay (T7) --------------------------------
+
+
+def test_approve_writes_portfolio_journal(db_session) -> None:
+    """On approve, a portfolio_journal overlay row is written for (portfolio, asof)."""
+    from portopt_db.models import PortfolioJournal
+
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=expected)
+
+    run = _run(model, db_session, store=_store_with_cs())
+    run.resume("approve")
+
+    rows = (
+        db_session.query(PortfolioJournal)
+        .filter(
+            PortfolioJournal.portfolio_id == _PORTFOLIO_ID,
+            PortfolioJournal.as_of == _ASOF,
+        )
+        .all()
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.run_id == run.run_id
+    assert row.allocation == expected
+    assert row.trades  # committed paper-order fills, keyed by ticker
+    assert row.drift is not None
+    assert row.narrative.strip() != ""
+
+
+def test_re_finalizing_upserts_a_single_journal_row(db_session) -> None:
+    """Re-running the finalize path for the same bar overwrites, not duplicates."""
+    from portopt_db.models import PortfolioJournal
+
+    from fund.agents.graph import _finalize_hitl
+
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=expected)
+    run = _run(model, db_session, store=_store_with_cs())
+    run.resume("approve")
+
+    _finalize_hitl(
+        db_session,
+        run_id=run.run_id,
+        portfolio_id=_PORTFOLIO_ID,
+        asof=_ASOF,
+        weights=expected,
+        decision="approve",
+    )
+
+    rows = (
+        db_session.query(PortfolioJournal)
+        .filter(PortfolioJournal.portfolio_id == _PORTFOLIO_ID)
+        .all()
+    )
+    assert len(rows) == 1
+
+
+def test_reject_writes_no_portfolio_journal(db_session) -> None:
+    """A rejected run writes no overlay row (approve-only for v1)."""
+    from portopt_db.models import PortfolioJournal
+
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=expected)
+    run = _run(model, db_session, store=_store_with_cs())
+    run.resume("reject")
+
+    rows = db_session.query(PortfolioJournal).all()
+    assert rows == []
+
+
 # --- LLM weights are ignored: the ticket uses the optimizer's audited weights --
 
 
