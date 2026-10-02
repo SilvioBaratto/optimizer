@@ -1,5 +1,6 @@
 """Market Data schemas."""
 
+from app.schemas.market_data.market_journal import MarketJournalBuildRequest
 from app.schemas.market_data.yfinance_data import (
     AnalystPriceTargetResponse,
     AnalystRecommendationResponse,
@@ -26,6 +27,7 @@ __all__ = [
     "FinancialStatementResponse",
     "InsiderTransactionResponse",
     "InstitutionalHolderResponse",
+    "MarketJournalBuildRequest",
     "MutualFundHolderResponse",
     "PriceHistoryResponse",
     "StockSplitResponse",
