@@ -99,6 +99,22 @@ class ReprofileStatus:
     reprofile_interval_days: int
 
 
+@dataclass(frozen=True)
+class EventDigest:
+    """Panel 5: recent global market digests + this portfolio's own rebalances.
+
+    Model-free read model for the cockpit's Recent Events panel.
+    ``market_events`` are the global ``market_journal`` rows in the trailing
+    window (newest first); ``portfolio_events`` are this portfolio's
+    ``portfolio_journal`` overlays at/before ``asof`` (newest first). Each entry
+    is a small JSON-ready dict; both tuples are empty when nothing is recorded.
+    """
+
+    portfolio_id: uuid.UUID
+    market_events: tuple[dict[str, Any], ...]
+    portfolio_events: tuple[dict[str, Any], ...]
+
+
 def drift_l1(current: dict[str, float], target: dict[str, float]) -> float:
     """``Σ_i |current_i - target_i|`` over the union of tickers (D12).
 
@@ -296,6 +312,67 @@ def reprofile_status(
     )
 
 
+def recent_events(
+    session: Any,
+    portfolio_id: uuid.UUID,
+    *,
+    asof: dt.date | None = None,
+    window_days: int = 14,
+    limit: int = 10,
+) -> EventDigest:
+    """Recent global market digests + this portfolio's rebalances, newest first.
+
+    ``market_events`` are the global ``market_journal`` rows in
+    ``[asof - window_days, asof]``; ``portfolio_events`` are the last ``limit``
+    ``portfolio_journal`` overlays at/before ``asof`` (no look-ahead). Repos are
+    imported lazily so ``import fund.observe`` stays agent-stack-free (they are
+    ``portopt_db`` reads; no agent stack either way). Builds no model, never
+    ``commit``s.
+
+    Args:
+        session: An injected sync ``portopt_db`` session; not owned here.
+        portfolio_id: The portfolio whose overlays to surface.
+        asof: Upper bound; defaults to today (UTC). Events after it are excluded.
+        window_days: Trailing span for the global market digests.
+        limit: Maximum rows per section.
+
+    Returns:
+        An :class:`EventDigest`; both sections empty when nothing is recorded.
+    """
+    from portopt_db.repositories.market_data.market_journal_repository import (
+        MarketJournalRepository,
+    )
+    from portopt_db.repositories.orders.portfolio_journal_repository import (
+        PortfolioJournalRepository,
+    )
+
+    end = asof or dt.date.today()
+    start = end - dt.timedelta(days=window_days)
+
+    digests = MarketJournalRepository(session).get_range(start, end)
+    market_events = tuple(
+        {"as_of": row.as_of.isoformat(), "narrative": row.narrative}
+        for row in reversed(digests)  # get_range is ascending → newest first
+    )[:limit]
+
+    overlays = PortfolioJournalRepository(session).list_for_portfolio(portfolio_id)
+    portfolio_events = tuple(
+        {
+            "as_of": row.as_of.isoformat(),
+            "allocation": row.allocation,
+            "narrative": row.narrative,
+        }
+        for row in overlays  # list_for_portfolio is newest first
+        if row.as_of <= end
+    )[:limit]
+
+    return EventDigest(
+        portfolio_id=portfolio_id,
+        market_events=market_events,
+        portfolio_events=portfolio_events,
+    )
+
+
 # --- internals --------------------------------------------------------------
 
 
@@ -487,6 +564,7 @@ def _parse_json_object(raw: str | None) -> dict[str, Any] | None:
 
 
 __all__ = [
+    "EventDigest",
     "PortfolioState",
     "ReprofileStatus",
     "RunSummary",
@@ -498,5 +576,6 @@ __all__ = [
     "load_run_transcript",
     "pending_hitl",
     "portfolio_state",
+    "recent_events",
     "reprofile_status",
 ]

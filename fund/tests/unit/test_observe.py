@@ -38,6 +38,12 @@ from langgraph.checkpoint.base import empty_checkpoint
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Interrupt
 from portopt_db.models import AgentRun
+from portopt_db.repositories.market_data.market_journal_repository import (
+    MarketJournalRepository,
+)
+from portopt_db.repositories.orders.portfolio_journal_repository import (
+    PortfolioJournalRepository,
+)
 
 from fund import observe
 from fund.audit.mandate_repository import MandateRepository
@@ -649,6 +655,59 @@ def test_metrics_from_response_empty_for_unparseable_json():
 
 
 # --- agent-stack-free import invariant --------------------------------------
+
+
+def test_recent_events_returns_market_and_portfolio_events(db_session):
+    MarketJournalRepository(db_session).upsert_journal(
+        _ASOF,
+        macro_deltas={},
+        market_moves={},
+        news_themes={"themes": {"rates": 1}},
+        narrative="risk-off",
+        source_counts={},
+    )
+    PortfolioJournalRepository(db_session).upsert(
+        _PID,
+        date(2026, 1, 20),
+        run_id=None,
+        trades={},
+        allocation={"AAA": 1.0},
+        drift={},
+        narrative="rebalanced",
+    )
+
+    digest = observe.recent_events(db_session, _PID, asof=_ASOF)
+
+    assert isinstance(digest, observe.EventDigest)
+    assert digest.portfolio_id == _PID
+    assert len(digest.market_events) == 1
+    assert digest.market_events[0]["as_of"] == _ASOF.isoformat()
+    assert digest.market_events[0]["narrative"] == "risk-off"
+    assert len(digest.portfolio_events) == 1
+    assert digest.portfolio_events[0]["narrative"] == "rebalanced"
+
+
+def test_recent_events_excludes_market_digests_outside_the_window(db_session):
+    MarketJournalRepository(db_session).upsert_journal(
+        date(2025, 12, 1),  # well before _ASOF - window
+        macro_deltas={},
+        market_moves={},
+        news_themes={},
+        narrative="stale",
+        source_counts={},
+    )
+
+    digest = observe.recent_events(db_session, _PID, asof=_ASOF, window_days=14)
+
+    assert digest.market_events == ()
+
+
+def test_recent_events_empty_for_portfolio_without_history(db_session):
+    digest = observe.recent_events(db_session, uuid.uuid4(), asof=_ASOF)
+
+    assert isinstance(digest, observe.EventDigest)
+    assert digest.market_events == ()
+    assert digest.portfolio_events == ()
 
 
 def test_import_fund_observe_is_agent_stack_free():
