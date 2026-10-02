@@ -89,6 +89,48 @@ def get_expected_trading_sessions(
         return None
 
 
+def iter_trading_days(
+    start: date,
+    end: date,
+    exchange_name: str = "NYSE",
+) -> list[date]:
+    """Return exchange trading-session dates in ``[start, end]`` inclusive.
+
+    Backs the daily-events backfill: one digest per trading session rather than
+    per calendar day. Weekends and exchange holidays are excluded by the
+    ``exchange_calendars`` schedule.
+
+    Args:
+        start: Inclusive first calendar date to consider.
+        end: Inclusive last calendar date to consider.
+        exchange_name: Exchange whose calendar defines the sessions; must appear
+            in ``EXCHANGE_NAME_TO_MIC``.
+
+    Returns:
+        Session dates in ascending order. Empty when the exchange is unknown,
+        the range is reversed (``start > end``), or the calendar lookup fails.
+    """
+    mic = EXCHANGE_NAME_TO_MIC.get(exchange_name)
+    if mic is None or start > end:
+        return []
+
+    try:
+        cal = xcals.get_calendar(mic)
+        sessions = cal.sessions_in_range(start.isoformat(), end.isoformat())
+    except Exception:
+        logger.warning(
+            "Failed to list sessions for %s (MIC=%s) in [%s, %s]",
+            exchange_name,
+            mic,
+            start,
+            end,
+            exc_info=True,
+        )
+        return []
+
+    return [s.date() if hasattr(s, "date") else s for s in sessions]
+
+
 def has_sufficient_history(
     row_count: int,
     exchange_name: str | None,

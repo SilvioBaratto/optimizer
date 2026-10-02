@@ -20,6 +20,7 @@ import pytest
 from app.services._shared.trading_calendar import (
     get_expected_trading_sessions,
     has_sufficient_history,
+    iter_trading_days,
     parse_period_years,
 )
 
@@ -103,6 +104,37 @@ class TestExpectedTradingSessions:
             result = get_expected_trading_sessions("NYSE", "1y", self._REF)
 
         assert result is None
+
+
+class TestIterTradingDays:
+    """Backfill driver: trading-session dates in a range, weekends/holidays out."""
+
+    def test_excludes_the_weekend(self) -> None:
+        """A Fri→Mon span drops the intervening Saturday and Sunday."""
+        days = iter_trading_days(date(2024, 1, 5), date(2024, 1, 8))
+        assert days == [date(2024, 1, 5), date(2024, 1, 8)]
+
+    def test_excludes_a_market_holiday(self) -> None:
+        """2024-01-01 is a NYSE holiday, so the first session is 2024-01-02."""
+        days = iter_trading_days(date(2024, 1, 1), date(2024, 1, 3))
+        assert date(2024, 1, 1) not in days
+        assert days[0] == date(2024, 1, 2)
+
+    def test_empty_when_start_after_end(self) -> None:
+        """A reversed range yields no sessions rather than raising."""
+        assert iter_trading_days(date(2024, 1, 10), date(2024, 1, 1)) == []
+
+    def test_empty_for_unknown_exchange(self) -> None:
+        """An exchange with no MIC mapping yields no sessions."""
+        assert iter_trading_days(date(2024, 1, 2), date(2024, 1, 5), "Bogus") == []
+
+    def test_empty_when_calendar_lookup_raises(self) -> None:
+        """A calendar error degrades to an empty list, not a crash."""
+        with patch(
+            "app.services._shared.trading_calendar.xcals.get_calendar",
+            side_effect=Exception("boom"),
+        ):
+            assert iter_trading_days(date(2024, 1, 2), date(2024, 1, 5)) == []
 
 
 class TestHasSufficientHistory:

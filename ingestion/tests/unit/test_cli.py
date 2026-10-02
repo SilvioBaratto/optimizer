@@ -13,6 +13,7 @@ database. What is asserted is the contract the shell drivers depend on:
 from __future__ import annotations
 
 import os
+from datetime import date
 from unittest.mock import patch
 
 import pytest
@@ -263,6 +264,7 @@ class TestSingleStepCommands:
             ("calendars", "run_calendars_step"),
             ("market-summary", "run_market_summary_step"),
             ("options", "run_options_step"),
+            ("daily-events", "run_daily_events_step"),
         ],
     )
     def test_command_invokes_matching_scheduler_step(
@@ -286,6 +288,7 @@ class TestSingleStepCommands:
             ("calendars", "run_calendars_step"),
             ("market-summary", "run_market_summary_step"),
             ("options", "run_options_step"),
+            ("daily-events", "run_daily_events_step"),
         ],
     )
     def test_exits_nonzero_when_step_did_not_complete(
@@ -376,3 +379,52 @@ class TestCompositeCommands:
 
         assert result.exit_code == 0
         assert calls == ["universe", "weekly", "fred"]
+
+
+class TestDailyEventsBackfill:
+    """`daily-events --backfill START:END` builds one digest per trading day."""
+
+    _CAL = "app.services._shared.trading_calendar.iter_trading_days"
+    _BUILD = "app.services.market_data.market_journal_service.run_build_market_journal"
+
+    def test_builds_one_digest_per_trading_day(self) -> None:
+        """Each trading day in the range is built with its own ``as_of``."""
+        days = [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)]
+        with (
+            patch(self._CAL, return_value=days) as cal,
+            patch(self._BUILD, return_value={}) as build,
+        ):
+            result = runner.invoke(
+                app, ["daily-events", "--backfill", "2024-01-02:2024-01-04"]
+            )
+
+        assert result.exit_code == 0
+        cal.assert_called_once()
+        assert build.call_count == len(days)
+        assert [c.args[0].as_of for c in build.call_args_list] == days
+
+    def test_bad_range_exits_nonzero_without_building(self) -> None:
+        """A range with no ``:`` separator is rejected before any build runs."""
+        with (
+            patch(self._CAL) as cal,
+            patch(self._BUILD) as build,
+        ):
+            result = runner.invoke(app, ["daily-events", "--backfill", "not-a-range"])
+
+        assert result.exit_code == 1
+        cal.assert_not_called()
+        build.assert_not_called()
+
+    def test_start_after_end_exits_nonzero(self) -> None:
+        """START later than END is rejected rather than silently building nothing."""
+        with (
+            patch(self._CAL) as cal,
+            patch(self._BUILD) as build,
+        ):
+            result = runner.invoke(
+                app, ["daily-events", "--backfill", "2024-02-01:2024-01-01"]
+            )
+
+        assert result.exit_code == 1
+        cal.assert_not_called()
+        build.assert_not_called()

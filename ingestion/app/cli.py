@@ -16,6 +16,8 @@ already running that step.
     python -m app.cli calendars                    # earnings/IPO/splits/economic
     python -m app.cli market-summary               # regional market summaries
     python -m app.cli options                      # full option chains
+    python -m app.cli daily-events                  # today's market_journal digest
+    python -m app.cli daily-events --backfill 2026-01-01:2026-09-30
 
 Single-step commands exit non-zero when the step did not complete, so shell
 drivers can gate on them. The composite commands (``daily``, ``refetch-all``)
@@ -187,6 +189,69 @@ def options() -> None:
     from app.services.jobs.scheduler import run_options_step
 
     _exit(run_options_step())
+
+
+@app.command(name="daily-events")
+def daily_events(
+    backfill: str | None = typer.Option(
+        None,
+        "--backfill",
+        help="Backfill a 'START:END' ISO-date range, one digest per trading day.",
+    ),
+) -> None:
+    """Build the global daily digest (market_journal) for today, or a range."""
+    _boot()
+    if backfill is None:
+        from app.services.jobs.scheduler import run_daily_events_step
+
+        _exit(run_daily_events_step())
+        return
+    _exit(_run_daily_events_backfill(backfill))
+
+
+def _run_daily_events_backfill(spec: str) -> bool:
+    """Build one digest per trading day across a ``START:END`` ISO-date range.
+
+    Runs the builder directly rather than the slotted ``run_daily_events_step``:
+    a historical backfill can span hundreds of sessions, so it skips the per-day
+    job slot and heartbeat the single-day path uses. Each day is an idempotent
+    upsert, so re-running the range is safe.
+
+    Returns ``True`` when the range parsed and every session built, ``False`` on
+    a malformed or reversed range (the caller maps this to a non-zero exit).
+    """
+    from datetime import date
+
+    from app.schemas.market_data.market_journal import MarketJournalBuildRequest
+    from app.services._shared.trading_calendar import iter_trading_days
+    from app.services.market_data.market_journal_service import (
+        run_build_market_journal,
+    )
+
+    try:
+        start_str, end_str = spec.split(":", 1)
+        start = date.fromisoformat(start_str.strip())
+        end = date.fromisoformat(end_str.strip())
+    except ValueError:
+        typer.echo(
+            f"Invalid --backfill range {spec!r}; expected 'START:END' ISO dates "
+            "(e.g. 2026-01-01:2026-09-30).",
+            err=True,
+        )
+        return False
+
+    if start > end:
+        typer.echo(
+            f"Invalid --backfill range {spec!r}: START must not be after END.",
+            err=True,
+        )
+        return False
+
+    days = iter_trading_days(start, end)
+    for day in days:
+        run_build_market_journal(MarketJournalBuildRequest(as_of=day))
+    typer.echo(f"daily-events backfill: built {len(days)} digest(s) for {spec}.")
+    return True
 
 
 @app.command()
