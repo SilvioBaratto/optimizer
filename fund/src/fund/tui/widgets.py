@@ -1,8 +1,9 @@
-"""The four observer panels for FundTUI.
+"""The five observer panels for FundTUI.
 
 Dumb renderers, thin over fund.observe: each panel exposes a ``show_*``
 method that takes the model-free read-model dataclasses (``RunSummary`` /
-``TranscriptEntry`` / ``PortfolioState``) or the interrupt dict and paints itself.
+``TranscriptEntry`` / ``PortfolioState`` / ``EventDigest``) or the interrupt dict
+and paints itself.
 All data flow — the polling read session, the run selection, the worker-thread
 resume — lives in the ``App``; a panel never opens a session, builds a model, or
 imports the agent stack. Test-friendly counters (``entry_count`` / ``gate_text``)
@@ -18,7 +19,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, DataTable, Label, RichLog, Static
 
-from fund.observe import PortfolioState, RunSummary, TranscriptEntry
+from fund.observe import EventDigest, PortfolioState, RunSummary, TranscriptEntry
 
 
 def _short(value: Any) -> str:
@@ -148,6 +149,35 @@ class HistoryPanel(Vertical):
                 "yes" if row.awaiting_hitl else "-",
                 key=str(row.run_id),
             )
+
+
+class RecentEventsPanel(Vertical):
+    """Panel 5: recent global market digests + this portfolio's rebalances."""
+
+    event_count: int = 0
+
+    def compose(self) -> ComposeResult:
+        yield Label("Recent events", classes="panel-title")
+        yield DataTable(id="events-table", cursor_type="none")
+
+    def on_mount(self) -> None:
+        self.query_one("#events-table", DataTable).add_columns("when", "kind", "detail")
+
+    def show(self, digest: EventDigest | None) -> None:
+        """Repaint the events table from ``digest`` (market + portfolio events)."""
+        table = self.query_one("#events-table", DataTable)
+        table.clear()
+        if digest is None:
+            self.event_count = 0
+            return
+        count = 0
+        for event in digest.market_events:
+            table.add_row(event["as_of"], "market", event["narrative"])
+            count += 1
+        for event in digest.portfolio_events:
+            table.add_row(event["as_of"], "portfolio", event["narrative"])
+            count += 1
+        self.event_count = count
 
 
 def _format_gate(interrupt: dict[str, Any] | None) -> str:

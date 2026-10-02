@@ -36,6 +36,9 @@ from _fund_fakes import (
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import Base
+from portopt_db.repositories.orders.portfolio_journal_repository import (
+    PortfolioJournalRepository,
+)
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -51,6 +54,7 @@ from fund.tui.widgets import (
     HistoryPanel,
     HitlQueuePanel,
     PortfolioStatePanel,
+    RecentEventsPanel,
     TranscriptPanel,
 )
 
@@ -139,19 +143,40 @@ def _make_app(env, *, poll_interval: float = 30.0, model_factory=None) -> FundTU
 
 
 @pytest.mark.asyncio
-async def test_four_panels_mount_and_poll_populates(tui_env) -> None:
-    app = _make_app(tui_env, poll_interval=0.05)
+async def test_five_panels_mount_and_refresh_populates(tui_env) -> None:
+    # Seed one portfolio overlay so the Recent Events panel has a row to paint.
+    with tui_env.get_session() as session:
+        PortfolioJournalRepository(session).upsert(
+            PORTFOLIO_ID,
+            ASOF,
+            run_id=None,
+            trades={},
+            allocation={"AAA": 1.0},
+            drift={},
+            narrative="prior rebalance",
+        )
+        session.commit()
+
+    app = _make_app(tui_env)
     async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        # Drive the read tick explicitly rather than racing the poll timer: the
+        # old poll_interval=0.05 + single pause was flaky under load (the worker
+        # tick could land after the assertions). _refresh is synchronous.
+        app._refresh()
         await pilot.pause()
         assert app.query_one(TranscriptPanel) is not None
         assert app.query_one(PortfolioStatePanel) is not None
         assert app.query_one(HitlQueuePanel) is not None
         assert app.query_one(HistoryPanel) is not None
-        # the poll tick populated the queue (one paused run) and the history.
+        assert app.query_one(RecentEventsPanel) is not None
+        # the read tick populated the queue (one paused run) and the history.
         assert app.query_one("#hitl-table", DataTable).row_count == 1
         assert app.query_one("#history-table", DataTable).row_count >= 1
         # target weights (the allocator proposal fallback) fill panel 2.
         assert app.query_one("#holdings-table", DataTable).row_count >= 1
+        # the seeded overlay fills the recent-events panel.
+        assert app.query_one("#events-table", DataTable).row_count >= 1
 
 
 # --- selection drives the gate ----------------------------------------------

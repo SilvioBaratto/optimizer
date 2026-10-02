@@ -1,8 +1,9 @@
-"""``fund-tui`` — the four-panel Textual observer over ``fund.observe``.
+"""``fund-tui`` — the five-panel Textual observer over ``fund.observe``.
 
 A read-mostly "Bloomberg" cockpit for one portfolio: a transcript, the current-vs-
-target state, the HITL approval queue, and the run history. All four panels are thin
-over the model-free read model (``fund.observe``); the App owns every side effect:
+target state, the HITL approval queue, the run history, and the recent market/
+portfolio events. All five panels are thin over the model-free read model
+(``fund.observe``); the App owns every side effect:
 
 * **Polling, not pushing.** ``FundTUI._refresh`` runs on a ``set_interval`` timer
   (``poll_interval``, ~2s), opening a *short read-only* session, extracting plain
@@ -39,6 +40,7 @@ from fund.tui.widgets import (
     HistoryPanel,
     HitlQueuePanel,
     PortfolioStatePanel,
+    RecentEventsPanel,
     TranscriptPanel,
 )
 
@@ -55,10 +57,10 @@ _PAST = {"approve": "approved", "reject": "rejected"}
 
 
 class FundTUI(App):
-    """The four-panel observer App for a single portfolio."""
+    """The five-panel observer App for a single portfolio."""
 
     CSS = """
-    Screen { layout: grid; grid-size: 2 2; grid-gutter: 1; }
+    Screen { layout: grid; grid-size: 2 3; grid-gutter: 1; }
     .panel { border: round $accent; padding: 0 1; height: 1fr; }
     .panel-title { text-style: bold; color: $accent; }
     #transcript-log { height: 1fr; }
@@ -124,6 +126,7 @@ class FundTUI(App):
         yield PortfolioStatePanel(classes="panel", id="state-panel")
         yield HitlQueuePanel(classes="panel", id="hitl-panel")
         yield HistoryPanel(classes="panel", id="history-panel")
+        yield RecentEventsPanel(classes="panel", id="events-panel")
         yield Static("", id="status-bar")
         yield Footer()
 
@@ -148,6 +151,7 @@ class FundTUI(App):
                     session, self._persistence.saver, self._portfolio_id
                 )
                 state = observe.portfolio_state(session, self._portfolio_id)
+                events = observe.recent_events(session, self._portfolio_id)
                 transcript: list[observe.TranscriptEntry] = []
                 interrupt: dict[str, Any] | None = None
                 if self._selected_run_id is not None:
@@ -174,6 +178,7 @@ class FundTUI(App):
         hitl.show_gate(interrupt)
         self.query_one(PortfolioStatePanel).show(state)
         self.query_one(TranscriptPanel).show(transcript)
+        self.query_one(RecentEventsPanel).show(events)
 
     # --- selection ----------------------------------------------------------
 
