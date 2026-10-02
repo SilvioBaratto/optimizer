@@ -130,12 +130,12 @@ def _make_step_side_effect(returns: dict[str, bool]):
     [
         (
             True,
-            {"yfinance", "macro", "news"},
+            {"yfinance", "macro", "news", "daily_events"},
             set(),
         ),
         (
             False,
-            {"yfinance", "macro"},
+            {"yfinance", "macro", "daily_events"},
             {"news"},
         ),
     ],
@@ -146,6 +146,7 @@ class TestRunDailyPipeline:
             "yfinance": yf_ok,
             "macro": True,
             "news": True,
+            "daily_events": True,
         }
 
         with ExitStack() as stack:
@@ -349,6 +350,71 @@ class TestRunOptionsStep:
         args = mock_step.call_args.args
         assert args[0] == "options"
         assert args[1] is _options_jobs
+
+
+class TestRunDailyEventsStep:
+    """The daily digest is a heartbeat-wrapped step composed via _run_step."""
+
+    def test_composes_run_step_with_daily_events_label(self):
+        """It delegates to _run_step with its label, job slot, and the builder fn."""
+        with patch(f"{M}._run_step", return_value=True) as mock_step:
+            from app.services.jobs.scheduler import (
+                _daily_events_jobs,
+                run_daily_events_step,
+            )
+            from app.services.market_data.market_journal_service import (
+                run_build_market_journal,
+            )
+
+            assert run_daily_events_step() is True
+
+        assert mock_step.call_count == 1
+        args = mock_step.call_args.args
+        assert args[0] == "daily_events"
+        assert args[1] is _daily_events_jobs
+        assert args[2] is run_build_market_journal
+
+    def test_daily_events_job_type_is_reclaim_dispatchable(self):
+        """The orphan reaper can re-dispatch a wedged daily_events run."""
+        from app.services.jobs.scheduler import _reclaim_dispatchable
+
+        assert _reclaim_dispatchable("daily_events") is True
+
+    def test_heartbeats_for_the_duration_of_the_step(self):
+        """A heartbeat thread runs while the digest builds, so the reaper can't eat it."""
+        from app.services.jobs import scheduler as sched
+
+        job_id = "22222222-2222-2222-2222-222222222222"
+        svc = MagicMock()
+        svc.create_job.return_value = job_id
+        svc.get_job.return_value = {"status": "completed"}
+        svc._heartbeat_cadence = 0.01
+        svc._run_heartbeat.side_effect = lambda _j, stop, _c: stop.wait(timeout=5)
+
+        seen: list[list[str]] = []
+
+        def _fake_build(_request, *, on_progress):
+            seen.append(
+                [
+                    t.name
+                    for t in threading.enumerate()
+                    if t.name.startswith("hb:sched:daily_events")
+                ]
+            )
+
+        with (
+            patch.object(sched, "_daily_events_jobs", svc),
+            patch(
+                "app.services.market_data.market_journal_service.run_build_market_journal",
+                _fake_build,
+            ),
+        ):
+            assert sched.run_daily_events_step() is True
+
+        assert seen and seen[0], (
+            "no daily_events heartbeat thread ran alongside the step"
+        )
+        svc._run_heartbeat.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

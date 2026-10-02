@@ -281,6 +281,29 @@ class TestProgressContract:
         assert final_kwargs.get("status") == "completed"
 
 
+class TestFailurePropagation:
+    """A hard failure propagates so the scheduler step records it as failed."""
+
+    def test_build_propagates_the_exception(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A session error surfaces instead of being swallowed as success.
+
+        ``_run_step`` flips any non-``completed`` status to ``completed``
+        defensively, so a swallowed failure would be mislabelled a success;
+        the build must raise instead.
+        """
+        from app import database as db_module
+
+        def _boom() -> Session:
+            raise RuntimeError("db gone")
+
+        monkeypatch.setattr(db_module.database_manager, "get_session", _boom)
+
+        with pytest.raises(RuntimeError, match="db gone"):
+            run_build_market_journal(_request())
+
+
 class TestNarrativePurity:
     """The narrative is a pure, deterministic function of the JSON sections."""
 

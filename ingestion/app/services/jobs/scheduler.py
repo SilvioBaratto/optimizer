@@ -2,7 +2,8 @@
 
 Scheduled jobs:
   1. **daily_pipeline** (CronTrigger, default 07:00 UTC) — sequential data
-     pipeline: ref-indices → yfinance → macro → news.
+     pipeline: yfinance → macro → news → daily-events digest (the digest
+     summarises the day's ingested data into ``market_journal``).
   2. **midday_news** (CronTrigger, default 14:00 UTC) — macro news fetch
      (catch afternoon market news).
   3. **universe_build** (CronTrigger, default Sunday 02:00 UTC) — Trading 212
@@ -112,6 +113,11 @@ _calendars_jobs = BackgroundJobService(
 )
 _market_summary_jobs = BackgroundJobService(
     job_type="market_summary_fetch",
+    session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
+)
+_daily_events_jobs = BackgroundJobService(
+    job_type="daily_events",
     session_factory=database_manager.get_session,
     heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
@@ -374,6 +380,26 @@ def run_news_step(*, attempt: int = 0) -> bool:
     )
 
 
+def run_daily_events_step(*, attempt: int = 0) -> bool:
+    """Build the global daily digest row from already-ingested data.
+
+    Reads FRED / market-summary / macro-news rows (no external fetch), so it runs
+    last in the daily pipeline on whatever the earlier steps landed. Tolerates
+    empty sources — it always writes a (possibly terse) row."""
+    from app.schemas.market_data.market_journal import MarketJournalBuildRequest
+    from app.services.market_data.market_journal_service import (
+        run_build_market_journal,
+    )
+
+    return _run_step(
+        "daily_events",
+        _daily_events_jobs,
+        run_build_market_journal,
+        MarketJournalBuildRequest(),
+        attempt=attempt,
+    )
+
+
 def run_universe_step(*, attempt: int = 0) -> bool:
     """Rebuild the instrument universe from the yfinance Screener.
 
@@ -427,11 +453,13 @@ def run_t212_annotate_step(*, attempt: int = 0) -> bool:
 
 
 def run_daily_pipeline() -> None:
-    """Sequential pipeline: ref-indices → yfinance → macro → news.
+    """Sequential pipeline: yfinance → macro → news → daily-events digest.
 
     News depends on yfinance (it fetches article content for the fetched
     tickers), so a failed yfinance step skips news rather than scraping against
-    a stale universe. Macro is independent of yfinance and always runs.
+    a stale universe. Macro is independent of yfinance and always runs. The
+    daily-events digest runs last and unconditionally — it only reads whatever
+    the earlier steps landed, tolerating partial or empty sources.
     """
     logger.info("daily_pipeline: starting")
 
@@ -443,6 +471,8 @@ def run_daily_pipeline() -> None:
         logger.warning("daily_pipeline: news skipped — yfinance did not complete")
     else:
         run_news_step()
+
+    run_daily_events_step()
 
     logger.info("daily_pipeline: finished")
 
@@ -541,6 +571,7 @@ _RECLAIM_STEP: dict[str, Callable[..., bool]] = {
     "calendars_fetch": run_calendars_step,
     "market_summary_fetch": run_market_summary_step,
     "options_fetch": run_options_step,
+    "daily_events": run_daily_events_step,
 }
 
 

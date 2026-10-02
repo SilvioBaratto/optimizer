@@ -204,8 +204,11 @@ def run_build_market_journal(
     Args:
         request: Build parameters (target date, region, series/markets, news
             limit).  A ``None`` ``as_of`` defaults to today.
-        on_progress: Optional callback; invoked with ``total`` at start and a
-            terminal ``status`` (``"completed"`` or ``"failed"``) at the end.
+        on_progress: Optional callback; invoked with ``total`` at start and
+            ``status="completed"`` at the end.  A failure is *not* swallowed: the
+            exception propagates so the scheduler's ``_run_step`` records the job
+            as failed (it flips any non-``completed`` status to ``completed``, so
+            a swallowed failure would be mislabelled a success).
 
     Returns:
         Result dict with ``as_of``, ``region``, ``source_counts``, and
@@ -218,46 +221,36 @@ def run_build_market_journal(
     series_ids = request.fred_series or _DEFAULT_FRED_SERIES
 
     on_progress(total=1)
-    try:
-        with database_manager.get_session() as session:
-            macro_repo = MacroRegimeRepository(session)
-            market_repo = MarketSummaryRepository(session)
-            journal_repo = MarketJournalRepository(session)
+    with database_manager.get_session() as session:
+        macro_repo = MacroRegimeRepository(session)
+        market_repo = MarketSummaryRepository(session)
+        journal_repo = MarketJournalRepository(session)
 
-            macro_deltas = _build_macro_deltas(macro_repo, series_ids)
-            market_moves, market_rows = _build_market_moves(
-                market_repo, request.markets, as_of
-            )
-            news_themes, news_articles = _build_news_themes(
-                macro_repo, as_of, request.news_limit
-            )
-            source_counts = {
-                "fred_series": len(macro_deltas),
-                "market_rows": market_rows,
-                "news_articles": news_articles,
-            }
-            narrative = _build_narrative(
-                as_of, region, macro_deltas, market_moves, news_themes
-            )
-            journal_repo.upsert_journal(
-                as_of,
-                macro_deltas=macro_deltas,
-                market_moves=market_moves,
-                news_themes=news_themes,
-                narrative=narrative,
-                source_counts=source_counts,
-                region=region,
-            )
-            session.commit()
-    except Exception as exc:
-        logger.error("Market journal build failed for %s: %s", as_of, exc)
-        on_progress(
-            status="failed",
-            finished_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            errors=[str(exc)],
-            result={"as_of": as_of.isoformat()},
+        macro_deltas = _build_macro_deltas(macro_repo, series_ids)
+        market_moves, market_rows = _build_market_moves(
+            market_repo, request.markets, as_of
         )
-        return {"as_of": as_of.isoformat(), "region": region, "error_count": 1}
+        news_themes, news_articles = _build_news_themes(
+            macro_repo, as_of, request.news_limit
+        )
+        source_counts = {
+            "fred_series": len(macro_deltas),
+            "market_rows": market_rows,
+            "news_articles": news_articles,
+        }
+        narrative = _build_narrative(
+            as_of, region, macro_deltas, market_moves, news_themes
+        )
+        journal_repo.upsert_journal(
+            as_of,
+            macro_deltas=macro_deltas,
+            market_moves=market_moves,
+            news_themes=news_themes,
+            narrative=narrative,
+            source_counts=source_counts,
+            region=region,
+        )
+        session.commit()
 
     result_dict = {
         "as_of": as_of.isoformat(),
