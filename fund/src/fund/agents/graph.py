@@ -493,13 +493,86 @@ def _finalize_hitl(
         audit.finalize_run(run_id, weights={}, status="rejected")
 
 
-def _run_instruction(
-    mandate: PortfolioMandate, portfolio_id: str, asof: dt.date
+_HISTORY_SUMMARY_BUDGET = 800
+_HISTORY_DIGEST_WINDOW_DAYS = 14
+
+
+def _history_summary(
+    session: Any,
+    portfolio_id: uuid.UUID,
+    asof: dt.date,
+    *,
+    budget: int = _HISTORY_SUMMARY_BUDGET,
 ) -> str:
-    """The human turn that drives the PM through one paper rebalance."""
+    """Compact "since last rebalance" recap for the PM seed (empty on first run).
+
+    Reads the portfolio's most recent prior overlay (allocation + whether it
+    traded) and the latest global market digest, both bounded strictly/at ``asof``
+    (no look-ahead), and folds them into one short string. Repos are imported
+    lazily so a bare ``import fund.agents.graph`` stays agent-stack-free, and the
+    result is capped to ``budget`` chars so it never crowds the model context or
+    the PM round cap.
+
+    Args:
+        session: A sync ``portopt_db`` session; not owned here.
+        portfolio_id: The portfolio whose history to recap.
+        asof: The current decision bar; only activity before/at it is considered.
+        budget: Maximum character length of the returned recap.
+
+    Returns:
+        The recap string, or ``""`` when the portfolio has no prior rebalance and
+        no digest is available.
+    """
+    import datetime as dt
+
+    from portopt_db.repositories.market_data.market_journal_repository import (
+        MarketJournalRepository,
+    )
+    from portopt_db.repositories.orders.portfolio_journal_repository import (
+        PortfolioJournalRepository,
+    )
+
+    parts: list[str] = []
+
+    overlays = PortfolioJournalRepository(session).list_for_portfolio(portfolio_id)
+    prior = next((o for o in overlays if o.as_of < asof), None)
+    if prior is not None:
+        allocation = prior.allocation or {}
+        alloc_str = ", ".join(f"{t} {w}" for t, w in sorted(allocation.items()))
+        parts.append(f"Prior rebalance {prior.as_of.isoformat()}: {alloc_str}.")
+        if prior.trades:
+            parts.append(f"Traded: {', '.join(sorted(prior.trades))}.")
+
+    start = asof - dt.timedelta(days=_HISTORY_DIGEST_WINDOW_DAYS)
+    digests = MarketJournalRepository(session).get_range(start, asof)
+    if digests:
+        latest = digests[-1]  # get_range is ascending → the freshest at/before asof
+        parts.append(f"Latest digest {latest.as_of.isoformat()}: {latest.narrative}")
+
+    if not parts:
+        return ""
+    summary = "Since last rebalance — " + " ".join(parts)
+    if len(summary) > budget:
+        summary = summary[: budget - 3].rstrip() + "..."
+    return summary
+
+
+def _run_instruction(
+    mandate: PortfolioMandate,
+    portfolio_id: str,
+    asof: dt.date,
+    history_summary: str = "",
+) -> str:
+    """The human turn that drives the PM through one paper rebalance.
+
+    When ``history_summary`` is non-empty it is prepended as a context block so
+    the PM sees the portfolio's recent allocation/trades and the latest market
+    digest before deciding; an empty summary (first run) yields the bare seed.
+    """
     benchmark = f", benchmark {mandate.benchmark}" if mandate.benchmark else ""
+    history = f"{history_summary}\n\n" if history_summary else ""
     return (
-        f"Produce an allocation for portfolio {portfolio_id} as of "
+        f"{history}Produce an allocation for portfolio {portfolio_id} as of "
         f"{asof.isoformat()}. Mandate: capital {mandate.capital} "
         f"{mandate.base_currency}{benchmark}. Delegate in order economist -> "
         f"allocator -> risk -> executor, then commit the risk-approved trades "
@@ -671,7 +744,12 @@ def run_fund(
                 "messages": [
                     {
                         "role": "user",
-                        "content": _run_instruction(mandate, pid_str, asof),
+                        "content": _run_instruction(
+                            mandate,
+                            pid_str,
+                            asof,
+                            _history_summary(session, pid_uuid, asof),
+                        ),
                     }
                 ]
             },

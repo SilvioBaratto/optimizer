@@ -28,8 +28,14 @@ from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision, AgentRun, PaperOrder
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
+from portopt_db.repositories.market_data.market_journal_repository import (
+    MarketJournalRepository,
+)
+from portopt_db.repositories.orders.portfolio_journal_repository import (
+    PortfolioJournalRepository,
+)
 
-from fund.agents.graph import FundRun, run_fund
+from fund.agents.graph import FundRun, _history_summary, _run_instruction, run_fund
 from fund.agents.toolsets import RunContext
 from fund.audit import AgentRunRepository, put_constraint_set
 from fund.config import settings
@@ -275,6 +281,120 @@ def test_reject_writes_no_portfolio_journal(db_session) -> None:
 
     rows = db_session.query(PortfolioJournal).all()
     assert rows == []
+
+
+# --- history summary injected into the PM seed (T10) ------------------------
+
+
+def _seed_prior_history(db_session) -> None:
+    """Seed one prior overlay (before ``_ASOF``) and one recent market digest."""
+    PortfolioJournalRepository(db_session).upsert(
+        _PORTFOLIO_ID,
+        dt.date(2024, 1, 10),
+        run_id=None,
+        trades={"AAA": {"weight": 0.6}},
+        allocation={"AAA": 0.6, "BBB": 0.4},
+        drift={},
+        narrative="prior rebalance",
+    )
+    MarketJournalRepository(db_session).upsert_journal(
+        dt.date(2024, 1, 29),
+        macro_deltas={},
+        market_moves={},
+        news_themes={},
+        narrative="VIX spiked; risk-off",
+        source_counts={},
+    )
+
+
+class TestHistorySummary:
+    """``_history_summary`` recaps prior overlay + latest digest, bounded."""
+
+    def test_empty_when_no_history(self, db_session) -> None:
+        """A first run (no overlay, no digest) yields an empty summary."""
+        assert _history_summary(db_session, _PORTFOLIO_ID, _ASOF) == ""
+
+    def test_includes_prior_allocation_trades_and_digest(self, db_session) -> None:
+        """The recap names the prior allocation, that it traded, and the digest."""
+        _seed_prior_history(db_session)
+
+        summary = _history_summary(db_session, _PORTFOLIO_ID, _ASOF)
+
+        assert "2024-01-10" in summary
+        assert "AAA" in summary
+        assert "Traded" in summary
+        assert "VIX spiked; risk-off" in summary
+
+    def test_respects_the_char_budget(self, db_session) -> None:
+        """An overflowing recap is truncated to the configured budget."""
+        _seed_prior_history(db_session)
+
+        summary = _history_summary(db_session, _PORTFOLIO_ID, _ASOF, budget=40)
+
+        assert len(summary) <= 40
+
+    def test_ignores_overlay_dated_on_or_after_asof(self, db_session) -> None:
+        """Only a strictly-prior rebalance counts (no look-ahead / self-reference)."""
+        PortfolioJournalRepository(db_session).upsert(
+            _PORTFOLIO_ID,
+            _ASOF,
+            run_id=None,
+            trades={},
+            allocation={"AAA": 1.0},
+            drift={},
+            narrative="current bar",
+        )
+
+        assert _history_summary(db_session, _PORTFOLIO_ID, _ASOF) == ""
+
+
+class TestRunInstruction:
+    """``_run_instruction`` prepends the history block only when non-empty."""
+
+    def test_bare_seed_without_history(self) -> None:
+        """An empty history keeps the seed identical to the first-run form."""
+        seed = _run_instruction(_mandate(), str(_PORTFOLIO_ID), _ASOF)
+
+        assert seed.startswith("Produce an allocation")
+        assert "Since last rebalance" not in seed
+
+    def test_prepends_history_block(self) -> None:
+        """A non-empty history is prepended ahead of the allocation instruction."""
+        seed = _run_instruction(
+            _mandate(),
+            str(_PORTFOLIO_ID),
+            _ASOF,
+            "Since last rebalance — prior AAA 0.6.",
+        )
+
+        assert "Since last rebalance — prior AAA 0.6." in seed
+        assert "Produce an allocation" in seed
+
+
+def test_run_fund_seed_references_prior_history(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``run_fund`` wires the prior-history recap into the PM seed."""
+    import fund.agents.graph as graph_mod
+
+    _seed_panel(db_session)
+    _seed_prior_history(db_session)
+    captured: dict[str, str] = {}
+    original = graph_mod._run_instruction
+
+    def _spy(mandate, portfolio_id, asof, history_summary=""):
+        seed = original(mandate, portfolio_id, asof, history_summary)
+        captured["seed"] = seed
+        return seed
+
+    monkeypatch.setattr(graph_mod, "_run_instruction", _spy)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=_expected_weights(db_session))
+
+    _run(model, db_session, store=_store_with_cs())
+
+    assert "Since last rebalance" in captured["seed"]
+    assert "AAA" in captured["seed"]
+    assert "VIX spiked; risk-off" in captured["seed"]
 
 
 # --- LLM weights are ignored: the ticket uses the optimizer's audited weights --
