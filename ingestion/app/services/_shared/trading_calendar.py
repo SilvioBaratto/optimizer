@@ -107,8 +107,10 @@ def iter_trading_days(
             in ``EXCHANGE_NAME_TO_MIC``.
 
     Returns:
-        Session dates in ascending order. Empty when the exchange is unknown,
-        the range is reversed (``start > end``), or the calendar lookup fails.
+        Session dates in ascending order. Out-of-range requests are clamped to the
+        calendar's own bounds (a warning is logged). Empty when the exchange is
+        unknown, the range is reversed (``start > end``), the clamped range has no
+        sessions, or the calendar lookup fails.
     """
     mic = EXCHANGE_NAME_TO_MIC.get(exchange_name)
     if mic is None or start > end:
@@ -116,7 +118,35 @@ def iter_trading_days(
 
     try:
         cal = xcals.get_calendar(mic)
-        sessions = cal.sessions_in_range(start.isoformat(), end.isoformat())
+        cal_start = (
+            cal.first_session.date()
+            if hasattr(cal.first_session, "date")
+            else cal.first_session
+        )
+        cal_end = (
+            cal.last_session.date()
+            if hasattr(cal.last_session, "date")
+            else cal.last_session
+        )
+        # Clamp to the calendar's own bounds. Without this an out-of-range date
+        # makes ``sessions_in_range`` raise; the bare ``except`` would then read as
+        # "no sessions" and the backfill caller would report a false success.
+        clamped_start = max(start, cal_start)
+        clamped_end = min(end, cal_end)
+        if (clamped_start, clamped_end) != (start, end):
+            logger.warning(
+                "Requested range [%s, %s] trimmed to %s calendar bounds [%s, %s]",
+                start,
+                end,
+                exchange_name,
+                clamped_start,
+                clamped_end,
+            )
+        if clamped_start > clamped_end:
+            return []
+        sessions = cal.sessions_in_range(
+            clamped_start.isoformat(), clamped_end.isoformat()
+        )
     except Exception:
         logger.warning(
             "Failed to list sessions for %s (MIC=%s) in [%s, %s]",

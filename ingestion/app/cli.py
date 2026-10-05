@@ -191,12 +191,20 @@ def options() -> None:
     _exit(run_options_step())
 
 
+_BACKFILL_SESSION_CAP = 1000
+
+
 @app.command(name="daily-events")
 def daily_events(
     backfill: str | None = typer.Option(
         None,
         "--backfill",
         help="Backfill a 'START:END' ISO-date range, one digest per trading day.",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help=f"Allow a backfill wider than {_BACKFILL_SESSION_CAP} trading sessions.",
     ),
 ) -> None:
     """Build the global daily digest (market_journal) for today, or a range."""
@@ -206,10 +214,10 @@ def daily_events(
 
         _exit(run_daily_events_step())
         return
-    _exit(_run_daily_events_backfill(backfill))
+    _exit(_run_daily_events_backfill(backfill, force=force))
 
 
-def _run_daily_events_backfill(spec: str) -> bool:
+def _run_daily_events_backfill(spec: str, *, force: bool = False) -> bool:
     """Build one digest per trading day across a ``START:END`` ISO-date range.
 
     Runs the builder directly rather than the slotted ``run_daily_events_step``:
@@ -217,8 +225,19 @@ def _run_daily_events_backfill(spec: str) -> bool:
     job slot and heartbeat the single-day path uses. Each day is an idempotent
     upsert, so re-running the range is safe.
 
-    Returns ``True`` when the range parsed and every session built, ``False`` on
-    a malformed or reversed range (the caller maps this to a non-zero exit).
+    A per-day build failure is caught and logged, and the backfill continues over
+    the remaining days rather than aborting the whole range on one bad day (and
+    dumping a traceback through Typer). Ranges wider than ``_BACKFILL_SESSION_CAP``
+    sessions are refused unless ``force`` is set, guarding against a typo'd range.
+
+    Args:
+        spec: The ``START:END`` inclusive ISO-date range.
+        force: Bypass the session-count cap for an intentionally large backfill.
+
+    Returns:
+        ``True`` when the range parsed and every session built (or the range held
+        no sessions); ``False`` on a malformed/reversed range, an over-cap range
+        without ``force``, or any per-day build failure.
     """
     from datetime import date
 
@@ -248,10 +267,39 @@ def _run_daily_events_backfill(spec: str) -> bool:
         return False
 
     days = iter_trading_days(start, end)
-    for day in days:
-        run_build_market_journal(MarketJournalBuildRequest(as_of=day))
-    typer.echo(f"daily-events backfill: built {len(days)} digest(s) for {spec}.")
-    return True
+    if not days:
+        typer.echo(
+            f"daily-events backfill: no trading sessions in {spec}; nothing to build "
+            "(the range may fall outside the exchange calendar)."
+        )
+        return True
+
+    if len(days) > _BACKFILL_SESSION_CAP and not force:
+        typer.echo(
+            f"daily-events backfill: {spec} spans {len(days)} trading sessions "
+            f"(> {_BACKFILL_SESSION_CAP}); narrow the range or pass --force.",
+            err=True,
+        )
+        return False
+
+    total = len(days)
+    failures: list[date] = []
+    for idx, day in enumerate(days, start=1):
+        try:
+            run_build_market_journal(MarketJournalBuildRequest(as_of=day))
+        except Exception:
+            logger.exception("daily-events backfill failed for %s", day)
+            typer.echo(f"  failed: {day.isoformat()}", err=True)
+            failures.append(day)
+        if idx % 50 == 0 or idx == total:
+            typer.echo(f"  daily-events backfill: {idx}/{total} sessions processed")
+
+    built = total - len(failures)
+    suffix = f"; {len(failures)} failed" if failures else ""
+    typer.echo(
+        f"daily-events backfill: built {built}/{total} digest(s) for {spec}{suffix}."
+    )
+    return not failures
 
 
 @app.command()

@@ -428,3 +428,59 @@ class TestDailyEventsBackfill:
         assert result.exit_code == 1
         cal.assert_not_called()
         build.assert_not_called()
+
+    def test_empty_range_builds_nothing_but_succeeds(self) -> None:
+        """A range with no trading sessions is a no-op, not a failure."""
+        with (
+            patch(self._CAL, return_value=[]),
+            patch(self._BUILD) as build,
+        ):
+            result = runner.invoke(
+                app, ["daily-events", "--backfill", "2024-01-06:2024-01-07"]
+            )
+
+        assert result.exit_code == 0
+        build.assert_not_called()
+
+    def test_per_day_failure_exits_nonzero_and_continues(self) -> None:
+        """One failing day is logged; the rest still build and the exit is non-zero."""
+        days = [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)]
+        with (
+            patch(self._CAL, return_value=days),
+            patch(self._BUILD, side_effect=[{}, RuntimeError("boom"), {}]) as build,
+        ):
+            result = runner.invoke(
+                app, ["daily-events", "--backfill", "2024-01-02:2024-01-04"]
+            )
+
+        assert result.exit_code == 1
+        assert build.call_count == 3  # continued past the failing day
+
+    def test_over_cap_range_without_force_exits_nonzero(self) -> None:
+        """A range wider than the session cap is refused unless --force is passed."""
+        days = [date(2024, 1, 2)] * 1001
+        with (
+            patch(self._CAL, return_value=days),
+            patch(self._BUILD) as build,
+        ):
+            result = runner.invoke(
+                app, ["daily-events", "--backfill", "2000-01-01:2024-01-01"]
+            )
+
+        assert result.exit_code == 1
+        build.assert_not_called()
+
+    def test_over_cap_range_with_force_builds(self) -> None:
+        """--force bypasses the cap and builds every session."""
+        days = [date(2024, 1, 2), date(2024, 1, 3)] * 600  # 1200 > cap
+        with (
+            patch(self._CAL, return_value=days),
+            patch(self._BUILD, return_value={}) as build,
+        ):
+            result = runner.invoke(
+                app,
+                ["daily-events", "--backfill", "2000-01-01:2024-01-01", "--force"],
+            )
+
+        assert result.exit_code == 0
+        assert build.call_count == len(days)

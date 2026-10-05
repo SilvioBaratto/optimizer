@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import re
 from typing import Any
 
 from portopt_db.repositories.macro.macro_regime_repository import MacroRegimeRepository
@@ -31,6 +32,32 @@ logger = logging.getLogger(__name__)
 # When a request leaves ``fred_series`` empty, summarise the full ingested FRED
 # catalog; the digest skips any series without observations.
 _DEFAULT_FRED_SERIES: tuple[str, ...] = tuple(FRED_SERIES)
+
+# News themes are scraped from third-party feeds, so a crafted value could try to
+# break out of the one-line narrative (which downstream is injected into an agent
+# seed prompt). Bound length and strip control characters at this ingest boundary
+# so both the stored ``news_themes`` dict and the narrative stay well-formed.
+_MAX_THEME_LEN = 80
+_THEME_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _sanitize_theme(name: str) -> str:
+    """Normalise a scraped news-theme label before it enters stored text/prompts.
+
+    Collapses whitespace, drops control characters (the newlines/tabs a crafted
+    theme would use to break the narrative's single-line structure), and caps the
+    length so an over-long label cannot dominate the digest.
+
+    Args:
+        name: A raw theme fragment split from ``MacroNews.themes``.
+
+    Returns:
+        The cleaned, length-bounded label, or ``""`` when nothing printable
+        remains (the caller skips empty labels).
+    """
+    cleaned = _THEME_CONTROL_CHARS.sub(" ", name)
+    cleaned = " ".join(cleaned.split())
+    return cleaned[:_MAX_THEME_LEN].strip()
 
 
 def _f(value: Any) -> float | None:
@@ -113,7 +140,11 @@ def _build_news_themes(
     Only articles published on or before ``as_of`` are considered, so a
     backfilled digest never leaks future headlines.
     """
-    end = datetime.datetime.combine(as_of, datetime.time.max)
+    # Match the TIMESTAMPTZ ``publish_time`` column: an explicit UTC cutoff keeps the
+    # "on or before as_of" boundary stable regardless of the DB session timezone.
+    end = datetime.datetime.combine(
+        as_of, datetime.time.max, tzinfo=datetime.timezone.utc
+    )
     articles = list(repo.get_macro_news(end_date=end, limit=limit))
     if not articles:
         return {}, 0
@@ -124,7 +155,7 @@ def _build_news_themes(
         raw = article.themes
         if raw:
             for theme in raw.split(","):
-                name = theme.strip()
+                name = _sanitize_theme(theme)
                 if name:
                     theme_counts[name] = theme_counts.get(name, 0) + 1
         if article.title:

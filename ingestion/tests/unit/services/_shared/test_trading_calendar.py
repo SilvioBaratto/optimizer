@@ -136,6 +136,37 @@ class TestIterTradingDays:
         ):
             assert iter_trading_days(date(2024, 1, 2), date(2024, 1, 5)) == []
 
+    def test_clamps_out_of_range_start_to_calendar_bounds(self) -> None:
+        """A start before the calendar's first session is clamped, not swallowed."""
+        mock_cal = MagicMock()
+        mock_cal.first_session = date(2024, 1, 2)
+        mock_cal.last_session = date(2024, 12, 31)
+        mock_cal.sessions_in_range.return_value = [date(2024, 1, 2), date(2024, 1, 3)]
+        with patch(
+            "app.services._shared.trading_calendar.xcals.get_calendar",
+            return_value=mock_cal,
+        ):
+            days = iter_trading_days(date(1990, 1, 1), date(2024, 1, 3))
+
+        assert days == [date(2024, 1, 2), date(2024, 1, 3)]
+        called_start, called_end = mock_cal.sessions_in_range.call_args.args
+        assert called_start == date(2024, 1, 2).isoformat()
+        assert called_end == date(2024, 1, 3).isoformat()
+
+    def test_empty_when_range_entirely_before_calendar(self) -> None:
+        """A range wholly before the first session yields [] without a false fetch."""
+        mock_cal = MagicMock()
+        mock_cal.first_session = date(2024, 1, 2)
+        mock_cal.last_session = date(2024, 12, 31)
+        with patch(
+            "app.services._shared.trading_calendar.xcals.get_calendar",
+            return_value=mock_cal,
+        ):
+            days = iter_trading_days(date(1990, 1, 1), date(1990, 12, 31))
+
+        assert days == []
+        mock_cal.sessions_in_range.assert_not_called()
+
 
 class TestHasSufficientHistory:
     def test_when_exchange_none_then_skipped_true(self) -> None:
