@@ -27,11 +27,11 @@ classifiers = [
 ]
 
 dependencies = [
-    "numpy==2.5.2",
-    "pandas==3.0.5",
+    "numpy==2.5.3",
+    "pandas==3.0.6",
     "scipy==1.18.1",
-    "scikit-learn==1.9.0",
-    "skfolio==1.4.9",
+    "scikit-learn==1.9.1",
+    "skfolio==1.4.11",
     "jinja2==3.1.6",
 ]
 
@@ -42,8 +42,8 @@ Issues = "https://github.com/SilvioBaratto/optimizer/issues"
 Changelog = "https://github.com/SilvioBaratto/optimizer/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
-test = ["pytest==9.1.1", "pytest-cov==7.1.0", "hypothesis==6.165.10", "pyyaml==6.0.3"]
-lint = ["ruff==0.16.4", "pip-audit==2.10.1"]
+test = ["pytest==9.1.1", "pytest-cov==7.1.0", "hypothesis==6.168.5", "pyyaml==6.0.3"]
+lint = ["ruff==0.16.10", "pip-audit==2.10.1"]
 # pyright pinned to 1.1.398 — the version the pre-uv CI's pyright-action used and
 # was green with. (The prior 1.1.411 pin here was never what CI ran; 1.1.411
 # flags 2 pre-existing warnings-as-errors in optimizer/ that 1.1.398 does not.)
