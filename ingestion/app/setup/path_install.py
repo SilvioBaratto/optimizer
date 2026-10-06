@@ -47,8 +47,10 @@ def resolve_repo(repo: Path | None = None) -> Path:
     so ``_repo_root()`` (derived from ``__file__``) no longer points at the checkout.
     Resolution therefore prefers, in order: an explicit ``repo`` argument, the
     ``OPTIMIZER_REPO`` env the front doors export, the ``repo_path`` persisted to
-    ``~/.portopt/config.toml`` (the moved-repo self-heal), then the ``__file__`` root
-    (correct only for an in-repo editable install).
+    ``~/.portopt/config.toml`` (the moved-repo self-heal), the current directory or
+    one of its parents (a direct ``portopt setup`` run from inside the checkout, with
+    no env set), then the ``__file__`` root (correct only for an in-repo editable
+    install).
 
     Args:
         repo: An explicit checkout path that short-circuits resolution.
@@ -64,6 +66,10 @@ def resolve_repo(repo: Path | None = None) -> Path:
     configured = config_file.load_config().get("repo_path")
     if configured and _is_repo(Path(str(configured))):
         return Path(str(configured))
+    cwd = Path.cwd()
+    for base in (cwd, *cwd.parents):
+        if _is_repo(base):
+            return base
     return _repo_root()
 
 

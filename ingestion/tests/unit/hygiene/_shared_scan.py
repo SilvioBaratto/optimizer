@@ -20,7 +20,10 @@ import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
-_EXCLUDE_DIR_PARTS = {"__pycache__"}
+# "build" catches ``ingestion/build/`` — a gitignored setuptools/``uv build``
+# artifact (``uv tool install --from ./ingestion`` during onboarding creates it)
+# that duplicates the source tree and would otherwise false-positive every scan.
+_EXCLUDE_DIR_PARTS = {"__pycache__", "build"}
 
 
 def _iter_python_files(root: Path, *, exclude: Path | None = None) -> Iterator[Path]:

@@ -183,5 +183,8 @@ graphify-out/
 # temp debug-repro cache (T212 universe)
 ingestion/scripts/.t212_universe_cache.json
 
+# One-off local T212 endpoint probe (reads secrets/, never commit)
+/_t212_probe.py
+
 # Local scratch workspace (not shared)
 /thebull/

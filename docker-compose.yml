@@ -53,7 +53,10 @@ services:
     # fetches cleanly. See app/worker.py::_drain_and_shutdown (§5.5).
     stop_grace_period: 60s
     env_file:
-      - .env
+      # Optional: the canonical wizard install keeps secrets in the encrypted
+      # store (~/.portopt rendered to /run/secrets), so it has no root .env.
+      - path: .env
+        required: false
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/optimizer_db
       DB_HOST: db
@@ -104,7 +107,10 @@ services:
     # drains the in-flight step before Docker SIGKILLs it (compose default 10s).
     stop_grace_period: 45s
     env_file:
-      - .env
+      # Optional for the same reason as scheduler: a wizard install has no root
+      # .env — secrets live in the encrypted store, mounted at /run/secrets.
+      - path: .env
+        required: false
       # Non-secret LLM selection (LLM_PROVIDER, FUND_PRIMARY_MODEL, per-provider
       # *_BASE_URL, AWS_REGION, AZURE_*) rendered by `portopt start` from
       # ~/.portopt/config.toml. Listed LAST so it overrides .env, and delivered via

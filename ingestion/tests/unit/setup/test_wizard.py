@@ -132,8 +132,8 @@ def test_interactive_installs_launcher_by_default(patched: dict) -> None:
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
-            wizard._MSG_CONNECT_T212: False,
-            wizard._MSG_CONNECT_FRED: False,
+            wizard._MSG_T212_KEY: "",
+            wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
     )
@@ -146,8 +146,8 @@ def test_interactive_skip_path_install(patched: dict) -> None:
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
-            wizard._MSG_CONNECT_T212: False,
-            wizard._MSG_CONNECT_FRED: False,
+            wizard._MSG_T212_KEY: "",
+            wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
     )
@@ -206,8 +206,8 @@ def test_interactive_t212_no_completes(patched: dict) -> None:
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
-            wizard._MSG_CONNECT_T212: False,
-            wizard._MSG_CONNECT_FRED: False,
+            wizard._MSG_T212_KEY: "",
+            wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
     )
@@ -221,10 +221,8 @@ def test_interactive_t212_and_fred_yes_persists_all(patched: dict) -> None:
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
-            wizard._MSG_CONNECT_T212: True,
             wizard._MSG_T212_KEY: "tk",
             wizard._MSG_T212_SECRET: "ts",
-            wizard._MSG_CONNECT_FRED: True,
             wizard._MSG_FRED_KEY: "fk",
             wizard._MSG_CONFIGURE_LLM: False,
         }
@@ -244,7 +242,6 @@ def test_interactive_t212_invalid_fails_loud(
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
-            wizard._MSG_CONNECT_T212: True,
             wizard._MSG_T212_KEY: "tk",
             wizard._MSG_T212_SECRET: "ts",
         }
@@ -261,8 +258,7 @@ def test_interactive_fred_invalid_fails_loud(
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
-            wizard._MSG_CONNECT_T212: False,
-            wizard._MSG_CONNECT_FRED: True,
+            wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "bad",
         }
     )
@@ -289,8 +285,7 @@ def test_interactive_t212_keys_autodetected_from_env(
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
-            wizard._MSG_CONNECT_T212: True,
-            wizard._MSG_CONNECT_FRED: False,
+            wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
     )
@@ -306,8 +301,7 @@ def test_interactive_fred_key_autodetected_from_env(
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
-            wizard._MSG_CONNECT_T212: False,
-            wizard._MSG_CONNECT_FRED: True,
+            wizard._MSG_T212_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
     )
@@ -335,8 +329,8 @@ def test_interactive_docker_down_propagates(
 def _llm_prompter(answers: dict) -> NonInteractivePrompter:
     base = {
         wizard._MSG_PASSPHRASE: "pw",
-        wizard._MSG_CONNECT_T212: False,
-        wizard._MSG_CONNECT_FRED: False,
+        wizard._MSG_T212_KEY: "",
+        wizard._MSG_FRED_KEY: "",
         wizard._MSG_CONFIGURE_LLM: True,
         wizard._MSG_LLM_BASE_URL: "",
     }
@@ -436,8 +430,8 @@ def test_interactive_llm_declined_persists_nothing(patched: dict) -> None:
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
-            wizard._MSG_CONNECT_T212: False,
-            wizard._MSG_CONNECT_FRED: False,
+            wizard._MSG_T212_KEY: "",
+            wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
     )
@@ -638,8 +632,8 @@ def test_interactive_first_run_auto_launches(
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
-            wizard._MSG_CONNECT_T212: False,
-            wizard._MSG_CONNECT_FRED: False,
+            wizard._MSG_T212_KEY: "",
+            wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
     )
@@ -655,8 +649,8 @@ def test_interactive_no_launch_suppresses_auto_launch(
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
-            wizard._MSG_CONNECT_T212: False,
-            wizard._MSG_CONNECT_FRED: False,
+            wizard._MSG_T212_KEY: "",
+            wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
     )
@@ -669,8 +663,8 @@ def test_interactive_rerun_never_auto_launches(patched: dict) -> None:
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
-            wizard._MSG_CONNECT_T212: False,
-            wizard._MSG_CONNECT_FRED: False,
+            wizard._MSG_T212_KEY: "",
+            wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
     )
@@ -691,8 +685,8 @@ def test_interactive_auto_launch_failure_is_non_fatal(
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
-            wizard._MSG_CONNECT_T212: False,
-            wizard._MSG_CONNECT_FRED: False,
+            wizard._MSG_T212_KEY: "",
+            wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
     )

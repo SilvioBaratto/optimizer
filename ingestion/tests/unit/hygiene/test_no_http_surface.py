@@ -62,7 +62,8 @@ _CASE_SENSITIVE_MARKERS = (
 )
 _ROUTE_DECORATOR_PATTERN = re.compile(r"@\w+\.(get|post|put|delete|patch|websocket)\(")
 _SCAN_SUFFIXES = {".py", ".toml", ".ini", ".cfg", ".txt"}
-_EXCLUDE_DIR_PARTS = {"__pycache__"}
+# "build": skip the gitignored uv-build artifact tree (see _shared_scan.py).
+_EXCLUDE_DIR_PARTS = {"__pycache__", "build"}
 
 # (path-suffix, line-substring, reason)
 _ALLOWLIST = (

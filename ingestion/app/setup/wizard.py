@@ -25,11 +25,9 @@ from app.setup.prompts import Prompter
 
 # Stable prompt messages (also used as keys by NonInteractivePrompter in tests).
 _MSG_PASSPHRASE = "Master passphrase:"  # noqa: S105 - UI label, not a secret
-_MSG_CONNECT_T212 = "Connect Trading212?"
-_MSG_T212_KEY = "TRADING_212_API_KEY:"
-_MSG_T212_SECRET = "TRADING_212_SECRET_KEY:"  # noqa: S105 - UI label, not a secret
-_MSG_CONNECT_FRED = "Configure FRED (optional)?"
-_MSG_FRED_KEY = "FRED_API_KEY:"
+_MSG_T212_KEY = "Trading212 API key (optional — paste it, or press Enter to skip):"
+_MSG_T212_SECRET = "Trading212 secret key:"  # noqa: S105 - UI label, not a secret
+_MSG_FRED_KEY = "FRED API key (optional — paste it, or press Enter to skip):"
 _MSG_CONFIGURE_LLM = "Configure the fund LLM backend?"
 _MSG_LLM_PROVIDER = "LLM provider:"
 _MSG_LLM_MODEL = "LLM model id:"
@@ -447,19 +445,23 @@ def run_setup_interactive(
     secrets: dict[str, str] = {}
     config: dict[str, object] = {}
 
-    if prompter.confirm(_MSG_CONNECT_T212, default=False):
-        # Rule 2: auto-detect exported env vars before prompting.
-        t212_key = os.getenv("TRADING_212_API_KEY") or prompter.password(_MSG_T212_KEY)
-        t212_secret = os.getenv("TRADING_212_SECRET_KEY") or prompter.password(
-            _MSG_T212_SECRET
-        )
+    # Optional integrations: ask for the key directly, empty answer = skip. A y/N
+    # gate here was paste-hostile — a key pasted at the confirm prompt jams it.
+    # Rule 2: auto-detect exported env vars before prompting.
+    t212_key = (
+        os.getenv("TRADING_212_API_KEY") or prompter.password(_MSG_T212_KEY)
+    ).strip()
+    if t212_key:
+        t212_secret = (
+            os.getenv("TRADING_212_SECRET_KEY") or prompter.password(_MSG_T212_SECRET)
+        ).strip()
         if not skip_validation and not validators.validate_t212(t212_key, t212_secret):
             raise SetupError("Trading212 credentials failed validation.")
         secrets["trading_212_api_key"] = t212_key
         secrets["trading_212_secret_key"] = t212_secret
 
-    if prompter.confirm(_MSG_CONNECT_FRED, default=False):
-        fred_key = os.getenv("FRED_API_KEY") or prompter.password(_MSG_FRED_KEY)
+    fred_key = (os.getenv("FRED_API_KEY") or prompter.password(_MSG_FRED_KEY)).strip()
+    if fred_key:
         if not skip_validation and not validators.validate_fred(fred_key):
             raise SetupError("FRED API key failed validation.")
         secrets["fred_api_key"] = fred_key

@@ -1,8 +1,8 @@
 """Lifecycle orchestration contract (SPEC D6/D10).
 
-`run_start` decrypts the store, renders compose secrets, and brings the stack up;
-`run_stop` tears it down and wipes the plaintext secret files; `run_status`
-reports docker + service health. All collaborators are patched.
+`run_start` decrypts the store, renders compose secrets, and brings the full stack
+up (fund + ingestion); `run_stop` stops only the fund, leaving the scheduler up;
+`run_status` reports docker + service health. All collaborators are patched.
 """
 
 import pytest
@@ -18,7 +18,7 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
         "compose": [],
         "cleaned": False,
         "env_fund_path": env_fund,
-        "build_profile": None,
+        "build_profiles": None,
     }
     monkeypatch.setattr(
         lifecycle.secret_store,
@@ -40,15 +40,15 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
     monkeypatch.setattr(lifecycle.docker_bootstrap, "check_docker", lambda: None)
 
     def _fake_build_and_up(**kw: object) -> list[str]:
-        calls["build_profile"] = kw.get("profile")
+        calls["build_profiles"] = kw.get("profiles")
         calls["compose"].append("up")
         return []
 
     monkeypatch.setattr(lifecycle.docker_bootstrap, "build_and_up", _fake_build_and_up)
     monkeypatch.setattr(
         lifecycle.docker_bootstrap,
-        "compose_down",
-        lambda: calls["compose"].append("down"),
+        "stop_services",
+        lambda services: calls["compose"].append(f"stop:{','.join(services)}"),
     )
     return calls
 
@@ -79,12 +79,14 @@ def test_run_start_propagates_bad_passphrase(
     assert patched["compose"] == []
 
 
-def test_run_stop_tears_down_and_cleans(patched: dict) -> None:
+def test_run_stop_stops_fund_and_keeps_scheduler(patched: dict) -> None:
+    """Stopping the fund halts only that service; the shared ./secrets stay for the
+    still-running scheduler, and only the fund's own .env.fund is removed."""
     patched["env_fund_path"].write_text("LLM_PROVIDER=openai\n", encoding="utf-8")
     lifecycle.run_stop()
-    assert patched["compose"] == ["down"]
-    assert patched["cleaned"] is True
-    assert not patched["env_fund_path"].exists()  # .env.fund wiped alongside secrets
+    assert patched["compose"] == ["stop:fund"]
+    assert patched["cleaned"] is False  # ./secrets kept for the running scheduler
+    assert not patched["env_fund_path"].exists()  # fund's own env file wiped
 
 
 def test_run_start_writes_env_fund_from_config(
@@ -128,11 +130,11 @@ def test_run_start_renders_secrets_and_env_before_bringing_up(
     assert order == ["secrets", "env", "up"]
 
 
-def test_run_start_brings_up_the_fund_profile(patched: dict) -> None:
-    """run_start must target the fund profile: every compose service is
-    profile-gated, so a bare `up` would start nothing."""
+def test_run_start_brings_up_fund_and_ingestion(patched: dict) -> None:
+    """run_start brings up BOTH the fund engine and the persistent ingestion daemon
+    (every compose service is profile-gated, so a bare `up` would start nothing)."""
     lifecycle.run_start("pw")
-    assert patched["build_profile"] == "fund"
+    assert patched["build_profiles"] == ("fund", "ingestion")
 
 
 def test_run_start_writes_empty_env_fund_when_unconfigured(patched: dict) -> None:

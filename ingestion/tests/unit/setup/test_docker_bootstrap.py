@@ -7,6 +7,7 @@ Docker in the unit suite.
 """
 
 import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -69,32 +70,66 @@ def test_bring_up_db_failure_raises(mock_run: MagicMock) -> None:
         db.bring_up_db()
 
 
+@patch("app.setup.docker_bootstrap._find_db_package")
 @patch("app.setup.docker_bootstrap.subprocess.run")
-def test_migrate_runs_alembic_upgrade_head(mock_run: MagicMock) -> None:
+def test_migrate_runs_alembic_from_db_package(
+    mock_run: MagicMock, mock_find: MagicMock, tmp_path
+) -> None:
+    mock_find.return_value = tmp_path
     mock_run.return_value = _cp(0)
     db.migrate()
-    assert mock_run.call_args[0][0] == ["alembic", "upgrade", "head"]
+    assert mock_run.call_args[0][0] == [
+        sys.executable,
+        "-m",
+        "alembic",
+        "upgrade",
+        "head",
+    ]
+    assert mock_run.call_args.kwargs["cwd"] == str(tmp_path)
 
 
+@patch("app.setup.docker_bootstrap._find_db_package")
 @patch("app.setup.docker_bootstrap.subprocess.run")
-def test_migrate_failure_raises(mock_run: MagicMock) -> None:
+def test_migrate_failure_is_best_effort(
+    mock_run: MagicMock, mock_find: MagicMock, tmp_path, capsys
+) -> None:
+    mock_find.return_value = tmp_path
     mock_run.return_value = _cp(1, "bad migration")
-    with pytest.raises(db.DockerError):
-        db.migrate()
+    db.migrate()  # must not raise — the fund container migrates on start
+    assert "did not complete" in capsys.readouterr().out
+
+
+@patch("app.setup.docker_bootstrap._find_db_package", return_value=None)
+def test_migrate_skips_when_db_package_missing(mock_find: MagicMock, capsys) -> None:
+    db.migrate()  # must not raise — warns and defers to the container
+    assert "not found" in capsys.readouterr().out
+
+
+@patch("app.setup.docker_bootstrap._find_db_package")
+@patch(
+    "app.setup.docker_bootstrap.subprocess.run",
+    side_effect=FileNotFoundError("alembic missing"),
+)
+def test_migrate_missing_alembic_is_best_effort(
+    mock_run: MagicMock, mock_find: MagicMock, tmp_path, capsys
+) -> None:
+    mock_find.return_value = tmp_path
+    db.migrate()  # must not raise even when alembic cannot be launched
+    assert "could not run host-side migration" in capsys.readouterr().out
 
 
 @patch("app.setup.docker_bootstrap.subprocess.run")
-def test_compose_down_runs(mock_run: MagicMock) -> None:
+def test_stop_services_stops_named_services(mock_run: MagicMock) -> None:
     mock_run.return_value = _cp(0)
-    db.compose_down()
-    assert mock_run.call_args[0][0] == ["docker", "compose", "down"]
+    db.stop_services(["fund"])
+    assert mock_run.call_args[0][0] == ["docker", "compose", "stop", "fund"]
 
 
 @patch("app.setup.docker_bootstrap.subprocess.run")
-def test_compose_down_failure_raises(mock_run: MagicMock) -> None:
-    mock_run.return_value = _cp(1, "boom")
+def test_stop_services_failure_raises(mock_run: MagicMock) -> None:
+    mock_run.return_value = _cp(1, "stop boom")
     with pytest.raises(db.DockerError):
-        db.compose_down()
+        db.stop_services(["fund"])
 
 
 @patch("app.setup.docker_bootstrap.subprocess.run")
@@ -203,7 +238,7 @@ class TestBuildAndUp:
         self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock
     ) -> None:
         mock_run.return_value = _cp(0)
-        db.build_and_up(profile="fund")
+        db.build_and_up(profiles=("fund",))
         calls = [c[0][0] for c in mock_run.call_args_list]
         build = next(c for c in calls if "build" in c)
         up = next(c for c in calls if "up" in c)
@@ -218,7 +253,7 @@ class TestBuildAndUp:
         self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock
     ) -> None:
         mock_run.return_value = _cp(0)
-        db.build_and_up(profile="fund")
+        db.build_and_up(profiles=("fund",))
         calls = [c[0][0] for c in mock_run.call_args_list]
         assert not any("build" in c for c in calls)
         assert any("up" in c for c in calls)
@@ -234,7 +269,7 @@ class TestBuildAndUp:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         mock_run.return_value = _cp(0)
-        db.build_and_up(profile="fund")
+        db.build_and_up(profiles=("fund",))
         assert "slow" in capsys.readouterr().out.lower()
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
@@ -245,7 +280,7 @@ class TestBuildAndUp:
     ) -> None:
         mock_run.return_value = _cp(1, "build boom")
         with pytest.raises(db.DockerError):
-            db.build_and_up(profile="fund")
+            db.build_and_up(profiles=("fund",))
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
     @patch("app.setup.docker_bootstrap._image_exists", return_value=True)
@@ -255,7 +290,7 @@ class TestBuildAndUp:
     ) -> None:
         mock_run.return_value = _cp(1, "up boom")
         with pytest.raises(db.DockerError):
-            db.build_and_up(profile="fund")
+            db.build_and_up(profiles=("fund",))
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=["stale!"])
     @patch("app.setup.docker_bootstrap._image_exists", return_value=True)
@@ -268,8 +303,21 @@ class TestBuildAndUp:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         mock_run.return_value = _cp(0)
-        assert db.build_and_up(profile="fund") == ["stale!"]
+        assert db.build_and_up(profiles=("fund",)) == ["stale!"]
         assert "stale!" in capsys.readouterr().out
+
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap._image_exists", return_value=True)
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_brings_up_multiple_profiles(
+        self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock
+    ) -> None:
+        """`portopt start` passes both profiles → both --profile flags reach `up`."""
+        mock_run.return_value = _cp(0)
+        db.build_and_up(profiles=("fund", "ingestion"))
+        up = next(c[0][0] for c in mock_run.call_args_list if "up" in c[0][0])
+        assert up.count("--profile") == 2
+        assert {"fund", "ingestion"} <= set(up)
 
 
 class TestImageExists:

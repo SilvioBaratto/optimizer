@@ -104,7 +104,9 @@ def test_install_launcher_routes_by_os_name(
     expected_leaf: str,
 ) -> None:
     """install_launcher dispatches to the Windows/.cmd or POSIX/symlink branch."""
-    monkeypatch.setattr(path_install, "_repo_root", lambda: tmp_path)
+    # Mock resolve_repo (not just _repo_root): with os.name patched to "posix" on
+    # Windows, its real cwd-walk would instantiate a PosixPath and crash.
+    monkeypatch.setattr(path_install, "resolve_repo", lambda repo=None: tmp_path)
     monkeypatch.setattr(
         path_install, "_install_windows", lambda b, r: b / "optimizer.cmd"
     )
@@ -203,6 +205,7 @@ def test_resolve_repo_ignores_env_without_compose_file(
 ) -> None:
     """A stale OPTIMIZER_REPO (no compose file) is ignored, not trusted blindly."""
     monkeypatch.setenv("OPTIMIZER_REPO", str(tmp_path))
+    monkeypatch.chdir(tmp_path)  # cwd-walk must find no checkout here
     assert path_install.resolve_repo() == path_install._repo_root()
 
 
@@ -220,9 +223,24 @@ def test_resolve_repo_falls_back_to_config_repo_path(
     assert path_install.resolve_repo() == repo
 
 
-def test_resolve_repo_final_fallback_is_file_root(_no_repo_env: None) -> None:
-    """With nothing set, resolution falls back to the __file__-derived repo root."""
+def test_resolve_repo_final_fallback_is_file_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _no_repo_env: None
+) -> None:
+    """With nothing set and cwd outside a checkout, resolution falls back to the
+    __file__-derived repo root."""
+    monkeypatch.chdir(tmp_path)
     assert path_install.resolve_repo() == path_install._repo_root()
+
+
+def test_resolve_repo_walks_up_from_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _no_repo_env: None
+) -> None:
+    """With no env/config, a cwd inside a checkout is discovered by walking up to it."""
+    repo = tmp_path / "checkout"
+    (repo / "sub").mkdir(parents=True)
+    (repo / "docker-compose.yml").write_text("x", encoding="utf-8")
+    monkeypatch.chdir(repo / "sub")
+    assert path_install.resolve_repo() == repo
 
 
 def test_install_launcher_persists_repo_path(

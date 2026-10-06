@@ -31,7 +31,8 @@ _HYPOTHESIS_IMPORT_PATTERN = re.compile(
 # Un-anchored: matches a ``hypothesis==<version>`` token wherever it appears —
 # a bare requirements line or a quoted ``pyproject.toml`` dependency entry.
 _HYPOTHESIS_PIN_PATTERN = re.compile(r"hypothesis==\S+")
-_EXCLUDE_DIR_PARTS = {"__pycache__"}
+# "build": skip the gitignored uv-build artifact tree (see _shared_scan.py).
+_EXCLUDE_DIR_PARTS = {"__pycache__", "build"}
 
 
 def _iter_python_files(root: Path) -> Iterator[Path]:

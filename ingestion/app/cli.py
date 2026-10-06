@@ -35,6 +35,7 @@ load_dotenv()
 import logging
 import os
 from enum import Enum
+from typing import NoReturn
 
 import typer
 
@@ -65,7 +66,7 @@ def _boot() -> None:
     init_db()
 
 
-def _exit(ok: bool) -> None:
+def _exit(ok: bool) -> NoReturn:
     raise typer.Exit(code=0 if ok else 1)
 
 
@@ -213,7 +214,6 @@ def daily_events(
         from app.services.jobs.scheduler import run_daily_events_step
 
         _exit(run_daily_events_step())
-        return
     _exit(_run_daily_events_backfill(backfill, force=force))
 
 
@@ -460,7 +460,7 @@ def start() -> None:
 
 @app.command()
 def stop() -> None:
-    """Stop the stack and remove the rendered plaintext secret files."""
+    """Stop the fund decision engine (the ingestion daemon + db keep running)."""
     from app.setup import lifecycle
     from app.setup.docker_bootstrap import DockerError
 
@@ -469,7 +469,7 @@ def stop() -> None:
     except DockerError as exc:
         typer.echo(f"Stop failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-    typer.echo("portopt stopped.")
+    typer.echo("fund stopped (ingestion daemon still running).")
 
 
 @app.command()

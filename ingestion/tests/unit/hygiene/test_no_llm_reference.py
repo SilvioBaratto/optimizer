@@ -52,7 +52,8 @@ _DEPLOYMENT_VERIFICATION_DIR = _INGESTION_ROOT / "tests" / "integration" / "depl
 _EXEMPT_DIRS = (_HYGIENE_DIR, _DEPLOYMENT_VERIFICATION_DIR)
 
 _SCAN_SUFFIXES = {".py", ".toml", ".ini", ".cfg", ".txt", ".yaml", ".yml"}
-_EXCLUDE_DIR_PARTS = {"__pycache__"}
+# "build": skip the gitignored uv-build artifact tree (see _shared_scan.py).
+_EXCLUDE_DIR_PARTS = {"__pycache__", "build"}
 
 # LLM *libraries*: never a legitimate config string — forbidden anywhere.
 # Case-insensitive: regressions are as likely to be capitalised prose

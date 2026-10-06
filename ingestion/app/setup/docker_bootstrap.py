@@ -12,15 +12,19 @@ import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Sequence
+from pathlib import Path
 
 
 class DockerError(RuntimeError):
     """Raised when Docker is unavailable or a bootstrap command fails."""
 
 
-def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+def _run(
+    cmd: list[str], *, cwd: str | None = None, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - static, trusted argv; never shell=True
-        cmd, capture_output=True, text=True, check=False
+        cmd, capture_output=True, text=True, check=False, cwd=cwd, env=env
     )
 
 
@@ -56,18 +60,68 @@ def bring_up_db() -> None:
         raise DockerError(f"Failed to start the db service:\n{result.stderr}")
 
 
+_HOST_DB_URL = "postgresql://postgres:postgres@localhost:54320/optimizer_db"
+
+
+def _find_db_package() -> Path | None:
+    """Locate ``packages/portopt-db`` — it owns alembic.ini + the migration tree.
+
+    Only the ``setup.*`` front doors export ``OPTIMIZER_REPO``; a direct
+    ``portopt setup`` does not, so fall back to walking up from the current dir.
+    """
+    bases: list[Path] = []
+    repo = os.environ.get("OPTIMIZER_REPO")
+    if repo:
+        bases.append(Path(repo))
+    cwd = Path.cwd()
+    bases.extend([cwd, *cwd.parents])
+    for base in bases:
+        candidate = base / "packages" / "portopt-db"
+        if (candidate / "alembic.ini").is_file():
+            return candidate
+    return None
+
+
 def migrate() -> None:
-    """Run `alembic upgrade head` (migrate-only — no data seeding)."""
-    result = _run(["alembic", "upgrade", "head"])
-    if result.returncode != 0:
-        raise DockerError(f"`alembic upgrade head` failed:\n{result.stderr}")
+    """Run ``alembic upgrade head`` from packages/portopt-db (migrate-only).
 
-
-def compose_down() -> None:
-    """Stop and remove all services (`portopt stop`)."""
-    result = _run(["docker", "compose", "down"])
+    Best-effort. alembic's ``script_location`` is relative (it must run from the
+    package dir), env.py imports ``portopt_db`` and refuses to run without
+    ``DATABASE_URL``, and a bare ``alembic`` on PATH may belong to an unrelated
+    environment (or be absent). So run it as ``sys.executable -m alembic`` — the
+    interpreter running ``portopt``, which has ``portopt_db`` + alembic — from the
+    package dir with the host DB URL injected. On any failure (missing dir, alembic
+    not importable, or a non-zero exit) warn and continue rather than aborting
+    setup: the fund container runs the same migration on start and its healthcheck
+    gates on it, so the DB reaches head there regardless.
+    """
+    db_dir = _find_db_package()
+    if db_dir is None:
+        print(
+            "warning: packages/portopt-db/alembic.ini not found; skipping host-side "
+            "migration — the fund container migrates on start."
+        )
+        return
+    env = {**os.environ}
+    env.setdefault("DATABASE_URL", _HOST_DB_URL)
+    try:
+        result = _run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            cwd=str(db_dir),
+            env=env,
+        )
+    except OSError as exc:
+        print(
+            f"warning: could not run host-side migration ({exc}) — the fund "
+            "container migrates on start."
+        )
+        return
     if result.returncode != 0:
-        raise DockerError(f"`docker compose down` failed:\n{result.stderr}")
+        detail = (result.stderr or result.stdout or "").strip()
+        print(
+            "warning: host-side `alembic upgrade head` did not complete — the fund "
+            f"container will migrate on start. Detail: {detail}"
+        )
 
 
 def running_services() -> set[str]:
@@ -175,17 +229,32 @@ def _image_exists(ref: str) -> bool:
     return _run(["docker", "image", "inspect", ref]).returncode == 0
 
 
-def build_and_up(*, profile: str = "fund", wait_timeout: int = 300) -> list[str]:
-    """Build the profile's images when absent, then bring the stack up and wait.
+def stop_services(services: Sequence[str]) -> None:
+    """Stop the named compose services, leaving the rest of the stack running.
+
+    Unlike ``docker compose down`` (which removes every project container), this
+    targets services by name so ``portopt stop`` can halt the fund decision engine
+    without taking down the persistent ingestion daemon or the shared db.
+    """
+    result = _run(["docker", "compose", "stop", *services])
+    if result.returncode != 0:
+        raise DockerError(f"`docker compose stop` failed:\n{result.stderr}")
+
+
+def build_and_up(
+    *, profiles: Sequence[str] = ("fund",), wait_timeout: int = 300
+) -> list[str]:
+    """Build each profile's images when absent, then bring the stack up and wait.
 
     Surfaces (prints and returns) any stale-version warnings, builds with
-    ``--pull`` only when one of the profile's built images is missing — the slow
+    ``--pull`` only when one of the profiles' built images is missing — the slow
     first run; later starts reuse the images — then ``up -d --wait`` so the caller
     blocks until every service reports healthy.
 
     Args:
-        profile: The compose profile to build and start (default ``"fund"`` =
-            db + fund).
+        profiles: The compose profiles to build and start (default ``("fund",)``;
+            ``portopt start`` passes ``("fund", "ingestion")`` so the persistent
+            data daemon comes up alongside the decision engine).
         wait_timeout: Seconds ``up --wait`` waits for health before failing.
 
     Returns:
@@ -198,14 +267,15 @@ def build_and_up(*, profile: str = "fund", wait_timeout: int = 300) -> list[str]
     for warning in warnings:
         print(f"warning: {warning}")
 
-    if any(not _image_exists(ref) for ref in _BUILT_IMAGES.get(profile, ())):
+    profile_args = [arg for profile in profiles for arg in ("--profile", profile)]
+    built = [img for profile in profiles for img in _BUILT_IMAGES.get(profile, ())]
+    if any(not _image_exists(ref) for ref in built):
         print("Building images — slow the first time; later starts reuse them.")
         build = _run(
             [
                 "docker",
                 "compose",
-                "--profile",
-                profile,
+                *profile_args,
                 "--progress",
                 "plain",
                 "build",
@@ -219,8 +289,7 @@ def build_and_up(*, profile: str = "fund", wait_timeout: int = 300) -> list[str]
         [
             "docker",
             "compose",
-            "--profile",
-            profile,
+            *profile_args,
             "up",
             "-d",
             "--wait",
