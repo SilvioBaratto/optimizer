@@ -358,7 +358,20 @@ class ShellApp(App):
         self.call_after_refresh(self._refresh)
         self.set_interval(self._poll_interval, self._refresh)
 
-    # --- refresh ------------------------------------------------------------
+    # --- navigation + refresh ----------------------------------------------
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        """Switch the content pane to the picked sidebar entry and repaint it.
+
+        The sidebar ``ListItem`` ids are ``nav-<key>`` and the matching views are
+        ``view-<key>`` (see :data:`~fund.tui.views.VIEW_SPECS`), so a pick maps
+        straight to the ``ContentSwitcher`` target. An unrecognised id is ignored.
+        """
+        item_id = event.item.id or ""
+        if not item_id.startswith("nav-"):
+            return
+        self.query_one(ContentSwitcher).current = f"view-{item_id[len('nav-') :]}"
+        self._refresh()
 
     def _refresh(self) -> None:
         """Repaint the active view from the read model — synchronous, test-callable.

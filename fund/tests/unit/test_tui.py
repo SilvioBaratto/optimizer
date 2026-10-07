@@ -42,7 +42,7 @@ from portopt_db.repositories.orders.portfolio_journal_repository import (
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from textual.widgets import ContentSwitcher, DataTable, ListItem
+from textual.widgets import ContentSwitcher, DataTable, ListItem, ListView
 
 from fund import observe
 from fund.agents.graph import run_fund
@@ -439,3 +439,22 @@ def test_shell_accepts_optional_portfolio_id() -> None:
         model_factory=lambda: None,
     )
     assert shell._portfolio_id is None
+
+
+@pytest.mark.asyncio
+async def test_shell_sidebar_navigates_all_six_views(shell_env) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        content = app.query_one("#content", ContentSwitcher)
+        sidebar.focus()
+        # Selecting each sidebar entry switches the content pane to that view and
+        # repaints it (render_count proves the per-view refresh ran).
+        for i, key in enumerate(_VIEW_KEYS):
+            sidebar.index = i
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert content.current == f"view-{key}", f"nav to {key} did not switch"
+            assert app.query_one(f"#view-{key}", ShellView).render_count >= 1
