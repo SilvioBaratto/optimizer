@@ -20,7 +20,7 @@ import os
 import subprocess
 import sys
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import date
 from types import SimpleNamespace
 
@@ -327,22 +327,50 @@ def test_interrupt_value_unwraps_bare_and_rejects_non_dict() -> None:
 # --- main() wiring ----------------------------------------------------------
 
 
-def test_main_wires_app_and_always_closes_pool(monkeypatch) -> None:
+def _patch_main_deps(monkeypatch) -> tuple[_FakePool, list]:
+    """Stub out main()'s persistence/model/session and record ShellApp's focus.
+
+    Returns the fake pool (to assert it was closed) and a list the patched
+    ``ShellApp.run`` appends the shell's ``_portfolio_id`` to (to assert wiring).
+    """
     import fund.agents.model as model_mod
     import fund.audit as audit_mod
     import fund.database as db_mod
 
     pool = _FakePool()
     persistence = SimpleNamespace(saver=MemorySaver(), store=InMemoryStore(), pool=pool)
+    focused: list = []
+
+    def _record_focus(self) -> None:
+        focused.append(self._portfolio_id)
+
     monkeypatch.setattr(audit_mod, "setup_langgraph", lambda *a, **k: persistence)
     monkeypatch.setattr(model_mod, "build_primary", lambda *a, **k: object())
     monkeypatch.setattr(db_mod, "get_session", lambda: None)
-    monkeypatch.setattr(FundTUI, "run", lambda self: None)
+    monkeypatch.setattr(ShellApp, "run", _record_focus)
+    return pool, focused
+
+
+def test_main_wires_app_and_always_closes_pool(monkeypatch) -> None:
+    pool, focused = _patch_main_deps(monkeypatch)
     monkeypatch.setattr(sys, "argv", ["fund-tui", str(PORTFOLIO_ID)])
 
-    tui_app.main()
+    with suppress(SystemExit):  # Typer/Click exits 0 after the command returns
+        tui_app.main()
 
     assert pool.closed == 1
+    assert focused == [PORTFOLIO_ID]  # the id arg focused the shell on that portfolio
+
+
+def test_main_no_arg_opens_fund_wide_shell(monkeypatch) -> None:
+    pool, focused = _patch_main_deps(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fund-tui"])  # no portfolio id
+
+    with suppress(SystemExit):
+        tui_app.main()
+
+    assert pool.closed == 1
+    assert focused == [None]  # fund-wide landing (Posture)
 
 
 # --- import hygiene: light + keyless -----------------------------------------

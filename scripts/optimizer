@@ -1,18 +1,12 @@
 #!/usr/bin/env bash
-# optimizer — daily launcher: bring the fund stack up and attach the Textual cockpit
-# for one portfolio. Installed on PATH as a symlink (~/.local/bin/optimizer ->
+# optimizer — daily launcher: bring the fund stack up and attach the Textual shell
+# (fund-wide, or focused on a portfolio id). Installed on PATH as a symlink (~/.local/bin/optimizer ->
 # scripts/optimizer), so resolution follows the link back to the repo. Keep this file
 # LF-only: a CRLF shebang fails under Git Bash and Linux containers.
 set -euo pipefail
 
-# fund-tui needs a portfolio id, and we forward "$@" to it verbatim. Fail fast on a
-# bare invocation rather than surfacing a raw argparse error from inside the container.
-if [[ $# -eq 0 ]]; then
-  echo "optimizer: a portfolio id is required." >&2
-  echo "  usage: optimizer <PORTFOLIO_UUID>" >&2
-  echo "  (list your portfolios with: fund status)" >&2
-  exit 2
-fi
+# The portfolio id is optional and forwarded to fund-tui verbatim: no arg opens the
+# fund-wide shell (Posture landing), `<uuid>` focuses that portfolio.
 
 # Resolve the repo root, in precedence order:
 #   1. $OPTIMIZER_REPO           — explicit override, self-heals a moved repo
@@ -77,9 +71,9 @@ else
   uv run --package portopt python -m app.cli start
 fi
 
-# Attach the cockpit for the requested portfolio. Under Git Bash mintty the console is
-# not a real Windows console, so winpty bridges it to a TTY; elsewhere attach directly.
-# Never pass `-T` — it disables the pseudo-TTY the Textual cockpit needs.
+# Attach the shell (fund-wide, or focused when an id is forwarded). Under Git Bash
+# mintty the console is not a real Windows console, so winpty bridges it to a TTY;
+# elsewhere attach directly. Never pass `-T` — it disables the pseudo-TTY the shell needs.
 if [[ -n "${MSYSTEM:-}" && -t 0 && -t 1 ]] && command -v winpty >/dev/null 2>&1; then
   exec winpty docker compose --profile fund exec fund fund-tui "$@"
 fi

@@ -508,36 +508,36 @@ class ShellApp(App):
 
 
 def main() -> None:
-    """``fund-tui`` entrypoint: build persistence, launch the App for one portfolio.
+    """``fund-tui`` entrypoint: build persistence, launch the shell for one run.
 
-    Needs ``DATABASE_URL`` (for the checkpointer/store pool); the chat model stays
-    lazy — only built when the adviser approves/rejects — so a bare launch needs no
-    ``OLLAMA_API_KEY``. The pool is always closed on exit.
+    The portfolio id is **optional**: no arg opens the fund-wide shell (Posture
+    landing); ``fund-tui <uuid>`` focuses that portfolio. Needs ``DATABASE_URL``
+    (for the checkpointer/store pool); the chat model stays lazy — only built when
+    the adviser acts — so a bare launch needs no ``OLLAMA_API_KEY``. The pool is
+    always closed on exit. ``typer`` is imported here (not at module top) to keep
+    ``import fund.tui.app`` light.
     """
-    import argparse
+    import typer
 
-    from fund.agents.model import build_primary
-    from fund.audit import setup_langgraph
-    from fund.database import get_session
+    def _launch(portfolio_id: str | None = typer.Argument(default=None)) -> None:
+        from fund.agents.model import build_primary
+        from fund.audit import setup_langgraph
+        from fund.database import get_session
 
-    parser = argparse.ArgumentParser(
-        prog="fund-tui", description="Fund observer TUI (read + approve/reject)."
-    )
-    parser.add_argument("portfolio_id", help="Portfolio UUID to observe.")
-    args = parser.parse_args()
-    portfolio_id = uuid.UUID(args.portfolio_id)
+        focus = uuid.UUID(portfolio_id) if portfolio_id else None
+        persistence = setup_langgraph(settings)
+        try:
+            app = ShellApp(
+                focus,
+                session_factory=get_session,
+                persistence=persistence,
+                model_factory=lambda: build_primary(settings),
+            )
+            app.run()
+        finally:
+            persistence.pool.close()
 
-    persistence = setup_langgraph(settings)
-    try:
-        app = FundTUI(
-            portfolio_id,
-            session_factory=get_session,
-            persistence=persistence,
-            model_factory=lambda: build_primary(settings),
-        )
-        app.run()
-    finally:
-        persistence.pool.close()
+    typer.run(_launch)
 
 
 if __name__ == "__main__":
