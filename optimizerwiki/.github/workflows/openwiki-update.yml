@@ -51,6 +51,15 @@ jobs:
         if: ${{ !cancelled() }}
         run: rm -f -- openwiki/.run.json
 
+      # GitHub runs CommonMark emphasis/escaping before its math extension, so the
+      # LLM-authored `$...$`/`$$...$$` silently fails to render whenever a formula
+      # contains `*`/`_` pairs, an escaped `$`, or an un-spaced display block. This
+      # deterministic pass rewrites inline math as `` $`...`$ `` and blank-separates
+      # display blocks so every page renders. It is idempotent.
+      - name: Normalize math for GitHub rendering
+        if: ${{ !cancelled() }}
+        run: node scripts/fix-github-math.mjs openwiki
+
       - name: Create OpenWiki update pull request
         if: ${{ !cancelled() }}
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7

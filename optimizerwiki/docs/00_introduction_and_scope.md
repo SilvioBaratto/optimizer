@@ -45,21 +45,21 @@ The starting point of the theory is the consumer choice problem in its simplest 
 
 $$\max_{q_1,\dots,q_N} u(q_1,\dots,q_N) \quad \text{s.t.} \quad \begin{cases} \sum_{i=1}^{N} q_i p_i = M \\ q_i \geq 0,\ i=1,\dots,N, \end{cases}$$
 
-where $q_1,\dots,q_N$ are the quantities of goods to be purchased, $u(\cdot)$ is the utility function, $M$ is income, and $p_1>0,\dots,p_N>0$ are the prices. The implicit assumption of this model is that, given the instant $t$ at which the economy is defined, that economy is born, lives, and dies at $t$, with no relation to future instants. This assumption is not realistic: many consumers do not use all of their current income $M$ for current consumption, but transfer the remaining part to future instants. A consumer in fact faces two related economic decisions — how to allocate current consumption among goods and services, and how to invest among various assets — known as the consumption–savings decision and the portfolio selection decision [ConstantinidesMalliaris1995]. The need to transfer current wealth to future instants is the reason a financial economy is needed.
+where $`q_1,\dots,q_N`$ are the quantities of goods to be purchased, $`u(\cdot)`$ is the utility function, $`M`$ is income, and $`p_1>0,\dots,p_N>0`$ are the prices. The implicit assumption of this model is that, given the instant $`t`$ at which the economy is defined, that economy is born, lives, and dies at $`t`$, with no relation to future instants. This assumption is not realistic: many consumers do not use all of their current income $`M`$ for current consumption, but transfer the remaining part to future instants. A consumer in fact faces two related economic decisions — how to allocate current consumption among goods and services, and how to invest among various assets — known as the consumption–savings decision and the portfolio selection decision [ConstantinidesMalliaris1995]. The need to transfer current wealth to future instants is the reason a financial economy is needed.
 
 The purpose of the monograph is the second decision: how to invest among various assets in order to transfer wealth from the current period to a future one. Since the future is more or less unknown — the riskiness faced by the investor is, roughly, of the type involved in a *random walk* — investing is a risky activity, and financial economics provides the theory, methods, and tools with which to transfer wealth while managing uncertainty. In general the two decisions cannot be made independently; however, many of the important results of portfolio theory are more easily derived in a single-period setting, where the consumption–savings allocation has a limited substantial impact on the results [ConstantinidesMalliaris1995]. We therefore place ourselves in a single-period economy, in which the portfolio selection problem is formalized directly, without paying attention to the consumption–savings problem. While deterministic calculus is adequate for maximizing utility subject to a budget constraint, portfolio selection instead involves a decision under uncertainty [ConstantinidesMalliaris1995].
 
-Investment choices are represented as random variables. Let $\mathbb{X}=\{X_1,\dots,X_N\}$ be a set of $N$ stochastic investment choices, each characterized by negative/positive outcomes with given probabilities; in the discrete case
+Investment choices are represented as random variables. Let $`\mathbb{X}=\{X_1,\dots,X_N\}`$ be a set of $`N`$ stochastic investment choices, each characterized by negative/positive outcomes with given probabilities; in the discrete case
 
 $$X_i = \{(x_{i,1},p_{i,1}),\dots,(x_{i,j},p_{i,j}),\dots,(x_{i,M_i},p_{i,M_i})\},$$
 
-with $x_{i,j}$ the $j$-th realization of $X_i$ and $p_{i,j}$ its probability of occurrence, $0\le p_{i,j}\le 1$ and $\sum_{j=1}^{M_i} p_{i,j}=1$. How to identify the optimal choices depends on the investor's attitude toward randomness: in general, the "rational" investor prefers more to less and is risk-averse. The formalization of preferences under uncertainty is the subject of the chapter [[01 Scelta in condizioni di incertezza]].
+with $`x_{i,j}`$ the $`j`$-th realization of $`X_i`$ and $`p_{i,j}`$ its probability of occurrence, $`0\le p_{i,j}\le 1`$ and $`\sum_{j=1}^{M_i} p_{i,j}=1`$. How to identify the optimal choices depends on the investor's attitude toward randomness: in general, the "rational" investor prefers more to less and is risk-averse. The formalization of preferences under uncertainty is the subject of the chapter [[01 Scelta in condizioni di incertezza]].
 
-On this basis the central object is defined. Let $W$ be a given wealth and $\mathbb{X}=\{X_1,\dots,X_N\}$ a set of $N$ investment choices (for example a stock market). A **(financial) portfolio** is defined as an $N$-vector
+On this basis the central object is defined. Let $`W`$ be a given wealth and $`\mathbb{X}=\{X_1,\dots,X_N\}`$ a set of $`N`$ investment choices (for example a stock market). A **(financial) portfolio** is defined as an $`N`$-vector
 
 $$\mathbf{x}' = (x_1,\dots,x_N)$$
 
-such that the generic element $x_i$, with $i=1,\dots,N$, denotes the percentage of $W$ invested in $X_i$, with
+such that the generic element $`x_i`$, with $`i=1,\dots,N`$, denotes the percentage of $`W`$ invested in $`X_i`$, with
 
 $$\sum_{i=1}^{N} x_i = 1.$$
 
@@ -71,37 +71,39 @@ How to measure the single-period performance of an investment choice depends on 
 
 $$P_t = P_{t-\Delta t}(1+R_{\%,\Delta t}) - D_{(t-\Delta t,t]},$$
 
-where $P_t$ is the price at $t$, $D_{(t-\Delta t,t]}\ge 0$ is the dividend paid over $(t-\Delta t,t]$, and $R_{\%,\Delta t}$ is the net percentage return from $t-\Delta t$ to $t$, one obtains
+where $`P_t`$ is the price at $`t`$, $`D_{(t-\Delta t,t]}\ge 0`$ is the dividend paid over $`(t-\Delta t,t]`$, and $`R_{\%,\Delta t}`$ is the net percentage return from $`t-\Delta t`$ to $`t`$, one obtains
 
 $$R_{\%,\Delta t} = \frac{P_t + D_{(t-\Delta t,t]} - P_{t-\Delta t}}{P_{t-\Delta t}}.$$
 
-With this dynamics, if $R_{\%,\Delta t} < D_{(t-\Delta t,t]}/P_{t-\Delta t} - 1$ (with $P_{t-\Delta t}>0$) then $P_t<0$, i.e. a negative price, an inadmissible outcome.
+With this dynamics, if $`R_{\%,\Delta t} < D_{(t-\Delta t,t]}/P_{t-\Delta t} - 1`$ (with $`P_{t-\Delta t}>0`$) then $`P_t<0`$, i.e. a negative price, an inadmissible outcome.
 
 The convention of mathematical finance instead adopts the **net logarithmic return**. Setting
 
 $$P_t = P_{t-\Delta t}\,e^{R_{\ln,\Delta t}} - D_{(t-\Delta t,t]},$$
 
-with the symbols defined as above and $R_{\ln,\Delta t}$ the net logarithmic return, one obtains
+with the symbols defined as above and $`R_{\ln,\Delta t}`$ the net logarithmic return, one obtains
 
 $$R_{\ln,\Delta t} = \ln\!\left(\frac{P_t + D_{(t-\Delta t,t]}}{P_{t-\Delta t}}\right).$$
 
-Here, if $D_{(t-\Delta t,t]}=0$ and $P_{t-\Delta t}>0$, then $P_t>0$ for any value of $R_{\ln,\Delta t}$; if instead $R_{\ln,\Delta t} < \ln(D_{(t-\Delta t,t]}/P_{t-\Delta t})$ with $D_{(t-\Delta t,t]}>0$ and $P_{t-\Delta t}>0$, then $P_t<0$.
+Here, if $`D_{(t-\Delta t,t]}=0`$ and $`P_{t-\Delta t}>0`$, then $`P_t>0`$ for any value of $`R_{\ln,\Delta t}`$; if instead $`R_{\ln,\Delta t} < \ln(D_{(t-\Delta t,t]}/P_{t-\Delta t})`$ with $`D_{(t-\Delta t,t]}>0`$ and $`P_{t-\Delta t}>0`$, then $`P_t<0`$.
 
-**Asymptotic equivalence.** If $R_{\%,\Delta t}\in(-1,1)=(-100\%,100\%)$, then $R_{\%,\Delta t}\simeq R_{\ln,\Delta t}$. Indeed,
+**Asymptotic equivalence.** If $`R_{\%,\Delta t}\in(-1,1)=(-100\%,100\%)`$, then $`R_{\%,\Delta t}\simeq R_{\ln,\Delta t}`$. Indeed,
 
-$$\begin{aligned}
+$$
+\begin{aligned}
 R_{\ln,\Delta t} &= \ln\!\left(\frac{P_t+D_{(t-\Delta t,t]}}{P_{t-\Delta t}}\right) \\
 &= \ln\!\left(1+\frac{P_t+D_{(t-\Delta t,t]}-P_{t-\Delta t}}{P_{t-\Delta t}}\right) \\
 &= \ln(1+R_{\%,\Delta t}),
-\end{aligned}$$
+\end{aligned}
+$$
 
-and, recalling the Taylor series expansion $\ln(1+x)=\sum_{i=1}^{+\infty}(-1)^{i-1}\frac{x^i}{i}$ for $x\in(-1,1)$,
+and, recalling the Taylor series expansion $`\ln(1+x)=\sum_{i=1}^{+\infty}(-1)^{i-1}\frac{x^i}{i}`$ for $`x\in(-1,1)`$,
 
 $$R_{\ln,\Delta t} = \ln(1+R_{\%,\Delta t}) = R_{\%,\Delta t} - \frac{R_{\%,\Delta t}^2}{2} + \frac{R_{\%,\Delta t}^3}{3} - \frac{R_{\%,\Delta t}^4}{4} + \dots$$
 
-for $R_{\%,\Delta t}\in(-100\%,100\%)$. The condition $R_{\%,\Delta t}\in(-100\%,100\%)$ generally holds when $\Delta t$ is sufficiently small ($\Delta t$ equal to a day, a week, a month, …), so that the two first-order terms coincide and the higher-order terms are negligible.
+for $`R_{\%,\Delta t}\in(-100\%,100\%)`$. The condition $`R_{\%,\Delta t}\in(-100\%,100\%)`$ generally holds when $`\Delta t`$ is sufficiently small ($`\Delta t`$ equal to a day, a week, a month, …), so that the two first-order terms coincide and the higher-order terms are negligible.
 
-**Non-additivity.** Despite the asymptotic equivalence, $R_{\%,\Delta t}$ is not additive over time, whereas $R_{\ln,\Delta t}$ is. Considering two consecutive periods with prices $P_0,P_1,P_2$, the percentage return does not enjoy the additive property,
+**Non-additivity.** Despite the asymptotic equivalence, $`R_{\%,\Delta t}`$ is not additive over time, whereas $`R_{\ln,\Delta t}`$ is. Considering two consecutive periods with prices $`P_0,P_1,P_2`$, the percentage return does not enjoy the additive property,
 
 $$R_{\%,(0,1]}+R_{\%,(1,2]} \;=\; \frac{P_1^2-2P_0P_1+P_0P_2}{P_0P_1} \;\neq\; R_{\%,(0,2]} = \frac{P_2-P_0}{P_0},$$
 
@@ -109,25 +111,25 @@ while the logarithmic return does,
 
 $$R_{\ln,(0,1]}+R_{\ln,(1,2]} \;=\; \ln\!\left(\frac{P_1}{P_0}\right)+\ln\!\left(\frac{P_2}{P_1}\right) \;=\; \ln\!\left(\frac{P_2}{P_0}\right) = R_{\ln,(0,2]}.$$
 
-A numerical illustration confirms the result: with prices $100,125,100$ the one-period percentage returns are $25.00\%$ and $-20.00\%$, whose sum ($5.00\%$) does not coincide with the two-period percentage return ($0.00\%$); the corresponding logarithmic returns are $22.31\%$ and $-22.31\%$, whose sum ($0.00\%$) does coincide with the two-period logarithmic return ($0.00\%$).
+A numerical illustration confirms the result: with prices $`100,125,100`$ the one-period percentage returns are $`25.00\%`$ and $`-20.00\%`$, whose sum ($`5.00\%`$) does not coincide with the two-period percentage return ($`0.00\%`$); the corresponding logarithmic returns are $`22.31\%`$ and $`-22.31\%`$, whose sum ($`0.00\%`$) does coincide with the two-period logarithmic return ($`0.00\%`$).
 
 ## Mean and Variance as Measures of Return and Risk
 
-Portfolio selection under uncertainty unfolds in three steps: first, identify a tool with which to "measure" the uncertainty associated with a given investment choice; second, define an efficiency criterion with which to divide all possible investment choices into two mutually exclusive sets — an efficient set and an inefficient one [Szego1980]; third, specify an appropriate optimization approach to identify, among the efficient choices, the optimal one. In particular, optimization can take the forms: given an upper bound on risk, maximize return; given a lower bound on return, minimize risk; optimize a suitable synthesis index based on return and risk (for example maximize $\text{return}-\lambda\cdot\text{risk}$, with $\lambda>0$ a measure of risk aversion); maximize a von Neumann–Morgenstern utility function [vonNeumannMorgenstern1944]. An investment choice is efficient with respect to a dominance criterion when it is not dominated by any other choice in the sense of that criterion.
+Portfolio selection under uncertainty unfolds in three steps: first, identify a tool with which to "measure" the uncertainty associated with a given investment choice; second, define an efficiency criterion with which to divide all possible investment choices into two mutually exclusive sets — an efficient set and an inefficient one [Szego1980]; third, specify an appropriate optimization approach to identify, among the efficient choices, the optimal one. In particular, optimization can take the forms: given an upper bound on risk, maximize return; given a lower bound on return, minimize risk; optimize a suitable synthesis index based on return and risk (for example maximize $`\text{return}-\lambda\cdot\text{risk}`$, with $`\lambda>0`$ a measure of risk aversion); maximize a von Neumann–Morgenstern utility function [vonNeumannMorgenstern1944]. An investment choice is efficient with respect to a dominance criterion when it is not dominated by any other choice in the sense of that criterion.
 
 For the first step, a pair of statistical indices of the random variable identified by the single-period return is adopted as the stochastic tool: the **mean** and the **variance** of that return. The rule is that the investor considers — or should consider — expected return a desirable thing and the variance of return an undesirable thing [Markowitz1952]. The innovation introduced by Markowitz was to measure the risk of a portfolio through the joint (multivariate) distribution of the returns of all assets, describing the marginal properties through the first two moments of the univariate distributions and the dependence structure through Pearson's linear correlation coefficient between each pair of returns [Szego2005].
 
-**Mean, $\mathbb{E}(R)=r$.** In general terms, the mean of a random variable is a statistical index of location; from a financial point of view, the mean of the return is taken as a measure of the profitability of the investment choice, and more generally any odd moment of the return can be regarded as a measure of profitability. For discrete $X$, $X=\{(x_1,p_1),\dots,(x_M,p_M)\}$ with $0\le p_i\le 1$ and $\sum_{i=1}^M p_i=1$,
+**Mean, $`\mathbb{E}(R)=r`$.** In general terms, the mean of a random variable is a statistical index of location; from a financial point of view, the mean of the return is taken as a measure of the profitability of the investment choice, and more generally any odd moment of the return can be regarded as a measure of profitability. For discrete $`X`$, $`X=\{(x_1,p_1),\dots,(x_M,p_M)\}`$ with $`0\le p_i\le 1`$ and $`\sum_{i=1}^M p_i=1`$,
 
 $$\mathbb{E}(X) = \sum_{i=1}^{M} x_i p_i;$$
 
-for continuous $X$ with cumulative distribution function $F_X(\cdot)$ and/or density $f_X(\cdot)$,
+for continuous $`X`$ with cumulative distribution function $`F_X(\cdot)`$ and/or density $`f_X(\cdot)`$,
 
 $$\mathbb{E}(X) = \int_{-\infty}^{+\infty} t\,dF(t) \quad \text{and/or} \quad \mathbb{E}(X) = \int_{-\infty}^{+\infty} t\, f(t)\,dt.$$
 
-In the continuous case $\mathbb{E}(X)$ might not exist.
+In the continuous case $`\mathbb{E}(X)`$ might not exist.
 
-**Variance, $\mathbb{Var}(R)=\sigma^2$.** In general terms, variance is a statistical index of variability; from a financial point of view, the variance of the return is taken as a measure of risk, and more generally any even moment of the return can be regarded as a measure of risk. In the discrete case
+**Variance, $`\mathbb{Var}(R)=\sigma^2`$.** In general terms, variance is a statistical index of variability; from a financial point of view, the variance of the return is taken as a measure of risk, and more generally any even moment of the return can be regarded as a measure of risk. In the discrete case
 
 $$\mathbb{Var}(X) = \sum_{i=1}^{M} (x_i-\mathbb{E}(X))^2 p_i,$$
 
@@ -135,7 +137,7 @@ and in the continuous case
 
 $$\mathbb{Var}(X) = \int_{-\infty}^{+\infty} (t-\mathbb{E}(X))^2\,dF(t) \quad \text{and/or} \quad \mathbb{Var}(X) = \int_{-\infty}^{+\infty} (t-\mathbb{E}(X))^2 f(t)\,dt,$$
 
-with $\mathbb{Var}(X)$ possibly not existing in the continuous case. Mean and variance, in general, do not fully characterize a random variable.
+with $`\mathbb{Var}(X)`$ possibly not existing in the continuous case. Mean and variance, in general, do not fully characterize a random variable.
 
 ## A Limit of Variance: Semi-Variance and Mean Absolute Deviation
 
@@ -151,7 +153,7 @@ and the variance
 
 $$\mathbb{Var}(R) = (4.124318\%)^2 = 17.01\%^2.$$
 
-The deviations of the realizations from the mean are $-5.3\%$, $-3.3\%$, $2.7\%$, $3.7\%$, $5.7\%$: the last three are positive. These positive deviations are not risky — the investment yields more than the expected value — but variance, by squaring all the deviations, penalizes them exactly like the negative ones.
+The deviations of the realizations from the mean are $`-5.3\%`$, $`-3.3\%`$, $`2.7\%`$, $`3.7\%`$, $`5.7\%`$: the last three are positive. These positive deviations are not risky — the investment yields more than the expected value — but variance, by squaring all the deviations, penalizes them exactly like the negative ones.
 
 A first alternative measure is **semi-variance**, which considers only the negative deviations. In the discrete case
 
@@ -189,23 +191,23 @@ The adoption of mean absolute deviation as a risk function in the portfolio opti
 
 For the second step — the efficiency criterion with which to divide investment choices into an efficient set and an inefficient one [Szego1980] — a criterion based on the concepts of mean and variance is adopted.
 
-**Mean-variance dominance criterion.** Let $X_1$ and $X_2$ be two random variables (for example portfolio returns). $X_1$ is said to **dominate** $X_2$, i.e. $X_1$ is preferred to $X_2$, in the sense of mean-variance dominance if
+**Mean-variance dominance criterion.** Let $`X_1`$ and $`X_2`$ be two random variables (for example portfolio returns). $`X_1`$ is said to **dominate** $`X_2`$, i.e. $`X_1`$ is preferred to $`X_2`$, in the sense of mean-variance dominance if
 
 $$\mathbb{E}(X_1) \geq \mathbb{E}(X_2) \quad \text{and} \quad \mathbb{Var}(X_1) \leq \mathbb{Var}(X_2)$$
 
-and at least one of the two inequalities holds strictly. We write $X_1\succ_{MV}X_2$ for dominance, $X_1\sim_{MV}X_2$ (or $X_1=_{MV}X_2$) for indifference, and $X_1\succeq_{MV}X_2$ when $X_1$ dominates or is indifferent to $X_2$.
+and at least one of the two inequalities holds strictly. We write $`X_1\succ_{MV}X_2`$ for dominance, $`X_1\sim_{MV}X_2`$ (or $`X_1=_{MV}X_2`$) for indifference, and $`X_1\succeq_{MV}X_2`$ when $`X_1`$ dominates or is indifferent to $`X_2`$.
 
-The criterion induces only a **partial ordering**. Let $\mathbb{X}=\{X_1,X_2,X_3\}$ with
+The criterion induces only a **partial ordering**. Let $`\mathbb{X}=\{X_1,X_2,X_3\}`$ with
 
 $$\mathbb{E}(R_1)=4,\ \mathbb{Var}(X_1)=3;\qquad \mathbb{E}(R_2)=2,\ \mathbb{Var}(X_2)=7;\qquad \mathbb{E}(R_3)=6,\ \mathbb{Var}(X_3)=5.$$
 
-We have $X_1\succ_{MV}X_2$ and $X_2\prec_{MV}X_3$, but $X_1$ and $X_3$ are not comparable: $X_3$ has a higher mean than $X_1$ but also a higher variance, so neither dominates the other. Plotting the choices in the $(\mathbb{Var}(X),\mathbb{E}(X))$ plane and fixing a reference point, dominance is determined in the quadrants with higher mean and lower variance (or lower mean and higher variance), while it remains undetermined in the other two quadrants.
+We have $`X_1\succ_{MV}X_2`$ and $`X_2\prec_{MV}X_3`$, but $`X_1`$ and $`X_3`$ are not comparable: $`X_3`$ has a higher mean than $`X_1`$ but also a higher variance, so neither dominates the other. Plotting the choices in the $`(\mathbb{Var}(X),\mathbb{E}(X))`$ plane and fixing a reference point, dominance is determined in the quadrants with higher mean and lower variance (or lower mean and higher variance), while it remains undetermined in the other two quadrants.
 
 The most natural way, from a financial point of view, to apply the criterion is to induce an ordering on a given set of investment choices,
 
 $$\mathbb{X}=\{X_1,\dots,X_N\} \ \xrightarrow{\ MV\ }\ X_i\succ_{MV}X_j,\ X_j \mathbin{?}_{MV} X_k,\ X_k\sim_{MV}X_k,\ \dots$$
 
-Fixing a level of expected return $\bar r$, among all choices with that mean the criterion identifies the minimum-variance one as dominant: for a given expected return, the rational, risk-averse investor prefers the lower variance. Repeating the procedure for two levels $\bar r_1 > \bar r_2$ yields the minimum-variance choices $\mathbf{x}_1$ and $\mathbf{x}_2$ respectively; iterating it over all possible levels of expected return builds, point by point, the set of mean-variance efficient choices. This construction anticipates the efficient frontier [Markowitz1952], the subject of the chapter [[02 Selezione media-varianza]].
+Fixing a level of expected return $`\bar r`$, among all choices with that mean the criterion identifies the minimum-variance one as dominant: for a given expected return, the rational, risk-averse investor prefers the lower variance. Repeating the procedure for two levels $`\bar r_1 > \bar r_2`$ yields the minimum-variance choices $`\mathbf{x}_1`$ and $`\mathbf{x}_2`$ respectively; iterating it over all possible levels of expected return builds, point by point, the set of mean-variance efficient choices. This construction anticipates the efficient frontier [Markowitz1952], the subject of the chapter [[02 Selezione media-varianza]].
 
 ## Map of the Corpus
 

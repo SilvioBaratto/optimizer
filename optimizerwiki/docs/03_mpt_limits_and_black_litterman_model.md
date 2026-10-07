@@ -34,10 +34,10 @@ A thorough discussion of this set of assumptions can be found in [EltonEtAl2007]
 
 ## The Practical Choice of the Target Return
 
-The mean-variance model is not used intensively by finance professionals. The main practical problem is the **practical choice of the target return**. In classical mean-variance optimization the investor must specify a desired return $r_P = \pi$; however, it can be difficult to identify a "coherent" value of $\pi$, especially in unstable financial contexts. In particular, an investor risks selecting:
+The mean-variance model is not used intensively by finance professionals. The main practical problem is the **practical choice of the target return**. In classical mean-variance optimization the investor must specify a desired return $`r_P = \pi`$; however, it can be difficult to identify a "coherent" value of $`\pi`$, especially in unstable financial contexts. In particular, an investor risks selecting:
 
-- a portfolio with a **high** $\pi$, characterized by excessive variance;
-- or a portfolio with a **low** $\pi$, "leaving expected return on the table."
+- a portfolio with a **high** $`\pi`$, characterized by excessive variance;
+- or a portfolio with a **low** $`\pi`$, "leaving expected return on the table."
 
 There are three possible practical procedures for addressing this problem.
 
@@ -45,9 +45,9 @@ There are three possible practical procedures for addressing this problem.
 
 $$\boldsymbol{x} = \frac{\boldsymbol{V}^{-1}(\boldsymbol{r} - r_c \boldsymbol{e})}{\boldsymbol{e}' \boldsymbol{V}^{-1}(\boldsymbol{r} - r_c \boldsymbol{e})},$$
 
-where $\boldsymbol{V}$ is the variance-covariance matrix of returns, $\boldsymbol{r}$ the vector of expected returns, $r_c$ the risk-free return, and $\boldsymbol{e}$ the unit vector. This procedure avoids the direct specification of $\pi$, since the combination of the risk-free asset and the tangency portfolio implicitly determines the point on the efficient frontier. The **practical limitation** is that, in general, sample tangency portfolios tend to perform poorly out of sample.
+where $`\boldsymbol{V}`$ is the variance-covariance matrix of returns, $`\boldsymbol{r}`$ the vector of expected returns, $`r_c`$ the risk-free return, and $`\boldsymbol{e}`$ the unit vector. This procedure avoids the direct specification of $`\pi`$, since the combination of the risk-free asset and the tangency portfolio implicitly determines the point on the efficient frontier. The **practical limitation** is that, in general, sample tangency portfolios tend to perform poorly out of sample.
 
-**Procedure 2 — Direct Maximization of Expected Utility.** Directly maximizing the investor's expected utility likewise does not require specifying $\pi$. The mathematical programming problem to be solved is
+**Procedure 2 — Direct Maximization of Expected Utility.** Directly maximizing the investor's expected utility likewise does not require specifying $`\pi`$. The mathematical programming problem to be solved is
 
 $$\max_{\boldsymbol{x}} \; \boldsymbol{x}'\boldsymbol{r} - \frac{\lambda}{2}\,\boldsymbol{x}'\boldsymbol{V}\boldsymbol{x} \qquad \text{s.t.} \quad \boldsymbol{x}'\boldsymbol{e} = 1,$$
 
@@ -55,13 +55,13 @@ whose solution is
 
 $$\boldsymbol{x} = \frac{1}{\lambda}\boldsymbol{V}^{-1}\left(\boldsymbol{r} - \frac{\boldsymbol{e}'\boldsymbol{V}^{-1}\boldsymbol{r} - \lambda}{\boldsymbol{e}'\boldsymbol{V}^{-1}\boldsymbol{e}}\,\boldsymbol{e}\right).$$
 
-The **practical limitation** concerns the choice of the risk aversion parameter $\lambda$: various scholars have estimated that $\lambda$ lies in the interval $[0, 5]$.
+The **practical limitation** concerns the choice of the risk aversion parameter $`\lambda`$: various scholars have estimated that $`\lambda`$ lies in the interval $`[0, 5]`$.
 
-**Procedure 3 — The Maximum Between $r_{1/N}$ and $r_{GMV}$.** A further way to select an optimal mean-variance portfolio without specifying $\pi$ consists in setting the target return equal to
+**Procedure 3 — The Maximum Between $`r_{1/N}`$ and $`r_{GMV}`$.** A further way to select an optimal mean-variance portfolio without specifying $`\pi`$ consists in setting the target return equal to
 
 $$\max(r_{1/N}, r_{GMV}),$$
 
-where $r_{1/N}$ is the return of the equal-weighted ("1 over $N$") portfolio and $r_{GMV}$ is the return of the global minimum-variance (GMV) portfolio. The problem to be solved to select the global minimum-variance portfolio is
+where $`r_{1/N}`$ is the return of the equal-weighted ("1 over $`N`$") portfolio and $`r_{GMV}`$ is the return of the global minimum-variance (GMV) portfolio. The problem to be solved to select the global minimum-variance portfolio is
 
 $$\min_{\boldsymbol{x}} \; \boldsymbol{x}'\boldsymbol{V}\boldsymbol{x} \qquad \text{s.t.} \quad \boldsymbol{x}'\boldsymbol{e} = 1,$$
 
@@ -73,9 +73,9 @@ Both portfolios have interesting properties that justify their use.
 
 ## Comparison Between the 1/N Equal-Weighted Portfolio and the GMV Portfolio
 
-In general, investors are interested in the portfolio based on $r_{GMV}$ only if it dominates, in the mean-variance sense, the portfolio based on $r_{1/N}$.
+In general, investors are interested in the portfolio based on $`r_{GMV}`$ only if it dominates, in the mean-variance sense, the portfolio based on $`r_{1/N}`$.
 
-The **equal-weighted portfolio** $r_{1/N}$ has the following interesting characteristics:
+The **equal-weighted portfolio** $`r_{1/N}`$ has the following interesting characteristics:
 
 - it is easy to implement;
 - it has been shown to generate noteworthy performance;
@@ -84,7 +84,7 @@ The **equal-weighted portfolio** $r_{1/N}$ has the following interesting charact
 - it never performs worse than the worst-performing asset;
 - in the case of large estimation error in the mean-variance optimization process, it is expected to outperform mean-variance optimization itself [DeMiguelGarlappiUppal2009].
 
-The **global minimum-variance portfolio** $r_{GMV}$ in turn has interesting characteristics:
+The **global minimum-variance portfolio** $`r_{GMV}`$ in turn has interesting characteristics:
 
 - it is efficient;
 - it is not affected by estimation errors relating to the expected returns of the assets. Considering i.i.d. normal distributions for asset returns, the confidence interval for the means is about 40% wider than the confidence interval for the standard deviation.
@@ -93,7 +93,7 @@ Following the 2007 financial crisis, investors shifted toward less risky portfol
 
 ## The Black-Litterman Model as a Bayesian Response
 
-The **Black-Litterman model** [BlackLitterman1992] starts from the equilibrium framework described by the *Capital Asset Pricing Model* (CAPM) [Sharpe1964]. In that framework, the market portfolio $M$ coincides with the portfolio held by the representative investor: in the market portfolio the weights of individual assets are proportional to their share of the total value of the investable assets in the economy. Introducing the risk-free asset, all rational investors hold linear combinations of the risk-free return $R_F$ and the market portfolio $M$, the point of tangency between the frontier of risky assets alone and the line originating from $R_F$ (the *Capital Market Line*). In theory, therefore, all investors should choose the same portfolio of risky assets, namely the market portfolio $M$.
+The **Black-Litterman model** [BlackLitterman1992] starts from the equilibrium framework described by the *Capital Asset Pricing Model* (CAPM) [Sharpe1964]. In that framework, the market portfolio $`M`$ coincides with the portfolio held by the representative investor: in the market portfolio the weights of individual assets are proportional to their share of the total value of the investable assets in the economy. Introducing the risk-free asset, all rational investors hold linear combinations of the risk-free return $`R_F`$ and the market portfolio $`M`$, the point of tangency between the frontier of risky assets alone and the line originating from $`R_F`$ (the *Capital Market Line*). In theory, therefore, all investors should choose the same portfolio of risky assets, namely the market portfolio $`M`$.
 
 In practice, however, investors have different **opinions** and **expectations** about the assets present in the market. These opinions and expectations represent each investor's specific **views**, and are expressed in terms of:
 
@@ -106,29 +106,29 @@ In portfolio selection, integrating these views with market views plays an impor
 
 $$\Pr(M\mid W) = \frac{\Pr(M)\,\Pr(W\mid M)}{\Pr(W)},$$
 
-where $\Pr(M)$ denotes the probability of the market state (**prior distribution**), $\Pr(W\mid M)$ the probability of the views state conditional on the market state, $\Pr(W)$ the probability of the views state, and $\Pr(M\mid W)$ the probability of the market state conditional on the views state (**posterior distribution**). Market equilibrium $P(\mu)$ and the investor's views $P(Q\mid\mu)$ thus combine into an integrated distribution $P(\mu\mid Q)$.
+where $`\Pr(M)`$ denotes the probability of the market state (**prior distribution**), $`\Pr(W\mid M)`$ the probability of the views state conditional on the market state, $`\Pr(W)`$ the probability of the views state, and $`\Pr(M\mid W)`$ the probability of the market state conditional on the views state (**posterior distribution**). Market equilibrium $`P(\mu)`$ and the investor's views $`P(Q\mid\mu)`$ thus combine into an integrated distribution $`P(\mu\mid Q)`$.
 
 ## The Distributional Assumptions of the Prior and the Equilibrium Returns Π*
 
 The starting point of the model is the construction of the **prior** distribution of market returns, based on two assumptions.
 
-**Assumption 1.** Consider a market composed of $N$ risky-return securities, with normally distributed returns:
+**Assumption 1.** Consider a market composed of $`N`$ risky-return securities, with normally distributed returns:
 
 $$\mathbf{R} \sim \mathcal{N}(\mathbf{r}, \mathbf{V}),$$
 
-where $\mathbf{R}$ is the vector of risky returns, $\mathbf{r}$ the vector of expected returns, and $\mathbf{V}$ the variance-covariance matrix of risky returns.
+where $`\mathbf{R}`$ is the vector of risky returns, $`\mathbf{r}`$ the vector of expected returns, and $`\mathbf{V}`$ the variance-covariance matrix of risky returns.
 
 **Assumption 2.** Consider a vector of expected returns that is normally distributed:
 
 $$\mathbf{r} \sim \mathcal{N}(\mathbf{\Pi}, \tau\mathbf{V}),$$
 
-where $\mathbf{\Pi}$ is a suitable vector and $\tau \in [0, +\infty)$ a suitable uncertainty factor.
+where $`\mathbf{\Pi}`$ is a suitable vector and $`\tau \in [0, +\infty)`$ a suitable uncertainty factor.
 
 **Determining the equilibrium expected returns.** The model distinguishes two possible processes, linked by expected utility theory, that relate expected returns, risk, and portfolio weights. In the **forward process**, given the expected returns and the variance-covariance matrix, expected utility is maximized to obtain the (unknown) optimal portfolio weights:
 
 $$\mathbf{r}, \mathbf{V} \;\rightarrow\; \max \mathbb{E}[U(\mathbf{r}, \mathbf{V})] \;\rightarrow\; \mathbf{x}^*.$$
 
-In the **reverse process**, starting from the market weights $\mathbf{x}_M$, which are known (for example via the CAPM), one works back to the (unknown) equilibrium expected returns $\mathbf{\Pi}^*$ that justify them:
+In the **reverse process**, starting from the market weights $`\mathbf{x}_M`$, which are known (for example via the CAPM), one works back to the (unknown) equilibrium expected returns $`\mathbf{\Pi}^*`$ that justify them:
 
 $$\mathbf{\Pi}^* \;\leftarrow\; \max \mathbb{E}[U(\mathbf{\Pi}^*, \mathbf{V})] \;\leftarrow\; \mathbf{x}_M, \mathbf{V}.$$
 
@@ -136,7 +136,7 @@ The Black-Litterman model uses the **reverse process**. The vector of equilibriu
 
 $$\max_{\mathbf{x}} \; \mathbf{x}_M' \mathbf{\Pi} - \frac{a}{2}\, \mathbf{x}_M' \mathbf{V} \mathbf{x}_M.$$
 
-The first-order optimality conditions are obtained by setting $\partial U / \partial \mathbf{x}_M = 0$, from which
+The first-order optimality conditions are obtained by setting $`\partial U / \partial \mathbf{x}_M = 0`$, from which
 
 $$\mathbf{\Pi} - a\mathbf{V}\mathbf{x}_M = \mathbf{0}$$
 
@@ -144,7 +144,7 @@ and, finally,
 
 $$\mathbf{\Pi}^* = a\mathbf{V}\mathbf{x}_M.$$
 
-The vector $\mathbf{\Pi}^*$ thus obtained represents the expected returns implied by market equilibrium and constitutes the mean of the model's prior distribution (cf. Assumption 2).
+The vector $`\mathbf{\Pi}^*`$ thus obtained represents the expected returns implied by market equilibrium and constitutes the mean of the model's prior distribution (cf. Assumption 2).
 
 ## The Investor's Views and the Posterior Distribution
 
@@ -152,9 +152,9 @@ The vector $\mathbf{\Pi}^*$ thus obtained represents the expected returns implie
 
 $$\mathbf{P}\mathbf{r} \sim (\mathbf{Q}, \mathbf{\Omega}),$$
 
-where $\mathbf{P}$ is a $(K, N)$ matrix representing the investor's **view mapping**, $\mathbf{Q}$ is a $(K, 1)$ vector reporting the views in terms of **returns**, and $\mathbf{\Omega}$ is a **diagonal** $(K, K)$ matrix reporting the **variances** of the views; $K \le N$ equals the number of assets on which the investor has formulated views. Views can be formulated in **absolute terms**, that is, on the expected return of a single security, or in **relative terms**, that is, in terms of the return of one security relative to that of another.
+where $`\mathbf{P}`$ is a $`(K, N)`$ matrix representing the investor's **view mapping**, $`\mathbf{Q}`$ is a $`(K, 1)`$ vector reporting the views in terms of **returns**, and $`\mathbf{\Omega}`$ is a **diagonal** $`(K, K)`$ matrix reporting the **variances** of the views; $`K \le N`$ equals the number of assets on which the investor has formulated views. Views can be formulated in **absolute terms**, that is, on the expected return of a single security, or in **relative terms**, that is, in terms of the return of one security relative to that of another.
 
-**The posterior distribution.** Combining, according to Bayes' theorem, the prior distribution of market returns $\mathbf{r} \sim \mathcal{N}(\mathbf{\Pi}^*, \tau\mathbf{V})$, with $\mathbf{\Pi}^* = a\mathbf{V}\mathbf{x}_M$, with the distribution of the views $\mathbf{P}\mathbf{r} \sim (\mathbf{Q}, \mathbf{\Omega})$, yields the posterior distribution of returns according to the Black-Litterman model:
+**The posterior distribution.** Combining, according to Bayes' theorem, the prior distribution of market returns $`\mathbf{r} \sim \mathcal{N}(\mathbf{\Pi}^*, \tau\mathbf{V})`$, with $`\mathbf{\Pi}^* = a\mathbf{V}\mathbf{x}_M`$, with the distribution of the views $`\mathbf{P}\mathbf{r} \sim (\mathbf{Q}, \mathbf{\Omega})`$, yields the posterior distribution of returns according to the Black-Litterman model:
 
 $$\mathbf{R}_{BL} \sim (\mathbf{r}_{BL}, \mathbf{V}_{BL}),$$
 
@@ -164,26 +164,26 @@ $$\mathbf{r}_{BL} = \left[(\tau\mathbf{V})^{-1} + \mathbf{P}'\mathbf{\Omega}^{-1
 
 $$\mathbf{V}_{BL} = \left[(\tau\mathbf{V})^{-1} + \mathbf{P}'\mathbf{\Omega}^{-1}\mathbf{P}\right]^{-1}.$$
 
-The vector $\mathbf{r}_{BL}$ is thus a weighted average of the implied equilibrium returns $\mathbf{\Pi}^*$ and the investor's views $\mathbf{Q}$: the relative weights depend on the uncertainty about market equilibrium (through $\tau\mathbf{V}$) and on the uncertainty about the views (through $\mathbf{\Omega}$). The smaller $\mathbf{\Omega}$ is — that is, the greater the investor's confidence in their own views — the closer $\mathbf{r}_{BL}$ moves to $\mathbf{Q}$; conversely, the larger $\mathbf{\Omega}$ is, the closer $\mathbf{r}_{BL}$ moves to $\mathbf{\Pi}^*$.
+The vector $`\mathbf{r}_{BL}`$ is thus a weighted average of the implied equilibrium returns $`\mathbf{\Pi}^*`$ and the investor's views $`\mathbf{Q}`$: the relative weights depend on the uncertainty about market equilibrium (through $`\tau\mathbf{V}`$) and on the uncertainty about the views (through $`\mathbf{\Omega}`$). The smaller $`\mathbf{\Omega}`$ is — that is, the greater the investor's confidence in their own views — the closer $`\mathbf{r}_{BL}`$ moves to $`\mathbf{Q}`$; conversely, the larger $`\mathbf{\Omega}`$ is, the closer $`\mathbf{r}_{BL}`$ moves to $`\mathbf{\Pi}^*`$.
 
 ## Complete Numerical Example
 
-The application of the model is illustrated for a market of $N = 3$ assets.
+The application of the model is illustrated for a market of $`N = 3`$ assets.
 
-**Step 0 — Starting Data.** The market weights are $\mathbf{x}_M = (0.50,\, 0.30,\, 0.20)'$ and the risk aversion coefficient is $a = 2.5$. The variance-covariance matrix $\mathbf{V}$ is
+**Step 0 — Starting Data.** The market weights are $`\mathbf{x}_M = (0.50,\, 0.30,\, 0.20)'`$ and the risk aversion coefficient is $`a = 2.5`$. The variance-covariance matrix $`\mathbf{V}`$ is
 
 $$\mathbf{V} = \begin{pmatrix} 0.0225 & 0.0060 & 0.0027 \\ 0.0060 & 0.0400 & 0.0090 \\ 0.0027 & 0.0090 & 0.0324 \end{pmatrix}.$$
 
-**Step 1 — Equilibrium Expected Returns (Prior).** With $\mathbf{R}\sim \mathcal{N}(\mathbf{r}, \mathbf{V})$ and $\mathbf{r}\sim \mathcal{N}(\mathbf{\Pi}, \tau\mathbf{V})$, one computes
+**Step 1 — Equilibrium Expected Returns (Prior).** With $`\mathbf{R}\sim \mathcal{N}(\mathbf{r}, \mathbf{V})`$ and $`\mathbf{r}\sim \mathcal{N}(\mathbf{\Pi}, \tau\mathbf{V})`$, one computes
 
 $$\mathbf{\Pi}^* = (0.0340,\, 0.0420,\, 0.0263)'.$$
 
-The vector is obtained by applying the reverse optimization formula $\mathbf{\Pi}^* = a\mathbf{V}\mathbf{x}_M$ from the previous section to the market weights and the covariance from Step 0; the inverse map $\mathbf{x}_M = \tfrac{1}{a}\mathbf{V}^{-1}\mathbf{\Pi}^*$ returns exactly the starting weights.
+The vector is obtained by applying the reverse optimization formula $`\mathbf{\Pi}^* = a\mathbf{V}\mathbf{x}_M`$ from the previous section to the market weights and the covariance from Step 0; the inverse map $`\mathbf{x}_M = \tfrac{1}{a}\mathbf{V}^{-1}\mathbf{\Pi}^*`$ returns exactly the starting weights.
 
-**Step 2 — Formulating the Views.** The investor formulates $K = 2$ views:
+**Step 2 — Formulating the Views.** The investor formulates $`K = 2`$ views:
 
-- View 1 (absolute): $\mathbb{E}(r_1) = 0.06$;
-- View 2 (relative): $\mathbb{E}(r_2 - r_3) = 0.02$.
+- View 1 (absolute): $`\mathbb{E}(r_1) = 0.06`$;
+- View 2 (relative): $`\mathbb{E}(r_2 - r_3) = 0.02`$.
 
 **Step 3 — View Matrices.** These give
 
@@ -201,7 +201,7 @@ $$\mathbf{V}_{BL} = \begin{pmatrix} 0.0002956 & 0.0000605 & 0.0000496 \\ 0.00006
 
 $$\mathbf{x}_M = \frac{1}{a}\mathbf{V}^{-1}\mathbf{r}_{BL} = (0.627,\, 0.230,\, 0.143).$$
 
-The comparison between the starting market weights $(0.50,\, 0.30,\, 0.20)$ and the normalized Black-Litterman weights $(0.627,\, 0.230,\, 0.143)$ shows how the investor's views alter the optimal allocation: the asset for which the higher absolute return view was formulated — Asset 1, with a 6% view — sees its weight increase noticeably relative to the starting 50%, at the expense of the other two assets.
+The comparison between the starting market weights $`(0.50,\, 0.30,\, 0.20)`$ and the normalized Black-Litterman weights $`(0.627,\, 0.230,\, 0.143)`$ shows how the investor's views alter the optimal allocation: the asset for which the higher absolute return view was formulated — Asset 1, with a 6% view — sees its weight increase noticeably relative to the starting 50%, at the expense of the other two assets.
 
 ## References
 
