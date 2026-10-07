@@ -531,6 +531,79 @@ async def test_shell_picker_lists_portfolios_and_selection_refocuses(shell_env) 
 
 
 @pytest.mark.asyncio
+async def test_shell_focused_launch_preselects_without_spurious_refocus(
+    shell_env, monkeypatch
+) -> None:
+    # Both ids surface in the picker via runs; the launch focuses _PID_A.
+    with shell_env.get_session() as session:
+        repo = AgentRunRepository(session)
+        for seed, pid in enumerate((_PID_A, _PID_B), start=1):
+            repo.create_run(
+                portfolio_id=pid,
+                asof=date(2026, 1, 2),
+                seed=seed,
+                universe=[],
+                optimizer_config={},
+            )
+        session.commit()
+
+    # Count real (past-the-guard) focus changes: on_mount paints the glyph once; the
+    # mount-time Select.Changed echo must NOT paint it a second time. A mount-window
+    # flag can't suppress that echo (Textual dispatches it after on_mount returns, by
+    # which point the flag is already cleared), so only the value-equality guard does.
+    focus_paints = []
+    original = ShellApp._refresh_runstate
+
+    def _counting(self) -> None:
+        focus_paints.append(self._portfolio_id)
+        original(self)
+
+    monkeypatch.setattr(ShellApp, "_refresh_runstate", _counting)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)  # launched focused
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()  # drain the mount-time Select.Changed the seeding echoes
+        # Focus is preserved end-to-end and pre-selected in the picker.
+        assert app._portfolio_id == _PID_A
+        assert app.query_one("#hdr-portfolio", Select).value == str(_PID_A)
+        # The echo was dropped: exactly one glyph paint (on_mount), no spurious refocus.
+        assert focus_paints == [_PID_A]
+        # A genuine pick still moves focus, proving the guard only drops no-ops rather
+        # than wedging the picker.
+        app.query_one("#hdr-portfolio", Select).value = str(_PID_B)
+        await pilot.pause()
+        assert app._portfolio_id == _PID_B
+        assert focus_paints == [_PID_A, _PID_B]
+
+
+@pytest.mark.asyncio
+async def test_shell_blank_pick_returns_fund_wide_without_crashing(shell_env) -> None:
+    # Picking the blank "⟨fund-wide⟩" row must return to fund-wide (portfolio_id=None),
+    # NOT crash. Its value is the NoSelection sentinel Select.NULL; the guard must test
+    # Select.NULL, not Select.BLANK (== Widget.BLANK == False, which never matches and
+    # would send the blank value down uuid.UUID("Select.NULL") → ValueError).
+    with shell_env.get_session() as session:
+        AgentRunRepository(session).create_run(
+            portfolio_id=_PID_A,
+            asof=date(2026, 1, 2),
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)  # launched focused
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        assert app._portfolio_id == _PID_A
+        # Pick the blank row (its value is the NoSelection sentinel).
+        app.query_one("#hdr-portfolio", Select).value = Select.NULL
+        await pilot.pause()
+        assert app._portfolio_id is None  # fund-wide again, no ValueError
+        assert "idle" in app._runstate  # fund-wide reads as idle
+
+
+@pytest.mark.asyncio
 async def test_shell_collapses_sidebar_to_rail_when_narrow(shell_env) -> None:
     app = _make_shell(shell_env)
     async with app.run_test(size=(60, 40)) as pilot:  # below the rail threshold

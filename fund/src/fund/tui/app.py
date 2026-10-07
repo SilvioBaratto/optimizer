@@ -336,11 +336,8 @@ class ShellApp(App):
         self._config = config
         self._poll_interval = poll_interval
         self.last_status: str = ""
-        # Picker state. ``_populating`` suppresses the ``Select.Changed`` the widget
-        # fires while the header is seeded at mount, so only a real user pick
-        # re-focuses the shell. ``_portfolio_ids`` / ``_runstate`` are headless-test
-        # hooks mirroring the views' ``render_count``.
-        self._populating = True
+        # ``_portfolio_ids`` / ``_runstate`` are headless-test hooks mirroring the
+        # views' ``render_count``.
         self._portfolio_ids: list[uuid.UUID] = []
         self._runstate = "✓ idle"
         self._narrow = False
@@ -368,11 +365,11 @@ class ShellApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        # Seed the picker (Select.Changed stays suppressed until this returns), then
-        # paint once the views have mounted and poll on the cockpit's cadence (the
-        # placeholder views' refresh is a no-op counter bump today).
+        # Seed the picker, then paint once the views have mounted and poll on the
+        # cockpit's cadence (the placeholder views' refresh is a no-op counter bump
+        # today). The mount-time ``Select.Changed`` the seeding echoes is dropped by
+        # ``on_select_changed``'s value-equality guard, not a mount-window flag.
         self._populate_picker()
-        self._populating = False
         self._refresh_runstate()
         if self.size.width:
             self._apply_width(self.size.width)
@@ -419,14 +416,19 @@ class ShellApp(App):
     def on_select_changed(self, event: Select.Changed) -> None:
         """Re-focus the shell on the picked portfolio (or fund-wide when blank).
 
-        Ignored while the picker is being seeded at mount (``_populating``) so only
-        a real adviser pick moves focus. Updates the run-state glyph and repaints.
+        A no-op pick is dropped: seeding the picker at mount echoes a
+        ``Select.Changed`` whose value equals the current focus, and Textual
+        dispatches it *after* ``on_mount`` returns — so the guard is value equality,
+        not a mount-window flag (async dispatch would already have cleared the flag).
+        A real change updates the run-state glyph and repaints. The no-selection
+        sentinel is ``Select.NULL`` (the ``NoSelection`` singleton) — *not*
+        ``Select.BLANK``, which resolves to ``Widget.BLANK is False`` and would send a
+        blank pick down ``uuid.UUID("Select.NULL")``.
         """
-        if self._populating:
+        new_id = None if event.value is Select.NULL else uuid.UUID(str(event.value))
+        if new_id == self._portfolio_id:
             return
-        self._portfolio_id = (
-            None if event.value is Select.BLANK else uuid.UUID(str(event.value))
-        )
+        self._portfolio_id = new_id
         self._refresh_runstate()
         self._refresh()
 
