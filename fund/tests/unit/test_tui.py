@@ -19,7 +19,9 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import uuid
 from contextlib import contextmanager
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -42,7 +44,7 @@ from portopt_db.repositories.orders.portfolio_journal_repository import (
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from textual.widgets import ContentSwitcher, DataTable, ListItem, ListView
+from textual.widgets import ContentSwitcher, DataTable, ListItem, ListView, Select
 
 from fund import observe
 from fund.agents.graph import run_fund
@@ -458,3 +460,36 @@ async def test_shell_sidebar_navigates_all_six_views(shell_env) -> None:
             await pilot.pause()
             assert content.current == f"view-{key}", f"nav to {key} did not switch"
             assert app.query_one(f"#view-{key}", ShellView).render_count >= 1
+
+
+# A letter-bearing UUID avoids SQLite's numeric-affinity coercion of all-digit ids.
+_PID_A = uuid.UUID("aaaa0001-0000-4000-8000-000000000001")
+_PID_B = uuid.UUID("bbbb0002-0000-4000-8000-000000000002")
+
+
+@pytest.mark.asyncio
+async def test_shell_picker_lists_portfolios_and_selection_refocuses(shell_env) -> None:
+    # Two portfolios surface via their runs → observe.list_portfolios returns both.
+    with shell_env.get_session() as session:
+        repo = AgentRunRepository(session)
+        for seed, pid in enumerate((_PID_A, _PID_B), start=1):
+            repo.create_run(
+                portfolio_id=pid,
+                asof=date(2026, 1, 2),
+                seed=seed,
+                universe=[],
+                optimizer_config={},
+            )
+        session.commit()
+
+    app = _make_shell(shell_env)  # fund-wide landing (no focus yet)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        # The picker lists the real portfolio ids.
+        assert set(app._portfolio_ids) == {_PID_A, _PID_B}
+        # Picking one re-focuses the shell and reflects that portfolio's run state
+        # (a freshly created run is pending → running glyph).
+        app.query_one("#hdr-portfolio", Select).value = str(_PID_A)
+        await pilot.pause()
+        assert app._portfolio_id == _PID_A
+        assert "running" in app._runstate

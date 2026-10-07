@@ -40,6 +40,7 @@ from textual.widgets import (
     Label,
     ListItem,
     ListView,
+    Select,
     Static,
 )
 
@@ -329,6 +330,13 @@ class ShellApp(App):
         self._config = config
         self._poll_interval = poll_interval
         self.last_status: str = ""
+        # Picker state. ``_populating`` suppresses the ``Select.Changed`` the widget
+        # fires while the header is seeded at mount, so only a real user pick
+        # re-focuses the shell. ``_portfolio_ids`` / ``_runstate`` are headless-test
+        # hooks mirroring the views' ``render_count``.
+        self._populating = True
+        self._portfolio_ids: list[uuid.UUID] = []
+        self._runstate = "✓ idle"
 
     # --- layout -------------------------------------------------------------
 
@@ -336,9 +344,9 @@ class ShellApp(App):
         """Yield the header, the sidebar | content split, the status bar, and footer."""
         yield Header()
         with Horizontal(id="shell-header", classes="shell-header"):
-            yield Static(self._portfolio_label(), id="hdr-portfolio")
+            yield Select([], prompt="⟨fund-wide⟩", id="hdr-portfolio", allow_blank=True)
             yield Static("● AUTONOMOUS", id="hdr-mode")
-            yield Static("✓ idle", id="hdr-runstate")
+            yield Static(self._runstate, id="hdr-runstate")
         with Horizontal(id="shell-body", classes="shell-body"):
             yield ListView(
                 *(ListItem(Label(title), id=f"nav-{key}") for key, title in VIEW_SPECS),
@@ -353,8 +361,12 @@ class ShellApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        # Paint once the views have mounted, then poll on the same cadence as the
-        # cockpit (the placeholder views' refresh is a no-op counter bump today).
+        # Seed the picker (Select.Changed stays suppressed until this returns), then
+        # paint once the views have mounted and poll on the cockpit's cadence (the
+        # placeholder views' refresh is a no-op counter bump today).
+        self._populate_picker()
+        self._populating = False
+        self._refresh_runstate()
         self.call_after_refresh(self._refresh)
         self.set_interval(self._poll_interval, self._refresh)
 
@@ -373,6 +385,20 @@ class ShellApp(App):
         self.query_one(ContentSwitcher).current = f"view-{item_id[len('nav-') :]}"
         self._refresh()
 
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """Re-focus the shell on the picked portfolio (or fund-wide when blank).
+
+        Ignored while the picker is being seeded at mount (``_populating``) so only
+        a real adviser pick moves focus. Updates the run-state glyph and repaints.
+        """
+        if self._populating:
+            return
+        self._portfolio_id = (
+            None if event.value is Select.BLANK else uuid.UUID(str(event.value))
+        )
+        self._refresh_runstate()
+        self._refresh()
+
     def _refresh(self) -> None:
         """Repaint the active view from the read model — synchronous, test-callable.
 
@@ -385,11 +411,65 @@ class ShellApp(App):
             return
         self.query_one(f"#{current}", ShellView).refresh_view()
 
-    def _portfolio_label(self) -> str:
-        """The header's portfolio label, or a fund-wide marker when unfocused."""
+    # --- header picker + run state -----------------------------------------
+
+    def _populate_picker(self) -> None:
+        """Seed the header ``Select`` from the fund's known portfolios (T2 reader).
+
+        Reads ``observe.list_portfolios`` through a short read-only session and
+        records the ids on :attr:`_portfolio_ids` (a test hook). When the shell
+        launched focused on a known portfolio, that option is pre-selected.
+        """
+        self._portfolio_ids = self._list_portfolios()
+        select = self.query_one("#hdr-portfolio", Select)
+        select.set_options(
+            (self._short_label(pid), str(pid)) for pid in self._portfolio_ids
+        )
+        if self._portfolio_id in self._portfolio_ids:
+            select.value = str(self._portfolio_id)
+
+    def _list_portfolios(self) -> list[uuid.UUID]:
+        """Distinct portfolio ids for the picker; ``[]`` on any read error."""
+        try:
+            with self._session_factory() as session:
+                ids = observe.list_portfolios(session)
+                session.rollback()
+                return ids
+        except Exception:  # keep the shell alive on a read error (mirrors the cockpit)
+            return []
+
+    def _refresh_runstate(self) -> None:
+        """Repaint the header run-state glyph for the focused portfolio."""
+        self._runstate = self._run_state_glyph()
+        self.query_one("#hdr-runstate", Static).update(self._runstate)
+
+    def _run_state_glyph(self) -> str:
+        """The focused portfolio's latest-run glyph: running / awaiting / idle.
+
+        Fund-wide (no focus), no runs, or a read error all read as ``idle``; a
+        ``paused`` latest run is ``awaiting`` the adviser, ``pending``/``running``
+        is live, everything else (completed / rejected) is idle.
+        """
         if self._portfolio_id is None:
-            return "Portfolio ⟨fund-wide⟩"
-        return f"Portfolio ⟨{str(self._portfolio_id)[:8]}⟩"
+            return "✓ idle"
+        try:
+            with self._session_factory() as session:
+                runs = observe.list_portfolio_runs(session, self._portfolio_id)
+                session.rollback()
+        except Exception:
+            return "✓ idle"
+        if not runs:
+            return "✓ idle"
+        status = runs[0].status
+        if status == "paused":
+            return "⏸ awaiting"
+        if status in ("pending", "running"):
+            return "▶ running"
+        return "✓ idle"
+
+    def _short_label(self, portfolio_id: uuid.UUID) -> str:
+        """A compact ``⟨abcd1234⟩`` picker label (no portfolio names persisted yet)."""
+        return f"⟨{str(portfolio_id)[:8]}⟩"
 
     def _set_status(self, message: str) -> None:
         self.last_status = message
