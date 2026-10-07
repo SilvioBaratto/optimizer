@@ -42,14 +42,15 @@ from portopt_db.repositories.orders.portfolio_journal_repository import (
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from textual.widgets import DataTable
+from textual.widgets import ContentSwitcher, DataTable, ListItem
 
 from fund import observe
 from fund.agents.graph import run_fund
 from fund.audit import AgentRunRepository, put_constraint_set
 from fund.config import settings
 from fund.tui import app as tui_app
-from fund.tui.app import FundTUI
+from fund.tui.app import FundTUI, ShellApp
+from fund.tui.views import ShellView
 from fund.tui.widgets import (
     HistoryPanel,
     HitlQueuePanel,
@@ -358,3 +359,83 @@ def test_import_app_is_light_and_needs_no_keys() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "ok" in result.stdout
+
+
+# --- ShellApp: the multi-view shell (T3) ------------------------------------
+
+_VIEW_KEYS = ("posture", "deliberation", "decisions", "mandate", "audit", "ask")
+
+
+@pytest.fixture
+def shell_env():
+    """An empty isolated SQLite + in-memory LangGraph handles for the shell.
+
+    Lighter than ``tui_env`` (no seeded paused run): the shell's Phase-0 slices
+    only need a mountable frame and, for the picker, a session to read ids from.
+    """
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session_local = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+    @contextmanager
+    def get_session():
+        session = session_local()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    pool = _FakePool()
+    yield SimpleNamespace(
+        get_session=get_session,
+        persistence=SimpleNamespace(
+            saver=MemorySaver(), store=InMemoryStore(), pool=pool
+        ),
+        model_factory=lambda: None,
+        pool=pool,
+    )
+    engine.dispose()
+
+
+def _make_shell(env, *, portfolio_id=None, poll_interval: float = 30.0) -> ShellApp:
+    """Build the shell wired onto ``env`` (a big poll interval keeps ticks away)."""
+    return ShellApp(
+        portfolio_id,
+        session_factory=env.get_session,
+        persistence=env.persistence,
+        model_factory=env.model_factory,
+        poll_interval=poll_interval,
+    )
+
+
+@pytest.mark.asyncio
+async def test_shell_mounts_frame_and_posture_view(shell_env) -> None:
+    # Fund-wide landing (portfolio_id=None): the shell must still mount its frame.
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        # Sidebar lists all six views; the ContentSwitcher opens on Posture.
+        assert len(app.query(ListItem)) == len(_VIEW_KEYS)
+        content = app.query_one("#content", ContentSwitcher)
+        assert content.current == "view-posture"
+        posture = app.query_one("#view-posture", ShellView)
+        assert posture.view_title == "Posture"
+        # The synchronous per-view refresh entry point drives the active view.
+        app._refresh()
+        assert posture.render_count >= 1
+
+
+def test_shell_accepts_optional_portfolio_id() -> None:
+    # The fund-wide landing seam: __init__ must accept portfolio_id=None without a
+    # session (the launcher opens the shell before any portfolio is focused).
+    shell = ShellApp(
+        None,
+        session_factory=lambda: None,
+        persistence=SimpleNamespace(saver=None, store=None),
+        model_factory=lambda: None,
+    )
+    assert shell._portfolio_id is None

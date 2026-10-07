@@ -32,10 +32,20 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from textual import work
 from textual.app import App, ComposeResult
-from textual.widgets import Footer, Header, Static
+from textual.containers import Horizontal
+from textual.widgets import (
+    ContentSwitcher,
+    Footer,
+    Header,
+    Label,
+    ListItem,
+    ListView,
+    Static,
+)
 
 from fund import observe
 from fund.config import FundConfig, settings
+from fund.tui.views import VIEW_SPECS, ShellView, build_views
 from fund.tui.widgets import (
     HistoryPanel,
     HitlQueuePanel,
@@ -251,6 +261,122 @@ class FundTUI(App):
         self._refresh()
 
     # --- helpers ------------------------------------------------------------
+
+    def _set_status(self, message: str) -> None:
+        self.last_status = message
+        self.query_one("#status-bar", Static).update(message)
+
+
+class ShellApp(App):
+    """Mission-control shell: a sidebar of six views over one ContentSwitcher.
+
+    The multi-view frame the redesign lands on — a left nav rail (Posture ·
+    Deliberation · Decisions · Mandate · Audit · Ask) switching a single content
+    pane, under a status header (focused portfolio · mode · run state) and a key
+    hint bar. It lands **fund-wide** (``portfolio_id=None``) and can focus one
+    portfolio; Phase-0 views are placeholders (:class:`~fund.tui.views.ShellView`),
+    filled by later phases.
+
+    Shares ``FundTUI``'s discipline: the same injected ``__init__`` seam (so
+    ``run_test`` drives it headlessly over SQLite + ``MemorySaver`` with zero
+    network), a synchronous per-view ``_refresh``, and an agent-stack-light import
+    (Textual + the model-free read model only — no ``deepagents`` / ``langgraph``).
+    """
+
+    CSS = """
+    .shell-header { height: 1; background: $panel; color: $text; }
+    .shell-header Static { width: auto; padding: 0 2; }
+    .shell-body { height: 1fr; }
+    .sidebar { width: 22; border-right: solid $accent; }
+    .content { width: 1fr; padding: 0 1; }
+    .view-title { text-style: bold; color: $accent; }
+    .status-bar { dock: bottom; height: 1; background: $panel; padding: 0 1; }
+    """
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        ("q", "quit", "Quit"),
+    ]
+
+    def __init__(
+        self,
+        portfolio_id: uuid.UUID | None = None,
+        *,
+        session_factory: Callable[[], AbstractContextManager[Session]],
+        persistence: Any,
+        model_factory: Callable[[], Any],
+        config: FundConfig = settings,
+        poll_interval: float = 2.0,
+    ) -> None:
+        """Initialise the shell, optionally focused on one portfolio.
+
+        Args:
+            portfolio_id: Portfolio to focus, or ``None`` for the fund-wide
+                landing (the launcher opens the shell before a pick is made).
+            session_factory: Callable returning a context-manager-managed
+                SQLAlchemy Session for read ticks and the portfolio picker.
+            persistence: Langgraph persistence bundle exposing ``.saver`` and
+                ``.store`` (used by the data-bearing views in later phases).
+            model_factory: Called lazily when the adviser acts; unused by the
+                Phase-0 placeholder views.
+            config: Application settings; defaults to the process singleton.
+            poll_interval: Refresh timer cadence in seconds.
+        """
+        super().__init__()
+        self._portfolio_id = portfolio_id
+        self._session_factory = session_factory
+        self._persistence = persistence
+        self._model_factory = model_factory
+        self._config = config
+        self._poll_interval = poll_interval
+        self.last_status: str = ""
+
+    # --- layout -------------------------------------------------------------
+
+    def compose(self) -> ComposeResult:
+        """Yield the header, the sidebar | content split, the status bar, and footer."""
+        yield Header()
+        with Horizontal(id="shell-header", classes="shell-header"):
+            yield Static(self._portfolio_label(), id="hdr-portfolio")
+            yield Static("● AUTONOMOUS", id="hdr-mode")
+            yield Static("✓ idle", id="hdr-runstate")
+        with Horizontal(id="shell-body", classes="shell-body"):
+            yield ListView(
+                *(ListItem(Label(title), id=f"nav-{key}") for key, title in VIEW_SPECS),
+                id="sidebar",
+                classes="sidebar",
+            )
+            with ContentSwitcher(
+                initial="view-posture", id="content", classes="content"
+            ):
+                yield from build_views()
+        yield Static("", id="status-bar", classes="status-bar")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        # Paint once the views have mounted, then poll on the same cadence as the
+        # cockpit (the placeholder views' refresh is a no-op counter bump today).
+        self.call_after_refresh(self._refresh)
+        self.set_interval(self._poll_interval, self._refresh)
+
+    # --- refresh ------------------------------------------------------------
+
+    def _refresh(self) -> None:
+        """Repaint the active view from the read model — synchronous, test-callable.
+
+        Mirrors ``FundTUI._refresh``: a single sync entry point a headless test can
+        call directly instead of racing the poll timer. Delegates to the visible
+        :class:`~fund.tui.views.ShellView` so each view owns its own repaint.
+        """
+        current = self.query_one(ContentSwitcher).current
+        if current is None:
+            return
+        self.query_one(f"#{current}", ShellView).refresh_view()
+
+    def _portfolio_label(self) -> str:
+        """The header's portfolio label, or a fund-wide marker when unfocused."""
+        if self._portfolio_id is None:
+            return "Portfolio ⟨fund-wide⟩"
+        return f"Portfolio ⟨{str(self._portfolio_id)[:8]}⟩"
 
     def _set_status(self, message: str) -> None:
         self.last_status = message
