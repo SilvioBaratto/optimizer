@@ -124,6 +124,32 @@ def drift_l1(current: dict[str, float], target: dict[str, float]) -> float:
     return sum(abs(current.get(t, 0.0) - target.get(t, 0.0)) for t in tickers)
 
 
+def list_portfolios(session: Any) -> list[uuid.UUID]:
+    """Distinct portfolio ids known to the fund, sorted ascending.
+
+    Unions the three places a portfolio surfaces — an ``agent_runs`` row (nullable
+    fund-wide runs excluded), a ``portfolio_mandates`` row, or a ``mifid_profiles``
+    row — then dedups and sorts. An empty fund yields ``[]``. The repos are imported
+    lazily inside the body so ``import fund.observe`` stays agent-stack-free,
+    mirroring :func:`get_mandate` / :func:`reprofile_status`.
+
+    Args:
+        session: An injected sync ``portopt_db`` session; not owned here (no commit).
+
+    Returns:
+        The sorted, de-duplicated portfolio ids; ``[]`` when the fund is empty.
+    """
+    from fund.audit.mandate_repository import MandateRepository
+    from fund.audit.mifid_repository import MifidProfileRepository
+    from fund.audit.repository import AgentRunRepository
+
+    ids: set[uuid.UUID] = set()
+    ids.update(AgentRunRepository(session).list_portfolio_ids())
+    ids.update(MandateRepository(session).list_portfolio_ids())
+    ids.update(MifidProfileRepository(session).list_portfolio_ids())
+    return sorted(ids)
+
+
 def list_portfolio_runs(session: Any, portfolio_id: uuid.UUID) -> list[RunSummary]:
     """All runs for a portfolio, newest first, as :class:`RunSummary` rows.
 
@@ -573,6 +599,7 @@ __all__ = [
     "get_mandate",
     "interrupt_for",
     "list_portfolio_runs",
+    "list_portfolios",
     "load_run_transcript",
     "pending_hitl",
     "portfolio_state",

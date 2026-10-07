@@ -47,6 +47,7 @@ from portopt_db.repositories.orders.portfolio_journal_repository import (
 
 from fund import observe
 from fund.audit.mandate_repository import MandateRepository
+from fund.audit.mifid_repository import MifidProfileRepository
 from fund.audit.positions_repository import PositionRepository
 from fund.audit.repository import AgentRunRepository
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
@@ -58,6 +59,12 @@ from fund.schemas.mandate import PortfolioMandate, RunTriggers
 _PID = uuid.UUID("aaaa1111-2222-3333-4444-555566667777")
 _ASOF = date(2026, 1, 30)
 _CHANNEL_VERSION = "00000000000000000000000000000001.0.1"
+
+# Distinct letter-bearing portfolio ids for the list_portfolios union (same
+# SQLite UUID-affinity caveat as _PID — all-decimal ids coerce to REAL).
+_PID_RUN = uuid.UUID("aaaa0010-0000-4000-8000-000000000010")
+_PID_MANDATE = uuid.UUID("bbbb0020-0000-4000-8000-000000000020")
+_PID_MIFID = uuid.UUID("cccc0030-0000-4000-8000-000000000030")
 
 
 # --- seeding helpers --------------------------------------------------------
@@ -195,6 +202,55 @@ def test_list_portfolio_runs_newest_first_with_awaiting_hitl(db_session):
 
 def test_list_portfolio_runs_empty_for_unknown_portfolio(db_session):
     assert observe.list_portfolio_runs(db_session, uuid.uuid4()) == []
+
+
+# --- list_portfolios (distinct ids across runs ∪ mandates ∪ profiles) --------
+
+
+def test_list_portfolios_unions_runs_mandates_and_profiles(db_session):
+    _make_run(
+        db_session,
+        portfolio_id=_PID_RUN,
+        created_at=datetime(2026, 1, 10, tzinfo=UTC),
+    )
+    MandateRepository(db_session).upsert(_mandate(str(_PID_MANDATE)))
+    MifidProfileRepository(db_session).add_version(
+        portfolio_id=_PID_MIFID,
+        questionnaire={},
+        constraint_set={},
+        suitability={},
+        store_key="constraint_set",
+    )
+
+    assert observe.list_portfolios(db_session) == sorted(
+        [_PID_RUN, _PID_MANDATE, _PID_MIFID]
+    )
+
+
+def test_list_portfolios_dedups_across_sources_and_drops_null_run_ids(db_session):
+    # Same id present as both a run and a mandate is counted once; a fund-wide run
+    # (portfolio_id NULL) contributes nothing.
+    _make_run(
+        db_session,
+        portfolio_id=_PID_RUN,
+        created_at=datetime(2026, 1, 10, tzinfo=UTC),
+    )
+    _make_run(
+        db_session,
+        portfolio_id=None,
+        created_at=datetime(2026, 1, 11, tzinfo=UTC),
+    )
+    MandateRepository(db_session).upsert(_mandate(str(_PID_RUN)))
+
+    assert observe.list_portfolios(db_session) == [_PID_RUN]
+
+
+def test_list_portfolios_empty_fund_returns_empty_list(db_session):
+    assert observe.list_portfolios(db_session) == []
+
+
+def test_list_portfolios_is_exported_from_observe():
+    assert "list_portfolios" in observe.__all__
 
 
 # --- pending_hitl (paused + live-interrupt cross-check) ---------------------

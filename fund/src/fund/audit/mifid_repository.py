@@ -108,6 +108,15 @@ class MifidProfileRepository(RepositoryBase):
         )
         return self.session.execute(stmt).scalar_one_or_none()
 
+    def list_portfolio_ids(self) -> list[uuid.UUID]:
+        """Distinct portfolio ids with at least one MiFID profile version.
+
+        Collapses the append-only version rows to one id per portfolio. Order is
+        unspecified; ``observe.list_portfolios`` dedups across sources and sorts.
+        """
+        stmt = select(MifidProfile.portfolio_id).distinct()
+        return list(self.session.execute(stmt).scalars().all())
+
 
 def put_constraint_set(
     store: BaseStore,

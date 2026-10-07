@@ -163,6 +163,22 @@ def test_list_active_returns_empty_list_when_no_active_mandates(db_session):
     assert repo.list_active() == []
 
 
+# --- MandateRepository.list_portfolio_ids -----------------------------------
+
+
+def test_list_portfolio_ids_returns_distinct_mandate_portfolios(db_session):
+    repo = MandateRepository(db_session)
+    pids = {uuid.uuid4(), uuid.uuid4()}
+    for pid in pids:
+        repo.upsert(_mandate(str(pid)))
+
+    assert set(repo.list_portfolio_ids()) == pids
+
+
+def test_list_portfolio_ids_empty_when_no_mandates(db_session):
+    assert MandateRepository(db_session).list_portfolio_ids() == []
+
+
 # --- AgentRunRepository thread/pause extensions -----------------------------
 
 

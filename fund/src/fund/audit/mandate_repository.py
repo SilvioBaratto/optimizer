@@ -78,6 +78,15 @@ class MandateRepository(RepositoryBase):
         )
         return self.session.execute(stmt).scalar_one_or_none()
 
+    def list_portfolio_ids(self) -> list[uuid.UUID]:
+        """Distinct portfolio ids that carry a mandate (one row per portfolio).
+
+        Order is unspecified; ``observe.list_portfolios`` dedups across sources
+        and sorts.
+        """
+        stmt = select(PortfolioMandateModel.portfolio_id).distinct()
+        return list(self.session.execute(stmt).scalars().all())
+
     def list_active(self) -> list[PortfolioMandateModel]:
         """Return every active mandate row, ordered by ``portfolio_id``.
 

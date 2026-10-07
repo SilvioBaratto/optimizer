@@ -111,6 +111,19 @@ def test_get_active_returns_none_for_unknown_portfolio(db_session):
     assert repo.get_active(uuid.uuid4()) is None
 
 
+def test_list_portfolio_ids_distinct_across_versions(db_session):
+    repo = MifidProfileRepository(db_session)
+    pid_a, pid_b = uuid.uuid4(), uuid.uuid4()
+    _add(repo, pid_a)
+    _add(repo, pid_a)  # second version, same portfolio → one id
+    _add(repo, pid_b)
+
+    ids = repo.list_portfolio_ids()
+
+    assert set(ids) == {pid_a, pid_b}
+    assert len(ids) == 2
+
+
 # --- Store helper: ConstraintSetRef round-trip ------------------------------
 
 

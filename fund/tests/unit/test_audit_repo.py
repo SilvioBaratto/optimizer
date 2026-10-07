@@ -121,3 +121,37 @@ def test_list_runs_for_portfolio_filters_by_portfolio(db_session):
     runs_a = repo.list_runs_for_portfolio(pid_a)
     assert len(runs_a) == 2
     assert {r.seed for r in runs_a} == {1, 2}
+
+
+def test_list_portfolio_ids_distinct_excludes_null(db_session):
+    import uuid
+
+    repo = AgentRunRepository(db_session)
+    pid = uuid.uuid4()
+    # Two runs for the same portfolio → one id; a fund-wide run (NULL) → none.
+    repo.create_run(
+        portfolio_id=pid,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=["AAPL"],
+        optimizer_config={},
+    )
+    repo.create_run(
+        portfolio_id=pid,
+        asof=date(2026, 1, 3),
+        seed=2,
+        universe=["MSFT"],
+        optimizer_config={},
+    )
+    repo.create_run(
+        portfolio_id=None,
+        asof=date(2026, 1, 4),
+        seed=3,
+        universe=["GOOG"],
+        optimizer_config={},
+    )
+
+    ids = repo.list_portfolio_ids()
+
+    assert set(ids) == {pid}
+    assert len(ids) == 1

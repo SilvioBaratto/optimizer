@@ -209,5 +209,20 @@ class AgentRunRepository(RepositoryBase):
         )
         return list(self.session.execute(stmt).scalars().all())
 
+    def list_portfolio_ids(self) -> list[uuid.UUID]:
+        """Distinct non-null portfolio ids that have at least one run.
+
+        ``AgentRun.portfolio_id`` is nullable — a fund-wide/backtest run carries
+        no portfolio — so those rows are excluded. Order is unspecified; the
+        caller (``observe.list_portfolios``) dedups across sources and sorts.
+        """
+        stmt = (
+            select(AgentRun.portfolio_id)
+            .where(AgentRun.portfolio_id.is_not(None))
+            .distinct()
+        )
+        # is_not(None) drops NULLs in SQL; re-narrow the Optional for the checker.
+        return [pid for pid in self.session.execute(stmt).scalars() if pid is not None]
+
 
 __all__ = ["AgentRunRepository"]
