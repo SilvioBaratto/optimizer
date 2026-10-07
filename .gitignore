@@ -188,3 +188,4 @@ ingestion/scripts/.t212_universe_cache.json
 
 # Local scratch workspace (not shared)
 /thebull/
+/scratch/
