@@ -44,7 +44,14 @@ from portopt_db.repositories.orders.portfolio_journal_repository import (
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from textual.widgets import ContentSwitcher, DataTable, ListItem, ListView, Select
+from textual.widgets import (
+    ContentSwitcher,
+    DataTable,
+    Label,
+    ListItem,
+    ListView,
+    Select,
+)
 
 from fund import observe
 from fund.agents.graph import run_fund
@@ -493,3 +500,26 @@ async def test_shell_picker_lists_portfolios_and_selection_refocuses(shell_env) 
         await pilot.pause()
         assert app._portfolio_id == _PID_A
         assert "running" in app._runstate
+
+
+@pytest.mark.asyncio
+async def test_shell_collapses_sidebar_to_rail_when_narrow(shell_env) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=(60, 40)) as pilot:  # below the rail threshold
+        await pilot.pause()
+        assert app._narrow is True
+        assert app.query_one("#sidebar", ListView).has_class("narrow")
+        # The labels collapse to a single-letter rail.
+        label = app.query_one("#nav-posture", ListItem).query_one(Label)
+        assert str(label.render()) == "P"
+
+
+@pytest.mark.asyncio
+async def test_shell_keeps_full_sidebar_when_wide(shell_env) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:  # (120, 40) — wide
+        await pilot.pause()
+        assert app._narrow is False
+        assert not app.query_one("#sidebar", ListView).has_class("narrow")
+        label = app.query_one("#nav-posture", ListItem).query_one(Label)
+        assert str(label.render()) == "Posture"

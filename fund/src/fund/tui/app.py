@@ -33,6 +33,8 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
+from textual.css.query import NoMatches
+from textual.events import Resize
 from textual.widgets import (
     ContentSwitcher,
     Footer,
@@ -268,6 +270,9 @@ class FundTUI(App):
         self.query_one("#status-bar", Static).update(message)
 
 
+_NARROW_WIDTH = 80  # below this terminal width the sidebar collapses to a rail
+
+
 class ShellApp(App):
     """Mission-control shell: a sidebar of six views over one ContentSwitcher.
 
@@ -289,6 +294,7 @@ class ShellApp(App):
     .shell-header Static { width: auto; padding: 0 2; }
     .shell-body { height: 1fr; }
     .sidebar { width: 22; border-right: solid $accent; }
+    .sidebar.narrow { width: 5; }
     .content { width: 1fr; padding: 0 1; }
     .view-title { text-style: bold; color: $accent; }
     .status-bar { dock: bottom; height: 1; background: $panel; padding: 0 1; }
@@ -337,6 +343,7 @@ class ShellApp(App):
         self._populating = True
         self._portfolio_ids: list[uuid.UUID] = []
         self._runstate = "✓ idle"
+        self._narrow = False
 
     # --- layout -------------------------------------------------------------
 
@@ -367,8 +374,32 @@ class ShellApp(App):
         self._populate_picker()
         self._populating = False
         self._refresh_runstate()
+        if self.size.width:
+            self._apply_width(self.size.width)
         self.call_after_refresh(self._refresh)
         self.set_interval(self._poll_interval, self._refresh)
+
+    def on_resize(self, event: Resize) -> None:
+        """Collapse/restore the sidebar rail as the terminal crosses the threshold."""
+        self._apply_width(event.size.width)
+
+    def _apply_width(self, width: int) -> None:
+        """Collapse the sidebar to a single-letter rail below the narrow threshold.
+
+        At narrow widths the sidebar shrinks (``.narrow`` CSS) and each entry's
+        label drops to its leading letter, leaving the content pane effectively
+        single-pane; above the threshold the full titles and width return.
+        """
+        self._narrow = width < _NARROW_WIDTH
+        try:
+            sidebar = self.query_one("#sidebar", ListView)
+        except NoMatches:
+            return
+        sidebar.set_class(self._narrow, "narrow")
+        for key, title in VIEW_SPECS:
+            self.query_one(f"#nav-{key}", ListItem).query_one(Label).update(
+                title[0] if self._narrow else title
+            )
 
     # --- navigation + refresh ----------------------------------------------
 
