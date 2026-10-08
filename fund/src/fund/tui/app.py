@@ -48,7 +48,7 @@ from textual.widgets import (
 
 from fund import observe
 from fund.config import FundConfig, settings
-from fund.tui.views import VIEW_SPECS, ShellView, build_views
+from fund.tui.views import VIEW_SPECS, DecisionsView, ShellView, build_views
 from fund.tui.widgets import (
     HistoryPanel,
     HitlQueuePanel,
@@ -297,10 +297,17 @@ class ShellApp(App):
     .sidebar.narrow { width: 5; }
     .content { width: 1fr; padding: 0 1; }
     .view-title { text-style: bold; color: $accent; }
+    .view-subtitle { color: $accent; }
     .status-bar { dock: bottom; height: 1; background: $panel; padding: 0 1; }
+    .decisions-body { height: 1fr; }
+    .decisions-queue { width: 45%; }
+    .decisions-gate { width: 1fr; padding: 0 1; color: $warning; }
+    .decisions-hint { height: 1; color: $accent; }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
+        ("a", "decide_approve", "Approve"),
+        ("r", "decide_reject", "Reject"),
         ("q", "quit", "Quit"),
     ]
 
@@ -336,6 +343,7 @@ class ShellApp(App):
         self._config = config
         self._poll_interval = poll_interval
         self.last_status: str = ""
+        self.last_worker: Worker[None] | None = None
         # ``_portfolio_ids`` / ``_runstate`` are headless-test hooks mirroring the
         # views' ``render_count``.
         self._portfolio_ids: list[uuid.UUID] = []
@@ -443,6 +451,80 @@ class ShellApp(App):
         if current is None:
             return
         self.query_one(f"#{current}", ShellView).refresh_view()
+
+    # --- decisions actions (worker thread) ---------------------------------
+
+    def action_decide_approve(self) -> None:
+        """Approve the selected Decisions gate (the ``a`` binding)."""
+        self._decide("approve")
+
+    def action_decide_reject(self) -> None:
+        """Reject the selected Decisions gate (the ``r`` binding)."""
+        self._decide("reject")
+
+    def _decide(self, decision: str) -> None:
+        """Dispatch ``decision`` for the Decisions view's selected gate on a worker.
+
+        A no-op with a status message unless the Decisions view is active and a
+        paused run is selected — the same guard the cockpit uses for a blind approve.
+        """
+        view = self._active_decisions_view()
+        if view is None or view.selected_run_id is None:
+            self._set_status("select a paused run first")
+            return
+        self.last_worker = self._action_worker(
+            view.selected_run_id, view.selected_portfolio_id, decision
+        )
+
+    def _active_decisions_view(self) -> DecisionsView | None:
+        """The Decisions view when it is the active content pane, else ``None``."""
+        try:
+            if self.query_one(ContentSwitcher).current != "view-decisions":
+                return None
+            view = self.query_one("#view-decisions", ShellView)
+        except NoMatches:
+            return None
+        return view if isinstance(view, DecisionsView) else None
+
+    @work(thread=True, exclusive=True, group="action")
+    def _action_worker(
+        self, run_id: uuid.UUID, portfolio_id: uuid.UUID | None, decision: str
+    ) -> None:
+        """Resolve a gate through the unified action path — off the event loop.
+
+        Mirrors ``FundTUI._resume_worker``: the model is built lazily (a missing key
+        surfaces as a status line, not a crash), ``apply_action`` resumes + logs on a
+        freshly opened session, the caller commits, and the UI touches marshal back
+        via ``call_from_thread``.
+        """
+        from fund.actions import apply_action
+
+        try:
+            model = self._model_factory()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"model unavailable: {exc}")
+            return
+        try:
+            with self._session_factory() as session:
+                result = apply_action(
+                    decision,
+                    session=session,
+                    run_id=run_id,
+                    portfolio_id=portfolio_id,
+                    checkpointer=self._persistence.saver,
+                    store=self._persistence.store,
+                    model=model,
+                )
+                session.commit()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"action failed: {exc}")
+            return
+        self.call_from_thread(self._after_action, result.message)
+
+    def _after_action(self, message: str) -> None:
+        """On the main thread once the worker committed: report + repaint the view."""
+        self._set_status(message)
+        self._refresh()
 
     # --- header picker + run state -----------------------------------------
 

@@ -55,11 +55,11 @@ from textual.widgets import (
 
 from fund import observe
 from fund.agents.graph import run_fund
-from fund.audit import AgentRunRepository, put_constraint_set
+from fund.audit import AgentRunRepository, HumanAuditLogRepository, put_constraint_set
 from fund.config import settings
 from fund.tui import app as tui_app
 from fund.tui.app import FundTUI, ShellApp
-from fund.tui.views import ShellView
+from fund.tui.views import DecisionsView, ShellView
 from fund.tui.widgets import (
     HistoryPanel,
     HitlQueuePanel,
@@ -438,13 +438,15 @@ def shell_env():
     engine.dispose()
 
 
-def _make_shell(env, *, portfolio_id=None, poll_interval: float = 30.0) -> ShellApp:
+def _make_shell(
+    env, *, portfolio_id=None, poll_interval: float = 30.0, model_factory=None
+) -> ShellApp:
     """Build the shell wired onto ``env`` (a big poll interval keeps ticks away)."""
     return ShellApp(
         portfolio_id,
         session_factory=env.get_session,
         persistence=env.persistence,
-        model_factory=env.model_factory,
+        model_factory=model_factory or env.model_factory,
         poll_interval=poll_interval,
     )
 
@@ -640,3 +642,215 @@ async def test_shell_keeps_full_sidebar_when_wide(shell_env) -> None:
         assert not app.query_one("#sidebar", ListView).has_class("narrow")
         label = app.query_one("#nav-posture", ListItem).query_one(Label)
         assert str(label.render()) == "Posture"
+
+
+# --- Decisions view: the cross-portfolio HITL inbox (T3) ---------------------
+
+
+async def _open_decisions(app, pilot) -> DecisionsView:
+    """Switch the shell to the Decisions view and paint its queue."""
+    await pilot.pause()
+    app.query_one(ContentSwitcher).current = "view-decisions"
+    app._refresh()
+    await pilot.pause()
+    return app.query_one("#view-decisions", DecisionsView)
+
+
+@pytest.mark.asyncio
+async def test_decisions_queue_is_cross_portfolio_and_gate_shows_why(tui_env) -> None:
+    # Fund-wide landing (portfolio_id=None): the queue still lists the paused gate,
+    # proving the read is cross-portfolio (pending_hitl(..., None)).
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        assert view.query_one("#decisions-table", DataTable).row_count == 1
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        gate = view.gate_text
+        assert "place_orders" in gate  # the reviewable gate
+        assert "why" in gate  # full gate context + "why"
+
+
+@pytest.mark.asyncio
+async def test_decisions_row_selection_via_datatable_shows_gate(tui_env) -> None:
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        table = view.query_one("#decisions-table", DataTable)
+        table.focus()
+        table.move_cursor(row=0)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert view.selected_run_id == tui_env.run_id
+        assert "place_orders" in view.gate_text
+
+
+@pytest.mark.asyncio
+async def test_decisions_approve_resumes_on_worker_and_refreshes(tui_env) -> None:
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        assert worker.group == "action"
+        await worker.wait()
+        await pilot.pause()
+        assert "approved" in app.last_status
+        # the completed run left the cross-portfolio queue.
+        assert view.query_one("#decisions-table", DataTable).row_count == 0
+    with tui_env.get_session() as session:
+        run = AgentRunRepository(session).get_run(tui_env.run_id)
+        assert run.status == "completed"
+        assert run.weights == tui_env.expected
+        rows = HumanAuditLogRepository(session).list_recent(action="approve")
+        assert len(rows) == 1
+        assert rows[0].run_id == tui_env.run_id
+        assert rows[0].portfolio_id == PORTFOLIO_ID
+
+
+@pytest.mark.asyncio
+async def test_decisions_reject_marks_rejected_and_logs(tui_env) -> None:
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_reject()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert "rejected" in app.last_status
+    with tui_env.get_session() as session:
+        run = AgentRunRepository(session).get_run(tui_env.run_id)
+        assert run.status == "rejected"
+        assert run.weights == {}
+        rows = HumanAuditLogRepository(session).list_recent(action="reject")
+        assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_decisions_approve_without_selection_reports_no_worker(tui_env) -> None:
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_decisions(app, pilot)
+        app.action_decide_approve()  # nothing selected
+        await pilot.pause()
+        assert app.last_worker is None
+        assert "select a paused" in app.last_status
+
+
+@pytest.mark.asyncio
+async def test_decisions_queue_ignores_header_focus(tui_env) -> None:
+    # Focus the shell on a DIFFERENT portfolio than the one owning the paused run:
+    # the queue must still list it (fund-wide pending_hitl(..., None)). This fails if
+    # the view scoped the read to self.shell._portfolio_id instead of None.
+    assert _PID_B != PORTFOLIO_ID
+    app = _make_shell(tui_env, portfolio_id=_PID_B)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        assert app._portfolio_id == _PID_B  # the shell is focused elsewhere
+        assert view.query_one("#decisions-table", DataTable).row_count == 1
+
+
+@pytest.mark.asyncio
+async def test_decisions_actions_inert_when_view_not_active(tui_env) -> None:
+    # A real selection exists, but the active pane is not Decisions: the active-view
+    # guard in _active_decisions_view must block the worker from firing.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.query_one(ContentSwitcher).current = "view-posture"  # navigate away
+        await pilot.pause()
+        app.action_decide_approve()
+        await pilot.pause()
+        assert app.last_worker is None
+        assert "select a paused" in app.last_status
+
+
+@pytest.mark.asyncio
+async def test_decisions_model_unavailable_surfaces_and_run_stays_paused(
+    tui_env,
+) -> None:
+    def _no_model():
+        raise RuntimeError("OLLAMA_API_KEY missing")
+
+    app = _make_shell(tui_env, model_factory=_no_model)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert "model unavailable" in app.last_status
+        assert "OLLAMA_API_KEY" in app.last_status
+    with tui_env.get_session() as session:
+        # nothing committed: the gate is still open for a later, keyed resume.
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
+
+
+@pytest.mark.asyncio
+async def test_decisions_action_failure_surfaces_and_run_stays_paused(
+    tui_env, monkeypatch
+) -> None:
+    import fund.actions as actions_mod
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("resume exploded")
+
+    # The worker lazy-imports apply_action from the module, so patching the attribute
+    # is picked up at call time.
+    monkeypatch.setattr(actions_mod, "apply_action", _boom)
+
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert "action failed" in app.last_status
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
+
+
+def test_format_decision_gate_renders_why_from_description_else_fallback() -> None:
+    from fund.tui.views import _format_decision_gate
+
+    run = SimpleNamespace(id=_PID_A, portfolio_id=_PID_B)
+    with_desc = _format_decision_gate(
+        {
+            "action_requests": [
+                {
+                    "name": "place_orders",
+                    "description": "trimmed energy on macro risk-off",
+                    "args": {"weights": {"AAA": 0.5}},
+                }
+            ]
+        },
+        run,
+    )
+    assert "place_orders" in with_desc
+    assert "why: trimmed energy on macro risk-off" in with_desc
+    assert "AAA: 0.5000" in with_desc
+
+    no_desc = _format_decision_gate(
+        {"action_requests": [{"name": "place_orders", "args": {}}]}, run
+    )
+    assert "why: review before it executes" in no_desc
