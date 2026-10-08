@@ -22,6 +22,7 @@ from _fund_fakes import (
     PORTFOLIO_ID,
     UNIVERSE,
     ScriptedFundModel,
+    make_mandate,
     seed_paused_fund_run,
 )
 from langgraph.checkpoint.memory import MemorySaver
@@ -31,8 +32,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from fund.actions import ActionResult, apply_action
-from fund.audit import AgentRunRepository, HumanAuditLogRepository
+from fund import observe
+from fund.actions import ActionResult, apply_action, is_within_suitability_band
+from fund.audit import AgentRunRepository, HumanAuditLogRepository, MandateRepository
 
 
 @pytest.fixture
@@ -68,6 +70,29 @@ def paused_env():
         model_factory=lambda: ScriptedFundModel(universe=UNIVERSE, weights=expected),
     )
     engine.dispose()
+
+
+@pytest.fixture
+def clean_db():
+    """A private function-scoped SQLite session where committed rows don't leak.
+
+    The shared ``db_session`` fixture is a SAVEPOINT over a session-scoped engine, so a
+    ``commit`` inside a test bleeds into sibling tests. The mandate/guardrail actions
+    commit, so they open their own throwaway engine instead.
+    """
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session_local = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    session = session_local()
+    try:
+        yield session
+    finally:
+        session.close()
+        engine.dispose()
 
 
 def test_approve_resumes_run_and_logs_audit(paused_env) -> None:
@@ -212,3 +237,98 @@ def test_resume_action_requires_a_run_id(db_session) -> None:
     """Approve/reject without a ``run_id`` raises ``ValueError``."""
     with pytest.raises(ValueError, match="requires a run_id"):
         apply_action("approve", session=db_session)
+
+
+# --- T5: mandate_edit (run-policy, persists) + guardrail_override (audit-only) ---
+
+
+def test_mandate_edit_persists_via_upsert_and_logs(clean_db) -> None:
+    """A run-policy edit upserts the mandate (reload shows it) and logs, unflagged."""
+    original = make_mandate()
+    proposed = original.model_copy(update={"drift_l1_threshold": 0.25})
+
+    result = apply_action(
+        "mandate_edit",
+        session=clean_db,
+        portfolio_id=PORTFOLIO_ID,
+        mandate=proposed,
+        prev_value=original.model_dump(mode="json"),
+    )
+    clean_db.commit()
+
+    assert result.action == "mandate_edit"
+    assert result.portfolio_id == PORTFOLIO_ID
+
+    reloaded = observe.get_mandate(clean_db, PORTFOLIO_ID)
+    assert reloaded is not None
+    assert reloaded.drift_l1_threshold == 0.25  # upsert persisted the new value
+
+    rows = HumanAuditLogRepository(clean_db).list_recent(action="mandate_edit")
+    assert len(rows) == 1
+    assert rows[0].id == result.audit_id
+    assert rows[0].portfolio_id == PORTFOLIO_ID
+    assert rows[0].override_flag is False
+    assert rows[0].suitability_flag is False
+    assert rows[0].new_value["drift_l1_threshold"] == 0.25
+
+
+def test_mandate_edit_requires_a_mandate(clean_db) -> None:
+    """``mandate_edit`` without a mandate payload raises before touching the DB."""
+    with pytest.raises(ValueError, match="requires a mandate"):
+        apply_action("mandate_edit", session=clean_db, portfolio_id=PORTFOLIO_ID)
+    assert MandateRepository(clean_db).get(PORTFOLIO_ID) is None
+    assert HumanAuditLogRepository(clean_db).list_recent() == []
+
+
+def test_guardrail_override_logs_audit_only_with_flags(clean_db) -> None:
+    """An out-of-band guardrail edit logs a flagged row and persists no mandate."""
+    result = apply_action(
+        "guardrail_override",
+        session=clean_db,
+        portfolio_id=PORTFOLIO_ID,
+        target="risk_band",
+        prev_value="balanced",
+        new_value="aggressive",
+        override_flag=True,
+        suitability_flag=True,
+        source="mifid_profile",
+    )
+    clean_db.commit()
+
+    assert result.action == "guardrail_override"
+    rows = HumanAuditLogRepository(clean_db).list_recent(action="guardrail_override")
+    assert len(rows) == 1
+    assert rows[0].target == "risk_band"
+    assert rows[0].prev_value == "balanced"
+    assert rows[0].new_value == "aggressive"
+    assert rows[0].override_flag is True
+    assert rows[0].suitability_flag is True
+    # audit-only this phase: nothing is persisted to the mandate.
+    assert MandateRepository(clean_db).get(PORTFOLIO_ID) is None
+
+
+def test_guardrail_override_within_band_logs_unflagged(clean_db) -> None:
+    """An in-band guardrail edit is still audited, but carries no override flags."""
+    apply_action(
+        "guardrail_override",
+        session=clean_db,
+        portfolio_id=PORTFOLIO_ID,
+        target="risk_band",
+        prev_value="balanced",
+        new_value="conservative",
+    )
+    clean_db.commit()
+
+    rows = HumanAuditLogRepository(clean_db).list_recent(action="guardrail_override")
+    assert len(rows) == 1
+    assert rows[0].override_flag is False
+    assert rows[0].suitability_flag is False
+
+
+def test_is_within_suitability_band_treats_the_assessment_band_as_a_ceiling() -> None:
+    """A proposal no riskier than the suitability ceiling is in band; riskier is not."""
+    assert is_within_suitability_band("balanced", "balanced") is True
+    # de-risking below the ceiling is always suitable; going riskier is out of band.
+    assert is_within_suitability_band("conservative", "balanced") is True
+    assert is_within_suitability_band("growth", "balanced") is False
+    assert is_within_suitability_band("aggressive", "defensive") is False

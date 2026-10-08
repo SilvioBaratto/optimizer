@@ -47,19 +47,27 @@ from sqlalchemy.pool import StaticPool
 from textual.widgets import (
     ContentSwitcher,
     DataTable,
+    Input,
     Label,
     ListItem,
     ListView,
     Select,
+    Static,
 )
 
 from fund import observe
 from fund.agents.graph import run_fund
-from fund.audit import AgentRunRepository, HumanAuditLogRepository, put_constraint_set
+from fund.audit import (
+    AgentRunRepository,
+    HumanAuditLogRepository,
+    MandateRepository,
+    MifidProfileRepository,
+    put_constraint_set,
+)
 from fund.config import settings
 from fund.tui import app as tui_app
 from fund.tui.app import ConfirmScreen, FundTUI, ShellApp
-from fund.tui.views import DecisionsView, ShellView
+from fund.tui.views import DecisionsView, MandateView, ShellView
 from fund.tui.widgets import (
     HistoryPanel,
     HitlQueuePanel,
@@ -924,3 +932,127 @@ def test_format_decision_gate_renders_why_from_description_else_fallback() -> No
         {"action_requests": [{"name": "place_orders", "args": {}}]}, run
     )
     assert "why: review before it executes" in no_desc
+
+
+# --- Mandate view: run-policy editor + guardrail override (T5) ----------------
+
+
+def _seed_mandate_and_profile(env, *, band: str = "balanced") -> None:
+    """Seed one portfolio's run-policy mandate + an active MiFID profile."""
+    with env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        MifidProfileRepository(session).add_version(
+            portfolio_id=PORTFOLIO_ID,
+            questionnaire={},
+            constraint_set=make_constraint_set().model_dump(mode="json"),
+            suitability={"band": band},
+            store_key=settings.constraint_set_store_key,
+        )
+        session.commit()
+
+
+async def _open_mandate(app, pilot) -> MandateView:
+    """Switch the shell to the Mandate view and paint it."""
+    await pilot.pause()
+    app.query_one(ContentSwitcher).current = "view-mandate"
+    app._refresh()
+    await pilot.pause()
+    return app.query_one("#view-mandate", MandateView)
+
+
+@pytest.mark.asyncio
+async def test_mandate_renders_run_policy_and_guardrails(shell_env) -> None:
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        assert view.query_one("#mandate-capital", Input).value == "100000"
+        assert view.query_one("#mandate-drift", Input).value == "0.1"
+        assert view.suitability_band == "balanced"
+        assert view.query_one("#mandate-band", Select).value == "balanced"
+        caps = str(view.query_one("#mandate-caps", Static).render())
+        assert "ESG exclude" in caps
+
+
+@pytest.mark.asyncio
+async def test_mandate_save_run_policy_persists_and_logs(shell_env) -> None:
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = "0.25"
+        app.action_save_mandate()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert "mandate updated" in app.last_status
+    with shell_env.get_session() as session:
+        reloaded = observe.get_mandate(session, PORTFOLIO_ID)
+        assert reloaded.drift_l1_threshold == 0.25  # upsert persisted the edit
+        rows = HumanAuditLogRepository(session).list_recent(action="mandate_edit")
+        assert len(rows) == 1
+        assert rows[0].override_flag is False
+        assert rows[0].suitability_flag is False
+
+
+@pytest.mark.asyncio
+async def test_mandate_guardrail_override_out_of_band_flags_and_logs(shell_env) -> None:
+    # Suitability ceiling is balanced; proposing aggressive sits out of band (flag it).
+    _seed_mandate_and_profile(shell_env, band="balanced")
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-band", Select).value = "aggressive"
+        app.action_override_guardrail()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert "⚠" in app.last_status
+    with shell_env.get_session() as session:
+        rows = HumanAuditLogRepository(session).list_recent(action="guardrail_override")
+        assert len(rows) == 1
+        assert rows[0].prev_value == "balanced"
+        assert rows[0].new_value == "aggressive"
+        assert rows[0].override_flag is True
+        assert rows[0].suitability_flag is True
+        # audit-only: the guardrail edit did not touch the persisted mandate.
+        assert observe.get_mandate(session, PORTFOLIO_ID).drift_l1_threshold == 0.1
+
+
+@pytest.mark.asyncio
+async def test_mandate_guardrail_in_band_logs_without_flag(shell_env) -> None:
+    # Proposing a more conservative band than the ceiling is always suitable.
+    _seed_mandate_and_profile(shell_env, band="balanced")
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-band", Select).value = "conservative"
+        app.action_override_guardrail()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        rows = HumanAuditLogRepository(session).list_recent(action="guardrail_override")
+        assert len(rows) == 1
+        assert rows[0].override_flag is False
+        assert rows[0].suitability_flag is False
+
+
+@pytest.mark.asyncio
+async def test_mandate_actions_inert_without_a_mandate(shell_env) -> None:
+    # Fund-wide landing, nothing seeded: both mandate actions no-op with a hint.
+    app = _make_shell(shell_env)  # fund-wide landing, no portfolio focused
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_mandate(app, pilot)
+        app.action_save_mandate()
+        await pilot.pause()
+        assert app.last_worker is None
+        assert "focus a portfolio" in app.last_status
+        app.action_override_guardrail()
+        await pilot.pause()
+        assert app.last_worker is None
+        assert "suitability band" in app.last_status

@@ -50,7 +50,13 @@ from textual.widgets import (
 
 from fund import observe
 from fund.config import FundConfig, settings
-from fund.tui.views import VIEW_SPECS, DecisionsView, ShellView, build_views
+from fund.tui.views import (
+    VIEW_SPECS,
+    DecisionsView,
+    MandateView,
+    ShellView,
+    build_views,
+)
 from fund.tui.widgets import (
     HistoryPanel,
     HitlQueuePanel,
@@ -350,12 +356,20 @@ class ShellApp(App):
     .decisions-queue { width: 45%; }
     .decisions-gate { width: 1fr; padding: 0 1; color: $warning; }
     .decisions-hint { height: 1; color: $accent; }
+    .mandate-body { height: 1fr; }
+    .mandate-policy { width: 50%; }
+    .mandate-guardrails { width: 1fr; padding: 0 1; }
+    .mandate-section { text-style: bold; color: $accent; }
+    .mandate-readonly { height: auto; color: $warning; }
+    .mandate-hint { height: 1; color: $accent; }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
         ("a", "decide_approve", "Approve"),
         ("r", "decide_reject", "Reject"),
         ("k", "decide_killswitch", "Killswitch"),
+        ("ctrl+s", "save_mandate", "Save mandate"),
+        ("o", "override_guardrail", "Override guardrail"),
         ("q", "quit", "Quit"),
     ]
 
@@ -472,6 +486,10 @@ class ShellApp(App):
     def on_select_changed(self, event: Select.Changed) -> None:
         """Re-focus the shell on the picked portfolio (or fund-wide when blank).
 
+        Scoped to the header picker: content views own other ``Select`` widgets (e.g.
+        the Mandate guardrail band), whose values are not portfolio ids — handling them
+        here would send a non-UUID down ``uuid.UUID(...)``.
+
         A no-op pick is dropped: seeding the picker at mount echoes a
         ``Select.Changed`` whose value equals the current focus, and Textual
         dispatches it *after* ``on_mount`` returns — so the guard is value equality,
@@ -481,6 +499,8 @@ class ShellApp(App):
         ``Select.BLANK``, which resolves to ``Widget.BLANK is False`` and would send a
         blank pick down ``uuid.UUID("Select.NULL")``.
         """
+        if event.select.id != "hdr-portfolio":
+            return
         new_id = None if event.value is Select.NULL else uuid.UUID(str(event.value))
         if new_id == self._portfolio_id:
             return
@@ -605,6 +625,107 @@ class ShellApp(App):
         """On the main thread once the worker committed: report + repaint the view."""
         self._set_status(message)
         self._refresh()
+
+    # --- mandate actions (worker thread) -----------------------------------
+
+    def action_save_mandate(self) -> None:
+        """Persist the Mandate view's run-policy edits (``ctrl+s``).
+
+        A no-op with a status hint unless the Mandate view is active and has a current
+        mandate. The proposed mandate is re-validated here (a bad edit surfaces as a
+        status line); the upsert + audit happen on a worker thread.
+        """
+        view = self._active_mandate_view()
+        if view is None or view.mandate is None:
+            self._set_status("focus a portfolio with a mandate first")
+            return
+        try:
+            proposed = view.proposed_mandate()
+        except Exception as exc:  # pydantic ValidationError on an out-of-contract edit
+            self._set_status(f"invalid mandate: {exc}")
+            return
+        prev_value = view.mandate.model_dump(mode="json")
+        self.last_worker = self._mandate_worker(
+            self._portfolio_id, proposed, prev_value
+        )
+
+    def action_override_guardrail(self) -> None:
+        """Log a guardrail override from the Mandate view (``o``), ⚠ if out of band.
+
+        A no-op with a status hint unless the Mandate view is active, a target band is
+        picked, and the portfolio has an active suitability band to check against. The
+        band check + audit write happen on a worker thread (audit-only this phase).
+        """
+        view = self._active_mandate_view()
+        if view is None or view.suitability_band is None:
+            self._set_status("no active suitability band to check against")
+            return
+        proposed = view.proposed_band()
+        if proposed is None:
+            self._set_status("pick a target risk band first")
+            return
+        self.last_worker = self._guardrail_worker(
+            self._portfolio_id, proposed, view.suitability_band
+        )
+
+    def _active_mandate_view(self) -> MandateView | None:
+        """The Mandate view when it is the active content pane, else ``None``."""
+        try:
+            if self.query_one(ContentSwitcher).current != "view-mandate":
+                return None
+            view = self.query_one("#view-mandate", ShellView)
+        except NoMatches:
+            return None
+        return view if isinstance(view, MandateView) else None
+
+    @work(thread=True, exclusive=True, group="mandate")
+    def _mandate_worker(
+        self, portfolio_id: uuid.UUID | None, mandate: Any, prev_value: Any
+    ) -> None:
+        """Upsert the run-policy mandate through the unified path, off the loop."""
+        from fund.actions import apply_action
+
+        try:
+            with self._session_factory() as session:
+                result = apply_action(
+                    "mandate_edit",
+                    session=session,
+                    portfolio_id=portfolio_id,
+                    mandate=mandate,
+                    prev_value=prev_value,
+                )
+                session.commit()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"action failed: {exc}")
+            return
+        self.call_from_thread(self._after_action, result.message)
+
+    @work(thread=True, exclusive=True, group="mandate")
+    def _guardrail_worker(
+        self, portfolio_id: uuid.UUID | None, proposed_band: str, suitability_band: str
+    ) -> None:
+        """Log a guardrail override (⚑/⚠ when out of band) — off the event loop."""
+        from fund.actions import apply_action, is_within_suitability_band
+
+        out_of_band = not is_within_suitability_band(proposed_band, suitability_band)
+        try:
+            with self._session_factory() as session:
+                result = apply_action(
+                    "guardrail_override",
+                    session=session,
+                    portfolio_id=portfolio_id,
+                    target="risk_band",
+                    prev_value=suitability_band,
+                    new_value=proposed_band,
+                    override_flag=out_of_band,
+                    suitability_flag=out_of_band,
+                    source="mifid_profile",
+                )
+                session.commit()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"action failed: {exc}")
+            return
+        self.call_from_thread(self._after_action, result.message)
 
     # --- header picker + run state -----------------------------------------
 
