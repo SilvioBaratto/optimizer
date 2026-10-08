@@ -15,6 +15,7 @@ before ``create_all``.
 from __future__ import annotations
 
 from collections.abc import Generator
+from pathlib import Path
 
 import pytest
 
@@ -26,6 +27,22 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_agent_fs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Root every agent run's staged workdir at a per-test tmp dir, not the shared one.
+
+    ``fund.agents.backend.stage_theory`` regenerates its workdir (``rmtree`` +
+    ``copytree``) on *every* agent run; when agent-driving tests cluster, concurrent
+    staging of the single shared ``fund/.runtime/agent-fs`` races and fails on Windows
+    (``WinError 5``). Rooting each test at an isolated ``tmp_path`` makes agent runs
+    hermetic — no cross-test contention — for a trivial ~2.6 MB copy. Tests that never
+    build an agent are unaffected (the patched global is simply unused).
+    """
+    import fund.agents.backend as backend_mod
+
+    monkeypatch.setattr(backend_mod, "_AGENT_FS_ROOT", tmp_path / "agent-fs")
 
 
 @pytest.fixture(scope="session")
