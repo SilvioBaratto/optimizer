@@ -708,7 +708,7 @@ def _target_weights(run_repo: Any, runs: list[Any]) -> dict[str, float]:
         if run.status == "completed" and run.weights:
             return {str(k): float(v) for k, v in run.weights.items()}
     for run in runs:
-        weights = run_repo.latest_optimizer_weights(run.id)
+        weights: dict[str, float] = run_repo.latest_optimizer_weights(run.id)
         if weights:
             return weights
     return {}

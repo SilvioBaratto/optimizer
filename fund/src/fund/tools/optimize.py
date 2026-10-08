@@ -88,7 +88,10 @@ def optimize_portfolio(
     portfolio = model.predict(returns)
 
     assets = [str(col) for col in returns.columns]
-    weights = {a: float(w) for a, w in zip(assets, model.weights_, strict=True)}
+    fitted = model.weights_
+    if fitted is None:  # set by the fit above; guard narrows the Optional array
+        return err("optimizer produced no weights")
+    weights = {a: float(w) for a, w in zip(assets, fitted, strict=True)}
     metrics = {
         "mean": float(portfolio.mean),
         "standard_deviation": float(portfolio.standard_deviation),

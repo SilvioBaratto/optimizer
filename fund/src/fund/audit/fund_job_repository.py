@@ -28,16 +28,37 @@ import os
 import socket
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from portopt_db.models import BackgroundJob
 from portopt_db.repository import RepositoryBase
-from sqlalchemy import exists, func, insert, literal, or_, select, update
+from sqlalchemy import (
+    CursorResult,
+    Result,
+    exists,
+    func,
+    insert,
+    literal,
+    or_,
+    select,
+    update,
+)
 
 # The two fund daemon job slots. Each gets at most one active (pending|running)
 # row; the scheduler's rebalance sweep and drift monitor claim these.
 FUND_JOB_TYPES: tuple[str, ...] = ("fund_rebalance_sweep", "fund_drift_monitor")
 
 _ACTIVE_STATUSES: tuple[str, ...] = ("pending", "running")
+
+
+def _rows_affected(result: Result[Any]) -> int:
+    """DML rows-affected for a slot transition.
+
+    SQLAlchemy's ``Result`` stub omits ``rowcount`` — it lives on the
+    ``CursorResult`` a DML ``execute`` actually returns — so the cast restores the
+    attribute without changing runtime behaviour.
+    """
+    return int(cast("CursorResult[Any]", result).rowcount or 0)
 
 
 class FundJobRepository(RepositoryBase):
@@ -97,7 +118,7 @@ class FundJobRepository(RepositoryBase):
         )
         result = self.session.execute(stmt)
         self.session.commit()
-        return new_id if result.rowcount == 1 else None
+        return new_id if _rows_affected(result) == 1 else None
 
     def mark_running(self, job_id: uuid.UUID) -> bool:
         """Flip a claimed slot from active → ``running``; ``True`` if a row moved.
@@ -115,7 +136,7 @@ class FundJobRepository(RepositoryBase):
         )
         result = self.session.execute(stmt)
         self.session.commit()
-        return (result.rowcount or 0) == 1
+        return _rows_affected(result) == 1
 
     def update_heartbeat(self, job_id: uuid.UUID) -> bool:
         """Stamp ``last_heartbeat_at = NOW()`` iff the row is still ``running``.
@@ -134,7 +155,7 @@ class FundJobRepository(RepositoryBase):
         )
         result = self.session.execute(stmt)
         self.session.commit()
-        return (result.rowcount or 0) == 1
+        return _rows_affected(result) == 1
 
     def mark_done(
         self,
@@ -159,7 +180,7 @@ class FundJobRepository(RepositoryBase):
         )
         result = self.session.execute(stmt)
         self.session.commit()
-        return (result.rowcount or 0) == 1
+        return _rows_affected(result) == 1
 
     def reap_orphans(
         self,
@@ -198,7 +219,7 @@ class FundJobRepository(RepositoryBase):
             stmt, execution_options={"synchronize_session": False}
         )
         self.session.flush()
-        return result.rowcount or 0
+        return _rows_affected(result)
 
     def get(self, job_id: uuid.UUID) -> BackgroundJob | None:
         return self.session.get(BackgroundJob, job_id)

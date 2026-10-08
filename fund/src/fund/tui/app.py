@@ -83,7 +83,7 @@ if TYPE_CHECKING:
 _PAST = {"approve": "approved", "reject": "rejected"}
 
 
-class FundTUI(App):
+class FundTUI(App[None]):
     """The five-panel observer App for a single portfolio."""
 
     CSS = """
@@ -332,7 +332,7 @@ class ConfirmScreen(ModalScreen[bool]):
 _NARROW_WIDTH = 80  # below this terminal width the sidebar collapses to a rail
 
 
-class ShellApp(App):
+class ShellApp(App[None]):
     """Mission-control shell: a sidebar of six views over one ContentSwitcher.
 
     The multi-view frame the redesign lands on — a left nav rail (Posture ·

@@ -136,8 +136,8 @@ class ObjectivesAnswers(BaseModel):
         description=(
             "Investment horizon bucket. Map any stated duration to exactly one of "
             "'short' (< ~3 years), 'medium' (~3-7 years), or 'long' (> ~7 years). "
-            "Return ONLY this enum value — never a number of years or a 'horizon_years' "
-            "field."
+            "Return ONLY this enum value — never a number of years or a "
+            "'horizon_years' field."
         ),
     )
     likert_items: tuple[LikertScore, ...] = Field(
@@ -183,7 +183,9 @@ class MiFIDAnswers(BaseModel):
 
     base_currency: str = Field(
         pattern=r"^[A-Z]{3}$",
-        description="Client reporting currency as an ISO-4217 alpha code, e.g. EUR, USD.",
+        description=(
+            "Client reporting currency as an ISO-4217 alpha code, e.g. EUR, USD."
+        ),
     )
     knowledge: KnowledgeAnswers
     capacity: CapacityAnswers
