@@ -27,6 +27,7 @@ over SQLite + ``MemorySaver`` + a scripted model with zero network.
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -50,6 +51,7 @@ from textual.widgets import (
 
 from fund import observe
 from fund.config import FundConfig, settings
+from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.views import (
     VIEW_SPECS,
     DecisionsView,
@@ -73,6 +75,8 @@ if TYPE_CHECKING:
     from textual.binding import BindingType
     from textual.widgets import DataTable
     from textual.worker import Worker
+
+    from fund.tui.questionnaire import OnboardingSubmission
 
 _PAST = {"approve": "approved", "reject": "rejected"}
 
@@ -374,6 +378,9 @@ class ShellApp(App):
         ("k", "decide_killswitch", "Killswitch"),
         ("ctrl+s", "save_mandate", "Save mandate"),
         ("o", "override_guardrail", "Override guardrail"),
+        ("n", "new_portfolio", "New portfolio"),
+        ("p", "profile_portfolio", "Profile"),
+        ("u", "run_portfolio", "Run now"),
         ("q", "quit", "Quit"),
     ]
 
@@ -746,6 +753,174 @@ class ShellApp(App):
             return
         self.call_from_thread(self._after_action, result.message)
 
+    # --- onboarding + drive flows (worker thread) --------------------------
+
+    def action_new_portfolio(self) -> None:
+        """Onboard a new portfolio from Posture (the ``n`` binding).
+
+        Opens the MiFID questionnaire; on submit it mints a fresh id, builds the
+        portfolio's initial run-policy mandate, and drives ``new_portfolio`` + the
+        profiler on a worker. A no-op with a status hint unless Posture is the active
+        pane (the launchpad).
+        """
+        if not self._posture_active():
+            self._set_status("open Posture to onboard a portfolio")
+            return
+
+        def _submitted(submission: OnboardingSubmission | None) -> None:
+            if submission is None:
+                self._set_status("onboarding cancelled")
+                return
+            new_id = uuid.uuid4()
+            try:
+                mandate = _initial_mandate(new_id, submission)
+            except Exception as exc:  # pydantic ValidationError (e.g. bad capital)
+                self._set_status(f"invalid onboarding: {exc}")
+                return
+            self.last_worker = self._onboard_worker(
+                new_id,
+                submission.answers.model_dump_json(),
+                mandate,
+                submission.answers.base_currency,
+            )
+
+        self.push_screen(QuestionnaireScreen(ask_capital=True), _submitted)
+
+    def action_profile_portfolio(self) -> None:
+        """(Re)profile the focused portfolio from Posture (the ``p`` binding).
+
+        Opens the questionnaire for an existing portfolio (no new mandate); on submit
+        it drives the profiler on a worker. A no-op with a hint unless Posture is
+        active and a portfolio is focused.
+        """
+        if not self._posture_active():
+            self._set_status("open Posture to profile a portfolio")
+            return
+        pid = self._portfolio_id
+        if pid is None:
+            self._set_status("focus a portfolio to profile")
+            return
+
+        def _submitted(submission: OnboardingSubmission | None) -> None:
+            if submission is None:
+                self._set_status("profiling cancelled")
+                return
+            self.last_worker = self._onboard_worker(
+                pid,
+                submission.answers.model_dump_json(),
+                None,
+                submission.answers.base_currency,
+            )
+
+        self.push_screen(QuestionnaireScreen(ask_capital=False), _submitted)
+
+    def action_run_portfolio(self, asof: dt.date | None = None) -> None:
+        """Drive one paper rebalance for the focused portfolio (the ``u`` binding).
+
+        The ``u`` key passes today's bar; callers may pass an explicit decision bar.
+        A no-op with a hint unless Posture is active and a portfolio is focused.
+        """
+        if not self._posture_active():
+            self._set_status("open Posture to run a portfolio")
+            return
+        pid = self._portfolio_id
+        if pid is None:
+            self._set_status("focus a portfolio to run")
+            return
+        self.last_worker = self._run_worker(pid, asof or dt.date.today())
+
+    def _posture_active(self) -> bool:
+        """Whether the Posture view is the active content pane (the drive launchpad)."""
+        try:
+            return self.query_one(ContentSwitcher).current == "view-posture"
+        except NoMatches:
+            return False
+
+    @work(thread=True, exclusive=True, group="drive")
+    def _onboard_worker(
+        self,
+        portfolio_id: uuid.UUID,
+        questionnaire_json: str,
+        mandate: Any | None,
+        base_currency: str,
+    ) -> None:
+        """Create (when ``mandate`` is given) + profile a portfolio — off the loop.
+
+        Both mutations funnel through ``apply_action`` on one freshly opened session;
+        the caller commits once. A missing model key or any failure surfaces as a
+        status line rather than crashing the App.
+        """
+        from fund.actions import apply_action
+
+        try:
+            model = self._model_factory()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"model unavailable: {exc}")
+            return
+        try:
+            with self._session_factory() as session:
+                if mandate is not None:
+                    apply_action(
+                        "new_portfolio",
+                        session=session,
+                        portfolio_id=portfolio_id,
+                        mandate=mandate,
+                    )
+                result = apply_action(
+                    "profile",
+                    session=session,
+                    portfolio_id=portfolio_id,
+                    questionnaire=questionnaire_json,
+                    model=model,
+                    checkpointer=self._persistence.saver,
+                    store=self._persistence.store,
+                    base_currency=base_currency,
+                )
+                session.commit()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"action failed: {exc}")
+            return
+        self.call_from_thread(self._after_onboard, result.message)
+
+    @work(thread=True, exclusive=True, group="drive")
+    def _run_worker(self, portfolio_id: uuid.UUID, asof: dt.date) -> None:
+        """Drive one paper rebalance for ``portfolio_id`` to its gate — off the loop."""
+        from fund.actions import apply_action
+
+        try:
+            model = self._model_factory()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"model unavailable: {exc}")
+            return
+        try:
+            with self._session_factory() as session:
+                mandate = observe.get_mandate(session, portfolio_id)
+                if mandate is None:
+                    self.call_from_thread(
+                        self._set_status, "no mandate — onboard the portfolio first"
+                    )
+                    return
+                result = apply_action(
+                    "run",
+                    session=session,
+                    portfolio_id=portfolio_id,
+                    mandate=mandate,
+                    asof=asof,
+                    model=model,
+                    checkpointer=self._persistence.saver,
+                    store=self._persistence.store,
+                )
+                session.commit()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"action failed: {exc}")
+            return
+        self.call_from_thread(self._after_action, result.message)
+
+    def _after_onboard(self, message: str) -> None:
+        """On the main thread once onboarding committed: refresh the picker + report."""
+        self._populate_picker()
+        self._after_action(message)
+
     # --- header picker + run state -----------------------------------------
 
     def _populate_picker(self) -> None:
@@ -809,6 +984,25 @@ class ShellApp(App):
     def _set_status(self, message: str) -> None:
         self.last_status = message
         self.query_one("#status-bar", Static).update(message)
+
+
+def _initial_mandate(portfolio_id: uuid.UUID, submission: OnboardingSubmission) -> Any:
+    """Build a new portfolio's initial run-policy mandate from the onboarding form.
+
+    Capital + base currency come from the questionnaire; the drift trigger and L1
+    threshold take conservative defaults the adviser can tune later in Mandate.
+    Raises ``pydantic.ValidationError`` on an out-of-contract value (e.g. a
+    non-positive capital), which the caller surfaces as a status line.
+    """
+    from fund.schemas.mandate import PortfolioMandate, RunTriggers
+
+    return PortfolioMandate(
+        portfolio_id=str(portfolio_id),
+        capital=submission.capital,
+        base_currency=submission.answers.base_currency,
+        drift_l1_threshold=0.1,
+        triggers=RunTriggers(cron=True, drift=True),
+    )
 
 
 def main() -> None:

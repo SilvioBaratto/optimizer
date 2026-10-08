@@ -20,6 +20,7 @@ never commits — the caller injects a sync session and owns the transaction bou
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -72,6 +73,9 @@ def apply_action(
     store: Any | None = None,
     model: Any | None = None,
     mandate: Any | None = None,
+    questionnaire: Any | None = None,
+    asof: dt.date | None = None,
+    base_currency: str | None = None,
     target: str | None = None,
     prev_value: Any | None = None,
     new_value: Any | None = None,
@@ -86,9 +90,11 @@ def apply_action(
     """Apply one human action and append its ``human_audit_log`` row.
 
     The single entry point every shell mutation routes through. This phase handles the
-    resume actions (``approve`` / ``reject`` / ``killswitch``) plus ``mandate_edit`` and
-    ``guardrail_override``; the drive flows extend the dispatch later. Opens no session
-    and never commits: the caller injects ``session`` and owns the transaction (D1).
+    resume actions (``approve`` / ``reject`` / ``killswitch``), the policy edits
+    (``mandate_edit`` / ``guardrail_override``), and the onboarding drive flows
+    (``new_portfolio`` / ``profile`` / ``run``) so a full cycle — create → profile →
+    rebalance → approve — funnels through one audited path. Opens no session and never
+    commits: the caller injects ``session`` and owns the transaction (D1).
 
     ``approve`` / ``reject`` resume the paused run via
     :func:`fund.agents.graph.resume_run` (dispatched by gate); ``killswitch`` finalises
@@ -100,16 +106,21 @@ def apply_action(
     ``portfolio_id`` from its run when omitted.
 
     Args:
-        action: The action kind; the resume actions, ``"mandate_edit"``, or
-            ``"guardrail_override"`` in this phase.
+        action: The action kind; the resume actions, ``"mandate_edit"``,
+            ``"guardrail_override"``, or a drive flow (``"new_portfolio"`` /
+            ``"profile"`` / ``"run"``).
         session: Injected sync session; not owned here (no commit).
         run_id: The run to act on; required for the resume actions.
         portfolio_id: The affected portfolio; derived from the run when omitted.
-        checkpointer: LangGraph checkpointer for the resume.
-        store: LangGraph store for the resume.
-        model: Chat model the resumed run drives.
+        checkpointer: LangGraph checkpointer for the resume / drive flows.
+        store: LangGraph store for the resume / drive flows.
+        model: Chat model the resumed or driven run uses.
         mandate: The ``fund.schemas.mandate.PortfolioMandate`` to upsert
-            (``mandate_edit`` only).
+            (``mandate_edit`` / ``new_portfolio``) or run (``run``).
+        questionnaire: Free-text/typed MiFID answers the profiler normalises
+            (``profile`` only).
+        asof: Decision bar for a ``profile`` / ``run`` drive; defaults to today.
+        base_currency: Reporting currency override for the ``profile`` drive.
         target: The field or guardrail the action touched (edit/override).
         prev_value: Prior value recorded on the audit row (edit/override).
         new_value: New value recorded on the audit row (edit/override).
@@ -125,9 +136,12 @@ def apply_action(
         An :class:`ActionResult` describing the outcome and the audit row id.
 
     Raises:
-        ValueError: The action kind is unknown, or a required argument (``run_id`` for a
-            resume action, ``mandate`` for ``mandate_edit``) is missing.
+        ValueError: The action kind is unknown, or a required argument is missing
+            (``run_id`` for a resume action; ``mandate`` for ``mandate_edit`` /
+            ``new_portfolio`` / ``run``; ``portfolio_id`` for ``profile`` / ``run``).
         LookupError: ``run_id`` names no run (propagated from ``resume_run``).
+        RuntimeError: ``run`` on a portfolio with no active ``ConstraintSet``
+            (propagated from ``run_fund`` — profile it first).
     """
     if action in _RESUME_DECISION:
         return _apply_resume(
@@ -171,6 +185,47 @@ def apply_action(
             suitability_flag=suitability_flag,
             idempotency_key=idempotency_key,
             rationale=rationale,
+        )
+    if action == "new_portfolio":
+        return _apply_new_portfolio(
+            session=session,
+            portfolio_id=portfolio_id,
+            mandate=mandate,
+            actor=actor,
+            source=source,
+            idempotency_key=idempotency_key,
+            rationale=rationale,
+        )
+    if action == "profile":
+        return _apply_profile(
+            session=session,
+            portfolio_id=portfolio_id,
+            questionnaire=questionnaire,
+            model=model,
+            checkpointer=checkpointer,
+            store=store,
+            base_currency=base_currency,
+            asof=asof,
+            actor=actor,
+            source=source,
+            idempotency_key=idempotency_key,
+            rationale=rationale,
+            config=config,
+        )
+    if action == "run":
+        return _apply_run(
+            session=session,
+            portfolio_id=portfolio_id,
+            mandate=mandate,
+            model=model,
+            checkpointer=checkpointer,
+            store=store,
+            asof=asof,
+            actor=actor,
+            source=source,
+            idempotency_key=idempotency_key,
+            rationale=rationale,
+            config=config,
         )
     raise ValueError(f"unknown action {action!r}")
 
@@ -373,6 +428,173 @@ def _apply_guardrail_override(
         portfolio_id=portfolio_id,
         audit_id=row.id,
         message=f"guardrail {target} logged{flagged}",
+    )
+
+
+def _apply_new_portfolio(
+    *,
+    session: Session,
+    portfolio_id: uuid.UUID | None,
+    mandate: Any | None,
+    actor: str,
+    source: str | None,
+    idempotency_key: str | None,
+    rationale: str | None,
+) -> ActionResult:
+    """Create a portfolio by upserting its initial run-policy mandate + logging it.
+
+    The onboarding entry point: a fresh portfolio exists once it carries a mandate (the
+    roster reads ``list_portfolios``, which unions mandate rows). ``mandate`` is a
+    ``fund.schemas.mandate.PortfolioMandate``; the repo (imported from its submodule,
+    never the ``fund.audit`` root) owns the write via its non-committing ``upsert``.
+    """
+    if mandate is None:
+        raise ValueError("'new_portfolio' requires a mandate")
+    from fund.audit.mandate_repository import MandateRepository
+
+    MandateRepository(session).upsert(mandate)
+    pid = portfolio_id if portfolio_id is not None else uuid.UUID(mandate.portfolio_id)
+    row = _append_audit(
+        session,
+        action="new_portfolio",
+        run_id=None,
+        portfolio_id=pid,
+        actor=actor,
+        target="portfolio",
+        new_value=mandate.model_dump(mode="json"),
+        source=source,
+        override_flag=False,
+        suitability_flag=False,
+        idempotency_key=idempotency_key,
+        rationale=rationale,
+    )
+    return ActionResult(
+        action="new_portfolio",
+        run_id=None,
+        portfolio_id=pid,
+        audit_id=row.id,
+        message=f"portfolio {pid} created",
+    )
+
+
+def _apply_profile(
+    *,
+    session: Session,
+    portfolio_id: uuid.UUID | None,
+    questionnaire: Any | None,
+    model: Any | None,
+    checkpointer: Any | None,
+    store: Any | None,
+    base_currency: str | None,
+    asof: dt.date | None,
+    actor: str,
+    source: str | None,
+    idempotency_key: str | None,
+    rationale: str | None,
+    config: FundConfig,
+) -> ActionResult:
+    """Drive the MiFID profiler to its ``save_profile`` gate, then log the run.
+
+    Invocation-only over ``run_profiler`` (no API change): it normalises the
+    ``questionnaire`` into typed answers, derives the ``ConstraintSet`` /
+    ``SuitabilityAssessment``, and pauses at the always-confirm gate — approving it
+    later (through ``apply_action("approve", ...)``) persists the profile and caches
+    the active set. The agent stack is imported here, never at module scope.
+    """
+    if portfolio_id is None:
+        raise ValueError("'profile' requires a portfolio_id")
+    from fund.agents.profiler import run_profiler
+
+    run = run_profiler(
+        model,
+        questionnaire,
+        portfolio_id=portfolio_id,
+        session=session,
+        checkpointer=checkpointer,
+        store=store,
+        base_currency=base_currency,
+        asof=asof,
+        config=config,
+    )
+    row = _append_audit(
+        session,
+        action="profile",
+        run_id=run.run_id,
+        portfolio_id=portfolio_id,
+        actor=actor,
+        target="mifid_profile",
+        source=source,
+        override_flag=False,
+        suitability_flag=False,
+        idempotency_key=idempotency_key,
+        rationale=rationale,
+    )
+    return ActionResult(
+        action="profile",
+        run_id=run.run_id,
+        portfolio_id=portfolio_id,
+        audit_id=row.id,
+        message=f"profiler run {run.run_id} awaiting approval",
+    )
+
+
+def _apply_run(
+    *,
+    session: Session,
+    portfolio_id: uuid.UUID | None,
+    mandate: Any | None,
+    model: Any | None,
+    checkpointer: Any | None,
+    store: Any | None,
+    asof: dt.date | None,
+    actor: str,
+    source: str | None,
+    idempotency_key: str | None,
+    rationale: str | None,
+    config: FundConfig,
+) -> ActionResult:
+    """Drive one paper rebalance to the ``place_orders`` gate, then log the run.
+
+    Invocation-only over ``run_fund`` (no API change): it resolves the portfolio's
+    active ``ConstraintSet`` from the Store (a missing one raises ``RuntimeError`` —
+    the portfolio must be profiled first), runs the PM pipeline, and pauses at the
+    HITL gate for approval. The agent stack is imported here, never at module scope.
+    """
+    if portfolio_id is None:
+        raise ValueError("'run' requires a portfolio_id")
+    if mandate is None:
+        raise ValueError("'run' requires a mandate")
+    from fund.agents.graph import run_fund
+
+    run = run_fund(
+        model,
+        mandate,
+        portfolio_id=portfolio_id,
+        asof=asof if asof is not None else dt.date.today(),
+        session=session,
+        checkpointer=checkpointer,
+        store=store,
+        config=config,
+    )
+    row = _append_audit(
+        session,
+        action="run",
+        run_id=run.run_id,
+        portfolio_id=portfolio_id,
+        actor=actor,
+        target="rebalance",
+        source=source,
+        override_flag=False,
+        suitability_flag=False,
+        idempotency_key=idempotency_key,
+        rationale=rationale,
+    )
+    return ActionResult(
+        action="run",
+        run_id=run.run_id,
+        portfolio_id=portfolio_id,
+        audit_id=row.id,
+        message=f"run {run.run_id} {run.status} (awaiting approval)",
     )
 
 

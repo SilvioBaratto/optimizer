@@ -22,6 +22,7 @@ import sys
 import uuid
 from contextlib import contextmanager, suppress
 from datetime import date
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -67,6 +68,7 @@ from fund.audit import (
 from fund.config import settings
 from fund.tui import app as tui_app
 from fund.tui.app import ConfirmScreen, FundTUI, ShellApp
+from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.views import DecisionsView, MandateView, PostureView, ShellView
 from fund.tui.widgets import (
     HistoryPanel,
@@ -1153,3 +1155,226 @@ async def test_posture_roster_selection_focuses_and_reveals_detail(shell_env) ->
         await pilot.pause()
         assert app._portfolio_id == _PID_A  # header context set from the roster
         assert "ACTIVE RUN" in view.detail_text  # detail revealed for the focus
+
+
+# --- Onboarding + drive flows: questionnaire → profiler → run → approve (T7) ---
+
+_PID_NEW = uuid.UUID("dddd0004-0000-4000-8000-000000000004")
+
+
+def _fill_questionnaire(screen, answers, *, capital: str) -> None:
+    """Populate the questionnaire widgets from a ``MiFIDAnswers`` (+ capital)."""
+    screen.query_one("#q-capital", Input).value = capital
+    screen.query_one("#q-base-currency", Input).value = answers.base_currency
+    screen.query_one("#q-knowledge", Select).value = answers.knowledge.level.value
+    screen.query_one("#q-max-loss", Input).value = str(
+        answers.capacity.max_1yr_loss_pct
+    )
+    screen.query_one("#q-buffer", Input).value = str(answers.capacity.buffer_months)
+    screen.query_one("#q-goal", Select).value = answers.objectives.goal.value
+    screen.query_one("#q-horizon", Select).value = answers.objectives.horizon.value
+    screen.query_one("#q-likert", Input).value = ",".join(
+        str(item) for item in answers.objectives.likert_items
+    )
+    screen.query_one("#q-loss-reaction", Select).value = (
+        answers.objectives.loss_reaction.value
+    )
+
+
+@pytest.fixture
+def onboard_env():
+    """A seeded price panel + shared LangGraph handles for the full onboard cycle.
+
+    Unlike ``tui_env`` nothing is pre-seeded beyond prices: the new portfolio, its
+    mandate, and its active ``ConstraintSet`` are all created *through the TUI* (the
+    profiler's approve caches the set the subsequent run resolves).
+    """
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session_local = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    saver = MemorySaver()
+    store = InMemoryStore()
+
+    @contextmanager
+    def get_session():
+        session = session_local()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    from _fund_fakes import seed_panel
+
+    with get_session() as session:
+        seed_panel(session)
+        session.commit()
+    with get_session() as session:
+        expected = expected_weights(session)
+
+    pool = _FakePool()
+    yield SimpleNamespace(
+        get_session=get_session,
+        persistence=SimpleNamespace(saver=saver, store=store, pool=pool),
+        model_factory=lambda: None,
+        expected=expected,
+        saver=saver,
+        store=store,
+        pool=pool,
+    )
+    engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_questionnaire_builds_typed_answers(shell_env) -> None:
+    from _profiler_fakes import make_answers
+
+    answers = make_answers()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        screen = QuestionnaireScreen(ask_capital=True)
+        app.push_screen(screen)
+        await pilot.pause()
+        _fill_questionnaire(screen, answers, capital="100000")
+        submission = screen.build_submission()
+    assert submission.capital == Decimal("100000")
+    assert submission.answers.base_currency == "EUR"
+    assert submission.answers.objectives.goal == answers.objectives.goal
+    assert submission.answers.objectives.likert_items == answers.objectives.likert_items
+
+
+@pytest.mark.asyncio
+async def test_drive_actions_inert_off_posture_or_without_focus(shell_env) -> None:
+    app = _make_shell(shell_env)  # fund-wide landing
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_posture(app, pilot)
+        # Posture active but nothing focused → run/profile report a hint, no worker.
+        app.action_run_portfolio()
+        await pilot.pause()
+        assert app.last_worker is None
+        assert "focus a portfolio" in app.last_status
+        # Off Posture → the drive launchpad is inert.
+        app.query_one(ContentSwitcher).current = "view-decisions"
+        await pilot.pause()
+        app.action_new_portfolio()
+        await pilot.pause()
+        assert not isinstance(app.screen, QuestionnaireScreen)
+        assert "open Posture" in app.last_status
+
+
+@pytest.mark.asyncio
+async def test_onboarding_cancel_is_a_noop(onboard_env) -> None:
+    app = _make_shell(onboard_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_posture(app, pilot)
+        app.action_new_portfolio()
+        await pilot.pause()
+        assert isinstance(app.screen, QuestionnaireScreen)
+        await pilot.press("escape")  # cancel the questionnaire
+        await pilot.pause()
+        assert app.last_worker is None
+        assert "cancelled" in app.last_status
+    with onboard_env.get_session() as session:
+        # nothing created: no mandate, no runs.
+        assert observe.list_portfolios(session) == []
+
+
+@pytest.mark.asyncio
+async def test_onboarding_full_cycle_profile_run_approve(
+    onboard_env, monkeypatch
+) -> None:
+    # The phase-gate path: a new portfolio is created, profiled, approved, run, and
+    # the rebalance approved — entirely from the TUI, no CLI / docker exec.
+    from _profiler_fakes import (
+        ScriptedProfilerModel,
+        final_reply,
+        make_answers,
+        save_tool_call,
+    )
+
+    answers = make_answers()  # lands in the Balanced band, no suitability flags
+    monkeypatch.setattr(tui_app.uuid, "uuid4", lambda: _PID_NEW)
+
+    # Phase-1 model drives run_profiler to the save_profile gate.
+    app = _make_shell(
+        onboard_env,
+        model_factory=lambda: ScriptedProfilerModel(
+            structured_outcomes=[answers],
+            chat_responses=[save_tool_call(str(_PID_NEW)), final_reply()],
+        ),
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_posture(app, pilot)
+
+        # n → questionnaire → submit → profiler drive worker.
+        app.action_new_portfolio()
+        await pilot.pause()
+        assert isinstance(app.screen, QuestionnaireScreen)
+        _fill_questionnaire(app.screen, answers, capital="100000")
+        app.screen._submit()
+        await pilot.pause()
+        assert app.last_worker is not None
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert "awaiting approval" in app.last_status
+
+        # The new portfolio now carries a paused profiler gate.
+        with onboard_env.get_session() as session:
+            paused = AgentRunRepository(session).list_paused_runs(_PID_NEW)
+            assert len(paused) == 1
+            profiler_run_id = paused[0].id
+
+        # Approve the profiler gate (resume model = just the closing turn).
+        app._model_factory = lambda: ScriptedProfilerModel(
+            chat_responses=[final_reply(), final_reply()]
+        )
+        decisions = await _open_decisions(app, pilot)
+        decisions.select_run(profiler_run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert "approved" in app.last_status
+
+        # u → drive one rebalance for the focused new portfolio to the gate.
+        app._model_factory = lambda: ScriptedFundModel(
+            universe=UNIVERSE, weights=onboard_env.expected
+        )
+        await _open_posture(app, pilot)
+        app.focus_portfolio(_PID_NEW)
+        await pilot.pause()
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert "awaiting approval" in app.last_status
+
+        with onboard_env.get_session() as session:
+            paused = AgentRunRepository(session).list_paused_runs(_PID_NEW)
+            assert len(paused) == 1
+            fund_run_id = paused[0].id
+
+        # Approve the rebalance gate (fund model is role-aware; a fresh one resumes).
+        decisions = await _open_decisions(app, pilot)
+        decisions.select_run(fund_run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert "approved" in app.last_status
+
+    with onboard_env.get_session() as session:
+        run = AgentRunRepository(session).get_run(fund_run_id)
+        assert run.status == "completed"
+        assert run.weights == onboard_env.expected  # optimizer output, not the LLM's
+        actions = [row.action for row in HumanAuditLogRepository(session).list_recent()]
+        assert "new_portfolio" in actions
+        assert "profile" in actions
+        assert "run" in actions
+        assert actions.count("approve") == 2  # both gates approved through the path

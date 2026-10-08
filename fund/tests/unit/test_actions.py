@@ -325,6 +325,53 @@ def test_guardrail_override_within_band_logs_unflagged(clean_db) -> None:
     assert rows[0].suitability_flag is False
 
 
+# --- T7: drive flows (new_portfolio persists; profile/run are invocation-only) ---
+
+
+def test_new_portfolio_upserts_initial_mandate_and_logs(clean_db) -> None:
+    """``new_portfolio`` creates the portfolio by upserting its mandate + logs it."""
+    mandate = make_mandate()
+
+    result = apply_action(
+        "new_portfolio",
+        session=clean_db,
+        portfolio_id=PORTFOLIO_ID,
+        mandate=mandate,
+    )
+    clean_db.commit()
+
+    assert result.action == "new_portfolio"
+    assert result.portfolio_id == PORTFOLIO_ID
+    # The portfolio now exists: its mandate round-trips, so it joins the roster.
+    assert observe.get_mandate(clean_db, PORTFOLIO_ID) is not None
+    rows = HumanAuditLogRepository(clean_db).list_recent(action="new_portfolio")
+    assert len(rows) == 1
+    assert rows[0].id == result.audit_id
+    assert rows[0].portfolio_id == PORTFOLIO_ID
+    assert rows[0].target == "portfolio"
+
+
+def test_new_portfolio_requires_a_mandate(clean_db) -> None:
+    """``new_portfolio`` without a mandate raises before touching the DB."""
+    with pytest.raises(ValueError, match="requires a mandate"):
+        apply_action("new_portfolio", session=clean_db, portfolio_id=PORTFOLIO_ID)
+    assert HumanAuditLogRepository(clean_db).list_recent() == []
+
+
+def test_profile_requires_a_portfolio_id(db_session) -> None:
+    """``profile`` without a ``portfolio_id`` raises before building the agent."""
+    with pytest.raises(ValueError, match="requires a portfolio_id"):
+        apply_action("profile", session=db_session)
+
+
+def test_run_requires_a_portfolio_id_and_a_mandate(db_session) -> None:
+    """``run`` guards both its required args before invoking the fund pipeline."""
+    with pytest.raises(ValueError, match="requires a portfolio_id"):
+        apply_action("run", session=db_session, mandate=make_mandate())
+    with pytest.raises(ValueError, match="requires a mandate"):
+        apply_action("run", session=db_session, portfolio_id=PORTFOLIO_ID)
+
+
 def test_is_within_suitability_band_treats_the_assessment_band_as_a_ceiling() -> None:
     """A proposal no riskier than the suitability ceiling is in band; riskier is not."""
     assert is_within_suitability_band("balanced", "balanced") is True
