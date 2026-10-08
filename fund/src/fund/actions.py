@@ -30,9 +30,14 @@ if TYPE_CHECKING:
     from portopt_db.models import HumanAuditLog
     from sqlalchemy.orm import Session
 
-# Past-tense verb per resume decision, for the status line the shell reports. Its
-# keys double as the approve/reject dispatch set in apply_action.
-_PAST = {"approve": "approved", "reject": "rejected"}
+# Each resume-style action maps to the ``resume_run`` verb it finalises the paused
+# run with. approve/reject are self-named; killswitch finalises a paused run as a
+# reject but is logged distinctly (its own audit action, no paired undo). The keys
+# are the resume-dispatch set in apply_action.
+_RESUME_DECISION = {"approve": "approve", "reject": "reject", "killswitch": "reject"}
+
+# Past-tense verb per action, for the status line the shell reports.
+_PAST = {"approve": "approved", "reject": "rejected", "killswitch": "killswitched"}
 
 
 @dataclass(frozen=True)
@@ -77,23 +82,26 @@ def apply_action(
     """Apply one human action and append its ``human_audit_log`` row.
 
     The single entry point every shell mutation routes through. This phase handles
-    ``approve`` / ``reject``; killswitch, mandate edits, and the drive flows extend
-    the dispatch in later tasks. Opens no session and never commits: the caller
-    injects ``session`` and owns the transaction (D1).
+    ``approve`` / ``reject`` / ``killswitch``; mandate edits and the drive flows extend
+    the dispatch in later tasks. Opens no session and never commits: the caller injects
+    ``session`` and owns the transaction (D1).
 
     ``approve`` / ``reject`` resume the paused run via
-    :func:`fund.agents.graph.resume_run` (dispatched by gate), then log the human
-    decision with run/portfolio provenance. When ``portfolio_id`` is omitted it is
-    recovered from the run so the audit row is always attributed.
+    :func:`fund.agents.graph.resume_run` (dispatched by gate); ``killswitch`` finalises
+    a paused run through the same reject path but is logged under its own action (no
+    paired undo). Each then logs the human decision with run/portfolio provenance; when
+    ``portfolio_id`` is omitted it is recovered from the run so the audit row is always
+    attributed.
 
     Args:
-        action: The action kind; ``"approve"`` / ``"reject"`` in this phase.
+        action: The action kind; ``"approve"`` / ``"reject"`` / ``"killswitch"`` in
+            this phase.
         session: Injected sync session; not owned here (no commit).
-        run_id: The run to act on; required for approve/reject.
+        run_id: The run to act on; required for the resume actions.
         portfolio_id: The affected portfolio; derived from the run when omitted.
-        checkpointer: LangGraph checkpointer for the resume (approve/reject).
-        store: LangGraph store for the resume (approve/reject).
-        model: Chat model the resumed run drives (approve/reject).
+        checkpointer: LangGraph checkpointer for the resume.
+        store: LangGraph store for the resume.
+        model: Chat model the resumed run drives.
         actor: Who acted; defaults to ``"human"``.
         source: Provenance recorded on the audit row.
         override_flag: ⚑ a guardrail edited past its MiFID band.
@@ -107,13 +115,13 @@ def apply_action(
 
     Raises:
         ValueError: The action kind is unknown, or a required argument (e.g.
-            ``run_id`` for approve/reject) is missing.
+            ``run_id`` for a resume action) is missing.
         LookupError: ``run_id`` names no run (propagated from ``resume_run``).
     """
-    if action in _PAST:
+    if action in _RESUME_DECISION:
         return _apply_resume(
             action,
-            decision=action,
+            decision=_RESUME_DECISION[action],
             session=session,
             run_id=run_id,
             portfolio_id=portfolio_id,

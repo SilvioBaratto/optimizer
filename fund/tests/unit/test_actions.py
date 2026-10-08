@@ -132,6 +132,37 @@ def test_reject_resumes_run_and_logs_audit(paused_env) -> None:
         assert rows[0].run_id == env.run_id
 
 
+def test_killswitch_resumes_as_reject_and_logs_distinct_action(paused_env) -> None:
+    """Killswitch finalises the run rejected but logs a distinct killswitch row."""
+    env = paused_env
+    with env.get_session() as session:
+        result = apply_action(
+            "killswitch",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+        )
+        session.commit()
+
+    assert result.action == "killswitch"
+    assert "killswitch" in result.message
+
+    with env.get_session() as session:
+        run = AgentRunRepository(session).get_run(env.run_id)
+        assert run.status == "rejected"  # finalised through the reject resume path
+        assert run.weights == {}
+        # Logged distinctly: a killswitch row, never a plain reject row.
+        assert HumanAuditLogRepository(session).list_recent(action="reject") == []
+        rows = HumanAuditLogRepository(session).list_recent(action="killswitch")
+        assert len(rows) == 1
+        assert rows[0].id == result.audit_id
+        assert rows[0].run_id == env.run_id
+        assert rows[0].portfolio_id == PORTFOLIO_ID
+
+
 def test_portfolio_id_derived_from_run_when_omitted(paused_env) -> None:
     """Omitting ``portfolio_id`` recovers it from the run for the result + audit row."""
     env = paused_env

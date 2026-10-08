@@ -138,9 +138,10 @@ class DecisionsView(ShellView):
     gate slips regardless of the header focus — into a queue table; selecting a row
     reveals the full gate context (gate name, portfolio, the proposed orders) and a
     "why" line. ``a`` / ``r`` resolve the selected gate through
-    :func:`fund.actions.apply_action` on a worker thread (dispatched by the App);
-    ``e`` / ``s`` (edit / steer) are rendered but inert — they land with the co-pilot
-    (``03-copilot``).
+    :func:`fund.actions.apply_action` on a worker thread (dispatched by the App), and
+    ``k`` killswitches it (finalise rejected, no undo) behind an explicit-consequence
+    confirm; ``e`` / ``s`` (edit / steer) are rendered but inert — they land with the
+    co-pilot (``03-copilot``).
 
     Attributes:
         selected_run_id: The focused queued run, or ``None`` when nothing is selected.
@@ -167,7 +168,8 @@ class DecisionsView(ShellView):
                 "(select a paused gate)", id="decisions-gate", classes="decisions-gate"
             )
         yield Static(
-            "a approve · r reject · e edit · s steer  — e/s arrive with the co-pilot",
+            "a approve · r reject · k killswitch · e edit · s steer"
+            "  — e/s arrive with the co-pilot",
             id="decisions-hint",
             classes="decisions-hint",
         )

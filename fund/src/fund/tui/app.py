@@ -32,10 +32,12 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
 from textual.events import Resize
+from textual.screen import ModalScreen
 from textual.widgets import (
+    Button,
     ContentSwitcher,
     Footer,
     Header,
@@ -270,6 +272,51 @@ class FundTUI(App):
         self.query_one("#status-bar", Static).update(message)
 
 
+class ConfirmScreen(ModalScreen[bool]):
+    """A modal stating an irreversible consequence, awaiting a deliberate choice.
+
+    Pushed before a destructive, undo-less action (the killswitch): it renders the
+    spelled-out consequence over a Confirm | Cancel row and dismisses ``True`` only on
+    an explicit Confirm, ``False`` on Cancel or ``escape`` — so nothing irreversible
+    fires without a second, deliberate step.
+
+    Args:
+        prompt: The consequence text shown above the buttons.
+    """
+
+    DEFAULT_CSS = """
+    ConfirmScreen { align: center middle; }
+    .confirm-dialog {
+        width: 60; height: auto; padding: 1 2;
+        border: thick $error; background: $surface;
+    }
+    .confirm-prompt { height: auto; color: $warning; }
+    .confirm-actions { height: auto; align-horizontal: center; padding-top: 1; }
+    """
+
+    BINDINGS: ClassVar[list[BindingType]] = [("escape", "cancel", "Cancel")]
+
+    def __init__(self, prompt: str) -> None:
+        super().__init__()
+        self._prompt = prompt
+
+    def compose(self) -> ComposeResult:
+        """Yield the consequence prompt above a Confirm | Cancel button row."""
+        with Vertical(classes="confirm-dialog"):
+            yield Static(self._prompt, classes="confirm-prompt")
+            with Horizontal(classes="confirm-actions"):
+                yield Button("Confirm", variant="error", id="confirm-yes")
+                yield Button("Cancel", variant="primary", id="confirm-no")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Resolve the dialog: Confirm dismisses ``True``, else ``False``."""
+        self.dismiss(event.button.id == "confirm-yes")
+
+    def action_cancel(self) -> None:
+        """``escape`` dismisses the dialog as a cancel — a no-op for the caller."""
+        self.dismiss(False)
+
+
 _NARROW_WIDTH = 80  # below this terminal width the sidebar collapses to a rail
 
 
@@ -308,6 +355,7 @@ class ShellApp(App):
     BINDINGS: ClassVar[list[BindingType]] = [
         ("a", "decide_approve", "Approve"),
         ("r", "decide_reject", "Reject"),
+        ("k", "decide_killswitch", "Killswitch"),
         ("q", "quit", "Quit"),
     ]
 
@@ -475,6 +523,38 @@ class ShellApp(App):
         self.last_worker = self._action_worker(
             view.selected_run_id, view.selected_portfolio_id, decision
         )
+
+    def action_decide_killswitch(self) -> None:
+        """Killswitch the selected Decisions gate (the ``k`` binding).
+
+        Paused-only by construction: a running langgraph invoke is not interruptible,
+        and the Decisions queue lists only paused gates, so a selected run is always
+        one. Pushes an explicit-consequence confirm; confirming finalises the run
+        rejected and logs a distinct ``killswitch`` row (no undo), cancelling is a
+        no-op. Inert — with a status hint — unless Decisions is active and a run is
+        selected, the same guard the approve/reject path uses.
+        """
+        view = self._active_decisions_view()
+        if view is None or view.selected_run_id is None:
+            self._set_status("select a paused run first")
+            return
+        run_id = view.selected_run_id
+        portfolio_id = view.selected_portfolio_id
+        prompt = (
+            f"KILLSWITCH run {run_id}\n\n"
+            "This finalises the paused run as REJECTED. There is no undo.\n\n"
+            "Confirm to kill it, Cancel to leave it paused."
+        )
+
+        def _resolved(confirmed: bool | None) -> None:
+            if confirmed:
+                self.last_worker = self._action_worker(
+                    run_id, portfolio_id, "killswitch"
+                )
+            else:
+                self._set_status("killswitch cancelled")
+
+        self.push_screen(ConfirmScreen(prompt), _resolved)
 
     def _active_decisions_view(self) -> DecisionsView | None:
         """The Decisions view when it is the active content pane, else ``None``."""

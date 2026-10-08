@@ -58,7 +58,7 @@ from fund.agents.graph import run_fund
 from fund.audit import AgentRunRepository, HumanAuditLogRepository, put_constraint_set
 from fund.config import settings
 from fund.tui import app as tui_app
-from fund.tui.app import FundTUI, ShellApp
+from fund.tui.app import ConfirmScreen, FundTUI, ShellApp
 from fund.tui.views import DecisionsView, ShellView
 from fund.tui.widgets import (
     HistoryPanel,
@@ -828,6 +828,76 @@ async def test_decisions_action_failure_surfaces_and_run_stays_paused(
         assert "action failed" in app.last_status
     with tui_env.get_session() as session:
         assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
+
+
+@pytest.mark.asyncio
+async def test_decisions_killswitch_confirm_finalizes_rejected_and_logs(
+    tui_env,
+) -> None:
+    # Confirm the explicit-consequence dialog: the paused run finalises rejected and
+    # logs a *distinct* killswitch row (not a plain reject), leaving the queue.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_killswitch()
+        await pilot.pause()  # let the confirm modal mount on top
+        assert isinstance(app.screen, ConfirmScreen)
+        await pilot.click("#confirm-yes")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        assert worker.group == "action"
+        await worker.wait()
+        await pilot.pause()
+        assert "killswitch" in app.last_status
+        assert view.query_one("#decisions-table", DataTable).row_count == 0
+    with tui_env.get_session() as session:
+        run = AgentRunRepository(session).get_run(tui_env.run_id)
+        assert run.status == "rejected"
+        assert run.weights == {}
+        # logged distinctly: a killswitch row, never a plain reject row.
+        assert HumanAuditLogRepository(session).list_recent(action="reject") == []
+        rows = HumanAuditLogRepository(session).list_recent(action="killswitch")
+        assert len(rows) == 1
+        assert rows[0].run_id == tui_env.run_id
+        assert rows[0].portfolio_id == PORTFOLIO_ID
+
+
+@pytest.mark.asyncio
+async def test_decisions_killswitch_cancel_is_a_noop_and_run_stays_paused(
+    tui_env,
+) -> None:
+    # Cancel the confirm (escape): no worker fires and the gate stays paused + queued.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_killswitch()
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.last_worker is None
+        assert "cancelled" in app.last_status
+        assert view.query_one("#decisions-table", DataTable).row_count == 1
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
+
+
+@pytest.mark.asyncio
+async def test_decisions_killswitch_without_selection_shows_no_confirm(tui_env) -> None:
+    # Guard: nothing selected => no modal, no worker, just the status hint.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_decisions(app, pilot)
+        app.action_decide_killswitch()
+        await pilot.pause()
+        assert not isinstance(app.screen, ConfirmScreen)
+        assert app.last_worker is None
+        assert "select a paused" in app.last_status
 
 
 def test_format_decision_gate_renders_why_from_description_else_fallback() -> None:
