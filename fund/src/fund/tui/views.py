@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from textual.app import ComposeResult
@@ -53,6 +54,10 @@ class _ShellContext(Protocol):
     _session_factory: Callable[[], AbstractContextManager[Session]]
     _persistence: Any
     _portfolio_id: uuid.UUID | None
+
+    def focus_portfolio(self, portfolio_id: uuid.UUID) -> None:
+        """Focus the shell on ``portfolio_id`` (set the header context from a view)."""
+        ...
 
 
 # The six shell views in sidebar order: (key, human title). The key is the id
@@ -496,8 +501,219 @@ class MandateView(ShellView):
         caps_widget.update(caps)
 
 
+# Latest-run status buckets the roster glyph + the fund strip aggregate by.
+_RUN_RUNNING: frozenset[str] = frozenset({"pending", "running"})
+_RUN_FAILED: frozenset[str] = frozenset({"incomplete", "blocked", "failed"})
+
+# Health tiers as (dot, label): the word disambiguates the two tiers sharing ● so a
+# roster row still reads apart (the spec's "dot plus label").
+_HEALTH_OK: tuple[str, str] = ("●", "ok")
+_HEALTH_WARN: tuple[str, str] = ("◐", "warn")
+_HEALTH_BREACH: tuple[str, str] = ("●", "breach")
+
+
+def _run_glyph(status: str | None) -> str:
+    """Roster run glyph: ▶ running · ⏸ awaiting · ✓ idle · — no runs."""
+    if status is None:
+        return "—"
+    if status == "paused":
+        return "⏸"
+    if status in _RUN_RUNNING:
+        return "▶"
+    return "✓"
+
+
+def _posture_health(
+    drift_l1: float, threshold: float | None, run_status: str | None
+) -> tuple[str, str]:
+    """A roster row's ``(dot, label)`` health from drift vs mandate + the run status.
+
+    A failed/blocked latest run is a ``breach`` (the risk gate stopped it before a
+    ticket); otherwise L1 drift at or above the mandate's threshold is a ``warn``;
+    everything else is ``ok``. A portfolio with no mandate (``threshold is None``) can
+    only be ``ok`` or ``breach`` — there is no threshold to breach.
+
+    Args:
+        drift_l1: The portfolio's current-vs-target L1 drift.
+        threshold: The mandate's ``drift_l1_threshold``, or ``None`` when unmandated.
+        run_status: The latest run's status, or ``None`` when the portfolio has none.
+
+    Returns:
+        The ``(dot, label)`` pair for the roster health cell.
+    """
+    if run_status in _RUN_FAILED:
+        return _HEALTH_BREACH
+    if threshold is not None and drift_l1 >= threshold:
+        return _HEALTH_WARN
+    return _HEALTH_OK
+
+
+@dataclass(frozen=True)
+class _RosterRow:
+    """One Posture roster line: a portfolio, its latest-run glyph, and health."""
+
+    portfolio_id: uuid.UUID
+    run_status: str | None
+    run_glyph: str
+    dot: str
+    label: str
+
+
+class PostureView(ShellView):
+    """The fund control tower: a portfolio roster, a fund strip, and focused detail.
+
+    Each tick reads every portfolio through ``observe.list_portfolios`` + per-portfolio
+    ``list_portfolio_runs`` / ``portfolio_state`` / ``get_mandate`` on short read
+    sessions: the roster shows each portfolio's latest-run glyph and a health dot+label
+    (``observe.drift_l1`` vs the mandate threshold, or a failed run = breach); the strip
+    aggregates ``#pf / #awaiting / #running / #warning``. Selecting a roster row focuses
+    that portfolio through the shell seam (``focus_portfolio`` — header context) and
+    reveals its detail; an un-run portfolio shows the
+    ``no runs yet · p profile to start`` empty-state. NAV/P&L are deferred to the
+    performance tracker (Phase 05).
+
+    Attributes:
+        detail_text: Mirror of the rendered detail pane — a headless-test hook.
+    """
+
+    def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
+        super().__init__(view_key, view_title, **kwargs)
+        self.detail_text: str = ""
+        self._roster: list[_RosterRow] = []
+
+    def compose(self) -> ComposeResult:
+        """Yield the title, the fund strip, the roster | detail split, and the hint."""
+        yield Label(self.view_title, classes="view-title")
+        yield Static("0 pf", id="posture-strip", classes="view-subtitle")
+        with Horizontal(classes="posture-body"):
+            yield DataTable(
+                id="posture-roster", cursor_type="row", classes="posture-roster"
+            )
+            yield Static(
+                "(no portfolio focused)", id="posture-detail", classes="posture-detail"
+            )
+        yield Static("↑↓ select · ↵ focus", id="posture-hint", classes="posture-hint")
+
+    def on_mount(self) -> None:
+        """Seed the roster table's columns once its DataTable has mounted."""
+        self.query_one("#posture-roster", DataTable).add_columns(
+            "portfolio", "run", "health"
+        )
+
+    def refresh_view(self) -> None:
+        """Repaint the roster, the fund strip, and the focused-portfolio detail."""
+        self.render_count += 1
+        roster, strip = self._read_roster()
+        self._paint_roster(roster, strip)
+        self._paint_detail()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """A roster-row selection focuses that portfolio through the shell seam."""
+        key = event.row_key.value
+        if key is not None:
+            self.shell.focus_portfolio(uuid.UUID(key))
+
+    def _read_roster(self) -> tuple[list[_RosterRow], str]:
+        """Read every portfolio's roster row + the fund-strip summary in one session.
+
+        Returns ``([], "0 pf")`` on any read error so the poll loop stays alive.
+        """
+        try:
+            with self.read_session() as session:
+                rows = [
+                    self._roster_row(session, pid)
+                    for pid in observe.list_portfolios(session)
+                ]
+        except Exception:  # keep the poll loop alive on any read error
+            return [], "0 pf"
+        return rows, _fund_strip(rows)
+
+    def _roster_row(self, session: Session, pid: uuid.UUID) -> _RosterRow:
+        runs = observe.list_portfolio_runs(session, pid)
+        status = runs[0].status if runs else None
+        mandate = observe.get_mandate(session, pid)
+        threshold = mandate.drift_l1_threshold if mandate is not None else None
+        drift = observe.portfolio_state(session, pid).drift_l1
+        dot, label = _posture_health(drift, threshold, status)
+        return _RosterRow(pid, status, _run_glyph(status), dot, label)
+
+    def _paint_roster(self, rows: list[_RosterRow], strip: str) -> None:
+        self._roster = rows
+        table = self.query_one("#posture-roster", DataTable)
+        table.clear()
+        for row in rows:
+            table.add_row(
+                _short(row.portfolio_id),
+                row.run_glyph,
+                f"{row.dot} {row.label}",
+                key=str(row.portfolio_id),
+            )
+        self.query_one("#posture-strip", Static).update(strip)
+
+    def _paint_detail(self) -> None:
+        pid = self.shell._portfolio_id
+        text = (
+            self._detail_text(pid)
+            if pid is not None
+            else "(no portfolio focused — ↵ a roster row)"
+        )
+        self.detail_text = text
+        self.query_one("#posture-detail", Static).update(text)
+
+    def _detail_text(self, pid: uuid.UUID) -> str:
+        """Render the focused portfolio's detail in a short session (``""`` on fail)."""
+        try:
+            with self.read_session() as session:
+                return _render_posture_detail(session, pid)
+        except Exception:  # keep the poll loop alive on any read error
+            return ""
+
+
+def _fund_strip(rows: list[_RosterRow]) -> str:
+    """The fund-aggregate strip: ``#pf / #awaiting / #running / #warning``."""
+    n_awaiting = sum(1 for row in rows if row.run_status == "paused")
+    n_running = sum(1 for row in rows if row.run_status in _RUN_RUNNING)
+    n_warning = sum(1 for row in rows if (row.dot, row.label) == _HEALTH_WARN)
+    return (
+        f"{len(rows)} pf · ⏸{n_awaiting} awaiting · "
+        f"▶{n_running} running · ◐{n_warning} warning"
+    )
+
+
+def _render_posture_detail(session: Session, pid: uuid.UUID) -> str:
+    """The focused-portfolio detail: state, mandate, active run, recent events.
+
+    An un-run portfolio renders the ``no runs yet · p profile to start`` empty-state
+    (the launchpad to onboarding). NAV/P&L are placeholders until the Phase-05 tracker.
+    """
+    runs = observe.list_portfolio_runs(session, pid)
+    if not runs:
+        return f"portfolio {_short(pid)}\nno runs yet · p profile to start"
+    latest = runs[0]
+    state = observe.portfolio_state(session, pid)
+    lines = [
+        f"portfolio {_short(pid)} · {_run_glyph(latest.status)} {latest.status}",
+        f"drift L1 {state.drift_l1:.4f} · "
+        f"{len(state.current)} held → {len(state.target)} target",
+    ]
+    mandate = observe.get_mandate(session, pid)
+    if mandate is not None:
+        lines.append(
+            f"mandate {mandate.base_currency} {mandate.capital} · "
+            f"drift ≥{mandate.drift_l1_threshold}"
+        )
+    lines.append(f"ACTIVE RUN #{_short(latest.run_id)} · {latest.status}")
+    events = observe.recent_events(session, pid)
+    if events.portfolio_events:
+        recent = " · ".join(event["as_of"] for event in events.portfolio_events[:3])
+        lines.append(f"RECENT {recent}")
+    lines.append("NAV/P&L — pending performance tracker (Phase 05)")
+    return "\n".join(lines)
+
+
 # Per-key view class; keys absent here fall back to the placeholder ``ShellView``.
 _VIEW_CLASSES: dict[str, type[ShellView]] = {
+    "posture": PostureView,
     "decisions": DecisionsView,
     "mandate": MandateView,
 }
@@ -515,4 +731,11 @@ def build_views() -> list[ShellView]:
     ]
 
 
-__all__ = ["VIEW_SPECS", "DecisionsView", "MandateView", "ShellView", "build_views"]
+__all__ = [
+    "VIEW_SPECS",
+    "DecisionsView",
+    "MandateView",
+    "PostureView",
+    "ShellView",
+    "build_views",
+]

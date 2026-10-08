@@ -352,6 +352,10 @@ class ShellApp(App):
     .view-title { text-style: bold; color: $accent; }
     .view-subtitle { color: $accent; }
     .status-bar { dock: bottom; height: 1; background: $panel; padding: 0 1; }
+    .posture-body { height: 1fr; }
+    .posture-roster { width: 45%; }
+    .posture-detail { width: 1fr; padding: 0 1; color: $warning; }
+    .posture-hint { height: 1; color: $accent; }
     .decisions-body { height: 1fr; }
     .decisions-queue { width: 45%; }
     .decisions-gate { width: 1fr; padding: 0 1; color: $warning; }
@@ -519,6 +523,21 @@ class ShellApp(App):
         if current is None:
             return
         self.query_one(f"#{current}", ShellView).refresh_view()
+
+    def focus_portfolio(self, portfolio_id: uuid.UUID) -> None:
+        """Focus the shell on a portfolio picked inside a content view (Posture roster).
+
+        Sets the same header context the picker does — updates ``_portfolio_id``,
+        repaints the run-state glyph, and repaints the active view — and keeps the
+        header ``Select`` in sync when the portfolio is a known option (its echoed
+        ``Select.Changed`` is dropped by ``on_select_changed``'s value-equality guard,
+        since ``_portfolio_id`` already matches).
+        """
+        self._portfolio_id = portfolio_id
+        if portfolio_id in self._portfolio_ids:
+            self.query_one("#hdr-portfolio", Select).value = str(portfolio_id)
+        self._refresh_runstate()
+        self._refresh()
 
     # --- decisions actions (worker thread) ---------------------------------
 

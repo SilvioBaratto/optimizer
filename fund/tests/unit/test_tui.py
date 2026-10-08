@@ -67,7 +67,7 @@ from fund.audit import (
 from fund.config import settings
 from fund.tui import app as tui_app
 from fund.tui.app import ConfirmScreen, FundTUI, ShellApp
-from fund.tui.views import DecisionsView, MandateView, ShellView
+from fund.tui.views import DecisionsView, MandateView, PostureView, ShellView
 from fund.tui.widgets import (
     HistoryPanel,
     HitlQueuePanel,
@@ -1056,3 +1056,100 @@ async def test_mandate_actions_inert_without_a_mandate(shell_env) -> None:
         await pilot.pause()
         assert app.last_worker is None
         assert "suitability band" in app.last_status
+
+
+# --- Posture view: fund roster + fund strip + focused detail (T6) -------------
+
+_PID_C = uuid.UUID("cccc0003-0000-4000-8000-000000000003")
+
+
+async def _open_posture(app, pilot) -> PostureView:
+    """Switch the shell to the Posture view and paint its roster + detail."""
+    await pilot.pause()
+    app.query_one(ContentSwitcher).current = "view-posture"
+    app._refresh()
+    await pilot.pause()
+    return app.query_one("#view-posture", PostureView)
+
+
+def _seed_run(session, pid, *, seed: int, status: str | None = None):
+    """Create one run for ``pid``; optionally flip it to a terminal/paused status."""
+    repo = AgentRunRepository(session)
+    run = repo.create_run(
+        portfolio_id=pid,
+        asof=date(2026, 1, 2),
+        seed=seed,
+        universe=[],
+        optimizer_config={},
+    )
+    if status == "paused":
+        repo.mark_paused(run.id)
+    return run
+
+
+def test_posture_health_tiers() -> None:
+    from fund.tui.views import _posture_health
+
+    # In-band drift → ok; at/above the mandate threshold → warn; a failed/blocked
+    # latest run → breach (dot + label, so two tiers sharing ● still read apart).
+    assert _posture_health(0.05, 0.1, "completed") == ("●", "ok")
+    assert _posture_health(0.2, 0.1, "completed") == ("◐", "warn")
+    assert _posture_health(0.0, None, "incomplete") == ("●", "breach")
+    assert _posture_health(0.0, 0.1, "running") == ("●", "ok")
+
+
+@pytest.mark.asyncio
+async def test_posture_roster_lists_portfolios_and_aggregates(shell_env) -> None:
+    # Two portfolios surface via their runs: one pending (running), one paused
+    # (awaiting). The roster lists both; the fund strip aggregates the counts.
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)  # pending → running
+        _seed_run(session, _PID_B, seed=2, status="paused")  # awaiting
+        session.commit()
+
+    app = _make_shell(shell_env)  # fund-wide landing
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        assert view.query_one("#posture-roster", DataTable).row_count == 2
+        strip = str(view.query_one("#posture-strip", Static).render())
+        assert "2 pf" in strip
+        assert "1 awaiting" in strip
+        assert "1 running" in strip
+
+
+@pytest.mark.asyncio
+async def test_posture_empty_portfolio_shows_profile_hint(shell_env) -> None:
+    # A portfolio with a mandate but no runs: roster lists it; focusing shows the
+    # "no runs yet · p profile to start" empty-state in the detail pane.
+    with shell_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate(_PID_C))
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_C)  # launched focused
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        assert view.query_one("#posture-roster", DataTable).row_count == 1
+        assert "no runs yet" in view.detail_text
+        assert "p profile to start" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_posture_roster_selection_focuses_and_reveals_detail(shell_env) -> None:
+    # Selecting a roster row sets the header context (focuses that portfolio) and
+    # reveals its detail — proving the launchpad wiring through the shell seam.
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        session.commit()
+
+    app = _make_shell(shell_env)  # fund-wide landing (nothing focused yet)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        assert app._portfolio_id is None
+        table = view.query_one("#posture-roster", DataTable)
+        table.focus()
+        table.move_cursor(row=0)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app._portfolio_id == _PID_A  # header context set from the roster
+        assert "ACTIVE RUN" in view.detail_text  # detail revealed for the focus
