@@ -479,6 +479,22 @@ def test_shell_accepts_optional_portfolio_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_shell_view_context_seam_reads_collaborators(shell_env) -> None:
+    # The view-context seam (T2): a ShellView reads the App's injected collaborators
+    # through the narrowed `shell` accessor and opens a short read session.
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        view = app.query_one("#view-posture", ShellView)
+        assert view.shell is app
+        assert view.shell._persistence is app._persistence
+        assert view.shell._portfolio_id == app._portfolio_id
+        with view.read_session() as session:
+            # Empty fund → []; proves the seam opened a usable read session.
+            assert observe.list_portfolios(session) == []
+
+
+@pytest.mark.asyncio
 async def test_shell_sidebar_navigates_all_six_views(shell_env) -> None:
     app = _make_shell(shell_env)
     async with app.run_test(size=_SIZE) as pilot:

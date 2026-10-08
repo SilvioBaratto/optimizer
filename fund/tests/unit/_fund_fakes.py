@@ -285,3 +285,43 @@ def expected_weights(session: Any) -> dict[str, float]:
     result = optimize_portfolio(session, ASOF, UNIVERSE)
     assert result["ok"] is True
     return result["data"]["weights"]
+
+
+def seed_paused_fund_run(
+    session_factory: Any, saver: Any, store: Any
+) -> tuple[uuid.UUID, dict[str, float]]:
+    """Seed a ``run_fund`` paused at ``place_orders``; return ``(run_id, weights)``.
+
+    The shared setup the cockpit and the action-path tests both need: a deterministic
+    price panel plus an active ``ConstraintSet`` in ``store``, then one ``run_fund``
+    driven by a :class:`ScriptedFundModel` to the HITL gate. ``session_factory`` opens
+    a context-managed session over the test's shared in-memory engine; ``saver`` /
+    ``store`` are an in-memory ``MemorySaver`` / ``InMemoryStore`` the caller owns. The
+    returned weights are the optimizer's — the ticket, audit, and finalised run agree.
+
+    Imports the agent stack lazily so a bare ``import _fund_fakes`` stays light.
+    """
+    from fund.agents.graph import run_fund
+    from fund.audit import put_constraint_set
+    from fund.config import settings
+
+    with session_factory() as session:
+        seed_panel(session)
+        session.commit()
+    put_constraint_set(
+        store, make_constraint_set(), store_key=settings.constraint_set_store_key
+    )
+    with session_factory() as session:
+        expected = expected_weights(session)
+    with session_factory() as session:
+        run = run_fund(
+            ScriptedFundModel(universe=UNIVERSE, weights=expected),
+            make_mandate(),
+            portfolio_id=PORTFOLIO_ID,
+            asof=ASOF,
+            session=session,
+            checkpointer=saver,
+            store=store,
+        )
+        session.commit()
+        return run.run_id, expected
