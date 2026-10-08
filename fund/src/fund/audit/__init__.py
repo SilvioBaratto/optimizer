@@ -11,6 +11,7 @@ Note:
 """
 
 from fund.audit.fund_job_repository import FUND_JOB_TYPES, FundJobRepository
+from fund.audit.human_audit_repository import HumanAuditLogRepository
 from fund.audit.mandate_repository import MandateRepository
 from fund.audit.mifid_repository import (
     MifidProfileRepository,
@@ -26,6 +27,7 @@ __all__ = [
     "FUND_JOB_TYPES",
     "AgentRunRepository",
     "FundJobRepository",
+    "HumanAuditLogRepository",
     "LangGraphPersistence",
     "MandateRepository",
     "MifidProfileRepository",
