@@ -1602,3 +1602,67 @@ async def test_deliberation_empty_without_focus(shell_env) -> None:
         view = await _open_deliberation(app, pilot)
         assert view.query_one("#delib-runs", DataTable).row_count == 0
         assert "select a step" in view.detail_text
+
+
+# --- Notification bus: poll-diff → persistent toasts + counters (T10) ---------
+
+
+@pytest.mark.asyncio
+async def test_notification_bus_toasts_new_gate_then_no_retoast(shell_env) -> None:
+    from _fund_fakes import seed_paused_fund_run
+
+    app = _make_shell(shell_env)  # empty fund: nothing awaiting yet
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        app._refresh()  # a tick with no gates
+        await pilot.pause()
+        assert app._awaiting_count == 0
+        before = len(app.last_attention)
+
+        # Inject a new paused gate between two ticks (cross-portfolio pending_hitl).
+        seed_paused_fund_run(
+            shell_env.get_session,
+            shell_env.persistence.saver,
+            shell_env.persistence.store,
+        )
+        app._refresh()  # the new gate appears → persistent toast + counter bump
+        await pilot.pause()
+        assert app._awaiting_count == 1
+        assert len(app.last_attention) == before + 1
+        assert str(app.query_one("#hdr-attention", Static).render()) == "⏸1 awaiting"
+
+        # An already-seen gate must NOT re-toast on the following tick.
+        app._refresh()
+        await pilot.pause()
+        assert app._awaiting_count == 1
+        assert len(app.last_attention) == before + 1  # unchanged — no re-toast
+
+
+@pytest.mark.asyncio
+async def test_notification_bus_toasts_drift_breach_once(shell_env) -> None:
+    # A portfolio whose L1 drift breaches its mandate threshold raises a toast. With
+    # no positions, drift = Σ target weights = 1.0 ≥ the 0.1 mandate threshold.
+    with shell_env.get_session() as session:
+        repo = AgentRunRepository(session)
+        run = repo.create_run(
+            portfolio_id=_PID_A,
+            asof=date(2026, 1, 2),
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        repo.finalize_run(run.id, weights={"AAA": 1.0}, status="completed")
+        MandateRepository(session).upsert(make_mandate(_PID_A))
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        app._refresh()
+        await pilot.pause()
+        assert any("drift breach" in message for message in app.last_attention)
+        # The same breach does not re-toast on the next tick.
+        seen = len(app.last_attention)
+        app._refresh()
+        await pilot.pause()
+        assert len(app.last_attention) == seen

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from contextlib import suppress
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from textual import work
@@ -437,6 +438,11 @@ class ShellApp(App):
         self._portfolio_ids: list[uuid.UUID] = []
         self._runstate = "✓ idle"
         self._narrow = False
+        # Notification bus (poll-diff): attention keys already alerted, so a
+        # still-pending gate/breach never re-toasts on the next tick.
+        self._seen_attention: set[tuple[str, uuid.UUID]] = set()
+        self._awaiting_count = 0
+        self.last_attention: list[str] = []  # headless-test hook (mirrors last_status)
 
     # --- layout -------------------------------------------------------------
 
@@ -447,6 +453,7 @@ class ShellApp(App):
             yield Select([], prompt="⟨fund-wide⟩", id="hdr-portfolio", allow_blank=True)
             yield Static("● AUTONOMOUS", id="hdr-mode")
             yield Static(self._runstate, id="hdr-runstate")
+            yield Static("⏸0 awaiting", id="hdr-attention")
         with Horizontal(id="shell-body", classes="shell-body"):
             yield ListView(
                 *(ListItem(Label(title), id=f"nav-{key}") for key, title in VIEW_SPECS),
@@ -538,9 +545,11 @@ class ShellApp(App):
         """Repaint the active view from the read model — synchronous, test-callable.
 
         Mirrors ``FundTUI._refresh``: a single sync entry point a headless test can
-        call directly instead of racing the poll timer. Delegates to the visible
-        :class:`~fund.tui.views.ShellView` so each view owns its own repaint.
+        call directly instead of racing the poll timer. Runs the cross-portfolio
+        notification bus first (fund-wide, independent of the active view), then
+        delegates to the visible :class:`~fund.tui.views.ShellView` for its repaint.
         """
+        self._poll_attention()
         current = self.query_one(ContentSwitcher).current
         if current is None:
             return
@@ -560,6 +569,73 @@ class ShellApp(App):
             self.query_one("#hdr-portfolio", Select).value = str(portfolio_id)
         self._refresh_runstate()
         self._refresh()
+
+    # --- notification bus (poll-diff → toasts + counters) ------------------
+
+    def _poll_attention(self) -> None:
+        """Diff fund-wide attention items against the seen-set; toast the new ones.
+
+        Each tick reads the cross-portfolio awaiting gates + drift breaches, raises a
+        persistent (never auto-dismissing) toast for any **newly-appeared** item, and
+        bumps the header ``⏸N awaiting`` counter. A still-pending item stays in the
+        seen-set, so it is not re-toasted; a resolved item drops out and would re-alert
+        only if it genuinely recurs.
+        """
+        current = self._read_attention()
+        for key, message in current:
+            if key not in self._seen_attention:
+                self._raise_attention(message)
+        self._seen_attention = {key for key, _ in current}
+        self._awaiting_count = sum(1 for (kind, _), _ in current if kind == "gate")
+        self._paint_attention()
+
+    def _read_attention(self) -> list[tuple[tuple[str, uuid.UUID], str]]:
+        """The current fund-wide attention items: awaiting gates + drift breaches.
+
+        Each item is ``((kind, id), message)`` where ``kind`` is ``"gate"`` (keyed by
+        run id) or ``"breach"`` (keyed by portfolio id). Returns ``[]`` on any read
+        error so the poll loop stays alive.
+        """
+        items: list[tuple[tuple[str, uuid.UUID], str]] = []
+        try:
+            with self._session_factory() as session:
+                saver = self._persistence.saver
+                for row in observe.pending_hitl(session, saver, None):
+                    short = str(row.run_id)[:8]
+                    items.append((("gate", row.run_id), f"⏸ gate awaiting · {short}"))
+                for pid in observe.list_portfolios(session):
+                    if self._is_drift_breach(session, pid):
+                        items.append(
+                            (("breach", pid), f"◐ drift breach · {str(pid)[:8]}")
+                        )
+                session.rollback()
+        except Exception:  # keep the poll loop alive on any read error
+            return []
+        return items
+
+    def _is_drift_breach(self, session: Session, portfolio_id: uuid.UUID) -> bool:
+        """Whether ``portfolio_id``'s L1 drift breaches its mandate threshold.
+
+        Unmandated portfolios (no threshold) never breach; the drift read is skipped
+        for them so the bus does not compute state for every roster row needlessly.
+        """
+        mandate = observe.get_mandate(session, portfolio_id)
+        if mandate is None:
+            return False
+        state = observe.portfolio_state(session, portfolio_id)
+        return state.drift_l1 >= mandate.drift_l1_threshold
+
+    def _raise_attention(self, message: str) -> None:
+        """Raise a persistent attention toast (never auto-dismisses) + record it."""
+        self.last_attention.append(message)
+        self.notify(message, timeout=None)
+
+    def _paint_attention(self) -> None:
+        """Repaint the header ``⏸N awaiting`` counter from the bus's awaiting count."""
+        with suppress(NoMatches):
+            self.query_one("#hdr-attention", Static).update(
+                f"⏸{self._awaiting_count} awaiting"
+            )
 
     # --- decisions actions (worker thread) ---------------------------------
 
