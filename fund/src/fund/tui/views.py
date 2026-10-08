@@ -935,9 +935,180 @@ def _audit_cell(value: Any) -> str:
     return json.dumps(value, sort_keys=True)
 
 
+class DeliberationView(ShellView):
+    """Replay a run's deliberation: a run picker, a step timeline, and step detail.
+
+    Per-portfolio (header focus): lists the focused portfolio's runs, and for a picked
+    run renders ``observe.load_run_transcript`` — the checkpoint's PM/subagent turns
+    interleaved with the ``agent_decisions`` — as an ordered step timeline (left);
+    selecting a step reveals its detail (right, with the decision payload where one
+    exists). Read-only replay; the live tail arrives in ``02-live-deliberation``.
+
+    Attributes:
+        selected_run_id: The run whose transcript is shown, or ``None``.
+        selected_step: The focused step's position, or ``None``.
+        detail_text: Mirror of the rendered step detail — a headless-test hook.
+    """
+
+    def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
+        super().__init__(view_key, view_title, **kwargs)
+        self.selected_run_id: uuid.UUID | None = None
+        self.selected_step: int | None = None
+        self.detail_text = ""
+        self._entries: list[Any] = []
+
+    def compose(self) -> ComposeResult:
+        """Yield the title, subtitle, the runs/steps | detail split, and the hint."""
+        yield Label(self.view_title, classes="view-title")
+        yield Label(
+            "(no portfolio focused)", id="delib-subtitle", classes="view-subtitle"
+        )
+        with Horizontal(classes="delib-body"):
+            with Vertical(classes="delib-left"):
+                yield DataTable(
+                    id="delib-runs", cursor_type="row", classes="delib-runs"
+                )
+                yield DataTable(
+                    id="delib-steps", cursor_type="row", classes="delib-steps"
+                )
+            yield Static("(select a step)", id="delib-detail", classes="delib-detail")
+        yield Static(
+            "↑↓ select · ↵ run then step — replay only (live tail in 02)",
+            id="delib-hint",
+            classes="delib-hint",
+        )
+
+    def on_mount(self) -> None:
+        """Seed the run + step tables' columns once their DataTables have mounted."""
+        self.query_one("#delib-runs", DataTable).add_columns("run", "asof", "status")
+        self.query_one("#delib-steps", DataTable).add_columns("idx", "agent", "step")
+
+    def refresh_view(self) -> None:
+        """Repaint the run picker, the selected run's steps, and the step detail."""
+        self.render_count += 1
+        runs, entries = self._read()
+        self._paint_subtitle()
+        self._paint_runs(runs)
+        self._paint_steps(entries)
+        self._paint_detail()
+
+    def select_run(self, run_id: uuid.UUID) -> None:
+        """Focus a run's transcript; a new run clears the step, then repaint."""
+        self.selected_run_id = run_id
+        self.selected_step = None
+        self.refresh_view()
+
+    def select_step(self, index: int) -> None:
+        """Focus a transcript step by position, then repaint the detail pane."""
+        self.selected_step = index
+        self.refresh_view()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Dispatch: a run row loads its transcript, a step row shows its detail."""
+        key = event.row_key.value
+        if key is None:
+            return
+        if event.data_table.id == "delib-runs":
+            self.select_run(uuid.UUID(key))
+        elif event.data_table.id == "delib-steps":
+            self.select_step(int(key))
+
+    def _read(self) -> tuple[list[RunSummary], list[Any]]:
+        """Read the focused portfolio's runs + the selected run's transcript.
+
+        Returns ``([], [])`` when nothing is focused or on any read error, so the poll
+        loop stays alive.
+        """
+        pid = self.shell._portfolio_id
+        if pid is None:
+            return [], []
+        try:
+            with self.read_session() as session:
+                runs = observe.list_portfolio_runs(session, pid)
+                return runs, self._read_transcript(session, runs)
+        except Exception:  # keep the poll loop alive on any read error
+            return [], []
+
+    def _read_transcript(self, session: Session, runs: list[RunSummary]) -> list[Any]:
+        """Load the selected run's transcript while it is still in the live list.
+
+        Imports the run repo from its submodule (never the ``fund.audit`` root, which
+        pulls the langgraph bootstrap); needs the ORM run row for its ``thread_id`` +
+        ``decisions``.
+        """
+        if self.selected_run_id is None or all(
+            run.run_id != self.selected_run_id for run in runs
+        ):
+            return []
+        from fund.audit.repository import AgentRunRepository
+
+        run_row = AgentRunRepository(session).get_run(self.selected_run_id)
+        if run_row is None:
+            return []
+        saver = self.shell._persistence.saver
+        return observe.load_run_transcript(session, saver, run_row)
+
+    def _paint_subtitle(self) -> None:
+        pid = self.shell._portfolio_id
+        subtitle = self.query_one("#delib-subtitle", Label)
+        if pid is None:
+            subtitle.update("(no portfolio focused — pick one in the header)")
+        else:
+            subtitle.update(f"portfolio {_short(pid)}")
+
+    def _paint_runs(self, runs: list[RunSummary]) -> None:
+        table = self.query_one("#delib-runs", DataTable)
+        table.clear()
+        for run in runs:
+            table.add_row(
+                _short(run.run_id),
+                run.asof.isoformat(),
+                run.status,
+                key=str(run.run_id),
+            )
+        if self.selected_run_id is not None and all(
+            run.run_id != self.selected_run_id for run in runs
+        ):
+            self.selected_run_id = None
+            self.selected_step = None
+
+    def _paint_steps(self, entries: list[Any]) -> None:
+        self._entries = entries
+        table = self.query_one("#delib-steps", DataTable)
+        table.clear()
+        for position, entry in enumerate(entries):
+            table.add_row(
+                str(entry.index),
+                entry.agent,
+                entry.step or entry.source,
+                key=str(position),
+            )
+        if self.selected_step is not None and self.selected_step >= len(entries):
+            self.selected_step = None
+
+    def _paint_detail(self) -> None:
+        if self.selected_step is not None and self.selected_step < len(self._entries):
+            text = _transcript_detail(self._entries[self.selected_step])
+        else:
+            text = "(select a step)"
+        self.detail_text = text
+        self.query_one("#delib-detail", Static).update(text)
+
+
+def _transcript_detail(entry: Any) -> str:
+    """Render one transcript step: header, its text, and the decision payload if any."""
+    lines = [f"{entry.agent} · {entry.step or entry.source} · #{entry.index}"]
+    if entry.text:
+        lines.append(entry.text)
+    if entry.payload:
+        lines.append(json.dumps(entry.payload, indent=2, sort_keys=True))
+    return "\n".join(lines)
+
+
 # Per-key view class; keys absent here fall back to the placeholder ``ShellView``.
 _VIEW_CLASSES: dict[str, type[ShellView]] = {
     "posture": PostureView,
+    "deliberation": DeliberationView,
     "decisions": DecisionsView,
     "mandate": MandateView,
     "audit": AuditView,
@@ -960,6 +1131,7 @@ __all__ = [
     "VIEW_SPECS",
     "AuditView",
     "DecisionsView",
+    "DeliberationView",
     "MandateView",
     "PostureView",
     "ShellView",

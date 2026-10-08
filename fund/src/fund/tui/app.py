@@ -375,6 +375,12 @@ class ShellApp(App):
     .audit-table { width: 55%; }
     .audit-detail { width: 1fr; padding: 0 1; color: $warning; }
     .audit-hint { height: 1; color: $accent; }
+    .delib-body { height: 1fr; }
+    .delib-left { width: 50%; }
+    .delib-runs { height: 40%; }
+    .delib-steps { height: 1fr; }
+    .delib-detail { width: 1fr; padding: 0 1; color: $warning; }
+    .delib-hint { height: 1; color: $accent; }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [

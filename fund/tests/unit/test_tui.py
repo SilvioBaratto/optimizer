@@ -72,6 +72,7 @@ from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.views import (
     AuditView,
     DecisionsView,
+    DeliberationView,
     MandateView,
     PostureView,
     ShellView,
@@ -1512,3 +1513,92 @@ async def test_audit_export_writes_csv(shell_env, tmp_path) -> None:
     assert "guardrail_override" in text
     assert "optimize_portfolio" in text  # the agent decision exported too
     assert text.strip().count("\n") >= 3  # header + 3 data rows
+
+
+# --- Deliberation replay view: transcript + step detail (T9) ------------------
+
+
+async def _open_deliberation(app, pilot) -> DeliberationView:
+    """Switch the shell to the Deliberation view and paint it."""
+    await pilot.pause()
+    app.query_one(ContentSwitcher).current = "view-deliberation"
+    app._refresh()
+    await pilot.pause()
+    return app.query_one("#view-deliberation", DeliberationView)
+
+
+def _seed_run_with_steps(session) -> uuid.UUID:
+    """Seed one run for _PID_A with three ordered decisions; return its id."""
+    repo = AgentRunRepository(session)
+    run = repo.create_run(
+        portfolio_id=_PID_A,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={},
+    )
+    repo.append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response='{"weights": {"AAA": 1.0}}',
+    )
+    repo.append_decision(run.id, agent="risk", step="risk_check")
+    repo.append_decision(run.id, agent="executor", step="place_orders")
+    return run.id
+
+
+@pytest.mark.asyncio
+async def test_deliberation_renders_run_steps_in_order_and_detail(shell_env) -> None:
+    with shell_env.get_session() as session:
+        run_id = _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        assert view.query_one("#delib-runs", DataTable).row_count == 1
+        view.select_run(run_id)
+        await pilot.pause()
+        steps = view.query_one("#delib-steps", DataTable)
+        assert steps.row_count == 3  # the three decisions, in order
+        view.select_step(0)
+        await pilot.pause()
+        assert "allocator" in view.detail_text  # first step
+        view.select_step(2)
+        await pilot.pause()
+        assert "executor" in view.detail_text  # last step
+
+
+@pytest.mark.asyncio
+async def test_deliberation_row_selection_drives_steps_then_detail(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        runs_table = view.query_one("#delib-runs", DataTable)
+        runs_table.focus()
+        runs_table.move_cursor(row=0)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert view.selected_run_id is not None
+        steps_table = view.query_one("#delib-steps", DataTable)
+        assert steps_table.row_count == 3
+        steps_table.focus()
+        steps_table.move_cursor(row=0)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert view.selected_step == 0
+        assert "allocator" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_deliberation_empty_without_focus(shell_env) -> None:
+    app = _make_shell(shell_env)  # fund-wide landing, nothing focused
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        assert view.query_one("#delib-runs", DataTable).row_count == 0
+        assert "select a step" in view.detail_text
