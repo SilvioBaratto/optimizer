@@ -766,6 +766,59 @@ def test_recent_events_empty_for_portfolio_without_history(db_session):
     assert digest.portfolio_events == ()
 
 
+_AUDIT_PID_A = uuid.UUID("aaaa0001-0000-4000-8000-000000000001")
+_AUDIT_PID_B = uuid.UUID("bbbb0002-0000-4000-8000-000000000002")
+
+
+def _seed_audit(db_session) -> None:
+    """One agent decision (pf A) + an approve (pf A) + a flagged override (pf B)."""
+    from fund.audit.human_audit_repository import HumanAuditLogRepository
+
+    repo = AgentRunRepository(db_session)
+    run = repo.create_run(
+        portfolio_id=_AUDIT_PID_A,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={},
+    )
+    repo.append_decision(run.id, agent="allocator", step="optimize_portfolio")
+    hlog = HumanAuditLogRepository(db_session)
+    hlog.append(action="approve", portfolio_id=_AUDIT_PID_A, run_id=run.id)
+    hlog.append(
+        action="guardrail_override",
+        portfolio_id=_AUDIT_PID_B,
+        override_flag=True,
+        suitability_flag=True,
+    )
+
+
+def test_audit_timeline_unions_agent_and_human_newest_first(db_session):
+    _seed_audit(db_session)
+
+    rows = observe.audit_timeline(db_session)
+    assert len(rows) == 3  # 1 agent decision + 2 human actions
+    assert {row.kind for row in rows} == {"agent", "human"}
+    # Newest-first by created_at.
+    assert all(rows[i].when >= rows[i + 1].when for i in range(len(rows) - 1))
+
+
+def test_audit_timeline_filters_compose(db_session):
+    _seed_audit(db_session)
+
+    assert len(observe.audit_timeline(db_session, kind="agent")) == 1
+    human = observe.audit_timeline(db_session, kind="human")
+    assert len(human) == 2
+    assert all(row.kind == "human" for row in human)
+    # overrides-only drops every agent row + the unflagged human approve.
+    overrides = observe.audit_timeline(db_session, overrides_only=True)
+    assert len(overrides) == 1
+    assert overrides[0].override_flag is True
+    # portfolio scope keeps only that portfolio's rows (both sides).
+    assert len(observe.audit_timeline(db_session, portfolio_id=_AUDIT_PID_A)) == 2
+    assert len(observe.audit_timeline(db_session, portfolio_id=_AUDIT_PID_B)) == 1
+
+
 def test_import_fund_observe_is_agent_stack_free():
     code = textwrap.dedent(
         """

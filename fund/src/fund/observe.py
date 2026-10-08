@@ -115,6 +115,44 @@ class EventDigest:
     portfolio_events: tuple[dict[str, Any], ...]
 
 
+@dataclass(frozen=True)
+class AuditEntry:
+    """One actor-attributed row of the Audit view's cross-portfolio timeline.
+
+    The union of an ``agent_decisions`` row (``kind == "agent"``) and a
+    ``human_audit_log`` row (``kind == "human"``) flattened to a common shape. Agent
+    rows carry no provenance flags (``override_flag`` / ``suitability_flag`` are always
+    ``False``); human rows carry the full provenance the detail pane renders.
+
+    Attributes:
+        when: The decision timestamp (``created_at``), the sort key.
+        kind: ``"agent"`` or ``"human"`` — the actor-column split.
+        actor: The agent name (agent rows) or the human actor (human rows).
+        action: The decision "type": the step (agent) or the action (human).
+        portfolio_id: The owning portfolio, or ``None`` for a fund-wide row.
+        run_id: The run the decision belongs to, when applicable.
+        prev_value: Prior value (human edits/overrides); ``None`` for agent rows.
+        new_value: New value (human edits) or a compact agent-decision summary.
+        source: Provenance of the row (``"agent_decisions"`` or a human source).
+        idempotency_key: The human row's dedup key; ``None`` for agent rows.
+        override_flag: ⚑ a guardrail edited past its MiFID band (human only).
+        suitability_flag: ⚠ outside the suitability band (human only).
+    """
+
+    when: dt.datetime
+    kind: str
+    actor: str
+    action: str
+    portfolio_id: uuid.UUID | None
+    run_id: uuid.UUID | None
+    prev_value: Any
+    new_value: Any
+    source: str | None
+    idempotency_key: str | None
+    override_flag: bool
+    suitability_flag: bool
+
+
 def drift_l1(current: dict[str, float], target: dict[str, float]) -> float:
     """``Σ_i |current_i - target_i|`` over the union of tickers (D12).
 
@@ -399,7 +437,143 @@ def recent_events(
     )
 
 
+def audit_timeline(
+    session: Any,
+    *,
+    portfolio_id: uuid.UUID | None = None,
+    kind: str | None = None,
+    action: str | None = None,
+    overrides_only: bool = False,
+    start: dt.datetime | None = None,
+    end: dt.datetime | None = None,
+    limit: int = 200,
+) -> list[AuditEntry]:
+    """The fund-wide decision timeline: ``agent_decisions`` ∪ ``human_audit_log``.
+
+    Merges the two audit sources into one actor-attributed, newest-first list the
+    Audit view renders. Every filter is optional and composes: ``kind`` narrows to one
+    actor side (``"agent"`` / ``"human"``); ``action`` matches a decision type (the
+    agent step or the human action); ``overrides_only`` keeps only ⚑ override rows
+    (human by construction, so agent rows drop out); ``portfolio_id`` + ``start`` /
+    ``end`` bound the rows. Repos are imported lazily so ``import fund.observe`` stays
+    agent-stack-free; this read opens no transaction and never commits.
+
+    Args:
+        session: An injected sync ``portopt_db`` session; not owned here.
+        portfolio_id: Keep only this portfolio's rows (both sides).
+        kind: ``"agent"`` or ``"human"`` to keep one side; ``None`` for both.
+        action: Keep only this decision type (agent step / human action).
+        overrides_only: Keep only ⚑ override rows (drops every agent row).
+        start: Lower ``created_at`` bound (inclusive).
+        end: Upper ``created_at`` bound (inclusive).
+        limit: Maximum rows returned after the merge.
+
+    Returns:
+        The merged entries ordered by ``when`` descending, capped at ``limit``.
+    """
+    entries: list[AuditEntry] = []
+    if kind != "human" and not overrides_only:
+        entries.extend(
+            _agent_audit_entries(
+                session,
+                portfolio_id=portfolio_id,
+                step=action,
+                start=start,
+                end=end,
+                limit=limit,
+            )
+        )
+    if kind != "agent":
+        entries.extend(
+            _human_audit_entries(
+                session,
+                portfolio_id=portfolio_id,
+                action=action,
+                overrides_only=overrides_only,
+                start=start,
+                end=end,
+                limit=limit,
+            )
+        )
+    entries.sort(key=lambda entry: entry.when, reverse=True)
+    return entries[:limit]
+
+
 # --- internals --------------------------------------------------------------
+
+
+def _agent_audit_entries(
+    session: Any,
+    *,
+    portfolio_id: uuid.UUID | None,
+    step: str | None,
+    start: dt.datetime | None,
+    end: dt.datetime | None,
+    limit: int,
+) -> list[AuditEntry]:
+    """Agent decisions as :class:`AuditEntry` rows (``kind == "agent"``, no flags)."""
+    from fund.audit.repository import AgentRunRepository
+
+    rows = AgentRunRepository(session).list_decisions(
+        portfolio_id=portfolio_id, step=step, start=start, end=end, limit=limit
+    )
+    return [
+        AuditEntry(
+            when=decision.created_at,
+            kind="agent",
+            actor=decision.agent,
+            action=decision.step,
+            portfolio_id=pid,
+            run_id=decision.run_id,
+            prev_value=None,
+            new_value=decision.hitl_decision,
+            source="agent_decisions",
+            idempotency_key=None,
+            override_flag=False,
+            suitability_flag=False,
+        )
+        for decision, pid in rows
+    ]
+
+
+def _human_audit_entries(
+    session: Any,
+    *,
+    portfolio_id: uuid.UUID | None,
+    action: str | None,
+    overrides_only: bool,
+    start: dt.datetime | None,
+    end: dt.datetime | None,
+    limit: int,
+) -> list[AuditEntry]:
+    """Human actions as :class:`AuditEntry` rows (``kind == "human"``, with flags)."""
+    from fund.audit.human_audit_repository import HumanAuditLogRepository
+
+    rows = HumanAuditLogRepository(session).list_recent(
+        portfolio_id=portfolio_id,
+        action=action,
+        overrides_only=overrides_only,
+        start=start,
+        end=end,
+        limit=limit,
+    )
+    return [
+        AuditEntry(
+            when=row.created_at,
+            kind="human",
+            actor=row.actor,
+            action=row.action,
+            portfolio_id=row.portfolio_id,
+            run_id=row.run_id,
+            prev_value=row.prev_value,
+            new_value=row.new_value,
+            source=row.source,
+            idempotency_key=row.idempotency_key,
+            override_flag=row.override_flag,
+            suitability_flag=row.suitability_flag,
+        )
+        for row in rows
+    ]
 
 
 def _as_utc(value: dt.datetime) -> dt.datetime:
@@ -590,11 +764,13 @@ def _parse_json_object(raw: str | None) -> dict[str, Any] | None:
 
 
 __all__ = [
+    "AuditEntry",
     "EventDigest",
     "PortfolioState",
     "ReprofileStatus",
     "RunSummary",
     "TranscriptEntry",
+    "audit_timeline",
     "drift_l1",
     "get_mandate",
     "interrupt_for",

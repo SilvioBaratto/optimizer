@@ -18,6 +18,7 @@ inside method bodies.
 
 from __future__ import annotations
 
+import json
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -711,11 +712,235 @@ def _render_posture_detail(session: Session, pid: uuid.UUID) -> str:
     return "\n".join(lines)
 
 
+class AuditView(ShellView):
+    """The fund-wide, filterable decision timeline: agents ∪ humans.
+
+    Reads ``observe.audit_timeline`` each tick into a table (when · pf · actor ·
+    decision), with composable filters the shell toggles — actor side
+    (:attr:`filter_kind`), ⚑ overrides (:attr:`filter_overrides`), and the
+    header-focused portfolio (:attr:`filter_portfolio`). Selecting a row reveals the
+    full provenance (prev value, source, idempotency key — immutable); ⚑ override / ⚠
+    suitability rows are flagged in the decision cell. :meth:`export_csv` writes the
+    current (filtered) timeline to a file.
+
+    Attributes:
+        filter_kind: ``None`` (both) / ``"agent"`` / ``"human"`` — the actor filter.
+        filter_overrides: Keep only ⚑ override rows when ``True``.
+        filter_portfolio: Scope to the header-focused portfolio when ``True``.
+        detail_text: Mirror of the rendered detail pane — a headless-test hook.
+    """
+
+    def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
+        super().__init__(view_key, view_title, **kwargs)
+        self.filter_kind: str | None = None
+        self.filter_overrides = False
+        self.filter_portfolio = False
+        self.detail_text = ""
+        self.selected_index: int | None = None
+        self._entries: list[Any] = []
+
+    def compose(self) -> ComposeResult:
+        """Yield the title, the filter line, the table | detail split, and the hint."""
+        yield Label(self.view_title, classes="view-title")
+        yield Static("", id="audit-filters", classes="view-subtitle")
+        with Horizontal(classes="audit-body"):
+            yield DataTable(id="audit-table", cursor_type="row", classes="audit-table")
+            yield Static(
+                "(select a decision)", id="audit-detail", classes="audit-detail"
+            )
+        yield Static(
+            "↑↓ select · t actor · f ⚑ overrides · g this-pf · e export",
+            id="audit-hint",
+            classes="audit-hint",
+        )
+
+    def on_mount(self) -> None:
+        """Seed the timeline table's columns once its DataTable has mounted."""
+        self.query_one("#audit-table", DataTable).add_columns(
+            "when", "pf", "actor", "decision"
+        )
+
+    def refresh_view(self) -> None:
+        """Repaint the filtered timeline, the filter line, and the row detail."""
+        self.render_count += 1
+        self._entries = self._read()
+        self._paint_table()
+        self._paint_filters()
+        self._paint_detail()
+
+    def cycle_kind(self) -> None:
+        """Advance the actor filter: all → agent → human → all, then repaint."""
+        order: tuple[str | None, ...] = (None, "agent", "human")
+        self.filter_kind = order[(order.index(self.filter_kind) + 1) % len(order)]
+        self.selected_index = None
+        self.refresh_view()
+
+    def toggle_overrides(self) -> None:
+        """Flip the ⚑ overrides-only filter, then repaint."""
+        self.filter_overrides = not self.filter_overrides
+        self.selected_index = None
+        self.refresh_view()
+
+    def toggle_portfolio_scope(self) -> None:
+        """Flip the header-focused-portfolio scope, then repaint."""
+        self.filter_portfolio = not self.filter_portfolio
+        self.selected_index = None
+        self.refresh_view()
+
+    def select_index(self, index: int) -> None:
+        """Focus a timeline row by position, then repaint the detail pane."""
+        self.selected_index = index
+        self.refresh_view()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """A row selection reveals that decision's full provenance."""
+        self.select_index(event.cursor_row)
+
+    def export_csv(self, path: str) -> str:
+        """Write the current (filtered) timeline to ``path`` as CSV; return ``path``.
+
+        One row per entry with the full provenance columns, so the exported file is a
+        faithful, portable snapshot of what the view shows. JSON-valued cells are
+        serialised deterministically.
+        """
+        import csv
+        from pathlib import Path
+
+        with Path(path).open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(_AUDIT_CSV_HEADER)
+            for entry in self._entries:
+                writer.writerow(_audit_csv_row(entry))
+        return path
+
+    def _read(self) -> list[Any]:
+        """Read the filtered timeline in one short session (``[]`` on any error)."""
+        try:
+            with self.read_session() as session:
+                pid = self.shell._portfolio_id if self.filter_portfolio else None
+                return observe.audit_timeline(
+                    session,
+                    portfolio_id=pid,
+                    kind=self.filter_kind,
+                    overrides_only=self.filter_overrides,
+                )
+        except Exception:  # keep the poll loop alive on any read error
+            return []
+
+    def _paint_table(self) -> None:
+        table = self.query_one("#audit-table", DataTable)
+        table.clear()
+        for entry in self._entries:
+            table.add_row(
+                entry.when.strftime("%m-%d %H:%M"),
+                _short(entry.portfolio_id) if entry.portfolio_id else "fund",
+                entry.actor,
+                _audit_label(entry),
+            )
+        if self.selected_index is not None and self.selected_index >= len(
+            self._entries
+        ):
+            self.selected_index = None
+
+    def _paint_filters(self) -> None:
+        parts = [f"actor {self.filter_kind or 'all'}"]
+        if self.filter_overrides:
+            parts.append("⚑ overrides")
+        if self.filter_portfolio:
+            parts.append("this pf")
+        parts.append(f"{len(self._entries)} rows")
+        self.query_one("#audit-filters", Static).update(" · ".join(parts))
+
+    def _paint_detail(self) -> None:
+        if self.selected_index is not None and self.selected_index < len(self._entries):
+            text = _audit_detail(self._entries[self.selected_index])
+        else:
+            text = "(select a decision)"
+        self.detail_text = text
+        self.query_one("#audit-detail", Static).update(text)
+
+
+_AUDIT_CSV_HEADER: tuple[str, ...] = (
+    "when",
+    "kind",
+    "actor",
+    "action",
+    "portfolio_id",
+    "run_id",
+    "prev_value",
+    "new_value",
+    "source",
+    "idempotency_key",
+    "override_flag",
+    "suitability_flag",
+)
+
+
+def _audit_label(entry: Any) -> str:
+    """A timeline decision cell: the action plus any ⚑/⚠ flags."""
+    flags = ""
+    if entry.override_flag:
+        flags += " ⚑"
+    if entry.suitability_flag:
+        flags += " ⚠"
+    return f"{entry.action}{flags}"
+
+
+def _audit_detail(entry: Any) -> str:
+    """The provenance detail for one timeline row (immutable audit record)."""
+    lines = [f"{entry.kind} · {entry.actor} · {entry.action}"]
+    if entry.portfolio_id:
+        lines.append(f"portfolio {_short(entry.portfolio_id)}")
+    if entry.run_id:
+        lines.append(f"run #{_short(entry.run_id)}")
+    if entry.prev_value is not None:
+        lines.append(f"prev: {entry.prev_value}")
+    if entry.new_value is not None:
+        lines.append(f"new: {entry.new_value}")
+    if entry.source:
+        lines.append(f"source: {entry.source}")
+    if entry.idempotency_key:
+        lines.append(f"idemp: {entry.idempotency_key}")
+    if entry.override_flag:
+        lines.append("⚑ override")
+    if entry.suitability_flag:
+        lines.append("⚠ outside suitability band")
+    lines.append("(immutable audit record)")
+    return "\n".join(lines)
+
+
+def _audit_csv_row(entry: Any) -> list[str]:
+    return [
+        entry.when.isoformat(),
+        entry.kind,
+        entry.actor,
+        entry.action,
+        str(entry.portfolio_id or ""),
+        str(entry.run_id or ""),
+        _audit_cell(entry.prev_value),
+        _audit_cell(entry.new_value),
+        entry.source or "",
+        entry.idempotency_key or "",
+        str(entry.override_flag),
+        str(entry.suitability_flag),
+    ]
+
+
+def _audit_cell(value: Any) -> str:
+    """Render a (possibly JSON) audit value as a deterministic CSV cell."""
+    if value is None:
+        return ""
+    if isinstance(value, str | int | float | bool):
+        return str(value)
+    return json.dumps(value, sort_keys=True)
+
+
 # Per-key view class; keys absent here fall back to the placeholder ``ShellView``.
 _VIEW_CLASSES: dict[str, type[ShellView]] = {
     "posture": PostureView,
     "decisions": DecisionsView,
     "mandate": MandateView,
+    "audit": AuditView,
 }
 
 
@@ -733,6 +958,7 @@ def build_views() -> list[ShellView]:
 
 __all__ = [
     "VIEW_SPECS",
+    "AuditView",
     "DecisionsView",
     "MandateView",
     "PostureView",

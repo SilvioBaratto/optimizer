@@ -54,6 +54,7 @@ from fund.config import FundConfig, settings
 from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.views import (
     VIEW_SPECS,
+    AuditView,
     DecisionsView,
     MandateView,
     ShellView,
@@ -370,6 +371,10 @@ class ShellApp(App):
     .mandate-section { text-style: bold; color: $accent; }
     .mandate-readonly { height: auto; color: $warning; }
     .mandate-hint { height: 1; color: $accent; }
+    .audit-body { height: 1fr; }
+    .audit-table { width: 55%; }
+    .audit-detail { width: 1fr; padding: 0 1; color: $warning; }
+    .audit-hint { height: 1; color: $accent; }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
@@ -381,6 +386,10 @@ class ShellApp(App):
         ("n", "new_portfolio", "New portfolio"),
         ("p", "profile_portfolio", "Profile"),
         ("u", "run_portfolio", "Run now"),
+        ("t", "audit_cycle_actor", "Audit actor filter"),
+        ("f", "audit_toggle_overrides", "Audit overrides filter"),
+        ("g", "audit_toggle_scope", "Audit portfolio scope"),
+        ("e", "export_audit", "Export audit"),
         ("q", "quit", "Quit"),
     ]
 
@@ -920,6 +929,53 @@ class ShellApp(App):
         """On the main thread once onboarding committed: refresh the picker + report."""
         self._populate_picker()
         self._after_action(message)
+
+    # --- audit filters + export --------------------------------------------
+
+    def action_audit_cycle_actor(self) -> None:
+        """Cycle the Audit actor filter all → agent → human (the ``t`` binding)."""
+        view = self._active_audit_view()
+        if view is not None:
+            view.cycle_kind()
+
+    def action_audit_toggle_overrides(self) -> None:
+        """Toggle the Audit ⚑ overrides-only filter (the ``f`` binding)."""
+        view = self._active_audit_view()
+        if view is not None:
+            view.toggle_overrides()
+
+    def action_audit_toggle_scope(self) -> None:
+        """Toggle Audit's scope to the header-focused portfolio (the ``g`` binding)."""
+        view = self._active_audit_view()
+        if view is not None:
+            view.toggle_portfolio_scope()
+
+    def action_export_audit(self) -> None:
+        """Export the Audit timeline to a timestamped CSV (the ``e`` binding).
+
+        A silent no-op off the Audit pane (so ``e`` stays free for other views). The
+        current (filtered) timeline is written; the path is reported on the status bar.
+        """
+        view = self._active_audit_view()
+        if view is None:
+            return
+        path = f"audit-export-{dt.datetime.now():%Y%m%d-%H%M%S}.csv"
+        try:
+            written = view.export_csv(path)
+        except OSError as exc:  # a write failure surfaces, never crashes the App
+            self._set_status(f"export failed: {exc}")
+            return
+        self._set_status(f"exported audit to {written}")
+
+    def _active_audit_view(self) -> AuditView | None:
+        """The Audit view when it is the active content pane, else ``None``."""
+        try:
+            if self.query_one(ContentSwitcher).current != "view-audit":
+                return None
+            view = self.query_one("#view-audit", ShellView)
+        except NoMatches:
+            return None
+        return view if isinstance(view, AuditView) else None
 
     # --- header picker + run state -----------------------------------------
 

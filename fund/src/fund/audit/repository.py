@@ -224,5 +224,44 @@ class AgentRunRepository(RepositoryBase):
         # is_not(None) drops NULLs in SQL; re-narrow the Optional for the checker.
         return [pid for pid in self.session.execute(stmt).scalars() if pid is not None]
 
+    def list_decisions(
+        self,
+        *,
+        portfolio_id: uuid.UUID | None = None,
+        step: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        limit: int = 200,
+    ) -> list[tuple[AgentDecision, uuid.UUID | None]]:
+        """Agent decisions joined to their run's portfolio, newest first.
+
+        The cross-portfolio read the Audit view unions with ``human_audit_log``: each
+        row carries the owning ``portfolio_id`` (from the joined run, nullable for a
+        fund-wide run). Every filter is optional and ANDs with the rest.
+
+        Args:
+            portfolio_id: Keep only decisions whose run targets this portfolio.
+            step: Keep only decisions at this step (the decision "type").
+            start: Lower ``created_at`` bound (inclusive).
+            end: Upper ``created_at`` bound (inclusive).
+            limit: Maximum rows to return.
+
+        Returns:
+            ``(decision, portfolio_id)`` pairs ordered by ``created_at`` descending.
+        """
+        stmt = select(AgentDecision, AgentRun.portfolio_id).join(
+            AgentRun, AgentDecision.run_id == AgentRun.id
+        )
+        if portfolio_id is not None:
+            stmt = stmt.where(AgentRun.portfolio_id == portfolio_id)
+        if step is not None:
+            stmt = stmt.where(AgentDecision.step == step)
+        if start is not None:
+            stmt = stmt.where(AgentDecision.created_at >= start)
+        if end is not None:
+            stmt = stmt.where(AgentDecision.created_at <= end)
+        stmt = stmt.order_by(AgentDecision.created_at.desc()).limit(limit)
+        return [(dec, pid) for dec, pid in self.session.execute(stmt).all()]
+
 
 __all__ = ["AgentRunRepository"]

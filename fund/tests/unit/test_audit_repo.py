@@ -155,3 +155,43 @@ def test_list_portfolio_ids_distinct_excludes_null(db_session):
 
     assert set(ids) == {pid}
     assert len(ids) == 1
+
+
+def test_list_decisions_joins_portfolio_and_filters(db_session):
+    import uuid
+
+    repo = AgentRunRepository(db_session)
+    pid_a = uuid.UUID("aaaa0001-0000-4000-8000-000000000001")
+    pid_b = uuid.UUID("bbbb0002-0000-4000-8000-000000000002")
+    run_a = repo.create_run(
+        portfolio_id=pid_a,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={},
+    )
+    run_b = repo.create_run(
+        portfolio_id=pid_b,
+        asof=date(2026, 1, 2),
+        seed=2,
+        universe=[],
+        optimizer_config={},
+    )
+    repo.append_decision(run_a.id, agent="allocator", step="optimize_portfolio")
+    repo.append_decision(run_a.id, agent="risk", step="risk_check")
+    repo.append_decision(run_b.id, agent="allocator", step="optimize_portfolio")
+
+    # Cross-portfolio: all three decisions, each carrying its run's portfolio_id.
+    everyone = repo.list_decisions()
+    assert len(everyone) == 3
+    assert {pid for _, pid in everyone} == {pid_a, pid_b}
+
+    # Scoped to one portfolio.
+    only_a = repo.list_decisions(portfolio_id=pid_a)
+    assert len(only_a) == 2
+    assert all(pid == pid_a for _, pid in only_a)
+
+    # Scoped by step (the decision "type").
+    optimize = repo.list_decisions(step="optimize_portfolio")
+    assert len(optimize) == 2
+    assert all(dec.step == "optimize_portfolio" for dec, _ in optimize)

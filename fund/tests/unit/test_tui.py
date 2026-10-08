@@ -69,7 +69,13 @@ from fund.config import settings
 from fund.tui import app as tui_app
 from fund.tui.app import ConfirmScreen, FundTUI, ShellApp
 from fund.tui.questionnaire import QuestionnaireScreen
-from fund.tui.views import DecisionsView, MandateView, PostureView, ShellView
+from fund.tui.views import (
+    AuditView,
+    DecisionsView,
+    MandateView,
+    PostureView,
+    ShellView,
+)
 from fund.tui.widgets import (
     HistoryPanel,
     HitlQueuePanel,
@@ -1176,9 +1182,9 @@ def _fill_questionnaire(screen, answers, *, capital: str) -> None:
     screen.query_one("#q-likert", Input).value = ",".join(
         str(item) for item in answers.objectives.likert_items
     )
-    screen.query_one("#q-loss-reaction", Select).value = (
-        answers.objectives.loss_reaction.value
-    )
+    screen.query_one(
+        "#q-loss-reaction", Select
+    ).value = answers.objectives.loss_reaction.value
 
 
 @pytest.fixture
@@ -1378,3 +1384,131 @@ async def test_onboarding_full_cycle_profile_run_approve(
         assert "profile" in actions
         assert "run" in actions
         assert actions.count("approve") == 2  # both gates approved through the path
+
+
+# --- Audit view: fund-wide filterable timeline (agents ∪ humans) (T8) ---------
+
+
+async def _open_audit(app, pilot) -> AuditView:
+    """Switch the shell to the Audit view and paint its timeline."""
+    await pilot.pause()
+    app.query_one(ContentSwitcher).current = "view-audit"
+    app._refresh()
+    await pilot.pause()
+    return app.query_one("#view-audit", AuditView)
+
+
+def _seed_audit_rows(session) -> None:
+    """Seed one agent decision + two human rows (an approve + a flagged override)."""
+    repo = AgentRunRepository(session)
+    run = repo.create_run(
+        portfolio_id=_PID_A,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={},
+    )
+    repo.append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response='{"weights": {"AAA": 1.0}}',
+    )
+    hlog = HumanAuditLogRepository(session)
+    hlog.append(action="approve", portfolio_id=_PID_A, run_id=run.id, actor="human")
+    hlog.append(
+        action="guardrail_override",
+        portfolio_id=_PID_B,
+        actor="human",
+        target="risk_band",
+        prev_value="balanced",
+        new_value="aggressive",
+        source="mifid_profile",
+        override_flag=True,
+        suitability_flag=True,
+        idempotency_key="idem-xyz",
+    )
+
+
+@pytest.mark.asyncio
+async def test_audit_unions_agent_and_human_rows(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_audit_rows(session)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        # 1 agent decision + 2 human rows merge into one timeline.
+        assert view.query_one("#audit-table", DataTable).row_count == 3
+
+
+@pytest.mark.asyncio
+async def test_audit_filters_compose(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_audit_rows(session)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        table = view.query_one("#audit-table", DataTable)
+        view.cycle_kind()  # all → agent
+        assert view.filter_kind == "agent"
+        assert table.row_count == 1
+        view.cycle_kind()  # agent → human
+        assert view.filter_kind == "human"
+        assert table.row_count == 2
+        view.cycle_kind()  # human → all
+        view.toggle_overrides()  # ⚑ only → the single flagged override row
+        assert table.row_count == 1
+
+
+@pytest.mark.asyncio
+async def test_audit_portfolio_scope_filters_to_focus(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_audit_rows(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)  # focus _PID_A
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        table = view.query_one("#audit-table", DataTable)
+        assert table.row_count == 3  # fund-wide
+        view.toggle_portfolio_scope()  # scope to the focused _PID_A
+        assert view.filter_portfolio is True
+        # _PID_A owns the agent decision + the approve row; the override is _PID_B.
+        assert table.row_count == 2
+
+
+@pytest.mark.asyncio
+async def test_audit_detail_shows_provenance_and_flags(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_audit_rows(session)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        view.cycle_kind()
+        view.cycle_kind()  # → human
+        view.toggle_overrides()  # isolate the flagged override row
+        view.select_index(0)
+        assert "⚑ override" in view.detail_text
+        assert "aggressive" in view.detail_text  # new_value provenance
+        assert "idem-xyz" in view.detail_text  # idempotency key
+        assert "immutable" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_audit_export_writes_csv(shell_env, tmp_path) -> None:
+    with shell_env.get_session() as session:
+        _seed_audit_rows(session)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        out = tmp_path / "audit.csv"
+        written = view.export_csv(str(out))
+    assert written == str(out)
+    text = out.read_text(encoding="utf-8")
+    assert "when,kind,actor,action" in text  # header row
+    assert "guardrail_override" in text
+    assert "optimize_portfolio" in text  # the agent decision exported too
+    assert text.strip().count("\n") >= 3  # header + 3 data rows
