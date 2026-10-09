@@ -19,6 +19,7 @@ import uuid
 from typing import Any
 
 import deepagents
+import pytest
 from langchain.agents.middleware import ModelFallbackMiddleware
 from langchain_core.tools import BaseTool
 
@@ -263,11 +264,16 @@ def test_prepare_fund_run_unions_mandate_gates_into_interrupt_on(
     """A mandate's extra ``hitl_gates`` union into the effective ``interrupt_on``."""
     from _fund_fakes import ASOF, PORTFOLIO_ID, make_mandate
 
+    from fund.audit import AutonomyRepository
+
     captured: dict[str, Any] = {}
     monkeypatch.setattr(graph, "build_fund_agent", lambda *a, **k: captured.update(k))
     mandate = make_mandate().model_copy(
         update={"hitl_gates": ("place_orders", "before_risk")}
     )
+    # Steady state: consume the one-time first-round forcing up front so this asserts
+    # the mandate-union path, not the round-0 all-gates override (T7).
+    AutonomyRepository(db_session).consume_first_round(PORTFOLIO_ID)
 
     graph._prepare_fund_run(
         object(),
@@ -292,8 +298,11 @@ def test_prepare_fund_run_default_mandate_interrupt_on_is_place_orders_only(
     """The default mandate leaves the effective gate set at ``place_orders`` only."""
     from _fund_fakes import ASOF, PORTFOLIO_ID, make_mandate
 
+    from fund.audit import AutonomyRepository
+
     captured: dict[str, Any] = {}
     monkeypatch.setattr(graph, "build_fund_agent", lambda *a, **k: captured.update(k))
+    AutonomyRepository(db_session).consume_first_round(PORTFOLIO_ID)
 
     graph._prepare_fund_run(
         object(),
@@ -350,3 +359,103 @@ def test_resume_fund_rereads_mandate_gates_into_interrupt_on(db_session, monkeyp
     )
 
     assert captured["interrupt_on"] == {"place_orders": True, "before_risk": True}
+
+
+# --- T7: round-0 gate forcing + FROZEN manual-run block --------------------------
+
+
+def _prepare(db_session, mandate, monkeypatch) -> dict[str, Any]:
+    """Run ``_prepare_fund_run`` with a spied ``build_fund_agent``; return its kw."""
+    from _fund_fakes import ASOF, PORTFOLIO_ID
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(graph, "build_fund_agent", lambda *a, **k: captured.update(k))
+    graph._prepare_fund_run(
+        object(),
+        mandate,
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        session=db_session,
+        checkpointer="CKPT",
+        store=_store_with_cs(),
+        config=settings,
+        fallback=None,
+        thread_id=None,
+        seed=1,
+    )
+    return captured
+
+
+def test_first_round_forces_all_orchestrator_gates(db_session, monkeypatch):
+    """A portfolio's first round forces the full ``_ALL_ORCHESTRATOR_GATES`` set,
+    overriding the mandate, and flips ``first_round_gated`` off."""
+    from _fund_fakes import PORTFOLIO_ID, make_mandate
+
+    from fund.audit import AutonomyRepository
+
+    mandate = make_mandate().model_copy(
+        update={"hitl_gates": ("place_orders", "before_risk")}
+    )
+    captured = _prepare(db_session, mandate, monkeypatch)
+
+    assert captured["interrupt_on"] == dict.fromkeys(
+        graph._ALL_ORCHESTRATOR_GATES, True
+    )
+    assert (
+        AutonomyRepository(db_session).portfolio_state(PORTFOLIO_ID).first_round_gated
+        is False
+    )
+
+
+def test_first_round_gate_flips_so_later_rounds_respect_the_mandate(
+    db_session, monkeypatch
+):
+    """Once the first round is consumed, later rounds use the mandate's gate union."""
+    from _fund_fakes import PORTFOLIO_ID, make_mandate
+
+    from fund.audit import AutonomyRepository
+
+    mandate = make_mandate().model_copy(
+        update={"hitl_gates": ("place_orders", "before_risk")}
+    )
+    # First round consumes the one-time forcing...
+    _prepare(db_session, mandate, monkeypatch)
+    assert (
+        AutonomyRepository(db_session).portfolio_state(PORTFOLIO_ID).first_round_gated
+        is False
+    )
+    # ...so the next round respects the mandate's gate set.
+    captured = _prepare(db_session, mandate, monkeypatch)
+    assert captured["interrupt_on"] == {"place_orders": True, "before_risk": True}
+
+
+def test_prepare_fund_run_raises_when_portfolio_frozen(db_session, monkeypatch):
+    """A FROZEN portfolio blocks a manual run before any agent is built."""
+    from _fund_fakes import PORTFOLIO_ID, make_mandate
+
+    from fund.audit import AutonomyRepository, AutonomyScope, AutonomyState
+
+    AutonomyRepository(db_session).set_state(
+        AutonomyScope.PORTFOLIO, PORTFOLIO_ID, AutonomyState.FROZEN, reason="halt"
+    )
+    monkeypatch.setattr(
+        graph,
+        "build_fund_agent",
+        lambda *a, **k: pytest.fail("agent must not be built for a frozen portfolio"),
+    )
+
+    with pytest.raises(RuntimeError, match="frozen"):
+        _prepare(db_session, make_mandate(), monkeypatch)
+
+
+def test_prepare_fund_run_raises_when_fund_frozen(db_session, monkeypatch):
+    """A FROZEN fund blocks a manual run for any portfolio before building an agent."""
+    from _fund_fakes import make_mandate
+
+    from fund.audit import AutonomyRepository, AutonomyScope, AutonomyState
+
+    AutonomyRepository(db_session).set_state(
+        AutonomyScope.FUND, None, AutonomyState.FROZEN
+    )
+    with pytest.raises(RuntimeError, match="frozen"):
+        _prepare(db_session, make_mandate(), monkeypatch)

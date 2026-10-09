@@ -27,7 +27,7 @@ from _fund_fakes import (
 )
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import Base, FundAutonomyState, PaperOrder
+from portopt_db.models import Base, PaperOrder
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -706,7 +706,7 @@ def test_rearm_fund_records_the_rationale(clean_db) -> None:
 
 
 def test_freeze_run_scope_rejects_run_without_autonomy_change(paused_env) -> None:
-    """A run-scope freeze keeps the killswitch semantics: reject, no autonomy row."""
+    """A run-scope freeze keeps killswitch semantics: reject, posture stays ARMED."""
     env = paused_env
     with env.get_session() as session:
         result = apply_action(
@@ -725,8 +725,11 @@ def test_freeze_run_scope_rejects_run_without_autonomy_change(paused_env) -> Non
     with env.get_session() as session:
         run = AgentRunRepository(session).get_run(env.run_id)
         assert run.status == "rejected"
-        # No autonomy posture was touched by a run-scope freeze.
-        assert session.query(FundAutonomyState).count() == 0
+        # A run-scope freeze flips no autonomy posture: the rows the run seeded stay
+        # ARMED (only a portfolio/fund freeze writes FROZEN).
+        autonomy = AutonomyRepository(session)
+        assert autonomy.fund_state().state == "armed"
+        assert autonomy.portfolio_state(PORTFOLIO_ID).state == "armed"
 
 
 def test_apply_action_is_idempotent_on_repeated_key(paused_env) -> None:

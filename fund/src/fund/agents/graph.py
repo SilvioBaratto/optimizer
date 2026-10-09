@@ -290,6 +290,14 @@ def build_fund_agent(
     )
 
 
+# The full set of PM-level gates round-0 forces (every shipped orchestrator gate).
+# A brand-new portfolio's first round pauses at all of them regardless of the
+# mandate; ``first_round_gated`` then flips so later rounds respect the mandate.
+# before_risk is deferred (needs a synthetic checkpoint tool), so place_orders is
+# the only real PM gate today — grow this tuple as gates ship.
+_ALL_ORCHESTRATOR_GATES: tuple[str, ...] = ("place_orders",)
+
+
 def _effective_gates(config: FundConfig, mandate: PortfolioMandate) -> dict[str, bool]:
     """Union the config's gated tools with the mandate's ``hitl_gates``.
 
@@ -771,22 +779,37 @@ def _prepare_fund_run(
     """Resolve the constraint set, open the run, and build the PM agent for one round.
 
     The setup :func:`run_fund` and :func:`stream_fund` share so neither drifts from the
-    other: a missing active ``ConstraintSet`` raises ``RuntimeError`` (profile first); a
-    pending ``agent_run`` is opened recording the seed + ``temperature`` + 3y lookback
-    (D31); its checkpointer thread is pinned to ``str(run_id)`` so the rebuild-to-resume
-    path recovers it; and the PM agent is built against this run's ``RunContext`` with
-    the effective gate set (config baseline ∪ ``mandate.hitl_gates``). The caller drives
-    the agent (invoke or stream). Every write goes through ``session`` (caller owns the
-    transaction).
+    other: a FROZEN fund or portfolio raises ``RuntimeError`` (re-arm first — Q3, fund
+    scope wins); a missing active ``ConstraintSet`` raises ``RuntimeError`` (profile
+    first); a pending ``agent_run`` is opened recording the seed + ``temperature`` + 3y
+    lookback (D31); its checkpointer thread is pinned to ``str(run_id)`` so the
+    rebuild-to-resume path recovers it; and the PM agent is built against this run's
+    ``RunContext`` with the effective gate set — the portfolio's **first** round forces
+    every PM gate (``_ALL_ORCHESTRATOR_GATES``), later rounds use config baseline ∪
+    ``mandate.hitl_gates``. The caller drives the agent (invoke or stream). Every write
+    goes through ``session`` (caller owns the transaction).
     """
     import secrets
 
     from fund.agents.toolsets import RunContext
     from fund.audit import AgentRunRepository, resolve_constraint_set
+    from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
     from fund.schemas import ConstraintSetRef
 
     pid_uuid = _coerce_uuid(portfolio_id)
     pid_str = str(pid_uuid)
+
+    # FROZEN blocks every new run — scheduled and human-triggered — until an explicit
+    # re-arm (Q3). Fund scope wins over portfolio scope. The scheduler pre-checks and
+    # skips cleanly; this raise is the backstop that blocks a manual run before any run
+    # row is opened.
+    autonomy = AutonomyRepository(session)
+    if autonomy.fund_state().state == AutonomyState.FROZEN:
+        raise RuntimeError("fund autonomy is frozen; re-arm before running a rebalance")
+    if autonomy.portfolio_state(pid_uuid).state == AutonomyState.FROZEN:
+        raise RuntimeError(
+            f"portfolio {pid_str} is frozen; re-arm before running a rebalance"
+        )
 
     constraint_set = None
     if store is not None:
@@ -826,6 +849,12 @@ def _prepare_fund_run(
         run_id=run.id,
         portfolio_id=pid_uuid,
     )
+    effective_gates = _effective_gates(config, mandate)
+    if autonomy.consume_first_round(pid_uuid):
+        # A portfolio's first round forces every PM gate for maximum oversight,
+        # overriding the mandate; the flag is now consumed, so later rounds respect
+        # the mandate's gate set.
+        effective_gates = dict.fromkeys(_ALL_ORCHESTRATOR_GATES, True)
     agent = build_fund_agent(
         model,
         checkpointer=checkpointer,
@@ -833,7 +862,7 @@ def _prepare_fund_run(
         ctx=ctx,
         config=config,
         fallback=fallback,
-        interrupt_on=_effective_gates(config, mandate),
+        interrupt_on=effective_gates,
     )
     thread_config = {
         "configurable": {"thread_id": resolved_thread_id},

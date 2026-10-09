@@ -168,6 +168,30 @@ def _heartbeat(
 # ---------------------------------------------------------------------------
 
 
+def _autonomy_blocks_round(session: Session, portfolio_id: uuid.UUID) -> bool:
+    """Whether a FROZEN fund or portfolio should block a rebalance round.
+
+    Reads the autonomy posture, lazy-importing ``AutonomyRepository`` from its
+    **submodule** (never the ``fund.audit`` root, whose package ``__init__`` pulls the
+    langgraph persistence bootstrap) so a bare ``import fund.scheduler`` stays
+    agent-stack-free. Fund scope wins over portfolio scope — a FROZEN fund blocks every
+    portfolio.
+
+    Args:
+        session: A sync ``portopt_db`` session; not owned here.
+        portfolio_id: The portfolio whose round is being considered.
+
+    Returns:
+        ``True`` when the fund row or the portfolio's row is FROZEN, else ``False``.
+    """
+    from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
+
+    autonomy = AutonomyRepository(session)
+    if autonomy.fund_state().state == AutonomyState.FROZEN:
+        return True
+    return autonomy.portfolio_state(portfolio_id).state == AutonomyState.FROZEN
+
+
 def _drive_rebalance(
     portfolio_id: uuid.UUID,
     asof: dt.date,
@@ -185,6 +209,7 @@ def _drive_rebalance(
     the Phase-8 CLI/TUI). Guards that never abort the sweep, each logged + skipped:
 
     * an existing paused run for the portfolio (avoid stacking a second run),
+    * a FROZEN fund or portfolio (autonomy halted — re-arm to resume; Q3),
     * no persisted mandate,
     * no active ``ConstraintSet`` (run the profiler first — ``run_fund`` would
       raise ``RuntimeError``; pre-resolving keeps the miss a clean skip).
@@ -201,6 +226,10 @@ def _drive_rebalance(
 
     if AgentRunRepository(session).list_paused_runs(portfolio_id):
         logger.info("drive[%s]: skipped — a paused run already awaits HITL", pid_str)
+        return
+
+    if _autonomy_blocks_round(session, portfolio_id):
+        logger.info("drive[%s]: skipped — autonomy frozen; re-arm to resume", pid_str)
         return
 
     mandate = observe.get_mandate(session, portfolio_id)
