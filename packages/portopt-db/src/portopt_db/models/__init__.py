@@ -6,6 +6,7 @@ autogenerate and SQLite ``create_all`` in tests.
 
 from portopt_db.base import Base, BaseModel, TimestampMixin, UUIDPrimaryKeyMixin
 from portopt_db.models.agent.agent_run import AgentDecision, AgentRun
+from portopt_db.models.agent.fund_autonomy_state import FundAutonomyState
 from portopt_db.models.agent.human_audit_log import HumanAuditLog
 from portopt_db.models.agent.mifid_profile import MifidProfile
 from portopt_db.models.agent.portfolio_mandate import PortfolioMandate
@@ -74,6 +75,7 @@ __all__ = [
     "EconomicIndicator",
     "Exchange",
     "FinancialStatement",
+    "FundAutonomyState",
     "HumanAuditLog",
     "InsiderTransaction",
     "InstitutionalHolder",
