@@ -605,28 +605,39 @@ class FundRun:
     thread_config: dict[str, Any] = field(repr=False, compare=False)
     session: Any = field(repr=False, compare=False)
 
-    def resume(self, decision: str) -> dict[str, Any]:
-        """Resume the paused agent with an adviser ``decision`` (approve / reject).
+    def resume(
+        self, decision: str, *, pm_directive: str | None = None
+    ) -> dict[str, Any]:
+        """Resume the paused agent with an adviser ``decision``.
 
         ``approve`` runs the gated ``place_orders`` tool (the paper ticket is written
         and the executor decision logged inside the closure), then finalises the run
-        as completed with the optimizer's weights. Any other decision writes no
-        order, records the HITL choice in the audit trail, and finalises rejected.
+        as completed with the optimizer's weights. ``reject`` writes no order, records
+        the HITL choice, and finalises rejected. ``respond`` threads ``pm_directive``
+        back to the PM and lets it continue: if it re-gates the run stays alive as
+        ``"responded"`` (still awaiting approval), else it finalises ``incomplete`` —
+        delegated to :func:`_finalize_respond`.
 
-        Finalisation is delegated to the shared :func:`_finalize_hitl` so this
-        in-process path and the cross-process :func:`resume_fund` cannot diverge —
-        both stamp the audit trail identically and, on approve, upsert positions.
-        The run's ``portfolio_id`` / ``asof`` (which ``FundRun`` does not carry) are
-        read back from its persisted row.
+        Approve/reject finalisation is delegated to the shared :func:`_finalize_hitl`,
+        and respond to :func:`_finalize_respond`, so this in-process path and the
+        cross-process :func:`resume_fund` cannot diverge — both stamp the audit trail
+        identically. The run's ``portfolio_id`` / ``asof`` (which ``FundRun`` does not
+        carry) are read back from its persisted row for the approve/reject path.
         """
-        from langgraph.types import Command
-
         from fund.audit import AgentRunRepository
 
         result: dict[str, Any] = self.agent.invoke(
-            Command(resume={"decisions": [{"type": decision}]}),
+            _resume_command(decision, pm_directive),
             config=self.thread_config,
         )
+        if decision == "respond":
+            _finalize_respond(
+                self.session,
+                run_id=self.run_id,
+                result=result,
+                pm_directive=pm_directive,
+            )
+            return result
         run = AgentRunRepository(self.session).get_run(self.run_id)
         if run is None:
             raise LookupError(f"no agent_run {self.run_id}")
@@ -658,6 +669,61 @@ def _finalize_incomplete(audit: Any, run_id: uuid.UUID, reason: str) -> None:
         hitl_decision={"decision": "incomplete", "reason": reason},
     )
     audit.finalize_run(run_id, weights={}, status="incomplete")
+
+
+def _resume_command(decision: str, pm_directive: str | None) -> Any:
+    """Build the HITL ``Command(resume=…)`` for a gate decision.
+
+    ``approve`` / ``reject`` carry only the decision type; ``respond`` carries the
+    adviser's free-text ``pm_directive`` as the gated tool's result, threading it back
+    to the PM (a successful ``place_orders`` ``ToolMessage``) so the gate continues
+    instead of terminating. Imports ``langgraph`` lazily to keep a bare
+    ``import fund.agents.graph`` light.
+    """
+    from langgraph.types import Command
+
+    if decision == "respond":
+        return Command(
+            resume={"decisions": [{"type": "respond", "message": pm_directive}]}
+        )
+    return Command(resume={"decisions": [{"type": decision}]})
+
+
+def _finalize_respond(
+    session: Any,
+    *,
+    run_id: uuid.UUID,
+    result: Any,
+    pm_directive: str | None,
+) -> None:
+    """Settle a ``respond`` barge-in: keep the run alive iff the PM re-gated.
+
+    Shared by :meth:`FundRun.resume` and :func:`resume_fund` so the in-process and
+    rebuild-to-resume paths cannot diverge. The respond is always appended to the audit
+    trail (carrying the directive). When the resumed PM re-gates — ``result`` carries a
+    fresh interrupt — the run is flipped to ``"responded"`` (alive, still awaiting
+    approval) and is **not** finalised; a genuinely terminal result (no re-gate, so no
+    ticket passed the gate) finalises the run ``incomplete`` — the same no-gate end as
+    :func:`run_fund`. No commit (the caller owns the transaction).
+    """
+    from fund.audit import AgentRunRepository
+
+    audit = AgentRunRepository(session)
+    audit.append_decision(
+        run_id,
+        agent="orchestrator",
+        step="place_orders",
+        hitl_decision={"decision": "respond", "message": pm_directive},
+    )
+    if _extract_interrupt(result) is not None:
+        audit.mark_responded(run_id)
+    else:
+        reason = (
+            "pm_round_cap"
+            if isinstance(result, dict) and result.get("pm_round_cap_reached")
+            else "no_order"
+        )
+        _finalize_incomplete(audit, run_id, reason)
 
 
 @dataclass(frozen=True)
@@ -1048,6 +1114,7 @@ def resume_fund(
     model: Any,
     config: FundConfig = settings,
     fallback: Any | None = None,
+    pm_directive: str | None = None,
 ) -> dict[str, Any]:
     """Resume a paused fund run from a fresh process — the rebuild-to-resume path.
 
@@ -1064,15 +1131,18 @@ def resume_fund(
     (an unknown ``run_id`` raises ``LookupError``), re-guards the portfolio's active
     ``ConstraintSet`` from the Store (missing raises ``RuntimeError`` — a run whose
     profile vanished cannot be committed), rebuilds the ``RunContext`` + PM agent,
-    resumes, and finalises. ``decision`` must be ``"approve"`` or ``"reject"`` (any
-    other raises ``ValueError`` — HITL edit is an ask-first future item). Every write
-    goes through the injected ``session`` (caller owns the transaction). The agent
-    stack is imported lazily so a bare ``import fund.agents.graph`` stays clean.
+    resumes, and finalises. ``decision`` is ``approve``, ``reject``, or ``respond``.
+    Any other value raises ``ValueError``. A ``respond`` threads ``pm_directive`` (the
+    adviser's free text) back to the PM via :func:`_finalize_respond`, keeping the run
+    alive as ``responded`` if it re-gates; the resume ``thread_config`` keeps the full
+    ``recursion_limit`` so a re-gate has headroom. Every write goes through the injected
+    ``session`` (caller owns the transaction); the agent stack is imported lazily so a
+    bare ``import fund.agents.graph`` stays clean.
     """
-    if decision not in ("approve", "reject"):
-        raise ValueError(f"decision must be 'approve' or 'reject', not {decision!r}")
-
-    from langgraph.types import Command
+    if decision not in ("approve", "reject", "respond"):
+        raise ValueError(
+            f"decision must be 'approve', 'reject', or 'respond', not {decision!r}"
+        )
 
     from fund.agents.toolsets import RunContext
     from fund.audit import AgentRunRepository, resolve_constraint_set
@@ -1126,9 +1196,12 @@ def resume_fund(
         "recursion_limit": config.recursion_limit,
     }
     result: dict[str, Any] = agent.invoke(
-        Command(resume={"decisions": [{"type": decision}]}),
+        _resume_command(decision, pm_directive),
         config=thread_config,
     )
+    if decision == "respond":
+        _finalize_respond(session, run_id=rid, result=result, pm_directive=pm_directive)
+        return result
     _finalize_hitl(
         session,
         run_id=rid,
@@ -1150,6 +1223,7 @@ def resume_run(
     model: Any,
     config: FundConfig = settings,
     fallback: Any | None = None,
+    pm_directive: str | None = None,
 ) -> dict[str, Any]:
     """Resume a paused run by its gate — the single entry point observers call.
 
@@ -1160,6 +1234,10 @@ def resume_run(
     ``approve``/``reject`` and the TUI HITL queue drive either gate through one call
     and cannot diverge on which path a given run takes. An unknown ``run_id`` raises
     ``LookupError``; ``decision`` validation is delegated to the chosen resumer.
+
+    ``pm_directive`` carries the adviser's free text for a ``respond`` barge-in; it is
+    threaded only to the ``place_orders`` gate. The profiler gate keeps approve/reject
+    (``resume_profiler`` rejects ``respond``), so a respond there raises ``ValueError``.
     """
     from fund.audit import AgentRunRepository
 
@@ -1189,4 +1267,5 @@ def resume_run(
         model=model,
         config=config,
         fallback=fallback,
+        pm_directive=pm_directive,
     )

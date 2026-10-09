@@ -310,6 +310,31 @@ def test_pending_hitl_excludes_run_whose_thread_is_absent_from_saver(db_session)
     assert observe.pending_hitl(db_session, saver, _PID) == []
 
 
+def test_pending_hitl_surfaces_responded_run_with_a_live_interrupt(db_session):
+    """A respond barge-in that re-gates sets status ``"responded"`` (not back to
+    ``"paused"``); it must still surface as awaiting HITL so the re-gated run stays
+    visible and approvable."""
+    saver = MemorySaver()
+    responded = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="responded",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="thread-responded",
+    )
+    _seed_thread(
+        saver,
+        "thread-responded",
+        [HumanMessage(content="go")],
+        interrupt={"action_requests": [{"action": "place_orders"}]},
+    )
+
+    pending = observe.pending_hitl(db_session, saver, _PID)
+
+    assert [p.run_id for p in pending] == [responded.id]
+    assert pending[0].awaiting_hitl is True
+
+
 # --- load_run_transcript (messages + decisions interleaved) -----------------
 
 

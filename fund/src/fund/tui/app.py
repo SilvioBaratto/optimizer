@@ -895,8 +895,9 @@ class ShellApp(App[None]):
         """The focused portfolio's latest-run glyph: running / awaiting / idle.
 
         Fund-wide (no focus), no runs, or a read error all read as ``idle``; a
-        ``paused`` latest run is ``awaiting`` the adviser, ``pending``/``running``
-        is live, everything else (completed / rejected) is idle.
+        ``paused`` or ``responded`` (barge-in re-gate) latest run is ``awaiting`` the
+        adviser, ``pending``/``running`` is live, everything else (completed / rejected)
+        is idle.
         """
         if self._portfolio_id is None:
             return "✓ idle"
@@ -909,7 +910,7 @@ class ShellApp(App[None]):
         if not runs:
             return "✓ idle"
         status = runs[0].status
-        if status == "paused":
+        if status in ("paused", "responded"):
             return "⏸ awaiting"
         if status in ("pending", "running"):
             return "▶ running"

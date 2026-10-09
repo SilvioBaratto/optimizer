@@ -184,13 +184,32 @@ class AgentRunRepository(RepositoryBase):
         self.session.refresh(run)
         return run
 
-    def list_paused_runs(self, portfolio_id: uuid.UUID | None = None) -> list[AgentRun]:
-        """Runs awaiting a human decision (``status == "paused"``), newest first.
+    def mark_responded(self, run_id: uuid.UUID) -> AgentRun | None:
+        """Flip the run to ``"responded"`` after a barge-in re-gate; ``None`` if absent.
 
-        Optionally scoped to one ``portfolio_id``. This is the pending-HITL query
+        Mirrors :meth:`mark_paused`. A ``respond`` decision threads the adviser's
+        directive back to the PM, which may re-gate (call ``place_orders`` again): the
+        run then stays alive as ``"responded"`` — distinct from ``"paused"`` so an
+        observer tells a plain pause from a barged-in re-gate — and remains in
+        :meth:`list_paused_runs`, still awaiting approval.
+        """
+        run = self.get_run(run_id)
+        if run is None:
+            return None
+        run.status = "responded"
+        self.session.flush()
+        self.session.refresh(run)
+        return run
+
+    def list_paused_runs(self, portfolio_id: uuid.UUID | None = None) -> list[AgentRun]:
+        """Runs awaiting a human decision, newest first.
+
+        Returns rows at a live HITL gate — ``status`` in ``("paused", "responded")`` —
+        so a barged-in run that re-gated stays visible and approvable alongside a plain
+        pause. Optionally scoped to one ``portfolio_id``. This is the pending-HITL query
         the observers and the resume driver read.
         """
-        stmt = select(AgentRun).where(AgentRun.status == "paused")
+        stmt = select(AgentRun).where(AgentRun.status.in_(("paused", "responded")))
         if portfolio_id is not None:
             stmt = stmt.where(AgentRun.portfolio_id == portfolio_id)
         stmt = stmt.order_by(AgentRun.created_at.desc())

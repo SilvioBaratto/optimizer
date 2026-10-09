@@ -504,6 +504,8 @@ class MandateView(ShellView):
 # Latest-run status buckets the roster glyph + the fund strip aggregate by.
 _RUN_RUNNING: frozenset[str] = frozenset({"pending", "running"})
 _RUN_FAILED: frozenset[str] = frozenset({"incomplete", "blocked", "failed"})
+# Both live HITL gates read as awaiting: a plain pause and a barge-in that re-gated.
+_RUN_AWAITING: frozenset[str] = frozenset({"paused", "responded"})
 
 # Health tiers as (dot, label): the word disambiguates the two tiers sharing ● so a
 # roster row still reads apart (the spec's "dot plus label").
@@ -516,7 +518,7 @@ def _run_glyph(status: str | None) -> str:
     """Roster run glyph: ▶ running · ⏸ awaiting · ✓ idle · — no runs."""
     if status is None:
         return "—"
-    if status == "paused":
+    if status in _RUN_AWAITING:
         return "⏸"
     if status in _RUN_RUNNING:
         return "▶"
@@ -671,7 +673,7 @@ class PostureView(ShellView):
 
 def _fund_strip(rows: list[_RosterRow]) -> str:
     """The fund-aggregate strip: ``#pf / #awaiting / #running / #warning``."""
-    n_awaiting = sum(1 for row in rows if row.run_status == "paused")
+    n_awaiting = sum(1 for row in rows if row.run_status in _RUN_AWAITING)
     n_running = sum(1 for row in rows if row.run_status in _RUN_RUNNING)
     n_warning = sum(1 for row in rows if (row.dot, row.label) == _HEALTH_WARN)
     return (

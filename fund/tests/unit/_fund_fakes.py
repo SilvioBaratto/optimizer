@@ -99,13 +99,16 @@ class ScriptedFundModel(BaseChatModel):
     Configured per run with the allocator's ``universe`` and the optimizer
     ``weights`` the PM commits (the test computes both from the same deterministic
     ``optimize_portfolio``, so the ticket, the audit, and the finalised run all
-    agree). ``risk_passes`` and ``overrun`` select the non-happy paths.
+    agree). ``risk_passes`` and ``overrun`` select the non-happy paths; ``max_orders``
+    (default 1) lets the PM re-gate — call ``place_orders`` again after a respond
+    barge-in — so a re-gating resume can be scripted.
     """
 
     universe: list[str] = Field(default_factory=list)
     weights: dict[str, float] = Field(default_factory=dict)
     risk_passes: bool = True
     overrun: bool = False
+    max_orders: int = 1
     generate_calls: int = 0
 
     @property
@@ -151,14 +154,18 @@ class ScriptedFundModel(BaseChatModel):
                 # Blocking gate failed: do not reach the executor or place_orders.
                 return AIMessage(content="Risk gate failed; halting. No order placed.")
             return _task_call("executor", n_task)
-        if n_orders == 0:
+        if n_orders < self.max_orders:
+            # Re-gate once per prior place_orders call so a respond barge-in (which
+            # threads the gate's result back and lets the PM continue) drives another
+            # place_orders → a fresh HITL interrupt; max_orders=1 keeps the default
+            # single-gate behaviour.
             return AIMessage(
                 content="",
                 tool_calls=[
                     {
                         "name": "place_orders",
                         "args": {"weights": self.weights},
-                        "id": "call_place_orders",
+                        "id": f"call_place_orders_{n_orders}",
                     }
                 ],
             )

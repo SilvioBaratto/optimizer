@@ -916,6 +916,8 @@ def _seed_run(session, pid, *, seed: int, status: str | None = None):
     )
     if status == "paused":
         repo.mark_paused(run.id)
+    elif status == "responded":
+        repo.mark_responded(run.id)
     return run
 
 
@@ -928,6 +930,34 @@ def test_posture_health_tiers() -> None:
     assert _posture_health(0.2, 0.1, "completed") == ("◐", "warn")
     assert _posture_health(0.0, None, "incomplete") == ("●", "breach")
     assert _posture_health(0.0, 0.1, "running") == ("●", "ok")
+
+
+def test_responded_run_badges_as_awaiting() -> None:
+    """A barge-in that re-gated (status ``"responded"``) reads as awaiting on both the
+    roster glyph and the fund strip, exactly like a plain ``"paused"`` gate."""
+    import uuid
+
+    from fund.tui.views import _fund_strip, _RosterRow, _run_glyph
+
+    assert _run_glyph("responded") == _run_glyph("paused") == "⏸"
+
+    rows = [
+        _RosterRow(uuid.uuid4(), "paused", "⏸", "●", "ok"),
+        _RosterRow(uuid.uuid4(), "responded", "⏸", "●", "ok"),
+        _RosterRow(uuid.uuid4(), "completed", "✓", "●", "ok"),
+    ]
+    assert "⏸2 awaiting" in _fund_strip(rows)
+
+
+@pytest.mark.asyncio
+async def test_header_glyph_reads_responded_run_as_awaiting(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1, status="responded")
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE):
+        assert app._run_state_glyph() == "⏸ awaiting"
 
 
 @pytest.mark.asyncio

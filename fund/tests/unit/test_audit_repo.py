@@ -195,3 +195,51 @@ def test_list_decisions_joins_portfolio_and_filters(db_session):
     optimize = repo.list_decisions(step="optimize_portfolio")
     assert len(optimize) == 2
     assert all(dec.step == "optimize_portfolio" for dec, _ in optimize)
+
+
+# --- mark_responded + the pending-HITL query (barge-in keeps a run alive) -----
+
+
+def _pending_run(repo: AgentRunRepository, seed: int) -> AgentRun:
+    return repo.create_run(
+        portfolio_id=None,
+        asof=date(2026, 1, 2),
+        seed=seed,
+        universe=["AAA"],
+        optimizer_config={},
+    )
+
+
+def test_mark_responded_sets_status(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _pending_run(repo, 1)
+
+    updated = repo.mark_responded(run.id)
+
+    assert updated is not None
+    assert updated.status == "responded"
+    assert db_session.get(AgentRun, run.id).status == "responded"
+
+
+def test_mark_responded_returns_none_for_unknown_id(db_session):
+    import uuid
+
+    assert AgentRunRepository(db_session).mark_responded(uuid.uuid4()) is None
+
+
+def test_list_paused_runs_includes_responded_but_not_terminal(db_session):
+    """A respond barge-in flips a run to ``"responded"``; it must stay in the
+    pending-HITL query (still approvable) while terminal runs drop out."""
+    repo = AgentRunRepository(db_session)
+    paused = _pending_run(repo, 1)
+    repo.mark_paused(paused.id)
+    responded = _pending_run(repo, 2)
+    repo.mark_responded(responded.id)
+    done = _pending_run(repo, 3)
+    repo.finalize_run(done.id, weights={}, status="completed")
+
+    ids = {run.id for run in repo.list_paused_runs()}
+
+    assert paused.id in ids
+    assert responded.id in ids
+    assert done.id not in ids

@@ -204,12 +204,13 @@ def list_portfolio_runs(session: Any, portfolio_id: uuid.UUID) -> list[RunSummar
 def pending_hitl(
     session: Any, saver: Any, portfolio_id: uuid.UUID | None = None
 ) -> list[RunSummary]:
-    """Paused runs awaiting a human decision, newest first.
+    """Runs awaiting a human decision, newest first.
 
-    A row is returned only when it is ``status == "paused"`` **and** its checkpoint
-    still carries a pending interrupt (§4f): being marked paused at the gate is
-    necessary but not sufficient — the ``saver`` cross-check keeps a stale/finished
-    thread out of the Approve-able queue.
+    A row is returned only when its ``status`` is at a live gate — ``"paused"`` or
+    ``"responded"`` (a barge-in that re-gated) — **and** its checkpoint still carries a
+    pending interrupt (§4f): being marked at the gate is necessary but not sufficient —
+    the ``saver`` cross-check keeps a stale/finished thread out of the Approve-able
+    queue.
     """
     from fund.audit.repository import AgentRunRepository
 
