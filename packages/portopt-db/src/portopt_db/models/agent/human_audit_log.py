@@ -24,12 +24,14 @@ import uuid
 from typing import Any
 
 from sqlalchemy import (
+    DDL,
     JSON,
     Boolean,
     Index,
     String,
     Text,
     UniqueConstraint,
+    event,
     false,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -78,6 +80,34 @@ class HumanAuditLog(BaseModel):
     )
     idempotency_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# Append-only is a compliance guarantee, not a convention: the repository only ever
+# INSERTs, so any UPDATE/DELETE is a bug (a stray flush, a session.merge(), a bulk
+# fix-up). ORM mapper events miss Core `update()`/`delete()`, so enforce it at the
+# engine. These SQLite triggers install under `create_all` (tests); the Postgres
+# equivalent lives in the Alembic revision (prod runs on PostgreSQL via Alembic, never
+# `create_all`). A blocked write raises at flush, surfacing the tamper attempt.
+_SQLITE_BLOCK_UPDATE = DDL(  # type: ignore[no-untyped-call]
+    "CREATE TRIGGER IF NOT EXISTS human_audit_log_block_update "
+    "BEFORE UPDATE ON human_audit_log "
+    "BEGIN SELECT RAISE(ABORT, 'human_audit_log is append-only'); END"
+)
+_SQLITE_BLOCK_DELETE = DDL(  # type: ignore[no-untyped-call]
+    "CREATE TRIGGER IF NOT EXISTS human_audit_log_block_delete "
+    "BEFORE DELETE ON human_audit_log "
+    "BEGIN SELECT RAISE(ABORT, 'human_audit_log is append-only'); END"
+)
+event.listen(
+    HumanAuditLog.__table__,
+    "after_create",
+    _SQLITE_BLOCK_UPDATE.execute_if(dialect="sqlite"),
+)
+event.listen(
+    HumanAuditLog.__table__,
+    "after_create",
+    _SQLITE_BLOCK_DELETE.execute_if(dialect="sqlite"),
+)
 
 
 __all__ = ["HumanAuditLog"]

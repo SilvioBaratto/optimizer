@@ -14,8 +14,8 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import inspect, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import delete, inspect, select, update
+from sqlalchemy.exc import DatabaseError, IntegrityError
 
 from portopt_db.models import HumanAuditLog
 
@@ -87,3 +87,38 @@ def test_rows_without_idempotency_key_may_repeat(db_session):
     rows = db_session.execute(select(HumanAuditLog)).scalars().all()
     assert len(rows) == 2
     assert all(r.idempotency_key is None for r in rows)
+
+
+def test_update_via_orm_is_blocked(db_session):
+    """An ORM-instance UPDATE is rejected — the log is append-only."""
+    row = HumanAuditLog(action="approve")
+    db_session.add(row)
+    db_session.flush()
+
+    row.action = "tampered"
+    with pytest.raises(DatabaseError, match="append-only"):
+        db_session.flush()
+
+
+def test_update_via_core_is_blocked(db_session):
+    """A Core bulk UPDATE is rejected too — ORM mapper events would miss it."""
+    row = HumanAuditLog(action="approve")
+    db_session.add(row)
+    db_session.flush()
+
+    with pytest.raises(DatabaseError, match="append-only"):
+        db_session.execute(
+            update(HumanAuditLog)
+            .where(HumanAuditLog.id == row.id)
+            .values(action="tampered")
+        )
+
+
+def test_delete_is_blocked(db_session):
+    """A DELETE is rejected — audit rows are never removed."""
+    row = HumanAuditLog(action="approve")
+    db_session.add(row)
+    db_session.flush()
+
+    with pytest.raises(DatabaseError, match="append-only"):
+        db_session.execute(delete(HumanAuditLog).where(HumanAuditLog.id == row.id))

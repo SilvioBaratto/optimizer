@@ -73,9 +73,30 @@ def upgrade() -> None:
     op.create_index("ix_human_audit_log_action", "human_audit_log", ["action"])
     op.create_index("ix_human_audit_log_created_at", "human_audit_log", ["created_at"])
 
+    # Append-only is a compliance guarantee: the table is only ever INSERTed into, so
+    # reject every UPDATE/DELETE at the engine (the SQLite equivalent is installed via
+    # a model-level DDL event for the test harness). PostgreSQL-only — the SQLite
+    # replay in CI skips this branch.
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute(
+            "CREATE FUNCTION human_audit_log_append_only() RETURNS trigger "
+            "LANGUAGE plpgsql AS $$ BEGIN "
+            "RAISE EXCEPTION 'human_audit_log is append-only'; END; $$"
+        )
+        op.execute(
+            "CREATE TRIGGER human_audit_log_block_mutate "
+            "BEFORE UPDATE OR DELETE ON human_audit_log "
+            "FOR EACH ROW EXECUTE FUNCTION human_audit_log_append_only()"
+        )
+
 
 def downgrade() -> None:
-    """Drop the ``human_audit_log`` table and its indexes."""
+    """Drop the ``human_audit_log`` table, its indexes, and the append-only trigger."""
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute(
+            "DROP TRIGGER IF EXISTS human_audit_log_block_mutate ON human_audit_log"
+        )
+        op.execute("DROP FUNCTION IF EXISTS human_audit_log_append_only()")
     op.drop_index("ix_human_audit_log_created_at", table_name="human_audit_log")
     op.drop_index("ix_human_audit_log_action", table_name="human_audit_log")
     op.drop_index("ix_human_audit_log_run_id", table_name="human_audit_log")
