@@ -49,13 +49,16 @@ from fund.config import FundConfig, settings
 
 if TYPE_CHECKING:
     import datetime as dt
+    from collections.abc import Iterator
 
     # ``fund.agents.toolsets`` reaches ``fund.tools`` (the agent stack) at import;
     # keep it type-only here and import ``bind_toolset`` lazily inside the builders
     # so a bare ``import fund.agents.graph`` stays agent-stack-free (profiler style).
+    # The stream DTO below is type-only too; the generator imports it lazily.
     from fund.agents.toolsets import RunContext
     from fund.schemas import ConstraintSet
     from fund.schemas.mandate import PortfolioMandate
+    from fund.tui.stream import StreamEvent
 
 __all__ = [
     "FundRun",
@@ -67,6 +70,7 @@ __all__ = [
     "resume_fund",
     "resume_run",
     "run_fund",
+    "stream_fund",
 ]
 
 # The moments/backtest lookback recorded on every run (mirrors the
@@ -639,6 +643,138 @@ class FundRun:
         return result
 
 
+def _finalize_incomplete(audit: Any, run_id: uuid.UUID, reason: str) -> None:
+    """Finalise a run that never reached the gate — the shared no-ticket end.
+
+    Records the orchestrator's incomplete decision with ``reason`` (``"round_cap"`` /
+    ``"pm_round_cap"`` / ``"no_order"``) and finalises the run ``incomplete`` with no
+    weights. Shared by the blocking :func:`run_fund` and the streaming
+    :func:`stream_fund` so the two cannot diverge on the no-ticket path. No commit.
+    """
+    audit.append_decision(
+        run_id,
+        agent="orchestrator",
+        step="place_orders",
+        hitl_decision={"decision": "incomplete", "reason": reason},
+    )
+    audit.finalize_run(run_id, weights={}, status="incomplete")
+
+
+@dataclass(frozen=True)
+class _FundRunSetup:
+    """The built agent + opened run + seed turn one fund round is driven from."""
+
+    agent: Any = field(repr=False, compare=False)
+    thread_config: dict[str, Any] = field(repr=False, compare=False)
+    run: Any = field(repr=False, compare=False)
+    constraint_set: ConstraintSet = field(repr=False, compare=False)
+    seed_input: dict[str, Any] = field(repr=False, compare=False)
+    audit: Any = field(repr=False, compare=False)
+
+
+def _prepare_fund_run(
+    model: Any,
+    mandate: PortfolioMandate,
+    *,
+    portfolio_id: uuid.UUID | str,
+    asof: dt.date,
+    session: Any,
+    checkpointer: Any,
+    store: Any | None,
+    config: FundConfig,
+    fallback: Any | None,
+    thread_id: str | None,
+    seed: int | None,
+) -> _FundRunSetup:
+    """Resolve the constraint set, open the run, and build the PM agent for one round.
+
+    The setup :func:`run_fund` and :func:`stream_fund` share so neither drifts from the
+    other: a missing active ``ConstraintSet`` raises ``RuntimeError`` (profile first); a
+    pending ``agent_run`` is opened recording the seed + ``temperature`` + 3y lookback
+    (D31); its checkpointer thread is pinned to ``str(run_id)`` so the rebuild-to-resume
+    path recovers it; and the PM agent is built against this run's ``RunContext``. The
+    caller drives the agent (invoke or stream). Every write goes through ``session``
+    (caller owns the transaction).
+    """
+    import secrets
+
+    from fund.agents.toolsets import RunContext
+    from fund.audit import AgentRunRepository, resolve_constraint_set
+    from fund.schemas import ConstraintSetRef
+
+    pid_uuid = _coerce_uuid(portfolio_id)
+    pid_str = str(pid_uuid)
+
+    constraint_set = None
+    if store is not None:
+        constraint_set = resolve_constraint_set(
+            store,
+            ConstraintSetRef(
+                portfolio_id=pid_str, store_key=config.constraint_set_store_key
+            ),
+        )
+    if constraint_set is None:
+        raise RuntimeError(
+            f"No active ConstraintSet for portfolio {pid_str}; run the profiler "
+            f"first to establish a risk profile."
+        )
+
+    run_seed = seed if seed is not None else secrets.randbits(32)
+    audit = AgentRunRepository(session)
+    run = audit.create_run(
+        portfolio_id=pid_uuid,
+        asof=asof,
+        seed=run_seed,
+        universe=[],
+        optimizer_config={
+            "step": "fund",
+            "temperature": config.model_temperature,
+            "lookback_days": _LOOKBACK_DAYS,
+        },
+    )
+    resolved_thread_id = thread_id or str(run.id)
+    audit.set_thread_id(run.id, resolved_thread_id)
+
+    ctx = RunContext(
+        session=session,
+        asof=asof,
+        store=store,
+        config=config,
+        run_id=run.id,
+        portfolio_id=pid_uuid,
+    )
+    agent = build_fund_agent(
+        model,
+        checkpointer=checkpointer,
+        store=store,
+        ctx=ctx,
+        config=config,
+        fallback=fallback,
+    )
+    thread_config = {
+        "configurable": {"thread_id": resolved_thread_id},
+        "recursion_limit": config.recursion_limit,
+    }
+    seed_input = {
+        "messages": [
+            {
+                "role": "user",
+                "content": _run_instruction(
+                    mandate, pid_str, asof, _history_summary(session, pid_uuid, asof)
+                ),
+            }
+        ]
+    }
+    return _FundRunSetup(
+        agent=agent,
+        thread_config=thread_config,
+        run=run,
+        constraint_set=constraint_set,
+        seed_input=seed_input,
+        audit=audit,
+    )
+
+
 def run_fund(
     model: Any,
     mandate: PortfolioMandate,
@@ -671,100 +807,33 @@ def run_fund(
     ``model`` must be a tool-calling chat model. Every write goes through the injected
     ``session`` (caller owns the transaction) and, when given, the ``store``.
     """
-    import secrets
-
     from langgraph.errors import GraphRecursionError
 
-    from fund.agents.toolsets import RunContext
-    from fund.audit import AgentRunRepository, resolve_constraint_set
-    from fund.schemas import ConstraintSetRef
-
-    pid_uuid = _coerce_uuid(portfolio_id)
-    pid_str = str(pid_uuid)
-
-    # (1) Resolve the active ConstraintSet first — fail fast, no orphan run.
-    constraint_set = None
-    if store is not None:
-        constraint_set = resolve_constraint_set(
-            store,
-            ConstraintSetRef(
-                portfolio_id=pid_str, store_key=config.constraint_set_store_key
-            ),
-        )
-    if constraint_set is None:
-        raise RuntimeError(
-            f"No active ConstraintSet for portfolio {pid_str}; run the profiler "
-            f"first to establish a risk profile."
-        )
-
-    # (2) Open the pending run; record seed + temperature=0 + lookback.
-    run_seed = seed if seed is not None else secrets.randbits(32)
-    audit = AgentRunRepository(session)
-    run = audit.create_run(
-        portfolio_id=pid_uuid,
-        asof=asof,
-        seed=run_seed,
-        universe=[],
-        optimizer_config={
-            "step": "fund",
-            "temperature": config.model_temperature,
-            "lookback_days": _LOOKBACK_DAYS,
-        },
-    )
-    # Default the checkpointer thread to str(run_id) so each run keeps its own
-    # verbatim transcript and the rebuild-to-resume path can recover it.
-    resolved_thread_id = thread_id or str(run.id)
-    audit.set_thread_id(run.id, resolved_thread_id)
-
-    ctx = RunContext(
-        session=session,
-        asof=asof,
-        store=store,
-        config=config,
-        run_id=run.id,
-        portfolio_id=pid_uuid,
-    )
-    agent = build_fund_agent(
+    setup = _prepare_fund_run(
         model,
+        mandate,
+        portfolio_id=portfolio_id,
+        asof=asof,
+        session=session,
         checkpointer=checkpointer,
         store=store,
-        ctx=ctx,
         config=config,
         fallback=fallback,
+        thread_id=thread_id,
+        seed=seed,
     )
-    thread_config = {
-        "configurable": {"thread_id": resolved_thread_id},
-        "recursion_limit": config.recursion_limit,
-    }
+    agent = setup.agent
+    thread_config = setup.thread_config
+    run = setup.run
+    constraint_set = setup.constraint_set
+    audit = setup.audit
 
     # The place_orders gate pauses the run for the adviser.
     try:
-        result = agent.invoke(
-            {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": _run_instruction(
-                            mandate,
-                            pid_str,
-                            asof,
-                            _history_summary(session, pid_uuid, asof),
-                        ),
-                    }
-                ]
-            },
-            config=thread_config,
-        )
+        result = agent.invoke(setup.seed_input, config=thread_config)
     except GraphRecursionError:
-        # Round cap: the PM kept delegating past the bound without committing —
-        # finalise incomplete and surface for the adviser.
-        audit.append_decision(
-            run.id,
-            agent="orchestrator",
-            step="place_orders",
-            hitl_decision={"decision": "incomplete", "reason": "round_cap"},
-        )
-        audit.finalize_run(run.id, weights={}, status="incomplete")
+        # Round cap: the PM kept delegating past the bound without committing.
+        _finalize_incomplete(audit, run.id, "round_cap")
         return FundRun(
             constraint_set=constraint_set,
             run_id=run.id,
@@ -779,19 +848,11 @@ def run_fund(
     interrupt = _extract_interrupt(result)
     weights = _optimizer_weights(session, run.id)
     if interrupt is None:
-        # The pipeline ended before the HITL gate. Two distinct causes: the PM
-        # tripped the delegation round cap (PMRoundCapMiddleware jumped to end) —
-        # reason "pm_round_cap" — or a blocking risk verdict left nothing to commit
-        # and the executor never proposed — reason "no_order". Both finalise
-        # incomplete; keep the reason distinct from the recursion-limit "round_cap".
+        # The pipeline ended before the HITL gate: the PM tripped the delegation round
+        # cap (reason "pm_round_cap") or a blocking risk verdict left nothing to commit
+        # (reason "no_order"). Keep both distinct from the recursion-limit "round_cap".
         reason = "pm_round_cap" if result.get("pm_round_cap_reached") else "no_order"
-        audit.append_decision(
-            run.id,
-            agent="orchestrator",
-            step="place_orders",
-            hitl_decision={"decision": "incomplete", "reason": reason},
-        )
-        audit.finalize_run(run.id, weights={}, status="incomplete")
+        _finalize_incomplete(audit, run.id, reason)
         return FundRun(
             constraint_set=constraint_set,
             run_id=run.id,
@@ -815,6 +876,165 @@ def run_fund(
         agent=agent,
         thread_config=thread_config,
         session=session,
+    )
+
+
+def _tool_calls(message: Any) -> list[dict[str, Any]]:
+    """The structured tool calls on a streamed model message (empty when none)."""
+    calls = getattr(message, "tool_calls", None) or []
+    return [call for call in calls if isinstance(call, dict)]
+
+
+def _message_text(message: Any) -> str:
+    """A streamed message's content as text (``""`` when absent or non-string)."""
+    content = getattr(message, "content", "")
+    return content if isinstance(content, str) else str(content)
+
+
+def _gate_why(interrupt_value: dict[str, Any] | None) -> str:
+    """The HITL gate's 'why' from its first action request (safe default otherwise)."""
+    requests = (interrupt_value or {}).get("action_requests") or []
+    request = requests[0] if requests else {}
+    return request.get("description") or "review before it executes"
+
+
+def stream_fund(
+    model: Any,
+    mandate: PortfolioMandate,
+    *,
+    portfolio_id: uuid.UUID | str,
+    asof: dt.date,
+    session: Any,
+    checkpointer: Any,
+    store: Any | None = None,
+    config: FundConfig = settings,
+    fallback: Any | None = None,
+    thread_id: str | None = None,
+    seed: int | None = None,
+) -> Iterator[StreamEvent]:
+    """Stream one paper rebalance to the adviser gate, yielding ordered step events.
+
+    The live-deliberation counterpart to :func:`run_fund`: it shares
+    :func:`_prepare_fund_run`'s setup, then drives the PM agent with
+    ``agent.stream(stream_mode="updates")`` and yields one
+    :class:`~fund.tui.stream.StreamEvent` per meaningful pipeline step — each subagent
+    report (economist → allocator → risk → executor), then the ``place_orders``
+    commit — in emission order, filtering the interleaved middleware-hook chunks. The
+    stream ends on exactly one terminal event: ``paused`` once the ``place_orders`` HITL
+    gate is live (the run is flipped ``paused`` so the Decisions queue finds it), or
+    ``incomplete`` on a round-cap / no-order end (the run is finalised ``incomplete``).
+
+    The agent stack and the ``StreamEvent`` DTO are imported lazily, so a bare
+    ``import fund.agents.graph`` stays agent-stack-free. Every write goes through
+    ``session`` (caller owns the transaction). Not thread-safe — one stream per thread.
+
+    Yields:
+        :class:`~fund.tui.stream.StreamEvent` in emission order, terminated by a single
+        ``paused`` / ``incomplete`` event.
+    """
+    from langgraph.errors import GraphRecursionError
+
+    from fund.tui.stream import StepStatus, StreamEvent
+
+    setup = _prepare_fund_run(
+        model,
+        mandate,
+        portfolio_id=portfolio_id,
+        asof=asof,
+        session=session,
+        checkpointer=checkpointer,
+        store=store,
+        config=config,
+        fallback=fallback,
+        thread_id=thread_id,
+        seed=seed,
+    )
+    run_id = setup.run.id
+    audit = setup.audit
+
+    index = 0
+    pending_sub: str | None = None
+    interrupt_value: dict[str, Any] | None = None
+    try:
+        for chunk in setup.agent.stream(
+            setup.seed_input, config=setup.thread_config, stream_mode="updates"
+        ):
+            if not isinstance(chunk, dict):
+                continue
+            if "__interrupt__" in chunk:
+                interrupt_value = _extract_interrupt(chunk)
+                continue
+            # Only the PM's own model/tools nodes carry the pipeline; the middleware
+            # hooks (Skills/PMRoundCap/HumanInTheLoop/PatchToolCalls) are noise here.
+            for node, update in chunk.items():
+                messages = update.get("messages") if isinstance(update, dict) else None
+                message = messages[-1] if messages else None
+                if node == "model":
+                    for call in _tool_calls(message):
+                        name = call.get("name")
+                        if name == "task":
+                            # A delegation names its subagent; attribute the result that
+                            # follows (the tools node) to it.
+                            pending_sub = (call.get("args") or {}).get("subagent_type")
+                        elif name == "place_orders":
+                            yield StreamEvent(
+                                kind="step",
+                                run_id=run_id,
+                                index=index,
+                                agent="orchestrator",
+                                step="place_orders",
+                                status=StepStatus.LIVE,
+                                text="committing the risk-approved trades",
+                            )
+                            index += 1
+                elif node == "tools" and getattr(message, "name", None) == "task":
+                    yield StreamEvent(
+                        kind="step",
+                        run_id=run_id,
+                        index=index,
+                        agent=pending_sub or "subagent",
+                        step="report",
+                        status=StepStatus.LIVE,
+                        text=_message_text(message),
+                    )
+                    index += 1
+    except GraphRecursionError:
+        _finalize_incomplete(audit, run_id, "round_cap")
+        yield StreamEvent(
+            kind="incomplete",
+            run_id=run_id,
+            index=index,
+            agent="orchestrator",
+            step="place_orders",
+            status=StepStatus.PENDING,
+            text="round cap reached before a ticket",
+        )
+        return
+
+    if interrupt_value is None:
+        _finalize_incomplete(audit, run_id, "no_order")
+        yield StreamEvent(
+            kind="incomplete",
+            run_id=run_id,
+            index=index,
+            agent="orchestrator",
+            step="place_orders",
+            status=StepStatus.PENDING,
+            text="pipeline ended before the gate",
+        )
+        return
+
+    # Flip to "paused" so the Decisions queue / observers find the live gate.
+    audit.mark_paused(run_id)
+    yield StreamEvent(
+        kind="paused",
+        run_id=run_id,
+        index=index,
+        agent="orchestrator",
+        step="place_orders",
+        status=StepStatus.PENDING,
+        text=_gate_why(interrupt_value),
+        payload=interrupt_value,
     )
 
 
