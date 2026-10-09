@@ -1021,6 +1021,7 @@ def stream_fund(
     index = 0
     pending_sub: str | None = None
     interrupt_value: dict[str, Any] | None = None
+    pm_round_cap_reached = False
     try:
         for chunk in setup.agent.stream(
             setup.seed_input, config=setup.thread_config, stream_mode="updates"
@@ -1033,6 +1034,12 @@ def stream_fund(
             # Only the PM's own model/tools nodes carry the pipeline; the middleware
             # hooks (Skills/PMRoundCap/HumanInTheLoop/PatchToolCalls) are noise here.
             for node, update in chunk.items():
+                if isinstance(update, dict) and update.get("pm_round_cap_reached"):
+                    # Mirror run_fund: a PM-round-cap end must finalise as
+                    # "pm_round_cap", not "no_order". The updates stream never carries
+                    # the final merged state, so latch the flag as the cap's state
+                    # update streams past.
+                    pm_round_cap_reached = True
                 messages = update.get("messages") if isinstance(update, dict) else None
                 message = messages[-1] if messages else None
                 if node == "model":
@@ -1078,7 +1085,8 @@ def stream_fund(
         return
 
     if interrupt_value is None:
-        _finalize_incomplete(audit, run_id, "no_order")
+        reason = "pm_round_cap" if pm_round_cap_reached else "no_order"
+        _finalize_incomplete(audit, run_id, reason)
         yield StreamEvent(
             kind="incomplete",
             run_id=run_id,
@@ -1086,7 +1094,11 @@ def stream_fund(
             agent="orchestrator",
             step="place_orders",
             status=StepStatus.PENDING,
-            text="pipeline ended before the gate",
+            text=(
+                "delegation round cap reached before a ticket"
+                if pm_round_cap_reached
+                else "pipeline ended before the gate"
+            ),
         )
         return
 

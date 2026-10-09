@@ -31,14 +31,27 @@ if TYPE_CHECKING:
     from portopt_db.models import HumanAuditLog
     from sqlalchemy.orm import Session
 
-# Each resume-style action maps to the ``resume_run`` verb it finalises the paused
-# run with. approve/reject are self-named; killswitch finalises a paused run as a
-# reject but is logged distinctly (its own audit action, no paired undo). The keys
-# are the resume-dispatch set in apply_action.
-_RESUME_DECISION = {"approve": "approve", "reject": "reject", "killswitch": "reject"}
+# Each resume-style action maps to the ``resume_run`` verb it drives the paused run
+# with. approve/reject/respond are self-named; killswitch finalises a paused run as a
+# reject but is logged distinctly (its own audit action, no paired undo). ``respond``
+# is a ``place_orders``-only barge-in that threads the adviser's ``pm_directive`` back
+# to the PM — not a terminal decision: the run re-gates as ``responded`` (still
+# awaiting approval) or finalises incomplete. The keys are the resume-dispatch set in
+# apply_action.
+_RESUME_DECISION = {
+    "approve": "approve",
+    "reject": "reject",
+    "respond": "respond",
+    "killswitch": "reject",
+}
 
 # Past-tense verb per action, for the status line the shell reports.
-_PAST = {"approve": "approved", "reject": "rejected", "killswitch": "killswitched"}
+_PAST = {
+    "approve": "approved",
+    "reject": "rejected",
+    "respond": "responded",
+    "killswitch": "killswitched",
+}
 
 
 @dataclass(frozen=True)
@@ -85,21 +98,25 @@ def apply_action(
     suitability_flag: bool = False,
     idempotency_key: str | None = None,
     rationale: str | None = None,
+    pm_directive: str | None = None,
     config: FundConfig = settings,
 ) -> ActionResult:
     """Apply one human action and append its ``human_audit_log`` row.
 
     The single entry point every shell mutation routes through. This phase handles the
-    resume actions (``approve`` / ``reject`` / ``killswitch``), the policy edits
-    (``mandate_edit`` / ``guardrail_override``), and the onboarding drive flows
+    resume actions (``approve`` / ``reject`` / ``respond`` / ``killswitch``), the policy
+    edits (``mandate_edit`` / ``guardrail_override``), and the onboarding drive flows
     (``new_portfolio`` / ``profile`` / ``run``) so a full cycle — create → profile →
     rebalance → approve — funnels through one audited path. Opens no session and never
     commits: the caller injects ``session`` and owns the transaction (D1).
 
     ``approve`` / ``reject`` resume the paused run via
-    :func:`fund.agents.graph.resume_run` (dispatched by gate); ``killswitch`` finalises
-    a paused run through the same reject path but is logged under its own action (no
-    paired undo). ``mandate_edit`` upserts the run-policy mandate (persisted);
+    :func:`fund.agents.graph.resume_run` (dispatched by gate); ``respond`` threads the
+    adviser's ``pm_directive`` back to the PM at the ``place_orders`` gate (the run
+    re-gates as ``responded`` or finalises incomplete) and, like every action here, is
+    recorded with its own ``human_audit_log`` row; ``killswitch`` finalises a paused run
+    through the same reject path but is logged under its own action (no paired undo).
+    ``mandate_edit`` upserts the run-policy mandate (persisted);
     ``guardrail_override`` is **audit-only** — it records a guardrail touch and, when
     the caller marks it past the MiFID suitability band, stamps the ⚑/⚠ flags. Each logs
     the human decision with run/portfolio provenance; a resume action recovers
@@ -130,6 +147,8 @@ def apply_action(
         suitability_flag: ⚠ outside the suitability band.
         idempotency_key: Dedup key; a repeated key returns the first audit row.
         rationale: Free-text reason recorded with the action.
+        pm_directive: Adviser free text threaded to the PM for a ``respond`` barge-in;
+            required (non-empty) for ``respond``, ignored by the other actions.
         config: Fund settings threaded to the resumer.
 
     Returns:
@@ -137,8 +156,9 @@ def apply_action(
 
     Raises:
         ValueError: The action kind is unknown, or a required argument is missing
-            (``run_id`` for a resume action; ``mandate`` for ``mandate_edit`` /
-            ``new_portfolio`` / ``run``; ``portfolio_id`` for ``profile`` / ``run``).
+            (``run_id`` for a resume action; ``pm_directive`` for ``respond``;
+            ``mandate`` for ``mandate_edit`` / ``new_portfolio`` / ``run``;
+            ``portfolio_id`` for ``profile`` / ``run``).
         LookupError: ``run_id`` names no run (propagated from ``resume_run``).
         RuntimeError: ``run`` on a portfolio with no active ``ConstraintSet``
             (propagated from ``run_fund`` — profile it first).
@@ -157,6 +177,7 @@ def apply_action(
             checkpointer=checkpointer,
             store=store,
             model=model,
+            pm_directive=pm_directive,
             actor=actor,
             source=source,
             override_flag=override_flag,
@@ -244,6 +265,7 @@ def _apply_resume(
     checkpointer: Any | None,
     store: Any | None,
     model: Any | None,
+    pm_directive: str | None,
     actor: str,
     source: str | None,
     override_flag: bool,
@@ -254,15 +276,18 @@ def _apply_resume(
 ) -> ActionResult:
     """Resume a paused run by its gate, then log the decision.
 
-    ``decision`` is the ``resume_run`` verb (``approve`` / ``reject``); ``action`` is
-    what gets logged — they coincide for approve/reject but will diverge for
-    killswitch (logged distinctly, resumed as a reject). The agent stack is imported
-    here, never at module scope.
+    ``decision`` is the ``resume_run`` verb (``approve`` / ``reject`` / ``respond``);
+    ``action`` is what gets logged — they coincide for approve/reject/respond but
+    diverge for killswitch (logged distinctly, resumed as a reject). ``respond`` threads
+    the adviser's ``pm_directive`` (required) back to the PM at the ``place_orders``
+    gate. The agent stack is imported here, never at module scope.
     """
     from fund.agents.graph import resume_run
 
     if run_id is None:
         raise ValueError(f"{action!r} requires a run_id")
+    if action == "respond" and not pm_directive:
+        raise ValueError("'respond' requires a pm_directive")
     rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
     result = resume_run(
         rid,
@@ -271,6 +296,7 @@ def _apply_resume(
         checkpointer=checkpointer,
         store=store,
         model=model,
+        pm_directive=pm_directive,
         config=config,
     )
     pid = portfolio_id if portfolio_id is not None else _portfolio_of(session, rid)

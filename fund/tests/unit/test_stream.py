@@ -10,6 +10,7 @@ fund.tui.stream`` drags in neither ``deepagents`` nor ``langgraph``.
 
 from __future__ import annotations
 
+import dataclasses
 import subprocess
 import sys
 from contextlib import contextmanager
@@ -28,7 +29,7 @@ from _fund_fakes import (
 )
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import Base
+from portopt_db.models import AgentDecision, Base
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -123,6 +124,51 @@ def test_stream_fund_yields_ordered_tagged_events_then_pauses(stream_env) -> Non
         run = AgentRunRepository(session).get_run(terminal.run_id)
         assert run is not None
         assert run.status == "paused"
+
+
+def test_stream_fund_pm_round_cap_end_records_distinct_reason(stream_env) -> None:
+    """A PM-round-cap end finalises incomplete as ``"pm_round_cap"``, matching
+    ``run_fund`` — not the generic ``"no_order"``.
+
+    Regression guard for the streaming path: the updates stream never carries the final
+    merged state, so ``stream_fund`` must latch ``pm_round_cap_reached`` as the cap's
+    delta streams past, else it would mis-record the reason and diverge from
+    ``run_fund`` on an otherwise identical end.
+    """
+    model = ScriptedFundModel(universe=UNIVERSE, weights={"AAA": 1.0}, overrun=True)
+    # LOW pm-round cap under the default (high) recursion_limit, so the middleware trips
+    # before the langgraph guard — an incomplete end, not a GraphRecursionError.
+    capped = dataclasses.replace(settings, max_pm_rounds=3)
+
+    with stream_env.get_session() as session:
+        events = list(
+            stream_fund(
+                model,
+                make_mandate(),
+                portfolio_id=PORTFOLIO_ID,
+                asof=ASOF,
+                session=session,
+                checkpointer=stream_env.saver,
+                store=stream_env.store,
+                config=capped,
+            )
+        )
+
+        terminal = events[-1]
+        assert terminal.kind == "incomplete"
+        run = AgentRunRepository(session).get_run(terminal.run_id)
+        assert run is not None
+        assert run.status == "incomplete"
+        reasons = [
+            d.hitl_decision.get("reason")
+            for d in session.query(AgentDecision)
+            .filter(AgentDecision.run_id == terminal.run_id)
+            .all()
+            if d.hitl_decision
+        ]
+        assert "pm_round_cap" in reasons
+        assert "no_order" not in reasons
+        assert "round_cap" not in reasons
 
 
 def test_import_stream_is_agent_stack_light() -> None:

@@ -188,6 +188,62 @@ def test_killswitch_resumes_as_reject_and_logs_distinct_action(paused_env) -> No
         assert rows[0].portfolio_id == PORTFOLIO_ID
 
 
+def test_respond_barge_in_regates_and_logs_human_audit_row(paused_env) -> None:
+    """Respond threads the directive to the PM, keeps the run alive as ``responded``,
+    and — unlike a bare ``resume_run`` call — appends a ``human_audit_log`` row.
+
+    The barge-in is only auditable because it funnels through ``apply_action``; a
+    ``respond`` driven directly against the graph writes only the ``agent_runs``
+    decision, so this is the path that keeps the human trail complete.
+    """
+    env = paused_env
+    directive = "Trim AAA before committing."
+    with env.get_session() as session:
+        result = apply_action(
+            "respond",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            # A re-gate model drives a second place_orders call after the respond.
+            model=ScriptedFundModel(
+                universe=UNIVERSE, weights=env.expected, max_orders=2
+            ),
+            pm_directive=directive,
+        )
+        session.commit()
+
+    assert result.action == "respond"
+    assert "responded" in result.message
+
+    with env.get_session() as session:
+        run = AgentRunRepository(session).get_run(env.run_id)
+        assert run.status == "responded"  # alive, still awaiting approval
+        rows = HumanAuditLogRepository(session).list_recent(action="respond")
+        assert len(rows) == 1
+        assert rows[0].id == result.audit_id
+        assert rows[0].run_id == env.run_id
+        assert rows[0].portfolio_id == PORTFOLIO_ID
+
+
+def test_respond_requires_a_pm_directive(paused_env) -> None:
+    """Respond without a directive is rejected before the agent stack is touched."""
+    env = paused_env
+    with (
+        env.get_session() as session,
+        pytest.raises(ValueError, match="pm_directive"),
+    ):
+        apply_action(
+            "respond",
+            session=session,
+            run_id=env.run_id,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+        )
+
+
 def test_portfolio_id_derived_from_run_when_omitted(paused_env) -> None:
     """Omitting ``portfolio_id`` recovers it from the run for the result + audit row."""
     env = paused_env
