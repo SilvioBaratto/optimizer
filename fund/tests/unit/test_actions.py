@@ -27,14 +27,20 @@ from _fund_fakes import (
 )
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import Base
+from portopt_db.models import Base, PaperOrder
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from fund import observe
 from fund.actions import ActionResult, apply_action, is_within_suitability_band
-from fund.audit import AgentRunRepository, HumanAuditLogRepository, MandateRepository
+from fund.audit import (
+    AgentRunRepository,
+    HumanAuditLogRepository,
+    MandateRepository,
+    PositionRepository,
+)
+from fund.tools.orders import _weights_hash
 
 
 @pytest.fixture
@@ -293,6 +299,154 @@ def test_resume_action_requires_a_run_id(db_session) -> None:
     """Approve/reject without a ``run_id`` raises ``ValueError``."""
     with pytest.raises(ValueError, match="requires a run_id"):
         apply_action("approve", session=db_session)
+
+
+# --- T4: edit (edited weights committed through the approve path) ----------------
+
+
+def test_edit_commits_edited_weights_through_the_approve_path(paused_env) -> None:
+    """A valid edit resumes via approve; the ticket, weights_hash, finalised run,
+    and positions snapshot all reflect the EDITED weights, not the original."""
+    env = paused_env
+    edited = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
+    assert edited != env.expected  # the edit must actually change the allocation
+
+    with env.get_session() as session:
+        result = apply_action(
+            "edit",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+            new_value=edited,
+        )
+        session.commit()
+
+    assert result.action == "edit"
+    assert result.run_id == env.run_id
+
+    with env.get_session() as session:
+        run = AgentRunRepository(session).get_run(env.run_id)
+        assert run.status == "completed"
+        assert run.weights == edited  # agent_runs.weights derives from the edit
+
+        orders = (
+            session.query(PaperOrder)
+            .filter(PaperOrder.portfolio_id == PORTFOLIO_ID)
+            .all()
+        )
+        assert len(orders) == 1
+        assert orders[0].weights == edited
+        assert orders[0].weights_hash == _weights_hash(edited)  # +weights_hash
+
+        positions = {
+            p.ticker: p.weight
+            for p in PositionRepository(session).get_holdings(PORTFOLIO_ID)
+        }
+        assert positions == edited
+
+        rows = HumanAuditLogRepository(session).list_recent(action="edit")
+        assert len(rows) == 1
+        assert rows[0].id == result.audit_id
+        assert rows[0].override_flag is True  # ⚑ a human override of the allocation
+        assert rows[0].new_value == edited
+
+
+def test_edit_rejects_math_invalid_weights_and_commits_nothing(paused_env) -> None:
+    """An edit that breaks the long-only / sum-to-one invariants is rejected with
+    its violations and writes nothing — the run stays paused, no ticket is placed."""
+    env = paused_env
+    invalid = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.1}  # sums to 0.9 — budget breach
+
+    with env.get_session() as session:
+        with pytest.raises(ValueError, match="violat"):
+            apply_action(
+                "edit",
+                session=session,
+                run_id=env.run_id,
+                portfolio_id=PORTFOLIO_ID,
+                checkpointer=env.saver,
+                store=env.store,
+                model=env.model_factory(),
+                new_value=invalid,
+            )
+        session.rollback()
+
+    with env.get_session() as session:
+        assert HumanAuditLogRepository(session).list_recent(action="edit") == []
+        run = AgentRunRepository(session).get_run(env.run_id)
+        assert run.status == "paused"  # still at the gate, untouched
+        assert session.query(PaperOrder).count() == 0
+
+
+def test_edit_requires_a_run_id(db_session) -> None:
+    """Edit without a ``run_id`` raises before touching the DB."""
+    with pytest.raises(ValueError, match="requires a run_id"):
+        apply_action("edit", session=db_session, new_value={"AAA": 1.0})
+    assert HumanAuditLogRepository(db_session).list_recent() == []
+
+
+def test_edit_requires_new_value_weights(paused_env) -> None:
+    """Edit without edited weights raises before resuming the run."""
+    env = paused_env
+    with env.get_session() as session:
+        with pytest.raises(ValueError, match="requires"):
+            apply_action(
+                "edit",
+                session=session,
+                run_id=env.run_id,
+                checkpointer=env.saver,
+                store=env.store,
+                model=env.model_factory(),
+            )
+        session.rollback()
+
+
+def test_edit_is_idempotent_on_repeated_key(paused_env) -> None:
+    """A repeated keyed edit replays the first outcome without re-resuming the run."""
+    env = paused_env
+    edited = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
+
+    with env.get_session() as session:
+        first = apply_action(
+            "edit",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+            new_value=edited,
+            idempotency_key="run-edit-1",
+        )
+        session.commit()
+
+    with env.get_session() as session:
+        second = apply_action(
+            "edit",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+            new_value=edited,
+            idempotency_key="run-edit-1",
+        )
+        session.commit()
+        rows = HumanAuditLogRepository(session).list_recent(action="edit")
+        orders = (
+            session.query(PaperOrder)
+            .filter(PaperOrder.portfolio_id == PORTFOLIO_ID)
+            .all()
+        )
+
+    assert second.audit_id == first.audit_id
+    assert "already applied" in second.message
+    assert len(rows) == 1  # no second audit row
+    assert len(orders) == 1  # no second ticket
 
 
 # --- T5: mandate_edit (run-policy, persists) + guardrail_override (audit-only) ---

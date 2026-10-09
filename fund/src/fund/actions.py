@@ -21,6 +21,7 @@ never commits — the caller injects a sync session and owns the transaction bou
 from __future__ import annotations
 
 import datetime as dt
+import json
 import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -51,6 +52,7 @@ _PAST = {
     "reject": "rejected",
     "respond": "responded",
     "killswitch": "killswitched",
+    "edit": "approved with edited weights",
 }
 
 
@@ -116,6 +118,9 @@ def apply_action(
     re-gates as ``responded`` or finalises incomplete) and, like every action here, is
     recorded with its own ``human_audit_log`` row; ``killswitch`` finalises a paused run
     through the same reject path but is logged under its own action (no paired undo).
+    ``edit`` validates the adviser-supplied ``new_value`` weights against the risk
+    invariants, logs them as a fresh allocator decision, and resumes via the approve
+    path so the ticket/positions/run all commit the edited allocation (⚑ override).
     ``mandate_edit`` upserts the run-policy mandate (persisted);
     ``guardrail_override`` is **audit-only** — it records a guardrail touch and, when
     the caller marks it past the MiFID suitability band, stamps the ⚑/⚠ flags. Each logs
@@ -123,7 +128,7 @@ def apply_action(
     ``portfolio_id`` from its run when omitted.
 
     Args:
-        action: The action kind; the resume actions, ``"mandate_edit"``,
+        action: The action kind; the resume actions, ``"edit"``, ``"mandate_edit"``,
             ``"guardrail_override"``, or a drive flow (``"new_portfolio"`` /
             ``"profile"`` / ``"run"``).
         session: Injected sync session; not owned here (no commit).
@@ -182,6 +187,21 @@ def apply_action(
             source=source,
             override_flag=override_flag,
             suitability_flag=suitability_flag,
+            idempotency_key=idempotency_key,
+            rationale=rationale,
+            config=config,
+        )
+    if action == "edit":
+        return _apply_edit(
+            session=session,
+            run_id=run_id,
+            portfolio_id=portfolio_id,
+            checkpointer=checkpointer,
+            store=store,
+            model=model,
+            new_value=new_value,
+            actor=actor,
+            source=source,
             idempotency_key=idempotency_key,
             rationale=rationale,
             config=config,
@@ -318,6 +338,96 @@ def _apply_resume(
         portfolio_id=pid,
         audit_id=row.id,
         message=f"run {rid} {_PAST.get(action, action)}",
+        detail=result,
+    )
+
+
+def _apply_edit(
+    *,
+    session: Session,
+    run_id: uuid.UUID | str | None,
+    portfolio_id: uuid.UUID | None,
+    checkpointer: Any | None,
+    store: Any | None,
+    model: Any | None,
+    new_value: Any | None,
+    actor: str,
+    source: str | None,
+    idempotency_key: str | None,
+    rationale: str | None,
+    config: FundConfig,
+) -> ActionResult:
+    """Commit adviser-edited weights, then resume the paused run via ``approve``.
+
+    The edit never touches the gated tool's args. It validates ``new_value`` (the
+    ``{ticker: weight}`` the adviser typed) against the long-only / fully-invested
+    invariants with ``risk_check``, then appends a fresh **allocator /
+    optimize_portfolio** decision carrying the edited weights and resumes through the
+    existing approve path. ``_place_orders_impl`` re-reads ``latest_optimizer_weights``
+    on resume, so that appended row is the single source every downstream record (the
+    paper ticket + ``weights_hash``, ``agent_runs.weights``, and the positions
+    snapshot) derives from — no graph change, no divergence. The audit row is stamped
+    ⚑ ``override_flag`` since the human overrode the optimizer's allocation.
+
+    Raises:
+        ValueError: ``run_id`` or ``new_value`` is missing, or the edited weights
+            fail the risk invariants (the structured ``violations`` are reported).
+    """
+    from fund.agents.graph import resume_run
+    from fund.audit.repository import AgentRunRepository
+    from fund.tools.risk import risk_check
+
+    if run_id is None:
+        raise ValueError("'edit' requires a run_id")
+    if not new_value:
+        raise ValueError("'edit' requires new_value (the edited weights)")
+    rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
+    edited = {str(k): float(v) for k, v in dict(new_value).items()}
+
+    check = risk_check(edited)
+    if not check.get("ok"):
+        raise ValueError(f"'edit' rejected: {check.get('error')}")
+    report = check["data"]
+    if not report["passed"]:
+        raise ValueError(f"'edit' violates risk invariants: {report['violations']}")
+
+    AgentRunRepository(session).append_decision(
+        rid,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": edited}),
+        hitl_decision={"decision": "edit", "human_override": True},
+    )
+    result = resume_run(
+        rid,
+        "approve",
+        session=session,
+        checkpointer=checkpointer,
+        store=store,
+        model=model,
+        config=config,
+    )
+    pid = portfolio_id if portfolio_id is not None else _portfolio_of(session, rid)
+    row = _append_audit(
+        session,
+        action="edit",
+        run_id=rid,
+        portfolio_id=pid,
+        actor=actor,
+        target="weights",
+        new_value=edited,
+        source=source,
+        override_flag=True,
+        suitability_flag=False,
+        idempotency_key=idempotency_key,
+        rationale=rationale,
+    )
+    return ActionResult(
+        action="edit",
+        run_id=rid,
+        portfolio_id=pid,
+        audit_id=row.id,
+        message=f"run {rid} {_PAST['edit']}",
         detail=result,
     )
 
