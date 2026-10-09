@@ -35,7 +35,9 @@ class PortfolioMandate(BaseModel):
     fully serialisable. ``capital`` and ``drift_l1_threshold`` are strictly
     positive; ``base_currency`` is an ISO-4217 alpha code. ``hitl_gates``
     lists the tool names gated behind a human approval and defaults to the
-    single ``place_orders`` gate.
+    single ``place_orders`` gate. ``remembered_directives`` carries free-text
+    co-pilot steers the adviser chose to persist across rounds; the mandate JSON
+    is their source of truth (no scalar mirror, no migration).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -47,6 +49,7 @@ class PortfolioMandate(BaseModel):
     hitl_gates: tuple[str, ...] = ("place_orders",)
     triggers: RunTriggers
     benchmark: str | None = None
+    remembered_directives: tuple[str, ...] = ()
 
 
 __all__ = ["PortfolioMandate", "RunTriggers"]

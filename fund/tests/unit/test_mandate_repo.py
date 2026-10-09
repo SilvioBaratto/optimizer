@@ -106,6 +106,25 @@ def test_upsert_stores_full_mandate_json_that_round_trips(db_session):
     assert PortfolioMandate.model_validate(fetched.mandate) == mandate
 
 
+def test_upsert_round_trips_remembered_directives(db_session):
+    pid = str(uuid.uuid4())
+    mandate = PortfolioMandate(
+        portfolio_id=pid,
+        capital=Decimal("100000"),
+        base_currency="EUR",
+        drift_l1_threshold=0.05,
+        triggers=RunTriggers(cron=True, drift=False),
+        remembered_directives=("hold cash heavy", "avoid energy"),
+    )
+    repo = MandateRepository(db_session)
+    repo.upsert(mandate)
+
+    fetched = repo.get(uuid.UUID(pid))
+    assert fetched is not None
+    rehydrated = PortfolioMandate.model_validate(fetched.mandate)
+    assert rehydrated.remembered_directives == ("hold cash heavy", "avoid energy")
+
+
 def test_get_returns_none_for_unknown_portfolio(db_session):
     repo = MandateRepository(db_session)
     assert repo.get(uuid.uuid4()) is None

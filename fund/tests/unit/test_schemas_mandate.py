@@ -50,6 +50,41 @@ def test_benchmark_defaults_to_none():
     assert _valid_mandate().benchmark is None
 
 
+def test_remembered_directives_defaults_to_empty_tuple():
+    assert _valid_mandate().remembered_directives == ()
+
+
+def test_old_serialised_mandate_validates_remembered_directives_to_empty():
+    # A mandate serialised before the field existed carries no key; it must
+    # rehydrate to the empty default rather than raising.
+    legacy = _valid_mandate().model_dump(mode="json")
+    legacy.pop("remembered_directives", None)
+    assert "remembered_directives" not in legacy
+
+    rehydrated = PortfolioMandate.model_validate(legacy)
+    assert rehydrated.remembered_directives == ()
+
+
+def test_remembered_directives_round_trips_non_empty():
+    m = PortfolioMandate(
+        portfolio_id="pf-001",
+        capital=Decimal("1000"),
+        base_currency="EUR",
+        drift_l1_threshold=0.05,
+        triggers=RunTriggers(cron=True, drift=False),
+        remembered_directives=("hold cash heavy", "avoid energy"),
+    )
+    round_tripped = PortfolioMandate.model_validate(m.model_dump(mode="json"))
+    assert round_tripped.remembered_directives == ("hold cash heavy", "avoid energy")
+    assert round_tripped == m
+
+
+def test_remembered_directives_is_frozen():
+    m = _valid_mandate()
+    with pytest.raises(pydantic.ValidationError):
+        m.remembered_directives = ("x",)  # type: ignore[misc]
+
+
 def test_benchmark_can_be_set():
     m = PortfolioMandate(
         portfolio_id="pf-001",
