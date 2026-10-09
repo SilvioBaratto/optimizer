@@ -27,7 +27,7 @@ from _fund_fakes import (
 )
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import Base, PaperOrder
+from portopt_db.models import Base, FundAutonomyState, PaperOrder
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -36,6 +36,7 @@ from fund import observe
 from fund.actions import ActionResult, apply_action, is_within_suitability_band
 from fund.audit import (
     AgentRunRepository,
+    AutonomyRepository,
     HumanAuditLogRepository,
     MandateRepository,
     PositionRepository,
@@ -599,6 +600,133 @@ def test_is_within_suitability_band_flags_unknown_bands() -> None:
     # Unknown proposal → most-risky: flags unless the ceiling is already the maximum.
     assert is_within_suitability_band("garbled", "growth") is False
     assert is_within_suitability_band("garbled", "aggressive") is True
+
+
+# --- T6: autonomy write verbs (freeze / rearm) + killswitch scope ----------------
+
+
+def test_freeze_portfolio_sets_frozen_state_and_logs(clean_db) -> None:
+    """A portfolio-scope freeze flips the autonomy row FROZEN and logs an audit row."""
+    result = apply_action(
+        "freeze",
+        session=clean_db,
+        scope="portfolio",
+        portfolio_id=PORTFOLIO_ID,
+        rationale="drawdown breach",
+    )
+    clean_db.commit()
+
+    assert result.action == "freeze"
+    assert result.portfolio_id == PORTFOLIO_ID
+
+    state = AutonomyRepository(clean_db).portfolio_state(PORTFOLIO_ID)
+    assert state.state == "frozen"
+    assert state.frozen_reason == "drawdown breach"
+    assert state.frozen_at is not None
+
+    rows = HumanAuditLogRepository(clean_db).list_recent(action="freeze")
+    assert len(rows) == 1
+    assert rows[0].id == result.audit_id
+    assert rows[0].target == "portfolio"
+
+
+def test_freeze_fund_sets_frozen_state_and_logs(clean_db) -> None:
+    """A fund-scope freeze flips the single fund autonomy row FROZEN and logs."""
+    result = apply_action(
+        "freeze",
+        session=clean_db,
+        scope="fund",
+        rationale="halt everything",
+    )
+    clean_db.commit()
+
+    assert result.action == "freeze"
+    assert result.portfolio_id is None
+
+    state = AutonomyRepository(clean_db).fund_state()
+    assert state.state == "frozen"
+    assert state.frozen_reason == "halt everything"
+
+    rows = HumanAuditLogRepository(clean_db).list_recent(action="freeze")
+    assert len(rows) == 1
+    assert rows[0].target == "fund"
+
+
+def test_rearm_portfolio_restores_armed(clean_db) -> None:
+    """Re-arming a frozen portfolio restores ARMED and clears the frozen fields."""
+    apply_action(
+        "freeze",
+        session=clean_db,
+        scope="portfolio",
+        portfolio_id=PORTFOLIO_ID,
+        rationale="pause",
+    )
+    clean_db.commit()
+
+    result = apply_action(
+        "rearm",
+        session=clean_db,
+        scope="portfolio",
+        portfolio_id=PORTFOLIO_ID,
+    )
+    clean_db.commit()
+
+    assert result.action == "rearm"
+    state = AutonomyRepository(clean_db).portfolio_state(PORTFOLIO_ID)
+    assert state.state == "armed"
+    assert state.frozen_reason is None
+    assert state.frozen_at is None
+
+
+def test_rearm_fund_requires_a_rationale(clean_db) -> None:
+    """A fund-scope re-arm without a rationale is rejected before any write."""
+    with pytest.raises(ValueError, match="rationale"):
+        apply_action("rearm", session=clean_db, scope="fund")
+    assert HumanAuditLogRepository(clean_db).list_recent() == []
+
+
+def test_rearm_fund_records_the_rationale(clean_db) -> None:
+    """A fund-scope re-arm with a rationale restores ARMED and records the reason."""
+    apply_action("freeze", session=clean_db, scope="fund", rationale="halt")
+    clean_db.commit()
+
+    result = apply_action(
+        "rearm",
+        session=clean_db,
+        scope="fund",
+        rationale="risk cleared; resuming",
+    )
+    clean_db.commit()
+
+    assert AutonomyRepository(clean_db).fund_state().state == "armed"
+    rows = HumanAuditLogRepository(clean_db).list_recent(action="rearm")
+    assert len(rows) == 1
+    assert rows[0].id == result.audit_id
+    assert rows[0].rationale == "risk cleared; resuming"
+
+
+def test_freeze_run_scope_rejects_run_without_autonomy_change(paused_env) -> None:
+    """A run-scope freeze keeps the killswitch semantics: reject, no autonomy row."""
+    env = paused_env
+    with env.get_session() as session:
+        result = apply_action(
+            "freeze",
+            session=session,
+            scope="run",
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+        )
+        session.commit()
+
+    assert result.action == "freeze"
+    with env.get_session() as session:
+        run = AgentRunRepository(session).get_run(env.run_id)
+        assert run.status == "rejected"
+        # No autonomy posture was touched by a run-scope freeze.
+        assert session.query(FundAutonomyState).count() == 0
 
 
 def test_apply_action_is_idempotent_on_repeated_key(paused_env) -> None:

@@ -53,6 +53,8 @@ _PAST = {
     "respond": "responded",
     "killswitch": "killswitched",
     "edit": "approved with edited weights",
+    "freeze": "frozen",
+    "rearm": "re-armed",
 }
 
 
@@ -101,6 +103,7 @@ def apply_action(
     idempotency_key: str | None = None,
     rationale: str | None = None,
     pm_directive: str | None = None,
+    scope: str | None = None,
     config: FundConfig = settings,
 ) -> ActionResult:
     """Apply one human action and append its ``human_audit_log`` row.
@@ -121,6 +124,10 @@ def apply_action(
     ``edit`` validates the adviser-supplied ``new_value`` weights against the risk
     invariants, logs them as a fresh allocator decision, and resumes via the approve
     path so the ticket/positions/run all commit the edited allocation (⚑ override).
+    ``freeze`` / ``rearm`` flip the autonomy posture at ``scope``: a ``run`` freeze is
+    the killswitch (reject-finalise, no autonomy change), while ``portfolio`` / ``fund``
+    freeze FROZEN (halting live runs) and ``rearm`` restores ARMED — a **fund** re-arm
+    requires a non-empty ``rationale``.
     ``mandate_edit`` upserts the run-policy mandate (persisted);
     ``guardrail_override`` is **audit-only** — it records a guardrail touch and, when
     the caller marks it past the MiFID suitability band, stamps the ⚑/⚠ flags. Each logs
@@ -154,6 +161,8 @@ def apply_action(
         rationale: Free-text reason recorded with the action.
         pm_directive: Adviser free text threaded to the PM for a ``respond`` barge-in;
             required (non-empty) for ``respond``, ignored by the other actions.
+        scope: Autonomy scope for ``freeze`` (``run`` / ``portfolio`` / ``fund``) or
+            ``rearm`` (``portfolio`` / ``fund``); ignored by the other actions.
         config: Fund settings threaded to the resumer.
 
     Returns:
@@ -205,6 +214,31 @@ def apply_action(
             idempotency_key=idempotency_key,
             rationale=rationale,
             config=config,
+        )
+    if action == "freeze":
+        return _apply_freeze(
+            session=session,
+            scope=scope,
+            run_id=run_id,
+            portfolio_id=portfolio_id,
+            checkpointer=checkpointer,
+            store=store,
+            model=model,
+            actor=actor,
+            source=source,
+            idempotency_key=idempotency_key,
+            rationale=rationale,
+            config=config,
+        )
+    if action == "rearm":
+        return _apply_rearm(
+            session=session,
+            scope=scope,
+            portfolio_id=portfolio_id,
+            actor=actor,
+            source=source,
+            idempotency_key=idempotency_key,
+            rationale=rationale,
         )
     if action == "mandate_edit":
         return _apply_mandate_edit(
@@ -429,6 +463,198 @@ def _apply_edit(
         audit_id=row.id,
         message=f"run {rid} {_PAST['edit']}",
         detail=result,
+    )
+
+
+_FREEZE_SCOPES = ("run", "portfolio", "fund")
+_REARM_SCOPES = ("portfolio", "fund")
+
+
+def _reject_live_runs(session: Session, portfolio_id: uuid.UUID | None) -> None:
+    """Finalise any paused/responded runs in scope as rejected (DB-level halt).
+
+    A portfolio/fund freeze halts in-flight runs: each live gate is marked rejected
+    without a graph resume (an emergency stop needs no model/checkpointer). Scoped to
+    ``portfolio_id`` when given, else fund-wide. No commit (the caller owns it).
+    """
+    from fund.audit.repository import AgentRunRepository
+
+    repo = AgentRunRepository(session)
+    for run in repo.list_paused_runs(portfolio_id=portfolio_id):
+        repo.finalize_run(run.id, weights={}, status="rejected")
+
+
+def _apply_freeze(
+    *,
+    session: Session,
+    scope: str | None,
+    run_id: uuid.UUID | str | None,
+    portfolio_id: uuid.UUID | None,
+    checkpointer: Any | None,
+    store: Any | None,
+    model: Any | None,
+    actor: str,
+    source: str | None,
+    idempotency_key: str | None,
+    rationale: str | None,
+    config: FundConfig,
+) -> ActionResult:
+    """Freeze autonomy at ``scope`` (``run`` / ``portfolio`` / ``fund``) and audit it.
+
+    ``run`` keeps the killswitch semantics — reject-finalise the paused run, touching
+    no autonomy posture. ``portfolio`` / ``fund`` flip the autonomy row FROZEN (via
+    :class:`AutonomyRepository`, recording ``rationale`` as the frozen reason) and halt
+    any live run in scope. Every path appends one ⚑ ``human_audit_log`` row.
+
+    Raises:
+        ValueError: ``scope`` is not one of ``run`` / ``portfolio`` / ``fund``, or the
+            required ``run_id`` (``run``) / ``portfolio_id`` (``portfolio``) is missing.
+    """
+    if scope not in _FREEZE_SCOPES:
+        raise ValueError(f"'freeze' requires scope in {_FREEZE_SCOPES}, got {scope!r}")
+
+    if scope == "run":
+        from fund.agents.graph import resume_run
+
+        if run_id is None:
+            raise ValueError("'freeze' scope='run' requires a run_id")
+        rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
+        result = resume_run(
+            rid,
+            "reject",
+            session=session,
+            checkpointer=checkpointer,
+            store=store,
+            model=model,
+            config=config,
+        )
+        pid = portfolio_id if portfolio_id is not None else _portfolio_of(session, rid)
+        row = _append_audit(
+            session,
+            action="freeze",
+            run_id=rid,
+            portfolio_id=pid,
+            actor=actor,
+            target="run",
+            source=source,
+            override_flag=False,
+            suitability_flag=False,
+            idempotency_key=idempotency_key,
+            rationale=rationale,
+        )
+        return ActionResult(
+            action="freeze",
+            run_id=rid,
+            portfolio_id=pid,
+            audit_id=row.id,
+            message=f"run {rid} {_PAST['freeze']}",
+            detail=result,
+        )
+
+    from fund.audit.autonomy_repository import (
+        AutonomyRepository,
+        AutonomyScope,
+        AutonomyState,
+    )
+
+    repo = AutonomyRepository(session)
+    if scope == "fund":
+        repo.set_state(AutonomyScope.FUND, None, AutonomyState.FROZEN, reason=rationale)
+        pid = None
+    else:
+        if portfolio_id is None:
+            raise ValueError("'freeze' scope='portfolio' requires a portfolio_id")
+        repo.set_state(
+            AutonomyScope.PORTFOLIO,
+            portfolio_id,
+            AutonomyState.FROZEN,
+            reason=rationale,
+        )
+        pid = portfolio_id
+    _reject_live_runs(session, pid)
+    row = _append_audit(
+        session,
+        action="freeze",
+        run_id=None,
+        portfolio_id=pid,
+        actor=actor,
+        target=scope,
+        new_value={"state": "frozen", "reason": rationale},
+        source=source,
+        override_flag=False,
+        suitability_flag=False,
+        idempotency_key=idempotency_key,
+        rationale=rationale,
+    )
+    return ActionResult(
+        action="freeze",
+        run_id=None,
+        portfolio_id=pid,
+        audit_id=row.id,
+        message=f"{scope} {_PAST['freeze']}",
+    )
+
+
+def _apply_rearm(
+    *,
+    session: Session,
+    scope: str | None,
+    portfolio_id: uuid.UUID | None,
+    actor: str,
+    source: str | None,
+    idempotency_key: str | None,
+    rationale: str | None,
+) -> ActionResult:
+    """Re-arm autonomy at ``scope`` (``portfolio`` / ``fund``) and audit it.
+
+    Flips the autonomy row back to ARMED (clearing the frozen provenance) and appends
+    one ``human_audit_log`` row. A **fund** re-arm requires a non-empty ``rationale``
+    (the graduated ceremony for the fund-wide killswitch); a portfolio re-arm does not.
+
+    Raises:
+        ValueError: ``scope`` is not ``portfolio`` / ``fund``; a ``portfolio`` re-arm is
+            missing its ``portfolio_id``; or a ``fund`` re-arm has no ``rationale``.
+    """
+    if scope not in _REARM_SCOPES:
+        raise ValueError(f"'rearm' requires scope in {_REARM_SCOPES}, got {scope!r}")
+
+    from fund.audit.autonomy_repository import (
+        AutonomyRepository,
+        AutonomyScope,
+        AutonomyState,
+    )
+
+    repo = AutonomyRepository(session)
+    if scope == "fund":
+        if not rationale:
+            raise ValueError("'rearm' scope='fund' requires a non-empty rationale")
+        repo.set_state(AutonomyScope.FUND, None, AutonomyState.ARMED)
+        pid = None
+    else:
+        if portfolio_id is None:
+            raise ValueError("'rearm' scope='portfolio' requires a portfolio_id")
+        repo.set_state(AutonomyScope.PORTFOLIO, portfolio_id, AutonomyState.ARMED)
+        pid = portfolio_id
+    row = _append_audit(
+        session,
+        action="rearm",
+        run_id=None,
+        portfolio_id=pid,
+        actor=actor,
+        target=scope,
+        new_value={"state": "armed"},
+        source=source,
+        override_flag=False,
+        suitability_flag=False,
+        idempotency_key=idempotency_key,
+        rationale=rationale,
+    )
+    return ActionResult(
+        action="rearm",
+        run_id=None,
+        portfolio_id=pid,
+        audit_id=row.id,
+        message=f"{scope} {_PAST['rearm']}",
     )
 
 
