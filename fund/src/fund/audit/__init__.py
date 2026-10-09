@@ -10,6 +10,11 @@ Note:
     their submodules instead of from ``fund.audit``.
 """
 
+from fund.audit.autonomy_repository import (
+    AutonomyRepository,
+    AutonomyScope,
+    AutonomyState,
+)
 from fund.audit.fund_job_repository import FUND_JOB_TYPES, FundJobRepository
 from fund.audit.human_audit_repository import HumanAuditLogRepository
 from fund.audit.mandate_repository import MandateRepository
@@ -26,6 +31,9 @@ from fund.audit.repository import AgentRunRepository
 __all__ = [
     "FUND_JOB_TYPES",
     "AgentRunRepository",
+    "AutonomyRepository",
+    "AutonomyScope",
+    "AutonomyState",
     "FundJobRepository",
     "HumanAuditLogRepository",
     "LangGraphPersistence",
