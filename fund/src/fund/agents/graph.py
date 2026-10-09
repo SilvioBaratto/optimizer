@@ -17,7 +17,8 @@ Two shapes live here (Task 5 builds them; Task 6 drives them end-to-end):
 * ``build_fund_agent(...)`` → the PM ``create_deep_agent`` wiring the orchestrator
   toolset (the top-level gated ``place_orders``), the four subagents, the
   root-relative skills, the ``virtual_mode`` backend, the checkpointer/store, and
-  ``interrupt_on={"place_orders": True}``.
+  the effective ``interrupt_on`` gate set (config baseline ∪ the mandate's
+  ``hitl_gates``, computed by the caller).
 
 **Risk R1 (verified):** deepagents loads skills **through the backend**, which
 runs in ``virtual_mode`` and blocks absolute paths outside its root — so every
@@ -248,12 +249,15 @@ def build_fund_agent(
     ctx: RunContext,
     config: FundConfig = settings,
     fallback: Any | None = None,
+    interrupt_on: dict[str, Any] | None = None,
 ) -> Any:
     """Assemble the PM ``deepagents`` agent that orchestrates one fund run.
 
     The PM runs under ``PM_SYSTEM_PROMPT`` with the orchestrator toolset — the
     single top-level ``place_orders`` tool, gated by ``interrupt_on`` (which
-    requires the ``checkpointer``) so the commit always pauses for the adviser. It
+    requires the ``checkpointer``) so the commit always pauses for the adviser. The
+    gate set is the ``interrupt_on`` override when supplied (the caller folds the
+    mandate's ``hitl_gates`` in), else the config default (``place_orders``). It
     delegates through the built-in ``task`` tool to the four subagents in pipeline
     order (economist → allocator → risk → executor); the critical three carry the
     ``fallback`` middleware when one is supplied. Skills are the root-relative
@@ -265,6 +269,7 @@ def build_fund_agent(
 
     from fund.agents.toolsets import bind_toolset
 
+    gates = interrupt_on if interrupt_on is not None else config.interrupt_on_map()
     subagents = [
         build_economist_subagent(ctx),
         build_allocator_subagent(ctx, fallback=fallback),
@@ -278,11 +283,22 @@ def build_fund_agent(
         subagents=cast("list[Any]", subagents),
         skills=skill_sources("orchestrator"),
         backend=build_backend(config),
-        interrupt_on=cast("dict[str, Any]", config.interrupt_on_map()),
+        interrupt_on=cast("dict[str, Any]", gates),
         middleware=[_pm_round_cap_middleware(config.max_pm_rounds)],
         checkpointer=checkpointer,
         store=store,
     )
+
+
+def _effective_gates(config: FundConfig, mandate: PortfolioMandate) -> dict[str, bool]:
+    """Union the config's gated tools with the mandate's ``hitl_gates``.
+
+    The effective ``interrupt_on`` for a run: every tool the config gates plus every
+    tool the mandate adds, each mapped to ``True``. A default mandate leaves the gate
+    set at the config baseline (``place_orders``); a mandate can only widen it.
+    """
+    gates = frozenset(config.interrupt_on) | frozenset(mandate.hitl_gates)
+    return dict.fromkeys(gates, True)
 
 
 # ---------------------------------------------------------------------------
@@ -758,9 +774,10 @@ def _prepare_fund_run(
     other: a missing active ``ConstraintSet`` raises ``RuntimeError`` (profile first); a
     pending ``agent_run`` is opened recording the seed + ``temperature`` + 3y lookback
     (D31); its checkpointer thread is pinned to ``str(run_id)`` so the rebuild-to-resume
-    path recovers it; and the PM agent is built against this run's ``RunContext``. The
-    caller drives the agent (invoke or stream). Every write goes through ``session``
-    (caller owns the transaction).
+    path recovers it; and the PM agent is built against this run's ``RunContext`` with
+    the effective gate set (config baseline ∪ ``mandate.hitl_gates``). The caller drives
+    the agent (invoke or stream). Every write goes through ``session`` (caller owns the
+    transaction).
     """
     import secrets
 
@@ -816,6 +833,7 @@ def _prepare_fund_run(
         ctx=ctx,
         config=config,
         fallback=fallback,
+        interrupt_on=_effective_gates(config, mandate),
     )
     thread_config = {
         "configurable": {"thread_id": resolved_thread_id},
@@ -1142,8 +1160,10 @@ def resume_fund(
     Loads the ``agent_run`` to recover its ``thread_id`` / ``portfolio_id`` / ``asof``
     (an unknown ``run_id`` raises ``LookupError``), re-guards the portfolio's active
     ``ConstraintSet`` from the Store (missing raises ``RuntimeError`` — a run whose
-    profile vanished cannot be committed), rebuilds the ``RunContext`` + PM agent,
-    resumes, and finalises. ``decision`` is ``approve``, ``reject``, or ``respond``.
+    profile vanished cannot be committed), re-reads the mandate so a gate set edited
+    since the run opened applies on resume too (a vanished mandate falls back to the
+    config default gate), rebuilds the ``RunContext`` + PM agent, resumes, and
+    finalises. ``decision`` is ``approve``, ``reject``, or ``respond``.
     Any other value raises ``ValueError``. A ``respond`` threads ``pm_directive`` (the
     adviser's free text) back to the PM via :func:`_finalize_respond`, keeping the run
     alive as ``responded`` if it re-gates; the resume ``thread_config`` keeps the full
@@ -1195,6 +1215,12 @@ def resume_fund(
         run_id=rid,
         portfolio_id=portfolio_id,
     )
+    # Re-read the mandate so a gate set edited since the run opened takes effect on
+    # resume too (mirrors the ConstraintSet re-guard above); a vanished mandate falls
+    # back to the config default gate.
+    from fund import observe
+
+    mandate = observe.get_mandate(session, portfolio_id)
     agent = build_fund_agent(
         model,
         checkpointer=checkpointer,
@@ -1202,6 +1228,7 @@ def resume_fund(
         ctx=ctx,
         config=config,
         fallback=fallback,
+        interrupt_on=_effective_gates(config, mandate) if mandate is not None else None,
     )
     thread_config = {
         "configurable": {"thread_id": resolved_thread_id},

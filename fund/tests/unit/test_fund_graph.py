@@ -199,3 +199,154 @@ def test_build_fund_agent_wires_four_subagents_in_pipeline_order(
     assert "middleware" not in by_name["economist"]
     for role in ("allocator", "risk", "executor"):
         assert isinstance(by_name[role]["middleware"][0], ModelFallbackMiddleware)
+
+
+# --- T5: effective interrupt_on = config.interrupt_on ∪ mandate.hitl_gates ------
+
+
+def _spy_create_deep_agent(monkeypatch, tmp_path) -> dict[str, Any]:
+    """Patch ``create_deep_agent`` + ``build_backend``; return the captured kwargs."""
+    from deepagents.backends import FilesystemBackend
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        deepagents, "create_deep_agent", lambda *a, **k: captured.update(k) or "PM"
+    )
+    backend = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
+    monkeypatch.setattr(graph, "build_backend", lambda config: backend)
+    return captured
+
+
+def test_build_fund_agent_uses_explicit_interrupt_on_override(tmp_path, monkeypatch):
+    """An explicit ``interrupt_on`` override wins over the config default."""
+    captured = _spy_create_deep_agent(monkeypatch, tmp_path)
+    override = {"place_orders": True, "before_risk": True}
+
+    graph.build_fund_agent(
+        object(),
+        checkpointer="CKPT",
+        store=None,
+        ctx=_ctx(),
+        interrupt_on=override,
+    )
+
+    assert captured["interrupt_on"] == override
+
+
+def test_build_fund_agent_defaults_interrupt_on_to_config_map(tmp_path, monkeypatch):
+    """Without an override, ``build_fund_agent`` falls back to the config map."""
+    captured = _spy_create_deep_agent(monkeypatch, tmp_path)
+
+    graph.build_fund_agent(object(), checkpointer="CKPT", store=None, ctx=_ctx())
+
+    assert captured["interrupt_on"] == settings.interrupt_on_map()
+    assert captured["interrupt_on"] == {"place_orders": True}
+
+
+def _store_with_cs() -> Any:
+    """An in-memory store carrying the fake portfolio's active ConstraintSet."""
+    from _fund_fakes import make_constraint_set
+    from langgraph.store.memory import InMemoryStore
+
+    from fund.audit import put_constraint_set
+
+    store = InMemoryStore()
+    put_constraint_set(
+        store, make_constraint_set(), store_key=settings.constraint_set_store_key
+    )
+    return store
+
+
+def test_prepare_fund_run_unions_mandate_gates_into_interrupt_on(
+    db_session, monkeypatch
+):
+    """A mandate's extra ``hitl_gates`` union into the effective ``interrupt_on``."""
+    from _fund_fakes import ASOF, PORTFOLIO_ID, make_mandate
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(graph, "build_fund_agent", lambda *a, **k: captured.update(k))
+    mandate = make_mandate().model_copy(
+        update={"hitl_gates": ("place_orders", "before_risk")}
+    )
+
+    graph._prepare_fund_run(
+        object(),
+        mandate,
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        session=db_session,
+        checkpointer="CKPT",
+        store=_store_with_cs(),
+        config=settings,
+        fallback=None,
+        thread_id=None,
+        seed=1,
+    )
+
+    assert captured["interrupt_on"] == {"place_orders": True, "before_risk": True}
+
+
+def test_prepare_fund_run_default_mandate_interrupt_on_is_place_orders_only(
+    db_session, monkeypatch
+):
+    """The default mandate leaves the effective gate set at ``place_orders`` only."""
+    from _fund_fakes import ASOF, PORTFOLIO_ID, make_mandate
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(graph, "build_fund_agent", lambda *a, **k: captured.update(k))
+
+    graph._prepare_fund_run(
+        object(),
+        make_mandate(),
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        session=db_session,
+        checkpointer="CKPT",
+        store=_store_with_cs(),
+        config=settings,
+        fallback=None,
+        thread_id=None,
+        seed=1,
+    )
+
+    assert captured["interrupt_on"] == {"place_orders": True}
+
+
+def test_resume_fund_rereads_mandate_gates_into_interrupt_on(db_session, monkeypatch):
+    """On resume, the gate set is re-read from the persisted mandate ``hitl_gates``."""
+    from _fund_fakes import ASOF, PORTFOLIO_ID, make_mandate
+
+    from fund.audit import AgentRunRepository, MandateRepository
+
+    mandate = make_mandate().model_copy(
+        update={"hitl_gates": ("place_orders", "before_risk")}
+    )
+    MandateRepository(db_session).upsert(mandate)
+    run = AgentRunRepository(db_session).create_run(
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        seed=1,
+        universe=[],
+        optimizer_config={"step": "fund"},
+    )
+
+    captured: dict[str, Any] = {}
+
+    class _FakeAgent:
+        def invoke(self, *a: Any, **k: Any) -> dict[str, Any]:
+            return {}
+
+    monkeypatch.setattr(
+        graph, "build_fund_agent", lambda *a, **k: captured.update(k) or _FakeAgent()
+    )
+
+    graph.resume_fund(
+        run.id,
+        "reject",
+        session=db_session,
+        checkpointer="CKPT",
+        store=_store_with_cs(),
+        model=object(),
+    )
+
+    assert captured["interrupt_on"] == {"place_orders": True, "before_risk": True}
