@@ -146,7 +146,8 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
             The typed answers + the entered capital.
 
         Raises:
-            ValueError: A required choice is blank or the Likert field is empty.
+            ValueError: A required choice is blank, the Likert field is empty, or the
+                capital is not strictly positive.
             pydantic.ValidationError: An answer is out of its MiFID contract.
             decimal.InvalidOperation: The capital field is not a number.
         """
@@ -193,10 +194,20 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
         return items
 
     def _capital(self) -> Decimal:
-        """The entered capital (``Decimal``); ``0`` when the field is not shown."""
+        """The entered capital for a new portfolio (``Decimal``); ``0`` when not asked.
+
+        Raises:
+            decimal.InvalidOperation: The capital field is not a number.
+            ValueError: The capital is not strictly positive — a new portfolio needs
+                real capital. Raised here (not left to downstream mandate validation) so
+                ``_submit`` catches it inline and the modal keeps the entered answers.
+        """
         if not self._ask_capital:
             return Decimal("0")
-        return Decimal(self.query_one("#q-capital", Input).value.strip())
+        capital = Decimal(self.query_one("#q-capital", Input).value.strip())
+        if capital <= 0:
+            raise ValueError("capital must be a positive number")
+        return capital
 
 
 __all__ = ["OnboardingSubmission", "QuestionnaireScreen"]
