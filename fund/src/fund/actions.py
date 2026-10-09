@@ -143,6 +143,10 @@ def apply_action(
         RuntimeError: ``run`` on a portfolio with no active ``ConstraintSet``
             (propagated from ``run_fund`` — profile it first).
     """
+    if idempotency_key is not None:
+        replay = _replayed_action(session, idempotency_key)
+        if replay is not None:
+            return replay
     if action in _RESUME_DECISION:
         return _apply_resume(
             action,
@@ -298,6 +302,29 @@ def _portfolio_of(session: Session, run_id: uuid.UUID) -> uuid.UUID | None:
 
     run = AgentRunRepository(session).get_run(run_id)
     return run.portfolio_id if run is not None else None
+
+
+def _replayed_action(session: Session, idempotency_key: str) -> ActionResult | None:
+    """The prior outcome for ``idempotency_key``, or ``None`` if unseen.
+
+    Checked at the top of :func:`apply_action`, before any driver runs, so a repeated
+    keyed action (a double-submitted approve, a retried drive) neither re-invokes
+    ``resume_run`` / the profiler / the rebalance nor creates an orphan run — it replays
+    the first audit row's outcome. The row carries no stored ``detail``, so a replay's
+    :attr:`ActionResult.detail` is ``None``.
+    """
+    from fund.audit.human_audit_repository import HumanAuditLogRepository
+
+    row = HumanAuditLogRepository(session).get_by_idempotency_key(idempotency_key)
+    if row is None:
+        return None
+    return ActionResult(
+        action=row.action,
+        run_id=row.run_id,
+        portfolio_id=row.portfolio_id,
+        audit_id=row.id,
+        message=f"{row.action} already applied (idempotent replay)",
+    )
 
 
 def _append_audit(
@@ -618,12 +645,14 @@ def is_within_suitability_band(proposed_band: str, suitability_band: str) -> boo
         suitability_band: The active assessment's ``RiskToleranceBand`` value (ceiling).
 
     Returns:
-        ``True`` when ``proposed_band`` is no riskier than ``suitability_band``; an
-        unknown band is treated conservatively (proposal most-conservative, ceiling
-        most-permissive) so a typo never silently flags an override.
+        ``True`` when ``proposed_band`` is no riskier than ``suitability_band``. An
+        unrecognised band resolves toward *flagging*, not silence (the compliance-safe
+        direction): an unknown proposal is treated as most-risky and an unknown ceiling
+        as most-restrictive, so a typo or an unmapped future band surfaces the override
+        rather than hiding it.
     """
-    return _BAND_RANK.get(proposed_band, 0) <= _BAND_RANK.get(
-        suitability_band, max(_BAND_RANK.values())
+    return _BAND_RANK.get(proposed_band, max(_BAND_RANK.values())) <= _BAND_RANK.get(
+        suitability_band, 0
     )
 
 

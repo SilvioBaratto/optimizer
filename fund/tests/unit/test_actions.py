@@ -379,3 +379,51 @@ def test_is_within_suitability_band_treats_the_assessment_band_as_a_ceiling() ->
     assert is_within_suitability_band("conservative", "balanced") is True
     assert is_within_suitability_band("growth", "balanced") is False
     assert is_within_suitability_band("aggressive", "defensive") is False
+
+
+def test_is_within_suitability_band_flags_unknown_bands() -> None:
+    """An unrecognised band resolves toward flagging (the compliance-safe default)."""
+    # Unknown ceiling → most-restrictive: only the most-conservative proposal stays in.
+    assert is_within_suitability_band("defensive", "garbled") is True
+    assert is_within_suitability_band("conservative", "garbled") is False
+    # Unknown proposal → most-risky: flags unless the ceiling is already the maximum.
+    assert is_within_suitability_band("garbled", "growth") is False
+    assert is_within_suitability_band("garbled", "aggressive") is True
+
+
+def test_apply_action_is_idempotent_on_repeated_key(paused_env) -> None:
+    """A repeated keyed action replays the first outcome without re-resuming the run."""
+    env = paused_env
+    with env.get_session() as session:
+        first = apply_action(
+            "approve",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+            idempotency_key="run-approve-1",
+        )
+        session.commit()
+
+    with env.get_session() as session:
+        second = apply_action(
+            "approve",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+            idempotency_key="run-approve-1",
+        )
+        session.commit()
+        rows = HumanAuditLogRepository(session).list_recent(action="approve")
+
+    # The replay returns the first row verbatim and writes no second audit row — proof
+    # the pre-check short-circuited before resume_run ran a second time (a real second
+    # resume on the now-completed run would have errored or re-finalised it).
+    assert second.audit_id == first.audit_id
+    assert "already applied" in second.message
+    assert len(rows) == 1

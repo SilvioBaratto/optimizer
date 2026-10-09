@@ -1,17 +1,14 @@
-"""``fund.tui``: the four-panel observer under Textual's headless Pilot.
+"""``fund.tui``: the ShellApp oversight cockpit under Textual's headless Pilot.
 
-Drives :class:`fund.tui.app.FundTUI` end-to-end with the network-free fakes — an
-isolated in-memory SQLite engine + ``MemorySaver`` + ``InMemoryStore`` + a
-``ScriptedFundModel`` — exactly the stack the resume/CLI tests use, so the cockpit
-is exercised with zero live LLM/network/PG. A paused ``run_fund`` gate is
-seeded once per test; the App then reads it through :mod:`fund.observe`, shows the
-gate, and resumes it on a worker thread via ``resume_fund``.
+Exercises the unified ``apply_action`` path, the notification bus, and the full
+onboarding→profile→run→approve cycle against the network-free stack — an isolated
+in-memory SQLite engine + ``MemorySaver`` + ``InMemoryStore`` + a scripted model —
+so zero live LLM/network/PG is required.
 
-The event loop is never blocked: ``Approve``/``Reject`` dispatch a ``@work(thread=
-True)`` worker, and the tests wait on ``app.workers.wait_for_complete()`` before
-asserting the terminal DB state. ``import fund.tui.app`` is checked (in a stripped
-subprocess env) to need no ``OLLAMA_API_KEY``/``DATABASE_URL`` and to drag in
-neither ``deepagents`` nor ``langgraph``.
+Covered views: Posture / Decisions / Mandate / Audit / Deliberation.  ``import
+fund.tui.app`` is checked (in a stripped subprocess env) to need no
+``OLLAMA_API_KEY``/``DATABASE_URL`` and to drag in neither ``deepagents`` nor
+``langgraph``.
 """
 
 from __future__ import annotations
@@ -39,9 +36,6 @@ from _fund_fakes import (
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import Base
-from portopt_db.repositories.orders.portfolio_journal_repository import (
-    PortfolioJournalRepository,
-)
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -67,7 +61,7 @@ from fund.audit import (
 )
 from fund.config import settings
 from fund.tui import app as tui_app
-from fund.tui.app import ConfirmScreen, FundTUI, ShellApp
+from fund.tui.app import ConfirmScreen, ShellApp
 from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.views import (
     AuditView,
@@ -76,13 +70,6 @@ from fund.tui.views import (
     MandateView,
     PostureView,
     ShellView,
-)
-from fund.tui.widgets import (
-    HistoryPanel,
-    HitlQueuePanel,
-    PortfolioStatePanel,
-    RecentEventsPanel,
-    TranscriptPanel,
 )
 
 _SIZE = (120, 40)  # roomy enough that the Approve/Reject buttons are clickable
@@ -152,170 +139,6 @@ def tui_env():
         pool=pool,
     )
     engine.dispose()
-
-
-def _make_app(env, *, poll_interval: float = 30.0, model_factory=None) -> FundTUI:
-    """Build the App wired onto ``env`` (a big poll interval keeps ticks out of the
-    way; the initial ``call_after_refresh`` still populates)."""
-    return FundTUI(
-        PORTFOLIO_ID,
-        session_factory=env.get_session,
-        persistence=env.persistence,
-        model_factory=model_factory or env.model_factory,
-        poll_interval=poll_interval,
-    )
-
-
-# --- mount + poll -----------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_five_panels_mount_and_refresh_populates(tui_env) -> None:
-    # Seed one portfolio overlay so the Recent Events panel has a row to paint.
-    with tui_env.get_session() as session:
-        PortfolioJournalRepository(session).upsert(
-            PORTFOLIO_ID,
-            ASOF,
-            run_id=None,
-            trades={},
-            allocation={"AAA": 1.0},
-            drift={},
-            narrative="prior rebalance",
-        )
-        session.commit()
-
-    app = _make_app(tui_env)
-    async with app.run_test(size=_SIZE) as pilot:
-        await pilot.pause()
-        # Drive the read tick explicitly rather than racing the poll timer: the
-        # old poll_interval=0.05 + single pause was flaky under load (the worker
-        # tick could land after the assertions). _refresh is synchronous.
-        app._refresh()
-        await pilot.pause()
-        assert app.query_one(TranscriptPanel) is not None
-        assert app.query_one(PortfolioStatePanel) is not None
-        assert app.query_one(HitlQueuePanel) is not None
-        assert app.query_one(HistoryPanel) is not None
-        assert app.query_one(RecentEventsPanel) is not None
-        # the read tick populated the queue (one paused run) and the history.
-        assert app.query_one("#hitl-table", DataTable).row_count == 1
-        assert app.query_one("#history-table", DataTable).row_count >= 1
-        # target weights (the allocator proposal fallback) fill panel 2.
-        assert app.query_one("#holdings-table", DataTable).row_count >= 1
-        # the seeded overlay fills the recent-events panel.
-        assert app.query_one("#events-table", DataTable).row_count >= 1
-
-
-# --- selection drives the gate ----------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_selecting_paused_run_shows_gate(tui_env) -> None:
-    app = _make_app(tui_env)
-    async with app.run_test(size=_SIZE) as pilot:
-        await pilot.pause()
-        app.select_run(tui_env.run_id)
-        await pilot.pause()
-        gate = app.query_one(HitlQueuePanel).gate_text
-        assert "place_orders" in gate
-        assert app.query_one(TranscriptPanel).entry_count >= 1
-
-
-@pytest.mark.asyncio
-async def test_row_selection_via_datatable_drives_gate(tui_env) -> None:
-    app = _make_app(tui_env)
-    async with app.run_test(size=_SIZE) as pilot:
-        await pilot.pause()
-        table = app.query_one("#hitl-table", DataTable)
-        table.focus()
-        table.move_cursor(row=0)
-        await pilot.pause()
-        await pilot.press("enter")
-        await pilot.pause()
-        assert "place_orders" in app.query_one(HitlQueuePanel).gate_text
-
-
-# --- approve / reject on a worker thread ------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_approve_resumes_on_worker_and_refreshes_queue(tui_env) -> None:
-    app = _make_app(tui_env)
-    async with app.run_test(size=_SIZE) as pilot:
-        await pilot.pause()
-        app.select_run(tui_env.run_id)
-        await pilot.pause()
-        await pilot.click("#approve-btn")
-        await pilot.pause()  # let the button handler spawn the worker
-        # resume ran on a background worker (never on the event loop).
-        worker = app.last_worker
-        assert worker is not None
-        assert worker.group == "resume"
-        await worker.wait()  # its call_from_thread UI updates have landed once done
-        await pilot.pause()
-        assert "approved" in app.last_status
-        # the completed run left the pending queue.
-        assert app.query_one("#hitl-table", DataTable).row_count == 0
-    with tui_env.get_session() as session:
-        row = AgentRunRepository(session).get_run(tui_env.run_id)
-        assert row.status == "completed"
-        assert row.weights == tui_env.expected
-
-
-@pytest.mark.asyncio
-async def test_reject_resumes_and_marks_rejected(tui_env) -> None:
-    app = _make_app(tui_env)
-    async with app.run_test(size=_SIZE) as pilot:
-        await pilot.pause()
-        app.select_run(tui_env.run_id)
-        await pilot.pause()
-        await pilot.click("#reject-btn")
-        await pilot.pause()
-        worker = app.last_worker
-        assert worker is not None
-        await worker.wait()
-        await pilot.pause()
-        assert "rejected" in app.last_status
-    with tui_env.get_session() as session:
-        row = AgentRunRepository(session).get_run(tui_env.run_id)
-        assert row.status == "rejected"
-        assert row.weights == {}
-
-
-@pytest.mark.asyncio
-async def test_resume_without_selection_reports_and_spawns_no_worker(tui_env) -> None:
-    app = _make_app(tui_env)
-    async with app.run_test(size=_SIZE) as pilot:
-        await pilot.pause()
-        await pilot.press("a")  # action_approve with nothing selected
-        await pilot.pause()
-        assert app.last_worker is None
-        assert "select a paused run" in app.last_status
-        app.action_reject()  # the reject binding is guarded the same way
-        assert "select a paused run" in app.last_status
-
-
-@pytest.mark.asyncio
-async def test_model_unavailable_surfaces_and_run_stays_paused(tui_env) -> None:
-    def _no_model():
-        raise RuntimeError("OLLAMA_API_KEY missing")
-
-    app = _make_app(tui_env, model_factory=_no_model)
-    async with app.run_test(size=_SIZE) as pilot:
-        await pilot.pause()
-        app.select_run(tui_env.run_id)
-        await pilot.pause()
-        await pilot.click("#approve-btn")
-        await pilot.pause()
-        worker = app.last_worker
-        assert worker is not None
-        await worker.wait()
-        await pilot.pause()
-        assert "model unavailable" in app.last_status
-        assert "OLLAMA_API_KEY" in app.last_status
-    with tui_env.get_session() as session:
-        # nothing committed: the gate is still open for a later, keyed resume.
-        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
 
 
 # --- observe.interrupt_for (the gate read the panel renders) -----------------
@@ -1255,6 +1078,27 @@ async def test_questionnaire_builds_typed_answers(shell_env) -> None:
 
 
 @pytest.mark.asyncio
+async def test_questionnaire_rejects_non_positive_capital(shell_env) -> None:
+    """Non-positive capital is rejected inline, so the modal and its answers stay."""
+    from _profiler_fakes import make_answers
+
+    answers = make_answers()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        screen = QuestionnaireScreen(ask_capital=True)
+        app.push_screen(screen)
+        await pilot.pause()
+        _fill_questionnaire(screen, answers, capital="-5000")
+        with pytest.raises(ValueError, match="positive"):
+            screen.build_submission()
+        # _submit surfaces it inline and does NOT dismiss — the answers are preserved.
+        screen._submit()
+        await pilot.pause()
+        assert isinstance(app.screen, QuestionnaireScreen)
+
+
+@pytest.mark.asyncio
 async def test_drive_actions_inert_off_posture_or_without_focus(shell_env) -> None:
     app = _make_shell(shell_env)  # fund-wide landing
     async with app.run_test(size=_SIZE) as pilot:
@@ -1515,6 +1359,23 @@ async def test_audit_export_writes_csv(shell_env, tmp_path) -> None:
     assert text.strip().count("\n") >= 3  # header + 3 data rows
 
 
+def test_audit_csv_cells_neutralise_formula_injection() -> None:
+    """Agent-generated cells starting with a spreadsheet trigger are de-fanged."""
+    from fund.tui.views import _audit_cell, _csv_safe
+
+    assert (
+        _csv_safe("=HYPERLINK('http://evil','x')") == "'=HYPERLINK('http://evil','x')"
+    )
+    assert _csv_safe("+1") == "'+1"
+    assert _csv_safe("-2") == "'-2"
+    assert _csv_safe("@cmd") == "'@cmd"
+    assert _csv_safe("safe") == "safe"
+    assert _csv_safe("") == ""
+    # Scalars route through the same guard; a JSON object renders as {...} (safe).
+    assert _audit_cell("=evil") == "'=evil"
+    assert _audit_cell({"k": "=v"}) == '{"k": "=v"}'
+
+
 # --- Deliberation replay view: transcript + step detail (T9) ------------------
 
 
@@ -1665,4 +1526,43 @@ async def test_notification_bus_toasts_drift_breach_once(shell_env) -> None:
         seen = len(app.last_attention)
         app._refresh()
         await pilot.pause()
+        assert len(app.last_attention) == seen
+
+
+@pytest.mark.asyncio
+async def test_notification_bus_preserves_state_on_read_error(
+    shell_env, monkeypatch
+) -> None:
+    """A transient read error leaves the seen-set and counter intact (no re-toast)."""
+    from _fund_fakes import seed_paused_fund_run
+
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        seed_paused_fund_run(
+            shell_env.get_session,
+            shell_env.persistence.saver,
+            shell_env.persistence.store,
+        )
+        app._poll_attention()  # the gate is seen → persistent toast + counter = 1
+        await pilot.pause()
+        assert app._awaiting_count == 1
+        seen = len(app.last_attention)
+
+        # A read error on the next tick must neither clear the seen-set nor zero the
+        # counter, so the still-pending gate is not re-toasted when the read recovers.
+        def _boom(*_a, **_k):
+            raise RuntimeError("transient DB hiccup")
+
+        monkeypatch.setattr(observe, "pending_hitl", _boom)
+        app._poll_attention()
+        await pilot.pause()
+        assert app._awaiting_count == 1  # preserved, not flickered to zero
+        assert len(app.last_attention) == seen  # no re-toast
+        assert str(app.query_one("#hdr-attention", Static).render()) == "⏸1 awaiting"
+
+        monkeypatch.undo()
+        app._poll_attention()  # recovery: gate already in the seen-set → still no toast
+        await pilot.pause()
+        assert app._awaiting_count == 1
         assert len(app.last_attention) == seen

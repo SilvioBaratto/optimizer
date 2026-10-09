@@ -1,24 +1,23 @@
-"""``fund-tui`` — the five-panel Textual observer over ``fund.observe``.
+"""``fund-tui`` — the ``ShellApp`` multi-view oversight cockpit.
 
-A read-mostly "Bloomberg" cockpit for one portfolio: a transcript, the current-vs-
-target state, the HITL approval queue, the run history, and the recent market/
-portfolio events. All five panels are thin over the model-free read model
-(``fund.observe``); the App owns every side effect:
+A six-view mission-control shell (Posture · Deliberation · Decisions · Mandate ·
+Audit · Ask) that can land fund-wide or focused on one portfolio. Every data
+surface is read from the model-free read model (``fund.observe``); the App owns
+all side effects:
 
-* **Polling, not pushing.** ``FundTUI._refresh`` runs on a ``set_interval`` timer
-  (``poll_interval``, ~2s), opening a *short read-only* session, extracting plain
-  dataclasses, and rolling back — the UI never holds a transaction or an ORM row
-  across ticks.
-* **Resume off the event loop.** Approve/Reject dispatch ``_resume_worker``, a
-  ``@work(thread=True)`` worker: the synchronous ``resume_run`` (which dispatches to
-  the profiler or rebalance resumer by gate and drives ``agent.invoke``) runs on a
-  background thread so the event loop never blocks, then marshals its UI updates back
-  with ``call_from_thread``.
-* **Lazy model, light import.** ``import fund.tui.app`` pulls only Textual + the
-  agent-stack-free read model — no ``deepagents`` / ``langgraph`` / model, so it needs
-  no ``OLLAMA_API_KEY`` and no ``DATABASE_URL``. The chat model is built lazily via the
-  injected ``model_factory`` only when the adviser approves/rejects; the persistence
-  handles (checkpointer + store, needing ``DATABASE_URL``) are built in ``main``.
+* **Polling, not pushing.** ``ShellApp._refresh`` runs on a ``set_interval``
+  timer (``poll_interval``, ~2s), opening a *short read-only* session, extracting
+  plain dataclasses, and rolling back — the UI never holds a transaction or an ORM
+  row across ticks.
+* **Mutations off the event loop.** Actions (approve/reject/killswitch/mandate/
+  onboard/run) dispatch ``@work(thread=True)`` workers that call
+  ``fund.actions.apply_action`` on a background thread, commit once, then marshal
+  UI updates back with ``call_from_thread``.
+* **Agent-stack-light import.** ``import fund.tui.app`` pulls only Textual + the
+  agent-stack-free read model — no ``deepagents`` / ``langgraph`` / model at
+  module scope. The chat model is built lazily via the injected ``model_factory``
+  only when the adviser acts; the persistence handles (checkpointer + store) are
+  built in ``main``.
 
 Every collaborator is injected (``session_factory`` / ``persistence`` /
 ``model_factory``), so ``App.run_test`` can drive the whole cockpit headlessly
@@ -61,13 +60,6 @@ from fund.tui.views import (
     ShellView,
     build_views,
 )
-from fund.tui.widgets import (
-    HistoryPanel,
-    HitlQueuePanel,
-    PortfolioStatePanel,
-    RecentEventsPanel,
-    TranscriptPanel,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -75,213 +67,9 @@ if TYPE_CHECKING:
 
     from sqlalchemy.orm import Session
     from textual.binding import BindingType
-    from textual.widgets import DataTable
     from textual.worker import Worker
 
     from fund.tui.questionnaire import OnboardingSubmission
-
-_PAST = {"approve": "approved", "reject": "rejected"}
-
-
-class FundTUI(App[None]):
-    """The five-panel observer App for a single portfolio."""
-
-    CSS = """
-    Screen { layout: grid; grid-size: 2 3; grid-gutter: 1; }
-    .panel { border: round $accent; padding: 0 1; height: 1fr; }
-    .panel-title { text-style: bold; color: $accent; }
-    #transcript-log { height: 1fr; }
-    #gate-detail { height: auto; color: $warning; }
-    #hitl-buttons { height: auto; align-horizontal: left; }
-    Button { margin: 0 1; }
-    #status-bar { dock: bottom; height: 1; background: $panel; padding: 0 1; }
-    """
-
-    BINDINGS: ClassVar[list[BindingType]] = [
-        ("a", "approve", "Approve"),
-        ("r", "reject", "Reject"),
-        ("q", "quit", "Quit"),
-    ]
-
-    def __init__(
-        self,
-        portfolio_id: uuid.UUID,
-        *,
-        session_factory: Callable[[], AbstractContextManager[Session]],
-        persistence: Any,
-        model_factory: Callable[[], Any],
-        config: FundConfig = settings,
-        poll_interval: float = 2.0,
-    ) -> None:
-        """Initialise the cockpit for a single portfolio.
-
-        All collaborators are injected so the App can be driven headlessly in
-        tests over SQLite + MemorySaver without any network dependencies.
-
-        Args:
-            portfolio_id: Portfolio to observe and act on.
-            session_factory: Callable returning a context-manager-managed
-                SQLAlchemy Session used for read ticks and resume commits.
-            persistence: Langgraph persistence bundle exposing ``.saver``
-                (checkpointer) and ``.store`` for transcript and interrupt
-                reads.
-            model_factory: Called lazily on the first approve/reject to build
-                the chat model; failures surface as a status-bar message rather
-                than crashing the App.
-            config: Application settings; defaults to the process-level
-                singleton.
-            poll_interval: Refresh timer cadence in seconds.
-        """
-        super().__init__()
-        self._portfolio_id = portfolio_id
-        self._session_factory = session_factory
-        self._persistence = persistence
-        self._model_factory = model_factory
-        self._config = config
-        self._poll_interval = poll_interval
-        self._selected_run_id: uuid.UUID | None = None
-        self.last_worker: Worker[None] | None = None
-        # Mirror of the last status line (the Static's content is not publicly
-        # readable); lets headless tests assert what the cockpit reported.
-        self.last_status: str = ""
-
-    # --- layout -------------------------------------------------------------
-
-    def compose(self) -> ComposeResult:
-        yield Header()
-        yield TranscriptPanel(classes="panel", id="transcript-panel")
-        yield PortfolioStatePanel(classes="panel", id="state-panel")
-        yield HitlQueuePanel(classes="panel", id="hitl-panel")
-        yield HistoryPanel(classes="panel", id="history-panel")
-        yield RecentEventsPanel(classes="panel", id="events-panel")
-        yield Static("", id="status-bar")
-        yield Footer()
-
-    def on_mount(self) -> None:
-        # Populate once the child panels have mounted their columns, then poll.
-        self.call_after_refresh(self._refresh)
-        self.set_interval(self._poll_interval, self._refresh)
-
-    # --- polling read loop --------------------------------------------------
-
-    def _refresh(self) -> None:
-        """One poll tick: read the model-free state and repaint every panel.
-
-        Opens a short read-only session, extracts plain dataclasses (safe to hold
-        past the transaction), rolls back, and paints. A read error is surfaced on
-        the status bar and swallowed so the timer keeps the cockpit alive.
-        """
-        try:
-            with self._session_factory() as session:
-                runs = observe.list_portfolio_runs(session, self._portfolio_id)
-                queue = observe.pending_hitl(
-                    session, self._persistence.saver, self._portfolio_id
-                )
-                state = observe.portfolio_state(session, self._portfolio_id)
-                events = observe.recent_events(session, self._portfolio_id)
-                transcript: list[observe.TranscriptEntry] = []
-                interrupt: dict[str, Any] | None = None
-                if self._selected_run_id is not None:
-                    # Lazy repo import (fund.audit bootstraps langgraph): the ORM row
-                    # carries thread_id + decisions the read model needs.
-                    from fund.audit.repository import AgentRunRepository
-
-                    run_row = AgentRunRepository(session).get_run(self._selected_run_id)
-                    if run_row is not None:
-                        transcript = observe.load_run_transcript(
-                            session, self._persistence.saver, run_row
-                        )
-                        interrupt = observe.interrupt_for(
-                            self._persistence.saver, run_row
-                        )
-                session.rollback()
-        except Exception as exc:  # keep the poll loop alive on any read error
-            self._set_status(f"refresh error: {exc}")
-            return
-
-        self.query_one(HistoryPanel).show_runs(runs)
-        hitl = self.query_one(HitlQueuePanel)
-        hitl.show_runs(queue)
-        hitl.show_gate(interrupt)
-        self.query_one(PortfolioStatePanel).show(state)
-        self.query_one(TranscriptPanel).show(transcript)
-        self.query_one(RecentEventsPanel).show(events)
-
-    # --- selection ----------------------------------------------------------
-
-    def select_run(self, run_id: uuid.UUID) -> None:
-        """Focus a run: its transcript, state, and (if paused) gate now render."""
-        self._selected_run_id = run_id
-        self._refresh()
-
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """A queue/history row selection drives panels 1-2 (and the gate)."""
-        key = event.row_key.value
-        if key is not None:
-            self.select_run(uuid.UUID(key))
-
-    # --- approve / reject (worker thread) -----------------------------------
-
-    def on_button_pressed(self, event: Any) -> None:
-        if event.button.id == "approve-btn":
-            self._resume("approve")
-        elif event.button.id == "reject-btn":
-            self._resume("reject")
-
-    def action_approve(self) -> None:
-        self._resume("approve")
-
-    def action_reject(self) -> None:
-        self._resume("reject")
-
-    def _resume(self, decision: str) -> None:
-        """Dispatch a rebuild-to-resume for the selected run on a worker thread."""
-        if self._selected_run_id is None:
-            self._set_status("select a paused run first")
-            return
-        self.last_worker = self._resume_worker(self._selected_run_id, decision)
-
-    @work(thread=True, exclusive=True, group="resume")
-    def _resume_worker(self, run_id: uuid.UUID, decision: str) -> None:
-        """Rebuild the paused run's agent and resume its gate — off the event loop.
-
-        The model is built lazily here (a missing ``OLLAMA_API_KEY`` surfaces as a
-        clear status line, not a crash). All UI touches marshal back to the main
-        thread via ``call_from_thread``.
-        """
-        from fund.agents.graph import resume_run
-
-        try:
-            model = self._model_factory()
-        except Exception as exc:  # surface a clean message, never crash the App
-            self.call_from_thread(self._set_status, f"model unavailable: {exc}")
-            return
-        try:
-            with self._session_factory() as session:
-                resume_run(
-                    run_id,
-                    decision,
-                    session=session,
-                    checkpointer=self._persistence.saver,
-                    store=self._persistence.store,
-                    model=model,
-                )
-                session.commit()
-        except Exception as exc:  # surface a clean message, never crash the App
-            self.call_from_thread(self._set_status, f"resume failed: {exc}")
-            return
-        self.call_from_thread(self._after_resume, run_id, decision)
-
-    def _after_resume(self, run_id: uuid.UUID, decision: str) -> None:
-        """On the main thread once the worker committed: report + repaint."""
-        self._set_status(f"run {run_id} {_PAST[decision]}")
-        self._refresh()
-
-    # --- helpers ------------------------------------------------------------
-
-    def _set_status(self, message: str) -> None:
-        self.last_status = message
-        self.query_one("#status-bar", Static).update(message)
 
 
 class ConfirmScreen(ModalScreen[bool]):
@@ -342,10 +130,10 @@ class ShellApp(App[None]):
     portfolio; Phase-0 views are placeholders (:class:`~fund.tui.views.ShellView`),
     filled by later phases.
 
-    Shares ``FundTUI``'s discipline: the same injected ``__init__`` seam (so
-    ``run_test`` drives it headlessly over SQLite + ``MemorySaver`` with zero
-    network), a synchronous per-view ``_refresh``, and an agent-stack-light import
-    (Textual + the model-free read model only — no ``deepagents`` / ``langgraph``).
+    Every collaborator is injected through ``__init__`` (so ``run_test`` drives it
+    headlessly over SQLite + ``MemorySaver`` with zero network); the per-view
+    ``_refresh`` is synchronous; and the import stays agent-stack-light (Textual +
+    the model-free read model only — no ``deepagents`` / ``langgraph``).
     """
 
     CSS = """
@@ -468,10 +256,14 @@ class ShellApp(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        """Seed the portfolio picker, paint the run-state glyph, and start polling.
+
+        The mount-time ``Select.Changed`` the seeding echoes is dropped by
+        ``on_select_changed``'s value-equality guard, not a mount-window flag.
+        """
         # Seed the picker, then paint once the views have mounted and poll on the
         # cockpit's cadence (the placeholder views' refresh is a no-op counter bump
-        # today). The mount-time ``Select.Changed`` the seeding echoes is dropped by
-        # ``on_select_changed``'s value-equality guard, not a mount-window flag.
+        # today).
         self._populate_picker()
         self._refresh_runstate()
         if self.size.width:
@@ -544,10 +336,10 @@ class ShellApp(App[None]):
     def _refresh(self) -> None:
         """Repaint the active view from the read model — synchronous, test-callable.
 
-        Mirrors ``FundTUI._refresh``: a single sync entry point a headless test can
-        call directly instead of racing the poll timer. Runs the cross-portfolio
-        notification bus first (fund-wide, independent of the active view), then
-        delegates to the visible :class:`~fund.tui.views.ShellView` for its repaint.
+        A single sync entry point a headless test can call directly instead of racing
+        the poll timer. Runs the cross-portfolio notification bus first (fund-wide,
+        independent of the active view), then delegates to the visible
+        :class:`~fund.tui.views.ShellView` for its repaint.
         """
         self._poll_attention()
         current = self.query_one(ContentSwitcher).current
@@ -582,6 +374,11 @@ class ShellApp(App[None]):
         only if it genuinely recurs.
         """
         current = self._read_attention()
+        if current is None:
+            # A read error, not an empty fund: leave the seen-set and counter untouched
+            # so a transient DB hiccup neither re-toasts every still-pending gate on the
+            # next good tick nor flickers the "awaiting" counter to zero.
+            return
         for key, message in current:
             if key not in self._seen_attention:
                 self._raise_attention(message)
@@ -589,12 +386,13 @@ class ShellApp(App[None]):
         self._awaiting_count = sum(1 for (kind, _), _ in current if kind == "gate")
         self._paint_attention()
 
-    def _read_attention(self) -> list[tuple[tuple[str, uuid.UUID], str]]:
+    def _read_attention(self) -> list[tuple[tuple[str, uuid.UUID], str]] | None:
         """The current fund-wide attention items: awaiting gates + drift breaches.
 
         Each item is ``((kind, id), message)`` where ``kind`` is ``"gate"`` (keyed by
-        run id) or ``"breach"`` (keyed by portfolio id). Returns ``[]`` on any read
-        error so the poll loop stays alive.
+        run id) or ``"breach"`` (keyed by portfolio id). Returns ``None`` on any read
+        error — distinct from an empty list — so the poll can leave prior state intact
+        rather than mistaking a hiccup for a cleared fund.
         """
         items: list[tuple[tuple[str, uuid.UUID], str]] = []
         try:
@@ -609,8 +407,8 @@ class ShellApp(App[None]):
                             (("breach", pid), f"◐ drift breach · {str(pid)[:8]}")
                         )
                 session.rollback()
-        except Exception:  # keep the poll loop alive on any read error
-            return []
+        except Exception:  # a transient read error — signal "unknown", not "empty"
+            return None
         return items
 
     def _is_drift_breach(self, session: Session, portfolio_id: uuid.UUID) -> bool:
@@ -709,10 +507,9 @@ class ShellApp(App[None]):
     ) -> None:
         """Resolve a gate through the unified action path — off the event loop.
 
-        Mirrors ``FundTUI._resume_worker``: the model is built lazily (a missing key
-        surfaces as a status line, not a crash), ``apply_action`` resumes + logs on a
-        freshly opened session, the caller commits, and the UI touches marshal back
-        via ``call_from_thread``.
+        The model is built lazily (a missing key surfaces as a status line, not a
+        crash), ``apply_action`` resumes + logs on a freshly opened session, the caller
+        commits, and the UI touches marshal back via ``call_from_thread``.
         """
         from fund.actions import apply_action
 
@@ -731,6 +528,9 @@ class ShellApp(App[None]):
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
                     model=model,
+                    # Resolving a run is terminal: key on (run, decision) so a repeat
+                    # replays the first outcome instead of re-resuming.
+                    idempotency_key=f"{run_id}:{decision}",
                 )
                 session.commit()
         except Exception as exc:  # surface a clean message, never crash the App

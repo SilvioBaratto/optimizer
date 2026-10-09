@@ -122,10 +122,9 @@ class ShellView(Vertical):
     def read_session(self) -> Generator[Session]:
         """Yield a short read-only session from the shell, rolled back on exit.
 
-        The read discipline every data-view shares (mirrors ``FundTUI._refresh``):
-        open a session from the shell's injected factory, read the model, and roll
-        back — the UI never holds a transaction across poll ticks. The caller does
-        not commit.
+        The read discipline every data-view shares: open a session from the shell's
+        injected factory, read the model, and roll back — the UI never holds a
+        transaction across poll ticks. The caller does not commit.
 
         Yields:
             An injected sync session, valid only inside the ``with`` block.
@@ -909,30 +908,43 @@ def _audit_detail(entry: Any) -> str:
     return "\n".join(lines)
 
 
+# Spreadsheet formula-injection guard: Excel/Calc evaluate a cell whose first character
+# is one of these. Audit cells carry agent-generated text (a decision string, a source),
+# so a leading trigger is neutralised with a prefixed apostrophe before export.
+_CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(text: str) -> str:
+    """Neutralise a leading spreadsheet formula trigger in a CSV cell."""
+    if text and text[0] in _CSV_FORMULA_TRIGGERS:
+        return "'" + text
+    return text
+
+
 def _audit_csv_row(entry: Any) -> list[str]:
     return [
         entry.when.isoformat(),
-        entry.kind,
-        entry.actor,
-        entry.action,
+        _csv_safe(entry.kind),
+        _csv_safe(entry.actor),
+        _csv_safe(entry.action),
         str(entry.portfolio_id or ""),
         str(entry.run_id or ""),
         _audit_cell(entry.prev_value),
         _audit_cell(entry.new_value),
-        entry.source or "",
-        entry.idempotency_key or "",
+        _csv_safe(entry.source or ""),
+        _csv_safe(entry.idempotency_key or ""),
         str(entry.override_flag),
         str(entry.suitability_flag),
     ]
 
 
 def _audit_cell(value: Any) -> str:
-    """Render a (possibly JSON) audit value as a deterministic CSV cell."""
+    """Render a (possibly JSON) audit value as a safe, deterministic CSV cell."""
     if value is None:
         return ""
     if isinstance(value, str | int | float | bool):
-        return str(value)
-    return json.dumps(value, sort_keys=True)
+        return _csv_safe(str(value))
+    return _csv_safe(json.dumps(value, sort_keys=True))
 
 
 class DeliberationView(ShellView):
