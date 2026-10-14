@@ -63,7 +63,7 @@ from fund.audit import (
 )
 from fund.config import settings
 from fund.tui import app as tui_app
-from fund.tui.app import ConfirmScreen, ShellApp
+from fund.tui.app import ConfirmScreen, OrderEditScreen, ShellApp
 from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.stream import StepStatus, StreamEvent
@@ -1769,6 +1769,108 @@ async def test_barge_in_at_gate_responds_and_regates(tui_env) -> None:
         rows = HumanAuditLogRepository(session).list_recent(action="respond")
         assert len(rows) == 1
         assert rows[0].run_id == run_id
+
+
+# --- Decisions e/edit + s/steer (view-scoped bindings) (T9) -------------------
+
+
+@pytest.mark.asyncio
+async def test_decisions_edit_commits_edited_weights(tui_env) -> None:
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_edit_decision()
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, OrderEditScreen)
+        screen.query_one("#edit-weights", Input).value = "AAA:0.5, BBB:0.5"
+        screen._submit()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert "edited" in app.last_status
+    with tui_env.get_session() as session:
+        run = AgentRunRepository(session).get_run(tui_env.run_id)
+        assert run.status == "completed"
+        assert run.weights == {
+            "AAA": 0.5,
+            "BBB": 0.5,
+        }  # the human override, not the LLM
+        rows = HumanAuditLogRepository(session).list_recent(action="edit")
+        assert len(rows) == 1
+        assert rows[0].override_flag is True
+
+
+@pytest.mark.asyncio
+async def test_decisions_e_binding_is_edit_not_export(tui_env) -> None:
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        table = view.query_one("#decisions-table", DataTable)
+        table.focus()
+        await pilot.pause()
+        await pilot.press("e")  # view-scoped → edit, not the global Audit export
+        await pilot.pause()
+        assert isinstance(app.screen, OrderEditScreen)
+
+
+@pytest.mark.asyncio
+async def test_decisions_steer_responds_and_regates(tui_env) -> None:
+    app = _make_shell(
+        tui_env,
+        model_factory=lambda: ScriptedFundModel(
+            universe=UNIVERSE, weights=tui_env.expected, max_orders=2
+        ),
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_steer_decision()
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, BargeInScreen)
+        screen.query_one("#bargein-text", Input).value = "Trim AAA before committing."
+        screen._submit()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert "responded" in app.last_status
+    with tui_env.get_session() as session:
+        run = AgentRunRepository(session).get_run(tui_env.run_id)
+        assert run.status == "responded"
+
+
+@pytest.mark.asyncio
+async def test_decisions_edit_steer_inert_without_selection(tui_env) -> None:
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_decisions(app, pilot)  # nothing selected
+        app.action_edit_decision()
+        await pilot.pause()
+        assert not isinstance(app.screen, OrderEditScreen)
+        assert "select a paused gate" in app.last_status
+        app.action_steer_decision()
+        await pilot.pause()
+        assert not isinstance(app.screen, BargeInScreen)
+
+
+def test_parse_weights_rejects_garbage_and_parses_pairs() -> None:
+    from fund.tui.app import _parse_weights
+
+    assert _parse_weights("AAA:0.6, BBB:0.4") == {"AAA": 0.6, "BBB": 0.4}
+    with pytest.raises(ValueError, match="ticker:weight"):
+        _parse_weights("AAA 0.6")
+    with pytest.raises(ValueError, match="weight"):
+        _parse_weights("AAA:oops")
 
 
 # --- Notification bus: poll-diff → persistent toasts + counters (T10) ---------

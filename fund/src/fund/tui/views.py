@@ -148,14 +148,22 @@ class DecisionsView(ShellView):
     "why" line. ``a`` / ``r`` resolve the selected gate through
     :func:`fund.actions.apply_action` on a worker thread (dispatched by the App), and
     ``k`` killswitches it (finalise rejected, no undo) behind an explicit-consequence
-    confirm; ``e`` / ``s`` (edit / steer) are rendered but inert — they land with the
-    co-pilot (``03-copilot``).
+    confirm; ``e`` edits the proposed weights (``apply_action("edit")``) and ``s``
+    steers the PM with a directive (``respond``), both dispatched by the App.
 
     Attributes:
         selected_run_id: The focused queued run, or ``None`` when nothing is selected.
         selected_portfolio_id: That run's portfolio (for the audit attribution).
         gate_text: Mirror of the rendered gate detail — a headless-test hook.
     """
+
+    # View-scoped so ``e``/``s`` mean edit/steer only while Decisions holds focus; the
+    # App's global ``e`` (Audit export) is untouched (R5). The ``app.`` prefix routes to
+    # the App's action (the handlers live there, not on the view).
+    BINDINGS: ClassVar[list[BindingType]] = [
+        ("e", "app.edit_decision", "Edit weights"),
+        ("s", "app.steer_decision", "Steer PM"),
+    ]
 
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)
@@ -176,8 +184,7 @@ class DecisionsView(ShellView):
                 "(select a paused gate)", id="decisions-gate", classes="decisions-gate"
             )
         yield Static(
-            "a approve · r reject · k killswitch · e edit · s steer"
-            "  — e/s arrive with the co-pilot",
+            "a approve · r reject · k killswitch · e edit weights · s steer PM",
             id="decisions-hint",
             classes="decisions-hint",
         )

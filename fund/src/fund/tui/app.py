@@ -43,6 +43,7 @@ from textual.widgets import (
     ContentSwitcher,
     Footer,
     Header,
+    Input,
     Label,
     ListItem,
     ListView,
@@ -118,6 +119,112 @@ class ConfirmScreen(ModalScreen[bool]):
     def action_cancel(self) -> None:
         """``escape`` dismisses the dialog as a cancel — a no-op for the caller."""
         self.dismiss(False)
+
+
+def _parse_weights(raw: str) -> dict[str, float]:
+    """Parse a ``"ticker:weight, …"`` edit string into a weights mapping.
+
+    Args:
+        raw: Comma-separated ``ticker:weight`` pairs the adviser typed.
+
+    Returns:
+        The parsed ``{ticker: weight}`` mapping (risk invariants are left to
+        ``apply_action("edit")``; this only guards the textual shape).
+
+    Raises:
+        ValueError: A pair is missing its ``ticker``/``weight`` or the weight is
+            not a float — surfaced inline so a typo never dismisses the editor.
+    """
+    weights: dict[str, float] = {}
+    for part in raw.split(","):
+        ticker, _, weight = part.partition(":")
+        ticker = ticker.strip()
+        if not ticker or not weight.strip():
+            raise ValueError(f"bad entry {part.strip()!r}; use ticker:weight")
+        try:
+            weights[ticker] = float(weight)
+        except ValueError:
+            raise ValueError(f"bad weight for {ticker!r}") from None
+    return weights
+
+
+class OrderEditScreen(ModalScreen["dict[str, float] | None"]):
+    """A modal to edit the gate's proposed target weights before committing.
+
+    Pre-fills the optimizer's proposed ``{ticker: weight}`` as an editable line; on
+    Commit (or ``↵``) it parses the text and — if well-formed — dismisses the edited
+    mapping, which the caller threads through ``apply_action("edit")``. A parse error
+    surfaces inline (the editor stays open); Cancel / ``escape`` / empty dismiss
+    ``None``. Risk invariants (long-only, fully-invested) are enforced downstream.
+
+    Args:
+        weights: The proposed target weights to pre-fill.
+    """
+
+    DEFAULT_CSS = """
+    OrderEditScreen { align: center middle; }
+    .edit-dialog {
+        width: 70; height: auto; padding: 1 2;
+        border: thick $accent; background: $surface;
+    }
+    .edit-prompt { height: auto; color: $warning; }
+    .edit-error { height: auto; color: $error; }
+    .edit-actions { height: auto; align-horizontal: center; padding-top: 1; }
+    .edit-actions Button { margin: 0 1; }
+    """
+
+    BINDINGS: ClassVar[list[BindingType]] = [("escape", "cancel", "Cancel")]
+
+    def __init__(self, weights: dict[str, float]) -> None:
+        super().__init__()
+        self._weights = weights
+
+    def compose(self) -> ComposeResult:
+        """Yield the prompt, the pre-filled weights input, an error line, actions."""
+        with Vertical(classes="edit-dialog"):
+            yield Static(
+                "edit target weights (ticker:weight, comma-separated)",
+                classes="edit-prompt",
+            )
+            yield Input(
+                value=", ".join(
+                    f"{ticker}:{weight:.4f}"
+                    for ticker, weight in sorted(self._weights.items())
+                ),
+                id="edit-weights",
+            )
+            yield Static("", id="edit-error", classes="edit-error")
+            with Horizontal(classes="edit-actions"):
+                yield Button("Commit", variant="primary", id="edit-commit")
+                yield Button("Cancel", id="edit-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Commit submits the edited weights; any other button cancels."""
+        if event.button.id == "edit-commit":
+            self._submit()
+        else:
+            self.dismiss(None)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """``↵`` in the weights field submits the edit."""
+        self._submit()
+
+    def action_cancel(self) -> None:
+        """``escape`` dismisses the editor as a cancel (a caller no-op)."""
+        self.dismiss(None)
+
+    def _submit(self) -> None:
+        """Dismiss the parsed weights, surfacing a parse error inline instead."""
+        raw = self.query_one("#edit-weights", Input).value.strip()
+        if not raw:
+            self.dismiss(None)
+            return
+        try:
+            edited = _parse_weights(raw)
+        except ValueError as exc:
+            self.query_one("#edit-error", Static).update(f"⚠ {exc}")
+            return
+        self.dismiss(edited)
 
 
 _NARROW_WIDTH = 80  # below this terminal width the sidebar collapses to a rail
@@ -515,6 +622,79 @@ class ShellApp(App[None]):
             return None
         return view if isinstance(view, DecisionsView) else None
 
+    def action_edit_decision(self) -> None:
+        """Edit the selected gate's proposed weights before committing (``e`` binding).
+
+        View-scoped to Decisions (``DecisionsView.BINDINGS``) so it does not collide
+        with the global Audit export ``e``. Reads the gate's proposed weights, opens the
+        editor, and on Commit threads the edit through ``apply_action("edit")``. A no-op
+        with a hint off Decisions or without a selected paused gate.
+        """
+        view = self._active_decisions_view()
+        if view is None or view.selected_run_id is None:
+            self._set_status("select a paused gate to edit")
+            return
+        run_id = view.selected_run_id
+        portfolio_id = view.selected_portfolio_id
+        weights = self._proposed_weights(run_id)
+        if not weights:
+            self._set_status("no proposed weights to edit")
+            return
+
+        def _edited(edited: dict[str, float] | None) -> None:
+            if edited is None:
+                self._set_status("edit cancelled")
+                return
+            self.last_worker = self._edit_worker(run_id, portfolio_id, edited)
+
+        self.push_screen(OrderEditScreen(weights), _edited)
+
+    def action_steer_decision(self) -> None:
+        """Steer the PM on the selected gate with a directive (the ``s`` binding).
+
+        View-scoped to Decisions; reuses the barge-in overlay and threads the directive
+        through ``apply_action("respond")`` so the run re-gates ``responded``. A no-op
+        with a hint off Decisions or without a selected paused gate.
+        """
+        view = self._active_decisions_view()
+        if view is None or view.selected_run_id is None:
+            self._set_status("select a paused gate to steer")
+            return
+        run_id = view.selected_run_id
+
+        def _resolved(result: BargeInResult | None) -> None:
+            if result is None:
+                self._set_status("steer cancelled")
+                return
+            self.last_worker = self._barge_in_worker(run_id, result.text)
+
+        self.push_screen(BargeInScreen("the selected gate"), _resolved)
+
+    def _proposed_weights(self, run_id: uuid.UUID) -> dict[str, float]:
+        """The gate's proposed ``{ticker: weight}``, or ``{}`` on any read error.
+
+        Reads the pending interrupt's ``place_orders`` args through a short read-only
+        session; the run repo is imported from its submodule (never the ``fund.audit``
+        root, which pulls the langgraph bootstrap) so this stays agent-stack-light.
+        """
+        from fund.audit.repository import AgentRunRepository
+
+        try:
+            with self._session_factory() as session:
+                run = AgentRunRepository(session).get_run(run_id)
+                interrupt = (
+                    observe.interrupt_for(self._persistence.saver, run) if run else None
+                )
+                session.rollback()
+        except Exception:  # keep the shell alive on a read error
+            return {}
+        requests = (interrupt or {}).get("action_requests") or []
+        args = (requests[0].get("args") if requests else {}) or {}
+        weights = args.get("weights")
+        if not isinstance(weights, dict):
+            return {}
+        return {str(ticker): float(weight) for ticker, weight in weights.items()}
+
     @work(thread=True, exclusive=True, group="action")
     def _action_worker(
         self, run_id: uuid.UUID, portfolio_id: uuid.UUID | None, decision: str
@@ -545,6 +725,46 @@ class ShellApp(App[None]):
                     # Resolving a run is terminal: key on (run, decision) so a repeat
                     # replays the first outcome instead of re-resuming.
                     idempotency_key=f"{run_id}:{decision}",
+                )
+                session.commit()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"action failed: {exc}")
+            return
+        self.call_from_thread(self._after_action, result.message)
+
+    @work(thread=True, exclusive=True, group="action")
+    def _edit_worker(
+        self,
+        run_id: uuid.UUID,
+        portfolio_id: uuid.UUID | None,
+        weights: dict[str, float],
+    ) -> None:
+        """Commit adviser-edited weights through the unified path — off the event loop.
+
+        Dispatches ``apply_action("edit", new_value=weights)``: the edit validates the
+        risk invariants, appends the override as a fresh allocator decision, and resumes
+        the run via ``approve`` so every downstream record reflects the edit. A risk
+        violation or any failure surfaces as a status line rather than crashing the App.
+        """
+        from fund.actions import apply_action
+
+        try:
+            model = self._model_factory()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"model unavailable: {exc}")
+            return
+        try:
+            with self._session_factory() as session:
+                result = apply_action(
+                    "edit",
+                    session=session,
+                    run_id=run_id,
+                    portfolio_id=portfolio_id,
+                    new_value=weights,
+                    model=model,
+                    checkpointer=self._persistence.saver,
+                    store=self._persistence.store,
+                    idempotency_key=f"{run_id}:edit",
                 )
                 session.commit()
         except Exception as exc:  # surface a clean message, never crash the App
