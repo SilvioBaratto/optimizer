@@ -168,6 +168,7 @@ class ShellApp(App[None]):
     .delib-left { width: 50%; }
     .delib-runs { height: 40%; }
     .delib-steps { height: 1fr; }
+    .delib-live { height: 1fr; }
     .delib-detail { width: 1fr; padding: 0 1; color: $warning; }
     .delib-hint { height: 1; color: $accent; }
     """

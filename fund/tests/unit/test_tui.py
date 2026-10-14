@@ -39,6 +39,7 @@ from portopt_db.models import Base
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+from textual.coordinate import Coordinate
 from textual.widgets import (
     ContentSwitcher,
     DataTable,
@@ -63,6 +64,7 @@ from fund.config import settings
 from fund.tui import app as tui_app
 from fund.tui.app import ConfirmScreen, ShellApp
 from fund.tui.questionnaire import QuestionnaireScreen
+from fund.tui.stream import StepStatus, StreamEvent
 from fund.tui.views import (
     AuditView,
     DecisionsView,
@@ -1493,6 +1495,108 @@ async def test_deliberation_empty_without_focus(shell_env) -> None:
         view = await _open_deliberation(app, pilot)
         assert view.query_one("#delib-runs", DataTable).row_count == 0
         assert "select a step" in view.detail_text
+
+
+# --- Deliberation live mode: streamed timeline + follow/inspect (GP0-1) --------
+
+
+def _scripted_stream(run_id: uuid.UUID) -> list[StreamEvent]:
+    """Two live subagent steps, then the terminal paused-gate event, in order."""
+    return [
+        StreamEvent(
+            kind="step",
+            run_id=run_id,
+            index=0,
+            agent="economist",
+            step="report",
+            status=StepStatus.LIVE,
+            text="macro read",
+        ),
+        StreamEvent(
+            kind="step",
+            run_id=run_id,
+            index=1,
+            agent="allocator",
+            step="report",
+            status=StepStatus.LIVE,
+            text="proposed weights",
+        ),
+        StreamEvent(
+            kind="paused",
+            run_id=run_id,
+            index=2,
+            agent="orchestrator",
+            step="place_orders",
+            status=StepStatus.PENDING,
+            text="awaiting the execution gate",
+            payload={"action_requests": []},
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_renders_steps_and_flips_markers(shell_env) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid)
+        await pilot.pause()
+        for event in _scripted_stream(rid):
+            view.ingest_event(event)
+            await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        assert live.display is True
+        assert live.row_count == 3  # the two steps + the terminal gate row
+        # Each new event flips the prior LIVE step ●→✓; the terminal row stays ·.
+        assert live.get_cell_at(Coordinate(0, 0)) == StepStatus.DONE.glyph
+        assert live.get_cell_at(Coordinate(1, 0)) == StepStatus.DONE.glyph
+        assert live.get_cell_at(Coordinate(2, 0)) == StepStatus.PENDING.glyph
+        assert "awaiting the execution gate" in view.live_text
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_follow_then_inspect_then_resume(shell_env) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid)
+        for event in _scripted_stream(rid):
+            view.ingest_event(event)
+            await pilot.pause()
+        assert view.following is True  # auto-follow by default
+        live = view.query_one("#delib-live", DataTable)
+        live.focus()
+        live.move_cursor(row=1)  # inspect an earlier step → pause follow
+        await pilot.pause()
+        assert view.following is False
+        view.action_follow_live()  # f → re-snap to the tail
+        await pilot.pause()
+        assert view.following is True
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_ends_back_to_replay(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid)
+        view.ingest_event(_scripted_stream(rid)[0])
+        await pilot.pause()
+        assert view.query_one("#delib-live", DataTable).display is True
+        assert view.query_one("#delib-runs", DataTable).display is False
+        view.end_live()
+        await pilot.pause()
+        assert view.live_run_id is None
+        # Replay is restored: the run picker returns, the live table is hidden.
+        assert view.query_one("#delib-live", DataTable).display is False
+        assert view.query_one("#delib-runs", DataTable).display is True
+        assert view.query_one("#delib-runs", DataTable).row_count == 1
 
 
 # --- Notification bus: poll-diff → persistent toasts + counters (T10) ---------

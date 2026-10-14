@@ -26,10 +26,12 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.coordinate import Coordinate
 from textual.widgets import DataTable, Input, Label, Select, Static
 
 from fund import observe
 from fund.observe import RunSummary
+from fund.tui.stream import StepStatus, StreamEvent
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -956,12 +958,22 @@ class DeliberationView(ShellView):
     run renders ``observe.load_run_transcript`` — the checkpoint's PM/subagent turns
     interleaved with the ``agent_decisions`` — as an ordered step timeline (left);
     selecting a step reveals its detail (right, with the decision payload where one
-    exists). Read-only replay; the live tail arrives in ``02-live-deliberation``.
+    exists).
+
+    While a round streams it switches to a **live tail**: :meth:`start_live` swaps the
+    replay split for a single timeline that :meth:`ingest_event` fills in emission
+    order, flipping each prior step's ●/✓ marker as the next event lands; auto-follow
+    glues the view to the newest row until the adviser moves the cursor to inspect
+    (``f`` / :meth:`action_follow_live` re-snaps). :meth:`end_live` drops back to the
+    replay transcript on the terminal event.
 
     Attributes:
         selected_run_id: The run whose transcript is shown, or ``None``.
         selected_step: The focused step's position, or ``None``.
         detail_text: Mirror of the rendered step detail — a headless-test hook.
+        live_run_id: The streaming run while live, else ``None`` (replay mode).
+        following: Whether the live tail auto-follows; a cursor move pauses it.
+        live_text: Mirror of the rendered live-step detail — a headless-test hook.
     """
 
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
@@ -970,9 +982,13 @@ class DeliberationView(ShellView):
         self.selected_step: int | None = None
         self.detail_text = ""
         self._entries: list[Any] = []
+        self.live_run_id: uuid.UUID | None = None
+        self.following = True
+        self.live_text = ""
+        self._live_events: list[StreamEvent] = []
 
     def compose(self) -> ComposeResult:
-        """Yield the title, subtitle, the runs/steps | detail split, and the hint."""
+        """Yield the title, subtitle, the runs/steps/live split, detail, and hint."""
         yield Label(self.view_title, classes="view-title")
         yield Label(
             "(no portfolio focused)", id="delib-subtitle", classes="view-subtitle"
@@ -985,26 +1001,120 @@ class DeliberationView(ShellView):
                 yield DataTable(
                     id="delib-steps", cursor_type="row", classes="delib-steps"
                 )
+                yield DataTable(
+                    id="delib-live", cursor_type="row", classes="delib-live"
+                )
             yield Static("(select a step)", id="delib-detail", classes="delib-detail")
         yield Static(
-            "↑↓ select · ↵ run then step — replay only (live tail in 02)",
+            "↑↓ select · ↵ run then step · f follow live",
             id="delib-hint",
             classes="delib-hint",
         )
 
     def on_mount(self) -> None:
-        """Seed the run + step tables' columns once their DataTables have mounted."""
+        """Seed the run/step/live tables' columns; hide the live tail until a stream."""
         self.query_one("#delib-runs", DataTable).add_columns("run", "asof", "status")
         self.query_one("#delib-steps", DataTable).add_columns("idx", "agent", "step")
+        live = self.query_one("#delib-live", DataTable)
+        live.add_columns("", "agent", "step")
+        live.display = False
 
     def refresh_view(self) -> None:
-        """Repaint the run picker, the selected run's steps, and the step detail."""
+        """Repaint the run picker and step detail, or the live subtitle while streaming.
+
+        In live mode the timeline is push-driven by :meth:`ingest_event`, so a poll
+        tick only refreshes the follow/inspect subtitle and must not overwrite the
+        streamed rows with the replay read.
+        """
         self.render_count += 1
+        if self.live_run_id is not None:
+            self._paint_live_subtitle()
+            return
         runs, entries = self._read()
         self._paint_subtitle()
         self._paint_runs(runs)
         self._paint_steps(entries)
         self._paint_detail()
+
+    # --- live tail ----------------------------------------------------------
+
+    def start_live(self, run_id: uuid.UUID) -> None:
+        """Enter live mode for ``run_id``: swap the replay split for an empty timeline.
+
+        Clears any prior stream, re-arms auto-follow, and hides the run/step picker so
+        the streamed steps fill the pane. Idempotent per run — a fresh call restarts
+        the timeline.
+        """
+        self.live_run_id = run_id
+        self._live_events = []
+        self.following = True
+        self.live_text = ""
+        self.query_one("#delib-runs", DataTable).display = False
+        self.query_one("#delib-steps", DataTable).display = False
+        live = self.query_one("#delib-live", DataTable)
+        live.clear()
+        live.display = True
+        self._paint_live_subtitle()
+        self.query_one("#delib-detail", Static).update("(waiting for the first step…)")
+
+    def ingest_event(self, event: StreamEvent) -> None:
+        """Append one streamed step, flipping the prior LIVE marker to DONE.
+
+        A no-op unless a stream is live. The prior row's ● becomes ✓ before the new
+        row lands, so markers need no second producer pass; the viewport snaps to the
+        tail while :attr:`following`, and the detail pane mirrors the newest step.
+        """
+        if self.live_run_id is None:
+            return
+        table = self.query_one("#delib-live", DataTable)
+        if self._live_events and self._live_events[-1].status is StepStatus.LIVE:
+            table.update_cell_at(
+                Coordinate(len(self._live_events) - 1, 0), StepStatus.DONE.glyph
+            )
+        self._live_events.append(event)
+        table.add_row(
+            event.status.glyph,
+            event.agent,
+            event.step or event.kind,
+            key=str(event.index),
+        )
+        if self.following:
+            table.scroll_end(animate=False)
+        self._paint_live_detail(event)
+
+    def end_live(self) -> None:
+        """Leave live mode and fall back to the replay transcript (terminal event)."""
+        self.live_run_id = None
+        self.query_one("#delib-live", DataTable).display = False
+        self.query_one("#delib-runs", DataTable).display = True
+        self.query_one("#delib-steps", DataTable).display = True
+        self.refresh_view()
+
+    def action_follow_live(self) -> None:
+        """Re-arm auto-follow and re-snap to the live tail (the view-scoped ``f``)."""
+        self.following = True
+        if self.live_run_id is not None:
+            table = self.query_one("#delib-live", DataTable)
+            if table.row_count:
+                table.move_cursor(row=table.row_count - 1)
+                table.scroll_end(animate=False)
+        self._paint_live_subtitle()
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        """Pause auto-follow when the adviser moves the live cursor off the tail."""
+        if event.data_table.id != "delib-live":
+            return
+        self.following = event.cursor_row == event.data_table.row_count - 1
+        self._paint_live_subtitle()
+
+    def _paint_live_subtitle(self) -> None:
+        follow = "following" if self.following else "inspecting (f to follow)"
+        self.query_one("#delib-subtitle", Label).update(f"▶ LIVE · {follow}")
+
+    def _paint_live_detail(self, event: StreamEvent) -> None:
+        text = _stream_detail(event)
+        self.live_text = text
+        self.query_one("#delib-detail", Static).update(text)
 
     def select_run(self, run_id: uuid.UUID) -> None:
         """Focus a run's transcript; a new run clears the step, then repaint."""
@@ -1116,6 +1226,16 @@ def _transcript_detail(entry: Any) -> str:
         lines.append(entry.text)
     if entry.payload:
         lines.append(json.dumps(entry.payload, indent=2, sort_keys=True))
+    return "\n".join(lines)
+
+
+def _stream_detail(event: StreamEvent) -> str:
+    """Render one live step: header, its summary, and the interrupt payload if any."""
+    lines = [f"{event.agent} · {event.step or event.kind} · #{event.index}"]
+    if event.text:
+        lines.append(event.text)
+    if event.payload:
+        lines.append(json.dumps(event.payload, indent=2, sort_keys=True))
     return "\n".join(lines)
 
 
