@@ -227,6 +227,122 @@ class OrderEditScreen(ModalScreen["dict[str, float] | None"]):
         self.dismiss(edited)
 
 
+class ScopePickScreen(ModalScreen["str | None"]):
+    """A modal offering a scope choice (each button a deliberate, consequential pick).
+
+    Used by the killswitch (``run`` / ``portfolio`` / ``fund``) and re-arm
+    (``portfolio`` / ``fund``): the prompt spells out each scope's consequence and every
+    scope button dismisses its value; Cancel / ``escape`` dismiss ``None``.
+
+    Args:
+        prompt: The consequence text shown above the scope buttons.
+        scopes: ``(label, value)`` pairs; each becomes a button dismissing ``value``.
+    """
+
+    DEFAULT_CSS = """
+    ScopePickScreen { align: center middle; }
+    .scope-dialog {
+        width: 70; height: auto; padding: 1 2;
+        border: thick $error; background: $surface;
+    }
+    .scope-prompt { height: auto; color: $warning; }
+    .scope-actions { height: auto; align-horizontal: center; padding-top: 1; }
+    .scope-actions Button { margin: 0 1; }
+    """
+
+    BINDINGS: ClassVar[list[BindingType]] = [("escape", "cancel", "Cancel")]
+
+    def __init__(self, prompt: str, scopes: list[tuple[str, str]]) -> None:
+        super().__init__()
+        self._prompt = prompt
+        self._scopes = scopes
+
+    def compose(self) -> ComposeResult:
+        """Yield the consequence prompt above one button per scope, plus Cancel."""
+        with Vertical(classes="scope-dialog"):
+            yield Static(self._prompt, classes="scope-prompt")
+            with Horizontal(classes="scope-actions"):
+                for label, value in self._scopes:
+                    yield Button(label, variant="error", id=f"scope-{value}")
+                yield Button("Cancel", variant="primary", id="scope-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Dismiss the picked scope value; Cancel dismisses ``None``."""
+        bid = event.button.id or ""
+        if bid == "scope-cancel" or not bid.startswith("scope-"):
+            self.dismiss(None)
+        else:
+            self.dismiss(bid[len("scope-") :])
+
+    def action_cancel(self) -> None:
+        """``escape`` dismisses the picker as a cancel (a caller no-op)."""
+        self.dismiss(None)
+
+
+class RationaleConfirmScreen(ModalScreen["str | None"]):
+    """A confirm that is gated on a non-empty rationale (the fund-re-arm ceremony).
+
+    Confirm stays disabled until the adviser types a rationale; confirming dismisses
+    the (stripped) rationale, which the caller records on the audit row. Cancel /
+    ``escape`` / an empty confirm dismiss ``None``.
+
+    Args:
+        prompt: The consequence text shown above the rationale field.
+    """
+
+    DEFAULT_CSS = """
+    RationaleConfirmScreen { align: center middle; }
+    .rationale-dialog {
+        width: 70; height: auto; padding: 1 2;
+        border: thick $error; background: $surface;
+    }
+    .rationale-prompt { height: auto; color: $warning; }
+    .rationale-actions { height: auto; align-horizontal: center; padding-top: 1; }
+    .rationale-actions Button { margin: 0 1; }
+    """
+
+    BINDINGS: ClassVar[list[BindingType]] = [("escape", "cancel", "Cancel")]
+
+    def __init__(self, prompt: str) -> None:
+        super().__init__()
+        self._prompt = prompt
+
+    def compose(self) -> ComposeResult:
+        """Yield the prompt, the required rationale field, and a gated Confirm row."""
+        with Vertical(classes="rationale-dialog"):
+            yield Static(self._prompt, classes="rationale-prompt")
+            yield Input(placeholder="rationale (required)", id="rationale-text")
+            with Horizontal(classes="rationale-actions"):
+                yield Button(
+                    "Confirm", variant="error", id="rationale-yes", disabled=True
+                )
+                yield Button("Cancel", variant="primary", id="rationale-no")
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Enable Confirm only while the rationale field is non-empty."""
+        self.query_one("#rationale-yes", Button).disabled = not event.value.strip()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Confirm dismisses the rationale; any other button cancels."""
+        if event.button.id == "rationale-yes":
+            self._submit()
+        else:
+            self.dismiss(None)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """``↵`` confirms when a rationale is present."""
+        self._submit()
+
+    def action_cancel(self) -> None:
+        """``escape`` dismisses as a cancel (a caller no-op)."""
+        self.dismiss(None)
+
+    def _submit(self) -> None:
+        """Dismiss the stripped rationale, or ``None`` when it is empty."""
+        rationale = self.query_one("#rationale-text", Input).value.strip()
+        self.dismiss(rationale or None)
+
+
 _NARROW_WIDTH = 80  # below this terminal width the sidebar collapses to a rail
 
 
@@ -288,6 +404,7 @@ class ShellApp(App[None]):
         ("a", "decide_approve", "Approve"),
         ("r", "decide_reject", "Reject"),
         ("k", "decide_killswitch", "Killswitch"),
+        ("K", "rearm", "Re-arm"),
         ("ctrl+s", "save_mandate", "Save mandate"),
         ("o", "override_guardrail", "Override guardrail"),
         ("n", "new_portfolio", "New portfolio"),
@@ -361,7 +478,7 @@ class ShellApp(App[None]):
         yield Header()
         with Horizontal(id="shell-header", classes="shell-header"):
             yield Select([], prompt="⟨fund-wide⟩", id="hdr-portfolio", allow_blank=True)
-            yield Static("● AUTONOMOUS", id="hdr-mode")
+            yield Static("● ARMED", id="hdr-mode")
             yield Static(self._runstate, id="hdr-runstate")
             yield Static("⏸0 awaiting", id="hdr-attention")
         with Horizontal(id="shell-body", classes="shell-body"):
@@ -582,14 +699,13 @@ class ShellApp(App[None]):
         )
 
     def action_decide_killswitch(self) -> None:
-        """Killswitch the selected Decisions gate (the ``k`` binding).
+        """Killswitch the selected Decisions gate at a chosen scope (the ``k`` binding).
 
-        Paused-only by construction: a running langgraph invoke is not interruptible,
-        and the Decisions queue lists only paused gates, so a selected run is always
-        one. Pushes an explicit-consequence confirm; confirming finalises the run
-        rejected and logs a distinct ``killswitch`` row (no undo), cancelling is a
-        no-op. Inert — with a status hint — unless Decisions is active and a run is
-        selected, the same guard the approve/reject path uses.
+        Pushes a scope picker (no undo): ``run`` finalises the paused run REJECTED (the
+        original killswitch, logged distinctly); ``portfolio`` / ``fund`` FREEZE the
+        autonomy at that scope (``apply_action("freeze")``), halting live runs in scope
+        until an explicit re-arm. Cancelling is a no-op. Inert — with a status hint —
+        unless Decisions is active and a run is selected (approve/reject's guard).
         """
         view = self._active_decisions_view()
         if view is None or view.selected_run_id is None:
@@ -598,20 +714,79 @@ class ShellApp(App[None]):
         run_id = view.selected_run_id
         portfolio_id = view.selected_portfolio_id
         prompt = (
-            f"KILLSWITCH run {run_id}\n\n"
-            "This finalises the paused run as REJECTED. There is no undo.\n\n"
-            "Confirm to kill it, Cancel to leave it paused."
+            "KILLSWITCH — pick a scope (no undo):\n"
+            "Run: finalise this paused run REJECTED.\n"
+            "Portfolio: FREEZE this portfolio's autonomy (halts its runs).\n"
+            "Fund: FREEZE the whole fund (halts every portfolio)."
         )
+        scopes = [("Run", "run"), ("Portfolio", "portfolio"), ("Fund", "fund")]
 
-        def _resolved(confirmed: bool | None) -> None:
-            if confirmed:
+        def _resolved(scope: str | None) -> None:
+            if scope is None:
+                self._set_status("killswitch cancelled")
+            elif scope == "run":
                 self.last_worker = self._action_worker(
                     run_id, portfolio_id, "killswitch"
                 )
             else:
-                self._set_status("killswitch cancelled")
+                self.last_worker = self._freeze_worker(scope, portfolio_id)
 
-        self.push_screen(ConfirmScreen(prompt), _resolved)
+        self.push_screen(ScopePickScreen(prompt, scopes), _resolved)
+
+    def action_rearm(self) -> None:
+        """Re-arm autonomy at a chosen scope (the ``K`` binding).
+
+        Pushes a scope picker: ``portfolio`` re-arms the focused portfolio behind a
+        plain confirm; ``fund`` re-arms the whole fund behind a rationale-gated confirm
+        (``apply_action("rearm")`` requires a non-empty rationale for fund scope).
+        """
+        prompt = (
+            "RE-ARM autonomy — pick a scope:\n"
+            "Portfolio: re-arm the focused portfolio.\n"
+            "Fund: re-arm the whole fund (rationale required)."
+        )
+        scopes = [("Portfolio", "portfolio"), ("Fund", "fund")]
+
+        def _resolved(scope: str | None) -> None:
+            if scope is None:
+                self._set_status("re-arm cancelled")
+            elif scope == "portfolio":
+                self._rearm_portfolio()
+            else:
+                self._rearm_fund()
+
+        self.push_screen(ScopePickScreen(prompt, scopes), _resolved)
+
+    def _rearm_portfolio(self) -> None:
+        """Confirm, then re-arm the focused portfolio (no rationale required)."""
+        pid = self._portfolio_id
+        if pid is None:
+            self._set_status("focus a portfolio to re-arm")
+            return
+
+        def _confirmed(ok: bool | None) -> None:
+            if ok:
+                self.last_worker = self._rearm_worker("portfolio", pid, None)
+            else:
+                self._set_status("re-arm cancelled")
+
+        self.push_screen(
+            ConfirmScreen(f"Re-arm portfolio {pid}? Autonomy resumes."), _confirmed
+        )
+
+    def _rearm_fund(self) -> None:
+        """Re-arm the whole fund behind the rationale-gated confirm ceremony."""
+
+        def _confirmed(rationale: str | None) -> None:
+            if rationale is None:
+                self._set_status("re-arm cancelled")
+                return
+            self.last_worker = self._rearm_worker("fund", None, rationale)
+
+        self.push_screen(
+            RationaleConfirmScreen("Re-arm the whole fund? Rationale required."),
+            _confirmed,
+        )
 
     def _active_decisions_view(self) -> DecisionsView | None:
         """The Decisions view when it is the active content pane, else ``None``."""
@@ -776,10 +951,64 @@ class ShellApp(App[None]):
             return
         self.call_from_thread(self._after_action, result.message)
 
+    @work(thread=True, exclusive=True, group="action")
+    def _freeze_worker(self, scope: str, portfolio_id: uuid.UUID | None) -> None:
+        """Freeze autonomy at ``portfolio`` / ``fund`` scope — off the event loop.
+
+        Dispatches ``apply_action("freeze", scope=…)``: the autonomy row flips FROZEN
+        and every live run in scope is rejected (DB-level). A ``fund`` freeze ignores
+        ``portfolio_id`` (the single fund row). Any failure surfaces as a status line.
+        """
+        from fund.actions import apply_action
+
+        try:
+            with self._session_factory() as session:
+                result = apply_action(
+                    "freeze",
+                    session=session,
+                    scope=scope,
+                    portfolio_id=portfolio_id,
+                    checkpointer=self._persistence.saver,
+                    store=self._persistence.store,
+                )
+                session.commit()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"action failed: {exc}")
+            return
+        self.call_from_thread(self._after_action, result.message)
+
+    @work(thread=True, exclusive=True, group="action")
+    def _rearm_worker(
+        self, scope: str, portfolio_id: uuid.UUID | None, rationale: str | None
+    ) -> None:
+        """Re-arm autonomy at ``portfolio`` / ``fund`` scope — off the event loop.
+
+        Dispatches ``apply_action("rearm", scope=…)``: the autonomy row flips back ARMED
+        (clearing the frozen provenance). A ``fund`` re-arm requires ``rationale`` (the
+        action raises otherwise). Any failure surfaces as a status line.
+        """
+        from fund.actions import apply_action
+
+        try:
+            with self._session_factory() as session:
+                result = apply_action(
+                    "rearm",
+                    session=session,
+                    scope=scope,
+                    portfolio_id=portfolio_id,
+                    rationale=rationale,
+                )
+                session.commit()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"action failed: {exc}")
+            return
+        self.call_from_thread(self._after_action, result.message)
+
     def _after_action(self, message: str) -> None:
-        """On the main thread once the worker committed: report + repaint the view."""
+        """On the main thread once a worker committed: report + repaint view/header."""
         self._set_status(message)
         self._refresh()
+        self._refresh_runstate()
 
     # --- mandate actions (worker thread) -----------------------------------
 
@@ -1231,12 +1460,23 @@ class ShellApp(App[None]):
         )
 
     def _enter_live_runstate(self) -> None:
-        """Latch the header run-state to ``▶ LIVE`` for the duration of a stream."""
+        """Latch the header run-state to ``▶ LIVE`` for the duration of a stream.
+
+        Paints only the in-memory ``▶ LIVE`` glyph (``_run_state_glyph`` short-circuits
+        on ``_streaming``, opening no session). Reading autonomy/run state here would
+        open a session that collides with the stream worker's open transaction on the
+        shared single-connection test engine; the mode glyph is repainted on exit.
+        """
         self._streaming = True
-        self._refresh_runstate()
+        self._runstate = self._run_state_glyph()
+        self.query_one("#hdr-runstate", Static).update(self._runstate)
 
     def _exit_live_runstate(self) -> None:
-        """Release the ``▶ LIVE`` latch; the header reverts to the DB-derived glyph."""
+        """Release the ``▶ LIVE`` latch; the header reverts to the DB-derived glyphs.
+
+        Called after the stream worker's session has closed, so the full
+        :meth:`_refresh_runstate` (which opens read sessions) is safe here.
+        """
         self._streaming = False
         self._refresh_runstate()
 
@@ -1320,9 +1560,30 @@ class ShellApp(App[None]):
             return []
 
     def _refresh_runstate(self) -> None:
-        """Repaint the header run-state glyph for the focused portfolio."""
+        """Repaint the header run-state + autonomy-mode glyphs for the focused scope."""
         self._runstate = self._run_state_glyph()
         self.query_one("#hdr-runstate", Static).update(self._runstate)
+        self.query_one("#hdr-mode", Static).update(self._mode_glyph())
+
+    def _mode_glyph(self) -> str:
+        """The autonomy posture glyph: ``❄ FROZEN`` when frozen, else ``● ARMED``.
+
+        Fund scope wins: a FROZEN fund reads frozen regardless of the focused
+        portfolio's own row; a read error falls back to ``● ARMED``.
+        """
+        from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
+
+        frozen_value = AutonomyState.FROZEN.value
+        try:
+            with self._session_factory() as session:
+                repo = AutonomyRepository(session)  # read-only: never creates rows
+                frozen = repo.fund_posture() == frozen_value
+                if not frozen and self._portfolio_id is not None:
+                    frozen = repo.portfolio_posture(self._portfolio_id) == frozen_value
+                session.rollback()
+        except Exception:  # keep the shell alive on a read error
+            return "● ARMED"
+        return "❄ FROZEN" if frozen else "● ARMED"
 
     def _run_state_glyph(self) -> str:
         """The focused portfolio's latest-run glyph: live / running / awaiting / idle.

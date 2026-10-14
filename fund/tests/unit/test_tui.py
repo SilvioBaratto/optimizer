@@ -41,6 +41,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from textual.coordinate import Coordinate
 from textual.widgets import (
+    Button,
     Checkbox,
     ContentSwitcher,
     DataTable,
@@ -63,7 +64,13 @@ from fund.audit import (
 )
 from fund.config import settings
 from fund.tui import app as tui_app
-from fund.tui.app import ConfirmScreen, OrderEditScreen, ShellApp
+from fund.tui.app import (
+    ConfirmScreen,
+    OrderEditScreen,
+    RationaleConfirmScreen,
+    ScopePickScreen,
+    ShellApp,
+)
 from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.stream import StepStatus, StreamEvent
@@ -686,9 +693,9 @@ async def test_decisions_killswitch_confirm_finalizes_rejected_and_logs(
         view.select_run(tui_env.run_id)
         await pilot.pause()
         app.action_decide_killswitch()
-        await pilot.pause()  # let the confirm modal mount on top
-        assert isinstance(app.screen, ConfirmScreen)
-        await pilot.click("#confirm-yes")
+        await pilot.pause()  # let the scope picker mount on top
+        assert isinstance(app.screen, ScopePickScreen)
+        await pilot.click("#scope-run")  # run scope keeps the reject-finalise kill
         await pilot.pause()
         worker = app.last_worker
         assert worker is not None
@@ -721,7 +728,7 @@ async def test_decisions_killswitch_cancel_is_a_noop_and_run_stays_paused(
         await pilot.pause()
         app.action_decide_killswitch()
         await pilot.pause()
-        assert isinstance(app.screen, ConfirmScreen)
+        assert isinstance(app.screen, ScopePickScreen)
         await pilot.press("escape")
         await pilot.pause()
         assert app.last_worker is None
@@ -739,7 +746,7 @@ async def test_decisions_killswitch_without_selection_shows_no_confirm(tui_env) 
         await _open_decisions(app, pilot)
         app.action_decide_killswitch()
         await pilot.pause()
-        assert not isinstance(app.screen, ConfirmScreen)
+        assert not isinstance(app.screen, ScopePickScreen)
         assert app.last_worker is None
         assert "select a paused" in app.last_status
 
@@ -1998,6 +2005,145 @@ async def test_steer_one_shot_directive_is_not_persisted(tui_env) -> None:
         assert mandate.remembered_directives == ()  # nothing persisted
         run = AgentRunRepository(session).get_run(tui_env.run_id)
         assert run.status == "responded"  # but the round was still steered
+
+
+# --- Autonomy TUI: killswitch scope + re-arm + ARMED/FROZEN header (T12) ------
+
+
+@pytest.mark.asyncio
+async def test_killswitch_portfolio_scope_freezes(tui_env) -> None:
+    from fund.audit.autonomy_repository import AutonomyRepository
+
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_killswitch()
+        await pilot.pause()
+        assert isinstance(app.screen, ScopePickScreen)
+        await pilot.click("#scope-portfolio")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert str(app.query_one("#hdr-mode", Static).render()) == "❄ FROZEN"
+    with tui_env.get_session() as session:
+        repo = AutonomyRepository(session)
+        assert repo.portfolio_state(PORTFOLIO_ID).state == "frozen"
+        # the live run in scope was rejected by the freeze (DB-level halt)
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_killswitch_fund_scope_freezes(tui_env) -> None:
+    from fund.audit.autonomy_repository import AutonomyRepository
+
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_killswitch()
+        await pilot.pause()
+        await pilot.click("#scope-fund")
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert str(app.query_one("#hdr-mode", Static).render()) == "❄ FROZEN"
+    with tui_env.get_session() as session:
+        assert AutonomyRepository(session).fund_state().state == "frozen"
+
+
+@pytest.mark.asyncio
+async def test_rearm_portfolio_restores_armed_without_rationale(tui_env) -> None:
+    from fund.audit.autonomy_repository import (
+        AutonomyRepository,
+        AutonomyScope,
+        AutonomyState,
+    )
+
+    with tui_env.get_session() as session:
+        AutonomyRepository(session).set_state(
+            AutonomyScope.PORTFOLIO, PORTFOLIO_ID, AutonomyState.FROZEN, reason="test"
+        )
+        session.commit()
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_posture(app, pilot)
+        assert str(app.query_one("#hdr-mode", Static).render()) == "❄ FROZEN"
+        app.action_rearm()
+        await pilot.pause()
+        assert isinstance(app.screen, ScopePickScreen)
+        await pilot.click("#scope-portfolio")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)  # portfolio re-arm: plain confirm
+        await pilot.click("#confirm-yes")
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert str(app.query_one("#hdr-mode", Static).render()) == "● ARMED"
+    with tui_env.get_session() as session:
+        state = AutonomyRepository(session).portfolio_state(PORTFOLIO_ID).state
+        assert state == "armed"
+
+
+@pytest.mark.asyncio
+async def test_rearm_fund_requires_rationale(tui_env) -> None:
+    from fund.audit.autonomy_repository import (
+        AutonomyRepository,
+        AutonomyScope,
+        AutonomyState,
+    )
+
+    with tui_env.get_session() as session:
+        AutonomyRepository(session).set_state(
+            AutonomyScope.FUND, None, AutonomyState.FROZEN, reason="test"
+        )
+        session.commit()
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_posture(app, pilot)
+        app.action_rearm()
+        await pilot.pause()
+        await pilot.click("#scope-fund")
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, RationaleConfirmScreen)
+        confirm = screen.query_one("#rationale-yes", Button)
+        assert confirm.disabled is True  # gated until a rationale is typed
+        screen.query_one("#rationale-text", Input).value = "Risk reviewed; resuming."
+        await pilot.pause()
+        assert confirm.disabled is False  # enabled once non-empty
+        screen._submit()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with tui_env.get_session() as session:
+        assert AutonomyRepository(session).fund_state().state == "armed"
+        rows = HumanAuditLogRepository(session).list_recent(action="rearm")
+        assert len(rows) == 1
+        assert rows[0].rationale == "Risk reviewed; resuming."
+
+
+@pytest.mark.asyncio
+async def test_posture_strip_mirrors_fund_autonomy(tui_env) -> None:
+    from fund.audit.autonomy_repository import (
+        AutonomyRepository,
+        AutonomyScope,
+        AutonomyState,
+    )
+
+    with tui_env.get_session() as session:
+        AutonomyRepository(session).set_state(
+            AutonomyScope.FUND, None, AutonomyState.FROZEN, reason="test"
+        )
+        session.commit()
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        assert "FROZEN" in str(view.query_one("#posture-strip", Static).render())
 
 
 # --- Notification bus: poll-diff → persistent toasts + counters (T10) ---------

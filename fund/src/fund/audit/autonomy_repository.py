@@ -56,6 +56,31 @@ class AutonomyRepository(RepositoryBase):
         """
         return self._get_or_create(AutonomyScope.PORTFOLIO, portfolio_id)
 
+    def fund_posture(self) -> str:
+        """The fund scope's state string **without** creating the row (defaults armed).
+
+        A read-only accessor for display paths (the header/Posture glyph) that must not
+        mutate the DB — unlike :meth:`fund_state`, it never inserts a row, so it is safe
+        to call from a short read-only session interleaved with other work.
+        """
+        row = self._get(AutonomyScope.FUND, None)
+        return row.state if row is not None else AutonomyState.ARMED.value
+
+    def portfolio_posture(self, portfolio_id: uuid.UUID) -> str:
+        """A portfolio's state string **without** creating the row (defaults armed).
+
+        The read-only counterpart to :meth:`portfolio_state`; see
+        :meth:`fund_posture`.
+
+        Args:
+            portfolio_id: The portfolio whose posture to read.
+
+        Returns:
+            ``"frozen"`` when the portfolio is explicitly frozen, else ``"armed"``.
+        """
+        row = self._get(AutonomyScope.PORTFOLIO, portfolio_id)
+        return row.state if row is not None else AutonomyState.ARMED.value
+
     def set_state(
         self,
         scope: AutonomyScope,
@@ -119,9 +144,9 @@ class AutonomyRepository(RepositoryBase):
         self.session.expire(row)
         return bool(result.rowcount == 1)
 
-    def _get_or_create(
+    def _get(
         self, scope: AutonomyScope, portfolio_id: uuid.UUID | None
-    ) -> FundAutonomyState:
+    ) -> FundAutonomyState | None:
         stmt = select(FundAutonomyState).where(FundAutonomyState.scope == scope.value)
         # The fund row carries a genuine NULL portfolio_id — match with IS NULL,
         # never ``== None`` (which SQL evaluates to UNKNOWN, matching nothing).
@@ -129,7 +154,12 @@ class AutonomyRepository(RepositoryBase):
             stmt = stmt.where(FundAutonomyState.portfolio_id.is_(None))
         else:
             stmt = stmt.where(FundAutonomyState.portfolio_id == portfolio_id)
-        row = self.session.execute(stmt).scalar_one_or_none()
+        return self.session.execute(stmt).scalar_one_or_none()
+
+    def _get_or_create(
+        self, scope: AutonomyScope, portfolio_id: uuid.UUID | None
+    ) -> FundAutonomyState:
+        row = self._get(scope, portfolio_id)
         if row is None:
             row = FundAutonomyState(scope=scope.value, portfolio_id=portfolio_id)
             self.session.add(row)

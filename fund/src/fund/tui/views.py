@@ -688,7 +688,9 @@ class PostureView(ShellView):
     def _read_roster(self) -> tuple[list[_RosterRow], str]:
         """Read every portfolio's roster row + the fund-strip summary in one session.
 
-        Returns ``([], "0 pf")`` on any read error so the poll loop stays alive.
+        Returns ``([], "0 pf")`` on any read error so the poll loop stays alive. The
+        strip mirrors the fund autonomy posture (ARMED/FROZEN) so it surfaces here too,
+        not only in the header.
         """
         try:
             with self.read_session() as session:
@@ -696,9 +698,18 @@ class PostureView(ShellView):
                     self._roster_row(session, pid)
                     for pid in observe.list_portfolios(session)
                 ]
+                posture = self._read_autonomy(session)
         except Exception:  # keep the poll loop alive on any read error
             return [], "0 pf"
-        return rows, _fund_strip(rows)
+        return rows, f"{_fund_strip(rows)} · {posture}"
+
+    def _read_autonomy(self, session: Session) -> str:
+        """The fund autonomy posture glyph, read off the agent-stack-free repo."""
+        from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
+
+        # Read-only (``fund_posture`` never inserts) so a poll tick never mutates.
+        posture = AutonomyRepository(session).fund_posture()
+        return "❄ FROZEN" if posture == AutonomyState.FROZEN.value else "● ARMED"
 
     def _roster_row(self, session: Session, pid: uuid.UUID) -> _RosterRow:
         runs = observe.list_portfolio_runs(session, pid)
