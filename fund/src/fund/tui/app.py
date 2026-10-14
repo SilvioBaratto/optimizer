@@ -1247,6 +1247,70 @@ class ShellApp(App[None]):
 
         self.push_screen(BargeInScreen(paused_at), _resolved)
 
+    def action_expand_readout(self) -> None:
+        """Recompute the selected step's live read-out (the Deliberation ``x`` binding).
+
+        A no-op with a hint unless Deliberation is active with an allocator or risk step
+        selected in replay. Spawns the recompute worker; the frontier/backtest (an
+        allocator step) or verdict/sector exposures (a risk step) paint in on return.
+        """
+        view = self._deliberation_view()
+        if not self._deliberation_active() or view is None:
+            self._set_status("expand a read-out from Deliberation")
+            return
+        target = view.expand_target()
+        if target is None:
+            self._set_status("select an allocator or risk step to expand")
+            return
+        run_id, agent = target
+        self._set_status("recomputing read-out…")
+        self.last_worker = self._recompute_readout_worker(run_id, agent)
+
+    @work(thread=True, exclusive=True, group="readout")
+    def _recompute_readout_worker(self, run_id: uuid.UUID, agent: str) -> None:
+        """Recompute a step's read-out off the loop, then paint it onto the view.
+
+        The optimizer-backed compute module is imported lazily so the module import
+        stays agent-stack-light. It reads the run's asof / weights / constraint set on a
+        short read-only session, runs the matching compute (results for an allocator
+        step, risk for a risk step) over the authoritative weights, and marshals the
+        result back with ``call_from_thread``. Any failure surfaces as a status line.
+        """
+        from fund import readouts_compute
+        from fund.audit.repository import AgentRunRepository
+
+        view = self._deliberation_view()
+        if view is None:
+            return
+        try:
+            with self._session_factory() as session:
+                run = AgentRunRepository(session).get_run(run_id)
+                if run is None:
+                    self.call_from_thread(self._set_status, "run not found")
+                    return
+                weights = AgentRunRepository(session).latest_optimizer_weights(run_id)
+                constraint_set: Any = None
+                for decision in run.decisions:
+                    if (
+                        decision.agent == "allocator"
+                        and decision.step == "optimize_portfolio"
+                    ):
+                        constraint_set = decision.constraint_set
+                        break
+                if agent == "allocator":
+                    result: Any = readouts_compute.compute_results(
+                        session, run.asof, list(weights), constraint_set, weights
+                    )
+                else:
+                    result = readouts_compute.compute_risk(
+                        weights, constraint_set, None
+                    )
+                session.rollback()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"recompute failed: {exc}")
+            return
+        self.call_from_thread(view.paint_readout, run_id, agent, result)
+
     @work(thread=True, exclusive=True, group="drive")
     def _onboard_worker(
         self,

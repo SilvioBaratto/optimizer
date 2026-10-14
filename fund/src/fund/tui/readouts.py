@@ -9,10 +9,17 @@ verdict) is the view worker's job; this module only formats data already read.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+    # Annotation-only: these recompute dataclasses live in ``fund.readouts_compute``,
+    # which imports ``optimizer`` at its top. Importing them for real would break the
+    # import-light contract, so this module duck-types ``compute`` at runtime (the
+    # helper params below are ``Any``) and only names the types for the checker.
+    from fund.readouts_compute import ResultsCompute, RiskCompute
 
 # Keyed on the acting role, not the step, so the replay ``optimize_portfolio`` decision
 # and any future allocator step both route to the build/results read-out.
@@ -37,7 +44,10 @@ _VERDICT_PENDING = ("○", "pending")
 
 
 def render_readout(
-    agent: str, step: str | None, payload: Mapping[str, Any] | None
+    agent: str,
+    step: str | None,
+    payload: Mapping[str, Any] | None,
+    compute: ResultsCompute | RiskCompute | None = None,
 ) -> str | None:
     """Render an agent step's recorded artifacts as plain-text sub-panels.
 
@@ -45,15 +55,18 @@ def render_readout(
         agent: The acting agent (e.g. ``"allocator"``).
         step: The step identity, or ``None``.
         payload: The recorded decision payload, or ``None``.
+        compute: The worker's recompute result — a ``ResultsCompute`` for an allocator
+            step or a ``RiskCompute`` for a risk step — which fills the frontier /
+            backtest / verdict / sector lines. ``None`` leaves them as pending markers.
 
     Returns:
         The rendered sub-panels joined by newlines, or ``None`` when the step has no
         structured read-out — the caller then falls back to the raw JSON dump.
     """
     if agent == _ALLOCATOR_AGENT and payload:
-        return "\n".join([*_build_block(payload), *_results_block(payload)])
+        return "\n".join([*_build_block(payload), *_results_block(payload, compute)])
     if agent == _RISK_AGENT:
-        return "\n".join(_risk_block())
+        return "\n".join(_risk_block(compute))
     return None
 
 
@@ -73,44 +86,148 @@ def _build_block(payload: Mapping[str, Any]) -> list[str]:
     return lines
 
 
-def _results_block(payload: Mapping[str, Any]) -> list[str]:
-    """The *results* family: recorded weights + pending frontier/backtest markers.
+def _results_block(payload: Mapping[str, Any], compute: Any = None) -> list[str]:
+    """The *results* family: recorded weights + the frontier point and backtest.
 
     Args:
         payload: The allocator decision payload.
+        compute: A ``ResultsCompute`` from the worker, or ``None`` for pending markers.
 
     Returns:
-        The ``results`` sub-panel lines; frontier/backtest pending until recomputed.
+        The ``results`` sub-panel lines.
     """
     lines = ["results"]
     lines += _indent(_weights_lines(payload))
-    lines += _indent(
-        [f"frontier point · {_PENDING_LABEL}", f"backtest · {_PENDING_LABEL}"]
-    )
+    lines += _indent(_frontier_lines(compute))
+    lines += _indent(_backtest_lines(compute))
     return lines
 
 
-def _risk_block() -> list[str]:
-    """The *risk* family: a pending verdict plus the exposures that will drive it.
+def _frontier_lines(compute: Any) -> list[str]:
+    """The frontier point: pending until recomputed, then the min-variance point."""
+    if compute is None:
+        return [f"frontier point · {_PENDING_LABEL}"]
+    if compute.frontier is None:
+        return [f"frontier point · unavailable ({compute.frontier_error})"]
+    point = compute.frontier
+    return [
+        f"frontier point · mean {_num(point.mean)}"
+        f" · vol {_num(point.standard_deviation)}"
+        f" · sharpe {_num(point.sharpe_ratio)}"
+    ]
 
-    The verdict stays pending (dot+label) until the recompute worker re-runs
-    ``risk_check`` on expand (T6) and resolves the ok/warn/breach tier from its
-    violations — it is never reconstructed from the risk role's prose.
+
+def _backtest_lines(compute: Any) -> list[str]:
+    """The backtest: pending until recomputed, then its metrics + window summary."""
+    if compute is None:
+        return [f"backtest · {_PENDING_LABEL}"]
+    if compute.backtest is None:
+        return [f"backtest · unavailable ({compute.backtest_error})"]
+    result = compute.backtest
+    mode = "out-of-sample" if result.out_of_sample else "in-sample"
+    return [
+        f"backtest · sharpe {_num(result.sharpe_ratio)}"
+        f" · maxDD {_num(result.max_drawdown)}",
+        f"  {result.n_observations} obs · {result.n_folds} folds · {mode}"
+        f" · {result.window_start} → {result.window_end}",
+    ]
+
+
+def _risk_block(compute: Any = None) -> list[str]:
+    """The *risk* family: the verdict + the exposures that drove it.
+
+    The verdict is pending (dot+label) until the worker re-runs ``risk_check`` and
+    :func:`risk_verdict` maps its violations to ok/warn/breach — never the risk role's
+    prose. Factor exposures stay mock.
+
+    Args:
+        compute: A ``RiskCompute`` from the worker, or ``None`` for pending markers.
 
     Returns:
-        The ``risk`` sub-panel lines: a pending verdict, pending sector exposures, and
-        the mock-labelled factor exposures.
+        The ``risk`` sub-panel lines.
     """
-    dot, label = _VERDICT_PENDING
     lines = ["risk"]
-    lines += _indent(
-        [
-            f"verdict · {dot} {label} · {_PENDING_LABEL}",
-            f"sector exposures · {_PENDING_LABEL}",
-            f"factor exposures · {_MOCK_LABEL}",
-        ]
-    )
+    lines += _indent(_verdict_lines(compute))
+    lines += _indent(_sector_lines(compute))
+    lines += _indent([f"factor exposures · {_MOCK_LABEL}"])
     return lines
+
+
+def _verdict_lines(compute: Any) -> list[str]:
+    """The risk verdict: pending, unavailable on tool failure, else the live tier."""
+    if compute is None:
+        dot, label = _VERDICT_PENDING
+        return [f"verdict · {dot} {label} · {_PENDING_LABEL}"]
+    if compute.error is not None or compute.passed is None:
+        return [f"verdict · unavailable ({compute.error})"]
+    verdict = risk_verdict(list(compute.violations))
+    header = f"verdict · {verdict.dot} {verdict.label}"
+    return [header, *(f"  {line}" for line in verdict.lines)]
+
+
+def _sector_lines(compute: Any) -> list[str]:
+    """Sector exposures: pending, unavailable without a mapping, else the roll-up."""
+    if compute is None:
+        return [f"sector exposures · {_PENDING_LABEL}"]
+    if compute.sector_exposures is None:
+        return ["sector exposures · unavailable"]
+    lines = ["sector exposures"]
+    lines += [
+        f"  {sector} · {_pct(weight)}" for sector, weight in compute.sector_exposures
+    ]
+    return lines
+
+
+@dataclass(frozen=True)
+class RiskVerdict:
+    """A risk read-out's rendered verdict, derived from ``risk_check`` violations.
+
+    Attributes:
+        dot: Status glyph (``●`` ok/breach, ``◐`` warn) — never shown without ``label``.
+        label: The tier word, so a reader never relies on the glyph alone.
+        tier: The machine tier (``ok``/``warn``/``breach``) — a headless-test hook.
+        lines: The violation lines that drove the verdict, pre-rendered.
+    """
+
+    dot: str
+    label: str
+    tier: str
+    lines: tuple[str, ...]
+
+
+# breach ⊐ warn ⊐ ok: one hard-bound violation outranks any number of budget ones,
+# because a name/exposure breach is actionable where an off-target budget is advisory.
+_HARD = frozenset({"min_weight", "max_weight", "non_finite"})
+
+
+def risk_verdict(violations: list[dict[str, Any]]) -> RiskVerdict:
+    """Map ``risk_check`` violations to the tri-state the drill-down renders.
+
+    Args:
+        violations: The ``data["violations"]`` list from ``fund.tools.risk.risk_check``.
+
+    Returns:
+        The rendered :class:`RiskVerdict`; empty ``violations`` is ``● ok``, a sole
+        off-target budget is ``◐ warn``, and any hard-bound violation is ``● breach``.
+    """
+    lines = tuple(_violation_line(v) for v in violations)
+    if any(v.get("type") in _HARD for v in violations):
+        return RiskVerdict("●", "breach", "breach", lines)
+    if any(v.get("type") == "budget" for v in violations):
+        return RiskVerdict("◐", "warn", "warn", lines)
+    return RiskVerdict("●", "ok", "ok", lines)
+
+
+def _violation_line(violation: Mapping[str, Any]) -> str:
+    """One readable line for a ``risk_check`` violation (type, asset/target, value)."""
+    kind = str(violation.get("type", "?"))
+    if kind == "budget":
+        value = _num(violation.get("value"))
+        return f"budget · {value} vs {_num(violation.get('target'))}"
+    asset = str(violation.get("asset", "?"))
+    limit = violation.get("limit")
+    tail = f" (limit {_num(limit)})" if limit is not None else ""
+    return f"{kind} · {asset} {_num(violation.get('value'))}{tail}"
 
 
 def _weights_lines(payload: Mapping[str, Any]) -> list[str]:

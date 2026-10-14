@@ -1750,6 +1750,120 @@ async def test_deliberation_unmapped_step_with_payload_falls_back_to_json(
         assert "macro" in detail
 
 
+# --- Deliberation drill-down recompute: expand → worker → render (Phase 4 T6) --
+
+
+def _seed_allocator_run(session) -> uuid.UUID:
+    """Seed a run with a constraint-set-bearing allocator step; return its id."""
+    repo = AgentRunRepository(session)
+    run = repo.create_run(
+        portfolio_id=_PID_A,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={},
+    )
+    repo.append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        constraint_set=make_constraint_set().model_dump(mode="json"),
+        llm_response='{"weights": {"AAA": 0.6, "BBB": 0.4}}',
+    )
+    repo.append_decision(run.id, agent="risk", step="risk_check")
+    return run.id
+
+
+@pytest.mark.asyncio
+async def test_deliberation_expand_renders_recomputed_results(
+    shell_env, monkeypatch
+) -> None:
+    """Pressing expand on the allocator step runs the worker and paints the real
+    frontier + backtest numbers over the recompute, replacing the pending markers."""
+    from fund import readouts_compute
+
+    canned = readouts_compute.ResultsCompute(
+        frontier=readouts_compute.FrontierPoint(
+            mean=0.12, standard_deviation=0.2, sharpe_ratio=0.6, n_observations=40
+        ),
+        frontier_error=None,
+        backtest=readouts_compute.BacktestResult(
+            mean=0.1,
+            standard_deviation=0.18,
+            sharpe_ratio=0.55,
+            max_drawdown=-0.08,
+            n_observations=30,
+            n_folds=2,
+            out_of_sample=True,
+            window_start="2026-01-01",
+            window_end="2026-02-01",
+        ),
+        backtest_error=None,
+    )
+    monkeypatch.setattr(readouts_compute, "compute_results", lambda *_a, **_k: canned)
+    with shell_env.get_session() as session:
+        run_id = _seed_allocator_run(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(0)  # the allocator step
+        await pilot.pause()
+        assert "compute to view" in view.detail_text  # pending before expand
+        app.action_expand_readout()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        detail = view.detail_text
+        assert "compute to view" not in detail  # markers replaced by live numbers
+        assert "sharpe 0.60" in detail  # the frontier point
+        assert "sharpe 0.55" in detail  # the backtest
+
+
+@pytest.mark.asyncio
+async def test_deliberation_expand_renders_recomputed_risk_verdict(
+    shell_env, monkeypatch
+) -> None:
+    """Expanding the risk step paints the live verdict (● breach from a max_weight
+    violation) and the sector-exposure breakdown, replacing the pending placeholder."""
+    from fund import readouts_compute
+
+    canned = readouts_compute.RiskCompute(
+        passed=False,
+        violations=(
+            {"type": "max_weight", "asset": "AAA", "value": 0.6, "limit": 0.4},
+        ),
+        sector_exposures=(("Tech", 0.8), ("Energy", 0.2)),
+        error=None,
+    )
+    monkeypatch.setattr(readouts_compute, "compute_risk", lambda *_a, **_k: canned)
+    with shell_env.get_session() as session:
+        run_id = _seed_allocator_run(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(1)  # the risk step
+        await pilot.pause()
+        assert "○ pending" in view.detail_text  # pending before expand
+        app.action_expand_readout()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        detail = view.detail_text
+        assert "● breach" in detail  # live verdict tier, dot plus label
+        assert "max_weight" in detail  # the driving violation
+        assert "Tech" in detail  # sector-exposure breakdown
+
+
 # --- Deliberation live mode: streamed timeline + follow/inspect (GP0-1) --------
 
 

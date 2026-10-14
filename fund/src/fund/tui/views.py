@@ -1057,8 +1057,12 @@ class DeliberationView(ShellView):
     """
 
     # View-scoped so ``f`` means follow-live only while Deliberation holds focus; the
-    # App's global ``f`` (Audit overrides filter) is untouched (R2).
-    BINDINGS: ClassVar[list[BindingType]] = [("f", "follow_live", "Follow live")]
+    # App's global ``f`` (Audit overrides filter) is untouched (R2). ``x`` routes to the
+    # App's recompute action (the worker lives there, mirroring the stream worker).
+    BINDINGS: ClassVar[list[BindingType]] = [
+        ("f", "follow_live", "Follow live"),
+        ("x", "app.expand_readout", "Expand read-out"),
+    ]
 
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)
@@ -1070,6 +1074,9 @@ class DeliberationView(ShellView):
         self.following = True
         self.live_text = ""
         self._live_events: list[StreamEvent] = []
+        # The worker's recompute for the expanded step: (run_id, agent, result). Held so
+        # it survives poll ticks until the adviser selects a different run/step.
+        self._readout: tuple[uuid.UUID, str, Any] | None = None
 
     def compose(self) -> ComposeResult:
         """Yield the title, subtitle, the runs/steps/live split, detail, and hint."""
@@ -1211,6 +1218,44 @@ class DeliberationView(ShellView):
         self.selected_step = index
         self.refresh_view()
 
+    def expand_target(self) -> tuple[uuid.UUID, str] | None:
+        """The ``(run_id, agent)`` the expand key should recompute, or ``None``.
+
+        Replay-only — recompute never runs on a ``LIVE`` step, so the walk-forward
+        backtest is gated off the live stream — and only for an allocator or risk step.
+
+        Returns:
+            The focused run and the selected step's agent when a recompute applies,
+            else ``None`` (live mode, nothing selected, or an unmapped step).
+        """
+        if self.live_run_id is not None or self.selected_run_id is None:
+            return None
+        if self.selected_step is None or self.selected_step >= len(self._entries):
+            return None
+        entry = self._entries[self.selected_step]
+        if entry.agent not in ("allocator", "risk"):
+            return None
+        return self.selected_run_id, entry.agent
+
+    def paint_readout(self, run_id: uuid.UUID, agent: str, result: Any) -> None:
+        """Store a worker's recompute and repaint the detail pane.
+
+        Called via ``call_from_thread`` from the recompute worker. A result the adviser
+        has since navigated away from is stored but only painted while its
+        ``(run_id, agent)`` matches the selection (see :meth:`_compute_for`).
+        """
+        self._readout = (run_id, agent, result)
+        self._paint_detail()
+
+    def _compute_for(self, entry: Any) -> Any:
+        """The stored recompute for ``entry``, or ``None`` for another run/step."""
+        if self._readout is None:
+            return None
+        run_id, agent, result = self._readout
+        if run_id == self.selected_run_id and agent == entry.agent:
+            return result
+        return None
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Dispatch: a run row loads its transcript, a step row shows its detail."""
         key = event.row_key.value
@@ -1296,23 +1341,25 @@ class DeliberationView(ShellView):
 
     def _paint_detail(self) -> None:
         if self.selected_step is not None and self.selected_step < len(self._entries):
-            text = _transcript_detail(self._entries[self.selected_step])
+            entry = self._entries[self.selected_step]
+            text = _transcript_detail(entry, self._compute_for(entry))
         else:
             text = "(select a step)"
         self.detail_text = text
         self.query_one("#delib-detail", Static).update(text)
 
 
-def _transcript_detail(entry: Any) -> str:
+def _transcript_detail(entry: Any, compute: Any = None) -> str:
     """Render a transcript step: header, text, then a read-out or the raw payload.
 
     An allocator/risk step routes its payload through :func:`render_readout` for the
-    build/results/risk sub-panels; any other step keeps the raw JSON dump.
+    build/results/risk sub-panels; any other step keeps the raw JSON dump. ``compute``
+    is the worker's recompute for this step, or ``None``.
     """
     lines = [f"{entry.agent} · {entry.step or entry.source} · #{entry.index}"]
     if entry.text:
         lines.append(entry.text)
-    body = _detail_payload(entry.agent, entry.step, entry.payload)
+    body = _detail_payload(entry.agent, entry.step, entry.payload, compute)
     if body:
         lines.append(body)
     return "\n".join(lines)
@@ -1333,14 +1380,15 @@ def _stream_detail(event: StreamEvent) -> str:
 
 
 def _detail_payload(
-    agent: str, step: str | None, payload: dict[str, Any] | None
+    agent: str, step: str | None, payload: dict[str, Any] | None, compute: Any = None
 ) -> str:
     """Structured read-out for an allocator/risk step, else the raw JSON dump (or "").
 
     A risk step carries no payload, so :func:`render_readout` is always consulted; only
-    an unmapped step with a payload falls back to the JSON dump.
+    an unmapped step with a payload falls back to the JSON dump. ``compute`` fills the
+    recomputed frontier/backtest/verdict/sector lines when present.
     """
-    readout = render_readout(agent, step, payload)
+    readout = render_readout(agent, step, payload, compute)
     if readout is not None:
         return readout
     if payload:
