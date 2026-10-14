@@ -1629,6 +1629,20 @@ async def test_deliberation_allocator_step_shows_build_readout(shell_env) -> Non
         assert "{" not in detail  # the structured read-out replaced the JSON dump
 
 
+def test_readout_results_weights_ranked_and_pending_markers() -> None:
+    """The allocator results read-out ranks the recorded weights by size and marks the
+    frontier/backtest as pending (computed live on expand in T6), not as mock."""
+    from fund.tui.readouts import render_readout
+
+    payload = {"weights": {"BBB": 0.3, "AAA": 0.7}}
+    text = render_readout("allocator", "optimize_portfolio", payload)
+    assert text is not None
+    results = text[text.index("results") :]
+    assert "weights" in results
+    assert results.index("AAA") < results.index("BBB")  # ranked by weight, descending
+    assert results.count("compute to view") == 2  # frontier + backtest pending markers
+
+
 # --- Deliberation live mode: streamed timeline + follow/inspect (GP0-1) --------
 
 

@@ -25,6 +25,10 @@ _MOCK_LABEL = "mock — no live source yet"
 # Cap inline names so a wide universe stays legible; the rest collapse to a count.
 _MAX_NAMES = 8
 
+# Frontier / backtest are live-computable (not aspirational): mark them pending until
+# the adviser expands the step and the recompute worker fills them in (T6).
+_PENDING_LABEL = "compute to view"
+
 
 def render_readout(
     agent: str, step: str | None, payload: Mapping[str, Any] | None
@@ -41,7 +45,8 @@ def render_readout(
         structured read-out — the caller then falls back to the raw JSON dump.
     """
     if agent == _ALLOCATOR_AGENT:
-        return "\n".join(_build_block(payload or {}))
+        data = payload or {}
+        return "\n".join([*_build_block(data), *_results_block(data)])
     return None
 
 
@@ -59,6 +64,45 @@ def _build_block(payload: Mapping[str, Any]) -> list[str]:
     lines += _indent(_constraints_lines(payload.get("constraint_set")))
     lines += _indent(_mock_lines())
     return lines
+
+
+def _results_block(payload: Mapping[str, Any]) -> list[str]:
+    """The *results* family: recorded weights + pending frontier/backtest markers.
+
+    Args:
+        payload: The allocator decision payload.
+
+    Returns:
+        The ``results`` sub-panel lines; frontier/backtest pending until recomputed.
+    """
+    lines = ["results"]
+    lines += _indent(_weights_lines(payload))
+    lines += _indent(
+        [f"frontier point · {_PENDING_LABEL}", f"backtest · {_PENDING_LABEL}"]
+    )
+    return lines
+
+
+def _weights_lines(payload: Mapping[str, Any]) -> list[str]:
+    """Render the recorded weights ranked by size, capped to the top names."""
+    weights = payload.get("weights") or {}
+    if not weights:
+        return ["weights · none recorded"]
+    ranked = sorted(weights.items(), key=lambda item: item[1], reverse=True)
+    lines = [f"weights · {len(ranked)} names (top by weight)"]
+    lines += [f"  {name} · {_pct(weight)}" for name, weight in ranked[:_MAX_NAMES]]
+    extra = len(ranked) - _MAX_NAMES
+    if extra > 0:
+        lines.append(f"  … +{extra} more")
+    return lines
+
+
+def _pct(value: Any) -> str:
+    """Format a portfolio weight as a one-decimal percentage."""
+    try:
+        return f"{float(value) * 100:.1f}%"
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _universe_lines(payload: Mapping[str, Any]) -> list[str]:
