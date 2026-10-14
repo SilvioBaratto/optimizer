@@ -1599,6 +1599,63 @@ async def test_deliberation_live_ends_back_to_replay(shell_env) -> None:
         assert view.query_one("#delib-runs", DataTable).row_count == 1
 
 
+def test_deliberation_binds_follow_live() -> None:
+    """``f`` is view-scoped to Deliberation (follow-live), not the global filter."""
+    actions = {binding[1] for binding in DeliberationView.BINDINGS}
+    assert "follow_live" in actions
+
+
+@pytest.mark.asyncio
+async def test_run_routes_stream_on_deliberation_blocking_on_posture(tui_env) -> None:
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    calls: list[str] = []
+    app._stream_worker = lambda *_a, **_k: calls.append("stream")  # type: ignore[method-assign]
+    app._run_worker = lambda *_a, **_k: calls.append("run")  # type: ignore[method-assign]
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_posture(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        assert calls[-1] == "run"  # Posture → blocking _run_worker (unchanged)
+        app.query_one(ContentSwitcher).current = "view-deliberation"
+        app._refresh()
+        await pilot.pause()
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        assert calls[-1] == "stream"  # Deliberation → live _stream_worker
+
+
+@pytest.mark.asyncio
+async def test_deliberation_u_streams_live_round_to_gate(tui_env) -> None:
+    # Persist a mandate so the stream worker's observe.get_mandate finds it.
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        app.query_one(ContentSwitcher).current = "view-deliberation"
+        app._refresh()
+        await pilot.pause()
+        app.action_run_portfolio(asof=ASOF)  # u from Deliberation → live stream
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        assert worker.group == "stream"
+        await worker.wait()
+        await pilot.pause()
+        view = app.query_one("#view-deliberation", DeliberationView)
+        live = view.query_one("#delib-live", DataTable)
+        # The scripted round streamed its steps, ending at the place_orders gate; the
+        # paused timeline stays up (the adviser just watched it build).
+        assert live.display is True
+        assert live.row_count >= 1
+        assert live.get_cell_at(Coordinate(live.row_count - 1, 2)) == "place_orders"
+        streamed_run_id = view.live_run_id
+        assert streamed_run_id is not None
+    with tui_env.get_session() as session:
+        run = AgentRunRepository(session).get_run(streamed_run_id)
+        assert run.status == "paused"  # the run reached its HITL pause
+
+
 # --- Notification bus: poll-diff → persistent toasts + counters (T10) ---------
 
 

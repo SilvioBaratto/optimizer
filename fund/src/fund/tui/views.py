@@ -22,7 +22,7 @@ import json
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, cast
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager
 
     from sqlalchemy.orm import Session
+    from textual.binding import BindingType
 
 
 class _ShellContext(Protocol):
@@ -975,6 +976,10 @@ class DeliberationView(ShellView):
         following: Whether the live tail auto-follows; a cursor move pauses it.
         live_text: Mirror of the rendered live-step detail — a headless-test hook.
     """
+
+    # View-scoped so ``f`` means follow-live only while Deliberation holds focus; the
+    # App's global ``f`` (Audit overrides filter) is untouched (R2).
+    BINDINGS: ClassVar[list[BindingType]] = [("f", "follow_live", "Follow live")]
 
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)

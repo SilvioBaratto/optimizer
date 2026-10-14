@@ -56,6 +56,7 @@ from fund.tui.views import (
     VIEW_SPECS,
     AuditView,
     DecisionsView,
+    DeliberationView,
     MandateView,
     ShellView,
     build_views,
@@ -227,6 +228,9 @@ class ShellApp(App[None]):
         self._portfolio_ids: list[uuid.UUID] = []
         self._runstate = "✓ idle"
         self._narrow = False
+        # Latches the header to ``▶ LIVE`` across poll ticks while a round streams,
+        # so a mid-stream refresh does not repaint the DB-derived running glyph.
+        self._streaming = False
         # Notification bus (poll-diff): attention keys already alerted, so a
         # still-pending gate/breach never re-toasts on the next tick.
         self._seen_attention: set[tuple[str, uuid.UUID]] = set()
@@ -709,17 +713,25 @@ class ShellApp(App[None]):
     def action_run_portfolio(self, asof: dt.date | None = None) -> None:
         """Drive one paper rebalance for the focused portfolio (the ``u`` binding).
 
-        The ``u`` key passes today's bar; callers may pass an explicit decision bar.
-        A no-op with a hint unless Posture is active and a portfolio is focused.
+        Routes on the active view: from **Deliberation** the adviser watches the
+        agents think, so ``u`` launches the **live-streamed** run (``_stream_worker``);
+        from **Posture** it keeps the existing **blocking** run (``_run_worker``). The
+        ``u`` key passes today's bar; callers may pass an explicit decision bar. A
+        no-op with a hint off both launchpads or without a focused portfolio.
         """
-        if not self._posture_active():
-            self._set_status("open Posture to run a portfolio")
+        deliberation = self._deliberation_active()
+        if not (deliberation or self._posture_active()):
+            self._set_status("open Posture or Deliberation to run a portfolio")
             return
         pid = self._portfolio_id
         if pid is None:
             self._set_status("focus a portfolio to run")
             return
-        self.last_worker = self._run_worker(pid, asof or dt.date.today())
+        bar = asof or dt.date.today()
+        if deliberation:
+            self.last_worker = self._stream_worker(pid, bar)
+        else:
+            self.last_worker = self._run_worker(pid, bar)
 
     def _posture_active(self) -> bool:
         """Whether the Posture view is the active content pane (the drive launchpad)."""
@@ -727,6 +739,21 @@ class ShellApp(App[None]):
             return self.query_one(ContentSwitcher).current == "view-posture"
         except NoMatches:
             return False
+
+    def _deliberation_active(self) -> bool:
+        """Whether Deliberation is the active content pane (the live-run launchpad)."""
+        try:
+            return self.query_one(ContentSwitcher).current == "view-deliberation"
+        except NoMatches:
+            return False
+
+    def _deliberation_view(self) -> DeliberationView | None:
+        """The Deliberation view when mounted, else ``None`` — the stream's sink."""
+        try:
+            view = self.query_one("#view-deliberation", ShellView)
+        except NoMatches:
+            return None
+        return view if isinstance(view, DeliberationView) else None
 
     @work(thread=True, exclusive=True, group="drive")
     def _onboard_worker(
@@ -807,6 +834,73 @@ class ShellApp(App[None]):
             self.call_from_thread(self._set_status, f"action failed: {exc}")
             return
         self.call_from_thread(self._after_action, result.message)
+
+    @work(thread=True, exclusive=True, group="stream")
+    def _stream_worker(self, portfolio_id: uuid.UUID, asof: dt.date) -> None:
+        """Stream one paper rebalance into the live Deliberation timeline.
+
+        The live counterpart to :meth:`_run_worker`: it drives ``stream_fund`` and
+        marshals each ordered ``StreamEvent`` onto the Deliberation view with
+        ``call_from_thread`` (``start_live`` on the first, ``ingest_event`` per step).
+        A ``paused`` gate leaves the timeline standing — the adviser just watched it
+        build and acts on it in Decisions — while a no-ticket / error end falls back to
+        the replay transcript. The agent stack is imported lazily so the module import
+        stays agent-stack-light; one stream per worker (``stream_fund`` is not
+        thread-safe). Model/stream errors surface as a status line, never a crash.
+        """
+        from fund.agents.graph import stream_fund
+
+        view = self._deliberation_view()
+        if view is None:
+            return
+        try:
+            model = self._model_factory()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"model unavailable: {exc}")
+            return
+        last_kind: str | None = None
+        try:
+            with self._session_factory() as session:
+                mandate = observe.get_mandate(session, portfolio_id)
+                if mandate is None:
+                    self.call_from_thread(
+                        self._set_status, "no mandate — onboard the portfolio first"
+                    )
+                    return
+                for event in stream_fund(
+                    model,
+                    mandate,
+                    portfolio_id=portfolio_id,
+                    asof=asof,
+                    session=session,
+                    checkpointer=self._persistence.saver,
+                    store=self._persistence.store,
+                ):
+                    if last_kind is None:
+                        self.call_from_thread(view.start_live, event.run_id)
+                        self.call_from_thread(self._enter_live_runstate)
+                    self.call_from_thread(view.ingest_event, event)
+                    last_kind = event.kind
+                session.commit()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"action failed: {exc}")
+            self.call_from_thread(view.end_live)
+            self.call_from_thread(self._exit_live_runstate)
+            return
+        if last_kind != "paused":
+            # A no-ticket / incomplete end has nothing to act on — drop to replay.
+            self.call_from_thread(view.end_live)
+        self.call_from_thread(self._exit_live_runstate)
+
+    def _enter_live_runstate(self) -> None:
+        """Latch the header run-state to ``▶ LIVE`` for the duration of a stream."""
+        self._streaming = True
+        self._refresh_runstate()
+
+    def _exit_live_runstate(self) -> None:
+        """Release the ``▶ LIVE`` latch; the header reverts to the DB-derived glyph."""
+        self._streaming = False
+        self._refresh_runstate()
 
     def _after_onboard(self, message: str) -> None:
         """On the main thread once onboarding committed: refresh the picker + report."""
@@ -893,13 +987,15 @@ class ShellApp(App[None]):
         self.query_one("#hdr-runstate", Static).update(self._runstate)
 
     def _run_state_glyph(self) -> str:
-        """The focused portfolio's latest-run glyph: running / awaiting / idle.
+        """The focused portfolio's latest-run glyph: live / running / awaiting / idle.
 
-        Fund-wide (no focus), no runs, or a read error all read as ``idle``; a
-        ``paused`` or ``responded`` (barge-in re-gate) latest run is ``awaiting`` the
-        adviser, ``pending``/``running`` is live, everything else (completed / rejected)
-        is idle.
+        A streaming round latches ``▶ LIVE`` (poll-stable). Otherwise: fund-wide (no
+        focus), no runs, or a read error all read as ``idle``; a ``paused`` or
+        ``responded`` (barge-in re-gate) latest run is ``awaiting`` the adviser,
+        ``pending``/``running`` is live, everything else (completed / rejected) is idle.
         """
+        if self._streaming:
+            return "▶ LIVE"
         if self._portfolio_id is None:
             return "✓ idle"
         try:
