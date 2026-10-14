@@ -1676,6 +1676,80 @@ async def test_deliberation_readout_risk_step_verdict(shell_env) -> None:
         assert "factor exposures" in detail
 
 
+def test_readout_weights_tolerate_null_and_bool_values() -> None:
+    """A null or boolean weight must not crash the sort nor render as a percentage."""
+    from fund.tui.readouts import render_readout
+
+    payload = {"weights": {"AAA": 0.6, "BBB": None, "CCC": True}}
+    text = render_readout("allocator", "optimize_portfolio", payload)
+    assert text is not None  # the sort tolerates None instead of raising TypeError
+    results = text[text.index("results") :]
+    assert "AAA · 60.0%" in results  # the genuine numeric weight
+    assert "100.0%" not in results  # a JSON `true` is not a 100% weight
+    assert "True" in results  # it renders raw, flagging the type anomaly
+    assert results.index("AAA") < results.index("BBB")  # real weight ranks first
+
+
+def test_readout_empty_weights_and_missing_constraints_degrade() -> None:
+    """Empty weights and a missing constraint set degrade to labels, never a crash."""
+    from fund.tui.readouts import render_readout
+
+    text = render_readout("allocator", "optimize_portfolio", {"weights": {}})
+    assert text is not None
+    assert "0 selected" in text  # post-filter universe empty
+    assert "weights · none recorded" in text
+    assert "objective · unavailable (not recorded)" in text  # no constraint_set
+
+
+def test_readout_truncates_long_universe_and_weights() -> None:
+    """More than _MAX_NAMES holdings collapse the tail into a '… +k more' marker."""
+    from fund.tui.readouts import render_readout
+
+    weights = {f"T{i:02d}": round(1.0 - i * 0.01, 2) for i in range(10)}  # 10 > cap 8
+    text = render_readout("allocator", "optimize_portfolio", {"weights": weights})
+    assert text is not None
+    assert text.count("… +2 more") == 2  # once in the universe block, once in weights
+
+
+def test_readout_allocator_without_payload_returns_none() -> None:
+    """The allocator read-out is gated on a non-empty payload; None/empty falls back."""
+    from fund.tui.readouts import render_readout
+
+    assert render_readout("allocator", "optimize_portfolio", None) is None
+    assert render_readout("allocator", "optimize_portfolio", {}) is None
+
+
+@pytest.mark.asyncio
+async def test_deliberation_unmapped_step_with_payload_falls_back_to_json(
+    shell_env,
+) -> None:
+    """An unmapped step that carries a payload still shows the raw JSON dump."""
+    with shell_env.get_session() as session:
+        repo = AgentRunRepository(session)
+        run = repo.create_run(
+            portfolio_id=_PID_A,
+            asof=date(2026, 1, 2),
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        repo.append_decision(
+            run.id, agent="economist", step="report", views={"note": "macro"}
+        )
+        session.commit()
+        run_id = run.id
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(0)
+        await pilot.pause()
+        detail = view.detail_text
+        assert '"note"' in detail  # raw JSON dump, not a structured read-out
+        assert "macro" in detail
+
+
 # --- Deliberation live mode: streamed timeline + follow/inspect (GP0-1) --------
 
 

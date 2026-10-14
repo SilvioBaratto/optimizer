@@ -118,7 +118,11 @@ def _weights_lines(payload: Mapping[str, Any]) -> list[str]:
     weights = payload.get("weights") or {}
     if not weights:
         return ["weights · none recorded"]
-    ranked = sorted(weights.items(), key=lambda item: item[1], reverse=True)
+    # Null / non-numeric weights (valid JSON from an LLM) sink to the bottom rather
+    # than raising from the mixed-type comparison the bare sort would attempt.
+    ranked = sorted(
+        weights.items(), key=lambda item: _sort_weight(item[1]), reverse=True
+    )
     lines = [f"weights · {len(ranked)} names (top by weight)"]
     lines += [f"  {name} · {_pct(weight)}" for name, weight in ranked[:_MAX_NAMES]]
     extra = len(ranked) - _MAX_NAMES
@@ -128,11 +132,13 @@ def _weights_lines(payload: Mapping[str, Any]) -> list[str]:
 
 
 def _pct(value: Any) -> str:
-    """Format a portfolio weight as a one-decimal percentage."""
-    try:
-        return f"{float(value) * 100:.1f}%"
-    except (TypeError, ValueError):
-        return str(value)
+    """Format a portfolio weight as a one-decimal percentage, else its raw string.
+
+    A non-numeric or boolean weight renders raw (e.g. ``"None"``, ``"True"``) so a type
+    anomaly in the recorded JSON is visible, never silently shown as a percentage.
+    """
+    numeric = _as_float(value)
+    return str(value) if numeric is None else f"{numeric * 100:.1f}%"
 
 
 def _universe_lines(payload: Mapping[str, Any]) -> list[str]:
@@ -192,7 +198,22 @@ def _num(value: Any) -> str:
     """Format a numeric constraint to two decimals; fall back to its string form."""
     if value is None:
         return "—"
-    try:
-        return f"{float(value):.2f}"
-    except (TypeError, ValueError):
-        return str(value)
+    numeric = _as_float(value)
+    return str(value) if numeric is None else f"{numeric:.2f}"
+
+
+def _as_float(value: Any) -> float | None:
+    """Coerce a JSON scalar to ``float``, or ``None`` for bool / null / non-numbers.
+
+    ``bool`` is rejected despite subclassing ``int`` so a JSON ``true`` is never read as
+    the number ``1`` (mirrors ``observe._metrics_from_response``'s bool guard).
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _sort_weight(value: Any) -> float:
+    """Sort key for a weight: its float value, or ``-inf`` for null / non-numeric."""
+    numeric = _as_float(value)
+    return float("-inf") if numeric is None else numeric
