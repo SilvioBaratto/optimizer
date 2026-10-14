@@ -1312,8 +1312,9 @@ def _transcript_detail(entry: Any) -> str:
     lines = [f"{entry.agent} · {entry.step or entry.source} · #{entry.index}"]
     if entry.text:
         lines.append(entry.text)
-    if entry.payload:
-        lines.append(_detail_payload(entry.agent, entry.step, entry.payload))
+    body = _detail_payload(entry.agent, entry.step, entry.payload)
+    if body:
+        lines.append(body)
     return "\n".join(lines)
 
 
@@ -1325,17 +1326,26 @@ def _stream_detail(event: StreamEvent) -> str:
     lines = [f"{event.agent} · {event.step or event.kind} · #{event.index}"]
     if event.text:
         lines.append(event.text)
-    if event.payload:
-        lines.append(_detail_payload(event.agent, event.step, event.payload))
+    body = _detail_payload(event.agent, event.step, event.payload)
+    if body:
+        lines.append(body)
     return "\n".join(lines)
 
 
-def _detail_payload(agent: str, step: str | None, payload: dict[str, Any]) -> str:
-    """Structured read-out for an allocator/risk step, else the raw JSON dump."""
+def _detail_payload(
+    agent: str, step: str | None, payload: dict[str, Any] | None
+) -> str:
+    """Structured read-out for an allocator/risk step, else the raw JSON dump (or "").
+
+    A risk step carries no payload, so :func:`render_readout` is always consulted; only
+    an unmapped step with a payload falls back to the JSON dump.
+    """
     readout = render_readout(agent, step, payload)
     if readout is not None:
         return readout
-    return json.dumps(payload, indent=2, sort_keys=True)
+    if payload:
+        return json.dumps(payload, indent=2, sort_keys=True)
+    return ""
 
 
 # Per-key view class; keys absent here fall back to the placeholder ``ShellView``.

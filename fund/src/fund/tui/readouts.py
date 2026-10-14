@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 # Keyed on the acting role, not the step, so the replay ``optimize_portfolio`` decision
 # and any future allocator step both route to the build/results read-out.
 _ALLOCATOR_AGENT = "allocator"
+_RISK_AGENT = "risk"
 
 # Signals / factors / views are never generated or persisted (the ``views`` column is
 # always NULL); label them rather than fabricate numbers.
@@ -28,6 +29,11 @@ _MAX_NAMES = 8
 # Frontier / backtest are live-computable (not aspirational): mark them pending until
 # the adviser expands the step and the recompute worker fills them in (T6).
 _PENDING_LABEL = "compute to view"
+
+# Risk verdict tiers as (dot, label) — the word always travels with the glyph so status
+# never rides on colour/shape alone (mirrors views._HEALTH_*). The live ok/warn/breach
+# tiers derive from risk_check violations in T6; it is pending until expanded.
+_VERDICT_PENDING = ("○", "pending")
 
 
 def render_readout(
@@ -44,9 +50,10 @@ def render_readout(
         The rendered sub-panels joined by newlines, or ``None`` when the step has no
         structured read-out — the caller then falls back to the raw JSON dump.
     """
-    if agent == _ALLOCATOR_AGENT:
-        data = payload or {}
-        return "\n".join([*_build_block(data), *_results_block(data)])
+    if agent == _ALLOCATOR_AGENT and payload:
+        return "\n".join([*_build_block(payload), *_results_block(payload)])
+    if agent == _RISK_AGENT:
+        return "\n".join(_risk_block())
     return None
 
 
@@ -79,6 +86,29 @@ def _results_block(payload: Mapping[str, Any]) -> list[str]:
     lines += _indent(_weights_lines(payload))
     lines += _indent(
         [f"frontier point · {_PENDING_LABEL}", f"backtest · {_PENDING_LABEL}"]
+    )
+    return lines
+
+
+def _risk_block() -> list[str]:
+    """The *risk* family: a pending verdict plus the exposures that will drive it.
+
+    The verdict stays pending (dot+label) until the recompute worker re-runs
+    ``risk_check`` on expand (T6) and resolves the ok/warn/breach tier from its
+    violations — it is never reconstructed from the risk role's prose.
+
+    Returns:
+        The ``risk`` sub-panel lines: a pending verdict, pending sector exposures, and
+        the mock-labelled factor exposures.
+    """
+    dot, label = _VERDICT_PENDING
+    lines = ["risk"]
+    lines += _indent(
+        [
+            f"verdict · {dot} {label} · {_PENDING_LABEL}",
+            f"sector exposures · {_PENDING_LABEL}",
+            f"factor exposures · {_MOCK_LABEL}",
+        ]
     )
     return lines
 

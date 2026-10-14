@@ -1643,6 +1643,39 @@ def test_readout_results_weights_ranked_and_pending_markers() -> None:
     assert results.count("compute to view") == 2  # frontier + backtest pending markers
 
 
+def test_readout_risk_pending_verdict_and_exposures() -> None:
+    """The risk read-out shows a dot+label verdict (pending until recomputed in T6) and
+    an exposures section — sector pending, factor mock — without scraping LLM prose."""
+    from fund.tui.readouts import render_readout
+
+    text = render_readout("risk", "risk_check", None)
+    assert text is not None
+    assert "verdict" in text
+    assert "○ pending" in text  # dot plus label, never the glyph alone
+    assert "sector exposures" in text
+    assert "compute to view" in text  # sector verdict/exposures pending, computed in T6
+    assert "mock — no live source yet" in text  # factor exposures labelled mock
+
+
+@pytest.mark.asyncio
+async def test_deliberation_readout_risk_step_verdict(shell_env) -> None:
+    """Selecting the risk step paints the risk read-out: verdict + exposures."""
+    with shell_env.get_session() as session:
+        run_id = _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(1)  # the risk step (allocator=0, risk=1, executor=2)
+        await pilot.pause()
+        detail = view.detail_text
+        assert "verdict" in detail
+        assert "○ pending" in detail
+        assert "factor exposures" in detail
+
+
 # --- Deliberation live mode: streamed timeline + follow/inspect (GP0-1) --------
 
 
