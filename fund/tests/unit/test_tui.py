@@ -894,6 +894,62 @@ async def test_mandate_actions_inert_without_a_mandate(shell_env) -> None:
         assert "suitability band" in app.last_status
 
 
+# --- Mandate gate checkboxes + remembered-directives list (T10) --------------
+
+
+@pytest.mark.asyncio
+async def test_mandate_gate_checkbox_toggles_hitl_gates(shell_env) -> None:
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        place = view.query_one("#gate-place-orders", Checkbox)
+        assert place.value is True  # the default mandate gates place_orders
+        save_profile = view.query_one("#gate-save-profile", Checkbox)
+        assert save_profile.disabled is True  # always-on indicator, not toggleable
+        assert save_profile.value is True
+        place.value = False  # toggle the PM gate off
+        app.action_save_mandate()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert "mandate updated" in app.last_status
+    with shell_env.get_session() as session:
+        reloaded = observe.get_mandate(session, PORTFOLIO_ID)
+        assert reloaded.hitl_gates == ()  # the toggle persisted into the mandate
+
+
+@pytest.mark.asyncio
+async def test_mandate_remove_directive_drops_it_on_save(shell_env) -> None:
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"remembered_directives": ("Trim AAA", "Keep 5% cash")}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        listview = view.query_one("#mandate-directives", ListView)
+        assert listview.children  # the two directives render
+        assert view._directives == ["Trim AAA", "Keep 5% cash"]
+        listview.index = 0
+        view.action_remove_directive()
+        await pilot.pause()
+        assert view._directives == ["Keep 5% cash"]
+        app.action_save_mandate()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        reloaded = observe.get_mandate(session, PORTFOLIO_ID)
+        assert reloaded.remembered_directives == ("Keep 5% cash",)
+
+
 # --- Posture view: fund roster + fund strip + focused detail (T6) -------------
 
 _PID_C = uuid.UUID("cccc0003-0000-4000-8000-000000000003")

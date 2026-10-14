@@ -269,6 +269,7 @@ class ShellApp(App[None]):
     .mandate-guardrails { width: 1fr; padding: 0 1; }
     .mandate-section { text-style: bold; color: $accent; }
     .mandate-readonly { height: auto; color: $warning; }
+    .mandate-directives { height: 6; border: round $panel; }
     .mandate-hint { height: 1; color: $accent; }
     .audit-body { height: 1fr; }
     .audit-table { width: 55%; }

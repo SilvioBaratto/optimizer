@@ -27,7 +27,16 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol, cast
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.coordinate import Coordinate
-from textual.widgets import DataTable, Input, Label, Select, Static
+from textual.widgets import (
+    Checkbox,
+    DataTable,
+    Input,
+    Label,
+    ListItem,
+    ListView,
+    Select,
+    Static,
+)
 
 from fund import observe
 from fund.observe import RunSummary
@@ -348,7 +357,10 @@ class MandateView(ShellView):
     (``mandate_edit``). GUARDRAILS are read from the active MiFID profile — the
     suitability ``band`` is the ceiling, and proposing a *riskier* band logs a
     ``guardrail_override`` flagged ⚠ (audit-only this phase; enforcement is
-    ``03-copilot``). Mandatory-stops + remembered-directives are rendered read-only.
+    ``03-copilot``). The HITL gates are editable checkboxes (the ``place_orders`` PM
+    gate toggles ``hitl_gates``; ``save_profile`` is the profiler's always-on gate, an
+    indicator only); remembered directives render in a removable list (``x`` drops the
+    highlighted one). Both fold back into the mandate on save.
 
     Reads through the context seam (``observe.get_mandate`` +
     ``MifidProfileRepository.get_active`` over a short read session); the writes go
@@ -360,10 +372,16 @@ class MandateView(ShellView):
             ceiling), or ``None`` when the portfolio has no profile yet.
     """
 
+    # View-scoped so ``x`` removes a directive only while Mandate holds focus.
+    BINDINGS: ClassVar[list[BindingType]] = [
+        ("x", "remove_directive", "Remove directive")
+    ]
+
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)
         self.mandate: Any = None
         self.suitability_band: str | None = None
+        self._directives: list[str] = []
 
     def compose(self) -> ComposeResult:
         """Yield the title, the run-policy | guardrails split, and the key hint."""
@@ -392,13 +410,18 @@ class MandateView(ShellView):
                     allow_blank=True,
                 )
                 yield Static("", id="mandate-caps", classes="mandate-readonly")
-                yield Static(
-                    "mandatory stops + directives — read-only (live in 03-copilot)",
-                    id="mandate-directives",
-                    classes="mandate-readonly",
+                yield Label("HITL GATES", classes="mandate-section")
+                yield Checkbox("Before execution", id="gate-place-orders")
+                yield Checkbox(
+                    "Save profile (always on)",
+                    value=True,
+                    disabled=True,
+                    id="gate-save-profile",
                 )
+                yield Label("REMEMBERED DIRECTIVES", classes="mandate-section")
+                yield ListView(id="mandate-directives", classes="mandate-directives")
         yield Static(
-            "ctrl+s save run-policy · o override guardrail (⚠ if out of band)",
+            "ctrl+s save · o override guardrail · x remove directive",
             id="mandate-hint",
             classes="mandate-hint",
         )
@@ -414,6 +437,8 @@ class MandateView(ShellView):
             self.suitability_band = None
             self._paint_policy(None)
             self._paint_guardrails(None, "")
+            self._paint_gates(None)
+            self._paint_directives(None)
             return
         subtitle.update(f"portfolio {_short(pid)}")
         mandate, band, caps = self._read(pid)
@@ -421,6 +446,8 @@ class MandateView(ShellView):
         self.suitability_band = band
         self._paint_policy(mandate)
         self._paint_guardrails(band, caps)
+        self._paint_gates(mandate)
+        self._paint_directives(mandate)
 
     def proposed_mandate(self) -> Any:
         """Build a ``PortfolioMandate`` from the edited run-policy inputs, re-validated.
@@ -439,8 +466,24 @@ class MandateView(ShellView):
             "base_currency": self.query_one("#mandate-base-currency", Input).value,
             "drift_l1_threshold": self.query_one("#mandate-drift", Input).value,
             "benchmark": self.query_one("#mandate-benchmark", Input).value or None,
+            "hitl_gates": self._proposed_gates(),
+            "remembered_directives": list(self._directives),
         }
         return PortfolioMandate.model_validate(data)
+
+    def _proposed_gates(self) -> list[str]:
+        """The PM gates checked in the editor (``save_profile`` is not a gate here)."""
+        checked = self.query_one("#gate-place-orders", Checkbox).value
+        return ["place_orders"] if checked else []
+
+    def action_remove_directive(self) -> None:
+        """Drop the highlighted remembered directive (persisted on the next save)."""
+        listview = self.query_one("#mandate-directives", ListView)
+        index = listview.index
+        if index is None or index >= len(self._directives):
+            return
+        del self._directives[index]
+        self._refill_directives()
 
     def proposed_band(self) -> str | None:
         """The target band selected in the guardrail editor, or ``None`` when blank."""
@@ -509,6 +552,23 @@ class MandateView(ShellView):
         if band in _RISK_BANDS:
             select.value = band
         caps_widget.update(caps)
+
+    def _paint_gates(self, mandate: Any) -> None:
+        """Reflect the mandate's PM gates into the toggleable ``place_orders`` box."""
+        checkbox = self.query_one("#gate-place-orders", Checkbox)
+        checkbox.value = mandate is not None and "place_orders" in mandate.hitl_gates
+
+    def _paint_directives(self, mandate: Any) -> None:
+        """Repopulate the removable directives list from the mandate each tick."""
+        self._directives = list(mandate.remembered_directives) if mandate else []
+        self._refill_directives()
+
+    def _refill_directives(self) -> None:
+        """Rebuild the directives ``ListView`` rows from :attr:`_directives`."""
+        listview = self.query_one("#mandate-directives", ListView)
+        listview.clear()
+        for directive in self._directives:
+            listview.append(ListItem(Label(directive)))
 
 
 # Latest-run status buckets the roster glyph + the fund strip aggregate by.
