@@ -40,6 +40,7 @@ from textual.widgets import (
 
 from fund import observe
 from fund.observe import RunSummary
+from fund.tui.readouts import render_readout
 from fund.tui.stream import StepStatus, StreamEvent
 
 if TYPE_CHECKING:
@@ -1303,23 +1304,38 @@ class DeliberationView(ShellView):
 
 
 def _transcript_detail(entry: Any) -> str:
-    """Render one transcript step: header, its text, and the decision payload if any."""
+    """Render a transcript step: header, text, then a read-out or the raw payload.
+
+    An allocator/risk step routes its payload through :func:`render_readout` for the
+    build/results/risk sub-panels; any other step keeps the raw JSON dump.
+    """
     lines = [f"{entry.agent} · {entry.step or entry.source} · #{entry.index}"]
     if entry.text:
         lines.append(entry.text)
     if entry.payload:
-        lines.append(json.dumps(entry.payload, indent=2, sort_keys=True))
+        lines.append(_detail_payload(entry.agent, entry.step, entry.payload))
     return "\n".join(lines)
 
 
 def _stream_detail(event: StreamEvent) -> str:
-    """Render one live step: header, its summary, and the interrupt payload if any."""
+    """Render a live step: header, summary, then a read-out or the raw payload.
+
+    Mirrors :func:`_transcript_detail` so live and replay render alike.
+    """
     lines = [f"{event.agent} · {event.step or event.kind} · #{event.index}"]
     if event.text:
         lines.append(event.text)
     if event.payload:
-        lines.append(json.dumps(event.payload, indent=2, sort_keys=True))
+        lines.append(_detail_payload(event.agent, event.step, event.payload))
     return "\n".join(lines)
+
+
+def _detail_payload(agent: str, step: str | None, payload: dict[str, Any]) -> str:
+    """Structured read-out for an allocator/risk step, else the raw JSON dump."""
+    readout = render_readout(agent, step, payload)
+    if readout is not None:
+        return readout
+    return json.dumps(payload, indent=2, sort_keys=True)
 
 
 # Per-key view class; keys absent here fall back to the placeholder ``ShellView``.

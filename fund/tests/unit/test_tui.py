@@ -1562,6 +1562,73 @@ async def test_deliberation_empty_without_focus(shell_env) -> None:
         assert "select a step" in view.detail_text
 
 
+# --- Deliberation drill-down read-outs: build family (Phase 4 T1) -------------
+
+
+def test_readout_build_renders_record_and_mock_labels() -> None:
+    """The allocator build read-out shows recorded universe/objective/constraints and
+    labels the aspirational sources (candidate universe, factors, views) as mock."""
+    from fund.tui.readouts import render_readout
+
+    payload = {
+        "constraint_set": make_constraint_set().model_dump(mode="json"),
+        "weights": {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+    }
+    text = render_readout("allocator", "optimize_portfolio", payload)
+    assert text is not None
+    assert "3 selected" in text  # post-filter universe size from the weights keys
+    assert "AAA" in text
+    assert "objective" in text  # constraints/objective carry real recorded values
+    assert "bounds" in text
+    assert "mock — no live source yet" in text  # factors/signals/views labelled
+
+
+def test_readout_returns_none_for_unmapped_step() -> None:
+    """A step with no read-out returns None so the caller keeps the JSON dump."""
+    from fund.tui.readouts import render_readout
+
+    assert render_readout("economist", "report", {"note": "macro"}) is None
+    assert render_readout("executor", "place_orders", None) is None
+
+
+@pytest.mark.asyncio
+async def test_deliberation_allocator_step_shows_build_readout(shell_env) -> None:
+    """Selecting the allocator step paints the build read-out into the detail mirror
+    (universe + constraints + mock labels), replacing the raw JSON dump."""
+    constraint_set = make_constraint_set().model_dump(mode="json")
+    with shell_env.get_session() as session:
+        repo = AgentRunRepository(session)
+        run = repo.create_run(
+            portfolio_id=_PID_A,
+            asof=date(2026, 1, 2),
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        repo.append_decision(
+            run.id,
+            agent="allocator",
+            step="optimize_portfolio",
+            constraint_set=constraint_set,
+            llm_response='{"weights": {"AAA": 0.6, "BBB": 0.4}}',
+        )
+        session.commit()
+        run_id = run.id
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(0)
+        await pilot.pause()
+        detail = view.detail_text
+        assert "2 selected" in detail  # post-filter universe from the weights keys
+        assert "AAA" in detail
+        assert "objective" in detail  # recorded constraints rendered, not dumped
+        assert "mock — no live source yet" in detail
+        assert "{" not in detail  # the structured read-out replaced the JSON dump
+
+
 # --- Deliberation live mode: streamed timeline + follow/inspect (GP0-1) --------
 
 
