@@ -1929,6 +1929,77 @@ def test_parse_weights_rejects_garbage_and_parses_pairs() -> None:
         _parse_weights("AAA:oops")
 
 
+# --- Remember persistence: barge-in/steer remember flag (T11) -----------------
+
+
+@pytest.mark.asyncio
+async def test_steer_remember_persists_directive_to_mandate(tui_env) -> None:
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    app = _make_shell(
+        tui_env,
+        portfolio_id=PORTFOLIO_ID,
+        model_factory=lambda: ScriptedFundModel(
+            universe=UNIVERSE, weights=tui_env.expected, max_orders=2
+        ),
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_steer_decision()
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, BargeInScreen)
+        screen.query_one("#bargein-text", Input).value = "Always keep 5% cash."
+        screen.query_one("#bargein-remember", Checkbox).value = True  # remember
+        screen._submit()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        # It shows in the (focused) Mandate list, where it is removable (T10).
+        mandate_view = await _open_mandate(app, pilot)
+        assert "Always keep 5% cash." in mandate_view._directives
+    with tui_env.get_session() as session:
+        mandate = observe.get_mandate(session, PORTFOLIO_ID)
+        assert "Always keep 5% cash." in mandate.remembered_directives
+        run = AgentRunRepository(session).get_run(tui_env.run_id)
+        assert run.status == "responded"  # the directive still steered this round
+
+
+@pytest.mark.asyncio
+async def test_steer_one_shot_directive_is_not_persisted(tui_env) -> None:
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    app = _make_shell(
+        tui_env,
+        portfolio_id=PORTFOLIO_ID,
+        model_factory=lambda: ScriptedFundModel(
+            universe=UNIVERSE, weights=tui_env.expected, max_orders=2
+        ),
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_steer_decision()
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one("#bargein-text", Input).value = "Just this once."
+        # remember left unchecked (one-shot)
+        screen._submit()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with tui_env.get_session() as session:
+        mandate = observe.get_mandate(session, PORTFOLIO_ID)
+        assert mandate.remembered_directives == ()  # nothing persisted
+        run = AgentRunRepository(session).get_run(tui_env.run_id)
+        assert run.status == "responded"  # but the round was still steered
+
+
 # --- Notification bus: poll-diff → persistent toasts + counters (T10) ---------
 
 

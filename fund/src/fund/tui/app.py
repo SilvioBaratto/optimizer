@@ -662,12 +662,15 @@ class ShellApp(App[None]):
             self._set_status("select a paused gate to steer")
             return
         run_id = view.selected_run_id
+        portfolio_id = view.selected_portfolio_id  # the gate's own portfolio
 
         def _resolved(result: BargeInResult | None) -> None:
             if result is None:
                 self._set_status("steer cancelled")
                 return
-            self.last_worker = self._barge_in_worker(run_id, result.text)
+            self.last_worker = self._barge_in_worker(
+                run_id, portfolio_id, result.text, result.remember
+            )
 
         self.push_screen(BargeInScreen("the selected gate"), _resolved)
 
@@ -1002,12 +1005,16 @@ class ShellApp(App[None]):
         run_id = view.live_run_id
         paused_at = view.live_text.splitlines()[0] if view.live_text else "the gate"
 
+        portfolio_id = self._portfolio_id  # Deliberation is per-portfolio focused
+
         def _resolved(result: BargeInResult | None) -> None:
             self._stream_resume.set()  # resume the stream regardless of the choice
             if result is None:
                 self._set_status("barge-in cancelled")
                 return
-            self.last_worker = self._barge_in_worker(run_id, result.text)
+            self.last_worker = self._barge_in_worker(
+                run_id, portfolio_id, result.text, result.remember
+            )
 
         self.push_screen(BargeInScreen(paused_at), _resolved)
 
@@ -1153,13 +1160,22 @@ class ShellApp(App[None]):
         self.call_from_thread(self._exit_live_runstate)
 
     @work(thread=True, exclusive=True, group="action")
-    def _barge_in_worker(self, run_id: uuid.UUID, directive: str) -> None:
+    def _barge_in_worker(
+        self,
+        run_id: uuid.UUID,
+        portfolio_id: uuid.UUID | None,
+        directive: str,
+        remember: bool,
+    ) -> None:
         """Thread the adviser's directive to the PM at the gate (``respond``).
 
         Dispatches ``respond`` through ``apply_action`` for the paused run: the PM
         incorporates ``directive`` and re-gates ``responded`` (still awaiting approval),
-        or finalises ``incomplete``. The agent stack is imported lazily; a missing model
-        key or any failure surfaces as a status line rather than crashing the App.
+        or finalises ``incomplete``. When ``remember`` is set, the directive is also
+        upserted into the run portfolio's ``remembered_directives`` (a soft guardrail)
+        in the same transaction; a one-shot directive seeds only this round. The agent
+        stack is imported lazily; a missing model key or any failure surfaces as a
+        status line rather than crashing the App.
         """
         from fund.actions import apply_action
 
@@ -1174,17 +1190,45 @@ class ShellApp(App[None]):
                     "respond",
                     session=session,
                     run_id=run_id,
-                    portfolio_id=self._portfolio_id,
+                    portfolio_id=portfolio_id,
                     pm_directive=directive,
                     model=model,
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
                 )
+                if remember and portfolio_id is not None:
+                    self._remember_directive(session, portfolio_id, directive)
                 session.commit()
         except Exception as exc:  # surface a clean message, never crash the App
             self.call_from_thread(self._set_status, f"action failed: {exc}")
             return
         self.call_from_thread(self._after_action, result.message)
+
+    def _remember_directive(
+        self, session: Session, portfolio_id: uuid.UUID, directive: str
+    ) -> None:
+        """Upsert ``directive`` into the portfolio mandate's ``remembered_directives``.
+
+        A no-op when the portfolio has no mandate or already carries the directive, so a
+        repeated remember never duplicates it. Runs in the caller's transaction (no
+        commit here).
+        """
+        from fund.actions import apply_action
+
+        mandate = observe.get_mandate(session, portfolio_id)
+        if mandate is None or directive in mandate.remembered_directives:
+            return
+        updated = mandate.model_copy(
+            update={
+                "remembered_directives": (*mandate.remembered_directives, directive)
+            }
+        )
+        apply_action(
+            "mandate_edit",
+            session=session,
+            portfolio_id=portfolio_id,
+            mandate=updated,
+        )
 
     def _enter_live_runstate(self) -> None:
         """Latch the header run-state to ``▶ LIVE`` for the duration of a stream."""
