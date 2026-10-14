@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from fund.tools.optimize import optimize_portfolio
-from fund.tools.risk import backtest
+from fund.tools.risk import backtest, risk_check
 
 if TYPE_CHECKING:
     import datetime as dt
@@ -89,6 +89,28 @@ class ResultsCompute:
     backtest_error: str | None
 
 
+@dataclass(frozen=True)
+class RiskCompute:
+    """The recomputed *risk* read-out: the live ``risk_check`` verdict + exposures.
+
+    The dot/label tier is not derived here — the pure severity map in
+    :mod:`fund.tui.readouts` maps :attr:`violations` to ``ok`` / ``warn`` / ``breach``
+    at render time. This module only runs the check and rolls weights up per sector.
+
+    Attributes:
+        passed: ``risk_check``'s pass flag, or ``None`` when the check itself failed.
+        violations: The raw violation dicts (``type``/``asset``/``value``), maybe empty.
+        sector_exposures: ``(sector, total weight)`` pairs sorted by weight, or ``None``
+            when no sector mapping was available (``unavailable``, not a crash).
+        error: The failure message when the check could not run, else ``None``.
+    """
+
+    passed: bool | None
+    violations: tuple[dict[str, Any], ...]
+    sector_exposures: tuple[tuple[str, float], ...] | None
+    error: str | None
+
+
 def compute_results(
     session: Session,
     asof: dt.date | str,
@@ -122,6 +144,59 @@ def compute_results(
         backtest=result,
         backtest_error=backtest_error,
     )
+
+
+def compute_risk(
+    weights: Mapping[str, float],
+    constraint_set: Mapping[str, Any] | None,
+    sector_mapping: Mapping[str, str] | None = None,
+) -> RiskCompute:
+    """Recompute the risk read-out: the live ``risk_check`` verdict + sector exposures.
+
+    Args:
+        weights: The held allocation to check and roll up.
+        constraint_set: The recorded ``ConstraintSet.model_dump``; only its ``bounds``
+            reach ``risk_check``.
+        sector_mapping: ``ticker -> sector``; ``None``/empty yields ``unavailable``.
+
+    Returns:
+        A :class:`RiskCompute`. When ``risk_check`` returns ``ok=False`` the verdict is
+        ``None`` with an ``error`` string, but the sector roll-up is still attempted.
+    """
+    bounds = _bounds(constraint_set)
+    exposures = _sector_exposures(weights, sector_mapping)
+    envelope = risk_check(dict(weights), constraints=bounds)
+    if not envelope.get("ok"):
+        return RiskCompute(
+            passed=None,
+            violations=(),
+            sector_exposures=exposures,
+            error=str(envelope.get("error") or "risk check failed"),
+        )
+    data = envelope.get("data") or {}
+    return RiskCompute(
+        passed=bool(data.get("passed", False)),
+        violations=tuple(data.get("violations") or ()),
+        sector_exposures=exposures,
+        error=None,
+    )
+
+
+def _sector_exposures(
+    weights: Mapping[str, float], sector_mapping: Mapping[str, str] | None
+) -> tuple[tuple[str, float], ...] | None:
+    """Roll weights up per sector, sorted by weight; ``None`` without a mapping."""
+    if not sector_mapping:
+        return None
+    totals: dict[str, float] = {}
+    for name, weight in weights.items():
+        try:
+            value = float(weight)
+        except (TypeError, ValueError):
+            continue
+        sector = sector_mapping.get(name, "unmapped")
+        totals[sector] = totals.get(sector, 0.0) + value
+    return tuple(sorted(totals.items(), key=lambda item: item[1], reverse=True))
 
 
 def _bounds(constraint_set: Mapping[str, Any] | None) -> dict[str, Any] | None:

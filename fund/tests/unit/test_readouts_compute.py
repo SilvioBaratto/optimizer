@@ -68,3 +68,39 @@ def test_compute_results_degrades_on_empty_inputs(priced_session: Session) -> No
     assert result.frontier_error is not None
     assert result.backtest is None
     assert result.backtest_error is not None
+
+
+def test_compute_risk_returns_verdict_and_sector_breakdown() -> None:
+    """A clean allocation passes risk_check and its weights roll up per sector."""
+    from fund.readouts_compute import compute_risk
+
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    weights = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
+    sectors = {"AAA": "Tech", "BBB": "Tech", "CCC": "Energy"}
+    result = compute_risk(weights, constraint_set, sectors)
+    assert result.error is None
+    assert result.passed is True
+    assert result.violations == ()
+    exposures = dict(result.sector_exposures or ())
+    assert exposures["Tech"] == pytest.approx(0.8)
+    assert exposures["Energy"] == pytest.approx(0.2)
+
+
+def test_compute_risk_flags_bound_breach() -> None:
+    """A weight over the max bound surfaces a max_weight violation (passed False)."""
+    from fund.readouts_compute import compute_risk
+
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    constraint_set["bounds"] = {"min_weights": 0.0, "max_weights": 0.4, "budget": 1.0}
+    result = compute_risk({"AAA": 0.7, "BBB": 0.3}, constraint_set, None)
+    assert result.passed is False
+    assert any(v.get("type") == "max_weight" for v in result.violations)
+
+
+def test_compute_risk_missing_sector_mapping_degrades() -> None:
+    """A missing sector mapping degrades to unavailable (None), never a crash."""
+    from fund.readouts_compute import compute_risk
+
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    result = compute_risk({"AAA": 1.0}, constraint_set, None)
+    assert result.sector_exposures is None
