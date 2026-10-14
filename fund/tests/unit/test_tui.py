@@ -41,6 +41,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from textual.coordinate import Coordinate
 from textual.widgets import (
+    Checkbox,
     ContentSwitcher,
     DataTable,
     Input,
@@ -63,6 +64,7 @@ from fund.audit import (
 from fund.config import settings
 from fund.tui import app as tui_app
 from fund.tui.app import ConfirmScreen, ShellApp
+from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.stream import StepStatus, StreamEvent
 from fund.tui.views import (
@@ -1654,6 +1656,119 @@ async def test_deliberation_u_streams_live_round_to_gate(tui_env) -> None:
     with tui_env.get_session() as session:
         run = AgentRunRepository(session).get_run(streamed_run_id)
         assert run.status == "paused"  # the run reached its HITL pause
+
+
+# --- Barge-in: PM directive overlay + `b` hotkey (T8) -------------------------
+
+
+def test_import_bargein_is_light() -> None:
+    code = (
+        "import sys, fund.tui.barge_in; "
+        "assert 'deepagents' not in sys.modules, 'deepagents leaked at import'; "
+        "assert 'langgraph' not in sys.modules, 'langgraph leaked at import'; "
+        "print('ok')"
+    )
+    result = subprocess.run(  # noqa: S603 — fixed argv, our own interpreter
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "ok" in result.stdout
+
+
+@pytest.mark.asyncio
+async def test_bargein_screen_sends_directive_and_remember_flag(shell_env) -> None:
+    app = _make_shell(shell_env)
+    results: list[BargeInResult | None] = []
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        app.push_screen(BargeInScreen("economist · report · #0"), results.append)
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, BargeInScreen)
+        screen.query_one("#bargein-text", Input).value = "Trim AAA before committing."
+        screen.query_one("#bargein-remember", Checkbox).value = True
+        screen._submit()
+        await pilot.pause()
+        assert results[-1] == BargeInResult(
+            text="Trim AAA before committing.", remember=True
+        )
+        # An empty directive is a no-op: dismiss ``None`` (resume unchanged).
+        app.push_screen(BargeInScreen("gate"), results.append)
+        await pilot.pause()
+        app.screen._submit()
+        await pilot.pause()
+        assert results[-1] is None
+
+
+@pytest.mark.asyncio
+async def test_barge_in_inert_without_a_live_round(tui_env) -> None:
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_posture(app, pilot)  # not Deliberation → inert
+        app.action_barge_in()
+        await pilot.pause()
+        assert app.last_worker is None
+        assert not isinstance(app.screen, BargeInScreen)
+        assert "live Deliberation" in app.last_status
+        # On Deliberation but with no live round → still inert (nothing to barge into).
+        app.query_one(ContentSwitcher).current = "view-deliberation"
+        app._refresh()
+        await pilot.pause()
+        app.action_barge_in()
+        await pilot.pause()
+        assert not isinstance(app.screen, BargeInScreen)
+
+
+@pytest.mark.asyncio
+async def test_barge_in_at_gate_responds_and_regates(tui_env) -> None:
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    app = _make_shell(
+        tui_env,
+        portfolio_id=PORTFOLIO_ID,
+        model_factory=lambda: ScriptedFundModel(
+            universe=UNIVERSE, weights=tui_env.expected, max_orders=2
+        ),
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        app.query_one(ContentSwitcher).current = "view-deliberation"
+        app._refresh()
+        await pilot.pause()
+        app.action_run_portfolio(asof=ASOF)  # stream the round to the gate
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        view = app.query_one("#view-deliberation", DeliberationView)
+        run_id = view.live_run_id
+        assert run_id is not None
+        assert app._stream_resume.is_set()  # not paused — it reached the gate
+
+        app.action_barge_in()  # b
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, BargeInScreen)
+        assert "place_orders" in screen._paused_at  # overlay shows where it paused
+        assert (
+            not app._stream_resume.is_set()
+        )  # the live stream is held during barge-in
+        screen.query_one("#bargein-text", Input).value = "Trim AAA before committing."
+        screen._submit()
+        await pilot.pause()
+        assert app._stream_resume.is_set()  # resumed on resolve
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert "responded" in app.last_status
+    with tui_env.get_session() as session:
+        run = AgentRunRepository(session).get_run(run_id)
+        assert run.status == "responded"  # alive, still awaiting approval
+        rows = HumanAuditLogRepository(session).list_recent(action="respond")
+        assert len(rows) == 1
+        assert rows[0].run_id == run_id
 
 
 # --- Notification bus: poll-diff → persistent toasts + counters (T10) ---------

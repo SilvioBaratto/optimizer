@@ -27,6 +27,7 @@ over SQLite + ``MemorySaver`` + a scripted model with zero network.
 from __future__ import annotations
 
 import datetime as dt
+import threading
 import uuid
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -51,6 +52,7 @@ from textual.widgets import (
 
 from fund import observe
 from fund.config import FundConfig, settings
+from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.views import (
     VIEW_SPECS,
@@ -183,6 +185,7 @@ class ShellApp(App[None]):
         ("n", "new_portfolio", "New portfolio"),
         ("p", "profile_portfolio", "Profile"),
         ("u", "run_portfolio", "Run now"),
+        ("b", "barge_in", "Barge in"),
         ("t", "audit_cycle_actor", "Audit actor filter"),
         ("f", "audit_toggle_overrides", "Audit overrides filter"),
         ("g", "audit_toggle_scope", "Audit portfolio scope"),
@@ -231,6 +234,12 @@ class ShellApp(App[None]):
         # Latches the header to ``▶ LIVE`` across poll ticks while a round streams,
         # so a mid-stream refresh does not repaint the DB-derived running glyph.
         self._streaming = False
+        # When set, the live stream may advance; when cleared, it is held at a step
+        # boundary while the adviser barges in. The stream worker waits on it between
+        # steps; the barge-in overlay clears it on open and re-sets it on resolve, so it
+        # is never left cleared (which would hang the worker).
+        self._stream_resume = threading.Event()
+        self._stream_resume.set()
         # Notification bus (poll-diff): attention keys already alerted, so a
         # still-pending gate/breach never re-toasts on the next tick.
         self._seen_attention: set[tuple[str, uuid.UUID]] = set()
@@ -755,6 +764,32 @@ class ShellApp(App[None]):
             return None
         return view if isinstance(view, DeliberationView) else None
 
+    def action_barge_in(self) -> None:
+        """Barge into the live round with a PM directive (the ``b`` binding).
+
+        A no-op with a hint unless the Deliberation view is active and a live round is
+        showing. Holds the stream at the next step boundary, pushes the directive
+        overlay (showing where it paused), and on Send threads the directive to the PM
+        at the gate via ``respond``; Cancel resumes the stream unchanged. Both paths
+        re-arm the stream so the hold is never left standing.
+        """
+        view = self._deliberation_view()
+        if not self._deliberation_active() or view is None or view.live_run_id is None:
+            self._set_status("barge in from a live Deliberation round")
+            return
+        self._stream_resume.clear()  # hold a streaming worker at the next boundary
+        run_id = view.live_run_id
+        paused_at = view.live_text.splitlines()[0] if view.live_text else "the gate"
+
+        def _resolved(result: BargeInResult | None) -> None:
+            self._stream_resume.set()  # resume the stream regardless of the choice
+            if result is None:
+                self._set_status("barge-in cancelled")
+                return
+            self.last_worker = self._barge_in_worker(run_id, result.text)
+
+        self.push_screen(BargeInScreen(paused_at), _resolved)
+
     @work(thread=True, exclusive=True, group="drive")
     def _onboard_worker(
         self,
@@ -853,6 +888,7 @@ class ShellApp(App[None]):
         view = self._deliberation_view()
         if view is None:
             return
+        self._stream_resume.set()  # clear any stale barge-in hold from a prior round
         try:
             model = self._model_factory()
         except Exception as exc:  # surface a clean message, never crash the App
@@ -881,6 +917,9 @@ class ShellApp(App[None]):
                         self.call_from_thread(self._enter_live_runstate)
                     self.call_from_thread(view.ingest_event, event)
                     last_kind = event.kind
+                    # Suspend the graph generator at this step boundary while a barge-in
+                    # is open; the overlay re-sets the flag on resolve.
+                    self._stream_resume.wait()
                 session.commit()
         except Exception as exc:  # surface a clean message, never crash the App
             self.call_from_thread(self._set_status, f"action failed: {exc}")
@@ -891,6 +930,40 @@ class ShellApp(App[None]):
             # A no-ticket / incomplete end has nothing to act on — drop to replay.
             self.call_from_thread(view.end_live)
         self.call_from_thread(self._exit_live_runstate)
+
+    @work(thread=True, exclusive=True, group="action")
+    def _barge_in_worker(self, run_id: uuid.UUID, directive: str) -> None:
+        """Thread the adviser's directive to the PM at the gate (``respond``).
+
+        Dispatches ``respond`` through ``apply_action`` for the paused run: the PM
+        incorporates ``directive`` and re-gates ``responded`` (still awaiting approval),
+        or finalises ``incomplete``. The agent stack is imported lazily; a missing model
+        key or any failure surfaces as a status line rather than crashing the App.
+        """
+        from fund.actions import apply_action
+
+        try:
+            model = self._model_factory()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"model unavailable: {exc}")
+            return
+        try:
+            with self._session_factory() as session:
+                result = apply_action(
+                    "respond",
+                    session=session,
+                    run_id=run_id,
+                    portfolio_id=self._portfolio_id,
+                    pm_directive=directive,
+                    model=model,
+                    checkpointer=self._persistence.saver,
+                    store=self._persistence.store,
+                )
+                session.commit()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"action failed: {exc}")
+            return
+        self.call_from_thread(self._after_action, result.message)
 
     def _enter_live_runstate(self) -> None:
         """Latch the header run-state to ``▶ LIVE`` for the duration of a stream."""
