@@ -1,6 +1,6 @@
 """``create_scheduler`` registration + the agent-stack-free import guard.
 
-Asserts ``create_scheduler()`` registers exactly the three fund jobs with the
+Asserts ``create_scheduler()`` registers exactly the four fund jobs with the
 right trigger types, on a single-worker executor, a **distinct** jobstore table
 (``fund_apscheduler_jobs``), UTC, and the Saturday cron (weekday name — a bare
 ``0`` would fire Monday) — **without starting** the scheduler; and that it raises
@@ -30,6 +30,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from fund.scheduler import (
     JOB_DRIFT_MONITOR,
+    JOB_NAV_MARK,
     JOB_ORPHAN_REAPER,
     JOB_REBALANCE_SWEEP,
     create_scheduler,
@@ -39,7 +40,7 @@ _DM = "fund.scheduler.database_manager"
 _JOBSTORE = "fund.scheduler.SQLAlchemyJobStore"
 _EXECUTOR = "fund.scheduler.ThreadPoolExecutor"
 
-_CRON_JOBS = {JOB_REBALANCE_SWEEP}
+_CRON_JOBS = {JOB_REBALANCE_SWEEP, JOB_NAV_MARK}
 _INTERVAL_JOBS = {JOB_DRIFT_MONITOR, JOB_ORPHAN_REAPER}
 _ALL_JOBS = _CRON_JOBS | _INTERVAL_JOBS
 
@@ -57,7 +58,7 @@ def _build_scheduler(jobstore_calls: list[dict] | None = None):
         return create_scheduler()
 
 
-def test_registers_exactly_the_three_fund_jobs():
+def test_registers_exactly_the_four_fund_jobs():
     scheduler = _build_scheduler()
     ids = {job.id for job in scheduler.get_jobs()}
     assert ids == _ALL_JOBS
@@ -66,6 +67,12 @@ def test_registers_exactly_the_three_fund_jobs():
 def test_rebalance_sweep_uses_a_cron_trigger():
     scheduler = _build_scheduler()
     job = scheduler.get_job(JOB_REBALANCE_SWEEP)
+    assert isinstance(job.trigger, CronTrigger)
+
+
+def test_nav_mark_uses_a_cron_trigger():
+    scheduler = _build_scheduler()
+    job = scheduler.get_job(JOB_NAV_MARK)
     assert isinstance(job.trigger, CronTrigger)
 
 

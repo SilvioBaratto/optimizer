@@ -2,10 +2,10 @@
 
 The testable daemon logic, split from the wiring (``fund.worker`` builds and drives
 the scheduler; this module holds the plain step functions that are unit-tested
-headless). Three scheduled steps — the weekly rebalance sweep, the
-15-minute drift monitor, and the orphan reaper — plus the shared per-portfolio
-driver :func:`_drive_rebalance` and the :func:`create_scheduler` factory. **None
-of these start a scheduler.**
+headless). Four scheduled steps — the weekly rebalance sweep, the
+15-minute drift monitor, the daily NAV mark, and the orphan reaper — plus the
+shared per-portfolio driver :func:`_drive_rebalance` and the
+:func:`create_scheduler` factory. **None of these start a scheduler.**
 
 Mirrors ``ingestion/app/services/jobs/scheduler.py`` with the fund deltas:
 
@@ -67,9 +67,10 @@ logger = logging.getLogger(__name__)
 # in production; a test injects one bound to an in-memory/temp engine.
 SessionFactory = Callable[[], AbstractContextManager["Session"]]
 
-# The three scheduled fund jobs (job ids == APScheduler job ids).
+# The scheduled fund jobs (job ids == APScheduler job ids).
 JOB_REBALANCE_SWEEP = "fund_rebalance_sweep"
 JOB_DRIFT_MONITOR = "fund_drift_monitor"
+JOB_NAV_MARK = "fund_nav_mark"
 JOB_ORPHAN_REAPER = "fund_orphan_reaper"
 
 
@@ -522,6 +523,87 @@ def run_orphan_reaper(
         return False
 
 
+def run_nav_mark(
+    *,
+    session_factory: SessionFactory | None = None,
+    asof: dt.date | None = None,
+    config: FundConfig = settings,
+) -> bool:
+    """Claim the NAV-mark slot and persist every active mandate's NAV series.
+
+    Pure compute — no agent stack, no :class:`SchedulerRuntime`. For each active
+    mandate it rebuilds the FX-normalized NAV series via
+    :func:`fund.performance.build_nav_series` (which runs from the earliest fill, so
+    the first run backfills) and upserts it into ``nav_history`` — idempotent on
+    ``(portfolio_id, date)``, so a re-run leaves the same rows. One portfolio
+    erroring is logged and rolled back, never aborting the sweep. Runs under the
+    shared heartbeat lease. Returns ``True`` when the slot completed (``False`` if
+    the slot was busy or the sweep failed at the infrastructure level).
+    """
+    from fund.audit.fund_job_repository import FundJobRepository
+
+    factory = _resolve_factory(session_factory)
+    asof_date = _resolved_asof(asof)
+    with factory() as session:
+        job_repo = FundJobRepository(session)
+        job_id = job_repo.claim_or_create(JOB_NAV_MARK)
+        if job_id is None:
+            logger.info("nav mark: slot busy; skipping")
+            return False
+        job_repo.mark_running(job_id)
+        try:
+            with _heartbeat(
+                job_id,
+                cadence=config.fund_heartbeat_cadence_seconds,
+                session_factory=factory,
+            ):
+                _mark_all_navs(session, asof_date)
+        except Exception as exc:
+            logger.exception("nav mark: aborted")
+            job_repo.mark_done(job_id, status="failed", error=str(exc))
+            return False
+        job_repo.mark_done(job_id, status="completed")
+        logger.info("nav mark: completed")
+        return True
+
+
+def _mark_all_navs(session: Session, asof: dt.date) -> None:
+    """Build + upsert each active mandate's NAV series; one error is skipped."""
+    from fund.audit.mandate_repository import MandateRepository
+    from fund.audit.nav_history_repository import NavHistoryRepository
+    from fund.performance import build_nav_series
+
+    nav_repo = NavHistoryRepository(session)
+    for row in MandateRepository(session).list_active():
+        mandate = PortfolioMandate.model_validate(row.mandate)
+        pid = row.portfolio_id
+        try:
+            points = build_nav_series(
+                pid,
+                session=session,
+                base_currency=mandate.base_currency,
+                benchmark=mandate.benchmark,
+                asof=asof,
+            )
+            if not points:
+                continue
+            nav_repo.upsert_navs(
+                [
+                    {
+                        "portfolio_id": pid,
+                        "date": point.date,
+                        "nav": point.nav,
+                        "benchmark": point.benchmark,
+                    }
+                    for point in points
+                ]
+            )
+            session.commit()
+        except Exception:
+            logger.exception("nav mark: portfolio %s errored; skipping", pid)
+            session.rollback()
+
+
 # ---------------------------------------------------------------------------
 # Scheduler factory
 # ---------------------------------------------------------------------------
@@ -531,10 +613,10 @@ def create_scheduler(config: FundConfig = settings) -> BackgroundScheduler:
     """Assemble the fund ``BackgroundScheduler`` (not started).
 
     Must be called **after** ``database_manager.initialize()`` so the engine
-    exists. Registers exactly three jobs — the cron rebalance sweep, the interval
-    drift monitor, and the interval orphan reaper — on a **distinct** jobstore
-    table (``fund_apscheduler_jobs``) with a single-worker executor (D1
-    sequential) and UTC timezone.
+    exists. Registers four jobs — the cron rebalance sweep, the interval drift
+    monitor, the daily cron NAV mark, and the interval orphan reaper — on a
+    **distinct** jobstore table (``fund_apscheduler_jobs``) with a single-worker
+    executor (D1 sequential) and UTC timezone.
     """
     engine = database_manager.engine
     if engine is None:
@@ -571,6 +653,14 @@ def create_scheduler(config: FundConfig = settings) -> BackgroundScheduler:
         coalesce=True,
     )
     scheduler.add_job(
+        run_nav_mark,
+        trigger=CronTrigger.from_crontab(config.fund_nav_mark_cron, timezone="UTC"),
+        id=JOB_NAV_MARK,
+        name="Daily NAV mark",
+        replace_existing=True,
+        coalesce=True,
+    )
+    scheduler.add_job(
         run_orphan_reaper,
         trigger=IntervalTrigger(seconds=config.fund_orphan_timeout_seconds),
         id=JOB_ORPHAN_REAPER,
@@ -600,7 +690,14 @@ def _build_runtime(
 
 
 def _run_once(step: str) -> bool:  # pragma: no cover - manual entrypoint wiring
-    """Build a runtime, run one step to its gate, and close the pool."""
+    """Run one step manually.
+
+    The NAV mark is pure compute (no model/persistence), so it runs without
+    building a runtime; the rebalance/drift steps build a throwaway runtime and
+    close its pool afterwards.
+    """
+    if step == "nav-mark":
+        return run_nav_mark()
     runtime = _build_runtime()
     try:
         if step == "rebalance-sweep":
@@ -608,7 +705,8 @@ def _run_once(step: str) -> bool:  # pragma: no cover - manual entrypoint wiring
         if step == "drift-monitor":
             return run_drift_monitor(runtime=runtime)
         raise SystemExit(
-            f"unknown step {step!r}; expected 'rebalance-sweep' or 'drift-monitor'"
+            f"unknown step {step!r}; expected 'rebalance-sweep', 'drift-monitor', "
+            "or 'nav-mark'"
         )
     finally:
         runtime.persistence.pool.close()
@@ -627,7 +725,7 @@ def main(
     args = argv if argv is not None else sys.argv[1:]
     if not args:
         raise SystemExit(
-            "usage: python -m fund.scheduler {rebalance-sweep|drift-monitor}"
+            "usage: python -m fund.scheduler {rebalance-sweep|drift-monitor|nav-mark}"
         )
     return 0 if _run_once(args[0]) else 1
 
@@ -638,12 +736,14 @@ if __name__ == "__main__":  # pragma: no cover - manual entrypoint
 
 __all__ = [
     "JOB_DRIFT_MONITOR",
+    "JOB_NAV_MARK",
     "JOB_ORPHAN_REAPER",
     "JOB_REBALANCE_SWEEP",
     "SchedulerRuntime",
     "configure_runtime",
     "create_scheduler",
     "run_drift_monitor",
+    "run_nav_mark",
     "run_orphan_reaper",
     "run_rebalance_sweep",
 ]

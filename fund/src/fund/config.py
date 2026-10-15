@@ -114,6 +114,9 @@ class FundConfig:
     fund_heartbeat_cadence_seconds: int = 30
     fund_orphan_timeout_seconds: int = 300
     fund_shutdown_drain_timeout_seconds: int = 30
+    # Daily NAV mark at 08:00 UTC — after the 07:00 ingestion pipeline (prices + FX
+    # fresh). Pure compute, agent-stack-free; backfills + idempotent upsert.
+    fund_nav_mark_cron: str = "0 8 * * *"
 
     # --- Phase-9 agent hardening: annual re-profiling marker + summarization pin
     # (mirrors the deepagents built-in defaults so the daemon can override them). ---
@@ -241,6 +244,7 @@ def load_config(
         fund_orphan_timeout_seconds=int(
             env.get("FUND_ORPHAN_TIMEOUT_SECONDS", defaults.fund_orphan_timeout_seconds)
         ),
+        fund_nav_mark_cron=env.get("FUND_NAV_MARK_CRON", defaults.fund_nav_mark_cron),
         fund_shutdown_drain_timeout_seconds=int(
             env.get(
                 "FUND_SHUTDOWN_DRAIN_TIMEOUT_SECONDS",

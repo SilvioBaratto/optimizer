@@ -44,9 +44,13 @@ from sqlalchemy import (
     update,
 )
 
-# The two fund daemon job slots. Each gets at most one active (pending|running)
-# row; the scheduler's rebalance sweep and drift monitor claim these.
-FUND_JOB_TYPES: tuple[str, ...] = ("fund_rebalance_sweep", "fund_drift_monitor")
+# The fund daemon job slots. Each gets at most one active (pending|running) row;
+# the scheduler's rebalance sweep, drift monitor, and daily NAV mark claim these.
+FUND_JOB_TYPES: tuple[str, ...] = (
+    "fund_rebalance_sweep",
+    "fund_drift_monitor",
+    "fund_nav_mark",
+)
 
 _ACTIVE_STATUSES: tuple[str, ...] = ("pending", "running")
 

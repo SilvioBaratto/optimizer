@@ -97,8 +97,12 @@ def _naive(dt: datetime) -> datetime:
 # --- exports + constants ----------------------------------------------------
 
 
-def test_fund_job_types_are_the_two_daemon_slots():
-    assert FUND_JOB_TYPES == ("fund_rebalance_sweep", "fund_drift_monitor")
+def test_fund_job_types_are_the_daemon_slots():
+    assert FUND_JOB_TYPES == (
+        "fund_rebalance_sweep",
+        "fund_drift_monitor",
+        "fund_nav_mark",
+    )
 
 
 def test_fund_job_repository_exported_from_audit():
