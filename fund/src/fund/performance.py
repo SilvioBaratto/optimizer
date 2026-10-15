@@ -250,8 +250,162 @@ def _load_fx_rates_frame(
     return frame
 
 
+def _major_currency(code: str) -> str:
+    """Return the ISO major unit for a (possibly sub-unit) price code."""
+    from optimizer.fx import normalize_currency_code
+
+    major, _ = normalize_currency_code(code)
+    return major
+
+
+def _price_asof(prices: pd.DataFrame, ticker: str, ts: Any) -> float | None:
+    """Last valid base price for ``ticker`` at or before ``ts`` (no look-ahead)."""
+    value: Any = prices[ticker].asof(ts)
+    if pd.isna(value):
+        return None
+    return float(value)
+
+
+def _ticket_shares(ticket: Any, base_prices: pd.DataFrame) -> dict[str, float]:
+    """Re-derive FX-correct shares for a paper ticket from its lines.
+
+    ``shares = notional_base / price_base@fill`` — the stored ``lines.shares`` is
+    currency-mixed (base notional ÷ listing price) and is deliberately ignored.
+    """
+    fill_ts = pd.Timestamp(ticket.fill_date)
+    shares: dict[str, float] = {}
+    for line in ticket.lines:
+        ticker = line.get("ticker")
+        notional = line.get("notional")
+        if ticker is None or notional is None or ticker not in base_prices.columns:
+            continue
+        price = _price_asof(base_prices, ticker, fill_ts)
+        if not price:
+            continue
+        shares[ticker] = float(notional) / price
+    return shares
+
+
+def _active_shares(
+    ticket_shares: list[tuple[dt.date, dict[str, float]]], day: dt.date
+) -> dict[str, float]:
+    """The holdings in force on ``day``: the latest ticket filled at or before it.
+
+    Paper tickets are full target re-allocations (``positions`` is replaced, not
+    accumulated, on each approve), so the current book is the most recent fill —
+    not the sum of every fill.
+    """
+    active: dict[str, float] = {}
+    for fill_date, shares in ticket_shares:
+        if fill_date <= day:
+            active = shares
+        else:
+            break
+    return active
+
+
+def build_nav_series(
+    portfolio_id: uuid.UUID,
+    *,
+    session: Any,
+    base_currency: str,
+    benchmark: str | None = None,
+    asof: dt.date | None = None,
+) -> list[NavPoint]:
+    """Reconstruct the paper portfolio's NAV series, marked to market in base ccy.
+
+    Shares are re-derived forward from ``paper_orders.lines`` (no look-ahead: a
+    fill counts from its ``fill_date``) as ``notional_base / price_base@fill``,
+    with ``price_base`` FX-converted from listing currency via ``optimizer.fx``.
+    Each trading day at or after the first fill is marked with that day's
+    base-currency close (carried forward over gaps). The benchmark level, when
+    given, is pulled from ``price_history``, FX-normalized to base, and date-aligned.
+
+    Args:
+        portfolio_id: Portfolio whose paper book to reconstruct.
+        session: Open SQLAlchemy session (reader; no commit).
+        base_currency: Mandate base currency to express NAV in.
+        benchmark: Optional benchmark ticker; its level is FX-normalized to base.
+        asof: Upper date bound for the series; ``None`` runs to the latest price.
+
+    Returns:
+        NAV points ordered by date; empty when the portfolio has no fills or no
+        overlapping prices.
+    """
+    from portopt_db.models.orders.paper_order import PaperOrder
+    from sqlalchemy import select
+
+    tickets = list(
+        session.execute(
+            select(PaperOrder)
+            .where(PaperOrder.portfolio_id == portfolio_id)
+            .order_by(PaperOrder.fill_date, PaperOrder.asof)
+        )
+        .scalars()
+        .all()
+    )
+    if not tickets:
+        return []
+
+    load_tickers = sorted({line["ticker"] for t in tickets for line in t.lines})
+    if benchmark and benchmark not in load_tickers:
+        load_tickers.append(benchmark)
+
+    first_fill = min(t.fill_date for t in tickets)
+    raw_prices, currency_map = _load_price_frame(
+        session, load_tickers, start=first_fill, end=asof
+    )
+    if raw_prices.empty:
+        return []
+
+    quotes = sorted({_major_currency(code) for code in currency_map.values()})
+    fx_rates = _load_fx_rates_frame(
+        session, base_currency, quotes, start=first_fill, end=asof
+    )
+    base_prices = _to_base_prices(
+        raw_prices,
+        base_currency=base_currency,
+        currency_map=currency_map,
+        fx_rates=fx_rates,
+    ).ffill()
+
+    ticket_shares = [
+        (ticket.fill_date, _ticket_shares(ticket, base_prices)) for ticket in tickets
+    ]
+    ticket_shares = [(d, s) for d, s in ticket_shares if s]
+    if not ticket_shares:
+        return []
+    earliest = ticket_shares[0][0]
+
+    points: list[NavPoint] = []
+    for ts in base_prices.index:
+        day = ts.date()
+        if day < earliest:
+            continue
+        shares = _active_shares(ticket_shares, day)
+        nav = 0.0
+        marked = False
+        for ticker, qty in shares.items():
+            if ticker not in base_prices.columns:
+                continue
+            price = base_prices.at[ts, ticker]
+            if pd.notna(price):
+                nav += qty * float(price)
+                marked = True
+        if not marked:
+            continue
+        bench_level: float | None = None
+        if benchmark and benchmark in base_prices.columns:
+            raw = base_prices.at[ts, benchmark]
+            if pd.notna(raw):
+                bench_level = float(raw)
+        points.append(NavPoint(date=day, nav=nav, benchmark=bench_level))
+    return points
+
+
 __all__ = [
     "HoldingMark",
     "NavPoint",
     "PerformanceSummary",
+    "build_nav_series",
 ]

@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import ast
 import datetime as dt
+import uuid
 from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
 import pytest
 from portopt_db.models.market_data.yfinance_data import PriceHistory
+from portopt_db.models.orders.paper_order import PaperOrder
 from portopt_db.models.universe.universe import Exchange, Instrument
 
 from fund import performance
@@ -23,10 +25,12 @@ from fund.performance import (
     _load_fx_rates_frame,
     _load_price_frame,
     _to_base_prices,
+    build_nav_series,
 )
 
 _D1 = dt.date(2026, 10, 1)
 _D2 = dt.date(2026, 10, 2)
+_PID = uuid.UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
 
 
 def _price_frame():
@@ -139,6 +143,158 @@ def test_nav_fx_load_fx_rates_frame_pivots_to_currency_columns(db_session):
     assert set(frame.columns) == {"USD", "GBP"}
     assert float(frame.loc[pd.Timestamp(_D1), "USD"]) == pytest.approx(0.90)
     assert float(frame.loc[pd.Timestamp(_D2), "USD"]) == pytest.approx(0.91)
+
+
+def _seed_ledger_two_day(db_session, *, with_benchmark: bool = False):
+    """Seed one paper ticket (USD + GBp holdings) + two days of prices/FX.
+
+    A EUR-base portfolio with 10,000 capital split 6,000 US1 / 4,000 LON.L, filled
+    on day 2 (``_D2``). Prices/FX are chosen so NAV at the fill equals the capital
+    and moves to a hand-computed value the next day — proving shares are re-derived
+    with FX, not read from the currency-mixed ``lines.shares``.
+    """
+    d2 = dt.date(2026, 10, 3)  # day after the fill, for a NAV move
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+
+    def _inst(ticker):
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        return inst
+
+    us1, lon = _inst("US1"), _inst("LON.L")
+    db_session.add_all(
+        [
+            PriceHistory(
+                instrument_id=us1.id, date=_D2, close=Decimal("100"), price_unit="USD"
+            ),
+            PriceHistory(
+                instrument_id=us1.id, date=d2, close=Decimal("110"), price_unit="USD"
+            ),
+            PriceHistory(
+                instrument_id=lon.id, date=_D2, close=Decimal("500"), price_unit="GBp"
+            ),
+            PriceHistory(
+                instrument_id=lon.id, date=d2, close=Decimal("520"), price_unit="GBp"
+            ),
+        ]
+    )
+    if with_benchmark:
+        spx = _inst("SPX")
+        db_session.add_all(
+            [
+                PriceHistory(
+                    instrument_id=spx.id,
+                    date=_D2,
+                    close=Decimal("5000"),
+                    price_unit="USD",
+                ),
+                PriceHistory(
+                    instrument_id=spx.id,
+                    date=d2,
+                    close=Decimal("5100"),
+                    price_unit="USD",
+                ),
+            ]
+        )
+
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    FxRatesRepository(db_session).upsert_rates(
+        [
+            {
+                "base_currency": "EUR",
+                "quote_currency": "USD",
+                "date": _D2,
+                "rate": 0.90,
+            },
+            {"base_currency": "EUR", "quote_currency": "USD", "date": d2, "rate": 0.92},
+            {
+                "base_currency": "EUR",
+                "quote_currency": "GBP",
+                "date": _D2,
+                "rate": 1.17,
+            },
+            {"base_currency": "EUR", "quote_currency": "GBP", "date": d2, "rate": 1.18},
+        ]
+    )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=_D1,
+            weights_hash="h1",
+            weights={"US1": 0.6, "LON.L": 0.4},
+            fill_date=_D2,
+            lines=[
+                # shares here are the stale currency-mixed values — must be ignored.
+                {
+                    "ticker": "US1",
+                    "notional": 6000.0,
+                    "fill_price": 100.0,
+                    "shares": 60.0,
+                },
+                {
+                    "ticker": "LON.L",
+                    "notional": 4000.0,
+                    "fill_price": 500.0,
+                    "shares": 8.0,
+                },
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+    return d2
+
+
+def test_nav_series_rederives_fx_correct_shares(db_session):
+    """NAV equals capital at the fill and the hand-computed value next day.
+
+    Using the stale ``lines.shares`` would wildly mis-mark the GBp holding, so the
+    match proves shares are re-derived as notional_base / price_base@fill.
+    """
+    d3 = _seed_ledger_two_day(db_session)
+
+    points = build_nav_series(_PID, session=db_session, base_currency="EUR")
+
+    navs = {p.date: p.nav for p in points}
+    assert navs[_D2] == pytest.approx(10000.0, rel=1e-6)
+    # US1: (6000/90)*101.2 ; LON.L: (4000/5.85)*6.136
+    expected_d3 = (6000.0 / 90.0) * 101.2 + (4000.0 / 5.85) * 6.136
+    assert navs[d3] == pytest.approx(expected_d3, rel=1e-6)
+
+
+def test_nav_series_benchmark_fx_converted_and_aligned(db_session):
+    """The benchmark level is FX-converted to base and date-aligned to the NAV."""
+    d3 = _seed_ledger_two_day(db_session, with_benchmark=True)
+
+    points = build_nav_series(
+        _PID, session=db_session, base_currency="EUR", benchmark="SPX"
+    )
+    bench = {p.date: p.benchmark for p in points}
+    assert bench[_D2] == pytest.approx(5000.0 * 0.90)
+    assert bench[d3] == pytest.approx(5100.0 * 0.92)
+
+
+def test_nav_series_no_benchmark_leaves_field_none(db_session):
+    """Without a benchmark ticker every point's benchmark is None."""
+    _seed_ledger_two_day(db_session)
+    points = build_nav_series(_PID, session=db_session, base_currency="EUR")
+    assert points
+    assert all(p.benchmark is None for p in points)
+
+
+def test_nav_series_empty_history_returns_empty(db_session):
+    """A portfolio with no paper orders yields an empty series (no raise)."""
+    assert build_nav_series(_PID, session=db_session, base_currency="EUR") == []
 
 
 def test_performance_module_declares_no_agent_stack_imports():
