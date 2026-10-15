@@ -82,23 +82,28 @@ class PerformanceSummary:
 class HoldingMark:
     """Per-holding mark-to-market snapshot in the mandate base currency.
 
+    ``shares`` / ``value`` / ``weight`` are ``None`` for a holding with no usable
+    price (degraded, never fabricated).
+
     Attributes:
         ticker: The held instrument's yfinance ticker.
-        shares: FX-correct share count (notional_base / price_base@fill).
-        value: Current base-currency market value (shares × current base price).
-        weight: Share of the marked portfolio value this holding represents.
+        shares: FX-correct share count (notional_base / price_base@fill), or ``None``.
+        value: Current base-currency market value (shares × current base price), or
+            ``None``.
+        weight: Share of the marked portfolio value this holding represents, or
+            ``None``.
         return_1d: Trailing 1-day price return, or ``None`` with too little data.
         return_1m: Trailing ~1-month price return, or ``None``.
         return_1y: Trailing ~1-year price return, or ``None``.
         contribution: ``weight × return_1d`` (contribution to 1-day return), or
-            ``None`` when the 1-day return is unavailable.
+            ``None`` when either input is unavailable.
         unrealized_pnl: Current value minus FX-correct cost basis, or ``None``.
     """
 
     ticker: str
-    shares: float
-    value: float
-    weight: float
+    shares: float | None
+    value: float | None
+    weight: float | None
     return_1d: float | None
     return_1m: float | None
     return_1y: float | None
@@ -567,10 +572,151 @@ def portfolio_metrics(
     )
 
 
+def _degraded_mark(ticker: str) -> HoldingMark:
+    """A holding that could not be priced: every numeric field ``None``."""
+    return HoldingMark(
+        ticker=ticker,
+        shares=None,
+        value=None,
+        weight=None,
+        return_1d=None,
+        return_1m=None,
+        return_1y=None,
+        contribution=None,
+        unrealized_pnl=None,
+    )
+
+
+def _series_returns(
+    series: pd.Series,
+) -> tuple[float | None, float | None, float | None]:
+    """Trailing (1D, 1M, 1Y) returns of a base-price series (ascending, non-NaN)."""
+    current = float(series.iloc[-1])
+    last_ts = series.index[-1]
+
+    r1d: float | None = None
+    if len(series) >= 2:
+        prev = float(series.iloc[-2])
+        if prev:
+            r1d = current / prev - 1.0
+
+    def _window(days: int) -> float | None:
+        base: Any = series.asof(last_ts - pd.Timedelta(days=days))
+        if pd.isna(base) or float(base) == 0:
+            return None
+        return current / float(base) - 1.0
+
+    return r1d, _window(30), _window(365)
+
+
+def holding_marks(
+    portfolio_id: uuid.UUID,
+    *,
+    session: Any,
+    base_currency: str,
+    asof: dt.date | None = None,
+) -> list[HoldingMark]:
+    """Mark each current holding to market in the mandate base currency.
+
+    Takes the latest paper ticket at or before ``asof`` as the current book,
+    re-derives FX-correct shares (``notional_base / price_base@fill``, ignoring the
+    stored currency-mixed ``lines.shares``), and marks each holding with its latest
+    base-currency close. Per holding it reports value, portfolio weight, trailing
+    1D/1M/1Y price returns, 1-day contribution (``weight × return_1d``), and
+    unrealized P&L (value minus the deployed base cost basis). A holding with no
+    usable price degrades to ``None`` fields rather than raising.
+
+    Args:
+        portfolio_id: Portfolio whose current book to mark.
+        session: Open SQLAlchemy session (reader; no commit).
+        base_currency: Mandate base currency to express values in.
+        asof: Mark date upper bound; ``None`` uses the latest available prices.
+
+    Returns:
+        One :class:`HoldingMark` per line of the active ticket, in ticket order;
+        empty when the portfolio has no paper orders.
+    """
+    from portopt_db.models.orders.paper_order import PaperOrder
+    from sqlalchemy import select
+
+    stmt = select(PaperOrder).where(PaperOrder.portfolio_id == portfolio_id)
+    if asof is not None:
+        stmt = stmt.where(PaperOrder.fill_date <= asof)
+    stmt = stmt.order_by(PaperOrder.fill_date.desc(), PaperOrder.asof.desc())
+    ticket = session.execute(stmt).scalars().first()
+    if ticket is None:
+        return []
+
+    line_by_ticker: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for line in ticket.lines:
+        ticker = line.get("ticker")
+        if ticker is None:
+            continue
+        if ticker not in line_by_ticker:
+            order.append(ticker)
+        line_by_ticker[ticker] = line
+
+    raw_prices, currency_map = _load_price_frame(session, order, end=asof)
+    if raw_prices.empty:
+        return [_degraded_mark(ticker) for ticker in order]
+
+    quotes = sorted({_major_currency(code) for code in currency_map.values()})
+    fx_rates = _load_fx_rates_frame(session, base_currency, quotes, end=asof)
+    base_prices = _to_base_prices(
+        raw_prices,
+        base_currency=base_currency,
+        currency_map=currency_map,
+        fx_rates=fx_rates,
+    ).ffill()
+    shares = _ticket_shares(ticket, base_prices)
+
+    computed: dict[str, tuple[float, float, pd.Series]] = {}
+    for ticker in order:
+        qty = shares.get(ticker)
+        if qty is None or ticker not in base_prices.columns:
+            continue
+        series = base_prices[ticker].dropna()
+        if series.empty:
+            continue
+        computed[ticker] = (qty, qty * float(series.iloc[-1]), series)
+
+    total = sum(value for _, value, _ in computed.values())
+
+    marks: list[HoldingMark] = []
+    for ticker in order:
+        if ticker not in computed:
+            marks.append(_degraded_mark(ticker))
+            continue
+        qty, value, series = computed[ticker]
+        weight = value / total if total else None
+        return_1d, return_1m, return_1y = _series_returns(series)
+        contribution = (
+            weight * return_1d if weight is not None and return_1d is not None else None
+        )
+        notional = line_by_ticker[ticker].get("notional")
+        pnl = value - float(notional) if notional is not None else None
+        marks.append(
+            HoldingMark(
+                ticker=ticker,
+                shares=qty,
+                value=value,
+                weight=weight,
+                return_1d=return_1d,
+                return_1m=return_1m,
+                return_1y=return_1y,
+                contribution=contribution,
+                unrealized_pnl=pnl,
+            )
+        )
+    return marks
+
+
 __all__ = [
     "HoldingMark",
     "NavPoint",
     "PerformanceSummary",
     "build_nav_series",
+    "holding_marks",
     "portfolio_metrics",
 ]
