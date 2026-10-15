@@ -272,6 +272,49 @@ def _major_currency(code: str) -> str:
     return major
 
 
+class FxCoverageError(RuntimeError):
+    """Raised when a mandate has foreign holdings but no FX coverage for its base.
+
+    Distinguishes a *misconfiguration* (the FX feed never populated this base —
+    e.g. a non-EUR mandate while the ingestion feed only writes EUR-base rows)
+    from the per-ticker ``T6`` graceful-degradation case (one currency missing
+    among several present). The former would silently mark NAV in mixed/listing
+    currency, so it fails loud instead; the NAV-mark step skips that portfolio.
+    """
+
+
+def _require_fx_coverage(
+    base_currency: str, currency_map: dict[str, str], fx_rates: pd.DataFrame
+) -> None:
+    """Raise :class:`FxCoverageError` when foreign holdings have *zero* FX coverage.
+
+    Fires only when at least one held currency differs from the base *and none* of
+    those foreign currencies has a rate column — the "wrong base / feed never ran"
+    case. Partial coverage (some foreign currencies present, some missing) is left
+    to per-ticker graceful degradation in :func:`_to_base_prices`.
+
+    Args:
+        base_currency: Mandate base currency the NAV is expressed in.
+        currency_map: ``{ticker: raw price_unit}`` for the loaded holdings.
+        fx_rates: The rate frame loaded for ``base_currency`` (quote-currency
+            columns); empty when the feed has no rows for this base.
+
+    Raises:
+        FxCoverageError: Foreign holdings exist but no foreign currency is covered.
+    """
+    base_major = _major_currency(base_currency)
+    foreign = {_major_currency(code) for code in currency_map.values()} - {base_major}
+    if not foreign:
+        return
+    available = set(fx_rates.columns) if not fx_rates.empty else set()
+    if not (foreign & available):
+        raise FxCoverageError(
+            f"no FX rates for base {base_major!r} covering {sorted(foreign)}; the "
+            "ingestion FX feed populates EUR base only, so a non-EUR mandate cannot "
+            "be marked. Run the FX feed for this base or set the mandate to EUR."
+        )
+
+
 def _price_asof(prices: pd.DataFrame, ticker: str, ts: Any) -> float | None:
     """Last valid base price for ``ticker`` at or before ``ts`` (no look-ahead)."""
     value: Any = prices[ticker].asof(ts)
@@ -287,6 +330,10 @@ def _ticket_shares(ticket: Any, base_prices: pd.DataFrame) -> dict[str, float]:
     currency-mixed (base notional ÷ listing price) and is deliberately ignored.
     Each line is priced at **its own** ``fill_date`` (fills stagger across exchange
     calendars; the ticket-level ``fill_date`` is only the earliest of them).
+
+    Prices at the fill-bar *close*, not the slippage-adjusted ``effective_price``,
+    so value@fill equals the deployed base notional — NAV is gross of the modelled
+    slippage/commission (see :func:`build_nav_series`).
     """
     shares: dict[str, float] = {}
     for line in ticket.lines:
@@ -327,6 +374,7 @@ def build_nav_series(
     base_currency: str,
     benchmark: str | None = None,
     asof: dt.date | None = None,
+    since: dt.date | None = None,
 ) -> list[NavPoint]:
     """Reconstruct the paper portfolio's NAV series, marked to market in base ccy.
 
@@ -337,16 +385,33 @@ def build_nav_series(
     base-currency close (carried forward over gaps). The benchmark level, when
     given, is pulled from ``price_history``, FX-normalized to base, and date-aligned.
 
+    NAV is **gross** of paper execution costs: shares are reconstructed from the
+    fill-bar *close*, so NAV at the fill equals the deployed base notional. The
+    slippage and commission the paper fill modelled (``tools.orders``, default
+    ~5 bps and ~1 bps) are intentionally excluded — this tracks deployed capital,
+    not a cost-adjusted book.
+
     Args:
         portfolio_id: Portfolio whose paper book to reconstruct.
         session: Open SQLAlchemy session (reader; no commit).
         base_currency: Mandate base currency to express NAV in.
         benchmark: Optional benchmark ticker; its level is FX-normalized to base.
         asof: Upper date bound for the series; ``None`` runs to the latest price.
+        since: Lower date bound on the *emitted* points — shares are still derived
+            from the full ticket history and prices carried forward from the first
+            fill, but only bars on/after ``since`` are returned. ``None`` emits the
+            full series from the first fill (backfill). Lets the daily mark re-emit
+            only recent bars instead of rewriting the whole history every run.
 
     Returns:
-        NAV points ordered by date; empty when the portfolio has no fills or no
-        overlapping prices.
+        NAV points ordered by date; empty when the portfolio has no fills, no
+        overlapping prices, or no bars on/after ``since``.
+
+    Raises:
+        FxCoverageError: The mandate holds foreign-currency instruments but no FX
+            rate for their currencies exists under ``base_currency`` (e.g. a
+            non-EUR mandate against the EUR-only feed) — marking would silently mix
+            currencies, so it fails loud instead.
     """
     from portopt_db.models.orders.paper_order import PaperOrder
     from sqlalchemy import select
@@ -363,7 +428,8 @@ def build_nav_series(
     if not tickets:
         return []
 
-    load_tickers = sorted({line["ticker"] for t in tickets for line in t.lines})
+    holding_tickers = {line["ticker"] for t in tickets for line in t.lines}
+    load_tickers = sorted(holding_tickers)
     if benchmark and benchmark not in load_tickers:
         load_tickers.append(benchmark)
 
@@ -378,6 +444,15 @@ def build_nav_series(
     fx_rates = _load_fx_rates_frame(
         session, base_currency, quotes, start=first_fill, end=asof
     )
+    # Guard on the HOLDINGS' currencies only: a foreign benchmark that lacks a rate
+    # degrades gracefully (it is a reference line, not part of NAV) and must not
+    # block marking of an otherwise all-base-currency book.
+    holding_currency_map = {
+        ticker: code
+        for ticker, code in currency_map.items()
+        if ticker in holding_tickers
+    }
+    _require_fx_coverage(base_currency, holding_currency_map, fx_rates)
     base_prices = _to_base_prices(
         raw_prices,
         base_currency=base_currency,
@@ -392,11 +467,12 @@ def build_nav_series(
     if not ticket_shares:
         return []
     earliest = ticket_shares[0][0]
+    mark_from = earliest if since is None else max(earliest, since)
 
     points: list[NavPoint] = []
     for ts in base_prices.index:
         day = ts.date()
-        if day < earliest:
+        if day < mark_from:
             continue
         shares = _active_shares(ticket_shares, day)
         nav = 0.0
@@ -521,7 +597,11 @@ def portfolio_metrics(
     on the NAV's linear returns; trailing-horizon returns and the
     benchmark-relative figures (excess per horizon, annualized tracking error,
     beta) are computed directly. Every field degrades to ``None`` on insufficient
-    history — benchmark-relative fields require a benchmark level on every point.
+    history. Benchmark-relative fields run over the sub-series where a benchmark
+    level is present (a benchmark priced later than the first fill leaves leading
+    ``None`` points), so a late-starting benchmark no longer blanks them all; a
+    ``NaN`` benchmark level (as opposed to a missing one) still degrades tracking
+    error and beta to ``None``.
 
     Args:
         portfolio_id: Portfolio the metrics describe.
@@ -548,21 +628,35 @@ def portfolio_metrics(
     tracking_error: float | None = None
     beta: float | None = None
 
-    benchmarks = [p.benchmark for p in nav_points]
-    if nav_points and all(b is not None for b in benchmarks):
-        bench_navs = [float(b) for b in benchmarks if b is not None]
+    # Restrict to the points that carry a benchmark level. A NaN benchmark is kept
+    # (NaN is not None) so it poisons TE/beta to None via _finite rather than
+    # silently shrinking the window; a genuinely missing (None) leading benchmark
+    # is trimmed so a late-starting benchmark still yields metrics over its window.
+    bench_window = [p for p in nav_points if p.benchmark is not None]
+    if len(bench_window) >= 2:
+        bench_navs = [
+            float(p.benchmark) for p in bench_window if p.benchmark is not None
+        ]
+        window_navs = [p.nav for p in bench_window]
         bench_points = [
             NavPoint(date=p.date, nav=b, benchmark=None)
-            for p, b in zip(nav_points, bench_navs, strict=True)
+            for p, b in zip(bench_window, bench_navs, strict=True)
+        ]
+        port_window_points = [
+            NavPoint(date=p.date, nav=p.nav, benchmark=None) for p in bench_window
         ]
         bench_returns = _linear_returns(bench_navs)
+        window_returns = _linear_returns(window_navs)
+        # Compare port vs benchmark over the *same* window so each excess horizon
+        # is like-for-like (the full-series `returns` can span more than the window).
+        port_window_horizon = _horizon_returns(port_window_points)
         bench_horizon = _horizon_returns(bench_points)
         for horizon in _HORIZONS:
-            port_r, bench_r = returns[horizon], bench_horizon[horizon]
+            port_r, bench_r = port_window_horizon[horizon], bench_horizon[horizon]
             if port_r is not None and bench_r is not None:
                 excess[horizon] = port_r - bench_r
-        if len(port_returns) >= 2 and len(bench_returns) == len(port_returns):
-            port_arr = np.asarray(port_returns, dtype=float)
+        if len(window_returns) >= 2 and len(bench_returns) == len(window_returns):
+            port_arr = np.asarray(window_returns, dtype=float)
             bench_arr = np.asarray(bench_returns, dtype=float)
             tracking_error = _finite(
                 float(np.std(port_arr - bench_arr, ddof=1))
@@ -640,6 +734,11 @@ def holding_marks(
     unrealized P&L (value minus the deployed base cost basis). A holding with no
     usable price degrades to ``None`` fields rather than raising.
 
+    Value marks on the carried-forward (``asof``) close, but returns are computed
+    on each holding's *own* real closes, so a carry-forward over a day the holding
+    did not trade cannot manufacture a 0 % move. Like :func:`build_nav_series`,
+    value and P&L are gross of the modelled slippage/commission.
+
     Args:
         portfolio_id: Portfolio whose current book to mark.
         session: Open SQLAlchemy session (reader; no commit).
@@ -649,6 +748,10 @@ def holding_marks(
     Returns:
         One :class:`HoldingMark` per line of the active ticket, in ticket order;
         empty when the portfolio has no paper orders.
+
+    Raises:
+        FxCoverageError: Foreign holdings exist but no FX rate covers their currency
+            under ``base_currency`` (see :func:`build_nav_series`).
     """
     from portopt_db.models.orders.paper_order import PaperOrder
     from sqlalchemy import select
@@ -677,12 +780,14 @@ def holding_marks(
 
     quotes = sorted({_major_currency(code) for code in currency_map.values()})
     fx_rates = _load_fx_rates_frame(session, base_currency, quotes, end=asof)
-    base_prices = _to_base_prices(
+    _require_fx_coverage(base_currency, currency_map, fx_rates)
+    base_raw = _to_base_prices(
         raw_prices,
         base_currency=base_currency,
         currency_map=currency_map,
         fx_rates=fx_rates,
-    ).ffill()
+    )
+    base_prices = base_raw.ffill()
     shares = _ticket_shares(ticket, base_prices)
 
     computed: dict[str, tuple[float, float, pd.Series]] = {}
@@ -690,10 +795,13 @@ def holding_marks(
         qty = shares.get(ticker)
         if qty is None or ticker not in base_prices.columns:
             continue
-        series = base_prices[ticker].dropna()
-        if series.empty:
+        marked = base_prices[ticker].dropna()
+        if marked.empty:
             continue
-        computed[ticker] = (qty, qty * float(series.iloc[-1]), series)
+        # Value marks on the ffilled (asof) close; returns run on the holding's own
+        # real closes so a carry-forward over a non-trading day cannot fake a move.
+        returns_series = base_raw[ticker].dropna()
+        computed[ticker] = (qty, qty * float(marked.iloc[-1]), returns_series)
 
     total = sum(value for _, value, _ in computed.values())
 
@@ -727,6 +835,7 @@ def holding_marks(
 
 
 __all__ = [
+    "FxCoverageError",
     "HoldingMark",
     "NavPoint",
     "PerformanceSummary",

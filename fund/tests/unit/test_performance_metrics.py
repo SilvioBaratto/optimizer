@@ -118,3 +118,23 @@ def test_metrics_nan_benchmark_leaves_te_and_beta_none():
     summary = portfolio_metrics(_PID, _points(_NAVS, [50.0, 51.0, nan, 52.0, 53.0]))
     assert summary.tracking_error is None
     assert summary.beta is None
+
+
+def test_metrics_benchmark_window_skips_leading_none():
+    """A benchmark that starts after inception still yields relative metrics.
+
+    Points with no benchmark level are trimmed; excess/TE/beta run over the
+    sub-series where the benchmark exists instead of blanking all to None.
+    """
+    benchs = [None, None, 50.0, 51.0, 52.0]  # benchmark priced from the 3rd bar
+    summary = portfolio_metrics(_PID, _points(_NAVS, benchs))
+
+    # beta over the 3-point window: port navs 101/103/106 vs bench 50/51/52.
+    pr = _returns([101.0, 103.0, 106.0])
+    br = _returns([50.0, 51.0, 52.0])
+    exp_beta = float(np.cov(pr, br, ddof=1)[0, 1] / np.var(br, ddof=1))
+    assert summary.beta == pytest.approx(exp_beta, rel=1e-6)
+    assert summary.tracking_error is not None
+    # excess "max" over the window: (106/101 - 1) - (52/50 - 1).
+    exp_excess_max = (106.0 / 101.0 - 1.0) - (52.0 / 50.0 - 1.0)
+    assert summary.excess["max"] == pytest.approx(exp_excess_max, rel=1e-6)

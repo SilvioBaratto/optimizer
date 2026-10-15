@@ -9,6 +9,7 @@ performance tracker, which pivots the rows into the ``optimizer.fx`` rates frame
 from __future__ import annotations
 
 import datetime
+from decimal import Decimal
 
 from sqlalchemy import Date, Index, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
@@ -47,7 +48,7 @@ class FxRate(BaseModel):
     base_currency: Mapped[str] = mapped_column(String(3), nullable=False)
     quote_currency: Mapped[str] = mapped_column(String(3), nullable=False)
     date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    rate: Mapped[float] = mapped_column(Numeric(20, 10), nullable=False)
+    rate: Mapped[Decimal] = mapped_column(Numeric(20, 10), nullable=False)
 
 
 __all__ = ["FxRate"]

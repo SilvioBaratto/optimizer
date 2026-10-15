@@ -297,6 +297,86 @@ def test_nav_series_empty_history_returns_empty(db_session):
     assert build_nav_series(_PID, session=db_session, base_currency="EUR") == []
 
 
+def test_nav_series_non_base_mandate_without_fx_coverage_raises(db_session):
+    """A non-EUR mandate with a foreign holding but no FX rows fails loud (C1).
+
+    The ledger seeds EUR-base rates only; marking in GBP leaves the USD holding
+    with no rate, which would silently mix currencies — so it raises instead.
+    """
+    _seed_ledger_two_day(db_session)
+    with pytest.raises(performance.FxCoverageError):
+        build_nav_series(_PID, session=db_session, base_currency="GBP")
+
+
+def test_nav_series_foreign_benchmark_without_fx_does_not_block(db_session):
+    """A foreign benchmark with no FX rate degrades; it must not block an all-base NAV.
+
+    The coverage guard considers holdings only — an all-EUR book with a USD
+    benchmark and an empty FX table still marks NAV (regression guard for the
+    benchmark-currency false positive).
+    """
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+
+    def _inst(ticker):
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        return inst
+
+    eu1, spx = _inst("EU1"), _inst("SPX")
+    db_session.add_all(
+        [
+            PriceHistory(
+                instrument_id=eu1.id, date=_D1, close=Decimal("100"), price_unit="EUR"
+            ),
+            PriceHistory(
+                instrument_id=eu1.id, date=_D2, close=Decimal("110"), price_unit="EUR"
+            ),
+            PriceHistory(
+                instrument_id=spx.id, date=_D1, close=Decimal("5000"), price_unit="USD"
+            ),
+            PriceHistory(
+                instrument_id=spx.id, date=_D2, close=Decimal("5100"), price_unit="USD"
+            ),
+        ]
+    )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=dt.date(2026, 9, 30),
+            weights_hash="h1",
+            weights={"EU1": 1.0},
+            fill_date=_D1,
+            lines=[{"ticker": "EU1", "notional": 10000.0, "fill_price": 100.0}],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+    points = build_nav_series(
+        _PID, session=db_session, base_currency="EUR", benchmark="SPX"
+    )
+    navs = {p.date: p.nav for p in points}
+    assert navs[_D1] == pytest.approx(10000.0, rel=1e-6)  # pure-EUR NAV, not blocked
+    assert navs[_D2] == pytest.approx(11000.0, rel=1e-6)  # 100 shares × 110
+
+
+def test_nav_series_since_bounds_emitted_points(db_session):
+    """``since`` trims emitted bars while shares still derive from full history."""
+    d3 = _seed_ledger_two_day(db_session)  # fills on _D2; next bar d3
+    points = build_nav_series(_PID, session=db_session, base_currency="EUR", since=d3)
+    assert [p.date for p in points] == [d3]  # the _D2 fill bar is trimmed
+    # The value still reflects shares re-derived from the full fill history.
+    expected_d3 = (6000.0 / 90.0) * 101.2 + (4000.0 / 5.85) * 6.136
+    assert points[0].nav == pytest.approx(expected_d3, rel=1e-6)
+
+
 def test_nav_series_uses_each_lines_own_fill_date(db_session):
     """Staggered fills: each line's shares use the price at *its* fill date.
 

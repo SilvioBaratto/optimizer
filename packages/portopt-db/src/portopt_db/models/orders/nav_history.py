@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from decimal import Decimal
 
 from sqlalchemy import Date, Index, Numeric, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
@@ -39,10 +40,13 @@ class NavHistory(BaseModel):
     # statement caching on SQLite, and this table carries ``nav``/``benchmark``.
     portfolio_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     date: Mapped[date] = mapped_column(Date, nullable=False)
-    nav: Mapped[float] = mapped_column(Numeric(20, 6), nullable=False)
+    nav: Mapped[Decimal] = mapped_column(Numeric(20, 6), nullable=False)
     # Benchmark level FX-normalized to the base currency, date-aligned to the NAV
-    # bar; NULL when the mandate carries no benchmark or none aligns.
-    benchmark: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # bar; NULL when the mandate carries no benchmark or none aligns. The upsert
+    # fully replaces this column on any row it re-marks (not a merge); the daily
+    # step re-marks only recent bars, so a mandate benchmark change is not back-
+    # propagated to older rows without a full re-mark.
+    benchmark: Mapped[Decimal | None] = mapped_column(Numeric(20, 6), nullable=True)
 
 
 __all__ = ["NavHistory"]

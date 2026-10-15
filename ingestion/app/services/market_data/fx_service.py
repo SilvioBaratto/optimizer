@@ -239,6 +239,8 @@ def _build_rows(
             if base_usd == 0:
                 continue
             quote_usd = 1.0 if quote_leg is None else quote_leg[date]
+            if quote_usd == 0:  # a zero close would store a 0 rate -> 0-priced asset
+                continue
             rows.append(
                 {
                     "base_currency": base,

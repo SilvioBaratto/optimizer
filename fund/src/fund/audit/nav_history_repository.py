@@ -19,7 +19,7 @@ from typing import Any
 
 from portopt_db.models import NavHistory
 from portopt_db.repository import RepositoryBase
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 
 class NavHistoryRepository(RepositoryBase):
@@ -88,6 +88,24 @@ class NavHistoryRepository(RepositoryBase):
             stmt = stmt.where(NavHistory.date <= end)
         stmt = stmt.order_by(NavHistory.date)
         return list(self.session.execute(stmt).scalars().all())
+
+    def last_nav_date(self, portfolio_id: uuid.UUID) -> dt.date | None:
+        """Return the most recent persisted NAV date for a portfolio, or ``None``.
+
+        Lets the daily mark run incrementally — recomputing only from near this
+        date instead of rewriting the whole history — without loading the series.
+
+        Args:
+            portfolio_id: Portfolio to query.
+
+        Returns:
+            The maximum ``date`` persisted for the portfolio, or ``None`` when it
+            has never been marked.
+        """
+        stmt = select(func.max(NavHistory.date)).where(
+            NavHistory.portfolio_id == portfolio_id
+        )
+        return self.session.execute(stmt).scalar_one_or_none()
 
 
 __all__ = ["NavHistoryRepository"]

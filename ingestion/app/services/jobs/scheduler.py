@@ -2,7 +2,7 @@
 
 Scheduled jobs:
   1. **daily_pipeline** (CronTrigger, default 07:00 UTC) — sequential data
-     pipeline: yfinance → macro → news → daily-events digest (the digest
+     pipeline: yfinance → fx → macro → news → daily-events digest (the digest
      summarises the day's ingested data into ``market_journal``).
   2. **midday_news** (CronTrigger, default 14:00 UTC) — macro news fetch
      (catch afternoon market news).

@@ -69,8 +69,12 @@ def session_factory(tmp_path) -> Generator[SessionFactory, None, None]:
         engine.dispose()
 
 
-def _seed(factory: SessionFactory) -> None:
-    """Seed an active EUR mandate + a USD/GBp ledger with two days of prices/FX."""
+def _seed(factory: SessionFactory, *, base_currency: str = "EUR") -> None:
+    """Seed an active mandate + a USD/GBp ledger with two days of prices/FX.
+
+    FX rows are always EUR-base (the feed's only base), so a non-EUR
+    ``base_currency`` leaves the USD holding uncovered — the fail-loud path.
+    """
     with factory() as session:
         ex = Exchange(name="X")
         session.add(ex)
@@ -175,7 +179,7 @@ def _seed(factory: SessionFactory) -> None:
             PortfolioMandate(
                 portfolio_id=str(_PID),
                 capital=Decimal("10000"),
-                base_currency="EUR",
+                base_currency=base_currency,
                 drift_l1_threshold=0.1,
                 triggers=RunTriggers(cron=True, drift=False),
             )
@@ -247,3 +251,74 @@ def test_nav_mark_no_mandates_completes_without_rows(session_factory):
     assert _navs(session_factory) == {}
     slots = _slots(session_factory)
     assert len(slots) == 1 and slots[0].status == "completed"
+
+
+def test_nav_mark_skips_mandate_without_fx_coverage(session_factory):
+    """A non-EUR mandate with foreign holdings is skipped loudly, not mis-marked.
+
+    The FX feed writes EUR-base rows only, so a GBP mandate holding a USD name has
+    no rate for USD under GBP — the step skips it (no rows) and still completes,
+    rather than silently marking in listing currency.
+    """
+    _seed(session_factory, base_currency="GBP")
+
+    assert run_nav_mark(session_factory=session_factory, asof=_ASOF) is True
+    assert _navs(session_factory) == {}  # skipped, not a wrong NAV
+    slots = _slots(session_factory)
+    assert len(slots) == 1 and slots[0].status == "completed"
+
+
+def test_nav_mark_incremental_extends_without_rewriting(session_factory):
+    """A later run picks up a new bar and leaves the prior bars' values stable."""
+    _seed(session_factory)
+    assert run_nav_mark(session_factory=session_factory, asof=_NEXT) is True
+    first = _navs(session_factory)
+    assert set(first) == {_FILL, _NEXT}
+
+    d3 = date(2026, 10, 6)
+    with session_factory() as session:
+        us1 = session.query(Instrument).filter_by(yfinance_ticker="US1").one()
+        lon = session.query(Instrument).filter_by(yfinance_ticker="LON.L").one()
+        session.add_all(
+            [
+                PriceHistory(
+                    instrument_id=us1.id,
+                    date=d3,
+                    close=Decimal("120"),
+                    price_unit="USD",
+                ),
+                PriceHistory(
+                    instrument_id=lon.id,
+                    date=d3,
+                    close=Decimal("540"),
+                    price_unit="GBp",
+                ),
+            ]
+        )
+        from portopt_db.repositories.market_data.fx_rates_repository import (
+            FxRatesRepository,
+        )
+
+        FxRatesRepository(session).upsert_rates(
+            [
+                {
+                    "base_currency": "EUR",
+                    "quote_currency": "USD",
+                    "date": d3,
+                    "rate": 0.93,
+                },
+                {
+                    "base_currency": "EUR",
+                    "quote_currency": "GBP",
+                    "date": d3,
+                    "rate": 1.19,
+                },
+            ]
+        )
+        session.commit()
+
+    assert run_nav_mark(session_factory=session_factory, asof=d3) is True
+    second = _navs(session_factory)
+    assert set(second) == {_FILL, _NEXT, d3}
+    assert second[_FILL] == pytest.approx(first[_FILL], rel=1e-6)
+    assert second[_NEXT] == pytest.approx(first[_NEXT], rel=1e-6)

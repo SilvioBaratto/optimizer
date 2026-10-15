@@ -567,23 +567,42 @@ def run_nav_mark(
         return True
 
 
+# On an incremental run, re-mark this many calendar days before the last persisted
+# NAV so a late price revision / backfill inside the window is picked up, while the
+# bulk of the history is not rewritten every day.
+_NAV_MARK_LOOKBACK_DAYS = 7
+
+
 def _mark_all_navs(session: Session, asof: dt.date) -> None:
-    """Build + upsert each active mandate's NAV series; one error is skipped."""
+    """Build + upsert each active mandate's NAV series; one error is skipped.
+
+    Incremental after the first run: only bars from ``_NAV_MARK_LOOKBACK_DAYS``
+    before the last persisted NAV are re-emitted, so the whole history is not
+    rewritten daily. A mandate whose base currency has no FX coverage (e.g. a
+    non-EUR mandate against the EUR-only feed) is skipped loudly, not mis-marked.
+    """
     from fund.audit.mandate_repository import MandateRepository
     from fund.audit.nav_history_repository import NavHistoryRepository
-    from fund.performance import build_nav_series
+    from fund.performance import FxCoverageError, build_nav_series
 
     nav_repo = NavHistoryRepository(session)
     for row in MandateRepository(session).list_active():
         mandate = PortfolioMandate.model_validate(row.mandate)
         pid = row.portfolio_id
         try:
+            last = nav_repo.last_nav_date(pid)
+            since = (
+                last - dt.timedelta(days=_NAV_MARK_LOOKBACK_DAYS)
+                if last is not None
+                else None
+            )
             points = build_nav_series(
                 pid,
                 session=session,
                 base_currency=mandate.base_currency,
                 benchmark=mandate.benchmark,
                 asof=asof,
+                since=since,
             )
             if not points:
                 continue
@@ -599,6 +618,9 @@ def _mark_all_navs(session: Session, asof: dt.date) -> None:
                 ]
             )
             session.commit()
+        except FxCoverageError as exc:
+            logger.error("nav mark: portfolio %s skipped — %s", pid, exc)
+            session.rollback()
         except Exception:
             logger.exception("nav mark: portfolio %s errored; skipping", pid)
             session.rollback()
