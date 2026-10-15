@@ -510,6 +510,46 @@ def _linear_returns(values: list[float]) -> list[float]:
     return returns
 
 
+def nav_return_series(nav_points: list[NavPoint], *, source: str = "nav") -> pd.Series:
+    """Per-period simple returns of a NAV series as a date-indexed float ``Series``.
+
+    The public return-series accessor the macro-attribution engine regresses on.
+    Reuses :func:`_linear_returns`, so a zero denominator truncates the series at
+    that point rather than fabricating a value. Each return is indexed by the later
+    date of its pair (``nav_points[1:]``), matching :func:`portfolio_metrics`.
+
+    Args:
+        nav_points: The NAV series from :func:`build_nav_series` (ascending dates).
+        source: ``"nav"`` uses :attr:`NavPoint.nav`; ``"benchmark"`` uses
+            :attr:`NavPoint.benchmark`, skipping points whose benchmark is ``None``
+            so a late-starting or partial benchmark still yields its own return
+            window.
+
+    Returns:
+        Simple returns on a ``DatetimeIndex``; an empty float series when fewer than
+        two usable points exist.
+
+    Raises:
+        ValueError: ``source`` is neither ``"nav"`` nor ``"benchmark"``.
+    """
+    if source == "nav":
+        pairs = [(p.date, float(p.nav)) for p in nav_points]
+    elif source == "benchmark":
+        pairs = [
+            (p.date, float(p.benchmark)) for p in nav_points if p.benchmark is not None
+        ]
+    else:
+        raise ValueError(f"source must be 'nav' or 'benchmark', got {source!r}")
+
+    if len(pairs) < 2:
+        return pd.Series([], index=pd.DatetimeIndex([]), dtype=float)
+
+    dates = [d for d, _ in pairs]
+    returns = _linear_returns([v for _, v in pairs])
+    index = pd.DatetimeIndex(dates[1 : 1 + len(returns)])
+    return pd.Series(returns, index=index, dtype=float)
+
+
 def _nav_asof(points: list[NavPoint], target: dt.date) -> float | None:
     """The NAV on the latest point at or before ``target`` (points sorted ascending)."""
     base: float | None = None
@@ -841,5 +881,6 @@ __all__ = [
     "PerformanceSummary",
     "build_nav_series",
     "holding_marks",
+    "nav_return_series",
     "portfolio_metrics",
 ]

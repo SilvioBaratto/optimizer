@@ -463,17 +463,32 @@ def test_nav_series_uses_each_lines_own_fill_date(db_session):
     assert navs[d_last] == pytest.approx(expected_last, rel=1e-6)
 
 
-def test_performance_module_declares_no_agent_stack_imports():
-    """performance.py imports no agent stack (optimizer/skfolio are allowed)."""
+def _agent_stack_offenders(module) -> list[str]:
+    """AST-scan a module's source for any top-level agent-stack import."""
     forbidden = ("deepagents", "langgraph", "langchain", "fund.agents", "fund.audit")
-    source = Path(performance.__file__).read_text(encoding="utf-8")
+    source = Path(module.__file__).read_text(encoding="utf-8")
     names: list[str] = []
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
             names.extend(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module:
             names.append(node.module)
-    offenders = [n for n in names if any(n.startswith(f) for f in forbidden)]
+    return [n for n in names if any(n.startswith(f) for f in forbidden)]
+
+
+def test_performance_module_declares_no_agent_stack_imports():
+    """performance.py imports no agent stack (optimizer/skfolio are allowed)."""
+    offenders = _agent_stack_offenders(performance)
     assert offenders == [], (
         f"agent-stack imports leaked into performance.py: {offenders}"
+    )
+
+
+def test_attribution_module_declares_no_agent_stack_imports():
+    """attribution.py imports no agent stack (optimizer/skfolio are allowed)."""
+    from fund import attribution
+
+    offenders = _agent_stack_offenders(attribution)
+    assert offenders == [], (
+        f"agent-stack imports leaked into attribution.py: {offenders}"
     )
