@@ -10,6 +10,7 @@ already running that step.
     python -m app.cli universe                    # Trading 212 universe rebuild
     python -m app.cli yfinance --mode full --period 5y
     python -m app.cli macro
+    python -m app.cli fx                           # daily FX rates into fx_rates
     python -m app.cli fred
     python -m app.cli news
     python -m app.cli market-structure             # sector/industry rollups
@@ -131,6 +132,15 @@ def macro() -> None:
     from app.services.jobs.scheduler import run_macro_step
 
     _exit(run_macro_step())
+
+
+@app.command()
+def fx() -> None:
+    """Fetch daily FX rates for the universe's currencies into fx_rates."""
+    _boot()
+    from app.services.jobs.scheduler import run_fx_step
+
+    _exit(run_fx_step())
 
 
 @app.command()

@@ -116,6 +116,11 @@ _market_summary_jobs = BackgroundJobService(
     session_factory=database_manager.get_session,
     heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
+_fx_jobs = BackgroundJobService(
+    job_type="fx_fetch",
+    session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
+)
 _daily_events_jobs = BackgroundJobService(
     job_type="daily_events",
     session_factory=database_manager.get_session,
@@ -341,6 +346,24 @@ def run_market_summary_step(*, attempt: int = 0) -> bool:
     )
 
 
+def run_fx_step(*, attempt: int = 0) -> bool:
+    """Fetch daily FX rates for the universe's currencies (SPEC Phase 05 T0).
+
+    Pure ingestion — no optimizer import. Runs synchronously under the shared
+    heartbeat; the fund NAV-mark step reads the ``fx_rates`` it writes. Wired into
+    the daily pipeline so marks see fresh rates."""
+    from app.services.market_data.fx_service import run_fx_fetch
+    from app.services.market_data.yfinance import get_yfinance_client
+
+    return _run_step(
+        "fx",
+        _fx_jobs,
+        run_fx_fetch,
+        get_yfinance_client(),
+        attempt=attempt,
+    )
+
+
 def run_macro_step(*, attempt: int = 0) -> bool:
     """Scrape Il Sole 24 Ore + Trading Economics into bond yields / indicators."""
     from app.schemas.macro.macro_regime import MacroFetchRequest
@@ -453,17 +476,21 @@ def run_t212_annotate_step(*, attempt: int = 0) -> bool:
 
 
 def run_daily_pipeline() -> None:
-    """Sequential pipeline: yfinance → macro → news → daily-events digest.
+    """Sequential pipeline: yfinance → fx → macro → news → daily-events digest.
 
     News depends on yfinance (it fetches article content for the fetched
     tickers), so a failed yfinance step skips news rather than scraping against
-    a stale universe. Macro is independent of yfinance and always runs. The
-    daily-events digest runs last and unconditionally — it only reads whatever
-    the earlier steps landed, tolerating partial or empty sources.
+    a stale universe. The FX fetch is independent and always runs — it feeds the
+    downstream fund NAV-mark step fresh rates. Macro is independent of yfinance
+    and always runs. The daily-events digest runs last and unconditionally — it
+    only reads whatever the earlier steps landed, tolerating partial or empty
+    sources.
     """
     logger.info("daily_pipeline: starting")
 
     yf_ok = run_yfinance_step(mode="incremental")
+
+    run_fx_step()
 
     run_macro_step()
 
@@ -571,6 +598,7 @@ _RECLAIM_STEP: dict[str, Callable[..., bool]] = {
     "calendars_fetch": run_calendars_step,
     "market_summary_fetch": run_market_summary_step,
     "options_fetch": run_options_step,
+    "fx_fetch": run_fx_step,
     "daily_events": run_daily_events_step,
 }
 
