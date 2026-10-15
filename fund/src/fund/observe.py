@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     # ``from __future__ import annotations`` the return type is a string, so guarding
     # it under TYPE_CHECKING keeps the module's *runtime* imports minimal while still
     # advertising the SPEC §4a signature ``get_mandate -> PortfolioMandate | None``.
+    from fund.performance import PerformanceSummary
     from fund.schemas.mandate import PortfolioMandate
 
 # LangGraph writes a pending dynamic interrupt to this reserved checkpoint channel
@@ -87,13 +88,16 @@ class ReprofileStatus:
     A derived, model-free stale marker over the append-only ``mifid_profiles`` table.
     Only the **annual** leg is wired: the active profile's age vs
     ``reprofile_interval_days`` (a portfolio never profiled is due too).
-    ``"risk_drift"`` is a *reserved* reason — there is no persisted drawdown/NAV to
-    compute it from today, so it is never emitted.
+    ``"risk_drift"`` is a *reserved* reason — a persisted NAV/drawdown series now
+    exists (``nav_history``, via :func:`performance_summary`), but wiring a
+    drawdown-based reprofile trigger is out of scope here, so it is still never
+    emitted.
     """
 
     portfolio_id: uuid.UUID
     due: bool
-    reasons: tuple[str, ...]  # {"annual"} today; "risk_drift" reserved, never emitted
+    # {"annual"} today; "risk_drift" reserved (NAV now persisted) but never emitted.
+    reasons: tuple[str, ...]
     profiled_at: dt.datetime | None
     profile_age_days: int | None
     reprofile_interval_days: int
@@ -330,6 +334,46 @@ def get_mandate(session: Any, portfolio_id: uuid.UUID) -> PortfolioMandate | Non
     if row is None:
         return None
     return PortfolioMandate.model_validate(row.mandate)
+
+
+def performance_summary(
+    session: Any,
+    portfolio_id: uuid.UUID,
+    *,
+    asof: dt.date | None = None,
+) -> PerformanceSummary:
+    """Multi-horizon returns + risk metrics over the persisted NAV series.
+
+    The read-model entry point for the (deferred) Performance view and the Phase-07
+    daily brief: reads the ``nav_history`` series written by the daily NAV-mark step
+    (cheap — no recompute of the FX-normalized book) and derives the metrics via
+    :func:`fund.performance.portfolio_metrics`. An unmarked portfolio yields an
+    all-``None`` summary rather than a fabricated one. The tracker is imported
+    lazily (it pulls ``optimizer``/``skfolio`` — allowed, not the agent stack) so
+    ``import fund.observe`` stays agent-stack-free. Builds no model, never commits.
+
+    Args:
+        session: An injected sync ``portopt_db`` session; not owned here.
+        portfolio_id: The portfolio to summarize.
+        asof: Upper date bound for the series; ``None`` uses all persisted points.
+
+    Returns:
+        A :class:`~fund.performance.PerformanceSummary`; all-``None`` fields when no
+        NAV has been persisted for the portfolio.
+    """
+    from fund.audit.nav_history_repository import NavHistoryRepository
+    from fund.performance import NavPoint, portfolio_metrics
+
+    rows = NavHistoryRepository(session).get_navs(portfolio_id, end=asof)
+    points = [
+        NavPoint(
+            date=row.date,
+            nav=float(row.nav),
+            benchmark=float(row.benchmark) if row.benchmark is not None else None,
+        )
+        for row in rows
+    ]
+    return portfolio_metrics(portfolio_id, points)
 
 
 def reprofile_status(
@@ -779,6 +823,7 @@ __all__ = [
     "list_portfolios",
     "load_run_transcript",
     "pending_hitl",
+    "performance_summary",
     "portfolio_state",
     "recent_events",
     "reprofile_status",

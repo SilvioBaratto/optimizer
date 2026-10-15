@@ -27,7 +27,7 @@ import subprocess
 import sys
 import textwrap
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
@@ -48,6 +48,7 @@ from portopt_db.repositories.orders.portfolio_journal_repository import (
 from fund import observe
 from fund.audit.mandate_repository import MandateRepository
 from fund.audit.mifid_repository import MifidProfileRepository
+from fund.audit.nav_history_repository import NavHistoryRepository
 from fund.audit.positions_repository import PositionRepository
 from fund.audit.repository import AgentRunRepository
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
@@ -864,3 +865,41 @@ def test_import_fund_observe_is_agent_stack_free():
         """
     )
     subprocess.run([sys.executable, "-c", code], check=True)  # noqa: S603
+
+
+# --- performance_summary (Phase 05 T11) -------------------------------------
+
+
+def _seed_navs(db_session, navs, start=date(2026, 10, 1)):
+    """Upsert a NAV series for _PID over consecutive days (no commit)."""
+    rows = [
+        {
+            "portfolio_id": _PID,
+            "date": start + timedelta(days=i),
+            "nav": Decimal(str(nav)),
+            "benchmark": None,
+        }
+        for i, nav in enumerate(navs)
+    ]
+    NavHistoryRepository(db_session).upsert_navs(rows)
+    db_session.flush()
+
+
+def test_performance_summary_reads_persisted_navs(db_session):
+    """It reads the persisted nav_history series and derives the metrics."""
+    _seed_navs(db_session, [100.0, 102.0, 101.0, 103.0, 106.0])
+
+    summary = observe.performance_summary(db_session, _PID)
+
+    assert summary.portfolio_id == _PID
+    assert summary.returns["max"] == pytest.approx(106.0 / 100.0 - 1.0)
+    assert summary.volatility is not None
+
+
+def test_performance_summary_empty_is_graceful(db_session):
+    """A portfolio with no persisted NAV yields an all-None summary, no raise."""
+    summary = observe.performance_summary(db_session, _PID)
+
+    assert summary.portfolio_id == _PID
+    assert summary.volatility is None
+    assert summary.returns["max"] is None
