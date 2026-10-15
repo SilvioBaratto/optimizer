@@ -51,6 +51,7 @@ from portopt_db.models.market_data.yfinance_data import (
     TickerNews,
     TickerProfile,
 )
+from portopt_db.models.orders.nav_history import NavHistory
 from portopt_db.models.orders.paper_order import PaperOrder
 from portopt_db.models.orders.portfolio_journal import PortfolioJournal
 from portopt_db.models.orders.position import Position
@@ -89,6 +90,7 @@ __all__ = [
     "MarketSummary",
     "MifidProfile",
     "MutualFundHolder",
+    "NavHistory",
     "PaperOrder",
     "PortfolioJournal",
     "PortfolioMandate",

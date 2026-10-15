@@ -1,0 +1,48 @@
+"""SQLAlchemy model for the persisted marked-to-market NAV series (``nav_history``).
+
+Phase 05 of the ``fund`` bridge: the daily NAV-mark step writes one row per
+``(portfolio_id, date)`` holding the base-currency portfolio value, with an
+optional benchmark level (base-normalized) cached for cheap reads. Unlike
+``positions`` (a current snapshot), this is a genuine time series — the
+performance tracker's NAV/return/risk read-outs are built on it.
+
+The model lives here in ``portopt_db`` — pure SQLAlchemy, no
+``optimizer``/``deepagents`` import — while the ``NavHistoryRepository`` behavior
+lives in ``fund``, mirroring the ``positions`` / ``paper_orders`` split.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import date
+
+from sqlalchemy import Date, Index, Numeric, UniqueConstraint, Uuid
+from sqlalchemy.orm import Mapped, mapped_column
+
+from portopt_db.base import BaseModel
+
+
+class NavHistory(BaseModel):
+    """One marked-to-market NAV point: (portfolio, date) → base-currency value."""
+
+    __tablename__ = "nav_history"
+    __table_args__ = (
+        UniqueConstraint("portfolio_id", "date", name="uq_nav_history_portfolio_date"),
+        Index("ix_nav_history_portfolio_id", "portfolio_id"),
+        Index("ix_nav_history_date", "date"),
+    )
+
+    # No FK: the `portfolios` table was dropped in the ingestion strip. Uses the
+    # portable ``Uuid`` type (native on Postgres, CHAR(32) on SQLite) matching
+    # ``Position``/``PaperOrder`` — the pg-specific ``UUID`` result processor
+    # mis-binds on a non-PK UUID column alongside ``Numeric`` columns under
+    # statement caching on SQLite, and this table carries ``nav``/``benchmark``.
+    portfolio_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    nav: Mapped[float] = mapped_column(Numeric(20, 6), nullable=False)
+    # Benchmark level FX-normalized to the base currency, date-aligned to the NAV
+    # bar; NULL when the mandate carries no benchmark or none aligns.
+    benchmark: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+
+
+__all__ = ["NavHistory"]
