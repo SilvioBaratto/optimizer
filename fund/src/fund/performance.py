@@ -18,14 +18,18 @@ yields an empty series or ``None`` fields, never a fabricated number.
 from __future__ import annotations
 
 import datetime as dt
+import itertools
 import logging
 import uuid
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+_HORIZONS = ("1D", "1M", "YTD", "1Y", "max")
 
 
 @dataclass(frozen=True)
@@ -403,9 +407,170 @@ def build_nav_series(
     return points
 
 
+def _linear_returns(values: list[float]) -> list[float]:
+    """Per-period simple returns; empty when a zero denominator makes it ill-defined."""
+    returns: list[float] = []
+    for prev, cur in itertools.pairwise(values):
+        if prev == 0:
+            return []
+        returns.append(cur / prev - 1.0)
+    return returns
+
+
+def _nav_asof(points: list[NavPoint], target: dt.date) -> float | None:
+    """The NAV on the latest point at or before ``target`` (points sorted ascending)."""
+    base: float | None = None
+    for point in points:
+        if point.date <= target:
+            base = point.nav
+        else:
+            break
+    return base
+
+
+def _window_return(
+    points: list[NavPoint], last: NavPoint, delta: dt.timedelta
+) -> float | None:
+    """Trailing return from ``last.date - delta`` to the last point, or ``None``."""
+    base = _nav_asof(points, last.date - delta)
+    if not base:
+        return None
+    return last.nav / base - 1.0
+
+
+def _ytd_return(points: list[NavPoint], last: NavPoint) -> float | None:
+    """Return since prior year-end, falling back to inception for a new series."""
+    base = _nav_asof(points, dt.date(last.date.year - 1, 12, 31))
+    if base is None:
+        base = points[0].nav
+    if not base:
+        return None
+    return last.nav / base - 1.0
+
+
+def _horizon_returns(points: list[NavPoint]) -> dict[str, float | None]:
+    """Trailing fractional returns for each horizon; ``None`` when history is short."""
+    out: dict[str, float | None] = dict.fromkeys(_HORIZONS)
+    if len(points) < 2:
+        return out
+    last = points[-1]
+    if points[0].nav:
+        out["max"] = last.nav / points[0].nav - 1.0
+    if points[-2].nav:
+        out["1D"] = last.nav / points[-2].nav - 1.0
+    out["1M"] = _window_return(points, last, dt.timedelta(days=30))
+    out["1Y"] = _window_return(points, last, dt.timedelta(days=365))
+    out["YTD"] = _ytd_return(points, last)
+    return out
+
+
+def _risk_measures(
+    returns: list[float], dates: list[dt.date], annualization_factor: float
+) -> tuple[float | None, float | None, float | None]:
+    """Whole-series (volatility, Sharpe, max drawdown) via ``skfolio.BasePortfolio``.
+
+    Volatility and Sharpe need at least two returns (sample dispersion); max
+    drawdown needs one. Any NaN or failure degrades the affected field to ``None``.
+    """
+    from skfolio import BasePortfolio
+
+    def _clean(value: float) -> float | None:
+        return None if np.isnan(value) else float(value)
+
+    try:
+        portfolio = BasePortfolio(
+            returns=np.asarray(returns, dtype=float),
+            observations=list(dates),
+            annualization_factor=annualization_factor,
+        )
+        max_drawdown = _clean(float(portfolio.max_drawdown))
+        if len(returns) >= 2:
+            volatility = _clean(float(portfolio.annualized_standard_deviation))
+            sharpe = _clean(float(portfolio.annualized_sharpe_ratio))
+        else:
+            volatility = sharpe = None
+    except Exception:
+        logger.warning("performance: risk measures unavailable", exc_info=True)
+        return None, None, None
+    return volatility, sharpe, max_drawdown
+
+
+def portfolio_metrics(
+    portfolio_id: uuid.UUID,
+    nav_points: list[NavPoint],
+    *,
+    annualization_factor: float = 252.0,
+) -> PerformanceSummary:
+    """Compute multi-horizon returns + risk metrics over a NAV series.
+
+    Whole-series volatility/Sharpe/max-drawdown come from ``skfolio.BasePortfolio``
+    on the NAV's linear returns; trailing-horizon returns and the
+    benchmark-relative figures (excess per horizon, annualized tracking error,
+    beta) are computed directly. Every field degrades to ``None`` on insufficient
+    history — benchmark-relative fields require a benchmark level on every point.
+
+    Args:
+        portfolio_id: Portfolio the metrics describe.
+        nav_points: The NAV series from :func:`build_nav_series` (ascending dates).
+        annualization_factor: Periods per year for annualizing vol/Sharpe/TE.
+
+    Returns:
+        A :class:`PerformanceSummary`; all-``None`` fields when the series is empty.
+    """
+    navs = [p.nav for p in nav_points]
+    port_returns = _linear_returns(navs)
+    return_dates = [p.date for p in nav_points[1:]]
+
+    volatility = sharpe = max_drawdown = None
+    if port_returns:
+        volatility, sharpe, max_drawdown = _risk_measures(
+            port_returns, return_dates, annualization_factor
+        )
+
+    returns = _horizon_returns(nav_points)
+    excess: dict[str, float | None] = dict.fromkeys(_HORIZONS)
+    tracking_error: float | None = None
+    beta: float | None = None
+
+    benchmarks = [p.benchmark for p in nav_points]
+    if nav_points and all(b is not None for b in benchmarks):
+        bench_navs = [float(b) for b in benchmarks if b is not None]
+        bench_points = [
+            NavPoint(date=p.date, nav=b, benchmark=None)
+            for p, b in zip(nav_points, bench_navs, strict=True)
+        ]
+        bench_returns = _linear_returns(bench_navs)
+        bench_horizon = _horizon_returns(bench_points)
+        for horizon in _HORIZONS:
+            port_r, bench_r = returns[horizon], bench_horizon[horizon]
+            if port_r is not None and bench_r is not None:
+                excess[horizon] = port_r - bench_r
+        if len(port_returns) >= 2 and len(bench_returns) == len(port_returns):
+            port_arr = np.asarray(port_returns, dtype=float)
+            bench_arr = np.asarray(bench_returns, dtype=float)
+            tracking_error = float(
+                np.std(port_arr - bench_arr, ddof=1) * np.sqrt(annualization_factor)
+            )
+            bench_var = float(np.var(bench_arr, ddof=1))
+            if bench_var > 0:
+                beta = float(np.cov(port_arr, bench_arr, ddof=1)[0, 1] / bench_var)
+
+    return PerformanceSummary(
+        portfolio_id=portfolio_id,
+        returns=returns,
+        excess=excess,
+        tracking_error=tracking_error,
+        max_drawdown=max_drawdown,
+        volatility=volatility,
+        sharpe=sharpe,
+        beta=beta,
+    )
+
+
 __all__ = [
     "HoldingMark",
     "NavPoint",
     "PerformanceSummary",
     "build_nav_series",
+    "portfolio_metrics",
 ]
