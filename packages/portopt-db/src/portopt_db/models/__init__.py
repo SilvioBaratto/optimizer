@@ -30,6 +30,7 @@ from portopt_db.models.market_data.etf_metadata import (
     ETFMetadata,
     ETFSectorWeight,
 )
+from portopt_db.models.market_data.fx_rates import FxRate
 from portopt_db.models.market_data.market_journal import MarketJournal
 from portopt_db.models.market_data.market_structure import (
     SectorIndustry,
@@ -76,6 +77,7 @@ __all__ = [
     "Exchange",
     "FinancialStatement",
     "FundAutonomyState",
+    "FxRate",
     "HumanAuditLog",
     "InsiderTransaction",
     "InstitutionalHolder",
