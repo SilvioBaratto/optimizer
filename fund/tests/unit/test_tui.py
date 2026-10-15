@@ -1864,6 +1864,146 @@ async def test_deliberation_expand_renders_recomputed_risk_verdict(
         assert "Tech" in detail  # sector-exposure breakdown
 
 
+@pytest.mark.asyncio
+async def test_deliberation_expand_scopes_to_selected_allocator_step(
+    shell_env, monkeypatch
+) -> None:
+    """In a re-optimized run (two allocator steps), expanding a step recomputes with
+    THAT step's own weights and constraint set — so the frontier/backtest match the
+    weights shown for it, never a different proposal's."""
+    from fund import readouts_compute
+
+    captured = {}
+
+    def _capture(_session, _asof, _universe, constraint_set, weights):
+        captured["constraint_set"] = constraint_set
+        captured["weights"] = dict(weights)
+        return readouts_compute.ResultsCompute(
+            frontier=None, frontier_error="stub", backtest=None, backtest_error="stub"
+        )
+
+    monkeypatch.setattr(readouts_compute, "compute_results", _capture)
+    first_cs = make_constraint_set().model_dump(mode="json")
+    first_cs["bounds"] = {"min_weights": 0.0, "max_weights": 0.5, "budget": 1.0}
+    second_cs = make_constraint_set().model_dump(mode="json")
+    second_cs["bounds"] = {"min_weights": 0.0, "max_weights": 0.3, "budget": 1.0}
+    with shell_env.get_session() as session:
+        repo = AgentRunRepository(session)
+        run = repo.create_run(
+            portfolio_id=_PID_A,
+            asof=date(2026, 1, 2),
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        repo.append_decision(
+            run.id,
+            agent="allocator",
+            step="optimize_portfolio",
+            constraint_set=first_cs,
+            llm_response='{"weights": {"AAA": 0.5, "BBB": 0.5}}',
+        )
+        repo.append_decision(
+            run.id,
+            agent="allocator",
+            step="optimize_portfolio",
+            constraint_set=second_cs,
+            llm_response='{"weights": {"AAA": 0.7, "CCC": 0.3}}',
+        )
+        session.commit()
+        run_id = run.id
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(0)  # the FIRST (earlier) allocator proposal
+        await pilot.pause()
+        app.action_expand_readout()
+        await pilot.pause()
+        first_worker = app.last_worker
+        assert first_worker is not None
+        await first_worker.wait()
+        await pilot.pause()
+        assert captured["constraint_set"] == first_cs  # step 0's own bounds
+        assert captured["weights"] == {"AAA": 0.5, "BBB": 0.5}  # step 0's own weights
+
+        view.select_step(1)  # the SECOND (re-optimized) allocator proposal
+        await pilot.pause()
+        app.action_expand_readout()
+        await pilot.pause()
+        second_worker = app.last_worker
+        assert second_worker is not None
+        await second_worker.wait()
+        await pilot.pause()
+    assert captured["constraint_set"] == second_cs  # step 1's own bounds
+    assert captured["weights"] == {"AAA": 0.7, "CCC": 0.3}  # step 1's own weights
+
+
+@pytest.mark.asyncio
+async def test_deliberation_paint_readout_does_not_clobber_live_detail(
+    shell_env,
+) -> None:
+    """A recompute landing after a live round has started must not overwrite the
+    streamed detail with stale replay content (it is stored for when replay resumes)."""
+    from fund import readouts_compute
+
+    with shell_env.get_session() as session:
+        run_id = _seed_allocator_run(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(0)
+        await pilot.pause()
+        assert "compute to view" in view.detail_text  # pending replay render
+        view.start_live(run_id)  # a live round begins while a recompute is in flight
+        await pilot.pause()
+        canned = readouts_compute.ResultsCompute(
+            frontier=readouts_compute.FrontierPoint(0.1, 0.2, 0.5, 40),
+            frontier_error=None,
+            backtest=None,
+            backtest_error="too short",
+        )
+        view.paint_readout(run_id, "allocator", 0, canned)
+        await pilot.pause()
+        assert "sharpe 0.50" not in view.detail_text  # live detail was not clobbered
+        assert view._readout is not None  # stored for when replay resumes
+
+
+def test_compute_risk_empty_weights_with_mapping_degrades_to_none() -> None:
+    """An empty roll-up (mapping present, no usable weights) is None, not an empty
+    tuple — so the renderer shows 'unavailable', never a bare header with no rows."""
+    from fund.readouts_compute import compute_risk
+
+    constraint_set = make_constraint_set().model_dump(mode="json")
+    result = compute_risk({}, constraint_set, {"AAA": "Tech"})
+    assert result.sector_exposures is None
+
+
+def test_readout_allocator_renders_compute_without_payload() -> None:
+    """A recompute result still renders even when the allocator step carries no payload
+    (optimizer returned an error), rather than silently discarding it."""
+    from fund import readouts_compute
+    from fund.tui.readouts import render_readout
+
+    compute = readouts_compute.ResultsCompute(
+        frontier=readouts_compute.FrontierPoint(
+            mean=0.1, standard_deviation=0.2, sharpe_ratio=0.5, n_observations=40
+        ),
+        frontier_error=None,
+        backtest=None,
+        backtest_error="too short",
+    )
+    assert render_readout("allocator", "optimize_portfolio", None) is None  # no compute
+    text = render_readout("allocator", "optimize_portfolio", None, compute)
+    assert text is not None
+    assert "sharpe 0.50" in text  # the frontier point surfaces
+    assert "weights · none recorded" in text  # empty payload rendered, not crashed
+
+
 # --- Deliberation live mode: streamed timeline + follow/inspect (GP0-1) --------
 
 

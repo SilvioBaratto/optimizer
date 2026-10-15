@@ -1262,20 +1262,26 @@ class ShellApp(App[None]):
         if target is None:
             self._set_status("select an allocator or risk step to expand")
             return
-        run_id, agent = target
+        run_id, agent, key = target
         self._set_status("recomputing read-out…")
-        self.last_worker = self._recompute_readout_worker(run_id, agent)
+        self.last_worker = self._recompute_readout_worker(run_id, agent, key)
 
     @work(thread=True, exclusive=True, group="readout")
-    def _recompute_readout_worker(self, run_id: uuid.UUID, agent: str) -> None:
+    def _recompute_readout_worker(
+        self, run_id: uuid.UUID, agent: str, key: int | None
+    ) -> None:
         """Recompute a step's read-out off the loop, then paint it onto the view.
 
         The optimizer-backed compute module is imported lazily so the module import
-        stays agent-stack-light. It reads the run's asof / weights / constraint set on a
-        short read-only session, runs the matching compute (results for an allocator
-        step, risk for a risk step) over the authoritative weights, and marshals the
-        result back with ``call_from_thread``. Any failure surfaces as a status line.
+        stays agent-stack-light. On a short read-only session it recomputes the matching
+        read-out: for an allocator step the *selected* proposal (``key`` is its
+        ``decision_index``) so the frontier/backtest match the weights shown for that
+        step, even in a re-optimized run; for a risk step the run's authoritative
+        (latest) allocation. The result marshals back via ``call_from_thread``, unless a
+        newer expand has cancelled this worker. Any failure surfaces as a status line.
         """
+        from textual.worker import get_current_worker
+
         from fund import readouts_compute
         from fund.audit.repository import AgentRunRepository
 
@@ -1284,24 +1290,37 @@ class ShellApp(App[None]):
             return
         try:
             with self._session_factory() as session:
-                run = AgentRunRepository(session).get_run(run_id)
+                repo = AgentRunRepository(session)
+                run = repo.get_run(run_id)
                 if run is None:
                     self.call_from_thread(self._set_status, "run not found")
                     return
-                weights = AgentRunRepository(session).latest_optimizer_weights(run_id)
-                constraint_set: Any = None
-                for decision in run.decisions:
-                    if (
-                        decision.agent == "allocator"
-                        and decision.step == "optimize_portfolio"
-                    ):
-                        constraint_set = decision.constraint_set
-                        break
                 if agent == "allocator":
+                    decision = next(
+                        (d for d in run.decisions if d.decision_index == key), None
+                    )
+                    weights = AgentRunRepository.decode_weights(decision)
+                    constraint_set: Any = (
+                        decision.constraint_set if decision is not None else None
+                    )
                     result: Any = readouts_compute.compute_results(
                         session, run.asof, list(weights), constraint_set, weights
                     )
                 else:
+                    weights = repo.latest_optimizer_weights(run_id)
+                    # Risk evaluates the run's authoritative allocation; pair its bounds
+                    # with the SAME newest allocator proposal those weights came from
+                    # (decisions are decision_index ASC, so scan reversed — mirrors
+                    # ``observe._metrics_from_runs``).
+                    constraint_set = next(
+                        (
+                            d.constraint_set
+                            for d in reversed(run.decisions)
+                            if d.agent == "allocator"
+                            and d.step == "optimize_portfolio"
+                        ),
+                        None,
+                    )
                     result = readouts_compute.compute_risk(
                         weights, constraint_set, None
                     )
@@ -1309,7 +1328,10 @@ class ShellApp(App[None]):
         except Exception as exc:  # surface a clean message, never crash the App
             self.call_from_thread(self._set_status, f"recompute failed: {exc}")
             return
-        self.call_from_thread(view.paint_readout, run_id, agent, result)
+        # A newer expand cancels this worker, but a thread cannot be force-stopped; skip
+        # the paint so a slow stale result never clobbers the newer one in the view.
+        if not get_current_worker().is_cancelled:
+            self.call_from_thread(view.paint_readout, run_id, agent, key, result)
 
     @work(thread=True, exclusive=True, group="drive")
     def _onboard_worker(

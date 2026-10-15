@@ -185,7 +185,11 @@ def compute_risk(
 def _sector_exposures(
     weights: Mapping[str, float], sector_mapping: Mapping[str, str] | None
 ) -> tuple[tuple[str, float], ...] | None:
-    """Roll weights up per sector, sorted by weight; ``None`` without a mapping."""
+    """Roll weights up per sector, sorted by weight; ``None`` when nothing rolls up.
+
+    ``None`` both without a mapping and when every weight is empty/non-numeric, so the
+    renderer shows one ``unavailable`` line rather than a bare header with no rows.
+    """
     if not sector_mapping:
         return None
     totals: dict[str, float] = {}
@@ -196,7 +200,7 @@ def _sector_exposures(
             continue
         sector = sector_mapping.get(name, "unmapped")
         totals[sector] = totals.get(sector, 0.0) + value
-    return tuple(sorted(totals.items(), key=lambda item: item[1], reverse=True))
+    return tuple(sorted(totals.items(), key=lambda item: item[1], reverse=True)) or None
 
 
 def _bounds(constraint_set: Mapping[str, Any] | None) -> dict[str, Any] | None:

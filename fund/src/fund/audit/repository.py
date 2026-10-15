@@ -127,10 +127,23 @@ class AgentRunRepository(RepositoryBase):
             .order_by(AgentDecision.decision_index.desc())
         )
         row = self.session.execute(stmt).scalars().first()
-        if row is None or not row.llm_response:
+        return self.decode_weights(row)
+
+    @staticmethod
+    def decode_weights(decision: AgentDecision | None) -> dict[str, float]:
+        """Decode one allocator decision's logged optimizer weights, or ``{}``.
+
+        Parses the ``{"weights": {ticker: float}}`` payload the bound
+        ``optimize_portfolio`` tool logs in ``llm_response`` (the skfolio output, never
+        PM/LLM-passed). The per-step drill-down reads a specific selected proposal with
+        this; :meth:`latest_optimizer_weights` reads the run's newest. Returns ``{}``
+        when ``decision`` is ``None``, carries no response, or the payload is
+        missing/unparseable.
+        """
+        if decision is None or not decision.llm_response:
             return {}
         try:
-            payload = json.loads(row.llm_response)
+            payload = json.loads(decision.llm_response)
         except (ValueError, TypeError):
             return {}
         weights = payload.get("weights") or {}

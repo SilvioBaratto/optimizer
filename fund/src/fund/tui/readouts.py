@@ -63,8 +63,9 @@ def render_readout(
         The rendered sub-panels joined by newlines, or ``None`` when the step has no
         structured read-out — the caller then falls back to the raw JSON dump.
     """
-    if agent == _ALLOCATOR_AGENT and payload:
-        return "\n".join([*_build_block(payload), *_results_block(payload, compute)])
+    if agent == _ALLOCATOR_AGENT and (payload or compute is not None):
+        safe = payload or {}
+        return "\n".join([*_build_block(safe), *_results_block(safe, compute)])
     if agent == _RISK_AGENT:
         return "\n".join(_risk_block(compute))
     return None

@@ -1074,9 +1074,10 @@ class DeliberationView(ShellView):
         self.following = True
         self.live_text = ""
         self._live_events: list[StreamEvent] = []
-        # The worker's recompute for the expanded step: (run_id, agent, result). Held so
-        # it survives poll ticks until the adviser selects a different run/step.
-        self._readout: tuple[uuid.UUID, str, Any] | None = None
+        # The worker's recompute for the expanded step: (run_id, agent, key, result),
+        # where key is the allocator decision_index (None for risk). Held so it survives
+        # poll ticks until the adviser selects a different run/step.
+        self._readout: tuple[uuid.UUID, str, int | None, Any] | None = None
 
     def compose(self) -> ComposeResult:
         """Yield the title, subtitle, the runs/steps/live split, detail, and hint."""
@@ -1218,43 +1219,64 @@ class DeliberationView(ShellView):
         self.selected_step = index
         self.refresh_view()
 
-    def expand_target(self) -> tuple[uuid.UUID, str] | None:
-        """The ``(run_id, agent)`` the expand key should recompute, or ``None``.
+    def expand_target(self) -> tuple[uuid.UUID, str, int | None] | None:
+        """The ``(run_id, agent, key)`` the expand key should recompute, or ``None``.
 
         Replay-only — recompute never runs on a ``LIVE`` step, so the walk-forward
-        backtest is gated off the live stream — and only for an allocator or risk step.
+        backtest is gated off the live stream. ``key`` is the selected allocator
+        decision's ``decision_index`` so the frontier/backtest reflect *that* proposal
+        (a run may re-optimize), and ``None`` for a risk step, which the worker checks
+        against the run's authoritative allocation.
 
         Returns:
-            The focused run and the selected step's agent when a recompute applies,
-            else ``None`` (live mode, nothing selected, or an unmapped step).
+            The focused run, the selected step's agent, and the per-step key when a
+            recompute applies, else ``None`` (live mode, nothing selected, a non-
+            ``optimize_portfolio`` allocator row, or an unmapped step).
         """
         if self.live_run_id is not None or self.selected_run_id is None:
             return None
         if self.selected_step is None or self.selected_step >= len(self._entries):
             return None
         entry = self._entries[self.selected_step]
-        if entry.agent not in ("allocator", "risk"):
-            return None
-        return self.selected_run_id, entry.agent
+        if entry.agent == "allocator":
+            if entry.source != "decision" or entry.step != "optimize_portfolio":
+                return None
+            return self.selected_run_id, "allocator", entry.index
+        if entry.agent == "risk":
+            return self.selected_run_id, "risk", None
+        return None
 
-    def paint_readout(self, run_id: uuid.UUID, agent: str, result: Any) -> None:
+    def paint_readout(
+        self, run_id: uuid.UUID, agent: str, key: int | None, result: Any
+    ) -> None:
         """Store a worker's recompute and repaint the detail pane.
 
-        Called via ``call_from_thread`` from the recompute worker. A result the adviser
-        has since navigated away from is stored but only painted while its
-        ``(run_id, agent)`` matches the selection (see :meth:`_compute_for`).
+        Called via ``call_from_thread`` from the recompute worker. The result is stored
+        keyed by ``(run_id, agent, key)`` and only painted while that matches the
+        selection (see :meth:`_compute_for`). Skips the repaint in live mode — a replay
+        recompute must never overwrite the streamed detail (mirrors
+        :meth:`refresh_view`'s live guard); it stays stored for when replay resumes.
         """
-        self._readout = (run_id, agent, result)
+        self._readout = (run_id, agent, key, result)
+        if self.live_run_id is not None:
+            return
         self._paint_detail()
 
     def _compute_for(self, entry: Any) -> Any:
-        """The stored recompute for ``entry``, or ``None`` for another run/step."""
+        """The stored recompute for ``entry``, or ``None`` for another run/step.
+
+        An allocator result matches only the exact proposal it was computed for (by
+        ``decision_index``), so an earlier step never shows a later re-optimize's
+        frontier; a risk result matches the run's risk step.
+        """
         if self._readout is None:
             return None
-        run_id, agent, result = self._readout
-        if run_id == self.selected_run_id and agent == entry.agent:
-            return result
-        return None
+        run_id, agent, key, result = self._readout
+        if run_id != self.selected_run_id or agent != entry.agent:
+            return None
+        if agent == "allocator" and key != entry.index:
+            return None
+        return result
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Dispatch: a run row loads its transcript, a step row shows its detail."""
