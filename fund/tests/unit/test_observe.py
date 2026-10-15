@@ -903,3 +903,57 @@ def test_performance_summary_empty_is_graceful(db_session):
     assert summary.portfolio_id == _PID
     assert summary.volatility is None
     assert summary.returns["max"] is None
+
+
+# --- macro_attribution_summary (Phase 06 T3) --------------------------------
+
+
+def _seed_navs_and_fred(db_session, *, n: int = 20, start=date(2026, 1, 5)):
+    """Persist a NAV+benchmark series and matching FRED levels over ``n`` days."""
+    from portopt_db.models.macro.macro_regime import FredObservation
+
+    dates = [start + timedelta(days=i) for i in range(n)]
+    rows = [
+        {
+            "portfolio_id": _PID,
+            "date": d,
+            "nav": Decimal(str(100.0 + i + (i % 3))),
+            "benchmark": Decimal(str(200.0 + i)),
+        }
+        for i, d in enumerate(dates)
+    ]
+    NavHistoryRepository(db_session).upsert_navs(rows)
+    for series_id, base in (("DGS10", 4.0), ("BAA10Y", 1.8), ("DTWEXBGS", 100.0)):
+        # A non-monotonic wobble so each factor's return has positive variance (a
+        # constant level would diff to a zero-variance factor and be dropped).
+        db_session.add_all(
+            FredObservation(
+                series_id=series_id, date=d, value=base + 0.05 * ((i * 13) % 7)
+            )
+            for i, d in enumerate(dates)
+        )
+    db_session.flush()
+
+
+def test_macro_attribution_summary_reconstructs_total(db_session):
+    """It reads persisted NAV + FRED and attributes; pieces sum to the total."""
+    from fund.attribution import AttributionResult
+
+    _seed_navs_and_fred(db_session)
+
+    result = observe.macro_attribution_summary(db_session, _PID)
+
+    assert isinstance(result, AttributionResult)
+    assert result.factor_names  # a real multi-factor fit ran
+    assert sum(result.contributions.values()) + result.residual == pytest.approx(
+        result.total_return, abs=1e-9
+    )
+
+
+def test_macro_attribution_summary_empty_is_graceful(db_session):
+    """A portfolio with no persisted NAV degrades to a zeroed, flagged result."""
+    result = observe.macro_attribution_summary(db_session, _PID)
+
+    assert result.total_return == pytest.approx(0.0)
+    assert result.contributions == {}
+    assert result.insufficient_history

@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     # ``from __future__ import annotations`` the return type is a string, so guarding
     # it under TYPE_CHECKING keeps the module's *runtime* imports minimal while still
     # advertising the SPEC §4a signature ``get_mandate -> PortfolioMandate | None``.
+    from fund.attribution import AttributionResult
     from fund.performance import PerformanceSummary
     from fund.schemas.mandate import PortfolioMandate
 
@@ -374,6 +375,49 @@ def performance_summary(
         for row in rows
     ]
     return portfolio_metrics(portfolio_id, points)
+
+
+def macro_attribution_summary(
+    session: Any,
+    portfolio_id: uuid.UUID,
+    *,
+    asof: dt.date | None = None,
+    config: Any = None,
+) -> AttributionResult:
+    """Attribute the persisted NAV series' period return to macro factors.
+
+    The read-model entry point for the Phase-07 daily brief: reads the ``nav_history``
+    series (+ benchmark) written by the daily NAV-mark step and runs the macro
+    attribution over it, mirroring :func:`performance_summary` (cheap — no recompute of
+    the FX-normalized book). An unmarked portfolio yields a zeroed,
+    ``insufficient_history`` result rather than a fabricated one. The engine is imported
+    lazily (it pulls ``optimizer``/``skfolio`` — allowed, not the agent stack) so
+    ``import fund.observe`` stays agent-stack-free. Builds no model, never commits.
+
+    Args:
+        session: An injected sync ``portopt_db`` session; not owned here.
+        portfolio_id: The portfolio to attribute.
+        asof: Upper date bound for the series; ``None`` uses all persisted points.
+        config: Optional ``MacroAttributionConfig``; ``None`` uses the default preset.
+
+    Returns:
+        An :class:`~fund.attribution.AttributionResult` whose contributions + residual
+        sum to the total period return.
+    """
+    from fund.attribution import attribution_from_nav_points
+    from fund.audit.nav_history_repository import NavHistoryRepository
+    from fund.performance import NavPoint
+
+    rows = NavHistoryRepository(session).get_navs(portfolio_id, end=asof)
+    points = [
+        NavPoint(
+            date=row.date,
+            nav=float(row.nav),
+            benchmark=float(row.benchmark) if row.benchmark is not None else None,
+        )
+        for row in rows
+    ]
+    return attribution_from_nav_points(points, session=session, config=config)
 
 
 def reprofile_status(
@@ -822,6 +866,7 @@ __all__ = [
     "list_portfolio_runs",
     "list_portfolios",
     "load_run_transcript",
+    "macro_attribution_summary",
     "pending_hitl",
     "performance_summary",
     "portfolio_state",

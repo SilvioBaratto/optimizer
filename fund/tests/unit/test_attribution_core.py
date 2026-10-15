@@ -116,6 +116,18 @@ def test_attribution_core_too_few_obs_returns_empty_not_raise():
     assert result.n_obs == 8
 
 
+def test_attribution_core_constant_factor_dropped_not_crash():
+    """A zero-variance factor (collinear with alpha) is dropped, never crashes."""
+    nav, factors = _synthetic(n=60, betas={"rates": 0.5, "credit": -0.2})
+    factors["flat"] = 0.001  # constant → zero variance
+    config = MacroAttributionConfig.for_default()
+
+    result = estimate_exposures(nav, factors, config=config)
+
+    assert "flat" not in result.exposures
+    assert set(result.exposures) == {"rates", "credit"}
+
+
 def test_attribution_all_factors_missing_residual_equals_total():
     """With no exposures the whole period return is idiosyncratic residual."""
     nav, _ = _synthetic(n=30, betas={"rates": 0.5})

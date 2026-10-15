@@ -20,7 +20,9 @@ whose source has no data over the NAV window is dropped, short history flags
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -30,6 +32,8 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from sklearn.base import BaseEstimator
+
+    from fund.performance import NavPoint
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +209,14 @@ def _aligned_finite(
     return nav[mask], fac[mask]
 
 
+def _drop_degenerate(fac: pd.DataFrame) -> pd.DataFrame:
+    """Drop ~zero-variance columns: a constant factor is collinear with alpha."""
+    if fac.empty or fac.shape[1] == 0:
+        return fac
+    keep = [col for col, var in fac.var(ddof=0).items() if float(var) > 1e-18]
+    return fac.loc[:, keep]
+
+
 def _empty_exposure(n_obs: int, method_used: RegressionMethod) -> ExposureResult:
     """A degraded exposure estimate: no betas, zero alpha, flagged insufficient."""
     return ExposureResult(
@@ -232,9 +244,11 @@ def estimate_exposures(
 
     Degrades honestly: when the aligned, finite sample is shorter than ``3·(K+1)``
     the robust Huber fit cannot converge, so it falls back to closed-form OLS and
-    sets :attr:`ExposureResult.insufficient_history`. When the sample is below
-    ``config.min_observations`` (or no factors are supplied) it returns an empty,
-    flagged estimate rather than raising.
+    sets :attr:`ExposureResult.insufficient_history`. A factor whose return is
+    constant over the window (zero variance ≡ collinear with the intercept, with an
+    unidentifiable beta) is dropped — its effect folds into the residual. When the
+    sample is below ``config.min_observations``, no factor survives, or the fit fails
+    on degenerate data, it returns an empty, flagged estimate rather than raising.
 
     Args:
         nav_returns: Date-indexed portfolio simple returns (the regression target).
@@ -246,11 +260,13 @@ def estimate_exposures(
     """
     from optimizer.exceptions import DataError
     from optimizer.factors import FactorPriorConfig, fit_factor_prior
+    from skfolio.exceptions import SkfolioError
     from skfolio.prior import LoadingMatrixRegression
 
     nav_f, fac_f = _aligned_finite(nav_returns, factor_returns)
+    fac_f = _drop_degenerate(fac_f)
     n_obs = len(nav_f)
-    n_factors = factor_returns.shape[1]
+    n_factors = fac_f.shape[1]
 
     if n_factors == 0 or n_obs < config.min_observations:
         return _empty_exposure(n_obs, config.method)
@@ -266,8 +282,8 @@ def estimate_exposures(
             config=FactorPriorConfig(min_observations=config.min_observations),
             loading_matrix_estimator=estimator,
         )
-    except DataError:
-        logger.info("estimate_exposures: too few aligned periods; degrading")
+    except (DataError, SkfolioError, np.linalg.LinAlgError):
+        logger.info("estimate_exposures: fit failed on thin/degenerate data; degrading")
         return _empty_exposure(n_obs, method_used)
 
     fitted = model.loading_matrix_estimator_
@@ -459,6 +475,106 @@ def _equity_factor(
     return column
 
 
+def _trim_to_lookback(
+    nav_points: list[NavPoint], lookback_days: int | None
+) -> list[NavPoint]:
+    """Keep only points within ``lookback_days`` of the last; no cap when ``None``."""
+    if lookback_days is None or not nav_points:
+        return nav_points
+    cutoff = nav_points[-1].date - dt.timedelta(days=lookback_days)
+    return [p for p in nav_points if p.date >= cutoff]
+
+
+def attribution_from_nav_points(
+    nav_points: list[NavPoint],
+    *,
+    session: Any,
+    config: MacroAttributionConfig | None = None,
+) -> AttributionResult:
+    """Attribute a NAV series' period return to macro factors, given the series.
+
+    The shared core of the on-demand and read-model entry points: derives the NAV and
+    benchmark return series, builds the macro factor returns on the NAV grid, estimates
+    exposures, and decomposes the total. An empty/short series degrades to a zeroed,
+    ``insufficient_history`` result rather than raising; a benchmark absent from every
+    point drops the ``equity`` factor.
+
+    Args:
+        nav_points: The marked NAV series (ascending), from the compute or read side.
+        session: Open SQLAlchemy session (reader; no commit) for the FRED factors.
+        config: Run configuration; ``None`` uses the default preset.
+
+    Returns:
+        An :class:`AttributionResult` whose contributions + residual sum to the total.
+    """
+    from fund.performance import nav_return_series
+
+    cfg = config if config is not None else MacroAttributionConfig.for_default()
+    points = _trim_to_lookback(nav_points, cfg.lookback_days)
+
+    nav_returns = nav_return_series(points, source="nav")
+    bench = nav_return_series(points, source="benchmark")
+    benchmark_returns = bench if not bench.empty else None
+    dates = pd.DatetimeIndex([pd.Timestamp(p.date) for p in points])
+
+    factor_series = build_macro_factor_returns(
+        session=session,
+        dates=dates,
+        benchmark_returns=benchmark_returns,
+        config=cfg,
+    )
+    exposure = estimate_exposures(nav_returns, factor_series.returns, config=cfg)
+    return attribute(nav_returns, factor_series.returns, exposure)
+
+
+def macro_attribution(
+    portfolio_id: uuid.UUID,
+    *,
+    session: Any,
+    base_currency: str,
+    benchmark: str | None = None,
+    asof: dt.date | None = None,
+    since: dt.date | None = None,
+    config: MacroAttributionConfig | None = None,
+) -> AttributionResult:
+    """Attribute a paper portfolio's period return to macro factors, on demand.
+
+    Reconstructs the FX-normalized NAV series via
+    :func:`fund.performance.build_nav_series` (fresh compute — no persistence) and runs
+    the full attribution chain. Compute-on-demand, mirroring ``holding_marks``: no
+    table, no migration. Degrades honestly — a portfolio with no fills, an absent
+    benchmark, or history too short for a robust fit yields a flagged, non-raising
+    result.
+
+    Args:
+        portfolio_id: Portfolio to attribute.
+        session: Open SQLAlchemy session (reader; no commit).
+        base_currency: Mandate base currency the NAV is expressed in.
+        benchmark: Optional benchmark ticker; drives the ``equity`` factor.
+        asof: Upper date bound for the NAV series; ``None`` runs to the latest price.
+        since: Lower date bound on the emitted NAV bars; ``None`` uses full history.
+        config: Run configuration; ``None`` uses the default preset.
+
+    Returns:
+        An :class:`AttributionResult` for the NAV window.
+
+    Raises:
+        FxCoverageError: The mandate holds foreign-currency instruments with no FX
+            coverage for ``base_currency`` (propagated from ``build_nav_series``).
+    """
+    from fund.performance import build_nav_series
+
+    nav_points = build_nav_series(
+        portfolio_id,
+        session=session,
+        base_currency=base_currency,
+        benchmark=benchmark,
+        asof=asof,
+        since=since,
+    )
+    return attribution_from_nav_points(nav_points, session=session, config=config)
+
+
 __all__ = [
     "AttributionResult",
     "ExposureResult",
@@ -468,6 +584,8 @@ __all__ = [
     "MacroAttributionConfig",
     "RegressionMethod",
     "attribute",
+    "attribution_from_nav_points",
     "build_macro_factor_returns",
     "estimate_exposures",
+    "macro_attribution",
 ]
