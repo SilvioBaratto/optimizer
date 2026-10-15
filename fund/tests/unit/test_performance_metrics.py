@@ -98,3 +98,23 @@ def test_metrics_empty_series_is_all_none():
     assert summary.portfolio_id == _PID
     assert summary.volatility is None
     assert summary.returns["max"] is None
+
+
+def test_metrics_partial_returns_survive_mid_series_zero():
+    """A mid-series zero NAV ends the return series but keeps the valid prefix.
+
+    A zero denominator makes only *that* pair ill-defined — the returns already
+    computed must still feed the risk measures rather than being discarded.
+    """
+    summary = portfolio_metrics(_PID, _points([100.0, 105.0, 0.0, 110.0]))
+    # prefix returns: +5%, -100% → a 100% drawdown is computable, not None.
+    assert summary.max_drawdown == pytest.approx(1.0, rel=1e-6)
+    assert summary.volatility is not None
+
+
+def test_metrics_nan_benchmark_leaves_te_and_beta_none():
+    """A NaN in the benchmark must degrade tracking error / beta to None, not NaN."""
+    nan = float("nan")
+    summary = portfolio_metrics(_PID, _points(_NAVS, [50.0, 51.0, nan, 52.0, 53.0]))
+    assert summary.tracking_error is None
+    assert summary.beta is None

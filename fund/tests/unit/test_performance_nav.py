@@ -297,6 +297,92 @@ def test_nav_series_empty_history_returns_empty(db_session):
     assert build_nav_series(_PID, session=db_session, base_currency="EUR") == []
 
 
+def test_nav_series_uses_each_lines_own_fill_date(db_session):
+    """Staggered fills: each line's shares use the price at *its* fill date.
+
+    The ticket's ``fill_date`` is ``min`` across lines; a line that fills later must
+    not be priced at that earlier date. Base USD / USD tickers isolate the share
+    derivation (no FX).
+    """
+    d_a = dt.date(2026, 10, 2)  # ticket min fill (US1 fills here)
+    d_b = dt.date(2026, 10, 3)  # US2 fills here
+    d_last = dt.date(2026, 10, 4)
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+
+    def _inst(ticker):
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        return inst
+
+    us1, us2 = _inst("US1"), _inst("US2")
+    db_session.add_all(
+        [
+            PriceHistory(
+                instrument_id=us1.id, date=d_a, close=Decimal("100"), price_unit="USD"
+            ),
+            PriceHistory(
+                instrument_id=us1.id, date=d_b, close=Decimal("110"), price_unit="USD"
+            ),
+            PriceHistory(
+                instrument_id=us1.id,
+                date=d_last,
+                close=Decimal("120"),
+                price_unit="USD",
+            ),
+            PriceHistory(
+                instrument_id=us2.id, date=d_a, close=Decimal("200"), price_unit="USD"
+            ),
+            PriceHistory(
+                instrument_id=us2.id, date=d_b, close=Decimal("210"), price_unit="USD"
+            ),
+            PriceHistory(
+                instrument_id=us2.id,
+                date=d_last,
+                close=Decimal("220"),
+                price_unit="USD",
+            ),
+        ]
+    )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=dt.date(2026, 10, 1),
+            weights_hash="h1",
+            weights={"US1": 0.6, "US2": 0.4},
+            fill_date=d_a,  # min across lines
+            lines=[
+                {
+                    "ticker": "US1",
+                    "notional": 6000.0,
+                    "fill_price": 100.0,
+                    "fill_date": d_a.isoformat(),
+                },
+                {
+                    "ticker": "US2",
+                    "notional": 4000.0,
+                    "fill_price": 200.0,
+                    "fill_date": d_b.isoformat(),
+                },
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+    points = build_nav_series(_PID, session=db_session, base_currency="USD")
+    navs = {p.date: p.nav for p in points}
+    # US2 shares = 4000 / 210 (its OWN fill), not 4000 / 200 (ticket min).
+    expected_last = (6000.0 / 100.0) * 120.0 + (4000.0 / 210.0) * 220.0
+    assert navs[d_last] == pytest.approx(expected_last, rel=1e-6)
+
+
 def test_performance_module_declares_no_agent_stack_imports():
     """performance.py imports no agent stack (optimizer/skfolio are allowed)."""
     forbidden = ("deepagents", "langgraph", "langchain", "fund.agents", "fund.audit")

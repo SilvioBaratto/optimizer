@@ -259,6 +259,11 @@ def _load_fx_rates_frame(
     return frame
 
 
+def _finite(value: float) -> float | None:
+    """The value as a float, or ``None`` when NaN/inf — never a fabricated metric."""
+    return float(value) if np.isfinite(value) else None
+
+
 def _major_currency(code: str) -> str:
     """Return the ISO major unit for a (possibly sub-unit) price code."""
     from optimizer.fx import normalize_currency_code
@@ -280,14 +285,16 @@ def _ticket_shares(ticket: Any, base_prices: pd.DataFrame) -> dict[str, float]:
 
     ``shares = notional_base / price_base@fill`` — the stored ``lines.shares`` is
     currency-mixed (base notional ÷ listing price) and is deliberately ignored.
+    Each line is priced at **its own** ``fill_date`` (fills stagger across exchange
+    calendars; the ticket-level ``fill_date`` is only the earliest of them).
     """
-    fill_ts = pd.Timestamp(ticket.fill_date)
     shares: dict[str, float] = {}
     for line in ticket.lines:
         ticker = line.get("ticker")
         notional = line.get("notional")
         if ticker is None or notional is None or ticker not in base_prices.columns:
             continue
+        fill_ts = pd.Timestamp(line.get("fill_date") or ticket.fill_date)
         price = _price_asof(base_prices, ticker, fill_ts)
         if not price:
             continue
@@ -413,11 +420,16 @@ def build_nav_series(
 
 
 def _linear_returns(values: list[float]) -> list[float]:
-    """Per-period simple returns; empty when a zero denominator makes it ill-defined."""
+    """Per-period simple returns, stopping at the first ill-defined (zero) denominator.
+
+    A zero denominator makes only *that* pair undefined; the valid returns already
+    computed are kept (the series is truncated there), so a portfolio whose value
+    touches zero still yields the metrics its history up to that point supports.
+    """
     returns: list[float] = []
     for prev, cur in itertools.pairwise(values):
         if prev == 0:
-            return []
+            break
         returns.append(cur / prev - 1.0)
     return returns
 
@@ -479,19 +491,16 @@ def _risk_measures(
     """
     from skfolio import BasePortfolio
 
-    def _clean(value: float) -> float | None:
-        return None if np.isnan(value) else float(value)
-
     try:
         portfolio = BasePortfolio(
             returns=np.asarray(returns, dtype=float),
             observations=list(dates),
             annualization_factor=annualization_factor,
         )
-        max_drawdown = _clean(float(portfolio.max_drawdown))
+        max_drawdown = _finite(float(portfolio.max_drawdown))
         if len(returns) >= 2:
-            volatility = _clean(float(portfolio.annualized_standard_deviation))
-            sharpe = _clean(float(portfolio.annualized_sharpe_ratio))
+            volatility = _finite(float(portfolio.annualized_standard_deviation))
+            sharpe = _finite(float(portfolio.annualized_sharpe_ratio))
         else:
             volatility = sharpe = None
     except Exception:
@@ -524,7 +533,9 @@ def portfolio_metrics(
     """
     navs = [p.nav for p in nav_points]
     port_returns = _linear_returns(navs)
-    return_dates = [p.date for p in nav_points[1:]]
+    # Align observations to the (possibly truncated) returns so BasePortfolio gets
+    # equal-length inputs when a zero denominator cut the series short.
+    return_dates = [p.date for p in nav_points[1 : 1 + len(port_returns)]]
 
     volatility = sharpe = max_drawdown = None
     if port_returns:
@@ -553,12 +564,15 @@ def portfolio_metrics(
         if len(port_returns) >= 2 and len(bench_returns) == len(port_returns):
             port_arr = np.asarray(port_returns, dtype=float)
             bench_arr = np.asarray(bench_returns, dtype=float)
-            tracking_error = float(
-                np.std(port_arr - bench_arr, ddof=1) * np.sqrt(annualization_factor)
+            tracking_error = _finite(
+                float(np.std(port_arr - bench_arr, ddof=1))
+                * np.sqrt(annualization_factor)
             )
             bench_var = float(np.var(bench_arr, ddof=1))
             if bench_var > 0:
-                beta = float(np.cov(port_arr, bench_arr, ddof=1)[0, 1] / bench_var)
+                beta = _finite(
+                    float(np.cov(port_arr, bench_arr, ddof=1)[0, 1]) / bench_var
+                )
 
     return PerformanceSummary(
         portfolio_id=portfolio_id,
