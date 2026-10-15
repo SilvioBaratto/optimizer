@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -166,6 +166,21 @@ class AttributionResult:
     residual: float
     factor_names: tuple[str, ...]
     insufficient_history: bool
+
+
+@dataclass(frozen=True)
+class FactorSeries:
+    """Macro factor returns aligned to the NAV grid, plus the dropped factors.
+
+    Attributes:
+        returns: Dates × factors simple-return frame on the NAV return grid; a
+            factor absent over the window is omitted, never fabricated.
+        missing: Factor names dropped because their source had no usable data over
+            the window (FRED series absent, or the benchmark missing for ``equity``).
+    """
+
+    returns: pd.DataFrame
+    missing: list[str]
 
 
 def _build_regressor(method: RegressionMethod) -> BaseEstimator:
@@ -338,13 +353,121 @@ def attribute(
     )
 
 
+def _level_to_return(level_on_grid: pd.Series, transform: FactorTransform) -> pd.Series:
+    """Turn a grid-aligned level series into per-period returns per ``transform``."""
+    if transform is FactorTransform.DIFF:
+        return level_on_grid.diff()
+    return level_on_grid.pct_change(fill_method=None)
+
+
+def build_macro_factor_returns(
+    *,
+    session: Any,
+    dates: pd.DatetimeIndex,
+    benchmark_returns: pd.Series | None,
+    config: MacroAttributionConfig,
+) -> FactorSeries:
+    """Build macro factor returns on the NAV grid, FRED-first, degrading honestly.
+
+    Applies the canonical alignment recipe to each FRED factor: fetch the full level
+    history up to the grid's last date (via :func:`fund.tools.macro.load_macro_frame`,
+    lazy-imported), reindex it onto the NAV grid filling each day from the most recent
+    prior observation, transform to a return (``diff`` or ``pct_change`` per the
+    factor's spec), then drop the first (NaN) row so the result sits on the NAV return
+    grid (``dates[1:]``). The non-FRED ``equity`` factor is the benchmark return series
+    reindexed onto that grid. A FRED series with no rows, an all-NaN transformed column,
+    or a missing benchmark for ``equity`` is dropped into ``missing`` rather than
+    fabricated.
+
+    Args:
+        session: Open SQLAlchemy session (reader; no commit).
+        dates: The NAV date grid (ascending ``DatetimeIndex``) from the NAV series.
+        benchmark_returns: The benchmark simple-return series (already returns, e.g.
+            :func:`fund.performance.nav_return_series` with ``source="benchmark"``);
+            ``None`` degrades every non-FRED factor to ``missing``.
+        config: Run configuration whose ``factors`` drive what is built.
+
+    Returns:
+        A :class:`FactorSeries`; ``returns`` empty and every factor ``missing`` when
+        the grid has fewer than two dates.
+    """
+    columns: dict[str, pd.Series] = {}
+    missing: list[str] = []
+
+    if len(dates) < 2:
+        return FactorSeries(
+            returns=pd.DataFrame(index=dates[1:]),
+            missing=[spec.name for spec in config.factors],
+        )
+
+    grid = pd.DatetimeIndex(dates).sort_values()
+    target = grid[1:]
+
+    fred_specs = [s for s in config.factors if s.fred_series_id is not None]
+    frame = pd.DataFrame()
+    if fred_specs:
+        from fund.tools.macro import load_macro_frame
+
+        series_ids = [str(s.fred_series_id) for s in fred_specs]
+        frame, _ = load_macro_frame(session, series_ids, grid[-1].date())
+
+    for spec in config.factors:
+        if spec.fred_series_id is None:
+            column = _equity_factor(benchmark_returns, target)
+        else:
+            column = _fred_factor(frame, spec, grid, target)
+        if column is None:
+            missing.append(spec.name)
+        else:
+            columns[spec.name] = column
+
+    returns = (
+        pd.DataFrame(columns, index=target) if columns else pd.DataFrame(index=target)
+    )
+    return FactorSeries(returns=returns, missing=missing)
+
+
+def _fred_factor(
+    frame: pd.DataFrame,
+    spec: FactorSpec,
+    grid: pd.DatetimeIndex,
+    target: pd.DatetimeIndex,
+) -> pd.Series | None:
+    """One FRED factor's returns on ``target``, or ``None`` when it has no data."""
+    series_id = str(spec.fred_series_id)
+    if series_id not in frame.columns:
+        return None
+    # ffill internal gaps first: load_macro_frame unions each series' own dates, so a
+    # day one series lacks is an internal NaN, which reindex(method="ffill") won't fill.
+    level_full = frame[series_id].ffill()
+    level_on_grid = level_full.reindex(grid, method="ffill")
+    column = _level_to_return(level_on_grid, spec.transform).reindex(target)
+    if column.notna().sum() == 0:
+        return None
+    return column
+
+
+def _equity_factor(
+    benchmark_returns: pd.Series | None, target: pd.DatetimeIndex
+) -> pd.Series | None:
+    """The benchmark return series on ``target``, or ``None`` when unavailable."""
+    if benchmark_returns is None or benchmark_returns.empty:
+        return None
+    column = benchmark_returns.reindex(target)
+    if column.notna().sum() == 0:
+        return None
+    return column
+
+
 __all__ = [
     "AttributionResult",
     "ExposureResult",
+    "FactorSeries",
     "FactorSpec",
     "FactorTransform",
     "MacroAttributionConfig",
     "RegressionMethod",
     "attribute",
+    "build_macro_factor_returns",
     "estimate_exposures",
 ]
