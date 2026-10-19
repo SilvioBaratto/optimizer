@@ -644,12 +644,18 @@ class PostureView(ShellView):
     aggregates ``#pf / #awaiting / #running / #warning``. Selecting a roster row focuses
     that portfolio through the shell seam (``focus_portfolio`` — header context) and
     reveals its detail; an un-run portfolio shows the
-    ``no runs yet · p profile to start`` empty-state. NAV/P&L are deferred to the
-    performance tracker (Phase 05).
+    ``no runs yet · p profile to start`` empty-state. A ``Daily brief → d`` tile jumps
+    to the per-day recap for the focused portfolio.
 
     Attributes:
         detail_text: Mirror of the rendered detail pane — a headless-test hook.
     """
+
+    # View-scoped so ``d`` opens the brief only from Posture — never clobbering the
+    # global ``b`` (barge-in); the App action owns the programmatic view switch.
+    BINDINGS: ClassVar[list[BindingType]] = [
+        ("d", "app.open_brief", "Daily brief"),
+    ]
 
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)
@@ -667,7 +673,11 @@ class PostureView(ShellView):
             yield Static(
                 "(no portfolio focused)", id="posture-detail", classes="posture-detail"
             )
-        yield Static("↑↓ select · ↵ focus", id="posture-hint", classes="posture-hint")
+        yield Static(
+            "↑↓ select · ↵ focus · d brief",
+            id="posture-hint",
+            classes="posture-hint",
+        )
 
     def on_mount(self) -> None:
         """Seed the roster table's columns once its DataTable has mounted."""
@@ -793,7 +803,7 @@ def _render_posture_detail(session: Session, pid: uuid.UUID) -> str:
     if events.portfolio_events:
         recent = " · ".join(event["as_of"] for event in events.portfolio_events[:3])
         lines.append(f"RECENT {recent}")
-    lines.append("NAV/P&L — pending performance tracker (Phase 05)")
+    lines.append("Daily brief → d open")
     return "\n".join(lines)
 
 

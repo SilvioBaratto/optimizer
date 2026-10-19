@@ -2904,3 +2904,22 @@ async def test_daily_brief_arrow_keys_navigate_days(shell_env, monkeypatch) -> N
         await pilot.press("left")
         await pilot.pause()
         assert view.asof == date(2026, 10, 5)
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_posture_tile_opens_the_brief(shell_env, monkeypatch) -> None:
+    """The Posture 'Daily brief' tile jumps to the brief, portfolio still focused."""
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)  # a run so the posture detail renders
+        session.commit()
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _full_brief(_PID_A))
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        assert "Daily brief" in view.detail_text  # the tile affordance is present
+
+        app.action_open_brief()
+        await pilot.pause()
+        assert app.query_one(ContentSwitcher).current == "view-brief"
+        assert app._portfolio_id == _PID_A  # same portfolio stays focused

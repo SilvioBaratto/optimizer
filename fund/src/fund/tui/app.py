@@ -612,6 +612,17 @@ class ShellApp(App[None]):
         self._refresh_runstate()
         self._refresh()
 
+    def action_open_brief(self) -> None:
+        """Open the Daily brief for the focused portfolio (the Posture ``d`` tile).
+
+        A programmatic view switch mirroring the sidebar's
+        :meth:`on_list_view_selected`: points the ``ContentSwitcher`` at the brief pane,
+        which reads the already-focused ``_portfolio_id``, then repaints. View-scoped to
+        Posture (``PostureView.BINDINGS``) so it never clobbers the global ``b``.
+        """
+        self.query_one(ContentSwitcher).current = "view-brief"
+        self._refresh()
+
     # --- notification bus (poll-diff → toasts + counters) ------------------
 
     def _poll_attention(self) -> None:
