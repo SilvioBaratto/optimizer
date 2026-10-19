@@ -18,6 +18,7 @@ inside method bodies.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import uuid
 from contextlib import contextmanager
@@ -39,8 +40,8 @@ from textual.widgets import (
 )
 
 from fund import observe
-from fund.observe import RunSummary
-from fund.tui.readouts import render_readout
+from fund.observe import DailyBrief, RunSummary
+from fund.tui.readouts import _attribution_bar, render_readout
 from fund.tui.stream import StepStatus, StreamEvent
 
 if TYPE_CHECKING:
@@ -83,6 +84,7 @@ VIEW_SPECS: tuple[tuple[str, str], ...] = (
     ("mandate", "Mandate"),
     ("audit", "Audit"),
     ("ask", "Ask"),
+    ("brief", "Daily brief"),
 )
 
 
@@ -1429,6 +1431,150 @@ def _detail_payload(
     return ""
 
 
+# Daily-brief P&L tiers as (dot, label) — the word travels with the glyph so the day's
+# direction never rides on colour alone (mirrors _HEALTH_*). The two ● tiers (up/down)
+# read apart by their label; ◐ marks a flat day.
+_BRIEF_UP: tuple[str, str] = ("●", "up")
+_BRIEF_FLAT: tuple[str, str] = ("◐", "flat")
+_BRIEF_DOWN: tuple[str, str] = ("●", "down")
+
+_NO_DATA = "  no data"
+
+
+class DailyBriefView(ShellView):
+    """The per-day recap: today's P&L, macro attribution, events, the economist read.
+
+    Reads ``observe.daily_brief(session, saver, pid, asof=self.asof)`` each tick and
+    renders its five sections into one text pane — the P&L strip (dot + label
+    direction), the macro-attribution meters, the ``market_journal`` narrative, the
+    carried-forward economist read (dated ``(from MM-DD)`` when it predates the day),
+    and the ``portfolio_journal`` overlays. A missing section degrades to an explicit
+    "no data" line, never a crash. ``self.asof`` is the viewed day (``None`` opens on
+    the latest NAV mark); day navigation and export arrive in later slices.
+
+    Attributes:
+        asof: The viewed day, or ``None`` to open on the latest NAV-marked day.
+        brief: The last-assembled :class:`~fund.observe.DailyBrief`, or ``None`` — a
+            headless-test hook.
+        detail_text: Mirror of the rendered detail pane — a headless-test hook.
+    """
+
+    def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
+        super().__init__(view_key, view_title, **kwargs)
+        self.asof: dt.date | None = None
+        self.brief: DailyBrief | None = None
+        self.detail_text = ""
+
+    def compose(self) -> ComposeResult:
+        """Yield the title, the five-section detail pane, and the key hint."""
+        yield Label(self.view_title, classes="view-title")
+        yield Static("(loading…)", id="brief-detail", classes="brief-detail")
+        yield Static(
+            "← prev day · → next · ↵ open deliberation · e export · esc",
+            id="brief-hint",
+            classes="brief-hint",
+        )
+
+    def refresh_view(self) -> None:
+        """Repaint the recap for the viewed day from a fresh assembler read."""
+        self.render_count += 1
+        self.brief = self._read()
+        text = (
+            _render_brief_detail(self.brief)
+            if self.brief is not None
+            else "(no portfolio focused)"
+        )
+        self.detail_text = text
+        self.query_one("#brief-detail", Static).update(text)
+
+    def _read(self) -> DailyBrief | None:
+        """Assemble the brief in one short session (None on no focus or any error)."""
+        pid = self.shell._portfolio_id
+        if pid is None:
+            return None
+        try:
+            with self.read_session() as session:
+                saver = self.shell._persistence.saver
+                return observe.daily_brief(session, saver, pid, asof=self.asof)
+        except Exception:  # keep the poll loop alive on any read error
+            return None
+
+
+def _render_brief_detail(brief: DailyBrief) -> str:
+    """Render a DailyBrief's five sections as detail-pane text."""
+    lines = [
+        f"Daily brief · {brief.asof.isoformat()}",
+        _brief_pnl_line(brief.performance),
+        "",
+        "MACRO ATTRIBUTION (today)",
+        *_brief_attribution_lines(brief.attribution),
+        "",
+        "WHAT HAPPENED (market_journal)",
+        *_brief_event_lines(brief.market_events),
+        "",
+        "ECONOMIST READ",
+        *_brief_economist_lines(brief),
+        "",
+        "FUND DID (portfolio_journal)",
+        *_brief_event_lines(brief.fund_events),
+    ]
+    return "\n".join(lines)
+
+
+def _brief_pnl_line(perf: Any) -> str:
+    """Render the P&L strip with a dot + label direction, or a no-data line."""
+    if perf is None:
+        return f"TODAY {_NO_DATA.strip()}"
+    day_return = perf.returns.get("1D")
+    if day_return is None:
+        return f"TODAY {_NO_DATA.strip()}"
+    if day_return > 0:
+        dot, label = _BRIEF_UP
+    elif day_return < 0:
+        dot, label = _BRIEF_DOWN
+    else:
+        dot, label = _BRIEF_FLAT
+    excess = perf.excess.get("1D")
+    vs_bench = f" · vs bench {excess:+.2%}" if excess is not None else ""
+    return f"TODAY  {dot} {label}  P&L {day_return:+.2%}{vs_bench}"
+
+
+def _brief_attribution_lines(attribution: Any) -> list[str]:
+    """Render per-factor contributions (+ ``idio`` residual) as sorted bar meters."""
+    if attribution is None or not attribution.contributions:
+        return [_NO_DATA]
+    items = [*attribution.contributions.items(), ("idio", attribution.residual)]
+    items.sort(key=lambda kv: abs(kv[1]), reverse=True)
+    scale = max(abs(value) for _, value in items)
+    lines = [
+        f"  {name:<6} {value:+.2%}  {_attribution_bar(value, scale)}"
+        for name, value in items
+    ]
+    lines.append(f"  {'total':<6} {attribution.total_return:+.2%}")
+    return lines
+
+
+def _brief_event_lines(events: tuple[dict[str, Any], ...]) -> list[str]:
+    """Render journal rows as dated narrative bullets, or a no-data line."""
+    if not events:
+        return [_NO_DATA]
+    return [
+        f"  • {event.get('narrative', '')}  ({event.get('as_of', '')})"
+        for event in events
+    ]
+
+
+def _brief_economist_lines(brief: DailyBrief) -> list[str]:
+    """Render the economist read, dated ``(from MM-DD)`` when carried forward."""
+    if brief.economist_read is None:
+        return [_NO_DATA]
+    carried = ""
+    read_date = brief.economist_read_date
+    if read_date is not None and read_date != brief.asof:
+        carried = f" (from {read_date:%m-%d})"
+    return [f'  "{brief.economist_read.strip()}"{carried}']
+
+
 # Per-key view class; keys absent here fall back to the placeholder ``ShellView``.
 _VIEW_CLASSES: dict[str, type[ShellView]] = {
     "posture": PostureView,
@@ -1436,6 +1582,7 @@ _VIEW_CLASSES: dict[str, type[ShellView]] = {
     "decisions": DecisionsView,
     "mandate": MandateView,
     "audit": AuditView,
+    "brief": DailyBriefView,
 }
 
 
@@ -1454,6 +1601,7 @@ def build_views() -> list[ShellView]:
 __all__ = [
     "VIEW_SPECS",
     "AuditView",
+    "DailyBriefView",
     "DecisionsView",
     "DeliberationView",
     "MandateView",

@@ -76,6 +76,7 @@ from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.stream import StepStatus, StreamEvent
 from fund.tui.views import (
     AuditView,
+    DailyBriefView,
     DecisionsView,
     DeliberationView,
     MandateView,
@@ -251,7 +252,15 @@ def test_import_app_is_light_and_needs_no_keys() -> None:
 
 # --- ShellApp: the multi-view shell (T3) ------------------------------------
 
-_VIEW_KEYS = ("posture", "deliberation", "decisions", "mandate", "audit", "ask")
+_VIEW_KEYS = (
+    "posture",
+    "deliberation",
+    "decisions",
+    "mandate",
+    "audit",
+    "ask",
+    "brief",
+)
 
 
 @pytest.fixture
@@ -308,7 +317,7 @@ async def test_shell_mounts_frame_and_posture_view(shell_env) -> None:
     app = _make_shell(shell_env)
     async with app.run_test(size=_SIZE) as pilot:
         await pilot.pause()
-        # Sidebar lists all six views; the ContentSwitcher opens on Posture.
+        # Sidebar lists every view; the ContentSwitcher opens on Posture.
         assert len(app.query(ListItem)) == len(_VIEW_KEYS)
         content = app.query_one("#content", ContentSwitcher)
         assert content.current == "view-posture"
@@ -348,7 +357,7 @@ async def test_shell_view_context_seam_reads_collaborators(shell_env) -> None:
 
 
 @pytest.mark.asyncio
-async def test_shell_sidebar_navigates_all_six_views(shell_env) -> None:
+async def test_shell_sidebar_navigates_all_views(shell_env) -> None:
     app = _make_shell(shell_env)
     async with app.run_test(size=_SIZE) as pilot:
         await pilot.pause()
@@ -2690,3 +2699,137 @@ async def test_notification_bus_preserves_state_on_read_error(
         await pilot.pause()
         assert app._awaiting_count == 1
         assert len(app.last_attention) == seen
+
+
+# --- Daily brief (Phase 07 T3) ----------------------------------------------
+
+
+async def _open_brief(app, pilot) -> DailyBriefView:
+    """Switch the shell to the Daily brief view and paint it."""
+    await pilot.pause()
+    app.query_one(ContentSwitcher).current = "view-brief"
+    app._refresh()
+    await pilot.pause()
+    return app.query_one("#view-brief", DailyBriefView)
+
+
+def _full_brief(pid):
+    """A fully-populated DailyBrief fixture — every section carries real data."""
+    from fund.attribution import AttributionResult
+    from fund.performance import PerformanceSummary
+
+    perf = PerformanceSummary(
+        portfolio_id=pid,
+        returns={"1D": 0.0042, "1M": 0.012, "YTD": 0.05, "1Y": 0.09, "max": 0.12},
+        excess={"1D": 0.0011, "1M": None, "YTD": None, "1Y": None, "max": None},
+        tracking_error=0.01,
+        max_drawdown=-0.03,
+        volatility=0.1,
+        sharpe=1.2,
+        beta=0.95,
+    )
+    attr = AttributionResult(
+        total_return=0.0042,
+        contributions={
+            "equity": 0.0031,
+            "credit": 0.0005,
+            "usd": -0.0002,
+            "rates": -0.0008,
+        },
+        residual=0.0016,
+        factor_names=("equity", "credit", "usd", "rates"),
+        insufficient_history=False,
+    )
+    return observe.DailyBrief(
+        portfolio_id=pid,
+        asof=date(2026, 10, 6),
+        prev_day=date(2026, 10, 5),
+        next_day=None,
+        performance=perf,
+        attribution=attr,
+        market_events=({"as_of": "2026-10-06", "narrative": "CPI < expected"},),
+        economist_read="risk-on; your tech tilt benefited from the soft CPI",
+        economist_read_date=date(2026, 10, 3),  # carried forward (!= asof)
+        deliberation_run_id=uuid.UUID("dddd0004-0000-4000-8000-000000000004"),
+        fund_events=(
+            {
+                "as_of": "2026-10-03",
+                "allocation": {"AAA": 1.0},
+                "narrative": "rebalance ✓",
+            },
+        ),
+    )
+
+
+def _empty_brief(pid):
+    """A fully-degraded DailyBrief fixture — every section is missing data."""
+    from fund.attribution import AttributionResult
+
+    attr = AttributionResult(
+        total_return=0.0,
+        contributions={},
+        residual=0.0,
+        factor_names=(),
+        insufficient_history=True,
+    )
+    return observe.DailyBrief(
+        portfolio_id=pid,
+        asof=date(2026, 10, 6),
+        prev_day=None,
+        next_day=None,
+        performance=None,
+        attribution=attr,
+        market_events=(),
+        economist_read=None,
+        economist_read_date=None,
+        deliberation_run_id=None,
+        fund_events=(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_registers_in_sidebar_and_opens(shell_env) -> None:
+    """The sidebar lists Daily brief; selecting it switches to the brief pane."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        assert len(app.query(ListItem)) == len(_VIEW_KEYS)
+        content = app.query_one(ContentSwitcher)
+        content.current = "view-brief"
+        app._refresh()
+        await pilot.pause()
+        view = app.query_one("#view-brief", DailyBriefView)
+        assert view.view_title == "Daily brief"
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_view_renders_five_sections(shell_env, monkeypatch) -> None:
+    """Over an assembler fixture the brief paints all five sections."""
+    brief = _full_brief(_PID_A)
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        text = view.detail_text
+        assert view.brief is not None and view.brief.asof == date(2026, 10, 6)
+        assert "TODAY" in text and "up" in text  # dot+label P&L direction
+        assert "MACRO ATTRIBUTION" in text
+        assert any(cell in text for cell in "▏▎▍▌▋▊▉█")  # a meter rendered
+        assert "(-)" in text  # a negative contribution marked, not colour alone
+        assert "WHAT HAPPENED" in text and "CPI < expected" in text
+        assert "ECONOMIST READ" in text and "tech tilt" in text
+        assert "(from 10-03)" in text  # carried-forward read is dated
+        assert "FUND DID" in text and "rebalance" in text
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_degrades_missing_sections(shell_env, monkeypatch) -> None:
+    """Each missing section renders an explicit no-data line rather than crashing."""
+    brief = _empty_brief(_PID_A)
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert view.detail_text.count("no data") >= 4
