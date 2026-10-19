@@ -652,6 +652,25 @@ class ShellApp(App[None]):
         self.query_one(ContentSwitcher).current = "view-deliberation"
         self.query_one("#view-deliberation", DeliberationView).select_run(run_id)
 
+    def action_export_brief(self) -> None:
+        """Export the brief to ``daily-brief-<pf>-<asof>.md`` in CWD (the ``e`` key).
+
+        View-scoped to the brief (``DailyBriefView.BINDINGS``) so it does not collide
+        with the global Audit export ``e``. Re-export overwrites (idempotent); a write
+        failure surfaces on the status line. A silent no-op off the brief pane.
+        """
+        view = self._active_brief_view()
+        if view is None or view.brief is None:
+            return
+        brief = view.brief
+        path = f"daily-brief-{brief.portfolio_id}-{brief.asof.isoformat()}.md"
+        try:
+            written = view.export_markdown(path)
+        except OSError as exc:  # write failure → status bar, never crash
+            self._set_status(f"export failed: {exc}")
+            return
+        self._set_status(f"exported brief to {written}")
+
     # --- notification bus (poll-diff → toasts + counters) ------------------
 
     def _poll_attention(self) -> None:

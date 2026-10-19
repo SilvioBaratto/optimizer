@@ -1472,10 +1472,13 @@ class DailyBriefView(ShellView):
     # Focusable so ← / → reach the view's bindings when the brief pane holds focus —
     # a view-scoped scope, never a global arrow hijack (the day state is view-local).
     can_focus = True
+    # ``e`` is view-scoped so it exports the brief here and leaves the global Audit
+    # export ``e`` untouched (mirrors DecisionsView overriding ``e`` for edit).
     BINDINGS: ClassVar[list[BindingType]] = [
         ("left", "prev_day", "Prev day"),
         ("right", "next_day", "Next day"),
         ("enter", "app.open_deliberation", "Open deliberation"),
+        ("e", "app.export_brief", "Export"),
     ]
 
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
@@ -1532,6 +1535,20 @@ class DailyBriefView(ShellView):
             return
         self.asof = target
         self.refresh_view()
+
+    def export_markdown(self, path: str) -> str:
+        """Write the current brief to ``path`` as markdown; return ``path``.
+
+        Re-export overwrites (idempotent). The caller guards on a loaded brief; a
+        missing brief raises ``ValueError`` rather than writing an empty file. Any
+        write failure surfaces as ``OSError`` for the caller to report.
+        """
+        from pathlib import Path
+
+        if self.brief is None:
+            raise ValueError("no brief loaded to export")
+        Path(path).write_text(_render_brief_markdown(self.brief), encoding="utf-8")
+        return path
 
 
 def _render_brief_detail(brief: DailyBrief) -> str:
@@ -1607,6 +1624,62 @@ def _brief_economist_lines(brief: DailyBrief) -> list[str]:
     if read_date is not None and read_date != brief.asof:
         carried = f" (from {read_date:%m-%d})"
     return [f'  "{brief.economist_read.strip()}"{carried}']
+
+
+def _render_brief_markdown(brief: DailyBrief) -> str:
+    """Serialize a DailyBrief to a markdown recap, one heading per section."""
+    lines = [
+        f"# Daily brief · {brief.portfolio_id} · {brief.asof.isoformat()}",
+        "",
+        "## Today's P&L",
+        _brief_pnl_line(brief.performance),
+        "",
+        "## Macro attribution (today)",
+        *_brief_attribution_table(brief.attribution),
+        "",
+        "## What happened",
+        *_brief_markdown_events(brief.market_events),
+        "",
+        "## Economist read",
+        *_brief_markdown_economist(brief),
+        "",
+        "## Fund did",
+        *_brief_markdown_events(brief.fund_events),
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _brief_attribution_table(attribution: Any) -> list[str]:
+    """Render attribution contributions (+ ``idio`` residual) as a markdown table."""
+    if attribution is None or not attribution.contributions:
+        return ["_no data_"]
+    rows = [*attribution.contributions.items(), ("idio", attribution.residual)]
+    rows.sort(key=lambda kv: abs(kv[1]), reverse=True)
+    table = ["| factor | contribution |", "| --- | --- |"]
+    table += [f"| {name} | {value:+.2%} |" for name, value in rows]
+    table.append(f"| **total** | **{attribution.total_return:+.2%}** |")
+    return table
+
+
+def _brief_markdown_events(events: tuple[dict[str, Any], ...]) -> list[str]:
+    """Render journal rows as markdown bullets, or a no-data line."""
+    if not events:
+        return ["_no data_"]
+    return [
+        f"- {event.get('narrative', '')} ({event.get('as_of', '')})" for event in events
+    ]
+
+
+def _brief_markdown_economist(brief: DailyBrief) -> list[str]:
+    """Render the economist read as a dated markdown blockquote."""
+    if brief.economist_read is None:
+        return ["_no data_"]
+    carried = ""
+    read_date = brief.economist_read_date
+    if read_date is not None and read_date != brief.asof:
+        carried = f" (from {read_date:%m-%d})"
+    return [f"> {brief.economist_read.strip()}{carried}"]
 
 
 # Per-key view class; keys absent here fall back to the placeholder ``ShellView``.

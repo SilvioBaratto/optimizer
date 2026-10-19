@@ -2959,3 +2959,39 @@ async def test_daily_brief_enter_noop_when_never_run(shell_env, monkeypatch) -> 
         app.action_open_deliberation()
         await pilot.pause()
         assert app.query_one(ContentSwitcher).current == "view-brief"
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_export_markdown(shell_env, monkeypatch, tmp_path) -> None:
+    """e writes daily-brief-<pid>-<asof>.md to CWD and reports the path."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _full_brief(_PID_A))
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_brief(app, pilot)
+        app.action_export_brief()
+        await pilot.pause()
+        expected = tmp_path / f"daily-brief-{_PID_A}-2026-10-06.md"
+        assert expected.exists()
+        assert "daily-brief" in app.last_status
+        content = expected.read_text(encoding="utf-8")
+        assert content.startswith("# Daily brief")
+        assert "## Macro attribution" in content
+        # Re-export overwrites — idempotent.
+        app.action_export_brief()
+        await pilot.pause()
+        assert len(list(tmp_path.glob("daily-brief-*.md"))) == 1
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_export_off_pane(shell_env, monkeypatch, tmp_path) -> None:
+    """e off the brief pane writes nothing and sets no export status."""
+    monkeypatch.chdir(tmp_path)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_posture(app, pilot)  # the brief is not the active pane
+        app.action_export_brief()
+        await pilot.pause()
+        assert not list(tmp_path.glob("daily-brief-*.md"))
+        assert "exported brief" not in app.last_status
