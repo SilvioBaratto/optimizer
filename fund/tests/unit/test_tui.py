@@ -2995,3 +2995,67 @@ async def test_daily_brief_export_off_pane(shell_env, monkeypatch, tmp_path) -> 
         await pilot.pause()
         assert not list(tmp_path.glob("daily-brief-*.md"))
         assert "exported brief" not in app.last_status
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_export_degraded_markdown(
+    shell_env, monkeypatch, tmp_path
+) -> None:
+    """A degraded day exports markdown with explicit no-data sections, no crash."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _empty_brief(_PID_A))
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_brief(app, pilot)
+        app.action_export_brief()
+        await pilot.pause()
+        content = (tmp_path / f"daily-brief-{_PID_A}-2026-10-06.md").read_text(
+            encoding="utf-8"
+        )
+        assert content.startswith("# Daily brief")
+        assert content.count("_no data_") >= 3  # attribution + events + read empty
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_export_reports_oserror(
+    shell_env, monkeypatch, tmp_path
+) -> None:
+    """A write failure surfaces on the status line, never a crash."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _full_brief(_PID_A))
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+
+        def _boom(_path):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(view, "export_markdown", _boom)
+        app.action_export_brief()
+        await pilot.pause()
+        assert "export failed" in app.last_status
+        assert not list(tmp_path.glob("daily-brief-*.md"))
+
+
+def test_daily_brief_status_tiers_carry_labels() -> None:
+    """Every P&L tier is (dot, label) with a word, so direction never rides on colour.
+
+    A theme-independent contrast guarantee: the label disambiguates the two ``●`` tiers,
+    so the brief reads the same on light and dark terminals.
+    """
+    from fund.tui.views import _BRIEF_DOWN, _BRIEF_FLAT, _BRIEF_UP
+
+    for dot, label in (_BRIEF_UP, _BRIEF_FLAT, _BRIEF_DOWN):
+        assert dot and label
+    assert _BRIEF_UP[0] == _BRIEF_DOWN[0]  # both ●
+    assert _BRIEF_UP[1] != _BRIEF_DOWN[1]  # told apart by the label
+
+
+def test_bar_meter_negative_marker_is_ascii() -> None:
+    """The negative marker is ASCII ``(-)`` — a sign glyph, not colour alone."""
+    from fund.tui.readouts import _attribution_bar
+
+    assert _attribution_bar(-0.5, 1.0, width=8).endswith(" (-)")
+    assert _attribution_bar(0.5, 1.0, width=8).endswith("█")  # positive: no marker
