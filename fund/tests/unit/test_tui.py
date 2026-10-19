@@ -2713,7 +2713,13 @@ async def _open_brief(app, pilot) -> DailyBriefView:
     return app.query_one("#view-brief", DailyBriefView)
 
 
-def _full_brief(pid):
+def _full_brief(
+    pid,
+    *,
+    asof: date = date(2026, 10, 6),
+    prev_day: date | None = date(2026, 10, 5),
+    next_day: date | None = None,
+):
     """A fully-populated DailyBrief fixture — every section carries real data."""
     from fund.attribution import AttributionResult
     from fund.performance import PerformanceSummary
@@ -2742,9 +2748,9 @@ def _full_brief(pid):
     )
     return observe.DailyBrief(
         portfolio_id=pid,
-        asof=date(2026, 10, 6),
-        prev_day=date(2026, 10, 5),
-        next_day=None,
+        asof=asof,
+        prev_day=prev_day,
+        next_day=next_day,
         performance=perf,
         attribution=attr,
         market_events=({"as_of": "2026-10-06", "narrative": "CPI < expected"},),
@@ -2833,3 +2839,68 @@ async def test_daily_brief_degrades_missing_sections(shell_env, monkeypatch) -> 
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_brief(app, pilot)
         assert view.detail_text.count("no data") >= 4
+
+
+def _nav_grid(pid):
+    """A three-day NAV grid keyed by the asof the assembler is asked for."""
+    latest = _full_brief(
+        pid, asof=date(2026, 10, 6), prev_day=date(2026, 10, 5), next_day=None
+    )
+    mid = _full_brief(
+        pid,
+        asof=date(2026, 10, 5),
+        prev_day=date(2026, 10, 4),
+        next_day=date(2026, 10, 6),
+    )
+    earliest = _full_brief(
+        pid, asof=date(2026, 10, 4), prev_day=None, next_day=date(2026, 10, 5)
+    )
+    return {
+        None: latest,
+        date(2026, 10, 6): latest,
+        date(2026, 10, 5): mid,
+        date(2026, 10, 4): earliest,
+    }
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_nav_steps_the_grid(shell_env, monkeypatch) -> None:
+    """←/→ step to the prev/next NAV-marked day; arrows no-op at the grid ends."""
+    grid = _nav_grid(_PID_A)
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, asof=None: grid[asof])
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert view.brief is not None and view.brief.asof == date(2026, 10, 6)
+
+        view.action_prev_day()
+        assert view.asof == date(2026, 10, 5)
+        assert view.brief.asof == date(2026, 10, 5)
+
+        view.action_prev_day()
+        assert view.asof == date(2026, 10, 4)
+
+        rc = view.render_count
+        view.action_prev_day()  # earliest mark → prev is None → no-op, no re-render
+        assert view.asof == date(2026, 10, 4)
+        assert view.render_count == rc
+
+        view.action_next_day()
+        assert view.asof == date(2026, 10, 5)
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_arrow_keys_navigate_days(shell_env, monkeypatch) -> None:
+    """The ←/→ view bindings are wired to the day-step actions when focused."""
+    grid = _nav_grid(_PID_A)
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, asof=None: grid[asof])
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        view.focus()
+        await pilot.pause()
+        await pilot.press("left")
+        await pilot.pause()
+        assert view.asof == date(2026, 10, 5)

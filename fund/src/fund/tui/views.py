@@ -1459,6 +1459,14 @@ class DailyBriefView(ShellView):
         detail_text: Mirror of the rendered detail pane — a headless-test hook.
     """
 
+    # Focusable so ← / → reach the view's bindings when the brief pane holds focus —
+    # a view-scoped scope, never a global arrow hijack (the day state is view-local).
+    can_focus = True
+    BINDINGS: ClassVar[list[BindingType]] = [
+        ("left", "prev_day", "Prev day"),
+        ("right", "next_day", "Next day"),
+    ]
+
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)
         self.asof: dt.date | None = None
@@ -1498,6 +1506,21 @@ class DailyBriefView(ShellView):
                 return observe.daily_brief(session, saver, pid, asof=self.asof)
         except Exception:  # keep the poll loop alive on any read error
             return None
+
+    def action_prev_day(self) -> None:
+        """Step to the previous NAV-marked day; a no-op at the earliest mark."""
+        self._step_day(self.brief.prev_day if self.brief else None)
+
+    def action_next_day(self) -> None:
+        """Step to the next NAV-marked day; a no-op at the latest mark."""
+        self._step_day(self.brief.next_day if self.brief else None)
+
+    def _step_day(self, target: dt.date | None) -> None:
+        """Re-read the recap for ``target``; a None target (a grid end) is a no-op."""
+        if target is None:
+            return
+        self.asof = target
+        self.refresh_view()
 
 
 def _render_brief_detail(brief: DailyBrief) -> str:
