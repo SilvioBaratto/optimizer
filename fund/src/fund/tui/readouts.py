@@ -335,3 +335,37 @@ def _sort_weight(value: Any) -> float:
     """Sort key for a weight: its float value, or ``-inf`` for null / non-numeric."""
     numeric = _as_float(value)
     return float("-inf") if numeric is None else numeric
+
+
+# Eighth-block ramp for the attribution meter: index == eighths filled (0 is a blank
+# cell, 8 a full block), so a magnitude maps to full blocks plus one partial ramp cell.
+_METER_CELLS = " ▏▎▍▌▋▊▉█"
+
+
+def _attribution_bar(value: float, scale: float, width: int = 10) -> str:
+    """Render one attribution contribution as a left-aligned eighth-block meter.
+
+    The bar length is proportional to ``|value| / scale`` and never exceeds ``width``
+    full cells, so the largest-magnitude contribution fills the bar. A negative
+    contribution carries a trailing ``(-)`` marker — the sign never rides on colour
+    alone (mirrors ``views._HEALTH_*``).
+
+    Args:
+        value: The signed contribution (a factor contribution or the residual).
+        scale: The normalising magnitude — ``max(abs(...))`` over the contributions and
+            residual. A non-positive scale yields an empty meter.
+        width: The full-cell length of a bar at ``|value| == scale``.
+
+    Returns:
+        The meter string (eighth-block cells, left-aligned), with ``" (-)"`` appended
+        when ``value`` is negative; an empty string for a zero magnitude.
+    """
+    fraction = abs(value) / scale if scale > 0 else 0.0
+    eighths = round(min(fraction, 1.0) * width * 8)
+    bar = "█" * (eighths // 8)
+    remainder = eighths % 8
+    if remainder:
+        bar += _METER_CELLS[remainder]
+    if value < 0:
+        bar += " (-)"
+    return bar
