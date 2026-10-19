@@ -378,6 +378,7 @@ async def test_shell_sidebar_navigates_all_views(shell_env) -> None:
 # A letter-bearing UUID avoids SQLite's numeric-affinity coercion of all-digit ids.
 _PID_A = uuid.UUID("aaaa0001-0000-4000-8000-000000000001")
 _PID_B = uuid.UUID("bbbb0002-0000-4000-8000-000000000002")
+_BRIEF_RUN_ID = uuid.UUID("dddd0004-0000-4000-8000-000000000004")
 
 
 @pytest.mark.asyncio
@@ -2719,6 +2720,7 @@ def _full_brief(
     asof: date = date(2026, 10, 6),
     prev_day: date | None = date(2026, 10, 5),
     next_day: date | None = None,
+    run_id: uuid.UUID = _BRIEF_RUN_ID,
 ):
     """A fully-populated DailyBrief fixture — every section carries real data."""
     from fund.attribution import AttributionResult
@@ -2756,7 +2758,7 @@ def _full_brief(
         market_events=({"as_of": "2026-10-06", "narrative": "CPI < expected"},),
         economist_read="risk-on; your tech tilt benefited from the soft CPI",
         economist_read_date=date(2026, 10, 3),  # carried forward (!= asof)
-        deliberation_run_id=uuid.UUID("dddd0004-0000-4000-8000-000000000004"),
+        deliberation_run_id=run_id,
         fund_events=(
             {
                 "as_of": "2026-10-03",
@@ -2923,3 +2925,37 @@ async def test_daily_brief_posture_tile_opens_the_brief(shell_env, monkeypatch) 
         await pilot.pause()
         assert app.query_one(ContentSwitcher).current == "view-brief"
         assert app._portfolio_id == _PID_A  # same portfolio stays focused
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_enter_opens_deliberation(shell_env, monkeypatch) -> None:
+    """↵ on the brief opens the day's deliberation and preselects its run."""
+    with shell_env.get_session() as session:
+        run = _seed_run(session, _PID_A, seed=1)
+        session.commit()
+        run_id = run.id
+    monkeypatch.setattr(
+        observe, "daily_brief", lambda *a, **k: _full_brief(_PID_A, run_id=run_id)
+    )
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_brief(app, pilot)
+        app.action_open_deliberation()
+        await pilot.pause()
+        assert app.query_one(ContentSwitcher).current == "view-deliberation"
+        delib = app.query_one("#view-deliberation", DeliberationView)
+        assert delib.selected_run_id == run_id
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_enter_noop_when_never_run(shell_env, monkeypatch) -> None:
+    """↵ is a no-op (stays on the brief) when the day resolves to no run."""
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _empty_brief(_PID_A))
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_brief(app, pilot)
+        app.action_open_deliberation()
+        await pilot.pause()
+        assert app.query_one(ContentSwitcher).current == "view-brief"

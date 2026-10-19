@@ -58,6 +58,7 @@ from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.views import (
     VIEW_SPECS,
     AuditView,
+    DailyBriefView,
     DecisionsView,
     DeliberationView,
     MandateView,
@@ -622,6 +623,34 @@ class ShellApp(App[None]):
         """
         self.query_one(ContentSwitcher).current = "view-brief"
         self._refresh()
+
+    def _active_brief_view(self) -> DailyBriefView | None:
+        """The Daily brief view when it is the active content pane, else ``None``."""
+        try:
+            if self.query_one(ContentSwitcher).current != "view-brief":
+                return None
+            view = self.query_one("#view-brief", ShellView)
+        except NoMatches:
+            return None
+        return view if isinstance(view, DailyBriefView) else None
+
+    def action_open_deliberation(self) -> None:
+        """Open the brief's day deliberation and preselect its run (the ↵ binding).
+
+        Switches to the Deliberation view and calls
+        :meth:`~fund.tui.views.DeliberationView.select_run` with the brief's
+        most-recent-on-or-before run (``DailyBrief.deliberation_run_id``). A no-op with
+        a hint off the brief or when the day resolves to no run (a never-run portfolio).
+        """
+        view = self._active_brief_view()
+        if view is None:
+            return
+        run_id = view.brief.deliberation_run_id if view.brief else None
+        if run_id is None:
+            self._set_status("no deliberation for this day")
+            return
+        self.query_one(ContentSwitcher).current = "view-deliberation"
+        self.query_one("#view-deliberation", DeliberationView).select_run(run_id)
 
     # --- notification bus (poll-diff → toasts + counters) ------------------
 

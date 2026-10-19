@@ -1475,6 +1475,7 @@ class DailyBriefView(ShellView):
     BINDINGS: ClassVar[list[BindingType]] = [
         ("left", "prev_day", "Prev day"),
         ("right", "next_day", "Next day"),
+        ("enter", "app.open_deliberation", "Open deliberation"),
     ]
 
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
