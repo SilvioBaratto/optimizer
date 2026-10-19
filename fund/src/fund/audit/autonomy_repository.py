@@ -18,10 +18,12 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from enum import Enum
+from typing import Any, cast
 
 from portopt_db.models import FundAutonomyState
 from portopt_db.repository import RepositoryBase
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 
 
 class AutonomyScope(str, Enum):
@@ -142,7 +144,9 @@ class AutonomyRepository(RepositoryBase):
             .execution_options(synchronize_session=False)
         )
         self.session.expire(row)
-        return bool(result.rowcount == 1)
+        # SQLAlchemy's ``Result`` stub omits ``rowcount`` — it lives on the
+        # ``CursorResult`` a DML ``execute`` actually returns — so the cast restores it.
+        return bool(cast("CursorResult[Any]", result).rowcount == 1)
 
     def _get(
         self, scope: AutonomyScope, portfolio_id: uuid.UUID | None
