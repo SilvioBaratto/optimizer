@@ -140,6 +140,10 @@ class ExposureResult:
         method_used: The regressor actually used (``OLS`` after a fallback).
         insufficient_history: True when history was too short for the robust fit —
             either an OLS fallback fired or the estimate degraded to empty.
+        estimation_index: The exact dates the betas were fit on (NAV and *all* input
+            factors finite), or ``None`` on a degraded estimate. :func:`attribute`
+            reuses it so a factor dropped for degeneracy cannot widen the attribution
+            window and inflate the residual with NAV days the regression never saw.
     """
 
     exposures: dict[str, float]
@@ -148,6 +152,7 @@ class ExposureResult:
     r2: float | None
     method_used: RegressionMethod
     insufficient_history: bool
+    estimation_index: pd.Index | None = None
 
 
 @dataclass(frozen=True)
@@ -302,6 +307,7 @@ def estimate_exposures(
         r2=r2,
         method_used=method_used,
         insufficient_history=insufficient,
+        estimation_index=nav_f.index,
     )
 
 
@@ -354,7 +360,15 @@ def attribute(
             insufficient_history=exposure.insufficient_history,
         )
 
-    nav_f, fac_f = _aligned_finite(nav_returns, factor_returns.loc[:, cols])
+    idx = exposure.estimation_index
+    if idx is None:
+        nav_f, fac_f = _aligned_finite(nav_returns, factor_returns.loc[:, cols])
+    else:
+        # Reuse the exact estimation window so a factor dropped for degeneracy does not
+        # re-admit the dates it was NaN on — the betas never saw those NAV periods, and
+        # widening total_return here would silently dump them into the residual.
+        nav_f = nav_returns.reindex(idx)
+        fac_f = factor_returns.loc[:, cols].reindex(idx)
     total = float(nav_f.sum())
     contributions = {
         col: float(exposure.exposures[col] * fac_f[col].sum()) for col in cols

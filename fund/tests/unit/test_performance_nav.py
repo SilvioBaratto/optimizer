@@ -461,6 +461,13 @@ def test_nav_series_uses_each_lines_own_fill_date(db_session):
     # US2 shares = 4000 / 210 (its OWN fill), not 4000 / 200 (ticket min).
     expected_last = (6000.0 / 100.0) * 120.0 + (4000.0 / 210.0) * 220.0
     assert navs[d_last] == pytest.approx(expected_last, rel=1e-6)
+    # No look-ahead across the stagger: on d_a US2 has not filled, so it is carried at
+    # base-currency book value (its 4000 notional), never marked at the future d_b fill
+    # price — NAV stays whole (6000 US1 + 4000 committed) instead of dipping then
+    # recovering as a fake gain.
+    assert navs[d_a] == pytest.approx(6000.0 + 4000.0, rel=1e-6)
+    # On d_b US2 fills: its shares (4000 / 210) mark at the d_b close (210) == notional.
+    assert navs[d_b] == pytest.approx((6000.0 / 100.0) * 110.0 + 4000.0, rel=1e-6)
 
 
 def _agent_stack_offenders(module) -> list[str]:

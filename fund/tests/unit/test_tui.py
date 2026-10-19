@@ -1959,7 +1959,7 @@ async def test_deliberation_paint_readout_does_not_clobber_live_detail(
         view.select_step(0)
         await pilot.pause()
         assert "compute to view" in view.detail_text  # pending replay render
-        view.start_live(run_id)  # a live round begins while a recompute is in flight
+        view.start_live(run_id, _PID_A)  # a live round begins while a recompute runs
         await pilot.pause()
         canned = readouts_compute.ResultsCompute(
             frontier=readouts_compute.FrontierPoint(0.1, 0.2, 0.5, 40),
@@ -2047,7 +2047,8 @@ async def test_deliberation_live_renders_steps_and_flips_markers(shell_env) -> N
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_deliberation(app, pilot)
         rid = uuid.uuid4()
-        view.start_live(rid)
+        view.start_live(rid, _PID_A)
+        assert view.live_portfolio_id == _PID_A  # pinned so a barge-in targets this run
         await pilot.pause()
         for event in _scripted_stream(rid):
             view.ingest_event(event)
@@ -2068,7 +2069,7 @@ async def test_deliberation_live_follow_then_inspect_then_resume(shell_env) -> N
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_deliberation(app, pilot)
         rid = uuid.uuid4()
-        view.start_live(rid)
+        view.start_live(rid, _PID_A)
         for event in _scripted_stream(rid):
             view.ingest_event(event)
             await pilot.pause()
@@ -2092,7 +2093,7 @@ async def test_deliberation_live_ends_back_to_replay(shell_env) -> None:
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_deliberation(app, pilot)
         rid = uuid.uuid4()
-        view.start_live(rid)
+        view.start_live(rid, _PID_A)
         view.ingest_event(_scripted_stream(rid)[0])
         await pilot.pause()
         assert view.query_one("#delib-live", DataTable).display is True

@@ -1052,6 +1052,7 @@ class DeliberationView(ShellView):
         selected_step: The focused step's position, or ``None``.
         detail_text: Mirror of the rendered step detail — a headless-test hook.
         live_run_id: The streaming run while live, else ``None`` (replay mode).
+        live_portfolio_id: The live run's portfolio while streaming, else ``None``.
         following: Whether the live tail auto-follows; a cursor move pauses it.
         live_text: Mirror of the rendered live-step detail — a headless-test hook.
     """
@@ -1071,6 +1072,9 @@ class DeliberationView(ShellView):
         self.detail_text = ""
         self._entries: list[Any] = []
         self.live_run_id: uuid.UUID | None = None
+        # The portfolio the live run belongs to, pinned at start_live so a barge-in
+        # addresses the streaming run's portfolio even if the header focus moves.
+        self.live_portfolio_id: uuid.UUID | None = None
         self.following = True
         self.live_text = ""
         self._live_events: list[StreamEvent] = []
@@ -1130,14 +1134,20 @@ class DeliberationView(ShellView):
 
     # --- live tail ----------------------------------------------------------
 
-    def start_live(self, run_id: uuid.UUID) -> None:
+    def start_live(self, run_id: uuid.UUID, portfolio_id: uuid.UUID) -> None:
         """Enter live mode for ``run_id``: swap the replay split for an empty timeline.
 
         Clears any prior stream, re-arms auto-follow, and hides the run/step picker so
         the streamed steps fill the pane. Idempotent per run — a fresh call restarts
         the timeline.
+
+        Args:
+            run_id: The streaming run whose steps fill the live tail.
+            portfolio_id: The run's portfolio, pinned so a barge-in targets it rather
+                than whatever the header happens to be focused on at keypress time.
         """
         self.live_run_id = run_id
+        self.live_portfolio_id = portfolio_id
         self._live_events = []
         self.following = True
         self.live_text = ""
@@ -1177,6 +1187,7 @@ class DeliberationView(ShellView):
     def end_live(self) -> None:
         """Leave live mode and fall back to the replay transcript (terminal event)."""
         self.live_run_id = None
+        self.live_portfolio_id = None
         self.query_one("#delib-live", DataTable).display = False
         self.query_one("#delib-runs", DataTable).display = True
         self.query_one("#delib-steps", DataTable).display = True
@@ -1435,7 +1446,7 @@ def build_views() -> list[ShellView]:
     ``decisions``); every other key still renders the placeholder ``ShellView``.
     """
     return [
-        _VIEW_CLASSES.get(key, ShellView)(key, title, id=f"view-{key}")
+        (_VIEW_CLASSES.get(key) or ShellView)(key, title, id=f"view-{key}")
         for key, title in VIEW_SPECS
     ]
 

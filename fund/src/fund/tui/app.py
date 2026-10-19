@@ -508,7 +508,7 @@ class ShellApp(App[None]):
         if self.size.width:
             self._apply_width(self.size.width)
         self.call_after_refresh(self._refresh)
-        self.set_interval(self._poll_interval, self._refresh)
+        self.set_interval(self._poll_interval, self._poll)
 
     def on_resize(self, event: Resize) -> None:
         """Collapse/restore the sidebar rail as the terminal crosses the threshold."""
@@ -569,6 +569,17 @@ class ShellApp(App[None]):
         if new_id == self._portfolio_id:
             return
         self._portfolio_id = new_id
+        self._refresh_runstate()
+        self._refresh()
+
+    def _poll(self) -> None:
+        """Timer tick: refresh the run-state header, then repaint the active view.
+
+        The autonomy/run-state glyphs are re-read here (not in :meth:`_refresh`) so an
+        external freeze/re-arm — from the scheduler or another session — reflects on the
+        next tick instead of lingering stale until the next local action, without making
+        every manual/test repaint also re-read the autonomy rows.
+        """
         self._refresh_runstate()
         self._refresh()
 
@@ -1227,14 +1238,22 @@ class ShellApp(App[None]):
         re-arm the stream so the hold is never left standing.
         """
         view = self._deliberation_view()
-        if not self._deliberation_active() or view is None or view.live_run_id is None:
+        if (
+            not self._deliberation_active()
+            or view is None
+            or view.live_run_id is None
+            or view.live_portfolio_id is None
+        ):
             self._set_status("barge in from a live Deliberation round")
             return
         self._stream_resume.clear()  # hold a streaming worker at the next boundary
         run_id = view.live_run_id
         paused_at = view.live_text.splitlines()[0] if view.live_text else "the gate"
 
-        portfolio_id = self._portfolio_id  # Deliberation is per-portfolio focused
+        # The streaming run's own portfolio, NOT self._portfolio_id — the header focus
+        # may have moved since the stream started, which would otherwise mis-route the
+        # directive (and a remembered directive) to the wrong portfolio's mandate.
+        portfolio_id = view.live_portfolio_id
 
         def _resolved(result: BargeInResult | None) -> None:
             self._stream_resume.set()  # resume the stream regardless of the choice
@@ -1316,8 +1335,7 @@ class ShellApp(App[None]):
                         (
                             d.constraint_set
                             for d in reversed(run.decisions)
-                            if d.agent == "allocator"
-                            and d.step == "optimize_portfolio"
+                            if d.agent == "allocator" and d.step == "optimize_portfolio"
                         ),
                         None,
                     )
@@ -1456,7 +1474,9 @@ class ShellApp(App[None]):
                     store=self._persistence.store,
                 ):
                     if last_kind is None:
-                        self.call_from_thread(view.start_live, event.run_id)
+                        self.call_from_thread(
+                            view.start_live, event.run_id, portfolio_id
+                        )
                         self.call_from_thread(self._enter_live_runstate)
                     self.call_from_thread(view.ingest_event, event)
                     last_kind = event.kind

@@ -349,19 +349,61 @@ def _ticket_shares(ticket: Any, base_prices: pd.DataFrame) -> dict[str, float]:
     return shares
 
 
-def _active_shares(
-    ticket_shares: list[tuple[dt.date, dict[str, float]]], day: dt.date
-) -> dict[str, float]:
-    """The holdings in force on ``day``: the latest ticket filled at or before it.
+def _as_date(value: Any) -> dt.date | None:
+    """Coerce a stored line ``fill_date`` (ISO string or date) to a ``date``.
 
-    Paper tickets are full target re-allocations (``positions`` is replaced, not
-    accumulated, on each approve), so the current book is the most recent fill —
-    not the sum of every fill.
+    Returns ``None`` for a missing or unparseable value so the caller can fall back to
+    the ticket-level fill date.
     """
-    active: dict[str, float] = {}
-    for fill_date, shares in ticket_shares:
+    if isinstance(value, dt.datetime):
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    if isinstance(value, str):
+        try:
+            return dt.date.fromisoformat(value[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def _ticket_book(
+    ticket: Any, base_prices: pd.DataFrame
+) -> dict[str, tuple[float, dt.date, float]]:
+    """Per-line ``(FX-correct shares, own fill date, base notional)`` for a ticket.
+
+    Shares reuse :func:`_ticket_shares` — each line sized at the base price on *its*
+    own ``fill_date``. Pairing the fill date and base notional lets the NAV loop carry
+    a line that has not yet filled at book value instead of marking it early at a price
+    it was never bought at (the staggered-fill look-ahead the ticket-level key hid).
+    """
+    shares = _ticket_shares(ticket, base_prices)
+    book: dict[str, tuple[float, dt.date, float]] = {}
+    for line in ticket.lines:
+        ticker = line.get("ticker")
+        notional = line.get("notional")
+        if ticker not in shares or notional is None:
+            continue
+        fill_date = _as_date(line.get("fill_date")) or ticket.fill_date
+        book[ticker] = (shares[ticker], fill_date, float(notional))
+    return book
+
+
+def _active_book(
+    ticket_books: list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]],
+    day: dt.date,
+) -> dict[str, tuple[float, dt.date, float]]:
+    """The book in force on ``day``: the latest ticket filled at or before it.
+
+    Mirrors the full-re-allocation rule (paper tickets replace ``positions`` on each
+    approve rather than accumulate), so the active book is the most recent ticket's,
+    not the union of every fill. Each line keeps its own fill date so the NAV loop can
+    defer a line that has not yet filled on ``day``.
+    """
+    active: dict[str, tuple[float, dt.date, float]] = {}
+    for fill_date, book in ticket_books:
         if fill_date <= day:
-            active = shares
+            active = book
         else:
             break
     return active
@@ -460,13 +502,13 @@ def build_nav_series(
         fx_rates=fx_rates,
     ).ffill()
 
-    ticket_shares = [
-        (ticket.fill_date, _ticket_shares(ticket, base_prices)) for ticket in tickets
+    ticket_books = [
+        (ticket.fill_date, _ticket_book(ticket, base_prices)) for ticket in tickets
     ]
-    ticket_shares = [(d, s) for d, s in ticket_shares if s]
-    if not ticket_shares:
+    ticket_books = [(d, b) for d, b in ticket_books if b]
+    if not ticket_books:
         return []
-    earliest = ticket_shares[0][0]
+    earliest = ticket_books[0][0]
     mark_from = earliest if since is None else max(earliest, since)
 
     points: list[NavPoint] = []
@@ -474,10 +516,18 @@ def build_nav_series(
         day = ts.date()
         if day < mark_from:
             continue
-        shares = _active_shares(ticket_shares, day)
+        book = _active_book(ticket_books, day)
         nav = 0.0
         marked = False
-        for ticker, qty in shares.items():
+        for ticker, (qty, line_fill, notional) in book.items():
+            if line_fill > day:
+                # Committed but not yet filled on this bar: carry at base-currency book
+                # value (its notional) so a staggered line is neither marked early at
+                # its future fill price (look-ahead) nor dropped — which would misread
+                # the undeployed capital as a drawdown and recover it as a fake gain.
+                nav += notional
+                marked = True
+                continue
             if ticker not in base_prices.columns:
                 continue
             price = base_prices.at[ts, ticker]

@@ -409,14 +409,21 @@ def macro_attribution_summary(
     from fund.performance import NavPoint
 
     rows = NavHistoryRepository(session).get_navs(portfolio_id, end=asof)
-    points = [
-        NavPoint(
-            date=row.date,
-            nav=float(row.nav),
-            benchmark=float(row.benchmark) if row.benchmark is not None else None,
+    # Forward-fill an interior benchmark gap: a partial re-mark can persist a null
+    # benchmark mid-series and the upsert overwrites the prior non-null value, so the
+    # benchmark return window stays contiguous and never spans a hole with a
+    # multi-period return that biases the equity beta — the same forward-fill the
+    # compute path applies to base prices. A leading null stays absent, never
+    # fabricated before the benchmark's first observation.
+    points: list[NavPoint] = []
+    last_benchmark: float | None = None
+    for row in rows:
+        benchmark = (
+            float(row.benchmark) if row.benchmark is not None else last_benchmark
         )
-        for row in rows
-    ]
+        if benchmark is not None:
+            last_benchmark = benchmark
+        points.append(NavPoint(date=row.date, nav=float(row.nav), benchmark=benchmark))
     return attribution_from_nav_points(points, session=session, config=config)
 
 

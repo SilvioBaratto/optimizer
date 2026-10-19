@@ -1216,6 +1216,17 @@ def resume_fund(
         raise LookupError(f"no agent_run {rid}")
     if run.portfolio_id is None:
         raise ValueError(f"agent_run {rid} has no portfolio_id")
+    # A run already finalised must not be resumed. An external freeze marks live gates
+    # "rejected" at the DB without resolving the checkpoint (a completed / incomplete /
+    # blocked run, or a stale observer racing a concurrent approve, is the same shape):
+    # the LangGraph checkpoint is left standing, so without this guard a blind
+    # Command(resume=…) would re-drive place_orders and ship live orders against a
+    # halted run. Pre-gate states (pending/paused/responded) stay resumable.
+    if run.status in ("completed", "rejected", "incomplete", "blocked"):
+        raise ValueError(
+            f"agent_run {rid} is {run.status!r}, already finalised and not resumable "
+            "(it completed, or was rejected/frozen/blocked since the gate opened)"
+        )
 
     portfolio_id = run.portfolio_id
     pid_str = str(portfolio_id)
