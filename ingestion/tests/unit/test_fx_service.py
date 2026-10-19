@@ -220,6 +220,28 @@ class TestRunFxFetch:
         assert result["rows_total"] == 0
         yf.fetch_history.assert_not_called()
 
+    def test_usd_base_stores_each_legs_usd_price_directly(self, fx_session) -> None:
+        """A USD-base mandate stores each foreign leg's USD price (rate = q_usd, base=1).
+
+        base='USD' takes the no-base-leg branch (base_usd == 1.0, dates are the quote
+        leg's own), which no base='EUR' test exercises — a direction inversion there
+        would otherwise pass the whole suite.
+        """
+        _seed_eur_usd_gbp(fx_session)
+
+        result = run_fx_fetch(self._yf(), base="USD")
+
+        rows = {
+            (r.quote_currency, r.date): float(r.rate)
+            for r in fx_session.query(FxRate).all()
+        }
+        assert rows[("EUR", self._D1)] == pytest.approx(1.10)
+        assert rows[("EUR", self._D2)] == pytest.approx(1.08)
+        assert rows[("GBP", self._D1)] == pytest.approx(1.30)
+        assert rows[("GBP", self._D2)] == pytest.approx(1.28)
+        assert fx_session.query(FxRate).filter_by(quote_currency="USD").count() == 0
+        assert result["error_count"] == 0
+
 
 class TestSchedulerStep:
     """The fx scheduler step and its reclaim registration."""
@@ -240,6 +262,10 @@ class TestSchedulerStep:
 
         assert run_step.call_args.args[0] == "fx"
         assert run_step.call_args.args[1] is _fx_jobs
+        # The third positional is the service fn _run_step calls: a copy-paste swapping
+        # it would silently run the wrong logic on every daily pipeline, with "fx" still
+        # the label — so pin the callable identity, not just the label and job svc.
+        assert run_step.call_args.args[2] is run_fx_fetch
 
     def test_fx_job_type_is_reclaim_dispatchable(self) -> None:
         """The orphan reaper can re-dispatch a wedged fx_fetch run."""
