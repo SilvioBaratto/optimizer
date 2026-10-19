@@ -957,3 +957,187 @@ def test_macro_attribution_summary_empty_is_graceful(db_session):
     assert result.total_return == pytest.approx(0.0)
     assert result.contributions == {}
     assert result.insufficient_history
+
+
+# --- daily_brief (Phase 07 T1) ----------------------------------------------
+
+
+def _seed_economist_run(
+    db_session,
+    saver,
+    *,
+    asof,
+    created_at,
+    thread_id,
+    narrative,
+    status="completed",
+):
+    """Insert a run for _PID whose thread carries one named economist message."""
+    run = AgentRun(
+        portfolio_id=_PID,
+        asof=asof,
+        seed=1,
+        universe=["AAA"],
+        optimizer_config={},
+        status=status,
+        weights={"AAA": 1.0},
+        thread_id=thread_id,
+        created_at=created_at,
+        finished_at=created_at,
+    )
+    db_session.add(run)
+    db_session.flush()
+    _seed_thread(
+        saver,
+        thread_id,
+        [
+            HumanMessage(content="Produce an allocation."),
+            AIMessage(content=narrative, name="economist"),
+        ],
+    )
+    return run
+
+
+def test_daily_brief_full_day_stitches_all_five_sections(db_session):
+    """A fully-marked day populates P&L, attribution, events, read, and overlays."""
+    saver = MemorySaver()
+    _seed_navs_and_fred(db_session)  # consecutive marks 2026-01-05 .. 2026-01-24
+    day = date(2026, 1, 24)
+    MarketJournalRepository(db_session).upsert_journal(
+        day,
+        macro_deltas={},
+        market_moves={},
+        news_themes={},
+        narrative="CPI < expected",
+        source_counts={},
+    )
+    PortfolioJournalRepository(db_session).upsert(
+        _PID,
+        day,
+        run_id=None,
+        trades={},
+        allocation={"AAA": 1.0},
+        drift={},
+        narrative="rebalanced",
+    )
+    run = _seed_economist_run(
+        db_session,
+        saver,
+        asof=day,
+        created_at=datetime(2026, 1, 24, 10, tzinfo=UTC),
+        thread_id="brief-full",
+        narrative="risk-on; your tech tilt benefited",
+    )
+
+    brief = observe.daily_brief(db_session, saver, _PID, asof=day)
+
+    assert isinstance(brief, observe.DailyBrief)
+    assert brief.asof == day
+    assert brief.prev_day == date(2026, 1, 23)
+    assert brief.next_day is None  # the latest marked day
+    assert brief.performance is not None
+    assert brief.performance.returns["1D"] is not None
+    assert brief.attribution is not None
+    assert brief.attribution.factor_names  # a real multi-factor fit ran
+    recon = sum(brief.attribution.contributions.values()) + brief.attribution.residual
+    assert recon == pytest.approx(brief.attribution.total_return, abs=1e-9)
+    assert any("CPI" in event["narrative"] for event in brief.market_events)
+    assert any("rebalanced" in event["narrative"] for event in brief.fund_events)
+    assert brief.economist_read == "risk-on; your tech tilt benefited"
+    assert brief.economist_read_date == day
+    assert brief.deliberation_run_id == run.id
+
+
+def test_daily_brief_carries_forward_economist_read_dated(db_session):
+    """A day with no run reuses the most-recent-on-or-before run's dated read."""
+    saver = MemorySaver()
+    _seed_navs(db_session, [100.0, 102.0, 101.0, 103.0, 106.0])  # 10-01 .. 10-05
+    run = _seed_economist_run(
+        db_session,
+        saver,
+        asof=date(2026, 10, 2),
+        created_at=datetime(2026, 10, 2, tzinfo=UTC),
+        thread_id="brief-cf",
+        narrative="watch ECB on rates",
+    )
+
+    brief = observe.daily_brief(db_session, saver, _PID, asof=date(2026, 10, 4))
+
+    assert brief.economist_read == "watch ECB on rates"
+    assert brief.economist_read_date == date(2026, 10, 2)
+    assert brief.deliberation_run_id == run.id
+
+
+def test_daily_brief_economist_tie_break_prefers_later_created_at(db_session):
+    """Two runs sharing an asof resolve to the later-created one (not list order)."""
+    saver = MemorySaver()
+    _seed_navs(db_session, [100.0, 102.0, 101.0])  # 10-01 .. 10-03
+    day = date(2026, 10, 3)
+    _seed_economist_run(
+        db_session,
+        saver,
+        asof=day,
+        created_at=datetime(2026, 10, 3, 9, tzinfo=UTC),
+        thread_id="brief-tie-early",
+        narrative="earlier read",
+    )
+    later = _seed_economist_run(
+        db_session,
+        saver,
+        asof=day,
+        created_at=datetime(2026, 10, 3, 17, tzinfo=UTC),
+        thread_id="brief-tie-late",
+        narrative="later read",
+    )
+
+    brief = observe.daily_brief(db_session, saver, _PID, asof=day)
+
+    assert brief.economist_read == "later read"
+    assert brief.deliberation_run_id == later.id
+
+
+def test_daily_brief_blank_economist_read_when_never_run(db_session):
+    """A portfolio that never ran yields no read, date, or deliberation id."""
+    saver = MemorySaver()
+    _seed_navs(db_session, [100.0, 102.0])
+
+    brief = observe.daily_brief(db_session, saver, _PID)
+
+    assert brief.economist_read is None
+    assert brief.economist_read_date is None
+    assert brief.deliberation_run_id is None
+
+
+def test_daily_brief_unmarked_day_degrades_without_crash(db_session):
+    """No NAV / journal / run → None performance, flagged attribution, empty tuples."""
+    saver = MemorySaver()
+
+    brief = observe.daily_brief(db_session, saver, _PID)
+
+    assert brief.performance is None
+    assert brief.attribution is not None
+    assert brief.attribution.insufficient_history
+    assert brief.market_events == ()
+    assert brief.fund_events == ()
+    assert brief.economist_read is None
+    assert brief.prev_day is None
+    assert brief.next_day is None
+
+
+def test_daily_brief_defaults_to_latest_nav_mark(db_session):
+    """With asof=None the brief opens on the latest NAV-marked day."""
+    saver = MemorySaver()
+    _seed_navs(db_session, [100.0, 102.0, 101.0, 103.0])  # 10-01 .. 10-04
+
+    brief = observe.daily_brief(db_session, saver, _PID)
+
+    assert brief.asof == date(2026, 10, 4)
+    assert brief.prev_day == date(2026, 10, 3)
+    assert brief.next_day is None
+
+
+def test_daily_brief_is_public_and_reachable():
+    """The assembler is exported so the agent-stack-free guard covers it."""
+    assert "daily_brief" in observe.__all__
+    assert "DailyBrief" in observe.__all__
+    assert callable(observe.daily_brief)

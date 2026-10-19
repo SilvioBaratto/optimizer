@@ -121,6 +121,48 @@ class EventDigest:
 
 
 @dataclass(frozen=True)
+class DailyBrief:
+    """Per-day recap payload for one portfolio, stitched from five existing reads.
+
+    Every section is independently optional: a day with no NAV mark, no journal row,
+    or no run yields ``None`` / empty tuples (never fabricated), so the view can render
+    an explicit "no data" line per section instead of crashing.
+
+    Attributes:
+        portfolio_id: The portfolio this brief is for.
+        asof: The day the brief recaps (the upper date bound passed to every section).
+        prev_day: The previous NAV-marked day (``←`` target), or None at the earliest
+            mark.
+        next_day: The next NAV-marked day (``→`` target), or None at the latest mark.
+        performance: Multi-horizon returns incl. today's ``returns["1D"]`` /
+            ``excess["1D"]``; None when the portfolio is unmarked on-or-before ``asof``.
+        attribution: Per-factor contributions + idiosyncratic ``residual`` summing to
+            ``total_return``; ``insufficient_history`` flags a too-short window.
+        market_events: ``market_journal`` narrative rows in the brief's day window.
+        economist_read: The economist narrative from the most recent run on-or-before
+            ``asof`` (carried forward when the day had no run); None only when the
+            portfolio has no run on-or-before ``asof``.
+        economist_read_date: The run date ``economist_read`` came from, so the view can
+            label a carried-forward read ``(from MM-DD)``; None when there is no read.
+        deliberation_run_id: The run ``↵`` opens — the same most-recent-on-or-before
+            run; None when the portfolio has no run on-or-before ``asof``.
+        fund_events: ``portfolio_journal`` overlays at/before ``asof``, newest first.
+    """
+
+    portfolio_id: uuid.UUID
+    asof: dt.date
+    prev_day: dt.date | None
+    next_day: dt.date | None
+    performance: PerformanceSummary | None
+    attribution: AttributionResult | None
+    market_events: tuple[dict[str, Any], ...]
+    economist_read: str | None
+    economist_read_date: dt.date | None
+    deliberation_run_id: uuid.UUID | None
+    fund_events: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
 class AuditEntry:
     """One actor-attributed row of the Audit view's cross-portfolio timeline.
 
@@ -533,6 +575,116 @@ def recent_events(
     )
 
 
+def daily_brief(
+    session: Any,
+    saver: Any,
+    portfolio_id: uuid.UUID,
+    *,
+    asof: dt.date | None = None,
+) -> DailyBrief:
+    """Assemble the five-section per-day recap for a ``(portfolio, day)``.
+
+    Composition only: delegates to :func:`performance_summary`,
+    :func:`macro_attribution_summary`, :func:`recent_events` (one-day window), and the
+    most-recent-on-or-before economist read over :func:`load_run_transcript`. Stays
+    agent-stack-free — ``saver`` is treated as opaque (no ``langgraph`` import) and
+    every repo is imported from its submodule inside this body, never from the
+    ``fund.audit`` package root. Builds no model, never ``commit``s.
+
+    Args:
+        session: An injected read-only sync session; this path never commits.
+        saver: The bootstrapped LangGraph checkpointer, opaque; needed only for the
+            economist read.
+        portfolio_id: The portfolio to recap.
+        asof: The day to recap; defaults to the latest marked day (else today).
+
+    Returns:
+        A :class:`DailyBrief` whose sections degrade to None/empty where a day lacks
+        data — never a fabricated figure, never a raise.
+    """
+    from fund.audit.nav_history_repository import NavHistoryRepository
+
+    day = asof or _latest_nav_date(session, portfolio_id) or dt.date.today()
+    prev_day, next_day = _nav_neighbors(session, portfolio_id, day)
+    # performance_summary never returns None — collapse its all-None unmarked sentinel
+    # to None so the view shows an explicit "no data" line instead of empty horizons.
+    marked = bool(NavHistoryRepository(session).get_navs(portfolio_id, end=day))
+    performance = (
+        performance_summary(session, portfolio_id, asof=day) if marked else None
+    )
+    attribution = macro_attribution_summary(session, portfolio_id, asof=day)
+    digest = recent_events(session, portfolio_id, asof=day, window_days=1)
+    read, read_date, run_id = _economist_read_asof(session, saver, portfolio_id, day)
+    return DailyBrief(
+        portfolio_id=portfolio_id,
+        asof=day,
+        prev_day=prev_day,
+        next_day=next_day,
+        performance=performance,
+        attribution=attribution,
+        market_events=digest.market_events,
+        economist_read=read,
+        economist_read_date=read_date,
+        deliberation_run_id=run_id,
+        fund_events=digest.portfolio_events,
+    )
+
+
+def _latest_nav_date(session: Any, portfolio_id: uuid.UUID) -> dt.date | None:
+    """Return the newest NAV-marked day for ``portfolio_id``, else None."""
+    from fund.audit.nav_history_repository import NavHistoryRepository
+
+    return NavHistoryRepository(session).last_nav_date(portfolio_id)
+
+
+def _nav_neighbors(
+    session: Any, portfolio_id: uuid.UUID, day: dt.date
+) -> tuple[dt.date | None, dt.date | None]:
+    """Return the NAV-marked days adjacent to ``day`` as ``(prev, next)``.
+
+    Each is the nearest mark strictly before / after ``day`` on the NAV trading grid —
+    the ``←`` / ``→`` targets — or None at that end of the grid. ``day`` itself need not
+    be marked.
+    """
+    from fund.audit.nav_history_repository import NavHistoryRepository
+
+    dates = [row.date for row in NavHistoryRepository(session).get_navs(portfolio_id)]
+    prev_day = max((d for d in dates if d < day), default=None)
+    next_day = min((d for d in dates if d > day), default=None)
+    return prev_day, next_day
+
+
+def _economist_read_asof(
+    session: Any, saver: Any, portfolio_id: uuid.UUID, day: dt.date
+) -> tuple[str | None, dt.date | None, uuid.UUID | None]:
+    """Return the carried-forward economist read as ``(text, run_date, run_id)``.
+
+    Picks the run with the greatest ``asof <= day`` (tie-broken by ``created_at`` so a
+    same-day re-run supersedes — ``list_portfolio_runs`` sorts by ``created_at``, not
+    ``asof``), re-fetches its ORM row for the thread id, and takes the last economist
+    ``message`` turn. All-None when the portfolio has no run on-or-before ``day``.
+    """
+    from fund.audit.repository import AgentRunRepository
+
+    eligible = [s for s in list_portfolio_runs(session, portfolio_id) if s.asof <= day]
+    if not eligible:
+        return None, None, None
+    # list_portfolio_runs is newest-created first, so the first run at the greatest
+    # asof is the tie-break winner — no created_at compare (dodges naive/aware mixing).
+    max_asof = max(summary.asof for summary in eligible)
+    chosen = next(summary for summary in eligible if summary.asof == max_asof)
+    run = AgentRunRepository(session).get_run(chosen.run_id)
+    if run is None:
+        return None, None, chosen.run_id
+    economist = [
+        entry
+        for entry in load_run_transcript(session, saver, run)
+        if entry.source == "message" and entry.agent == "economist"
+    ]
+    text = economist[-1].text if economist else None
+    return text, chosen.asof, chosen.run_id
+
+
 def audit_timeline(
     session: Any,
     *,
@@ -861,12 +1013,14 @@ def _parse_json_object(raw: str | None) -> dict[str, Any] | None:
 
 __all__ = [
     "AuditEntry",
+    "DailyBrief",
     "EventDigest",
     "PortfolioState",
     "ReprofileStatus",
     "RunSummary",
     "TranscriptEntry",
     "audit_timeline",
+    "daily_brief",
     "drift_l1",
     "get_mandate",
     "interrupt_for",
