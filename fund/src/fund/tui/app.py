@@ -545,8 +545,14 @@ class ShellApp(App[None]):
         item_id = event.item.id or ""
         if not item_id.startswith("nav-"):
             return
-        self.query_one(ContentSwitcher).current = f"view-{item_id[len('nav-') :]}"
+        key = item_id[len("nav-") :]
+        self.query_one(ContentSwitcher).current = f"view-{key}"
         self._refresh()
+        # Focus a focusable content view so its key bindings fire. Only the brief is
+        # focusable, so other views keep focus on the sidebar until a row is picked.
+        view = self.query_one(f"#view-{key}", ShellView)
+        if view.can_focus:
+            view.focus()
 
     def on_select_changed(self, event: Select.Changed) -> None:
         """Re-focus the shell on the picked portfolio (or fund-wide when blank).
@@ -623,6 +629,7 @@ class ShellApp(App[None]):
         """
         self.query_one(ContentSwitcher).current = "view-brief"
         self._refresh()
+        self.query_one("#view-brief", DailyBriefView).focus()
 
     def _active_brief_view(self) -> DailyBriefView | None:
         """The Daily brief view when it is the active content pane, else ``None``."""

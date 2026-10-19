@@ -3059,3 +3059,39 @@ def test_bar_meter_negative_marker_is_ascii() -> None:
 
     assert _attribution_bar(-0.5, 1.0, width=8).endswith(" (-)")
     assert _attribution_bar(0.5, 1.0, width=8).endswith("█")  # positive: no marker
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_opens_focused_so_keys_work(shell_env, monkeypatch) -> None:
+    """The Posture tile jump focuses the brief, so ← navigates with no focus()."""
+    grid = _nav_grid(_PID_A)
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, asof=None: grid[asof])
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        app.action_open_brief()  # the Posture 'd' jump — no manual focus() here
+        await pilot.pause()
+        view = app.query_one("#view-brief", DailyBriefView)
+        assert app.focused is view  # the jump leaves the brief focused
+        await pilot.press("left")  # so its bindings are reachable
+        await pilot.pause()
+        assert view.asof == date(2026, 10, 5)
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_sidebar_pick_focuses(shell_env, monkeypatch) -> None:
+    """Picking 'Daily brief' in the sidebar focuses the brief pane."""
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _full_brief(_PID_A))
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        sidebar.focus()
+        sidebar.index = _VIEW_KEYS.index("brief")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        view = app.query_one("#view-brief", DailyBriefView)
+        assert app.focused is view
