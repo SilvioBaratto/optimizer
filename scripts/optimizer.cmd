@@ -7,10 +7,15 @@ setlocal
 
 if not defined OPTIMIZER_REPO set "OPTIMIZER_REPO=%~dp0.."
 
+rem Prefer a real Git Bash. A bare PATH lookup finds C:\Windows\System32\bash.exe
+rem first, the WSL launcher, which has no MSYS environment and dies with a relay
+rem error. Probe Git's own locations before any non-WSL bash left on PATH.
 set "BASH_EXE="
-for %%B in (bash.exe) do if not "%%~$PATH:B"=="" set "BASH_EXE=%%~$PATH:B"
-if not defined BASH_EXE if exist "%ProgramFiles%\Git\bin\bash.exe" set "BASH_EXE=%ProgramFiles%\Git\bin\bash.exe"
+if exist "%ProgramFiles%\Git\bin\bash.exe" set "BASH_EXE=%ProgramFiles%\Git\bin\bash.exe"
 if not defined BASH_EXE if exist "%ProgramFiles%\Git\usr\bin\bash.exe" set "BASH_EXE=%ProgramFiles%\Git\usr\bin\bash.exe"
-if not defined BASH_EXE (echo optimizer: cannot find bash.exe. Install Git for Windows. 1>&2 & exit /b 1)
+if not defined BASH_EXE if exist "%ProgramFiles(x86)%\Git\bin\bash.exe" set "BASH_EXE=%ProgramFiles(x86)%\Git\bin\bash.exe"
+if not defined BASH_EXE if exist "%LOCALAPPDATA%\Programs\Git\bin\bash.exe" set "BASH_EXE=%LOCALAPPDATA%\Programs\Git\bin\bash.exe"
+if not defined BASH_EXE for %%B in (bash.exe) do if not "%%~$PATH:B"=="" if /I not "%%~$PATH:B"=="%SystemRoot%\System32\bash.exe" set "BASH_EXE=%%~$PATH:B"
+if not defined BASH_EXE (echo optimizer: cannot find Git Bash. Install Git for Windows. 1>&2 & exit /b 1)
 
 "%BASH_EXE%" "%OPTIMIZER_REPO%\scripts\optimizer" %*
