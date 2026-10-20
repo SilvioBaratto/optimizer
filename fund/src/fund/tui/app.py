@@ -346,6 +346,63 @@ class RationaleConfirmScreen(ModalScreen["str | None"]):
         self.dismiss(rationale or None)
 
 
+# The keymap the help overlay lists: the global shortcuts plus the view-scoped ones
+# (kept in sync with ShellApp.BINDINGS and each view's BINDINGS).
+_HELP_TEXT = """\
+GLOBAL
+  a approve   r reject   k killswitch   K re-arm
+  ctrl+s save mandate    o override guardrail
+  n new portfolio   p profile   u run now   b barge in
+  t audit actor   f audit overrides   g audit this-pf   e export (Audit)
+  ? / F1 help   q quit
+
+VIEW-SCOPED
+  Posture       d daily brief
+  Deliberation  f follow live   x expand read-out
+  Decisions     e edit weights   s steer PM
+  Mandate       x remove directive
+  Performance   ↵ drill into a holding
+  Ask           ↵ ask   e export
+  Daily brief   ← / → day   ↵ deliberation   e export"""
+
+
+class HelpScreen(ModalScreen[None]):
+    """A dismissable overlay listing the global + view-scoped keymap.
+
+    Pushed by the help action (``?`` / ``F1``); ``escape`` or the Close button dismisses
+    it. A read-only reference — it mutates nothing.
+    """
+
+    DEFAULT_CSS = """
+    HelpScreen { align: center middle; }
+    .help-dialog {
+        width: 76; height: auto; max-height: 90%; padding: 1 2;
+        border: thick $accent; background: $surface;
+    }
+    .help-title { text-style: bold; color: $accent; }
+    .help-body { height: auto; }
+    .help-actions { height: auto; align-horizontal: center; padding-top: 1; }
+    """
+
+    BINDINGS: ClassVar[list[BindingType]] = [("escape", "close_help", "Close")]
+
+    def compose(self) -> ComposeResult:
+        """Yield the title, the keymap body, and a Close button."""
+        with Vertical(classes="help-dialog"):
+            yield Static("fund-tui — keymap", classes="help-title")
+            yield Static(_HELP_TEXT, id="help-body", classes="help-body")
+            with Horizontal(classes="help-actions"):
+                yield Button("Close", variant="primary", id="help-close")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Any button dismisses the overlay."""
+        self.dismiss(None)
+
+    def action_close_help(self) -> None:
+        """``escape`` dismisses the overlay."""
+        self.dismiss(None)
+
+
 _NARROW_WIDTH = 80  # below this terminal width the sidebar collapses to a rail
 
 
@@ -426,6 +483,8 @@ class ShellApp(App[None]):
         ("f", "audit_toggle_overrides", "Audit overrides filter"),
         ("g", "audit_toggle_scope", "Audit portfolio scope"),
         ("e", "export_audit", "Export audit"),
+        ("question_mark", "help", "Help"),
+        ("f1", "help", "Help"),
         ("q", "quit", "Quit"),
     ]
 
@@ -524,6 +583,15 @@ class ShellApp(App[None]):
     def on_resize(self, event: Resize) -> None:
         """Collapse/restore the sidebar rail as the terminal crosses the threshold."""
         self._apply_width(event.size.width)
+
+    def action_help(self) -> None:
+        """Open the help overlay listing the keymap (bound to ``?`` and ``F1``).
+
+        ``?`` surfaces it for discoverability; ``F1`` fires even while a text input
+        (e.g. the Ask input) holds focus, since a function key is not typed into a
+        field. Escape dismisses it.
+        """
+        self.push_screen(HelpScreen())
 
     def _apply_width(self, width: int) -> None:
         """Collapse the sidebar to a single-letter rail below the narrow threshold.

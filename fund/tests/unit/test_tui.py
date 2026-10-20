@@ -67,6 +67,7 @@ from fund.config import settings
 from fund.tui import app as tui_app
 from fund.tui.app import (
     ConfirmScreen,
+    HelpScreen,
     OrderEditScreen,
     RationaleConfirmScreen,
     ScopePickScreen,
@@ -3678,3 +3679,39 @@ async def test_ask_export_reports_oserror(shell_env, monkeypatch, tmp_path) -> N
         app.action_export_ask()
         await pilot.pause()
         assert "export failed" in app.last_status
+
+
+# --- Help overlay (Phase 08 T9) ---------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_help_overlay_opens_on_question_and_f1_and_closes(shell_env) -> None:
+    """? and F1 both open the help overlay (listing the keymap); escape closes it."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        await pilot.press("question_mark")
+        await pilot.pause()
+        assert isinstance(app.screen, HelpScreen)
+        body = str(app.screen.query_one("#help-body", Static).render())
+        assert "approve" in body and "Ask" in body  # lists the keymap
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, HelpScreen)
+
+        await pilot.press("f1")
+        await pilot.pause()
+        assert isinstance(app.screen, HelpScreen)
+
+
+@pytest.mark.asyncio
+async def test_help_f1_opens_even_with_ask_input_focused(shell_env) -> None:
+    """F1 opens help even while the Ask input holds focus (a function key)."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.query_one("#ask-input", Input).focus()
+        await pilot.pause()
+        await pilot.press("f1")
+        await pilot.pause()
+        assert isinstance(app.screen, HelpScreen)
