@@ -3278,3 +3278,52 @@ async def test_performance_no_focus_shows_hint(shell_env) -> None:
         assert "no portfolio focused" in str(
             view.query_one("#perf-returns", Static).render()
         )
+
+
+# --- Posture NAV tile (Phase 08 T3) -----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_posture_detail_nav_tile_shows_real_nav(shell_env) -> None:
+    """The Posture detail NAV tile shows a real period return, not the placeholder."""
+    from fund.audit.nav_history_repository import NavHistoryRepository
+
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        NavHistoryRepository(session).upsert_navs(
+            [
+                {
+                    "portfolio_id": _PID_A,
+                    "date": date(2026, 10, 2),
+                    "nav": Decimal("100000"),
+                    "benchmark": None,
+                },
+                {
+                    "portfolio_id": _PID_A,
+                    "date": date(2026, 10, 3),
+                    "nav": Decimal("101200"),
+                    "benchmark": None,
+                },
+            ]
+        )
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        assert "NAV" in view.detail_text
+        assert "+1.20%" in view.detail_text  # real max return (100000 -> 101200)
+
+
+@pytest.mark.asyncio
+async def test_posture_detail_nav_tile_degrades_when_unmarked(shell_env) -> None:
+    """A run-but-unmarked portfolio shows a no-marks line, never a fabricated NAV."""
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        assert "no marks yet" in view.detail_text
+        assert "ACTIVE RUN" in view.detail_text  # the rest of the detail still renders

@@ -784,10 +784,12 @@ def _fund_strip(rows: list[_RosterRow]) -> str:
 
 
 def _render_posture_detail(session: Session, pid: uuid.UUID) -> str:
-    """The focused-portfolio detail: state, mandate, active run, recent events.
+    """The focused-portfolio detail: state, NAV tile, mandate, active run, events.
 
     An un-run portfolio renders the ``no runs yet · p profile to start`` empty-state
-    (the launchpad to onboarding). NAV/P&L are placeholders until the Phase-05 tracker.
+    (the launchpad to onboarding). The NAV tile shows the real NAV-series period return
+    from ``observe.performance_summary``; a run-but-unmarked portfolio degrades to a
+    ``no marks yet`` line rather than a fabricated figure.
     """
     runs = observe.list_portfolio_runs(session, pid)
     if not runs:
@@ -798,6 +800,7 @@ def _render_posture_detail(session: Session, pid: uuid.UUID) -> str:
         f"portfolio {_short(pid)} · {_run_glyph(latest.status)} {latest.status}",
         f"drift L1 {state.drift_l1:.4f} · "
         f"{len(state.current)} held → {len(state.target)} target",
+        _posture_nav_line(session, pid),
     ]
     mandate = observe.get_mandate(session, pid)
     if mandate is not None:
@@ -812,6 +815,25 @@ def _render_posture_detail(session: Session, pid: uuid.UUID) -> str:
         lines.append(f"RECENT {recent}")
     lines.append("Daily brief → d open")
     return "\n".join(lines)
+
+
+def _posture_nav_line(session: Session, pid: uuid.UUID) -> str:
+    """The Posture NAV tile: the NAV-series period return with a dot + label direction.
+
+    Reads ``observe.performance_summary`` over the persisted ``nav_history`` series. A
+    run-but-unmarked portfolio (the daily NAV-mark step has not run for it yet) yields
+    an all-``None`` summary, which degrades to an explicit ``NAV  no marks yet`` line
+    rather than a fabricated figure.
+    """
+    summary = observe.performance_summary(session, pid)
+    period_return = summary.returns.get("max")
+    if period_return is None:
+        return "NAV  no marks yet"
+    dot, label = _perf_direction(period_return)
+    horizons = " · ".join(
+        f"{h} {_pct(summary.returns.get(h))}" for h in ("1D", "YTD", "max")
+    )
+    return f"NAV  {dot} {label}  {horizons}"
 
 
 class AuditView(ShellView):
