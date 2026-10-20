@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     # it under TYPE_CHECKING keeps the module's *runtime* imports minimal while still
     # advertising the SPEC §4a signature ``get_mandate -> PortfolioMandate | None``.
     from fund.attribution import AttributionResult
-    from fund.performance import PerformanceSummary
+    from fund.performance import HoldingMark, PerformanceSummary
     from fund.schemas.mandate import PortfolioMandate
 
 # LangGraph writes a pending dynamic interrupt to this reserved checkpoint channel
@@ -417,6 +417,47 @@ def performance_summary(
         for row in rows
     ]
     return portfolio_metrics(portfolio_id, points)
+
+
+def holdings_summary(
+    session: Any,
+    portfolio_id: uuid.UUID,
+    *,
+    asof: dt.date | None = None,
+) -> list[HoldingMark]:
+    """Per-holding mark-to-market snapshots in the mandate base currency.
+
+    The read-model entry point for the Performance view's holdings table: marks the
+    portfolio's current paper book via :func:`fund.performance.holding_marks` — a
+    compute-on-demand read of ``paper_orders`` / ``price_history`` / ``fx_rates``,
+    mirroring :func:`performance_summary`. The base currency is read from the
+    portfolio's mandate, falling back to ``"EUR"`` when it has none (the fund's only
+    seeded FX base). An unmarked portfolio (no paper orders) yields ``[]`` rather than
+    a fabricated row. The tracker is imported lazily (it pulls ``optimizer``/``skfolio``
+    — allowed, not the agent stack) so ``import fund.observe`` stays agent-stack-free.
+    Builds no model, never commits.
+
+    Args:
+        session: An injected sync ``portopt_db`` session; not owned here.
+        portfolio_id: The portfolio whose current holdings to mark.
+        asof: Mark-date upper bound; ``None`` uses the latest available prices.
+
+    Returns:
+        One :class:`~fund.performance.HoldingMark` per current holding (degraded to
+        all-``None`` fields for an unpriced one); ``[]`` when the portfolio has no
+        paper orders.
+
+    Raises:
+        FxCoverageError: The mandate holds foreign-currency instruments but no FX rate
+            covers their currency under its base (propagated from ``holding_marks``).
+    """
+    from fund.performance import holding_marks
+
+    mandate = get_mandate(session, portfolio_id)
+    base_currency = mandate.base_currency if mandate is not None else "EUR"
+    return holding_marks(
+        portfolio_id, session=session, base_currency=base_currency, asof=asof
+    )
 
 
 def macro_attribution_summary(
@@ -1023,6 +1064,7 @@ __all__ = [
     "daily_brief",
     "drift_l1",
     "get_mandate",
+    "holdings_summary",
     "interrupt_for",
     "list_portfolio_runs",
     "list_portfolios",

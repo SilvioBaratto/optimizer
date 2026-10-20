@@ -905,6 +905,98 @@ def test_performance_summary_empty_is_graceful(db_session):
     assert summary.returns["max"] is None
 
 
+# --- holdings_summary (Phase 08 T1) -----------------------------------------
+
+
+def _seed_holding_book(db_session, *, with_mandate: bool = False):
+    """Seed a one-line USD paper book + two days of prices/FX for _PID (EUR base)."""
+    from portopt_db.models.market_data.yfinance_data import PriceHistory
+    from portopt_db.models.orders.paper_order import PaperOrder
+    from portopt_db.models.universe.universe import Exchange, Instrument
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    inst = Instrument(
+        ticker="US1", short_name="US1", exchange=ex, yfinance_ticker="US1"
+    )
+    db_session.add(inst)
+    db_session.flush()
+    d1, d2 = date(2026, 10, 2), date(2026, 10, 3)
+    db_session.add_all(
+        [
+            PriceHistory(
+                instrument_id=inst.id, date=d1, close=Decimal("100"), price_unit="USD"
+            ),
+            PriceHistory(
+                instrument_id=inst.id, date=d2, close=Decimal("110"), price_unit="USD"
+            ),
+        ]
+    )
+    FxRatesRepository(db_session).upsert_rates(
+        [
+            {"base_currency": "EUR", "quote_currency": "USD", "date": d1, "rate": 0.90},
+            {"base_currency": "EUR", "quote_currency": "USD", "date": d2, "rate": 0.92},
+        ]
+    )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=date(2026, 10, 1),
+            weights_hash="h1",
+            weights={"US1": 1.0},
+            fill_date=d1,
+            lines=[{"ticker": "US1", "notional": 9000.0, "fill_price": 100.0}],
+            notional=9000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    if with_mandate:
+        MandateRepository(db_session).upsert(
+            PortfolioMandate(
+                portfolio_id=str(_PID),
+                capital=Decimal("100000"),
+                base_currency="EUR",
+                drift_l1_threshold=0.1,
+                triggers=RunTriggers(cron=True, drift=True),
+            )
+        )
+    db_session.flush()
+
+
+def test_holdings_summary_marks_current_book_default_base(db_session):
+    """With no mandate the base defaults to EUR; the current book is marked."""
+    _seed_holding_book(db_session)
+
+    marks = observe.holdings_summary(db_session, _PID)
+
+    assert len(marks) == 1
+    us1 = marks[0]
+    assert us1.ticker == "US1"
+    # shares 9000/90 marked at 110*0.92 = 101.2 base.
+    assert us1.value == pytest.approx((9000.0 / 90.0) * 101.2, rel=1e-6)
+    assert us1.weight == pytest.approx(1.0, rel=1e-6)
+
+
+def test_holdings_summary_uses_mandate_base_currency(db_session):
+    """An EUR mandate is read for the base currency (the non-default branch)."""
+    _seed_holding_book(db_session, with_mandate=True)
+
+    marks = observe.holdings_summary(db_session, _PID)
+
+    assert [m.ticker for m in marks] == ["US1"]
+    assert marks[0].value is not None
+
+
+def test_holdings_summary_unmarked_is_empty(db_session):
+    """A portfolio with no paper orders degrades to an empty list, not a crash."""
+    assert observe.holdings_summary(db_session, _PID) == []
+
+
 # --- macro_attribution_summary (Phase 06 T3) --------------------------------
 
 
