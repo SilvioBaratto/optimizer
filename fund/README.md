@@ -37,5 +37,36 @@ fund-tui      # watch terminal -> fund.tui.app:main
 fund-worker   # daemon         -> fund.worker:main
 ```
 
+## TUI (`fund-tui`)
+
+The supervisor's read-first oversight cockpit (Textual): a left nav rail over one
+content pane. Launch fund-wide or focused on a portfolio:
+
+```bash
+fund-tui                 # fund-wide landing (Posture)
+fund-tui <portfolio-id>  # focus one portfolio
+```
+
+**Eight views** (sidebar order): **Posture** (roster + fund strip + focused detail,
+incl. the real NAV tile) · **Deliberation** (run replay + live stream) · **Decisions**
+(cross-portfolio HITL inbox) · **Mandate** (run-policy + guardrails) · **Audit**
+(filterable decision timeline, CSV export) · **Performance** (metrics strip + holdings
+table + drill-down, chart-free) · **Ask** (NL Q&A) · **Daily brief** (per-day recap,
+markdown export).
+
+**Ask** classifies each turn `query | action`. A query is answered from `fund.observe`
+reads summarized by a **lazily-built** model on a worker thread (no model ⇒ a status
+line, never a crash). An action (decision verbs only — approve / reject / killswitch /
+freeze / re-arm / run / steer) routes through the shared `apply_action` **confirm +
+audit** path; an ambiguous target asks a disambiguation follow-up first — **never silent
+execution, never on a guess**. `e` exports the conversation to markdown.
+
+**Help** opens on `?` and `F1` (F1 fires even while the Ask input holds focus). Status is
+always **dot + label**, never colour alone.
+
+Every data surface reads through the agent-stack-free `fund.observe` seam; the model and
+the `optimizer`/`skfolio` performance tracker are lazy-imported inside workers / method
+bodies, so `import fund.tui.*` stays agent-stack-light (guarded in `test_tui.py`).
+
 See [`../SPEC.md`](../SPEC.md) for the Phase 0 architecture contract (D1–D4) and
 [`../todo/deep_agent.md`](../todo/deep_agent.md) for the full roadmap.
