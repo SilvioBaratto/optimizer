@@ -1725,18 +1725,96 @@ class ShellApp(App[None]):
         self.last_worker = self._ask_worker(turn)
 
     def ask_action(self, turn: str) -> None:
-        """Acknowledge an Ask action turn by resolving + reporting its target.
+        """Route an Ask action turn through resolve → confirm → ``apply_action``.
 
-        Resolves the turn against the fund state and logs the plan — it does **not**
-        mutate anything here. The confirm + ``apply_action`` dispatch (and the
-        disambiguation flow for an ambiguous target) are wired on top of this in the
-        action-router slices; nothing executes without a deliberate confirm.
+        An unambiguous target is confirmed and dispatched through the shared action
+        workers (never a new mutation path); an ambiguous / unresolved target reports
+        the follow-up and does **not** execute (the disambiguation flow holds a pending
+        action across turns in a later slice). Nothing mutates without a deliberate
+        confirm, and never on a guess.
         """
         view = self._active_ask_view()
         if view is None:
             return
         resolution = self._resolve_ask(turn)
-        view.append_log("ask", resolution.prompt)
+        if resolution.status == "resolved" and resolution.action is not None:
+            self._confirm_ask_action(view, resolution.action)
+        else:
+            view.append_log("ask", resolution.prompt)
+
+    def _confirm_ask_action(self, view: AskView, action: ask.ResolvedAction) -> None:
+        """Push the confirm matching ``action``; dispatch it only on a deliberate yes.
+
+        Every Ask action — even approve/reject — goes behind a confirm (unlike the
+        Decisions view's direct approve), so nothing mutates from a typed sentence
+        without a second, explicit step. A **fund** re-arm takes the rationale-gated
+        ceremony; a steer collects its directive in the barge-in overlay; the rest take
+        a plain spelled-out-consequence confirm.
+        """
+        if action.verb == "rearm" and action.scope == "fund":
+            self._ask_fund_rearm(view)
+            return
+        if action.verb == "respond":
+            self._ask_steer(view, action)
+            return
+
+        def _resolved(ok: bool | None) -> None:
+            if ok:
+                self.last_worker = self._dispatch_ask_action(view, action)
+            else:
+                self._ask_cancelled(view, action.verb)
+
+        self.push_screen(ConfirmScreen(_ask_confirm_prompt(action)), _resolved)
+
+    def _dispatch_ask_action(
+        self, view: AskView, action: ask.ResolvedAction
+    ) -> Worker[None] | None:
+        """Dispatch a confirmed ``action`` through the matching action worker."""
+        view.append_log("ask", f"{action.verb} confirmed")
+        verb = action.verb
+        if verb in ("approve", "reject", "killswitch") and action.run_id is not None:
+            return self._action_worker(action.run_id, action.portfolio_id, verb)
+        if verb == "freeze" and action.scope is not None:
+            return self._freeze_worker(action.scope, action.portfolio_id)
+        if verb == "rearm" and action.scope is not None:
+            return self._rearm_worker(action.scope, action.portfolio_id, None)
+        if verb == "run" and action.portfolio_id is not None:
+            return self._run_worker(action.portfolio_id, dt.date.today())
+        return None
+
+    def _ask_fund_rearm(self, view: AskView) -> None:
+        """Re-arm the whole fund from Ask behind the rationale-gated ceremony."""
+
+        def _confirmed(rationale: str | None) -> None:
+            if rationale is None:
+                self._ask_cancelled(view, "rearm")
+                return
+            view.append_log("ask", "rearm confirmed")
+            self.last_worker = self._rearm_worker("fund", None, rationale)
+
+        self.push_screen(
+            RationaleConfirmScreen("Re-arm the whole fund? Rationale required."),
+            _confirmed,
+        )
+
+    def _ask_steer(self, view: AskView, action: ask.ResolvedAction) -> None:
+        """Steer the PM from Ask: collect the directive in the barge-in overlay."""
+
+        def _resolved(result: BargeInResult | None) -> None:
+            if result is None:
+                self._ask_cancelled(view, "steer")
+                return
+            view.append_log("ask", "steer sent")
+            self.last_worker = self._barge_in_worker(
+                action.run_id, action.portfolio_id, result.text, result.remember
+            )
+
+        self.push_screen(BargeInScreen("the selected gate"), _resolved)
+
+    def _ask_cancelled(self, view: AskView, verb: str) -> None:
+        """Report a cancelled Ask action on the log + status line (a no-op mutation)."""
+        view.append_log("ask", f"{verb} cancelled")
+        self._set_status(f"{verb} cancelled")
 
     def _resolve_ask(self, turn: str) -> ask.TargetResolution:
         """Resolve an action turn's target over a short read session (no execution)."""
@@ -1909,6 +1987,31 @@ def _answer_text(message: Any) -> str:
             block.get("text", "") for block in content if isinstance(block, dict)
         )
     return str(content)
+
+
+# The spelled-out consequence per Ask action verb, for the confirm dialog.
+_ASK_CONSEQUENCE: dict[str, str] = {
+    "approve": "Approve and execute",
+    "reject": "Reject (finalise)",
+    "killswitch": "KILLSWITCH — finalise rejected (no undo)",
+    "freeze": "FREEZE autonomy (halts runs)",
+    "rearm": "Re-arm autonomy",
+    "run": "Run a paper rebalance for",
+}
+
+
+def _ask_confirm_prompt(action: Any) -> str:
+    """The spelled-out confirm prompt for a resolved Ask ``action``."""
+    verb = action.verb
+    if action.run_id is not None:
+        target = f"gate #{str(action.run_id)[:8]}"
+    elif action.scope == "fund":
+        target = "the whole fund"
+    elif action.portfolio_id is not None:
+        target = f"portfolio {str(action.portfolio_id)[:8]}"
+    else:
+        target = "this"
+    return f"{_ASK_CONSEQUENCE.get(verb, verb)} {target}?"
 
 
 def _initial_mandate(portfolio_id: uuid.UUID, submission: OnboardingSubmission) -> Any:

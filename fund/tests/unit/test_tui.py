@@ -3422,3 +3422,87 @@ async def test_ask_query_without_model_degrades_to_status(shell_env) -> None:
         await pilot.pause()
         assert view.last_answer == ""  # nothing fabricated
         assert "model" in app.last_status.lower()
+
+
+# --- Ask action router (Phase 08 T6) ----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ask_action_unambiguous_confirms_then_approves(tui_env) -> None:
+    """'approve the gate' with one gate pushes a confirm; yes runs apply_action."""
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)  # no mutation without a confirm
+        await pilot.click("#confirm-yes")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert "approved" in app.last_status
+    with tui_env.get_session() as session:
+        run = AgentRunRepository(session).get_run(tui_env.run_id)
+        assert run.status == "completed"
+        rows = HumanAuditLogRepository(session).list_recent(action="approve")
+        assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_ask_action_cancel_is_a_noop(tui_env) -> None:
+    """Cancelling the confirm fires no worker and leaves the gate paused."""
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.last_worker is None  # nothing dispatched
+        assert "cancelled" in app.last_status
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
+
+
+@pytest.mark.asyncio
+async def test_ask_action_reject_confirms_then_rejects(tui_env) -> None:
+    """'reject the gate' confirms, then finalises the run rejected via apply_action."""
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("reject the gate")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        await pilot.click("#confirm-yes")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert "rejected" in app.last_status
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_ask_action_freeze_fund_confirms_then_freezes(shell_env) -> None:
+    """'freeze the fund' confirms, then flips fund autonomy FROZEN via apply_action."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("freeze the fund")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        await pilot.click("#confirm-yes")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
+
+        assert AutonomyRepository(session).fund_posture() == AutonomyState.FROZEN.value
