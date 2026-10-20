@@ -29,6 +29,17 @@ def test_render_writes_all_declared_secret_files(tmp_path: Path) -> None:
             assert (tmp_path / name).read_text(encoding="utf-8") == ""
 
 
+def test_render_overwrites_a_docker_planted_directory(tmp_path: Path) -> None:
+    # Docker creates a missing secret mount source as a directory when the stack comes
+    # up before render, so render must replace that placeholder with the value file
+    # instead of failing with a directory write error.
+    (tmp_path / "trading_212_api_key").mkdir(parents=True)
+    written = cs.render({"trading_212_api_key": "k"}, secrets_dir=tmp_path)
+    assert (tmp_path / "trading_212_api_key").is_file()
+    assert (tmp_path / "trading_212_api_key").read_text(encoding="utf-8") == "k"
+    assert {p.name for p in written} == set(cs.SECRET_NAMES)
+
+
 def test_compose_declares_a_file_for_every_secret_name() -> None:
     # Parity: every rendered secret must have a top-level compose declaration, or
     # `docker compose up` fails on the missing `file:` mapping. Read as text

@@ -10,6 +10,7 @@ stop` calls `cleanup` to remove the plaintext files.
 from __future__ import annotations
 
 import contextlib
+import shutil
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -49,6 +50,11 @@ def render(
     written: list[Path] = []
     for name in SECRET_NAMES:
         path = target / name
+        # Docker creates a missing file-mount source as a directory when the stack
+        # comes up before the secret is rendered, and a later write then fails with a
+        # directory error. Clear any such placeholder so the value lands as a file.
+        if path.is_dir():
+            shutil.rmtree(path)
         path.write_text(secrets.get(name, ""), encoding="utf-8")
         path.chmod(0o600)
         written.append(path)
