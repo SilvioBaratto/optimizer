@@ -217,7 +217,16 @@ class TestLifecycleCommands:
         with patch("app.setup.lifecycle.run_start") as mock_run:
             result = runner.invoke(app, ["start"])
         assert result.exit_code == 0
-        mock_run.assert_called_once_with("pw")
+        mock_run.assert_called_once_with("pw", rebuild=False)
+
+    def test_start_rebuild_flag_threads_through(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PORTOPT_PASSPHRASE", "pw")
+        with patch("app.setup.lifecycle.run_start") as mock_run:
+            result = runner.invoke(app, ["start", "--rebuild"])
+        assert result.exit_code == 0
+        mock_run.assert_called_once_with("pw", rebuild=True)
 
     def test_start_failure_exits_nonzero(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("PORTOPT_PASSPHRASE", "pw")

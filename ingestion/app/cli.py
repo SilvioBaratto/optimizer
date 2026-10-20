@@ -444,7 +444,13 @@ def _print_post_install_note() -> None:
 
 
 @app.command()
-def start() -> None:
+def start(
+    rebuild: bool = typer.Option(
+        False,
+        "--rebuild",
+        help="Rebuild images before starting, to pick up code / migration changes.",
+    ),
+) -> None:
     """Decrypt secrets, mount them as compose secrets, and launch the stack."""
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
     from app.setup import lifecycle
@@ -456,7 +462,7 @@ def start() -> None:
     try:
         if not passphrase:
             passphrase = make_prompter().password("Master passphrase:")
-        lifecycle.run_start(passphrase)
+        lifecycle.run_start(passphrase, rebuild=rebuild)
     except (
         lifecycle.LifecycleError,
         DockerError,

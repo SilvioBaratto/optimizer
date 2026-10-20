@@ -242,7 +242,10 @@ def stop_services(services: Sequence[str]) -> None:
 
 
 def build_and_up(
-    *, profiles: Sequence[str] = ("fund",), wait_timeout: int = 300
+    *,
+    profiles: Sequence[str] = ("fund",),
+    wait_timeout: int = 300,
+    force_build: bool = False,
 ) -> list[str]:
     """Build each profile's images when absent, then bring the stack up and wait.
 
@@ -256,6 +259,9 @@ def build_and_up(
             ``portopt start`` passes ``("fund", "ingestion")`` so the persistent
             data daemon comes up alongside the decision engine).
         wait_timeout: Seconds ``up --wait`` waits for health before failing.
+        force_build: Rebuild the images even when they already exist. Compose only
+            rebuilds a missing image, so after a code or migration change the images
+            go stale and a start silently reuses them — this forces the rebuild.
 
     Returns:
         The advisory version warnings surfaced (empty when tooling is current).
@@ -269,7 +275,7 @@ def build_and_up(
 
     profile_args = [arg for profile in profiles for arg in ("--profile", profile)]
     built = [img for profile in profiles for img in _BUILT_IMAGES.get(profile, ())]
-    if any(not _image_exists(ref) for ref in built):
+    if force_build or any(not _image_exists(ref) for ref in built):
         print("Building images — slow the first time; later starts reuse them.")
         build = _run(
             [

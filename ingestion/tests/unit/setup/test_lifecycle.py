@@ -19,6 +19,7 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
         "cleaned": False,
         "env_fund_path": env_fund,
         "build_profiles": None,
+        "force_build": None,
     }
     monkeypatch.setattr(
         lifecycle.secret_store,
@@ -41,6 +42,7 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
 
     def _fake_build_and_up(**kw: object) -> list[str]:
         calls["build_profiles"] = kw.get("profiles")
+        calls["force_build"] = kw.get("force_build")
         calls["compose"].append("up")
         return []
 
@@ -135,6 +137,19 @@ def test_run_start_brings_up_fund_and_ingestion(patched: dict) -> None:
     (every compose service is profile-gated, so a bare `up` would start nothing)."""
     lifecycle.run_start("pw")
     assert patched["build_profiles"] == ("fund", "ingestion")
+
+
+def test_run_start_defaults_to_reusing_images(patched: dict) -> None:
+    """A plain start reuses existing images, so force_build stays False."""
+    lifecycle.run_start("pw")
+    assert patched["force_build"] is False
+
+
+def test_run_start_rebuild_forces_image_build(patched: dict) -> None:
+    """`--rebuild` threads force_build=True through so a start after a code or
+    migration change does not silently reuse a stale image."""
+    lifecycle.run_start("pw", rebuild=True)
+    assert patched["force_build"] is True
 
 
 def test_run_start_writes_empty_env_fund_when_unconfigured(patched: dict) -> None:

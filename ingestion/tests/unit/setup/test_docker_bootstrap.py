@@ -259,6 +259,19 @@ class TestBuildAndUp:
         assert any("up" in c for c in calls)
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap._image_exists", return_value=True)
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_force_build_rebuilds_even_when_image_present(
+        self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock
+    ) -> None:
+        """`force_build=True` rebuilds a present image — the escape hatch for a start
+        after a code or migration change, which otherwise reuses the stale image."""
+        mock_run.return_value = _cp(0)
+        db.build_and_up(profiles=("fund",), force_build=True)
+        calls = [c[0][0] for c in mock_run.call_args_list]
+        assert any("build" in c for c in calls)
+
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
     @patch("app.setup.docker_bootstrap._image_exists", return_value=False)
     @patch("app.setup.docker_bootstrap.subprocess.run")
     def test_prints_slow_once_note_when_building(

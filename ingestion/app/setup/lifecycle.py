@@ -21,11 +21,16 @@ class LifecycleError(RuntimeError):
     """Raised when a lifecycle command cannot proceed."""
 
 
-def run_start(passphrase: str) -> None:
+def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     """Decrypt secrets, render compose secret files, and bring the full stack up.
 
     Brings up both the fund decision engine and the persistent ingestion daemon so
     the scheduler is never left down by a start.
+
+    Args:
+        passphrase: The master passphrase that decrypts the secret store.
+        rebuild: Force an image rebuild before starting, so a start after a code or
+            migration change does not reuse a stale image.
     """
     if not passphrase:
         raise LifecycleError(
@@ -43,7 +48,7 @@ def run_start(passphrase: str) -> None:
     # scheduler daemon): the scheduler must stay up for the daily/macro/news jobs,
     # so a `portopt start` must never leave the data pipeline down. Images build on
     # first run; `up --wait` blocks on each service's healthcheck.
-    docker_bootstrap.build_and_up(profiles=("fund", "ingestion"))
+    docker_bootstrap.build_and_up(profiles=("fund", "ingestion"), force_build=rebuild)
 
 
 def run_stop() -> None:
