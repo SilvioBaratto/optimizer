@@ -1955,7 +1955,17 @@ class AskView(ShellView):
 
     Attributes:
         last_answer: Mirror of the most recent rendered answer — a headless-test hook.
+        pending_action: A resolved-but-unconfirmed action awaiting disambiguation, or
+            ``None`` — the cross-turn state the disambiguation flow carries.
     """
+
+    # Focusable so the view-scoped ``e`` export reaches this view's binding; ``e`` is
+    # view-scoped here (mirrors DailyBriefView) so it exports the Ask conversation and
+    # leaves the global Audit export ``e`` untouched.
+    can_focus = True
+    BINDINGS: ClassVar[list[BindingType]] = [
+        ("e", "app.export_ask", "Export"),
+    ]
 
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)
@@ -1973,7 +1983,7 @@ class AskView(ShellView):
                 classes="ask-log",
             )
         yield Input(placeholder="ask…", id="ask-input")
-        yield Static("↵ ask", id="ask-hint", classes="ask-hint")
+        yield Static("↵ ask · e export", id="ask-hint", classes="ask-hint")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """A submitted turn is classified and routed, then the input is cleared."""
@@ -2014,6 +2024,22 @@ class AskView(ShellView):
         body = "\n".join(f"{speaker}: {text}" for speaker, text in self._log)
         self.query_one("#ask-log", Static).update(body or "ask about the fund…")
         self.query_one("#ask-log-wrap", VerticalScroll).scroll_end(animate=False)
+
+    def export_markdown(self, path: str) -> str:
+        """Write the conversation to ``path`` as markdown; return ``path``.
+
+        Re-export overwrites (idempotent). Each turn renders as a bolded speaker label
+        over its text. Any write failure surfaces as ``OSError`` for the caller to
+        report on the status line.
+        """
+        from pathlib import Path
+
+        lines = ["# Ask conversation", ""]
+        for speaker, text in self._log:
+            lines.append(f"**{speaker}:** {text}")
+            lines.append("")
+        Path(path).write_text("\n".join(lines), encoding="utf-8")
+        return path
 
 
 # Per-key view class; keys absent here fall back to the placeholder ``ShellView``.

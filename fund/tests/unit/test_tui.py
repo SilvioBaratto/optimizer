@@ -372,10 +372,12 @@ async def test_shell_sidebar_navigates_all_views(shell_env) -> None:
         await pilot.pause()
         sidebar = app.query_one("#sidebar", ListView)
         content = app.query_one("#content", ContentSwitcher)
-        sidebar.focus()
         # Selecting each sidebar entry switches the content pane to that view and
-        # repaints it (render_count proves the per-view refresh ran).
+        # repaints it (render_count proves the per-view refresh ran). Re-focus the
+        # sidebar each step: a focusable view (Ask / Daily brief) grabs focus on
+        # selection, so navigation must return focus to the rail before the next pick.
         for i, key in enumerate(_VIEW_KEYS):
+            sidebar.focus()
             sidebar.index = i
             await pilot.pause()
             await pilot.press("enter")
@@ -3622,3 +3624,57 @@ async def test_ask_action_two_gates_disambiguate_to_named(tui_env) -> None:
         assert "approved" in app.last_status
     with tui_env.get_session() as session:
         assert AgentRunRepository(session).get_run(tui_env.run_id).status == "completed"
+
+
+# --- Ask markdown export (Phase 08 T8) --------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ask_export_markdown(shell_env, monkeypatch, tmp_path) -> None:
+    """e on the focused Ask view writes the conversation to ask-<pf>-<ts>.md."""
+    monkeypatch.chdir(tmp_path)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.append_log("you", "how are we doing?")
+        view.append_log("ask", "all good")
+        view.focus()  # the view (not the input) holds the view-scoped e binding
+        await pilot.pause()
+        await pilot.press("e")
+        await pilot.pause()
+        files = list(tmp_path.glob("ask-*.md"))
+        assert len(files) == 1
+        content = files[0].read_text(encoding="utf-8")
+        assert "how are we doing?" in content and "all good" in content
+        assert "exported ask" in app.last_status
+
+
+@pytest.mark.asyncio
+async def test_ask_export_off_pane_is_noop(shell_env, monkeypatch, tmp_path) -> None:
+    """e off the Ask pane writes no ask file and sets no ask-export status."""
+    monkeypatch.chdir(tmp_path)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_posture(app, pilot)  # Ask is not the active pane
+        app.action_export_ask()
+        await pilot.pause()
+        assert not list(tmp_path.glob("ask-*.md"))
+        assert "exported ask" not in app.last_status
+
+
+@pytest.mark.asyncio
+async def test_ask_export_reports_oserror(shell_env, monkeypatch, tmp_path) -> None:
+    """A write failure surfaces on the status line, never crashing the App."""
+    monkeypatch.chdir(tmp_path)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.append_log("you", "hi")
+
+        def _boom(_path):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(view, "export_markdown", _boom)
+        app.action_export_ask()
+        await pilot.pause()
+        assert "export failed" in app.last_status

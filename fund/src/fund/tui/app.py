@@ -1870,6 +1870,25 @@ class ShellApp(App[None]):
             session.rollback()
         return resolution
 
+    def action_export_ask(self) -> None:
+        """Export the Ask conversation to ``ask-<pf>-<timestamp>.md`` in CWD (``e``).
+
+        View-scoped to Ask (``AskView.BINDINGS``) so it does not collide with the global
+        Audit export ``e``. Re-export overwrites (idempotent); a write failure surfaces
+        on the status line. A silent no-op off the Ask pane.
+        """
+        view = self._active_ask_view()
+        if view is None:
+            return
+        pid = self._portfolio_id or "fund"
+        path = f"ask-{pid}-{dt.datetime.now():%Y%m%d-%H%M%S}.md"
+        try:
+            written = view.export_markdown(path)
+        except OSError as exc:  # write failure → status bar, never crash
+            self._set_status(f"export failed: {exc}")
+            return
+        self._set_status(f"exported ask to {written}")
+
     def _active_ask_view(self) -> AskView | None:
         """The Ask view when it is the active content pane, else ``None``."""
         try:
