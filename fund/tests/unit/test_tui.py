@@ -3715,3 +3715,79 @@ async def test_help_f1_opens_even_with_ask_input_focused(shell_env) -> None:
         await pilot.press("f1")
         await pilot.pause()
         assert isinstance(app.screen, HelpScreen)
+
+
+# --- theming + contrast (Phase 08 T10) --------------------------------------
+
+
+def _wcag_contrast(fg, bg) -> float:
+    """WCAG 2.x contrast ratio between two Textual Colors (1.0 = identical)."""
+
+    def _relative_luminance(color) -> float:
+        def _channel(value: int) -> float:
+            srgb = value / 255.0
+            return srgb / 12.92 if srgb <= 0.03928 else ((srgb + 0.055) / 1.055) ** 2.4
+
+        red, green, blue = color.rgb
+        return (
+            0.2126 * _channel(red)
+            + 0.7152 * _channel(green)
+            + 0.0722 * _channel(blue)
+        )
+
+    hi, lo = sorted(
+        (_relative_luminance(fg), _relative_luminance(bg)), reverse=True
+    )
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def test_theme_status_tokens_are_dot_plus_label_never_colour_alone():
+    """Every status token carries a glyph AND a word, so meaning never rides on colour.
+
+    Covers the health roster, the daily-brief P&L, and the Performance view tokens —
+    the ● / ◐ tiers that share a dot are disambiguated by their label.
+    """
+    from fund.tui.views import (
+        _BRIEF_DOWN,
+        _BRIEF_FLAT,
+        _BRIEF_UP,
+        _HEALTH_BREACH,
+        _HEALTH_OK,
+        _HEALTH_WARN,
+        _PERF_DOWN,
+        _PERF_FLAT,
+        _PERF_UP,
+    )
+
+    tokens = [
+        _HEALTH_OK,
+        _HEALTH_WARN,
+        _HEALTH_BREACH,
+        _BRIEF_UP,
+        _BRIEF_FLAT,
+        _BRIEF_DOWN,
+        _PERF_UP,
+        _PERF_FLAT,
+        _PERF_DOWN,
+    ]
+    for dot, label in tokens:
+        assert dot in {"●", "◐"}  # a status glyph
+        assert label and label.isalpha()  # a word carries the meaning, not colour
+
+
+def test_contrast_destructive_colour_legible_on_light_and_dark():
+    """The destructive/breach ($error) signal meets the WCAG UI floor on both themes.
+
+    warning/success/accent sit lower on the light theme by design — meaning is carried
+    by the dot + label — but the safety-critical destructive signal must stay legible by
+    colour too, so it holds the 3:1 UI-contrast floor on both the light and dark themes.
+    """
+    from textual.app import App
+    from textual.color import Color
+
+    app = App()
+    for theme_name in ("textual-dark", "textual-light"):
+        palette = app.get_theme(theme_name).to_color_system().generate()
+        surface = Color.parse(palette["surface"])
+        error = Color.parse(palette["error"])
+        assert _wcag_contrast(error, surface) >= 3.0, theme_name
