@@ -53,10 +53,12 @@ from textual.widgets import (
 
 from fund import observe
 from fund.config import FundConfig, settings
+from fund.tui import ask
 from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.views import (
     VIEW_SPECS,
+    AskView,
     AuditView,
     DailyBriefView,
     DecisionsView,
@@ -404,6 +406,9 @@ class ShellApp(App[None]):
     .perf-holdings { width: 55%; }
     .perf-detail { width: 1fr; padding: 0 1; color: $warning; }
     .perf-hint { height: 1; color: $accent; }
+    .ask-log-wrap { height: 1fr; border: round $panel; }
+    .ask-log { padding: 0 1; }
+    .ask-hint { height: 1; color: $accent; }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
@@ -1709,6 +1714,92 @@ class ShellApp(App[None]):
             return None
         return view if isinstance(view, AuditView) else None
 
+    # --- ask (query summarize + action routing on worker threads) ----------
+
+    def ask_query(self, turn: str) -> None:
+        """Dispatch the Ask query-summarize worker for ``turn`` (the view's seam call).
+
+        The grounded context build + the lazy model invoke run on the worker thread, so
+        the event loop stays responsive while a query is answered.
+        """
+        self.last_worker = self._ask_worker(turn)
+
+    def ask_action(self, turn: str) -> None:
+        """Acknowledge an Ask action turn by resolving + reporting its target.
+
+        Resolves the turn against the fund state and logs the plan — it does **not**
+        mutate anything here. The confirm + ``apply_action`` dispatch (and the
+        disambiguation flow for an ambiguous target) are wired on top of this in the
+        action-router slices; nothing executes without a deliberate confirm.
+        """
+        view = self._active_ask_view()
+        if view is None:
+            return
+        resolution = self._resolve_ask(turn)
+        view.append_log("ask", resolution.prompt)
+
+    def _resolve_ask(self, turn: str) -> ask.TargetResolution:
+        """Resolve an action turn's target over a short read session (no execution)."""
+        with self._session_factory() as session:
+            resolution = ask.resolve_target(
+                turn, session, self._persistence.saver, self._portfolio_id
+            )
+            session.rollback()
+        return resolution
+
+    def _active_ask_view(self) -> AskView | None:
+        """The Ask view when it is the active content pane, else ``None``."""
+        try:
+            if self.query_one(ContentSwitcher).current != "view-ask":
+                return None
+            view = self.query_one("#view-ask", ShellView)
+        except NoMatches:
+            return None
+        return view if isinstance(view, AskView) else None
+
+    @work(thread=True, exclusive=True, group="ask")
+    def _ask_worker(self, turn: str) -> None:
+        """Summarize a grounded context into an answer off the event loop (lazy model).
+
+        Builds the grounded context from the agent-stack-free read model, lazily builds
+        the chat model via the injected factory, invokes it on this worker thread, and
+        marshals the answer back via ``call_from_thread``. A missing/failed model
+        degrades to a status line + a log note, never a crash. The langchain message
+        types are imported lazily so ``import fund.tui.app`` stays agent-stack-light.
+        """
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        view = self._active_ask_view()
+        if view is None:
+            return
+        focus = self._portfolio_id
+        try:
+            model = self._model_factory()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"model unavailable: {exc}")
+            self.call_from_thread(view.append_log, "ask", f"(model unavailable: {exc})")
+            return
+        if model is None:
+            self.call_from_thread(self._set_status, "no model configured")
+            self.call_from_thread(view.append_log, "ask", "(no model configured)")
+            return
+        try:
+            with self._session_factory() as session:
+                context = ask.build_context(
+                    session, self._persistence.saver, focus, turn
+                )
+                session.rollback()
+            prompt = [
+                SystemMessage(content=_ASK_SYSTEM),
+                HumanMessage(content=f"{context}\n\nQUESTION: {turn}"),
+            ]
+            answer = _answer_text(model.invoke(prompt))
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"ask failed: {exc}")
+            self.call_from_thread(view.append_log, "ask", f"(ask failed: {exc})")
+            return
+        self.call_from_thread(view.set_answer, answer)
+
     # --- header picker + run state -----------------------------------------
 
     def _populate_picker(self) -> None:
@@ -1796,6 +1887,28 @@ class ShellApp(App[None]):
     def _set_status(self, message: str) -> None:
         self.last_status = message
         self.query_one("#status-bar", Static).update(message)
+
+
+# The Ask summarizer's system prompt. Deliberately carries no fund-role marker (unlike
+# the PM/subagent prompts) so it never trips a role-aware scripted model into a wrong
+# script, and instructs the model to answer only from the grounded context.
+_ASK_SYSTEM = (
+    "You are the fund supervisor's analyst. Answer the question using only the "
+    "grounded FUND STATE context below. Be concise and specific; if the context does "
+    "not contain the answer, say so plainly rather than speculating."
+)
+
+
+def _answer_text(message: Any) -> str:
+    """Flatten a chat model reply's ``content`` (a str or a list of content blocks)."""
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            block.get("text", "") for block in content if isinstance(block, dict)
+        )
+    return str(content)
 
 
 def _initial_mandate(portfolio_id: uuid.UUID, submission: OnboardingSubmission) -> Any:

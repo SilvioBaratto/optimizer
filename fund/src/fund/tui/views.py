@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, cast
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.coordinate import Coordinate
 from textual.widgets import (
     Checkbox,
@@ -41,6 +41,7 @@ from textual.widgets import (
 
 from fund import observe
 from fund.observe import DailyBrief, RunSummary
+from fund.tui import ask
 from fund.tui.readouts import attribution_bar, render_readout
 from fund.tui.stream import StepStatus, StreamEvent
 
@@ -78,6 +79,14 @@ class _ShellContext(Protocol):
 
     def focus_portfolio(self, portfolio_id: uuid.UUID) -> None:
         """Focus the shell on ``portfolio_id`` (set the header context from a view)."""
+        ...
+
+    def ask_query(self, turn: str) -> None:
+        """Dispatch the Ask query-summarize worker for ``turn`` (App owns the model)."""
+        ...
+
+    def ask_action(self, turn: str) -> None:
+        """Route an Ask action turn through resolve → confirm → ``apply_action``."""
         ...
 
 
@@ -1933,6 +1942,85 @@ def _holding_detail(mark: HoldingMark) -> str:
     )
 
 
+class AskView(ShellView):
+    """Conversational Q&A over the fund state: a log, an input, and a grounded answer.
+
+    Read-first. Each turn is classified ``query | action`` (see
+    :func:`fund.tui.ask.classify`); recognized action verbs are the decision verbs only
+    (approve / reject / killswitch / freeze / re-arm / run / steer). A query is answered
+    from ``fund.observe`` reads summarized by the lazily-built model on a worker thread
+    the App owns; an action turn resolves its target and routes through the shared
+    confirm + ``apply_action`` path — never silent execution. The view itself only
+    decides and hands off; the App owns the model and every mutation.
+
+    At module scope this imports only Textual, the stdlib, and the agent-stack-free
+    classify/retrieve helpers (:mod:`fund.tui.ask`), so ``import fund.tui.app`` stays
+    agent-stack-light.
+
+    Attributes:
+        last_answer: Mirror of the most recent rendered answer — a headless-test hook.
+    """
+
+    def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
+        super().__init__(view_key, view_title, **kwargs)
+        self.last_answer: str = ""
+        self._log: list[tuple[str, str]] = []
+
+    def compose(self) -> ComposeResult:
+        """Yield the title, the scrollable conversation log, the input, and the hint."""
+        yield Label(self.view_title, classes="view-title")
+        with VerticalScroll(id="ask-log-wrap", classes="ask-log-wrap"):
+            yield Static(
+                "ask about the fund — e.g. “how are we doing?” or “approve the gate”",
+                id="ask-log",
+                classes="ask-log",
+            )
+        yield Input(placeholder="ask…", id="ask-input")
+        yield Static("↵ ask", id="ask-hint", classes="ask-hint")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """A submitted turn is classified and routed, then the input is cleared."""
+        if event.input.id != "ask-input":
+            return
+        event.stop()
+        turn = event.value.strip()
+        event.input.value = ""
+        if turn:
+            self.submit_turn(turn)
+
+    def submit_turn(self, turn: str) -> None:
+        """Log a turn, classify it, and hand a query vs an action off to the App.
+
+        A ``query`` dispatches the App's lazy summarize worker; an ``action`` routes
+        through the App's shared confirm + ``apply_action`` path. Nothing mutates here —
+        the view only decides and hands off, so an action never executes from this call.
+        """
+        self.append_log("you", turn)
+        if ask.classify(turn) == "query":
+            self.shell.ask_query(turn)
+        else:
+            self.shell.ask_action(turn)
+
+    def append_log(self, speaker: str, text: str) -> None:
+        """Append a ``(speaker, text)`` line to the conversation and repaint the log."""
+        self._log.append((speaker, text))
+        self._repaint_log()
+
+    def set_answer(self, answer: str) -> None:
+        """Record the model's answer (the ``last_answer`` hook) and log it."""
+        self.last_answer = answer
+        self.append_log("ask", answer)
+
+    def refresh_view(self) -> None:
+        """Bump the counter; the log is push-driven by submit/answer, not polled."""
+        self.render_count += 1
+
+    def _repaint_log(self) -> None:
+        body = "\n".join(f"{speaker}: {text}" for speaker, text in self._log)
+        self.query_one("#ask-log", Static).update(body or "ask about the fund…")
+        self.query_one("#ask-log-wrap", VerticalScroll).scroll_end(animate=False)
+
+
 # Per-key view class; keys absent here fall back to the placeholder ``ShellView``.
 _VIEW_CLASSES: dict[str, type[ShellView]] = {
     "posture": PostureView,
@@ -1941,6 +2029,7 @@ _VIEW_CLASSES: dict[str, type[ShellView]] = {
     "mandate": MandateView,
     "audit": AuditView,
     "performance": PerformanceView,
+    "ask": AskView,
     "brief": DailyBriefView,
 }
 
@@ -1959,6 +2048,7 @@ def build_views() -> list[ShellView]:
 
 __all__ = [
     "VIEW_SPECS",
+    "AskView",
     "AuditView",
     "DailyBriefView",
     "DecisionsView",

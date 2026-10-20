@@ -33,6 +33,7 @@ from _fund_fakes import (
     make_mandate,
     seed_panel,
 )
+from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import Base
@@ -75,6 +76,7 @@ from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.stream import StepStatus, StreamEvent
 from fund.tui.views import (
+    AskView,
     AuditView,
     DailyBriefView,
     DecisionsView,
@@ -3327,3 +3329,96 @@ async def test_posture_detail_nav_tile_degrades_when_unmarked(shell_env) -> None
         view = await _open_posture(app, pilot)
         assert "no marks yet" in view.detail_text
         assert "ACTIVE RUN" in view.detail_text  # the rest of the detail still renders
+
+
+# --- Ask view (Phase 08 T5) -------------------------------------------------
+
+
+class _CannedAskModel(BaseChatModel):
+    """A network-free chat model returning one fixed answer, for the Ask query path."""
+
+    answer: str = "grounded: the fund looks healthy"
+
+    @property
+    def _llm_type(self) -> str:
+        return "canned-ask"
+
+    def _generate(self, messages, stop=None, run_manager=None, **_):
+        """Return the canned answer regardless of the prompt (no network)."""
+        from langchain_core.messages import AIMessage
+        from langchain_core.outputs import ChatGeneration, ChatResult
+
+        return ChatResult(
+            generations=[ChatGeneration(message=AIMessage(content=self.answer))]
+        )
+
+
+async def _open_ask(app, pilot) -> AskView:
+    """Switch the shell to the Ask view and paint it."""
+    await pilot.pause()
+    app.query_one(ContentSwitcher).current = "view-ask"
+    app._refresh()
+    await pilot.pause()
+    return app.query_one("#view-ask", AskView)
+
+
+@pytest.mark.asyncio
+async def test_ask_registers_in_sidebar_and_opens(shell_env) -> None:
+    """The sidebar lists Ask; selecting it switches to the ask pane."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        assert len(app.query(ListItem)) == len(_VIEW_KEYS)
+        content = app.query_one(ContentSwitcher)
+        content.current = "view-ask"
+        app._refresh()
+        await pilot.pause()
+        view = app.query_one("#view-ask", AskView)
+        assert view.view_title == "Ask"
+
+
+@pytest.mark.asyncio
+async def test_ask_query_returns_grounded_answer(shell_env) -> None:
+    """A query turn builds grounded context, invokes the lazy model, logs the answer."""
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        session.commit()
+
+    app = _make_shell(
+        shell_env, portfolio_id=_PID_A, model_factory=lambda: _CannedAskModel()
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        inp = view.query_one("#ask-input", Input)
+        inp.focus()
+        inp.value = "how are we doing?"
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert view.last_answer == "grounded: the fund looks healthy"
+        assert "grounded" in str(view.query_one("#ask-log", Static).render())
+        assert "how are we doing?" in str(view.query_one("#ask-log", Static).render())
+
+
+@pytest.mark.asyncio
+async def test_ask_query_without_model_degrades_to_status(shell_env) -> None:
+    """No model configured → a status line + log note, never a crash, no answer."""
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)  # model_factory=lambda: None
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("how are we doing?")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert view.last_answer == ""  # nothing fabricated
+        assert "model" in app.last_status.lower()
