@@ -399,6 +399,11 @@ class ShellApp(App[None]):
     .delib-live { height: 1fr; }
     .delib-detail { width: 1fr; padding: 0 1; color: $warning; }
     .delib-hint { height: 1; color: $accent; }
+    .perf-risk { height: auto; color: $accent; }
+    .perf-body { height: 1fr; }
+    .perf-holdings { width: 55%; }
+    .perf-detail { width: 1fr; padding: 0 1; color: $warning; }
+    .perf-hint { height: 1; color: $accent; }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [

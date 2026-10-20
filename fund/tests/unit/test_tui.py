@@ -80,6 +80,7 @@ from fund.tui.views import (
     DecisionsView,
     DeliberationView,
     MandateView,
+    PerformanceView,
     PostureView,
     ShellView,
 )
@@ -238,6 +239,11 @@ def test_import_app_is_light_and_needs_no_keys() -> None:
         "import sys, fund.tui.app; "
         "assert 'deepagents' not in sys.modules, 'deepagents leaked at import'; "
         "assert 'langgraph' not in sys.modules, 'langgraph leaked at import'; "
+        # The Performance/Ask views read through fund.observe, which lazy-imports the
+        # optimizer/skfolio tracker inside its body — so a bare import must drag in
+        # neither (they are allowed in fund, but keep fund.tui light).
+        "assert 'optimizer' not in sys.modules, 'optimizer leaked at import'; "
+        "assert 'skfolio' not in sys.modules, 'skfolio leaked at import'; "
         "print('ok')"
     )
     result = subprocess.run(  # noqa: S603 — fixed argv, our own interpreter
@@ -258,6 +264,7 @@ _VIEW_KEYS = (
     "decisions",
     "mandate",
     "audit",
+    "performance",
     "ask",
     "brief",
 )
@@ -3095,3 +3102,179 @@ async def test_daily_brief_sidebar_pick_focuses(shell_env, monkeypatch) -> None:
         await pilot.pause()
         view = app.query_one("#view-brief", DailyBriefView)
         assert app.focused is view
+
+
+# --- Performance view (Phase 08 T2/T3) --------------------------------------
+
+_PERF_D1 = date(2026, 10, 2)
+_PERF_D2 = date(2026, 10, 3)
+
+
+def _seed_perf(session, pid) -> None:
+    """Seed a two-day NAV series + a one-line USD paper book (EUR base) for ``pid``."""
+    from portopt_db.models.market_data.yfinance_data import PriceHistory
+    from portopt_db.models.orders.paper_order import PaperOrder
+    from portopt_db.models.universe.universe import Exchange, Instrument
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    from fund.audit.nav_history_repository import NavHistoryRepository
+
+    NavHistoryRepository(session).upsert_navs(
+        [
+            {
+                "portfolio_id": pid,
+                "date": _PERF_D1,
+                "nav": Decimal("100000"),
+                "benchmark": Decimal("200"),
+            },
+            {
+                "portfolio_id": pid,
+                "date": _PERF_D2,
+                "nav": Decimal("101200"),
+                "benchmark": Decimal("202"),
+            },
+        ]
+    )
+    ex = Exchange(name=f"EXP-{pid}")
+    session.add(ex)
+    session.flush()
+    inst = Instrument(
+        ticker="US1", short_name="US1", exchange=ex, yfinance_ticker="US1"
+    )
+    session.add(inst)
+    session.flush()
+    session.add_all(
+        [
+            PriceHistory(
+                instrument_id=inst.id,
+                date=_PERF_D1,
+                close=Decimal("100"),
+                price_unit="USD",
+            ),
+            PriceHistory(
+                instrument_id=inst.id,
+                date=_PERF_D2,
+                close=Decimal("110"),
+                price_unit="USD",
+            ),
+        ]
+    )
+    FxRatesRepository(session).upsert_rates(
+        [
+            {
+                "base_currency": "EUR",
+                "quote_currency": "USD",
+                "date": _PERF_D1,
+                "rate": 0.90,
+            },
+            {
+                "base_currency": "EUR",
+                "quote_currency": "USD",
+                "date": _PERF_D2,
+                "rate": 0.92,
+            },
+        ]
+    )
+    session.add(
+        PaperOrder(
+            portfolio_id=pid,
+            asof=_PERF_D1,
+            weights_hash="h1",
+            weights={"US1": 1.0},
+            fill_date=_PERF_D1,
+            lines=[{"ticker": "US1", "notional": 9000.0, "fill_price": 100.0}],
+            notional=9000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+
+
+async def _open_performance(app, pilot) -> PerformanceView:
+    """Switch the shell to the Performance view and paint its strip + holdings."""
+    await pilot.pause()
+    app.query_one(ContentSwitcher).current = "view-performance"
+    app._refresh()
+    await pilot.pause()
+    return app.query_one("#view-performance", PerformanceView)
+
+
+@pytest.mark.asyncio
+async def test_performance_registers_in_sidebar_and_opens(shell_env) -> None:
+    """The sidebar lists Performance; selecting it switches to the performance pane."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        assert len(app.query(ListItem)) == len(_VIEW_KEYS)
+        content = app.query_one(ContentSwitcher)
+        content.current = "view-performance"
+        app._refresh()
+        await pilot.pause()
+        view = app.query_one("#view-performance", PerformanceView)
+        assert view.view_title == "Performance"
+
+
+@pytest.mark.asyncio
+async def test_performance_strip_and_holdings_render(shell_env) -> None:
+    """A marked portfolio paints a real metrics strip + a per-holding table row."""
+    with shell_env.get_session() as session:
+        _seed_perf(session, _PID_A)
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        assert view.summary is not None
+        # nav 100000 -> 101200 is +1.20% over the window (not a fabricated figure).
+        assert "+1.20%" in view.summary_text
+        assert "RETURNS" in view.summary_text and "RISK" in view.summary_text
+        # The one USD holding is marked into the holdings table.
+        assert view.query_one("#perf-holdings", DataTable).row_count == 1
+
+
+@pytest.mark.asyncio
+async def test_performance_holding_drilldown(shell_env) -> None:
+    """Selecting a holdings row opens its drill-down detail."""
+    with shell_env.get_session() as session:
+        _seed_perf(session, _PID_A)
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        table = view.query_one("#perf-holdings", DataTable)
+        table.focus()
+        table.move_cursor(row=0)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert view.selected_ticker == "US1"
+        assert "US1" in view.detail_text
+        assert "unrealized P&L" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_performance_unmarked_degrades(shell_env) -> None:
+    """A focused portfolio with no NAV/book shows — placeholders + no holdings rows."""
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)  # in the fund, but unmarked
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        assert "—" in view.summary_text  # no fabricated return
+        assert view.query_one("#perf-holdings", DataTable).row_count == 0
+
+
+@pytest.mark.asyncio
+async def test_performance_no_focus_shows_hint(shell_env) -> None:
+    """Fund-wide (no focus) the Performance view invites a pick, never crashes."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        assert "no portfolio focused" in str(
+            view.query_one("#perf-returns", Static).render()
+        )

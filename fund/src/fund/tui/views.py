@@ -51,6 +51,12 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
     from textual.binding import BindingType
 
+    # Annotation-only: ``fund.performance`` pulls ``optimizer``/``skfolio``; with
+    # ``from __future__ import annotations`` these are strings, so the Performance
+    # view's reads route through ``fund.observe`` (lazy) and ``import fund.tui.*``
+    # stays agent-stack-light (and optimizer/skfolio-free) at module scope.
+    from fund.performance import HoldingMark, PerformanceSummary
+
 
 class _ShellContext(Protocol):
     """The slice of :class:`~fund.tui.app.ShellApp` the data-views read each refresh.
@@ -75,7 +81,7 @@ class _ShellContext(Protocol):
         ...
 
 
-# The six shell views in sidebar order: (key, human title). The key is the id
+# The shell views in sidebar order: (key, human title). The key is the id
 # fragment for both the sidebar entry (``nav-<key>``) and the view (``view-<key>``).
 VIEW_SPECS: tuple[tuple[str, str], ...] = (
     ("posture", "Posture"),
@@ -83,6 +89,7 @@ VIEW_SPECS: tuple[tuple[str, str], ...] = (
     ("decisions", "Decisions"),
     ("mandate", "Mandate"),
     ("audit", "Audit"),
+    ("performance", "Performance"),
     ("ask", "Ask"),
     ("brief", "Daily brief"),
 )
@@ -1687,6 +1694,223 @@ def _brief_markdown_economist(brief: DailyBrief) -> list[str]:
     return [f"> {brief.economist_read.strip()}{_carried_suffix(brief)}"]
 
 
+# Performance P&L direction as (dot, label) — the word travels with the glyph so a
+# gain/loss never rides on colour alone (mirrors _HEALTH_* / _BRIEF_*). The two ●
+# tiers (up/down) read apart by their label; ◐ marks a flat/unknown period.
+_PERF_UP: tuple[str, str] = ("●", "up")
+_PERF_FLAT: tuple[str, str] = ("◐", "flat")
+_PERF_DOWN: tuple[str, str] = ("●", "down")
+
+# Return horizons the metrics strip surfaces, in display order (mirrors
+# fund.performance._HORIZONS; kept local so the module scope stays Textual + observe).
+_PERF_HORIZONS: tuple[str, ...] = ("1D", "1M", "YTD", "1Y", "max")
+
+
+def _pct(value: float | None) -> str:
+    """A signed-percent metric cell, or ``—`` when the metric is unavailable.
+
+    The dash is load-bearing: an unmarked horizon degrades to ``—`` rather than a
+    fabricated ``0.00%`` so the strip never implies a figure the NAV series lacks.
+    """
+    return f"{value:+.2%}" if value is not None else "—"
+
+
+def _ratio(value: float | None) -> str:
+    """A 2-dp ratio cell (sharpe / beta), or ``—`` when unavailable."""
+    return f"{value:.2f}" if value is not None else "—"
+
+
+def _amt(value: float | None) -> str:
+    """A grouped 2-dp amount cell (value / shares / P&L), or ``—`` when unavailable."""
+    return f"{value:,.2f}" if value is not None else "—"
+
+
+def _perf_direction(period_return: float | None) -> tuple[str, str]:
+    """The ``(dot, label)`` P&L direction for a period return.
+
+    A missing or exactly-flat return reads ``◐ flat`` — the strip signals direction
+    with a dot **and** a word, never colour alone.
+    """
+    if period_return is None or period_return == 0:
+        return _PERF_FLAT
+    return _PERF_UP if period_return > 0 else _PERF_DOWN
+
+
+class PerformanceView(ShellView):
+    """The lightweight performance surface: a metrics strip + a marked holdings table.
+
+    Reads the focused portfolio through ``observe.performance_summary`` (the persisted
+    ``nav_history`` series → multi-horizon returns + sharpe/vol/max-dd/excess/TE) and
+    ``observe.holdings_summary`` (the current paper book marked to market) on one short
+    read session each tick. The strip leads with a dot + label P&L direction; the
+    holdings table lists per-holding value / 1-day return / contribution / unrealized
+    P&L, and selecting a row drills into that holding's full mark. No equity-curve chart
+    (it renders poorly in a TUI). An unmarked portfolio degrades to an all-``—`` strip
+    and an empty table rather than a fabricated figure.
+
+    Both reads go through the agent-stack-free ``fund.observe`` seam, which lazy-imports
+    the ``optimizer``/``skfolio`` tracker inside its body — so ``import fund.tui.*``
+    stays agent-stack-light and pulls no optimizer/skfolio at module scope.
+
+    Attributes:
+        summary: The last-read :class:`~fund.performance.PerformanceSummary`, or
+            ``None`` — a headless-test hook.
+        summary_text: Mirror of the rendered metrics strip — a headless-test hook.
+        detail_text: Mirror of the rendered holding drill-down — a headless-test hook.
+        selected_ticker: The drilled-into holding's ticker, or ``None``.
+    """
+
+    def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
+        super().__init__(view_key, view_title, **kwargs)
+        self.summary: PerformanceSummary | None = None
+        self.summary_text: str = ""
+        self.detail_text: str = ""
+        self.selected_ticker: str | None = None
+        self._marks: list[HoldingMark] = []
+
+    def compose(self) -> ComposeResult:
+        """Yield the title, returns + risk strip, holdings | drill split, and hint."""
+        yield Label(self.view_title, classes="view-title")
+        yield Static(
+            "(no portfolio focused)", id="perf-returns", classes="view-subtitle"
+        )
+        yield Static("", id="perf-risk", classes="perf-risk")
+        with Horizontal(classes="perf-body"):
+            yield DataTable(
+                id="perf-holdings", cursor_type="row", classes="perf-holdings"
+            )
+            yield Static("(select a holding)", id="perf-detail", classes="perf-detail")
+        yield Static(
+            "↑↓ select · ↵ drill into a holding",
+            id="perf-hint",
+            classes="perf-hint",
+        )
+
+    def on_mount(self) -> None:
+        """Seed the holdings table's columns once its DataTable has mounted."""
+        self.query_one("#perf-holdings", DataTable).add_columns(
+            "ticker", "value", "1D", "contrib", "P&L"
+        )
+
+    def refresh_view(self) -> None:
+        """Repaint the metrics strip, the holdings table, and the drill-down detail."""
+        self.render_count += 1
+        pid = self.shell._portfolio_id
+        if pid is None:
+            self.summary = None
+            self._marks = []
+            self.summary_text = ""
+            self.query_one("#perf-returns", Static).update(
+                "(no portfolio focused — pick one in the header)"
+            )
+            self.query_one("#perf-risk", Static).update("")
+            self._paint_holdings([])
+            self._paint_detail()
+            return
+        summary, marks = self._read(pid)
+        self.summary = summary
+        self._paint_strip(summary)
+        self._paint_holdings(marks)
+        self._paint_detail()
+
+    def select_ticker(self, ticker: str) -> None:
+        """Drill into a holding by ticker, then repaint the detail pane.
+
+        A driver/test hook mirroring the DataTable row selection; the mark is taken
+        from the last-painted book so no extra read is needed.
+        """
+        self.selected_ticker = ticker
+        self._paint_detail()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """A holdings-row selection drills into that holding's detail."""
+        key = event.row_key.value
+        if key is not None:
+            self.select_ticker(key)
+
+    def _read(
+        self, pid: uuid.UUID
+    ) -> tuple[PerformanceSummary | None, list[HoldingMark]]:
+        """Read the summary + the marked book in one short session.
+
+        Returns ``(None, [])`` on any read error so the poll loop stays alive. The
+        tracker is lazy-imported inside ``observe``, keeping this module light.
+        """
+        try:
+            with self.read_session() as session:
+                summary = observe.performance_summary(session, pid)
+                marks = observe.holdings_summary(session, pid)
+                return summary, marks
+        except Exception:  # keep the poll loop alive on any read error
+            return None, []
+
+    def _paint_strip(self, summary: PerformanceSummary | None) -> None:
+        returns_widget = self.query_one("#perf-returns", Static)
+        risk_widget = self.query_one("#perf-risk", Static)
+        if summary is None:
+            self.summary_text = ""
+            returns_widget.update("(performance unavailable)")
+            risk_widget.update("")
+            return
+        dot, label = _perf_direction(summary.returns.get("max"))
+        horizons = " · ".join(
+            f"{h} {_pct(summary.returns.get(h))}" for h in _PERF_HORIZONS
+        )
+        returns_line = f"RETURNS  {dot} {label}  {horizons}"
+        excess = " · ".join(
+            f"{h} {_pct(summary.excess.get(h))}" for h in _PERF_HORIZONS
+        )
+        risk_line = (
+            f"RISK  sharpe {_ratio(summary.sharpe)} · vol {_pct(summary.volatility)} · "
+            f"max-dd {_pct(summary.max_drawdown)} · "
+            f"TE {_pct(summary.tracking_error)} · β {_ratio(summary.beta)}\n"
+            f"EXCESS  {excess}"
+        )
+        returns_widget.update(returns_line)
+        risk_widget.update(risk_line)
+        self.summary_text = f"{returns_line}\n{risk_line}"
+
+    def _paint_holdings(self, marks: list[HoldingMark]) -> None:
+        self._marks = marks
+        table = self.query_one("#perf-holdings", DataTable)
+        table.clear()
+        for mark in marks:
+            table.add_row(
+                mark.ticker,
+                _amt(mark.value),
+                _pct(mark.return_1d),
+                _pct(mark.contribution),
+                _amt(mark.unrealized_pnl),
+                key=mark.ticker,
+            )
+        # Drop a drill-down selection that has left the book (e.g. after a rebalance).
+        if self.selected_ticker is not None and all(
+            mark.ticker != self.selected_ticker for mark in marks
+        ):
+            self.selected_ticker = None
+
+    def _paint_detail(self) -> None:
+        mark = next((m for m in self._marks if m.ticker == self.selected_ticker), None)
+        text = _holding_detail(mark) if mark is not None else "(select a holding)"
+        self.detail_text = text
+        self.query_one("#perf-detail", Static).update(text)
+
+
+def _holding_detail(mark: HoldingMark) -> str:
+    """Render a holding's full mark: value, weight, shares, returns, contribution."""
+    return "\n".join(
+        [
+            f"{mark.ticker}",
+            f"value {_amt(mark.value)} · weight {_pct(mark.weight)}",
+            f"shares {_amt(mark.shares)}",
+            f"return 1D {_pct(mark.return_1d)} · "
+            f"1M {_pct(mark.return_1m)} · 1Y {_pct(mark.return_1y)}",
+            f"contribution {_pct(mark.contribution)}",
+            f"unrealized P&L {_amt(mark.unrealized_pnl)}",
+        ]
+    )
+
+
 # Per-key view class; keys absent here fall back to the placeholder ``ShellView``.
 _VIEW_CLASSES: dict[str, type[ShellView]] = {
     "posture": PostureView,
@@ -1694,6 +1918,7 @@ _VIEW_CLASSES: dict[str, type[ShellView]] = {
     "decisions": DecisionsView,
     "mandate": MandateView,
     "audit": AuditView,
+    "performance": PerformanceView,
     "brief": DailyBriefView,
 }
 
@@ -1717,6 +1942,7 @@ __all__ = [
     "DecisionsView",
     "DeliberationView",
     "MandateView",
+    "PerformanceView",
     "PostureView",
     "ShellView",
     "build_views",
