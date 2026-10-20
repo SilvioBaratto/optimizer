@@ -41,7 +41,7 @@ from textual.widgets import (
 
 from fund import observe
 from fund.observe import DailyBrief, RunSummary
-from fund.tui.readouts import _attribution_bar, render_readout
+from fund.tui.readouts import attribution_bar, render_readout
 from fund.tui.stream import StepStatus, StreamEvent
 
 if TYPE_CHECKING:
@@ -1572,6 +1572,21 @@ def _render_brief_detail(brief: DailyBrief) -> str:
     return "\n".join(lines)
 
 
+def _sorted_contributions(attribution: Any) -> list[tuple[str, float]]:
+    """Return contributions plus the ``idio`` residual, descending by magnitude."""
+    items = [*attribution.contributions.items(), ("idio", attribution.residual)]
+    items.sort(key=lambda kv: abs(kv[1]), reverse=True)
+    return items
+
+
+def _carried_suffix(brief: DailyBrief) -> str:
+    """Return the ``(from MM-DD)`` tag when the read predates the day, else ``""``."""
+    read_date = brief.economist_read_date
+    if read_date is not None and read_date != brief.asof:
+        return f" (from {read_date:%m-%d})"
+    return ""
+
+
 def _brief_pnl_line(perf: Any) -> str:
     """Render the P&L strip with a dot + label direction, or a no-data line."""
     if perf is None:
@@ -1594,11 +1609,10 @@ def _brief_attribution_lines(attribution: Any) -> list[str]:
     """Render per-factor contributions (+ ``idio`` residual) as sorted bar meters."""
     if attribution is None or not attribution.contributions:
         return [_NO_DATA]
-    items = [*attribution.contributions.items(), ("idio", attribution.residual)]
-    items.sort(key=lambda kv: abs(kv[1]), reverse=True)
+    items = _sorted_contributions(attribution)
     scale = max(abs(value) for _, value in items)
     lines = [
-        f"  {name:<6} {value:+.2%}  {_attribution_bar(value, scale)}"
+        f"  {name:<6} {value:+.2%}  {attribution_bar(value, scale)}"
         for name, value in items
     ]
     lines.append(f"  {'total':<6} {attribution.total_return:+.2%}")
@@ -1619,11 +1633,7 @@ def _brief_economist_lines(brief: DailyBrief) -> list[str]:
     """Render the economist read, dated ``(from MM-DD)`` when carried forward."""
     if brief.economist_read is None:
         return [_NO_DATA]
-    carried = ""
-    read_date = brief.economist_read_date
-    if read_date is not None and read_date != brief.asof:
-        carried = f" (from {read_date:%m-%d})"
-    return [f'  "{brief.economist_read.strip()}"{carried}']
+    return [f'  "{brief.economist_read.strip()}"{_carried_suffix(brief)}']
 
 
 def _render_brief_markdown(brief: DailyBrief) -> str:
@@ -1654,8 +1664,7 @@ def _brief_attribution_table(attribution: Any) -> list[str]:
     """Render attribution contributions (+ ``idio`` residual) as a markdown table."""
     if attribution is None or not attribution.contributions:
         return ["_no data_"]
-    rows = [*attribution.contributions.items(), ("idio", attribution.residual)]
-    rows.sort(key=lambda kv: abs(kv[1]), reverse=True)
+    rows = _sorted_contributions(attribution)
     table = ["| factor | contribution |", "| --- | --- |"]
     table += [f"| {name} | {value:+.2%} |" for name, value in rows]
     table.append(f"| **total** | **{attribution.total_return:+.2%}** |")
@@ -1675,11 +1684,7 @@ def _brief_markdown_economist(brief: DailyBrief) -> list[str]:
     """Render the economist read as a dated markdown blockquote."""
     if brief.economist_read is None:
         return ["_no data_"]
-    carried = ""
-    read_date = brief.economist_read_date
-    if read_date is not None and read_date != brief.asof:
-        carried = f" (from {read_date:%m-%d})"
-    return [f"> {brief.economist_read.strip()}{carried}"]
+    return [f"> {brief.economist_read.strip()}{_carried_suffix(brief)}"]
 
 
 # Per-key view class; keys absent here fall back to the placeholder ``ShellView``.

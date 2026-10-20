@@ -1,42 +1,42 @@
-"""Unit tests for the stdlib-only Deliberation read-out render helpers."""
+"""Unit tests for the stdlib-only daily-brief attribution bar-meter."""
 
 from __future__ import annotations
 
-from fund.tui.readouts import _attribution_bar
+from fund.tui.readouts import attribution_bar
 
 
 def test_bar_meter_largest_magnitude_fills_the_width():
     """``|value| == scale`` is the largest contribution, so every cell fills."""
-    assert _attribution_bar(0.31, 0.31, width=10) == "█" * 10
+    assert attribution_bar(0.31, 0.31, width=10) == "█" * 10
 
 
 def test_bar_meter_cell_count_is_proportional():
     """Half the scale at width 8 yields four full blocks (32 eighths)."""
-    assert _attribution_bar(0.5, 1.0, width=8) == "█" * 4
+    assert attribution_bar(0.5, 1.0, width=8) == "█" * 4
 
 
 def test_bar_meter_renders_a_partial_eighth_cell():
     """One eighth of a single full cell renders the thinnest ramp glyph."""
-    assert _attribution_bar(1.0, 8.0, width=1) == "▏"
+    assert attribution_bar(1.0, 8.0, width=1) == "▏"
 
 
 def test_bar_meter_zero_is_empty():
     """A zero contribution renders no cells."""
-    assert _attribution_bar(0.0, 0.42, width=10) == ""
+    assert attribution_bar(0.0, 0.42, width=10) == ""
 
 
 def test_bar_meter_marks_negatives_with_a_sign_glyph():
     """A negative contribution carries a trailing sign marker, not colour alone."""
-    bar = _attribution_bar(-0.08, 0.42, width=10)
+    bar = attribution_bar(-0.08, 0.42, width=10)
     assert bar.endswith(" (-)")
     assert bar[0] in "▏▎▍▌▋▊▉█"
 
 
 def test_bar_meter_clamps_to_the_requested_width():
     """A value beyond the scale never overflows the requested width."""
-    assert _attribution_bar(5.0, 1.0, width=4) == "█" * 4
+    assert attribution_bar(5.0, 1.0, width=4) == "█" * 4
 
 
 def test_bar_meter_nonpositive_scale_is_empty():
     """A non-positive scale yields an empty meter rather than dividing by zero."""
-    assert _attribution_bar(0.31, 0.0, width=10) == ""
+    assert attribution_bar(0.31, 0.0, width=10) == ""

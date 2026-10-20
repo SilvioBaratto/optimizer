@@ -3055,10 +3055,10 @@ def test_daily_brief_status_tiers_carry_labels() -> None:
 
 def test_bar_meter_negative_marker_is_ascii() -> None:
     """The negative marker is ASCII ``(-)`` — a sign glyph, not colour alone."""
-    from fund.tui.readouts import _attribution_bar
+    from fund.tui.readouts import attribution_bar
 
-    assert _attribution_bar(-0.5, 1.0, width=8).endswith(" (-)")
-    assert _attribution_bar(0.5, 1.0, width=8).endswith("█")  # positive: no marker
+    assert attribution_bar(-0.5, 1.0, width=8).endswith(" (-)")
+    assert attribution_bar(0.5, 1.0, width=8).endswith("█")  # positive: no marker
 
 
 @pytest.mark.asyncio

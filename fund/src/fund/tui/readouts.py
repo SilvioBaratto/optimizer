@@ -342,7 +342,7 @@ def _sort_weight(value: Any) -> float:
 _METER_CELLS = " ▏▎▍▌▋▊▉█"
 
 
-def _attribution_bar(value: float, scale: float, width: int = 10) -> str:
+def attribution_bar(value: float, scale: float, width: int = 10) -> str:
     """Render one attribution contribution as a left-aligned eighth-block meter.
 
     The bar length is proportional to ``|value| / scale`` and never exceeds ``width``
