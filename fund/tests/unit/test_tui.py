@@ -259,6 +259,22 @@ def test_import_app_is_light_and_needs_no_keys() -> None:
     assert "ok" in result.stdout
 
 
+def test_thread_workers_take_their_view_as_a_param() -> None:
+    """Thread workers must receive their view, never query the DOM on the worker thread.
+
+    The Ask/stream/readout workers run on ``@work(thread=True)`` and touch their view
+    only through ``call_from_thread``. The view itself is resolved by the caller on the
+    event loop and passed in — a refactor that moved the ``query_one`` resolution back
+    inside a worker body would reintroduce a DOM-off-the-event-loop race, so this guards
+    the contract at the signature level (``inspect.signature`` sees through ``@work``).
+    """
+    import inspect
+
+    for name in ("_ask_worker", "_stream_worker", "_recompute_readout_worker"):
+        params = inspect.signature(getattr(tui_app.ShellApp, name)).parameters
+        assert "view" in params, name
+
+
 # --- ShellApp: the multi-view shell (T3) ------------------------------------
 
 _VIEW_KEYS = (
@@ -3115,8 +3131,12 @@ _PERF_D1 = date(2026, 10, 2)
 _PERF_D2 = date(2026, 10, 3)
 
 
-def _seed_perf(session, pid) -> None:
-    """Seed a two-day NAV series + a one-line USD paper book (EUR base) for ``pid``."""
+def _seed_perf(session, pid, *, with_fx: bool = True) -> None:
+    """Seed a two-day NAV series + a one-line USD paper book (EUR base) for ``pid``.
+
+    ``with_fx=False`` omits the EUR→USD rates so marking the USD book raises
+    ``FxCoverageError`` while the NAV-only summary still reads — the FX-gap case.
+    """
     from portopt_db.models.market_data.yfinance_data import PriceHistory
     from portopt_db.models.orders.paper_order import PaperOrder
     from portopt_db.models.universe.universe import Exchange, Instrument
@@ -3166,22 +3186,23 @@ def _seed_perf(session, pid) -> None:
             ),
         ]
     )
-    FxRatesRepository(session).upsert_rates(
-        [
-            {
-                "base_currency": "EUR",
-                "quote_currency": "USD",
-                "date": _PERF_D1,
-                "rate": 0.90,
-            },
-            {
-                "base_currency": "EUR",
-                "quote_currency": "USD",
-                "date": _PERF_D2,
-                "rate": 0.92,
-            },
-        ]
-    )
+    if with_fx:
+        FxRatesRepository(session).upsert_rates(
+            [
+                {
+                    "base_currency": "EUR",
+                    "quote_currency": "USD",
+                    "date": _PERF_D1,
+                    "rate": 0.90,
+                },
+                {
+                    "base_currency": "EUR",
+                    "quote_currency": "USD",
+                    "date": _PERF_D2,
+                    "rate": 0.92,
+                },
+            ]
+        )
     session.add(
         PaperOrder(
             portfolio_id=pid,
@@ -3283,6 +3304,23 @@ async def test_performance_no_focus_shows_hint(shell_env) -> None:
         assert "no portfolio focused" in str(
             view.query_one("#perf-returns", Static).render()
         )
+
+
+@pytest.mark.asyncio
+async def test_performance_fx_gap_keeps_returns_strip(shell_env) -> None:
+    """A holdings FX gap blanks only the table, never the NAV-based returns strip."""
+    with shell_env.get_session() as session:
+        _seed_perf(session, _PID_A, with_fx=False)  # USD book, no EUR→USD rates
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        # The FX-independent returns strip still reads the real +1.20% NAV move...
+        assert view.summary is not None
+        assert "+1.20%" in view.summary_text
+        # ...while the holdings mark needs the missing FX rate, so it degrades to empty.
+        assert view.query_one("#perf-holdings", DataTable).row_count == 0
 
 
 # --- Posture NAV tile (Phase 08 T3) -----------------------------------------

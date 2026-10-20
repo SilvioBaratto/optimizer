@@ -51,6 +51,10 @@ _RESUME_VERBS: frozenset[str] = frozenset(
 )
 _SCOPE_VERBS: frozenset[str] = frozenset({"freeze", "rearm"})
 
+# Fund-wide scope is named by the standalone word "fund". A bare substring test would
+# misroute a focused freeze/rearm onto the whole fund on words like "refund"/"funding".
+_FUND_WORD = re.compile(r"\bfund\b")
+
 Status = Literal["resolved", "ambiguous", "unresolved"]
 
 
@@ -203,7 +207,7 @@ def _gate_prompt(verb: str, gates: list[RunSummary]) -> str:
 
 def _resolve_scope(verb: str, turn: str, focus: uuid.UUID | None) -> TargetResolution:
     """Resolve a scope verb to fund / focused-portfolio scope, else ask which."""
-    if "fund" in turn.lower():
+    if _FUND_WORD.search(turn.lower()):
         action = ResolvedAction(verb, None, None, "fund")
         return TargetResolution("resolved", action, (), f"{verb} the whole fund")
     if focus is not None:

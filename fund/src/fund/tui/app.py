@@ -1346,7 +1346,11 @@ class ShellApp(App[None]):
             return
         bar = asof or dt.date.today()
         if deliberation:
-            self.last_worker = self._stream_worker(pid, bar)
+            view = self._deliberation_view()
+            if view is None:
+                self._set_status("open Deliberation to run a portfolio")
+                return
+            self.last_worker = self._stream_worker(pid, bar, view)
         else:
             self.last_worker = self._run_worker(pid, bar)
 
@@ -1427,11 +1431,11 @@ class ShellApp(App[None]):
             return
         run_id, agent, key = target
         self._set_status("recomputing read-out…")
-        self.last_worker = self._recompute_readout_worker(run_id, agent, key)
+        self.last_worker = self._recompute_readout_worker(run_id, agent, key, view)
 
     @work(thread=True, exclusive=True, group="readout")
     def _recompute_readout_worker(
-        self, run_id: uuid.UUID, agent: str, key: int | None
+        self, run_id: uuid.UUID, agent: str, key: int | None, view: DeliberationView
     ) -> None:
         """Recompute a step's read-out off the loop, then paint it onto the view.
 
@@ -1440,17 +1444,16 @@ class ShellApp(App[None]):
         read-out: for an allocator step the *selected* proposal (``key`` is its
         ``decision_index``) so the frontier/backtest match the weights shown for that
         step, even in a re-optimized run; for a risk step the run's authoritative
-        (latest) allocation. The result marshals back via ``call_from_thread``, unless a
-        newer expand has cancelled this worker. Any failure surfaces as a status line.
+        (latest) allocation. ``view`` is resolved by the caller on the event loop and
+        passed in — this thread never queries the DOM, touching the view only through
+        ``call_from_thread``. The result marshals back that way, unless a newer expand
+        has cancelled this worker. Any failure surfaces as a status line.
         """
         from textual.worker import get_current_worker
 
         from fund import readouts_compute
         from fund.audit.repository import AgentRunRepository
 
-        view = self._deliberation_view()
-        if view is None:
-            return
         try:
             with self._session_factory() as session:
                 repo = AgentRunRepository(session)
@@ -1576,7 +1579,9 @@ class ShellApp(App[None]):
         self.call_from_thread(self._after_action, result.message)
 
     @work(thread=True, exclusive=True, group="stream")
-    def _stream_worker(self, portfolio_id: uuid.UUID, asof: dt.date) -> None:
+    def _stream_worker(
+        self, portfolio_id: uuid.UUID, asof: dt.date, view: DeliberationView
+    ) -> None:
         """Stream one paper rebalance into the live Deliberation timeline.
 
         The live counterpart to :meth:`_run_worker`: it drives ``stream_fund`` and
@@ -1584,15 +1589,14 @@ class ShellApp(App[None]):
         ``call_from_thread`` (``start_live`` on the first, ``ingest_event`` per step).
         A ``paused`` gate leaves the timeline standing — the adviser just watched it
         build and acts on it in Decisions — while a no-ticket / error end falls back to
-        the replay transcript. The agent stack is imported lazily so the module import
+        the replay transcript. ``view`` is resolved by the caller on the event loop and
+        passed in — this thread never queries the DOM, touching the view only through
+        ``call_from_thread``. The agent stack is imported lazily so the module import
         stays agent-stack-light; one stream per worker (``stream_fund`` is not
         thread-safe). Model/stream errors surface as a status line, never a crash.
         """
         from fund.agents.graph import stream_fund
 
-        view = self._deliberation_view()
-        if view is None:
-            return
         self._stream_resume.set()  # clear any stale barge-in hold from a prior round
         try:
             model = self._model_factory()
@@ -1805,10 +1809,16 @@ class ShellApp(App[None]):
     def ask_query(self, turn: str) -> None:
         """Dispatch the Ask query-summarize worker for ``turn``.
 
-        The grounded context build + the lazy model invoke run on the worker thread, so
-        the event loop stays responsive while a query is answered.
+        Resolves the active Ask view here, on the event loop, and hands it to the
+        worker: the worker thread must never query the DOM itself — it touches the view
+        only through ``call_from_thread``. The grounded context build + the lazy model
+        invoke then run on the worker thread, so the event loop stays responsive while a
+        query is answered.
         """
-        self.last_worker = self._ask_worker(turn)
+        view = self._active_ask_view()
+        if view is None:
+            return
+        self.last_worker = self._ask_worker(turn, view)
 
     def ask_action(self, turn: str) -> None:
         """Route an Ask action turn through resolve → confirm → ``apply_action``.
@@ -1968,20 +1978,19 @@ class ShellApp(App[None]):
         return view if isinstance(view, AskView) else None
 
     @work(thread=True, exclusive=True, group="ask")
-    def _ask_worker(self, turn: str) -> None:
+    def _ask_worker(self, turn: str, view: AskView) -> None:
         """Summarize a grounded context into an answer off the event loop (lazy model).
 
         Builds the grounded context from the agent-stack-free read model, lazily builds
         the chat model via the injected factory, invokes it on this worker thread, and
-        marshals the answer back via ``call_from_thread``. A missing/failed model
+        marshals the answer back via ``call_from_thread``. ``view`` is resolved by the
+        caller on the event loop and passed in — this thread never queries the DOM,
+        touching the view only through ``call_from_thread``. A missing/failed model
         degrades to a status line + a log note, never a crash. The langchain message
         types are imported lazily so ``import fund.tui.app`` stays agent-stack-light.
         """
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        view = self._active_ask_view()
-        if view is None:
-            return
         focus = self._portfolio_id
         try:
             model = self._model_factory()

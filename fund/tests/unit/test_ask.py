@@ -192,6 +192,18 @@ def test_resolve_target_freeze_without_focus_is_ambiguous(db_session):
     assert res.action is None
 
 
+def test_resolve_target_freeze_substring_fund_stays_on_focus(db_session):
+    """A focused freeze whose turn only *contains* 'fund' (e.g. 'fundamentals') stays on
+    the focused portfolio — fund scope needs the standalone word, never a substring."""
+    res = ask.resolve_target(
+        "freeze it, the fundamentals look weak", db_session, MemorySaver(), _PID_A
+    )
+
+    assert res.status == "resolved"
+    assert res.action is not None
+    assert res.action.scope == "portfolio" and res.action.portfolio_id == _PID_A
+
+
 def test_resolve_target_rearm_fund_scope(db_session):
     """'re-arm the fund' resolves to the fund-scope rearm verb."""
     res = ask.resolve_target("re-arm the fund", db_session, MemorySaver(), None)

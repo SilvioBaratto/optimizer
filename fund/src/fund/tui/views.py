@@ -1858,18 +1858,30 @@ class PerformanceView(ShellView):
     def _read(
         self, pid: uuid.UUID
     ) -> tuple[PerformanceSummary | None, list[HoldingMark]]:
-        """Read the summary + the marked book in one short session.
+        """Read the summary + the marked book, each guarded independently.
 
-        Returns ``(None, [])`` on any read error so the poll loop stays alive. The
-        tracker is lazy-imported inside ``observe``, keeping this module light.
+        The two reads are isolated so a holdings-mark failure — e.g. an
+        ``FxCoverageError`` when the book holds a currency the FX feed never populated —
+        degrades only the holdings table, never the FX-independent returns/risk strip.
+        Either read failing returns its own empty sentinel; the poll loop stays alive on
+        any read error. The tracker is lazy-imported inside ``observe``, keeping this
+        module light.
         """
+        summary: PerformanceSummary | None = None
+        marks: list[HoldingMark] = []
         try:
             with self.read_session() as session:
-                summary = observe.performance_summary(session, pid)
-                marks = observe.holdings_summary(session, pid)
-                return summary, marks
-        except Exception:  # keep the poll loop alive on any read error
+                try:
+                    summary = observe.performance_summary(session, pid)
+                except Exception:  # keep the strip independent of a holdings failure
+                    summary = None
+                try:
+                    marks = observe.holdings_summary(session, pid)
+                except Exception:  # an FX gap degrades only the table, not the strip
+                    marks = []
+        except Exception:  # read_session itself failing → keep the poll loop alive
             return None, []
+        return summary, marks
 
     def _paint_strip(self, summary: PerformanceSummary | None) -> None:
         returns_widget = self.query_one("#perf-returns", Static)
