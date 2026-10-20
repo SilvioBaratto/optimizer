@@ -81,12 +81,8 @@ class _ShellContext(Protocol):
         """Focus the shell on ``portfolio_id`` (set the header context from a view)."""
         ...
 
-    def ask_query(self, turn: str) -> None:
-        """Dispatch the Ask query-summarize worker for ``turn`` (App owns the model)."""
-        ...
-
-    def ask_action(self, turn: str) -> None:
-        """Route an Ask action turn through resolve → confirm → ``apply_action``."""
+    def ask_submit(self, turn: str) -> None:
+        """Handle a submitted Ask turn: resolve a pending action, else route it."""
         ...
 
 
@@ -1964,6 +1960,7 @@ class AskView(ShellView):
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)
         self.last_answer: str = ""
+        self.pending_action: ask.PendingAction | None = None
         self._log: list[tuple[str, str]] = []
 
     def compose(self) -> ComposeResult:
@@ -1989,17 +1986,15 @@ class AskView(ShellView):
             self.submit_turn(turn)
 
     def submit_turn(self, turn: str) -> None:
-        """Log a turn, classify it, and hand a query vs an action off to the App.
+        """Log a turn and hand it to the App to resolve a pending action or route it.
 
-        A ``query`` dispatches the App's lazy summarize worker; an ``action`` routes
-        through the App's shared confirm + ``apply_action`` path. Nothing mutates here —
-        the view only decides and hands off, so an action never executes from this call.
+        The App resolves a carried disambiguation first, else classifies the turn — a
+        ``query`` dispatches the lazy summarize worker; an ``action`` routes through the
+        shared confirm + ``apply_action`` path. Nothing mutates here — the view only
+        logs and hands off, so an action never executes from this call.
         """
         self.append_log("you", turn)
-        if ask.classify(turn) == "query":
-            self.shell.ask_query(turn)
-        else:
-            self.shell.ask_action(turn)
+        self.shell.ask_submit(turn)
 
     def append_log(self, speaker: str, text: str) -> None:
         """Append a ``(speaker, text)`` line to the conversation and repaint the log."""

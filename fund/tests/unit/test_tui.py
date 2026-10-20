@@ -3506,3 +3506,119 @@ async def test_ask_action_freeze_fund_confirms_then_freezes(shell_env) -> None:
         from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
 
         assert AutonomyRepository(session).fund_posture() == AutonomyState.FROZEN.value
+
+
+# --- Ask disambiguation (Phase 08 T7) ---------------------------------------
+
+
+def _seed_fake_gate(env, pid, *, thread_id, seed) -> uuid.UUID:
+    """Seed a second pending-HITL gate (paused run + live interrupt); return its id."""
+    from langchain_core.messages import HumanMessage
+    from langgraph.checkpoint.base import empty_checkpoint
+    from langgraph.types import Interrupt
+
+    with env.get_session() as session:
+        repo = AgentRunRepository(session)
+        run = repo.create_run(
+            portfolio_id=pid,
+            asof=date(2026, 1, 3),
+            seed=seed,
+            universe=[],
+            optimizer_config={},
+            status="paused",
+        )
+        repo.set_thread_id(run.id, thread_id)
+        session.commit()
+        run_id = run.id
+    cfg = {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
+    checkpoint = empty_checkpoint()
+    checkpoint["channel_values"]["messages"] = [HumanMessage(content="go")]
+    checkpoint["channel_versions"]["messages"] = 1
+    saved = env.saver.put(
+        cfg, checkpoint, {"source": "loop", "step": 1}, {"messages": 1}
+    )
+    env.saver.put_writes(
+        saved,
+        [
+            (
+                "__interrupt__",
+                Interrupt(value={"action_requests": [{"name": "place_orders"}]}),
+            )
+        ],
+        "task-2",
+    )
+    return run_id
+
+
+@pytest.mark.asyncio
+async def test_ask_action_scope_ambiguous_asks_then_resolves(shell_env) -> None:
+    """'freeze it' with no focus holds a pending action; 'the fund' resolves it."""
+    app = _make_shell(shell_env)  # fund-wide, nothing focused
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("freeze it")
+        await pilot.pause()
+        assert view.pending_action is not None  # carried across turns
+        assert app.last_worker is None  # did NOT execute
+        assert not isinstance(app.screen, ConfirmScreen)  # no confirm yet
+
+        view.submit_turn("the fund")
+        await pilot.pause()
+        assert view.pending_action is None  # cleared on resolution
+        assert isinstance(app.screen, ConfirmScreen)
+        await pilot.click("#confirm-yes")
+        await pilot.pause()
+        await app.last_worker.wait()
+    with shell_env.get_session() as session:
+        from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
+
+        assert AutonomyRepository(session).fund_posture() == AutonomyState.FROZEN.value
+
+
+@pytest.mark.asyncio
+async def test_ask_action_unrelated_turn_clears_pending(shell_env) -> None:
+    """An unrelated next turn clears the pending action and is processed fresh."""
+    app = _make_shell(shell_env)  # model_factory=lambda: None
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("freeze it")
+        await pilot.pause()
+        assert view.pending_action is not None
+
+        view.submit_turn("how are we doing?")  # a query, unrelated to the freeze
+        await pilot.pause()
+        assert view.pending_action is None  # cleared, never executed
+        assert not isinstance(app.screen, ConfirmScreen)
+        worker = app.last_worker  # routed fresh → a query worker (model is None)
+        if worker is not None:
+            await worker.wait()
+        await pilot.pause()
+        assert "model" in app.last_status.lower()
+
+
+@pytest.mark.asyncio
+async def test_ask_action_two_gates_disambiguate_to_named(tui_env) -> None:
+    """Two pending gates ask which; naming one reaches the confirm, then approves."""
+    _seed_fake_gate(tui_env, PORTFOLIO_ID, thread_id="thread-gate2", seed=2)
+    short = str(tui_env.run_id).split("-", 1)[0]
+
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert view.pending_action is not None  # ambiguous: two gates
+        assert app.last_worker is None
+        assert not isinstance(app.screen, ConfirmScreen)
+
+        view.submit_turn(f"#{short}")  # name the real gate
+        await pilot.pause()
+        assert view.pending_action is None
+        assert isinstance(app.screen, ConfirmScreen)
+        await pilot.click("#confirm-yes")
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert "approved" in app.last_status
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "completed"

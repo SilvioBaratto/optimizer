@@ -1716,8 +1716,26 @@ class ShellApp(App[None]):
 
     # --- ask (query summarize + action routing on worker threads) ----------
 
+    def ask_submit(self, turn: str) -> None:
+        """Handle a submitted Ask turn: resolve a pending action, else classify + route.
+
+        A carried disambiguation (``view.pending_action``) is resolved first; otherwise
+        the turn is classified — a ``query`` dispatches the summarize worker, an
+        ``action`` routes through resolve → confirm → ``apply_action``. The view's seam
+        call; nothing mutates without a deliberate confirm.
+        """
+        view = self._active_ask_view()
+        if view is None:
+            return
+        if view.pending_action is not None:
+            self._resolve_pending(view, turn)
+        elif ask.classify(turn) == "query":
+            self.ask_query(turn)
+        else:
+            self.ask_action(turn)
+
     def ask_query(self, turn: str) -> None:
-        """Dispatch the Ask query-summarize worker for ``turn`` (the view's seam call).
+        """Dispatch the Ask query-summarize worker for ``turn``.
 
         The grounded context build + the lazy model invoke run on the worker thread, so
         the event loop stays responsive while a query is answered.
@@ -1728,10 +1746,10 @@ class ShellApp(App[None]):
         """Route an Ask action turn through resolve → confirm → ``apply_action``.
 
         An unambiguous target is confirmed and dispatched through the shared action
-        workers (never a new mutation path); an ambiguous / unresolved target reports
-        the follow-up and does **not** execute (the disambiguation flow holds a pending
-        action across turns in a later slice). Nothing mutates without a deliberate
-        confirm, and never on a guess.
+        workers (never a new mutation path); an ambiguous target holds a
+        ``pending_action`` on the view and asks a disambiguation follow-up instead of a
+        confirm; an unresolved (dead-end) target just reports why. Nothing mutates
+        without a deliberate confirm, and never on a guess.
         """
         view = self._active_ask_view()
         if view is None:
@@ -1739,8 +1757,35 @@ class ShellApp(App[None]):
         resolution = self._resolve_ask(turn)
         if resolution.status == "resolved" and resolution.action is not None:
             self._confirm_ask_action(view, resolution.action)
+        elif resolution.status == "ambiguous":
+            view.pending_action = ask.pending_action(turn, resolution)
+            view.append_log("ask", resolution.prompt)
         else:
             view.append_log("ask", resolution.prompt)
+
+    def _resolve_pending(self, view: AskView, turn: str) -> None:
+        """Resolve a carried pending action against ``turn``, else process it fresh.
+
+        A pending action is single-shot — cleared before this turn is handled whatever
+        the outcome. When the follow-up names the target, it reaches the confirm; an
+        unrelated follow-up (no match) is routed as a fresh turn, so the pending never
+        lingers and never executes on a guess.
+        """
+        pending = view.pending_action
+        view.pending_action = None
+        if pending is None:
+            return
+        with self._session_factory() as session:
+            resolution = ask.resolve_pending(
+                pending, turn, session, self._persistence.saver, self._portfolio_id
+            )
+            session.rollback()
+        if resolution.status == "resolved" and resolution.action is not None:
+            self._confirm_ask_action(view, resolution.action)
+        elif ask.classify(turn) == "query":
+            self.ask_query(turn)
+        else:
+            self.ask_action(turn)
 
     def _confirm_ask_action(self, view: AskView, action: ask.ResolvedAction) -> None:
         """Push the confirm matching ``action``; dispatch it only on a deliberate yes.

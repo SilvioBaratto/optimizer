@@ -228,6 +228,69 @@ def _resolve_rebalance(focus: uuid.UUID | None) -> TargetResolution:
     )
 
 
+@dataclass(frozen=True)
+class PendingAction:
+    """A resolved-but-unconfirmed action carried across turns for disambiguation.
+
+    Attributes:
+        verb: The decision verb the ambiguous turn invoked.
+        candidates: Candidate gate run ids for a resume verb (empty for a scope /
+            rebalance verb, whose disambiguation is re-resolved from the next turn).
+    """
+
+    verb: str
+    candidates: tuple[uuid.UUID, ...]
+
+
+def pending_action(turn: str, resolution: TargetResolution) -> PendingAction:
+    """Build the pending action to carry from an ambiguous ``turn`` + ``resolution``."""
+    return PendingAction(
+        verb=_leading_verb(turn) or "",
+        candidates=tuple(gate.run_id for gate in resolution.candidates),
+    )
+
+
+def resolve_pending(
+    pending: PendingAction,
+    turn: str,
+    session: Any,
+    saver: Any,
+    focus: uuid.UUID | None,
+) -> TargetResolution:
+    """Resolve a carried pending action against the next ``turn`` — never on a guess.
+
+    A resume-verb pending resolves to the single still-live candidate gate the next turn
+    names (by short id); a scope/rebalance pending re-resolves from the next turn's
+    target words (e.g. "the fund") or the now-focused portfolio. An unmatched next turn
+    stays non-``resolved`` so the caller can treat it as a fresh, unrelated turn (which
+    clears the pending action).
+
+    Args:
+        pending: The carried :class:`PendingAction` from the prior ambiguous turn.
+        turn: The adviser's follow-up turn.
+        session: An injected read-only sync session; not owned here.
+        saver: The bootstrapped LangGraph checkpointer (opaque), for the gate reads.
+        focus: The focused portfolio, or ``None``.
+
+    Returns:
+        A :class:`TargetResolution`; ``resolved`` only when the follow-up names the
+        target unambiguously.
+    """
+    if pending.verb in _RESUME_VERBS:
+        live = [
+            gate
+            for gate in observe.pending_hitl(session, saver, None)
+            if gate.run_id in pending.candidates
+        ]
+        named = _match_gate(turn, live)
+        if named is not None:
+            return _resolved_gate(pending.verb, named)
+        return TargetResolution("unresolved", None, (), "could not match a gate")
+    if pending.verb in _SCOPE_VERBS:
+        return _resolve_scope(pending.verb, turn, focus)
+    return _resolve_rebalance(focus)
+
+
 def build_context(
     session: Any, saver: Any, focus: uuid.UUID | None, question: str
 ) -> str:
@@ -294,9 +357,12 @@ def _short(value: Any) -> str:
 
 
 __all__ = [
+    "PendingAction",
     "ResolvedAction",
     "TargetResolution",
     "build_context",
     "classify",
+    "pending_action",
+    "resolve_pending",
     "resolve_target",
 ]
