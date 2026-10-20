@@ -117,21 +117,25 @@ Then `import optimizer` works with nothing else running.
 
 ### 2. The full platform (ingestion daemon)
 
-The daemon ships an install wizard. The one-line bootstrap installs `uv`, runs
-`uv tool install portopt`, then launches the wizard:
+The daemon ships an install wizard. The one-line bootstrap installs `uv`, installs
+the `portopt` CLI straight from this repo — **nothing here is published to PyPI** —
+then launches the wizard:
 
 ```bash
 # macOS / Linux
-curl -LsSf https://raw.githubusercontent.com/SilvioBaratto/optimizer/main/install.sh | bash
+curl -LsSf https://raw.githubusercontent.com/SilvioBaratto/optimizer/development/install.sh | bash
 # Windows (PowerShell)
-powershell -c "irm https://raw.githubusercontent.com/SilvioBaratto/optimizer/main/install.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/SilvioBaratto/optimizer/development/install.ps1 | iex"
 ```
+
+Both scripts pull from the `development` branch by default; set `PORTOPT_REF`
+(or `PORTOPT_REPO`) before running to install a different ref or fork.
 
 Equivalently, by hand:
 
 ```bash
-uv tool install portopt      # installs the `portopt` CLI on your PATH
-portopt setup                # interactive wizard (see below)
+uv tool install "git+https://github.com/SilvioBaratto/optimizer.git@development#subdirectory=ingestion"
+portopt setup   # interactive wizard (see below)
 ```
 
 **`portopt setup`** verifies Docker + the compose plugin, validates your

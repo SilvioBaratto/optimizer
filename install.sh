@@ -2,18 +2,25 @@
 # portopt bootstrap (mac/linux): install uv if missing, install the portopt CLI,
 # then launch the interactive setup wizard.
 #
-#   curl -LsSf https://raw.githubusercontent.com/SilvioBaratto/optimizer/main/install.sh | bash
+#   curl -LsSf https://raw.githubusercontent.com/SilvioBaratto/optimizer/development/install.sh | bash
 #   curl -LsSf .../install.sh | bash -s -- --non-interactive --llm-provider openrouter …
 set -euo pipefail
 
 if ! command -v uv >/dev/null 2>&1; then
   echo "Installing uv (Astral)..."
   curl -LsSf https://astral.sh/uv/install.sh | sh
-  export PATH="$HOME/.local/bin:$PATH"
 fi
 
-echo "Installing the portopt CLI..."
-uv tool install portopt
+# uv drops tool executables in ~/.local/bin, so put it on PATH unconditionally.
+# That keeps the portopt shim callable in this session even when uv already existed.
+export PATH="$HOME/.local/bin:$PATH"
+
+# Nothing in this project ships to PyPI, so install the CLI member straight from
+# git. The install tracks a branch instead of a published release.
+PORTOPT_REPO="${PORTOPT_REPO:-https://github.com/SilvioBaratto/optimizer.git}"
+PORTOPT_REF="${PORTOPT_REF:-development}"
+echo "Installing the portopt CLI from ${PORTOPT_REPO}@${PORTOPT_REF}..."
+uv tool install --force "git+${PORTOPT_REPO}@${PORTOPT_REF}#subdirectory=ingestion"
 
 echo "Launching the setup wizard..."
 # `curl | bash` binds this shell's stdin to the piped script, not the terminal, so
