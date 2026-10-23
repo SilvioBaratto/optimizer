@@ -11,12 +11,14 @@ Missed lines targeted
 158-167     get_instruments — exchange_name filter, search filter, skip/limit, no-filter
 170         get_exchanges — empty + populated
 
-PG-only methods
----------------
-- save_instruments_batch (lines 41-80): uses pg_insert + ON CONFLICT DO UPDATE
-  with a named constraint that does not exist in SQLite — SQLite raises
-  ``OperationalError: no such constraint``.  It cannot be executed here, so only
-  the statement it emits is checked, compiled for the PostgreSQL dialect.
+save_instruments_batch
+----------------------
+Built with ``pg_insert(...).on_conflict_do_update(constraint=...)``. SQLite
+(>= 3.35) compiles that as a target-less ``ON CONFLICT DO UPDATE``, which fires
+on the table's one non-PK unique constraint (ticker + exchange), so the venue
+change and per-row upsert semantics run against the in-memory engine. What
+SQLite cannot show (the conflict update's column expressions) is checked by
+compiling the emitted statement for the PostgreSQL dialect.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from _fixtures import add_and_flush, seed_universe
+from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 
 from portopt_db.models.universe.universe import Exchange, Instrument
@@ -396,9 +399,17 @@ class TestSaveInstrumentsBatchKeepsBackfilledIsin:
         from sqlalchemy.dialects import postgresql
 
         statements: list = []
-        monkeypatch.setattr(
-            db_session, "execute", lambda stmt, *a, **k: statements.append(stmt)
-        )
+        real_execute = db_session.execute
+
+        def _capture_upsert(stmt, *args, **kwargs):
+            # The venue-change lookup is a real SELECT; only the upsert, which
+            # SQLite cannot run, is captured instead of executed.
+            if getattr(stmt, "is_insert", False):
+                statements.append(stmt)
+                return None
+            return real_execute(stmt, *args, **kwargs)
+
+        monkeypatch.setattr(db_session, "execute", _capture_upsert)
         _repo(db_session).save_instruments_batch(
             [{"ticker": "AAPL_US", "shortName": "AAPL", "isin": None}],
             exchange_id=uuid.uuid4(),
@@ -412,3 +423,106 @@ class TestSaveInstrumentsBatchKeepsBackfilledIsin:
         sql = self._upsert_sql(db_session, monkeypatch)
 
         assert "isin = coalesce(excluded.isin, instruments.isin)" in sql
+
+
+def _batch_row(ticker: str, **overrides) -> dict:
+    return {"ticker": ticker, "shortName": ticker, "type": "STOCK", **overrides}
+
+
+def _rows_for(session, ticker: str) -> list[Instrument]:
+    return list(
+        session.execute(select(Instrument).where(Instrument.ticker == ticker))
+        .scalars()
+        .all()
+    )
+
+
+class TestSaveInstrumentsBatchVenueChange:
+    """A symbol that moves venue must stay ONE instrument row.
+
+    Ticker-keyed readers (price lookups, the yfinance sweep) assume a symbol is
+    unique, so a second (ticker, new exchange) row beside the stale one makes
+    them raise ``MultipleResultsFound`` or fetch the symbol twice.
+    """
+
+    def test_when_symbol_moves_exchange_then_existing_row_is_rehomed(self, db_session):
+        repo = _repo(db_session)
+        nasdaq = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        nyse = repo.save_exchange({"name": "NYSE", "id": 2})
+        repo.save_instruments_batch([_batch_row("XYZ")], nasdaq.id)
+        original_id = _rows_for(db_session, "XYZ")[0].id
+
+        repo.save_instruments_batch([_batch_row("XYZ")], nyse.id)
+
+        rows = _rows_for(db_session, "XYZ")
+        assert len(rows) == 1
+        assert rows[0].id == original_id
+        assert rows[0].exchange_id == nyse.id
+
+    def test_when_stale_row_was_marked_delisted_then_move_reactivates_it(
+        self, db_session
+    ):
+        repo = _repo(db_session)
+        nasdaq = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        nyse = repo.save_exchange({"name": "NYSE", "id": 2})
+        repo.save_instruments_batch([_batch_row("XYZ")], nasdaq.id)
+        repo.mark_delisted("XYZ", nasdaq.id, date(2024, 6, 1))
+
+        repo.save_instruments_batch([_batch_row("XYZ")], nyse.id)
+
+        rows = _rows_for(db_session, "XYZ")
+        assert len(rows) == 1
+        assert rows[0].exchange_id == nyse.id
+        assert rows[0].delisted_at is None
+
+    def test_when_symbol_already_on_target_exchange_then_other_venue_is_untouched(
+        self, db_session
+    ):
+        repo = _repo(db_session)
+        nasdaq = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        nyse = repo.save_exchange({"name": "NYSE", "id": 2})
+        # Legacy state: the symbol already has a row on both venues.
+        for exchange in (nasdaq, nyse):
+            add_and_flush(
+                db_session,
+                Instrument(ticker="XYZ", short_name="XYZ", exchange_id=exchange.id),
+            )
+
+        repo.save_instruments_batch([_batch_row("XYZ")], nyse.id)
+
+        venues = sorted(r.exchange_id for r in _rows_for(db_session, "XYZ"))
+        assert venues == sorted([nasdaq.id, nyse.id])
+
+    def test_when_predecessor_is_ambiguous_then_no_existing_row_is_moved(
+        self, db_session
+    ):
+        repo = _repo(db_session)
+        nasdaq = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        amex = repo.save_exchange({"name": "AMEX", "id": 2})
+        nyse = repo.save_exchange({"name": "NYSE", "id": 3})
+        # Legacy state: two stale rows elsewhere, so neither is provably the
+        # predecessor of the NYSE listing.
+        stale_ids = {}
+        for exchange in (nasdaq, amex):
+            row = Instrument(ticker="XYZ", short_name="XYZ", exchange_id=exchange.id)
+            add_and_flush(db_session, row)
+            stale_ids[exchange.id] = row.id
+
+        repo.save_instruments_batch([_batch_row("XYZ")], nyse.id)
+
+        rows = _rows_for(db_session, "XYZ")
+        assert {r.exchange_id for r in rows} == {nasdaq.id, amex.id, nyse.id}
+        for row in rows:
+            if row.exchange_id in stale_ids:
+                assert row.id == stale_ids[row.exchange_id]
+
+    def test_unrelated_tickers_on_other_exchanges_stay_put(self, db_session):
+        repo = _repo(db_session)
+        nasdaq = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        nyse = repo.save_exchange({"name": "NYSE", "id": 2})
+        repo.save_instruments_batch([_batch_row("AAA")], nasdaq.id)
+
+        repo.save_instruments_batch([_batch_row("BBB")], nyse.id)
+
+        assert _rows_for(db_session, "AAA")[0].exchange_id == nasdaq.id
+        assert _rows_for(db_session, "BBB")[0].exchange_id == nyse.id

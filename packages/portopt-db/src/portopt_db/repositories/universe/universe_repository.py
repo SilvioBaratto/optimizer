@@ -2,6 +2,7 @@
 
 import logging
 import uuid as uuid_mod
+from collections import defaultdict
 from collections.abc import Sequence
 from datetime import date
 from typing import Any
@@ -67,8 +68,10 @@ class UniverseRepository(RepositoryBase):
         exchange). On conflict every mutable field is overwritten, except that a
         missing ``isin`` leaves the stored one in place, and
         ``delisted_at``/``delisting_return`` are cleared so a re-listed
-        instrument is automatically re-activated. The session is flushed but
-        not committed.
+        instrument is automatically re-activated. A symbol that already exists
+        on another exchange is first re-homed onto ``exchange_id`` (see
+        :meth:`_rehome_moved_symbols`) so a venue change never yields a second
+        row. The session is flushed but not committed.
 
         Args:
             instruments_data: Raw attribute dicts as returned by the T212 API.
@@ -99,6 +102,8 @@ class UniverseRepository(RepositoryBase):
                 }
             )
 
+        self._rehome_moved_symbols([row["ticker"] for row in rows], exchange_id)
+
         stmt = pg_insert(Instrument).values(rows)
         stmt = stmt.on_conflict_do_update(
             constraint="uq_instrument_ticker_exchange",
@@ -122,6 +127,47 @@ class UniverseRepository(RepositoryBase):
         self.session.execute(stmt)
         self.session.flush()
         return len(rows)
+
+    def _rehome_moved_symbols(self, tickers: list[str], exchange_id: Any) -> None:
+        """Move rows for symbols that changed venue onto ``exchange_id``.
+
+        The unique key is (ticker, exchange), so upserting a symbol that moved
+        (e.g. a NASDAQ -> NYSE listing transfer) would insert a second row next
+        to the stale one. Ticker-keyed readers then hit ``MultipleResultsFound``
+        and the yfinance sweep fetches the symbol twice. Updating
+        ``exchange_id`` in place keeps the instrument id, so its price and
+        profile history stay attached.
+
+        A symbol is left alone when it already has a row on ``exchange_id`` (the
+        move would violate the unique key) or when several rows exist elsewhere
+        (no way to tell which one is the predecessor).
+        """
+        homed_here = set(
+            self.session.execute(
+                select(Instrument.ticker)
+                .where(Instrument.exchange_id == exchange_id)
+                .where(Instrument.ticker.in_(tickers))
+            ).scalars()
+        )
+        candidates = set(tickers) - homed_here
+        if not candidates:
+            return
+
+        ids_by_ticker: dict[str, list[Any]] = defaultdict(list)
+        for instrument_id, ticker in self.session.execute(
+            select(Instrument.id, Instrument.ticker)
+            .where(Instrument.exchange_id != exchange_id)
+            .where(Instrument.ticker.in_(candidates))
+        ):
+            ids_by_ticker[ticker].append(instrument_id)
+
+        moved_ids = [ids[0] for ids in ids_by_ticker.values() if len(ids) == 1]
+        if moved_ids:
+            self.session.execute(
+                update(Instrument)
+                .where(Instrument.id.in_(moved_ids))
+                .values(exchange_id=exchange_id)
+            )
 
     def mark_delisted(
         self,
