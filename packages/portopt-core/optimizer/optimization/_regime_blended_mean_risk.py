@@ -37,6 +37,12 @@ from optimizer.validation._factory import build_walk_forward
 
 logger = logging.getLogger(__name__)
 
+# Caps how many consecutive training dates may reuse the last known regime
+# probabilities. Bridges a one-day HMM lag, holiday-calendar mismatches and
+# weekly probability grids while still failing loudly on a truncated series
+# instead of silently blending on a stale state.
+_MAX_PROBABILITY_STALENESS = 5
+
 
 @dataclass(frozen=True)
 class RegimeBlendedMeanRiskConfig:
@@ -71,8 +77,10 @@ class _ExternallyControlledRegimeCovariance(BaseCovariance):
     Args:
         half_life: EW decay half-life in trading days.
         regime_probabilities: Pre-computed HMM regime probabilities indexed by
-            date, shape ``(T, n_regimes)``. Must cover every date in the
-            training window passed to `fit`.
+            date, shape ``(T, n_regimes)``. Each training date uses the most
+            recent probabilities at or before it, carried forward for at most
+            ``_MAX_PROBABILITY_STALENESS`` consecutive dates; the last
+            training date must be covered or `fit` raises.
         nearest: Passed to `BaseCovariance`.
         higham: Passed to `BaseCovariance`.
         higham_max_iteration: Passed to `BaseCovariance`.
@@ -122,16 +130,35 @@ class _ExternallyControlledRegimeCovariance(BaseCovariance):
                 "Ensure the pipeline uses set_output(transform='pandas')."
             )
 
-        aligned = self.regime_probabilities.reindex(X.index).fillna(0.0)
-        overlap = self.regime_probabilities.index.intersection(X.index)
-        if len(overlap) < 30:
+        aligned = (
+            self.regime_probabilities.sort_index()
+            .reindex(X.index, method="ffill", limit=_MAX_PROBABILITY_STALENESS)
+            .fillna(0.0)
+        )
+        row_sums = aligned.sum(axis=1)
+        has_mass = row_sums > 1e-10
+        n_covered = int(has_mass.sum())
+        if n_covered < 30:
             raise ConfigurationError(
-                f"Insufficient overlap: {len(overlap)} observations "
+                f"Insufficient overlap: {n_covered} observations "
                 "(minimum 30 required). Ensure regime_probabilities "
                 "covers the training window dates."
             )
-        row_sums = aligned.sum(axis=1).clip(lower=1e-10)
-        aligned = aligned.div(row_sums, axis=0)
+        if not has_mass.iloc[-1]:
+            raise ConfigurationError(
+                f"regime_probabilities has no row within "
+                f"{_MAX_PROBABILITY_STALENESS} observations of the last "
+                f"training date ({X.index[-1]}); the terminal regime "
+                "probabilities that blend the covariance are undefined."
+            )
+        if n_covered < len(X):
+            logger.warning(
+                "regime_probabilities cover %d of %d training dates; the "
+                "uncovered dates are excluded from every regime's covariance.",
+                n_covered,
+                len(X),
+            )
+        aligned = aligned.div(row_sums.clip(lower=1e-10), axis=0)
 
         X_np = X.to_numpy(dtype=float)
         n_obs, n_assets = X_np.shape

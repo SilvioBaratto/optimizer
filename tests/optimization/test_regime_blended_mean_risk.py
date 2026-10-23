@@ -324,6 +324,75 @@ class TestRegimeCovarianceFitGuards:
 
 
 # ---------------------------------------------------------------------------
+# 9b. Terminal-date coverage of the regime probabilities
+# ---------------------------------------------------------------------------
+
+
+class TestRegimeProbabilitiesMissingOnTerminalDate:
+    def test_probabilities_lagging_one_day_carry_the_last_known_state_forward(
+        self, factor_returns_df: pd.DataFrame, regime_probs_df: pd.DataFrame
+    ) -> None:
+        from optimizer.optimization._regime_blended_mean_risk import (
+            _ExternallyControlledRegimeCovariance,
+        )
+
+        lagged = _ExternallyControlledRegimeCovariance(
+            regime_probabilities=regime_probs_df.iloc[:-1]
+        ).fit(factor_returns_df)
+
+        carried = regime_probs_df.copy()
+        carried.iloc[-1] = regime_probs_df.iloc[-2]
+        expected = _ExternallyControlledRegimeCovariance(
+            regime_probabilities=carried
+        ).fit(factor_returns_df)
+
+        assert np.all(np.diag(lagged.covariance_) > 0.0)
+        np.testing.assert_allclose(lagged.covariance_, expected.covariance_)
+
+    def test_weekly_probabilities_fit_even_when_last_date_is_off_grid(
+        self, factor_returns_df: pd.DataFrame, regime_probs_df: pd.DataFrame
+    ) -> None:
+        from optimizer.optimization._regime_blended_mean_risk import (
+            _ExternallyControlledRegimeCovariance,
+        )
+
+        weekly = regime_probs_df.iloc[::5]
+        assert weekly.index[-1] != factor_returns_df.index[-1]
+
+        fitted = _ExternallyControlledRegimeCovariance(regime_probabilities=weekly).fit(
+            factor_returns_df
+        )
+
+        assert np.all(np.diag(fitted.covariance_) > 0.0)
+
+    def test_probabilities_stale_beyond_the_limit_raise_configuration_error(
+        self, factor_returns_df: pd.DataFrame, regime_probs_df: pd.DataFrame
+    ) -> None:
+        from optimizer.optimization._regime_blended_mean_risk import (
+            _ExternallyControlledRegimeCovariance,
+        )
+
+        cov = _ExternallyControlledRegimeCovariance(
+            regime_probabilities=regime_probs_df.iloc[:-20]
+        )
+        with pytest.raises(ConfigurationError, match="last training date"):
+            cov.fit(factor_returns_df)
+
+    def test_pipeline_fits_when_probabilities_end_one_day_early(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+    ) -> None:
+        pipeline, _ = build_regime_blended_mean_risk(
+            factor_returns=factor_returns_df,
+            regime_probabilities=regime_probs_df.iloc[:-1],
+        )
+        pipeline.fit(returns_df, optimizer__factors=factor_returns_df)
+        assert sum(pipeline[-1].weights_) == pytest.approx(1.0, rel=1e-4)
+
+
+# ---------------------------------------------------------------------------
 # 10. Sector constraints reach the optimiser
 # ---------------------------------------------------------------------------
 
