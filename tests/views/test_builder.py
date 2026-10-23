@@ -117,6 +117,16 @@ class TestImpliedReturnFromPriceTarget:
         with pytest.raises(ConfigurationError, match="horizon_periods"):
             implied_return_from_price_target(100.0, 110.0, horizon_periods=0.0)
 
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+    def test_nonfinite_current_raises(self, bad: float) -> None:
+        with pytest.raises(DataError, match="current_price"):
+            implied_return_from_price_target(bad, 110.0)
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+    def test_nonfinite_target_raises(self, bad: float) -> None:
+        with pytest.raises(DataError, match="target_price"):
+            implied_return_from_price_target(100.0, bad)
+
 
 class TestRecommendationConfidence:
     def test_unanimous_is_max(self) -> None:
@@ -232,6 +242,30 @@ class TestBuildAnalystBlViews:
         signals = {"AAPL": AnalystSignal(current_price=100.0, target_mean=110.0)}
         with pytest.raises(ConfigurationError, match="precision"):
             build_analyst_bl_views(signals, precision=-1)
+
+    @pytest.mark.parametrize(
+        ("current", "target"),
+        [
+            (100.0, float("nan")),
+            (float("nan"), 110.0),
+            (100.0, float("inf")),
+            (float("inf"), 110.0),
+        ],
+    )
+    def test_nonfinite_prices_are_skipped_not_emitted(
+        self, current: float, target: float
+    ) -> None:
+        signals = {
+            "BAD": AnalystSignal(current_price=current, target_mean=target),
+            "AAPL": AnalystSignal(current_price=100.0, target_mean=110.0),
+        }
+        views, _ = build_analyst_bl_views(signals)
+        assert views == ("AAPL == 0.100000",)
+
+    def test_nonfinite_price_raises_when_not_skipping(self) -> None:
+        signals = {"BAD": AnalystSignal(current_price=100.0, target_mean=float("nan"))}
+        with pytest.raises(DataError, match="BAD"):
+            build_analyst_bl_views(signals, skip_incomplete=False)
 
 
 class TestBuildBlackLittermanConfigFromSignals:

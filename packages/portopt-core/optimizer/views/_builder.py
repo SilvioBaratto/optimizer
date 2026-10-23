@@ -30,6 +30,7 @@ Note:
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
@@ -57,6 +58,16 @@ class PriceTargetStatistic(str, Enum):
 def _to_float(value: float | Decimal | None) -> float | None:
     """Cast a possibly-``Decimal`` DB value to ``float`` (``None`` passthrough)."""
     return None if value is None else float(value)
+
+
+def _is_valid_price(price: float | Decimal) -> bool:
+    """Whether *price* is a usable quote: finite and strictly positive.
+
+    NaN and ``+inf`` slip past a bare ``price <= 0`` check (every NaN comparison
+    is ``False``), and a single such view turns the whole Black-Litterman
+    posterior non-finite.
+    """
+    return math.isfinite(price) and price > 0.0
 
 
 @dataclass(frozen=True)
@@ -136,8 +147,8 @@ def implied_return_from_price_target(
     returns fed to Black-Litterman ``fit`` (see the module scale gotcha).
 
     Args:
-        current_price: Latest price. Must be strictly positive.
-        target_price: The (12-month) target. Must be strictly positive.
+        current_price: Latest price. Must be finite and strictly positive.
+        target_price: The (12-month) target. Must be finite and strictly positive.
         horizon_periods: Number of return periods until the target is expected to
             realise (e.g. ``252`` for a 12-month target against daily returns).
             ``1.0`` returns the raw cumulative implied return unchanged.
@@ -149,15 +160,20 @@ def implied_return_from_price_target(
         The per-period implied expected return.
 
     Raises:
-        DataError: If ``current_price`` or ``target_price`` is not strictly positive.
+        DataError: If ``current_price`` or ``target_price`` is not finite and
+            strictly positive.
         ConfigurationError: If ``horizon_periods`` is not strictly positive.
     """
     current: float = float(current_price)
     target: float = float(target_price)
-    if current <= 0.0:
-        raise DataError(f"current_price must be strictly positive, got {current}")
-    if target <= 0.0:
-        raise DataError(f"target_price must be strictly positive, got {target}")
+    if not _is_valid_price(current):
+        raise DataError(
+            f"current_price must be finite and strictly positive, got {current}"
+        )
+    if not _is_valid_price(target):
+        raise DataError(
+            f"target_price must be finite and strictly positive, got {target}"
+        )
     if horizon_periods <= 0.0:
         raise ConfigurationError(
             f"horizon_periods must be strictly positive, got {horizon_periods}"
@@ -271,11 +287,16 @@ def build_analyst_bl_views(
     for ticker, signal in signals.items():
         target = signal.target(statistic)
         current = signal.current_price
-        if target is None or current is None or current <= 0.0 or target <= 0.0:
+        if (
+            target is None
+            or current is None
+            or not (_is_valid_price(current) and _is_valid_price(target))
+        ):
             if skip_incomplete:
                 continue
             raise DataError(
-                f"{ticker}: missing or non-positive current/{statistic.value} target"
+                f"{ticker}: missing, non-finite or non-positive "
+                f"current/{statistic.value} target"
             )
         if with_confidence and signal.total_votes < min_votes:
             if skip_incomplete:
