@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -544,3 +546,60 @@ class TestComputeCompositeScoreDispatch:
             training_returns=training_returns,
         )
         assert isinstance(result, pd.Series)
+
+
+class TestMLCompositeIgnoresGroupWeightsLoudly:
+    """ML composites learn per-factor weights, so group tilts cannot apply.
+
+    Dropping them silently would hide a regime overlay the caller asked for.
+    """
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            CompositeScoringConfig.for_ridge_weighted(),
+            CompositeScoringConfig.for_gbt_weighted(),
+        ],
+        ids=["ridge", "gbt"],
+    )
+    def test_group_weights_warn_and_leave_scores_unchanged(
+        self,
+        config: CompositeScoringConfig,
+        current_scores: pd.DataFrame,
+        coverage: pd.DataFrame,
+        training_scores: pd.DataFrame,
+        training_returns: pd.Series,
+    ) -> None:
+        kwargs = {
+            "config": config,
+            "training_scores": training_scores,
+            "training_returns": training_returns,
+        }
+        baseline = compute_composite_score(current_scores, coverage, **kwargs)
+        with pytest.warns(UserWarning, match="group_weights.*ignored"):
+            tilted = compute_composite_score(
+                current_scores,
+                coverage,
+                group_weights={"value": 0.0, "momentum": 5.0},
+                **kwargs,
+            )
+        assert isinstance(tilted, pd.Series)
+        assert isinstance(baseline, pd.Series)
+        pd.testing.assert_series_equal(tilted, baseline)
+
+    def test_no_warning_without_group_weights(
+        self,
+        current_scores: pd.DataFrame,
+        coverage: pd.DataFrame,
+        training_scores: pd.DataFrame,
+        training_returns: pd.Series,
+    ) -> None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            compute_composite_score(
+                current_scores,
+                coverage,
+                config=CompositeScoringConfig.for_ridge_weighted(),
+                training_scores=training_scores,
+                training_returns=training_returns,
+            )

@@ -430,7 +430,11 @@ def compute_composite_score(
             ``RIDGE_WEIGHTED`` or ``GBT_WEIGHTED``. Forward returns aligned
             with ``training_scores``.
         group_weights: Pre-computed group weights (e.g. from regime tilts).
-            Threaded through to the inner scoring functions.
+            Threaded through to the equal-weight, IC-weighted and
+            ICIR-weighted scoring functions.  The ridge and GBT methods learn
+            per-factor weights from returns and cannot apply group tilts, so
+            they ignore this argument and emit a ``UserWarning`` when it is
+            given.
 
     Returns:
         Composite score per ticker. When ``config.return_coverage`` is True,
@@ -470,6 +474,14 @@ def compute_composite_score(
                 f"{config.method.value} composite method"
             )
             raise ConfigurationError(msg)
+        if group_weights is not None:
+            warnings.warn(
+                f"group_weights is ignored by the {config.method.value} composite "
+                "method: ML models learn per-factor weights and cannot apply "
+                "group-level tilts such as regime tilts.",
+                UserWarning,
+                stacklevel=2,
+            )
         composite = compute_ml_composite(
             standardized_factors, training_scores, training_returns, config
         )
