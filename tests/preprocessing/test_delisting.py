@@ -108,6 +108,30 @@ class TestApplyDelistingReturns:
         with pytest.raises(DataError, match="AAPL"):
             apply_delisting_returns(sample_returns, {"AAPL": float("inf")})
 
+    @pytest.mark.parametrize("impossible", [-1.0000001, -1.5, -5.0, -30.0])
+    def test_return_below_total_loss_raises(
+        self, sample_returns: pd.DataFrame, impossible: float
+    ) -> None:
+        # A linear return cannot be below -100%; -30.0 is a percentage typed
+        # where a fraction was expected and would give negative wealth.
+        with pytest.raises(DataError, match="AAPL"):
+            apply_delisting_returns(sample_returns, {"AAPL": impossible})
+
+    def test_return_below_total_loss_leaves_input_untouched(
+        self, sample_returns: pd.DataFrame
+    ) -> None:
+        before = sample_returns.copy()
+        with pytest.raises(DataError):
+            apply_delisting_returns(sample_returns, {"AAPL": -5.0})
+        pd.testing.assert_frame_equal(sample_returns, before)
+
+    def test_positive_terminal_return_is_valid(
+        self, sample_returns: pd.DataFrame
+    ) -> None:
+        # A cash acquisition at a premium delists the stock with a gain.
+        result = apply_delisting_returns(sample_returns, {"AAPL": 0.25})
+        assert result["AAPL"].iloc[2] == pytest.approx(0.25)
+
 
 class TestDelistingProtectionMask:
     def test_marks_last_valid_cell(self, sample_returns: pd.DataFrame) -> None:

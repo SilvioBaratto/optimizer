@@ -150,8 +150,9 @@ def apply_delisting_returns(
 
     Args:
         returns: Dates x tickers return matrix.
-        delisting_returns: Mapping of ticker to its (finite) delisting return.
-            Tickers whose column is entirely ``NaN`` are skipped.
+        delisting_returns: Mapping of ticker to its delisting return, a finite
+            fraction of at least ``-1.0``.  Tickers whose column is entirely
+            ``NaN`` are skipped.
         delisted_at: Optional mapping of ticker to its delisting date.  For a
             listed ticker the terminal return replaces the return on the last
             row dated on or before that date, and every later row becomes
@@ -165,9 +166,10 @@ def apply_delisting_returns(
     Raises:
         DataError: If a ticker in *delisting_returns* is not in *returns*
             columns, or its delisting return is ``None`` / non-finite
-            (unresolved ``NULL``), or a delisting date is null, unparseable,
-            mismatched with the index in timezone awareness or earlier than the
-            first row, or the index is not a sorted ``DatetimeIndex``.
+            (unresolved ``NULL``) or below ``-1.0`` (impossible for a linear
+            return), or a delisting date is null, unparseable, mismatched with
+            the index in timezone awareness or earlier than the first row, or
+            the index is not a sorted ``DatetimeIndex``.
     """
     result = returns.copy()
 
@@ -180,6 +182,13 @@ def apply_delisting_returns(
                 f"Delisting return for {ticker!r} is {delist_ret!r}; resolve a "
                 "NULL/unknown delisting_return to a finite value (e.g. the "
                 "CRSP-style -0.30 default or -1.0 for bankruptcy) before calling."
+            )
+
+        if delist_ret < -1.0:
+            raise DataError(
+                f"Delisting return for {ticker!r} is {delist_ret!r}, below the "
+                "-1.0 total loss a linear return can reach; pass a fraction "
+                "(-0.30), not a percentage (-30)."
             )
 
         pos = _terminal_position(result, ticker, delisted_at)
