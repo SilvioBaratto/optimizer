@@ -6,13 +6,27 @@ pin the security guarantees: round-trip, wrong-passphrase rejection, no plaintex
 typed error when the store is missing.
 """
 
+import base64
+import json
 import os
 import sys
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 from app.setup import secret_store
+
+# Captured at import, before the autouse fixture lowers the cost for speed, so the
+# shipped default can still be asserted.
+_SHIPPED_SCRYPT_N = secret_store._SCRYPT_N
+
+
+@pytest.fixture(autouse=True)
+def _cheap_kdf(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Drop scrypt to a toy cost: the shipped one takes seconds per derivation."""
+    monkeypatch.setattr(secret_store, "_SCRYPT_N", 2**10)
 
 
 def _store(tmp_path: Path) -> Path:
@@ -117,3 +131,74 @@ def test_store_is_created_owner_only_not_tightened_afterwards(
     finally:
         os.umask(previous)
     assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_shipped_scrypt_cost_meets_owasp_minimum() -> None:
+    # OWASP's scrypt minimum is N=2**17 with r=8, p=1 (128 MiB per guess).
+    assert _SHIPPED_SCRYPT_N >= 2**17
+    assert secret_store._SCRYPT_R >= 8
+    assert secret_store._SCRYPT_P >= 1
+
+
+def test_load_uses_kdf_parameters_recorded_in_the_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The cost must travel with the file, otherwise raising the module default later
+    # makes every existing store undecryptable.
+    path = _store(tmp_path)
+    secret_store.save_secrets({"A": "1"}, "pw", path=path)
+    monkeypatch.setattr(secret_store, "_SCRYPT_N", 2**11)
+    assert secret_store.load_secrets("pw", path=path) == {"A": "1"}
+
+
+def _legacy_blob(secrets: dict[str, str], passphrase: str) -> bytes:
+    """A store as written before the KDF header existed: ``salt || token``."""
+    salt = os.urandom(16)
+    kdf = Scrypt(salt=salt, length=32, n=2**14, r=8, p=1)
+    key = base64.urlsafe_b64encode(kdf.derive(passphrase.encode("utf-8")))
+    return salt + Fernet(key).encrypt(json.dumps(secrets).encode("utf-8"))
+
+
+def test_legacy_headerless_store_still_loads(tmp_path: Path) -> None:
+    path = _store(tmp_path)
+    path.write_bytes(_legacy_blob({"A": "1"}, "old-pass"))
+    assert secret_store.load_secrets("old-pass", path=path) == {"A": "1"}
+
+
+def test_resaving_a_legacy_store_upgrades_it_to_the_versioned_format(
+    tmp_path: Path,
+) -> None:
+    path = _store(tmp_path)
+    path.write_bytes(_legacy_blob({"A": "1"}, "old-pass"))
+    loaded = secret_store.load_secrets("old-pass", path=path)
+    secret_store.save_secrets(loaded, "old-pass", path=path)
+    assert path.read_bytes().startswith(secret_store._MAGIC)
+    assert secret_store.load_secrets("old-pass", path=path) == {"A": "1"}
+
+
+@pytest.mark.parametrize(
+    ("version", "log2_n", "r", "p"),
+    [
+        (99, 10, 8, 1),  # unknown format version
+        (1, 40, 8, 1),  # N = 2**40 would exhaust memory
+        (1, 10, 0, 1),  # r = 0 is not a valid scrypt parameter
+        (1, 10, 8, 0),  # p = 0 likewise
+        (1, 20, 255, 1),  # memory cost far beyond any legitimate store
+    ],
+)
+def test_malformed_kdf_header_is_a_corrupt_store_not_a_crash(
+    tmp_path: Path, version: int, log2_n: int, r: int, p: int
+) -> None:
+    path = _store(tmp_path)
+    header = secret_store._MAGIC + bytes([version, log2_n, r, p])
+    path.write_bytes(header + os.urandom(16) + b"token")
+    with pytest.raises(secret_store.InvalidPassphraseError):
+        secret_store.load_secrets("pw", path=path)
+
+
+def test_truncated_versioned_store_is_a_corrupt_store(tmp_path: Path) -> None:
+    path = _store(tmp_path)
+    secret_store.save_secrets({"A": "1"}, "pw", path=path)
+    path.write_bytes(path.read_bytes()[:10])
+    with pytest.raises(secret_store.InvalidPassphraseError):
+        secret_store.load_secrets("pw", path=path)
