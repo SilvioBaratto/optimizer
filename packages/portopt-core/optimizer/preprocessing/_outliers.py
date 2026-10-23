@@ -10,7 +10,10 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
 from optimizer.exceptions import DataError
-from optimizer.preprocessing._alignment import _align_to_fit_columns
+from optimizer.preprocessing._alignment import (
+    _align_to_fit_columns,
+    _fit_feature_names_out,
+)
 from optimizer.preprocessing._coerce import _coerce_numeric
 
 logger = logging.getLogger(__name__)
@@ -135,13 +138,17 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
         """Return the feature names seen during fit.
 
         Args:
-            input_features: Ignored; present for sklearn Pipeline compatibility.
+            input_features: Optional names to check against the fit columns,
+                as sklearn passes through ``Pipeline.get_feature_names_out``.
 
         Returns:
             Array of column names from the training DataFrame.
+
+        Raises:
+            ValueError: If *input_features* differs from the fit columns.
         """
         check_is_fitted(self)
-        return self.feature_names_in_
+        return _fit_feature_names_out(self.feature_names_in_, input_features)
 
     # -- internals -----------------------------------------------------------
 

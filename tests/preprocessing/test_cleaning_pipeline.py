@@ -144,8 +144,8 @@ class TestTransformTimeColumns:
 
     makers = pytest.mark.parametrize(
         "make",
-        [DataValidator, OutlierTreater, SectorImputer],
-        ids=["validator", "outliers", "sector_imputer"],
+        [DataValidator, OutlierTreater, SectorImputer, RegressionImputer],
+        ids=["validator", "outliers", "sector_imputer", "regression_imputer"],
     )
 
     @makers
@@ -186,3 +186,25 @@ class TestTransformTimeColumns:
         pipe.fit(frame[["A", "B", "C"]])
         with pytest.raises(DataError):
             pipe.transform(frame[["A", "B", "D"]])
+
+    @makers
+    def test_feature_names_out_defaults_to_fit_names(
+        self, frame: pd.DataFrame, make: type
+    ) -> None:
+        fitted = make().fit(frame)
+        np.testing.assert_array_equal(fitted.get_feature_names_out(), frame.columns)
+        np.testing.assert_array_equal(
+            fitted.get_feature_names_out(list(frame.columns)), frame.columns
+        )
+
+    @makers
+    def test_feature_names_out_rejects_names_unlike_fit(
+        self, frame: pd.DataFrame, make: type
+    ) -> None:
+        # Echoing the fit names for a different ``input_features`` would let
+        # sklearn relabel foreign columns positionally.
+        fitted = make().fit(frame)
+        with pytest.raises(ValueError, match="input_features"):
+            fitted.get_feature_names_out(["D", "C", "B", "A"])
+        with pytest.raises(ValueError, match="input_features"):
+            fitted.get_feature_names_out(["A", "B", "C"])

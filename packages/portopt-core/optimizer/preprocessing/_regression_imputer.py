@@ -10,6 +10,10 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
 from optimizer.exceptions import ConfigurationError, DataError
+from optimizer.preprocessing._alignment import (
+    _align_to_fit_columns,
+    _fit_feature_names_out,
+)
 from optimizer.preprocessing._coerce import _coerce_numeric
 from optimizer.preprocessing._imputation import SectorImputer
 
@@ -123,13 +127,19 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
         """Impute NaN values using fitted regressions and/or fallback.
 
         Args:
-            X: Asset return DataFrame (dates x assets). May contain NaN.
+            X: Asset return DataFrame (dates x assets). May contain NaN. Must
+                carry the columns seen in fit, in any order.
 
         Returns:
-            Copy of X with NaN values filled.
+            Copy of X with NaN values filled, columns in fit order.
+
+        Raises:
+            DataError: If X lacks a fit column or has one unseen in fit.
         """
         check_is_fitted(self)
-        X = self._validate_input(X)
+        X = _align_to_fit_columns(
+            self._validate_input(X), self.feature_names_in_, "RegressionImputer"
+        )
 
         fallback_df = self._fallback_imputer_.transform(X)
         out = X.copy()
@@ -169,9 +179,20 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
         return out
 
     def get_feature_names_out(self, input_features: object = None) -> np.ndarray:
-        """Return feature names (pass-through)."""
+        """Return the feature names seen during fit.
+
+        Args:
+            input_features: Optional names to check against the fit columns,
+                as sklearn passes through ``Pipeline.get_feature_names_out``.
+
+        Returns:
+            Array of column names from the fitted DataFrame.
+
+        Raises:
+            ValueError: If *input_features* differs from the fit columns.
+        """
         check_is_fitted(self)
-        return self.feature_names_in_
+        return _fit_feature_names_out(self.feature_names_in_, input_features)
 
     @staticmethod
     def _validate_input(X: pd.DataFrame) -> pd.DataFrame:

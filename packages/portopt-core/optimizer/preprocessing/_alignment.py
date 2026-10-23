@@ -17,7 +17,7 @@ import pandas as pd
 
 from optimizer.exceptions import DataError
 
-__all__ = ["_align_to_fit_columns"]
+__all__ = ["_align_to_fit_columns", "_fit_feature_names_out"]
 
 
 def _align_to_fit_columns(
@@ -59,3 +59,31 @@ def _align_to_fit_columns(
             f"({'; '.join(problems)})"
         )
     return X.reindex(columns=expected)
+
+
+def _fit_feature_names_out(
+    feature_names_in: np.ndarray, input_features: object = None
+) -> np.ndarray:
+    """Return the fit-time names after checking any caller-supplied names.
+
+    Args:
+        feature_names_in: Column names recorded by ``fit``.
+        input_features: Names the caller believes the estimator was fit on, as
+            sklearn passes through ``Pipeline.get_feature_names_out``.  ``None``
+            skips the check.
+
+    Returns:
+        The fit-time column names.
+
+    Raises:
+        ValueError: If *input_features* is given and differs from the fit names
+            (same contract as sklearn's one-to-one transformers).
+    """
+    if input_features is not None:
+        given = np.asarray(input_features, dtype=object)
+        if (
+            given.shape != feature_names_in.shape
+            or not (given == feature_names_in).all()
+        ):
+            raise ValueError("input_features is not equal to feature_names_in_")
+    return feature_names_in
