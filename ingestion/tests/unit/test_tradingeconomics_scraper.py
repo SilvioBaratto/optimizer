@@ -783,6 +783,37 @@ class TestGdpQuarterlyConvention:
         assert "2.20" in summary
 
 
+class TestBondYieldSummary:
+    @staticmethod
+    def _summary(day_change: float | None) -> str:
+        return _make_scraper().get_indicator_summary(
+            {
+                "country": "USA",
+                "status": "success",
+                "indicators": {},
+                "bond_yields": {
+                    "10Y": {"yield": 4.0, "day_change": day_change, "date": "Oct/23"}
+                },
+            }
+        )
+
+    def test_missing_day_change_is_reported_as_not_available(self) -> None:
+        """A blank or '-' Day cell parses to None; the summary must still print."""
+        line = next(
+            ln
+            for ln in self._summary(None).splitlines()
+            if ln.lstrip().startswith("10Y")
+        )
+
+        assert "day: N/A" in line
+        assert "4.00%" in line
+        assert "[Oct/23]" in line
+
+    def test_day_change_is_signed_when_present(self) -> None:
+        assert "day: +0.050%" in self._summary(0.05)
+        assert "day: -0.120%" in self._summary(-0.12)
+
+
 # ---------------------------------------------------------------------------
 # TestRequestSpacing — one interval across every Trading Economics page
 # ---------------------------------------------------------------------------

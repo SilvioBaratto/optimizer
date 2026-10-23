@@ -1141,7 +1141,7 @@ class TradingEconomicsIndicatorsScraper:
                 if maturity in bond_yields:
                     data = bond_yields[maturity]
                     yield_value = data["yield"]
-                    day_change = data.get("day_change", 0)
+                    day_change = data.get("day_change")
                     date = data.get("date", "")
 
                     change_indicator = (
@@ -1149,9 +1149,10 @@ class TradingEconomicsIndicatorsScraper:
                         if day_change and day_change > 0
                         else ("↓" if day_change and day_change < 0 else "→")
                     )
+                    day_str = f"{day_change:+.3f}%" if day_change is not None else "N/A"
                     lines.append(
                         f"  {maturity:5s}: {yield_value:5.2f}% {change_indicator} "
-                        f"(day: {day_change:+.3f}%) [{date}]"
+                        f"(day: {day_str}) [{date}]"
                     )
 
         industrial_production = country_data.get("industrial_production")
