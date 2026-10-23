@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 
 import numpy as np
 import pandas as pd
@@ -69,6 +70,42 @@ class TestAbsolutePower:
     def test_when_power_non_positive_then_raises(self) -> None:
         with pytest.raises(ConfigurationError, match="power must be"):
             DistanceConfig.for_pearson(power=0.0)
+
+    @pytest.mark.parametrize(
+        "preset",
+        [
+            DistanceConfig.for_pearson,
+            DistanceConfig.for_kendall,
+            DistanceConfig.for_spearman,
+            DistanceConfig.for_covariance,
+        ],
+    )
+    def test_when_fractional_power_without_absolute_then_raises(
+        self, preset: Callable[..., DistanceConfig]
+    ) -> None:
+        # skfolio raises the signed codependence to ``power``; a negative base
+        # with a fractional exponent is NaN, which would poison every entry of
+        # distance_ (including the diagonal) whatever the data.
+        with pytest.raises(ConfigurationError, match="absolute"):
+            preset(power=0.5)
+
+    def test_when_fractional_power_with_absolute_then_distances_finite(
+        self, returns: pd.DataFrame
+    ) -> None:
+        cfg = DistanceConfig.for_pearson(absolute=True, power=0.5)
+        est = build_distance(cfg).fit(returns)
+        assert np.isfinite(est.distance_).all()
+
+    def test_when_integer_valued_float_power_then_distances_finite(
+        self, returns: pd.DataFrame
+    ) -> None:
+        est = build_distance(DistanceConfig.for_pearson(power=2.0)).fit(returns)
+        assert np.isfinite(est.distance_).all()
+
+    @pytest.mark.parametrize("power", [float("nan"), float("inf")])
+    def test_when_power_not_finite_then_raises(self, power: float) -> None:
+        with pytest.raises(ConfigurationError, match="power must be"):
+            DistanceConfig.for_pearson(absolute=True, power=power)
 
     def test_when_absolute_true_then_negative_corr_becomes_close(
         self, returns: pd.DataFrame

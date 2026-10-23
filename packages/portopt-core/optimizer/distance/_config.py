@@ -13,8 +13,11 @@ transform via ``absolute`` and ``power``:
 * ``absolute`` — take the absolute value of the codependence before mapping it
   to a distance (treats strong negative and positive correlation as equally
   "close").
-* ``power`` — raise the ``(1 - codependence)`` term to this power, sharpening
-  or softening the resulting dendrogram.
+* ``power`` — raise the codependence itself to this power before mapping it to
+  a distance. A fractional power of a negative codependence is NaN, so it
+  requires ``absolute=True``; an even integer power without ``absolute`` makes
+  strong negative and positive correlation equally "close" (squared angular
+  distance).
 
 These apply to the correlation / covariance family (Pearson, Kendall, Spearman,
 Covariance). ``DistanceCorrelation`` instead exposes a ``threshold`` and
@@ -25,6 +28,7 @@ Setting a knob that does not belong to the selected estimator raises a
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
 
@@ -74,8 +78,10 @@ class DistanceConfig:
         absolute: Take the absolute value of the codependence before mapping to a
             distance. Only valid for the correlation / covariance family
             (Pearson, Kendall, Spearman, Covariance).
-        power: Exponent applied to the ``(1 - codependence)`` term. Must be strictly
-            positive. Only valid for the correlation / covariance family.
+        power: Exponent applied to the codependence (not to ``1 - codependence``).
+            Must be finite and strictly positive, and must be a whole number unless
+            ``absolute`` is ``True`` (a fractional power of a negative codependence
+            is NaN). Only valid for the correlation / covariance family.
         threshold: Codependence threshold for ``skfolio.distance.DistanceCorrelation``.
             Only valid when ``estimator`` is ``DISTANCE_CORRELATION``. ``None`` keeps
             the skfolio default (0.5).
@@ -114,8 +120,13 @@ class DistanceConfig:
                 "covariance distance family (PEARSON, KENDALL, SPEARMAN, "
                 "COVARIANCE)"
             )
-        if self.power <= 0.0:
-            raise ConfigurationError("power must be strictly positive")
+        if not math.isfinite(self.power) or self.power <= 0.0:
+            raise ConfigurationError("power must be finite and strictly positive")
+        if not self.absolute and not float(self.power).is_integer():
+            raise ConfigurationError(
+                "a fractional power requires absolute=True: it is applied to the "
+                "signed codependence and is NaN for negative correlations"
+            )
 
         # threshold belongs to DISTANCE_CORRELATION only.
         if not is_dcorr and self.threshold is not None:
