@@ -43,6 +43,10 @@ from app.services.universe.universe_build_service import build_trading212_client
 _counter = itertools.count(1)
 _lock = threading.Lock()
 
+# Yardstick for "enough history" (~3 years of sessions). The universe config
+# applies no history threshold any more, so the diagnostic carries its own.
+_MIN_TRADING_DAYS = 750
+
 
 def fetch_history_fixed(
     client: YFinanceClient,
@@ -230,7 +234,7 @@ def main() -> None:
     pairs = _real_universe_pairs(cfg)
     print(
         f"Universe: {len(pairs)} allowed-exchange STOCKs; probing first {args.limit} "
-        f"at {args.workers} workers (min_trading_days={cfg.min_trading_days})"
+        f"at {args.workers} workers (min_trading_days={_MIN_TRADING_DAYS})"
     )
     sample = pairs[: args.limit]
 
@@ -247,7 +251,7 @@ def main() -> None:
     results.sort(key=lambda r: r["idx"])
     mapped = [r for r in results if r.get("mapped")]
     info_ok = [r for r in mapped if r.get("info_ok")]
-    hist_ok = [r for r in mapped if r.get("hist_rows", 0) >= cfg.min_trading_days]
+    hist_ok = [r for r in mapped if r.get("hist_rows", 0) >= _MIN_TRADING_DAYS]
     hist_empty = [
         r
         for r in mapped
@@ -270,7 +274,7 @@ def main() -> None:
     print(f"probed              : {len(results)}")
     print(f"mapped (yf found)   : {len(mapped)}")
     print(f"fetch_info ok       : {len(info_ok)}")
-    print(f"fetch_history >=750 : {len(hist_ok)}")
+    print(f"fetch_history >={_MIN_TRADING_DAYS} : {len(hist_ok)}")
     print(f"history EMPTY (0)   : {len(hist_empty)}")
     print(f"history ERROR       : {len(hist_err)}")
     print(f"probe ERROR         : {len(probe_err)}")
@@ -286,7 +290,7 @@ def main() -> None:
         buckets[(r["idx"] - 1) // 50].append(r)
     for b in sorted(buckets):
         rs = buckets[b]
-        hok = sum(1 for r in rs if r.get("hist_rows", 0) >= cfg.min_trading_days)
+        hok = sum(1 for r in rs if r.get("hist_rows", 0) >= _MIN_TRADING_DAYS)
         iok = sum(1 for r in rs if r.get("info_ok"))
         print(
             f"  idx {b * 50 + 1:4}-{b * 50 + 50:<4}: history {hok:2}/{len(rs):2}  (info {iok}/{len(rs)})"
@@ -306,14 +310,14 @@ def main() -> None:
     #              to ever reach min_trading_days (a legitimate rejection), OR
     #   GAPPY   -> first trade date is old enough (span >= min years) but rows are
     #              sparse -> partial data / calendar / thin trading, NOT "young".
-    min_years = cfg.min_trading_days / 252.0
+    min_years = _MIN_TRADING_DAYS / 252.0
     short = sorted(
-        (r for r in mapped if 0 < r.get("hist_rows", 0) < cfg.min_trading_days),
+        (r for r in mapped if 0 < r.get("hist_rows", 0) < _MIN_TRADING_DAYS),
         key=lambda r: r.get("hist_rows", 0),
     )
     if short:
         print(
-            f"\nSHORT HISTORY (0 < rows < {cfg.min_trading_days}, "
+            f"\nSHORT HISTORY (0 < rows < {_MIN_TRADING_DAYS}, "
             f"~{min_years:.1f}y): {len(short)} tickers"
         )
         print(

@@ -8,8 +8,9 @@ No network, database or API key is touched.
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock, create_autospec
 
 import pandas as pd
@@ -209,3 +210,34 @@ def test_fetch_history_raw_keeps_price_repair_on(script, client, ticker):
     script.fetch_history_raw(client, "AAPL", attempts=1)
 
     ticker.history.assert_called_once_with(period="5y", repair=True)
+
+
+def test_main_reports_short_histories_without_a_config_history_floor(
+    script, mapper, client, monkeypatch, capsys
+):
+    """The universe config carries no history threshold, so the script owns its own.
+
+    ``UniverseBuilderConfig`` dropped every size / history threshold, and ``main``
+    must still run to the end - classifying a short listing as YOUNG - rather than
+    crash on the missing attribute after the rate-limited universe fetch.
+    """
+    monkeypatch.setattr(
+        sys, "argv", ["debug_universe_scale", "--limit", "2", "--workers", "2"]
+    )
+    monkeypatch.setattr(
+        script,
+        "_real_universe_pairs",
+        lambda cfg: [("NASDAQ", _inst()), ("NYSE", _inst())],
+    )
+    monkeypatch.setattr(script, "YFinanceTickerMapper", lambda cfg: mapper)
+    monkeypatch.setattr(
+        script, "YFinanceClient", SimpleNamespace(get_instance=lambda: client)
+    )
+
+    script.main()
+
+    out = capsys.readouterr().out
+    floor = script._MIN_TRADING_DAYS
+    assert f"fetch_history >={floor} : 0" in out
+    assert f"SHORT HISTORY (0 < rows < {floor}" in out
+    assert "YOUNG (genuine short listing): 2" in out
