@@ -473,6 +473,31 @@ class TestRegimeThresholdConfig:
         # Unaffected fields stay at defaults
         assert cfg.pmi_expansion == 52.0
 
+    def test_for_rolling_percentile_keeps_conventional_inversion_threshold(
+        self,
+    ) -> None:
+        import pandas as pd
+
+        spread = pd.Series([-0.5, 0.2, 0.8, 1.2, 2.0])
+        cfg = RegimeThresholdConfig.for_rolling_percentile(spread_series=spread)
+        # Only the steepness cut-off is distribution-based; inversion is the
+        # structural 10Y-2Y = 0 point, not the 35th percentile of the history.
+        assert cfg.spread_2s10s_steep == pytest.approx(spread.quantile(0.65))
+        assert cfg.spread_2s10s_inversion == 0.0
+
+    def test_for_rolling_percentile_upward_sloping_curve_is_not_inverted(
+        self,
+    ) -> None:
+        import pandas as pd
+
+        from optimizer.factors import classify_regime_composite
+
+        spread = pd.Series([0.1, 0.4, 0.8, 1.2, 1.6, 2.0])
+        cfg = RegimeThresholdConfig.for_rolling_percentile(spread_series=spread)
+        macro = pd.DataFrame({"spread_2s10s": [0.3]})
+        baseline = classify_regime_composite(macro, RegimeThresholdConfig())
+        assert classify_regime_composite(macro, cfg) == baseline
+
     def test_custom_values(self) -> None:
         cfg = RegimeThresholdConfig(hy_oas_risk_on=300.0, pmi_expansion=53.0)
         assert cfg.hy_oas_risk_on == 300.0

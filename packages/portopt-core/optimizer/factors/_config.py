@@ -822,7 +822,11 @@ class RegimeThresholdConfig:
 
         Pass historical Series for each indicator; thresholds are set at
         the specified percentiles.  Any ``None`` series falls back to the
-        hard-coded empirical default for that indicator.
+        hard-coded empirical default for that indicator.  The curve-inversion
+        threshold is not percentile-based: inversion is the structural
+        10Y-2Y = 0 point, so it always keeps the conventional default (a
+        mirrored percentile of a mostly positive history would score a normal
+        upward-sloping curve as inverted).
         """
         import pandas as pd
 
@@ -843,9 +847,6 @@ class RegimeThresholdConfig:
             ),
             spread_2s10s_steep=_pct(
                 spread_series, spread_steep_pct, defaults.spread_2s10s_steep
-            ),
-            spread_2s10s_inversion=_pct(
-                spread_series, 1.0 - spread_steep_pct, defaults.spread_2s10s_inversion
             ),
             sentiment_positive=_pct(
                 sentiment_series,
