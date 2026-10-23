@@ -9,10 +9,12 @@ wizard tell "bad key" (retry) apart from "service unavailable" (abort/inform).
 The LLM-backend validator (``validate_llm()``, SPEC "Switchable LLM Backends")
 probes the fund's ten switchable providers over **httpx only** — never an
 agent-stack or provider SDK import, so ingestion keeps its ``⊬ agent stack``
-boundary. Most providers get a cheap authed GET (200 → ok, 401/403 → bad key);
-``aws`` (Bedrock, region-scoped via the boto3 chain) and ``microsoft`` (Azure,
-four wired fields) have no cheap authed REST probe, so they are presence-only
-(+ endpoint reachability for Azure) — SPEC Open Q2.
+boundary. Most providers get a cheap authed request (200 → ok, 401/403 → bad
+key); ``aws`` (Bedrock, region-scoped via the boto3 chain) and ``microsoft``
+(Azure, four wired fields) have no cheap authed REST probe, so they are
+presence-only (+ endpoint reachability for Azure) — SPEC Open Q2. Hosted
+``nvidia`` is the same in practice: its only cheap endpoint, ``/v1/models``, is
+public, so a key is checked for presence and the host for reachability.
 """
 
 from __future__ import annotations
@@ -127,6 +129,16 @@ _NVIDIA_BASE = "https://integrate.api.nvidia.com/v1"
 _HF_WHOAMI = "https://huggingface.co/api/whoami-v2"
 
 
+def _llm_request(
+    method: str, url: str, headers: Mapping[str, str] | None
+) -> httpx.Response:
+    try:
+        with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
+            return getattr(client, method)(url, headers=headers)
+    except httpx.RequestError as exc:
+        raise ValidationNetworkError(redact_secrets(str(exc))) from None
+
+
 def _llm_get(
     url: str,
     *,
@@ -139,11 +151,16 @@ def _llm_get(
     Credentials go in ``headers`` only: httpx logs the full request URL at INFO,
     so a key in the query string would land in the operator's terminal.
     """
-    try:
-        with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
-            return client.get(url, headers=headers)
-    except httpx.RequestError as exc:
-        raise ValidationNetworkError(redact_secrets(str(exc))) from None
+    return _llm_request("get", url, headers)
+
+
+def _llm_post(
+    url: str,
+    *,
+    headers: Mapping[str, str] | None = None,
+) -> httpx.Response:
+    """One cheap bodyless httpx POST; same error mapping as :func:`_llm_get`."""
+    return _llm_request("post", url, headers)
 
 
 def _bearer_get_ok(url: str, key: str | None) -> bool:
@@ -202,14 +219,28 @@ def _v_huggingface(
     return _bearer_get_ok(_HF_WHOAMI, key)
 
 
+def _is_ollama_cloud(base: str) -> bool:
+    # Compare the parsed hostname, not a substring: a self-hosted server named
+    # e.g. ollama.company.local must stay on the local probe, since it 404s the
+    # cloud-only /api/me and the wizard would report a good key as rejected.
+    host = urlsplit(base).hostname or ""
+    return host == _OLLAMA_CLOUD_HOST or host.endswith(f".{_OLLAMA_CLOUD_HOST}")
+
+
 def _v_ollama(
     key: str | None, base_url: str | None, fields: Mapping[str, str | None]
 ) -> bool:
     # Cloud (ollama.com) requires a key; a local base_url needs none. Attach the
     # bearer only when a key is present (server-down → connect → raise).
     base = (base_url or _OLLAMA_BASE).rstrip("/")
-    if _OLLAMA_CLOUD_HOST in base and not key:
-        return False
+    if _is_ollama_cloud(base):
+        if not key:
+            return False
+        # ollama.com/api/tags is public (200 for any bearer), so a mistyped or
+        # revoked key would pass; /api/me is the cheapest call that checks it.
+        url = f"{base}/api/me"
+        resp = _llm_post(url, headers={"Authorization": f"Bearer {key}"})
+        return _accepted(resp.status_code, url)
     headers = {"Authorization": f"Bearer {key}"} if key else None
     url = f"{base}/api/tags"
     return _accepted(_llm_get(url, headers=headers).status_code, url)
@@ -218,8 +249,9 @@ def _v_ollama(
 def _v_nvidia(
     key: str | None, base_url: str | None, fields: Mapping[str, str | None]
 ) -> bool:
-    # Self-hosted NIM (base_url set) needs no key — reachability only; hosted
-    # (build.nvidia.com) requires the key.
+    # Self-hosted NIM (base_url set) needs no key — reachability only. Hosted
+    # (build.nvidia.com) requires a key, but its /v1/models listing is public
+    # (200 for any bearer), so this only proves presence plus reachability.
     if base_url:
         url = f"{base_url.rstrip('/')}/models"
         return _accepted(_llm_get(url).status_code, url)

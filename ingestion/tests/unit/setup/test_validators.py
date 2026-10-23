@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 import traceback
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -82,11 +83,10 @@ def test_validate_fred_network_error_never_carries_the_api_key() -> None:
     assert "api.stlouisfed.org" in str(exc_info.value)
 
 
-# Providers that do a real authed probe (200 -> ok, 401/403 -> bad, connect ->
-# raise). ollama(cloud+key) and nvidia(hosted+key) belong here; aws + microsoft
-# are presence-only and tested separately.
+# Providers that do a real authed GET probe (200 -> ok, 401/403 -> bad, connect ->
+# raise). ollama cloud probes with a POST (tested below) and aws + microsoft are
+# presence-only, so none of those belong here.
 _AUTHED_PROVIDERS = (
-    "ollama",
     "openai",
     "openrouter",
     "anthropic",
@@ -163,6 +163,16 @@ def test_validate_llm_anthropic_uses_x_api_key_header() -> None:
     assert "anthropic-version" in kwargs["headers"]
 
 
+def _mock_httpx(handler: Callable[[httpx.Request], httpx.Response]):
+    """Patch the validators' httpx.Client to answer through ``handler``."""
+    real_client = httpx.Client
+
+    def client_with_mock_transport(*args: object, **kwargs: object) -> httpx.Client:
+        return real_client(*args, transport=httpx.MockTransport(handler), **kwargs)  # type: ignore[arg-type]
+
+    return patch("app.setup.validators.httpx.Client", client_with_mock_transport)
+
+
 def test_validate_llm_google_sends_key_in_header_not_url() -> None:
     with patch("app.setup.validators._llm_get", return_value=_resp(200)) as m:
         assert validators.validate_llm("google", key="goog") is True
@@ -180,19 +190,50 @@ def test_validate_llm_google_key_never_reaches_the_httpx_request_log(
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"models": []})
 
-    real_client = httpx.Client
-
-    def client_with_mock_transport(*args: object, **kwargs: object) -> httpx.Client:
-        return real_client(*args, transport=httpx.MockTransport(handler), **kwargs)  # type: ignore[arg-type]
-
     with (
-        patch("app.setup.validators.httpx.Client", client_with_mock_transport),
+        _mock_httpx(handler),
         caplog.at_level(logging.INFO, logger="httpx"),
     ):
         assert validators.validate_llm("google", key=leaked) is True
 
     assert any("HTTP Request" in r.getMessage() for r in caplog.records)
     assert leaked not in caplog.text
+
+
+def _ollama_cloud(request: httpx.Request) -> httpx.Response:
+    """ollama.com: /api/tags is public, /api/me needs the valid bearer key."""
+    if request.url.path == "/api/tags":
+        return httpx.Response(200, json={"models": []})
+    if request.url.path == "/api/me" and request.method == "POST":
+        authed = request.headers.get("Authorization") == "Bearer good-key"
+        return httpx.Response(200 if authed else 401, json={})
+    return httpx.Response(404)
+
+
+def test_validate_llm_ollama_cloud_rejects_a_bad_key() -> None:
+    """The public tags listing answers 200 to any bearer, so it proves nothing."""
+    with _mock_httpx(_ollama_cloud):
+        assert validators.validate_llm("ollama", key="mistyped-key") is False
+
+
+def test_validate_llm_ollama_cloud_accepts_a_valid_key() -> None:
+    with _mock_httpx(_ollama_cloud):
+        assert validators.validate_llm("ollama", key="good-key") is True
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_validate_llm_ollama_cloud_bad_key_on_401_403(status: int) -> None:
+    with _mock_httpx(lambda request: httpx.Response(status)):
+        assert validators.validate_llm("ollama", key="k") is False
+
+
+def test_validate_llm_ollama_cloud_connect_error_raises() -> None:
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route to host", request=request)
+
+    with _mock_httpx(down):
+        with pytest.raises(ValidationNetworkError):
+            validators.validate_llm("ollama", key="k")
 
 
 def test_validate_llm_ollama_cloud_without_key_is_bad_without_network() -> None:
@@ -210,6 +251,60 @@ def test_validate_llm_ollama_local_needs_no_key() -> None:
     (url,), kwargs = m.call_args
     assert url.endswith("/api/tags")
     assert kwargs["headers"] is None  # no bearer attached for a keyless local run
+
+
+def _local_ollama(request: httpx.Request) -> httpx.Response:
+    """A self-hosted Ollama: serves /api/tags, has never heard of /api/me."""
+    if request.url.path == "/api/tags" and request.method == "GET":
+        return httpx.Response(200, json={"models": []})
+    return httpx.Response(404)
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://ollama.company.local:11434",
+        "http://ollama.com.internal:11434",
+        "https://ollama.com.evil.example",
+        "https://notollama.com",
+    ],
+)
+def test_validate_llm_ollama_lookalike_host_is_not_the_cloud(base_url: str) -> None:
+    """Only the ``ollama.com`` hostname is the cloud; a self-hosted server whose
+    name merely contains that text must keep the local probe, which a local server
+    answers, instead of the cloud-only ``POST /api/me`` it would 404."""
+    with _mock_httpx(_local_ollama):
+        assert validators.validate_llm("ollama", key="k", base_url=base_url) is True
+
+
+def test_validate_llm_ollama_lookalike_host_needs_no_key() -> None:
+    with _mock_httpx(_local_ollama):
+        assert (
+            validators.validate_llm("ollama", base_url="http://ollama.company.local")
+            is True
+        )
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://ollama.com",
+        "https://ollama.com/",
+        "https://OLLAMA.COM:443",
+        "https://api.ollama.com",
+    ],
+)
+def test_validate_llm_ollama_cloud_hostnames_use_the_authed_probe(
+    base_url: str,
+) -> None:
+    with _mock_httpx(_ollama_cloud):
+        assert (
+            validators.validate_llm("ollama", key="mistyped-key", base_url=base_url)
+            is False
+        )
+        assert (
+            validators.validate_llm("ollama", key="good-key", base_url=base_url) is True
+        )
 
 
 def test_validate_llm_nvidia_self_hosted_needs_no_key() -> None:
@@ -385,6 +480,15 @@ def test_validate_llm_keyless_local_probes_surface_outages_too(status: int) -> N
             validators.validate_llm("ollama", base_url="http://localhost:11434")
         with pytest.raises(ValidationNetworkError, match=str(status)):
             validators.validate_llm("nvidia", base_url="http://nim:8000/v1")
+
+
+@pytest.mark.parametrize("status", _UNAVAILABLE_STATUSES)
+def test_validate_llm_ollama_cloud_rate_limit_or_outage_is_not_a_rejected_key(
+    status: int,
+) -> None:
+    with _mock_httpx(lambda request: httpx.Response(status)):
+        with pytest.raises(ValidationNetworkError, match=str(status)):
+            validators.validate_llm("ollama", key="k")
 
 
 @pytest.mark.parametrize("provider", _AUTHED_PROVIDERS)
