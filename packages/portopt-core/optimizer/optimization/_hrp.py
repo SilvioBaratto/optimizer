@@ -39,8 +39,14 @@ class HRPConfig:
             pick the default.
         min_weights: Lower bound on asset weights.
         max_weights: Upper bound on asset weights.
-        transaction_costs: Linear transaction costs penalising turnover.
+        transaction_costs: Linear transaction costs relative to
+            ``previous_weights``.  Applied only to the cost accounting of the
+            resulting Portfolio (net returns); it does not change the
+            optimised weights, so it cannot damp rebalancing.  Use
+            ``MeanRiskConfig`` for turnover-aware optimisation.
         management_fees: Linear management fees proportional to position size.
+            Applied only to the cost accounting of the resulting Portfolio; it
+            does not change the optimised weights.
     """
 
     risk_measure: RiskMeasureType = RiskMeasureType.VARIANCE

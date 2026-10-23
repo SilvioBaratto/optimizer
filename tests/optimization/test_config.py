@@ -2,17 +2,30 @@
 
 from __future__ import annotations
 
+import inspect
 import math
+import re
 
+import numpy as np
 import pytest
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.optimization import (
+    BenchmarkTrackerConfig,
     FallbackPolicy,
+    HERCConfig,
+    HRPConfig,
     MeanRiskConfig,
     ObjectiveFunctionType,
     RatioMeasureType,
+    RiskBudgetingConfig,
     RiskMeasureType,
+    SchurComplementaryConfig,
+    build_benchmark_tracker,
+    build_herc,
+    build_hrp,
+    build_risk_budgeting,
+    build_schur_complementary,
 )
 
 
@@ -205,3 +218,60 @@ class TestMeanRiskConfig:
         assert cfg.objective == ObjectiveFunctionType.MAXIMIZE_RATIO
         assert cfg.raise_on_failure is False
         assert cfg.fallback_policy == FallbackPolicy.PREVIOUS_WEIGHTS
+
+
+# Optimisers whose skfolio implementation never reads the cost terms while
+# solving: the fields only feed the cost accounting of the resulting Portfolio.
+_REPORTING_ONLY_COST_BUILDERS = [
+    (HRPConfig, build_hrp),
+    (HERCConfig, build_herc),
+    (SchurComplementaryConfig, build_schur_complementary),
+    (RiskBudgetingConfig, build_risk_budgeting),
+    (BenchmarkTrackerConfig, build_benchmark_tracker),
+]
+
+
+def _attribute_doc(config_cls: type, name: str) -> str:
+    """Return the whitespace-normalised ``Attributes:`` entry for ``name``."""
+    doc = inspect.getdoc(config_cls) or ""
+    match = re.search(rf"^    {name}:(.*?)(?=^    \w+:|^\w|\Z)", doc, re.M | re.S)
+    assert match is not None, f"{config_cls.__name__} does not document {name}"
+    return " ".join(match.group(1).split())
+
+
+class TestCostFieldsAreReportingOnly:
+    @pytest.fixture(scope="class")
+    def returns(self):
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        return prices_to_returns(load_sp500_dataset()).iloc[:, :8]
+
+    @pytest.mark.parametrize(("config_cls", "build"), _REPORTING_ONLY_COST_BUILDERS)
+    def test_when_costs_set_then_weights_do_not_change(
+        self, returns, config_cls: type, build
+    ) -> None:
+        previous = np.array([1.0] + [0.0] * 7)
+        benchmark = returns.mean(axis=1)
+
+        def fitted_weights(**costs: float) -> np.ndarray:
+            model = build(config_cls(**costs), previous_weights=previous)
+            model.fit(returns, benchmark)
+            return model.weights_
+
+        free = fitted_weights()
+        charged = fitted_weights(transaction_costs=0.05, management_fees=0.05)
+        assert np.allclose(free, charged)
+
+    @pytest.mark.parametrize(
+        ("config_cls", "build"),
+        _REPORTING_ONLY_COST_BUILDERS,
+        ids=[cls.__name__ for cls, _ in _REPORTING_ONLY_COST_BUILDERS],
+    )
+    @pytest.mark.parametrize("field", ["transaction_costs", "management_fees"])
+    def test_when_documented_then_says_weights_are_unchanged(
+        self, config_cls: type, build, field: str
+    ) -> None:
+        doc = _attribute_doc(config_cls, field)
+        assert "does not change the optimised weights" in doc
+        assert "penalis" not in doc
