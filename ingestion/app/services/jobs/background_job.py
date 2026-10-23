@@ -175,16 +175,29 @@ class BackgroundJobService:
         Logs WARNING when the status-guarded UPDATE matched no row for a
         status change — the worker-vs-reaper race closure (the row was
         already failed by the orphan reaper before this write landed).
+
+        Raises:
+            Exception: Any database error from a write that carries a
+                ``status``. Pure progress writes (no ``status``) are
+                best-effort telemetry: a database error is logged at WARNING
+                and swallowed so it cannot abort a long sweep whose data is
+                already committed.
         """
         try:
             uid = uuid.UUID(job_id)
         except ValueError:
             return
 
-        with self._get_session_context_manager() as session:
-            repo = BackgroundJobRepository(session)
-            rowcount = repo.update(uid, **kwargs)
-            session.commit()
+        try:
+            with self._get_session_context_manager() as session:
+                repo = BackgroundJobRepository(session)
+                rowcount = repo.update(uid, **kwargs)
+                session.commit()
+        except Exception:
+            if "status" in kwargs:
+                raise
+            logger.warning("progress update failed for %s", job_id, exc_info=True)
+            return
 
         if rowcount == 1:
             self._emit_transition(job_id, kwargs)

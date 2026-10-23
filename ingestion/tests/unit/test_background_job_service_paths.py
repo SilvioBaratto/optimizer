@@ -25,6 +25,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from prometheus_client import REGISTRY
+from sqlalchemy.exc import OperationalError
 
 import app.metrics  # noqa: F401  # patch("app.metrics") needs the submodule loaded
 from app.services.jobs.background_job import BackgroundJobService
@@ -146,6 +147,38 @@ class TestUpdateJob:
             svc.update_job(JOB_ID, current=5)
 
         session.commit.assert_called_once()
+
+    def test_progress_write_db_error_is_logged_and_swallowed(
+        self, svc: BackgroundJobService, caplog
+    ) -> None:
+        """Telemetry must not abort a sweep whose data is already committed."""
+        import logging
+
+        with _repo() as repo:
+            repo.update.side_effect = OperationalError("UPDATE", {}, Exception("x"))
+            with caplog.at_level(logging.WARNING, logger=M):
+                svc.update_job(JOB_ID, current=5, current_ticker="AAPL")
+
+        assert any("progress update failed" in r.getMessage() for r in caplog.records)
+
+    def test_progress_write_commit_error_is_swallowed(
+        self, svc: BackgroundJobService, session: MagicMock
+    ) -> None:
+        session.commit.side_effect = OperationalError("COMMIT", {}, Exception("x"))
+
+        with _repo() as repo:
+            repo.update.return_value = 1
+            svc.update_job(JOB_ID, current=5)
+
+    @pytest.mark.parametrize("status", ["running", "completed", "failed"])
+    def test_status_transition_db_error_still_propagates(
+        self, svc: BackgroundJobService, status: str
+    ) -> None:
+        """A lost terminal write must stay loud so the step is marked failed."""
+        with _repo() as repo:
+            repo.update.side_effect = OperationalError("UPDATE", {}, Exception("x"))
+            with pytest.raises(OperationalError):
+                svc.update_job(JOB_ID, status=status)
 
 
 class TestIsAnyRunning:
