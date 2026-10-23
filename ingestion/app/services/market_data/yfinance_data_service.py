@@ -1309,7 +1309,10 @@ class YFinanceDataService:
                 )
                 if dividends is not None and not dividends.empty:
                     counts["dividends"] = self._write(
-                        self.repo.upsert_dividends, instrument_id, dividends
+                        self.repo.upsert_dividends,
+                        instrument_id,
+                        dividends,
+                        price_currency=currency_code,
                     )
                 else:
                     counts["dividends"] = 0

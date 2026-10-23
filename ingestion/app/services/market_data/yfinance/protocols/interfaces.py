@@ -230,7 +230,7 @@ class CorporateActionsClientProtocol(Protocol):
 
     def fetch_dividends(
         self, symbol: str, max_retries: int | None = None
-    ) -> pd.Series | None: ...
+    ) -> pd.Series | pd.DataFrame | None: ...
 
     def fetch_splits(
         self, symbol: str, max_retries: int | None = None

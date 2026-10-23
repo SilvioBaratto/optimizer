@@ -106,6 +106,22 @@ class TestFetchDividends:
         client, _ = _corp_client(dividends=_EMPTY_SERIES)
         assert client.fetch_dividends("AAPL", max_retries=1) is None
 
+    def test_when_currency_tagged_frame_then_returns_frame_unchanged(self) -> None:
+        # yfinance returns Dividends + currency columns when Yahoo tags payments.
+        frame = pd.DataFrame(
+            {"Dividends": [0.25, 0.30], "currency": ["GBp", "GBp"]},
+            index=pd.to_datetime(["2024-01-15", "2024-04-15"]),
+        )
+        client, _ = _corp_client(dividends=frame)
+        result = client.fetch_dividends("SHEL.L", max_retries=1)
+        assert isinstance(result, pd.DataFrame)
+        pd.testing.assert_frame_equal(result, frame)
+
+    def test_when_currency_tagged_frame_empty_then_returns_none(self) -> None:
+        empty = pd.DataFrame({"Dividends": [], "currency": []})
+        client, _ = _corp_client(dividends=empty)
+        assert client.fetch_dividends("SHEL.L", max_retries=1) is None
+
     def test_when_attribute_raises_then_returns_none(self) -> None:
         cache, rl, cb, ticker = _make_infra()
         type(ticker).dividends = property(

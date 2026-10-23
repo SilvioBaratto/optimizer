@@ -1811,6 +1811,102 @@ class TestUpsertDividendsPreprocessing:
         assert rows == []
 
 
+class TestUpsertDividendsCurrencyFrame:
+    """yfinance returns a ``Dividends`` + ``currency`` DataFrame (not a Series)
+    when Yahoo tags payments with a currency."""
+
+    def _call(
+        self,
+        db_session: Session,
+        frame: pd.DataFrame,
+        price_currency: str | None = "GBp",
+    ) -> list:
+        repo = _repo(db_session)
+        captured: list = []
+
+        def fake_upsert(model, rows, *, constraint_name, update_columns=None):
+            captured.extend(rows)
+            return len(rows)
+
+        repo._upsert = fake_upsert  # type: ignore[method-assign]
+        repo.upsert_dividends(uuid.uuid4(), frame, price_currency=price_currency)
+        return captured
+
+    @staticmethod
+    def _frame(amounts: list[float], currencies: list[str]) -> pd.DataFrame:
+        index = pd.to_datetime(
+            ["2024-01-15", "2024-04-15", "2024-07-15", "2024-10-15"][: len(amounts)]
+        ).rename("Date")
+        return pd.DataFrame({"Dividends": amounts, "currency": currencies}, index=index)
+
+    def test_multi_row_frame_in_price_currency_is_stored(
+        self, db_session: Session
+    ) -> None:
+        rows = self._call(
+            db_session, self._frame([0.25, 0.30, 0.35], ["GBp", "GBp", "GBp"])
+        )
+        assert [r["amount"] for r in rows] == pytest.approx([0.25, 0.30, 0.35])
+        assert [r["date"] for r in rows] == [
+            date(2024, 1, 15),
+            date(2024, 4, 15),
+            date(2024, 7, 15),
+        ]
+
+    def test_single_row_frame_is_stored(self, db_session: Session) -> None:
+        rows = self._call(db_session, self._frame([0.25], ["GBp"]))
+        assert [r["amount"] for r in rows] == pytest.approx([0.25])
+
+    def test_listing_code_alias_matches_yahoo_sub_unit_code(
+        self, db_session: Session
+    ) -> None:
+        rows = self._call(
+            db_session, self._frame([0.25], ["GBp"]), price_currency="GBX"
+        )
+        assert len(rows) == 1
+
+    def test_blank_currency_is_treated_as_price_currency(
+        self, db_session: Session
+    ) -> None:
+        rows = self._call(db_session, self._frame([0.25, 0.30], ["", "GBp"]))
+        assert len(rows) == 2
+
+    def test_rows_paid_in_another_currency_are_not_stored_in_price_unit(
+        self, db_session: Session
+    ) -> None:
+        rows = self._call(
+            db_session, self._frame([0.25, 0.40, 0.35], ["GBp", "USD", "GBp"])
+        )
+        assert [r["amount"] for r in rows] == pytest.approx([0.25, 0.35])
+
+    def test_major_unit_payment_is_not_mistaken_for_sub_unit_price(
+        self, db_session: Session
+    ) -> None:
+        # GBP vs GBp differ by 100x, so the unit must match exactly.
+        rows = self._call(db_session, self._frame([0.25], ["GBP"]))
+        assert rows == []
+
+    def test_unknown_price_currency_skips_tagged_rows(
+        self, db_session: Session
+    ) -> None:
+        rows = self._call(
+            db_session, self._frame([0.25, 0.30], ["", "USD"]), price_currency=None
+        )
+        assert [r["amount"] for r in rows] == pytest.approx([0.25])
+
+    def test_frame_without_currency_column_uses_dividends_column(
+        self, db_session: Session
+    ) -> None:
+        frame = self._frame([0.25, 0.30], ["", ""]).drop(columns="currency")
+        rows = self._call(db_session, frame, price_currency=None)
+        assert len(rows) == 2
+
+    def test_frame_without_dividends_column_writes_nothing(
+        self, db_session: Session
+    ) -> None:
+        frame = self._frame([0.25], ["GBp"]).rename(columns={"Dividends": "Other"})
+        assert self._call(db_session, frame) == []
+
+
 # ---------------------------------------------------------------------------
 # upsert_splits — None filtering branches
 # ---------------------------------------------------------------------------

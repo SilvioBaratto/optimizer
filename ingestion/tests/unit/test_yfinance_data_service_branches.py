@@ -587,6 +587,24 @@ class TestPriceUnit:
         assert repo.upsert_price_history.call_args.kwargs.get("price_unit") == "GBX"
 
 
+class TestDividendPriceCurrency:
+    """Dividends may arrive tagged with a payment currency; the repository can
+    only keep those in the price currency, so the service must say which it is."""
+
+    def test_listing_currency_is_passed_as_price_currency(self) -> None:
+        repo = _make_repo(staleness=None)
+        yf = _make_yf_client_silent()
+        dividends = pd.DataFrame(
+            {"Dividends": [0.25], "currency": ["GBp"]},
+            index=pd.to_datetime(["2024-01-15"]),
+        )
+        yf.corporate_actions.fetch_dividends.return_value = dividends
+        _run(repo, yf, mode="full", currency_code="GBX")
+        repo.upsert_dividends.assert_called_once()
+        assert repo.upsert_dividends.call_args.args[1] is dividends
+        assert repo.upsert_dividends.call_args.kwargs["price_currency"] == "GBX"
+
+
 class TestIsinBackfill:
     """ISIN is not carried by yfinance's .info, so the profile step fetches it
     separately (Ticker.isin) and injects it into the info dict before upsert —
@@ -2070,8 +2088,10 @@ class TestCategoryWriteIsolation:
         from tests._fixtures import seed_universe
 
         class _DividendsFailAfterWriting(YFinanceRepository):
-            def upsert_dividends(self, instrument_id: Any, dividends: Any) -> int:
-                super().upsert_dividends(instrument_id, dividends)
+            def upsert_dividends(
+                self, instrument_id: Any, dividends: Any, **kw: Any
+            ) -> int:
+                super().upsert_dividends(instrument_id, dividends, **kw)
                 raise RuntimeError("statement timeout")
 
         instrument = seed_universe(db_session).instrument

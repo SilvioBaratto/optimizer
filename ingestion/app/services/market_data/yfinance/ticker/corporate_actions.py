@@ -23,7 +23,7 @@ class CorporateActionsClient(BaseClient):
         self,
         symbol: str,
         max_retries: int | None = None,
-    ) -> pd.Series | None:
+    ) -> pd.Series | pd.DataFrame | None:
         """Fetch dividend payment history for symbol.
 
         Args:
@@ -31,11 +31,13 @@ class CorporateActionsClient(BaseClient):
             max_retries: Retry attempts; None uses the client default.
 
         Returns:
-            Dividend Series indexed by date, or None if unavailable or all retries fail.
+            A Series of amounts indexed by date or, when Yahoo tags payments
+            with a currency, a DataFrame indexed by date with ``Dividends`` and
+            ``currency`` columns. None if unavailable or all retries fail.
         """
         logger.debug("Fetching dividends for '%s'", symbol)
 
-        def _action() -> pd.Series | None:
+        def _action() -> pd.Series | pd.DataFrame | None:
             return self._get_ticker(symbol).dividends
 
         return self._fetch_with_resilience(

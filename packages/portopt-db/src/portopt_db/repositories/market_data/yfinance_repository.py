@@ -47,6 +47,18 @@ logger = logging.getLogger(__name__)
 
 _SENTINEL_DATE = date(1970, 1, 1)
 
+# Trading 212 lists sub-unit currencies as GBX/ZAC while Yahoo tags them GBp/ZAc.
+_SUB_UNIT_ALIASES = {"GBX": "GBp", "ZAC": "ZAc"}
+
+
+def _same_currency_unit(a: str, b: str) -> bool:
+    """Return True when two currency codes denote the exact same unit.
+
+    The comparison is case-sensitive on purpose: ``GBP`` and ``GBp`` differ by a
+    factor of 100.
+    """
+    return _SUB_UNIT_ALIASES.get(a, a) == _SUB_UNIT_ALIASES.get(b, b)
+
 
 def _safe_val(v: Any) -> Any:
     """Convert pandas/numpy types to Python natives, NaN/NaT to None."""
@@ -1003,20 +1015,73 @@ class YFinanceRepository(RepositoryBase):
     # Dividends
     # ------------------------------------------------------------------
 
-    def upsert_dividends(self, instrument_id: UUID, dividends: pd.Series) -> int:
-        """Upsert dividend data from yfinance Series (index=date, value=amount)."""
+    def upsert_dividends(
+        self,
+        instrument_id: UUID,
+        dividends: pd.Series | pd.DataFrame,
+        price_currency: str | None = None,
+    ) -> int:
+        """Upsert dividend data from yfinance.
+
+        Limitation: because the table has no currency column, an instrument
+        whose dividends are all paid in another currency (e.g. a London line
+        whose payments are all tagged ``USD``) stores no rows. Its dividends
+        staleness stamp then stays NULL, so the category is fetched again, and
+        the skip warning logged again, on every incremental run.
+
+        Args:
+            instrument_id: The instrument these rows belong to.
+            dividends: A Series (index=date, value=amount) or, when Yahoo tags
+                payments with a currency, a DataFrame with ``Dividends`` and
+                ``currency`` columns.
+            price_currency: Currency the instrument's prices are quoted in
+                (``"GBp"`` and ``"GBX"`` are equivalent). The table has no
+                currency column, so amounts are stored in the price currency
+                and DataFrame rows paid in any other currency, or in an unknown
+                one when this is ``None``, are skipped instead of being stored
+                in the wrong unit. Blank currency tags count as the price
+                currency, and a Series is always taken as such.
+
+        Returns:
+            Number of rows written.
+        """
+        paid_in: pd.Series | None = None
+        if isinstance(dividends, pd.DataFrame):
+            if "Dividends" not in dividends.columns:
+                return 0
+            if "currency" in dividends.columns:
+                paid_in = dividends["currency"]
+            dividends = dividends["Dividends"]
+
         rows = []
-        for idx, amount in dividends.items():
+        skipped_foreign = 0
+        for pos, (idx, amount) in enumerate(dividends.items()):
             dt = _safe_date(idx)
             amt = _safe_float(amount)
             if dt is None or amt is None:
                 continue
+            if paid_in is not None:
+                code = _safe_str(paid_in.iloc[pos])
+                if code and not (
+                    price_currency and _same_currency_unit(code, price_currency)
+                ):
+                    skipped_foreign += 1
+                    continue
             rows.append(
                 {
                     "instrument_id": instrument_id,
                     "date": dt,
                     "amount": amt,
                 }
+            )
+
+        if skipped_foreign:
+            logger.warning(
+                "Skipped %d dividend(s) for instrument %s paid in a currency "
+                "other than the price currency %r",
+                skipped_foreign,
+                instrument_id,
+                price_currency,
             )
 
         return self._upsert(
