@@ -91,6 +91,7 @@ def _build_ir_scorer(
     benchmark_returns: pd.Series,
     *,
     annualization_factor: float = _ANNUALIZATION_FACTOR,
+    greater_is_better: bool | None = None,
 ) -> Callable[..., float]:
     """Build an annualised Information Ratio scorer from benchmark returns.
 
@@ -106,6 +107,9 @@ def _build_ir_scorer(
             active returns.
         annualization_factor: Number of periods per year used to annualise
             the ratio.
+        greater_is_better: ``False`` sign-flips the score so that a lower IR
+            ranks higher. ``None`` keeps the ratio convention (higher is
+            better).
 
     Returns:
         A scorer accepting a skfolio ``Portfolio`` and returning the
@@ -137,7 +141,7 @@ def _build_ir_scorer(
         mean_active = float(np.mean(active))
         return (mean_active * annualization_factor) / (std_active * sqrt_factor)
 
-    return _skfolio_make_scorer(_ir)
+    return _skfolio_make_scorer(_ir, greater_is_better=greater_is_better)
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +154,7 @@ def _build_measure_scorer(
     *,
     risk_free_rate: float,
     annualization_factor: float | None,
+    greater_is_better: bool | None,
 ) -> Callable[..., float]:
     """Build a scorer from a skfolio measure.
 
@@ -159,8 +164,13 @@ def _build_measure_scorer(
     default in place would score candidates that differ in their estimator rate
     against different yardsticks. ``annualization_factor`` is only set when
     given; ``None`` keeps the skfolio default.
+
+    ``greater_is_better=None`` auto-detects from the measure family (ratio and
+    performance measures are maximised, risk measures minimised); an explicit
+    value overrides that.
     """
-    greater_is_better = bool(measure.is_perf or measure.is_ratio)
+    if greater_is_better is None:
+        greater_is_better = bool(measure.is_perf or measure.is_ratio)
     attr = measure.value
 
     def _score(portfolio: Any) -> float:
@@ -218,13 +228,18 @@ def build_scorer(
             )
             raise ConfigurationError(msg)
         factor = config.annualization_factor or _ANNUALIZATION_FACTOR
-        return _build_ir_scorer(benchmark_returns, annualization_factor=factor)
+        return _build_ir_scorer(
+            benchmark_returns,
+            annualization_factor=factor,
+            greater_is_better=config.greater_is_better,
+        )
 
     if config.ratio_measure is not None:
         return _build_measure_scorer(
             _RATIO_MEASURE_MAP[config.ratio_measure],
             risk_free_rate=config.risk_free_rate,
             annualization_factor=config.annualization_factor,
+            greater_is_better=config.greater_is_better,
         )
 
     if config.perf_measure is not None:
@@ -232,6 +247,7 @@ def build_scorer(
             _PERF_MEASURE_MAP[config.perf_measure],
             risk_free_rate=config.risk_free_rate,
             annualization_factor=config.annualization_factor,
+            greater_is_better=config.greater_is_better,
         )
 
     if config.risk_measure is not None:
@@ -239,6 +255,7 @@ def build_scorer(
             _RISK_MEASURE_MAP[config.risk_measure],
             risk_free_rate=config.risk_free_rate,
             annualization_factor=config.annualization_factor,
+            greater_is_better=config.greater_is_better,
         )
 
     if score_func is None:

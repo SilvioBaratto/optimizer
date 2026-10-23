@@ -210,6 +210,64 @@ class TestIRAlignment:
 
 
 # ---------------------------------------------------------------------------
+# explicit greater_is_better
+# ---------------------------------------------------------------------------
+
+
+class TestGreaterIsBetterOverride:
+    def test_false_flips_ratio_scorer(
+        self, fitted: EqualWeighted, returns: pd.DataFrame
+    ) -> None:
+        auto = build_scorer(ScorerConfig())(fitted, returns)
+        flipped = build_scorer(ScorerConfig(greater_is_better=False))(fitted, returns)
+        assert flipped == pytest.approx(-auto)
+
+    def test_false_flips_perf_scorer(
+        self, fitted: EqualWeighted, returns: pd.DataFrame
+    ) -> None:
+        cfg = ScorerConfig(
+            ratio_measure=None,
+            perf_measure=PerfMeasureType.MEAN,
+            greater_is_better=False,
+        )
+        assert build_scorer(cfg)(fitted, returns) == pytest.approx(
+            -fitted.predict(returns).mean
+        )
+
+    def test_true_keeps_risk_scorer_unflipped(
+        self, fitted: EqualWeighted, returns: pd.DataFrame
+    ) -> None:
+        cfg = ScorerConfig(
+            ratio_measure=None,
+            risk_measure=RiskMeasureType.VARIANCE,
+            greater_is_better=True,
+        )
+        assert build_scorer(cfg)(fitted, returns) == pytest.approx(
+            fitted.predict(returns).variance
+        )
+
+    def test_false_flips_information_ratio_scorer(
+        self, fitted: EqualWeighted, returns: pd.DataFrame
+    ) -> None:
+        bm = pd.Series(np.zeros(N_OBS), index=DATES)
+        ir_cfg = ScorerConfig.for_information_ratio()
+        flipped_cfg = ScorerConfig(
+            ratio_measure=RatioMeasureType.INFORMATION_RATIO, greater_is_better=False
+        )
+        auto = build_scorer(ir_cfg, benchmark_returns=bm)(fitted, returns)
+        flipped = build_scorer(flipped_cfg, benchmark_returns=bm)(fitted, returns)
+        assert flipped == pytest.approx(-auto)
+
+    def test_unset_keeps_family_default(
+        self, fitted: EqualWeighted, returns: pd.DataFrame
+    ) -> None:
+        cfg = ScorerConfig.for_risk_measure(RiskMeasureType.VARIANCE)
+        assert build_scorer(cfg)(fitted, returns) == pytest.approx(
+            -fitted.predict(returns).variance
+        )
+
+
+# ---------------------------------------------------------------------------
 # online measure helper
 # ---------------------------------------------------------------------------
 
