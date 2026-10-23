@@ -4,23 +4,26 @@ optimization stack (``skfolio``).
 portopt-db is the shared data layer (models / repositories / engine / Alembic).
 It sits *below* ingestion and any future consumer; pulling in the optimizer /
 skfolio stack would couple the database package to portfolio optimization.
-Source-blind scan of the package source + its pyproject.
+Source-blind scan of the package source and its Alembic tree (migrations run
+in the same environment) + its pyproject. Imports are read from the syntax
+tree, so ``import os, optimizer`` and ``importlib.import_module("optimizer")``
+are caught and a docstring quoting an import is not.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterator
 from pathlib import Path
 
+import pytest
+from _import_scan import imported_module_names
+
 _PKG_ROOT = Path(__file__).resolve().parents[1]
 _SRC = _PKG_ROOT / "src" / "portopt_db"
+_ALEMBIC = _PKG_ROOT / "alembic"
 _PYPROJECT = _PKG_ROOT / "pyproject.toml"
 _SELF = Path(__file__).resolve()
 
-_OPTIMIZER_IMPORT = re.compile(
-    r"^\s*(from optimizer\b|import optimizer\b)", re.MULTILINE
-)
 _FORBIDDEN_PACKAGES = ("skfolio",)
 
 
@@ -48,7 +51,10 @@ def find_optimizer_import_violations(root: Path) -> list[str]:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        if _OPTIMIZER_IMPORT.search(text):
+        if any(
+            module.split(".", 1)[0] == "optimizer"
+            for module in imported_module_names(text, str(path))
+        ):
             offending.append(str(path.relative_to(root)))
     return offending
 
@@ -67,8 +73,12 @@ def find_forbidden_stack_dependencies(text: str) -> list[str]:
     return [pkg for pkg in _FORBIDDEN_PACKAGES if pkg in lowered]
 
 
-def test_when_src_is_scanned_then_no_optimizer_import_is_found():
-    assert find_optimizer_import_violations(_SRC) == []
+@pytest.mark.parametrize("tree", [_SRC, _ALEMBIC], ids=["src", "alembic"])
+def test_when_a_package_tree_is_scanned_then_it_is_non_empty_and_has_no_optimizer_import(
+    tree,
+):
+    assert any(_iter_python_files(tree)), f"{tree} yields no files to scan"
+    assert find_optimizer_import_violations(tree) == []
 
 
 def test_when_pyproject_is_read_then_no_optimization_stack_dependency_is_declared():
@@ -84,3 +94,50 @@ def test_when_an_optimizer_import_is_injected_then_the_guard_fails(tmp_path):
 
 def test_when_a_forbidden_stack_package_is_injected_then_the_guard_fails():
     assert find_forbidden_stack_dependencies("skfolio==1.0.0\n") == ["skfolio"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import numpy, optimizer\n",
+        "from  optimizer import x\n",
+        "from\toptimizer import x\n",
+        "x = 1; import optimizer\n",
+        "if True: import optimizer\n",
+        "import numpy, \\\n    optimizer\n",
+        "import importlib\nimportlib.import_module('optimizer.moments')\n",
+        "__import__('optimizer')\n",
+    ],
+    ids=[
+        "comma-list",
+        "double-space",
+        "tab",
+        "semicolon",
+        "inline-if",
+        "backslash-continuation",
+        "import_module",
+        "dunder-import",
+    ],
+)
+def test_when_a_non_canonical_optimizer_import_is_injected_then_the_guard_fails(
+    tmp_path, source
+):
+    (tmp_path / "offender.py").write_text(source, encoding="utf-8")
+    assert find_optimizer_import_violations(tmp_path) == ["offender.py"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        '"""Usage:\n\nfrom optimizer import build_mean_risk\n"""\n',
+        "from optimizer_extras import x\n",
+        "import importlib\nimportlib.import_module('sqlalchemy')\n",
+        "import importlib\nimportlib.import_module(name)\n",
+    ],
+    ids=["docstring", "lookalike-name", "other-dynamic-import", "non-literal-name"],
+)
+def test_when_source_only_mentions_or_resembles_an_optimizer_import_then_the_guard_allows_it(
+    tmp_path, source
+):
+    (tmp_path / "clean.py").write_text(source, encoding="utf-8")
+    assert find_optimizer_import_violations(tmp_path) == []

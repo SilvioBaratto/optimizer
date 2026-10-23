@@ -17,6 +17,7 @@ from _import_scan import imported_module_names
 
 _PKG_ROOT = Path(__file__).resolve().parents[1]
 _SRC = _PKG_ROOT / "src" / "portopt_db"
+_ALEMBIC = _PKG_ROOT / "alembic"
 _PYPROJECT = _PKG_ROOT / "pyproject.toml"
 _SELF = Path(__file__).resolve()
 
@@ -78,8 +79,12 @@ def find_forbidden_agent_dependencies(text: str) -> list[str]:
     return [dist for dist in _FORBIDDEN_DISTS if dist in lowered]
 
 
-def test_when_src_is_scanned_then_no_agent_stack_import_is_found():
-    assert find_agent_import_violations(_SRC) == []
+@pytest.mark.parametrize("tree", [_SRC, _ALEMBIC], ids=["src", "alembic"])
+def test_when_a_package_tree_is_scanned_then_it_is_non_empty_and_has_no_agent_stack_import(
+    tree,
+):
+    assert any(_iter_python_files(tree)), f"{tree} yields no files to scan"
+    assert find_agent_import_violations(tree) == []
 
 
 def test_when_pyproject_is_read_then_no_agent_stack_dependency_is_declared():
@@ -108,6 +113,8 @@ def test_when_the_fund_dist_is_injected_then_the_guard_fails():
         "import numpy, langgraph\n",
         "from langgraph.checkpoint.postgres import PostgresSaver\n",
         "import os; import deepagents\n",
+        "import importlib\nimportlib.import_module('langchain_core.messages')\n",
+        "__import__('deepagents')\n",
     ],
 )
 def test_when_a_non_canonical_agent_import_is_injected_then_the_guard_fails(

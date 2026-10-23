@@ -26,6 +26,8 @@ from pathlib import Path
 # that duplicates the source tree and would otherwise false-positive every scan.
 _EXCLUDE_DIR_PARTS = {"__pycache__", "build"}
 
+_DYNAMIC_IMPORT_CALLEES = frozenset({"import_module", "__import__"})
+
 
 def _is_in_excluded_dir(path: Path, root: Path) -> bool:
     """Return whether ``path`` sits in a noise directory *below* ``root``.
@@ -80,8 +82,11 @@ def _imported_module_names(source: str, filename: str = "<string>") -> Iterator[
             identifiable; a guard must fail loudly on it, not skip it.
 
     Yields:
-        ``a.b`` for ``import a.b`` and ``from a.b import c``. Relative
-        imports are skipped: they cannot leave the package being scanned.
+        ``a.b`` for ``import a.b`` and ``from a.b import c``, plus the
+        string-literal name handed to ``importlib.import_module`` /
+        ``__import__``. Relative imports are skipped: they cannot leave the
+        package being scanned. A computed (non-literal) dynamic import name
+        cannot be resolved statically and is not reported.
     """
     for node in ast.walk(ast.parse(source, filename=filename)):
         if isinstance(node, ast.Import):
@@ -89,6 +94,19 @@ def _imported_module_names(source: str, filename: str = "<string>") -> Iterator[
                 yield alias.name
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             yield node.module
+        elif isinstance(node, ast.Call) and node.args:
+            callee = node.func
+            name = callee.attr if isinstance(callee, ast.Attribute) else None
+            if isinstance(callee, ast.Name):
+                name = callee.id
+            target = node.args[0]
+            if (
+                name in _DYNAMIC_IMPORT_CALLEES
+                and isinstance(target, ast.Constant)
+                and isinstance(target.value, str)
+                and not target.value.startswith(".")
+            ):
+                yield target.value
 
 
 def _iter_git_tracked_relpaths(root: Path) -> list[str] | None:

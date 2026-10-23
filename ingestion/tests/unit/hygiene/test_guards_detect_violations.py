@@ -146,6 +146,24 @@ def test_when_synthetic_tree_carries_an_optimizer_import_then_it_is_reported(tmp
 @pytest.mark.parametrize(
     "source",
     [
+        "import os, optimizer\n",
+        "x = 1; import optimizer\n",
+        "importlib.import_module('optimizer.moments')\n",
+        "__import__('optimizer')\n",
+    ],
+)
+def test_when_synthetic_tree_carries_a_non_canonical_optimizer_import_then_it_is_reported(
+    tmp_path, source
+):
+    (tmp_path / "offender.py").write_text(source, encoding="utf-8")
+
+    assert find_optimizer_import_violations(tmp_path) == ["offender.py"]
+
+
+@pytest.mark.criterion("scope-7")
+@pytest.mark.parametrize(
+    "source",
+    [
         "from langchain_core.messages import BaseMessage\n",
         "import langchain_ollama as lo\n",
         "import os, langgraph\n",

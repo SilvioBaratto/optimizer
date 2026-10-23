@@ -114,6 +114,8 @@ def test_when_a_refund_token_is_scanned_then_the_guard_allows_it(tmp_path):
         "import numpy, langgraph\n",
         "from langgraph.checkpoint.postgres import PostgresSaver\n",
         "import os; import deepagents\n",
+        "import importlib\nimportlib.import_module('langchain_core.messages')\n",
+        "__import__('deepagents')\n",
     ],
 )
 def test_when_a_non_canonical_agent_import_is_injected_then_the_guard_fails(
