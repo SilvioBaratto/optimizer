@@ -105,6 +105,15 @@ class TestVineCopulaConfig:
         with pytest.raises(ConfigurationError, match="max_depth"):
             VineCopulaConfig(max_depth=0)
 
+    def test_when_max_depth_one_then_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="max_depth"):
+            VineCopulaConfig(max_depth=1)
+
+    def test_when_max_depth_two_then_allowed(self) -> None:
+        assert VineCopulaConfig(max_depth=2).max_depth == 2
+
     def test_when_independence_level_out_of_range_then_raises(self) -> None:
         from optimizer.exceptions import ConfigurationError
 

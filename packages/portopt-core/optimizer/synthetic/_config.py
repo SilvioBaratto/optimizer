@@ -57,7 +57,8 @@ class VineCopulaConfig:
             is incompatible with ``log_transform=True`` (rejected on
             construction), so pass ``log_transform=False`` alongside it.
         max_depth: Maximum depth of the vine tree. None lets skfolio build a
-            full-depth (truncation-free) vine. When set, must be >= 1.
+            full-depth (truncation-free) vine. When set, must be >= 2 because
+            skfolio rejects single-tree truncation at fit time.
         log_transform: Whether to fit the vine on log returns ``log(1 + R)``
             and map samples back via ``exp(r) - 1``. Defaults to True so
             sampled simple returns stay above -100%; marginals fitted
@@ -103,9 +104,9 @@ class VineCopulaConfig:
                 "the input is treated as uniform pseudo-observations, which "
                 "must not be log-transformed. Pass log_transform=False."
             )
-        if self.max_depth is not None and self.max_depth < 1:
+        if self.max_depth is not None and self.max_depth < 2:
             raise ConfigurationError(
-                f"max_depth must be None or >= 1, got {self.max_depth}"
+                f"max_depth must be None or >= 2, got {self.max_depth}"
             )
         if not 0.0 <= self.independence_level <= 1.0:
             raise ConfigurationError(
