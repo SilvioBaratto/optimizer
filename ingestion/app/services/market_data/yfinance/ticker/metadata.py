@@ -68,12 +68,17 @@ class MetadataClient(BaseClient):
         self,
         symbol: str,
         max_retries: int | None = None,
+        *,
+        raise_on_lost: bool = False,
     ) -> str | None:
         """Fetch ISIN for symbol.
 
         Args:
             symbol: Ticker symbol.
             max_retries: Retry attempts; None uses the client default.
+            raise_on_lost: Raise instead of returning None when no attempt got an
+                answer, so a caller can tell an unreachable source from a symbol
+                Yahoo has no ISIN for.
 
         Returns:
             ISIN string, or None if unavailable. Symbols with an exchange suffix
@@ -81,6 +86,9 @@ class MetadataClient(BaseClient):
             can only match them by name and answers with a secondary line (a
             depositary receipt, preferred share or bond). For other symbols
             yfinance's ``"-"`` placeholder and malformed codes are dropped too.
+
+        Raises:
+            RequestLostError: *raise_on_lost* is set and every attempt failed.
         """
         if has_exchange_suffix(symbol):
             logger.debug("Skipping ISIN scrape for '%s': not a US symbol", symbol)
@@ -94,6 +102,7 @@ class MetadataClient(BaseClient):
             _action,
             max_retries,
             is_valid=lambda v: isinstance(v, str) and is_trusted_isin(v, symbol),
+            raise_on_lost=raise_on_lost,
         )
 
     def fetch_fast_info(

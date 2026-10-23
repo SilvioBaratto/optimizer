@@ -1,6 +1,6 @@
 """yfinance market-data integration: facade, sub-clients, and resilience primitives."""
 
-from ._base import BaseClient
+from ._base import BaseClient, RequestLostError
 from ._config import configure_yfinance
 from ._facade import YFinanceClient, get_yfinance_client
 from .infrastructure import (
@@ -73,6 +73,7 @@ __all__ = [
     "NewsClient",
     "RateLimiter",
     "RateLimiterProtocol",
+    "RequestLostError",
     "RequestOutcomes",
     "ScreenerClient",
     "ScreenerClientProtocol",

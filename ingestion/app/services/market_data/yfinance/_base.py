@@ -33,6 +33,14 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
+class RequestLostError(RuntimeError):
+    """A yfinance request never got an answer: every attempt failed.
+
+    Distinct from Yahoo answering that it holds no data. Raised only to callers
+    that opt in with ``raise_on_lost``, because most fetches treat both as absent.
+    """
+
+
 @dataclass
 class _Attempts:
     """What the attempts of one request left behind, filled in by its callbacks."""
@@ -48,6 +56,7 @@ def fetch_with_resilience(
     circuit_breaker: CircuitBreakerProtocol,
     rate_limit_predicate: Callable[[Exception], bool] = is_rate_limit_error,
     is_valid: Callable[[T], bool] | None = None,
+    raise_on_lost: bool = False,
 ) -> T | None:
     """Run one yfinance request, retrying transient failures only.
 
@@ -74,20 +83,30 @@ def fetch_with_resilience(
             the breaker.
         is_valid: Predicate a usable result must satisfy; a result it rejects
             (typically an empty frame) is returned as ``None``.
+        raise_on_lost: Raise :class:`RequestLostError` when every attempt failed
+            (DNS, TLS, a garbled body, throttling, an open breaker) instead of
+            returning ``None``, so the caller can tell an outage from an answer.
 
     Returns:
         The result of *action*, or ``None`` when Yahoo has no usable data or
-        every attempt failed.
+        every attempt failed (the latter only without *raise_on_lost*).
+
+    Raises:
+        RequestLostError: *raise_on_lost* is set and the last attempt failed.
     """
     attempts = _Attempts()
 
     def _guarded() -> T:
         try:
             circuit_breaker.check()
-            return action()
+            result = action()
         except Exception as exc:
             attempts.last_error = exc
             raise
+        # Only the final attempt decides: an earlier failure followed by a real
+        # answer (even an empty one) is not a lost request.
+        attempts.last_error = None
+        return result
 
     def _on_success(_: T) -> None:
         # Deliberately no breaker reset: a non-exception return can still be the
@@ -117,6 +136,13 @@ def fetch_with_resilience(
         record_failure(f"{type(error).__name__}: {error}")
     else:
         record_answer()
+
+    if result is None and raise_on_lost and error is not None:
+        msg = (
+            f"yfinance request lost after {retries} attempts: "
+            f"{type(error).__name__}: {error}"
+        )
+        raise RequestLostError(msg) from error
 
     if result is None or (is_valid is not None and not is_valid(result)):
         return None
@@ -172,6 +198,7 @@ class BaseClient:
         max_retries: int | None = None,
         *,
         is_valid: Callable[[T], bool] | None = None,
+        raise_on_lost: bool = False,
     ) -> T | None:
         """Execute *action* through :func:`fetch_with_resilience`.
 
@@ -187,10 +214,15 @@ class BaseClient:
             max_retries: Attempt budget; ``None`` uses the client default.
             is_valid: Predicate a usable result must satisfy; a result it
                 rejects (typically an empty frame) is returned as ``None``.
+            raise_on_lost: Raise :class:`RequestLostError` when every attempt
+                failed instead of returning ``None``.
 
         Returns:
             The result of *action*, or ``None`` when Yahoo has no usable data
-            or every attempt failed.
+            or every attempt failed (the latter only without *raise_on_lost*).
+
+        Raises:
+            RequestLostError: *raise_on_lost* is set and the last attempt failed.
         """
 
         def _watched() -> T:
@@ -216,6 +248,7 @@ class BaseClient:
             circuit_breaker=self.circuit_breaker,
             rate_limit_predicate=self._is_rate_limit_error,
             is_valid=is_valid,
+            raise_on_lost=raise_on_lost,
         )
 
     def _drop_tainted(self, watch: FaultWatch) -> None:

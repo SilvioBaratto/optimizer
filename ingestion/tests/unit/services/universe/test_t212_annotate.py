@@ -5,10 +5,16 @@ Attaches T212 tickers to the yfinance universe by ISIN. ISIN is fetched lazily
 no network, no DB. Skips cleanly when Trading 212 is not configured.
 """
 
+import json
 from contextlib import contextmanager
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
+import pytest
+import requests
+from yfinance.exceptions import YFRateLimitError
+
+from app.services.market_data.yfinance import MetadataClient, RequestLostError
 from app.services.universe import t212_annotate
 
 M = "app.services.universe.t212_annotate"
@@ -16,9 +22,13 @@ M = "app.services.universe.t212_annotate"
 
 @contextmanager
 def _patched(repo: MagicMock, client: MagicMock):
+    sessions: list[MagicMock] = []
+
     @contextmanager
     def _session_cm():
-        yield MagicMock()
+        session = MagicMock()
+        sessions.append(session)
+        yield session
 
     dm = MagicMock()
     dm.get_session = _session_cm
@@ -27,7 +37,7 @@ def _patched(repo: MagicMock, client: MagicMock):
         patch(f"{M}.UniverseRepository", return_value=repo),
         patch(f"{M}.build_trading212_client", return_value=client),
     ):
-        yield
+        yield sessions
 
 
 def _client(instruments: list[dict]) -> MagicMock:
@@ -104,19 +114,185 @@ def test_annotates_across_multiple_instruments() -> None:
     assert summary["total"] == 2
 
 
-def test_default_isin_lookup_uses_yfinance(monkeypatch) -> None:
-    ticker = MagicMock()
-    ticker.isin = "US999"
-    monkeypatch.setattr("yfinance.Ticker", lambda _t: ticker)
+def _yf_client(*, isin: str | None, lost: Exception | None = None) -> MagicMock:
+    yf_client = MagicMock()
+    if lost is not None:
+        yf_client.metadata.fetch_isin.side_effect = lost
+    else:
+        yf_client.metadata.fetch_isin.return_value = isin
+    return yf_client
+
+
+def test_default_isin_lookup_goes_through_the_shared_yfinance_client(
+    monkeypatch,
+) -> None:
+    yf_client = _yf_client(isin="US999")
+    monkeypatch.setattr(f"{M}.get_yfinance_client", lambda: yf_client)
+    monkeypatch.setattr(
+        "yfinance.Ticker", MagicMock(side_effect=AssertionError("raw yfinance"))
+    )
+
     assert t212_annotate._default_isin_lookup("AAPL") == "US999"
+    yf_client.metadata.fetch_isin.assert_called_once_with("AAPL", raise_on_lost=True)
 
 
-def test_default_isin_lookup_swallows_errors(monkeypatch) -> None:
-    def _boom(_t):
-        raise RuntimeError("network down")
-
-    monkeypatch.setattr("yfinance.Ticker", _boom)
+def test_default_isin_lookup_returns_none_when_yahoo_has_no_isin(monkeypatch) -> None:
+    monkeypatch.setattr(f"{M}.get_yfinance_client", lambda: _yf_client(isin=None))
     assert t212_annotate._default_isin_lookup("AAPL") is None
+
+
+def test_default_isin_lookup_raises_when_the_request_was_lost(monkeypatch) -> None:
+    # A lost request is not Yahoo's "no ISIN", whatever the cause.
+    lost = RequestLostError("every attempt failed")
+    monkeypatch.setattr(
+        f"{M}.get_yfinance_client", lambda: _yf_client(isin=None, lost=lost)
+    )
+
+    with pytest.raises(t212_annotate.IsinLookupError, match="AAPL") as excinfo:
+        t212_annotate._default_isin_lookup("AAPL")
+
+    assert excinfo.value.__cause__ is lost
+
+
+def _real_metadata_client(failure: Exception | None, isin: str | None = None):
+    """Shared yfinance client whose only live part is the real MetadataClient."""
+    ticker = MagicMock()
+    type(ticker).isin = PropertyMock(side_effect=failure, return_value=isin)
+    cache = MagicMock()
+    cache.get.return_value = ticker
+    # A closed breaker is what a DNS or garbled-body outage leaves behind: only a
+    # rate limit ever opens it.
+    breaker = MagicMock(is_active=False)
+    metadata = MetadataClient(
+        cache=cache,
+        rate_limiter=MagicMock(),
+        circuit_breaker=breaker,
+        default_max_retries=1,
+    )
+    return SimpleNamespace(metadata=metadata, circuit_breaker=breaker)
+
+
+_OUTAGES = [
+    pytest.param(
+        requests.exceptions.ConnectionError("Failed to resolve 'query1.finance'"),
+        id="dns-failure",
+    ),
+    pytest.param(json.JSONDecodeError("Expecting value", "<html>", 0), id="bad-json"),
+    pytest.param(YFRateLimitError(), id="rate-limited"),
+]
+
+
+@pytest.mark.parametrize("failure", _OUTAGES)
+def test_outage_fails_the_step_instead_of_annotating_nothing(
+    monkeypatch, failure: Exception
+) -> None:
+    # Through the real MetadataClient: only the throttled case used to be noticed,
+    # an unreachable or garbled source finished as a clean run with annotated=0.
+    monkeypatch.setattr(
+        f"{M}.get_yfinance_client", lambda: _real_metadata_client(failure)
+    )
+    limit = t212_annotate._MAX_CONSECUTIVE_LOOKUP_ERRORS
+    repo = MagicMock()
+    repo.get_active_instruments.return_value = [
+        SimpleNamespace(ticker=f"T{i}", exchange_id=1) for i in range(limit)
+    ]
+    on_progress = MagicMock()
+
+    with _patched(repo, _client([{"ticker": "T0_EQ", "isin": "ISIN0"}])):
+        with pytest.raises(t212_annotate.IsinLookupError, match="consecutive"):
+            t212_annotate.run_t212_annotate(on_progress=on_progress)
+
+    assert not any(
+        c.kwargs.get("status") == "completed" for c in on_progress.call_args_list
+    )
+
+
+def test_yahoo_having_no_isin_for_every_ticker_is_not_an_outage(monkeypatch) -> None:
+    monkeypatch.setattr(
+        f"{M}.get_yfinance_client", lambda: _real_metadata_client(None, isin="-")
+    )
+    limit = t212_annotate._MAX_CONSECUTIVE_LOOKUP_ERRORS
+    repo = MagicMock()
+    repo.get_active_instruments.return_value = [
+        SimpleNamespace(ticker=f"T{i}", exchange_id=1) for i in range(limit * 2)
+    ]
+
+    with _patched(repo, _client([{"ticker": "T0_EQ", "isin": "ISIN0"}])):
+        summary = t212_annotate.run_t212_annotate()
+
+    assert summary["lookup_errors"] == 0
+    assert summary["annotated"] == 0
+
+
+def test_isolated_lookup_error_does_not_abort_the_step() -> None:
+    repo = MagicMock()
+    repo.get_active_instruments.return_value = [
+        SimpleNamespace(ticker=t, exchange_id=1) for t in ("A", "B", "C")
+    ]
+    repo.set_t212_ticker.return_value = True
+    client = _client([{"ticker": f"{t}_EQ", "isin": f"ISIN{t}"} for t in "AC"])
+
+    def lookup(ticker: str) -> str:
+        if ticker == "B":
+            raise t212_annotate.IsinLookupError("throttled")
+        return f"ISIN{ticker}"
+
+    with _patched(repo, client):
+        summary = t212_annotate.run_t212_annotate(isin_lookup=lookup)
+
+    assert summary["annotated"] == 2
+    assert summary["lookup_errors"] == 1
+
+
+def test_step_fails_instead_of_completing_when_lookups_keep_erroring() -> None:
+    limit = t212_annotate._MAX_CONSECUTIVE_LOOKUP_ERRORS
+    repo = MagicMock()
+    repo.get_active_instruments.return_value = [
+        SimpleNamespace(ticker=f"T{i}", exchange_id=1) for i in range(limit * 3)
+    ]
+    repo.set_t212_ticker.return_value = True
+    client = _client([{"ticker": "T0_EQ", "isin": "ISIN0"}])
+    on_progress = MagicMock()
+    calls: list[str] = []
+
+    def lookup(ticker: str) -> str:
+        calls.append(ticker)
+        if ticker == "T0":
+            return "ISIN0"
+        raise t212_annotate.IsinLookupError("throttled")
+
+    with _patched(repo, client) as sessions:
+        with pytest.raises(t212_annotate.IsinLookupError, match="consecutive"):
+            t212_annotate.run_t212_annotate(isin_lookup=lookup, on_progress=on_progress)
+
+    assert len(calls) == limit + 1  # aborted early, not after the whole universe
+    repo.set_t212_ticker.assert_called_once()  # work done before the outage is kept
+    sessions[0].commit.assert_called()
+    assert not any(
+        c.kwargs.get("status") == "completed" for c in on_progress.call_args_list
+    )
+
+
+def test_successful_lookup_resets_the_consecutive_error_streak() -> None:
+    limit = t212_annotate._MAX_CONSECUTIVE_LOOKUP_ERRORS
+    tickers = [f"T{i}" for i in range(limit * 2)]
+    repo = MagicMock()
+    repo.get_active_instruments.return_value = [
+        SimpleNamespace(ticker=t, exchange_id=1) for t in tickers
+    ]
+    repo.set_t212_ticker.return_value = True
+    client = _client([{"ticker": "OK_EQ", "isin": "OKISIN"}])
+
+    def lookup(ticker: str) -> str:
+        if int(ticker[1:]) % limit == limit - 1:  # one success per `limit` calls
+            return "OKISIN"
+        raise t212_annotate.IsinLookupError("throttled")
+
+    with _patched(repo, client):
+        summary = t212_annotate.run_t212_annotate(isin_lookup=lookup)
+
+    assert summary["total"] == len(tickers)
+    assert summary["lookup_errors"] == len(tickers) - 2
 
 
 def test_skips_cleanly_when_trading212_not_configured() -> None:

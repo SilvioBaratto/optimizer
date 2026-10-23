@@ -251,7 +251,13 @@ class CorporateActionsClientProtocol(Protocol):
 class MetadataClientProtocol(Protocol):
     """Fetches ticker-level metadata from yfinance."""
 
-    def fetch_isin(self, symbol: str, max_retries: int | None = None) -> str | None: ...
+    def fetch_isin(
+        self,
+        symbol: str,
+        max_retries: int | None = None,
+        *,
+        raise_on_lost: bool = False,
+    ) -> str | None: ...
 
     def fetch_fast_info(
         self, symbol: str, max_retries: int | None = None
