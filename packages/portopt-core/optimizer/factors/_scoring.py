@@ -330,7 +330,26 @@ def compute_ml_composite(
 
     Returns:
         Normalised composite score per ticker (zero mean, unit variance).
+
+    Raises:
+        ConfigurationError: If ``standardized_factors`` and
+            ``training_scores`` do not carry the same factor columns.  The
+            current-period columns are reordered to the training order, since
+            the fitted models are positional and would otherwise apply one
+            factor's coefficient to another.
     """
+    train_cols = list(training_scores.columns)
+    missing = [c for c in train_cols if c not in standardized_factors.columns]
+    unseen = [c for c in standardized_factors.columns if c not in train_cols]
+    if missing or unseen:
+        msg = (
+            "standardized_factors must have the same factor columns as "
+            f"training_scores; missing from standardized_factors: {missing}, "
+            f"not present in training_scores: {unseen}"
+        )
+        raise ConfigurationError(msg)
+    aligned = standardized_factors.loc[:, train_cols]
+
     model: FittedMLModel
     if config.method == CompositeMethod.RIDGE_WEIGHTED:
         model = fit_ridge_composite(
@@ -344,7 +363,7 @@ def compute_ml_composite(
             config.gbt_n_estimators,
             config.gbt_random_state,
         )
-    return predict_composite_scores(model, standardized_factors)
+    return predict_composite_scores(model, aligned)
 
 
 def _apply_coverage_gating(

@@ -372,6 +372,74 @@ class TestComputeMLComposite:
         assert abs(result.std(ddof=0) - 1.0) < 1e-10
 
 
+class TestComputeMLCompositeColumnAlignment:
+    """Current factors are matched to the training columns by name."""
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            CompositeScoringConfig.for_ridge_weighted(),
+            CompositeScoringConfig.for_gbt_weighted(),
+        ],
+        ids=["ridge", "gbt"],
+    )
+    def test_column_order_of_current_factors_does_not_change_scores(
+        self,
+        current_scores: pd.DataFrame,
+        training_scores: pd.DataFrame,
+        training_returns: pd.Series,
+        config: CompositeScoringConfig,
+    ) -> None:
+        expected = compute_ml_composite(
+            current_scores, training_scores, training_returns, config
+        )
+        shuffled = current_scores[list(reversed(current_scores.columns))]
+        result = compute_ml_composite(
+            shuffled, training_scores, training_returns, config
+        )
+        pd.testing.assert_series_equal(result, expected)
+
+    def test_ridge_scores_follow_the_factor_the_model_was_trained_on(
+        self,
+        current_scores: pd.DataFrame,
+        training_scores: pd.DataFrame,
+        training_returns: pd.Series,
+    ) -> None:
+        config = CompositeScoringConfig.for_ridge_weighted()
+        shuffled = current_scores[["momentum_12_1", *current_scores.columns[:-1]]]
+        result = compute_ml_composite(
+            shuffled, training_scores, training_returns, config
+        )
+        corr = np.corrcoef(result.to_numpy(), current_scores["book_to_price"])[0, 1]
+        assert corr > 0.99
+
+    def test_missing_factor_column_raises_naming_it(
+        self,
+        current_scores: pd.DataFrame,
+        training_scores: pd.DataFrame,
+        training_returns: pd.Series,
+    ) -> None:
+        config = CompositeScoringConfig.for_ridge_weighted()
+        with pytest.raises(ConfigurationError, match="momentum_12_1"):
+            compute_ml_composite(
+                current_scores.drop(columns="momentum_12_1"),
+                training_scores,
+                training_returns,
+                config,
+            )
+
+    def test_unseen_factor_column_raises_naming_it(
+        self,
+        current_scores: pd.DataFrame,
+        training_scores: pd.DataFrame,
+        training_returns: pd.Series,
+    ) -> None:
+        config = CompositeScoringConfig.for_ridge_weighted()
+        renamed = current_scores.rename(columns={"momentum_12_1": "volatility"})
+        with pytest.raises(ConfigurationError, match="volatility"):
+            compute_ml_composite(renamed, training_scores, training_returns, config)
+
+
 # ---------------------------------------------------------------------------
 # Tests: compute_composite_score dispatch
 # ---------------------------------------------------------------------------
