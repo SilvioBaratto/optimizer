@@ -264,3 +264,70 @@ def test_none_profile_and_funds_data_is_safe(db_session) -> None:
 
     assert counts == {}
     assert not errors
+
+
+def test_unreported_allocation_does_not_overwrite_the_latest_snapshot(
+    db_session,
+) -> None:
+    """A fund whose profile is populated but whose positions Yahoo omits must
+    not write an all-NULL asset-class row: readers take the newest as_of, so it
+    would shadow the last real allocation."""
+    inst = _fi_instrument(db_session)
+    etf_repo = ETFMetadataRepository(db_session)
+    etf_repo.upsert_asset_classes(
+        inst.id,
+        dt.date(2026, 8, 24),
+        stock_pct=0.0,
+        bond_pct=0.98,
+        cash_pct=0.02,
+        other_pct=0.0,
+    )
+    db_session.flush()
+
+    yf = MagicMock()
+    yf.funds.fetch_fund_profile.return_value = None
+    yf.funds.fetch_funds_data.return_value = {
+        "asset_classes": {},
+        "top_holdings": [],
+        "sector_weightings": {},
+        "fund_overview": {"categoryName": "Global Bond"},
+        "description": "A bond ETF.",
+    }
+    svc = _service(db_session, yf)
+
+    counts: dict[str, int] = {}
+    errors: list[str] = []
+    svc._fetch_etf_metadata(
+        inst.id, "AGGB.L", "full", DEFAULT_THRESHOLDS, _NOW, counts, errors, []
+    )
+    db_session.flush()
+
+    latest = etf_repo.get_asset_classes(inst.id)
+    assert latest is not None
+    assert latest.as_of == dt.date(2026, 8, 24)
+    assert float(latest.bond_pct) == 0.98
+    assert "etf_asset_classes" not in counts
+    assert counts.get("etf_metadata") == 1
+    assert not errors
+
+
+def test_allocation_without_any_mapped_bucket_is_not_stored(db_session) -> None:
+    inst = _fi_instrument(db_session)
+    yf = MagicMock()
+    yf.funds.fetch_fund_profile.return_value = None
+    yf.funds.fetch_funds_data.return_value = {
+        "asset_classes": {"preferredPosition": 0.1, "convertiblePosition": 0.0},
+        "top_holdings": [{"symbol": "UST", "name": "US Treasury", "weight": 0.05}],
+        "sector_weightings": {},
+    }
+    svc = _service(db_session, yf)
+
+    counts: dict[str, int] = {}
+    svc._fetch_etf_metadata(
+        inst.id, "AGGB.L", "full", DEFAULT_THRESHOLDS, _NOW, counts, [], []
+    )
+    db_session.flush()
+
+    assert ETFMetadataRepository(db_session).get_asset_classes(inst.id) is None
+    assert "etf_asset_classes" not in counts
+    assert counts.get("etf_holdings") == 1

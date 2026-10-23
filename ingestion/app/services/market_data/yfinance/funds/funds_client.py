@@ -83,20 +83,13 @@ class FundsClient(BaseClient):
         if fd is None:
             return None
 
-        asset_classes = _as_dict(getattr(fd, "asset_classes", None))
-        sector_weightings = _as_dict(getattr(fd, "sector_weightings", None))
-        top_holdings = _parse_holdings(getattr(fd, "top_holdings", None))
-
-        if not asset_classes and not sector_weightings and not top_holdings:
-            return None
-
         description = getattr(fd, "description", None)
         if not isinstance(description, str):
             description = None
-        return {
-            "asset_classes": asset_classes,
-            "sector_weightings": sector_weightings,
-            "top_holdings": top_holdings,
+        payload: dict[str, Any] = {
+            "asset_classes": _as_dict(getattr(fd, "asset_classes", None)),
+            "sector_weightings": _as_dict(getattr(fd, "sector_weightings", None)),
+            "top_holdings": _parse_holdings(getattr(fd, "top_holdings", None)),
             # Metric-indexed DataFrames are flattened to {metric: value};
             # bond_ratings / fund_overview are already dict-shaped.
             "equity_holdings": _equity_holdings(getattr(fd, "equity_holdings", None)),
@@ -106,6 +99,11 @@ class FundsClient(BaseClient):
             "fund_overview": _as_dict(getattr(fd, "fund_overview", None)),
             "description": description,
         }
+        # The overview and description count: the category is stored from them
+        # alone for funds whose positions Yahoo does not report.
+        if not any(payload.values()):
+            return None
+        return payload
 
 
 def _us_listing_usd(info: dict[str, Any]) -> str | None:
@@ -143,8 +141,17 @@ def _expense_ratio_fraction(info: dict[str, Any]) -> float | None:
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
+    """Copy a mapping into a plain dict, dropping entries whose value is ``None``.
+
+    yfinance pre-fills fixed key sets (``asset_classes`` always carries all six
+    positions, ``fund_overview`` all three labels) with ``None`` when Yahoo has
+    no figure. Keeping those shells would make an empty answer look populated
+    and defeat the "no fund data" check.
+    """
     try:
-        return dict(value) if value else {}
+        if not value:
+            return {}
+        return {k: v for k, v in dict(value).items() if v is not None}
     except Exception:
         return {}
 

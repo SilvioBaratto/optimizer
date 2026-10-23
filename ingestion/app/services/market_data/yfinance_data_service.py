@@ -1245,15 +1245,17 @@ class YFinanceDataService:
 
             if fdata:
                 ac = fdata.get("asset_classes") or {}
-                etf_repo.upsert_asset_classes(
-                    instrument_id,
-                    as_of,
-                    stock_pct=ac.get("stockPosition"),
-                    bond_pct=ac.get("bondPosition"),
-                    cash_pct=ac.get("cashPosition"),
-                    other_pct=ac.get("otherPosition"),
-                )
-                counts["etf_asset_classes"] = 1
+                buckets = {
+                    "stock_pct": ac.get("stockPosition"),
+                    "bond_pct": ac.get("bondPosition"),
+                    "cash_pct": ac.get("cashPosition"),
+                    "other_pct": ac.get("otherPosition"),
+                }
+                # An all-NULL row would become the newest as_of snapshot and
+                # shadow the last real allocation.
+                if any(v is not None for v in buckets.values()):
+                    etf_repo.upsert_asset_classes(instrument_id, as_of, **buckets)
+                    counts["etf_asset_classes"] = 1
                 holdings = fdata.get("top_holdings") or []
                 if holdings:
                     counts["etf_holdings"] = etf_repo.upsert_holdings(

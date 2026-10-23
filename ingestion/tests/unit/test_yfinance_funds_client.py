@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+from yfinance.scrapers.funds import FundsData
 
 from app.services.market_data.yfinance._facade import YFinanceClient
 from app.services.market_data.yfinance.funds import FundsClient
@@ -55,6 +56,31 @@ def _funds_data() -> MagicMock:
     }
     fd.description = "A short-duration bond ETF."
     return fd
+
+
+def _yfinance_funds_data(
+    *,
+    top_holdings: dict,
+    fund_profile: dict,
+    description: str = "",
+) -> FundsData:
+    """A real ``FundsData`` parsed from a stubbed quoteSummary payload, so the
+    tests see yfinance's own None-filled shapes rather than hand-built dicts."""
+    payload = {
+        "quoteSummary": {
+            "result": [
+                {
+                    "quoteType": {"quoteType": "ETF"},
+                    "summaryProfile": {"longBusinessSummary": description},
+                    "topHoldings": top_holdings,
+                    "fundProfile": fund_profile,
+                }
+            ]
+        }
+    }
+    data = MagicMock()
+    data.get_raw_json.return_value = payload
+    return FundsData(data, "FUND")
 
 
 class TestFetchFundsData:
@@ -170,6 +196,61 @@ class TestFetchFundsData:
 
         with patch.object(client, "_get_ticker", return_value=ticker):
             assert client.fetch_funds_data("AAPL") is None
+
+    def test_fund_with_no_positions_and_empty_profile_returns_none(
+        self, client: FundsClient
+    ) -> None:
+        """yfinance builds asset_classes as a six-key dict of None (and a
+        fund_overview of three None keys) when Yahoo has no data; those truthy
+        shells must not count as fund data, or an all-NULL payload reaches the
+        store and overwrites good rows."""
+        ticker = MagicMock()
+        ticker.funds_data = _yfinance_funds_data(
+            top_holdings={"maxAge": 1}, fund_profile={"maxAge": 1}
+        )
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            assert client.fetch_funds_data("TDEM.L") is None
+
+    def test_unreported_allocation_is_dropped_but_populated_profile_is_kept(
+        self, client: FundsClient
+    ) -> None:
+        """A fund with a fund profile but no reported positions still yields its
+        category/description, with an empty (not None-filled) allocation."""
+        ticker = MagicMock()
+        ticker.funds_data = _yfinance_funds_data(
+            top_holdings={"maxAge": 1},
+            fund_profile={
+                "categoryName": "Global Bond",
+                "family": "Acme",
+                "legalType": "Exchange Traded Fund",
+            },
+            description="A bond ETF.",
+        )
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_funds_data("AGGB.L")
+
+        assert out is not None
+        assert out["asset_classes"] == {}
+        assert out["fund_overview"]["categoryName"] == "Global Bond"
+        assert "legalType" in out["fund_overview"]
+        assert out["description"] == "A bond ETF."
+
+    def test_partially_reported_allocation_keeps_only_reported_positions(
+        self, client: FundsClient
+    ) -> None:
+        ticker = MagicMock()
+        ticker.funds_data = _yfinance_funds_data(
+            top_holdings={"stockPosition": {"raw": 0.6}, "bondPosition": {"raw": 0.0}},
+            fund_profile={"maxAge": 1},
+        )
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_funds_data("VT")
+
+        assert out is not None
+        assert out["asset_classes"] == {"stockPosition": 0.6, "bondPosition": 0.0}
 
     def test_none_funds_data_returns_none(self, client: FundsClient) -> None:
         ticker = MagicMock()
