@@ -198,12 +198,14 @@ def apply_sector_balance(
 ) -> pd.Index:
     """Adjust selection for sector-proportional representation.
 
-    The per-sector band limits are sized once on the incoming selection and
-    stay fixed, so trading names between sectors never changes how many are
-    held: after bringing every sector into its band and applying
-    ``max_per_sector``, the selection is refilled with the best-scoring names
-    from sectors that still have room (or trimmed of the weakest names from
-    sectors above their lower band) to return to the incoming size.
+    The per-sector band limits are sized once on the labeled part of the
+    incoming selection and stay fixed, so trading names between sectors never
+    changes how many are held: after bringing every sector into its band and
+    applying ``max_per_sector``, the selection is refilled with the best-scoring
+    names from sectors that still have room (or trimmed of the weakest labeled
+    names from sectors above their lower band) to return to the incoming size.
+    Selected tickers without a sector label are kept as they are and do not
+    count towards the bands.
 
     Args:
         selected: Initially selected tickers.
@@ -221,7 +223,12 @@ def apply_sector_balance(
     target_weights = parent_sectors.value_counts(normalize=True)
 
     result_set: set[str] = set(selected)
-    n_target = len(result_set)
+    n_total = len(result_set)
+    selected_sectors = sector_labels.reindex(pd.Index(list(result_set))).dropna()
+    # Parent weights are shares of the labeled universe, so the bands scale
+    # with the labeled part of the selection; unlabeled names belong to no
+    # sector and would otherwise demand extra names from every sector.
+    n_target = len(selected_sectors)
     bands = {
         sector: (
             max(0, round((target_w - tolerance) * n_target)),
@@ -230,7 +237,6 @@ def apply_sector_balance(
         for sector, target_w in target_weights.items()
     }
 
-    selected_sectors = sector_labels.reindex(pd.Index(list(result_set))).dropna()
     for sector, (min_n, max_n) in bands.items():
         current_n = int((selected_sectors == sector).sum())
 
@@ -252,7 +258,7 @@ def apply_sector_balance(
 
     result_set = _cap_per_sector(result_set, scores, sector_labels, max_per_sector)
     result_set = _restore_count(
-        result_set, n_target, scores, sector_labels, bands, max_per_sector
+        result_set, n_total, scores, sector_labels, bands, max_per_sector
     )
     return pd.Index(sorted(result_set))
 

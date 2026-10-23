@@ -387,6 +387,55 @@ class TestApplySectorBalanceKeepsTargetCount:
         assert counts.max() <= 4
 
 
+class TestApplySectorBalanceUnlabeledTickers:
+    """Selected names without a sector must not inflate the sector bands."""
+
+    @staticmethod
+    def _universe(n_unlabeled: int = 5) -> tuple[pd.Series, pd.Series]:
+        tickers = [f"T{i:02d}" for i in range(50)]
+        sectors = [f"S{i % 4}" for i in range(50)]
+        scores = pd.Series([float(100 - i) for i in range(50)], index=tickers)
+        labels = pd.Series(sectors, index=tickers)
+        labels.iloc[:n_unlabeled] = np.nan
+        return scores, labels
+
+    def test_nan_labeled_top_names_keep_target_count(self) -> None:
+        scores, labels = self._universe()
+        result = select_stocks(
+            scores,
+            config=SelectionConfig(target_count=10, sector_balance=True),
+            sector_labels=labels,
+            parent_universe=scores.index,
+        )
+        assert len(result) == 10
+
+    def test_top_names_missing_from_labels_keep_target_count(self) -> None:
+        scores, labels = self._universe()
+        result = select_stocks(
+            scores,
+            config=SelectionConfig(target_count=10, sector_balance=True),
+            sector_labels=labels.iloc[5:],
+            parent_universe=scores.index[5:],
+        )
+        assert len(result) == 10
+
+    def test_unlabeled_members_are_kept_and_labeled_part_is_balanced(self) -> None:
+        scores, labels = self._universe()
+        result = apply_sector_balance(
+            scores.nlargest(10).index,
+            scores,
+            labels,
+            parent_universe=scores.index,
+            tolerance=0.05,
+        )
+        assert len(result) == 10
+        assert set(scores.index[:5]) <= set(result)
+        counts = labels.reindex(result).value_counts()
+        n_labeled = int(counts.sum())
+        assert counts.min() >= round(0.20 * n_labeled)
+        assert counts.max() <= round(0.30 * n_labeled)
+
+
 class TestApplySectorBalanceMaxPerSector:
     """Hard sector cap (issue #525)."""
 
