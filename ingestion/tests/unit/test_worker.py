@@ -379,3 +379,20 @@ class TestGracefulShutdown:
         fx.assert_called_once()
         m.close.assert_not_called()  # skipped on the forced path
         block.set()  # release the daemon drain thread
+
+
+class TestLoggingSetup:
+    def test_masks_api_key_query_params_in_log_records(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """urllib3 logs the FRED request path (key included) at DEBUG."""
+        leaked = "FREDSECRETKEY0123456789abcdef"
+        with patch("app.services.market_data.yfinance.configure_yfinance"):
+            worker_module._configure_logging()
+
+        logging.getLogger("urllib3.connectionpool").warning(
+            '"GET /fred/series?series_id=T10Y2Y&api_key=%s HTTP/1.1" 200', leaked
+        )
+
+        assert "api_key=***" in caplog.text
+        assert leaked not in caplog.text

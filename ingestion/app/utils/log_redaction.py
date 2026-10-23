@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 
 # `key`/`token` are only treated as credentials inside a query string (`?`/`&`
@@ -33,3 +34,37 @@ def redact_secrets(text: str) -> str:
         value replaced by ``***``; text without such parameters is unchanged.
     """
     return _QUERY_CREDENTIAL.sub(r"\1=***", text)
+
+
+class SecretRedactingFilter(logging.Filter):
+    """Logging filter that masks credential query parameters in each record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Rewrite *record* in place so its rendered message carries no key.
+
+        Always returns ``True``: this filter redacts, it never drops records.
+        A record whose ``%`` arguments do not match its format string is left
+        for the logging machinery to report, as it would be without the filter.
+        """
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        redacted = redact_secrets(message)
+        if redacted != message:
+            record.msg = redacted
+            record.args = None
+        return True
+
+
+def install_secret_redaction() -> None:
+    """Attach :class:`SecretRedactingFilter` to every root-logger handler.
+
+    The filter sits on handlers, not loggers, because a logger's filters are
+    skipped for records propagated from child loggers such as
+    ``urllib3.connectionpool``. Call it after ``logging.basicConfig`` has
+    created the handlers; calling it again is harmless.
+    """
+    for handler in logging.getLogger().handlers:
+        if not any(isinstance(f, SecretRedactingFilter) for f in handler.filters):
+            handler.addFilter(SecretRedactingFilter())

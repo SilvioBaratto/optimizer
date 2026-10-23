@@ -34,6 +34,7 @@ from prometheus_client import start_http_server
 from app.config import settings
 from app.database import close_db, database_manager, init_db
 from app.services.jobs.scheduler import SupervisedScheduler, create_scheduler
+from app.utils.log_redaction import install_secret_redaction
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ def _configure_logging() -> None:
     logging.basicConfig(
         level=getattr(logging, settings.log_level.upper()), handlers=[handler]
     )
+    install_secret_redaction()
     configure_yfinance(log_level=settings.yfinance_log_level)
 
 

@@ -12,6 +12,7 @@ database. What is asserted is the contract the shell drivers depend on:
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import date
 from unittest.mock import patch
@@ -526,3 +527,36 @@ class TestDailyEventsBackfill:
 
         assert result.exit_code == 0
         assert build.call_count == len(days)
+
+
+class TestCredentialRedactionInLogs:
+    """Entry points that configure logging also mask `?api_key=` in log text.
+
+    FRED accepts its key only as a query parameter and urllib3 logs the request
+    path at DEBUG, so ``LOG_LEVEL=DEBUG`` would otherwise write the key to the
+    terminal, ``docker logs`` and any log shipper.
+    """
+
+    @pytest.mark.parametrize(
+        "argv", [["setup", "--non-interactive"], ["start"], ["daily"]]
+    )
+    def test_entry_point_masks_api_key_in_logged_urls(
+        self, argv: list[str], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        leaked = "FREDSECRETKEY0123456789abcdef"
+        with (
+            patch("app.setup.wizard.run_setup_noninteractive"),
+            patch("app.setup.lifecycle.run_start"),
+            patch(f"{SCHED}.run_daily_pipeline"),
+            patch("app.services.market_data.yfinance.configure_yfinance"),
+            patch.dict(os.environ, {"PORTOPT_PASSPHRASE": "pw"}),
+        ):
+            result = runner.invoke(app, argv)
+        assert result.exit_code == 0
+
+        logging.getLogger("urllib3.connectionpool").warning(
+            '"GET /fred/series?series_id=T10Y2Y&api_key=%s HTTP/1.1" 200', leaked
+        )
+
+        assert "api_key=***" in caplog.text
+        assert leaked not in caplog.text

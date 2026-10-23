@@ -42,6 +42,7 @@ import typer
 
 from app.config import settings
 from app.database import init_db
+from app.utils.log_redaction import install_secret_redaction
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ def _boot() -> None:
         level=getattr(logging, settings.log_level.upper()),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+    install_secret_redaction()
     configure_yfinance(log_level=settings.yfinance_log_level)
     init_db()
 
@@ -373,6 +375,7 @@ def setup(
 ) -> None:
     """Install wizard: verify Docker, validate keys live, encrypt secrets, migrate the DB."""
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
+    install_secret_redaction()
     from app.setup import (
         ca_bundle,
         docker_bootstrap,
@@ -456,6 +459,7 @@ def start(
 ) -> None:
     """Decrypt secrets, mount them as compose secrets, and launch the stack."""
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
+    install_secret_redaction()
     from app.setup import lifecycle
     from app.setup.docker_bootstrap import DockerError
     from app.setup.prompts import PromptError, make_prompter
