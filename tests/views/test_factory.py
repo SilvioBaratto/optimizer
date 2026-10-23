@@ -84,6 +84,36 @@ class TestBuildBlackLitterman:
 
         assert isinstance(prior.prior_estimator.mu_estimator, ShrunkMu)
 
+    def test_market_weights_forwarded_to_equilibrium_prior(self) -> None:
+        cfg = BlackLittermanConfig.for_equilibrium(views=("TICK_00 == 0.05",))
+        weights = np.array([0.7, 0.3])
+        prior = build_black_litterman(cfg, market_weights=weights)
+        assert isinstance(prior, BlackLitterman)
+        mu_estimator = prior.prior_estimator.mu_estimator  # type: ignore[union-attr]
+        np.testing.assert_array_equal(mu_estimator.weights, weights)
+
+    def test_market_weights_default_none(self) -> None:
+        cfg = BlackLittermanConfig.for_equilibrium(views=("TICK_00 == 0.05",))
+        prior = build_black_litterman(cfg)
+        assert isinstance(prior, BlackLitterman)
+        assert prior.prior_estimator.mu_estimator.weights is None  # type: ignore[union-attr]
+
+    def test_market_weights_change_posterior_mean(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        """Cap weights move the equilibrium prior away from the equal-weight one."""
+        cfg = BlackLittermanConfig.for_equilibrium(views=("TICK_00 == 0.05",))
+        n_assets = returns_df.shape[1]
+        caps = np.full(n_assets, 0.5 / (n_assets - 1))
+        caps[1] = 0.5
+
+        equal = build_black_litterman(cfg).fit(returns_df)
+        cap_weighted = build_black_litterman(cfg, market_weights=caps).fit(returns_df)
+
+        assert not np.allclose(
+            equal.return_distribution_.mu, cap_weighted.return_distribution_.mu
+        )
+
     def test_factor_model_variant(self) -> None:
         cfg = BlackLittermanConfig(views=("TICK_00 == 0.05",), use_factor_model=True)
         prior = build_black_litterman(cfg)

@@ -37,7 +37,10 @@ class BlackLittermanConfig:
             Idzorek method; must have one entry per view.
         groups: Asset group mapping for group-relative views.
         prior_config: Inner prior configuration. Defaults to
-            ``MomentEstimationConfig.for_equilibrium_ledoitwolf()``.
+            ``MomentEstimationConfig.for_equilibrium_ledoitwolf()``, whose
+            ``risk_aversion`` is 1.0; set it here to calibrate the equilibrium
+            risk-aversion coefficient. Market-cap weights for the equilibrium
+            are supplied to ``build_black_litterman(market_weights=...)``.
         use_factor_model: When True, wraps the Black-Litterman prior in a
             skfolio.prior.TimeSeriesFactorModel. Fit with factor returns
             via the keyword ``factors=`` (skfolio 1.0).

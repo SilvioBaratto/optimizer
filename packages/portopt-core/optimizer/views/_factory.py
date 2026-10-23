@@ -109,6 +109,8 @@ def build_black_litterman(
     view_history: pd.DataFrame | None = None,
     return_history: pd.DataFrame | None = None,
     omega: npt.NDArray[np.float64] | None = None,
+    *,
+    market_weights: npt.NDArray[np.float64] | None = None,
 ) -> BasePrior:
     """Build a skfolio Black-Litterman prior from *config*.
 
@@ -122,6 +124,11 @@ def build_black_litterman(
         omega: Pre-computed diagonal omega matrix. When provided and method is
             ``EMPIRICAL_TRACK_RECORD``, used directly (skipping the history
             computation).
+        market_weights: Market-capitalisation weights, aligned to the columns the
+            prior is fitted on, forwarded to the equilibrium prior. Without them
+            skfolio falls back to equal weights, which is a degenerate
+            (non cap-weighted) equilibrium. Only used when the inner prior's
+            ``mu_estimator`` is ``EQUILIBRIUM``.
 
     Returns:
         A fitted-ready `BlackLitterman` (or `_EmpiricalOmegaBlackLitterman`
@@ -133,7 +140,7 @@ def build_black_litterman(
         if config.prior_config is not None
         else MomentEstimationConfig.for_equilibrium_ledoitwolf()
     )
-    inner_prior = build_prior(prior_cfg)
+    inner_prior = build_prior(prior_cfg, market_weights=market_weights)
 
     shared_kwargs: dict[str, Any] = {
         "views": list(config.views),
