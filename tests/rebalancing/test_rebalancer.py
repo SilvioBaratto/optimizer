@@ -575,6 +575,43 @@ class TestBuildRebalancingWalkForward:
             np.testing.assert_array_equal(g_train, w_train)
             np.testing.assert_array_equal(g_test, w_test)
 
+    @pytest.mark.parametrize(
+        "config",
+        [
+            CalendarRebalancingConfig.for_monthly(),
+            CalendarRebalancingConfig.for_quarterly(),
+            CalendarRebalancingConfig.for_semiannual(),
+            CalendarRebalancingConfig.for_annual(),
+        ],
+        ids=["monthly", "quarterly", "semiannual", "annual"],
+    )
+    def test_default_train_window_spans_three_years_for_every_cadence(
+        self, config: CalendarRebalancingConfig
+    ) -> None:
+        X = self._daily_returns("2010-01-04", years=10)
+        cv = build_rebalancing_walk_forward(config)
+        folds = list(cv.split(X))
+        assert folds
+        train_idx, _ = folds[0]
+        span_years = (X.index[train_idx[-1]] - X.index[train_idx[0]]).days / 365.25
+        assert span_years == pytest.approx(3.0, abs=0.1)
+
+    def test_default_train_window_gives_annual_cadence_folds_on_short_history(
+        self,
+    ) -> None:
+        X = self._daily_returns("2015-01-05", years=5)
+        cv = build_rebalancing_walk_forward(CalendarRebalancingConfig.for_annual())
+        assert cv.get_n_splits(X) > 0
+
+    def test_explicit_train_size_overrides_the_default_window(self) -> None:
+        X = self._daily_returns("2010-01-04", years=10)
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_annual(), train_size=5
+        )
+        train_idx, _ = next(iter(cv.split(X)))
+        span_years = (X.index[train_idx[-1]] - X.index[train_idx[0]]).days / 365.25
+        assert span_years == pytest.approx(5.0, abs=0.1)
+
     def test_splits_are_time_ordered(self) -> None:
         cv = build_rebalancing_walk_forward(
             CalendarRebalancingConfig.for_monthly(), train_size=6

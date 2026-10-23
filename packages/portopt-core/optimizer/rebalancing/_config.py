@@ -55,6 +55,20 @@ PANDAS_FREQ: dict[RebalancingFrequency, str] = {
     RebalancingFrequency.ANNUAL: "YS",
 }
 
+# Rebalancing periods per calendar year, used to turn a span of history into a
+# walk-forward ``train_size`` counted in ``freq`` periods.
+PERIODS_PER_YEAR: dict[RebalancingFrequency, int] = {
+    RebalancingFrequency.MONTHLY: 12,
+    RebalancingFrequency.QUARTERLY: 4,
+    RebalancingFrequency.SEMIANNUAL: 2,
+    RebalancingFrequency.ANNUAL: 1,
+}
+
+# Default estimation history for a walk-forward training window. A fixed time
+# span keeps the covariance lookback comparable across cadences; a fixed period
+# count would train on 1 year of monthly data but 12 years of annual data.
+DEFAULT_TRAIN_YEARS = 3
+
 
 @dataclass(frozen=True)
 class CalendarRebalancingConfig:
@@ -86,6 +100,11 @@ class CalendarRebalancingConfig:
         `optimizer.rebalancing.build_rebalancing_walk_forward`.
         """
         return PANDAS_FREQ[self.frequency]
+
+    @property
+    def periods_per_year(self) -> int:
+        """Number of rebalancing periods in one calendar year."""
+        return PERIODS_PER_YEAR[self.frequency]
 
     @classmethod
     def for_monthly(cls) -> CalendarRebalancingConfig:

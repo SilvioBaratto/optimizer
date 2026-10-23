@@ -13,6 +13,7 @@ from skfolio.model_selection import WalkForward
 from skfolio.typing import IntArray
 
 from optimizer.rebalancing._config import (
+    DEFAULT_TRAIN_YEARS,
     PANDAS_FREQ,
     CalendarRebalancingConfig,
     HybridRebalancingConfig,
@@ -416,7 +417,7 @@ class _CalendarWalkForward(WalkForward):
 def build_rebalancing_walk_forward(
     config: CalendarRebalancingConfig | None = None,
     *,
-    train_size: int = 12,
+    train_size: int | None = None,
     test_size: int = 1,
     purged_size: int = 0,
     expand_train: bool = False,
@@ -433,6 +434,10 @@ def build_rebalancing_walk_forward(
     the calendar frequency (``config.pandas_freq``), e.g. quarters for a
     quarterly cadence.
 
+    Unless ``train_size`` is given, the training window covers
+    ``DEFAULT_TRAIN_YEARS`` (three) years whatever the cadence: 36 months, 12
+    quarters, 6 half-years or 3 years.
+
     The returned CV feeds ``cross_val_predict`` / ``GridSearchCV`` and honours
     skfolio 1.0 calendar semantics. The input ``X`` must be a returns
     ``DataFrame`` with a ``DatetimeIndex``.
@@ -440,7 +445,8 @@ def build_rebalancing_walk_forward(
     Args:
         config: Rebalancing cadence supplying the calendar frequency. Defaults
             to quarterly.
-        train_size: Number of ``freq`` periods in each training window. Ignored
+        train_size: Number of ``freq`` periods in each training window. ``None``
+            (default) spans three years of history for every cadence. Ignored
             beyond the first fold when ``expand_train`` is ``True``.
         test_size: Number of ``freq`` periods in each test window (one
             rebalancing period by default).
@@ -463,6 +469,8 @@ def build_rebalancing_walk_forward(
     """
     if config is None:
         config = CalendarRebalancingConfig()
+    if train_size is None:
+        train_size = DEFAULT_TRAIN_YEARS * config.periods_per_year
 
     offset = (
         pd.tseries.frequencies.to_offset(freq_offset)

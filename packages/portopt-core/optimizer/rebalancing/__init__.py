@@ -5,7 +5,9 @@ turnover computation, and transaction cost estimation.
 """
 
 from optimizer.rebalancing._config import (
+    DEFAULT_TRAIN_YEARS,
     PANDAS_FREQ,
+    PERIODS_PER_YEAR,
     TRADING_DAYS,
     CalendarRebalancingConfig,
     HybridRebalancingConfig,
@@ -25,7 +27,9 @@ from optimizer.rebalancing._rebalancer import (
 )
 
 __all__ = [
+    "DEFAULT_TRAIN_YEARS",
     "PANDAS_FREQ",
+    "PERIODS_PER_YEAR",
     "TRADING_DAYS",
     "CalendarRebalancingConfig",
     "HybridRebalancingConfig",
