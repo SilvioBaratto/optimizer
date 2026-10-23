@@ -622,3 +622,55 @@ class TestAlphaConcentration:
         result = run_regime_validation(returns, macro)
 
         assert result.concentrated_regimes == ["expansion"]
+
+
+class TestMacroDataOrdering:
+    @staticmethod
+    def _sparse_pmi_macro() -> tuple[pd.DataFrame, pd.Series]:
+        dates = pd.bdate_range("2024-01-02", periods=180)
+        pmi = pd.Series(np.nan, index=dates)
+        pmi.iloc[[0, 60, 120]] = [55.0, 46.0, 55.0]
+        macro = pd.DataFrame({"pmi": pmi, "spread_2s10s": 0.2}, index=dates)
+        rng = np.random.default_rng(1)
+        returns = pd.Series(rng.normal(0.001, 0.01, size=180), index=dates)
+        return macro, returns
+
+    def test_newest_first_macro_data_gives_the_same_regimes(self) -> None:
+        """Row order of the macro frame must not decide what counts as past."""
+        macro, returns = self._sparse_pmi_macro()
+
+        expected = run_regime_validation(returns, macro)
+        result = run_regime_validation(returns, macro.iloc[::-1])
+
+        pd.testing.assert_series_equal(result.regime_timeline, expected.regime_timeline)
+        pd.testing.assert_frame_equal(
+            result.per_regime_metrics, expected.per_regime_metrics
+        )
+
+    def test_shuffled_macro_data_gives_the_same_regimes(self) -> None:
+        macro, returns = self._sparse_pmi_macro()
+
+        expected = run_regime_validation(returns, macro)
+        result = run_regime_validation(returns, macro.sample(frac=1.0, random_state=0))
+
+        pd.testing.assert_series_equal(result.regime_timeline, expected.regime_timeline)
+
+    def test_duplicate_macro_dates_keep_the_latest_row(self) -> None:
+        """A superseded row must not leak its values into the carry-forward.
+
+        The surviving row has no PMI release; if the superseded duplicate were
+        kept, forward-filling would hand it the superseded PMI of 40.0.
+        """
+        dates = pd.bdate_range("2024-01-02", periods=60)
+        pmi = pd.Series(np.nan, index=dates)
+        pmi.iloc[30] = 55.0
+        macro = pd.DataFrame({"pmi": pmi, "spread_2s10s": 0.2}, index=dates)
+        superseded = macro.iloc[[0]].copy()
+        superseded["pmi"] = 40.0
+        with_duplicate = pd.concat([superseded, macro])
+        returns = pd.Series(0.001, index=dates)
+
+        expected = run_regime_validation(returns, macro)
+        result = run_regime_validation(returns, with_duplicate)
+
+        pd.testing.assert_series_equal(result.regime_timeline, expected.regime_timeline)

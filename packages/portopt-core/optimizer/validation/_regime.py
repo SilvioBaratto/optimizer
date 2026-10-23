@@ -377,7 +377,9 @@ def run_regime_validation(
     Args:
         oos_returns: Daily portfolio returns indexed by ``DatetimeIndex``.
         macro_data: Macro indicators indexed by date, compatible with
-            `classify_regime_composite`.
+            `classify_regime_composite`. Rows may arrive in any order; they
+            are sorted chronologically and, for a repeated date, the last
+            row wins.
         config: Validation configuration. Defaults to standard.
         thresholds: Regime classification thresholds.
 
@@ -396,6 +398,12 @@ def run_regime_validation(
 
     rf_daily = config.risk_free_rate / config.trading_days_per_year
     tdays = config.trading_days_per_year
+
+    # The point-in-time window below is positional, so row order has to be
+    # chronological; a stable sort keeps "last row wins" meaningful for
+    # repeated dates.
+    macro_data = macro_data.sort_index(kind="stable")
+    macro_data = macro_data.loc[~macro_data.index.duplicated(keep="last")]
 
     overlap = macro_data.index.intersection(oos_returns.index).size
     if len(macro_data) == 0 or not overlap:
