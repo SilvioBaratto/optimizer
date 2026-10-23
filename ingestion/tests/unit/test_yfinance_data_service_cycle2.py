@@ -60,8 +60,8 @@ def _eps_revisions_fixture() -> pd.DataFrame:
         {
             "upLast7days": [2, 1, 3, 0],
             "upLast30days": [5, 4, 7, 2],
-            "downLast7days": [0, 1, 0, 1],
             "downLast30days": [1, 2, 1, 3],
+            "downLast7Days": [0, 1, 0, 1],
         },
         index=["0q", "+1q", "0y", "+1y"],
     )

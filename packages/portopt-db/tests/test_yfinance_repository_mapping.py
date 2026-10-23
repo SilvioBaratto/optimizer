@@ -104,12 +104,14 @@ class TestAnalystEstimates:
         assert _constraint(repo) == "uq_eps_trend_instrument_period"
 
     def test_eps_revisions_maps_period_and_counts(self, repo) -> None:
+        # Yahoo spells only the 7-day down column with a capital D.
         df = pd.DataFrame(
             {
                 "upLast7days": [2, 3],
                 "upLast30days": [5, 7],
-                "downLast7days": [0, 1],
                 "downLast30days": [1, 2],
+                "downLast7Days": [4, 1],
+                "currency": ["USD", "USD"],
             },
             index=["0q", "+1q"],
         )
@@ -117,8 +119,23 @@ class TestAnalystEstimates:
         rows = _rows(repo)
         assert [r["period"] for r in rows] == ["0q", "+1q"]
         assert rows[0]["up_last_7days"] == 2
+        assert rows[0]["down_last_7days"] == 4
+        assert rows[1]["down_last_7days"] == 1
         assert rows[1]["down_last_30days"] == 2
         assert _constraint(repo) == "uq_eps_revisions_instrument_period"
+
+    def test_eps_revisions_accepts_lowercase_down_last_7days(self, repo) -> None:
+        df = pd.DataFrame(
+            {
+                "upLast7days": [2],
+                "upLast30days": [5],
+                "downLast7days": [3],
+                "downLast30days": [1],
+            },
+            index=["0q"],
+        )
+        repo.upsert_eps_revisions(_IID, df)
+        assert _rows(repo)[0]["down_last_7days"] == 3
 
 
 class TestPriceHistory:

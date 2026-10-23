@@ -658,6 +658,8 @@ class YFinanceRepository(RepositoryBase):
         """Upsert EPS revision counts (index = period labels "0q"/"+1q"/...).
 
         Columns are up/down revision counts over the trailing 7/30-day windows.
+        Yahoo emits ``downLast7Days`` (capital D); the lowercase spelling is
+        accepted too.
         """
         rows = [
             {
@@ -665,7 +667,10 @@ class YFinanceRepository(RepositoryBase):
                 "period": _safe_str(period, 10),
                 "up_last_7days": _safe_int(row.get("upLast7days")),
                 "up_last_30days": _safe_int(row.get("upLast30days")),
-                "down_last_7days": _safe_int(row.get("downLast7days")),
+                # Yahoo capitalises the D only on this column.
+                "down_last_7days": _safe_int(
+                    row.get("downLast7Days", row.get("downLast7days"))
+                ),
                 "down_last_30days": _safe_int(row.get("downLast30days")),
             }
             for period, row in df.iterrows()
