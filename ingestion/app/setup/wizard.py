@@ -265,6 +265,15 @@ def _auto_launch(passphrase: str) -> None:
         )
 
 
+def _clean_secret(value: str | None) -> str:
+    """Strip the whitespace a paste or a CRLF env file leaves around a credential.
+
+    A stray space or newline is an illegal HTTP header value, which surfaces as a
+    network failure rather than a rejected key.
+    """
+    return (value or "").strip()
+
+
 def _llm_key_env(provider: str) -> str:
     """The env var a provider's key may also arrive in (upper-cased secret name)."""
     return _LLM_SECRET_NAMES[provider].upper()
@@ -371,7 +380,9 @@ def _configure_llm_noninteractive(
     secret_name = _LLM_SECRET_NAMES.get(llm_provider)
     key: str | None = None
     if secret_name and _llm_needs_key(llm_provider, llm_base_url):
-        key = llm_key or os.getenv(_llm_key_env(llm_provider))
+        key = _clean_secret(llm_key) or _clean_secret(
+            os.getenv(_llm_key_env(llm_provider))
+        )
         if not key:
             raise SetupError(
                 f"{llm_provider} needs an API key "
@@ -457,9 +468,9 @@ def _validate_llm_key_with_retry(
     skip_validation: bool = False,
 ) -> str:
     """Prompt for the key and validate; re-prompt on rejection (network → abort)."""
-    env_key = os.getenv(_llm_key_env(provider))
+    env_key = _clean_secret(os.getenv(_llm_key_env(provider)))
     for _ in range(_LLM_KEY_ATTEMPTS):
-        key = env_key or prompter.password(_MSG_LLM_KEY)
+        key = env_key or _clean_secret(prompter.password(_MSG_LLM_KEY))
         if validators.validate_llm(
             provider,
             key=key,
@@ -468,7 +479,7 @@ def _validate_llm_key_with_retry(
             **fields,
         ):
             return key
-        env_key = None  # discard a bad env key so the next round prompts
+        env_key = ""  # discard a bad env key so the next round prompts
         prompter.error("That LLM key was rejected; try again.")
     raise SetupError(
         f"{provider} key failed validation after {_LLM_KEY_ATTEMPTS} attempts."
@@ -570,6 +581,9 @@ def run_setup_noninteractive(
 
     secrets: dict[str, str] = {}
     config: dict[str, object] = {}
+    t212_key = _clean_secret(t212_key)
+    t212_secret = _clean_secret(t212_secret)
+    fred_key = _clean_secret(fred_key)
 
     if t212_key or t212_secret:
         if not (t212_key and t212_secret):

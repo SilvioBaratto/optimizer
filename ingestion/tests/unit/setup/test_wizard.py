@@ -1687,3 +1687,129 @@ def test_blank_aws_region_is_reasked(
 
     assert len(prompter.errors) == 1
     assert patched["saved_config"]["aws_region"] == "eu-west-1"
+
+
+# --- pasted secrets are stripped before they reach a header ------------------
+
+
+def _record_llm_keys(monkeypatch: pytest.MonkeyPatch) -> list[str | None]:
+    keys: list[str | None] = []
+
+    def _validate(provider, key=None, base_url=None, **fields):
+        keys.append(key)
+        return True
+
+    monkeypatch.setattr(wizard.validators, "validate_llm", _validate)
+    return keys
+
+
+@pytest.mark.parametrize("pasted", ["sk-abc ", "sk-abc\n", "  sk-abc\r\n"])
+def test_interactive_llm_key_typed_at_the_prompt_is_stripped(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, pasted: str
+) -> None:
+    """A trailing space/newline made the HTTP client reject the header outright."""
+    keys = _record_llm_keys(monkeypatch)
+    prompter = _llm_prompter(
+        {
+            wizard._MSG_LLM_PROVIDER: "openai",
+            wizard._MSG_LLM_MODEL: "gpt-4o",
+            wizard._MSG_LLM_KEY: pasted,
+        }
+    )
+
+    wizard.run_setup_interactive(prompter)
+
+    assert keys == ["sk-abc"]
+    assert patched["saved_secrets"]["openai_api_key"] == "sk-abc"
+
+
+def test_interactive_llm_key_from_env_is_stripped(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A CRLF env file leaves a carriage return on the exported value."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env\r")
+    keys = _record_llm_keys(monkeypatch)
+    prompter = _llm_prompter(
+        {wizard._MSG_LLM_PROVIDER: "openai", wizard._MSG_LLM_MODEL: "gpt-4o"}
+    )
+
+    wizard.run_setup_interactive(prompter)
+
+    assert keys == ["sk-env"]
+    assert patched["saved_secrets"]["openai_api_key"] == "sk-env"
+
+
+def test_interactive_blank_env_key_falls_through_to_the_prompt(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "  ")
+    keys = _record_llm_keys(monkeypatch)
+    prompter = _llm_prompter(
+        {
+            wizard._MSG_LLM_PROVIDER: "openai",
+            wizard._MSG_LLM_MODEL: "gpt-4o",
+            wizard._MSG_LLM_KEY: "sk-typed",
+        }
+    )
+
+    wizard.run_setup_interactive(prompter)
+
+    assert keys == ["sk-typed"]
+
+
+def test_noninteractive_llm_key_flag_is_stripped(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    keys = _record_llm_keys(monkeypatch)
+
+    wizard.run_setup_noninteractive(
+        passphrase=_PW, llm_provider="openai", llm_key="sk-flag \n"
+    )
+
+    assert keys == ["sk-flag"]
+    assert patched["saved_secrets"]["openai_api_key"] == "sk-flag"
+
+
+def test_noninteractive_llm_key_from_env_is_stripped(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "env-sk\r\n")
+    keys = _record_llm_keys(monkeypatch)
+
+    wizard.run_setup_noninteractive(passphrase=_PW, llm_provider="anthropic")
+
+    assert keys == ["env-sk"]
+    assert patched["saved_secrets"]["anthropic_api_key"] == "env-sk"
+
+
+def test_noninteractive_whitespace_only_llm_key_flag_counts_as_missing(
+    patched: dict,
+) -> None:
+    with pytest.raises(wizard.SetupError, match="needs an API key"):
+        wizard.run_setup_noninteractive(
+            passphrase=_PW, llm_provider="openai", llm_key="  "
+        )
+    assert patched["saved_secrets"] is None
+
+
+def test_noninteractive_t212_and_fred_flags_are_stripped(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, tuple[str, ...]] = {}
+    monkeypatch.setattr(
+        wizard.validators,
+        "validate_t212",
+        lambda k, s, **_: seen.update(t212=(k, s)) or True,
+    )
+    monkeypatch.setattr(
+        wizard.validators, "validate_fred", lambda k: seen.update(fred=(k,)) or True
+    )
+
+    wizard.run_setup_noninteractive(
+        passphrase=_PW, t212_key="id \n", t212_secret=" sec\r", fred_key="fred \n"
+    )
+
+    assert seen == {"t212": ("id", "sec"), "fred": ("fred",)}
+    assert patched["saved_secrets"]["trading_212_api_key"] == "id"
+    assert patched["saved_secrets"]["trading_212_secret_key"] == "sec"  # noqa: S105 - test value, not a secret
+    assert patched["saved_secrets"]["fred_api_key"] == "fred"
