@@ -9416,3 +9416,132 @@ async def test_questionnaire_error_shows_validation_text_verbatim(
         await pilot.pause()
         shown = screen.query_one("#q-error", Static).visual.plain
         assert _BRACKETED_RATIONALE in shown
+
+
+# --- Mandate editor survives the poll repaint (persisted-source repaint rules) ----
+# ``app._refresh()`` is exactly what each poll tick runs, so calling it between an
+# edit and the action that reads the widgets reproduces the timer firing mid-edit.
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_tick_keeps_unsaved_run_policy_edits(shell_env) -> None:
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-capital", Input).value = "250000"
+        view.query_one("#mandate-base-currency", Input).value = "USD"
+        view.query_one("#mandate-drift", Input).value = "0.25"
+        view.query_one("#mandate-benchmark", Input).value = "SPY"
+        app._refresh()
+        await pilot.pause()
+        assert view.query_one("#mandate-capital", Input).value == "250000"
+        assert view.query_one("#mandate-base-currency", Input).value == "USD"
+        assert view.query_one("#mandate-drift", Input).value == "0.25"
+        assert view.query_one("#mandate-benchmark", Input).value == "SPY"
+        app.action_save_mandate()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        reloaded = observe.get_mandate(session, PORTFOLIO_ID)
+        assert reloaded.capital == Decimal("250000")
+        assert reloaded.base_currency == "USD"
+        assert reloaded.drift_l1_threshold == 0.25
+        assert reloaded.benchmark == "SPY"
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_tick_keeps_gate_and_band_edits(shell_env) -> None:
+    # A band picked then a tick: the override must log the picked (out-of-band) band,
+    # not the suitability band the Select would snap back to.
+    _seed_mandate_and_profile(shell_env, band="balanced")
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-band", Select).value = "aggressive"
+        view.query_one("#gate-place-orders", Checkbox).value = False
+        app._refresh()
+        await pilot.pause()
+        assert view.proposed_band() == "aggressive"
+        assert view.query_one("#gate-place-orders", Checkbox).value is False
+        app.action_override_guardrail()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        rows = HumanAuditLogRepository(session).list_recent(action="guardrail_override")
+        assert len(rows) == 1
+        assert rows[0].new_value == "aggressive"
+        assert rows[0].override_flag is True
+        assert rows[0].suitability_flag is True
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_tick_keeps_removed_directive_and_highlight(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"remembered_directives": ("a", "b", "c")}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        listview = view.query_one("#mandate-directives", ListView)
+        listview.index = 2
+        view.action_remove_directive()
+        await pilot.pause()
+        listview.index = 0
+        await pilot.pause()
+        app._refresh()
+        await pilot.pause()
+        assert view._directives == ["a", "b"]
+        assert listview.index == 0  # the highlight is not reset by a tick
+
+
+@pytest.mark.asyncio
+async def test_mandate_repaints_when_persisted_mandate_changes(shell_env) -> None:
+    # The guard must not freeze the editor: a change made elsewhere still shows up.
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        with shell_env.get_session() as session:
+            changed = make_mandate().model_copy(
+                update={
+                    "capital": Decimal("500000"),
+                    "drift_l1_threshold": 0.3,
+                    "hitl_gates": (),
+                    "remembered_directives": ("Keep 5% cash",),
+                }
+            )
+            MandateRepository(session).upsert(changed)
+            session.commit()
+        app._refresh()
+        await pilot.pause()
+        assert view.query_one("#mandate-capital", Input).value == "500000"
+        assert view.query_one("#mandate-drift", Input).value == "0.3"
+        assert view.query_one("#gate-place-orders", Checkbox).value is False
+        assert view._directives == ["Keep 5% cash"]
+
+
+@pytest.mark.asyncio
+async def test_mandate_repaints_when_focus_moves_to_another_portfolio(
+    shell_env,
+) -> None:
+    # Two portfolios with identical persisted values: an unsaved edit on the first must
+    # not leak into the second just because nothing "changed" in the data.
+    with shell_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate(_PID_A))
+        MandateRepository(session).upsert(make_mandate(_PID_B))
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-capital", Input).value = "999"
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+        assert view.query_one("#mandate-capital", Input).value == "100000"
