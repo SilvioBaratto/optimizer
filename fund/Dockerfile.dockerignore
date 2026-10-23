@@ -27,8 +27,9 @@ venv/
 node_modules/
 
 # Secrets & machine-local — provided at runtime via env_file, never baked in.
-.env
-.env.*
+# Recursive: `fund/.env` must not ride along with the `COPY fund/ fund/` tree.
+**/.env
+**/.env.*
 .certs/
 secrets/
 

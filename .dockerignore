@@ -1,16 +1,35 @@
+# Applied to every build whose context is the repo root and that has no
+# `<dockerfile>.dockerignore` of its own (the scheduler image). A `.dockerignore`
+# next to the Dockerfile is NOT read, and a pattern without `**/` only matches at
+# the context root, so everything below that must hold for nested member trees
+# (ingestion/.env, packages/*/__pycache__, ...) is written recursively.
+
 .git/
+**/.git/
 .github/
 .vscode/
 .idea/
 .claude/
 tests/
+**/tests/
 *.md
 !README.md
-.env
-.env.*
-__pycache__/
-*.pyc
-.mypy_cache/
-.ruff_cache/
-.pytest_cache/
-*.egg-info/
+
+# Secrets & machine-local — provided at runtime via env_file / /run/secrets,
+# never baked into a layer.
+**/.env
+**/.env.*
+.certs/
+secrets/
+
+**/__pycache__/
+**/*.pyc
+**/.mypy_cache/
+**/.ruff_cache/
+**/.pytest_cache/
+**/.hypothesis/
+**/.coverage
+**/.coverage.*
+**/coverage.xml
+**/*.egg-info/
+**/.venv/
