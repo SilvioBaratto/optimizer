@@ -7,11 +7,16 @@ resolve its repo, bring the fund stack up gated on the alembic-at-head healthche
 (``--wait``), and attach the Textual cockpit *with* a TTY — winpty only under mintty,
 and never ``-T`` (which disables the pseudo-TTY the cockpit needs). The Windows ``.cmd``
 wrapper must locate ``bash`` and know the repo.
+
+Tests that execute the launcher run a copy inside a throwaway repo with ``portopt`` and
+``docker`` stubbed on a scrubbed PATH: the real launcher decrypts the secret store and
+brings the live compose stack up, which a unit test must never do.
 """
 
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -41,6 +46,52 @@ def _bash() -> str | None:
     return shutil.which("bash")
 
 
+def _run_launcher_with_stubs(
+    tmp_path: Path, *args: str
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Run a copy of the launcher in a fake repo with `portopt`/`docker` stubbed.
+
+    The environment is built from scratch instead of inherited, so an exported
+    ``PORTOPT_PASSPHRASE``, a real ``portopt``/``docker`` on the developer's PATH or a
+    ``~/.portopt`` config can never decrypt secrets or touch the live compose stack.
+
+    Returns:
+        The completed process and the stub invocations in call order, one
+        ``"<tool> <args>"`` line each.
+    """
+    bash = _bash()
+    if bash is None:
+        pytest.skip("bash not available")
+    repo = tmp_path / "repo"
+    (repo / "scripts").mkdir(parents=True)
+    (repo / "docker-compose.yml").write_text("", encoding="utf-8")
+    launcher = repo / "scripts" / "optimizer"
+    launcher.write_text(_launcher_text(), encoding="utf-8")
+
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    calls = tmp_path / "calls.log"
+    for tool in ("portopt", "docker"):
+        stub = stubs / tool
+        stub.write_text(
+            f'#!/bin/sh\necho "{tool} $*" >> {shlex.quote(str(calls))}\n',
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+    home = tmp_path / "home"
+    home.mkdir()
+
+    result = subprocess.run(  # noqa: S603 - fixed bash path + a copy of our launcher
+        [bash, str(launcher), *args],
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        env={"PATH": f"{stubs}:/usr/bin:/bin", "HOME": str(home)},
+    )
+    recorded = calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
+    return result, recorded
+
+
 def test_launcher_exists() -> None:
     """The POSIX launcher is present at scripts/optimizer."""
     assert _LAUNCHER.is_file()
@@ -66,14 +117,6 @@ def test_launcher_starts_stack_via_portopt_start() -> None:
     # secret rendering the fund service's `file:` secrets require.
     assert "compose up" not in text
     assert "up -d" not in text
-
-
-def test_launcher_requires_a_portfolio_id() -> None:
-    """A bare `optimizer` (no portfolio id) fails fast with a usage message, since
-    fund-tui requires the id and the launcher forwards it verbatim."""
-    text = _launcher_text()
-    assert "$# -eq 0" in text
-    assert "usage" in text.lower()
 
 
 def test_launcher_resolves_repo() -> None:
@@ -117,19 +160,25 @@ def test_launcher_never_disables_tty_on_attach() -> None:
         assert "exec -T" not in line
 
 
-def test_launcher_bare_invocation_exits_with_usage() -> None:
-    """Running the launcher with no portfolio id exits nonzero with a usage message,
-    never reaching resolve_repo / `portopt start` (executed for real via bash)."""
-    bash = _bash()
-    if bash is None:
-        pytest.skip("bash not available")
-    result = subprocess.run(  # noqa: S603 - fixed bash path + our own launcher script
-        [bash, str(_LAUNCHER)],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 2
-    assert "usage" in result.stderr.lower()
+def test_launcher_bare_invocation_opens_the_fund_wide_shell(tmp_path: Path) -> None:
+    """With no portfolio id the launcher starts the stack through `portopt start` and
+    then attaches fund-tui with no id, which opens the fund-wide shell."""
+    result, calls = _run_launcher_with_stubs(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert calls == [
+        "portopt start",
+        "docker compose --profile fund exec fund fund-tui",
+    ]
+
+
+def test_launcher_forwards_the_portfolio_id_to_the_tui(tmp_path: Path) -> None:
+    """A portfolio id is passed to fund-tui verbatim so the shell opens focused on it."""
+    result, calls = _run_launcher_with_stubs(tmp_path, "some-portfolio-id")
+    assert result.returncode == 0, result.stderr
+    assert calls == [
+        "portopt start",
+        "docker compose --profile fund exec fund fund-tui some-portfolio-id",
+    ]
 
 
 def test_launcher_outside_a_repo_reports_helpful_error(tmp_path: Path) -> None:
