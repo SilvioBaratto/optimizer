@@ -25,7 +25,10 @@ class DatabaseManager:
     """Connection pooling, health check, and session context manager.
 
     Thread-safe; lazy-initializes on first `get_session` if `initialize`
-    was not called at startup.
+    was not called at startup. `close` is terminal for lazy initialization: a
+    closed manager raises from `get_session` instead of quietly building a
+    fresh engine nothing would dispose, and only an explicit `initialize`
+    reopens it.
     """
 
     def __init__(self, config: DbConfig):
@@ -38,6 +41,7 @@ class DatabaseManager:
         self._engine: Engine | None = None
         self._session_factory: sessionmaker[Session] | None = None
         self._is_initialized: bool = False
+        self._closed: bool = False
         self._lock = threading.RLock()
         self._last_health_check: float = 0
         self._last_health_check_result: bool = False
@@ -55,6 +59,7 @@ class DatabaseManager:
                 self._create_session_factory()
                 self._test_connection()
                 self._is_initialized = True
+                self._closed = False
                 logger.info("Database initialization successful")
             except Exception as e:
                 logger.error(f"Database initialization failed: {e}")
@@ -138,11 +143,21 @@ class DatabaseManager:
         itself on a disconnect error, and `pool_pre_ping` screens the rest at
         checkout. After `rollback()` the session holds no connection, so a
         manual invalidate would only check out and throw away a healthy one.
-        """
-        if not self._is_initialized:
-            self.initialize()
 
-        session = self._session_factory()  # type: ignore[misc]
+        Raises:
+            RuntimeError: The manager was closed and not re-initialized.
+        """
+        # Check, lazy init and session creation share one critical section so a
+        # concurrent `close()` cannot null the factory between them.
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("Database manager is closed")
+            if not self._is_initialized:
+                self.initialize()
+            factory = self._session_factory
+            if factory is None:
+                raise RuntimeError("Session factory not initialized")
+            session = factory()
         try:
             yield session
         except (DisconnectionError, OperationalError) as e:
@@ -175,8 +190,12 @@ class DatabaseManager:
         logger.info("Database tables created successfully")
 
     def close(self) -> None:
-        """Dispose the engine + reset state (idempotent, thread-safe)."""
+        """Dispose the engine + reset state (idempotent, thread-safe).
+
+        Afterwards `get_session` raises until `initialize` is called again.
+        """
         with self._lock:
+            self._closed = True
             if not self._is_initialized:
                 return
             try:

@@ -6,6 +6,7 @@ Config-injected. Most tests patch ``create_engine``; the ones that take
 
 from __future__ import annotations
 
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -223,6 +224,60 @@ class TestGetSession:
         session.close.side_effect = RuntimeError("already closed")
         with mgr.get_session():
             pass  # must not raise
+
+    def test_after_close_raises_instead_of_building_a_new_engine(
+        self, tmp_path
+    ) -> None:
+        mgr, _ = _sqlite_manager(tmp_path)
+        mgr.close()
+        with pytest.raises(RuntimeError, match="closed"), mgr.get_session():
+            pass
+        assert mgr.engine is None
+        assert mgr.is_initialized is False
+
+    def test_after_close_on_a_never_initialized_manager_still_raises(self) -> None:
+        mgr = DatabaseManager(_cfg())
+        mgr.close()
+        with (
+            patch(f"{M}.create_engine") as create,
+            pytest.raises(RuntimeError, match="closed"),
+            mgr.get_session(),
+        ):
+            pass
+        create.assert_not_called()
+
+    def test_explicit_initialize_reopens_a_closed_manager(self, tmp_path) -> None:
+        mgr, _ = _sqlite_manager(tmp_path)
+        mgr.close()
+        mgr.initialize()
+        with mgr.get_session() as session:
+            assert session.execute(text("SELECT 1")).scalar() == 1
+        mgr.close()
+
+    def test_close_racing_get_session_yields_closed_error_not_type_error(
+        self,
+    ) -> None:
+        mgr, _ = self._ready()
+        errors: list[BaseException] = []
+
+        def worker() -> None:
+            try:
+                with mgr.get_session():
+                    pass
+            except BaseException as exc:
+                errors.append(exc)
+
+        with mgr._lock:
+            thread = threading.Thread(target=worker)
+            thread.start()
+            thread.join(timeout=0.2)
+            assert thread.is_alive(), "get_session did not wait for the manager lock"
+            mgr.close()
+        thread.join(timeout=5)
+
+        assert len(errors) == 1
+        assert isinstance(errors[0], RuntimeError)
+        assert "closed" in str(errors[0])
 
 
 class TestClose:
