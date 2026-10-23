@@ -94,6 +94,50 @@ class TestSelectFixedCount:
         result = select_fixed_count(scores, target_count=10)
         assert len(result) == 3
 
+    def test_buffer_never_evicts_incumbent_inside_target_set(self) -> None:
+        """A held name inside the top target_count outranks a held buffer name."""
+        scores = pd.Series([5.0, 4.0, 3.0, 2.0, 1.0], index=list("ABCDE"))
+        result = select_fixed_count(
+            scores,
+            target_count=3,
+            buffer_fraction=0.34,
+            current_members=pd.Index(list("ABCD")),
+        )
+        assert set(result) == {"A", "B", "C"}
+
+    def test_buffer_displaces_only_non_incumbent_entrants(self) -> None:
+        """Retained buffer members replace the lowest-ranked *non-held* entrants."""
+        idx = [f"T{i:02d}" for i in range(30)]
+        scores = pd.Series([float(30 - i) for i in range(30)], index=idx)
+        result = select_fixed_count(
+            scores,
+            target_count=10,
+            buffer_fraction=0.2,
+            current_members=pd.Index(idx[8:12]),
+        )
+        assert len(result) == 10
+        assert set(result) == set(idx[:6]) | set(idx[8:12])
+
+    def test_buffer_keeps_held_target_boundary_name_over_buffer_name(self) -> None:
+        scores = pd.Series([float(10 - i) for i in range(10)], index=list("ABCDEFGHIJ"))
+        result = select_fixed_count(
+            scores,
+            target_count=5,
+            buffer_fraction=0.2,
+            current_members=pd.Index(["E", "F"]),
+        )
+        assert set(result) == {"A", "B", "C", "E", "F"}
+
+    def test_buffer_with_wide_zone_retains_every_held_name(self) -> None:
+        scores = pd.Series([float(10 - i) for i in range(10)], index=list("ABCDEFGHIJ"))
+        result = select_fixed_count(
+            scores,
+            target_count=5,
+            buffer_fraction=0.4,
+            current_members=pd.Index(["E", "F", "G"]),
+        )
+        assert set(result) == {"A", "B", "E", "F", "G"}
+
 
 class TestSelectQuantile:
     def test_selects_above_threshold(self, scores: pd.Series) -> None:

@@ -27,8 +27,10 @@ def select_fixed_count(
         target_count: Target number of stocks.
         buffer_fraction: Buffer as a fraction of target_count. Current members
             within the buffer zone are retained in preference to the
-            lowest-ranked direct entrants, but the returned index always
-            contains exactly ``min(len(valid_scores), target_count)`` tickers.
+            lowest-ranked direct entrants that are not current members
+            (held names inside the top ``target_count`` are never displaced),
+            but the returned index always contains exactly
+            ``min(len(valid_scores), target_count)`` tickers.
         current_members: Tickers currently selected.
 
     Returns:
@@ -49,18 +51,20 @@ def select_fixed_count(
     extended_idx = min(target_count + buffer_size, len(ranked))
     buffer_zone = ranked.index[target_count:extended_idx]
 
-    retained = current_members.intersection(buffer_zone)
+    held = set(current_members)
+    retained = [t for t in buffer_zone if t in held]
+    # Only direct entrants that are not already held can be displaced; evicting
+    # a held name inside the target set to keep a lower-ranked held buffer name
+    # would invert the hysteresis. Both lists are in rank order, best first.
+    displaceable = [t for t in direct if t not in held]
 
-    # Retained members outside `direct` consume slots; evict an equal number
-    # of the lowest-ranked direct entrants to keep total == target_count.
-    overflow = retained.difference(direct)
-    if len(overflow) == 0:
+    n_swap = min(len(retained), len(displaceable))
+    if n_swap == 0:
         return direct
 
-    non_retained_direct_set = set(direct) - set(retained)
-    ranked_non_retained = [t for t in ranked.index if t in non_retained_direct_set]
-    to_remove = pd.Index(ranked_non_retained[-len(overflow) :])
-    return direct.difference(to_remove).union(overflow)
+    admitted = pd.Index(retained[:n_swap])
+    to_remove = pd.Index(displaceable[-n_swap:])
+    return direct.difference(to_remove).union(admitted)
 
 
 def select_quantile(
