@@ -2983,6 +2983,37 @@ async def test_questionnaire_submit_and_error_stay_reachable_on_short_terminals(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("selector", "value", "field"),
+    [
+        ("#q-base-currency", "eur", "base_currency"),
+        ("#q-max-loss", "40", "max_1yr_loss_pct"),
+    ],
+)
+async def test_questionnaire_pydantic_error_is_shown_inline_not_crashing(
+    shell_env, selector, value, field
+) -> None:
+    """A contract violation shows as plain inline text, never parsed as markup."""
+    from _profiler_fakes import make_answers
+
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        screen = QuestionnaireScreen(ask_capital=True)
+        app.push_screen(screen)
+        await pilot.pause()
+        _fill_questionnaire(screen, make_answers(), capital="100000")
+        screen.query_one(selector, Input).value = value
+        await pilot.click("#q-submit")
+        await pilot.pause()
+        assert app.is_running
+        assert isinstance(app.screen, QuestionnaireScreen)
+        message = str(screen.query_one("#q-error", Static).render())
+        assert field in message
+        assert "input_value" not in message  # the per-field summary, not the dump
+
+
+@pytest.mark.asyncio
 async def test_drive_actions_inert_off_posture_or_without_focus(shell_env) -> None:
     app = _make_shell(shell_env)  # fund-wide landing
     async with app.run_test(size=_SIZE) as pilot:
@@ -3110,8 +3141,9 @@ async def test_onboarding_full_cycle_profile_run_approve(
         # The optimizer's output under the profiler's own constraint set, not the
         # LLM's: the profile this portfolio was onboarded with (not the fixture's
         # growth profile behind ``onboard_env.expected``) drives the optimizer.
+        from fund.agents.toolsets import _optimizer_constraints
         from fund.schemas import ConstraintSet
-        from fund.tools.optimize import config_from_constraint_set, optimize_portfolio
+        from fund.tools.optimize import optimize_portfolio
 
         allocation = next(
             d
@@ -3120,7 +3152,7 @@ async def test_onboarding_full_cycle_profile_run_approve(
         )
         profile = ConstraintSet.model_validate(allocation.constraint_set)
         optimized = optimize_portfolio(
-            session, ASOF, UNIVERSE, config=config_from_constraint_set(profile)
+            session, ASOF, UNIVERSE, constraints=_optimizer_constraints(profile)
         )
         assert run.weights == optimized["data"]["weights"]
         actions = [row.action for row in HumanAuditLogRepository(session).list_recent()]
@@ -9255,8 +9287,9 @@ async def test_weights_editor_error_renders_typed_brackets_literally(tui_env) ->
 
 @pytest.mark.asyncio
 async def test_questionnaire_validation_error_renders_literally(shell_env) -> None:
-    """Pydantic's ``[type=..., input_value=...]`` suffix must not reach the markup
-    parser: an out-of-range answer keeps the form open instead of killing the app."""
+    """An out-of-range answer keeps the form open instead of killing the app, and its
+    error text (pydantic's ``[type=...]`` trailer included, were it ever shown) is never
+    parsed as markup."""
     from _profiler_fakes import make_answers
 
     app = _make_shell(shell_env)
@@ -9273,7 +9306,9 @@ async def test_questionnaire_validation_error_renders_literally(shell_env) -> No
         assert isinstance(app.screen, QuestionnaireScreen)
         error = _rendered(screen.query_one("#q-error", Static))
         assert error.startswith("invalid:")
-        assert "input_value=150" in error
+        assert (
+            "max_1yr_loss_pct" in error
+        )  # names the field, without pydantic's trailer
 
 
 @pytest.mark.asyncio

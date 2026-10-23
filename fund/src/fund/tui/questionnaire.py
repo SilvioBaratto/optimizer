@@ -122,6 +122,8 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
                 yield SelectionList[str](
                     *((sector.value, sector.value) for sector in GicsSector), id="q-esg"
                 )
+            # Plain text: error detail routinely carries ``[...]``, which Textual's
+            # markup parser rejects with a MarkupError that would crash the app.
             yield Static("", id="q-error", classes="q-error", markup=False)
             with Horizontal(classes="q-actions"):
                 yield Button("Submit", variant="primary", id="q-submit")
@@ -143,7 +145,7 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
         try:
             submission = self.build_submission()
         except Exception as exc:  # pydantic/parse errors → an inline message, stay open
-            self.query_one("#q-error", Static).update(f"invalid: {exc}")
+            self.query_one("#q-error", Static).update(f"invalid: {_describe(exc)}")
             return
         self.dismiss(submission)
 
@@ -216,6 +218,29 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
         if capital <= 0:
             raise ValueError("capital must be a positive number")
         return capital
+
+
+def _describe(exc: Exception) -> str:
+    """One-line, per-field summary of a form error.
+
+    A pydantic ``ValidationError`` stringifies to a multi-line dump with the offending
+    ``input_value`` and a docs URL; the field path plus the rule is what the adviser
+    needs to fix the entry.
+
+    Args:
+        exc: The exception raised while building the submission.
+
+    Returns:
+        ``"<field>: <rule>; ..."`` for a validation error, else ``str(exc)``.
+    """
+    from pydantic import ValidationError
+
+    if isinstance(exc, ValidationError):
+        return "; ".join(
+            f"{'.'.join(str(part) for part in err['loc'])}: {err['msg']}"
+            for err in exc.errors()
+        )
+    return str(exc)
 
 
 __all__ = ["OnboardingSubmission", "QuestionnaireScreen"]
