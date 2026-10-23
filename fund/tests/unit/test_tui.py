@@ -61,6 +61,7 @@ from textual.widgets import (
     Select,
     Static,
 )
+from textual.worker import WorkerState
 
 from fund import observe
 from fund.agents.graph import run_fund
@@ -4728,6 +4729,68 @@ async def test_deliberation_replay_detail_shows_bracketed_agent_text_literally(
         await pilot.pause()
         detail = view.query_one("#delib-detail", Static)
         assert _BRACKETED_TEXT in detail.visual.plain
+
+
+def _step_event(run_id: uuid.UUID, index: int, text: str) -> StreamEvent:
+    return StreamEvent(
+        kind="step",
+        run_id=run_id,
+        index=index,
+        agent="economist",
+        step="report",
+        status=StepStatus.LIVE,
+        text=text,
+    )
+
+
+@pytest.mark.asyncio
+async def test_deliberation_ingest_drops_events_from_a_superseded_run(
+    shell_env,
+) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        first, second = uuid.uuid4(), uuid.uuid4()
+        view.start_live(first, _PID_A)
+        view.ingest_event(_step_event(first, 0, "first run"))
+        view.start_live(second, _PID_A)
+        view.ingest_event(_step_event(second, 0, "second run"))
+        # The superseded run's thread cannot be stopped; its late event reuses index 0.
+        view.ingest_event(_step_event(first, 0, "late first-run event"))
+        await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        assert view.live_run_id == second
+        assert live.row_count == 1
+        assert "second run" in view.live_text
+
+
+@pytest.mark.asyncio
+async def test_run_refuses_a_second_stream_while_one_is_in_flight(shell_env) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    launched: list[SimpleNamespace] = []
+
+    def _fake_stream_worker(*_a, **_k):
+        worker = SimpleNamespace(state=WorkerState.RUNNING)
+        launched.append(worker)
+        return worker
+
+    app._stream_worker = _fake_stream_worker  # type: ignore[method-assign]
+    # The fakes are not registered with Textual's worker manager, so stand in for its
+    # liveness probe (the real one is covered by the "already in progress" tests).
+    app._round_in_flight = lambda: any(  # type: ignore[method-assign]
+        worker.state in (WorkerState.PENDING, WorkerState.RUNNING)
+        for worker in launched
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        app.action_run_portfolio(asof=ASOF)  # an impatient second `u`
+        await pilot.pause()
+        assert len(launched) == 1
+        assert "already" in app.last_status
+        launched[0].state = WorkerState.SUCCESS  # the round ended: `u` is live again
+        app.action_run_portfolio(asof=ASOF)
+        assert len(launched) == 2
 
 
 def test_deliberation_binds_follow_live() -> None:
