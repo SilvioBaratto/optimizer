@@ -9,6 +9,7 @@ touched.
 
 from __future__ import annotations
 
+import ast
 import time
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
@@ -24,6 +25,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
+from app.config import Settings
 from app.services.jobs.scheduler import create_scheduler
 
 _DM = "app.services.jobs.scheduler.database_manager"
@@ -296,3 +298,72 @@ class TestRestartPreservesPersistedSchedule:
         now = datetime.now(timezone.utc)
         assert set(times) == _ALL_JOBS
         assert all(t > now for t in times.values())
+
+
+_FUND_CONFIG = (
+    Path(__file__).resolve().parents[5] / "fund" / "src" / "fund" / "config.py"
+)
+
+
+def _fund_default(field: str) -> str:
+    """Read a ``FundConfig`` field default from source.
+
+    The fund package is a sibling app that ingestion must not import, so the
+    default is read statically from its config module.
+    """
+    if not _FUND_CONFIG.is_file():
+        pytest.skip("fund package not present in this checkout")
+    for node in ast.walk(ast.parse(_FUND_CONFIG.read_text(encoding="utf-8"))):
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == field
+            and isinstance(node.value, ast.Constant)
+        ):
+            return str(node.value.value)
+    raise AssertionError(f"no literal default for {field} in {_FUND_CONFIG}")
+
+
+def _first_fire(cron: str, after: datetime) -> datetime:
+    fire = CronTrigger.from_crontab(cron, timezone="UTC").get_next_fire_time(
+        None, after
+    )
+    assert fire is not None
+    return fire
+
+
+class TestFundRebalanceFollowsTheWeeklyIngestionChain:
+    """The weekly rebalance sweep reads ``price_history`` with no freshness gate,
+    so its default slot must come after the Saturday ingestion chain rather than
+    share an instant with the weekly refetch that is still rewriting history."""
+
+    def test_default_rebalance_cron_fires_after_the_saturday_ingestion_chain(
+        self,
+    ) -> None:
+        friday = datetime(2026, 10, 23, tzinfo=timezone.utc)
+        fields = Settings.model_fields
+        ingestion_slots = {
+            name: _first_fire(fields[name].default, friday)
+            for name in (
+                "scheduler_universe_build_cron",
+                "scheduler_weekly_refetch_cron",
+                "scheduler_market_wide_cron",
+            )
+        }
+        saturday = friday + timedelta(days=1)
+        # Friday's close first reaches every ticker via the Saturday daily
+        # pipeline; the NAV mark is the project's "prices + FX fresh" marker.
+        ingestion_slots["daily_pipeline"] = _first_fire(
+            fields["scheduler_daily_pipeline_cron"].default, saturday
+        )
+        ingestion_slots["nav_mark"] = _first_fire(
+            _fund_default("fund_nav_mark_cron"), saturday
+        )
+
+        rebalance = _first_fire(_fund_default("fund_rebalance_cron"), friday)
+
+        assert rebalance.date() == saturday.date()
+        too_early = {n: t for n, t in ingestion_slots.items() if rebalance <= t}
+        assert not too_early, (
+            f"rebalance sweep at {rebalance:%a %H:%M} UTC does not follow {too_early}"
+        )

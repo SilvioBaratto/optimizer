@@ -101,7 +101,7 @@ def test_daemon_fields_default_to_the_phase9_contract():
 
     # Cron uses the weekday NAME `sat` — a bare `0` fires Monday under
     # APScheduler `from_crontab` (0=Mon..6=Sun).
-    assert cfg.fund_rebalance_cron == "0 3 * * sat"
+    assert cfg.fund_rebalance_cron == "0 12 * * sat"
     assert cfg.fund_drift_interval_seconds == 900
     assert cfg.fund_heartbeat_cadence_seconds == 30
     assert cfg.fund_orphan_timeout_seconds == 300

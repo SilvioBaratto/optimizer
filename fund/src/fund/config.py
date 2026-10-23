@@ -108,8 +108,11 @@ class FundConfig:
 
     # --- Phase-9 daemon: scheduler cadences + heartbeat-lease + drain (OQ3). ---
     # Cron uses the weekday NAME `sat`; a bare `0` fires Monday under APScheduler
-    # ``from_crontab`` (0=Mon..6=Sun).
-    fund_rebalance_cron: str = "0 3 * * sat"
+    # ``from_crontab`` (0=Mon..6=Sun). The sweep reads ``price_history`` with no
+    # freshness gate, so it sits after the Saturday ingestion chain (universe
+    # 02:00, refetch 03:00, market-wide 04:00, daily pipeline 07:00) and the
+    # 08:00 NAV mark, not on top of the refetch that is still rewriting history.
+    fund_rebalance_cron: str = "0 12 * * sat"
     fund_drift_interval_seconds: int = 900
     fund_heartbeat_cadence_seconds: int = 30
     fund_orphan_timeout_seconds: int = 300
