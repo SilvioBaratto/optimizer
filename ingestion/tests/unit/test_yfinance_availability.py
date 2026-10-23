@@ -12,14 +12,17 @@ Tickers are mocks; ``yf.Ticker`` is never constructed against the network.
 
 from __future__ import annotations
 
+import json
 import logging
-from collections.abc import Iterator
+import threading
+from collections.abc import Callable, Iterator
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pandas as pd
 import pytest
 import requests
 import yfinance as yf
+from yfinance.data import YfData
 from yfinance.exceptions import (
     YFDataException,
     YFEarningsDateMissing,
@@ -27,13 +30,23 @@ from yfinance.exceptions import (
     YFRateLimitError,
 )
 
+from app.services.infrastructure.cache import LRUCache
 from app.services.market_data.yfinance import configure_yfinance
 from app.services.market_data.yfinance._facade import YFinanceClient
 from app.services.market_data.yfinance.infrastructure import (
+    FaultWatch,
+    YahooTransientError,
+    install_fault_witness,
     is_no_data_error,
     is_symbol_not_found,
+    watch_for_faults,
 )
-from app.services.market_data.yfinance.ticker import AnalysisClient, HoldersClient
+from app.services.market_data.yfinance.ticker import (
+    AnalysisClient,
+    FinancialsClient,
+    HoldersClient,
+    MetadataClient,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -307,3 +320,199 @@ class TestSettingsAndBoot:
             worker._configure_logging()
 
         cfg.assert_called_once_with(log_level=worker.settings.yfinance_log_level)
+
+
+_REVENUE_PAYLOAD = {
+    "timeseries": {
+        "result": [
+            {
+                "meta": {"symbol": ["AAPL"], "type": ["annualTotalRevenue"]},
+                "timestamp": [1735603200],
+                "annualTotalRevenue": [
+                    {"asOfDate": "2024-12-31", "reportedValue": {"raw": 100.0}}
+                ],
+            }
+        ]
+    }
+}
+
+
+class _Response:
+    def __init__(self, status_code: int, body: dict | None = None) -> None:
+        self.status_code = status_code
+        self.text = json.dumps(body if body is not None else {})
+        self.url = "https://query2.finance.yahoo.com/ws/fundamentals-timeseries"
+
+
+class _FakeYahoo:
+    """Scriptable stand-in for yfinance's HTTP session.
+
+    ``handler`` maps each request to a response or raises, so a test can make
+    Yahoo throttle, fail or answer empty without any network access.
+    """
+
+    proxies = None
+
+    def __init__(self) -> None:
+        self.requests = 0
+        self.handler: Callable[[], _Response] = lambda: _Response(200, {})
+
+    def get(self, **_kwargs: object) -> _Response:
+        self.requests += 1
+        return self.handler()
+
+
+@pytest.fixture
+def yahoo(monkeypatch: pytest.MonkeyPatch) -> Iterator[_FakeYahoo]:
+    """Run the real yfinance request path against a scripted session."""
+    fake = _FakeYahoo()
+    data = YfData()
+    monkeypatch.setattr(data, "_session", fake)
+    monkeypatch.setattr(data, "_cookie_strategy", data._cookie_strategy)
+    monkeypatch.setattr(data, "fundamentals_use_chunked", False)
+    monkeypatch.setattr(
+        YfData, "_get_cookie_and_crumb", lambda _self, _timeout=30: (None, "basic")
+    )
+    YfData.cache_get.cache_clear()
+    yield fake
+    YfData.cache_get.cache_clear()
+
+
+def _financials(breaker: MagicMock | None = None, retries: int = 3) -> FinancialsClient:
+    return FinancialsClient(
+        cache=LRUCache(),
+        rate_limiter=MagicMock(),
+        circuit_breaker=breaker or MagicMock(),
+        default_max_retries=retries,
+    )
+
+
+def _metadata(breaker: MagicMock | None = None, retries: int = 3) -> MetadataClient:
+    return MetadataClient(
+        cache=LRUCache(),
+        rate_limiter=MagicMock(),
+        circuit_breaker=breaker or MagicMock(),
+        default_max_retries=retries,
+    )
+
+
+class TestSwallowedTransientFaults:
+    """yfinance folds throttling and server faults into empty frames.
+
+    In its default mode the scrapers catch the failure, return an empty result
+    and cache it on the ``yf.Ticker``, so an empty answer alone cannot be told
+    from Yahoo's "no data". The sub-client must still see the fault.
+    """
+
+    def test_a_swallowed_rate_limit_trips_the_breaker_and_is_retried(
+        self, yahoo: _FakeYahoo
+    ) -> None:
+        """Throttling must back the sweep off instead of reading as no data."""
+        yahoo.handler = lambda: _Response(429)
+        breaker = MagicMock()
+
+        assert _financials(breaker).fetch_income_stmt("AAPL") is None
+
+        assert breaker.trigger.call_count == 3
+
+    def test_an_empty_result_after_a_server_error_recovers_on_retry(
+        self, yahoo: _FakeYahoo
+    ) -> None:
+        """The poisoned empty frame and cached 503 must not outlive the retry."""
+        yahoo.handler = lambda: _Response(503)
+
+        def recover(*_args: float) -> float:
+            yahoo.handler = lambda: _Response(200, _REVENUE_PAYLOAD)
+            return 0.0
+
+        with patch("app.services.infrastructure.retry._full_jitter", recover):
+            frame = _financials().fetch_income_stmt("AAPL")
+
+        assert frame is not None
+        assert frame.loc["Total Revenue"].iloc[0] == 100.0
+
+    def test_a_genuine_no_data_answer_is_still_final(self, yahoo: _FakeYahoo) -> None:
+        """A 404 is Yahoo's answer; asking again must not cost another request."""
+        yahoo.handler = lambda: _Response(404)
+        single_attempt = _financials(retries=1)
+        assert single_attempt.fetch_income_stmt("AAPL") is None
+        requests_for_one_attempt = yahoo.requests
+
+        YfData.cache_get.cache_clear()
+        yahoo.requests = 0
+        breaker = MagicMock()
+
+        assert _financials(breaker, retries=3).fetch_income_stmt("AAPL") is None
+
+        assert yahoo.requests == requests_for_one_attempt
+        breaker.trigger.assert_not_called()
+
+    def test_usable_data_is_kept_when_a_side_request_failed(
+        self, yahoo: _FakeYahoo
+    ) -> None:
+        """yfinance falls back to chunked requests; a recovered fault is not an error."""
+        pending_failures = [TimeoutError("timed out")]
+
+        def handler() -> _Response:
+            if pending_failures:
+                raise pending_failures.pop()
+            return _Response(200, _REVENUE_PAYLOAD)
+
+        yahoo.handler = handler
+        breaker = MagicMock()
+
+        frame = _financials(breaker).fetch_income_stmt("AAPL")
+
+        assert frame is not None
+        assert frame.loc["Total Revenue"].iloc[0] == 100.0
+        breaker.trigger.assert_not_called()
+
+    def test_a_rate_limit_raised_out_of_the_scraper_does_not_poison_the_ticker(
+        self, yahoo: _FakeYahoo
+    ) -> None:
+        """``Quote.info`` marks itself fetched before it asks Yahoo, so a cached
+        ticker whose first fetch raised answers every retry from empty state."""
+        yahoo.handler = lambda: _Response(429)
+        breaker = MagicMock()
+
+        assert _metadata(breaker).fetch_isin("AAPL") is None
+
+        assert breaker.trigger.call_count == 3
+
+    def test_a_rate_limit_outranks_an_earlier_server_error(self) -> None:
+        """The breaker only trips on a rate limit, so that fault must be kept."""
+        watch = FaultWatch()
+
+        watch.record(YahooTransientError(503))
+        watch.record(YFRateLimitError())
+        watch.record(YahooTransientError(500))
+
+        assert isinstance(watch.fault, YFRateLimitError)
+
+    def test_installing_the_witness_twice_wraps_requests_once(self) -> None:
+        """Every sub-client installs it, so repeats must not stack wrappers."""
+        install_fault_witness()
+        first = YfData._make_request
+
+        install_fault_witness()
+
+        assert YfData._make_request is first
+
+    def test_faults_are_recorded_per_thread(self, yahoo: _FakeYahoo) -> None:
+        """A concurrent worker's failed request is not this call's fault."""
+        probe = "https://query2.finance.yahoo.com/probe"
+        yahoo.handler = lambda: _Response(503)
+        # Installed here, not left to an earlier test: without the wrapper no
+        # watch could ever record a fault and the assertions below would hold
+        # for any storage, thread-local or not.
+        install_fault_witness()
+
+        with watch_for_faults() as watch:
+            worker = threading.Thread(target=lambda: YfData().get(probe))
+            worker.start()
+            worker.join()
+
+        assert watch.fault is None
+        with watch_for_faults() as own:
+            YfData().get(probe)
+        assert isinstance(own.fault, YahooTransientError)

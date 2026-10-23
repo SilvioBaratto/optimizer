@@ -63,6 +63,11 @@ class LRUCache:
             if len(self._cache) > self._capacity:
                 self._cache.popitem(last=False)
 
+    def delete(self, key: str) -> None:
+        """Evict *key*; a missing key is ignored."""
+        with self._lock:
+            self._cache.pop(key, None)
+
     def clear(self) -> None:
         """Evict all entries."""
         with self._lock:

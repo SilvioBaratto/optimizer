@@ -67,6 +67,17 @@ class TestGetPut:
         assert cache.size() == 0
         assert cache.get("k") is None
 
+    def test_when_deleted_then_only_that_key_is_gone(self) -> None:
+        cache = LRUCache()
+        cache.put("a", 1)
+        cache.put("b", 2)
+        cache.delete("a")
+        assert cache.get("a") is None
+        assert cache.get("b") == 2
+
+    def test_when_deleting_absent_key_then_nothing_happens(self) -> None:
+        LRUCache().delete("missing")
+
     def test_capacity_property_reflects_constructor(self) -> None:
         assert LRUCache(capacity=42).capacity == 42
 
