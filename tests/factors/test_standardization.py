@@ -86,6 +86,32 @@ class TestZScore:
         assert result.isna().tolist() == [False, True, False, False]
         assert (result.dropna() == 0.0).all()
 
+    @pytest.mark.parametrize(
+        ("value", "n"),
+        [(0.1, 50), (0.1, 3), (0.3, 22), (1 / 3, 30), (0.7, 100), (2.3, 17)],
+    )
+    def test_constant_non_dyadic_series_maps_to_zero(
+        self, value: float, n: int
+    ) -> None:
+        """Float noise in the std of a constant series is not dispersion."""
+        scores = pd.Series([value] * n)
+        result = z_score_standardize(scores)
+        assert (result == 0.0).all()
+
+    def test_constant_non_dyadic_keeps_nan_positions(self) -> None:
+        scores = pd.Series([0.1, np.nan] + [0.1] * 48, index=range(50))
+        result = z_score_standardize(scores)
+        assert np.isnan(result.iloc[1])
+        assert (result.drop(1) == 0.0).all()
+
+    @pytest.mark.parametrize("scale", [1e-15, 1.0, 1e12])
+    def test_small_genuine_dispersion_is_still_standardized(self, scale: float) -> None:
+        """The constancy test is relative to the data, not an absolute floor."""
+        scores = pd.Series(np.arange(1.0, 21.0)) * scale
+        result = z_score_standardize(scores)
+        assert abs(result.mean()) < 1e-10
+        assert abs(result.std() - 1.0) < 1e-10
+
     def test_all_nan_stays_nan(self) -> None:
         scores = pd.Series([np.nan] * 4, index=list("abcd"))
         result = z_score_standardize(scores)
@@ -429,6 +455,39 @@ class TestReStandardizeAfterNeutralization:
         result = standardize_factor(raw_scores, config, sector_labels)
         assert abs(result.mean()) < 1e-10
         assert abs(result.std() - 1.0) < 0.05
+
+    @pytest.mark.parametrize("value", [0.1, 0.3, 0.7, 1 / 3, 2.3])
+    def test_constant_factor_stays_flat_after_neutralization(
+        self, value: float
+    ) -> None:
+        """A factor identical across the universe must not gain unit variance."""
+        rng = np.random.default_rng(0)
+        names = ["Tech", "Finance", "Health", "Energy", "Util", "Materials", "Telco"]
+        index = [f"T{i:03d}" for i in range(60)]
+        sectors = pd.Series(rng.choice(names, len(index)), index=index)
+        raw = pd.Series(value, index=index)
+        config = StandardizationConfig(
+            method=StandardizationMethod.Z_SCORE,
+            neutralize_sector=True,
+            re_standardize_after_neutralization=True,
+        )
+        result = standardize_factor(raw, config, sectors)
+        assert (result == 0.0).all()
+
+    def test_factor_constant_within_each_sector_stays_flat(self) -> None:
+        """Sector-level factors demean to noise that must not be re-inflated."""
+        labels = ["A"] * 3 + ["B"] * 7 + ["C"] * 5
+        index = [f"T{i:03d}" for i in range(len(labels))]
+        sectors = pd.Series(labels, index=index)
+        level = {"A": 0.1, "B": 0.2, "C": 0.3}
+        raw = sectors.map(level).astype(float)
+        config = StandardizationConfig(
+            method=StandardizationMethod.Z_SCORE,
+            neutralize_sector=True,
+            re_standardize_after_neutralization=True,
+        )
+        result = standardize_factor(raw, config, sectors)
+        assert (result == 0.0).all()
 
     def test_default_false_no_change(
         self, raw_scores: pd.Series, sector_labels: pd.Series

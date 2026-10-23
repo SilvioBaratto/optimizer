@@ -20,6 +20,11 @@ from optimizer.factors._config import (
 
 logger = logging.getLogger(__name__)
 
+# Relative to the largest |value|, so tiny-scale factors (e.g. Amihud) are not
+# mistaken for constants.  A constant series' std is only a few ulps of its
+# magnitude (~1e-16 relative), far below this.
+_CONSTANT_RTOL = 1e-12
+
 
 def winsorize_cross_section(
     scores: pd.Series,
@@ -81,14 +86,18 @@ def z_score_standardize(scores: pd.Series) -> pd.Series:
         scores: Factor scores (may contain NaN).
 
     Returns:
-        Scores with mean 0 and std 1.  When std is 0 or NaN (constant values, or
-        fewer than two valid observations) every valid value maps to 0.0.
+        Scores with mean 0 and std 1.  When std is NaN or zero up to
+        floating-point noise (constant values, or fewer than two valid
+        observations) every valid value maps to 0.0.
         NaN positions in the input always remain NaN, matching
         `rank_normal_standardize`, so missing data is never reported as covered.
     """
     mean = scores.mean()
     std = scores.std()
-    if std == 0 or np.isnan(std):
+    # pandas derives the variance from a rounded mean, so a constant non-dyadic
+    # series (0.1, 1/3, ...) has std of a few ulps rather than exactly 0, and
+    # dividing by it would inflate rounding noise into unit-variance scores.
+    if np.isnan(std) or std <= _CONSTANT_RTOL * scores.abs().max():
         return pd.Series(
             np.where(scores.isna(), np.nan, 0.0), index=scores.index, dtype=float
         )
@@ -208,7 +217,11 @@ def neutralize_sector(
         )
 
     group_means = scores.groupby(group_key).transform("mean")
-    return (scores - group_means).where(labeled, scores)
+    residual = scores - group_means
+    # A group of identical scores demeans to rounding noise rather than 0.0;
+    # left as is, a later re-standardization would inflate it to unit variance.
+    residual = residual.mask(residual.abs() <= _CONSTANT_RTOL * scores.abs().max(), 0.0)
+    return residual.where(labeled, scores)
 
 
 def _resolve_method(
