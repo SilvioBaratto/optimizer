@@ -24,6 +24,7 @@ Design
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -159,6 +160,50 @@ class TestNewsClientFetch:
         client = NewsClient(yf_client=yf_client, scraper=scraper)
         client.fetch("^GSPC", max_retries=1, fetch_full_content=True, max_articles=2)
         assert scraper.fetch.call_count == 2
+
+
+class TestNewsClientEmptyFeedSignal:
+    """yfinance maps a failing news endpoint to an empty stream, so only a run
+    of empty feeds distinguishes an outage from a quiet ticker."""
+
+    _LOGGER = "app.services.market_data.yfinance.news.client"
+
+    def _warnings(self, caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+        return [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    def test_when_consecutive_feeds_are_empty_then_warns_once(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        client = NewsClient(yf_client=_make_yf_client(news=[]), scraper=MagicMock())
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER):
+            results = [
+                client.fetch(symbol, max_retries=1)
+                for symbol in ("^TNX", "^VIX", "GC=F", "XLF", "EEM")
+            ]
+        assert results == [[]] * 5
+        assert len(self._warnings(caplog)) == 1
+        assert "consecutive" in self._warnings(caplog)[0].getMessage()
+
+    def test_when_empty_feeds_stay_below_threshold_then_no_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        client = NewsClient(yf_client=_make_yf_client(news=[]), scraper=MagicMock())
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER):
+            client.fetch("^TNX", max_retries=1)
+            client.fetch("^VIX", max_retries=1)
+        assert self._warnings(caplog) == []
+
+    def test_when_a_feed_has_articles_then_empty_streak_resets(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        yf_client = _make_yf_client(news=[])
+        client = NewsClient(yf_client=yf_client, scraper=MagicMock())
+        ticker = yf_client.get_ticker.return_value
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER):
+            for news in ([], [], [_make_article()], [], []):
+                ticker.news = news
+                client.fetch("^GSPC", max_retries=1)
+        assert self._warnings(caplog) == []
 
 
 class TestExtractLink:
