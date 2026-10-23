@@ -785,3 +785,61 @@ class TestMacroDataStaleness:
         result = run_regime_validation(returns, macro)
 
         assert result.per_regime_metrics.loc["expansion", "coverage_pct"] == 1.0
+
+
+class TestMacroCalendarAlignment:
+    """Macro stamps rarely coincide with trading days; alignment is as-of."""
+
+    def test_weekend_stamped_macro_data_classifies_trading_days(self) -> None:
+        macro_dates = pd.date_range("2024-01-07", periods=30, freq="W-SUN")
+        macro = pd.DataFrame(_EXPANSION, index=macro_dates)
+        oos_dates = pd.bdate_range("2024-01-08", periods=120)
+        returns = pd.Series(0.001, index=oos_dates)
+
+        result = run_regime_validation(returns, macro)
+
+        assert result.n_regimes_observed == 1
+        assert result.per_regime_metrics.loc["expansion", "obs"] == len(oos_dates)
+
+    def test_month_start_macro_data_covers_a_window_between_releases(self) -> None:
+        macro_dates = pd.date_range("2023-06-01", "2024-12-01", freq="MS")
+        macro = pd.DataFrame(_EXPANSION, index=macro_dates)
+        oos_dates = pd.bdate_range("2024-06-03", periods=20)
+        returns = pd.Series(0.001, index=oos_dates)
+        assert macro.index.intersection(oos_dates).empty
+
+        result = run_regime_validation(
+            returns, macro, config=RegimeValidationConfig(min_regime_obs=5)
+        )
+
+        assert result.n_regimes_observed == 1
+        assert result.per_regime_metrics.loc["expansion", "obs"] == 20
+
+    def test_macro_data_starting_after_the_sample_leaves_nothing_classified(
+        self,
+    ) -> None:
+        macro_dates = pd.bdate_range("2025-01-02", periods=20)
+        macro = pd.DataFrame(_EXPANSION, index=macro_dates)
+        returns = pd.Series(0.001, index=pd.bdate_range("2024-01-02", periods=60))
+
+        result = run_regime_validation(returns, macro)
+
+        assert result.n_regimes_observed == 0
+        assert result.total_obs == 60
+
+    def test_empty_macro_data_returns_empty_result(self) -> None:
+        returns = pd.Series(0.001, index=pd.bdate_range("2024-01-02", periods=60))
+        macro = pd.DataFrame({"pmi": []}, index=pd.DatetimeIndex([]))
+
+        result = run_regime_validation(returns, macro)
+
+        assert result.n_regimes_observed == 0
+        assert result.total_obs == 60
+
+    def test_timezone_mismatch_between_macro_and_returns_is_rejected(self) -> None:
+        macro_dates = pd.bdate_range("2024-01-02", periods=60, tz="UTC")
+        macro = pd.DataFrame(_EXPANSION, index=macro_dates)
+        returns = pd.Series(0.001, index=pd.bdate_range("2024-01-02", periods=60))
+
+        with pytest.raises(DataError, match="timezone"):
+            run_regime_validation(returns, macro)

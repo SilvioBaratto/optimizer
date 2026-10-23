@@ -322,9 +322,10 @@ def _compute_period_metrics(
 def _empty_result(total_obs: int) -> RegimeValidationResult:
     """Build a well-formed empty result (no regimes to report).
 
-    Shared by the no-macro-overlap branch and the all-observations-filtered
-    branch so both return identical, correctly-typed empty frames instead of
-    crashing on an empty ``set_index`` / aggregation.
+    Shared by the empty-``macro_data`` branch and the branch where every
+    observation is classified UNKNOWN (no macro row yet, or stale) and
+    filtered out, so both return identical, correctly-typed empty frames
+    instead of crashing on an empty ``set_index`` / aggregation.
     """
     return RegimeValidationResult(
         per_regime_metrics=pd.DataFrame(
@@ -398,7 +399,8 @@ def run_regime_validation(
         macro_data: Macro indicators indexed by date, compatible with
             `classify_regime_composite`. Rows may arrive in any order; they
             are sorted chronologically and, for a repeated date, the last
-            row wins.
+            row wins. Each OOS day takes the latest macro row on or before
+            it, so macro stamps need not fall on trading days.
         config: Validation configuration. Defaults to standard.
         thresholds: Regime classification thresholds.
 
@@ -407,7 +409,8 @@ def run_regime_validation(
         flags.
 
     Raises:
-        DataError: If ``oos_returns`` is empty.
+        DataError: If ``oos_returns`` is empty, or if the indexes of
+            ``oos_returns`` and ``macro_data`` disagree on timezone awareness.
     """
     if config is None:
         config = RegimeValidationConfig()
@@ -424,13 +427,21 @@ def run_regime_validation(
     macro_data = macro_data.sort_index(kind="stable")
     macro_data = macro_data.loc[~macro_data.index.duplicated(keep="last")]
 
-    overlap = macro_data.index.intersection(oos_returns.index).size
-    if len(macro_data) == 0 or not overlap:
+    if len(macro_data) == 0:
         logger.warning(
-            "run_regime_validation: no macro data overlaps with OOS returns; "
-            "returning NaN metrics."
+            "run_regime_validation: macro_data is empty; returning NaN metrics."
         )
         return _empty_result(len(oos_returns))
+
+    # Naive and aware timestamps cannot be compared; left alone they either
+    # raise deep inside reindex or silently never match.
+    if (getattr(macro_data.index, "tz", None) is None) != (
+        getattr(oos_returns.index, "tz", None) is None
+    ):
+        raise DataError(
+            "macro_data and oos_returns must both have timezone-aware or both "
+            "timezone-naive indexes (timezone mismatch)"
+        )
 
     regime_series = _build_regime_series(macro_data, thresholds)
 
@@ -463,13 +474,13 @@ def run_regime_validation(
 
     total_obs = len(oos_returns)
 
-    # Every overlapping observation classified as UNKNOWN and dropped — no
-    # regimes remain to aggregate. Return a well-formed empty result rather
-    # than crashing on an empty per-regime aggregation.
+    # Every observation classified as UNKNOWN and dropped — no regimes remain
+    # to aggregate. Return a well-formed empty result rather than crashing on
+    # an empty per-regime aggregation.
     if len(regime_timeline) == 0:
         logger.warning(
-            "run_regime_validation: all overlapping observations classified as "
-            "UNKNOWN and excluded; returning empty metrics."
+            "run_regime_validation: all observations classified as UNKNOWN and "
+            "excluded; returning empty metrics."
         )
         return _empty_result(total_obs)
 
