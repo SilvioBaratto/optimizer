@@ -24,12 +24,12 @@ compiling the emitted statement for the PostgreSQL dialect.
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import MagicMock
 
 import pytest
 from _fixtures import add_and_flush, seed_universe
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects import postgresql
 
 from portopt_db.models.universe.universe import Exchange, Instrument
@@ -536,3 +536,71 @@ class TestSaveInstrumentsBatchVenueChange:
 
         assert _rows_for(db_session, "AAA")[0].exchange_id == nasdaq.id
         assert _rows_for(db_session, "BBB")[0].exchange_id == nyse.id
+
+
+def _reload(session, ticker: str) -> Instrument:
+    return session.execute(
+        select(Instrument)
+        .where(Instrument.ticker == ticker)
+        .execution_options(populate_existing=True)
+    ).scalar_one()
+
+
+class TestSaveInstrumentsBatchResave:
+    """Re-saving a universe must not erase data the source did not resend.
+
+    The yfinance universe source carries no ISIN (it is backfilled later from
+    ticker profiles), so a blind overwrite would blank every ISIN each build.
+    """
+
+    def test_when_resaved_without_isin_then_stored_isin_is_kept(self, db_session):
+        repo = _repo(db_session)
+        ex = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        repo.save_instruments_batch([_batch_row("AAPL")], ex.id)
+        db_session.execute(
+            update(Instrument)
+            .where(Instrument.ticker == "AAPL")
+            .values(isin="US0378331005")
+        )
+
+        repo.save_instruments_batch([_batch_row("AAPL", isin=None)], ex.id)
+
+        assert _reload(db_session, "AAPL").isin == "US0378331005"
+
+    def test_when_resaved_with_isin_then_new_isin_replaces_old(self, db_session):
+        repo = _repo(db_session)
+        ex = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        repo.save_instruments_batch([_batch_row("AAPL", isin="OLD000000000")], ex.id)
+
+        repo.save_instruments_batch([_batch_row("AAPL", isin="US0378331005")], ex.id)
+
+        assert _reload(db_session, "AAPL").isin == "US0378331005"
+
+    def test_when_resaved_without_name_or_currency_then_stored_values_are_kept(
+        self, db_session
+    ):
+        repo = _repo(db_session)
+        ex = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        repo.save_instruments_batch(
+            [_batch_row("AAPL", name="Apple Inc.", currencyCode="USD")], ex.id
+        )
+
+        repo.save_instruments_batch([_batch_row("AAPL")], ex.id)
+
+        row = _reload(db_session, "AAPL")
+        assert row.name == "Apple Inc."
+        assert row.currency_code == "USD"
+
+    def test_when_resaved_then_updated_at_is_refreshed(self, db_session):
+        repo = _repo(db_session)
+        ex = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        repo.save_instruments_batch([_batch_row("AAPL")], ex.id)
+        db_session.execute(
+            update(Instrument)
+            .where(Instrument.ticker == "AAPL")
+            .values(updated_at=datetime(2000, 1, 1))
+        )
+
+        repo.save_instruments_batch([_batch_row("AAPL")], ex.id)
+
+        assert _reload(db_session, "AAPL").updated_at.year > 2000

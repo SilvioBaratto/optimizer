@@ -65,11 +65,11 @@ class UniverseRepository(RepositoryBase):
         """Upsert a batch of instruments for the given exchange.
 
         Matched on the ``uq_instrument_ticker_exchange`` constraint (ticker +
-        exchange). On conflict every mutable field is overwritten, except that a
-        missing ``isin`` leaves the stored one in place, and
-        ``delisted_at``/``delisting_return`` are cleared so a re-listed
-        instrument is automatically re-activated. A symbol that already exists
-        on another exchange is first re-homed onto ``exchange_id`` (see
+        exchange). On conflict the mutable fields are overwritten, except that
+        ``name``, ``isin`` and ``currency_code`` keep their stored value when the
+        batch row has none. ``delisted_at``/``delisting_return`` are cleared so a
+        re-listed instrument is automatically re-activated. A symbol that already
+        exists on another exchange is first re-homed onto ``exchange_id`` (see
         :meth:`_rehome_moved_symbols`) so a venue change never yields a second
         row. The session is flushed but not committed.
 
@@ -109,12 +109,15 @@ class UniverseRepository(RepositoryBase):
             constraint="uq_instrument_ticker_exchange",
             set_={
                 "short_name": stmt.excluded.short_name,
-                "name": stmt.excluded.name,
-                # The screener carries no ISIN; the profile backfill is its only
-                # source, so a NULL here must not erase what it already filled.
+                # The universe source does not carry an ISIN (it is backfilled
+                # from ticker profiles), so a missing value must not erase one
+                # that is already stored.
+                "name": func.coalesce(stmt.excluded.name, Instrument.name),
                 "isin": func.coalesce(stmt.excluded.isin, Instrument.isin),
                 "instrument_type": stmt.excluded.instrument_type,
-                "currency_code": stmt.excluded.currency_code,
+                "currency_code": func.coalesce(
+                    stmt.excluded.currency_code, Instrument.currency_code
+                ),
                 "yfinance_ticker": stmt.excluded.yfinance_ticker,
                 "asset_class": stmt.excluded.asset_class,
                 "fi_subclass": stmt.excluded.fi_subclass,
@@ -122,6 +125,8 @@ class UniverseRepository(RepositoryBase):
                 # Re-activating an instrument clears its delisting status.
                 "delisted_at": None,
                 "delisting_return": None,
+                # Column.onupdate does not fire for ON CONFLICT DO UPDATE.
+                "updated_at": func.now(),
             },
         )
         self.session.execute(stmt)
