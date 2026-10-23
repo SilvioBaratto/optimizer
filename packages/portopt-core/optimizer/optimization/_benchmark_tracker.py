@@ -48,6 +48,10 @@ class BenchmarkTrackerConfig:
         tracking-error bound.  For an explicit cap use
         ``MeanRiskConfig.for_tracking_error``, which takes the benchmark as
         ``y`` at fit time.
+
+        It has no expected-return term, so it cannot maximise the information
+        ratio.  For an active, alpha-seeking portfolio use ``MeanRisk`` with
+        ``MAXIMIZE_RATIO`` on excess returns.
     """
 
     risk_measure: RiskMeasureType = RiskMeasureType.STANDARD_DEVIATION
@@ -61,15 +65,6 @@ class BenchmarkTrackerConfig:
     risk_free_rate: float = 0.0
     solver: str = "CLARABEL"
     solver_params: dict[str, object] | None = None
-
-    @classmethod
-    def for_information_ratio(cls) -> BenchmarkTrackerConfig:
-        """Return a config preset for information-ratio maximisation.
-
-        Returns:
-            A BenchmarkTrackerConfig with STANDARD_DEVIATION as the risk measure.
-        """
-        return cls(risk_measure=RiskMeasureType.STANDARD_DEVIATION)
 
 
 def build_benchmark_tracker(
