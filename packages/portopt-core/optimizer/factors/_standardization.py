@@ -81,12 +81,17 @@ def z_score_standardize(scores: pd.Series) -> pd.Series:
         scores: Factor scores (may contain NaN).
 
     Returns:
-        Scores with mean 0 and std 1; a zero-filled series when std is 0 or NaN.
+        Scores with mean 0 and std 1.  When std is 0 or NaN (constant values, or
+        fewer than two valid observations) every valid value maps to 0.0.
+        NaN positions in the input always remain NaN, matching
+        `rank_normal_standardize`, so missing data is never reported as covered.
     """
     mean = scores.mean()
     std = scores.std()
     if std == 0 or np.isnan(std):
-        return pd.Series(0.0, index=scores.index)
+        return pd.Series(
+            np.where(scores.isna(), np.nan, 0.0), index=scores.index, dtype=float
+        )
     return (scores - mean) / std
 
 

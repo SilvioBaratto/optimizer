@@ -78,6 +78,23 @@ class TestZScore:
         result = z_score_standardize(scores)
         assert (result == 0.0).all()
 
+    def test_constant_values_keep_nan_positions(self) -> None:
+        scores = pd.Series([5.0, np.nan, 5.0, 5.0], index=list("abcd"))
+        result = z_score_standardize(scores)
+        assert result.isna().tolist() == [False, True, False, False]
+        assert (result.dropna() == 0.0).all()
+
+    def test_all_nan_stays_nan(self) -> None:
+        scores = pd.Series([np.nan] * 4, index=list("abcd"))
+        result = z_score_standardize(scores)
+        assert result.isna().all()
+
+    def test_single_valid_observation_keeps_nan_positions(self) -> None:
+        scores = pd.Series([np.nan, 3.0, np.nan], index=list("abc"))
+        result = z_score_standardize(scores)
+        assert result.isna().tolist() == [True, False, True]
+        assert result["b"] == 0.0
+
 
 class TestRankNormal:
     def test_shape_preserved(self, raw_scores: pd.Series) -> None:
@@ -165,6 +182,33 @@ class TestStandardizeAllFactors:
         _scores, coverage = standardize_all_factors(factors)
         assert not coverage.loc["Y", "a"]
         assert not coverage.loc["X", "b"]
+
+
+class TestMissingFactorDataIsNotCovered:
+    """A z-score must not turn missing factor values into covered zeros."""
+
+    @pytest.fixture()
+    def raw(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "book_to_price": [1.0, 2.0, 3.0, 4.0],
+                "net_insider_buying": [np.nan] * 4,
+            },
+            index=list("abcd"),
+        )
+
+    def test_all_nan_factor_has_no_coverage_under_z_score(
+        self, raw: pd.DataFrame
+    ) -> None:
+        config = StandardizationConfig.for_z_score()
+        scores, coverage = standardize_all_factors(raw, config)
+        assert scores["net_insider_buying"].isna().all()
+        assert not coverage["net_insider_buying"].any()
+
+    def test_z_score_and_rank_normal_agree_on_coverage(self, raw: pd.DataFrame) -> None:
+        _, z_cov = standardize_all_factors(raw, StandardizationConfig.for_z_score())
+        _, rank_cov = standardize_all_factors(raw, StandardizationConfig())
+        pd.testing.assert_frame_equal(z_cov, rank_cov)
 
 
 class TestReStandardizeAfterNeutralization:
