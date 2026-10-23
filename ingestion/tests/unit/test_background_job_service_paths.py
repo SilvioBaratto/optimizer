@@ -26,6 +26,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from prometheus_client import REGISTRY
 
+import app.metrics  # noqa: F401  # patch("app.metrics") needs the submodule loaded
 from app.services.jobs.background_job import BackgroundJobService
 
 M = "app.services.jobs.background_job"
@@ -114,7 +115,20 @@ class TestUpdateJob:
 
         assert any("no-op" in r.getMessage() for r in caplog.records)
 
-    def test_when_no_row_matched_but_status_terminal_then_silent(
+    def test_when_no_row_matched_and_status_terminal_then_warns(
+        self, svc: BackgroundJobService, caplog
+    ) -> None:
+        """A terminal write is fenced too, so its loss must be visible."""
+        import logging
+
+        with _repo() as repo:
+            repo.update.return_value = 0
+            with caplog.at_level(logging.WARNING, logger=M):
+                svc.update_job(JOB_ID, status="failed")
+
+        assert any("no-op" in r.getMessage() for r in caplog.records)
+
+    def test_when_no_row_matched_and_no_status_then_silent(
         self, svc: BackgroundJobService, caplog
     ) -> None:
         import logging
@@ -122,7 +136,7 @@ class TestUpdateJob:
         with _repo() as repo:
             repo.update.return_value = 0
             with caplog.at_level(logging.WARNING, logger=M):
-                svc.update_job(JOB_ID, status="failed")
+                svc.update_job(JOB_ID, current=3)
 
         assert not any("no-op" in r.getMessage() for r in caplog.records)
 
@@ -335,6 +349,30 @@ class TestMetricsEmission:
             svc.update_job(JOB_ID, status="failed")
 
         met.jobs_failed_total.labels.assert_called_with(domain="metrics_domain")
+
+    def test_when_terminal_write_matched_no_row_then_no_metrics_or_webhook(
+        self, session: MagicMock
+    ) -> None:
+        """A write fenced off by the reaper must not be counted a second time."""
+        svc = self._svc(session)
+
+        with (
+            _repo() as repo,
+            patch(f"{M}.settings") as st,
+            patch("app.metrics") as met,
+            patch("app.services._shared.notify_failure") as notify,
+        ):
+            repo.update.return_value = 0
+            st.enable_metrics = True
+            st.notification_webhook_url = "https://hooks.example/x"
+
+            svc.update_job(JOB_ID, status="completed")
+            svc.update_job(JOB_ID, status="failed", error="boom")
+
+        met.jobs_completed_total.labels.assert_not_called()
+        met.jobs_failed_total.labels.assert_not_called()
+        met.jobs_in_progress.labels.assert_not_called()
+        notify.assert_not_called()
 
     def test_non_lifecycle_update_emits_nothing(self, session: MagicMock) -> None:
         svc = self._svc(session)

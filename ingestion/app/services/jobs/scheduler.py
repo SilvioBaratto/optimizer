@@ -38,6 +38,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Iterator
+from concurrent.futures import CancelledError
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -52,7 +53,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config import settings
 from app.database import database_manager
-from app.services._shared import make_progress
+from app.services._shared import make_cancellable_progress
 from app.services.jobs.background_job import (
     BackgroundJobService,
     JobAlreadyRunningError,
@@ -205,6 +206,7 @@ def _heartbeat(
     job_id: str,
     label: str,
     watch: _ProgressWatch | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> Iterator[None]:
     """Run the heartbeat companion for a job executed in the scheduler thread.
 
@@ -219,9 +221,14 @@ def _heartbeat(
     When *watch* is given, the lease is renewed only while the step has
     reported progress within the stall timeout, so a step wedged on a lock does
     not hold its job slot forever.
+
+    The heartbeat thread sets *cancel_event* when it finds the row reaped, so
+    a progress callback built on the same event (``make_cancellable_progress``)
+    aborts the step instead of letting it run on as a zombie. The event is also
+    set on exit, which stops the thread.
     """
     cadence = job_svc._heartbeat_cadence
-    stop = threading.Event()
+    stop = cancel_event if cancel_event is not None else threading.Event()
     thread = threading.Thread(
         target=job_svc._run_heartbeat,
         args=(uuid.UUID(job_id), stop, cadence),
@@ -322,7 +329,8 @@ def _run_step(
 
     logger.info("%s: started (job %s)", label, job_id)
 
-    report_progress = make_progress(job_id, job_svc)
+    cancel_event = threading.Event()
+    report_progress = make_cancellable_progress(job_id, job_svc, cancel_event)
     watch = _ProgressWatch(settings.scheduler_step_stall_timeout_seconds)
 
     def on_progress(**kwargs: Any) -> None:
@@ -331,13 +339,14 @@ def _run_step(
 
     try:
         job_svc.update_job(job_id, status="running")
-        with _heartbeat(job_svc, job_id, label, watch):
+        with _heartbeat(job_svc, job_id, label, watch, cancel_event):
             fn(*args, on_progress=on_progress)
         job = job_svc.get_job(job_id) or {}
         if job.get("status") == "failed":
-            # The step itself (or the orphan reaper) ended the row as failed.
-            # Overwriting it would hide a partial failure from the exit code,
-            # the status column and the metrics gauge.
+            # The step itself (e.g. a partial macro fetch) or the orphan reaper
+            # ended the row as failed. Overwriting it would hide a partial
+            # failure from the exit code, the status column and the metrics
+            # gauge, and the write would be fenced off anyway.
             logger.warning("%s: finished with status 'failed'", label)
             return False
         if job.get("status") != "completed":
@@ -354,6 +363,11 @@ def _run_step(
             )
         logger.info("%s: completed", label)
         return True
+    except CancelledError:
+        # The reaper already failed the row and freed the slot; any write here
+        # would be fenced off, and a second run may already own the slot.
+        logger.warning("%s: aborted — job %s was reaped mid-run", label, job_id)
+        return False
     except Exception as exc:
         logger.exception("%s: raised an exception", label)
         _mark_job_failed(job_svc, job_id, label, exc)

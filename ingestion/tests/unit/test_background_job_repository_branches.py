@@ -259,7 +259,7 @@ class TestExecStatusGuardedUpdateEmptyValues:
         repo = _new_repo(db_session)
 
         # Call _exec_status_guarded_update directly with empty dict.
-        result = repo._exec_status_guarded_update(jid, None, {})
+        result = repo._exec_status_guarded_update(jid, {})
         assert result == 0
 
     def test_update_with_only_errors_kwarg_and_active_row_still_zero_rowcount(
@@ -497,10 +497,9 @@ class TestUpdateStatusGuard:
         assert row is not None
         assert row.current == 0  # unchanged
 
-    def test_when_terminal_status_sent_then_update_succeeds_regardless(
+    def test_when_terminal_status_sent_on_active_row_then_update_succeeds(
         self, db_session: Session
     ) -> None:
-        # new_status in _TERMINAL_STATUSES → guard clause skipped.
         jid = _pending(db_session, "status_guard_terminal_ok")
         repo = _new_repo(db_session)
 
@@ -508,3 +507,25 @@ class TestUpdateStatusGuard:
             jid, status="completed", finished_at=datetime.now(timezone.utc)
         )
         assert count == 1
+
+    @pytest.mark.parametrize(
+        ("first", "late"), [("failed", "completed"), ("completed", "failed")]
+    )
+    def test_when_row_already_terminal_then_late_terminal_write_is_rejected(
+        self, db_session: Session, first: str, late: str
+    ) -> None:
+        """A reaped row's zombie worker must not flip failed -> completed."""
+        jid = _pending(db_session, f"status_guard_late_{first}")
+        repo = _new_repo(db_session)
+        repo.update(jid, status=first, error="orphaned - reaped")
+        db_session.flush()
+
+        count = repo.update(jid, status=late, errors=["late"])
+        db_session.flush()
+
+        assert count == 0
+        row = repo.get(jid)
+        assert row is not None
+        assert row.status == first
+        assert row.error == "orphaned - reaped"
+        assert row.errors is None

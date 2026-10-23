@@ -12,8 +12,13 @@ mapped STOCK/ETF is admitted. YFinanceTickerMapper unit tests live in
 
 from __future__ import annotations
 
+import threading
+import time
+from concurrent.futures import CancelledError
 from typing import Any
 from unittest.mock import MagicMock
+
+import pytest
 
 from app.services.universe.trading212.builder import (
     BuildProgress,
@@ -323,3 +328,41 @@ class TestUniverseBuilderExchangeFiltering:
         result = builder.build()
 
         assert result.instruments_saved == 0
+
+
+class TestProcessInstrumentsCancellation:
+    """A reaped build must stop at its next progress call, not drain the pool."""
+
+    def test_when_progress_raises_cancelled_then_it_propagates_and_queue_is_dropped(
+        self,
+    ) -> None:
+        processed: list[str] = []
+        lock = threading.Lock()
+
+        def slow_single(instrument: dict[str, Any], exchange_name: str) -> Any:
+            time.sleep(0.02)
+            with lock:
+                processed.append(instrument["shortName"])
+            return None, "failed", "skipped for test"
+
+        def cancelled(_progress: BuildProgress) -> None:
+            raise CancelledError("job reaped")
+
+        builder = UniverseBuilder(
+            config=CFG,
+            api_client=_make_api_client(),
+            ticker_mapper=MagicMock(),
+            repository=_FakeRepo(),
+            max_workers=2,
+            progress_callback=cancelled,
+        )
+        builder._process_single_instrument = slow_single  # type: ignore[method-assign]
+        instruments = [{"shortName": f"S{i}"} for i in range(60)]
+
+        with pytest.raises(CancelledError):
+            builder._process_instruments(instruments, "NYSE", len(instruments), 0)
+
+        assert len(processed) < len(instruments) // 2, (
+            f"{len(processed)} of {len(instruments)} queued instruments still ran"
+        )
+        assert builder._errors == [], "cancellation was recorded as a build error"

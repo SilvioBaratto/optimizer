@@ -7,11 +7,15 @@ distinct mock sessions. Never hits Postgres.
 from __future__ import annotations
 
 import threading
+import time
+from concurrent.futures import CancelledError
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
+
+import pytest
 
 from app.services.market_data import yfinance_data_service as svc
 
@@ -222,3 +226,37 @@ class TestSharedEmptyFetchMemory:
             svc._fetch_one_ticker(spec, request, MagicMock(), database_manager)
 
         assert service_cls.call_args.kwargs["empty_fetches"] is svc.SHARED_EMPTY_FETCHES
+
+
+class TestParallelCancellation:
+    """A reaped step must not keep fetching its queued tickers in the pool."""
+
+    def test_when_progress_raises_cancelled_then_queued_tickers_are_not_fetched(
+        self,
+    ):
+        instruments = [_make_instrument(f"T{i}") for i in range(60)]
+        tracker = _SessionTracker()
+        fetched: list[str] = []
+        fetched_lock = threading.Lock()
+
+        def fetch_side_effect(**kwargs):
+            time.sleep(0.02)
+            with fetched_lock:
+                fetched.append(kwargs["yfinance_ticker"])
+            return _ok_result()
+
+        def progress(**kwargs):
+            if "current" in kwargs:
+                raise CancelledError("job reaped")
+
+        request = SimpleNamespace(workers=2, period="5y", mode="incremental")
+        repo_p, service_p, db_p = _patch_module(instruments, tracker, fetch_side_effect)
+
+        with repo_p, service_p, db_p, pytest.raises(CancelledError):
+            svc._run_bulk_yfinance_fetch_parallel(
+                request, MagicMock(), on_progress=progress, workers=2
+            )
+
+        assert len(fetched) < len(instruments) // 2, (
+            f"{len(fetched)} of {len(instruments)} queued tickers still ran"
+        )

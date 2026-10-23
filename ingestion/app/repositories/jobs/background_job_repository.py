@@ -94,21 +94,20 @@ class BackgroundJobRepository(RepositoryBase):
         """Update columns on an existing job row, status-guarded.
 
         Core columns map directly to the table; non-core kwargs merge into
-        the JSONB ``extra`` column. The UPDATE only fires when either the
-        target row is still in (pending, running) OR the requested status
-        is terminal (failed/completed) — this closes the worker-vs-reaper
-        race so a reaped row's daemon worker cannot silently overwrite it.
+        the JSONB ``extra`` column. The UPDATE only fires while the target
+        row is still in (pending, running) — terminal writes included, so
+        a row the reaper already failed can never be flipped back to
+        ``completed`` (or re-failed) by its zombie worker's late write.
 
         Returns the affected rowcount (0 or 1). The ``errors`` child-table
         replacement only runs when the main UPDATE matched a row.
         """
         errors_value = kwargs.pop("errors", None)
-        new_status = kwargs.get("status")
 
         core, extras = self._partition_kwargs(kwargs)
         values = self._build_values(core, extras, job_id)
 
-        rowcount = self._exec_status_guarded_update(job_id, new_status, values)
+        rowcount = self._exec_status_guarded_update(job_id, values)
 
         if rowcount == 1 and errors_value is not None:
             self._replace_error_entries(job_id, errors_value)
@@ -149,15 +148,18 @@ class BackgroundJobRepository(RepositoryBase):
     def _exec_status_guarded_update(
         self,
         job_id: uuid.UUID,
-        new_status: str | None,
         values: dict[str, Any],
     ) -> int:
         if not values:
             return 0
-        clauses = [BackgroundJob.id == job_id]
-        if new_status not in _TERMINAL_STATUSES:
-            clauses.append(BackgroundJob.status.in_(_ACTIVE_STATUSES))
-        stmt = update(BackgroundJob).where(*clauses).values(**values)
+        stmt = (
+            update(BackgroundJob)
+            .where(
+                BackgroundJob.id == job_id,
+                BackgroundJob.status.in_(_ACTIVE_STATUSES),
+            )
+            .values(**values)
+        )
         result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
         return result.rowcount or 0
 

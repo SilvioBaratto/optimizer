@@ -183,24 +183,28 @@ class BackgroundJobService:
     def update_job(self, job_id: str, **kwargs: Any) -> None:
         """Update an existing job.  No-op if the job does not exist.
 
-        Logs WARNING when the underlying status-guarded UPDATE matched no
-        row and the requested status is not terminal — typically the
-        worker-vs-reaper race closure (the row was already failed by the
-        orphan reaper before this write landed).
+        Transition metrics and the failure webhook fire only when the UPDATE
+        matched a row: a write fenced off because the orphan reaper already
+        failed the row was counted by the reaper, so counting it again would
+        double-book the job and push ``jobs_in_progress`` negative.
+
+        Logs WARNING when the status-guarded UPDATE matched no row for a
+        status change — the worker-vs-reaper race closure (the row was
+        already failed by the orphan reaper before this write landed).
         """
         try:
             uid = uuid.UUID(job_id)
         except ValueError:
             return
 
-        self._emit_transition(job_id, kwargs)
-
         with self._get_session_context_manager() as session:
             repo = BackgroundJobRepository(session)
             rowcount = repo.update(uid, **kwargs)
             session.commit()
 
-        if rowcount == 0 and kwargs.get("status") not in ("failed", "completed", None):
+        if rowcount == 1:
+            self._emit_transition(job_id, kwargs)
+        elif rowcount == 0 and kwargs.get("status") is not None:
             logger.warning(
                 "update_job no-op for %s: row reaped or absent (kwargs=%s)",
                 job_id,

@@ -1574,7 +1574,8 @@ def _run_bulk_yfinance_fetch_parallel(
         except Exception as exc:
             return spec, exc
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
+    executor = ThreadPoolExecutor(max_workers=workers)
+    try:
         futures = [executor.submit(_worker, spec) for spec in specs]
         for future in as_completed(futures):
             spec, outcome = future.result()
@@ -1584,6 +1585,11 @@ def _run_bulk_yfinance_fetch_parallel(
             on_progress(current=idx, current_ticker=spec.yfinance_ticker)
             with aggregate_lock:
                 skipped += _aggregate_outcome(spec, outcome, counts, errors)
+    finally:
+        # on_progress raises CancelledError once the job's row was reaped. A
+        # plain ``with`` block would still drain every queued ticker on exit,
+        # leaving the sweep running as a zombie beside a freshly started run.
+        executor.shutdown(wait=True, cancel_futures=True)
 
     result_dict = {
         "tickers_processed": total,

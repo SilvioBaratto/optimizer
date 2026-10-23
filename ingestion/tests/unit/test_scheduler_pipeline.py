@@ -7,6 +7,7 @@ All external collaborators are patched with MagicMock.
 from __future__ import annotations
 
 import threading
+import time
 from contextlib import ExitStack, contextmanager
 from unittest.mock import MagicMock, patch
 
@@ -1029,6 +1030,40 @@ class TestStalledStepLease:
             assert sched._run_step("stall", svc, fn) is True
 
         assert observed == [True, False, True]
+
+
+class TestReapedStepIsFenced:
+    """A step whose row the reaper failed must stop instead of running on.
+
+    The heartbeat thread learns the row was reaped (``update_heartbeat`` is
+    False) and signals through the event it was handed. The step's progress
+    callback has to observe that event, otherwise the zombie keeps fetching
+    while the freed job slot lets a second run start.
+    """
+
+    def test_when_heartbeat_reports_reaped_then_next_progress_call_aborts_step(
+        self,
+    ):
+        job_svc = MagicMock()
+        job_svc.create_job.return_value = _VALID_JOB_ID
+        job_svc.get_job.return_value = {"status": "failed"}
+        job_svc._heartbeat_cadence = 0.01
+        job_svc._run_heartbeat.side_effect = lambda _j, stop, _c, **_kw: stop.set()
+        ticks: list[int] = []
+
+        def fn(*, on_progress):
+            for i in range(500):
+                time.sleep(0.01)
+                on_progress(current=i)
+                ticks.append(i)
+
+        from app.services.jobs.scheduler import _run_step
+
+        assert _run_step("yfinance", job_svc, fn) is False
+
+        assert len(ticks) < 500, "step kept running after its row was reaped"
+        statuses = [c.kwargs.get("status") for c in job_svc.update_job.call_args_list]
+        assert "completed" not in statuses
 
 
 # ---------------------------------------------------------------------------

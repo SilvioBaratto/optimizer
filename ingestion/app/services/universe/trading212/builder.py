@@ -1,6 +1,6 @@
 from collections import defaultdict
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -310,7 +310,8 @@ class UniverseBuilder:
         processed = []
         local_count = 0
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        executor = ThreadPoolExecutor(max_workers=self.max_workers)
+        try:
             future_to_inst = {
                 executor.submit(
                     self._process_single_instrument, inst, exchange_name
@@ -338,6 +339,11 @@ class UniverseBuilder:
                         )
                         self.progress_callback(progress)
 
+                except CancelledError:
+                    # The progress callback aborts a build whose job row was
+                    # reaped; recording that as a per-instrument error would
+                    # only trigger a second callback and a spurious error.
+                    raise
                 except Exception as e:
                     # Per-instrument failure in a bulk build is surfaced (not
                     # swallowed): appended to self._errors → BuildResult.errors
@@ -355,6 +361,10 @@ class UniverseBuilder:
                             reason=str(e),
                         )
                         self.progress_callback(progress)
+        finally:
+            # Leaving the loop early (a reaped job) must drop the queued
+            # instruments instead of draining the whole pool on exit.
+            executor.shutdown(wait=True, cancel_futures=True)
 
         return processed
 
