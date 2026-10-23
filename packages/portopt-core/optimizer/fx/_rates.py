@@ -114,7 +114,8 @@ def align_fx_rates(
             Each column holds the rate from that currency to the base
             currency (units of base per one unit of foreign).
         price_index: Target date index (from the price DataFrame).
-        fill_limit: Maximum consecutive NaN days to forward-fill.
+        fill_limit: Maximum consecutive NaN days to forward-fill; ``0``
+            disables filling so only exact-date rates are used.
 
     Returns:
         Aligned FX rates on the ``price_index``.  Zero, negative and
@@ -137,7 +138,10 @@ def align_fx_rates(
         rates = rates.set_axis(_wall_clock(rates.index), axis=0)
         lookup = cast(pd.DatetimeIndex, _wall_clock(price_index))
 
-    aligned = rates.reindex(lookup).ffill(limit=fill_limit)
+    aligned = rates.reindex(lookup)
+    # pandas rejects limit=0, which here is the valid "exact-date rates only".
+    if fill_limit > 0:
+        aligned = aligned.ffill(limit=fill_limit)
     # Callers multiply against the price frame, which aligns on labels.
     aligned.index = price_index
     return aligned

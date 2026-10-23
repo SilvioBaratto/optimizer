@@ -138,6 +138,16 @@ class TestAlignFxRates:
         # First 4 should be filled (original + 3 forward), rest NaN
         assert result["GBP"].notna().sum() == 4
 
+    def test_zero_fill_limit_means_exact_date_rates_only(self) -> None:
+        fx_dates = pd.to_datetime(["2024-01-02", "2024-01-05"])
+        price_dates = pd.bdate_range("2024-01-02", periods=4)
+        fx = pd.DataFrame({"GBP": [1.15, 1.18]}, index=fx_dates)
+
+        result = align_fx_rates(fx, price_dates, fill_limit=0)
+
+        assert result["GBP"].tolist()[0] == 1.15
+        assert result["GBP"].isna().tolist() == [False, True, True, False]
+
     def test_non_positive_and_non_finite_rates_are_missing(self) -> None:
         dates = pd.bdate_range("2024-01-02", periods=2)
         fx = pd.DataFrame(

@@ -809,3 +809,30 @@ class TestFxPriceConverterTimezones:
 
         assert result["LLOY.L"].tolist() == pytest.approx([60.0] * 5)
         assert result.index.equals(prices.index)
+
+
+class TestFxPriceConverterZeroFillLimit:
+    """fill_limit=0 is the valid way to ask for exact-date rates only."""
+
+    def test_zero_fill_limit_converts_on_rate_dates_and_flags_gaps(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        dates = pd.bdate_range("2024-01-02", periods=3)
+        prices = pd.DataFrame({"LLOY.L": [50.0, 51.0, 52.0]}, index=dates)
+        fx = pd.DataFrame({"GBP": [1.2, 1.3]}, index=dates[[0, 2]])
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"LLOY.L": "GBP"},
+            fx_rates=fx,
+            fill_limit=0,
+        )
+
+        with caplog.at_level(logging.WARNING, logger="optimizer.fx._converter"):
+            result = converter.fit(prices).transform(prices)
+
+        assert result["LLOY.L"].iloc[0] == pytest.approx(60.0)
+        assert np.isnan(result["LLOY.L"].iloc[1])
+        assert result["LLOY.L"].iloc[2] == pytest.approx(67.6)
+        assert any("NaN prices" in r.message for r in caplog.records)
