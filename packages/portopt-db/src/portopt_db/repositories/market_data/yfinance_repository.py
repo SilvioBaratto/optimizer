@@ -650,19 +650,24 @@ class YFinanceRepository(RepositoryBase):
         Deduped in-batch on ``period_date`` (last-wins): two source rows on the
         same calendar day would otherwise collide on ``uq_earnings_history_...``
         within one ON CONFLICT and abort the whole write.
+
+        ``surprisePercent`` arrives as a fraction (0.04 = 4%) and is stored in
+        percent points, the unit ``earnings_dates`` and the earnings calendar
+        already use.
         """
         by_date: dict[date, dict[str, Any]] = {}
         for idx, row in df.iterrows():
             period_date = _safe_date(idx)
             if period_date is None:
                 continue
+            surprise = _safe_float(row.get("surprisePercent"))
             by_date[period_date] = {
                 "instrument_id": instrument_id,
                 "period_date": period_date,
                 "eps_estimate": _safe_float(row.get("epsEstimate")),
                 "eps_actual": _safe_float(row.get("epsActual")),
                 "eps_difference": _safe_float(row.get("epsDifference")),
-                "surprise_percent": _safe_float(row.get("surprisePercent")),
+                "surprise_percent": None if surprise is None else surprise * 100.0,
             }
         rows = list(by_date.values())
         return self._upsert(

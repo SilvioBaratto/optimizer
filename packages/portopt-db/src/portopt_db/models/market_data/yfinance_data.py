@@ -404,7 +404,11 @@ class EpsRevisions(BaseModel):
 
 
 class EarningsHistory(BaseModel):
-    """Historical EPS surprise from yf.Ticker.earnings_history (per past quarter)."""
+    """Historical EPS surprise from yf.Ticker.earnings_history (per past quarter).
+
+    ``surprise_percent`` is in percent points (4.0 = a 4% beat), matching
+    ``EarningsDate.surprise_percent`` and ``EarningsCalendar.eps_surprise_pct``.
+    """
 
     __tablename__ = "earnings_history"
     __table_args__ = (
@@ -429,7 +433,10 @@ class EarningsHistory(BaseModel):
 
 
 class EarningsDate(BaseModel):
-    """Past + upcoming earnings dates from yf.Ticker.get_earnings_dates()."""
+    """Past + upcoming earnings dates from yf.Ticker.get_earnings_dates().
+
+    ``surprise_percent`` is in percent points (4.0 = a 4% beat).
+    """
 
     __tablename__ = "earnings_dates"
     __table_args__ = (

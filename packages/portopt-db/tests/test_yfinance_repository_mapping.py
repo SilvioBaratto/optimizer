@@ -181,6 +181,50 @@ class TestEarningsTimeline:
         assert len(rows) == 1
         assert rows[0]["period_date"] == dt.date(2024, 3, 31)
 
+    def test_earnings_history_surprise_is_stored_in_percent_points(self, repo) -> None:
+        # Yahoo's earnings_history reports surprisePercent as a fraction (0.1181
+        # = 11.81%) while get_earnings_dates reports "Surprise(%)" already in
+        # percent points. Both land in a column named surprise_percent, so the
+        # fraction must be rescaled or the same event reads 100x apart.
+        history = pd.DataFrame(
+            {
+                "epsEstimate": [3.0],
+                "epsActual": [3.3543],
+                "epsDifference": [0.3543],
+                "surprisePercent": [0.1181],
+            },
+            index=pd.to_datetime(["2026-06-30"]),
+        )
+        repo.upsert_earnings_history(_IID, history)
+        history_value = _rows(repo)[0]["surprise_percent"]
+
+        dates = pd.DataFrame(
+            {
+                "EPS Estimate": [3.0],
+                "Reported EPS": [3.3543],
+                "Surprise(%)": [11.81],
+            },
+            index=pd.to_datetime(["2026-07-29"]),
+        )
+        repo.upsert_earnings_dates(_IID, dates)
+        dates_value = _rows(repo)[0]["surprise_percent"]
+
+        assert history_value == pytest.approx(11.81)
+        assert history_value == pytest.approx(dates_value)
+
+    def test_earnings_history_missing_surprise_stays_null(self, repo) -> None:
+        df = pd.DataFrame(
+            {
+                "epsEstimate": [1.0],
+                "epsActual": [1.1],
+                "epsDifference": [0.1],
+                "surprisePercent": [float("nan")],
+            },
+            index=pd.to_datetime(["2024-03-31"]),
+        )
+        repo.upsert_earnings_history(_IID, df)
+        assert _rows(repo)[0]["surprise_percent"] is None
+
     def test_earnings_dates_defensive_columns(self, repo) -> None:
         df = pd.DataFrame(
             {
