@@ -311,6 +311,53 @@ def compute_icir(ic_series: pd.Series) -> float:
     return mean_ic / ic_std if ic_std > 0.0 else 0.0
 
 
+# Below this fraction of the squared series magnitude the HAC variance is
+# float round-off around a constant, not a measurable dispersion.
+_NW_DEGENERATE_REL_VAR: float = 1e-20
+
+
+def _min_newey_west_periods(n_lags: int) -> int:
+    """Shortest IC history on which a Newey-West t-test is attempted.
+
+    ``2 * n_lags + 1`` leaves at least as many periods as the Bartlett window
+    spans on each side of the mean.  Shorter histories give a HAC variance
+    that is mostly kernel weights, and pure noise then clears a ``|t| >= 2``
+    cut-off far more often than the nominal 5%.
+    """
+    return max(3, 2 * n_lags + 1)
+
+
+def _newey_west_variance(ic_series: pd.Series, n_lags: int) -> float:
+    """Bartlett-kernel Newey-West long-run variance of an IC series.
+
+    Every autocovariance is normalised by ``n`` (not ``n - lag``): that is what
+    keeps the Bartlett-weighted sum non-negative.  Dividing a lag-``j`` term by
+    ``n - j`` inflates high lags and can push the estimate to zero or below.
+
+    Args:
+        ic_series: Time series of IC values.
+        n_lags: Maximum autocovariance lag; also sets the Bartlett weights.
+
+    Returns:
+        The variance, or ``0.0`` when the series is constant (to round-off)
+        and therefore carries no dispersion to infer a standard error from.
+        ``NaN`` propagates from NaN input.
+    """
+    values = np.asarray(ic_series, dtype=np.float64)
+    n = len(values)
+    demeaned = values - values.mean()
+
+    nw_var = float(demeaned @ demeaned) / n
+    for lag in range(1, min(n_lags, n - 1) + 1):
+        weight = 1.0 - lag / (n_lags + 1)
+        nw_var += 2.0 * weight * float(demeaned[lag:] @ demeaned[:-lag]) / n
+
+    scale = float(np.max(np.abs(values)))
+    if nw_var <= _NW_DEGENERATE_REL_VAR * scale**2:
+        return 0.0
+    return nw_var
+
+
 def compute_newey_west_tstat(
     ic_series: pd.Series,
     n_lags: int = 6,
@@ -322,36 +369,21 @@ def compute_newey_west_tstat(
         n_lags: Number of lags for HAC standard errors.
 
     Returns:
-        (t_statistic, p_value).
+        (t_statistic, p_value).  ``(0.0, 1.0)`` (no evidence) when fewer than
+        ``2 * n_lags + 1`` observations remain, or when the series is constant.
+        The floor makes the inference defined; it does not make the test
+        exact, as HAC t-tests still over-reject on short histories.
     """
     n = len(ic_series)
-    if n < 3:
+    if n < _min_newey_west_periods(n_lags):
         return 0.0, 1.0
 
     mean_ic = float(ic_series.mean())
-    demeaned = ic_series - mean_ic
-
-    gamma_0 = float((demeaned**2).mean())
-    nw_var = gamma_0
-
-    for lag in range(1, min(n_lags, n - 1) + 1):
-        weight = 1.0 - lag / (n_lags + 1)
-        lag_vals: npt.NDArray[np.float64] = np.asarray(
-            demeaned.iloc[lag:], dtype=np.float64
-        )
-        lead_vals: npt.NDArray[np.float64] = np.asarray(
-            demeaned.iloc[:-lag], dtype=np.float64
-        )
-        gamma_j = float((lag_vals * lead_vals).mean())
-        nw_var += 2 * weight * gamma_j
-
-    nw_var = max(nw_var, 1e-12)
-    se = float(np.sqrt(nw_var / n))
-
-    if se == 0:
+    nw_var = _newey_west_variance(ic_series, n_lags)
+    if not nw_var > 0.0:
         return 0.0, 1.0
 
-    t_stat = mean_ic / se
+    t_stat = mean_ic / float(np.sqrt(nw_var / n))
 
     from scipy import stats as sp_stats
 

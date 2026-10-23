@@ -854,16 +854,19 @@ class FactorValidationConfig:
     """Configuration for factor validation and statistical testing.
 
     Attributes:
-        newey_west_lags: Number of lags for Newey-West t-statistic.
+        newey_west_lags: Number of lags for Newey-West t-statistic.  An IC
+            history shorter than ``2 * newey_west_lags + 1`` periods (13 with
+            the default 6) gets ``t = 0, p = 1``: no evidence either way.
         t_stat_threshold: Minimum absolute t-statistic for significance.
         fdr_alpha: False discovery rate alpha level.
         n_quantiles: Number of quantiles for spread analysis.
         fmp_top_pct: Top percentile for factor-mimicking portfolios.
         fmp_bottom_pct: Bottom percentile for factor-mimicking portfolios.
         composite_min_observations: Minimum non-NaN observations per
-            cross-section for composite IC. Default 24. Newey-West with 6 lags
-            requires at least 13 observations (2*lags+1); 24 provides two years
-            of monthly IC for reliable Spearman rank correlations.
+            cross-section for composite IC. Default 24, for reliable Spearman
+            rank correlations. This bounds assets per date, not the number of
+            dates; the Newey-West floor on IC history length is set by
+            ``newey_west_lags``.
         min_ic_observations: Minimum non-NaN observations per cross-section
             date for per-factor IC computation in ``run_factor_validation``.
             Default 24, matching ``composite_min_observations`` so both paths

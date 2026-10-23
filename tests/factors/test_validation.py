@@ -43,6 +43,20 @@ def forward_returns() -> pd.Series:
     )
 
 
+def _reference_newey_west(values: np.ndarray, n_lags: int) -> tuple[float, float]:
+    """Textbook Bartlett-kernel NW t-stat: every autocovariance is sum / n."""
+    from scipy import stats as sp_stats
+
+    n = len(values)
+    mean = values.mean()
+    e = values - mean
+    var = float(e @ e) / n
+    for j in range(1, min(n_lags, n - 1) + 1):
+        var += 2.0 * (1.0 - j / (n_lags + 1)) * float(e[j:] @ e[:-j]) / n
+    t_stat = mean / np.sqrt(var / n)
+    return float(t_stat), float(2.0 * sp_stats.t.sf(abs(t_stat), df=n - 1))
+
+
 class TestComputeMonthlyIC:
     def test_returns_float(
         self, factor_scores: pd.Series, forward_returns: pd.Series
@@ -330,6 +344,68 @@ class TestNeweyWestTStat:
         ic = pd.Series([0.05, 0.06])
         t_stat, _p_value = compute_newey_west_tstat(ic)
         assert isinstance(t_stat, float)
+
+    @pytest.mark.parametrize("n", [4, 6, 9, 12, 30])
+    def test_when_series_short_then_matches_textbook_newey_west(self, n: int) -> None:
+        """Autocovariances are normalised by n so the HAC variance stays >= 0."""
+        n_lags = min(6, (n - 1) // 2)
+        rng = np.random.default_rng(n)
+        for _ in range(25):
+            values = rng.normal(0.0, 0.1, n)
+            t_stat, p_value = compute_newey_west_tstat(pd.Series(values), n_lags)
+            ref_t, ref_p = _reference_newey_west(values, n_lags)
+            assert t_stat == pytest.approx(ref_t, rel=1e-9)
+            assert p_value == pytest.approx(ref_p, rel=1e-9, abs=1e-15)
+
+    def test_when_short_alternating_series_then_t_stat_not_inflated(self) -> None:
+        t_stat, p_value = compute_newey_west_tstat(
+            pd.Series([0.15, 0.05, 0.15, 0.05]), 1
+        )
+        assert abs(t_stat) < 100.0
+        assert p_value > 1e-6
+
+    @pytest.mark.parametrize(("n_lags", "n"), [(6, 12), (6, 5), (2, 4), (4, 8)])
+    def test_when_series_shorter_than_two_lags_plus_one_then_no_evidence(
+        self, n_lags: int, n: int
+    ) -> None:
+        """Below 2 * n_lags + 1 periods the HAC variance is not usable."""
+        rng = np.random.default_rng(n)
+        ic = pd.Series(0.05 + rng.normal(0.0, 1e-3, n))
+        assert compute_newey_west_tstat(ic, n_lags) == (0.0, 1.0)
+
+    @pytest.mark.parametrize("n_lags", [1, 2, 6])
+    def test_when_series_has_two_lags_plus_one_periods_then_inference_runs(
+        self, n_lags: int
+    ) -> None:
+        n = 2 * n_lags + 1
+        rng = np.random.default_rng(n)
+        values = 0.05 + rng.normal(0.0, 1e-2, n)
+
+        t_stat, p_value = compute_newey_west_tstat(pd.Series(values), n_lags)
+        ref_t, ref_p = _reference_newey_west(values, n_lags)
+
+        assert t_stat == pytest.approx(ref_t, rel=1e-9)
+        assert p_value == pytest.approx(ref_p, rel=1e-9, abs=1e-15)
+        assert abs(t_stat) > 2.0
+
+    def test_when_ic_history_is_pure_noise_and_short_then_never_significant(
+        self,
+    ) -> None:
+        """The documented 2 * lags + 1 floor keeps noise out of short histories."""
+        rng = np.random.default_rng(2024)
+        flagged = sum(
+            abs(compute_newey_west_tstat(pd.Series(rng.normal(0.0, 0.1, 12)), 6)[0])
+            >= 2.0
+            for _ in range(400)
+        )
+        assert flagged == 0
+
+    @pytest.mark.parametrize("n", [10, 20])
+    def test_when_ic_series_constant_then_no_evidence(self, n: int) -> None:
+        """A constant IC series has no variance to infer from: t=0, p=1."""
+        t_stat, p_value = compute_newey_west_tstat(pd.Series([0.05] * n), 6)
+        assert t_stat == 0.0
+        assert p_value == 1.0
 
 
 class TestQuantileSpread:
@@ -918,6 +994,27 @@ class TestCompositeICValidation:
         assert abs(result.mean_ic) < 0.3
         assert result.significant is False
 
+    def test_when_ic_history_shorter_than_two_lags_plus_one_then_not_significant(
+        self,
+    ) -> None:
+        """Noise on a 12-period history cannot be flagged with 6 HAC lags."""
+        dates = pd.date_range("2020-01-01", periods=12, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(20)]
+        flagged = 0
+        for seed in range(150):
+            rng = np.random.default_rng(seed)
+            scores = pd.DataFrame(
+                rng.normal(0, 1, (12, 20)), index=dates, columns=tickers
+            )
+            returns = pd.DataFrame(
+                rng.normal(0, 1, (12, 20)), index=dates, columns=tickers
+            )
+            result = compute_composite_ic(scores, returns, newey_west_lags=6)
+            flagged += int(result.significant)
+            assert result.t_stat == 0.0
+            assert result.p_value == 1.0
+        assert flagged == 0
+
     def test_best_individual_ic_nan_standalone(self) -> None:
         """Direct call has NaN best_individual_ic."""
         rng = np.random.default_rng(42)
@@ -1000,7 +1097,12 @@ class TestCompositeICValidation:
         )
         result = compute_composite_ic(scores, returns)
         assert pytest.approx(result.mean_ic, abs=1e-9) == 1.0
-        assert result.significant is True
+        # A zero-variance IC series gives the Newey-West standard error nothing
+        # to estimate, so inference is undefined rather than infinitely
+        # significant (a stale or copied cross-section looks exactly like this).
+        assert result.significant is False
+        assert result.t_stat == 0.0
+        assert result.p_value == 1.0
         # Perfect IC every period → ic_std=0 → icir=0 by zero-std guard
         assert result.ic_std == 0.0
         assert result.icir == 0.0
