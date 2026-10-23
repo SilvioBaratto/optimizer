@@ -20,19 +20,6 @@
       "justMyCode": false
     },
     {
-      "name": "CLI: reference-indices",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "app.cli",
-      "args": ["reference-indices"],
-      "cwd": "${workspaceFolder}/ingestion",
-      "python": "${command:python.interpreterPath}",
-      "envFile": "${workspaceFolder}/.env",
-      "env": { "PYTHONUNBUFFERED": "1" },
-      "console": "integratedTerminal",
-      "justMyCode": false
-    },
-    {
       "name": "CLI: yfinance (incremental)",
       "type": "debugpy",
       "request": "launch",
@@ -103,32 +90,6 @@
       "request": "launch",
       "module": "app.cli",
       "args": ["news"],
-      "cwd": "${workspaceFolder}/ingestion",
-      "python": "${command:python.interpreterPath}",
-      "envFile": "${workspaceFolder}/.env",
-      "env": { "PYTHONUNBUFFERED": "1" },
-      "console": "integratedTerminal",
-      "justMyCode": false
-    },
-    {
-      "name": "CLI: summarize (LLM)",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "app.cli",
-      "args": ["summarize"],
-      "cwd": "${workspaceFolder}/ingestion",
-      "python": "${command:python.interpreterPath}",
-      "envFile": "${workspaceFolder}/.env",
-      "env": { "PYTHONUNBUFFERED": "1" },
-      "console": "integratedTerminal",
-      "justMyCode": false
-    },
-    {
-      "name": "CLI: calibrate (LLM)",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "app.cli",
-      "args": ["calibrate"],
       "cwd": "${workspaceFolder}/ingestion",
       "python": "${command:python.interpreterPath}",
       "envFile": "${workspaceFolder}/.env",

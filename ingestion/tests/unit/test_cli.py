@@ -6,8 +6,11 @@ database. What is asserted is the contract the shell drivers depend on:
 - each command dispatches to the step the scheduler itself runs (so a manual
   run and a scheduled run take the same job-slot / heartbeat path)
 - options reach that step with the right values
-- single-step commands exit non-zero when the step did not complete, so
-  ``scheduler/fetch.sh`` and CI can gate on the exit code
+- single-step commands exit non-zero when the step did not complete, so a
+  shell driver or CI can gate on the exit code
+- the composite commands (``daily``, ``refetch-all``) exit 0 whatever their
+  steps did, so ``scheduler/fetch.sh`` and ``scheduler/refetch_all.sh``, which
+  wrap them, are not a failure signal
 """
 
 from __future__ import annotations
@@ -550,6 +553,32 @@ class TestCompositeCommands:
 
         assert result.exit_code == 0
         assert calls == ["universe", "weekly", "fred:{'incremental': False}"]
+
+    def test_daily_exits_zero_when_every_step_fails(self) -> None:
+        """The wrappers' "do not gate on the exit status" advice rests on this."""
+        with (
+            patch(f"{SCHED}.run_yfinance_step", return_value=False),
+            patch(f"{SCHED}.run_fx_step", return_value=False),
+            patch(f"{SCHED}.run_macro_step", return_value=False),
+            patch(f"{SCHED}.run_news_step", return_value=False) as news,
+            patch(f"{SCHED}.run_daily_events_step", return_value=False),
+        ):
+            result = runner.invoke(app, ["daily"])
+
+        assert result.exit_code == 0
+        news.assert_not_called()
+
+    def test_refetch_all_exits_zero_when_every_step_fails(self) -> None:
+        with (
+            patch(f"{SCHED}.run_universe_step", return_value=False),
+            patch(f"{SCHED}.run_t212_annotate_step", return_value=False),
+            patch(f"{SCHED}.run_yfinance_step", return_value=False),
+            patch(f"{SCHED}.run_macro_step", return_value=False),
+            patch(f"{SCHED}.run_fred_step", return_value=False),
+        ):
+            result = runner.invoke(app, ["refetch-all"])
+
+        assert result.exit_code == 0
 
 
 class TestDailyEventsBackfill:

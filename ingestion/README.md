@@ -59,7 +59,6 @@ docker compose exec scheduler python -m app.cli universe
 docker compose exec scheduler python -m app.cli macro
 docker compose exec scheduler python -m app.cli fred
 docker compose exec scheduler python -m app.cli news
-docker compose exec scheduler python -m app.cli reference-indices
 docker compose exec scheduler python -m app.cli market-structure
 docker compose exec scheduler python -m app.cli calendars
 docker compose exec scheduler python -m app.cli market-summary
@@ -67,8 +66,10 @@ docker compose exec scheduler python -m app.cli options
 ```
 
 Single-step commands exit non-zero when the step did not complete, so shell drivers can gate
-on them. `scheduler/fetch.sh` and `scheduler/refetch_all.sh` are thin wrappers over `daily`
-and `refetch-all`.
+on them. The composite commands `daily` and `refetch-all` always exit 0, even when a step
+failed or was refused, so read the logs or `background_jobs` for per-step outcomes.
+`scheduler/fetch.sh` and `scheduler/refetch_all.sh` are thin wrappers over them and hand that
+exit status through unchanged, so they are not a failure signal either.
 
 ## Observability
 
