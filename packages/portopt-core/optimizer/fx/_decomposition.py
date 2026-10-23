@@ -122,6 +122,12 @@ def decompose_fx_returns(
     """
     base_ccy, _base_scale = normalize_currency_code(base_currency)
 
+    # DB Numeric columns arrive as Python Decimal (object dtype), which cannot
+    # be multiplied against the float FX returns below; FxPriceConverter casts
+    # the same way at its own boundary.
+    local_prices = local_prices.astype("float64")
+    base_prices = base_prices.astype("float64")
+
     # Compute returns from prices.  Returns are scale-invariant, so the
     # minor-unit rescaling applied to prices cancels in pct_change and the
     # decomposition identity r_total = r_local + r_fx + r_local*r_fx still

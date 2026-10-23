@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import numpy as np
 import pandas as pd
 import pytest
 
+from optimizer.fx import FxPriceConverter
 from optimizer.fx._decomposition import FxReturnDecomposition, decompose_fx_returns
 
 
@@ -237,3 +240,36 @@ class TestDecomposeMinorUnits:
         np.testing.assert_array_equal(
             result.fx_returns["LLOY.L"].values, np.zeros(len(result.fx_returns))
         )
+
+
+class TestDecomposeDecimalPrices:
+    """DB ``Numeric`` columns arrive as ``Decimal`` (object dtype)."""
+
+    def test_decimal_local_prices_pair_with_converter_output(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=6)
+        local = pd.DataFrame(
+            {
+                "LLOY.L": [Decimal(v) for v in ("50", "51", "52", "53", "54", "55")],
+                "SPY": [Decimal(v) for v in ("480", "482", "481", "485", "487", "490")],
+            },
+            index=dates,
+        )
+        assert local["SPY"].dtype == object
+        fx = pd.DataFrame(
+            {
+                "GBP": [1.10, 1.11, 1.12, 1.11, 1.13, 1.14],
+                "USD": [0.91, 0.92, 0.92, 0.93, 0.92, 0.93],
+            },
+            index=dates,
+        )
+        cmap = {"LLOY.L": "GBP", "SPY": "USD"}
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map=cmap, fx_rates=fx
+        )
+        base = converter.fit_transform(local)
+
+        result = decompose_fx_returns(local, base, converter.fx_aligned_, cmap, "EUR")
+
+        recon = result.local_returns + result.fx_returns + result.cross_terms
+        assert (result.total_returns - recon).abs().max().max() < 1e-10
+        assert result.local_returns["SPY"].iloc[0] == pytest.approx(482 / 480 - 1.0)
