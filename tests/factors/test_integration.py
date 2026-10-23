@@ -537,8 +537,10 @@ class TestComputeNetAlpha:
     def test_total_cost_formula(
         self, ic_series: pd.Series, weights_history: pd.DataFrame
     ) -> None:
-        result = compute_net_alpha(ic_series, weights_history, cost_bps=10.0)
-        expected_cost = result.avg_turnover * 10.0 / 10_000.0
+        result = compute_net_alpha(
+            ic_series, weights_history, cost_bps=10.0, annualisation=12
+        )
+        expected_cost = result.avg_turnover * 10.0 / 10_000.0 * 12
         assert result.total_cost == pytest.approx(expected_cost)
 
     # -- net_alpha = gross_alpha - total_cost ----------------------------------
@@ -590,3 +592,34 @@ class TestComputeNetAlpha:
         constant_ic = pd.Series([0.05] * N_PERIODS)
         result = compute_net_alpha(constant_ic, weights_history)
         assert result.net_icir == pytest.approx(0.0)
+
+    # -- cost is annualised like the alpha it is netted against ---------------
+
+    def test_total_cost_is_annualised_by_rebalances_per_year(self) -> None:
+        """A monthly rebalance paying 100 bps on full turnover costs 12% a year."""
+        dates = pd.date_range("2022-01-31", periods=4, freq="ME")
+        flip = pd.DataFrame(
+            [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, 1.0]],
+            index=dates,
+            columns=["A", "B"],
+        )
+        monthly_ic = pd.Series([0.04, 0.06, 0.05, 0.05])
+
+        result = compute_net_alpha(monthly_ic, flip, cost_bps=100.0, annualisation=12)
+
+        assert result.avg_turnover == pytest.approx(1.0)
+        assert result.total_cost == pytest.approx(1.0 * 100.0 / 10_000.0 * 12)
+        assert result.net_alpha == pytest.approx(result.gross_alpha - result.total_cost)
+
+    def test_cost_drag_grows_with_rebalance_frequency(
+        self, ic_series: pd.Series, weights_history: pd.DataFrame
+    ) -> None:
+        """Same per-rebalance turnover, more rebalances a year, more drag."""
+        monthly = compute_net_alpha(
+            ic_series, weights_history, cost_bps=10.0, annualisation=12
+        )
+        daily = compute_net_alpha(
+            ic_series, weights_history, cost_bps=10.0, annualisation=252
+        )
+
+        assert daily.total_cost == pytest.approx(monthly.total_cost * 252 / 12)

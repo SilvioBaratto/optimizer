@@ -297,10 +297,12 @@ class NetAlphaResult:
 
     Attributes:
         gross_alpha: Annualised IC-based alpha proxy:
-            ``mean(IC) * sqrt(annualisation)``.
+            ``mean(IC) * sqrt(annualisation)``. It is on the IC scale (a
+            dimensionless score), not a return.
         avg_turnover: Mean one-way turnover across consecutive rebalancing
             dates, computed via ``compute_turnover``.
-        total_cost: Cost deduction: ``avg_turnover * cost_bps / 10_000``.
+        total_cost: Annual cost drag as a fraction of capital:
+            ``avg_turnover * cost_bps / 10_000 * annualisation``.
         net_alpha: Net annualised alpha after cost deduction:
             ``gross_alpha - total_cost``.
         net_icir: Net information coefficient information ratio:
@@ -328,9 +330,14 @@ def compute_net_alpha(
 
         gross_alpha  = mean(IC) * sqrt(annualisation)
         avg_turnover = mean one-way turnover across rebalancing dates
-        total_cost   = avg_turnover * cost_bps / 10_000
+        total_cost   = avg_turnover * cost_bps / 10_000 * annualisation
         net_alpha    = gross_alpha - total_cost
         net_icir     = net_alpha / (std(IC) * sqrt(annualisation))
+
+    The cost is paid once per rebalance, so it is scaled by the number of
+    rebalances per year to land on the same annual footing as the alpha it is
+    netted against.  ``gross_alpha`` stays on the IC scale (unit cross-sectional
+    return dispersion), so ``net_alpha`` is a screening score, not a return.
 
     Args:
         ic_series: Time series of period information coefficients (Spearman or
@@ -340,8 +347,9 @@ def compute_net_alpha(
             dates, columns are assets. Turnover is computed between every pair
             of consecutive rows.
         cost_bps: Round-trip transaction cost in basis points.
-        annualisation: Number of periods per year (252 for daily, 12 for
-            monthly).
+        annualisation: Number of rebalancing periods per year (252 for daily,
+            12 for monthly); it must match the spacing of ``ic_series`` and
+            ``weights_history``.
 
     Returns:
         Dataclass with ``gross_alpha``, ``avg_turnover``, ``total_cost``,
@@ -362,7 +370,7 @@ def compute_net_alpha(
         turnovers.append(t)
     avg_turnover = float(np.mean(turnovers)) if turnovers else 0.0
 
-    total_cost = avg_turnover * cost_bps / 10_000.0
+    total_cost = avg_turnover * cost_bps / 10_000.0 * float(annualisation)
     net_alpha = gross_alpha - total_cost
 
     annual_ic_vol = ic_std * float(np.sqrt(annualisation))
