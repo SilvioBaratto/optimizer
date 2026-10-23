@@ -74,6 +74,51 @@ def test_metadata_upsert_is_idempotent_and_updates(db_session) -> None:
     assert float(row.aum) == 2_000_000_000.0
 
 
+def test_metadata_upsert_with_none_keeps_previously_stored_values(db_session) -> None:
+    """A partial Yahoo response (None = not reported this time) must not erase
+    the last known fund metadata; supplied fields still update."""
+    repo = ETFMetadataRepository(db_session)
+    inst = _instrument(db_session)
+    repo.upsert_metadata(
+        inst.id,
+        aum=1_000_000_000.0,
+        nav=100.0,
+        fund_family="JPMorgan",
+        legal_type="ETF",
+        expense_ratio=0.001,
+        base_currency="EUR",
+        as_of=_AS_OF,
+        category="Ultrashort Bond",
+        description="A short-duration bond ETF.",
+    )
+    db_session.flush()
+
+    later = dt.date(2026, 9, 1)
+    repo.upsert_metadata(
+        inst.id,
+        aum=None,
+        nav=None,
+        fund_family=None,
+        legal_type=None,
+        expense_ratio=None,
+        base_currency="USD",
+        as_of=later,
+    )
+    db_session.flush()
+    db_session.expire_all()
+
+    row = db_session.query(ETFMetadata).filter_by(instrument_id=inst.id).one()
+    assert float(row.aum) == 1_000_000_000.0
+    assert float(row.nav) == 100.0
+    assert row.fund_family == "JPMorgan"
+    assert row.legal_type == "ETF"
+    assert float(row.expense_ratio) == 0.001
+    assert row.category == "Ultrashort Bond"
+    assert row.description == "A short-duration bond ETF."
+    assert row.base_currency == "USD"
+    assert row.as_of == later
+
+
 def test_asset_classes_upsert_is_idempotent_and_updates(db_session) -> None:
     repo = ETFMetadataRepository(db_session)
     inst = _instrument(db_session)

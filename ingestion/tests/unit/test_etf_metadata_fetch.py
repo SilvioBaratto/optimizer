@@ -331,3 +331,39 @@ def test_allocation_without_any_mapped_bucket_is_not_stored(db_session) -> None:
     assert ETFMetadataRepository(db_session).get_asset_classes(inst.id) is None
     assert "etf_asset_classes" not in counts
     assert counts.get("etf_holdings") == 1
+
+
+def test_partial_profile_keeps_previously_stored_aum_and_nav(db_session) -> None:
+    """A transient ``info`` without totalAssets/navPrice must not null the
+    stored AUM and NAV."""
+    inst = _fi_instrument(db_session)
+    etf_repo = ETFMetadataRepository(db_session)
+    etf_repo.upsert_metadata(
+        inst.id,
+        aum=1e9,
+        nav=100.0,
+        fund_family="JPMorgan",
+        legal_type="ETF",
+        expense_ratio=0.001,
+        base_currency="EUR",
+        as_of=dt.date(2026, 8, 18),
+    )
+    db_session.flush()
+
+    yf = MagicMock()
+    yf.funds.fetch_fund_profile.return_value = {"base_currency": "EUR"}
+    yf.funds.fetch_funds_data.return_value = None
+    svc = _service(db_session, yf)
+
+    svc._fetch_etf_metadata(
+        inst.id, "JAGA.DE", "full", DEFAULT_THRESHOLDS, _NOW, {}, [], []
+    )
+    db_session.flush()
+    db_session.expire_all()
+
+    meta = etf_repo.get_metadata(inst.id)
+    assert meta is not None
+    assert float(meta.aum) == 1e9
+    assert float(meta.nav) == 100.0
+    assert meta.fund_family == "JPMorgan"
+    assert float(meta.expense_ratio) == 0.001

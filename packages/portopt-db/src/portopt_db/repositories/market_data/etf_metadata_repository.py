@@ -68,9 +68,10 @@ class ETFMetadataRepository(RepositoryBase):
     ) -> None:
         """Upsert core ETF metadata for an instrument.
 
-        Natural key is ``instrument_id``; a re-run updates all columns except
-        the primary key. Pass ``None`` for fields not available in the source
-        data.
+        Natural key is ``instrument_id``. A re-run updates only the columns for
+        which a value is supplied: ``None`` means the source did not report the
+        field this time and leaves the stored value untouched, so a partial
+        response cannot erase the last known fund data.
 
         Args:
             instrument_id: Identifies the instrument row this metadata belongs to.
@@ -84,34 +85,23 @@ class ETFMetadataRepository(RepositoryBase):
             category: Morningstar or provider-assigned category label.
             description: Free-text fund description.
         """
+        row: dict[str, Any] = {
+            "aum": aum,
+            "nav": nav,
+            "fund_family": fund_family,
+            "legal_type": legal_type,
+            "expense_ratio": expense_ratio,
+            "base_currency": base_currency,
+            "category": category,
+            "description": description,
+            "as_of": as_of,
+        }
         self._upsert(
             ETFMetadata,
-            [
-                {
-                    "id": uuid.uuid4(),
-                    "instrument_id": instrument_id,
-                    "aum": aum,
-                    "nav": nav,
-                    "fund_family": fund_family,
-                    "legal_type": legal_type,
-                    "expense_ratio": expense_ratio,
-                    "base_currency": base_currency,
-                    "category": category,
-                    "description": description,
-                    "as_of": as_of,
-                }
-            ],
+            [{"id": uuid.uuid4(), "instrument_id": instrument_id, **row}],
             index_elements=["instrument_id"],
             update_columns=[
-                "aum",
-                "nav",
-                "fund_family",
-                "legal_type",
-                "expense_ratio",
-                "base_currency",
-                "category",
-                "description",
-                "as_of",
+                *(name for name, value in row.items() if value is not None),
                 "updated_at",
             ],
         )
