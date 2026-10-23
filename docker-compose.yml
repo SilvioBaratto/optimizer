@@ -17,6 +17,9 @@ services:
     # host on the network. The containers reach each other over optimizer_network.
     ports:
       - "127.0.0.1:54320:5432"
+    # The daemons below restart on their own after a reboot; `depends_on` only
+    # orders the first `up`, so without this they would wait on a dead database.
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d optimizer_db"]
       interval: 10s
