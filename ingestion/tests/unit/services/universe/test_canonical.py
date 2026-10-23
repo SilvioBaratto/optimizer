@@ -266,6 +266,74 @@ class TestDedupCanonical:
         out = dedup_canonical(listings, _FX)
         assert {x.symbol for x in out} == {"ACME", "ACM.PA", "ACM.IL"}
 
+    def test_incumbent_holds_against_marginally_more_liquid_sibling(self) -> None:
+        # AZN.L is ~1.3x more liquid than the US line: inside the hysteresis band,
+        # so the incumbent stays instead of flipping on a noisy 3-month average.
+        listings = [
+            _mk("AZN", "NMS", "AstraZeneca PLC", "USD", 100.0, 1e6),
+            _mk("AZN.L", "LSE", "AstraZeneca PLC", "GBp", 8000.0, 1.3e6),
+        ]
+        assert [x.symbol for x in dedup_canonical(listings, _FX)] == ["AZN.L"]
+        out = dedup_canonical(listings, _FX, incumbents={"AZN"})
+        assert [x.symbol for x in out] == ["AZN"]
+
+    def test_incumbent_is_displaced_beyond_the_hysteresis_margin(self) -> None:
+        listings = [
+            _mk("AZN", "NMS", "AstraZeneca PLC", "USD", 100.0, 1e6),
+            _mk("AZN.L", "LSE", "AstraZeneca PLC", "GBp", 8000.0, 3e6),
+        ]
+        out = dedup_canonical(listings, _FX, incumbents={"AZN"})
+        assert [x.symbol for x in out] == ["AZN.L"]
+
+    def test_incumbent_without_traded_volume_does_not_hold(self) -> None:
+        # No ADDV means nothing to compare: a dead incumbent must not block a live line.
+        listings = [
+            _mk("ACME.MU", "MUN", "Acme Corp", "EUR", 9.0, 0),
+            _mk("ACME", "NMS", "Acme Corp", "USD", 10.0, 1e6),
+        ]
+        out = dedup_canonical(listings, _FX, incumbents={"ACME.MU"})
+        assert [x.symbol for x in out] == ["ACME"]
+
+    def test_incumbent_inside_the_member_band_holds_though_below_entry(self) -> None:
+        # 40k ADDV is under the 50k entry bar but over the 25k member exit bar, and the
+        # challenger (53.9k after FX) is inside the 1.5x margin: the incumbent stays.
+        listings = [
+            _mk("FOO", "NMS", "Foo Corp", "USD", 10.0, 4_000),
+            _mk("FOO.DE", "GER", "Foo Corp", "EUR", 10.0, 4_900),
+        ]
+        assert [x.symbol for x in dedup_canonical(listings, _FX)] == ["FOO.DE"]
+        out = dedup_canonical(listings, _FX, incumbents={"FOO"})
+        assert [x.symbol for x in out] == ["FOO"]
+        assert passes_floor(
+            derive_metrics(out[0], _FX), IngestionFloorConfig(), is_member=True
+        )
+
+    def test_incumbent_failing_the_floor_does_not_hold_against_a_challenger(
+        self,
+    ) -> None:
+        # FOO's market cap (5M) is under even the member exit bar, so the build would
+        # drop it and take the entity with it; FOO.DE clears the floor and must carry
+        # the entity instead of losing it to the hold.
+        listings = [
+            _mk("FOO", "NMS", "Foo Corp", "USD", 10.0, 4_000, shares=5e5),
+            _mk("FOO.DE", "GER", "Foo Corp", "EUR", 10.0, 4_900),
+        ]
+        out = dedup_canonical(listings, _FX, incumbents={"FOO"})
+        assert [x.symbol for x in out] == ["FOO.DE"]
+        assert passes_floor(derive_metrics(out[0], _FX), IngestionFloorConfig())
+
+    def test_incumbent_without_fundamentals_does_not_hold(self) -> None:
+        # A line that fails the existence gate cannot pass the floor, so holding it
+        # would delete the entity.
+        listings = [
+            _mk(
+                "FOO", "NMS", "Foo Corp", "USD", 10.0, 4_000, fin_ccy=None, shares=None
+            ),
+            _mk("FOO.DE", "GER", "Foo Corp", "EUR", 10.0, 4_900, fin_ccy=None),
+        ]
+        out = dedup_canonical(listings, _FX, incumbents={"FOO"})
+        assert [x.symbol for x in out] == ["FOO.DE"]
+
     def test_dual_class_both_kept_when_liquid_same_exchange(self) -> None:
         listings = [
             _mk("GOOGL", "NMS", "Alphabet Inc.", "USD", 165.0, 30e6),

@@ -27,6 +27,7 @@ import logging
 import re
 import unicodedata
 from collections import defaultdict
+from collections.abc import Collection
 from dataclasses import dataclass, field
 
 from app.utils.currency import minor_unit_major
@@ -112,6 +113,10 @@ class IngestionFloorConfig:
     # dual-class line only if it clears this (high) ADDV bar — recovers GOOG next
     # to GOOGL while dropping the illiquid BRK-A next to BRK-B.
     dual_class_min_addv_usd: float = 10_000_000.0
+    # An incumbent canonical listing is displaced only by a line more liquid by
+    # this factor, so a near-tie between venues cannot flip the winner (and with
+    # it the persisted ticker) on 3-month-average noise.
+    incumbent_addv_margin: float = 1.5
 
 
 @dataclass(frozen=True)
@@ -289,6 +294,37 @@ def _split_by_currency(
     return list(by_currency.values())
 
 
+def _pick_winner(
+    ranked: list[tuple[Listing, Metrics]],
+    incumbents: Collection[str],
+    config: IngestionFloorConfig,
+) -> tuple[Listing, Metrics]:
+    """Best-ranked line, unless an incumbent is within the hysteresis margin.
+
+    ``ranked`` is sorted best-first. Only the best-ranked incumbent can hold: a
+    lower-ranked one is already further behind. An incumbent with unknown ADDV
+    cannot be compared, so it holds nothing. It must also still clear the floor as
+    a member: the build drops a canonical line that fails it, so holding one that
+    does not would delete an entity a challenger can carry.
+    """
+    challenger = ranked[0]
+    if challenger[0].symbol in incumbents:
+        return challenger
+    for member in ranked[1:]:
+        if member[0].symbol not in incumbents:
+            continue
+        held_addv, challenger_addv = member[1].addv_usd, challenger[1].addv_usd
+        if (
+            held_addv is not None
+            and challenger_addv is not None
+            and challenger_addv <= held_addv * config.incumbent_addv_margin
+            and passes_floor(member[1], config, is_member=True)
+        ):
+            return member
+        break
+    return challenger
+
+
 def dedup_canonical(
     listings: list[Listing],
     usd_per_major: dict[str, float],
@@ -296,6 +332,7 @@ def dedup_canonical(
     config: IngestionFloorConfig | None = None,
     exchange_pref: tuple[str, ...] = (),
     keep_dual_class: bool = True,
+    incumbents: Collection[str] = (),
 ) -> list[Listing]:
     """Collapse cross-listings to one canonical listing per entity.
 
@@ -307,7 +344,10 @@ def dedup_canonical(
     symbol so it is never merged away.
     Within a group the max-``_rank_key`` line is canonical; when ``keep_dual_class``
     is set, same-exchange siblings clearing ``dual_class_min_addv_usd`` are also kept
-    (recovers GOOG beside GOOGL). Order of survivors is deterministic.
+    (recovers GOOG beside GOOGL). ``incumbents`` are the symbols persisted by the
+    previous build: one keeps its place unless a challenger beats its ADDV by
+    ``incumbent_addv_margin`` or it no longer clears the member floor (see
+    :func:`_pick_winner`). Order of survivors is deterministic.
 
     Raises:
         ValueError: A cross-listing group contains a line with price and volume
@@ -348,10 +388,12 @@ def dedup_canonical(
         members.sort(
             key=lambda lm: _rank_key(lm[0], lm[1], exchange_pref), reverse=True
         )
-        winner, _ = members[0]
+        winner, _ = _pick_winner(members, incumbents, cfg)
         survivors.append(winner)
         if keep_dual_class:
-            for sibling, sib_metrics in members[1:]:
+            for sibling, sib_metrics in members:
+                if sibling is winner:
+                    continue
                 if (
                     sibling.exchange == winner.exchange
                     and sib_metrics.addv_usd is not None

@@ -443,15 +443,22 @@ class YFinanceUniverseSource:
         majors = {m for m in (split_currency(lst.currency)[0] for lst in parsed) if m}
         fx = self._resolve_fx(majors) if majors else {"USD": 1.0}
 
+        members = self.member_lookup() if self.member_lookup is not None else set()
+        # The previous build's symbols hold their canonical place through a near-tie
+        # between venues, so the stored ticker does not flip on 3-month-ADDV noise.
+        incumbents = frozenset(symbol for symbol, _ in members)
         survivors = (
             dedup_canonical(
-                parsed, fx, config=self.floor_config, exchange_pref=_EXCHANGE_PREF
+                parsed,
+                fx,
+                config=self.floor_config,
+                exchange_pref=_EXCHANGE_PREF,
+                incumbents=incumbents,
             )
             if self.dedup
             else parsed
         )
 
-        members = self.member_lookup() if self.member_lookup is not None else set()
         schedule_ids: dict[str, int] = {}
         by_exchange: dict[str, list[dict[str, Any]]] = defaultdict(list)
         floored = 0

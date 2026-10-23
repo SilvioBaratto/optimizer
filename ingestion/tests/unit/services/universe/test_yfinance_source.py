@@ -727,3 +727,91 @@ def test_live_fx_retries_a_transient_failure(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr("app.services.universe.yfinance_source.yf.Ticker", _FlakyTicker)
     assert yfinance_source._live_usd_per_major({"EUR"}) == {"USD": 1.0, "EUR": 1.1}
     assert calls == ["EURUSD=X", "EURUSD=X"]
+
+
+def _azn_pair() -> list[dict]:
+    # AZN.L is ~1.3x more liquid than AZN: a near-tie that flips without hysteresis.
+    azn = _quote(
+        "AZN",
+        "NMS",
+        longName="AstraZeneca PLC",
+        regularMarketPrice=100.0,
+        averageDailyVolume3Month=1_000_000,
+    )
+    azn_l = _quote(
+        "AZN.L",
+        "LSE",
+        longName="AstraZeneca PLC",
+        currency="GBp",
+        regularMarketPrice=8_000.0,
+        averageDailyVolume3Month=1_300_000,
+    )
+    return [azn, azn_l]
+
+
+def test_incumbent_listing_survives_a_near_tie(monkeypatch: pytest.MonkeyPatch) -> None:
+    src, _ = _source([{"quotes": _azn_pair()}, {"quotes": []}], monkeypatch)
+    src.member_lookup = lambda: {("AZN", "NASDAQ")}
+    assert [i["ticker"] for i in src.get_instruments()] == ["AZN"]
+
+
+def _foo_pair(**incumbent_overrides: object) -> list[dict]:
+    # FOO (the incumbent) trades 40k USD/day: under the 50k entry bar, over the 25k
+    # member exit bar. FOO.DE trades 55k, inside the 1.5x hysteresis margin.
+    foo = _quote(
+        "FOO",
+        "NMS",
+        longName="Foo Corp",
+        regularMarketPrice=10.0,
+        averageDailyVolume3Month=4_000,
+        **incumbent_overrides,
+    )
+    foo_de = _quote(
+        "FOO.DE",
+        "GER",
+        longName="Foo Corp",
+        currency="EUR",
+        regularMarketPrice=10.0,
+        averageDailyVolume3Month=5_500,
+    )
+    return [foo, foo_de]
+
+
+def test_incumbent_between_exit_and_entry_floor_stays_in_the_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Holding FOO against FOO.DE must not hand it to a floor it fails: members are
+    # judged on the exit band, so the entity stays in the build.
+    src, _ = _source([{"quotes": _foo_pair()}, {"quotes": []}], monkeypatch)
+    src.member_lookup = lambda: {("FOO", "NASDAQ")}
+    assert [i["ticker"] for i in src.get_instruments()] == ["FOO"]
+
+
+def test_non_member_between_exit_and_entry_floor_is_not_admitted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lone = _quote(
+        "FOO",
+        "NMS",
+        longName="Foo Corp",
+        regularMarketPrice=10.0,
+        averageDailyVolume3Month=4_000,
+    )
+    src, _ = _source([{"quotes": [lone]}, {"quotes": []}], monkeypatch)
+    assert src.get_instruments() == []
+    src, _ = _source([{"quotes": [lone]}, {"quotes": []}], monkeypatch)
+    src.member_lookup = lambda: {("FOO", "NASDAQ")}
+    assert [i["ticker"] for i in src.get_instruments()] == ["FOO"]
+
+
+def test_challenger_carries_the_entity_when_the_incumbent_fails_the_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # FOO's market cap (5M) is below even the member exit band: holding it would
+    # leave the entity out of the build although FOO.DE clears the floor.
+    src, _ = _source(
+        [{"quotes": _foo_pair(sharesOutstanding=500_000)}, {"quotes": []}],
+        monkeypatch,
+    )
+    src.member_lookup = lambda: {("FOO", "NASDAQ")}
+    assert [i["ticker"] for i in src.get_instruments()] == ["FOO.DE"]
