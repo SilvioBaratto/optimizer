@@ -11,6 +11,7 @@ from optimizer.factors import (
     compute_net_alpha,
     factor_scores_to_expected_returns,
 )
+from optimizer.rebalancing import compute_rebalancing_cost, compute_turnover
 
 TICKERS = ["AAPL", "MSFT", "GOOG", "AMZN", "META"]
 GROUPS = ["value", "momentum", "quality"]
@@ -225,9 +226,21 @@ class TestLinearityInScores:
 
 class TestComputeGrossAlpha:
     def test_formula_correctness(self) -> None:
-        # net=0.03, turnover=0.5, cost=10bps → gross = 0.03 + 0.5*10/10000
+        # net=0.03, turnover=0.5, round-trip cost=10bps → gross = 0.03 + 0.5*10/10000
         result = compute_gross_alpha(0.03, 0.5, cost_bps=10.0)
         assert result == pytest.approx(0.03 + 0.5 * 10.0 / 10_000)
+
+    def test_round_trip_cost_matches_the_rebalancing_cost(self) -> None:
+        # Moving 50% of the book is 0.5 bought plus 0.5 sold. At 10 bps per unit
+        # traded that costs 10 bps, which is one-way turnover x a 20 bps
+        # round-trip (buy + sell) cost.
+        w0 = [0.5, 0.5, 0.0]
+        w1 = [0.0, 0.5, 0.5]
+        turnover = compute_turnover(w0, w1)
+        cost = compute_rebalancing_cost(w0, w1, 10.0 / 10_000)
+        result = compute_gross_alpha(0.0, turnover, cost_bps=20.0)
+        assert result == pytest.approx(cost)
+        assert result == pytest.approx(10.0 / 10_000)
 
     def test_zero_turnover(self) -> None:
         result = compute_gross_alpha(0.05, 0.0, cost_bps=10.0)

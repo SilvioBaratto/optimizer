@@ -93,6 +93,11 @@ def compute_gross_alpha(
     ``compute_net_alpha`` here without an explicit ``annualisation`` therefore
     under-states the add-back by that factor.
 
+    ``avg_turnover`` is one-way turnover, so a rebalance buys ``T`` and sells
+    ``T``. ``cost_bps`` is therefore the *round-trip* cost (buy plus sell), and
+    ``T * cost_bps`` equals ``compute_rebalancing_cost`` charged at half that
+    rate per unit traded.
+
     Args:
         net_alpha: Net alpha after transaction costs (annualised).
         avg_turnover: Average one-way turnover per rebalancing period (e.g. 0.5
