@@ -80,7 +80,10 @@ def classify_regime_composite(
     ``hy_oas`` (HY OAS in basis points), ``sentiment`` (news score).
 
     Each indicator is read as its last non-NaN observation, so a monthly
-    series carries forward between releases.
+    series carries forward between releases.  When none of ``pmi``,
+    ``spread_2s10s`` or ``hy_oas`` has an observation the score would be a
+    meaningless zero, so the result is ``MacroRegime.UNKNOWN``; sentiment
+    alone never determines the regime.
 
     Args:
         macro_data: Macro indicators indexed by date in ascending order.
@@ -89,8 +92,6 @@ def classify_regime_composite(
     Returns:
         Regime classification based on composite score.
     """
-    thresholds = thresholds or RegimeThresholdConfig()
-
     if len(macro_data) == 0:
         logger.warning(
             "classify_regime_composite: empty macro_data DataFrame; "
@@ -98,9 +99,38 @@ def classify_regime_composite(
         )
         return MacroRegime.UNKNOWN
 
+    return _score_composite(
+        pmi=_last_valid(macro_data, "pmi"),
+        spread=_last_valid(macro_data, "spread_2s10s"),
+        hy=_last_valid(macro_data, "hy_oas"),
+        sent=_last_valid(macro_data, "sentiment"),
+        thresholds=thresholds or RegimeThresholdConfig(),
+    )
+
+
+def _score_composite(
+    *,
+    pmi: float | None,
+    spread: float | None,
+    hy: float | None,
+    sent: float | None,
+    thresholds: RegimeThresholdConfig,
+) -> MacroRegime:
+    """Score the composite from indicator observations already resolved.
+
+    ``classify_regime`` has to look the indicators up to decide whether the
+    composite applies; taking the observations as arguments lets it hand
+    them over instead of making the composite look them up a second time.
+    """
+    if pmi is None and spread is None and hy is None:
+        logger.warning(
+            "classify_regime_composite: no observation for pmi, spread_2s10s "
+            "or hy_oas; returning MacroRegime.UNKNOWN with neutral tilts."
+        )
+        return MacroRegime.UNKNOWN
+
     # Default to 0 so missing indicators are neutral, not penalizing.
     s_pmi = 0
-    pmi = _last_valid(macro_data, "pmi")
     if pmi is not None:
         s_pmi = (
             1
@@ -109,7 +139,6 @@ def classify_regime_composite(
         )
 
     s_2s10s = 0
-    spread = _last_valid(macro_data, "spread_2s10s")
     if spread is not None:
         s_2s10s = (
             1
@@ -118,7 +147,6 @@ def classify_regime_composite(
         )
 
     s_hy = 0
-    hy = _last_valid(macro_data, "hy_oas")
     if hy is not None:
         s_hy = (
             1
@@ -127,7 +155,6 @@ def classify_regime_composite(
         )
 
     s_sent = 0
-    sent = _last_valid(macro_data, "sentiment")
     if sent is not None:
         s_sent = (
             1
@@ -171,7 +198,9 @@ def classify_regime(
     observation's position relative to trend.
 
     When richer indicators (``pmi``, ``spread_2s10s``, ``hy_oas``)
-    are present, delegates to `classify_regime_composite`.
+    have at least one observation, delegates to
+    `classify_regime_composite`; columns that hold only NaN are ignored
+    and the GDP and yield-spread heuristics are tried instead.
 
     Args:
         macro_data: Macro indicators with columns that may include
@@ -189,9 +218,17 @@ def classify_regime(
         )
         return MacroRegime.UNKNOWN
 
-    _composite_cols = {"pmi", "spread_2s10s", "hy_oas"}
-    if _composite_cols & set(macro_data.columns):
-        return classify_regime_composite(macro_data, thresholds=thresholds)
+    pmi = _last_valid(macro_data, "pmi")
+    spread = _last_valid(macro_data, "spread_2s10s")
+    hy = _last_valid(macro_data, "hy_oas")
+    if pmi is not None or spread is not None or hy is not None:
+        return _score_composite(
+            pmi=pmi,
+            spread=spread,
+            hy=hy,
+            sent=_last_valid(macro_data, "sentiment"),
+            thresholds=thresholds or RegimeThresholdConfig(),
+        )
 
     if "gdp_growth" in macro_data.columns:
         gdp = macro_data["gdp_growth"].dropna()
@@ -228,7 +265,7 @@ def classify_regime(
 
     logger.warning(
         "classify_regime: macro_data contains no recognized indicator columns "
-        "(gdp_growth, yield_spread, pmi, spread_2s10s, hy_oas); "
+        "with usable data (gdp_growth, yield_spread, pmi, spread_2s10s, hy_oas); "
         "returning MacroRegime.UNKNOWN with neutral tilts."
     )
     return MacroRegime.UNKNOWN

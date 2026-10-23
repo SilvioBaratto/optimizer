@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import tracemalloc
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -708,6 +709,15 @@ class TestLastValidLookupCost:
         # One boolean mask over the long column alone would take ~500 kB.
         assert extra < 50_000
 
+    def test_each_indicator_is_resolved_once_per_classification(self) -> None:
+        macro = self._long_macro(50)
+        with patch.object(
+            regime_module, "_last_valid", wraps=regime_module._last_valid
+        ) as lookup:
+            assert classify_regime(macro) == MacroRegime.EXPANSION
+        columns = sorted(call.args[1] for call in lookup.call_args_list)
+        assert columns == ["hy_oas", "pmi", "sentiment", "spread_2s10s"]
+
     def test_latest_print_is_found_at_any_distance_from_the_end(self) -> None:
         rows = 300
         for gap in (0, 1, 15, 16, 17, 47, 48, 49, 150, 299):
@@ -736,3 +746,57 @@ class TestLastValidLookupCost:
         mixed = pd.DataFrame({"pmi": [47.0, None, None]}, index=index, dtype=object)
         assert regime_module._last_valid(nullable, "pmi") == 47.0
         assert regime_module._last_valid(mixed, "pmi") == 47.0
+
+
+class TestCompositeWithoutUsableIndicators:
+    """No observed composite indicator means no information, not SLOWDOWN."""
+
+    nan = float("nan")
+
+    def test_all_nan_composite_row_returns_unknown(self) -> None:
+        macro = _composite(pmi=self.nan, spread_2s10s=self.nan, hy_oas=self.nan)
+        assert classify_regime(macro) == MacroRegime.UNKNOWN
+        assert classify_regime_composite(macro) == MacroRegime.UNKNOWN
+
+    def test_leading_all_nan_rows_are_unknown_until_first_print(self) -> None:
+        macro = pd.DataFrame(
+            {
+                "pmi": [self.nan, self.nan, 54.0],
+                "spread_2s10s": [self.nan, self.nan, 1.5],
+                "hy_oas": [self.nan, self.nan, 300.0],
+            },
+            index=pd.date_range("2024-01-01", periods=3),
+        )
+        regimes = [classify_regime(macro.iloc[: i + 1]) for i in range(len(macro))]
+        assert regimes == [
+            MacroRegime.UNKNOWN,
+            MacroRegime.UNKNOWN,
+            MacroRegime.EXPANSION,
+        ]
+
+    def test_nan_composite_columns_fall_through_to_gdp_path(self) -> None:
+        macro = pd.DataFrame(
+            {"pmi": [self.nan] * 4, "gdp_growth": [2.0, 2.5, 3.0, 3.5]},
+            index=pd.date_range("2023-01-01", periods=4, freq="QE"),
+        )
+        assert classify_regime(macro) == MacroRegime.EXPANSION
+
+    def test_nan_composite_columns_fall_through_to_yield_spread(self) -> None:
+        macro = _composite(pmi=self.nan, yield_spread=-1.0)
+        assert classify_regime(macro) == MacroRegime.RECESSION
+
+    def test_sentiment_alone_does_not_drive_the_regime(self) -> None:
+        bullish = _composite(pmi=self.nan, sentiment=0.5)
+        bearish = _composite(pmi=self.nan, sentiment=-0.5)
+        assert classify_regime(bullish) == MacroRegime.UNKNOWN
+        assert classify_regime(bearish) == MacroRegime.UNKNOWN
+        assert classify_regime_composite(bullish) == MacroRegime.UNKNOWN
+        assert classify_regime_composite(_composite(sentiment=-0.5)) == (
+            MacroRegime.UNKNOWN
+        )
+
+    def test_unknown_logs_warning(self, caplog: logging.LogRecord) -> None:
+        macro = _composite(pmi=self.nan)
+        with caplog.at_level(logging.WARNING):
+            classify_regime_composite(macro)
+        assert "MacroRegime.UNKNOWN" in caplog.text
