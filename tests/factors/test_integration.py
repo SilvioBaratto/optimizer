@@ -201,6 +201,57 @@ class TestBuildFactorExposureConstraints:
         assert optimizer.weights_ is not None
 
 
+class TestPartiallyMissingFactorScores:
+    """A missing standardised score is a neutral (zero) exposure, never NaN."""
+
+    @staticmethod
+    def _sparse_panel() -> tuple[pd.DataFrame, list[str]]:
+        tickers = ["AAA", "BBB", "CCC", "DDD", "EEE"]
+        panel = pd.DataFrame(
+            {
+                "v": [1.0, 0.5, -0.5, -1.0, 0.2],
+                "m": [0.3, np.nan, 0.7, -0.4, -0.6],
+            },
+            index=tickers,
+        )
+        return panel, tickers
+
+    def test_constraint_matrices_are_finite(self) -> None:
+        panel, _ = self._sparse_panel()
+        result = build_factor_exposure_constraints(panel, bounds=(-0.5, 0.5))
+        assert np.isfinite(result.left_inequality).all()
+        assert np.isfinite(result.right_inequality).all()
+
+    def test_missing_score_is_neutral_exposure(self) -> None:
+        panel, _ = self._sparse_panel()
+        result = build_factor_exposure_constraints(panel, bounds=(-0.5, 0.5))
+        m_row = result.factor_names.index("m")
+        assert result.left_inequality[2 * m_row + 1][1] == 0.0
+        assert result.left_inequality[2 * m_row][1] == 0.0
+
+    def test_no_nan_equal_weight_warning(self) -> None:
+        panel, _ = self._sparse_panel()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            build_factor_exposure_constraints(panel, bounds=(-5.0, 5.0))
+
+    def test_integration_constraints_fit_mean_risk(self) -> None:
+        panel, tickers = self._sparse_panel()
+        composite = panel.mean(axis=1)
+        _, cons = build_factor_integration(
+            FactorIntegrationConfig(),
+            composite,
+            panel,
+            pd.Index(tickers),
+        )
+        assert cons is not None
+        rng = np.random.default_rng(3)
+        X = pd.DataFrame(rng.normal(0, 0.01, (120, len(tickers))), columns=tickers)
+        optimizer = build_mean_risk(factor_exposure_constraints=cons)
+        optimizer.fit(X)
+        assert optimizer.weights_.shape == (len(tickers),)
+
+
 class TestBuildMeanRiskWithFactorExposure:
     """Integration test: portfolio satisfies lb <= z@w <= ub."""
 

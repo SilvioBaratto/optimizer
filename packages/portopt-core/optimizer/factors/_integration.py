@@ -112,6 +112,8 @@ def build_factor_exposure_constraints(
     Args:
         factor_scores: Tickers x factors matrix of standardised factor scores.
             The tickers must match the assets used in the optimizer ``fit``.
+            Missing (NaN) scores are treated as neutral (``z = 0``) so the
+            emitted matrices are always finite.
         bounds: Exposure bounds applied to every factor (uniform) when given as
             a single ``(lower, upper)`` tuple, or per-factor bounds when given
             as a dict mapping factor name to ``(lower, upper)``.
@@ -152,6 +154,17 @@ def build_factor_exposure_constraints(
     # lb <= z @ w  =>  -z @ w <= -lb
     # z @ w <= ub
     scores_matrix = factor_scores.to_numpy(dtype=float)  # (n_assets, n_factors)
+
+    # Standardisation keeps NaN for unscored names; a NaN in A would make the
+    # solver reject the whole problem, and a z-score of 0 is the neutral
+    # exposure for a name with no information.
+    missing = np.isnan(scores_matrix)
+    if missing.any():
+        logger.warning(
+            "Imputing %d missing factor score(s) with neutral exposure 0.0",
+            int(missing.sum()),
+        )
+        scores_matrix = np.where(missing, 0.0, scores_matrix)
 
     A = np.empty((2 * n_factors, n_assets))
     b = np.empty(2 * n_factors)
