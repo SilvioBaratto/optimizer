@@ -545,10 +545,13 @@ class SelectionConfig:
 
     Attributes:
         method: Fixed-count or quantile-based selection.
-        target_count: Number of stocks to select (for FIXED_COUNT).
+        target_count: Number of stocks to select (for FIXED_COUNT). Must be
+            >= 1.
         target_quantile: Quantile threshold for selection (for QUANTILE, 0-1).
-        exit_quantile: Exit quantile for hysteresis (for QUANTILE).
-        buffer_fraction: Buffer zone fraction around selection boundary.
+        exit_quantile: Exit quantile for hysteresis (for QUANTILE, 0-1). Must
+            not exceed ``target_quantile``.
+        buffer_fraction: Buffer zone fraction around selection boundary. Must
+            be >= 0.
         sector_balance: Whether to enforce sector-proportional representation.
         sector_tolerance: Maximum deviation from parent universe sector weights
             as a fraction (0–1). Default 0.05 (5 pp) matches MSCI, S&P DJI,
@@ -573,6 +576,32 @@ class SelectionConfig:
     max_per_sector: int = 0
 
     def __post_init__(self) -> None:
+        if self.target_count < 1:
+            # ``ranked.index[:target_count]`` treats a negative count as
+            # "all but the worst N" instead of a top-N selection.
+            msg = f"target_count must be >= 1, got {self.target_count}"
+            raise ConfigurationError(msg)
+        for name in (
+            "target_quantile",
+            "exit_quantile",
+            "sector_tolerance",
+        ):
+            value = getattr(self, name)
+            if not 0.0 <= value <= 1.0:
+                msg = f"{name} must be in [0, 1], got {value}"
+                raise ConfigurationError(msg)
+        if self.exit_quantile > self.target_quantile:
+            # Hysteresis keeps members above the exit threshold, so it must
+            # not sit above the entry threshold.
+            msg = (
+                "exit_quantile must be <= target_quantile, got "
+                f"exit_quantile={self.exit_quantile} with "
+                f"target_quantile={self.target_quantile}"
+            )
+            raise ConfigurationError(msg)
+        if not self.buffer_fraction >= 0.0:
+            msg = f"buffer_fraction must be >= 0, got {self.buffer_fraction}"
+            raise ConfigurationError(msg)
         if self.max_per_sector < 0:
             msg = f"max_per_sector must be >= 0, got {self.max_per_sector}"
             raise ConfigurationError(msg)

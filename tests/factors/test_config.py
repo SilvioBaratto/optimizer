@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 
 import pytest
 
@@ -506,6 +507,62 @@ class TestSelectionConfig:
         cfg = SelectionConfig.for_low_tracking_error()
         assert cfg.sector_tolerance == 0.03
         assert cfg.target_count == 100
+
+
+class TestSelectionConfigValidation:
+    @pytest.mark.parametrize("target_count", [0, -1, -5])
+    def test_non_positive_target_count_raises(self, target_count: int) -> None:
+        with pytest.raises(ConfigurationError, match="target_count"):
+            SelectionConfig(target_count=target_count)
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("target_quantile", 1.5),
+            ("target_quantile", -0.1),
+            ("target_quantile", float("nan")),
+            ("exit_quantile", -0.1),
+            ("buffer_fraction", -0.5),
+            ("buffer_fraction", float("nan")),
+            ("sector_tolerance", -0.01),
+            ("sector_tolerance", 1.5),
+        ],
+    )
+    def test_out_of_range_fraction_raises(self, field_name: str, value: float) -> None:
+        with pytest.raises(ConfigurationError, match=field_name):
+            SelectionConfig(**{field_name: value})  # type: ignore[arg-type]
+
+    def test_exit_quantile_above_target_quantile_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="exit_quantile"):
+            SelectionConfig(target_quantile=0.7, exit_quantile=0.8)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"target_count": 1},
+            {"target_quantile": 1.0, "exit_quantile": 1.0},
+            {"target_quantile": 0.0, "exit_quantile": 0.0},
+            {"buffer_fraction": 0.0, "sector_tolerance": 0.0},
+            {"sector_tolerance": 1.0},
+        ],
+    )
+    def test_boundary_values_are_accepted(self, kwargs: dict[str, float]) -> None:
+        SelectionConfig(**kwargs)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize(
+        "preset",
+        [
+            SelectionConfig.for_top_100,
+            SelectionConfig.for_top_quintile,
+            SelectionConfig.for_top_20,
+            SelectionConfig.for_concentrated,
+            SelectionConfig.for_low_tracking_error,
+        ],
+    )
+    def test_presets_satisfy_validation(
+        self, preset: Callable[[], SelectionConfig]
+    ) -> None:
+        assert isinstance(preset(), SelectionConfig)
 
 
 class TestRegimeTiltConfig:
