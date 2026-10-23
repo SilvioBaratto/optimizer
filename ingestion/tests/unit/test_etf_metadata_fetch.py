@@ -85,6 +85,49 @@ def test_fetch_etf_metadata_writes_all_tables(db_session) -> None:
     assert not errors
 
 
+def test_fetch_etf_metadata_stores_preferred_and_convertible_positions(
+    db_session,
+) -> None:
+    """A preferred/convertible ETF keeps all six Yahoo positions, so the stored
+    asset-class weights still sum to ~1 instead of ~6%."""
+    inst = _fi_instrument(db_session)
+    yf = MagicMock()
+    yf.funds.fetch_fund_profile.return_value = {"aum": 1e9}
+    yf.funds.fetch_funds_data.return_value = {
+        "asset_classes": {
+            "stockPosition": 0.0514,
+            "bondPosition": 0.0001,
+            "cashPosition": 0.0111,
+            "preferredPosition": 0.932,
+            "convertiblePosition": 0.002,
+            "otherPosition": 0.0035,
+        },
+    }
+    svc = _service(db_session, yf)
+
+    svc._fetch_etf_metadata(
+        inst.id, "PFF", "full", DEFAULT_THRESHOLDS, _NOW, {}, [], []
+    )
+    db_session.flush()
+
+    ac = ETFMetadataRepository(db_session).get_asset_classes(inst.id)
+    assert ac is not None
+    assert float(ac.preferred_pct) == 0.932
+    assert float(ac.convertible_pct) == 0.002
+    total = sum(
+        float(v)
+        for v in (
+            ac.stock_pct,
+            ac.bond_pct,
+            ac.cash_pct,
+            ac.preferred_pct,
+            ac.convertible_pct,
+            ac.other_pct,
+        )
+    )
+    assert abs(total - 1.0) < 1e-3
+
+
 def test_fetch_etf_metadata_writes_depth_tables(db_session) -> None:
     """Equity/bond holdings, bond ratings, fund operations, and the
     fund overview (category/description) are persisted from funds_data depth."""
@@ -393,11 +436,11 @@ def _store_asset_classes(db_session, positions: dict[str, float | None]):
     return ac
 
 
-def test_convertible_and_preferred_positions_are_folded_into_other(
+def test_convertible_and_preferred_positions_are_stored_in_their_own_columns(
     db_session,
 ) -> None:
     """A convertible-bond ETF is mostly convertiblePosition/preferredPosition;
-    dropping them stored a split that summed to about 6% instead of 100%."""
+    each keeps its own column so ``other_pct`` stays the residual Yahoo reports."""
     ac = _store_asset_classes(
         db_session,
         {
@@ -410,14 +453,12 @@ def test_convertible_and_preferred_positions_are_folded_into_other(
         },
     )
 
-    assert float(ac.other_pct) == pytest.approx(0.94)
-    total = sum(
-        float(v) for v in (ac.stock_pct, ac.bond_pct, ac.cash_pct, ac.other_pct)
-    )
-    assert total == pytest.approx(1.0)
+    assert float(ac.preferred_pct) == pytest.approx(0.148)
+    assert float(ac.convertible_pct) == pytest.approx(0.792)
+    assert float(ac.other_pct) == pytest.approx(0.0)
 
 
-def test_other_is_built_from_the_extra_positions_when_other_is_missing(
+def test_other_is_not_built_from_the_extra_positions_when_other_is_missing(
     db_session,
 ) -> None:
     ac = _store_asset_classes(
@@ -431,7 +472,8 @@ def test_other_is_built_from_the_extra_positions_when_other_is_missing(
         },
     )
 
-    assert float(ac.other_pct) == pytest.approx(0.932)
+    assert float(ac.preferred_pct) == pytest.approx(0.932)
+    assert ac.other_pct is None
 
 
 def test_other_stays_null_when_no_residual_position_is_reported(db_session) -> None:

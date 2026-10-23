@@ -115,11 +115,15 @@ class ETFMetadataRepository(RepositoryBase):
         bond_pct: float | None,
         cash_pct: float | None,
         other_pct: float | None,
+        preferred_pct: float | None = None,
+        convertible_pct: float | None = None,
     ) -> None:
         """Upsert the asset-class allocation breakdown for an instrument snapshot.
 
         Natural key is ``(instrument_id, as_of)``; percentages are decimal
-        fractions (0–1).
+        fractions (0–1). The six buckets should sum to ~1; a caller that omits
+        ``preferred_pct``/``convertible_pct`` for a fund holding either stores
+        weights that under-sum.
 
         Args:
             instrument_id: Identifies the ETF instrument.
@@ -128,6 +132,8 @@ class ETFMetadataRepository(RepositoryBase):
             bond_pct: Fraction of NAV allocated to fixed income.
             cash_pct: Fraction of NAV held in cash or equivalents.
             other_pct: Fraction of NAV in all other asset classes.
+            preferred_pct: Fraction of NAV in preferred stock.
+            convertible_pct: Fraction of NAV in convertible securities.
         """
         self._upsert(
             ETFAssetClass,
@@ -139,6 +145,8 @@ class ETFMetadataRepository(RepositoryBase):
                     "stock_pct": stock_pct,
                     "bond_pct": bond_pct,
                     "cash_pct": cash_pct,
+                    "preferred_pct": preferred_pct,
+                    "convertible_pct": convertible_pct,
                     "other_pct": other_pct,
                 }
             ],
@@ -147,6 +155,8 @@ class ETFMetadataRepository(RepositoryBase):
                 "stock_pct",
                 "bond_pct",
                 "cash_pct",
+                "preferred_pct",
+                "convertible_pct",
                 "other_pct",
                 "updated_at",
             ],

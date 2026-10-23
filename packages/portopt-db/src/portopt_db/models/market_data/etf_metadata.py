@@ -60,7 +60,13 @@ class ETFMetadata(BaseModel):
 
 
 class ETFAssetClass(BaseModel):
-    """Asset-class allocation (stock/bond/cash/other %) at a point in time."""
+    """Asset-class allocation at a point in time, as fractions of NAV.
+
+    Mirrors the six buckets Yahoo reports (stock, bond, cash, preferred,
+    convertible, other); together they sum to ~1. Preferred/convertible are kept
+    apart because folding them into ``other_pct`` would hide that a preferred-stock
+    or convertible-bond fund is not an equity or bond fund.
+    """
 
     __tablename__ = "etf_asset_classes"
     __table_args__ = (
@@ -81,6 +87,8 @@ class ETFAssetClass(BaseModel):
     stock_pct: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
     bond_pct: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
     cash_pct: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
+    preferred_pct: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
+    convertible_pct: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
     other_pct: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
 
 

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import datetime as dt
 
+import pytest
+
 from portopt_db.models.market_data.etf_metadata import (
     ETFAssetClass,
     ETFBondHoldings,
@@ -138,6 +140,44 @@ def test_asset_classes_upsert_is_idempotent_and_updates(db_session) -> None:
     assert row is not None
     assert float(row.bond_pct) == 0.9
     assert db_session.query(ETFAssetClass).filter_by(instrument_id=inst.id).count() == 1
+
+
+def test_asset_classes_preserve_preferred_and_convertible_so_weights_sum_to_one(
+    db_session,
+) -> None:
+    # PFF-shaped payload: Yahoo reports six positions and 93% of the fund sits in
+    # preferreds. Dropping that bucket leaves the stored weights summing to ~6%.
+    repo = ETFMetadataRepository(db_session)
+    inst = _instrument(db_session)
+
+    repo.upsert_asset_classes(
+        inst.id,
+        _AS_OF,
+        stock_pct=0.0514,
+        bond_pct=0.0001,
+        cash_pct=0.0111,
+        preferred_pct=0.932,
+        convertible_pct=0.002,
+        other_pct=0.0035,
+    )
+    db_session.flush()
+
+    row = repo.get_asset_classes(inst.id)
+    assert row is not None
+    assert float(row.preferred_pct) == pytest.approx(0.932)
+    assert float(row.convertible_pct) == pytest.approx(0.002)
+    total = sum(
+        float(v)
+        for v in (
+            row.stock_pct,
+            row.bond_pct,
+            row.cash_pct,
+            row.preferred_pct,
+            row.convertible_pct,
+            row.other_pct,
+        )
+    )
+    assert total == pytest.approx(1.0, abs=1e-3)
 
 
 def test_holdings_upsert_is_idempotent(db_session) -> None:
