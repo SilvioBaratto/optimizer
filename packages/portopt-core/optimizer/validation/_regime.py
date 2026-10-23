@@ -21,6 +21,8 @@ from optimizer.factors._regime import classify_regime
 
 logger = logging.getLogger(__name__)
 
+_COMPOSITE_INDICATORS = ("pmi", "spread_2s10s", "hy_oas", "sentiment")
+
 
 @dataclass(frozen=True)
 class RegimeValidationConfig:
@@ -225,7 +227,20 @@ def _build_regime_series(
     look-ahead bias.  Uses `classify_regime` which dispatches to
     the composite classifier when PMI/spread/HY columns are present and
     falls back to the GDP heuristic otherwise.
+
+    The composite indicators are forward-filled first: the composite scorer
+    reads only the last row and scores a missing value as neutral, so a
+    monthly PMI on a daily frame would otherwise flip the regime on every
+    non-release day.  Forward-filling only looks backwards, so it stays
+    point-in-time.  The GDP and yield-spread fallbacks work on the
+    ``dropna()`` series and need the native release cadence, so they are
+    left untouched.
     """
+    carried = [c for c in _COMPOSITE_INDICATORS if c in macro_data.columns]
+    if carried:
+        macro_data = macro_data.copy()
+        macro_data[carried] = macro_data[carried].ffill()
+
     regimes: dict[pd.Timestamp, str] = {}
     for i, date in enumerate(macro_data.index):
         window = macro_data.iloc[: i + 1]

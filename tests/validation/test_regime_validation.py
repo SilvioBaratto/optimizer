@@ -458,3 +458,47 @@ class TestRunRegimeValidation:
         # Sharpe should be None for insufficient data
         for regime in d["regimes"]:
             assert regime["sharpe"] is None
+
+
+class TestMixedFrequencyMacroData:
+    def test_sparse_pmi_is_carried_forward_between_releases(self) -> None:
+        """A monthly PMI on a daily frame keeps its last published value."""
+        dates = pd.bdate_range("2024-01-02", periods=120)
+        pmi = pd.Series(np.nan, index=dates)
+        pmi.iloc[0] = 55.0
+        macro = pd.DataFrame({"pmi": pmi, "spread_2s10s": 0.2}, index=dates)
+        returns = pd.Series(0.001, index=dates)
+
+        result = run_regime_validation(returns, macro)
+
+        assert list(result.per_regime_metrics.index) == ["expansion"]
+        assert result.per_regime_metrics.loc["expansion", "obs"] == len(dates)
+        assert len(result.per_subperiod_metrics) == 1
+
+    def test_carry_forward_does_not_look_ahead(self) -> None:
+        """Days before the first PMI release stay neutral, not back-filled."""
+        dates = pd.bdate_range("2024-01-02", periods=60)
+        pmi = pd.Series(np.nan, index=dates)
+        pmi.iloc[30] = 44.0
+        macro = pd.DataFrame({"pmi": pmi, "spread_2s10s": -0.5}, index=dates)
+        returns = pd.Series(0.001, index=dates)
+
+        result = run_regime_validation(returns, macro)
+
+        timeline = result.regime_timeline
+        assert (timeline.iloc[:30] == "recovery").all()
+        assert (timeline.iloc[30:] == "recession").all()
+
+    def test_sparse_gdp_growth_keeps_native_release_cadence(self) -> None:
+        """Forward-filling must not flatten the GDP series' period-over-period step."""
+        dates = pd.bdate_range("2024-01-02", periods=8)
+        gdp = pd.Series(np.nan, index=dates)
+        gdp.iloc[[0, 2, 4, 6]] = [1.0, 1.5, 2.0, 3.0]
+        macro = pd.DataFrame({"gdp_growth": gdp}, index=dates)
+        returns = pd.Series(0.001, index=dates)
+
+        result = run_regime_validation(
+            returns, macro, config=RegimeValidationConfig(min_regime_obs=1)
+        )
+
+        assert result.regime_timeline.iloc[-1] == "expansion"
