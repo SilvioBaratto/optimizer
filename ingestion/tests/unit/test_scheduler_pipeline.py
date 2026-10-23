@@ -136,6 +136,74 @@ class TestRunStep:
         ]
         assert failed_calls
 
+    @staticmethod
+    def _failed_writes(job_svc):
+        return [
+            c.kwargs
+            for c in job_svc.update_job.call_args_list
+            if c.kwargs.get("status") == "failed"
+        ]
+
+    def test_when_fn_raises_then_failed_row_carries_the_error_text(self):
+        job_svc = _make_job_svc()
+        fn = MagicMock(side_effect=RuntimeError("boom"))
+
+        with patch(f"{M}.threading.Thread") as mock_thread:
+            mock_thread.return_value = MagicMock()
+            self._call(job_svc, fn)
+
+        (failed,) = self._failed_writes(job_svc)
+        assert failed["error"] == "RuntimeError: boom"
+
+    def test_when_fn_is_interrupted_then_failed_row_names_the_interrupt(self):
+        job_svc = _make_job_svc()
+        fn = MagicMock(side_effect=KeyboardInterrupt())
+
+        with patch(f"{M}.threading.Thread") as mock_thread:
+            mock_thread.return_value = MagicMock()
+            with pytest.raises(KeyboardInterrupt):
+                self._call(job_svc, fn)
+
+        (failed,) = self._failed_writes(job_svc)
+        assert failed["error"] == "KeyboardInterrupt"
+
+    def test_when_marking_running_hits_db_error_then_failed_row_carries_it(self):
+        job_svc = _make_job_svc()
+        job_svc.update_job.side_effect = [_db_error(), None]
+
+        with patch(f"{M}.threading.Thread") as mock_thread:
+            mock_thread.return_value = MagicMock()
+            self._call(job_svc, MagicMock())
+
+        (failed,) = self._failed_writes(job_svc)
+        assert failed["error"].startswith("OperationalError:")
+        assert "db down" in failed["error"]
+
+    def test_when_fn_raises_then_failure_webhook_receives_the_error_text(self):
+        from app.services.jobs.background_job import BackgroundJobService
+
+        job_svc = BackgroundJobService(job_type="t", session_factory=MagicMock())
+        fn = MagicMock(side_effect=RuntimeError("boom"))
+
+        with (
+            patch.object(job_svc, "create_job", return_value=_VALID_JOB_ID),
+            patch(f"{M}.threading.Thread") as mock_thread,
+            patch(
+                "app.services.jobs.background_job.BackgroundJobRepository"
+            ) as mock_repo,
+            patch(
+                "app.services.jobs.background_job.settings.notification_webhook_url",
+                "https://hooks.example/x",
+            ),
+            patch("app.services._shared.notify_failure") as notify,
+        ):
+            mock_thread.return_value = MagicMock()
+            mock_repo.return_value.update.return_value = 1
+            self._call(job_svc, fn)
+
+        notify.assert_called_once()
+        assert notify.call_args.args[3] == "RuntimeError: boom"
+
     def test_when_claim_hits_db_error_then_returns_false_without_raising(self):
         job_svc = _make_job_svc()
         job_svc.create_job.side_effect = _db_error()

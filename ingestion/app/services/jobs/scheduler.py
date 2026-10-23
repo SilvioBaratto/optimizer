@@ -246,17 +246,28 @@ def _heartbeat(
 # ---------------------------------------------------------------------------
 
 
-def _mark_job_failed(job_svc: BackgroundJobService, job_id: str, label: str) -> None:
-    """Record ``failed`` on a job row, tolerating a database that is itself down.
+def _describe_exception(exc: BaseException) -> str:
+    """Return ``"Type: message"``, or just the type when the message is empty."""
+    detail = str(exc)
+    name = type(exc).__name__
+    return f"{name}: {detail}" if detail else name
 
-    Used on error paths, where a failing write must not replace the original
-    error or abort the pipeline. A row left behind is failed by the orphan
-    reaper once its heartbeat lapses.
+
+def _mark_job_failed(
+    job_svc: BackgroundJobService, job_id: str, label: str, exc: BaseException
+) -> None:
+    """Record ``failed`` and the cause on a job row, tolerating a database that is down.
+
+    The error text lands in the ``error`` column and the failure webhook, which
+    otherwise only know the status. Used on error paths, where a failing write
+    must not replace the original error or abort the pipeline. A row left
+    behind is failed by the orphan reaper once its heartbeat lapses.
     """
     try:
         job_svc.update_job(
             job_id,
             status="failed",
+            error=_describe_exception(exc),
             finished_at=datetime.now(timezone.utc).isoformat(),
         )
     except Exception:
@@ -343,16 +354,16 @@ def _run_step(
             )
         logger.info("%s: completed", label)
         return True
-    except Exception:
+    except Exception as exc:
         logger.exception("%s: raised an exception", label)
-        _mark_job_failed(job_svc, job_id, label)
+        _mark_job_failed(job_svc, job_id, label, exc)
         return False
-    except BaseException:
+    except BaseException as exc:
         # KeyboardInterrupt / SystemExit bypass ``except Exception``. The
         # heartbeat dies with the process, so a row left active would refuse
         # every re-run as "already running" until the reaper lease expires.
         logger.warning("%s: interrupted", label)
-        _mark_job_failed(job_svc, job_id, label)
+        _mark_job_failed(job_svc, job_id, label, exc)
         raise
 
 
