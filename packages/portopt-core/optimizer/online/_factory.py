@@ -6,6 +6,7 @@ constructing one wrapper per thread.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 import numpy.typing as npt
@@ -318,6 +319,10 @@ def build_covariance_forecast_comparison(
     Ranks several fitted `CovarianceForecastEvaluation` results
     (e.g. EW vs regime-adjusted covariance) before embedding one in a
     prior.
+
+    Raises:
+        ConfigurationError: If ``evaluations`` is empty, ``names`` has a
+            different length, or two candidates resolve to the same name.
     """
     if not evaluations:
         raise ConfigurationError(
@@ -328,5 +333,17 @@ def build_covariance_forecast_comparison(
         raise ConfigurationError(
             f"names length ({len(names)}) must match evaluations length "
             f"({len(evaluations)})."
+        )
+    # skfolio keys its summaries by name (falling back to each evaluation's own
+    # name), so a collision silently drops a candidate from the ranking.
+    resolved = names or [
+        ev.name if ev.name is not None else f"Estimator {i}"
+        for i, ev in enumerate(evaluations)
+    ]
+    duplicated = [name for name, n in Counter(resolved).items() if n > 1]
+    if duplicated:
+        raise ConfigurationError(
+            "Covariance forecast comparison requires unique candidate names. "
+            f"Duplicated: {', '.join(duplicated)}"
         )
     return CovarianceForecastComparison(evaluations, names=names)
