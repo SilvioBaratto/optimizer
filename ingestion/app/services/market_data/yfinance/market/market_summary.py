@@ -75,12 +75,17 @@ def _summary_to_list(quotes: Any) -> list[dict[str, Any]]:
     return out
 
 
-def _fetch_quotes(market: str) -> Any:
+def _fetch_quotes(market: str) -> list[dict[str, Any]]:
     """Return the raw ``marketSummaryResponse.result`` list for *market*.
 
     Uses ``get_raw_json`` so the response bypasses yfinance's process-wide
     ``cache_get``, which would replay a stale or failed answer to every later
     sweep and retry of the same market.
+
+    Raises:
+        ValueError: The payload is not a ``marketSummaryResponse`` or carries an
+            error object, so the caller's retry loop treats it as a failure
+            instead of an empty market.
     """
     payload = YfData().get_raw_json(
         _SUMMARY_URL,
@@ -91,7 +96,15 @@ def _fetch_quotes(market: str) -> Any:
             "market": market,
         },
     )
-    return payload["marketSummaryResponse"]["result"]
+    response = (
+        payload.get("marketSummaryResponse") if isinstance(payload, dict) else None
+    )
+    if not isinstance(response, dict):
+        raise ValueError(f"{market}: unexpected marketSummary payload")
+    if response.get("error"):
+        raise ValueError(f"{market}: marketSummary error: {response['error']}")
+    result = response.get("result")
+    return result if isinstance(result, list) else []
 
 
 class MarketClient:

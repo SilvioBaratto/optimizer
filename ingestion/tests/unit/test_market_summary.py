@@ -149,6 +149,21 @@ class TestMarketClient:
         with _serve(None):
             assert _client().fetch_summary("EUROPE") == []
 
+    def test_quote_without_symbol_or_exchange_is_skipped(self) -> None:
+        with _serve([{"shortName": "Anonymous"}, {"symbol": "^FTSE"}]):
+            out = _client().fetch_summary("GB")
+        assert out is not None
+        assert [r["symbol"] for r in out] == ["^FTSE"]
+
+    def test_error_payload_is_a_failure_not_an_empty_market(self) -> None:
+        payload = {"marketSummaryResponse": {"result": None, "error": {"code": "x"}}}
+        with patch.object(YfData, "get", return_value=_Resp(payload)):
+            assert _client().fetch_summary("EUROPE") is None
+
+    def test_non_summary_payload_is_a_failure_not_an_empty_market(self) -> None:
+        with patch.object(YfData, "get", return_value=_Resp({"finance": {}})):
+            assert _client().fetch_summary("EUROPE") is None
+
     def test_unknown_market_is_rejected_without_a_request(self) -> None:
         with _serve([]) as get:
             assert _client().fetch_summary("MARS") is None
