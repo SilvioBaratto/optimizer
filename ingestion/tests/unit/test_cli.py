@@ -128,30 +128,50 @@ class TestSetupCommand:
         assert kwargs["skip_validation"] is True
         assert kwargs["reconfigure"] is True
 
-    def test_non_interactive_failure_wipes_rendered_plaintext(self) -> None:
-        """A failed setup wipes any rendered plaintext secret/env files (AC3)."""
+    @pytest.mark.parametrize(
+        "failure_args",
+        [
+            ("app.setup.wizard.run_setup_noninteractive", ["--non-interactive"]),
+            ("app.setup.wizard.run_setup_interactive", []),
+        ],
+    )
+    def test_failed_rerun_keeps_files_the_running_stack_mounts(
+        self,
+        failure_args: tuple[str, list[str]],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+    ) -> None:
+        """A failed re-run must not delete the secret files `portopt start` rendered.
+
+        The scheduler (restart: unless-stopped) keeps ./secrets and .env.fund
+        bind-mounted, and setup renders nothing itself, so removing them on a
+        mistyped passphrase leaves Docker to plant empty directories at the next
+        restart and the daemon silently loses its API keys.
+        """
+        from app.setup import compose_env, compose_secrets
         from app.setup.wizard import SetupError
 
-        with (
-            patch(
-                "app.setup.wizard.run_setup_noninteractive",
-                side_effect=SetupError("bad key"),
-            ),
-            patch("app.setup.compose_secrets.cleanup") as secrets_cleanup,
-            patch("app.setup.compose_env.cleanup") as env_cleanup,
-        ):
-            result = runner.invoke(
-                app, ["setup", "--non-interactive", "--fred-key", "x"]
-            )
-        assert result.exit_code == 1
-        secrets_cleanup.assert_called_once()
-        env_cleanup.assert_called_once()
+        monkeypatch.chdir(tmp_path)
+        rendered = compose_secrets.render({"fred_api_key": "live-key"})
+        env_file = compose_env.render({"llm_provider": "openai"})
+        target, flags = failure_args
 
-    def test_failed_setup_wipes_the_checkouts_plaintext_not_the_cwd(
+        with (
+            patch(target, side_effect=SetupError("could not be decrypted")),
+            patch("app.setup.prompts.make_prompter"),
+        ):
+            result = runner.invoke(app, ["setup", *flags])
+
+        assert result.exit_code == 1
+        assert all(path.is_file() for path in rendered)
+        assert (tmp_path / "secrets" / "fred_api_key").read_text() == "live-key"
+        assert env_file.is_file()
+
+    def test_failed_setup_leaves_the_checkouts_rendered_files_alone(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path
     ) -> None:
-        """Rendered plaintext lives under the checkout, so that is what a failed
-        setup must wipe — a cwd-relative cleanup misses it when run from elsewhere."""
+        """Rendered plaintext lives under the checkout and the running stack mounts
+        it, so a failed setup run from another directory must not delete it."""
         from app.setup.wizard import SetupError
 
         repo = tmp_path / "checkout"
@@ -171,8 +191,8 @@ class TestSetupCommand:
                 app, ["setup", "--non-interactive", "--fred-key", "x"]
             )
         assert result.exit_code == 1
-        assert not (repo / "secrets" / "fred_api_key").exists()
-        assert not (repo / ".env.fund").exists()
+        assert (repo / "secrets" / "fred_api_key").read_text() == "live"
+        assert (repo / ".env.fund").is_file()
 
     def test_success_prints_post_install_note(self) -> None:
         """A successful setup surfaces the passphrase-backup + reopen guidance (AC3)."""

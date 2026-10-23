@@ -396,12 +396,7 @@ def setup(
     """Install wizard: verify Docker, validate keys live, encrypt secrets, migrate the DB."""
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
     install_secret_redaction()
-    from app.setup import (
-        ca_bundle,
-        docker_bootstrap,
-        lifecycle,
-        wizard,
-    )
+    from app.setup import ca_bundle, docker_bootstrap, wizard
     from app.setup.ca_bundle import CABundleError
     from app.setup.prompts import PromptError, make_prompter
     from app.setup.validators import ValidationNetworkError
@@ -448,9 +443,10 @@ def setup(
         PromptError,
         CABundleError,
     ) as exc:
-        # All-or-nothing: wipe any plaintext secret/env files a partial run rendered so
-        # a failed setup never leaves decrypted credentials on disk.
-        lifecycle.cleanup_rendered()
+        # Setup renders no plaintext files before it can fail, so anything under
+        # ./secrets or .env.fund was written by an earlier `portopt start` and is still
+        # bind-mounted by the running scheduler; deleting it would make Docker plant
+        # empty directories there on the next container restart.
         typer.echo(f"Setup failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     _print_post_install_note()
