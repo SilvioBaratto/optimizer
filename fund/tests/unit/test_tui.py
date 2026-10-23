@@ -6511,6 +6511,52 @@ async def test_daily_brief_long_recap_scrolls_and_keeps_the_hint_on_screen(
         assert pane.scroll_y == 0
 
 
+def _brief_with_attribution_flag(*, insufficient_history: bool):
+    """The full-brief fixture with its attribution's short-history flag set."""
+    brief = _full_brief(_PID_A)
+    return dataclasses.replace(
+        brief,
+        attribution=dataclasses.replace(
+            brief.attribution, insufficient_history=insufficient_history
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_flags_low_confidence_attribution_on_short_history(
+    shell_env, monkeypatch, tmp_path
+) -> None:
+    """A thin-history OLS fit is captioned, in the pane and in the export."""
+    monkeypatch.chdir(tmp_path)
+    brief = _brief_with_attribution_flag(insufficient_history=True)
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert "short history" in view.detail_text
+        app.action_export_brief()
+        await pilot.pause()
+        content = (tmp_path / f"daily-brief-{_PID_A}-2026-10-06.md").read_text(
+            encoding="utf-8"
+        )
+        assert "short history" in content
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_has_no_caveat_when_history_suffices(
+    shell_env, monkeypatch
+) -> None:
+    """A robust fit carries no low-confidence caption."""
+    brief = _brief_with_attribution_flag(insufficient_history=False)
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert "short history" not in view.detail_text
+
+
 @pytest.mark.asyncio
 async def test_daily_brief_degrades_missing_sections(shell_env, monkeypatch) -> None:
     """Each missing section renders an explicit no-data line rather than crashing."""
