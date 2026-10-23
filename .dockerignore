@@ -19,8 +19,8 @@ tests/
 # never baked into a layer.
 **/.env
 **/.env.*
-.certs/
-secrets/
+**/.certs/
+**/secrets/
 
 **/__pycache__/
 **/*.pyc

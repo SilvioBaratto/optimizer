@@ -30,8 +30,8 @@ node_modules/
 # Recursive: `fund/.env` must not ride along with the `COPY fund/ fund/` tree.
 **/.env
 **/.env.*
-.certs/
-secrets/
+**/.certs/
+**/secrets/
 
 # Workspace members / trees not in the portopt-fund closure.
 ingestion/
