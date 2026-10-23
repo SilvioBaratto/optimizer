@@ -375,6 +375,30 @@ class TestRunRegimeValidation:
         expected = (1.001) ** 252 - 1.0
         assert ann_ret == pytest.approx(expected, rel=1e-6)
 
+    def test_ann_return_is_realised_cagr_not_compounded_mean(
+        self,
+        expansion_macro_data: pd.DataFrame,
+    ) -> None:
+        """Volatility drag must reduce ann_return: +10% / -10% days lose money."""
+        dates = expansion_macro_data.index
+        returns = pd.Series(np.tile([0.10, -0.10], len(dates) // 2), index=dates)
+        result = run_regime_validation(returns, expansion_macro_data)
+        ann_ret = result.per_regime_metrics.loc["expansion", "ann_return"]
+        expected = float(np.prod(1.0 + returns.to_numpy())) ** (252 / len(dates)) - 1.0
+        assert expected < 0
+        assert ann_ret == pytest.approx(expected, rel=1e-9)
+
+    def test_ann_return_equals_total_return_over_one_year(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=252)
+        macro = pd.DataFrame(
+            {"pmi": 55.0, "spread_2s10s": 1.5, "hy_oas": 300.0}, index=dates
+        )
+        rng = np.random.default_rng(7)
+        returns = pd.Series(rng.normal(0.0005, 0.02, size=252), index=dates)
+        result = run_regime_validation(returns, macro)
+        ann_ret = result.per_regime_metrics.loc["expansion", "ann_return"]
+        assert ann_ret == pytest.approx(float((1.0 + returns).prod() - 1.0), rel=1e-9)
+
     def test_to_attribution_dict_structure(
         self,
         synthetic_oos_returns: pd.Series,
