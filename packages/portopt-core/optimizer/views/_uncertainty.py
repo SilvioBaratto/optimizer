@@ -41,8 +41,8 @@ def calibrate_omega_from_track_record(
 
     Raises:
         DataError: If the two DataFrames differ in shape or column names,
-            or if fewer than 5 aligned observations remain after dropping
-            NaN rows.
+            or if any view has fewer than 5 aligned observations after
+            dropping its NaN entries.
     """
     if view_history.shape != return_history.shape:
         raise DataError(
@@ -56,21 +56,20 @@ def calibrate_omega_from_track_record(
 
     errors: pd.DataFrame = view_history - return_history
 
-    # NaN in either input propagates into errors, so this drop aligns both DataFrames
-    # implicitly.
-    errors = errors.dropna()
-
-    n_obs = len(errors)
-    if n_obs < _MIN_HISTORY:
-        raise DataError(
-            f"calibrate_omega_from_track_record requires at least {_MIN_HISTORY} "
-            f"aligned observations after dropping NaN rows, got {n_obs}"
-        )
-
+    # A NaN in either input propagates into that view's error, so dropping per column
+    # aligns forecast and realisation for that view only. Dropping whole rows would
+    # shrink every view's sample to the shortest track record.
     n_views = errors.shape[1]
-    omega = np.zeros((n_views, n_views), dtype=np.float64)
-    variances: npt.NDArray[np.float64] = errors.var(axis=0, ddof=1).to_numpy(
-        dtype=np.float64
-    )
-    np.fill_diagonal(omega, variances)
+    variances = np.empty(n_views, dtype=np.float64)
+    for k in range(n_views):
+        view_errors = errors.iloc[:, k].dropna()
+        if len(view_errors) < _MIN_HISTORY:
+            raise DataError(
+                f"calibrate_omega_from_track_record requires at least "
+                f"{_MIN_HISTORY} aligned observations per view after dropping "
+                f"NaN entries; view {errors.columns[k]!r} has {len(view_errors)}"
+            )
+        variances[k] = view_errors.var(ddof=1)
+
+    omega: npt.NDArray[np.float64] = np.diag(variances)
     return omega
