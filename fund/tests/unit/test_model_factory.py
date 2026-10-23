@@ -174,6 +174,25 @@ def test_ollama_local_with_key_still_sends_the_bearer_header():
     assert llm.client_kwargs["headers"]["Authorization"] == "Bearer sk-local"
 
 
+def test_ollama_http_clients_have_finite_request_timeouts():
+    # httpx defaults to no timeout at all; a half-open Ollama Cloud connection
+    # would then block the single-worker daemon forever.
+    llm = model.build_chat_model(_CFG, model_name="deepseek-v4.1-flash:cloud")
+
+    for client in (llm._client._client, llm._async_client._client):
+        assert client.timeout.connect is not None
+        assert client.timeout.read is not None
+
+
+def test_google_request_timeout_is_finite():
+    # The google-genai client has no request deadline unless one is passed.
+    cfg = FundConfig(llm_provider="google", google_api_key="gk-google-test")
+
+    llm = model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+
+    assert llm.timeout is not None
+
+
 # --- openai / openrouter (langchain-openai / ChatOpenAI) ---------------------
 
 

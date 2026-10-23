@@ -60,6 +60,14 @@ _INSTALL_EXTRA: dict[str, str | None] = {
 # fixed OpenAI-compatible gateway with its own `OPENROUTER_API_KEY`.
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
+# httpx and google-genai default to *no* request deadline, so a half-open
+# connection would block the daemon's single worker thread forever (the heartbeat
+# thread keeps the job lease fresh, so nothing reaps it). The read timeout is
+# per received chunk, not per generation: it bounds a stalled stream while still
+# leaving room for a slow time-to-first-token on a large context.
+_CONNECT_TIMEOUT_SECONDS = 10.0
+_READ_TIMEOUT_SECONDS = 180.0
+
 
 def _require(value: str | None, env_name: str) -> str:
     """Return ``value`` or raise a clear build-time error naming ``env_name``.
@@ -83,12 +91,17 @@ def _build_ollama(config: FundConfig, model_name: str) -> BaseChatModel:
     (the non-thinking flash route) and ``temperature=0`` thread the D4 contract;
     ``reasoning=`` is Ollama-only — never pass it to another provider's class.
     """
+    import httpx
     from langchain_ollama import ChatOllama
 
     if _OLLAMA_CLOUD_HOST in config.ollama_base_url:
         _require(config.ollama_api_key, "OLLAMA_API_KEY")
 
-    client_kwargs: dict[str, Any] = {}
+    client_kwargs: dict[str, Any] = {
+        "timeout": httpx.Timeout(
+            _READ_TIMEOUT_SECONDS, connect=_CONNECT_TIMEOUT_SECONDS
+        ),
+    }
     if config.ollama_api_key:
         client_kwargs["headers"] = {"Authorization": f"Bearer {config.ollama_api_key}"}
 
@@ -195,6 +208,7 @@ def _build_google(config: FundConfig, model_name: str) -> BaseChatModel:
         model=model_name,
         api_key=api_key,
         temperature=config.model_temperature,
+        request_timeout=_READ_TIMEOUT_SECONDS,
     )
 
 
