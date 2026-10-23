@@ -1282,6 +1282,45 @@ class TestUpsertFinancialStatementsPreprocessing:
         assert rows[0]["value"] is None
 
 
+class TestUpsertFinancialStatementsCurrencyLabel:
+    """An unknown reporting currency never erases a label already stored."""
+
+    def _update_columns(
+        self, db_session: Session, currency_code: str | None
+    ) -> list[str] | None:
+        repo = _repo(db_session)
+        captured: dict[str, Any] = {}
+
+        def fake_upsert(model, rows, *, constraint_name, update_columns=None):
+            captured["update_columns"] = update_columns
+            return len(rows)
+
+        repo._upsert = fake_upsert  # type: ignore[method-assign]
+        df = pd.DataFrame({"Revenue": [1.0]}, index=[pd.Timestamp("2024-12-31")]).T
+        repo.upsert_financial_statements(
+            uuid.uuid4(),
+            df,
+            statement_type="income_statement",
+            period_type="annual",
+            currency_code=currency_code,
+        )
+        return captured["update_columns"]
+
+    def test_when_currency_is_unknown_then_conflict_update_leaves_label_alone(
+        self, db_session: Session
+    ) -> None:
+        columns = self._update_columns(db_session, None)
+        assert columns is not None
+        assert "currency_code" not in columns
+        assert {"value", "updated_at"} <= set(columns)
+
+    def test_when_currency_is_known_then_conflict_update_relabels_the_row(
+        self, db_session: Session
+    ) -> None:
+        columns = self._update_columns(db_session, "TWD")
+        assert columns is None or "currency_code" in columns
+
+
 # ---------------------------------------------------------------------------
 # upsert_dividends — None filtering branches
 # ---------------------------------------------------------------------------

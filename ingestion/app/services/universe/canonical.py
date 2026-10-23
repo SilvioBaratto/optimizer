@@ -58,10 +58,11 @@ def normalize_name(name: str | None) -> str:
 def split_currency(code: str | None) -> tuple[str | None, float]:
     """``currency`` → ``(major_unit_code, divisor)``.
 
-    ``GBX``/``GBp`` → ``("GBP", 100)``, ``ILA`` → ``("ILS", 100)``, ``ZAC`` →
-    ``("ZAR", 100)``; any already-major or unknown code → ``(code, 1)`` (fail-open,
-    caller warns on unknown sub-units). The divisor applies to PRICE-derived
-    quantities only — never to share or volume counts.
+    ``GBX``/``GBp`` → ``("GBP", 100)``, ``ILA`` → ``("ILS", 100)``, ``ZAC``/``ZAc``
+    → ``("ZAR", 100)`` (every Yahoo casing in ``MINOR_TO_MAJOR``); any
+    already-major or unknown code → ``(code, 1)`` (fail-open, caller warns on
+    unknown sub-units). The divisor applies to PRICE-derived quantities only —
+    never to share or volume counts.
     """
     if code is None:
         return None, 1.0

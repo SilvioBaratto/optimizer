@@ -159,6 +159,46 @@ def test_fetch_etf_metadata_writes_depth_tables(db_session) -> None:
     assert not errors
 
 
+def test_fetch_etf_metadata_stores_major_unit_base_currency(db_session) -> None:
+    """Yahoo quotes an LSE-listed UCITS ETF in pence ('GBp'); a sub-unit code is
+    not a currency a fund's NAV or AUM is expressed in, so the major is stored."""
+    inst = _fi_instrument(db_session)
+    yf = MagicMock()
+    yf.funds.fetch_fund_profile.return_value = {
+        "aum": 1e9,
+        "nav": 100.0,
+        "base_currency": "GBp",
+    }
+    yf.funds.fetch_funds_data.return_value = None
+    svc = _service(db_session, yf)
+
+    svc._fetch_etf_metadata(
+        inst.id, "JAGA.L", "full", DEFAULT_THRESHOLDS, _NOW, {}, [], []
+    )
+    db_session.flush()
+
+    meta = ETFMetadataRepository(db_session).get_metadata(inst.id)
+    assert meta is not None
+    assert meta.base_currency == "GBP"
+
+
+def test_fetch_etf_metadata_keeps_absent_base_currency_null(db_session) -> None:
+    inst = _fi_instrument(db_session)
+    yf = MagicMock()
+    yf.funds.fetch_fund_profile.return_value = {"aum": 1e9, "nav": 100.0}
+    yf.funds.fetch_funds_data.return_value = None
+    svc = _service(db_session, yf)
+
+    svc._fetch_etf_metadata(
+        inst.id, "JAGA.DE", "full", DEFAULT_THRESHOLDS, _NOW, {}, [], []
+    )
+    db_session.flush()
+
+    meta = ETFMetadataRepository(db_session).get_metadata(inst.id)
+    assert meta is not None
+    assert meta.base_currency is None
+
+
 def test_incremental_skips_when_metadata_is_fresh(db_session) -> None:
     inst = _fi_instrument(db_session)
     ETFMetadataRepository(db_session).upsert_metadata(

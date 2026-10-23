@@ -16,11 +16,13 @@ coercion (which dropped every column and stored nothing) is gone.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pandas as pd
+import pytest
 
 from app.services.market_data.yfinance_data_service import YFinanceDataService
 
@@ -197,3 +199,111 @@ def test_when_eps_panels_present_then_passed_through_unchanged() -> None:
     rev_df = repo.upsert_eps_revisions.call_args.args[1]
     assert list(rev_df.index) == ["0q", "+1q", "0y", "+1y"]
     assert "upLast7days" in rev_df.columns
+
+
+# ---------------------------------------------------------------------------
+# Statement currency label: Yahoo's financialCurrency, not the listing currency
+# ---------------------------------------------------------------------------
+
+_STATEMENT_TYPES = {"income_statement", "balance_sheet", "cashflow"}
+
+
+def _statement_fixture() -> pd.DataFrame:
+    return pd.DataFrame(
+        {pd.Timestamp("2024-12-31"): {"TotalRevenue": 100.0, "NetIncome": 12.0}}
+    )
+
+
+def _yf_client_with_statements(info: dict[str, Any] | None) -> MagicMock:
+    yf_client = _build_yf_client(valuation=_valuation_fixture())
+    yf_client.fetch_info.return_value = info
+    yf_client.metadata.fetch_isin.return_value = None
+    stmt = _statement_fixture()
+    yf_client.financials.fetch_income_stmt.return_value = stmt
+    yf_client.financials.fetch_balance_sheet.return_value = stmt
+    yf_client.financials.fetch_cashflow.return_value = stmt
+    return yf_client
+
+
+def _statement_currencies(repo: MagicMock) -> list[str | None]:
+    return [c for t, _p, c in _statement_type_calls(repo) if t in _STATEMENT_TYPES]
+
+
+def _valuation_currencies(repo: MagicMock) -> list[str | None]:
+    return [c for t, _p, c in _statement_type_calls(repo) if t == "valuation_measures"]
+
+
+@pytest.mark.parametrize(
+    ("listing", "financial", "statement_ccy", "valuation_ccy"),
+    [
+        # LSE oil major quoted in pence, reporting in dollars.
+        ("GBp", "USD", "USD", "GBP"),
+        # NYSE ADR of a Taiwanese company: statements are in TWD.
+        ("USD", "TWD", "TWD", "USD"),
+        # A minor-unit financialCurrency still collapses to its major unit.
+        ("GBp", "GBp", "GBP", "GBP"),
+        ("ZAc", "ZAc", "ZAR", "ZAR"),
+    ],
+)
+def test_when_info_reports_financial_currency_then_statements_carry_it(
+    listing: str, financial: str, statement_ccy: str, valuation_ccy: str
+) -> None:
+    yf_client = _yf_client_with_statements({"financialCurrency": financial})
+    repo = _build_repo()
+
+    _run(yf_client, repo, currency_code=listing)
+
+    assert _statement_currencies(repo) == [statement_ccy] * 6
+    # valuation measures are market-cap based, so they stay in the listing currency.
+    assert _valuation_currencies(repo) == [valuation_ccy]
+
+
+def test_when_financial_currency_unknown_then_statement_currency_is_not_guessed() -> (
+    None
+):
+    yf_client = _yf_client_with_statements({"symbol": "BP.L"})
+    repo = _build_repo()
+
+    _run(yf_client, repo, currency_code="GBp")
+
+    assert _statement_currencies(repo) == [None] * 6
+
+
+def test_when_profile_fresh_then_financial_currency_is_fetched_for_statements() -> None:
+    yf_client = _yf_client_with_statements({"financialCurrency": "TWD"})
+    repo = _build_repo()
+    service = YFinanceDataService(repo=repo, yf_client=yf_client)
+    now = datetime.now(timezone.utc)
+    staleness = {"profile_updated_at": now, "price_max_date": None}
+
+    result = service.fetch_and_store(
+        instrument_id=uuid4(),
+        yfinance_ticker="TSM",
+        mode="incremental",
+        currency_code="USD",
+        staleness=staleness,
+    )
+
+    assert "profile" in result["skipped"]
+    assert _statement_currencies(repo) == ["TWD"] * 6
+    yf_client.fetch_info.assert_called_once()
+
+
+def test_when_profile_fresh_and_no_statements_then_info_is_not_fetched() -> None:
+    yf_client = _yf_client_with_statements({"financialCurrency": "TWD"})
+    yf_client.financials.fetch_income_stmt.return_value = None
+    yf_client.financials.fetch_balance_sheet.return_value = None
+    yf_client.financials.fetch_cashflow.return_value = None
+    repo = _build_repo()
+    service = YFinanceDataService(repo=repo, yf_client=yf_client)
+    staleness = {"profile_updated_at": datetime.now(timezone.utc)}
+
+    service.fetch_and_store(
+        instrument_id=uuid4(),
+        yfinance_ticker="TSM",
+        mode="incremental",
+        currency_code="USD",
+        staleness=staleness,
+    )
+
+    yf_client.fetch_info.assert_not_called()

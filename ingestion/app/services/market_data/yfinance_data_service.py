@@ -118,6 +118,26 @@ def _is_fresh(
     return (now - updated_at) < timedelta(hours=threshold_hours)
 
 
+def _financial_currency(info: dict[str, Any] | None) -> str | None:
+    """Return the major-unit currency Yahoo reports a company's statements in.
+
+    Args:
+        info: The ``yf.Ticker.info`` dict, or ``None`` when unavailable.
+
+    Returns:
+        ISO-4217 major code from ``financialCurrency`` (sub-units such as
+        ``GBp`` collapsed), or ``None`` when Yahoo does not say. Never falls back
+        to the listing currency: ADRs and cross-listings routinely report in a
+        different currency, and a guessed label is worse than an absent one.
+    """
+    if not isinstance(info, dict):
+        return None
+    raw = info.get("financialCurrency")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    return to_major_currency(raw.strip())
+
+
 class YFinanceDataService:
     """Fetches all yfinance data categories for a ticker and stores via repository."""
 
@@ -161,9 +181,10 @@ class YFinanceDataService:
                   fresh categories and date-ranges the price fetch.
             thresholds: Override default staleness thresholds.
             exchange_name: Exchange name for calendar-based history validation.
-            currency_code: Instrument listing currency (e.g. "GBX").
-                Converted to major-unit (e.g. "GBP") before storing on
-                financial statement rows.
+            currency_code: Instrument listing currency (e.g. "GBX"). Stored raw
+                as the price unit; its major unit (e.g. "GBP") labels the
+                market-cap based valuation rows. Financial statements are
+                labelled with Yahoo's ``financialCurrency`` instead.
             asset_class: Instrument asset class. When "fixed_income" or
                 "multi_asset" (i.e. an ETF), the ETF fund-metadata branch runs.
 
@@ -260,6 +281,7 @@ class YFinanceDataService:
         # categories call through sub-clients that invoke _get_ticker
         # internally and share the same cache.
         _ticker_holder: list[Any] = []  # mutable cell for lazy init
+        profile_info: dict[str, Any] | None = None
 
         def _get_lazy_ticker() -> Any:
             if not _ticker_holder:
@@ -278,6 +300,7 @@ class YFinanceDataService:
             try:
                 info = self._timed(lambda: self.yf_client.fetch_info(yfinance_ticker))
                 if info:
+                    profile_info = info
                     # yfinance's .info does not carry ISIN — fetch it separately
                     # (Ticker.isin) and inject so ticker_profiles.isin populates.
                     isin = self._timed(
@@ -399,10 +422,31 @@ class YFinanceDataService:
             errors.append(f"prices: {e}")
             logger.warning("Failed to fetch prices for %s: %s", yfinance_ticker, e)
 
-        # Financial statements from yfinance are in the company's reporting
-        # currency (e.g. GBP for UK companies), not the listing quote
-        # currency (e.g. GBX).  Store the major-unit code for auditability.
-        reporting_currency = to_major_currency(currency_code)
+        # Statements are denominated in the company's reporting currency, which
+        # Yahoo exposes as info["financialCurrency"] and which differs from the
+        # listing currency for ADRs and cross-listings (TSM lists in USD but
+        # reports in TWD; SHEL.L lists in GBp but reports in USD).
+        listing_major_currency = to_major_currency(currency_code)
+        statement_currency_cell: list[str | None] = []
+
+        def _statement_currency() -> str | None:
+            # Resolved on first use so a ticker with nothing to store never pays
+            # for an info request; the profile step usually already supplied it.
+            if not statement_currency_cell:
+                info_for_currency = profile_info
+                if not info_for_currency:
+                    try:
+                        info_for_currency = self._timed(
+                            lambda: self.yf_client.fetch_info(yfinance_ticker)
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Could not resolve financial currency for %s: %s",
+                            yfinance_ticker,
+                            e,
+                        )
+                statement_currency_cell.append(_financial_currency(info_for_currency))
+            return statement_currency_cell[0]
 
         if (
             mode == "incremental"
@@ -451,7 +495,7 @@ class YFinanceDataService:
                                 df,
                                 stmt_type,
                                 period_type,
-                                currency_code=reporting_currency,
+                                currency_code=_statement_currency(),
                             )
                     except Exception as e:
                         errors.append(f"financials.{stmt_type}.{period_type}: {e}")
@@ -470,7 +514,8 @@ class YFinanceDataService:
 
         # 3a. Valuation measures (Ticker.valuation, 9-metric panel).
         # Open-EAV reuse of financial_statements: no migration, no new model.
-        # Staleness-gated on the shared financial_statements table.
+        # Staleness-gated on the shared financial_statements table. Market cap
+        # and EV are quote-based, so the rows carry the listing currency's major.
         if (
             mode == "incremental"
             and staleness is not None
@@ -493,7 +538,7 @@ class YFinanceDataService:
                             val_df,
                             "valuation_measures",
                             "point_in_time",
-                            currency_code=reporting_currency,
+                            currency_code=listing_major_currency,
                         )
                     )
                 else:
@@ -1079,7 +1124,9 @@ class YFinanceDataService:
                     fund_family=profile.get("fund_family"),
                     legal_type=profile.get("legal_type"),
                     expense_ratio=profile.get("expense_ratio"),
-                    base_currency=profile.get("base_currency"),
+                    # Yahoo reports the listing currency, a sub-unit ('GBp') for
+                    # LSE listings; a sub-unit is never a fund's base currency.
+                    base_currency=to_major_currency(profile.get("base_currency")),
                     category=overview.get("categoryName") or overview.get("category"),
                     description=description,
                     as_of=as_of,

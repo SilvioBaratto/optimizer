@@ -711,6 +711,8 @@ class YFinanceRepository(RepositoryBase):
             period_type: Frequency label, e.g. ``"annual"`` or ``"quarterly"``.
             currency_code: Reporting currency in major-unit form (e.g. ``"GBP"``).
                 Convert listing currencies like ``"GBX"`` before passing.
+                ``None`` means the currency is unknown: new rows get a NULL
+                label, and rows that already exist keep the label they have.
 
         Returns:
             Number of rows written.
@@ -734,10 +736,14 @@ class YFinanceRepository(RepositoryBase):
                     }
                 )
 
+        # A failed info lookup yields no currency; on conflict that must not turn
+        # an already-correct label into NULL.
+        update_columns = None if currency_code is not None else ["value", "updated_at"]
         return self._upsert(
             FinancialStatement,
             rows,
             constraint_name="uq_financial_statement_row",
+            update_columns=update_columns,
         )
 
     def get_financial_statements(

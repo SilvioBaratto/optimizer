@@ -19,6 +19,7 @@ from app.services.universe.canonical import (
     passes_floor,
     split_currency,
 )
+from app.utils.currency import MINOR_TO_MAJOR
 
 # USD per 1 major unit.
 _FX = {"USD": 1.0, "EUR": 1.1, "GBP": 1.25, "CHF": 1.1, "CAD": 0.73}
@@ -88,8 +89,11 @@ class TestSplitCurrency:
         [
             ("GBX", "GBP", 100.0),
             ("GBp", "GBP", 100.0),
+            ("GBx", "GBP", 100.0),
             ("ILA", "ILS", 100.0),
+            ("ILa", "ILS", 100.0),
             ("ZAC", "ZAR", 100.0),
+            ("ZAc", "ZAR", 100.0),
             ("USD", "USD", 1.0),
             ("EUR", "EUR", 1.0),
             (None, None, 1.0),
@@ -98,6 +102,16 @@ class TestSplitCurrency:
     )
     def test_split(self, code, major, div) -> None:
         assert split_currency(code) == (major, div)
+
+    @pytest.mark.parametrize("code", sorted(MINOR_TO_MAJOR))
+    def test_every_listed_sub_unit_casing_is_split(self, code) -> None:
+        # The sub-unit table is shared with the statement labeller; a code added
+        # there must also be priced in major units here.
+        assert split_currency(code) == (MINOR_TO_MAJOR[code], 100.0)
+
+    @pytest.mark.parametrize("code", ["GBP", "ILS", "ZAR"])
+    def test_major_codes_are_never_treated_as_sub_units(self, code) -> None:
+        assert split_currency(code) == (code, 1.0)
 
 
 # --------------------------------------------------------------------------- #
@@ -122,6 +136,18 @@ class TestDeriveMetrics:
         assert m.price_major == pytest.approx(27.0)
         assert m.addv_usd == pytest.approx(1e6 * 27.0 * 1.25)
         assert m.mcap_usd == pytest.approx(6e9 * 27.0 * 1.25)
+
+    def test_zar_cents_price_divided_by_100(self) -> None:
+        # JSE quotes in cents ('ZAc'); the price is normalised to rand and the
+        # ZAR rate applies, like pence on the LSE.
+        m = derive_metrics(
+            _mk("NPN.JO", "JNB", "Naspers", "ZAc", 300000.0, 1e5, shares=1e8),
+            {**_FX, "ZAR": 0.055},
+        )
+        assert m.major_ccy == "ZAR"
+        assert m.price_major == pytest.approx(3000.0)
+        assert m.addv_usd == pytest.approx(1e5 * 3000.0 * 0.055)
+        assert m.mcap_usd == pytest.approx(1e8 * 3000.0 * 0.055)
 
     def test_volume_count_is_never_scaled(self) -> None:
         # divisor hits price, not the share/volume count
