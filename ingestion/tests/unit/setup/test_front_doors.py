@@ -160,6 +160,23 @@ class TestSetupPs1:
         assert path_export is not None
         assert path_export.start() < text.index("uv tool install")
 
+    def test_puts_uv_tool_dir_on_session_path_before_using_uv(self) -> None:
+        """A freshly bootstrapped uv is callable in the same session.
+
+        Astral's installer only writes the registry PATH, so without a session
+        ``$env:Path`` prepend the very next ``uv tool install`` is "not recognized".
+        """
+        text = _read("setup.ps1")
+        prepend = re.search(
+            r"^\$env:Path\s*=\s*\"\$env:USERPROFILE\\\.local\\bin;",
+            text,
+            re.MULTILINE,
+        )
+        install = re.search(r"^uv tool install", text, re.MULTILINE)
+        assert prepend is not None, "setup.ps1 never prepends ~/.local/bin to $env:Path"
+        assert install is not None
+        assert prepend.start() < install.start()
+
 
 class TestSetupCmd:
     """The Windows cmd.exe front door funnels into ``portopt setup``."""
@@ -206,6 +223,23 @@ class TestSetupCmd:
         )
         assert path_export is not None
         assert path_export.start() < text.index("uv tool install")
+
+    def test_puts_uv_tool_dir_on_session_path_before_using_uv(self) -> None:
+        """A freshly bootstrapped uv is callable in the same cmd session.
+
+        The installer runs in a child powershell, which cannot change this
+        process's PATH, so the parent must prepend ``%USERPROFILE%\\.local\\bin`` itself.
+        """
+        text = _read("setup.cmd")
+        prepend = re.search(
+            r'^set "PATH=%USERPROFILE%\\\.local\\bin;%PATH%"',
+            text,
+            re.MULTILINE | re.IGNORECASE,
+        )
+        install = re.search(r"^uv tool install", text, re.MULTILINE)
+        assert prepend is not None, "setup.cmd never prepends ~/.local/bin to PATH"
+        assert install is not None
+        assert prepend.start() < install.start()
 
 
 class TestMakefileSetup:
