@@ -1180,6 +1180,64 @@ class TestGetInstrumentsWithYfinanceTicker:
         assert valid.id in ids
 
 
+class TestVenueTransferDuplicates:
+    """A venue transfer leaves a delisted row and a live row sharing one
+    yfinance_ticker; readers must resolve to the live row, not crash."""
+
+    def _transfer(self, session: Session) -> tuple[Instrument, Instrument]:
+        old_ex = _exchange(session, name="OldVenue")
+        new_ex = _exchange(session, name="NewVenue")
+        old = _instrument(session, old_ex, ticker="ABC", yfinance_ticker="ABC")
+        old.delisted_at = date(2026, 10, 1)
+        new = _instrument(session, new_ex, ticker="ABC", yfinance_ticker="ABC")
+        session.flush()
+        return old, new
+
+    def test_lookup_by_ticker_prefers_live_row_over_delisted_duplicate(
+        self, db_session: Session
+    ) -> None:
+        _, new = self._transfer(db_session)
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("ABC")
+
+        assert result is not None
+        assert result.id == new.id
+
+    def test_lookup_by_ticker_resolves_delisted_row_when_no_live_row_exists(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session, name="GoneVenue")
+        gone = _instrument(db_session, ex, ticker="GONE", yfinance_ticker="GONE")
+        gone.delisted_at = date(2026, 9, 1)
+        db_session.flush()
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("GONE")
+
+        assert result is not None
+        assert result.id == gone.id
+
+    def test_sweep_lists_ticker_once_after_venue_transfer(
+        self, db_session: Session
+    ) -> None:
+        _, new = self._transfer(db_session)
+
+        result = _repo(db_session).get_instruments_with_yfinance_ticker()
+
+        assert [r.id for r in result if r.yfinance_ticker == "ABC"] == [new.id]
+
+    def test_sweep_keeps_delisted_row_that_nothing_superseded(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session, name="LoneVenue")
+        lone = _instrument(db_session, ex, ticker="LONE", yfinance_ticker="LONE")
+        lone.delisted_at = date(2026, 9, 1)
+        db_session.flush()
+
+        result = _repo(db_session).get_instruments_with_yfinance_ticker()
+
+        assert lone.id in [r.id for r in result]
+
+
 # ---------------------------------------------------------------------------
 # get_instrument_by_yfinance_ticker
 # ---------------------------------------------------------------------------

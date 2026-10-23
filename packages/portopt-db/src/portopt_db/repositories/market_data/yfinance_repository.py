@@ -1542,7 +1542,8 @@ class YFinanceRepository(RepositoryBase):
 
         ``instruments`` is unique on ``(ticker, exchange)``, so a symbol that moved
         venues leaves a delisted row beside its active one. The active listing wins;
-        among delisted rows only, the most recently delisted does.
+        among delisted rows only, the most recently delisted does, so the result is
+        deterministic and a genuinely delisted holding still resolves.
         """
         return (
             self.session.execute(
@@ -1552,6 +1553,7 @@ class YFinanceRepository(RepositoryBase):
                 .order_by(
                     Instrument.delisted_at.is_(None).desc(),
                     Instrument.delisted_at.desc(),
+                    Instrument.ticker,
                     Instrument.id,
                 )
                 .limit(1)
