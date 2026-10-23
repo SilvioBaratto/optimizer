@@ -6,6 +6,10 @@ cannot refresh the lock, never scans the members, and bumps a repeated pin in on
 file only, leaving a workspace that no longer resolves. CI must also refuse to
 re-resolve silently, otherwise a stale lock passes CI while the ``--frozen``
 Docker builds keep shipping the old versions.
+
+Workspace members resolve each other only through ``[tool.uv.sources]``, which pip
+ignores: a bare ``pip install`` of a member that depends on an unpublished sibling
+would look that name up on PyPI. The docs must not advertise that path.
 """
 
 from __future__ import annotations
@@ -115,3 +119,58 @@ def test_ci_never_re_resolves_the_lock() -> None:
     ]
     assert syncs
     assert [s for s in syncs if "--locked" not in s] == []
+
+
+_DOCS = ["CLAUDE.md", "README.md", "CONTRIBUTING.md"]
+
+
+def _members_resolving_siblings_via_uv_sources() -> list[str]:
+    """Member directories whose internal dependencies exist only as uv sources."""
+    dependents = []
+    for member in _member_dirs():
+        path = _REPO_ROOT / member.lstrip("/") / "pyproject.toml"
+        project = tomllib.loads(path.read_text(encoding="utf-8"))
+        sources = project.get("tool", {}).get("uv", {}).get("sources", {})
+        if any(source.get("workspace") for source in sources.values()):
+            dependents.append(member.strip("/"))
+    return dependents
+
+
+@pytest.mark.parametrize("doc", _DOCS)
+def test_docs_never_advertise_bare_pip_installs_of_uv_only_members(doc: str) -> None:
+    """Sibling dependencies are unpublished names: only uv maps them to local paths."""
+    dependents = _members_resolving_siblings_via_uv_sources()
+    assert dependents
+    text = (_REPO_ROOT / doc).read_text(encoding="utf-8")
+
+    assert not re.search(r"pip install[^\n]*works\s+per-package", text)
+    for command in re.findall(r"pip install[^\n`]*", text):
+        for member in dependents:
+            assert not re.search(rf"(?<![\w-]){re.escape(member)}\b", command), command
+
+
+_PIP_EDITABLE_TARGET = re.compile(
+    r"""pip install[^\n`]*?\s(?:-e|--editable)\s+["']?([^\s"'`\[]+)"""
+)
+# A bare member directory (no deeper path) named on a line about pip installs.
+_MEMBER_DIR = re.compile(r"packages/[\w-]+(?![\w/-])")
+
+
+def _pip_install_targets(text: str) -> set[str]:
+    """Directories a doc tells the reader to pip-install, as written in the doc."""
+    targets = set(_PIP_EDITABLE_TARGET.findall(text))
+    for line in text.splitlines():
+        if re.search(r"pip[ -]install", line):
+            targets.update(_MEMBER_DIR.findall(line))
+    return targets
+
+
+@pytest.mark.parametrize("doc", _DOCS)
+def test_pip_install_targets_in_docs_hold_a_pyproject(doc: str) -> None:
+    """pip needs a ``pyproject.toml`` there; the root one declares portopt-core."""
+    text = (_REPO_ROOT / doc).read_text(encoding="utf-8")
+
+    for target in sorted(_pip_install_targets(text)):
+        assert (_REPO_ROOT / target / "pyproject.toml").is_file(), (
+            f"{doc} says to pip install {target!r}, which has no pyproject.toml"
+        )

@@ -110,11 +110,15 @@ submodule's source and docstrings under `packages/portopt-core/optimizer/`.
 ### 1. The optimization library only (no Docker, no DB)
 
 ```bash
-# From a clone, into the current environment:
-pip install -e packages/portopt-core        # editable install of dist `portopt-core`
+# From a clone, into the current environment (the repo root declares `portopt-core`):
+pip install -e .                            # editable install of dist `portopt-core`
 ```
 
-Then `import optimizer` works with nothing else running.
+Then `import optimizer` works with nothing else running. The library has no
+sibling-package dependencies, so plain pip is safe here. The daemon and the fund
+bridge are not: they depend on `portopt-db` / `portopt-core`, which exist only as
+workspace paths that uv resolves (pip ignores `[tool.uv.sources]` and would look
+those unpublished names up on PyPI), so install those two through uv.
 
 ### 2. The full platform (ingestion daemon)
 

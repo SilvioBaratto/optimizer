@@ -28,7 +28,7 @@ Supporting dirs: `tests/` (library suite, mirrors `optimizer/` + `tests/schedule
 
 ## Build & Run Commands
 
-uv workspace — `uv sync` resolves all four members into one venv. Run tools per-package with `uv run --package <name>` (`portopt-core`, `portopt`, `portopt-db`, `portopt-fund`). `pip install -e` still works per-package.
+uv workspace — `uv sync` resolves all four members into one venv. Run tools per-package with `uv run --package <name>` (`portopt-core`, `portopt`, `portopt-db`, `portopt-fund`). Install through uv only: `ingestion` and `fund` reach their siblings (`portopt-db`, `portopt-core`) through `[tool.uv.sources]`, which pip ignores — a bare `pip install` of either would look those unpublished names up on PyPI. Only `portopt-core` and `portopt-db` (no sibling deps) are safe to pip-install on their own: `pip install -e .` from the repo root (the root `pyproject.toml` declares the `portopt-core` dist; `packages/portopt-core/optimizer/` is only its source tree, with no `pyproject.toml` beside it) and `pip install -e packages/portopt-db`.
 
 ```bash
 # Infrastructure
