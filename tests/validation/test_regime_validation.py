@@ -556,3 +556,69 @@ class TestMixedFrequencyMacroData:
         )
 
         assert result.regime_timeline.iloc[-1] == "expansion"
+
+
+_EXPANSION = {"pmi": 55.0, "spread_2s10s": 1.5, "hy_oas": 300.0}
+_RECOVERY = {"pmi": 46.0, "spread_2s10s": 0.5, "hy_oas": 400.0}
+_SLOWDOWN = {"pmi": 50.0, "spread_2s10s": 0.5, "hy_oas": 400.0}
+
+
+def _blocks_macro(*blocks: tuple[dict[str, float], int]) -> pd.DataFrame:
+    """Concatenate constant-indicator blocks on a business-day index."""
+    n = sum(length for _, length in blocks)
+    dates = pd.bdate_range("2024-01-02", periods=n)
+    rows = [ind for ind, length in blocks for _ in range(length)]
+    return pd.DataFrame(rows, index=dates)
+
+
+class TestAlphaConcentration:
+    def test_dominant_regime_with_uniform_daily_edge_is_not_flagged(self) -> None:
+        """Identical per-day performance must not read as concentrated alpha."""
+        macro = _blocks_macro((_EXPANSION, 255), (_RECOVERY, 45))
+        returns = pd.Series(0.0005, index=macro.index)
+
+        result = run_regime_validation(returns, macro)
+
+        assert result.n_regimes_observed == 2
+        assert result.concentrated_regimes == []
+        conc = result.regime_alpha_concentration
+        assert conc["expansion"] == pytest.approx(0.5)
+        assert conc["recovery"] == pytest.approx(0.5)
+
+    def test_regimes_below_min_obs_take_no_share(self) -> None:
+        """An under-sampled regime has NaN metrics and must not absorb alpha."""
+        macro = _blocks_macro((_EXPANSION, 60), (_RECOVERY, 60), (_SLOWDOWN, 3))
+        returns = pd.Series(
+            [0.001] * 120 + [0.05] * 3,
+            index=macro.index,
+        )
+
+        result = run_regime_validation(returns, macro)
+
+        assert not result.per_regime_metrics.loc["slowdown", "obs_sufficient"]
+        conc = result.regime_alpha_concentration
+        assert conc["slowdown"] == 0.0
+        assert conc["expansion"] == pytest.approx(0.5)
+        assert conc["recovery"] == pytest.approx(0.5)
+        assert result.concentrated_regimes == []
+
+    def test_concentration_uses_excess_over_risk_free_rate(self) -> None:
+        """Alpha is return above the risk-free rate, as in the Sharpe ratio."""
+        macro = _blocks_macro((_EXPANSION, 60), (_RECOVERY, 60))
+        returns = pd.Series([0.0006] * 60 + [0.0004] * 60, index=macro.index)
+        config = RegimeValidationConfig(risk_free_rate=0.0004 * 252)
+
+        result = run_regime_validation(returns, macro, config=config)
+
+        conc = result.regime_alpha_concentration
+        assert conc["expansion"] == pytest.approx(1.0)
+        assert conc["recovery"] == pytest.approx(0.0)
+        assert result.concentrated_regimes == ["expansion"]
+
+    def test_concentration_flags_regime_with_all_the_edge(self) -> None:
+        macro = _blocks_macro((_EXPANSION, 60), (_RECOVERY, 60))
+        returns = pd.Series([0.002] * 60 + [-0.001] * 60, index=macro.index)
+
+        result = run_regime_validation(returns, macro)
+
+        assert result.concentrated_regimes == ["expansion"]

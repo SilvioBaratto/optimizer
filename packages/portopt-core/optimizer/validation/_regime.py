@@ -102,7 +102,9 @@ class RegimeValidationResult:
             ``start``, ``end``, ``regime``, ``obs``, ``ann_return``,
             ``ann_vol``, ``sharpe``, ``max_drawdown``.
         regime_alpha_concentration: Fraction of total positive alpha
-            attributable to each regime.
+            attributable to each regime, where alpha is the mean daily
+            return in excess of the risk-free rate. Regimes with fewer than
+            ``min_regime_obs`` observations get ``0.0``.
         concentrated_regimes: Regimes exceeding
             ``single_regime_alpha_threshold``.
         regime_timeline: DatetimeIndex to regime name string for every OOS
@@ -459,11 +461,17 @@ def run_regime_validation(
     n_regimes_observed = len(observed_regimes)
 
     regime_rows: list[dict[str, object]] = []
+    alpha_per_day: dict[str, float] = {}
     for regime_name in observed_regimes:
         regime_mask = regime_timeline == regime_name
         regime_returns = cast(pd.Series, oos_filtered[regime_mask])
         n_obs = len(regime_returns)
         sufficient = n_obs >= config.min_regime_obs
+        # Alpha is the mean daily excess return, so a regime's weight does not
+        # grow with the number of days it lasts; under-sampled regimes carry
+        # NaN metrics and so take no share.
+        mean_excess = float((regime_returns - rf_daily).mean()) if sufficient else 0.0
+        alpha_per_day[regime_name] = mean_excess if mean_excess > 0 else 0.0
         if sufficient:
             metrics = _compute_period_metrics(regime_returns, tdays, rf_daily)
         else:
@@ -485,22 +493,14 @@ def run_regime_validation(
 
     per_regime_metrics = pd.DataFrame(regime_rows).set_index("regime")
 
-    cum_return_per_regime: dict[str, float] = {}
-    for regime_name in observed_regimes:
-        regime_mask = regime_timeline == regime_name
-        regime_returns = oos_filtered[regime_mask]
-        cum_return_per_regime[regime_name] = float((1.0 + regime_returns).prod() - 1.0)
-
-    total_positive = sum(v for v in cum_return_per_regime.values() if v > 0)
+    total_positive = sum(alpha_per_day.values())
 
     if total_positive > 0:
-        concentration = {
-            r: max(v, 0.0) / total_positive for r, v in cum_return_per_regime.items()
-        }
+        concentration = {r: v / total_positive for r, v in alpha_per_day.items()}
     else:
         # No positive alpha in any regime — concentration is zero everywhere
         # (no regime-dependent alpha to flag).
-        concentration = dict.fromkeys(cum_return_per_regime, 0.0)
+        concentration = dict.fromkeys(alpha_per_day, 0.0)
 
     regime_alpha_concentration = pd.Series(concentration, name="alpha_concentration")
 
