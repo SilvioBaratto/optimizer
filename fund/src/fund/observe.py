@@ -1227,6 +1227,9 @@ def _decision_entry(decision: Any) -> TranscriptEntry:
     weights = _weights_from_response(decision.llm_response)
     if weights:
         payload["weights"] = weights
+    optimizer_config = _optimizer_config_from_response(decision.llm_response)
+    if optimizer_config:
+        payload["optimizer_config"] = optimizer_config
     return TranscriptEntry(
         source="decision",
         agent=decision.agent,
@@ -1299,6 +1302,14 @@ def _weights_from_response(raw: str | None) -> dict[str, Any] | None:
         return None
     weights = parsed.get("weights")
     return weights if isinstance(weights, dict) else None
+
+
+def _optimizer_config_from_response(raw: str | None) -> dict[str, Any] | None:
+    parsed = _parse_json_object(raw)
+    if parsed is None:
+        return None
+    config = parsed.get("optimizer_config")
+    return config if isinstance(config, dict) else None
 
 
 def _metrics_from_response(raw: str | None) -> dict[str, float]:

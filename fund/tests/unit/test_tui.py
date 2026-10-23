@@ -3843,6 +3843,49 @@ def test_readout_build_renders_record_and_mock_labels() -> None:
     assert "mock — no live source yet" in text  # factors/signals/views labelled
 
 
+def test_readout_build_separates_requested_intent_from_applied_config() -> None:
+    """The allocator ignores objective/risk measure/aversion/regularisation, so the
+    read-out labels the client's request as not applied and shows what actually ran."""
+    from fund.tui.readouts import render_readout
+
+    constraint_set = make_constraint_set().model_dump(mode="json")
+    constraint_set.update(objective="maximize_ratio", risk_measure="cvar", a_gamma=0.4)
+    payload = {
+        "constraint_set": constraint_set,
+        "weights": {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+        "optimizer_config": {
+            "objective": "minimize_risk",
+            "risk_measure": "variance",
+            "risk_aversion": 1.0,
+            "l1_coef": 0.0,
+            "l2_coef": 0.0,
+            "cardinality": None,
+        },
+    }
+    text = render_readout("allocator", "optimize_portfolio", payload)
+    assert text is not None
+    lines = [line.strip() for line in text.splitlines()]
+    applied = [line for line in lines if line.startswith("applied")]
+    for token in ("maximize_ratio", "a_gamma", "regularisation"):
+        flagged = [line for line in lines if token in line and line not in applied]
+        assert flagged, token
+        assert all(line.startswith("requested (not applied)") for line in flagged)
+    assert any("minimize_risk" in line and "variance" in line for line in applied)
+
+
+def test_readout_build_omits_applied_lines_without_a_recorded_config() -> None:
+    """A decision that predates the recorded config shows no invented applied line."""
+    from fund.tui.readouts import render_readout
+
+    payload = {
+        "constraint_set": make_constraint_set().model_dump(mode="json"),
+        "weights": {"AAA": 1.0},
+    }
+    text = render_readout("allocator", "optimize_portfolio", payload)
+    assert text is not None
+    assert "applied ·" not in text
+
+
 def test_readout_returns_none_for_unmapped_step() -> None:
     """A step with no read-out returns None so the caller keeps the JSON dump."""
     from fund.tui.readouts import render_readout

@@ -1728,6 +1728,38 @@ def test_load_run_transcript_decision_payload_carries_constraint_and_views(db_se
     }
 
 
+def test_load_run_transcript_decision_payload_carries_applied_optimizer_config(
+    db_session,
+):
+    """The config the allocator ACTUALLY ran with reaches the read-out payload."""
+    saver = MemorySaver()
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="thread-oc",
+    )
+    AgentRunRepository(db_session).append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=(
+            '{"optimizer_config": {"objective": "minimize_risk"},'
+            ' "weights": {"AAA": 1.0}}'
+        ),
+    )
+    db_session.expire(run, ["decisions"])
+    _seed_thread(saver, "thread-oc", [HumanMessage(content="narrative")])
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    assert entries[-1].payload == {
+        "weights": {"AAA": 1.0},
+        "optimizer_config": {"objective": "minimize_risk"},
+    }
+
+
 def test_load_run_transcript_decision_payload_none_for_unparseable_response(db_session):
     saver = MemorySaver()
     run = _make_run(

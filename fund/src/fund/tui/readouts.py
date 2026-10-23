@@ -33,6 +33,10 @@ _MOCK_LABEL = "mock — no live source yet"
 # Cap inline names so a wide universe stays legible; the rest collapse to a count.
 _MAX_NAMES = 8
 
+# The frozen allocator honours only the weight bounds; every other mapped constraint
+# is recorded for audit but inert, so the read-out must never present it as applied.
+_REQUESTED_LABEL = "requested (not applied)"
+
 # Frontier / backtest are live-computable (not aspirational): mark them pending until
 # the adviser expands the step and the recompute worker fills them in (T6).
 _PENDING_LABEL = "compute to view"
@@ -89,7 +93,11 @@ def render_readout(
 
 
 def _build_block(payload: Mapping[str, Any]) -> list[str]:
-    """The *build* family: the universe, objective, and constraints the allocator used.
+    """The *build* family: the universe, the client's constraints, and what ran.
+
+    The recorded constraint set is the client's *requested* intent; the optimizer
+    config recorded with the decision is what the allocator *applied*. The two differ
+    (the frozen optimizer honours only the bounds), so each is labelled as such.
 
     Args:
         payload: The allocator decision payload.
@@ -99,7 +107,11 @@ def _build_block(payload: Mapping[str, Any]) -> list[str]:
     """
     lines = ["build"]
     lines += _indent(_universe_lines(payload))
-    lines += _indent(_constraints_lines(payload.get("constraint_set")))
+    lines += _indent(
+        _constraints_lines(
+            payload.get("constraint_set"), payload.get("optimizer_config")
+        )
+    )
     lines += _indent(_mock_lines())
     return lines
 
@@ -303,32 +315,59 @@ def _universe_lines(payload: Mapping[str, Any]) -> list[str]:
     return [f"universe (post-filter) · {len(names)} selected{tail}"]
 
 
-def _constraints_lines(constraint_set: Mapping[str, Any] | None) -> list[str]:
-    """Render the objective and the solver constraints from the recorded constraint set.
+def _constraints_lines(
+    constraint_set: Mapping[str, Any] | None,
+    optimizer_config: Mapping[str, Any] | None = None,
+) -> list[str]:
+    """Render the requested constraints, the applied optimizer config, and the bounds.
 
     Args:
         constraint_set: ``ConstraintSet.model_dump(mode="json")``, or ``None`` when the
             allocator decision recorded no constraint set.
+        optimizer_config: The ``MeanRiskConfig`` fields the allocator actually ran with,
+            or ``None`` for a decision that did not record them.
 
     Returns:
-        The objective/bounds/regularisation/ESG lines, or a single ``unavailable`` line.
+        The requested objective/aversion/regularisation lines (labelled not applied),
+        the applied config lines when recorded, then bounds and ESG — or a single
+        ``unavailable`` line (plus the applied lines) without a constraint set.
     """
+    applied = _applied_lines(optimizer_config)
     if not constraint_set:
-        return ["objective · unavailable (not recorded)"]
+        return ["objective · unavailable (not recorded)", *applied]
     cs = constraint_set
     bounds = cs.get("bounds") or {}
     cardinality = cs.get("cardinality")
     esg = cs.get("esg") or {}
     return [
-        f"objective · {cs.get('objective', '—')} · risk {cs.get('risk_measure', '—')}",
-        f"risk aversion a_gamma · {_num(cs.get('a_gamma'))}"
+        f"{_REQUESTED_LABEL} · objective {cs.get('objective', '—')}"
+        f" · risk {cs.get('risk_measure', '—')}",
+        f"{_REQUESTED_LABEL} · risk aversion a_gamma {_num(cs.get('a_gamma'))}"
         f" · beta {_num(cs.get('beta'))}",
+        f"{_REQUESTED_LABEL} · regularisation · l1 {_num(cs.get('l1_coef'))}"
+        f" · l2 {_num(cs.get('l2_coef'))}"
+        f" · cardinality {'none' if cardinality is None else cardinality}",
+        *applied,
         f"bounds · min {_num(bounds.get('min_weights'))}"
         f" · max {_num(bounds.get('max_weights'))}"
         f" · budget {_num(bounds.get('budget'))}",
-        f"regularisation · l1 {_num(cs.get('l1_coef'))} · l2 {_num(cs.get('l2_coef'))}"
-        f" · cardinality {'none' if cardinality is None else cardinality}",
         f"esg · {len(esg.get('exclusions') or [])} exclusions",
+    ]
+
+
+def _applied_lines(optimizer_config: Mapping[str, Any] | None) -> list[str]:
+    """The optimizer settings the allocator ran with; empty when none were recorded."""
+    if not optimizer_config:
+        return []
+    cfg = optimizer_config
+    cardinality = cfg.get("cardinality")
+    return [
+        f"applied · objective {cfg.get('objective', '—')}"
+        f" · risk {cfg.get('risk_measure', '—')}"
+        f" · risk aversion {_num(cfg.get('risk_aversion'))}",
+        f"applied · regularisation · l1 {_num(cfg.get('l1_coef'))}"
+        f" · l2 {_num(cfg.get('l2_coef'))}"
+        f" · cardinality {'none' if cardinality is None else cardinality}",
     ]
 
 
