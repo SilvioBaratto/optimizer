@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+# Yahoo limits a caller, not a symbol, and parallel fetch workers handle
+# distinct symbols, so a per-symbol key would never make any request wait.
+TICKER_REQUEST_KEY = "yahoo:ticker"
+
 
 class RequestLostError(RuntimeError):
     """A yfinance request never got an answer: every attempt failed.
@@ -174,7 +178,7 @@ class BaseClient:
 
         Args:
             cache: Ticker object cache shared across all sub-clients.
-            rate_limiter: Throttles per-symbol request frequency.
+            rate_limiter: Spaces successive ticker requests across all symbols.
             circuit_breaker: Prevents cascading failures when Yahoo is degraded.
             default_max_retries: Retry budget used when callers omit
                 ``max_retries``.
@@ -189,13 +193,13 @@ class BaseClient:
         """Return a cached ``yf.Ticker``, creating one on cache miss.
 
         Fetch attempts call this just before they send their request, so the
-        per-symbol delay is enforced here on cache hits and misses alike.
+        shared request delay is enforced here on cache hits and misses alike.
         """
         note_ticker(symbol)
 
         # Constructing a Ticker sends nothing, so pacing only the cache misses
         # would never space the requests that reuse a cached Ticker.
-        self.rate_limiter.acquire(symbol)
+        self.rate_limiter.acquire(TICKER_REQUEST_KEY)
         ticker = self.cache.get(symbol)
         if ticker is not None:
             logger.debug("Cache hit for ticker '%s'", symbol)

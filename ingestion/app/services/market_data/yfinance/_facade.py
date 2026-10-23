@@ -10,7 +10,7 @@ import pandas as pd
 import yfinance as yf
 from dotenv import load_dotenv
 
-from ._base import fetch_with_resilience
+from ._base import TICKER_REQUEST_KEY, fetch_with_resilience
 from ._config import reapply_yfinance_log_level
 from .funds import FundsClient
 from .infrastructure import (
@@ -62,7 +62,8 @@ class YFinanceClient:
             cache_size: Maximum number of ``yf.Ticker`` objects held in the LRU
                 cache.
             cache_ttl: Seconds before a cached ticker entry expires.
-            rate_limit_delay: Minimum seconds between per-symbol requests.
+            rate_limit_delay: Minimum seconds between successive ticker requests,
+                shared by every symbol and worker.
             default_max_retries: Retry budget used when callers omit
                 ``max_retries``.
         """
@@ -120,7 +121,7 @@ class YFinanceClient:
 
         Args:
             cache: Ticker object cache; all sub-clients share the same instance.
-            rate_limiter: Throttles per-symbol request frequency.
+            rate_limiter: Spaces successive ticker requests across all symbols.
             circuit_breaker: Prevents cascading failures when Yahoo is degraded.
             default_max_retries: Retry budget used when callers omit
                 ``max_retries``.
@@ -134,14 +135,14 @@ class YFinanceClient:
         """Return a cached ``yf.Ticker``, creating one on cache miss.
 
         Fetch attempts call this just before they send their request, so the
-        per-symbol delay is enforced here on cache hits and misses alike.
+        shared request delay is enforced here on cache hits and misses alike.
 
         Args:
             symbol: The ticker symbol to look up (e.g. ``"AAPL"``).
         """
         # Constructing a Ticker sends nothing, so pacing only the cache misses
         # would never space the requests that reuse a cached Ticker.
-        self.rate_limiter.acquire(symbol)
+        self.rate_limiter.acquire(TICKER_REQUEST_KEY)
         ticker = self.cache.get(symbol)
 
         if ticker is not None:
@@ -640,7 +641,8 @@ def get_yfinance_client(
     Args:
         cache_size: Maximum number of cached ticker objects.
         cache_ttl: Seconds before a cached ticker expires.
-        rate_limit_delay: Minimum seconds between per-symbol requests.
+        rate_limit_delay: Minimum seconds between successive ticker requests,
+            shared by every symbol and worker.
         default_max_retries: Retry budget for callers that omit ``max_retries``.
     """
     return YFinanceClient.get_instance(

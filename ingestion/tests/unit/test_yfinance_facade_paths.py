@@ -23,6 +23,7 @@ from yfinance.base import TickerBase
 from yfinance.scrapers.history import PriceHistory
 
 from app.services.infrastructure.cache import LRUCache
+from app.services.market_data.yfinance._base import TICKER_REQUEST_KEY
 from app.services.market_data.yfinance._facade import YFinanceClient
 from app.services.market_data.yfinance.infrastructure import RateLimiter
 from app.services.market_data.yfinance.ticker import HoldersClient
@@ -55,7 +56,7 @@ class TestGetTicker:
         client.cache.get.return_value = cached
 
         assert client.get_ticker("AAPL") is cached
-        client.rate_limiter.acquire.assert_called_once_with("AAPL")
+        client.rate_limiter.acquire.assert_called_once_with(TICKER_REQUEST_KEY)
 
     def test_cache_miss_acquires_the_limiter_and_caches(
         self, client: YFinanceClient
@@ -63,7 +64,7 @@ class TestGetTicker:
         with patch(f"{M}.yf.Ticker") as tk:
             result = client.get_ticker("AAPL")
 
-        client.rate_limiter.acquire.assert_called_once_with("AAPL")
+        client.rate_limiter.acquire.assert_called_once_with(TICKER_REQUEST_KEY)
         client.cache.put.assert_called_once_with("AAPL", tk.return_value)
         assert result is tk.return_value
 
@@ -116,7 +117,8 @@ class TestRequestPacing:
 
         nap.assert_called_once()
 
-    def test_requests_for_different_symbols_are_not_delayed(self) -> None:
+    def test_back_to_back_requests_for_different_symbols_are_spaced(self) -> None:
+        """Parallel workers fetch distinct symbols, so the delay must be shared."""
         client = self._real_limiter_client()
         ticker = MagicMock()
         ticker.history.return_value = _hist(20)
@@ -128,7 +130,30 @@ class TestRequestPacing:
             client.fetch_history("AAPL")
             client.fetch_history("MSFT")
 
-        nap.assert_not_called()
+        nap.assert_called_once()
+
+    def test_back_to_back_sub_client_requests_for_different_symbols_are_spaced(
+        self,
+    ) -> None:
+        client = HoldersClient(
+            cache=LRUCache(capacity=10, default_ttl=3600.0),
+            rate_limiter=RateLimiter(delay=0.1),
+            circuit_breaker=MagicMock(),
+            default_max_retries=1,
+        )
+        ticker = MagicMock()
+        ticker.major_holders = pd.DataFrame({"holder": ["x"]})
+
+        with (
+            patch(
+                "app.services.market_data.yfinance._base.yf.Ticker", lambda s: ticker
+            ),
+            patch("app.services.infrastructure.rate_limiter.time.sleep") as nap,
+        ):
+            client.fetch_major_holders("AAPL")
+            client.fetch_major_holders("MSFT")
+
+        nap.assert_called_once()
 
 
 class TestFetchInfo:
