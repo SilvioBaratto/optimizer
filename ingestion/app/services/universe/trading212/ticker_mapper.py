@@ -1,9 +1,11 @@
-import time
+import logging
 from dataclasses import dataclass, field
 
 from app.services.market_data.yfinance import YFinanceClient
 from app.services.universe.trading212.cache.ticker_cache import TickerMappingCache
 from app.services.universe.trading212.config import UniverseBuilderConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -68,9 +70,8 @@ class YFinanceTickerMapper:
 
         except Exception:
             # Best-effort per-ticker discovery inside a bulk universe build:
-            # _verify_ticker already classifies known yfinance errors, so an
-            # unexpected failure degrades to "no mapping" and the row is
-            # skipped (surfaced via BuildResult.errors), never fatal.
+            # an unexpected failure degrades to "no mapping" and the row is
+            # skipped, never fatal.
             return None
 
     def _build_ticker_attempts(
@@ -87,43 +88,28 @@ class YFinanceTickerMapper:
         return [clean_symbol]
 
     def _verify_ticker(self, ticker: str) -> bool:
-        for retry in range(self.max_retries):
-            try:
-                info = self.yf_client.fetch_info(ticker, max_retries=1, min_fields=5)
+        """Report whether Yahoo returns a live price for *ticker*.
 
+        ``fetch_info`` swallows every request error and returns ``None``, so a
+        throttled call is told apart from a no-data answer by the shared
+        circuit breaker it trips. While throttled the call is repeated; the
+        breaker blocks the next ``fetch_info`` until its cooldown ends, so no
+        sleep is needed here. A no-data answer is final.
+        """
+        for _ in range(self.max_retries):
+            info = self.yf_client.fetch_info(ticker, max_retries=1, min_fields=5)
+
+            if info is not None:
                 return bool(
-                    info
-                    and len(info) > 5
+                    len(info) > 5
                     and ("currentPrice" in info or "regularMarketPrice" in info)
                 )
 
-            except Exception as e:
-                # Per-ticker verification in a bulk build: the error string is
-                # classified (rate-limit → backoff/retry, not-found → reject) and
-                # the ticker degrades to unverified. No raise — one bad ticker
-                # must not abort the universe build.
-                error_str = str(e).lower()
-
-                if any(
-                    x in error_str
-                    for x in ["rate limit", "too many requests", "timeout", "timed out"]
-                ):
-                    if retry < self.max_retries - 1:
-                        wait_times = [60, 300, 900, 1800, 3600]
-                        wait_time = (
-                            wait_times[retry] if retry < len(wait_times) else 3600
-                        )
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        return False
-
-                if any(
-                    x in error_str
-                    for x in ["not found", "404", "invalid crumb", "unauthorized"]
-                ):
-                    return False
-
+            if not self.yf_client.circuit_breaker.is_active:
                 return False
 
+        logger.warning(
+            "yfinance stayed throttled while verifying %s; treating it as unmapped",
+            ticker,
+        )
         return False

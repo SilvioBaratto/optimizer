@@ -26,8 +26,14 @@ TRANSIENT_NETWORK_INDICATORS = [
     "RemoteDisconnected",
     "ChunkedEncodingError",
     "IncompleteRead",
-    "ReadTimeout",
-    "ConnectTimeout",
+    # Subsumes requests' ReadTimeout/ConnectTimeout and curl_cffi's Timeout,
+    # which yfinance 1.x raises for libcurl error 28.
+    "Timeout",
+    # curl_cffi words DNS and connect failures with libcurl text and reuses the
+    # ConnectionError name that requests also raises, so the class name cannot
+    # be matched without changing how the requests-based scrapers back off.
+    "Could not resolve host",
+    "Failed to connect to",
 ]
 
 # A bare "429" substring also matches payload values, column offsets and

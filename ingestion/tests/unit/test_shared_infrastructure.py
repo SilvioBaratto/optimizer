@@ -13,6 +13,12 @@ from app.services.infrastructure import (
     retry_with_backoff,
 )
 from app.services.infrastructure.retry import _full_jitter, is_transient_network_error
+from tests._fixtures.curl_errors import (
+    curl_connect_failure,
+    curl_dns_failure,
+    curl_http_404,
+    curl_timeout,
+)
 
 # ---------------------------------------------------------------------------
 # CircuitBreaker
@@ -319,11 +325,21 @@ class TestTransientErrorDetection:
 
     @pytest.mark.parametrize(
         "error",
+        [curl_timeout(), curl_dns_failure(), curl_connect_failure()],
+        ids=["timeout", "dns", "connect"],
+    )
+    def test_detects_curl_transport_failures(self, error):
+        # yfinance 1.x raises these instead of the requests-library classes.
+        assert is_transient_network_error(error) is True
+
+    @pytest.mark.parametrize(
+        "error",
         [
             ValueError("invalid literal"),
             KeyError("missing_key"),
             Exception("404 Not Found"),
             TypeError("unexpected type"),
+            curl_http_404(),
         ],
     )
     def test_rejects_non_transient_errors(self, error):
