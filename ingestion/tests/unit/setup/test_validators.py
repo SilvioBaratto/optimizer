@@ -8,7 +8,10 @@ other non-200), or raises `ValidationNetworkError` when the request itself fails
 
 from __future__ import annotations
 
+import traceback
 from unittest.mock import MagicMock, patch
+
+import requests
 
 from app.setup import validators
 
@@ -233,3 +236,45 @@ def test_llm_get_maps_httpx_request_error_to_validation_network_error() -> None:
     with patch("app.setup.validators.httpx.Client", _BoomClient):
         with pytest.raises(ValidationNetworkError):
             validators._llm_get("https://api.openai.com/v1/models")
+
+
+# --- requests network failures must never echo the FRED key -------------------
+
+_FRED_KEY = "SECRETFREDKEY123"
+
+
+@pytest.mark.parametrize(
+    "exc_cls",
+    [
+        requests.ConnectionError,
+        requests.exceptions.SSLError,
+        requests.exceptions.ProxyError,
+        requests.ConnectTimeout,
+    ],
+)
+@patch("app.setup.validators.requests.get")
+def test_validate_fred_network_failure_never_leaks_api_key(
+    mock_get: MagicMock, exc_cls: type[requests.RequestException]
+) -> None:
+    # requests embeds the full request URL, query string included, in its
+    # connection-error text; the wizard CLI echoes this message to stderr/CI logs.
+    mock_get.side_effect = exc_cls(
+        "HTTPSConnectionPool(host='api.stlouisfed.org', port=443): Max retries "
+        f"exceeded with url: /fred/series?series_id=GNPCA&api_key={_FRED_KEY}"
+        "&file_type=json (Caused by NewConnectionError('boom'))"
+    )
+    with pytest.raises(ValidationNetworkError) as info:
+        validators.validate_fred(_FRED_KEY)
+    assert _FRED_KEY not in str(info.value)
+    assert _FRED_KEY not in "".join(traceback.format_exception(info.value))
+    assert "api.stlouisfed.org" in str(info.value)
+    assert exc_cls.__name__ in str(info.value)
+
+
+@patch("app.setup.validators.requests.get")
+def test_validate_t212_network_failure_raises_validation_network_error(
+    mock_get: MagicMock,
+) -> None:
+    mock_get.side_effect = requests.ConnectionError("no route")
+    with pytest.raises(ValidationNetworkError, match="live.trading212.com"):
+        validators.validate_t212("k", "s")

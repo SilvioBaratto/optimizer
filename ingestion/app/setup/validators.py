@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Callable, Mapping
+from urllib.parse import urlsplit
 
 import httpx
 import requests
@@ -38,7 +39,13 @@ def _get(url: str, **kwargs: object) -> requests.Response:
     try:
         return requests.get(url, timeout=_TIMEOUT, **kwargs)  # type: ignore[arg-type]
     except requests.RequestException as exc:
-        raise ValidationNetworkError(str(exc)) from exc
+        # str(exc) embeds the full request URL, and the FRED key rides in its query
+        # string; the CLI echoes this message to stderr/CI logs. Raise `from None`
+        # so a traceback cannot resurface the URL through the chained cause either.
+        host = urlsplit(url).hostname
+        raise ValidationNetworkError(
+            f"{type(exc).__name__} contacting {host}"
+        ) from None
 
 
 def validate_t212(api_key: str, secret_key: str, *, mode: str = "live") -> bool:
