@@ -195,6 +195,9 @@ class DecisionsView(ShellView):
         selected_run_id: The focused queued run, or ``None`` when nothing is selected.
         selected_portfolio_id: That run's portfolio (for the audit attribution).
         gate_text: Mirror of the rendered gate detail — a headless-test hook.
+        gate_unavailable: ``True`` while the selected gate's detail could not be
+            rendered. ``a`` / ``r`` fire with no confirm, so they are refused until the
+            orders are back on screen.
     """
 
     # View-scoped so ``e``/``s`` mean edit/steer only while Decisions holds focus; the
@@ -210,6 +213,7 @@ class DecisionsView(ShellView):
         self.selected_run_id: uuid.UUID | None = None
         self.selected_portfolio_id: uuid.UUID | None = None
         self.gate_text: str = ""
+        self.gate_unavailable = False
         self._queue: list[RunSummary] = []
 
     def compose(self) -> ComposeResult:
@@ -245,9 +249,13 @@ class DecisionsView(ShellView):
         while it is still in the live queue.
         """
         self.render_count += 1
-        rows, gate = self._read()
+        read = self._read()
+        if read is None:
+            self._paint_read_error()
+            return
+        rows, gate, unavailable = read
         self._paint_queue(rows)
-        self._paint_gate(gate)
+        self._paint_gate(gate, unavailable=unavailable)
 
     def select_run(self, run_id: uuid.UUID) -> None:
         """Focus a queued run by id, then repaint the gate detail.
@@ -266,24 +274,38 @@ class DecisionsView(ShellView):
         if key is not None:
             self.select_run(uuid.UUID(key))
 
-    def _read(self) -> tuple[list[RunSummary], str | None]:
+    def _read(self) -> tuple[list[RunSummary], str | None, bool] | None:
         """Read the queue + the selected run's gate text within one short session.
 
-        Returns ``([], None)`` on any read error so the poll loop stays alive. The
-        gate text is read only when the selection is still in the live queue.
+        Returns ``None`` on a queue read error — distinct from an empty queue, so the
+        poll keeps the last-known queue and selection instead of mistaking a hiccup for
+        a cleared inbox. The gate text is read only when the selection is still in the
+        live queue, and a gate that cannot be rendered degrades to a one-line notice
+        (flagged by the third element) without discarding the queue.
         """
         saver = self.shell._persistence.saver
         try:
             with self.read_session() as session:
                 rows = observe.pending_hitl(session, saver, None)
                 gate: str | None = None
+                unavailable = False
                 if self.selected_run_id is not None and any(
                     row.run_id == self.selected_run_id for row in rows
                 ):
-                    gate = _gate_text(session, saver, self.selected_run_id)
-                return rows, gate
+                    try:
+                        gate = _gate_text(session, saver, self.selected_run_id)
+                    except Exception as exc:  # one bad gate must not hide the queue
+                        gate = f"(gate unavailable: {exc})"
+                        unavailable = True
+                return rows, gate, unavailable
         except Exception:  # keep the poll loop alive on any read error
-            return [], None
+            return None
+
+    def _paint_read_error(self) -> None:
+        """Flag a failed read next to the count, leaving queue + selection as-is."""
+        self.query_one("#decisions-count", Label).update(
+            f"{len(self._queue)} awaiting · ⚠ read failed, showing last known queue"
+        )
 
     def _paint_queue(self, rows: list[RunSummary]) -> None:
         self._queue = rows
@@ -304,8 +326,9 @@ class DecisionsView(ShellView):
             self.selected_run_id = None
             self.selected_portfolio_id = None
 
-    def _paint_gate(self, gate: str | None) -> None:
+    def _paint_gate(self, gate: str | None, *, unavailable: bool = False) -> None:
         self.gate_text = gate or ""
+        self.gate_unavailable = unavailable
         self.query_one("#decisions-gate", Static).update(
             gate or "(select a paused gate)"
         )

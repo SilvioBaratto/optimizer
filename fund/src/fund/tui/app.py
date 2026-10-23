@@ -1069,12 +1069,22 @@ class ShellApp(App[None]):
     def _decide(self, decision: str) -> None:
         """Dispatch ``decision`` for the Decisions view's selected gate on a worker.
 
-        A no-op with a status message unless the Decisions view is active and a
-        paused run is selected — the same guard the cockpit uses for a blind approve.
+        A no-op with a status message unless the Decisions view is active, a paused
+        run is selected, and that gate's detail rendered — the same guard the cockpit
+        uses for a blind approve.
         """
         view = self._active_decisions_view()
         if view is None or view.selected_run_id is None:
             self._set_status("select a paused run first")
+            return
+        # Approve/reject act at once with no confirm, so the adviser must have the
+        # orders on screen: a failed gate render fails closed rather than releasing a
+        # gate they could not read.
+        if view.gate_unavailable:
+            self._set_status(
+                f"cannot {decision}: gate details unavailable - "
+                "retry once the gate renders again"
+            )
             return
         self.last_worker = self._action_worker(
             view.selected_run_id, view.selected_portfolio_id, decision

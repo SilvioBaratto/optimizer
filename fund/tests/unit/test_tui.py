@@ -1564,6 +1564,121 @@ async def test_decisions_gate_shows_audited_weights_when_pm_args_diverge(
 
 
 @pytest.mark.asyncio
+async def test_decisions_read_error_keeps_last_queue_and_selection(
+    tui_env, monkeypatch
+) -> None:
+    # A transient read failure must not be painted as "0 awaiting": the queue, the
+    # selected gate and the header counter's view of the world all stay as they were.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        gate_before = view.gate_text
+
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("db down")
+
+        monkeypatch.setattr(observe, "pending_hitl", _boom)
+        view.refresh_view()
+        await pilot.pause()
+
+        assert view.query_one("#decisions-table", DataTable).row_count == 1
+        assert view.selected_run_id == tui_env.run_id
+        assert view.gate_text == gate_before
+        count = str(view.query_one("#decisions-count", Label).render())
+        assert "1 awaiting" in count
+        assert "read failed" in count
+
+
+@pytest.mark.asyncio
+async def test_decisions_gate_render_error_does_not_empty_the_queue(
+    tui_env, monkeypatch
+) -> None:
+    # One gate whose detail cannot be rendered must not hide the queue (or any other
+    # portfolio's pending gate) nor drop the selection.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+
+        def _boom(*_args, **_kwargs):
+            raise ValueError("unrenderable gate")
+
+        monkeypatch.setattr(observe, "interrupt_for", _boom)
+        view.refresh_view()
+        await pilot.pause()
+
+        assert view.query_one("#decisions-table", DataTable).row_count == 1
+        assert view.selected_run_id == tui_env.run_id
+        assert "unavailable" in view.gate_text
+
+
+async def _assert_gate_actions_refused_while_unavailable(app, pilot) -> None:
+    for action in (app.action_decide_approve, app.action_decide_reject):
+        app.last_worker = None
+        action()
+        await pilot.pause()
+        assert app.last_worker is None, action.__name__
+        assert "unavailable" in app.last_status.lower(), action.__name__
+
+
+@pytest.mark.asyncio
+async def test_decisions_gate_that_stops_rendering_cannot_be_approved_blind(
+    tui_env, monkeypatch
+) -> None:
+    # a/r resolve at once with no confirm, so a gate whose orders are no longer on
+    # screen (render error on a poll tick) must not be approvable or rejectable.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        assert "orders" in view.gate_text
+        original = observe.interrupt_for
+
+        def _boom(*_args, **_kwargs):
+            raise ValueError("unrenderable gate")
+
+        monkeypatch.setattr(observe, "interrupt_for", _boom)
+        view.refresh_view()
+        await pilot.pause()
+        await _assert_gate_actions_refused_while_unavailable(app, pilot)
+
+        # The refusal lifts as soon as the gate renders again.
+        monkeypatch.setattr(observe, "interrupt_for", original)
+        view.refresh_view()
+        await pilot.pause()
+        app.action_decide_approve()
+        await pilot.pause()
+        assert app.last_worker is not None
+        await app.last_worker.wait()
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_decisions_freshly_selected_gate_that_cannot_render_is_not_actionable(
+    tui_env, monkeypatch
+) -> None:
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+
+        def _boom(*_args, **_kwargs):
+            raise ValueError("unrenderable gate")
+
+        monkeypatch.setattr(observe, "interrupt_for", _boom)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        assert "unavailable" in view.gate_text
+        await _assert_gate_actions_refused_while_unavailable(app, pilot)
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
+
+
+@pytest.mark.asyncio
 async def test_decisions_edit_modal_is_seeded_from_audited_weights(tui_env) -> None:
     run_id = _seed_gate(tui_env, _PID_B, {"CCC": 1.0})
     app = _make_shell(tui_env)
