@@ -27,7 +27,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -376,3 +376,24 @@ class TestCountryNewsFetcher:
         result = fetcher.fetch_for_country("USA", fetch_full_content=True)
         assert len(result) == 1
         fetcher.scraper.fetch.assert_called_once()
+
+    def test_when_no_scraper_given_then_default_scraper_supplies_full_content(
+        self,
+    ) -> None:
+        yf_client = _make_yf_client(news=[_make_article(title="Default scraper")])
+        with patch(
+            "app.services.market_data.yfinance.news.scraper.ArticleScraper"
+        ) as scraper_cls:
+            scraper_cls.return_value.fetch.return_value = {
+                "success": True,
+                "content": "article body",
+                "content_length": 12,
+                "error": None,
+            }
+            fetcher = CountryNewsFetcher(
+                yf_client=yf_client, country_tickers={"USA": ["^GSPC"]}
+            )
+
+        result = fetcher.fetch_for_country("USA")
+
+        assert [a.get("full_content") for a in result] == ["article body"]

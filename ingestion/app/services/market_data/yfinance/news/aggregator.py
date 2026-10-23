@@ -98,6 +98,9 @@ class CountryNewsFetcher:
             yf_client=self.yf_client,
             scraper=self.scraper,
         )
+        # NewsClient builds the default scraper; adopt it so full-content
+        # requests are honoured when the caller supplied none.
+        self.scraper = self._news_client.scraper
 
     # -- public interface ---------------------------------------------------
 
