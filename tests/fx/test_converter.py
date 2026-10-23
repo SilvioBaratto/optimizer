@@ -836,3 +836,72 @@ class TestFxPriceConverterZeroFillLimit:
         assert np.isnan(result["LLOY.L"].iloc[1])
         assert result["LLOY.L"].iloc[2] == pytest.approx(67.6)
         assert any("NaN prices" in r.message for r in caplog.records)
+
+
+class TestFxPriceConverterUnlimitedFillLimit:
+    """fill_limit=None leaves the carried rate's age uncapped."""
+
+    def test_none_fill_limit_carries_the_last_rate_forward(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        dates = pd.to_datetime(["2024-01-31", "2024-02-29", "2024-12-31"])
+        prices = pd.DataFrame({"LLOY.L": [50.0, 51.0, 52.0]}, index=dates)
+        fx = pd.DataFrame({"GBP": [1.2]}, index=dates[:1])
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"LLOY.L": "GBP"},
+            fx_rates=fx,
+            fill_limit=None,  # type: ignore[arg-type]
+        )
+
+        with caplog.at_level(logging.WARNING, logger="optimizer.fx._converter"):
+            result = converter.fit(prices).transform(prices)
+
+        assert result["LLOY.L"].tolist() == pytest.approx([60.0, 61.2, 62.4])
+        assert not caplog.records
+
+    def test_none_fill_limit_gap_warning_does_not_break_logging(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        dates = pd.bdate_range("2024-01-02", periods=2)
+        prices = pd.DataFrame({"LLOY.L": [50.0, 51.0]}, index=dates)
+        fx = pd.DataFrame({"GBP": [1.2]}, index=pd.DatetimeIndex(["2024-01-03"]))
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"LLOY.L": "GBP"},
+            fx_rates=fx,
+            fill_limit=None,  # type: ignore[arg-type]
+        )
+
+        with caplog.at_level(logging.WARNING, logger="optimizer.fx._converter"):
+            result = converter.fit(prices).transform(prices)
+
+        assert np.isnan(result["LLOY.L"].iloc[0])
+        nan_records = [r for r in caplog.records if "NaN prices" in r.getMessage()]
+        assert nan_records
+        assert "fill_limit=None" in nan_records[0].getMessage()
+
+
+class TestFxPriceConverterMixedZones:
+    """Two tz-aware axes in different zones still pair up by local date."""
+
+    def test_different_zones_convert_at_the_same_days_rate(self) -> None:
+        naive = pd.bdate_range("2024-06-03", periods=3)
+        prices = pd.DataFrame(
+            {"LLOY.L": [50.0, 50.0, 50.0]}, index=naive.tz_localize("Europe/London")
+        )
+        fx = pd.DataFrame({"GBP": [1.1, 1.2, 1.3]}, index=naive.tz_localize("UTC"))
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"LLOY.L": "GBP"},
+            fx_rates=fx,
+            fill_limit=0,
+        )
+
+        result = converter.fit_transform(prices)
+
+        assert result["LLOY.L"].tolist() == pytest.approx([55.0, 60.0, 65.0])

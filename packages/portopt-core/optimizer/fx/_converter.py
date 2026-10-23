@@ -66,7 +66,9 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
             base is EUR and column is ``"GBP"``, values are EUR per 1 GBP
             (≈ 1.16).  (Pence tickers are rescaled to GBP first, so only the
             major-unit ``GBP`` rate is needed — never a ``GBp`` column.)
-        fill_limit: Forward-fill limit for aligning FX rates to the price index.
+        fill_limit: Maximum age, in business days, of an FX rate carried forward
+            when aligning rates to the price index; ``0`` uses same-day rates
+            only and ``None`` puts no cap on the age.
         require_full_coverage: If ``True``, raise ``DataError`` when any ticker
             has an unknown currency or any non-base currency lacks FX rate data.
     """
@@ -74,7 +76,7 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
     base_currency: str
     currency_map: dict[str, str] | None
     fx_rates: pd.DataFrame | None
-    fill_limit: int
+    fill_limit: int | None
     require_full_coverage: bool
 
     def __init__(
@@ -82,7 +84,7 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
         base_currency: str = "EUR",
         currency_map: dict[str, str] | None = None,
         fx_rates: pd.DataFrame | None = None,
-        fill_limit: int = 5,
+        fill_limit: int | None = 5,
         require_full_coverage: bool = False,
     ) -> None:
         # sklearn convention: __init__ stores constructor arguments
@@ -254,7 +256,7 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
             total_nan_dates = int(nan_mask.sum().sum())
             logger.warning(
                 "FxPriceConverter: %d tickers have %d NaN prices introduced by FX "
-                "conversion (fill_limit=%d). Affected tickers: %s. "
+                "conversion (fill_limit=%s). Affected tickers: %s. "
                 "Consider increasing fill_limit or using a fallback rate strategy.",
                 len(affected_tickers),
                 total_nan_dates,

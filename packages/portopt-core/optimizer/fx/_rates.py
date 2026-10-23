@@ -73,6 +73,47 @@ def _wall_clock(index: pd.Index) -> pd.Index:
     return cast(pd.DatetimeIndex, index).tz_localize(None)
 
 
+def _as_datetime_index(index: pd.Index, name: str) -> pd.DatetimeIndex:
+    """Coerce a date axis to a ``DatetimeIndex``, rejecting anything else.
+
+    The as-of fill orders the union of the rate and price axes.  An integer or
+    mixed-type axis cannot be ordered, and an unordered union would let a future
+    print fill earlier rows, so it is rejected instead of guessed at.  Integers
+    are refused outright because pandas would read them as epoch nanoseconds.
+    """
+    if isinstance(index, pd.DatetimeIndex):
+        converted = index
+    elif isinstance(index, pd.MultiIndex) or pd.api.types.is_numeric_dtype(index):
+        raise DataError(
+            f"{name} must be a date-like index, got {type(index).__name__} "
+            f"with dtype {index.dtype}."
+        )
+    else:
+        try:
+            converted = pd.DatetimeIndex(index)
+        except (TypeError, ValueError) as exc:
+            raise DataError(f"{name} must be a date-like index: {exc}") from exc
+    if converted.hasnans:
+        raise DataError(f"{name} contains missing dates.")
+    return converted
+
+
+def _ffill_within_business_days(frame: pd.DataFrame, limit: int | None) -> pd.DataFrame:
+    """Forward-fill ``frame`` while the last observation is at most ``limit`` old.
+
+    Age is counted in business days between row labels rather than in rows, so
+    it means the same thing on a daily, weekly or month-end calendar.  ``None``
+    leaves the age uncapped.
+    """
+    if limit is None:
+        return frame.ffill()
+    days = _wall_clock(frame.index).to_numpy().astype("datetime64[D]")
+    ordinal = np.busday_count(np.datetime64("1970-01-01"), days)[:, np.newaxis]
+    observed = np.where(frame.notna().to_numpy(), ordinal, np.nan)
+    last_seen = pd.DataFrame(observed).ffill().to_numpy()
+    return frame.ffill().where(ordinal - last_seen <= limit)
+
+
 def compute_cross_rate(
     fx_from_usd: pd.Series,
     fx_to_usd: pd.Series,
@@ -101,47 +142,54 @@ def compute_cross_rate(
 def align_fx_rates(
     fx_rates: pd.DataFrame,
     price_index: pd.DatetimeIndex,
-    fill_limit: int = 5,
+    fill_limit: int | None = 5,
 ) -> pd.DataFrame:
     """Align FX rate DataFrame to a price calendar.
 
-    Reindexes FX rates to the ``price_index`` and forward-fills gaps
-    (weekends, holidays) up to ``fill_limit`` days.  When exactly one of the
-    two indexes is tz-aware, rates are matched on local calendar date.
+    Each price date takes the latest rate printed on or before it, as long as
+    that print is at most ``fill_limit`` business days old (weekends, holidays).
+    When the two indexes do not share a timezone (one naive, or two different
+    zones), rates are matched on each index's local calendar date.
 
     Args:
         fx_rates: FX rates indexed by date with currency codes as columns.
             Each column holds the rate from that currency to the base
             currency (units of base per one unit of foreign).
-        price_index: Target date index (from the price DataFrame).
-        fill_limit: Maximum consecutive NaN days to forward-fill; ``0``
-            disables filling so only exact-date rates are used.
+        price_index: Target date index (from the price DataFrame).  Date
+            strings are parsed; the returned frame keeps the labels as given.
+        fill_limit: Maximum age, in business days, of a rate that may be
+            carried forward; ``0`` uses same-day rates only and ``None`` puts
+            no cap on the age.
 
     Returns:
         Aligned FX rates on the ``price_index``.  Zero, negative and
         non-finite rates are treated as missing (``NaN``) before filling.
 
     Raises:
-        DataError: If ``fx_rates`` is empty.
+        DataError: If ``fx_rates`` is empty, ``fill_limit`` is negative, or
+            either index is not date-like (for example integers) or holds
+            missing dates.
     """
     if fx_rates.empty:
         raise DataError("fx_rates DataFrame is empty.")
+    if fill_limit is not None and fill_limit < 0:
+        raise DataError(f"fill_limit must be non-negative or None, got {fill_limit}.")
 
     rates = _mask_invalid_rates(fx_rates)
-    lookup = price_index
-    # A tz-aware index never matches a tz-naive one label-for-label, so the whole
-    # frame would come back NaN.  Daily bars are identified by their local date,
-    # which is also what a naive rate frame holds.
-    if (getattr(price_index, "tz", None) is None) != (
-        getattr(rates.index, "tz", None) is None
-    ):
+    rates = rates.set_axis(_as_datetime_index(rates.index, "fx_rates index"), axis=0)
+    lookup = _as_datetime_index(price_index, "price_index")
+    # Labels in different timezones never match one-for-one, and in the as-of
+    # union an offset zone would silently pair a bar with the previous day's
+    # print.  Daily bars are identified by their local date, which is also what
+    # a naive rate frame holds.
+    if lookup.tz != rates.index.tz:
         rates = rates.set_axis(_wall_clock(rates.index), axis=0)
-        lookup = cast(pd.DatetimeIndex, _wall_clock(price_index))
+        lookup = cast(pd.DatetimeIndex, _wall_clock(lookup))
 
-    aligned = rates.reindex(lookup)
-    # pandas rejects limit=0, which here is the valid "exact-date rates only".
-    if fill_limit > 0:
-        aligned = aligned.ffill(limit=fill_limit)
+    # Rates printed on dates the price calendar lacks (holidays, the day before
+    # the first bar) must still seed the fill, so the fill runs on the union.
+    on_union = rates.reindex(rates.index.union(lookup))
+    aligned = _ffill_within_business_days(on_union, fill_limit).reindex(lookup)
     # Callers multiply against the price frame, which aligns on labels.
     aligned.index = price_index
     return aligned

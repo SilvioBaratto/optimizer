@@ -205,12 +205,176 @@ class TestAlignFxRates:
 
         assert result["GBP"].tolist() == [1.1, 1.2, 1.3]
 
+    @pytest.mark.parametrize(
+        ("price_tz", "fx_tz"),
+        [
+            ("Europe/London", "UTC"),
+            ("UTC", "Europe/London"),
+            ("Asia/Tokyo", "America/New_York"),
+        ],
+    )
+    def test_tz_aware_indexes_in_different_zones_match_by_local_date(
+        self, price_tz: str, fx_tz: str
+    ) -> None:
+        # Comparing instants would put London summer-time midnight bars (23:00
+        # UTC the evening before) one rate behind their UTC-midnight prints and
+        # carry yesterday's rate with no warning.
+        naive = pd.bdate_range("2024-06-03", periods=5)
+        fx = pd.DataFrame(
+            {"GBP": [1.1, 1.2, 1.3, 1.4, 1.5]}, index=naive.tz_localize(fx_tz)
+        )
+        prices = naive.tz_localize(price_tz)
+
+        result = align_fx_rates(fx, prices)
+
+        assert result["GBP"].tolist() == [1.1, 1.2, 1.3, 1.4, 1.5]
+        assert result.index.equals(prices)
+
     def test_empty_raises(self) -> None:
         from optimizer.exceptions import DataError
 
         price_dates = pd.bdate_range("2024-01-01", periods=5)
         with pytest.raises(DataError, match="empty"):
             align_fx_rates(pd.DataFrame(), price_dates)
+
+
+class TestAlignFxRatesAsOf:
+    """Rates observed on dates outside the price calendar still seed the fill."""
+
+    def test_rate_on_non_price_date_fills_next_price_date(self) -> None:
+        # 2024-03-29 is a market holiday (no price) but FX still printed.
+        fx = pd.DataFrame(
+            {"GBP": [1.10, 1.20, 1.40]},
+            index=pd.to_datetime(["2024-03-28", "2024-03-29", "2024-04-02"]),
+        )
+        price_dates = pd.to_datetime(["2024-04-01", "2024-04-02"])
+
+        result = align_fx_rates(fx, price_dates)
+
+        assert result["GBP"].tolist() == [1.20, 1.40]
+
+    def test_rate_before_first_price_date_is_not_lost(self) -> None:
+        fx = pd.DataFrame(
+            {"GBP": [1.10, 1.30]},
+            index=pd.to_datetime(["2023-12-29", "2024-01-03"]),
+        )
+        price_dates = pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"])
+
+        result = align_fx_rates(fx, price_dates)
+
+        assert result["GBP"].tolist() == [1.10, 1.10, 1.30]
+
+    def test_month_end_uses_latest_print_not_prior_month_end(self) -> None:
+        fx_dates = pd.bdate_range("2024-01-31", "2024-02-28")
+        fx = pd.DataFrame(
+            {"GBP": np.linspace(1.30, 1.58, len(fx_dates))}, index=fx_dates
+        )
+        price_dates = pd.to_datetime(["2024-01-31", "2024-02-29"])
+
+        result = align_fx_rates(fx, price_dates)
+
+        assert result["GBP"].iloc[0] == pytest.approx(1.30)
+        assert result["GBP"].iloc[1] == pytest.approx(1.58)
+
+    def test_fill_limit_is_measured_in_business_days_not_price_rows(self) -> None:
+        # A single stale print must not carry across a sparse (monthly) index
+        # just because only one price row sits between it and the target.
+        fx = pd.DataFrame({"GBP": [1.30]}, index=pd.to_datetime(["2024-01-31"]))
+        price_dates = pd.to_datetime(["2024-01-31", "2024-02-29", "2024-03-29"])
+
+        result = align_fx_rates(fx, price_dates, fill_limit=5)
+
+        assert result["GBP"].isna().tolist() == [False, True, True]
+
+    def test_weekend_gap_counts_one_business_day(self) -> None:
+        fx = pd.DataFrame({"GBP": [1.30]}, index=pd.to_datetime(["2024-01-05"]))
+        # Friday print -> Mon..Fri is 1..5 business days later.
+        price_dates = pd.bdate_range("2024-01-08", periods=6)
+
+        result = align_fx_rates(fx, price_dates, fill_limit=5)
+
+        assert result["GBP"].isna().tolist() == [False] * 5 + [True]
+
+
+class TestAlignFxRatesFillLimitBounds:
+    """``None`` means no age cap; a negative cap is rejected, not silently NaN."""
+
+    def test_none_fill_limit_carries_rate_without_an_age_cap(self) -> None:
+        fx = pd.DataFrame({"GBP": [1.30]}, index=pd.to_datetime(["2024-01-31"]))
+        price_dates = pd.to_datetime(["2024-01-31", "2024-02-29", "2024-12-31"])
+
+        result = align_fx_rates(fx, price_dates, fill_limit=None)
+
+        assert result["GBP"].tolist() == [1.30, 1.30, 1.30]
+
+    def test_none_fill_limit_does_not_fill_before_first_print(self) -> None:
+        fx = pd.DataFrame({"GBP": [1.30]}, index=pd.to_datetime(["2024-01-05"]))
+        price_dates = pd.to_datetime(["2024-01-02", "2024-01-05", "2024-01-10"])
+
+        result = align_fx_rates(fx, price_dates, fill_limit=None)
+
+        assert result["GBP"].isna().tolist() == [True, False, False]
+
+    def test_negative_fill_limit_raises(self) -> None:
+        from optimizer.exceptions import DataError
+
+        dates = pd.bdate_range("2024-01-02", periods=3)
+        fx = pd.DataFrame({"GBP": [1.1, 1.2, 1.3]}, index=dates)
+
+        with pytest.raises(DataError, match="fill_limit"):
+            align_fx_rates(fx, dates, fill_limit=-1)
+
+
+class TestAlignFxRatesIndexTypes:
+    """The as-of fill needs date axes; anything else must not fill look-ahead."""
+
+    def test_date_string_price_index_matches_rates_by_date(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=5)
+        fx = pd.DataFrame({"GBP": [1.1, 1.2, 1.3, 1.4, 1.5]}, index=dates)
+        prices = pd.Index([d.strftime("%Y-%m-%d") for d in dates])
+
+        result = align_fx_rates(fx, prices)
+
+        # A future print must never fill an earlier row.
+        assert result["GBP"].tolist() == [1.1, 1.2, 1.3, 1.4, 1.5]
+        assert result.index.equals(prices)
+
+    def test_date_string_rates_index_matches_datetime_prices(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=3)
+        fx = pd.DataFrame(
+            {"GBP": [1.1, 1.2, 1.3]},
+            index=pd.Index([d.strftime("%Y-%m-%d") for d in dates]),
+        )
+
+        result = align_fx_rates(fx, dates)
+
+        assert result["GBP"].tolist() == [1.1, 1.2, 1.3]
+
+    def test_integer_price_index_raises(self) -> None:
+        from optimizer.exceptions import DataError
+
+        dates = pd.bdate_range("2024-01-02", periods=5)
+        fx = pd.DataFrame({"GBP": [1.1, 1.2, 1.3, 1.4, 1.5]}, index=dates)
+
+        with pytest.raises(DataError, match="price_index"):
+            align_fx_rates(fx, pd.RangeIndex(5))  # type: ignore[arg-type]
+
+    def test_unparseable_price_index_raises(self) -> None:
+        from optimizer.exceptions import DataError
+
+        dates = pd.bdate_range("2024-01-02", periods=2)
+        fx = pd.DataFrame({"GBP": [1.1, 1.2]}, index=dates)
+
+        with pytest.raises(DataError, match="price_index"):
+            align_fx_rates(fx, pd.Index(["AAA", "BBB"]))  # type: ignore[arg-type]
+
+    def test_integer_rates_index_raises(self) -> None:
+        from optimizer.exceptions import DataError
+
+        fx = pd.DataFrame({"GBP": [1.1, 1.2]})
+
+        with pytest.raises(DataError, match="fx_rates"):
+            align_fx_rates(fx, pd.bdate_range("2024-01-02", periods=2))
 
 
 class TestInvertFxRates:

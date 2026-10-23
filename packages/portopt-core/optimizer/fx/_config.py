@@ -42,8 +42,9 @@ class FxConfig:
             ``DECOMPOSE`` converts and also produces an FX return decomposition.
         data_source: Where to source FX rates (read by the rate loader, not
             by ``build_fx_converter``).
-        fill_limit: Maximum number of trading days to forward-fill missing FX
-            rates (weekends, holidays).
+        fill_limit: Maximum age, in business days, of an FX rate that may be
+            carried forward over weekends and holidays.  ``0`` converts with
+            same-day rates only.
         require_full_coverage: If ``True``, raise ``DataError`` when any
             required FX pair has insufficient data, or when a ticker has no
             known currency (absent from ``currency_map`` or mapped to
