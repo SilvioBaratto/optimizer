@@ -175,8 +175,11 @@ def _summarize_ic_history(ic_history: pd.DataFrame, decay_halflife: int) -> pd.S
 
     ``decay_halflife == 0`` returns the simple mean (legacy behaviour).
     Positive values apply EWM with the given half-life so recent observations
-    dominate stale ones.
+    dominate stale ones.  An empty history (cold start) yields NaN per group so
+    the caller's zero-weight fallback strategy decides the outcome.
     """
+    if ic_history.empty:
+        return pd.Series(np.nan, index=ic_history.columns, dtype=float)
     if decay_halflife <= 0:
         return ic_history.mean()
     return ic_history.ewm(halflife=decay_halflife, min_periods=1).mean().iloc[-1]
@@ -207,7 +210,8 @@ def compute_ic_weighted_composite(
         config = CompositeScoringConfig()
 
     lookback = min(config.ic_lookback, len(ic_history))
-    trimmed_ic = ic_history.iloc[-lookback:]
+    # Not iloc[-lookback:]: a zero lookback would select the whole history.
+    trimmed_ic = ic_history.iloc[len(ic_history) - lookback :]
     recent_ic = _summarize_ic_history(trimmed_ic, config.ic_decay_halflife)
 
     weights: dict[str, float] = {}

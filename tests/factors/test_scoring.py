@@ -1123,3 +1123,73 @@ class TestICFallbackStrategy:
         assert "1/2" in msg, (
             f"Expected '1/2' in warning (1 negative ICIR, not 2 zeros), got: {msg!r}"
         )
+
+
+class TestICWeightedEmptyHistory:
+    """A cold-start IC history must reach the configured fallback strategy."""
+
+    @staticmethod
+    def _empty_history(group_scores: pd.DataFrame) -> pd.DataFrame:
+        return pd.DataFrame(columns=list(group_scores.columns), dtype=float)
+
+    @pytest.mark.parametrize("halflife", [0, 3])
+    def test_empty_history_uses_equal_weight_fallback(
+        self,
+        standardized_factors: pd.DataFrame,
+        coverage: pd.DataFrame,
+        halflife: int,
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        config = CompositeScoringConfig.for_ic_weighted(ic_decay_halflife=halflife)
+        with pytest.warns(UserWarning, match="non-positive IC"):
+            result = compute_ic_weighted_composite(
+                group_scores, self._empty_history(group_scores), config
+            )
+        expected = compute_equal_weight_composite(group_scores, config)
+        pd.testing.assert_series_equal(result, expected)
+
+    def test_empty_history_with_halflife_honours_nan_strategy(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        config = CompositeScoringConfig(
+            method=CompositeMethod.IC_WEIGHTED,
+            ic_decay_halflife=3,
+            ic_fallback_strategy=ICFallbackStrategy.NAN,
+        )
+        with pytest.warns(UserWarning, match="non-positive IC"):
+            result = compute_ic_weighted_composite(
+                group_scores, self._empty_history(group_scores), config
+            )
+        assert result.isna().all()
+
+    def test_empty_history_with_halflife_honours_raise_strategy(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        config = CompositeScoringConfig(
+            method=CompositeMethod.IC_WEIGHTED,
+            ic_decay_halflife=3,
+            ic_fallback_strategy=ICFallbackStrategy.RAISE,
+        )
+        with pytest.raises(ConfigurationError, match="non-positive IC"):
+            compute_ic_weighted_composite(
+                group_scores, self._empty_history(group_scores), config
+            )
+
+    def test_zero_lookback_uses_no_history(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        """``iloc[-0:]`` would select the whole history; zero must select none."""
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        ic_history = pd.DataFrame(
+            0.05, index=range(12), columns=list(group_scores.columns)
+        )
+        config = CompositeScoringConfig(
+            method=CompositeMethod.IC_WEIGHTED,
+            ic_lookback=0,
+            ic_fallback_strategy=ICFallbackStrategy.NAN,
+        )
+        with pytest.warns(UserWarning, match="non-positive IC"):
+            result = compute_ic_weighted_composite(group_scores, ic_history, config)
+        assert result.isna().all()
