@@ -322,8 +322,10 @@ def apply_regime_tilts(
     1. Look up raw tilts from ``get_regime_tilts``.
     2. Clamp each multiplier to ``[0, config.max_tilt_multiplier]``.
     3. Apply clamped multiplier to each group weight.
-    4. Floor each result to ``config.min_post_tilt_weight * total``
-       so no group is compressed to near-zero.
+    4. Floor each result to ``config.min_post_tilt_weight * total`` so no
+       group is compressed to near-zero.  The floor is capped at the group's
+       own base weight, so it only undoes compression: untilted groups,
+       boosted groups and zero-weight (excluded) groups are never raised.
     5. Re-normalize to preserve the original total weight.
 
     Args:
@@ -352,7 +354,7 @@ def apply_regime_tilts(
 
     if original_total > 0:
         floor = config.min_post_tilt_weight * original_total
-        tilted = {g: max(w, floor) for g, w in tilted.items()}
+        tilted = {g: max(w, min(group_weights[g], floor)) for g, w in tilted.items()}
 
     tilted_total = sum(tilted.values())
     if tilted_total > 0 and original_total > 0:

@@ -800,3 +800,62 @@ class TestCompositeWithoutUsableIndicators:
         with caplog.at_level(logging.WARNING):
             classify_regime_composite(macro)
         assert "MacroRegime.UNKNOWN" in caplog.text
+
+
+class TestTiltFloorScope:
+    """The floor protects compressed groups; it must not reshape the rest."""
+
+    def test_unknown_regime_is_identity_for_groups_below_the_floor(self) -> None:
+        weights = {
+            FactorGroupType.VALUE: 0.90,
+            FactorGroupType.MOMENTUM: 0.08,
+            FactorGroupType.SENTIMENT: 0.02,
+        }
+        result = apply_regime_tilts(
+            weights, MacroRegime.UNKNOWN, RegimeTiltConfig(enable=True)
+        )
+        for group, weight in weights.items():
+            assert abs(result[group] - weight) < 1e-12
+
+    def test_zero_weight_group_stays_excluded(self) -> None:
+        weights = {
+            FactorGroupType.VALUE: 0.5,
+            FactorGroupType.MOMENTUM: 0.5,
+            FactorGroupType.LIQUIDITY: 0.0,
+        }
+        config = RegimeTiltConfig(enable=True)
+        for regime in MacroRegime:
+            result = apply_regime_tilts(weights, regime, config)
+            assert result[FactorGroupType.LIQUIDITY] == 0.0, regime
+            assert abs(sum(result.values()) - 1.0) < 1e-12
+
+    def test_untilted_small_group_is_not_boosted_by_other_tilts(self) -> None:
+        weights = {
+            FactorGroupType.VALUE: 0.5,
+            FactorGroupType.LOW_RISK: 0.48,
+            FactorGroupType.DIVIDEND: 0.02,
+        }
+        config = RegimeTiltConfig(
+            enable=True, recession_tilts=(("low_risk", 1.5), ("value", 0.8))
+        )
+        result = apply_regime_tilts(weights, MacroRegime.RECESSION, config)
+        scale = 1.0 / (0.5 * 0.8 + 0.48 * 1.5 + 0.02)
+        assert abs(result[FactorGroupType.DIVIDEND] - 0.02 * scale) < 1e-12
+
+    def test_floor_never_lifts_a_compressed_group_above_its_base_weight(
+        self,
+    ) -> None:
+        weights = {
+            FactorGroupType.VALUE: 0.97,
+            FactorGroupType.MOMENTUM: 0.03,
+        }
+        config = RegimeTiltConfig(
+            enable=True,
+            min_post_tilt_weight=0.10,
+            recession_tilts=(("momentum", 0.5),),
+        )
+        result = apply_regime_tilts(weights, MacroRegime.RECESSION, config)
+        # Floor (0.10) exceeds the base weight (0.03): a compressed group is
+        # held at its base weight, never raised past it.
+        assert abs(result[FactorGroupType.MOMENTUM] - 0.03) < 1e-12
+        assert abs(result[FactorGroupType.VALUE] - 0.97) < 1e-12

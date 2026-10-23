@@ -593,8 +593,10 @@ class RegimeTiltConfig:
             application. Must be >= 1.0.
         min_post_tilt_weight: Minimum weight any group may hold after tilting,
             expressed as a fraction of the original total weight (default 0.05).
-            Groups suppressed below this floor are raised to it before
-            renormalization. Must be in [0.0, 1.0).
+            Groups compressed below this floor by a tilt are raised to it
+            (never above their own base weight) before renormalization;
+            untilted and zero-weight groups are left alone. Must be in
+            [0.0, 1.0).
     """
 
     enable: bool = False
