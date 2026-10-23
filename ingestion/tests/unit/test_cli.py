@@ -270,7 +270,13 @@ class TestLifecycleCommands:
         with patch("app.setup.lifecycle.run_stop") as mock_run:
             result = runner.invoke(app, ["stop"])
         assert result.exit_code == 0
-        mock_run.assert_called_once()
+        mock_run.assert_called_once_with(all_services=False)
+
+    def test_stop_all_flag_stops_the_whole_stack(self) -> None:
+        with patch("app.setup.lifecycle.run_stop") as mock_run:
+            result = runner.invoke(app, ["stop", "--all"])
+        assert result.exit_code == 0
+        mock_run.assert_called_once_with(all_services=True)
 
     def test_status_all_ok_exits_zero(self) -> None:
         with patch(

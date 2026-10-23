@@ -478,17 +478,26 @@ def start(
 
 
 @app.command()
-def stop() -> None:
+def stop(
+    all_services: bool = typer.Option(
+        False,
+        "--all",
+        help="Stop the whole stack (daemon + db too) and wipe every rendered secret.",
+    ),
+) -> None:
     """Stop the fund decision engine (the ingestion daemon + db keep running)."""
     from app.setup import lifecycle
     from app.setup.docker_bootstrap import DockerError
 
     try:
-        lifecycle.run_stop()
+        lifecycle.run_stop(all_services=all_services)
     except DockerError as exc:
         typer.echo(f"Stop failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-    typer.echo("fund stopped (ingestion daemon still running).")
+    if all_services:
+        typer.echo("stack stopped; rendered secrets removed.")
+    else:
+        typer.echo("fund stopped (ingestion daemon still running).")
 
 
 @app.command()

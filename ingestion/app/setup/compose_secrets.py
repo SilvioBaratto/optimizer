@@ -4,14 +4,15 @@
 each value to `./secrets/<name>` (owner-only 0600), which docker-compose mounts
 at `/run/secrets/<name>`. Every declared secret is written — empty when
 unconfigured — so `docker compose up` never fails on a missing file. `portopt
-stop` calls `cleanup` to remove the plaintext files.
+stop` calls `cleanup` for the secrets no still-running service mounts (the fund's
+LLM keys); `portopt stop --all` and a failed setup remove every plaintext file.
 """
 
 from __future__ import annotations
 
 import contextlib
 import shutil
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 # Must match the top-level `secrets:` keys in docker-compose.yml.
@@ -38,6 +39,18 @@ SECRET_NAMES = (
     "azure_openai_api_key",
 )
 
+# The secrets the scheduler mounts (docker-compose.yml `scheduler.secrets`; parity-
+# tested). It restarts on its own (`restart: unless-stopped`), so these files must
+# outlive a fund-only stop; every other secret is consumed by the fund alone.
+DAEMON_SECRET_NAMES = (
+    "trading_212_api_key",
+    "trading_212_secret_key",
+    "fred_api_key",
+)
+FUND_ONLY_SECRET_NAMES = tuple(
+    name for name in SECRET_NAMES if name not in DAEMON_SECRET_NAMES
+)
+
 DEFAULT_SECRETS_DIR = Path("secrets")
 
 
@@ -61,9 +74,16 @@ def render(
     return written
 
 
-def cleanup(*, secrets_dir: Path | None = None) -> None:
-    """Remove rendered plaintext secret files (best effort)."""
+def cleanup(
+    *, secrets_dir: Path | None = None, names: Iterable[str] | None = None
+) -> None:
+    """Remove rendered plaintext secret files (best effort).
+
+    Args:
+        secrets_dir: Directory the files were rendered into.
+        names: Secrets to remove; every declared secret when omitted.
+    """
     target = secrets_dir or DEFAULT_SECRETS_DIR
-    for name in SECRET_NAMES:
+    for name in SECRET_NAMES if names is None else names:
         with contextlib.suppress(OSError):
             (target / name).unlink(missing_ok=True)

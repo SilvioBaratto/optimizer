@@ -5,9 +5,14 @@ up (fund + ingestion); `run_stop` stops only the fund, leaving the scheduler up;
 `run_status` reports docker + service health. All collaborators are patched.
 """
 
+from pathlib import Path
+
 import pytest
 
 from app.setup import lifecycle
+
+# unit -> setup -> tests -> ingestion -> repo root (docker-compose.yml owner).
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 @pytest.fixture
@@ -32,7 +37,9 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
         lambda secrets, **kw: calls.update(rendered=dict(secrets)),
     )
     monkeypatch.setattr(
-        lifecycle.compose_secrets, "cleanup", lambda **kw: calls.update(cleaned=True)
+        lifecycle.compose_secrets,
+        "cleanup",
+        lambda **kw: calls.update(cleaned=True, cleaned_names=kw.get("names")),
     )
     # Default to no persisted LLM config; real compose_env.render/cleanup run, but
     # against a tmp .env.fund so they never touch the repo root.
@@ -83,12 +90,12 @@ def test_run_start_propagates_bad_passphrase(
 
 
 def test_run_stop_stops_fund_and_keeps_scheduler(patched: dict) -> None:
-    """Stopping the fund halts only that service; the shared ./secrets stay for the
-    still-running scheduler, and only the fund's own .env.fund is removed."""
+    """Stopping the fund halts only that service; the scheduler's secrets stay, and
+    only the fund's own .env.fund and fund-only LLM keys are removed."""
     patched["env_fund_path"].write_text("LLM_PROVIDER=openai\n", encoding="utf-8")
     lifecycle.run_stop()
     assert patched["compose"] == ["stop:fund"]
-    assert patched["cleaned"] is False  # ./secrets kept for the running scheduler
+    assert patched["cleaned_names"] == lifecycle.compose_secrets.FUND_ONLY_SECRET_NAMES
     assert not patched["env_fund_path"].exists()  # fund's own env file wiped
 
 
@@ -305,3 +312,60 @@ def test_cleanup_rendered_is_a_noop_without_a_checkout(
     monkeypatch.setattr(path_install, "_repo_root", lambda: elsewhere)
     lifecycle.cleanup_rendered()  # must not raise or touch the cwd
     assert list(elsewhere.iterdir()) == []
+
+
+_DAEMON_FILES = ("trading_212_api_key", "trading_212_secret_key", "fred_api_key")
+_FUND_ONLY_FILES = (
+    "ollama_api_key",
+    "openai_api_key",
+    "anthropic_api_key",
+    "azure_openai_api_key",
+)
+
+
+def _render_with_every_key(real_render: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        lifecycle.secret_store,
+        "load_secrets",
+        lambda pw, **kw: dict.fromkeys((*_DAEMON_FILES, *_FUND_ONLY_FILES), "live"),
+    )
+    lifecycle.run_start("pw")
+
+
+def test_run_stop_wipes_the_fund_only_keys_but_keeps_the_schedulers(
+    real_render: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The scheduler keeps running (and restarts on boot), so its three mounted files
+    must survive a stop; the LLM keys only the stopped fund mounts must not."""
+    _render_with_every_key(real_render, monkeypatch)
+    secrets = real_render["repo"] / "secrets"
+    lifecycle.run_stop()
+    for name in _FUND_ONLY_FILES:
+        assert not (secrets / name).exists(), name
+    for name in _DAEMON_FILES:
+        assert (secrets / name).read_text(encoding="utf-8") == "live", name
+
+
+def _compose_services() -> set[str]:
+    """Every service docker-compose.yml declares, whatever profile gates it."""
+    yaml = pytest.importorskip("yaml")
+    doc = yaml.safe_load((_REPO_ROOT / "docker-compose.yml").read_text("utf-8"))
+    return set(doc["services"])
+
+
+def test_run_stop_all_stops_every_service_and_wipes_every_rendered_secret(
+    real_render: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stopped: list[list[str]] = []
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap, "stop_services", lambda s: stopped.append(list(s))
+    )
+    _render_with_every_key(real_render, monkeypatch)
+    repo = real_render["repo"]
+    lifecycle.run_stop(all_services=True)
+    assert len(stopped) == 1
+    assert set(stopped[0]) == _compose_services()
+    assert stopped[0][-1] == "db"
+    for name in (*_DAEMON_FILES, *_FUND_ONLY_FILES):
+        assert not (repo / "secrets" / name).exists(), name
+    assert not (repo / ".env.fund").exists()

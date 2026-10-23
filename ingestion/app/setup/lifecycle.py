@@ -2,7 +2,8 @@
 
 `run_start` decrypts `~/.portopt/secrets.enc`, renders the compose secret files,
 and brings the full stack up (the fund engine + the persistent ingestion daemon).
-`run_stop` stops only the fund engine, leaving the scheduler + db running.
+`run_stop` stops only the fund engine, leaving the scheduler + db running, and
+`run_stop(all_services=True)` takes the whole stack down.
 `run_status` reports Docker + service health.
 """
 
@@ -60,18 +61,30 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     docker_bootstrap.build_and_up(profiles=("fund", "ingestion"), force_build=rebuild)
 
 
-def run_stop() -> None:
+def run_stop(*, all_services: bool = False) -> None:
     """Stop the fund decision engine, leaving the ingestion daemon + db running.
 
     The scheduler is a persistent data daemon (daily pipeline, macro/news) that must
-    stay up, so stopping the fund no longer tears down the whole stack. Only the
-    fund's own ``.env.fund`` is removed; the shared ``./secrets`` files stay in place
-    for the still-running scheduler (``portopt start`` re-renders them anyway).
+    stay up, so stopping the fund no longer tears down the whole stack. The fund's
+    own ``.env.fund`` and the LLM keys only it mounts are wiped; the three scheduler
+    secrets stay in ``./secrets`` because the daemon restarts on its own and needs
+    them (``portopt start`` re-renders everything anyway).
+
+    Args:
+        all_services: Also stop the scheduler, adminer and db, then wipe every rendered
+            plaintext secret, so no key outlives the stack.
     """
-    docker_bootstrap.stop_services(["fund"])
-    compose_env.cleanup(
-        path=docker_bootstrap.compose_dir() / compose_env.DEFAULT_ENV_FUND_PATH
+    # `compose stop db` leaves its dependents running, so adminer (a db client that
+    # `portopt start` also launches) is named explicitly, and db goes last.
+    docker_bootstrap.stop_services(
+        ["fund", "scheduler", "adminer", "db"] if all_services else ["fund"]
     )
+    repo = docker_bootstrap.compose_dir()
+    compose_secrets.cleanup(
+        secrets_dir=repo / compose_secrets.DEFAULT_SECRETS_DIR,
+        names=None if all_services else compose_secrets.FUND_ONLY_SECRET_NAMES,
+    )
+    compose_env.cleanup(path=repo / compose_env.DEFAULT_ENV_FUND_PATH)
 
 
 def cleanup_rendered() -> None:

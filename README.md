@@ -170,13 +170,16 @@ Lifecycle:
 
 ```bash
 portopt start     # decrypt secrets → render as compose secrets → docker compose --profile fund up -d --wait
-portopt stop      # docker compose down + delete the rendered plaintext secret files
+portopt stop      # stop the fund engine + delete its plaintext LLM keys (daemon + db keep running)
+portopt stop --all  # stop the whole stack + delete every rendered plaintext secret
 portopt status    # report Docker + service health (non-zero exit if anything is down)
 ```
 
 > `portopt start` renders the encrypted secrets into git-ignored
-> `./secrets/<name>` files only for the lifetime of the stack; `portopt stop`
-> deletes them.
+> `./secrets/<name>` files. `portopt stop` deletes the LLM keys only the fund
+> mounts, but keeps the three the ingestion daemon mounts (Trading 212 key and
+> secret, FRED key): the daemon restarts on its own and needs them. Run
+> `portopt stop --all` to stop the daemon too and leave no plaintext on disk.
 
 ### 3. Developer setup (all four packages)
 

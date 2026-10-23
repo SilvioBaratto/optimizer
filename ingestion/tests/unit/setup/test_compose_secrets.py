@@ -2,7 +2,7 @@
 
 `render` writes every declared secret to `<secrets_dir>/<name>` (empty for
 unconfigured ones so `docker compose up` never fails on a missing file), each
-owner-only (0600); `cleanup` removes them on `portopt stop`.
+owner-only (0600); `cleanup` removes them (all, or just the ones named).
 """
 
 import sys
@@ -68,6 +68,36 @@ def test_cleanup_removes_rendered_files(tmp_path: Path) -> None:
     cs.render({"fred_api_key": "x"}, secrets_dir=tmp_path)
     cs.cleanup(secrets_dir=tmp_path)
     assert not any((tmp_path / name).exists() for name in cs.SECRET_NAMES)
+
+
+def test_cleanup_with_names_removes_only_those_files(tmp_path: Path) -> None:
+    cs.render({"fred_api_key": "x", "openai_api_key": "y"}, secrets_dir=tmp_path)
+    cs.cleanup(secrets_dir=tmp_path, names=["openai_api_key"])
+    assert not (tmp_path / "openai_api_key").exists()
+    assert (tmp_path / "fred_api_key").read_text(encoding="utf-8") == "x"
+
+
+def _scheduler_mounted_secrets() -> set[str]:
+    """Secret names listed under the `scheduler` service in docker-compose.yml."""
+    mounted: set[str] = set()
+    in_scheduler = in_secrets = False
+    for line in _COMPOSE.read_text(encoding="utf-8").splitlines():
+        if line.startswith("  ") and not line.startswith("   ") and line.strip():
+            in_scheduler = line.strip() == "scheduler:"
+            in_secrets = False
+        elif in_scheduler and line.startswith("    ") and not line.startswith("     "):
+            in_secrets = line.strip() == "secrets:"
+        elif in_scheduler and in_secrets and line.strip().startswith("- "):
+            mounted.add(line.strip()[2:])
+    return mounted
+
+
+def test_daemon_and_fund_only_names_partition_the_declared_secrets() -> None:
+    assert set(cs.DAEMON_SECRET_NAMES) == _scheduler_mounted_secrets()
+    assert set(cs.DAEMON_SECRET_NAMES) | set(cs.FUND_ONLY_SECRET_NAMES) == set(
+        cs.SECRET_NAMES
+    )
+    assert not set(cs.DAEMON_SECRET_NAMES) & set(cs.FUND_ONLY_SECRET_NAMES)
 
 
 def test_cleanup_missing_dir_is_noop(tmp_path: Path) -> None:
