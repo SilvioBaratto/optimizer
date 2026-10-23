@@ -675,6 +675,127 @@ class TestSectorBandsAndFactorExposure:
         np.testing.assert_array_equal(model.right_inequality, custom_right)
 
 
+class TestSectorBandsValidation:
+    """Regime bands are checked against the universe before any fit."""
+
+    def test_caps_of_present_sectors_below_budget_warn_not_raise(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Unmapped assets may absorb weight, so low caps only warn."""
+        from optimizer.factors import MacroRegime, resolve_sector_bands
+
+        mapping = {
+            "A": "Technology",
+            "B": "Technology",
+            "C": "Healthcare",
+            "D": "Energy",
+        }
+        bands = resolve_sector_bands(MacroRegime.RECESSION)
+        with caplog.at_level("WARNING", logger="optimizer.optimization._factory"):
+            model = build_mean_risk(
+                MeanRiskConfig(), sector_mapping=mapping, sector_bands=bands
+            )
+        assert any("Technology <=" in row for row in model.linear_constraints)
+        assert "caps" in caplog.text
+
+    def test_sector_mapping_covering_part_of_the_universe_builds_and_fits(
+        self,
+    ) -> None:
+        """A ticker missing from the mapping is a singleton group, not a violation."""
+        rng = np.random.default_rng(11)
+        cols = ["A", "B", "C", "D", "E", "F"]
+        returns = pd.DataFrame(rng.normal(0.001, 0.02, (250, 6)), columns=cols)
+        mapping = {"A": "Technology", "B": "Technology", "C": "Energy", "D": "Energy"}
+        model = build_mean_risk(
+            MeanRiskConfig(),
+            sector_mapping=mapping,
+            sector_bands={"Technology": (0.0, 0.3), "Energy": (0.0, 0.3)},
+        )
+        model.fit(returns)
+        weights = pd.Series(model.weights_, index=cols)
+        assert weights[["A", "B"]].sum() <= 0.3 + 1e-6
+        assert weights[["C", "D"]].sum() <= 0.3 + 1e-6
+        assert weights[["E", "F"]].sum() >= 0.4 - 1e-6
+
+    def test_floor_above_cap_raises(self) -> None:
+        mapping = {"A": "Technology", "B": "Energy"}
+        with pytest.raises(ValueError, match="Technology"):
+            build_mean_risk(
+                MeanRiskConfig(),
+                sector_mapping=mapping,
+                sector_bands={"Technology": (0.5, 0.2), "Energy": (0.0, 1.0)},
+            )
+
+    def test_floors_summing_above_one_raise(self) -> None:
+        mapping = {"A": "Technology", "B": "Energy"}
+        with pytest.raises(ValueError, match="floors"):
+            build_mean_risk(
+                MeanRiskConfig(),
+                sector_mapping=mapping,
+                sector_bands={"Technology": (0.6, 0.9), "Energy": (0.6, 0.9)},
+            )
+
+    def test_bands_for_absent_sectors_are_dropped_with_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        mapping = {"A": "Technology", "B": "Energy"}
+        bands = {
+            "Technology": (0.1, 0.7),
+            "Energy": (0.0, 0.6),
+            "Utilities": (0.05, 0.3),
+        }
+        with caplog.at_level("WARNING", logger="optimizer.optimization._factory"):
+            model = build_mean_risk(
+                MeanRiskConfig(), sector_mapping=mapping, sector_bands=bands
+            )
+        constraints = list(model.linear_constraints)
+        assert not any("Utilities" in row for row in constraints)
+        assert "Technology <= 0.7" in constraints
+        assert "Utilities" in caplog.text
+
+    def test_no_band_sector_present_in_universe_raises(self) -> None:
+        """A GICS 'Health Care' vs Yahoo 'Healthcare' mismatch must not no-op."""
+        mapping = {"A": "Health Care", "B": "Health Care"}
+        with pytest.raises(ValueError, match="Healthcare"):
+            build_mean_risk(
+                MeanRiskConfig(),
+                sector_mapping=mapping,
+                sector_bands={"Healthcare": (0.1, 0.3)},
+            )
+
+    def test_unclassified_assets_skip_the_cap_sum_check(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An asset without a sector is unconstrained, so it can absorb weight."""
+        mapping = {"A": "Technology", "B": "Energy", "C": None}  # type: ignore[dict-item]
+        with caplog.at_level("WARNING", logger="optimizer.optimization._factory"):
+            model = build_mean_risk(
+                MeanRiskConfig(),
+                sector_mapping=mapping,
+                sector_bands={"Technology": (0.0, 0.2), "Energy": (0.0, 0.2)},
+            )
+        assert "Technology <= 0.2" in list(model.linear_constraints)
+        assert "caps" not in caplog.text
+
+    def test_feasible_partial_universe_still_fits_within_caps(self) -> None:
+        rng = np.random.default_rng(7)
+        cols = ["A", "B", "C", "D"]
+        returns = pd.DataFrame(rng.normal(0.001, 0.02, (250, 4)), columns=cols)
+        mapping = {"A": "Technology", "B": "Technology", "C": "Energy", "D": "Energy"}
+        bands = {
+            "Technology": (0.1, 0.6),
+            "Energy": (0.1, 0.8),
+            "Utilities": (0.05, 0.3),
+        }
+        model = build_mean_risk(
+            MeanRiskConfig(), sector_mapping=mapping, sector_bands=bands
+        )
+        model.fit(returns)
+        weights = pd.Series(model.weights_, index=cols)
+        assert weights[["A", "B"]].sum() <= 0.6 + 1e-6
+        assert weights[["C", "D"]].sum() >= 0.1 - 1e-6
+
+
 # ---------------------------------------------------------------------------
 # Resilience layer (skfolio 1.0): raise_on_failure / fallback
 # ---------------------------------------------------------------------------

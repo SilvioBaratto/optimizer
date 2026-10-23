@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from skfolio.measures import RiskMeasure
@@ -159,6 +160,87 @@ def _validate_sector_floors(
                 )
 
 
+def _is_sector_label(value: object) -> bool:
+    """Return whether ``value`` names a sector (non-empty ``str``)."""
+    return isinstance(value, str) and bool(value)
+
+
+def _resolve_enforceable_bands(
+    sector_bands: dict[str, tuple[float, float]],
+    groups: object,
+    budget: float | None,
+) -> dict[str, tuple[float, float]]:
+    """Validate regime bands against the sectors named by ``groups``.
+
+    skfolio drops, with only a ``UserWarning``, every constraint row naming a
+    group absent from ``groups``.  Rows that survive are checked here for the
+    errors that hold whatever the asset universe is.  Cap/budget feasibility
+    is only warned about: the universe is not known at build time, and an
+    asset missing from the mapping is a singleton group in skfolio, so it is
+    unconstrained and may absorb the weight the caps leave over.
+
+    Args:
+        sector_bands: Mapping from sector name to ``(floor, cap)``.
+        groups: Asset -> sector mapping that skfolio will receive.  Presence
+            and cap-sum checks only run for a mapping; any other form
+            (e.g. an array) is passed through after the floor/cap checks.
+        budget: Portfolio budget, or ``None`` when unconstrained.
+
+    Returns:
+        The subset of ``sector_bands`` whose sector occurs in ``groups``.
+
+    Raises:
+        ValueError: If a floor exceeds its cap, if no band sector occurs in
+            ``groups`` (typically a naming mismatch), or if the floors of the
+            present sectors sum above 1.0.
+    """
+    for sector, (floor, cap) in sector_bands.items():
+        if floor > cap + 1e-9:
+            raise ValueError(
+                f"sector_bands[{sector!r}] floor {floor:.4f} exceeds cap {cap:.4f}."
+            )
+    if not isinstance(groups, Mapping):
+        return dict(sector_bands)
+
+    present = {label for label in groups.values() if _is_sector_label(label)}
+    absent = sorted(set(sector_bands) - present)
+    if len(absent) == len(sector_bands):
+        raise ValueError(
+            f"No sector_bands sector {absent} occurs in the sector mapping "
+            f"(sectors present: {sorted(present)}); check for a naming mismatch."
+        )
+    if absent:
+        logger.warning(
+            "sector_bands for sectors absent from the universe are skipped: %s.",
+            absent,
+        )
+    active = {s: b for s, b in sector_bands.items() if s in present}
+
+    floor_sum = sum(floor for floor, _ in active.values())
+    if floor_sum > 1.0 + 1e-9:
+        raise ValueError(
+            f"sector_bands floors of the present sectors sum to {floor_sum:.4f} "
+            "> 1.0; floors are infeasible."
+        )
+
+    # An asset without a sector label, or in a sector without a band, is
+    # unconstrained and can absorb the remaining weight.
+    fully_capped = present <= active.keys() and all(
+        _is_sector_label(label) for label in groups.values()
+    )
+    if budget is not None and fully_capped:
+        cap_sum = sum(cap for _, cap in active.values())
+        if cap_sum < budget - 1e-9:
+            logger.warning(
+                "sector_bands caps of the sectors in the mapping sum to %.4f < "
+                "budget %.4f; the fit is infeasible unless assets missing from "
+                "the mapping absorb the remainder.",
+                cap_sum,
+                budget,
+            )
+    return active
+
+
 def build_mean_risk(
     config: MeanRiskConfig | None = None,
     *,
@@ -203,7 +285,13 @@ def build_mean_risk(
             low-level factory path for injecting regime-conditional sector
             bands into a `MeanRisk` optimizer. Requires ``sector_mapping``
             (or an explicit ``groups`` in ``kwargs``); raises ``ValueError``
-            otherwise. ``None`` is a no-op.
+            otherwise. Bands for sectors absent from the mapping are skipped
+            with a warning. ``ValueError`` is raised when no band sector
+            occurs in the mapping, when a floor exceeds its cap, or when the
+            floors sum to > 1.0. Caps summing below ``config.budget`` over a
+            fully capped mapping only log a warning, since an asset missing
+            from the mapping is unconstrained and may absorb the remainder.
+            ``None`` is a no-op.
         **kwargs: Additional keyword arguments forwarded to the
             `MeanRisk` constructor (for non-serialisable parameters
             such as ``previous_weights``, ``groups``,
@@ -264,7 +352,10 @@ def build_mean_risk(
                 "available)."
             )
         kwargs.setdefault("groups", sector_mapping)
-        sector_constraints.extend(_build_sector_cap_constraints(sector_bands))
+        enforceable_bands = _resolve_enforceable_bands(
+            sector_bands, kwargs["groups"], config.budget
+        )
+        sector_constraints.extend(_build_sector_cap_constraints(enforceable_bands))
 
     if sector_constraints:
         kwargs.setdefault("linear_constraints", sector_constraints)
