@@ -177,6 +177,11 @@ class TestInputRobustness:
             compute_rebalancing_cost([0.6, 0.4], [0.5, 0.5], np.array([[0.01, 0.02]]))
 
 
+# Convex solvers (skfolio MeanRisk MAXIMIZE_RATIO included) return 1e-12 up to a
+# few 1e-6, and occasionally tens of 1e-6, where the true weight is zero.
+SOLVER_NOISE = [1e-12, 1e-9, 1e-6, 2e-6, 5e-6, 2e-5, 5e-5]
+
+
 class TestDriftBreachMask:
     def test_absolute_per_asset(self) -> None:
         current = np.array([0.56, 0.24, 0.20])
@@ -216,6 +221,72 @@ class TestDriftBreachMask:
         cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
         mask = drift_breach_mask(current, target, cfg)
         np.testing.assert_array_equal(mask, [False, True])
+
+    @pytest.mark.parametrize("noise", SOLVER_NOISE)
+    def test_relative_ignores_solver_dust_in_target(self, noise: float) -> None:
+        """A solver-noise target is not a position to measure relatively."""
+        current = np.array([0.5, 0.5, 0.0])
+        target = np.array([0.5, 0.5 - noise, noise])
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        mask = drift_breach_mask(current, target, cfg)
+        np.testing.assert_array_equal(mask, [False, False, False])
+        assert should_rebalance(current, target, cfg) is False
+
+    @pytest.mark.parametrize("noise", SOLVER_NOISE)
+    def test_relative_ignores_held_dust_against_zero_target(self, noise: float) -> None:
+        """A solver-noise residue held against a zero target is not an exit."""
+        current = np.array([0.5, 0.5 - noise, noise])
+        target = np.array([0.5, 0.5, 0.0])
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        mask = drift_breach_mask(current, target, cfg)
+        np.testing.assert_array_equal(mask, [False, False, False])
+
+    @pytest.mark.parametrize("noise", SOLVER_NOISE)
+    def test_relative_ignores_noise_targets_across_a_wide_book(
+        self, noise: float
+    ) -> None:
+        """Sleeves flattened by hand while the solver keeps noise there."""
+        n = 30
+        current = np.zeros(n)
+        current[:20] = 1.0 / 20
+        target = np.zeros(n)
+        target[:20] = (1.0 - 10 * noise) / 20
+        target[20:] = noise
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        assert should_rebalance(current, target, cfg) is False
+
+    def test_relative_material_position_exit_to_dust_target_flagged(self) -> None:
+        """A real position whose target collapsed to dust is still an exit."""
+        current = np.array([0.5, 0.3, 0.2])
+        target = np.array([0.5, 0.5 - 1e-9, 1e-9])
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        mask = drift_breach_mask(current, target, cfg)
+        np.testing.assert_array_equal(mask, [False, True, True])
+
+    def test_relative_held_position_above_dust_floor_exits_to_zero_target(
+        self,
+    ) -> None:
+        """A 5bp holding is a real position: a zero target is an exit."""
+        current = np.array([0.5, 0.4995, 0.0005])
+        target = np.array([0.5, 0.5, 0.0])
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        mask = drift_breach_mask(current, target, cfg)
+        np.testing.assert_array_equal(mask, [False, False, True])
+
+    def test_relative_target_above_dust_floor_is_a_real_entry(self) -> None:
+        """A 5bp target from flat is a position, not noise, so it is an entry."""
+        current = np.array([0.5, 0.5, 0.0])
+        target = np.array([0.5, 0.4995, 0.0005])
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        mask = drift_breach_mask(current, target, cfg)
+        np.testing.assert_array_equal(mask, [False, False, True])
+
+    def test_relative_entry_into_material_target_from_flat_flagged(self) -> None:
+        current = np.array([0.6, 0.4, 0.0])
+        target = np.array([0.5, 0.4, 0.1])
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        mask = drift_breach_mask(current, target, cfg)
+        np.testing.assert_array_equal(mask, [False, False, True])
 
     def test_mask_matches_should_rebalance(self) -> None:
         current = np.array([0.54, 0.26, 0.20])

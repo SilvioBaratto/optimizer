@@ -21,6 +21,14 @@ from optimizer.rebalancing._config import (
 
 logger = logging.getLogger(__name__)
 
+# Convex solvers return 1e-12..1e-6 where the true weight is zero, and up to a
+# few 1e-5 on wide books (skfolio MeanRisk maximising the ratio over 30 assets
+# was measured at ~5e-6). One basis point clears that with margin and is far
+# below any position worth a trade. Below this magnitude a weight is noise, so
+# a relative band must neither measure it against itself nor treat it as a
+# position that needs exiting.
+_WEIGHT_DUST = 1e-4
+
 
 def _as_1d(name: str, arr: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """Coerce *arr* to a 1-D float64 array, raising on wrong dimensionality."""
@@ -136,11 +144,13 @@ def drift_breach_mask(
 
     Returns:
         Boolean array, shape (n_assets,), with ``True`` for each asset whose
-        drift breaches the threshold. Under a relative threshold, a zero-target
-        position that still carries weight is always flagged (explicit exit
-        intent). Short (negative) target weights are measured against the
-        magnitude of the target so a short book is treated symmetrically with
-        a long book.
+        drift breaches the threshold. Under a relative threshold, a
+        (near-)zero-target position that still carries a material weight is
+        always flagged (explicit exit intent); weights below one basis point
+        (``1e-4``) in magnitude are treated as solver noise, so dust targets
+        and dust holdings never trigger a breach on their own. Short (negative) target
+        weights are measured against the magnitude of the target so a short
+        book is treated symmetrically with a long book.
     """
     if config is None:
         config = ThresholdRebalancingConfig()
@@ -154,12 +164,15 @@ def drift_breach_mask(
     if config.threshold_type == ThresholdType.ABSOLUTE:
         return drifts > config.threshold
 
-    # Relative threshold: any zero-target position that still carries weight
-    # (long *or* short) always requires rebalancing (explicit exit intent).
-    # Non-zero targets use their absolute magnitude as the denominator so
-    # negative (short) targets are measured symmetrically with positive ones.
-    exit_needed = (tgt == 0) & (cur != 0)
-    safe_targets = np.where(tgt != 0, np.abs(tgt), np.inf)
+    # Relative threshold: any zero-target position that still carries material
+    # weight (long *or* short) always requires rebalancing (explicit exit
+    # intent). Material targets use their absolute magnitude as the
+    # denominator so negative (short) targets are measured symmetrically with
+    # positive ones; dust targets get an infinite denominator and never breach.
+    tgt_magnitude = np.abs(tgt)
+    material_target = tgt_magnitude >= _WEIGHT_DUST
+    exit_needed = ~material_target & (np.abs(cur) >= _WEIGHT_DUST)
+    safe_targets = np.where(material_target, tgt_magnitude, np.inf)
     relative_drifts = drifts / safe_targets
     return exit_needed | (relative_drifts > config.threshold)
 
