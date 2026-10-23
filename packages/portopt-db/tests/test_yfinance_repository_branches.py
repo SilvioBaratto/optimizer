@@ -874,6 +874,12 @@ class TestGetStalenessInfo:
             "price_max_date",
             "profile_updated_at",
             "financials_updated_at",
+            "income_statement_annual_updated_at",
+            "income_statement_quarterly_updated_at",
+            "balance_sheet_annual_updated_at",
+            "balance_sheet_quarterly_updated_at",
+            "cashflow_annual_updated_at",
+            "cashflow_quarterly_updated_at",
             "dividends_updated_at",
             "splits_updated_at",
             "recommendations_updated_at",
@@ -884,6 +890,102 @@ class TestGetStalenessInfo:
             "news_updated_at",
         }
         assert expected_keys == set(info.keys())
+
+
+class TestStatementStaleness:
+    """``financials_updated_at`` means "every statement is fresh".
+
+    It is the oldest per-group marker (NULL while any group is missing), not
+    MAX(updated_at) over the table, so one statement stored during a rate-limit
+    burst does not hide the statements that failed.
+    """
+
+    _GROUPS = (
+        ("income_statement", "annual"),
+        ("income_statement", "quarterly"),
+        ("balance_sheet", "annual"),
+        ("balance_sheet", "quarterly"),
+        ("cashflow", "annual"),
+        ("cashflow", "quarterly"),
+    )
+
+    def _seed(
+        self,
+        session: Session,
+        inst: Instrument,
+        stmt_type: str,
+        period_type: str,
+        updated_at: datetime,
+    ) -> None:
+        session.add(
+            FinancialStatement(
+                instrument_id=inst.id,
+                statement_type=stmt_type,
+                period_type=period_type,
+                period_date=date(2024, 12, 31),
+                line_item="TotalRevenue",
+                value=1.0,
+                updated_at=updated_at,
+            )
+        )
+        session.flush()
+
+    def test_when_only_some_statements_stored_then_financials_not_fresh(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        self._seed(db_session, inst, "income_statement", "annual", datetime(2025, 1, 5))
+
+        info = _repo(db_session).get_staleness_info(inst.id)
+
+        assert info["financials_updated_at"] is None
+        assert info["income_statement_annual_updated_at"] == datetime(2025, 1, 5)
+        assert info["balance_sheet_annual_updated_at"] is None
+        assert info["cashflow_quarterly_updated_at"] is None
+
+    def test_financials_updated_at_is_the_oldest_statement_group(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        for i, (stmt_type, period_type) in enumerate(self._GROUPS):
+            self._seed(
+                db_session, inst, stmt_type, period_type, datetime(2025, 1, 10 + i)
+            )
+
+        info = _repo(db_session).get_staleness_info(inst.id)
+
+        assert info["financials_updated_at"] == datetime(2025, 1, 10)
+        assert info["cashflow_quarterly_updated_at"] == datetime(2025, 1, 15)
+
+    def test_valuation_rows_do_not_make_statements_look_fresh(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        self._seed(
+            db_session,
+            inst,
+            "valuation_measures",
+            "point_in_time",
+            datetime(2025, 1, 5),
+        )
+
+        info = _repo(db_session).get_staleness_info(inst.id)
+
+        assert info["financials_updated_at"] is None
+
+    def test_bulk_matches_single_for_statement_staleness(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        for i, (stmt_type, period_type) in enumerate(self._GROUPS[:4]):
+            self._seed(
+                db_session, inst, stmt_type, period_type, datetime(2025, 2, 1 + i)
+            )
+        repo = _repo(db_session)
+
+        assert repo.get_staleness_info_bulk([inst.id])[inst.id] == (
+            repo.get_staleness_info(inst.id)
+        )
 
 
 # ---------------------------------------------------------------------------

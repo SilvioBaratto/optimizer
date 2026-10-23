@@ -142,6 +142,67 @@ class TestValuationEpsStalenessGate:
         yf.analysis.fetch_eps_revisions.assert_called_once()
 
 
+class TestStatementStalenessGate:
+    """Each financial statement is gated on its own freshness.
+
+    One stored statement must not make the whole block look fresh: statements
+    that failed during a rate-limit burst are retried on the next run instead of
+    waiting out the window.
+    """
+
+    _ALL_GROUPS = (
+        "income_statement_annual",
+        "income_statement_quarterly",
+        "balance_sheet_annual",
+        "balance_sheet_quarterly",
+        "cashflow_annual",
+        "cashflow_quarterly",
+    )
+
+    def _staleness(self, *fresh_groups: str) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        staleness: dict[str, Any] = {"price_max_date": None}
+        for group in fresh_groups:
+            staleness[f"{group}_updated_at"] = now
+        return staleness
+
+    def test_only_the_stale_statements_are_refetched(self) -> None:
+        repo = _make_repo(staleness=self._staleness("income_statement_annual"))
+        yf = _make_yf_client_silent()
+
+        result = _run(repo, yf, mode="incremental")
+
+        income_flags = [
+            c.kwargs["quarterly"]
+            for c in yf.financials.fetch_income_stmt.call_args_list
+        ]
+        assert income_flags == [True]
+        assert yf.financials.fetch_balance_sheet.call_count == 2
+        assert yf.financials.fetch_cashflow.call_count == 2
+        assert "financials" not in result["skipped"]
+
+    def test_financials_skipped_when_every_statement_is_fresh(self) -> None:
+        repo = _make_repo(staleness=self._staleness(*self._ALL_GROUPS))
+        yf = _make_yf_client_silent()
+
+        result = _run(repo, yf, mode="incremental")
+
+        assert "financials" in result["skipped"]
+        yf.financials.fetch_income_stmt.assert_not_called()
+        yf.financials.fetch_balance_sheet.assert_not_called()
+        yf.financials.fetch_cashflow.assert_not_called()
+
+    def test_full_mode_refetches_every_statement_despite_fresh_markers(self) -> None:
+        repo = _make_repo(staleness=self._staleness(*self._ALL_GROUPS))
+        yf = _make_yf_client_silent()
+
+        _run(repo, yf, mode="full")
+
+        assert yf.financials.fetch_income_stmt.call_count == 2
+        assert yf.financials.fetch_balance_sheet.call_count == 2
+        assert yf.financials.fetch_cashflow.call_count == 2
+
+
 class TestPriceUnit:
     """GBp/sub-unit prices (SPEC OQ2): the listing currency is stored as-is on
     price rows so the fx layer converts — no lossy transform at ingest."""

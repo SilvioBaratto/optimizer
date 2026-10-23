@@ -21,7 +21,11 @@ import pandas as pd
 from portopt_db.repositories.market_data.etf_metadata_repository import (
     ETFMetadataRepository,
 )
-from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
+from portopt_db.repositories.market_data.yfinance_repository import (
+    FINANCIAL_STATEMENT_GROUPS,
+    YFinanceRepository,
+    statement_staleness_key,
+)
 
 from app.services._shared import ProgressCallback, _noop, has_sufficient_history
 from app.services.market_data.yfinance import YFinanceClient
@@ -502,13 +506,20 @@ class YFinanceDataService:
                 statement_currency_cell.append(_financial_currency(info_for_currency))
             return statement_currency_cell[0]
 
-        if (
-            mode == "incremental"
-            and staleness is not None
-            and _is_fresh(
-                staleness.get("financials_updated_at"), thresholds.financials_hours, now
+        # Gated per statement: one statement stored during a rate-limit burst
+        # must not hide the ones that failed until the window expires.
+        def _statement_fresh(stmt_type: str, period_type: str) -> bool:
+            return (
+                mode == "incremental"
+                and staleness is not None
+                and _is_fresh(
+                    staleness.get(statement_staleness_key(stmt_type, period_type)),
+                    thresholds.financials_hours,
+                    now,
+                )
             )
-        ):
+
+        if all(_statement_fresh(st, pt) for st, pt in FINANCIAL_STATEMENT_GROUPS):
             skipped.append("financials")
         else:
             try:
@@ -538,6 +549,8 @@ class YFinanceDataService:
                     ("cashflow", self.yf_client.financials.fetch_cashflow, True),
                 ]:
                     period_type = "quarterly" if quarterly_flag else "annual"
+                    if _statement_fresh(stmt_type, period_type):
+                        continue
                     _fm, _qf = fetch_method, quarterly_flag
                     try:
                         df = self._timed(
