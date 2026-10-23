@@ -288,6 +288,79 @@ class TestPointInTimeMarketMoves:
         assert row.source_counts["market_rows"] == 0
 
 
+class TestFredPlaceholderRows:
+    """FRED ``.`` placeholders (stored as NULL) never become latest or prior."""
+
+    def test_null_latest_row_is_skipped_for_the_last_real_readings(
+        self, committing_session: Session
+    ) -> None:
+        """A holiday NULL on ``as_of`` falls back to the two last real values."""
+        committing_session.add_all(
+            [
+                FredObservation(
+                    series_id="T10Y2Y", date=datetime.date(2023, 12, 29), value=0.30
+                ),
+                FredObservation(
+                    series_id="T10Y2Y", date=datetime.date(2024, 1, 1), value=0.40
+                ),
+                FredObservation(series_id="T10Y2Y", date=_AS_OF, value=None),
+            ]
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.macro_deltas["T10Y2Y"] == {
+            "latest": 0.40,
+            "date": "2024-01-01",
+            "prior": 0.30,
+            "delta": 0.1,
+        }
+        assert "None" not in row.narrative
+
+    def test_null_prior_row_does_not_drop_the_delta(
+        self, committing_session: Session
+    ) -> None:
+        """A NULL between two real readings still yields their delta."""
+        committing_session.add_all(
+            [
+                FredObservation(
+                    series_id="T10Y2Y", date=datetime.date(2023, 12, 29), value=0.30
+                ),
+                FredObservation(
+                    series_id="T10Y2Y", date=datetime.date(2024, 1, 1), value=None
+                ),
+                FredObservation(series_id="T10Y2Y", date=_AS_OF, value=0.45),
+            ]
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        delta = row.macro_deltas["T10Y2Y"]
+        assert delta["prior"] == 0.30
+        assert delta["delta"] == 0.15
+
+    def test_series_with_only_null_rows_is_omitted(
+        self, committing_session: Session
+    ) -> None:
+        """A series holding nothing but placeholders contributes no entry."""
+        committing_session.add(
+            FredObservation(series_id="T10Y2Y", date=_AS_OF, value=None)
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.macro_deltas == {}
+
+
 class TestIdempotency:
     """Re-running the builder for a date converges to a single row."""
 

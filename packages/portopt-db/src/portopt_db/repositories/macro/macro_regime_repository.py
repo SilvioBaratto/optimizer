@@ -504,6 +504,7 @@ class MacroRegimeRepository(RepositoryBase):
         start_date: datetime.date | None = None,
         end_date: datetime.date | None = None,
         limit: int | None = None,
+        exclude_null: bool = False,
     ) -> Sequence[FredObservation]:
         """Return FRED observations with optional filters.
 
@@ -513,6 +514,9 @@ class MacroRegimeRepository(RepositoryBase):
             end_date: Inclusive upper bound on observation date.
             limit: When supplied, the *limit* most-recent rows are fetched and
                 re-sorted ascending so ``result[-1]`` is always the latest value.
+            exclude_null: Drop rows whose ``value`` is NULL (FRED ``.``
+                placeholders for holidays/missing readings) before *limit* is
+                applied, so the window holds the most recent real readings.
 
         Returns:
             Rows ordered by series_id and date ascending. When *limit* is
@@ -525,6 +529,8 @@ class MacroRegimeRepository(RepositoryBase):
             stmt = stmt.where(FredObservation.date >= start_date)
         if end_date:
             stmt = stmt.where(FredObservation.date <= end_date)
+        if exclude_null:
+            stmt = stmt.where(FredObservation.value.is_not(None))
 
         if limit is not None:
             stmt = stmt.order_by(

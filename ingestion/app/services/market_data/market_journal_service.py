@@ -82,7 +82,9 @@ def _build_macro_deltas(
     """Return latest-vs-prior deltas for each FRED series that has data.
 
     Only observations dated on or before ``as_of`` are considered, so a
-    backfilled digest never carries values from after its own date.
+    backfilled digest never carries values from after its own date.  FRED ``.``
+    placeholders (stored as NULL on holidays) are skipped so latest/prior are the
+    two most recent real readings.
 
     The ``as_of`` cap removes look-ahead only for the daily market series
     (spreads, VIX, Treasury rates, dollar index).  FRED rows store the
@@ -98,7 +100,9 @@ def _build_macro_deltas(
     """
     out: dict[str, Any] = {}
     for sid in series_ids:
-        obs = list(repo.get_fred_observations(sid, end_date=as_of, limit=2))
+        obs = list(
+            repo.get_fred_observations(sid, end_date=as_of, limit=2, exclude_null=True)
+        )
         if not obs:
             continue
         latest = obs[-1]

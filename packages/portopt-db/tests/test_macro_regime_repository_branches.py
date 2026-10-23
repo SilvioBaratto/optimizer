@@ -715,6 +715,30 @@ class TestGetFredObservations:
         assert len(results) == 1
 
 
+class TestGetFredObservationsExcludeNull:
+    _D1 = _D(2026, 1, 1)
+    _D2 = _D(2026, 2, 1)
+    _D3 = _D(2026, 3, 1)
+
+    def test_exclude_null_drops_placeholder_rows_before_limit(
+        self, db_session: Session
+    ) -> None:
+        _flush(
+            db_session,
+            _fred("S", self._D1, 1.0),
+            _fred("S", self._D2, 2.0),
+            _fred("S", self._D3, None),
+        )
+        repo = MacroRegimeRepository(db_session)
+        results = repo.get_fred_observations(series_id="S", limit=2, exclude_null=True)
+        assert [r.date for r in results] == [self._D1, self._D2]
+
+    def test_default_keeps_placeholder_rows(self, db_session: Session) -> None:
+        _flush(db_session, _fred("S", self._D1, 1.0), _fred("S", self._D2, None))
+        repo = MacroRegimeRepository(db_session)
+        assert len(repo.get_fred_observations(series_id="S")) == 2
+
+
 # ===========================================================================
 # get_fred_latest_date
 # ===========================================================================
