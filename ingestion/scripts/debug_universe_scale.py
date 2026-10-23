@@ -7,16 +7,17 @@ fetch_info (quoteSummary) keeps working — and the filter converts that into a
 silent drop.
 
 This pulls the REAL Trading 212 stock universe (needs TRADING_212_API_KEY), maps
-a sample to yfinance, then runs the real per-instrument path
-(map -> fetch_info -> fetch_history) at the build's 20-worker concurrency. It
+a sample to yfinance, then runs the per-instrument path
+(map -> fetch_info -> Ticker.history) at the build's 20-worker concurrency. It
 records, in completion order, whether info and history each succeeded — so the
 THROTTLE ONSET (the index where history starts failing while info still works)
-is visible.
+is visible. History is read from the cached Ticker rather than through the
+facade, which hides both exceptions and retries of empty answers.
 
     python -m scripts.debug_universe_scale --limit 500 --workers 20
 
-Debug it via the "DEBUG: universe scale repro" launch config: breakpoint the
-facade fetch_history and watch the raw response at the onset index.
+Debug it via the "DEBUG: universe scale repro" launch config: breakpoint
+fetch_history_raw and watch the raw response at the onset index.
 """
 
 from __future__ import annotations
@@ -74,36 +75,52 @@ def fetch_history_fixed(
     return hist
 
 
-def fetch_history_retrying_empties(
+def fetch_history_raw(
     client: YFinanceClient,
     symbol: str,
     *,
     attempts: int,
     period: str = "5y",
-):
-    """Request *symbol*'s history, asking again after each empty answer.
+) -> tuple[Any, str | None]:
+    """Request *symbol*'s history from the cached Ticker, keeping rate-limit errors.
 
-    The facade treats an empty or short frame as Yahoo's final answer and
-    returns ``None`` after one request whatever ``max_retries`` says, so
-    re-asking for empties - what ``--hist-retries`` and the serial re-fetch
-    exist to test - has to happen here.
+    The facade swallows every exception and ends a call after one request when
+    Yahoo answers empty, so through it a throttled request is indistinguishable
+    from "Yahoo has no data" and an empty answer cannot be asked for again -
+    which is what ``--hist-retries`` and the serial re-fetch exist to test.
+    Going straight to the Ticker bypasses the facade's circuit breaker too, so
+    an open breaker cannot masquerade as a run of empty answers.
+
+    ``Ticker.history`` re-raises only ``YFRateLimitError``. Every other failure
+    comes back as an empty frame because yfinance's ``hide_exceptions`` stays
+    on, deliberately, so those still read as an empty answer here.
 
     Args:
-        client: Facade used for every request.
+        client: Facade whose cached Ticker (and rate limiter) is used.
         symbol: yfinance ticker.
         attempts: Total requests allowed; a value below 1 still makes one.
-        period: Lookback period passed to ``fetch_history``.
+        period: Lookback period passed to ``Ticker.history``.
 
     Returns:
-        The first non-empty frame, or ``None`` when every attempt came back
-        empty.
+        ``(frame, error)``. *frame* is the first non-empty frame, else the
+        last answer received (``None`` when the last attempt raised). *error*
+        is the ``repr`` of that last attempt's exception, in practice a
+        ``YFRateLimitError``, and ``None`` when it did not raise.
     """
     hist = None
+    error: str | None = None
     for _ in range(max(1, attempts)):
-        hist = client.fetch_history(symbol, period=period, max_retries=1, min_rows=1)
+        try:
+            # repair=True mirrors the facade default, whose scikit-learn
+            # dependency is part of what this script investigates.
+            hist = client.get_ticker(symbol).history(period=period, repair=True)
+            error = None
+        except Exception as exc:
+            hist, error = None, repr(exc)[:120]
+            continue
         if hist is not None and not hist.empty:
-            return hist
-    return hist
+            return hist, None
+    return hist, error
 
 
 # T212 metadata endpoints are strictly rate-limited (~1 req/min on /instruments).
@@ -156,7 +173,7 @@ def _probe(
     inst: dict,
     hist_retries: int = 1,
 ) -> dict[str, Any]:
-    """Real per-instrument path: map -> fetch_info -> fetch_history. Record outcome.
+    """Per-instrument path: map -> fetch_info -> Ticker.history. Record outcome.
 
     A failure inside the probe is recorded under ``error`` instead of raised:
     ``Future.result()`` would re-raise it in the main thread and discard every
@@ -170,21 +187,16 @@ def _probe(
         out["mapped"] = bool(yf)
         if yf:
             out["info_ok"] = bool(client.fetch_info(yf, max_retries=1, min_fields=5))
-            try:
-                hist = fetch_history_retrying_empties(client, yf, attempts=hist_retries)
-                if hist is None or hist.empty:
-                    out["hist_rows"] = 0
-                else:
-                    out["hist_rows"] = len(hist)
-                    # Capture the real span so a short row-count can be classified as
-                    # genuinely-young (recent first date) vs gappy/partial (old first
-                    # date, sparse rows) rather than assumed "short history".
-                    out["first"] = str(hist.index[0].date())
-                    out["last"] = str(hist.index[-1].date())
-                out["hist_err"] = None
-            except Exception as exc:
+            hist, out["hist_err"] = fetch_history_raw(client, yf, attempts=hist_retries)
+            if hist is None or hist.empty:
                 out["hist_rows"] = 0
-                out["hist_err"] = repr(exc)[:120]
+            else:
+                out["hist_rows"] = len(hist)
+                # Capture the real span so a short row-count can be classified as
+                # genuinely-young (recent first date) vs gappy/partial (old first
+                # date, sparse rows) rather than assumed "short history".
+                out["first"] = str(hist.index[0].date())
+                out["last"] = str(hist.index[-1].date())
     except Exception as exc:
         out["error"] = repr(exc)[:120]
     with _lock:
@@ -200,8 +212,8 @@ def main() -> None:
         "--hist-retries",
         type=int,
         default=1,
-        help="history requests per symbol; >1 re-asks after an empty answer, "
-        "which the facade itself treats as final",
+        help="history requests per symbol; >1 re-asks after an empty answer or "
+        "an error",
     )
     ap.add_argument(
         "--fix",
@@ -338,22 +350,25 @@ def main() -> None:
         how = (
             "fetch_history_fixed (evict + fresh Ticker)"
             if args.fix
-            else "client.fetch_history (current, up to 3 attempts)"
+            else "raw Ticker.history (up to 3 attempts)"
         )
         print(f"\nre-fetching {len(hist_empty)} EMPTY tickers SERIALLY via {how}:")
         recovered = 0
         for r in hist_empty:
+            err: str | None = None
             try:
                 if args.fix:
                     h = fetch_history_fixed(client, r["yf"], period="5y", min_rows=1)
                 else:
-                    h = fetch_history_retrying_empties(client, r["yf"], attempts=3)
+                    h, err = fetch_history_raw(client, r["yf"], attempts=3)
                 n = 0 if h is None or h.empty else len(h)
-            except Exception:
-                n = 0
+            except Exception as exc:
+                n, err = 0, repr(exc)[:120]
             if n > 0:
                 recovered += 1
-            tag = f"RECOVERED {n} rows" if n > 0 else "still empty"
+                tag = f"RECOVERED {n} rows"
+            else:
+                tag = f"still failing: {err}" if err else "still empty"
             print(f"  {r['symbol']:12} ({r['yf']:14}) -> {tag}")
         verdict = (
             "FIX WORKS"

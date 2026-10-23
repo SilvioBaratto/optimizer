@@ -10,10 +10,11 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 from types import ModuleType
-from unittest.mock import create_autospec
+from unittest.mock import MagicMock, create_autospec
 
 import pandas as pd
 import pytest
+from yfinance.exceptions import YFRateLimitError
 
 from app.services.market_data.yfinance import YFinanceClient
 from app.services.universe.trading212.ticker_mapper import YFinanceTickerMapper
@@ -55,11 +56,19 @@ def mapper():
 
 
 @pytest.fixture
-def client():
-    """A client with a usable profile and a three-row history."""
+def ticker():
+    """The cached ``yf.Ticker`` the probe reads history from: three rows."""
+    fake = MagicMock()
+    fake.history.return_value = _frame()
+    return fake
+
+
+@pytest.fixture
+def client(ticker):
+    """A client with a usable profile whose ``get_ticker`` returns *ticker*."""
     fake = create_autospec(YFinanceClient, instance=True)
     fake.fetch_info.return_value = _INFO
-    fake.fetch_history.return_value = _frame()
+    fake.get_ticker.return_value = ticker
     return fake
 
 
@@ -98,41 +107,105 @@ def test_probe_records_a_worker_error_instead_of_raising(script, mapper, client)
     assert "idx" in out
 
 
-def test_probe_re_requests_an_empty_history_up_to_hist_retries(script, mapper, client):
+def test_probe_re_requests_an_empty_history_up_to_hist_retries(
+    script, mapper, client, ticker
+):
     """The facade treats an empty answer as final, so the retry lives in the probe."""
-    client.fetch_history.side_effect = [None, None, _frame(4)]
+    ticker.history.side_effect = [_frame(0), _frame(0), _frame(4)]
 
     out = script._probe(mapper, client, "NASDAQ", _inst(), hist_retries=3)
 
     assert out["hist_rows"] == 4
-    assert client.fetch_history.call_count == 3
+    assert ticker.history.call_count == 3
 
 
-def test_probe_makes_a_single_history_request_by_default(script, mapper, client):
+def test_probe_makes_a_single_history_request_by_default(
+    script, mapper, client, ticker
+):
     """Without ``--hist-retries`` an empty answer is not asked for again."""
-    client.fetch_history.return_value = None
+    ticker.history.side_effect = None
+    ticker.history.return_value = _frame(0)
 
     out = script._probe(mapper, client, "NASDAQ", _inst())
 
     assert out["hist_rows"] == 0
-    assert client.fetch_history.call_count == 1
+    assert ticker.history.call_count == 1
 
 
-def test_fetch_history_retrying_empties_gives_up_after_the_attempt_budget(
-    script, client
+def test_probe_records_a_history_rate_limit_error(script, mapper, client, ticker):
+    """A throttled request must not be filed as a genuine empty answer.
+
+    The facade swallows every exception and returns ``None``, which is
+    indistinguishable from "Yahoo has no data"; the probe reads the Ticker
+    directly so the rate-limit error, the only one yfinance re-raises from
+    ``Ticker.history``, reaches the report.
+    """
+    ticker.history.side_effect = YFRateLimitError()
+
+    out = script._probe(mapper, client, "NASDAQ", _inst())
+
+    assert out["hist_rows"] == 0
+    assert out["hist_err"] is not None
+    assert "YFRateLimitError" in out["hist_err"]
+
+
+def test_probe_reports_a_genuine_empty_history_without_an_error(
+    script, mapper, client, ticker
 ):
-    """The serial re-fetch must report 'still empty' once attempts run out."""
-    client.fetch_history.return_value = None
+    """An empty frame is Yahoo's answer: zero rows and no error."""
+    ticker.history.return_value = _frame(0)
 
-    hist = script.fetch_history_retrying_empties(client, "AAPL", attempts=3)
+    out = script._probe(mapper, client, "NASDAQ", _inst())
+
+    assert out["hist_rows"] == 0
+    assert out["hist_err"] is None
+
+
+def test_probe_clears_the_error_when_a_retry_succeeds(script, mapper, client, ticker):
+    """A transient failure that a retry recovers is not an error in the report."""
+    ticker.history.side_effect = [YFRateLimitError(), _frame(5)]
+
+    out = script._probe(mapper, client, "NASDAQ", _inst(), hist_retries=2)
+
+    assert out["hist_rows"] == 5
+    assert out["hist_err"] is None
+
+
+def test_fetch_history_raw_gives_up_after_the_attempt_budget(script, client, ticker):
+    """The serial re-fetch reports the last failure once attempts run out."""
+    ticker.history.side_effect = YFRateLimitError()
+
+    hist, err = script.fetch_history_raw(client, "AAPL", attempts=3)
 
     assert hist is None
-    assert client.fetch_history.call_count == 3
+    assert err is not None and "YFRateLimitError" in err
+    assert ticker.history.call_count == 3
 
 
-def test_fetch_history_retrying_empties_always_makes_one_request(script, client):
+def test_fetch_history_raw_always_makes_one_request(script, client, ticker):
     """A non-positive budget still performs the request rather than skipping it."""
-    hist = script.fetch_history_retrying_empties(client, "AAPL", attempts=0)
+    hist, err = script.fetch_history_raw(client, "AAPL", attempts=0)
 
+    assert err is None
     assert hist is not None
-    assert client.fetch_history.call_count == 1
+    assert ticker.history.call_count == 1
+
+
+def test_fetch_history_raw_docstring_claims_only_rate_limit_errors(script):
+    """``Ticker.history`` re-raises only rate limits; the docstring must say so.
+
+    Every other failure becomes an empty frame because ``hide_exceptions``
+    stays on, so promising "any exception" would send a reader hunting for
+    errors this helper can never report.
+    """
+    doc = " ".join((script.fetch_history_raw.__doc__ or "").split())
+
+    assert "any exception" not in doc
+    assert "YFRateLimitError" in doc
+
+
+def test_fetch_history_raw_keeps_price_repair_on(script, client, ticker):
+    """The raw request matches the facade default that needs scikit-learn."""
+    script.fetch_history_raw(client, "AAPL", attempts=1)
+
+    ticker.history.assert_called_once_with(period="5y", repair=True)
