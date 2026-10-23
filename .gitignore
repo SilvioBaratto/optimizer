@@ -13,6 +13,10 @@ fund/.runtime/
 .env.*
 !.env.example
 
+# Plaintext compose secrets rendered by `portopt start`, in any directory — a render
+# that lands outside the root secrets/ must still never be committable.
+**/secrets/
+
 # ═══════════════════════════════════════════════════════════
 # PYTHON
 # ═══════════════════════════════════════════════════════════

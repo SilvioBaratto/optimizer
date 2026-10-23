@@ -5,6 +5,9 @@ unconfigured ones so `docker compose up` never fails on a missing file), each
 owner-only (0600); `cleanup` removes them (all, or just the ones named).
 """
 
+import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -117,3 +120,63 @@ def test_dockerignore_keeps_plaintext_secrets_out_of_the_build_context() -> None
     # the nested copies under each member tree.
     assert entries & {"secrets/", "**/secrets/"}
     assert entries & {".certs/", "**/.certs/"}
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+@pytest.mark.parametrize(
+    "stray",
+    [
+        "secrets/openai_api_key",
+        "ingestion/secrets/openai_api_key",
+        "fund/secrets/openai_api_key",
+    ],
+)
+def test_plaintext_secret_files_are_git_ignored_in_every_directory(stray: str) -> None:
+    # A render that lands in a subdirectory (e.g. a start from `ingestion/`) must not
+    # become committable; only the root `secrets/` was ignored before.
+    inside = subprocess.run(  # noqa: S603 - static argv, no shell
+        ["git", "-C", str(_REPO_ROOT), "rev-parse", "--is-inside-work-tree"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if inside.returncode != 0:
+        pytest.skip("not a git work tree")
+    ignored = subprocess.run(  # noqa: S603 - static argv, no shell
+        ["git", "-C", str(_REPO_ROOT), "check-ignore", "-q", stray],  # noqa: S607
+        check=False,
+    )
+    assert ignored.returncode == 0, f"{stray} is not git-ignored"
+
+
+def _ignore_file_of_each_compose_build() -> list[Path]:
+    # BuildKit reads `<dockerfile>.dockerignore` instead of the root `.dockerignore`
+    # whenever that file exists, so the root file alone does not describe every build.
+    compose = _COMPOSE.read_text(encoding="utf-8")
+    dockerfiles = re.findall(r"^\s*dockerfile:\s*(\S+)\s*$", compose, re.MULTILINE)
+    specific = [_REPO_ROOT / f"{dockerfile}.dockerignore" for dockerfile in dockerfiles]
+    return [
+        path if path.is_file() else _REPO_ROOT / ".dockerignore" for path in specific
+    ]
+
+
+def test_every_compose_build_is_checked_for_its_ignore_file() -> None:
+    ignore_files = _ignore_file_of_each_compose_build()
+    # Scheduler and fund: a regex that matches nothing must not pass vacuously.
+    assert len(ignore_files) >= 2
+    assert _REPO_ROOT / "fund" / "Dockerfile.dockerignore" in ignore_files
+
+
+@pytest.mark.parametrize(
+    "ignore_file",
+    _ignore_file_of_each_compose_build(),
+    ids=lambda path: path.relative_to(_REPO_ROOT).as_posix(),
+)
+def test_docker_build_context_excludes_every_secrets_directory(
+    ignore_file: Path,
+) -> None:
+    # `COPY ingestion/` or `COPY fund/` would otherwise bake a stray `<dir>/secrets/*`
+    # into the image, and the root `secrets/` would travel to the daemon as context.
+    lines = ignore_file.read_text(encoding="utf-8").splitlines()
+    # The trailing-slash spelling names the same directories; either one counts.
+    assert {"**/secrets", "**/secrets/"} & {line.strip() for line in lines}
