@@ -30,7 +30,9 @@ services:
 
   # Adminer - Database Management UI
   adminer:
-    image: adminer:latest
+    # Pinned: this UI is pre-pointed at the database superuser, so a `pull` must
+    # not swap the code behind it unannounced.
+    image: adminer:6.1.2
     container_name: optimizer_adminer
     profiles: ["ingestion", "tools"]
     environment:
