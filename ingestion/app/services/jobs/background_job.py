@@ -52,6 +52,10 @@ class BackgroundJobService:
         self._heartbeat_cadence = heartbeat_cadence_seconds
         self._start_times: dict[str, float] = {}
         self._metrics_lock = threading.Lock()
+        if settings.enable_metrics:
+            from app import metrics
+
+            metrics.register_domain(job_type)
 
     # ------------------------------------------------------------------
     # Public interface (backwards-compatible)

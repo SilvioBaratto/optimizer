@@ -24,6 +24,7 @@ from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
+from prometheus_client import REGISTRY
 
 from app.services.jobs.background_job import BackgroundJobService
 
@@ -330,6 +331,42 @@ class TestMetricsEmission:
             svc.update_job(JOB_ID, status="completed")
 
         met.jobs_completed_total.labels.assert_not_called()
+
+
+class TestZeroSeriesPreRegistration:
+    """A labelled Prometheus metric exposes nothing until ``.labels()`` is called,
+    so the first job of a domain would appear as a series born at 1 and
+    ``increase()`` / ``rate()`` would miss that step."""
+
+    _SAMPLES = (
+        "jobs_started_total",
+        "jobs_completed_total",
+        "jobs_failed_total",
+        "jobs_in_progress",
+        "job_duration_seconds_count",
+    )
+
+    @staticmethod
+    def _build(domain: str, *, enabled: bool) -> None:
+        with patch(f"{M}.settings") as st:
+            st.enable_metrics = enabled
+            BackgroundJobService(job_type=domain, session_factory=MagicMock())
+
+    def test_when_service_is_built_then_every_series_exists_at_zero(self) -> None:
+        self._build("zero_series_enabled", enabled=True)
+
+        for sample in self._SAMPLES:
+            value = REGISTRY.get_sample_value(sample, {"domain": "zero_series_enabled"})
+            assert value == 0.0, sample
+
+    def test_when_metrics_disabled_then_no_series_is_created(self) -> None:
+        self._build("zero_series_disabled", enabled=False)
+
+        for sample in self._SAMPLES:
+            assert (
+                REGISTRY.get_sample_value(sample, {"domain": "zero_series_disabled"})
+                is None
+            ), sample
 
 
 class TestFailureWebhook:

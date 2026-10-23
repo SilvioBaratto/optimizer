@@ -62,11 +62,9 @@ def _serve_metrics() -> None:
         logger.info("Prometheus metrics disabled (enable_metrics=False)")
         return
 
-    # BackgroundJobService imports app.metrics lazily, so without this the
-    # jobs_* families are absent from /metrics until the first job runs — a
-    # scrape started before then sees no series at all, and rate() over a
-    # freshly-appearing counter is undefined. Importing here registers them
-    # against the default collector at zero.
+    # Every BackgroundJobService registers its domain's series at zero when it
+    # is built (at import of the scheduler module, above). Importing app.metrics
+    # here keeps the families on /metrics even if no service was built.
     import app.metrics  # noqa: F401
 
     start_http_server(settings.metrics_port)
