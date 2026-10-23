@@ -99,6 +99,27 @@ def _require(value: str | None, env_name: str) -> str:
     return value
 
 
+class _BearerAuth:
+    """httpx auth hook that attaches a bearer token while keeping it out of ``repr``.
+
+    ``ChatOllama`` stores ``client_kwargs`` as a plain dict, and LangChain falls
+    back to ``repr(model)`` as the serialized form it hands every callback and
+    tracer (LangSmith, debug logging). A token placed in a ``headers`` dict would
+    therefore be exported verbatim; httpx accepts any ``Request -> Request``
+    callable as ``auth``, so the secret lives only on this object.
+    """
+
+    def __init__(self, token: str) -> None:
+        self._token = token
+
+    def __call__(self, request: Any) -> Any:
+        request.headers["Authorization"] = f"Bearer {self._token}"
+        return request
+
+    def __repr__(self) -> str:
+        return "_BearerAuth(token='***')"
+
+
 def _rejects_temperature(provider: str, model_name: str) -> bool:
     """Return whether ``provider`` refuses a non-default temperature for the model."""
     if provider in ("openai", "microsoft"):
@@ -156,7 +177,7 @@ def _build_ollama(config: FundConfig, model_name: str) -> BaseChatModel:
         ),
     }
     if config.ollama_api_key:
-        client_kwargs["headers"] = {"Authorization": f"Bearer {config.ollama_api_key}"}
+        client_kwargs["auth"] = _BearerAuth(config.ollama_api_key)
 
     return ChatOllama(
         model=model_name,

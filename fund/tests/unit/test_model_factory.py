@@ -12,13 +12,18 @@ missing key raises at *build* time (never at import, so a bare
 
 from __future__ import annotations
 
+import json
 import re
 import sys
+import threading
 import types
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 import tomllib
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.load import dumpd
 
 from fund.agents import model
 from fund.config import FundConfig, load_config
@@ -28,6 +33,64 @@ _CFG = FundConfig(ollama_api_key="sk-ollama-test")
 
 # unit -> tests -> fund.
 _FUND_PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
+
+
+class _SerializedSpy(BaseCallbackHandler):
+    """Records the ``serialized`` payload LangChain hands every callback/tracer."""
+
+    def __init__(self) -> None:
+        self.serialized: list[str] = []
+
+    def on_chat_model_start(self, serialized, messages, **kwargs):  # type: ignore[no-untyped-def]
+        self.serialized.append(json.dumps(serialized, default=str))
+
+
+@pytest.fixture
+def fake_ollama(monkeypatch):
+    """A localhost Ollama ``/api/chat`` stub; yields ``(base_url, auth_headers)``.
+
+    ``auth_headers`` collects the ``Authorization`` header of every request (``None``
+    when absent), so a test can assert what actually crossed the wire.
+    """
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
+    # The ollama SDK itself turns an ambient OLLAMA_API_KEY into a bearer header.
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    auth_headers: list[str | None] = []
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            auth_headers.append(self.headers.get("Authorization"))
+            body = (
+                json.dumps(
+                    {
+                        "model": "m",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "message": {"role": "assistant", "content": "ok"},
+                        "done": True,
+                        "done_reason": "stop",
+                    }
+                ).encode()
+                + b"\n"
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}", auth_headers
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def test_build_chat_model_threads_config_onto_chatollama():
@@ -40,11 +103,14 @@ def test_build_chat_model_threads_config_onto_chatollama():
     assert llm.reasoning is _CFG.model_reasoning
 
 
-def test_build_chat_model_sends_api_key_as_bearer_header():
-    llm = model.build_chat_model(_CFG, model_name="deepseek-v4-pro:cloud")
+def test_build_chat_model_sends_api_key_as_bearer_header(fake_ollama):
+    base_url, auth_headers = fake_ollama
+    cfg = FundConfig(ollama_api_key="sk-ollama-test", ollama_base_url=base_url)
+    llm = model.build_chat_model(cfg, model_name="deepseek-v4-pro:cloud")
 
-    headers = llm.client_kwargs["headers"]
-    assert headers["Authorization"] == "Bearer sk-ollama-test"
+    llm.invoke("hi")
+
+    assert auth_headers == ["Bearer sk-ollama-test"]
 
 
 def test_build_chat_model_without_api_key_raises_runtimeerror():
@@ -155,23 +221,46 @@ def test_ollama_cloud_default_without_key_raises_naming_the_env_var():
         model.build_chat_model(cfg, model_name="deepseek-v4.1-flash:cloud")
 
 
-def test_ollama_local_base_url_builds_without_a_key():
-    cfg = FundConfig(ollama_api_key=None, ollama_base_url="http://localhost:11434")
+def test_ollama_local_base_url_builds_without_a_key(fake_ollama):
+    base_url, auth_headers = fake_ollama
+    cfg = FundConfig(ollama_api_key=None, ollama_base_url=base_url)
 
     llm = model.build_chat_model(cfg, model_name="llama3")
+    llm.invoke("hi")
 
     assert type(llm).__name__ == "ChatOllama"
-    assert "headers" not in llm.client_kwargs  # no key ⇒ no bearer header
+    assert auth_headers == [None]  # no key ⇒ no bearer header
 
 
-def test_ollama_local_with_key_still_sends_the_bearer_header():
-    cfg = FundConfig(
-        ollama_api_key="sk-local", ollama_base_url="http://localhost:11434"
-    )
+def test_ollama_local_with_key_still_sends_the_bearer_header(fake_ollama):
+    base_url, auth_headers = fake_ollama
+    cfg = FundConfig(ollama_api_key="sk-local", ollama_base_url=base_url)
 
     llm = model.build_chat_model(cfg, model_name="llama3")
+    llm.invoke("hi")
 
-    assert llm.client_kwargs["headers"]["Authorization"] == "Bearer sk-local"
+    assert auth_headers == ["Bearer sk-local"]
+
+
+def test_ollama_api_key_is_absent_from_repr_and_serialized_form():
+    # LangChain falls back to repr() for a model it cannot serialize, so a key held
+    # in a plain pydantic field reaches every tracer and debug log.
+    llm = model.build_chat_model(_CFG, model_name="deepseek-v4.1-flash:cloud")
+
+    assert "sk-ollama-test" not in repr(llm)
+    assert "sk-ollama-test" not in json.dumps(dumpd(llm))
+
+
+def test_ollama_api_key_is_not_handed_to_callbacks_during_a_call(fake_ollama):
+    base_url, _ = fake_ollama
+    cfg = FundConfig(ollama_api_key="sk-ollama-test", ollama_base_url=base_url)
+    llm = model.build_chat_model(cfg, model_name="deepseek-v4.1-flash:cloud")
+    spy = _SerializedSpy()
+
+    llm.invoke("hi", config={"callbacks": [spy]})
+
+    assert spy.serialized
+    assert all("sk-ollama-test" not in payload for payload in spy.serialized)
 
 
 def test_ollama_http_clients_have_finite_request_timeouts():
