@@ -385,6 +385,8 @@ class UniverseBuilder:
                     result, status, reason = future.result()
                     if result is not None:
                         processed.append(result)
+                    if status == "error":
+                        self._record_instrument_error(inst, reason)
 
                     if self.progress_callback:
                         progress = BuildProgress(
@@ -403,11 +405,9 @@ class UniverseBuilder:
                     # only trigger a second callback and a spurious error.
                     raise
                 except Exception as e:
-                    # Per-instrument failure in a bulk build is surfaced (not
-                    # swallowed): appended to self._errors → BuildResult.errors
-                    # and reported via the progress callback below.
-                    error_msg = f"{inst.get('shortName', 'unknown')}: {e}"
-                    self._errors.append(error_msg)
+                    # The worker normally reports failures as an "error" row;
+                    # this catches anything that escaped it (or the callback).
+                    self._record_instrument_error(inst, str(e))
 
                     if self.progress_callback:
                         progress = BuildProgress(
@@ -425,6 +425,11 @@ class UniverseBuilder:
             executor.shutdown(wait=True, cancel_futures=True)
 
         return processed
+
+    def _record_instrument_error(self, instrument: dict[str, Any], reason: str) -> None:
+        message = f"{instrument.get('shortName', 'unknown')}: {reason}"
+        logger.warning("Instrument failed during universe build: %s", message)
+        self._errors.append(message)
 
     def _process_single_instrument(
         self, instrument: dict[str, Any], exchange_name: str
@@ -466,6 +471,6 @@ class UniverseBuilder:
             return instrument_data, "passed", "Admitted (no filtering)"
 
         except Exception as e:
-            # Error is returned as the reason tuple, not swallowed: the caller
-            # appends it to self._errors (→ BuildResult.errors) for the row.
+            # Returned rather than raised so one bad row cannot abort the batch;
+            # _process_instruments records it into BuildResult.errors.
             return None, "error", str(e)

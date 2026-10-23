@@ -564,3 +564,39 @@ class TestExchangesSavedCount:
 
         assert result.instruments_saved == 2
         assert result.exchanges_saved == 1
+
+
+class TestPerInstrumentErrorsAreReported:
+    def _build(self) -> tuple[_FakeRepo, BuildResult, list[BuildProgress]]:
+        def discover(short: str, exchange: str) -> str:
+            if short == "T1":
+                raise RuntimeError("lookup failed")
+            return short
+
+        repo = _FakeRepo()
+        mapper = MagicMock()
+        mapper.discover.side_effect = discover
+        progress: list[BuildProgress] = []
+        builder = _make_builder(
+            api_client=_make_api_client(instruments=[_stock(i) for i in range(3)]),
+            ticker_mapper=mapper,
+            repo=repo,
+            progress_cb=progress.append,
+        )
+        return repo, builder.build(), progress
+
+    def test_instrument_that_raised_is_listed_in_build_errors(self) -> None:
+        _, result, _ = self._build()
+
+        assert result.errors == ["T1: lookup failed"]
+
+    def test_other_instruments_in_the_batch_are_still_saved(self) -> None:
+        repo, result, _ = self._build()
+
+        assert result.instruments_saved == 2
+        assert [i["shortName"] for i in repo.save_batch_calls[0][0]] == ["T0", "T2"]
+
+    def test_progress_callback_sees_the_error_exactly_once(self) -> None:
+        _, _, progress = self._build()
+
+        assert [p.status for p in progress].count("error") == 1
