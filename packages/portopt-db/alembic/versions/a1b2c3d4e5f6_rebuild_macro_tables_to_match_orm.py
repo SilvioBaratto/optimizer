@@ -15,7 +15,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 
-from alembic import op
+from alembic import context, op
 
 # revision identifiers, used by Alembic.
 revision: str = "a1b2c3d4e5f6"
@@ -24,10 +24,17 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _existing_tables() -> set[str]:
+    # An offline (--sql) render has no connection to inspect. None of these
+    # tables is created by an earlier revision of the chain, so the render
+    # assumes a database built by the chain itself.
+    if context.is_offline_mode():
+        return set()
+    return set(sa.inspect(op.get_bind()).get_table_names())
+
+
 def upgrade() -> None:
-    conn = op.get_bind()
-    inspector = sa.inspect(conn)
-    existing = set(inspector.get_table_names())
+    existing = _existing_tables()
 
     # Drop FK from country_regime_assessments → economic_indicators first
     if "country_regime_assessments" in existing:
@@ -126,7 +133,7 @@ def upgrade() -> None:
 
     # Re-add FK from country_regime_assessments → economic_indicators
     # (only if the table exists — it was removed in later migrations)
-    existing_after = set(sa.inspect(conn).get_table_names())
+    existing_after = _existing_tables()
     if "country_regime_assessments" in existing_after:
         op.create_foreign_key(
             "country_regime_assessments_economic_indicators_id_fkey",

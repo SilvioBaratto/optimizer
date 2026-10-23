@@ -9,7 +9,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "h8c9d0e1f2g3"
 down_revision: str | Sequence[str] | None = "g7b8c9d0e1f2"
@@ -85,8 +85,13 @@ def upgrade() -> None:
     op.create_index("ix_bond_observations_date", "bond_yield_observations", ["date"])
 
     # -- Seed from existing snapshot tables (if they exist) --
-    conn = op.get_bind()
-    existing = set(sa.inspect(conn).get_table_names())
+    if context.is_offline_mode():
+        # No connection to inspect. The chain itself recreates
+        # trading_economics_indicators and never creates bond_yields, so the
+        # render keeps the seed from the former only.
+        existing = {"trading_economics_indicators"}
+    else:
+        existing = set(sa.inspect(op.get_bind()).get_table_names())
 
     if "trading_economics_indicators" in existing:
         op.execute(

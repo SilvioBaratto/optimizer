@@ -11,7 +11,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-from alembic import op
+from alembic import context, op
 
 # revision identifiers, used by Alembic.
 revision: str = "b0b30daa80c5"
@@ -117,9 +117,11 @@ def upgrade() -> None:
     # drops and recreates them from scratch.  Guard each section so
     # this migration is idempotent on both fresh and existing databases.
     # ----------------------------------------------------------------
-    conn = op.get_bind()
-    inspector = sa.inspect(conn)
-    existing_tables = set(inspector.get_table_names())
+    # An offline (--sql) render has no connection to inspect. None of the macro
+    # tables is created by an earlier revision of the chain, so the render skips
+    # sections 9-11 exactly as a database built by the chain would.
+    inspector = None if context.is_offline_mode() else sa.inspect(op.get_bind())
+    existing_tables = set(inspector.get_table_names()) if inspector else set()
 
     macro_tables = (
         "economic_indicators",

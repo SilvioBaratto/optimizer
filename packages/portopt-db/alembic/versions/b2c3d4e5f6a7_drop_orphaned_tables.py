@@ -14,7 +14,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "b2c3d4e5f6a7"
 down_revision: str | Sequence[str] | None = "a1b2c3d4e5f6"
@@ -27,9 +27,17 @@ def _drop_if_exists(table: str, existing: set[str]) -> None:
         op.drop_table(table)
 
 
+def _existing_tables() -> set[str]:
+    # An offline (--sql) render has no connection to inspect. None of the
+    # orphaned tables is created by an earlier revision of the chain, so the
+    # render assumes a database built by the chain itself.
+    if context.is_offline_mode():
+        return set()
+    return set(sa.inspect(op.get_bind()).get_table_names())
+
+
 def upgrade() -> None:
-    conn = op.get_bind()
-    existing = set(sa.inspect(conn).get_table_names())
+    existing = _existing_tables()
 
     # Remove FK from country_regime_assessments → economic_indicators
     if "country_regime_assessments" in existing:

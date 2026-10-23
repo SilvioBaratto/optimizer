@@ -13,7 +13,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "c3d4e5f6a7b8"
 down_revision: str | Sequence[str] | None = "b2c3d4e5f6a7"
@@ -22,6 +22,12 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # The initial revision already creates exchanges in ORM shape; only
+    # databases that predate the chain need the renames below, and those need a
+    # live inspector that an offline (--sql) render does not have.
+    if context.is_offline_mode():
+        return
+
     conn = op.get_bind()
     inspector = sa.inspect(conn)
     cols = {c["name"] for c in inspector.get_columns("exchanges")}
