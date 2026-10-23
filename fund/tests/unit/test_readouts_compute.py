@@ -182,6 +182,96 @@ def test_compute_risk_flags_bound_breach(priced_session: Session) -> None:
     assert any(v.get("type") == "max_weight" for v in result.violations)
 
 
+def test_compute_risk_keeps_the_tighter_of_bounds_and_position_cap(
+    priced_session: Session,
+) -> None:
+    """A solver bound below the suitability cap stays the binding limit."""
+    from fund.readouts_compute import compute_risk
+
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    constraint_set["bounds"] = {"min_weights": 0.0, "max_weights": 0.3, "budget": 1.0}
+    constraint_set["universe_filters"] = {"max_position_cap": 0.5}
+    result = compute_risk(
+        {"AAA": 0.4, "BBB": 0.6}, constraint_set, None, session=priced_session
+    )
+    limits = [v["limit"] for v in result.violations if v["type"] == "max_weight"]
+    assert limits == [pytest.approx(0.3), pytest.approx(0.3)]
+
+
+def test_compute_risk_surfaces_drawdown_ceilings_as_unchecked(
+    priced_session: Session,
+) -> None:
+    """The nu1/nu2/nu3 ceilings are not evaluated here, so they are listed as such."""
+    from fund.readouts_compute import compute_risk
+
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    result = compute_risk(
+        {"AAA": 0.5, "BBB": 0.5}, constraint_set, None, session=priced_session
+    )
+    assert result.passed is True
+    assert len(result.unchecked_limits) == 1
+    assert "drawdown" in result.unchecked_limits[0]
+    assert "20%" in result.unchecked_limits[0]  # nu3 of the fixture constraint set
+
+
+def test_compute_risk_lists_every_recorded_limit_it_does_not_evaluate(
+    priced_session: Session,
+) -> None:
+    """ESG thresholds and cardinality are stored-only, so an ok must not imply them.
+
+    The verdict models the bounds, the position cap, the ESG sector exclusions and
+    the K&E instrument restrictions; a profile carrying any other hard limit must
+    name each one rather than read as fully checked.
+    """
+    from fund.readouts_compute import compute_risk
+
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    constraint_set["esg"] = {
+        "exclusions": [],
+        "min_taxonomy": 0.2,
+        "min_sfdr": 0.1,
+        "pai_flags": ["ghg_intensity"],
+    }
+    constraint_set["cardinality"] = 8
+    result = compute_risk(
+        {"AAA": 0.5, "BBB": 0.5}, constraint_set, None, session=priced_session
+    )
+    assert result.passed is True  # the verdict itself stays ok; the gaps are listed
+    limits = result.unchecked_limits
+    assert any("drawdown" in item for item in limits)
+    assert any("taxonomy" in item and "SFDR" in item for item in limits)
+    assert any("ghg_intensity" in item for item in limits)
+    assert any("cardinality" in item and "8" in item for item in limits)
+    # Enforced by the verdict, so never listed as a gap.
+    assert not any("position" in item or "exclusions" in item for item in limits)
+
+
+def test_compute_risk_does_not_list_limits_the_profile_left_unset(
+    priced_session: Session,
+) -> None:
+    """An unset ESG policy, open filters and no cardinality add no gap line."""
+    from fund.readouts_compute import compute_risk
+
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    constraint_set["esg"] = {
+        "exclusions": [],
+        "min_taxonomy": None,
+        "min_sfdr": None,
+        "pai_flags": [],
+    }
+    constraint_set["universe_filters"] = {
+        "no_complex": False,
+        "no_leverage": False,
+        "max_position_cap": None,
+    }
+    constraint_set["cardinality"] = None
+    result = compute_risk(
+        {"AAA": 0.5, "BBB": 0.5}, constraint_set, None, session=priced_session
+    )
+    assert len(result.unchecked_limits) == 1  # only the always-recorded nu ceilings
+    assert "drawdown" in result.unchecked_limits[0]
+
+
 def test_compute_risk_missing_sector_mapping_degrades(priced_session: Session) -> None:
     """A missing sector mapping degrades to unavailable (None), never a crash."""
     from fund.readouts_compute import compute_risk

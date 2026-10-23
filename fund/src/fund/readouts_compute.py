@@ -15,7 +15,7 @@ the tools never raise across their envelope, so a failure degrades to an error s
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
@@ -115,12 +115,15 @@ class RiskCompute:
         sector_exposures: ``(sector, total weight)`` pairs sorted by weight, or ``None``
             when no sector mapping was available (``unavailable``, not a crash).
         error: The failure message when the check could not run, else ``None``.
+        unchecked_limits: Hard limits on the recorded constraint set that this verdict
+            does not evaluate, so an ``ok`` is never read as "inside every limit".
     """
 
     passed: bool | None
     violations: tuple[dict[str, Any], ...]
     sector_exposures: tuple[tuple[str, float], ...] | None
     error: str | None
+    unchecked_limits: tuple[str, ...] = ()
 
 
 def compute_results(
@@ -254,6 +257,7 @@ def compute_risk(
         violations=tuple(violations),
         sector_exposures=exposures,
         error=None,
+        unchecked_limits=_unchecked_limits(constraint_set),
     )
 
 
@@ -296,6 +300,70 @@ def _rehydrate(
             f"recorded constraint set is unreadable ({exc.error_count()} invalid "
             f"field(s))"
         )
+
+
+def _unchecked_limits(constraint_set: Mapping[str, Any] | None) -> tuple[str, ...]:
+    """Name the recorded hard limits the risk verdict does not evaluate.
+
+    The verdict covers the weight bounds and budget, the K&E position cap, the ESG
+    sector exclusions and the K&E instrument restrictions. Every other limit the
+    profiler records is stored-only today, so each one that is actually set is listed
+    here and an ``ok`` verdict is never read as "inside every limit":
+
+    * the ``nu1/nu2/nu3`` drawdown ceilings, which need a backtested drawdown;
+    * the ESG taxonomy / SFDR minimums and PAI flags;
+    * the ``cardinality`` cap on the number of names.
+    """
+    if not constraint_set:
+        return ()
+    candidates = (
+        _drawdown_ceilings(constraint_set),
+        _esg_thresholds(_section(constraint_set, "esg")),
+        _cardinality_cap(constraint_set),
+    )
+    return tuple(item for item in candidates if item is not None)
+
+
+def _section(constraint_set: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    """A nested constraint-set section, or an empty mapping when absent/malformed."""
+    value = constraint_set.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _is_number(value: object) -> TypeGuard[int | float]:
+    """A real number; ``bool`` is excluded because it subclasses ``int``."""
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _drawdown_ceilings(constraint_set: Mapping[str, Any]) -> str | None:
+    """The ``nu1/nu2/nu3`` ceilings as one line, or ``None`` when none is recorded."""
+    tiers = [
+        f"{name} {float(value):.0%}"
+        for name in ("nu1", "nu2", "nu3")
+        if _is_number(value := constraint_set.get(name))
+    ]
+    return f"drawdown ceilings ({' · '.join(tiers)})" if tiers else None
+
+
+def _esg_thresholds(esg: Mapping[str, Any]) -> str | None:
+    """The taxonomy / SFDR minimums and PAI flags that are set, else ``None``."""
+    parts: list[str] = []
+    for key, label in (("min_taxonomy", "taxonomy"), ("min_sfdr", "SFDR")):
+        value = esg.get(key)
+        if _is_number(value) and value > 0:
+            parts.append(f"{label} ≥ {float(value):.0%}")
+    flags = esg.get("pai_flags")
+    if isinstance(flags, list | tuple) and flags:
+        parts.append(f"PAI flags: {', '.join(str(flag) for flag in flags)}")
+    return f"ESG thresholds ({' · '.join(parts)})" if parts else None
+
+
+def _cardinality_cap(constraint_set: Mapping[str, Any]) -> str | None:
+    """The recorded name-count cap, or ``None`` when unset."""
+    cap = constraint_set.get("cardinality")
+    if isinstance(cap, bool) or not isinstance(cap, int) or cap <= 0:
+        return None
+    return f"cardinality (at most {cap} names)"
 
 
 def _frontier(envelope: Mapping[str, Any]) -> tuple[FrontierPoint | None, str | None]:

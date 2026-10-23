@@ -163,7 +163,11 @@ def _verdict_lines(compute: Any) -> list[str]:
         return [f"verdict · unavailable ({compute.error})"]
     verdict = risk_verdict(list(compute.violations))
     header = f"verdict · {verdict.dot} {verdict.label}"
-    return [header, *(f"  {line}" for line in verdict.lines)]
+    return [
+        header,
+        *(f"  {line}" for line in verdict.lines),
+        *(f"  not evaluated · {limit}" for limit in compute.unchecked_limits),
+    ]
 
 
 def _sector_lines(compute: Any) -> list[str]:

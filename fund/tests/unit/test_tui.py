@@ -4234,6 +4234,25 @@ def test_readout_allocator_renders_compute_without_payload() -> None:
     assert "weights · none recorded" in text  # empty payload rendered, not crashed
 
 
+def test_readout_risk_lists_limits_the_verdict_did_not_evaluate() -> None:
+    """An ok verdict still names the limits no check covered, so ok is not read as
+    "inside every limit"."""
+    from fund import readouts_compute
+    from fund.tui.readouts import render_readout
+
+    compute = readouts_compute.RiskCompute(
+        passed=True,
+        violations=(),
+        sector_exposures=None,
+        error=None,
+        unchecked_limits=("drawdown ceilings (nu1 10% · nu2 20% · nu3 30%)",),
+    )
+    text = render_readout("risk", "risk_check", None, compute)
+    assert text is not None
+    assert "● ok" in text
+    assert "not evaluated · drawdown ceilings (nu1 10% · nu2 20% · nu3 30%)" in text
+
+
 # --- Deliberation live mode: streamed timeline + follow/inspect (GP0-1) --------
 
 
