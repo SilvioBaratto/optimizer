@@ -6,7 +6,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from optimizer.factors import compute_gross_alpha, factor_scores_to_expected_returns
+from optimizer.factors import (
+    compute_gross_alpha,
+    compute_net_alpha,
+    factor_scores_to_expected_returns,
+)
 
 TICKERS = ["AAPL", "MSFT", "GOOG", "AMZN", "META"]
 GROUPS = ["value", "momentum", "quality"]
@@ -240,3 +244,24 @@ class TestComputeGrossAlpha:
     def test_returns_float(self) -> None:
         result = compute_gross_alpha(0.01, 0.3, cost_bps=5.0)
         assert isinstance(result, float)
+
+    def test_inverts_compute_net_alpha_cost_deduction(self) -> None:
+        """Adding the cost back recovers the gross alpha net alpha was built from.
+
+        Both functions price turnover with the same round-trip ``cost_bps`` and
+        the same number of rebalances per year, so they must be exact inverses.
+        """
+        dates = pd.date_range("2022-01-31", periods=4, freq="ME")
+        weights = pd.DataFrame(
+            [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, 1.0]],
+            index=dates,
+            columns=["A", "B"],
+        )
+        ic = pd.Series([0.04, 0.06, 0.05, 0.05])
+
+        net = compute_net_alpha(ic, weights, cost_bps=25.0, annualisation=12)
+        restored = compute_gross_alpha(
+            net.net_alpha, net.avg_turnover, cost_bps=25.0, annualisation=12
+        )
+
+        assert restored == pytest.approx(net.gross_alpha)

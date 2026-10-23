@@ -78,20 +78,35 @@ def compute_gross_alpha(
     net_alpha: float,
     avg_turnover: float,
     cost_bps: float = 10.0,
+    annualisation: int = 1,
 ) -> float:
     """Compute gross alpha by adding back estimated transaction costs.
 
-    Formula::
+    Inverts the cost deduction in ``compute_net_alpha`` when called with the
+    same ``cost_bps`` and ``annualisation``::
 
-        gross = net_alpha + avg_turnover * cost_bps / 10_000
+        gross = net_alpha + avg_turnover * cost_bps / 10_000 * annualisation
+
+    The defaults do not pair up: ``compute_net_alpha`` defaults to 252
+    rebalances per year while this function defaults to 1 (the add-back of an
+    ``avg_turnover`` that is already an annual figure).  Passing the result of
+    ``compute_net_alpha`` here without an explicit ``annualisation`` therefore
+    under-states the add-back by that factor.
 
     Args:
         net_alpha: Net alpha after transaction costs (annualised).
-        avg_turnover: Average one-way turnover (e.g. 0.5 means 50% of portfolio
-            traded per period).
-        cost_bps: One-way transaction cost in basis points.
+        avg_turnover: Average one-way turnover per rebalancing period (e.g. 0.5
+            means half of the portfolio is replaced each period).
+        cost_bps: Round-trip transaction cost in basis points, i.e. the cost of
+            buying and then selling one unit.  Applied to one-way turnover this
+            equals the one-way cost applied to every traded unit, buys and
+            sells alike.
+        annualisation: Number of rebalancing periods per year, used to scale the
+            per-period cost to the annual footing of ``net_alpha``.  Always pass
+            the value given to ``compute_net_alpha`` to invert it; the default
+            of 1 is for an ``avg_turnover`` that is already an annual figure.
 
     Returns:
         Gross alpha before transaction costs.
     """
-    return net_alpha + avg_turnover * cost_bps / 10_000
+    return net_alpha + avg_turnover * cost_bps / 10_000 * annualisation
