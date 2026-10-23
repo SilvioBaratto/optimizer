@@ -1,9 +1,10 @@
 """Compose service `profiles:` contract.
 
 Every service carries a profile so a bare `docker compose up` starts nothing;
-`--profile fund` brings up db+fund and `--profile ingestion` brings up
-db+scheduler+adminer. `db` shares a profile with each service that depends on it,
-so `depends_on: db` stays satisfiable under either operational profile.
+`--profile fund` brings up db+fund, `--profile ingestion` brings up
+db+scheduler+adminer and `--profile tools` brings up just db+adminer. `db` shares
+a profile with each service that depends on it, so `depends_on: db` stays
+satisfiable under every profile; otherwise Compose rejects the whole project.
 """
 
 from __future__ import annotations
@@ -67,11 +68,16 @@ def test_adminer_reachable_via_tools_alias() -> None:
     assert {"ingestion", "tools"} <= _profiles_of(_services()["adminer"])
 
 
-def test_depends_on_valid_under_each_operational_profile() -> None:
-    """Under fund and under ingestion, every started service's `depends_on`
+def test_tools_profile_starts_only_db_and_adminer() -> None:
+    """`--profile tools` is the DB-UI alias: Adminer plus the db it depends on."""
+    assert _started({"tools"}) == {"db", "adminer"}
+
+
+def test_depends_on_valid_under_each_profile() -> None:
+    """Under fund, ingestion and tools, every started service's `depends_on`
     targets are themselves started (db shares the profile)."""
     services = _services()
-    for profile in ("fund", "ingestion"):
+    for profile in ("fund", "ingestion", "tools"):
         started = _started({profile})
         for name in started:
             missing = _depends_on(services[name]) - started
