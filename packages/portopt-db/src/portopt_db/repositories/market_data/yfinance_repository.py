@@ -147,6 +147,12 @@ def _safe_date(v: Any) -> date | None:
         try:
             return datetime.fromisoformat(v).date()
         except (ValueError, TypeError):
+            pass
+        # yfinance valuation-measure columns are labelled "M/D/YYYY" without
+        # zero padding.
+        try:
+            return datetime.strptime(v, "%m/%d/%Y").date()
+        except (ValueError, TypeError):
             return None
     if isinstance(v, int | float):
         try:
@@ -854,11 +860,13 @@ class YFinanceRepository(RepositoryBase):
         statement_type: str,
         period_type: str,
         currency_code: str | None = None,
+        as_of: date | None = None,
     ) -> int:
         """Upsert financial statement rows (EAV format).
 
         yfinance returns DataFrames where columns are period dates and index
-        rows are line-item names (e.g. ``"TotalRevenue"``).
+        rows are line-item names (e.g. ``"TotalRevenue"``). Column labels may be
+        dates, ISO strings or ``"M/D/YYYY"`` strings.
 
         Args:
             instrument_id: The instrument these rows belong to.
@@ -869,13 +877,24 @@ class YFinanceRepository(RepositoryBase):
                 Convert listing currencies like ``"GBX"`` before passing.
                 ``None`` means the currency is unknown: new rows get a NULL
                 label, and rows that already exist keep the label they have.
+            as_of: Date to stamp on a ``"Current"`` column (the trailing value in
+                valuation-measure frames, which has no date of its own). Without
+                it that column is skipped.
 
         Returns:
             Number of rows written.
         """
         rows = []
         for col_pos, col in enumerate(df.columns):
-            period_date = _safe_date(col)
+            period_date: date | None
+            if (
+                as_of is not None
+                and isinstance(col, str)
+                and col.strip().lower() == "current"
+            ):
+                period_date = as_of
+            else:
+                period_date = _safe_date(col)
             if period_date is None:
                 continue
             # Positional access: label lookup returns an array, not a scalar,
@@ -897,6 +916,16 @@ class YFinanceRepository(RepositoryBase):
         # A failed info lookup yields no currency; on conflict that must not turn
         # an already-correct label into NULL.
         update_columns = None if currency_code is not None else ["value", "updated_at"]
+
+        if not rows and len(df.index) and len(df.columns):
+            logger.warning(
+                "No column of the %s/%s frame parsed as a period date "
+                "(labels: %s); nothing stored",
+                statement_type,
+                period_type,
+                list(df.columns[:5]),
+            )
+
         return self._upsert(
             FinancialStatement,
             _last_wins(rows, "period_date", "line_item"),

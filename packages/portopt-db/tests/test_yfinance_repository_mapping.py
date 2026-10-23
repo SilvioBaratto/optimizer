@@ -39,6 +39,14 @@ class TestSafeDate:
     def test_isoformat_string(self) -> None:
         assert _safe_date("2024-05-01") == dt.date(2024, 5, 1)
 
+    def test_us_month_day_year_label_without_zero_padding(self) -> None:
+        # yfinance valuation-measure column labels are "M/D/YYYY".
+        assert _safe_date("9/30/2025") == dt.date(2025, 9, 30)
+        assert _safe_date("12/31/2024") == dt.date(2024, 12, 31)
+
+    def test_non_date_label_is_none(self) -> None:
+        assert _safe_date("Current") is None
+
 
 @pytest.fixture
 def repo() -> YFinanceRepository:
@@ -590,3 +598,56 @@ class TestInBatchDedup:
         df = pd.DataFrame(frame, index=["0q", "0q"])
         getattr(repo, method)(_IID, df)
         assert [r["period"] for r in _rows(repo)] == ["0q"]
+
+
+class TestValuationMeasures:
+    """Real yfinance 1.6.0 ``Ticker.valuation`` shape: measure labels as the
+    index, a ``Current`` column plus ``M/D/YYYY`` period-end string columns."""
+
+    @staticmethod
+    def _frame() -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "Current": [3.0e12, 31.5],
+                "9/30/2025": [2.9e12, 30.1],
+                "6/30/2025": [2.8e12, 29.0],
+            },
+            index=["Market Cap", "Trailing P/E"],
+        )
+
+    def test_period_end_labels_are_parsed(self, repo) -> None:
+        repo.upsert_financial_statements(
+            _IID, self._frame(), "valuation_measures", "point_in_time"
+        )
+        rows = _rows(repo)
+        by_key = {(r["period_date"], r["line_item"]): r["value"] for r in rows}
+        assert by_key[(dt.date(2025, 9, 30), "Market Cap")] == 2.9e12
+        assert by_key[(dt.date(2025, 6, 30), "Trailing P/E")] == 29.0
+
+    def test_current_column_is_stamped_with_the_as_of_date(self, repo) -> None:
+        as_of = dt.date(2026, 10, 23)
+        repo.upsert_financial_statements(
+            _IID,
+            self._frame(),
+            "valuation_measures",
+            "point_in_time",
+            as_of=as_of,
+        )
+        by_key = {(r["period_date"], r["line_item"]): r["value"] for r in _rows(repo)}
+        assert by_key[(as_of, "Market Cap")] == 3.0e12
+        assert by_key[(as_of, "Trailing P/E")] == 31.5
+        assert len(by_key) == 6
+
+    def test_current_column_is_skipped_without_an_as_of_date(self, repo) -> None:
+        repo.upsert_financial_statements(
+            _IID, self._frame(), "valuation_measures", "point_in_time"
+        )
+        assert len(_rows(repo)) == 4
+
+    def test_warns_when_no_column_is_a_period_date(self, repo, caplog) -> None:
+        df = pd.DataFrame({"Current": [1.0], "TTM": [2.0]}, index=["Market Cap"])
+        with caplog.at_level("WARNING"):
+            repo.upsert_financial_statements(
+                _IID, df, "valuation_measures", "point_in_time"
+            )
+        assert "no column" in caplog.text.lower()

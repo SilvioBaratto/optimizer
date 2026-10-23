@@ -167,6 +167,28 @@ def test_when_fetchers_return_data_then_routed_to_correct_upserts() -> None:
     assert "eps_revisions" in result["counts"]
 
 
+def test_valuation_current_column_is_stamped_with_the_fetch_date() -> None:
+    # Ticker.valuation carries a "Current" column that has no date of its own.
+    real_shape = pd.DataFrame(
+        {"Current": [3.0e12], "9/30/2025": [2.9e12]}, index=["MarketCap"]
+    )
+    yf_client = _build_yf_client(valuation=real_shape)
+    repo = _build_repo()
+    before = datetime.now(timezone.utc).date()
+
+    _run(yf_client, repo)
+
+    after = datetime.now(timezone.utc).date()
+    calls = [
+        c
+        for c in repo.upsert_financial_statements.call_args_list
+        if c.args[2] == "valuation_measures"
+    ]
+    assert len(calls) == 1
+    stamped = {c.date() for c in calls[0].args[1].columns}
+    assert stamped & {before, after}
+
+
 def test_when_fetchers_return_none_then_no_upsert_and_no_errors() -> None:
     yf_client = _build_yf_client(valuation=None, eps_trend=None, eps_revisions=None)
     repo = _build_repo()
