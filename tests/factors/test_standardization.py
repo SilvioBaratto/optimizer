@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -129,6 +131,77 @@ class TestNeutralizeSector:
         result = neutralize_sector(raw_scores, sector_labels)
         assert len(result) == len(raw_scores)
 
+    def test_unlabeled_tickers_keep_their_score(self) -> None:
+        """A ticker with no sector is not demeaned and is never turned into NaN."""
+        scores = pd.Series([1.0, 3.0, 10.0, 20.0], index=list("abcd"))
+        labels = pd.Series(["x", "x", "y", None], index=list("abcd"))
+
+        result = neutralize_sector(scores, labels)
+
+        expected = pd.Series([-1.0, 1.0, 0.0, 20.0], index=list("abcd"))
+        pd.testing.assert_series_equal(result, expected)
+
+    def test_output_indexed_like_scores_when_labels_cover_a_subset(self) -> None:
+        scores = pd.Series([1.0, 3.0, 5.0, 7.0, 9.0, 11.0], index=list("abcdef"))
+        labels = pd.Series(["x", "x", "y", "y"], index=list("abcd"))
+
+        result = neutralize_sector(scores, labels)
+
+        pd.testing.assert_index_equal(result.index, scores.index)
+        expected = pd.Series([-1.0, 1.0, -1.0, 1.0, 9.0, 11.0], index=list("abcdef"))
+        pd.testing.assert_series_equal(result, expected)
+
+    def test_labels_for_unscored_tickers_are_ignored(self) -> None:
+        scores = pd.Series([1.0, 3.0], index=list("ab"))
+        labels = pd.Series(["x", "x", "y", "y"], index=list("abcd"))
+
+        result = neutralize_sector(scores, labels)
+
+        pd.testing.assert_index_equal(result.index, scores.index)
+        assert result.tolist() == [-1.0, 1.0]
+
+    def test_missing_country_label_leaves_score_untouched(self) -> None:
+        scores = pd.Series([1.0, 3.0, 10.0], index=list("abc"))
+        sectors = pd.Series(["x", "x", "x"], index=list("abc"))
+        countries = pd.Series(["US", "US", None], index=list("abc"))
+
+        result = neutralize_sector(scores, sectors, countries)
+
+        assert result.tolist() == [-1.0, 1.0, 10.0]
+
+    def test_nan_scores_stay_nan(self) -> None:
+        scores = pd.Series([1.0, np.nan, 3.0], index=list("abc"))
+        labels = pd.Series(["x", "x", "x"], index=list("abc"))
+
+        result = neutralize_sector(scores, labels)
+
+        assert result.isna().tolist() == [False, True, False]
+        assert result["a"] == -1.0
+
+    def test_unlabeled_tickers_are_reported_at_debug_only(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        scores = pd.Series([1.0, 3.0, 10.0], index=list("abc"))
+        labels = pd.Series(["x", "x", None], index=list("abc"))
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            neutralize_sector(scores, labels)
+
+        assert [r.levelno for r in caplog.records] == [logging.DEBUG]
+        assert "no sector label" in caplog.records[0].getMessage()
+
+    def test_missing_country_is_reported_as_sector_country(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        scores = pd.Series([1.0, 3.0, 10.0], index=list("abc"))
+        sectors = pd.Series(["x", "x", "x"], index=list("abc"))
+        countries = pd.Series(["US", "US", None], index=list("abc"))
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            neutralize_sector(scores, sectors, countries)
+
+        assert "no sector/country label" in caplog.records[0].getMessage()
+
 
 class TestStandardizeFactor:
     def test_z_score_pipeline(
@@ -209,6 +282,138 @@ class TestMissingFactorDataIsNotCovered:
         _, z_cov = standardize_all_factors(raw, StandardizationConfig.for_z_score())
         _, rank_cov = standardize_all_factors(raw, StandardizationConfig())
         pd.testing.assert_frame_equal(z_cov, rank_cov)
+
+
+class TestMissingSectorLabelKeepsCoverage:
+    def test_ticker_without_sector_is_not_dropped_from_the_universe(self) -> None:
+        tickers = list("abcdef")
+        raw = pd.DataFrame(
+            {
+                "book_to_price": [1.0, 2.0, 3.0, 4.0, 5.0, 9.0],
+                "earnings_yield": [2.0, 1.0, 4.0, 3.0, 6.0, 8.0],
+            },
+            index=tickers,
+        )
+        sectors = pd.Series(["x", "x", "y", "y", "z", None], index=tickers)
+
+        scores, coverage = standardize_all_factors(raw, sector_labels=sectors)
+
+        assert coverage.loc["f"].all()
+        assert scores.loc["f"].notna().all()
+
+
+def _unlabeled_universe() -> tuple[pd.DataFrame, pd.Series]:
+    tickers = list("abcdef")
+    raw = pd.DataFrame(
+        {
+            "book_to_price": [1.0, 2.0, 3.0, 4.0, 5.0, 9.0],
+            "earnings_yield": [2.0, 1.0, 4.0, 3.0, 6.0, 8.0],
+            "dividend_yield": [1.0, 4.0, 2.0, 5.0, 3.0, 6.0],
+            "sales_to_price": [3.0, 1.0, 2.0, 6.0, 4.0, 5.0],
+            "cash_flow_yield": [2.0, 3.0, 1.0, 5.0, 6.0, 4.0],
+        },
+        index=tickers,
+    )
+    sectors = pd.Series(["x", "x", "y", "y", "z", None], index=tickers)
+    return raw, sectors
+
+
+def _warnings(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+class TestUnlabeledTickerWarning:
+    """The unlabeled-ticker count is reported once per call, not once per factor."""
+
+    def test_all_factors_warns_once_not_per_factor(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw, sectors = _unlabeled_universe()
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            standardize_all_factors(raw, sector_labels=sectors)
+
+        records = _warnings(caplog)
+        assert len(records) == 1
+        message = records[0].getMessage()
+        assert message.startswith("1 of 6 ")
+        assert "sector label" in message
+
+    def test_all_factors_warning_names_country_when_country_is_neutralized(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw, sectors = _unlabeled_universe()
+        countries = pd.Series(["US", "US", "US", "IT", "IT", "IT"], index=raw.index)
+        config = StandardizationConfig(neutralize_country=True)
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            standardize_all_factors(
+                raw, config, sector_labels=sectors, country_labels=countries
+            )
+
+        records = _warnings(caplog)
+        assert len(records) == 1
+        assert "sector/country label" in records[0].getMessage()
+
+    def test_all_factors_counts_a_missing_country_even_with_a_sector(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw, _ = _unlabeled_universe()
+        sectors = pd.Series(["x"] * 6, index=raw.index)
+        countries = pd.Series(["US", "US", "US", "IT", None, None], index=raw.index)
+        config = StandardizationConfig(neutralize_country=True)
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            standardize_all_factors(
+                raw, config, sector_labels=sectors, country_labels=countries
+            )
+
+        records = _warnings(caplog)
+        assert len(records) == 1
+        assert records[0].getMessage().startswith("2 of 6 ")
+
+    def test_single_factor_call_still_warns_once(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw, sectors = _unlabeled_universe()
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            standardize_factor(raw["book_to_price"], sector_labels=sectors)
+
+        assert len(_warnings(caplog)) == 1
+
+    def test_no_warning_when_every_scored_ticker_is_labeled(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw, _ = _unlabeled_universe()
+        sectors = pd.Series(["x", "x", "y", "y", "z", "z"], index=raw.index)
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            standardize_all_factors(raw, sector_labels=sectors)
+
+        assert _warnings(caplog) == []
+
+    def test_unlabeled_ticker_without_any_score_is_not_counted(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw, sectors = _unlabeled_universe()
+        raw.loc["f"] = np.nan
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            standardize_all_factors(raw, sector_labels=sectors)
+
+        assert _warnings(caplog) == []
+
+    def test_no_warning_when_neutralization_is_disabled(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw, sectors = _unlabeled_universe()
+        config = StandardizationConfig(neutralize_sector=False)
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            standardize_all_factors(raw, config, sector_labels=sectors)
+
+        assert _warnings(caplog) == []
 
 
 class TestReStandardizeAfterNeutralization:
