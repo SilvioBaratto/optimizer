@@ -676,3 +676,40 @@ class TestFxPriceConverterTransformOtherWindow:
 
         expected = prices["AAA.L"].iloc[5:] / 100.0 * rate.iloc[5:]
         pd.testing.assert_series_equal(result["AAA.L"], expected, check_names=False)
+
+
+class TestFxPriceConverterTransformColumns:
+    """Columns the converter never resolved at fit must not pass through raw."""
+
+    @staticmethod
+    def _make(prices: pd.DataFrame) -> FxPriceConverter:
+        rate = pd.DataFrame({"GBP": [1.15] * len(prices)}, index=prices.index)
+        return FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"A": "GBP", "B": "GBp"},
+            fx_rates=rate,
+        )
+
+    @staticmethod
+    def _prices() -> pd.DataFrame:
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        return pd.DataFrame({"A": [10.0] * 4, "B": [1000.0] * 4}, index=dates)
+
+    def test_column_unseen_at_fit_raises(self) -> None:
+        prices = self._prices()
+        converter = self._make(prices).fit(prices[["A"]])
+
+        with pytest.raises(DataError, match="not seen during fit"):
+            converter.transform(prices)
+
+    def test_subset_and_reordered_columns_still_convert(self) -> None:
+        prices = self._prices()
+        converter = self._make(prices).fit(prices)
+
+        reordered = converter.transform(prices[["B", "A"]])
+        only_b = converter.transform(prices[["B"]])
+
+        assert list(reordered.columns) == ["B", "A"]
+        assert reordered["B"].iloc[0] == pytest.approx(1000.0 / 100.0 * 1.15)
+        assert reordered["A"].iloc[0] == pytest.approx(10.0 * 1.15)
+        assert only_b["B"].iloc[0] == pytest.approx(1000.0 / 100.0 * 1.15)

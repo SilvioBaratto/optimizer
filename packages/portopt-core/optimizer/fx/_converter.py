@@ -194,9 +194,25 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
 
         Returns:
             Price matrix with all values expressed in the base currency.
+
+        Raises:
+            DataError: If ``X`` is not a DataFrame or has columns that were not
+                present when the converter was fitted.  Fewer or reordered
+                columns are fine: state is keyed by ticker name.
         """
         check_is_fitted(self)
         self._validate_input(X)
+
+        # Currency, scale and FX state is resolved per ticker at fit time, so an
+        # unseen column would pass through unscaled and unconverted.
+        fitted_names = set(self.feature_names_in_)
+        unseen = [c for c in X.columns if c not in fitted_names]
+        if unseen:
+            raise DataError(
+                f"Columns {unseen} were not seen during fit; their currency "
+                "was never resolved. Re-fit the converter on a frame that "
+                "includes them."
+            )
 
         # Cast to float up front: DB Numeric columns arrive as Python Decimal
         # (object dtype), which does not multiply cleanly against float FX
