@@ -518,8 +518,16 @@ _R3 = dt.date(2026, 11, 3)
 _R4 = dt.date(2026, 11, 4)
 
 
-def _seed_usd_closes(db_session, closes: dict[str, dict[dt.date, str]]) -> None:
-    """Seed USD price rows for ``{ticker: {date: close}}`` (base USD ⇒ no FX)."""
+def _seed_usd_closes(
+    db_session,
+    closes: dict[str, dict[dt.date, str]],
+    units: dict[str, str] | None = None,
+) -> None:
+    """Seed price rows for ``{ticker: {date: close}}``.
+
+    Prices are USD (base USD ⇒ no FX) unless ``units`` overrides the raw ``price_unit``
+    of a ticker.
+    """
     ex = Exchange(name="RX")
     db_session.add(ex)
     db_session.flush()
@@ -529,12 +537,13 @@ def _seed_usd_closes(db_session, closes: dict[str, dict[dt.date, str]]) -> None:
         )
         db_session.add(inst)
         db_session.flush()
+        unit = (units or {}).get(ticker, "USD")
         db_session.add_all(
             PriceHistory(
                 instrument_id=inst.id,
                 date=day,
                 close=Decimal(close),
-                price_unit="USD",
+                price_unit=unit,
             )
             for day, close in by_date.items()
         )
@@ -848,19 +857,24 @@ def test_holding_marks_single_ticket_book_keeps_the_flat_notional(db_session):
 _DAYS = [dt.date(2026, 10, 1) + dt.timedelta(days=i) for i in range(5)]
 
 
-def _seed_usd_floats(db_session, series: dict[str, dict[dt.date, float]]) -> None:
-    """Seed USD closes given as ``{ticker: {date: float}}``."""
+def _seed_usd_floats(
+    db_session,
+    series: dict[str, dict[dt.date, float]],
+    units: dict[str, str] | None = None,
+) -> None:
+    """Seed closes as ``{ticker: {date: float}}`` (USD unless ``units`` override)."""
     _seed_usd_closes(
         db_session,
         {
             ticker: {day: str(px) for day, px in closes.items()}
             for ticker, closes in series.items()
         },
+        units,
     )
 
 
 def _add_flat_ticket(
-    db_session, *, fill: dt.date, notionals: dict[str, float], key: str
+    db_session, *, fill: dt.date, notionals: dict[str, float], key: str = "h"
 ) -> None:
     """Persist one ticket whose lines all fill on ``fill`` (asof the day before)."""
     _add_ticket(
@@ -965,6 +979,88 @@ def test_nav_series_capital_keeps_the_undeployed_cash_weight(db_session):
     )
 
     assert points[0].nav == pytest.approx(180_000.0)
+
+
+def _seed_eur_fx(db_session, quote: str, rates: dict[dt.date, float]) -> None:
+    """Persist EUR-base ``{date: rate}`` rows for one quote currency."""
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    FxRatesRepository(db_session).upsert_rates(
+        [
+            {
+                "base_currency": "EUR",
+                "quote_currency": quote,
+                "date": day,
+                "rate": rate,
+            }
+            for day, rate in rates.items()
+        ]
+    )
+    db_session.flush()
+
+
+def test_nav_series_keeps_a_holding_whose_first_fill_bar_has_no_fx_row(db_session):
+    """A missing FX row on the fill date is bridged from the prior day's rate.
+
+    The USD leg has FX on the day before the fill and from the day after, but not on
+    the fill bar itself. The rate loaded only from the first fill left nothing to carry
+    into that bar, so the USD line vanished and NAV read half the book.
+    """
+    d_prev, d1, d2, d3 = (dt.date(2026, 9, 30) + dt.timedelta(days=i) for i in range(4))
+    _seed_usd_floats(
+        db_session,
+        {
+            "EU1": {d1: 100.0, d2: 100.0, d3: 100.0},
+            "US1": {d1: 100.0, d2: 100.0, d3: 110.0},
+        },
+        units={"EU1": "EUR"},
+    )
+    _seed_eur_fx(db_session, "USD", {d_prev: 0.90, d2: 0.91, d3: 0.92})
+    _add_flat_ticket(db_session, fill=d1, notionals={"EU1": 50_000.0, "US1": 50_000.0})
+
+    points = build_nav_series(_PID, session=db_session, base_currency="EUR")
+
+    navs = {p.date: p.nav for p in points}
+    shares_us = 50_000.0 / (100.0 * 0.90)  # priced on the carried-in 0.90 rate
+    assert navs[d1] == pytest.approx(100_000.0)
+    assert navs[d2] == pytest.approx(50_000.0 + shares_us * 100.0 * 0.91)
+    assert navs[d3] == pytest.approx(50_000.0 + shares_us * 110.0 * 0.92)
+
+
+def test_nav_series_bridges_a_minor_unit_holding_over_a_missing_fx_bar(db_session):
+    """A GBp holding keeps its place in the book when the fill bar has no GBP rate."""
+    d_prev, d1, d2 = (dt.date(2026, 1, 3) + dt.timedelta(days=i) for i in range(3))
+    _seed_usd_floats(
+        db_session,
+        {"EU1": {d1: 10.0, d2: 10.0}, "VOD.L": {d1: 500.0, d2: 500.0}},
+        units={"EU1": "EUR", "VOD.L": "GBp"},
+    )
+    _seed_eur_fx(db_session, "GBP", {d_prev: 1.17, d2: 1.18})
+    _add_flat_ticket(
+        db_session, fill=d1, notionals={"EU1": 50_000.0, "VOD.L": 50_000.0}
+    )
+
+    points = build_nav_series(_PID, session=db_session, base_currency="EUR")
+
+    assert points[0].nav == pytest.approx(100_000.0)
+
+
+def test_nav_series_warns_when_a_ticket_line_cannot_be_priced(db_session, caplog):
+    """A line with no usable price is reported, not silently dropped from the book."""
+    _seed_usd_floats(db_session, {"A": dict.fromkeys(_DAYS, 100.0)})
+    _add_flat_ticket(
+        db_session,
+        fill=_DAYS[0],
+        notionals={"A": 60_000.0, "GHOST": 40_000.0},
+    )
+
+    with caplog.at_level("WARNING", logger="fund.performance"):
+        points = build_nav_series(_PID, session=db_session, base_currency="USD")
+
+    assert points[0].nav == pytest.approx(60_000.0)  # the priced line still marks
+    assert any("GHOST" in record.getMessage() for record in caplog.records)
 
 
 def _agent_stack_offenders(module) -> list[str]:

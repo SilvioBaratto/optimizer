@@ -35,6 +35,11 @@ _HORIZONS = ("1D", "1M", "YTD", "1Y", "max")
 # the 5-row FX forward-fill behind it, still resolve across weekends and holidays.
 _MARK_LOOKBACK_DAYS = 30
 
+# FX history loaded before the first fill so the rate in force on the fill bar can be
+# carried in when that bar has no row of its own (the feed only writes dates present
+# on every USD leg, so single-day gaps happen).
+_FX_LOOKBACK_DAYS = 10
+
 
 @dataclass(frozen=True)
 class NavPoint:
@@ -313,6 +318,31 @@ def convert_prices_to_base(
     )
 
 
+def _carry_fx_into_window(
+    fx_rates: pd.DataFrame, price_index: pd.Index, fill_limit: int = 5
+) -> pd.DataFrame:
+    """Align FX rates to the price calendar, seeding from rates dated before it.
+
+    ``optimizer.fx`` aligns by reindexing onto the price calendar and only then
+    forward-filling, which discards every rate dated before the first bar — so a bar
+    with no rate of its own at the window's start has nothing to carry in. Filling on
+    the union calendar first keeps the last earlier rate available.
+
+    Args:
+        fx_rates: Rate frame (``DatetimeIndex`` rows, major-currency columns), loaded
+            from before the first price bar.
+        price_index: The price frame's calendar to align to.
+        fill_limit: Maximum consecutive calendar rows to forward-fill.
+
+    Returns:
+        The rates on ``price_index``; ``fx_rates`` unchanged when it is empty.
+    """
+    if fx_rates.empty:
+        return fx_rates
+    union = fx_rates.index.union(price_index)
+    return fx_rates.reindex(union).ffill(limit=fill_limit).reindex(price_index)
+
+
 def _finite(value: float) -> float | None:
     """The value as a float, or ``None`` when NaN/inf — never a fabricated metric."""
     return float(value) if np.isfinite(value) else None
@@ -416,11 +446,26 @@ def _ticket_shares(ticket: Any, base_prices: pd.DataFrame) -> dict[str, float]:
     for line in ticket.lines:
         ticker = line.get("ticker")
         notional = line.get("notional")
-        if ticker is None or notional is None or ticker not in base_prices.columns:
+        if ticker is None or notional is None:
+            continue
+        if ticker not in base_prices.columns:
+            logger.warning(
+                "performance: ticket %s line %s has no price history; "
+                "left out of the book",
+                ticket.id,
+                ticker,
+            )
             continue
         fill_ts = pd.Timestamp(line.get("fill_date") or ticket.fill_date)
         price = _price_asof(base_prices, ticker, fill_ts)
         if not price:
+            logger.warning(
+                "performance: ticket %s line %s has no base-currency price at its "
+                "fill %s; left out of the book",
+                ticket.id,
+                ticker,
+                fill_ts.date(),
+            )
             continue
         shares[ticker] = float(notional) / price
     return shares
@@ -694,8 +739,13 @@ def build_nav_series(
 
     quotes = sorted({_major_currency(code) for code in currency_map.values()})
     fx_rates = _load_fx_rates_frame(
-        session, base_currency, quotes, start=first_fill, end=asof
+        session,
+        base_currency,
+        quotes,
+        start=first_fill - dt.timedelta(days=_FX_LOOKBACK_DAYS),
+        end=asof,
     )
+    fx_rates = _carry_fx_into_window(fx_rates, raw_prices.index)
     # Guard on the HOLDINGS' currencies only: a foreign benchmark that lacks a rate
     # degrades gracefully (it is a reference line, not part of NAV) and must not
     # block marking of an otherwise all-base-currency book.
@@ -1094,6 +1144,7 @@ def _book_base_prices(
     fx_rates = _load_fx_rates_frame(
         session, base_currency, quotes, start=start, end=end
     )
+    fx_rates = _carry_fx_into_window(fx_rates, raw_prices.index)
     _require_fx_coverage(base_currency, currency_map, fx_rates)
     base_raw = _to_base_prices(
         raw_prices,
@@ -1182,13 +1233,14 @@ def holding_marks(
     if book is None:
         return [_degraded_mark(ticker) for ticker in order]
     base_raw, base_prices = book
-    current_book = _ticket_book(ticket, base_prices)
+    # Each ticket is priced once: pricing is where an unpriceable line is logged.
+    priced = [
+        (t.fill_date, _ticket_book(t, base_prices), float(t.notional or 0))
+        for t in tickets
+    ]
+    current_book = priced[-1][1]
     scale = _entry_scale(float(ticket.notional or 0), capital)
     if current_book:
-        priced = [
-            (t.fill_date, _ticket_book(t, base_prices), float(t.notional or 0))
-            for t in tickets
-        ]
         priced = [entry for entry in priced if entry[1]]
         links = _chain_links(
             [(fill_date, book) for fill_date, book, _ in priced],
@@ -1199,10 +1251,7 @@ def holding_marks(
         scale = links[-1].scale
     # Holdings sit on the chain-linked NAV scale, so they sum to the latest NAV and
     # the cost basis is the value carried into the rebalance, not the flat notional.
-    shares = {
-        ticker: qty * scale
-        for ticker, qty in _ticket_shares(ticket, base_prices).items()
-    }
+    shares = {ticker: qty * scale for ticker, (qty, _, _) in current_book.items()}
 
     computed: dict[str, tuple[float, float, pd.Series]] = {}
     for ticker in order:
