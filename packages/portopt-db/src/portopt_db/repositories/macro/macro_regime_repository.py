@@ -545,18 +545,23 @@ class MacroRegimeRepository(RepositoryBase):
         return self.session.execute(stmt).scalars().all()
 
     def get_fred_latest_date(self, series_id: str) -> datetime.date | None:
-        """Return the most recent observation date for a series.
+        """Return the most recent observation date that carries a value.
+
+        Rows whose value is ``NULL`` (FRED's ``"."`` placeholder) are ignored so
+        an incremental fetch anchored on this date never skips past a day whose
+        real value has not been stored yet.
 
         Args:
             series_id: FRED series identifier to query.
 
         Returns:
-            The latest stored date, or ``None`` if no observations exist for
-            the series.
+            The latest stored date with a non-null value, or ``None`` if the
+            series has no such observation.
         """
         result = self.session.execute(
             select(sa_func.max(FredObservation.date)).where(
-                FredObservation.series_id == series_id
+                FredObservation.series_id == series_id,
+                FredObservation.value.isnot(None),
             )
         ).scalar()
         return result

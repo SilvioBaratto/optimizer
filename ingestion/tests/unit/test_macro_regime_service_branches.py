@@ -279,6 +279,24 @@ class TestFetchFredSeries:
         assert call_kwargs.kwargs.get("start_date") == expected.isoformat()
         assert result["counts"]["GDP"] == 2
 
+    def test_when_incremental_then_start_date_reaches_back_a_full_quarter(
+        self,
+    ) -> None:
+        import datetime
+
+        fake_scraper = self._make_fred_scraper()
+        mock_repo = MagicMock()
+        latest = datetime.date(2026, 7, 1)
+        mock_repo.get_fred_latest_date.return_value = latest
+        mock_repo.upsert_fred_observations.return_value = 1
+        service, _ = _build_service(fred_scraper=fake_scraper, repo=mock_repo)
+
+        service.fetch_fred_series(series_ids=["A191RL1Q225SBEA"], incremental=True)
+
+        call_kwargs = fake_scraper.get_series_observations.call_args
+        start = datetime.date.fromisoformat(call_kwargs.kwargs["start_date"])
+        assert latest - start >= datetime.timedelta(days=90)
+
     def test_when_incremental_and_no_latest_date_then_start_date_none(self) -> None:
         fake_scraper = self._make_fred_scraper()
         mock_repo = MagicMock()

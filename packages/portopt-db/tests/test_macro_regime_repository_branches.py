@@ -763,6 +763,18 @@ class TestGetFredLatestDate:
         assert repo.get_fred_latest_date("A") == self._D1
         assert repo.get_fred_latest_date("B") == self._D2
 
+    def test_ignores_null_placeholder_rows(self, db_session: Session) -> None:
+        _flush(db_session, _fred("S", self._D1, 1.0), _fred("S", self._D2, None))
+        repo = MacroRegimeRepository(db_session)
+        assert repo.get_fred_latest_date("S") == self._D1
+
+    def test_returns_none_when_only_placeholder_rows_exist(
+        self, db_session: Session
+    ) -> None:
+        _flush(db_session, _fred("S", self._D1, None))
+        repo = MacroRegimeRepository(db_session)
+        assert repo.get_fred_latest_date("S") is None
+
 
 # ===========================================================================
 # get_macro_news
