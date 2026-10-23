@@ -6276,6 +6276,26 @@ def test_ask_confirm_prompt_keys_the_target_on_the_verb() -> None:
     )
 
 
+@pytest.mark.asyncio
+async def test_ask_portfolio_scope_confirm_names_the_portfolio_not_a_gate(
+    shell_env,
+) -> None:
+    """A focused 'freeze it' confirm spells out the portfolio — there is no gate."""
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("freeze it")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        prompt = str(app.screen.query_one(".confirm-prompt", Static).render())
+        assert "portfolio aaaa0001" in prompt
+        assert "gate" not in prompt
+
+
 # --- Ask disambiguation (Phase 08 T7) ---------------------------------------
 
 
@@ -6571,10 +6591,12 @@ async def test_audit_detail_renders_bracketed_text_literally(shell_env) -> None:
                 action="optimize_portfolio",
                 portfolio_id=None,
                 run_id=None,
+                target=None,
                 prev_value=None,
                 new_value=_BRACKETED,
                 source=None,
                 idempotency_key=None,
+                rationale=None,
                 override_flag=False,
                 suitability_flag=False,
             )

@@ -55,6 +55,12 @@ _SCOPE_VERBS: frozenset[str] = frozenset({"freeze", "rearm"})
 # misroute a focused freeze/rearm onto the whole fund on words like "refund"/"funding".
 _FUND_WORD = re.compile(r"\bfund\b")
 
+# Words that make a turn name "all of them" (a blanket target) or exclude something.
+# Neither can be honoured by a single focused portfolio, so a turn using one asks which
+# target is meant instead of quietly narrowing to the focus.
+_BLANKET_WORD = re.compile(r"\b(?:all|every|everything|each|both)\b")
+_NEGATION = re.compile(r"\b(?:not|never|nor|neither|except|without)\b|n['\u2019]t\b")
+
 # A typed id: the 8-hex short form the views render (optionally ``#``-prefixed) or a
 # ``#``-prefixed partial of it. Delimited so a word that merely contains hex letters is
 # not read as one; a hyphen may follow so a pasted full UUID is read by its first group.
@@ -138,9 +144,15 @@ def resolve_target(
       ``resolved``, two or more unnamed are ``ambiguous`` (the candidates), none is
       ``unresolved`` — as is a turn naming an id that matches no live gate (already
       decided, or a typo), which is never swapped for another gate;
-    * a scope verb (freeze / rearm) resolves to ``fund`` when the turn says so, else the
-      focused portfolio, else ``ambiguous`` (ask which);
-    * ``run`` (rebalance) resolves to the focused portfolio, else ``ambiguous``.
+    * a scope verb (freeze / rearm) resolves to ``fund`` when the turn says so, to the
+      portfolio whose short id it names, else to the focused portfolio, else
+      ``ambiguous`` (ask which). A turn that names an id matching no portfolio is
+      ``unresolved``; one using a blanket word ("everything", "all portfolios") or a
+      negation ("not the fund") is ``ambiguous`` rather than narrowed to the focus;
+    * ``run`` (rebalance) resolves like a scope verb's portfolio branch: the named
+      portfolio, else the focused one, else ``ambiguous``. A rebalance is per portfolio,
+      so a turn naming "the fund" (or a blanket word) is ``ambiguous`` too, never
+      narrowed to the focus;
 
     Args:
         turn: The adviser's action turn.
@@ -158,8 +170,8 @@ def resolve_target(
     if verb in _RESUME_VERBS:
         return _resolve_gate(verb, turn, session, saver)
     if verb in _SCOPE_VERBS:
-        return _resolve_scope(verb, turn, focus)
-    return _resolve_rebalance(focus)  # verb == "run"
+        return _resolve_scope(verb, turn, session, focus)
+    return _resolve_rebalance(turn, session, focus)  # verb == "run"
 
 
 def _resolve_gate(verb: str, turn: str, session: Any, saver: Any) -> TargetResolution:
@@ -246,30 +258,115 @@ def _gate_prompt(verb: str, gates: list[RunSummary]) -> str:
     return f"which gate to {verb} — {listed}?"
 
 
-def _resolve_scope(verb: str, turn: str, focus: uuid.UUID | None) -> TargetResolution:
-    """Resolve a scope verb to fund / focused-portfolio scope, else ask which."""
-    if _FUND_WORD.search(turn.lower()):
+def _resolve_scope(
+    verb: str, turn: str, session: Any, focus: uuid.UUID | None
+) -> TargetResolution:
+    """Resolve a scope verb to fund / named / focused scope, else ask which."""
+    lowered = turn.lower()
+    if _NEGATION.search(lowered):
+        return _negated(verb)
+    named, stale = _named_portfolios(turn, session)
+    if stale:
+        return _unknown_portfolio(stale)
+    names_fund = _FUND_WORD.search(lowered) is not None
+    if len(named) > 1 or (named and names_fund):
+        return TargetResolution(
+            "ambiguous",
+            None,
+            (),
+            f"{verb} which — name one portfolio by id, or say the whole fund?",
+        )
+    if named:
+        return _resolved_portfolio_scope(verb, named[0])
+    if names_fund:
         action = ResolvedAction(verb, None, None, "fund")
         return TargetResolution("resolved", action, (), f"{verb} the whole fund")
-    if focus is not None:
-        action = ResolvedAction(verb, None, focus, "portfolio")
+    if _BLANKET_WORD.search(lowered):
         return TargetResolution(
-            "resolved", action, (), f"{verb} portfolio {_short(focus)}"
+            "ambiguous",
+            None,
+            (),
+            f"{verb} what — the whole fund, or one portfolio (name its id)?",
         )
+    if focus is not None:
+        return _resolved_portfolio_scope(verb, focus)
     return TargetResolution(
         "ambiguous", None, (), f"{verb} what — the fund, or focus a portfolio first?"
     )
 
 
-def _resolve_rebalance(focus: uuid.UUID | None) -> TargetResolution:
-    """Resolve a ``run`` (rebalance) to the focused portfolio, else ask which."""
-    if focus is None:
+def _resolved_portfolio_scope(verb: str, portfolio_id: uuid.UUID) -> TargetResolution:
+    """A ``resolved`` portfolio-scope freeze / re-arm of ``portfolio_id``."""
+    action = ResolvedAction(verb, None, portfolio_id, "portfolio")
+    return TargetResolution(
+        "resolved", action, (), f"{verb} portfolio {_short(portfolio_id)}"
+    )
+
+
+def _resolve_rebalance(
+    turn: str, session: Any, focus: uuid.UUID | None
+) -> TargetResolution:
+    """Resolve a ``run`` (rebalance) to the named / focused portfolio, else ask."""
+    if _NEGATION.search(turn.lower()):
+        return _negated("run")
+    named, stale = _named_portfolios(turn, session)
+    if stale:
+        return _unknown_portfolio(stale)
+    lowered = turn.lower()
+    names_fund = _FUND_WORD.search(lowered) is not None
+    if len(named) > 1 or names_fund or (not named and _BLANKET_WORD.search(lowered)):
+        return TargetResolution(
+            "ambiguous",
+            None,
+            (),
+            "run which portfolio — a rebalance is per portfolio, name one by id",
+        )
+    target = named[0] if named else focus
+    if target is None:
         return TargetResolution(
             "ambiguous", None, (), "run which portfolio — focus one first"
         )
-    action = ResolvedAction("run", None, focus, None)
+    action = ResolvedAction("run", None, target, None)
     return TargetResolution(
-        "resolved", action, (), f"run a rebalance for {_short(focus)}"
+        "resolved", action, (), f"run a rebalance for {_short(target)}"
+    )
+
+
+def _named_portfolios(turn: str, session: Any) -> tuple[list[uuid.UUID], list[str]]:
+    """The known portfolios ``turn`` names by short id, and the ids that name none.
+
+    Reads the fund roster only when the turn actually typed an id.
+    """
+    tokens = _id_tokens(turn)
+    if not tokens:
+        return [], []
+    known = observe.list_portfolios(session)
+    named: list[uuid.UUID] = []
+    stale: list[str] = []
+    for token in tokens:
+        hits = [pid for pid in known if _short(pid).startswith(token)]
+        if not hits:
+            stale.append(token)
+        named.extend(pid for pid in hits if pid not in named)
+    return named, stale
+
+
+def _unknown_portfolio(stale: list[str]) -> TargetResolution:
+    """The dead end for a turn that typed ids matching no known portfolio."""
+    typed = ", ".join(f"#{token}" for token in stale)
+    return TargetResolution(
+        "unresolved", None, (), f"no portfolio matches {typed} — check the id"
+    )
+
+
+def _negated(verb: str) -> TargetResolution:
+    """The follow-up for a turn whose target is mixed up with a negation."""
+    return TargetResolution(
+        "ambiguous",
+        None,
+        (),
+        f"{verb} which? A negation is too easy to misread — name the target "
+        "outright (the fund, or a portfolio id)",
     )
 
 
@@ -337,8 +434,8 @@ def resolve_pending(
             return _resolved_gate(pending.verb, named)
         return TargetResolution("unresolved", None, (), "could not match a gate")
     if pending.verb in _SCOPE_VERBS:
-        return _resolve_scope(pending.verb, turn, focus)
-    return _resolve_rebalance(focus)
+        return _resolve_scope(pending.verb, turn, session, focus)
+    return _resolve_rebalance(turn, session, focus)
 
 
 def build_context(

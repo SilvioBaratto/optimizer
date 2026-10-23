@@ -295,6 +295,107 @@ def test_resolve_target_run_rebalance_needs_focus(db_session):
     assert res.action.portfolio_id == _PID_A
 
 
+def test_resolve_target_rebalance_naming_the_fund_is_not_narrowed_to_the_focus(
+    db_session,
+):
+    """A rebalance is per portfolio: a turn that names the whole fund asks which one,
+    rather than quietly rebalancing the focused portfolio it never mentioned."""
+    saver = MemorySaver()
+    _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b")
+
+    for focus in (None, _PID_A):
+        for turn in (
+            "rebalance the fund",
+            "run a rebalance for the whole fund",
+            "rebalance the fund and bbbb0002",
+        ):
+            res = ask.resolve_target(turn, db_session, saver, focus)
+
+            assert res.status == "ambiguous", (turn, focus)
+            assert res.action is None, (turn, focus)
+
+
+def test_resolve_target_scope_and_run_actions_carry_no_run_id(db_session):
+    """run_id is the paused run a resume verb targets; freeze / re-arm / run name a
+    portfolio, so they must not smuggle it in as a (non-existent) gate."""
+    for turn in ("freeze it", "rearm it", "run a rebalance"):
+        res = ask.resolve_target(turn, db_session, MemorySaver(), _PID_A)
+
+        assert res.status == "resolved", turn
+        assert res.action is not None
+        assert res.action.run_id is None, turn
+        assert res.action.portfolio_id == _PID_A, turn
+
+
+def test_resolve_target_scope_follows_the_portfolio_named_in_the_turn(db_session):
+    """A portfolio short id typed in the turn beats the focused portfolio."""
+    saver = MemorySaver()
+    _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
+    _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b")
+
+    frozen = ask.resolve_target("freeze portfolio bbbb0002", db_session, saver, _PID_A)
+    rebalanced = ask.resolve_target(
+        "run a rebalance for #bbbb0002", db_session, saver, _PID_A
+    )
+
+    assert frozen.action is not None
+    assert frozen.action.scope == "portfolio" and frozen.action.portfolio_id == _PID_B
+    assert rebalanced.action is not None
+    assert rebalanced.action.verb == "run" and rebalanced.action.portfolio_id == _PID_B
+
+
+def test_resolve_target_scope_unknown_portfolio_id_is_unresolved(db_session):
+    """An id that names no known portfolio is a dead end, never the focused one."""
+    saver = MemorySaver()
+    _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
+
+    for turn in ("freeze portfolio 71443ed2", "run a rebalance for #deadbeef"):
+        res = ask.resolve_target(turn, db_session, saver, _PID_A)
+
+        assert res.status == "unresolved", turn
+        assert res.action is None, turn
+
+
+def test_resolve_target_blanket_words_are_not_narrowed_to_the_focus(db_session):
+    """'freeze everything' must not quietly freeze only the focused portfolio."""
+    for turn in (
+        "freeze everything",
+        "freeze all portfolios",
+        "rearm every portfolio",
+        "run a rebalance for all portfolios",
+    ):
+        res = ask.resolve_target(turn, db_session, MemorySaver(), _PID_A)
+
+        assert res.status == "ambiguous", turn
+        assert res.action is None, turn
+
+
+def test_resolve_target_blanket_word_with_the_fund_is_fund_scope(db_session):
+    """A blanket word that also names the fund is unambiguous: the whole fund."""
+    res = ask.resolve_target(
+        "freeze everything in the fund", db_session, MemorySaver(), _PID_A
+    )
+
+    assert res.status == "resolved"
+    assert res.action is not None and res.action.scope == "fund"
+
+
+def test_resolve_target_negated_turn_never_resolves_on_the_negated_target(db_session):
+    """'not the fund' names the fund only to exclude it; a negation asks instead."""
+    saver = MemorySaver()
+    _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b")
+
+    for turn in (
+        "freeze portfolio bbbb0002, not the fund",
+        "freeze it but don't touch the fund",
+        "freeze it, not bbbb0002",
+    ):
+        res = ask.resolve_target(turn, db_session, saver, _PID_A)
+
+        assert res.status == "ambiguous", turn
+        assert res.action is None, turn
+
+
 # --- resolve_pending --------------------------------------------------------
 
 
