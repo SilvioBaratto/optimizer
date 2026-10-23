@@ -82,7 +82,13 @@ class ReturnsConfig:
             benchmark frame.
         drop_inceptions_nan: Drop the leading NaN rows created before an
             asset's first quote.
-        fill_nan: Forward-fill interior NaN prices before differencing.
+        fill_nan: Forward-fill NaN prices before differencing.  This also
+            fills the *trailing* gap after an asset's last quote, so a delisted
+            asset ends in a run of exact ``0.0`` returns instead of ``NaN``;
+            pass ``delisted_at`` to `apply_delisting_returns` in that case.
+            Setting it to ``False`` keeps the NaN tail but, with the default
+            ``drop_inceptions_nan=True``, drops every row after the earliest
+            delisting for all assets.
     """
 
     log_returns: bool = False
