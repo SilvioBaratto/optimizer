@@ -8,13 +8,6 @@ from typing import Any
 
 import pandas as pd
 from skfolio.measures import PerfMeasure, RatioMeasure, RiskMeasure
-from skfolio.pre_selection import (
-    DropCorrelated,
-    DropZeroVariance,
-    SelectKExtremes,
-    SelectNonDominated,
-    SelectNonExpiring,
-)
 from sklearn.pipeline import Pipeline
 
 from optimizer.pre_selection._config import PreSelectionConfig, SelectKMeasure
@@ -22,6 +15,13 @@ from optimizer.pre_selection._fit_only import (
     FitOnlyDataValidator,
     FitOnlyOutlierTreater,
     FitOnlySectorImputer,
+)
+from optimizer.pre_selection._guarded import (
+    GuardedDropCorrelated,
+    GuardedDropZeroVariance,
+    GuardedSelectKExtremes,
+    GuardedSelectNonDominated,
+    GuardedSelectNonExpiring,
 )
 from optimizer.pre_selection._select_complete import RawSelectComplete
 from optimizer.preprocessing._imputation import SectorImputer
@@ -102,7 +102,10 @@ def build_preselection_pipeline(
             `delisting_protection_mask`.
 
     Returns:
-        Assembled sklearn Pipeline with output set to pandas.
+        Assembled sklearn Pipeline with output set to pandas.  Fitting on a
+        universe that shrinks to one asset, or to none, is valid: the lone
+        survivor is returned, and an empty selection yields a frame with no
+        columns rather than an error.
     """
     steps = _build_steps(
         config,
@@ -172,11 +175,11 @@ def _build_steps(
         ),
         (
             "drop_zero_variance",
-            DropZeroVariance(threshold=config.zero_variance_threshold),
+            GuardedDropZeroVariance(threshold=config.zero_variance_threshold),
         ),
         (
             "drop_correlated",
-            DropCorrelated(
+            GuardedDropCorrelated(
                 threshold=config.correlation_threshold,
                 absolute=config.correlation_absolute,
             ),
@@ -187,7 +190,7 @@ def _build_steps(
         steps.append(
             (
                 "select_k",
-                SelectKExtremes(
+                GuardedSelectKExtremes(
                     k=config.top_k,
                     measure=_SELECT_K_MEASURE_MAP[config.select_k_measure],
                     highest=config.top_k_highest,
@@ -199,7 +202,7 @@ def _build_steps(
         steps.append(
             (
                 "select_pareto",
-                SelectNonDominated(
+                GuardedSelectNonDominated(
                     min_n_assets=config.pareto_min_assets,
                     threshold=config.pareto_threshold,
                 ),
@@ -210,7 +213,7 @@ def _build_steps(
         steps.append(
             (
                 "select_non_expiring",
-                SelectNonExpiring(
+                GuardedSelectNonExpiring(
                     expiration_dates=expiration_dates,
                     expiration_lookahead=dt.timedelta(
                         days=config.expiration_lookahead,

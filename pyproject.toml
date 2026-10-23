@@ -105,6 +105,7 @@ module = [
     "optimizer.preprocessing.*",
     "optimizer.fx.*",
     "optimizer.pre_selection._select_complete",
+    "optimizer.pre_selection._guarded",
 ]
 disallow_subclassing_any = false
 

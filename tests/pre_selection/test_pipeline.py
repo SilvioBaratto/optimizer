@@ -256,6 +256,83 @@ class TestCleaningNaNDoesNotDropAssets:
         assert np.isfinite(out.to_numpy()).all()
 
 
+class TestDegenerateUniverses:
+    """Zero or one surviving asset is a valid outcome, not a crash.
+
+    Pairwise selectors cannot fit on fewer than two assets and sklearn rejects
+    zero-column frames, so a universe that shrinks to one asset (or none) used
+    to raise instead of being returned as-is.
+    """
+
+    @staticmethod
+    def _frame(n_assets: int, n_obs: int = 200) -> pd.DataFrame:
+        rng = np.random.default_rng(5)
+        return pd.DataFrame(
+            rng.normal(0.0, 0.01, (n_obs, n_assets)),
+            columns=[f"S{i}" for i in range(n_assets)],
+            index=pd.date_range("2023-01-02", periods=n_obs, freq="B"),
+        )
+
+    @staticmethod
+    def _all_optional_steps() -> PreSelectionConfig:
+        return PreSelectionConfig(
+            top_k=3,
+            use_pareto=True,
+            use_non_expiring=True,
+            expiration_lookahead=30,
+        )
+
+    def test_single_asset_universe_is_returned(self) -> None:
+        out = build_preselection_pipeline().fit_transform(self._frame(1))
+
+        assert list(out.columns) == ["S0"]
+        assert len(out) == 200
+
+    def test_single_survivor_after_zero_variance_is_returned(self) -> None:
+        df = self._frame(4)
+        df[["S1", "S2", "S3"]] = 0.0
+
+        out = build_preselection_pipeline().fit_transform(df)
+
+        assert list(out.columns) == ["S0"]
+
+    def test_no_survivor_after_select_complete_returns_empty_frame(self) -> None:
+        df = self._frame(4)
+        df.iloc[-1, :] = np.nan
+
+        out = build_preselection_pipeline().fit_transform(df)
+
+        assert out.shape == (200, 0)
+
+    def test_no_survivor_after_zero_variance_returns_empty_frame(self) -> None:
+        df = self._frame(4)
+        df[:] = 0.0
+
+        out = build_preselection_pipeline().fit_transform(df)
+
+        assert out.shape == (200, 0)
+
+    @pytest.mark.parametrize("n_assets", [0, 1])
+    def test_all_optional_steps_tolerate_tiny_universes(self, n_assets: int) -> None:
+        import datetime as dt
+
+        pipe = build_preselection_pipeline(
+            self._all_optional_steps(),
+            expiration_dates={"S0": dt.datetime(2030, 1, 1)},
+        )
+
+        out = pipe.fit_transform(self._frame(n_assets))
+
+        assert out.shape == (200, n_assets)
+
+    def test_fitted_pipeline_transforms_an_empty_selection(self) -> None:
+        df = self._frame(4)
+        df.iloc[-1, :] = np.nan
+        pipe = build_preselection_pipeline().fit(df)
+
+        assert pipe.transform(df).shape == (200, 0)
+
+
 class TestPreSelectionConfigValidation:
     """Tests for PreSelectionConfig.__post_init__ validation (issue #64)."""
 

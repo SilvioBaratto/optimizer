@@ -9,9 +9,10 @@ import pandas as pd
 from skfolio.pre_selection import SelectComplete
 
 from optimizer.exceptions import DataError
+from optimizer.pre_selection._guarded import _SmallUniverseGuard
 
 
-class RawSelectComplete(SelectComplete):
+class RawSelectComplete(_SmallUniverseGuard, SelectComplete):
     """`SelectComplete` that tolerates infinities in the frame it inspects.
 
     Completeness is a statement about *missing* observations, so only ``NaN``
@@ -48,7 +49,7 @@ class RawSelectComplete(SelectComplete):
         return self
 
     def transform(self, X: Any) -> Any:
-        """Keep the columns selected at fit.
+        """Select the kept assets; a frame with no assets is returned unchanged.
 
         Args:
             X: Returns of the assets with the columns seen in fit.
