@@ -14,28 +14,35 @@ unit → tests → ingestion), never ``Path.cwd()``.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
 
-from tests.unit.hygiene._shared_scan import _iter_python_files
+from tests.unit.hygiene._shared_scan import (
+    _imported_module_names,
+    _iter_python_files,
+)
 
 _INGESTION_ROOT = Path(__file__).resolve().parents[3]
 _APP_ROOT = _INGESTION_ROOT / "app"
 _PYPROJECT_FILE = _INGESTION_ROOT / "pyproject.toml"
 _SELF = Path(__file__).resolve()
 
-# `import fund` / `from langgraph ...` etc. `\b` keeps `refund`/`langchainx`
-# from matching a bare module token; the alternation is the agent runtime + the
-# fund bridge package.
-_AGENT_IMPORT_PATTERN = re.compile(
-    r"^\s*(from|import)\s+(deepagents|langgraph|langchain|fund)\b", re.MULTILINE
-)
+# Top-level module names of the agent runtime plus the fund bridge. The
+# LangChain/LangGraph families are matched by prefix because their imports are
+# `langchain_core`, `langchain_ollama`, `langgraph.checkpoint...`; the exact
+# match on `fund` keeps `refund` from being mistaken for the bridge package.
+_AGENT_EXACT_ROOTS = frozenset({"deepagents", "fund"})
+_AGENT_ROOT_PREFIXES = ("langgraph", "langchain")
 # Forbidden distributions (substring match on lowered manifest text). `langgraph`
 # also catches `langgraph-checkpoint-postgres`; `langchain` catches
 # `langchain-ollama`; `portopt-fund` is the fund dist (NOT portopt-core/db).
 _FORBIDDEN_DISTS = ("deepagents", "langgraph", "langchain", "portopt-fund")
+
+
+def _is_agent_module(module: str) -> bool:
+    top_level = module.split(".", 1)[0]
+    return top_level in _AGENT_EXACT_ROOTS or top_level.startswith(_AGENT_ROOT_PREFIXES)
 
 
 def find_agent_import_violations(root: Path) -> list[str]:
@@ -46,7 +53,10 @@ def find_agent_import_violations(root: Path) -> list[str]:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        if _AGENT_IMPORT_PATTERN.search(text):
+        if any(
+            _is_agent_module(module)
+            for module in _imported_module_names(text, str(path))
+        ):
             offending.append(str(path.relative_to(root)))
     return offending
 
@@ -90,6 +100,33 @@ def test_when_the_fund_dist_is_injected_then_the_guard_fails():
 
 
 def test_when_a_refund_token_is_scanned_then_the_guard_allows_it(tmp_path):
-    """`\\bfund\\b` must not match `refund` — a bare word, not a module import."""
+    """`fund` is matched as an exact module name, so `refund` is not a hit."""
     (tmp_path / "clean.py").write_text("refund = compute_refund()\n", encoding="utf-8")
+    assert find_agent_import_violations(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from langchain_core.messages import BaseMessage\n",
+        "import langchain_ollama\n",
+        "import langchain_ollama as lo\n",
+        "import numpy, langgraph\n",
+        "from langgraph.checkpoint.postgres import PostgresSaver\n",
+        "import os; import deepagents\n",
+    ],
+)
+def test_when_a_non_canonical_agent_import_is_injected_then_the_guard_fails(
+    tmp_path, source
+):
+    """`langchain_*` distributions and multi-name imports are agent-stack too."""
+    (tmp_path / "offender.py").write_text(source, encoding="utf-8")
+    assert find_agent_import_violations(tmp_path) == ["offender.py"]
+
+
+def test_when_a_docstring_mentions_an_agent_import_then_the_guard_allows_it(tmp_path):
+    (tmp_path / "clean.py").write_text(
+        '"""Example:\n\nfrom deepagents import create_deep_agent\n"""\n',
+        encoding="utf-8",
+    )
     assert find_agent_import_violations(tmp_path) == []
