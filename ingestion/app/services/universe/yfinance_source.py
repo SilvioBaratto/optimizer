@@ -28,6 +28,14 @@ from typing import Any
 
 import yfinance as yf
 
+from app.services.infrastructure.retry import (
+    is_transient_network_error,
+    retry_with_backoff,
+)
+from app.services.market_data.yfinance.protocols import (
+    CircuitBreakerProtocol,
+    RateLimiterProtocol,
+)
 from app.services.market_data.yfinance.screener.screener_client import ScreenerClient
 from app.services.universe.canonical import (
     IngestionFloorConfig,
@@ -151,24 +159,58 @@ _EXCHANGE_PREF: tuple[str, ...] = (
 )
 
 
-def _live_usd_per_major(majors: set[str]) -> dict[str, float]:
+_FX_ATTEMPTS = 3
+
+
+def _live_usd_per_major(
+    majors: set[str],
+    *,
+    rate_limiter: RateLimiterProtocol | None = None,
+    circuit_breaker: CircuitBreakerProtocol | None = None,
+) -> dict[str, float]:
     """USD per 1 major unit via yfinance ``{MAJOR}USD=X`` spot (last close over a
-    short window). ``USD`` is 1.0; a currency that fails to resolve is simply
-    omitted (the floor then fail-opens on it). Network — injected so tests don't hit it.
+    short window). ``USD`` is 1.0. Each pair is retried like a screener page and,
+    when given, shares the screener's rate limiter and circuit breaker so the FX
+    calls that follow ~1,300 screener requests respect the same throttle. A
+    currency that still fails to resolve is omitted from the result; the caller
+    decides what to do about it. Network — injected so tests don't hit it.
     """
     rates: dict[str, float] = {"USD": 1.0}
     for major in majors:
         if not major or major == "USD":
             continue
-        try:
-            close = yf.Ticker(f"{major}USD=X").history(period="5d")["Close"].dropna()
-            if not close.empty:
-                rates[major] = float(close.iloc[-1])
-            else:
-                logger.warning("FX resolve empty for %s (fail-open)", major)
-        except Exception:
-            logger.warning("FX resolve failed for %s (fail-open)", major)
+        rate = _fetch_usd_per_major(
+            major, rate_limiter=rate_limiter, circuit_breaker=circuit_breaker
+        )
+        if rate is None:
+            logger.warning("FX resolve failed for %s after retries", major)
+        else:
+            rates[major] = rate
     return rates
+
+
+def _fetch_usd_per_major(
+    major: str,
+    *,
+    rate_limiter: RateLimiterProtocol | None,
+    circuit_breaker: CircuitBreakerProtocol | None,
+) -> float | None:
+    def _action() -> float | None:
+        if circuit_breaker is not None:
+            circuit_breaker.check()
+        if rate_limiter is not None:
+            rate_limiter.acquire("screener")
+        close = yf.Ticker(f"{major}USD=X").history(period="5d")["Close"].dropna()
+        return float(close.iloc[-1]) if not close.empty else None
+
+    return retry_with_backoff(
+        _action,
+        _FX_ATTEMPTS,
+        is_valid=lambda rate: rate is not None and rate > 0,
+        is_rate_limit_error=is_transient_network_error,
+        on_rate_limit=circuit_breaker.trigger if circuit_breaker else None,
+        on_success=(lambda _: circuit_breaker.reset()) if circuit_breaker else None,
+    )
 
 
 def _quote_to_listing(quote: dict[str, Any]) -> Listing:
@@ -217,8 +259,9 @@ class YFinanceUniverseSource:
     max_etfs_per_region: int = _MAX_PER_QUERY
     dedup: bool = True
     floor_config: IngestionFloorConfig = field(default_factory=IngestionFloorConfig)
-    # Injected so tests don't hit the network; production resolves live FX spot.
-    fx_resolver: Callable[[set[str]], dict[str, float]] = _live_usd_per_major
+    # Injected so tests don't hit the network; ``None`` resolves live FX spot
+    # through the screener's shared rate limiter and circuit breaker.
+    fx_resolver: Callable[[set[str]], dict[str, float]] | None = None
     _loaded: bool = field(default=False, init=False)
     _exchanges: list[dict[str, Any]] = field(default_factory=list, init=False)
     _instruments: list[dict[str, Any]] = field(default_factory=list, init=False)
@@ -320,6 +363,30 @@ class YFinanceUniverseSource:
             offset += _PAGE_SIZE
         return collected[:cap]
 
+    def _resolve_fx(self, majors: set[str]) -> dict[str, float]:
+        """USD rates for every major in ``majors``.
+
+        Raises:
+            UniverseSourceError: when a currency present in the data has no rate.
+                A listing without a rate has no USD ADDV, which would make it lose
+                every canonical-listing comparison and skip the floor, silently
+                swapping an entity's primary line for a thin cross-listing.
+        """
+        if self.fx_resolver is not None:
+            fx = self.fx_resolver(majors)
+        else:
+            fx = _live_usd_per_major(
+                majors,
+                rate_limiter=self.screener.rate_limiter,
+                circuit_breaker=self.screener.circuit_breaker,
+            )
+        fx.setdefault("USD", 1.0)
+        missing = sorted(m for m in majors if not fx.get(m, 0.0) > 0.0)
+        if missing:
+            msg = f"no USD FX rate for {', '.join(missing)}"
+            raise UniverseSourceError(msg)
+        return fx
+
     def _build_shape(self, quotes: list[dict[str, Any]]) -> None:
         # Same ticker can appear in both stock and ETF queries; deduplicate by
         # (symbol, exchange code) before the canonical pass.
@@ -342,8 +409,7 @@ class YFinanceUniverseSource:
 
         # USD rates are needed for the anti-junk floor normalization.
         majors = {m for m in (split_currency(lst.currency)[0] for lst in parsed) if m}
-        fx = self.fx_resolver(majors) if majors else {"USD": 1.0}
-        fx.setdefault("USD", 1.0)
+        fx = self._resolve_fx(majors) if majors else {"USD": 1.0}
 
         survivors = (
             dedup_canonical(

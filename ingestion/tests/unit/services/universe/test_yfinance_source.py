@@ -13,10 +13,12 @@ investable head of every venue, not the alphabetical microcap tail.
 from typing import Any
 from unittest.mock import MagicMock
 
+import pandas as pd
 import pytest
 
 pytest.importorskip("yfinance")
 
+from app.services.universe import yfinance_source
 from app.services.universe.trading212.builder import UniverseBuilder
 from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.yfinance_source import (
@@ -381,3 +383,88 @@ def test_failed_code_inside_a_merged_exchange_never_delists_its_listings(
         _build(src, repo)
 
     assert repo.delisted == []
+
+
+class _FxTicker:
+    """Stand-in for ``yf.Ticker('{MAJOR}USD=X')`` replaying scripted outcomes."""
+
+    def __init__(self, outcomes: list[object]) -> None:
+        self._outcomes = outcomes
+        self.calls = 0
+
+    def history(self, period: str) -> pd.DataFrame:
+        self.calls += 1
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return pd.DataFrame({"Close": outcome})
+
+
+def _patch_fx_tickers(
+    monkeypatch: pytest.MonkeyPatch, scripted: dict[str, list[object]]
+) -> dict[str, _FxTicker]:
+    tickers = {f"{m}USD=X": _FxTicker(o) for m, o in scripted.items()}
+    monkeypatch.setattr(yfinance_source.yf, "Ticker", lambda symbol: tickers[symbol])
+    monkeypatch.setattr("app.services.infrastructure.retry.time.sleep", lambda _s: None)
+    return tickers
+
+
+def test_fx_spot_is_retried_after_a_transient_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tickers = _patch_fx_tickers(
+        monkeypatch,
+        {"EUR": [RuntimeError("Too Many Requests. Rate limited."), [1.05, 1.1]]},
+    )
+    rates = yfinance_source._live_usd_per_major({"EUR", "USD"})
+    assert rates == {"USD": 1.0, "EUR": 1.1}
+    assert tickers["EURUSD=X"].calls == 2
+
+
+def test_fx_spot_goes_through_the_shared_breaker_and_limiter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_fx_tickers(monkeypatch, {"CHF": [[1.2]]})
+    nesn = _quote("NESN.SW", "EBS", currency="CHF", financialCurrency="CHF")
+    screener = MagicMock()
+    screener.screen.side_effect = [{"quotes": [nesn]}, {"quotes": []}]
+    src = YFinanceUniverseSource(screener=screener)
+    monkeypatch.setattr(
+        src, "_build_queries", lambda: [("Q", "STOCK", _STOCK_SORT_FIELD, _BIG_CAP)]
+    )
+    assert [i["ticker"] for i in src.get_instruments()] == ["NESN.SW"]
+    screener.circuit_breaker.check.assert_called()
+    screener.rate_limiter.acquire.assert_called()
+
+
+def test_unresolved_fx_aborts_instead_of_ranking_with_a_sentinel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # CHF has no rate: NESN.SW would get ADDV=None, lose every comparison to the
+    # thin EUR cross-listing and make it the canonical line.
+    nesn = _quote(
+        "NESN.SW",
+        "EBS",
+        longName="Nestle S.A.",
+        currency="CHF",
+        financialCurrency="CHF",
+        averageDailyVolume3Month=3_000_000,
+    )
+    nsrgy = _quote(
+        "NSRGY.DE",
+        "GER",
+        longName="Nestle S.A.",
+        currency="EUR",
+        financialCurrency="CHF",
+        averageDailyVolume3Month=2_000,
+    )
+    screener = MagicMock()
+    screener.screen.side_effect = [{"quotes": [nesn, nsrgy]}, {"quotes": []}]
+    src = YFinanceUniverseSource(
+        screener=screener, fx_resolver=lambda majors: {"USD": 1.0, "EUR": 1.1}
+    )
+    monkeypatch.setattr(
+        src, "_build_queries", lambda: [("Q", "STOCK", _STOCK_SORT_FIELD, _BIG_CAP)]
+    )
+    with pytest.raises(RuntimeError, match="CHF"):
+        src.get_instruments()
