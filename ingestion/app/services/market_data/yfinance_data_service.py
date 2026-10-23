@@ -21,7 +21,7 @@ import logging
 import math
 import threading
 from collections.abc import Callable, Iterable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -2132,6 +2132,22 @@ def _run_bulk_yfinance_fetch_parallel(
         except Exception as exc:
             return spec, exc
 
+    def _report_progress(idx: int, ticker: str) -> None:
+        # Progress is observability only: one transient DB error among ~10k
+        # writes must not fail a sweep whose data is committed per ticker.
+        # Cancellation is the one error that has to stop the job.
+        try:
+            on_progress(current=idx, current_ticker=ticker)
+        except CancelledError:
+            raise
+        except Exception:
+            logger.warning(
+                "yfinance progress write failed at ticker %d/%d; continuing",
+                idx,
+                total,
+                exc_info=True,
+            )
+
     executor = ThreadPoolExecutor(max_workers=workers)
     try:
         futures = [executor.submit(_worker, spec) for spec in specs]
@@ -2140,7 +2156,7 @@ def _run_bulk_yfinance_fetch_parallel(
             with counter_lock:
                 counter[0] += 1
                 idx = counter[0]
-            on_progress(current=idx, current_ticker=spec.yfinance_ticker)
+            _report_progress(idx, spec.yfinance_ticker)
             with aggregate_lock:
                 skipped += _aggregate_outcome(spec, outcome, counts, errors)
                 if not isinstance(outcome, Exception):

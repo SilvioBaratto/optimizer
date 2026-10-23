@@ -329,3 +329,60 @@ class TestParallelOutageDetection:
 
         assert outcome["tickers_processed"] == 2
         assert progress[-1]["status"] == "completed"
+
+
+class TestParallelProgressFailure:
+    def test_when_progress_write_is_cancelled_then_queued_tickers_never_start(self):
+        instruments = [_make_instrument(f"T{i}") for i in range(20)]
+        tracker = _SessionTracker()
+        started: list[str] = []
+        started_lock = threading.Lock()
+
+        def slow_fetch(**kwargs):
+            with started_lock:
+                started.append(kwargs["yfinance_ticker"])
+            time.sleep(0.05)
+            return _ok_result()
+
+        def cancelling_progress(**kwargs):
+            if "current" in kwargs:
+                raise CancelledError("job cancelled")
+
+        request = SimpleNamespace(workers=2, period="5y", mode="incremental")
+        repo_p, service_p, db_p = _patch_module(instruments, tracker, slow_fetch)
+
+        with repo_p, service_p, db_p, pytest.raises(CancelledError):
+            svc._run_bulk_yfinance_fetch_parallel(
+                request, MagicMock(), on_progress=cancelling_progress, workers=2
+            )
+
+        assert len(started) <= 6
+
+    def test_when_progress_write_fails_transiently_then_sweep_still_completes(self):
+        instruments = [_make_instrument(f"T{i}") for i in range(8)]
+        tracker = _SessionTracker()
+        calls = {"n": 0}
+        calls_lock = threading.Lock()
+
+        def flaky_progress(**kwargs):
+            if "current" not in kwargs:
+                return
+            with calls_lock:
+                calls["n"] += 1
+                first = calls["n"] == 1
+            if first:
+                raise RuntimeError("QueuePool limit reached")
+
+        request = SimpleNamespace(workers=3, period="5y", mode="incremental")
+        repo_p, service_p, db_p = _patch_module(
+            instruments, tracker, lambda **_: _ok_result()
+        )
+
+        with repo_p, service_p, db_p:
+            result = svc._run_bulk_yfinance_fetch_parallel(
+                request, MagicMock(), on_progress=flaky_progress, workers=3
+            )
+
+        assert result["tickers_processed"] == 8
+        assert result["counts"] == {"profile": 8}
+        assert result["error_count"] == 0
