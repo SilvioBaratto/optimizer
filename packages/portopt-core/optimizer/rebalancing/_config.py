@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
+
+from optimizer.exceptions import ConfigurationError
 
 
 class RebalancingFrequency(str, Enum):
@@ -117,10 +120,22 @@ class ThresholdRebalancingConfig:
         threshold: Drift threshold.  For absolute: percentage points of weight
             (e.g. 0.05 = 5pp).  For relative: fraction of target weight
             (e.g. 0.25 = 25% deviation).
+
+    Raises:
+        ConfigurationError: If ``threshold`` is not finite or is negative.
     """
 
     threshold_type: ThresholdType = ThresholdType.ABSOLUTE
     threshold: float = 0.05
+
+    def __post_init__(self) -> None:
+        # NaN makes every drift comparison False (never rebalance) and a
+        # negative value makes it True for zero drift (always rebalance), both
+        # silently.
+        if not math.isfinite(self.threshold) or self.threshold < 0:
+            raise ConfigurationError(
+                f"threshold must be finite and non-negative, got {self.threshold}."
+            )
 
     @classmethod
     def for_absolute(cls, threshold: float = 0.05) -> ThresholdRebalancingConfig:
