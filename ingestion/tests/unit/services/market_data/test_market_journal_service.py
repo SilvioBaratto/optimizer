@@ -273,6 +273,25 @@ class TestPointInTimeMarketMoves:
         assert row is not None
         assert row.market_moves["US"]["^GSPC"]["price"] == 4700.0
 
+    def test_fallback_picks_the_latest_of_several_earlier_snapshots(
+        self, committing_session: Session
+    ) -> None:
+        """Among snapshots before ``as_of`` the freshest wins; a later one never does."""
+        committing_session.add_all(
+            [
+                self._summary(datetime.date(2023, 12, 23), 4700.0),
+                self._summary(datetime.date(2023, 12, 30), 4800.0),
+                self._summary(datetime.date(2024, 1, 20), 6000.0),
+            ]
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.market_moves["US"]["^GSPC"]["price"] == 4800.0
+
     def test_snapshots_only_after_as_of_yield_no_market_moves(
         self, committing_session: Session
     ) -> None:

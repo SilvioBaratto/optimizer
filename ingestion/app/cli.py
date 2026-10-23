@@ -238,7 +238,12 @@ def _run_daily_events_backfill(spec: str, *, force: bool = False) -> bool:
     Runs the builder directly rather than the slotted ``run_daily_events_step``:
     a historical backfill can span hundreds of sessions, so it skips the per-day
     job slot and heartbeat the single-day path uses. Each day is an idempotent
-    upsert, so re-running the range is safe.
+    upsert built from observations dated on or before that day, so re-running the
+    range rewrites a row with the same content. The bound is the observation date,
+    not the release date, so lagged FRED series (monthly, quarterly) can carry a
+    reading published after the digest's date, and the upsert replaces the row the
+    daily pipeline built at the time. An END later than today is clamped to
+    today: a digest for a future date would be stamped with today's data.
 
     A per-day build failure is caught and logged, and the backfill continues over
     the remaining days rather than aborting the whole range on one bad day (and
@@ -251,8 +256,9 @@ def _run_daily_events_backfill(spec: str, *, force: bool = False) -> bool:
 
     Returns:
         ``True`` when the range parsed and every session built (or the range held
-        no sessions); ``False`` on a malformed/reversed range, an over-cap range
-        without ``force``, or any per-day build failure.
+        no sessions); ``False`` on a malformed or reversed range, a START later
+        than today, an over-cap range without ``force``, or any per-day build
+        failure.
     """
     from datetime import date
 
@@ -280,6 +286,20 @@ def _run_daily_events_backfill(spec: str, *, force: bool = False) -> bool:
             err=True,
         )
         return False
+
+    today = date.today()
+    if start > today:
+        typer.echo(
+            f"Invalid --backfill range {spec!r}: START is in the future.",
+            err=True,
+        )
+        return False
+    if end > today:
+        typer.echo(
+            f"daily-events backfill: END {end.isoformat()} is in the future; "
+            f"clamping to {today.isoformat()}."
+        )
+        end = today
 
     days = iter_trading_days(start, end)
     if not days:

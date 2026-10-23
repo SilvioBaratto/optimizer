@@ -499,6 +499,35 @@ class TestDailyEventsBackfill:
         assert result.exit_code == 1
         assert build.call_count == 3  # continued past the failing day
 
+    def test_future_end_is_clamped_to_today(self) -> None:
+        """A digest for a date that has not happened yet would carry today's data."""
+        today = date.today()
+        with (
+            patch(self._CAL, return_value=[]) as cal,
+            patch(self._BUILD) as build,
+        ):
+            result = runner.invoke(
+                app, ["daily-events", "--backfill", "2024-01-02:2999-12-31"]
+            )
+
+        assert result.exit_code == 0
+        assert cal.call_args.args == (date(2024, 1, 2), today)
+        build.assert_not_called()
+
+    def test_start_in_the_future_is_rejected(self) -> None:
+        """A range that begins after today has no historical sessions to build."""
+        with (
+            patch(self._CAL) as cal,
+            patch(self._BUILD) as build,
+        ):
+            result = runner.invoke(
+                app, ["daily-events", "--backfill", "2998-01-02:2999-12-31"]
+            )
+
+        assert result.exit_code == 1
+        cal.assert_not_called()
+        build.assert_not_called()
+
     def test_over_cap_range_without_force_exits_nonzero(self) -> None:
         """A range wider than the session cap is refused unless --force is passed."""
         days = [date(2024, 1, 2)] * 1001
