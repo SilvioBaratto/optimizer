@@ -24,7 +24,8 @@ Design
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -198,8 +199,8 @@ class TestParsArticleDate:
         assert isinstance(result, datetime)
         assert result.year == 2024
 
-    def test_when_datetime_object_then_returns_same(self) -> None:
-        dt = datetime(2024, 1, 1)
+    def test_when_aware_datetime_object_then_returns_same_instant(self) -> None:
+        dt = datetime(2024, 1, 1, 9, tzinfo=timezone(timedelta(hours=2)))
         assert _parse_article_date(dt) == dt
 
     def test_when_none_then_returns_none(self) -> None:
@@ -228,6 +229,51 @@ class TestIsArticleRecent:
     def test_when_epoch_today_then_returns_true(self) -> None:
         epoch = int(datetime.now().timestamp())
         assert _is_article_recent(epoch) is True
+
+
+class TestArticleTimestampsAreUtc:
+    """Every parsed article time is an aware UTC instant, whatever the input."""
+
+    _INSTANT = datetime(2024, 6, 1, 12, 0, tzinfo=timezone.utc)
+
+    def test_when_epoch_on_non_utc_host_then_returns_utc_instant(
+        self, host_timezone: Callable[[str], None]
+    ) -> None:
+        host_timezone("Asia/Tokyo")
+        result = _parse_article_date(int(self._INSTANT.timestamp()))
+        assert result is not None
+        assert result.isoformat() == "2024-06-01T12:00:00+00:00"
+
+    def test_when_iso_string_has_offset_then_converted_to_utc(self) -> None:
+        result = _parse_article_date("2024-06-01T14:00:00+02:00")
+        assert result is not None
+        assert result.isoformat() == "2024-06-01T12:00:00+00:00"
+
+    def test_when_naive_datetime_object_then_taken_as_utc(self) -> None:
+        result = _parse_article_date(datetime(2024, 1, 1, 9))
+        assert result is not None
+        assert result.isoformat() == "2024-01-01T09:00:00+00:00"
+
+    def test_when_iso_string_is_naive_then_taken_as_utc(self) -> None:
+        result = _parse_article_date("2024-06-01T12:00:00")
+        assert result is not None
+        assert result.isoformat() == "2024-06-01T12:00:00+00:00"
+
+    def test_when_aware_time_just_inside_window_in_negative_offset_then_recent(
+        self, host_timezone: Callable[[str], None]
+    ) -> None:
+        host_timezone("UTC")
+        inside = datetime.now(timezone.utc) - timedelta(days=60) + timedelta(hours=1)
+        wall_clock_in_minus_12 = inside.astimezone(timezone(timedelta(hours=-12)))
+        assert _is_article_recent(wall_clock_in_minus_12.isoformat()) is True
+
+    def test_when_aware_time_just_outside_window_in_positive_offset_then_stale(
+        self, host_timezone: Callable[[str], None]
+    ) -> None:
+        host_timezone("UTC")
+        outside = datetime.now(timezone.utc) - timedelta(days=60) - timedelta(hours=1)
+        wall_clock_in_plus_14 = outside.astimezone(timezone(timedelta(hours=14)))
+        assert _is_article_recent(wall_clock_in_plus_14.isoformat()) is False
 
 
 # ===========================================================================

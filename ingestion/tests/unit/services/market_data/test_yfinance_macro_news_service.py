@@ -17,7 +17,9 @@ Design
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import time
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -322,3 +324,25 @@ class TestMacroNewsFetcherTotalOutage:
         fetcher = _build_macro_fetcher(news_articles=[_untrusted_article()])
 
         assert fetcher.fetch_all(max_articles=5) == []
+
+
+class TestMacroNewsPublishTimeIsUtc:
+    """publish_time feeds a TIMESTAMPTZ column, so it must carry its offset."""
+
+    def test_when_search_article_has_epoch_time_then_publish_time_is_utc_iso(
+        self, host_timezone: Callable[[str], None]
+    ) -> None:
+        host_timezone("Asia/Tokyo")
+        epoch = int(time.time()) - 3600
+        article = {
+            "title": "Fed holds rates",
+            "providerPublishTime": epoch,
+            "publisher": "Reuters",
+            "link": "https://reuters.com/fed",
+        }
+        fetcher = _build_macro_fetcher(search_news=[article])
+
+        result = fetcher.fetch_all(max_articles=30)
+
+        expected = datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
+        assert [a["publish_time"] for a in result] == [expected]
