@@ -289,7 +289,10 @@ def build_conditional_synthetic_data(
 
     if warn_non_central:
         estimator = model.distribution_estimator
-        central = getattr(estimator, "central_assets", None) or []
+        # skfolio accepts any array-like here; truth-testing an ndarray/Index
+        # of 2+ elements raises, so only None is treated as "no central assets".
+        raw_central = getattr(estimator, "central_assets", None)
+        central = [] if raw_central is None else list(raw_central)
         non_central = [asset for asset in conditioning if asset not in central]
         if non_central:
             logger.warning(

@@ -240,6 +240,28 @@ class TestBuildConditionalSyntheticData:
             build_conditional_synthetic_data({"TICK_00": -0.10}, warn_non_central=False)
         assert caplog.text == ""
 
+    def test_ndarray_central_assets_do_not_crash_warning_check(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        explicit = VineCopula(central_assets=np.array(["TICK_00", "TICK_01"]))
+        with caplog.at_level("WARNING", logger="optimizer.synthetic._factory"):
+            model = build_conditional_synthetic_data(
+                {"TICK_00": -0.10}, distribution_estimator=explicit
+            )
+        assert model.distribution_estimator is explicit
+        assert "non-central" not in caplog.text
+
+    def test_ndarray_central_assets_still_warn_for_missing_asset(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        explicit = VineCopula(central_assets=np.array(["TICK_00", "TICK_01"]))
+        with caplog.at_level("WARNING", logger="optimizer.synthetic._factory"):
+            build_conditional_synthetic_data(
+                {"TICK_02": -0.10}, distribution_estimator=explicit
+            )
+        assert "non-central" in caplog.text
+        assert "TICK_02" in caplog.text
+
     def test_explicit_estimator_used(self) -> None:
         explicit = VineCopula(central_assets=["TICK_00"])
         model = build_conditional_synthetic_data(
