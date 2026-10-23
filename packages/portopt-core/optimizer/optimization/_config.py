@@ -76,6 +76,13 @@ class RatioMeasureType(str, Enum):
     INFORMATION_RATIO = "information_ratio"
 
 
+# skfolio adds ``l2_coef * ||w||^2`` straight onto the variance term, in the
+# same units as the returns.  Daily variance is ~1e-4, so a coefficient of the
+# usual 0.01-0.1 makes the ridge hundreds of times larger than the risk it is
+# meant to regularise and the covariance stops steering the weights.
+_DAILY_RIDGE_L2_COEF = 1e-3
+
+
 class FallbackPolicy(str, Enum):
     """Serialisable fallback policy for the optimizer resilience layer.
 
@@ -126,7 +133,11 @@ class MeanRiskConfig:
             same frequency as ``X`` (per period, NOT annualised); use
             ``for_tracking_error`` to state the cap in annualised terms.
         l1_coef: L1 regularisation coefficient.
-        l2_coef: L2 regularisation coefficient.
+        l2_coef: L2 regularisation coefficient.  It is added to the risk term
+            unscaled, so it must be sized against the variance of the returns
+            in ``X`` (about 1e-4 to 1e-3 for daily data, an order of magnitude
+            more for monthly data); a value far above that ignores the
+            covariance matrix.
         risk_free_rate: Risk-free rate for ratio objectives.
         cvar_beta: CVaR confidence level.
         evar_beta: EVaR confidence level.
@@ -205,13 +216,13 @@ class MeanRiskConfig:
         Targets the Sharpe ratio while using L2 regularisation and
         a per-asset weight cap to enforce diversification and keep
         volatility stable.  Uses ShrunkMu + DenoiseCovariance for
-        robust moment estimates.
+        robust moment estimates.  The ridge is sized for daily returns.
         """
         return cls(
             objective=ObjectiveFunctionType.MAXIMIZE_RATIO,
             risk_measure=RiskMeasureType.VARIANCE,
             max_weights=0.10,
-            l2_coef=0.05,
+            l2_coef=_DAILY_RIDGE_L2_COEF,
             prior_config=MomentEstimationConfig.for_shrunk_denoised(),
         )
 
@@ -221,14 +232,15 @@ class MeanRiskConfig:
 
         Uses ``min_weights=0.01`` to ensure all selected stocks get a
         meaningful allocation and ``max_weights=0.10`` to cap individual
-        positions.  L2 regularisation pushes toward equal-weight.
+        positions.  L2 regularisation pushes toward equal-weight; it is
+        sized for daily returns.
         """
         return cls(
             objective=ObjectiveFunctionType.MAXIMIZE_RATIO,
             risk_measure=RiskMeasureType.VARIANCE,
             min_weights=0.01,
             max_weights=0.10,
-            l2_coef=0.05,
+            l2_coef=_DAILY_RIDGE_L2_COEF,
             prior_config=MomentEstimationConfig.for_shrunk_denoised(),
         )
 
@@ -242,7 +254,8 @@ class MeanRiskConfig:
         Combines L2 regularisation, a 10% per-asset cap, and a uniform
         per-sector cap to prevent sector concentration.
 
-        Uses ShrunkMu + DenoiseCovariance for robust moment estimates.
+        Uses ShrunkMu + DenoiseCovariance for robust moment estimates.  The
+        ridge is sized for daily returns.
 
         Args:
             max_sector_weight: Maximum total weight for any single sector.
@@ -251,7 +264,7 @@ class MeanRiskConfig:
             objective=ObjectiveFunctionType.MAXIMIZE_RATIO,
             risk_measure=RiskMeasureType.VARIANCE,
             max_weights=0.10,
-            l2_coef=0.05,
+            l2_coef=_DAILY_RIDGE_L2_COEF,
             max_sector_weight=max_sector_weight,
             prior_config=MomentEstimationConfig.for_shrunk_denoised(),
         )

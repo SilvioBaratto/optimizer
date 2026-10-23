@@ -156,7 +156,7 @@ class TestMeanRiskConfig:
         assert cfg.objective == ObjectiveFunctionType.MAXIMIZE_RATIO
         assert cfg.risk_measure == RiskMeasureType.VARIANCE
         assert cfg.max_weights == 0.10
-        assert cfg.l2_coef == 0.05
+        assert 0.0 < cfg.l2_coef <= 1e-2
         assert cfg.max_sector_weight == 0.25
         assert cfg.prior_config is not None
 

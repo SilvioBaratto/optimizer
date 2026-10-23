@@ -937,3 +937,53 @@ class TestResilienceIntegration:
         model = build_mean_risk(cfg, target_weights=target)
         model.fit(returns_df)
         assert model.weights_.shape == (returns_df.shape[1],)
+
+
+# ---------------------------------------------------------------------------
+# Sharpe presets: l2_coef must stay on the scale of daily-return variance
+# ---------------------------------------------------------------------------
+
+
+def _daily_returns(*, vol_multiplier: float = 1.0) -> pd.DataFrame:
+    """30 assets x 750 daily observations; the first 15 can be made riskier."""
+    rng = np.random.default_rng(0)
+    n_obs, n_assets, n_risky = 750, 30, 15
+    market = rng.normal(0.0004, 0.01, n_obs)
+    betas = rng.uniform(0.6, 1.4, n_assets)
+    alphas = rng.uniform(0.0, 0.0008, n_assets)
+    idio = rng.uniform(0.008, 0.016, n_assets)
+    data = alphas + np.outer(market, betas) + rng.normal(0, 1, (n_obs, n_assets)) * idio
+    risky = data[:, :n_risky]
+    data[:, :n_risky] = (risky - risky.mean(axis=0)) * vol_multiplier + risky.mean(
+        axis=0
+    )
+    index = pd.bdate_range("2021-01-01", periods=n_obs)
+    return pd.DataFrame(data, index=index, columns=[f"A{i}" for i in range(n_assets)])
+
+
+class TestSharpePresetsStayRiskAware:
+    @pytest.mark.parametrize(
+        "preset",
+        [
+            "for_max_sharpe_diversified",
+            "for_concentrated_sharpe",
+            "for_max_sharpe_sector_constrained",
+        ],
+    )
+    def test_when_asset_volatility_triples_then_preset_cuts_its_weight(
+        self, preset: str
+    ) -> None:
+        # A ridge coefficient far above daily variance (~1e-4) swamps the
+        # covariance term, so the "Sharpe" preset keeps buying assets whose
+        # volatility has tripled instead of reacting to the risk.
+        cfg = getattr(MeanRiskConfig, preset)()
+
+        def risky_share(vol_multiplier: float) -> float:
+            returns = _daily_returns(vol_multiplier=vol_multiplier)
+            model = build_mean_risk(cfg)
+            model.fit(returns)
+            return float(model.weights_[:15].sum())
+
+        calm = risky_share(1.0)
+        stressed = risky_share(3.0)
+        assert stressed < 0.5 * calm
