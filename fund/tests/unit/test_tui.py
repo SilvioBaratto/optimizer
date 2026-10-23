@@ -2645,6 +2645,40 @@ async def test_posture_roster_selection_focuses_and_reveals_detail(shell_env) ->
         assert "ACTIVE RUN" in view.detail_text  # detail revealed for the focus
 
 
+@pytest.mark.asyncio
+async def test_posture_roster_keeps_cursor_on_selected_row_across_repaints(
+    shell_env,
+) -> None:
+    # The roster is repainted on every poll tick and on every focus change; a repaint
+    # must not snap the highlight back to row 0 while the shell is focused on row 2.
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        _seed_run(session, _PID_B, seed=2)
+        _seed_run(session, _PID_C, seed=3)
+        session.commit()
+
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        table = view.query_one("#posture-roster", DataTable)
+        table.focus()
+        table.move_cursor(row=2)
+        await pilot.pause()
+
+        app._refresh()  # a poll tick landing between the arrow keys and Enter
+        await pilot.pause()
+        assert table.cursor_row == 2
+
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app._portfolio_id == _PID_C
+        assert table.cursor_row == 2  # highlight still on the focused portfolio
+
+        await pilot.press("enter")  # a repeated Enter re-focuses the same row
+        await pilot.pause()
+        assert app._portfolio_id == _PID_C
+
+
 # --- Onboarding + drive flows: questionnaire → profiler → run → approve (T7) ---
 
 _PID_NEW = uuid.UUID("dddd0004-0000-4000-8000-000000000004")
