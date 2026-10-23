@@ -40,18 +40,26 @@ class FxConfig:
         mode: ``NONE`` disables conversion (default, backward-compatible).
             ``TO_BASE`` converts all prices to the base currency.
             ``DECOMPOSE`` converts and also produces an FX return decomposition.
-        data_source: Where to source FX rates.
+        data_source: Where to source FX rates (read by the rate loader, not
+            by ``build_fx_converter``).
         fill_limit: Maximum number of trading days to forward-fill missing FX
             rates (weekends, holidays).
         require_full_coverage: If ``True``, raise ``DataError`` when any
             required FX pair has insufficient data. If ``False``, log a
-            warning and leave base-currency-denominated tickers unchanged.
+            warning and leave the affected foreign-currency tickers
+            unconverted.
         cross_via_usd: When ``True``, compute cross-rates via USD
             (e.g. GBP/EUR = GBP/USD / EUR/USD) rather than looking up direct
-            pairs. yfinance direct cross pairs are often sparse.
+            pairs. yfinance direct cross pairs are often sparse. Read by
+            whoever loads the rates, not by ``build_fx_converter``, which
+            receives them ready-made.
         strict: If ``True``, raise ``ConfigurationError`` when ``mode != NONE``
-            but ``currency_map`` or ``fx_rates`` is ``None``. If ``False``
-            (default), log a ``WARNING`` and silently skip conversion.
+            but ``currency_map`` or ``fx_rates`` is ``None`` or empty, and
+            treat missing FX coverage as an error (as if
+            ``require_full_coverage`` were set). If ``False`` (default), log a
+            ``WARNING`` and skip conversion for the affected tickers; empty
+            ``fx_rates`` is accepted silently when every ticker is already
+            quoted in the base currency.
     """
 
     base_currency: BaseCurrency = BaseCurrency.EUR
