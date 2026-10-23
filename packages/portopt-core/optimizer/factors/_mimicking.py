@@ -169,7 +169,9 @@ def build_factor_mimicking_portfolios(
             on the date index.  Columns may be a superset or subset of
             `scores` columns; the intersection is used.
         quantile: Fraction of the asset universe assigned to each leg.  Must be
-            in ``(0, 0.5]``.
+            in ``(0, 0.5]``.  Each leg holds ``ceil(n * quantile)`` assets,
+            capped at ``n // 2`` so the legs never overlap (with ``0.5`` and
+            an odd number ``n`` of valid assets the middle asset is excluded).
         weighting: Weighting scheme within each leg.
             ``"equal"`` — every asset in the leg receives the same weight.
             ``"value"``  — assets are weighted by the absolute value of
@@ -184,8 +186,8 @@ def build_factor_mimicking_portfolios(
     Returns:
         Dates × 1 DataFrame of long-short portfolio returns.  Column
         name is ``"factor_return"``.  Index is the intersection of
-        *scores* and *returns* dates.  Missing periods (fewer than
-        ``2 * k`` valid observations) are filled with NaN.
+        *scores* and *returns* dates.  Missing periods (fewer than two
+        assets with both a score and a return) are filled with NaN.
 
     Raises:
         ConfigurationError: If ``quantile`` is outside ``(0, 0.5]`` or ``weighting``
@@ -215,7 +217,9 @@ def build_factor_mimicking_portfolios(
         scores_t = scores.loc[date, common_assets]
         returns_t = returns.loc[date, common_assets]
         valid_n = int((~scores_t.isna() & ~returns_t.isna()).sum())
-        k = max(1, math.ceil(valid_n * quantile))
+        # Capped at half the universe so that quantile=0.5 on an odd count
+        # yields two disjoint legs instead of an overlap that forces NaN.
+        k = max(1, min(math.ceil(valid_n * quantile), valid_n // 2))
 
         if beta_neutral:
             common = scores_t.dropna().index.intersection(returns_t.dropna().index)

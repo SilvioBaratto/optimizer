@@ -254,6 +254,56 @@ class TestQuantileValidation:
         assert r50["factor_return"].notna().all()
 
 
+class TestHalfQuantileOddUniverse:
+    """quantile=0.5 is documented as valid and must also work for odd universes."""
+
+    @staticmethod
+    def _panel(n_assets: int, n_dates: int = 15) -> tuple[pd.DataFrame, pd.DataFrame]:
+        rng = np.random.default_rng(3)
+        dates = pd.date_range("2021-01-31", periods=n_dates, freq="ME")
+        cols = [f"S{i}" for i in range(n_assets)]
+        sc = pd.DataFrame(
+            rng.standard_normal((n_dates, n_assets)), index=dates, columns=cols
+        )
+        rt = pd.DataFrame(
+            rng.normal(0.0, 0.02, (n_dates, n_assets)), index=dates, columns=cols
+        )
+        return sc, rt
+
+    @pytest.mark.parametrize("n_assets", [3, 5, 7, 11])
+    def test_odd_asset_count_is_not_nan(self, n_assets: int) -> None:
+        sc, rt = self._panel(n_assets)
+        result = build_factor_mimicking_portfolios(sc, rt, quantile=0.5)
+        assert result["factor_return"].notna().all()
+
+    def test_odd_universe_legs_are_floor_half_and_disjoint(self) -> None:
+        sc, rt = self._panel(5, n_dates=2)
+        result = build_factor_mimicking_portfolios(sc, rt, quantile=0.5)
+        date = sc.index[0]
+        ranked = sc.loc[date].sort_values(ascending=False).index
+        expected = rt.loc[date, ranked[:2]].mean() - rt.loc[date, ranked[-2:]].mean()
+        assert result.loc[date, "factor_return"] == pytest.approx(expected)
+
+    def test_ragged_universe_has_no_parity_dependent_gaps(self) -> None:
+        sc, rt = self._panel(8)
+        sc.iloc[::2, 0] = np.nan
+        result = build_factor_mimicking_portfolios(sc, rt, quantile=0.5)
+        assert result["factor_return"].notna().all()
+
+    def test_beta_neutral_odd_universe_is_not_nan(self) -> None:
+        sc, rt = self._panel(5)
+        market = rt.mean(axis=1)
+        result = build_factor_mimicking_portfolios(
+            sc, rt, quantile=0.5, beta_neutral=True, market_returns=market
+        )
+        assert result["factor_return"].notna().all()
+
+    def test_single_valid_asset_is_still_nan(self) -> None:
+        sc, rt = self._panel(1, n_dates=3)
+        result = build_factor_mimicking_portfolios(sc, rt, quantile=0.5)
+        assert result["factor_return"].isna().all()
+
+
 # ---------------------------------------------------------------------------
 # Multi-factor concatenation
 # ---------------------------------------------------------------------------
