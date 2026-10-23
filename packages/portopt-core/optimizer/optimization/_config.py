@@ -111,7 +111,10 @@ class MeanRiskConfig:
         budget: Portfolio budget (sum of weights).
         max_short: Maximum short position.
         max_long: Maximum long position.
-        cardinality: Maximum number of assets.
+        cardinality: Maximum number of assets.  Makes the problem
+            mixed-integer, so ``solver`` must be MIP-capable (``"SCIP"``, or
+            ``"SCIPY"`` for linear risk measures); `build_mean_risk` rejects
+            the default ``"CLARABEL"``.
         transaction_costs: Linear transaction costs penalising turnover relative
             to ``previous_weights``.
         management_fees: Linear management fees proportional to position size.

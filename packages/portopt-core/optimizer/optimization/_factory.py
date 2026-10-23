@@ -8,7 +8,7 @@ from typing import Any
 
 from skfolio.measures import RiskMeasure
 from skfolio.optimization import MeanRisk
-from skfolio.optimization.convex._base import ObjectiveFunction
+from skfolio.optimization.convex._base import MI_SOLVERS, ObjectiveFunction
 from skfolio.prior._base import BasePrior
 
 from optimizer.factors._integration import FactorExposureConstraints
@@ -304,9 +304,28 @@ def build_mean_risk(
 
     Returns:
         A fitted-ready skfolio optimiser.
+
+    Raises:
+        ValueError: If ``config.cardinality`` is set while ``config.solver``
+            is not mixed-integer capable (the default ``"CLARABEL"`` is not),
+            or if ``sector_bands`` / ``min_sector_weights`` are infeasible or
+            lack a group mapping.
     """
     if config is None:
         config = MeanRiskConfig()
+
+    # The asset count is unknown until fit, so a cardinality that happens to
+    # reach n_assets would still solve; rejecting the pairing here keeps the
+    # outcome independent of universe size instead of failing only once the
+    # universe outgrows the cap.
+    if config.cardinality is not None and config.solver not in MI_SOLVERS:
+        raise ValueError(
+            f"MeanRiskConfig.cardinality={config.cardinality} requires a "
+            f"mixed-integer solver, but solver={config.solver!r} cannot solve "
+            "MIP problems. Set solver to one of "
+            f"{sorted(MI_SOLVERS)} (e.g. 'SCIP' via `pip install cvxpy[SCIP]`; "
+            "the MIP-capable 'SCIPY' only handles linear risk measures)."
+        )
 
     if prior_estimator is None and config.prior_config is not None:
         prior_estimator = build_prior(config.prior_config)

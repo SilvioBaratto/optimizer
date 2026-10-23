@@ -63,9 +63,27 @@ class TestBuildMeanRisk:
         assert model.budget == 0.5
 
     def test_cardinality_forwarded(self) -> None:
-        cfg = MeanRiskConfig(cardinality=10)
+        cfg = MeanRiskConfig(cardinality=10, solver="SCIP")
         model = build_mean_risk(cfg)
         assert model.cardinality == 10
+
+    def test_cardinality_with_default_solver_raises_at_build(self) -> None:
+        """CLARABEL cannot solve MIPs, so the config is rejected before fit."""
+        with pytest.raises(ValueError, match="mixed-integer"):
+            build_mean_risk(MeanRiskConfig(cardinality=3))
+
+    def test_cardinality_with_mip_solver_fits(self) -> None:
+        rng = np.random.default_rng(0)
+        returns = pd.DataFrame(
+            rng.normal(0.001, 0.02, (250, 8)), columns=list("ABCDEFGH")
+        )
+        cfg = MeanRiskConfig(
+            risk_measure=RiskMeasureType.MEAN_ABSOLUTE_DEVIATION,
+            cardinality=3,
+            solver="SCIPY",
+        )
+        model = build_mean_risk(cfg).fit(returns)
+        assert int((model.weights_ > 1e-6).sum()) <= 3
 
     def test_transaction_costs_forwarded(self) -> None:
         cfg = MeanRiskConfig(transaction_costs=0.001)
