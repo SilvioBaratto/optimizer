@@ -26,6 +26,7 @@ from urllib.parse import urlsplit
 import httpx
 import requests
 
+from app.setup.host_urls import to_host_probe_url
 from app.utils.log_redaction import redact_secrets
 
 _TIMEOUT = 10
@@ -336,4 +337,6 @@ def validate_llm(
             f"Unknown LLM provider: {provider!r}; expected one of "
             f"{', '.join(SUPPORTED_LLM_PROVIDERS)}"
         ) from None
-    return validator(key, base_url, fields)
+    # The fund container reaches the host via host.docker.internal, which usually
+    # does not resolve from the host process running this probe.
+    return validator(key, to_host_probe_url(base_url) if base_url else None, fields)

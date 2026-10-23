@@ -27,6 +27,8 @@ import contextlib
 from collections.abc import Mapping
 from pathlib import Path
 
+from app.setup.host_urls import to_container_url
+
 # config.toml key -> the env-var name fund.config.load_config reads for it.
 # `azure_openai_api_version` is deliberately mapped to OPENAI_API_VERSION (the name
 # fund.config actually reads), NOT AZURE_OPENAI_API_VERSION — the one translation a
@@ -106,7 +108,7 @@ def config_to_env(config: Mapping[str, object]) -> dict[str, str]:
     if base_url:
         base_url_var = _BASE_URL_ENV_BY_PROVIDER.get(provider)
         if base_url_var:
-            env[base_url_var] = str(base_url)
+            env[base_url_var] = to_container_url(str(base_url))
     return env
 
 

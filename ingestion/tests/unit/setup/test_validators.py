@@ -307,6 +307,38 @@ def test_validate_llm_ollama_cloud_hostnames_use_the_authed_probe(
         )
 
 
+@pytest.mark.parametrize(
+    ("provider", "base_url", "probed"),
+    [
+        (
+            "ollama",
+            "http://host.docker.internal:11434",
+            "http://localhost:11434/api/tags",
+        ),
+        (
+            "nvidia",
+            "http://host.docker.internal:8000/v1",
+            "http://localhost:8000/v1/models",
+        ),
+        (
+            "openai",
+            "http://host.docker.internal:4000/v1",
+            "http://localhost:4000/v1/models",
+        ),
+    ],
+)
+def test_validate_llm_probes_container_alias_host_via_loopback(
+    provider: str, base_url: str, probed: str
+) -> None:
+    """``host.docker.internal`` only resolves inside the compose network (and on
+    Docker Desktop); the wizard's own probe runs on the host, so it must reach the
+    same service through loopback instead of aborting on a name that won't resolve."""
+    with patch("app.setup.validators._llm_get", return_value=_resp(200)) as m:
+        assert validators.validate_llm(provider, key="k", base_url=base_url) is True
+    (url,), _ = m.call_args
+    assert url == probed
+
+
 def test_validate_llm_nvidia_self_hosted_needs_no_key() -> None:
     with patch("app.setup.validators._llm_get", return_value=_resp(200)) as m:
         assert validators.validate_llm("nvidia", base_url="http://nim:8000/v1") is True

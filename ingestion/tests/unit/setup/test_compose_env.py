@@ -143,6 +143,82 @@ def test_base_url_routes_per_provider() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "loopback_url",
+    [
+        "http://localhost:11434",
+        "http://LOCALHOST:11434",
+        "http://127.0.0.1:11434",
+        "http://127.0.1.1:11434",
+        "http://[::1]:11434",
+    ],
+)
+def test_loopback_base_url_is_pointed_at_the_host_for_the_container(
+    loopback_url: str,
+) -> None:
+    """Inside the fund container ``localhost`` is the container itself, so a
+    loopback URL that validated fine from the host must be rendered as the compose
+    host alias (the service maps it with ``extra_hosts: host-gateway``)."""
+    env = config_to_env({"llm_provider": "ollama", "llm_base_url": loopback_url})
+    assert env["OLLAMA_BASE_URL"] == "http://host.docker.internal:11434"
+
+
+@pytest.mark.parametrize(
+    ("provider", "var", "url", "expected"),
+    [
+        (
+            "nvidia",
+            "NVIDIA_BASE_URL",
+            "http://localhost:8000/v1",
+            "http://host.docker.internal:8000/v1",
+        ),
+        (
+            "openai",
+            "OPENAI_BASE_URL",
+            "https://127.0.0.1:4000/v1?x=1",
+            "https://host.docker.internal:4000/v1?x=1",
+        ),
+        (
+            "ollama",
+            "OLLAMA_BASE_URL",
+            "http://user:pw@localhost/",
+            "http://user:pw@host.docker.internal/",
+        ),
+    ],
+)
+def test_loopback_rewrite_keeps_scheme_port_path_and_credentials(
+    provider: str, var: str, url: str, expected: str
+) -> None:
+    """Only the host component changes; everything else round-trips verbatim."""
+    assert config_to_env({"llm_provider": provider, "llm_base_url": url})[var] == (
+        expected
+    )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://host.docker.internal:11434",
+        "http://ollama.internal:11434",
+        "http://192.168.1.20:11434",
+        "https://ollama.com",
+        "http://localhost.example.com:11434",
+    ],
+)
+def test_non_loopback_base_url_is_rendered_verbatim(url: str) -> None:
+    """Hosts that already resolve from the container are left untouched."""
+    env = config_to_env({"llm_provider": "ollama", "llm_base_url": url})
+    assert env["OLLAMA_BASE_URL"] == url
+
+
+def test_loopback_rewrite_does_not_mutate_the_persisted_config() -> None:
+    """The wizard re-validates the stored URL from the host next run, so the
+    config mapping must keep the user's original loopback form."""
+    config = {"llm_provider": "ollama", "llm_base_url": "http://localhost:11434"}
+    config_to_env(config)
+    assert config["llm_base_url"] == "http://localhost:11434"
+
+
 def test_base_url_dropped_for_provider_without_a_base_url_field() -> None:
     """anthropic/google/groq/huggingface/openrouter have no base-url env var."""
     env = config_to_env({"llm_provider": "anthropic", "llm_base_url": "http://nope"})
