@@ -246,6 +246,23 @@ def _heartbeat(
 # ---------------------------------------------------------------------------
 
 
+def _mark_job_failed(job_svc: BackgroundJobService, job_id: str, label: str) -> None:
+    """Record ``failed`` on a job row, tolerating a database that is itself down.
+
+    Used on error paths, where a failing write must not replace the original
+    error or abort the pipeline. A row left behind is failed by the orphan
+    reaper once its heartbeat lapses.
+    """
+    try:
+        job_svc.update_job(
+            job_id,
+            status="failed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+    except Exception:
+        logger.exception("%s: could not record failed status (job %s)", label, job_id)
+
+
 def _run_step(
     label: str,
     job_svc: BackgroundJobService,
@@ -270,7 +287,9 @@ def _run_step(
     with a live heartbeat, blocking the step on the restarted daemon until the
     lease expires.
 
-    Returns ``True`` if the step completed, ``False`` on skip or failure.
+    Returns ``True`` if the step completed, ``False`` on skip or failure. It
+    never raises for a database fault around the job row: callers chain steps
+    back to back, so one step's bookkeeping error must not skip the rest.
     """
     if _scheduler is not None and _scheduler.draining:
         logger.warning("%s: skipped — scheduler is shutting down", label)
@@ -285,9 +304,11 @@ def _run_step(
             exc.existing_job_id,
         )
         return False
+    except Exception:
+        logger.exception("%s: could not claim a job slot", label)
+        return False
 
     logger.info("%s: started (job %s)", label, job_id)
-    job_svc.update_job(job_id, status="running")
 
     report_progress = make_progress(job_id, job_svc)
     watch = _ProgressWatch(settings.scheduler_step_stall_timeout_seconds)
@@ -297,6 +318,7 @@ def _run_step(
         report_progress(**kwargs)
 
     try:
+        job_svc.update_job(job_id, status="running")
         with _heartbeat(job_svc, job_id, label, watch):
             fn(*args, on_progress=on_progress)
         job = job_svc.get_job(job_id) or {}
@@ -322,11 +344,7 @@ def _run_step(
         return True
     except Exception:
         logger.exception("%s: raised an exception", label)
-        job_svc.update_job(
-            job_id,
-            status="failed",
-            finished_at=datetime.now(timezone.utc).isoformat(),
-        )
+        _mark_job_failed(job_svc, job_id, label)
         return False
 
 

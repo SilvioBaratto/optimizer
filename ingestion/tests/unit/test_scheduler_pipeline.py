@@ -11,6 +11,7 @@ from contextlib import ExitStack, contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from app.services.jobs.background_job import JobAlreadyRunningError
 
@@ -24,6 +25,10 @@ _VALID_JOB_ID = "12345678-1234-1234-1234-123456789abc"
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _db_error() -> OperationalError:
+    return OperationalError("UPDATE background_jobs", {}, Exception("db down"))
 
 
 def _make_job_svc(*, get_job_return=None):
@@ -130,6 +135,69 @@ class TestRunStep:
             if c.kwargs.get("status") == "failed"
         ]
         assert failed_calls
+
+    def test_when_claim_hits_db_error_then_returns_false_without_raising(self):
+        job_svc = _make_job_svc()
+        job_svc.create_job.side_effect = _db_error()
+        fn = MagicMock()
+
+        result = self._call(job_svc, fn)
+
+        assert result is False
+        fn.assert_not_called()
+
+    def test_when_marking_running_hits_db_error_then_row_failed_and_fn_skipped(self):
+        job_svc = _make_job_svc()
+        job_svc.update_job.side_effect = [_db_error(), None]
+        fn = MagicMock()
+
+        with patch(f"{M}.threading.Thread") as mock_thread:
+            mock_thread.return_value = MagicMock()
+            result = self._call(job_svc, fn)
+
+        assert result is False
+        fn.assert_not_called()
+        statuses = [c.kwargs.get("status") for c in job_svc.update_job.call_args_list]
+        assert statuses == ["running", "failed"]
+
+    def test_when_failed_status_write_also_errors_then_still_returns_false(self):
+        job_svc = _make_job_svc()
+        job_svc.update_job.side_effect = _db_error()
+        fn = MagicMock(side_effect=RuntimeError("boom"))
+
+        with patch(f"{M}.threading.Thread") as mock_thread:
+            mock_thread.return_value = MagicMock()
+            result = self._call(job_svc, fn)
+
+        assert result is False
+
+
+class TestStepFailureIsolation:
+    def test_when_yfinance_claim_errors_then_daily_pipeline_runs_independent_steps(
+        self,
+    ):
+        from app.services.jobs import scheduler
+
+        broken = _make_job_svc()
+        broken.create_job.side_effect = _db_error()
+
+        with (
+            patch.object(scheduler, "_yfinance_jobs", broken),
+            patch(
+                "app.services.market_data.yfinance.get_yfinance_client",
+                return_value=MagicMock(),
+            ),
+            patch.object(scheduler, "run_fx_step") as fx,
+            patch.object(scheduler, "run_macro_step") as macro,
+            patch.object(scheduler, "run_news_step") as news,
+            patch.object(scheduler, "run_daily_events_step") as events,
+        ):
+            scheduler.run_daily_pipeline()
+
+        fx.assert_called_once()
+        macro.assert_called_once()
+        events.assert_called_once()
+        news.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
