@@ -75,12 +75,30 @@ def _f(value: Any) -> float | None:
 
 
 def _build_macro_deltas(
-    repo: MacroRegimeRepository, series_ids: tuple[str, ...]
+    repo: MacroRegimeRepository,
+    series_ids: tuple[str, ...],
+    as_of: datetime.date,
 ) -> dict[str, Any]:
-    """Return latest-vs-prior deltas for each FRED series that has data."""
+    """Return latest-vs-prior deltas for each FRED series that has data.
+
+    Only observations dated on or before ``as_of`` are considered, so a
+    backfilled digest never carries values from after its own date.
+
+    The ``as_of`` cap removes look-ahead only for the daily market series
+    (spreads, VIX, Treasury rates, dollar index).  FRED rows store the
+    reference-period date, not the release date, so for the monthly OECD CLI
+    series and ``RECPROUSM156N`` and the quarterly ``JHGDPBRINDX`` and
+    ``A191RL1Q225SBEA`` a backfilled digest still carries values that were
+    published weeks or months after ``as_of``.  The NBER ``USREC``/``USRECDM``
+    flags are worse: they are hindsight, announced many months after the period
+    they describe.  The leak is material for all of these.  No release dates are
+    stored and a fixed lag would also age live digests, so none is applied;
+    treat these series as context rather than point-in-time inputs when a
+    digest is rebuilt for a past date.
+    """
     out: dict[str, Any] = {}
     for sid in series_ids:
-        obs = list(repo.get_fred_observations(sid, limit=2))
+        obs = list(repo.get_fred_observations(sid, end_date=as_of, limit=2))
         if not obs:
             continue
         latest = obs[-1]
@@ -262,7 +280,7 @@ def run_build_market_journal(
         market_repo = MarketSummaryRepository(session)
         journal_repo = MarketJournalRepository(session)
 
-        macro_deltas = _build_macro_deltas(macro_repo, series_ids)
+        macro_deltas = _build_macro_deltas(macro_repo, series_ids, as_of)
         market_moves, market_rows = _build_market_moves(
             market_repo, request.markets, as_of
         )

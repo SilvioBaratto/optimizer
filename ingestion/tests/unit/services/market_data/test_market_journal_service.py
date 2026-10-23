@@ -192,6 +192,55 @@ class TestBuildFromSeededData:
         assert "T10Y2Y" in row.narrative
 
 
+class TestPointInTimeMacroDeltas:
+    """A digest built for a past date uses only observations dated on or before it."""
+
+    def test_future_fred_observations_do_not_leak_into_macro_deltas(
+        self, committing_session: Session
+    ) -> None:
+        """Observations after ``as_of`` are ignored when picking latest/prior."""
+        _seed_digest_sources(committing_session)
+        committing_session.add_all(
+            [
+                FredObservation(
+                    series_id="T10Y2Y", date=datetime.date(2024, 6, 3), value=9.9
+                ),
+                FredObservation(
+                    series_id="T10Y2Y", date=datetime.date(2024, 6, 4), value=9.8
+                ),
+            ]
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        delta = row.macro_deltas["T10Y2Y"]
+        assert delta["date"] == _AS_OF.isoformat()
+        assert delta["latest"] == 0.45
+        assert delta["prior"] == 0.30
+        assert "9.9" not in row.narrative
+        assert "9.8" not in row.narrative
+
+    def test_series_with_only_future_observations_is_omitted(
+        self, committing_session: Session
+    ) -> None:
+        """A series that starts after ``as_of`` contributes nothing to the digest."""
+        committing_session.add(
+            FredObservation(
+                series_id="T10Y2Y", date=datetime.date(2024, 6, 3), value=9.9
+            )
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.macro_deltas == {}
+
+
 class TestIdempotency:
     """Re-running the builder for a date converges to a single row."""
 
