@@ -396,6 +396,166 @@ def test_resolve_target_negated_turn_never_resolves_on_the_negated_target(db_ses
         assert res.action is None, turn
 
 
+def test_resolve_target_negated_gate_turn_never_resolves_on_the_excluded_gate(
+    db_session,
+):
+    """A resume verb is the irreversible path: 'approve not #X' must ask, with or
+    without a focus, rather than approve the very gate it excludes."""
+    saver, run_a, run_b = _two_gates(db_session)
+    short_a, short_b = (str(run).split("-", 1)[0] for run in (run_a, run_b))
+
+    for focus in (None, _PID_A, _PID_B):
+        for turn in (
+            f"approve not #{short_b}",
+            f"approve #{short_a} not #{short_b}",
+            f"approve the other one, not #{short_b}",
+            f"reject but don't touch #{short_b}",
+            f"killswitch everything except #{short_b}",
+            f"steer anything but #{short_b}, not the other",
+        ):
+            res = ask.resolve_target(turn, db_session, saver, focus)
+
+            assert res.status == "ambiguous", (turn, focus)
+            assert res.action is None, (turn, focus)
+            assert {gate.run_id for gate in res.candidates} == {run_a, run_b}
+
+
+def test_resolve_target_negated_gate_turn_can_be_answered_by_naming_a_gate(
+    db_session,
+):
+    """The negation follow-up carries every live gate, so a bare '#id' completes it."""
+    saver, run_a, run_b = _two_gates(db_session)
+    short_a, short_b = (str(run).split("-", 1)[0] for run in (run_a, run_b))
+    turn = f"approve the other one, not #{short_b}"
+
+    res = ask.resolve_target(turn, db_session, saver, None)
+    pending = ask.pending_action(turn, res)
+    answered = ask.resolve_pending(pending, f"#{short_a}", db_session, saver, None)
+
+    assert pending.verb == "approve"
+    assert answered.status == "resolved"
+    assert answered.action is not None and answered.action.run_id == run_a
+
+
+def test_negated_follow_up_after_a_pending_approve_is_not_an_answer_or_a_target(
+    db_session,
+):
+    """'approve the other one, not #X' after 'approve which?' neither answers the
+    question nor resolves, as a fresh turn, onto the excluded gate #X."""
+    saver, run_a, run_b = _two_gates(db_session)
+    short_b = str(run_b).split("-", 1)[0]
+    pending = ask.PendingAction("approve", (run_a, run_b))
+    turn = f"approve the other one, not #{short_b}"
+
+    answered = ask.resolve_pending(pending, turn, db_session, saver, None)
+    fresh = ask.resolve_target(turn, db_session, saver, None)
+
+    assert answered.status == "unresolved" and answered.action is None
+    assert fresh.status == "ambiguous" and fresh.action is None
+
+
+def test_resolve_target_negation_with_no_gate_paused_is_still_a_dead_end(db_session):
+    """Nothing to decide stays 'unresolved' — the negation does not mask that."""
+    res = ask.resolve_target("approve not #deadbeef", db_session, MemorySaver(), None)
+
+    assert res.status == "unresolved"
+    assert res.action is None
+
+
+# --- resolve_pending: a follow-up must answer the question that was asked ---
+
+
+def _two_gates(db_session) -> tuple[MemorySaver, uuid.UUID, uuid.UUID]:
+    """Seed one gate per portfolio; return the saver and both run ids."""
+    saver = MemorySaver()
+    run_a = _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
+    run_b = _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b")
+    return saver, run_a, run_b
+
+
+def test_resolve_pending_gate_answer_names_the_gate_under_the_pending_verb(db_session):
+    """'#id', 'gate #id' and the pending verb + id all answer 'which gate?'."""
+    saver, _run_a, run_b = _two_gates(db_session)
+    pending = ask.PendingAction("approve", (_run_a, run_b))
+    short = str(run_b).split("-", 1)[0]
+
+    for turn in (f"#{short}", f"gate #{short}", f"approve #{short}"):
+        res = ask.resolve_pending(pending, turn, db_session, saver, None)
+
+        assert res.status == "resolved", turn
+        assert res.action is not None, turn
+        assert res.action.verb == "approve" and res.action.run_id == run_b, turn
+
+
+def test_resolve_pending_follow_up_with_its_own_verb_is_not_an_answer(db_session):
+    """'reject #id' after a pending approve is a new request, never an approve."""
+    saver, run_a, run_b = _two_gates(db_session)
+    pending = ask.PendingAction("approve", (run_a, run_b))
+    short = str(run_b).split("-", 1)[0]
+
+    for turn in (
+        f"reject #{short}",
+        f"killswitch #{short}",
+        f"do not approve #{short}",
+        f"not #{short}, the other one",
+        f"what is the status of #{short}?",
+    ):
+        res = ask.resolve_pending(pending, turn, db_session, saver, None)
+
+        assert res.status == "unresolved", turn
+        assert res.action is None, turn
+
+
+def test_resolve_pending_scope_needs_an_explicit_target(db_session):
+    """A question or another verb mentioning 'fund' does not answer 'freeze what?'."""
+    pending = ask.PendingAction("freeze", ())
+
+    for focus in (None, _PID_A):
+        for turn in (
+            "how is the fund doing?",
+            "what is the fund drawdown?",
+            "rearm the fund",
+            "what is the drift?",
+            "freeze it",
+        ):
+            res = ask.resolve_pending(pending, turn, db_session, MemorySaver(), focus)
+
+            assert res.status == "unresolved", (turn, focus)
+            assert res.action is None, (turn, focus)
+
+
+def test_resolve_pending_scope_answered_by_the_fund_or_a_portfolio_id(db_session):
+    """'the fund' / 'freeze the fund' / a portfolio id answer the scope question."""
+    saver = MemorySaver()
+    _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b")
+    pending = ask.PendingAction("freeze", ())
+
+    for turn in ("the fund", "freeze the fund"):
+        res = ask.resolve_pending(pending, turn, db_session, saver, None)
+
+        assert res.action is not None and res.action.scope == "fund", turn
+
+    res = ask.resolve_pending(pending, "bbbb0002", db_session, saver, None)
+    assert res.action is not None and res.action.portfolio_id == _PID_B
+
+
+def test_resolve_pending_run_needs_an_explicit_portfolio_id(db_session):
+    """The focus alone never answers 'run which portfolio?'; a typed id does."""
+    saver = MemorySaver()
+    _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b")
+    pending = ask.PendingAction("run", ())
+
+    for turn in ("what is the drift?", "run a rebalance"):
+        res = ask.resolve_pending(pending, turn, db_session, saver, _PID_A)
+
+        assert res.status == "unresolved", turn
+        assert res.action is None, turn
+
+    named = ask.resolve_pending(pending, "bbbb0002", db_session, saver, _PID_A)
+    assert named.action is not None
+    assert named.action.verb == "run" and named.action.portfolio_id == _PID_B
+
+
 # --- resolve_pending --------------------------------------------------------
 
 

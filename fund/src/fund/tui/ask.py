@@ -61,6 +61,13 @@ _FUND_WORD = re.compile(r"\bfund\b")
 _BLANKET_WORD = re.compile(r"\b(?:all|every|everything|each|both)\b")
 _NEGATION = re.compile(r"\b(?:not|never|nor|neither|except|without)\b|n['\u2019]t\b")
 
+# A turn opening with one of these is a question or a read request, never the answer
+# to "which gate / which scope?".
+_QUESTION_START = re.compile(
+    r"(?:what|why|how|when|where|who|whom|whose|is|are|was|were|does|did|do|can|could"
+    r"|should|would|will|show|tell|explain)\b"
+)
+
 # A typed id: the 8-hex short form the views render (optionally ``#``-prefixed) or a
 # ``#``-prefixed partial of it. Delimited so a word that merely contains hex letters is
 # not read as one; a hyphen may follow so a pasted full UUID is read by its first group.
@@ -143,7 +150,9 @@ def resolve_target(
       pending-HITL gates: a single gate (or one named by its short id in the turn) is
       ``resolved``, two or more unnamed are ``ambiguous`` (the candidates), none is
       ``unresolved`` — as is a turn naming an id that matches no live gate (already
-      decided, or a typo), which is never swapped for another gate;
+      decided, or a typo), which is never swapped for another gate. A negation
+      ("approve not #id") is ``ambiguous`` over every live gate: the excluded gate is
+      never the one acted on;
     * a scope verb (freeze / rearm) resolves to ``fund`` when the turn says so, to the
       portfolio whose short id it names, else to the focused portfolio, else
       ``ambiguous`` (ask which). A turn that names an id matching no portfolio is
@@ -181,6 +190,9 @@ def _resolve_gate(verb: str, turn: str, session: Any, saver: Any) -> TargetResol
         return TargetResolution(
             "unresolved", None, (), "no gate is awaiting a decision"
         )
+    if _NEGATION.search(turn.lower()):
+        prompt = "a negation is too easy to misread — " + _gate_prompt(verb, gates)
+        return TargetResolution("ambiguous", None, tuple(gates), prompt)
     stale = _stale_ids(turn, gates)
     if stale:
         typed = ", ".join(f"#{token}" for token in stale)
@@ -401,28 +413,29 @@ def resolve_pending(
 ) -> TargetResolution:
     """Resolve a carried pending action against the next ``turn`` — never on a guess.
 
-    A resume-verb pending resolves to the single still-live candidate gate the next turn
-    names (by short id); a scope/rebalance pending re-resolves from the next turn's
-    target words (e.g. "the fund") or the now-focused portfolio. An unmatched next turn
-    stays non-``resolved`` so the caller can treat it as a fresh, unrelated turn (which
-    clears the pending action). A follow-up that opens with a *different* decision verb
-    ("reject #44ae61f1" after an "approve" question) is a new command, not an answer, so
-    it is left unresolved rather than executed under the carried verb.
+    The follow-up must *answer* the question that was asked. It is not an answer — so
+    stays non-``resolved`` and the caller handles it as a fresh turn — when it is a
+    question, carries a negation, or opens with a different decision verb (a pending
+    ``approve`` followed by "reject #id" is a new reject request, not an approve). An
+    answer to a resume-verb pending names a still-live candidate gate by short id; an
+    answer to a scope pending names "the fund" or a portfolio id; an answer to a ``run``
+    pending names a portfolio id. The focus is never an answer on its own: whatever is
+    focused when the follow-up arrives does not make an unrelated turn a target.
 
     Args:
         pending: The carried :class:`PendingAction` from the prior ambiguous turn.
         turn: The adviser's follow-up turn.
         session: An injected read-only sync session; not owned here.
         saver: The bootstrapped LangGraph checkpointer (opaque), for the gate reads.
-        focus: The focused portfolio, or ``None``.
+        focus: The focused portfolio, or ``None``. Not consulted (see above); kept so
+            callers pass the same context as :func:`resolve_target`.
 
     Returns:
         A :class:`TargetResolution`; ``resolved`` only when the follow-up names the
         target unambiguously.
     """
-    follow_up_verb = _leading_verb(turn)
-    if follow_up_verb is not None and follow_up_verb != pending.verb:
-        return TargetResolution("unresolved", None, (), "a different action")
+    if not _answers_pending(pending.verb, turn):
+        return TargetResolution("unresolved", None, (), "not an answer to the question")
     if pending.verb in _RESUME_VERBS:
         live = [
             gate
@@ -430,12 +443,31 @@ def resolve_pending(
             if gate.run_id in pending.candidates
         ]
         named = _match_gate(turn, live)
-        if named is not None:
+        if named is not None and not _stale_ids(turn, live):
             return _resolved_gate(pending.verb, named)
         return TargetResolution("unresolved", None, (), "could not match a gate")
     if pending.verb in _SCOPE_VERBS:
-        return _resolve_scope(pending.verb, turn, session, focus)
-    return _resolve_rebalance(turn, session, focus)
+        if _FUND_WORD.search(turn.lower()) is None and not _id_tokens(turn):
+            return TargetResolution("unresolved", None, (), "no target named")
+        return _resolve_scope(pending.verb, turn, session, None)
+    if not _id_tokens(turn):
+        return TargetResolution("unresolved", None, (), "no portfolio named")
+    return _resolve_rebalance(turn, session, None)
+
+
+def _answers_pending(verb: str, turn: str) -> bool:
+    """Whether ``turn`` can be the answer to a pending ``verb`` question.
+
+    A question, a negation, or a turn opening with a different decision verb is a new
+    request, not an answer.
+    """
+    lowered = turn.strip().lower()
+    if lowered.endswith("?") or _QUESTION_START.match(lowered):
+        return False
+    if _NEGATION.search(lowered):
+        return False
+    leading = _leading_verb(lowered)
+    return leading is None or leading == verb
 
 
 def build_context(

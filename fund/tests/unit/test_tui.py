@@ -6675,6 +6675,73 @@ async def test_daily_brief_renders_bracketed_economist_read_literally(
         assert _BRACKETED in _rendered(view.query_one("#brief-detail", Static))
 
 
+@pytest.mark.asyncio
+async def test_ask_pending_follow_up_with_another_verb_runs_that_verb(tui_env) -> None:
+    """After 'approve' asks which gate, 'reject #id' is confirmed as a reject."""
+    _seed_fake_gate(tui_env, PORTFOLIO_ID, thread_id="thread-gate2", seed=2)
+    short = str(tui_env.run_id).split("-", 1)[0]
+
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert view.pending_action is not None
+
+        view.submit_turn(f"reject #{short}")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        prompt = str(app.screen.query_one(".confirm-prompt", Static).render())
+        assert "Reject" in prompt and "Approve" not in prompt
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.last_worker is None  # nothing was dispatched
+
+
+@pytest.mark.asyncio
+async def test_ask_pending_negated_follow_up_never_confirms_the_excluded_gate(
+    tui_env,
+) -> None:
+    """'approve the other one, not #id' after 'approve which?' asks again; it must not
+    confirm an approve of the gate the adviser just excluded."""
+    _seed_fake_gate(tui_env, PORTFOLIO_ID, thread_id="thread-gate2", seed=2)
+    short = str(tui_env.run_id).split("-", 1)[0]
+
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert view.pending_action is not None
+
+        view.submit_turn(f"approve the other one, not #{short}")
+        await pilot.pause()
+        assert not isinstance(app.screen, ConfirmScreen)
+        assert view.pending_action is not None  # asked which gate, outright
+        assert app.last_worker is None  # nothing was dispatched
+
+
+@pytest.mark.asyncio
+async def test_ask_pending_scope_question_about_the_fund_is_not_a_freeze(
+    shell_env,
+) -> None:
+    """A question mentioning 'fund' after 'freeze what?' never reaches a confirm."""
+    app = _make_shell(shell_env)  # model_factory=lambda: None
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("freeze it")
+        await pilot.pause()
+        assert view.pending_action is not None
+
+        view.submit_turn("how is the fund doing?")
+        await pilot.pause()
+        assert view.pending_action is None
+        assert not isinstance(app.screen, ConfirmScreen)
+        worker = app.last_worker  # routed fresh as a query (model is None)
+        if worker is not None:
+            await worker.wait()
+
+
 # --- Ask markdown export (Phase 08 T8) --------------------------------------
 
 
