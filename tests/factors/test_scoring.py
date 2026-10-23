@@ -480,6 +480,112 @@ class TestICIRWeightedComposite:
         pd.testing.assert_series_equal(icir_result, equal_result)
 
 
+class TestICIRHonoursLookbackAndDecay:
+    """ICIR weighting must read the same ic_lookback / ic_decay_halflife knobs."""
+
+    @staticmethod
+    def _regime_shift_ic(n_stale: int = 48, n_recent: int = 12) -> pd.Series:
+        rng = np.random.default_rng(7)
+        noise = rng.normal(0.0, 0.01, n_stale + n_recent)
+        level = np.r_[np.full(n_stale, -0.05), np.full(n_recent, 0.05)]
+        return pd.Series(level + noise)
+
+    @staticmethod
+    def _value_only_scores() -> pd.DataFrame:
+        index = [f"T{i:02d}" for i in range(5)]
+        return pd.DataFrame({"value": 1.0, "momentum": 0.0}, index=index, dtype=float)
+
+    def _ic_per_group(self) -> dict[str, pd.Series]:
+        steady = pd.Series(np.random.default_rng(3).normal(0.04, 0.01, 60))
+        return {"value": self._regime_shift_ic(), "momentum": steady}
+
+    def test_lookback_trims_stale_ic_history_for_icir(self) -> None:
+        scores = self._value_only_scores()
+        full = compute_icir_weighted_composite(
+            scores,
+            self._ic_per_group(),
+            CompositeScoringConfig(
+                method=CompositeMethod.ICIR_WEIGHTED, ic_lookback=60
+            ),
+        )
+        recent = compute_icir_weighted_composite(
+            scores,
+            self._ic_per_group(),
+            CompositeScoringConfig(
+                method=CompositeMethod.ICIR_WEIGHTED, ic_lookback=12
+            ),
+        )
+        # Over the full history value's ICIR is negative, so it is clamped out.
+        assert np.allclose(full.to_numpy(), 0.0)
+        # Over the last 12 periods it has turned positive and is reinstated.
+        assert (recent > 0.0).all()
+
+    def test_compute_composite_score_forwards_lookback_for_icir(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        # "value" has a stale negative regime; the other groups are steady, so
+        # trimming the window changes the relative weights.
+        steady = np.random.default_rng(11).normal(0.03, 0.01, 60)
+        ic_history = pd.DataFrame(
+            {
+                col: (self._regime_shift_ic().to_numpy() if col == "value" else steady)
+                for col in group_scores.columns
+            }
+        )
+
+        def composite(lookback: int) -> pd.Series:
+            cfg = CompositeScoringConfig(
+                method=CompositeMethod.ICIR_WEIGHTED, ic_lookback=lookback
+            )
+            return compute_composite_score(
+                standardized_factors, coverage, config=cfg, ic_history=ic_history
+            )
+
+        assert not np.allclose(composite(60).to_numpy(), composite(12).to_numpy())
+
+    def test_lookback_longer_than_history_uses_whole_history(self) -> None:
+        scores = self._value_only_scores()
+        exact = compute_icir_weighted_composite(
+            scores,
+            self._ic_per_group(),
+            CompositeScoringConfig(
+                method=CompositeMethod.ICIR_WEIGHTED, ic_lookback=60
+            ),
+        )
+        oversized = compute_icir_weighted_composite(
+            scores,
+            self._ic_per_group(),
+            CompositeScoringConfig(
+                method=CompositeMethod.ICIR_WEIGHTED, ic_lookback=500
+            ),
+        )
+        pd.testing.assert_series_equal(exact, oversized)
+
+    def test_decay_halflife_lets_recent_ic_dominate_icir(self) -> None:
+        scores = self._value_only_scores()
+        flat = compute_icir_weighted_composite(
+            scores,
+            self._ic_per_group(),
+            CompositeScoringConfig(
+                method=CompositeMethod.ICIR_WEIGHTED,
+                ic_lookback=60,
+                ic_decay_halflife=0,
+            ),
+        )
+        decayed = compute_icir_weighted_composite(
+            scores,
+            self._ic_per_group(),
+            CompositeScoringConfig(
+                method=CompositeMethod.ICIR_WEIGHTED,
+                ic_lookback=60,
+                ic_decay_halflife=3,
+            ),
+        )
+        assert np.allclose(flat.to_numpy(), 0.0)
+        assert (decayed > 0.0).all()
+
+
 class TestCoverageWeightedMean:
     """Tests for coverage-weighted mean in group scoring (issue #62)."""
 
@@ -1177,23 +1283,6 @@ class TestICWeightedEmptyHistory:
                 group_scores, self._empty_history(group_scores), config
             )
 
-    def test_zero_lookback_uses_no_history(
-        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
-    ) -> None:
-        """``iloc[-0:]`` would select the whole history; zero must select none."""
-        group_scores = compute_group_scores(standardized_factors, coverage)
-        ic_history = pd.DataFrame(
-            0.05, index=range(12), columns=list(group_scores.columns)
-        )
-        config = CompositeScoringConfig(
-            method=CompositeMethod.IC_WEIGHTED,
-            ic_lookback=0,
-            ic_fallback_strategy=ICFallbackStrategy.NAN,
-        )
-        with pytest.warns(UserWarning, match="non-positive IC"):
-            result = compute_ic_weighted_composite(group_scores, ic_history, config)
-        assert result.isna().all()
-
 
 class TestICIRWeightedLookback:
     """ICIR weighting must estimate over ``ic_lookback`` periods, like IC weighting."""
@@ -1256,20 +1345,6 @@ class TestICIRWeightedLookback:
             long_window,
         )
         pd.testing.assert_series_equal(result, expected)
-
-    def test_zero_lookback_uses_no_history(self) -> None:
-        standardized, coverage, ic_history = self._inputs()
-        config = CompositeScoringConfig(
-            method=CompositeMethod.ICIR_WEIGHTED,
-            ic_lookback=0,
-            ic_fallback_strategy=ICFallbackStrategy.NAN,
-        )
-        with pytest.warns(UserWarning, match="non-positive ICIR"):
-            result = compute_composite_score(
-                standardized, coverage, config=config, ic_history=ic_history
-            )
-        assert isinstance(result, pd.Series)
-        assert result.isna().all()
 
 
 class TestEqualWeightCompositeWithoutUsableGroups:

@@ -201,6 +201,25 @@ def _summarize_ic_history(ic_history: pd.DataFrame, decay_halflife: int) -> pd.S
     return ic_history.ewm(halflife=decay_halflife, min_periods=1).mean().iloc[-1]
 
 
+def _summarize_icir(ic_series: pd.Series, lookback: int, decay_halflife: int) -> float:
+    """Reduce one group's IC series to a trailing (optionally decayed) ICIR.
+
+    Only the last ``lookback`` observations are used. ``decay_halflife == 0``
+    keeps the plain ``mean / std`` of that window; positive values use the
+    exponentially weighted mean and standard deviation so recent observations
+    dominate stale ones, mirroring ``_summarize_ic_history``.
+    """
+    window = ic_series.iloc[-lookback:]
+    if decay_halflife <= 0:
+        return compute_icir(window)
+    clean = window.dropna()
+    if len(clean) < 2:
+        return 0.0
+    ewm = clean.ewm(halflife=decay_halflife, min_periods=2)
+    ew_std = float(ewm.std().iloc[-1])
+    return float(ewm.mean().iloc[-1]) / ew_std if ew_std > 0.0 else 0.0
+
+
 def compute_ic_weighted_composite(
     group_scores: pd.DataFrame,
     ic_history: pd.DataFrame,
@@ -276,11 +295,11 @@ def compute_icir_weighted_composite(
 
     Args:
         group_scores: Tickers x groups matrix.
-        ic_series_per_group: Per-group IC time series, used as given: the
-            caller selects the estimation window (``compute_composite_score``
-            applies ``config.ic_lookback``). Keys must match ``group_scores``
-            columns.
-        config: Scoring configuration.
+        ic_series_per_group: Per-group IC time series. Keys must match
+            ``group_scores`` columns.
+        config: Scoring configuration. ``ic_lookback`` limits each series to
+            its most recent observations and ``ic_decay_halflife`` applies
+            exponential decay within that window.
         group_weights: Pre-computed group weights (e.g. from regime tilts). When
             provided, use as tier multipliers instead of config
             core/supplementary weights.
@@ -297,7 +316,7 @@ def compute_icir_weighted_composite(
         if group.value not in group_scores.columns:
             continue
         ic_s = ic_series_per_group.get(group.value, pd.Series(dtype=float))
-        icir = compute_icir(ic_s)
+        icir = _summarize_icir(ic_s, config.ic_lookback, config.ic_decay_halflife)
         if icir < 0.0:
             n_negative += 1
         if group_weights is not None:
