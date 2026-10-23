@@ -179,12 +179,10 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
                 raise DataError(msg)
             logger.warning(msg + " Affected tickers will not be converted.")
 
-        if not fx_rates.empty:
-            self.fx_aligned_: pd.DataFrame = align_fx_rates(
-                fx_rates, cast(pd.DatetimeIndex, X.index), fill_limit=self.fill_limit
-            )
-        else:
-            self.fx_aligned_ = pd.DataFrame(index=X.index)
+        # The raw rates are kept so transform() can align them to whichever
+        # window it is given; ``fx_aligned_`` is only the fit-window view.
+        self.fx_rates_: pd.DataFrame = fx_rates
+        self.fx_aligned_: pd.DataFrame = self._align_rates(X.index)
 
         return self
 
@@ -212,17 +210,18 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
             if scale != 1 and ticker in out.columns:
                 out[ticker] = out[ticker] / scale
 
-        # 2. FX conversion (major local currency -> base currency).
+        # 2. FX conversion (major local currency -> base currency).  Rates are
+        #    aligned to this frame's own index, not the fit-time one.
+        fx_aligned = self._align_rates(out.index)
         for ticker, ccy in self.foreign_tickers_.items():
             if ticker not in out.columns:
                 continue
             if ccy in self.missing_currencies_:
                 continue
-            if ccy not in self.fx_aligned_.columns:
+            if ccy not in fx_aligned.columns:
                 continue
 
-            rate = self.fx_aligned_[ccy].reindex(out.index)
-            out[ticker] = out[ticker] * rate
+            out[ticker] = out[ticker] * fx_aligned[ccy]
 
         nan_mask = out.isnull() & ~X.isnull()
         if nan_mask.any().any():
@@ -257,6 +256,13 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
         """Return feature names (pass-through)."""
         check_is_fitted(self)
         return self.feature_names_in_
+
+    def _align_rates(self, index: pd.Index) -> pd.DataFrame:
+        if self.fx_rates_.empty:
+            return pd.DataFrame(index=index)
+        return align_fx_rates(
+            self.fx_rates_, cast(pd.DatetimeIndex, index), fill_limit=self.fill_limit
+        )
 
     @staticmethod
     def _validate_input(X: pd.DataFrame) -> None:

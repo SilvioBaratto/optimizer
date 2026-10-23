@@ -619,3 +619,60 @@ class TestFxPriceConverterUnmappedTickers:
         )
         converter.fit(local_prices)
         assert converter.unmapped_tickers_ == []
+
+
+class TestFxPriceConverterTransformOtherWindow:
+    """transform() must convert any window the rate frame covers, not just the
+    window seen at fit time."""
+
+    def test_transform_converts_dates_outside_fit_window(
+        self,
+        local_prices: pd.DataFrame,
+        currency_map: dict[str, str],
+        fx_rates: pd.DataFrame,
+    ) -> None:
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map=currency_map, fx_rates=fx_rates
+        )
+        converter.fit(local_prices.iloc[:5])
+        result = converter.transform(local_prices.iloc[5:])
+
+        assert not result.isna().any().any()
+        expected = local_prices.iloc[5:]["LLOY.L"] * fx_rates["GBP"].iloc[5:]
+        pd.testing.assert_series_equal(result["LLOY.L"], expected, check_names=False)
+        expected_spy = local_prices.iloc[5:]["SPY"] * fx_rates["USD"].iloc[5:]
+        pd.testing.assert_series_equal(result["SPY"], expected_spy, check_names=False)
+
+    def test_fit_window_does_not_change_transform_output(
+        self,
+        local_prices: pd.DataFrame,
+        currency_map: dict[str, str],
+        fx_rates: pd.DataFrame,
+    ) -> None:
+        def make() -> FxPriceConverter:
+            return FxPriceConverter(
+                base_currency="EUR", currency_map=currency_map, fx_rates=fx_rates
+            )
+
+        fit_on_head = make().fit(local_prices.iloc[:5])
+        fit_on_all = make().fit(local_prices)
+
+        pd.testing.assert_frame_equal(
+            fit_on_head.transform(local_prices.iloc[5:]),
+            fit_on_all.transform(local_prices).iloc[5:],
+        )
+
+    def test_minor_unit_ticker_converted_outside_fit_window(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=10)
+        prices = pd.DataFrame({"AAA.L": np.linspace(5000.0, 5900.0, 10)}, index=dates)
+        rate = pd.Series(np.linspace(1.15, 1.17, 10), index=dates)
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"AAA.L": "GBp"},
+            fx_rates=pd.DataFrame({"GBP": rate}),
+        ).fit(prices.iloc[:5])
+
+        result = converter.transform(prices.iloc[5:])
+
+        expected = prices["AAA.L"].iloc[5:] / 100.0 * rate.iloc[5:]
+        pd.testing.assert_series_equal(result["AAA.L"], expected, check_names=False)
