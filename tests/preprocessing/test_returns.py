@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 from decimal import Decimal
 
 import numpy as np
@@ -39,6 +40,27 @@ class TestReturnsConfig:
 
     def test_hashable(self) -> None:
         assert hash(ReturnsConfig()) == hash(ReturnsConfig())
+
+
+class TestReturnsConfigSerialisation:
+    def test_json_round_trip_drives_to_returns(self, prices: pd.DataFrame) -> None:
+        original = ReturnsConfig(join=JoinMethod.INNER, log_returns=True)
+        restored = ReturnsConfig(**json.loads(json.dumps(dataclasses.asdict(original))))
+        bench = prices[["MSFT"]].rename(columns={"MSFT": "BENCH"})
+        got = to_returns(prices, bench, config=restored)
+        want = to_returns(prices, bench, config=original)
+        pd.testing.assert_frame_equal(got[0], want[0])
+        pd.testing.assert_frame_equal(got[1], want[1])
+
+    def test_string_join_is_coerced_to_the_enum(self) -> None:
+        cfg = ReturnsConfig(join="inner")  # type: ignore[arg-type]
+        assert cfg.join is JoinMethod.INNER
+        assert cfg == ReturnsConfig(join=JoinMethod.INNER)
+        assert hash(cfg) == hash(ReturnsConfig(join=JoinMethod.INNER))
+
+    def test_unknown_join_is_rejected_at_construction(self) -> None:
+        with pytest.raises(ValueError, match="cross"):
+            ReturnsConfig(join="cross")  # type: ignore[arg-type]
 
 
 class TestToReturns:

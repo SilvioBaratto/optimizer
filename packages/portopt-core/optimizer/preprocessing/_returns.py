@@ -70,7 +70,9 @@ class JoinMethod(str, Enum):
 class ReturnsConfig:
     """Frozen, serialisable configuration for price -> return conversion.
 
-    Mirrors the keyword surface of `prices_to_returns`.
+    Mirrors the keyword surface of `prices_to_returns`.  ``join`` also accepts
+    its string value (``"inner"``) and is coerced to `JoinMethod`; an unknown
+    value raises ``ValueError``.
 
     Attributes:
         log_returns: When ``False`` (the default and the **required** setting
@@ -103,6 +105,12 @@ class ReturnsConfig:
     join: JoinMethod = JoinMethod.OUTER
     drop_inceptions_nan: bool = True
     fill_nan: bool = True
+
+    def __post_init__(self) -> None:
+        # A JSON round-trip hands ``join`` back as a plain string; normalising it
+        # here keeps equality, hashing and ``to_returns`` independent of how the
+        # config was built.
+        object.__setattr__(self, "join", JoinMethod(self.join))
 
 
 def to_returns(
