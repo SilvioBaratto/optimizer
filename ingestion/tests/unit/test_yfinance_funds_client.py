@@ -36,7 +36,7 @@ def _funds_data() -> MagicMock:
     # funds_data depth DataFrames are indexed by yfinance's human display labels
     # (Title Case, spaces, slashes) — not camelCase field names.
     fd.equity_holdings = pd.DataFrame(
-        {"JAGA.DE": [15.0, 2.0]},
+        {"JAGA.DE": [0.05, 0.5]},
         index=["Price/Earnings", "Price/Book"],
     )
     fd.bond_holdings = pd.DataFrame(
@@ -81,12 +81,82 @@ class TestFetchFundsData:
             out = client.fetch_funds_data("JAGA.DE")
 
         assert out is not None
-        assert out["equity_holdings"]["Price/Earnings"] == 15.0
+        assert out["equity_holdings"]["Price/Earnings"] == pytest.approx(20.0)
+        assert out["equity_holdings"]["Price/Book"] == pytest.approx(2.0)
         assert out["bond_holdings"]["Duration"] == 5.5
         assert out["fund_operations"]["Annual Report Expense Ratio"] == 0.001
         assert out["bond_ratings"]["aaa"] == 0.5
         assert out["fund_overview"]["categoryName"] == "Ultrashort Bond"
         assert out["description"] == "A short-duration bond ETF."
+
+    def test_valuation_reciprocals_are_inverted_into_multiples(
+        self, client: FundsClient
+    ) -> None:
+        """Yahoo serves fund Price/Earnings, /Book, /Sales and /Cashflow as
+        reciprocals (SPY P/E 0.04132 ~ 1/24.2); consumers read them as multiples."""
+        fd = _funds_data()
+        fd.equity_holdings = pd.DataFrame(
+            {"SPY": [0.04132, 0.19034, 0.27459, 0.05326, 2.5e11, 0.12]},
+            index=[
+                "Price/Earnings",
+                "Price/Book",
+                "Price/Sales",
+                "Price/Cashflow",
+                "Median Market Cap",
+                "3 Year Earnings Growth",
+            ],
+        )
+        ticker = MagicMock()
+        ticker.funds_data = fd
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_funds_data("SPY")
+
+        assert out is not None
+        eq = out["equity_holdings"]
+        assert eq["Price/Earnings"] == pytest.approx(24.2, abs=0.05)
+        assert eq["Price/Book"] == pytest.approx(5.254, abs=0.01)
+        assert eq["Price/Sales"] == pytest.approx(3.642, abs=0.01)
+        assert eq["Price/Cashflow"] == pytest.approx(18.78, abs=0.05)
+        assert eq["Median Market Cap"] == 2.5e11
+        assert eq["3 Year Earnings Growth"] == 0.12
+
+    def test_zero_valuation_sentinel_is_dropped_not_stored_as_a_multiple(
+        self, client: FundsClient
+    ) -> None:
+        """Yahoo emits 0.0 for 'no data' (bond ETFs, negative-earnings equity
+        ETFs); a stored 0.0 would read as P/E = 0."""
+        fd = _funds_data()
+        fd.equity_holdings = pd.DataFrame(
+            {"ARKK": [0.0, 0.16675]},
+            index=["Price/Earnings", "Price/Book"],
+        )
+        ticker = MagicMock()
+        ticker.funds_data = fd
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_funds_data("ARKK")
+
+        assert out is not None
+        assert "Price/Earnings" not in out["equity_holdings"]
+        assert out["equity_holdings"]["Price/Book"] == pytest.approx(6.0, abs=0.01)
+
+    def test_all_zero_equity_valuation_leaves_no_equity_holdings(
+        self, client: FundsClient
+    ) -> None:
+        fd = _funds_data()
+        fd.equity_holdings = pd.DataFrame(
+            {"AGG": [0.0, 0.0, 0.0, 0.0]},
+            index=["Price/Earnings", "Price/Book", "Price/Sales", "Price/Cashflow"],
+        )
+        ticker = MagicMock()
+        ticker.funds_data = fd
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_funds_data("AGG")
+
+        assert out is not None
+        assert out["equity_holdings"] == {}
 
     def test_equity_ticker_with_empty_funds_data_returns_none(
         self, client: FundsClient

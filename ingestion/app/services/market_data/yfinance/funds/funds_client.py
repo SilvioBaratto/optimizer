@@ -99,7 +99,7 @@ class FundsClient(BaseClient):
             "top_holdings": top_holdings,
             # Metric-indexed DataFrames are flattened to {metric: value};
             # bond_ratings / fund_overview are already dict-shaped.
-            "equity_holdings": _first_col_dict(getattr(fd, "equity_holdings", None)),
+            "equity_holdings": _equity_holdings(getattr(fd, "equity_holdings", None)),
             "bond_holdings": _first_col_dict(getattr(fd, "bond_holdings", None)),
             "fund_operations": _first_col_dict(getattr(fd, "fund_operations", None)),
             "bond_ratings": _as_dict(getattr(fd, "bond_ratings", None)),
@@ -158,6 +158,32 @@ def _first_col_dict(frame: Any) -> dict[str, float]:
             except (TypeError, ValueError):
                 continue
     return out
+
+
+# Yahoo serves these four fund valuation rows as reciprocals (earnings yield,
+# book/price, ...), unlike the genuine multiples in ``info``.
+_RECIPROCAL_VALUATION_KEYS = (
+    "Price/Earnings",
+    "Price/Book",
+    "Price/Sales",
+    "Price/Cashflow",
+)
+
+
+def _equity_holdings(frame: Any) -> dict[str, float]:
+    """Flatten ``equity_holdings`` and turn Yahoo's valuation reciprocals into
+    multiples (SPY P/E 0.04132 -> 24.2).
+
+    A value of 0.0 is Yahoo's "no data" sentinel (bond ETFs, negative
+    earnings), and a negative reciprocal has no meaningful multiple, so both
+    are dropped rather than stored as a misleading 0 / inverted figure.
+    """
+    metrics = _first_col_dict(frame)
+    for key in _RECIPROCAL_VALUATION_KEYS:
+        value = metrics.pop(key, None)
+        if value is not None and value > 0:
+            metrics[key] = 1.0 / value
+    return metrics
 
 
 def _parse_holdings(frame: Any) -> list[dict[str, Any]]:
