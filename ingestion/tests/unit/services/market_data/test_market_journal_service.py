@@ -287,6 +287,32 @@ class TestPointInTimeMarketMoves:
         assert row.market_moves == {}
         assert row.source_counts["market_rows"] == 0
 
+    def test_fallback_move_records_the_snapshot_date_it_came_from(
+        self, committing_session: Session
+    ) -> None:
+        """A stale fallback snapshot is dated so readers can detect staleness."""
+        committing_session.add(self._summary(datetime.date(2023, 12, 29), 4700.0))
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.market_moves["US"]["^GSPC"]["as_of"] == "2023-12-29"
+
+    def test_same_day_move_records_the_digest_date(
+        self, committing_session: Session
+    ) -> None:
+        """A snapshot dated on ``as_of`` carries that date."""
+        committing_session.add(self._summary(_AS_OF, 5000.0))
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.market_moves["US"]["^GSPC"]["as_of"] == _AS_OF.isoformat()
+
 
 class TestFredPlaceholderRows:
     """FRED ``.`` placeholders (stored as NULL) never become latest or prior."""

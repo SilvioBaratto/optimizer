@@ -131,6 +131,8 @@ def _build_market_moves(
     Prefers the snapshot dated ``as_of``; when none exists it falls back to the
     market's freshest snapshot dated before ``as_of`` so a weekday digest still
     reflects the weekend sweep without a backfilled digest seeing later prices.
+    Each symbol carries the snapshot date it was read from, so a stale fallback
+    can be told apart from a same-day move.
     """
     out: dict[str, Any] = {}
     total = 0
@@ -147,6 +149,7 @@ def _build_market_moves(
                 "price": _f(row.price),
                 "change": _f(row.change),
                 "change_percent": _f(row.change_percent),
+                "as_of": row.as_of.isoformat(),
             }
             for row in rows
         }
