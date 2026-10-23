@@ -155,8 +155,10 @@ def build_black_litterman(
             empirical_omega=omega, **shared_kwargs
         )
     elif config.uncertainty_method == ViewUncertaintyMethod.IDZOREK:
+        # skfolio does np.asarray(view_confidences); an all-int input yields an int
+        # array, so its 0 -> 1e-16 floor truncates back to 0 and 1/0 poisons mu.
         view_confidences = (
-            list(config.view_confidences)
+            [float(c) for c in config.view_confidences]
             if config.view_confidences is not None
             else None
         )

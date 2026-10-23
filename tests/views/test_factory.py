@@ -645,6 +645,22 @@ class TestIntegration:
         eigvals = np.linalg.eigvalsh(prior.return_distribution_.covariance)
         assert np.all(eigvals >= -1e-10)
 
+    def test_idzorek_integer_confidences_give_finite_posterior(self) -> None:
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+
+        cfg = BlackLittermanConfig(
+            views=("AAPL == 0.001", "JPM == 0.001"),
+            uncertainty_method=ViewUncertaintyMethod.IDZOREK,
+            view_confidences=(0, 1),
+        )
+        prior = build_black_litterman(cfg)
+        prior.fit(returns)
+        assert np.all(np.isfinite(prior.return_distribution_.mu))
+
     def test_empirical_omega_composes_with_meanrisk(self) -> None:
         from skfolio.datasets import load_sp500_dataset
         from skfolio.optimization import MeanRisk
