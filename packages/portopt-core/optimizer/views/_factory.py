@@ -205,7 +205,9 @@ def build_entropy_pooling(
         config: Entropy Pooling configuration.
         prior_moments: ``(mu, cov)`` arrays from a fitted prior. Required when
             ``config.relative_mean_views`` or ``config.relative_variance_views``
-            are set.
+            are set. Each relative view becomes ``asset == multiplier * prior``,
+            with the prior mean (or variance) read from these arrays; a zero
+            prior mean therefore stays zero for any multiplier.
         asset_names: Asset names corresponding to rows/columns of *prior_moments*.
             Required together with *prior_moments*.
 
@@ -242,7 +244,7 @@ def build_entropy_pooling(
                 merged_mean_views = []
             for asset, multiplier in config.relative_mean_views:
                 idx = name_to_idx[asset]
-                abs_val = float(mu[idx]) + multiplier
+                abs_val = float(mu[idx]) * multiplier
                 merged_mean_views.append(f"{asset} == {abs_val}")
 
         if config.relative_variance_views is not None:

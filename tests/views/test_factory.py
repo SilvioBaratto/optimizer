@@ -293,7 +293,7 @@ class TestBuildEntropyPooling:
         mu = np.array([0.05, 0.03])
         cov = np.diag([0.04, 0.02])
         cfg = EntropyPoolingConfig(
-            relative_mean_views=(("AAPL", 0.01),),
+            relative_mean_views=(("AAPL", 1.2),),
         )
         prior = build_entropy_pooling(
             cfg,
@@ -303,6 +303,36 @@ class TestBuildEntropyPooling:
         assert prior.mean_views is not None
         assert len(prior.mean_views) == 1
         assert "AAPL == 0.06" in prior.mean_views[0]
+
+    def test_relative_mean_views_scale_the_prior_mean(self) -> None:
+        """A relative mean view is multiplier x prior mean, like the variance one."""
+        mu = np.array([-0.001, 0.0004])
+        cov = np.diag([0.04, 0.02])
+        cfg = EntropyPoolingConfig(
+            relative_mean_views=(("AAPL", 1.5), ("MSFT", 1.2)),
+        )
+        prior = build_entropy_pooling(
+            cfg, prior_moments=(mu, cov), asset_names=["AAPL", "MSFT"]
+        )
+        assert prior.mean_views is not None
+        targets = {
+            view.split(" == ")[0]: float(view.split(" == ")[1])
+            for view in prior.mean_views
+        }
+        assert targets["AAPL"] == pytest.approx(-0.0015)
+        assert targets["MSFT"] == pytest.approx(0.00048)
+
+    def test_relative_mean_view_fits_to_scaled_prior_mean(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        """The resolved view is feasible and pins the posterior mean at m x prior."""
+        mu = returns_df.mean().to_numpy()
+        cov = returns_df.cov().to_numpy()
+        names = list(returns_df.columns)
+        cfg = EntropyPoolingConfig(relative_mean_views=((names[0], 1.5),))
+        prior = build_entropy_pooling(cfg, prior_moments=(mu, cov), asset_names=names)
+        prior.fit(returns_df)
+        assert prior.return_distribution_.mu[0] == pytest.approx(1.5 * mu[0], abs=1e-6)
 
     def test_relative_variance_views_resolved(self) -> None:
         """Relative variance views multiply prior diagonal variance."""
@@ -334,7 +364,7 @@ class TestBuildEntropyPooling:
         cov = np.diag([0.04, 0.02])
         cfg = EntropyPoolingConfig(
             mean_views=("MSFT == 0.02",),
-            relative_mean_views=(("AAPL", 0.01),),
+            relative_mean_views=(("AAPL", 1.2),),
         )
         prior = build_entropy_pooling(
             cfg, prior_moments=(mu, cov), asset_names=["AAPL", "MSFT"]

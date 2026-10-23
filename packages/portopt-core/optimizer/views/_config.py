@@ -127,8 +127,10 @@ class EntropyPoolingConfig:
         mean_views: Mean equality view expressions.
         mean_inequality_views: Mean inequality view expressions.
         variance_views: Variance view expressions.
-        relative_mean_views: Relative mean views as (asset, multiplier) pairs.
-        relative_variance_views: Relative variance views as (asset, multiplier) pairs.
+        relative_mean_views: Relative mean views as (asset, multiplier) pairs;
+            each resolves to ``multiplier * prior mean`` of the asset.
+        relative_variance_views: Relative variance views as (asset, multiplier)
+            pairs; each resolves to ``multiplier * prior variance`` of the asset.
         correlation_views: Correlation view expressions.
         skew_views: Skewness view expressions.
         kurtosis_views: Kurtosis view expressions.
