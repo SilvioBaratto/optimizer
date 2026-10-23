@@ -33,7 +33,10 @@ class RiskBudgetingConfig:
     Attributes:
         budgets: Custom risk budgets as ``((ticker, share), ...)``. ``None``
             selects the equal-risk-contribution (ERC) special case (skfolio
-            default). Must sum to 1 within 1e-6.
+            default). Must sum to 1 within 1e-6. Shares are matched to the
+            fitted ``X`` columns by ticker, so ``X`` must be a DataFrame;
+            assets without a share get a negligible budget and tickers
+            absent from ``X`` are ignored.
         prior_config: Inner prior configuration. ``None`` defers to the
             skfolio default (``EmpiricalPrior``).
         min_weights: Lower bound on asset weights.
@@ -99,11 +102,9 @@ def build_risk_budgeting(
     if prior_estimator is None and config.prior_config is not None:
         prior_estimator = build_prior(config.prior_config)
 
-    risk_budget = (
-        np.array([value for _, value in config.budgets])
-        if config.budgets is not None
-        else None
-    )
+    # Passed by name so skfolio aligns shares to X.columns; a bare array would
+    # be taken positionally and silently attach budgets to the wrong assets.
+    risk_budget = dict(config.budgets) if config.budgets is not None else None
 
     return RiskBudgeting(
         risk_budget=risk_budget,
