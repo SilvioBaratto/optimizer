@@ -192,12 +192,13 @@ class UniverseRepository(RepositoryBase):
         return {(ticker, exchange) for ticker, exchange in rows}
 
     def set_t212_ticker(
-        self, *, ticker: str, exchange_id: Any, t212_ticker: str
+        self, *, ticker: str, exchange_id: Any, t212_ticker: str | None
     ) -> bool:
         """Attach a Trading 212 ticker to a yfinance-sourced instrument.
 
-        Matched by ``(ticker, exchange_id)`` — the unique key. Returns ``True``
-        if a row was updated, ``False`` if none matched.
+        Matched by ``(ticker, exchange_id)`` — the unique key. Passing ``None``
+        clears a cross-reference that no longer holds. Returns ``True`` if a row
+        was updated, ``False`` if none matched.
         """
         result: CursorResult[Any] = self.session.execute(  # type: ignore[assignment]
             update(Instrument)

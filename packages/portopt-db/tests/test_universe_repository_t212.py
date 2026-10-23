@@ -44,6 +44,24 @@ def test_set_t212_ticker_updates_matching_row(db_session) -> None:
     assert inst.t212_ticker == "AAPL_US_EQ"
 
 
+def test_set_t212_ticker_none_clears_a_stale_cross_reference(db_session) -> None:
+    ex = add_and_flush(db_session, Exchange(name="NASDAQ"))
+    inst = add_and_flush(
+        db_session,
+        Instrument(
+            ticker="AAPL", short_name="Apple", exchange=ex, t212_ticker="AAPL_US_EQ"
+        ),
+    )
+    assert (
+        _repo(db_session).set_t212_ticker(
+            ticker="AAPL", exchange_id=ex.id, t212_ticker=None
+        )
+        is True
+    )
+    db_session.refresh(inst)
+    assert inst.t212_ticker is None
+
+
 def test_set_t212_ticker_missing_row_returns_false(db_session) -> None:
     ex = add_and_flush(db_session, Exchange(name="NASDAQ"))
     assert (

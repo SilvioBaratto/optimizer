@@ -11,6 +11,7 @@ Skips cleanly when Trading 212 is not configured.
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from collections.abc import Callable
 from typing import Any
 
@@ -19,6 +20,7 @@ from portopt_db.repositories.universe.universe_repository import UniverseReposit
 from app.database import database_manager
 from app.services._shared import ProgressCallback, _noop
 from app.services.market_data.yfinance import RequestLostError, get_yfinance_client
+from app.services.universe.canonical import split_currency
 from app.services.universe.universe_build_service import (
     Trading212NotConfiguredError,
     build_trading212_client,
@@ -59,6 +61,39 @@ def _default_isin_lookup(ticker: str) -> str | None:
         raise IsinLookupError(msg) from exc
 
 
+def _pick_t212_ticker(
+    candidates: dict[str, str | None], currency: str | None
+) -> str | None:
+    """Choose the T212 line that matches an instrument's quote currency.
+
+    Trading 212 lists one ISIN on several venues and currencies, so the ISIN alone
+    does not identify the line. A sole line is unambiguous and returned as is. With
+    several, the one quoted in the instrument's own unit wins (GBp and GBX are the
+    same unit), then the one in the same major currency; a tier holding more than one
+    line, or no tier holding any, is ambiguous and yields ``None``.
+
+    Args:
+        candidates: T212 ticker -> its ``currencyCode`` for one ISIN.
+        currency: The instrument's quote currency, if known.
+
+    Returns:
+        The matching T212 ticker, or ``None`` when there is no unambiguous match.
+    """
+    if len(candidates) == 1:
+        return next(iter(candidates))
+    if currency is None:
+        return None
+    unit = split_currency(currency)
+    tiers = (
+        [t for t, c in candidates.items() if c and split_currency(c) == unit],
+        [t for t, c in candidates.items() if c and split_currency(c)[0] == unit[0]],
+    )
+    for tier in tiers:
+        if tier:
+            return tier[0] if len(tier) == 1 else None
+    return None
+
+
 def run_t212_annotate(
     *,
     isin_lookup: IsinLookup | None = None,
@@ -71,7 +106,8 @@ def run_t212_annotate(
         on_progress: Optional progress callback.
 
     Returns:
-        ``{"annotated": int, "total": int, "skipped": bool, "lookup_errors": int}``.
+        ``{"annotated": int, "total": int, "skipped": bool, "lookup_errors": int,
+        "cleared": int}``; ``cleared`` counts stale T212 tickers removed.
 
     Raises:
         IsinLookupError: Too many ISIN lookups failed in a row; annotations made
@@ -86,14 +122,15 @@ def run_t212_annotate(
 
     lookup = isin_lookup or _default_isin_lookup
 
-    isin_to_t212: dict[str, str] = {}
+    isin_to_t212: defaultdict[str, dict[str, str | None]] = defaultdict(dict)
     for inst in client.get_instruments():
-        isin = inst.get("isin")
-        t212_ticker = inst.get("ticker")
-        if isin and t212_ticker:
-            isin_to_t212[isin] = t212_ticker
+        t212_isin = inst.get("isin")
+        t212_symbol = inst.get("ticker")
+        if t212_isin and t212_symbol:
+            isin_to_t212[t212_isin][t212_symbol] = inst.get("currencyCode")
 
     annotated = 0
+    cleared = 0
     lookup_errors = 0
     consecutive_errors = 0
     with database_manager.get_session() as session:
@@ -115,13 +152,29 @@ def run_t212_annotate(
                 )
                 if consecutive_errors >= _MAX_CONSECUTIVE_LOOKUP_ERRORS:
                     break
-            t212_ticker = isin_to_t212.get(looked_up) if looked_up else None
-            if t212_ticker and repo.set_t212_ticker(
+            t212_ticker = (
+                _pick_t212_ticker(
+                    isin_to_t212.get(looked_up, {}), instrument.currency_code
+                )
+                if looked_up
+                else None
+            )
+            # A known ISIN with no unambiguous T212 line proves the stored
+            # cross-reference stale; a missing ISIN proves nothing.
+            stale = (
+                t212_ticker is None
+                and bool(looked_up)
+                and instrument.t212_ticker is not None
+            )
+            if (t212_ticker is not None or stale) and repo.set_t212_ticker(
                 ticker=instrument.ticker,
                 exchange_id=instrument.exchange_id,
                 t212_ticker=t212_ticker,
             ):
-                annotated += 1
+                if stale:
+                    cleared += 1
+                else:
+                    annotated += 1
             on_progress(current=i, total=total, current_stock=instrument.ticker)
         session.commit()
 
@@ -133,9 +186,10 @@ def run_t212_annotate(
         raise IsinLookupError(msg)
 
     logger.info(
-        "t212_annotate: annotated %d/%d instruments (%d lookup errors)",
+        "t212_annotate: annotated %d/%d instruments, cleared %d (%d lookup errors)",
         annotated,
         total,
+        cleared,
         lookup_errors,
     )
     summary = {
@@ -143,6 +197,7 @@ def run_t212_annotate(
         "total": total,
         "skipped": False,
         "lookup_errors": lookup_errors,
+        "cleared": cleared,
     }
     on_progress(status="completed", result=summary)
     return summary
