@@ -182,6 +182,11 @@ def resolve_sector_bands(
     when the regime does not appear in the config. Returns a fresh copy so
     callers cannot mutate the source data.
 
+    A disabled config (``enable=False``) yields an empty mapping so the
+    optimiser's constraints stay unchanged. An enabled config without any
+    bands carries no override and resolves against the default matrix, exactly
+    as ``config=None`` does.
+
     The bands cover all 11 sectors, but a selected universe often spans only
     some of them. Pass ``sectors`` so the result matches the universe: caps of
     absent sectors would otherwise be emitted for nothing while their floors
@@ -191,8 +196,9 @@ def resolve_sector_bands(
 
     Args:
         regime: The classified macro-economic regime.
-        config: Optional config holding a custom bands tuple. When None,
-            the module-level SECTOR_REGIME_BANDS is used directly.
+        config: Optional config holding a custom bands tuple. When None, or
+            when it is enabled but empty, the module-level SECTOR_REGIME_BANDS
+            is used directly. When ``enable`` is False, no bands are returned.
         sectors: Sector labels carried by the assets being optimised. When
             given, bands of other sectors are dropped (a warning names any
             dropped floors) and, if every given sector has a band and
@@ -204,11 +210,23 @@ def resolve_sector_bands(
 
     Returns:
         Mapping from sector name to (floor, cap) for the resolved regime.
+        Empty when ``config`` is disabled.
+
+    Raises:
+        TypeError: If ``config`` is neither None nor a SectorRegimeBandsConfig.
     """
     from optimizer.factors._config import SectorRegimeBandsConfig  # avoid circular
 
+    if config is not None and not isinstance(config, SectorRegimeBandsConfig):
+        raise TypeError(
+            "config must be a SectorRegimeBandsConfig or None; "
+            f"got {type(config).__name__}"
+        )
+    if config is not None and not config.enable:
+        return {}
+
     resolved: dict[str, tuple[float, float]]
-    if config is not None and isinstance(config, SectorRegimeBandsConfig):
+    if config is not None and config.bands:
         custom: dict[str, dict[str, tuple[float, float]]] = {}
         for regime_val, sector, floor, cap in config.bands:
             custom.setdefault(regime_val, {})[sector] = (floor, cap)

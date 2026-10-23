@@ -248,6 +248,43 @@ def test_resolve_with_config_missing_regime_and_unknown_uses_uniform() -> None:
         assert result[sector] == (0.03, 0.16)
 
 
+@pytest.mark.parametrize("regime", list(MacroRegime))
+def test_resolve_disabled_config_returns_no_bands(regime: MacroRegime) -> None:
+    """A disabled config leaves the optimiser unconstrained, as documented."""
+    result = resolve_sector_bands(regime, SectorRegimeBandsConfig.disabled())
+    assert result == {}
+
+
+def test_resolve_disabled_config_ignores_populated_bands() -> None:
+    """``enable=False`` wins even when the config still carries a band matrix."""
+    bands = _matrix_to_bands_tuple()
+    cfg = SectorRegimeBandsConfig(enable=False, bands=bands)
+    assert resolve_sector_bands(MacroRegime.RECESSION, cfg) == {}
+    assert (
+        resolve_sector_bands(MacroRegime.RECESSION, cfg, sectors=NARROW_UNIVERSE) == {}
+    )
+
+
+def test_resolve_enabled_config_without_bands_uses_regime_matrix() -> None:
+    """A default-constructed config carries no override, so the matrix applies."""
+    result = resolve_sector_bands(MacroRegime.RECESSION, SectorRegimeBandsConfig())
+    assert result == SECTOR_REGIME_BANDS[MacroRegime.RECESSION]
+    assert result["Technology"] == (0.0, 0.06)
+
+
+def test_resolve_enabled_config_without_bands_returns_copy() -> None:
+    result = resolve_sector_bands(MacroRegime.RECESSION, SectorRegimeBandsConfig())
+    original = SECTOR_REGIME_BANDS[MacroRegime.RECESSION]["Technology"]
+    result["Technology"] = (0.99, 0.99)
+    assert SECTOR_REGIME_BANDS[MacroRegime.RECESSION]["Technology"] == original
+
+
+def test_resolve_rejects_config_of_wrong_type() -> None:
+    """A foreign config object must not silently fall back to the defaults."""
+    with pytest.raises(TypeError, match="SectorRegimeBandsConfig"):
+        resolve_sector_bands(MacroRegime.RECESSION, {"bands": ()})
+
+
 def test_resolve_default_path_falls_back_to_unknown_when_regime_absent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
