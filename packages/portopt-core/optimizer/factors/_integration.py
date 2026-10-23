@@ -345,7 +345,8 @@ def compute_net_alpha(
             one value per rebalancing period.
         weights_history: Portfolio weights at each rebalancing date: rows are
             dates, columns are assets. Turnover is computed between every pair
-            of consecutive rows.
+            of consecutive rows. NaN means the asset was not held, i.e. zero
+            weight.
         cost_bps: Round-trip transaction cost in basis points.
         annualisation: Number of rebalancing periods per year (252 for daily,
             12 for monthly); it must match the spacing of ``ic_series`` and
@@ -361,13 +362,12 @@ def compute_net_alpha(
 
     gross_alpha = ic_mean * float(np.sqrt(annualisation))
 
-    turnovers: list[float] = []
-    for i in range(1, len(weights_history)):
-        t = compute_turnover(
-            weights_history.iloc[i - 1].to_numpy(dtype=float),
-            weights_history.iloc[i].to_numpy(dtype=float),
-        )
-        turnovers.append(t)
+    # A frame built from per-date holdings leaves NaN for assets not held on a
+    # date; that is a zero weight, and NaN would poison every turnover figure.
+    weights = weights_history.fillna(0.0).to_numpy(dtype=float)
+    turnovers = [
+        compute_turnover(weights[i - 1], weights[i]) for i in range(1, len(weights))
+    ]
     avg_turnover = float(np.mean(turnovers)) if turnovers else 0.0
 
     total_cost = avg_turnover * cost_bps / 10_000.0 * float(annualisation)

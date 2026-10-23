@@ -623,3 +623,27 @@ class TestComputeNetAlpha:
         )
 
         assert daily.total_cost == pytest.approx(monthly.total_cost * 252 / 12)
+
+    # -- assets not held on a date are NaN in the history, i.e. zero weight ----
+
+    def test_missing_weights_are_treated_as_not_held(self) -> None:
+        """A changing universe leaves NaN holes that must not poison turnover."""
+        history = pd.DataFrame(
+            [
+                {"A": 0.5, "B": 0.5},
+                {"A": 0.4, "B": 0.4, "C": 0.2},
+                {"A": 0.3, "C": 0.7},
+            ]
+        )
+        ic = pd.Series([0.04, 0.06, 0.05])
+
+        result = compute_net_alpha(ic, history, cost_bps=10.0, annualisation=12)
+        dense = compute_net_alpha(
+            ic, history.fillna(0.0), cost_bps=10.0, annualisation=12
+        )
+
+        assert result.avg_turnover == pytest.approx(0.35)
+        assert result.avg_turnover == pytest.approx(dense.avg_turnover)
+        assert np.isfinite(result.total_cost)
+        assert np.isfinite(result.net_alpha)
+        assert np.isfinite(result.net_icir)
