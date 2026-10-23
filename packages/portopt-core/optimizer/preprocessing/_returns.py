@@ -78,12 +78,17 @@ class ReturnsConfig:
             returns. Log returns aggregate across time but not across assets,
             silently breaking every weighted-sum portfolio return. Only set
             ``True`` for a log-normal prior with an explicit investment horizon.
-        nan_threshold: Drop assets whose fraction of missing prices exceeds
-            this threshold. ``1.0`` keeps every asset.
+        nan_threshold: Drop observations (dates) on which the fraction of
+            assets with a missing price exceeds this threshold. It filters
+            rows, not assets: a sparse asset stays in the panel while the dates
+            it is missing are removed for every asset. ``1.0`` keeps every
+            observation.
         join: Index-alignment strategy between the asset frame and the optional
             benchmark frame.
-        drop_inceptions_nan: Drop the leading NaN rows created before an
-            asset's first quote.
+        drop_inceptions_nan: Drop every leading row in which any asset still
+            has no price, so the panel starts at the latest first quote of any
+            asset and one late listing shortens the history of all of them.
+            ``False`` keeps the NaNs for a downstream pre-selection step.
         fill_nan: Forward-fill NaN prices before differencing.  This also
             fills the *trailing* gap after an asset's last quote, so a delisted
             asset ends in a run of exact ``0.0`` returns instead of ``NaN``;

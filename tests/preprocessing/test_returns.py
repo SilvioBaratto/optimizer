@@ -96,6 +96,32 @@ class TestJoinMethods:
         assert "cross" not in {m.value for m in JoinMethod}
 
 
+class TestNanThresholdFiltersRows:
+    """``nan_threshold`` removes dates, not assets, exactly like skfolio."""
+
+    @staticmethod
+    def _sparse_panel() -> pd.DataFrame:
+        idx = pd.date_range("2024-01-01", periods=10, freq="B")
+        px = pd.DataFrame(
+            {
+                "A": np.linspace(100.0, 110.0, 10),
+                "B": np.linspace(50.0, 55.0, 10),
+                "C": np.linspace(20.0, 22.0, 10),
+            },
+            index=idx,
+        )
+        px.iloc[:6, 2] = np.nan
+        return px
+
+    def test_sparse_asset_is_kept_and_its_missing_dates_dropped_for_all(self) -> None:
+        cfg = ReturnsConfig(
+            nan_threshold=0.3, drop_inceptions_nan=False, fill_nan=False
+        )
+        out = to_returns(self._sparse_panel(), config=cfg)
+        assert list(out.columns) == ["A", "B", "C"]
+        assert len(out) == 3
+
+
 class TestDecimalCoercion:
     """DB price_history is Numeric(20, 6) -> Decimal (object dtype)."""
 
