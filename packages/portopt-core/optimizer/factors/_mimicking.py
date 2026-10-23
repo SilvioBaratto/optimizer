@@ -32,9 +32,9 @@ class QuintileSpreadResult:
         spread_returns: Qn − Q1 long-short spread return series indexed by date.
             Equals ``quintile_returns.iloc[:, -1] - quintile_returns.iloc[:, 0]``
             element-wise.
-        annualised_mean: ``spread_returns.mean() * 252``.
+        annualised_mean: ``spread_returns.mean() * annualisation``.
         t_stat: Two-tailed t-statistic: ``mean / (std / sqrt(T))``.
-        sharpe: Annualised Sharpe ratio: ``mean * sqrt(252) / std``.
+        sharpe: Annualised Sharpe ratio: ``mean * sqrt(annualisation) / std``.
     """
 
     quintile_returns: pd.DataFrame
@@ -344,6 +344,7 @@ def compute_quintile_spread(
     scores: pd.DataFrame,
     returns: pd.DataFrame,
     n_quantiles: int = 5,
+    annualisation: int = 252,
 ) -> QuintileSpreadResult:
     """Compute quintile portfolio returns and spread for a single factor.
 
@@ -360,6 +361,9 @@ def compute_quintile_spread(
         returns: Dates × assets matrix of asset returns, aligned with `scores`.
         n_quantiles: Number of equal-count buckets.  5 = quintiles, 10 = deciles.
             Must be ≥ 2.
+        annualisation: Number of periods per year of the input frequency
+            (252 for daily, 12 for monthly).  Scales ``annualised_mean`` and
+            ``sharpe``; the t-statistic is frequency-invariant.  Must be ≥ 1.
 
     Returns:
         See `QuintileSpreadResult` for field descriptions.  When `scores` and
@@ -367,10 +371,12 @@ def compute_quintile_spread(
         the Q1..Qn columns and every statistic is NaN.
 
     Raises:
-        ConfigurationError: If `n_quantiles` < 2.
+        ConfigurationError: If `n_quantiles` < 2 or `annualisation` < 1.
     """
     if n_quantiles < 2:
         raise ConfigurationError(f"n_quantiles must be >= 2, got {n_quantiles}")
+    if annualisation < 1:
+        raise ConfigurationError(f"annualisation must be >= 1, got {annualisation}")
 
     labels = [f"Q{i}" for i in range(1, n_quantiles + 1)]
     common_dates = scores.index.intersection(returns.index)
@@ -416,14 +422,16 @@ def compute_quintile_spread(
 
     valid = spread_returns.dropna()
     n = len(valid)
-    mean_daily = float(valid.mean()) if n > 0 else float(np.nan)
-    std_daily = float(valid.std(ddof=1)) if n > 1 else float(np.nan)
+    mean_period = float(valid.mean()) if n > 0 else float(np.nan)
+    std_period = float(valid.std(ddof=1)) if n > 1 else float(np.nan)
 
-    annualised_mean = mean_daily * 252 if not np.isnan(mean_daily) else float(np.nan)
+    annualised_mean = (
+        mean_period * annualisation if not np.isnan(mean_period) else float(np.nan)
+    )
 
-    if n > 1 and std_daily > 0:
-        t_stat = mean_daily / (std_daily / math.sqrt(n))
-        sharpe = mean_daily * math.sqrt(252) / std_daily
+    if n > 1 and std_period > 0:
+        t_stat = mean_period / (std_period / math.sqrt(n))
+        sharpe = mean_period * math.sqrt(annualisation) / std_period
     else:
         t_stat = float(np.nan)
         sharpe = float(np.nan)
