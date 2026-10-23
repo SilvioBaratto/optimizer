@@ -39,24 +39,24 @@ pytest tests/ --cov=optimizer --cov-report=term-missing
 ## Code Quality
 
 ```bash
-# Lint
-ruff check optimizer/ tests/
+# Lint (the library plus ingestion/, fund/ and packages/portopt-db/)
+ruff check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/
 
 # Auto-fix lint issues
-ruff check optimizer/ tests/ --fix
+ruff check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/ --fix
 
 # Format
-ruff format optimizer/ tests/
+ruff format packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/
 
 # Type check
-mypy optimizer/
+mypy packages/portopt-core/optimizer/
 ```
 
 Or use the Makefile:
 
 ```bash
 make lint        # ruff check + format check
-make typecheck   # mypy
+make typecheck   # mypy (core, portopt-db, ingestion)
 make test        # pytest with coverage
 make all         # lint + typecheck + test
 ```
@@ -115,7 +115,7 @@ def build_my_estimator(config: MyConfig, **kwargs):
 - [ ] Tests added/updated for new functionality
 - [ ] `ruff check` passes with no errors
 - [ ] `ruff format --check` passes
-- [ ] `mypy optimizer/` passes
+- [ ] `make typecheck` passes
 - [ ] `CHANGELOG.md` updated
 
 ### Commit Messages

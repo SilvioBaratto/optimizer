@@ -66,6 +66,9 @@ jobs:
       - run: uv run mypy packages/portopt-core/optimizer/
       # portopt-db ships py.typed; hold it to its own strict [tool.mypy] gate.
       - run: cd packages/portopt-db && uv run mypy src/portopt_db
+      # ingestion carries its own [tool.mypy] (relaxed for SQLAlchemy and the
+      # untyped scraper libraries); hold it to that config too.
+      - run: cd ingestion && uv run mypy app
 
   pyright:
     runs-on: ubuntu-latest

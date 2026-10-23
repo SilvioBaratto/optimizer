@@ -1,4 +1,4 @@
-"""Guard: Makefile, CI and pre-commit must target the src-layout source trees.
+"""Guard: Makefile, CI, pre-commit and contributor docs must target src-layout trees.
 
 After the src-layout move the library lives at ``packages/portopt-core/optimizer``,
 not the repo-root ``optimizer/``. A bare ``optimizer/`` lint/typecheck target
@@ -28,6 +28,8 @@ _MAKEFILE = _REPO_ROOT / "Makefile"
 _PRE_COMMIT = _REPO_ROOT / ".pre-commit-config.yaml"
 _UV_LOCK = _REPO_ROOT / "uv.lock"
 _CI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "ci.yml"
+_PR_TEMPLATE = _REPO_ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md"
+_CONTRIBUTING = _REPO_ROOT / "CONTRIBUTING.md"
 _SRC_LAYOUT_PATH = "packages/portopt-core/optimizer/"
 
 # A ruff/mypy invocation whose target is the (nonexistent) bare optimizer/ path.
@@ -39,7 +41,11 @@ def _stale_targets(text: str) -> list[str]:
     return _STALE_TARGET.findall(text)
 
 
-@pytest.mark.parametrize("path", [_MAKEFILE, _CI_WORKFLOW], ids=["makefile", "ci"])
+@pytest.mark.parametrize(
+    "path",
+    [_MAKEFILE, _CI_WORKFLOW, _PR_TEMPLATE, _CONTRIBUTING],
+    ids=["makefile", "ci", "pr-template", "contributing"],
+)
 def test_no_bare_optimizer_lint_target(path: Path) -> None:
     """Assert the build config passes no ruff/mypy command a bare ``optimizer/``."""
     assert _stale_targets(path.read_text(encoding="utf-8")) == []

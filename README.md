@@ -323,15 +323,14 @@ cd packages/portopt-db && alembic upgrade head     # head: c4d5e6f7a8b9
 uv run --package portopt-fund pytest
 ```
 
-There is a root `Makefile` (`make lint | format | typecheck | test | all`), but
-note that it and the CI `lint`/`typecheck` jobs currently pass the bare path
-`optimizer/`, which no longer exists after the library moved to
-`packages/portopt-core/optimizer/`. Use the explicit paths above until that is
-fixed.
+The root `Makefile` (`make lint | format | typecheck | test | all`) runs the same
+ruff and mypy gates as the CI `lint`/`typecheck` jobs: ruff over the library,
+`ingestion/`, `fund/` and `packages/portopt-db/`, and mypy over the library,
+`portopt-db` and `ingestion`.
 
 **CI** (`.github/workflows/ci.yml`, push/PR to `main` and `development`, Ubuntu, Python 3.12 &
-3.13, uv-driven) runs nine jobs: `lint` (ruff check → ruff format --check →
-pip-audit), `typecheck` (mypy), `pyright` (pinned `1.1.398`), `test`
+3.13, uv-driven) runs nine jobs: `lint` (ruff check → ruff format --check on
+all four members → shellcheck → pip-audit), `typecheck` (mypy), `pyright` (pinned `1.1.398`), `test`
 (`--cov=optimizer` ≥ 90%), `ingestion-test` (`--cov=app` ≥ 80%),
 `portopt-db-test` (`--cov=portopt_db` ≥ 90%), `fund-test` (`--cov=fund` ≥
 80%), `postgres-integration` (`alembic upgrade head` on a real PostgreSQL plus

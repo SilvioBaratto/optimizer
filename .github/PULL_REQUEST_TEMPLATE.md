@@ -9,7 +9,6 @@
 ## Checklist
 
 - [ ] Tests added/updated
-- [ ] `ruff check optimizer/ tests/` passes
-- [ ] `ruff format --check optimizer/ tests/` passes
-- [ ] `mypy optimizer/` passes
+- [ ] `make lint` passes (ruff check + format --check on every workspace member)
+- [ ] `make typecheck` passes (mypy)
 - [ ] `CHANGELOG.md` updated

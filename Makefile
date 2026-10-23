@@ -19,6 +19,8 @@ format:
 
 typecheck:
 	uv run mypy packages/portopt-core/optimizer/
+	cd packages/portopt-db && uv run mypy src/portopt_db
+	cd ingestion && uv run mypy app
 
 test:
 	uv run pytest tests/ -v --cov=optimizer --cov-report=term-missing --cov-fail-under=90

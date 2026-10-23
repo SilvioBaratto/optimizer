@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import tomllib
 import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -218,3 +219,48 @@ def test_lint_job_runs_shellcheck_on_every_tracked_shell_script() -> None:
     commands = _run_commands(_jobs()["lint"])
 
     assert any("shellcheck" in cmd and "git ls-files" in cmd for cmd in commands)
+
+
+def _members_with_mypy_config() -> list[str]:
+    """Workspace members whose own pyproject.toml declares a ``[tool.mypy]`` gate."""
+    pyprojects = [
+        *_REPO_ROOT.glob("*/pyproject.toml"),
+        *_REPO_ROOT.glob("packages/*/pyproject.toml"),
+    ]
+    return sorted(
+        pyproject.parent.relative_to(_REPO_ROOT).as_posix()
+        for pyproject in pyprojects
+        if "mypy"
+        in tomllib.loads(pyproject.read_text(encoding="utf-8")).get("tool", {})
+    )
+
+
+def _mentions(command: str, member: str) -> bool:
+    return re.search(rf"(?<![\w/-]){re.escape(member)}/?(?!\w)", command) is not None
+
+
+def test_typecheck_job_covers_every_member_that_configures_mypy() -> None:
+    """A member that ships a mypy config must be held to it in CI."""
+    members = _members_with_mypy_config()
+    commands = _run_commands(_jobs()["typecheck"])
+
+    assert {"ingestion", "packages/portopt-db"} <= set(members)
+    for member in members:
+        assert any("mypy" in cmd and _mentions(cmd, member) for cmd in commands), (
+            f"mypy never runs on {member}"
+        )
+
+
+def test_makefile_runs_the_same_lint_and_typecheck_gates_as_ci() -> None:
+    """``make lint`` / ``make typecheck`` are what contributors run before a PR."""
+    lines = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8").splitlines()
+
+    for member in _ruff_configured_members():
+        for tool in ("ruff check", "ruff format --check"):
+            assert any(tool in line and _mentions(line, member) for line in lines), (
+                f"make lint never runs {tool} on {member}"
+            )
+    for member in _members_with_mypy_config():
+        assert any("mypy" in line and _mentions(line, member) for line in lines), (
+            f"make typecheck never runs mypy on {member}"
+        )
