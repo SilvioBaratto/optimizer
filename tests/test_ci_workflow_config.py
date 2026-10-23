@@ -185,3 +185,36 @@ def test_every_job_has_a_timeout(name: str) -> None:
     ]
 
     assert untimed == []
+
+
+def _ruff_configured_members() -> list[str]:
+    """Workspace members that carry their own ruff.toml, as repo-relative paths."""
+    configs = [
+        *_REPO_ROOT.glob("*/ruff.toml"),
+        *_REPO_ROOT.glob("packages/*/ruff.toml"),
+    ]
+    return sorted(
+        config.parent.relative_to(_REPO_ROOT).as_posix() for config in configs
+    )
+
+
+def test_lint_job_covers_every_member_that_has_a_ruff_config() -> None:
+    """A lint or format regression in any member must fail CI, not only in core."""
+    members = _ruff_configured_members()
+    commands = _run_commands(_jobs()["lint"])
+
+    assert {"fund", "ingestion", "packages/portopt-db"} <= set(members)
+    for member in members:
+        for tool in ("ruff check", "ruff format --check"):
+            assert any(
+                tool in cmd
+                and re.search(rf"(?<![\w/-]){re.escape(member)}/?(?!\w)", cmd)
+                for cmd in commands
+            ), f"{tool} never runs on {member}"
+
+
+def test_lint_job_runs_shellcheck_on_every_tracked_shell_script() -> None:
+    """The entrypoints and installers run on user machines and in containers."""
+    commands = _run_commands(_jobs()["lint"])
+
+    assert any("shellcheck" in cmd and "git ls-files" in cmd for cmd in commands)
