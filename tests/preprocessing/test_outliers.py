@@ -11,6 +11,10 @@ from sklearn.utils.validation import check_is_fitted
 
 from optimizer.exceptions import DataError
 from optimizer.preprocessing import OutlierTreater
+from optimizer.preprocessing._delisting import (
+    apply_delisting_returns,
+    delisting_protection_mask,
+)
 
 
 @pytest.fixture()
@@ -261,3 +265,65 @@ class TestProtectedMask:
         mask = self._mask_last(df)
         ot = OutlierTreater(protected_mask=mask)
         assert ot.get_params()["protected_mask"] is mask
+
+
+class TestDelistingPadding:
+    """Synthetic post-delisting 0.0 padding must not distort the column scale."""
+
+    N_REAL = 250
+    N_PAD = 1000
+
+    def _delisted_panel(
+        self, mean: float = 0.0, scale: float = 0.013
+    ) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray]:
+        rng = np.random.default_rng(7)
+        n = self.N_REAL + self.N_PAD
+        index = pd.date_range("2015-01-01", periods=n, freq="B")
+        real = mean + scale * rng.standard_t(df=5, size=self.N_REAL)
+        raw = pd.DataFrame(
+            {
+                "A": rng.normal(0.0, 0.0155, size=n),
+                "B": rng.normal(0.0, 0.0155, size=n),
+                "F": np.r_[real, np.full(self.N_PAD, np.nan)],
+            },
+            index=index,
+        )
+        delisting = {"F": -0.30}
+        mask = delisting_protection_mask(raw, delisting)
+        return apply_delisting_returns(raw, delisting), mask, real[:-1]
+
+    def test_sigma_ignores_zero_padding(self) -> None:
+        df, mask, genuine = self._delisted_panel()
+        ot = OutlierTreater(protected_mask=mask).fit(df)
+        assert ot.sigma_["F"] == pytest.approx(genuine.std(ddof=1))
+        assert ot.mu_["F"] == pytest.approx(genuine.mean())
+
+    def test_genuine_history_is_not_clipped_by_padding(self) -> None:
+        df, mask, genuine = self._delisted_panel()
+        out = OutlierTreater(protected_mask=mask).fit_transform(df)
+        treated = out["F"].iloc[: self.N_REAL - 1]
+        changed = ~np.isclose(treated.to_numpy(), genuine) | treated.isna().to_numpy()
+        # Only the t(5) tails beyond 3 sigma may be winsorised, never a quarter
+        # of the history as when the padding shrinks sigma.
+        assert changed.mean() < 0.05
+
+    def test_padding_cells_pass_through_untouched(self) -> None:
+        # A strictly positive drift makes 0.0 look like a big negative z-score
+        # against the genuine history; the padding is not a data point.
+        df, mask, _ = self._delisted_panel(mean=0.004, scale=0.001)
+        out = OutlierTreater(protected_mask=mask).fit_transform(df)
+        assert (out["F"].iloc[self.N_REAL :] == 0.0).all()
+        assert out["F"].iloc[self.N_REAL - 1] == pytest.approx(-0.30)
+
+    def test_zeros_after_a_mid_history_protected_cell_are_real_data(self) -> None:
+        # Only a run of zeros reaching the end of the frame is padding; real
+        # returns that follow a protected event keep informing the scale.
+        rng = np.random.default_rng(5)
+        col = rng.normal(0.0, 0.02, size=200)
+        col[100] = -0.40
+        df = pd.DataFrame({"X": col}, index=pd.date_range("2024-01-01", periods=200))
+        mask = pd.DataFrame(False, index=df.index, columns=df.columns)
+        mask.iloc[100, 0] = True
+        ot = OutlierTreater(protected_mask=mask).fit(df)
+        expected = np.delete(col, 100)
+        assert ot.sigma_["X"] == pytest.approx(expected.std(ddof=1))

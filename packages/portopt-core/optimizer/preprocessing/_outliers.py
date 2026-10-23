@@ -45,7 +45,12 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
             ``delisting_protection_mask`` in
             ``optimizer.preprocessing._delisting``, which flags each delisted
             asset's terminal-return cell. Pass ``None`` (default) to protect
-            nothing.
+            nothing. The run of exact ``0.0`` (or ``NaN``) cells that follows a
+            column's protected cell through the end of ``X`` is the synthetic
+            cash padding written by ``apply_delisting_returns``; it is neither
+            observed data nor treated, and is left out of ``mu_`` / ``sigma_``
+            so a long dead tail cannot shrink the scale and clip the asset's
+            genuine history.
     """
 
     winsorize_threshold: float
@@ -76,8 +81,9 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
         self.feature_names_in_: np.ndarray = np.asarray(X.columns)
         # Exclude protected cells from the moment estimate so an exempt extreme
         # (e.g. a -0.30 delisting return) does not inflate sigma_ and mask
-        # genuine outliers in the same column.
-        X_fit = X.mask(self._aligned_protected_mask(X))
+        # genuine outliers in the same column.  The padding after it is dropped
+        # for the opposite reason: its exact zeros would deflate sigma_.
+        X_fit = X.mask(self._exempt_mask(X))
         self.mu_: pd.Series = X_fit.mean()
         self.sigma_: pd.Series = X_fit.std()
         return self
@@ -97,7 +103,7 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
         X = self._validate_input(X)
 
         out = X.copy()
-        prot = self._aligned_protected_mask(X)
+        prot = self._exempt_mask(X)
         # Guard against zero-sigma columns (constant series).
         # Treat their z-score as 0 and let DropZeroVariance handle them later.
         safe_sigma = self.sigma_.replace(0, np.nan)
@@ -139,6 +145,19 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
         return self.protected_mask.reindex(
             index=X.index, columns=X.columns, fill_value=False
         ).astype(bool)
+
+    def _exempt_mask(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Protected cells plus the post-delisting padding that follows them."""
+        prot = self._aligned_protected_mask(X)
+        if not prot.to_numpy().any():
+            return prot
+        # Trailing run: every row from here to the end is 0.0 or NaN.  Only a
+        # run that starts after a protected cell is padding, so zeros in an
+        # unprotected column or before the event stay ordinary observations.
+        flat = ((X == 0.0) | X.isna()).astype("int8")
+        trailing_run = flat.iloc[::-1].cummin().iloc[::-1].astype(bool)
+        after_event = prot.astype("int8").cummax().astype(bool) & ~prot
+        return prot | (trailing_run & after_event)
 
     @staticmethod
     def _validate_input(X: pd.DataFrame) -> pd.DataFrame:
