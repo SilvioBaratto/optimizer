@@ -127,6 +127,7 @@ class TestFetchFundProfile:
             "legalType": "Exchange Traded Fund",
             "annualReportExpenseRatio": 0.0025,
             "currency": "EUR",
+            "financialCurrency": "USD",
         }
 
         with patch.object(client, "_get_ticker", return_value=ticker):
@@ -137,7 +138,7 @@ class TestFetchFundProfile:
         assert out["nav"] == 193.93
         assert out["fund_family"] == "JPMorgan"
         assert out["expense_ratio"] == 0.0025
-        assert out["base_currency"] == "EUR"
+        assert out["base_currency"] == "USD"
 
     def test_expense_ratio_prefers_net_expense_ratio(self, client: FundsClient) -> None:
         """netExpenseRatio is the key Yahoo actually populates for ETFs (SPY/AGG);
@@ -189,6 +190,132 @@ class TestFetchFundProfile:
         assert from_net["expense_ratio"] == pytest.approx(
             from_fraction["expense_ratio"]
         )
+
+    def test_listing_currency_is_not_reported_as_the_fund_base_currency(
+        self, client: FundsClient
+    ) -> None:
+        """navPrice/totalAssets are in the fund's own currency, not the quote
+        currency: IUSA.L is quoted in pence but its NAV is USD. Mislabelling
+        NAV/AUM with the listing code ('GBp') would feed FX the wrong pair."""
+        ticker = MagicMock()
+        ticker.info = {
+            "currency": "GBp",
+            "navPrice": 76.3169,
+            "totalAssets": 22_874_429_440,
+        }
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("IUSA.L")
+
+        assert out is not None
+        assert out["base_currency"] is None
+
+    def test_base_currency_comes_from_financial_currency_as_major_unit(
+        self, client: FundsClient
+    ) -> None:
+        ticker = MagicMock()
+        ticker.info = {"navPrice": 96.1, "currency": "USD", "financialCurrency": "GBp"}
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("AGG")
+
+        assert out is not None
+        assert out["base_currency"] == "GBP"
+
+    def test_quote_currency_alone_does_not_make_an_equity_look_like_a_fund(
+        self, client: FundsClient
+    ) -> None:
+        ticker = MagicMock()
+        ticker.info = {"currency": "USD", "quoteType": "EQUITY"}
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            assert client.fetch_fund_profile("AAPL") is None
+
+    def test_us_listed_usd_fund_without_financial_currency_is_labelled_usd(
+        self, client: FundsClient
+    ) -> None:
+        """Yahoo leaves financialCurrency empty for many US-listed funds (BND,
+        TDEM, FAAA) though they quote and report in USD; those must not lose
+        their base currency."""
+        ticker = MagicMock()
+        ticker.info = {
+            "navPrice": 72.4,
+            "totalAssets": 3.2e11,
+            "currency": "USD",
+            "market": "us_market",
+            "exchange": "NGM",
+            "financialCurrency": None,
+        }
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("BND")
+
+        assert out is not None
+        assert out["base_currency"] == "USD"
+
+    def test_usd_quote_on_a_non_us_listing_is_not_assumed_to_be_the_nav_currency(
+        self, client: FundsClient
+    ) -> None:
+        """A UCITS share class quoted in USD on the LSE says nothing certain
+        about its NAV currency, so only a US listing earns the fallback."""
+        ticker = MagicMock()
+        ticker.info = {
+            "navPrice": 600.0,
+            "currency": "USD",
+            "market": "gb_market",
+            "exchange": "LSE",
+        }
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("CSPX.L")
+
+        assert out is not None
+        assert out["base_currency"] is None
+
+    def test_us_listing_quoted_in_another_currency_is_not_assumed_usd(
+        self, client: FundsClient
+    ) -> None:
+        ticker = MagicMock()
+        ticker.info = {"navPrice": 50.0, "currency": "EUR", "market": "us_market"}
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("XYZ")
+
+        assert out is not None
+        assert out["base_currency"] is None
+
+    def test_financial_currency_wins_over_the_us_listing_fallback(
+        self, client: FundsClient
+    ) -> None:
+        ticker = MagicMock()
+        ticker.info = {
+            "navPrice": 50.0,
+            "currency": "USD",
+            "market": "us_market",
+            "financialCurrency": "EUR",
+        }
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("XYZ")
+
+        assert out is not None
+        assert out["base_currency"] == "EUR"
+
+    def test_us_listed_equity_with_only_quote_currency_is_still_not_a_fund(
+        self, client: FundsClient
+    ) -> None:
+        """The US-listing fallback must not by itself turn a bare equity quote
+        into a fund profile."""
+        ticker = MagicMock()
+        ticker.info = {
+            "currency": "USD",
+            "market": "us_market",
+            "exchange": "NMS",
+            "quoteType": "EQUITY",
+        }
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            assert client.fetch_fund_profile("AAPL") is None
 
     def test_aum_falls_back_to_net_assets(self, client: FundsClient) -> None:
         """Some UCITS listings expose netAssets but not totalAssets."""

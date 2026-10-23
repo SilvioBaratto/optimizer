@@ -13,6 +13,8 @@ from typing import Any
 
 import pandas as pd
 
+from app.utils.currency import to_major_currency
+
 from .._base import BaseClient
 
 logger = logging.getLogger(__name__)
@@ -52,10 +54,20 @@ class FundsClient(BaseClient):
                 "fund_family": info.get("fundFamily"),
                 "legal_type": info.get("legalType"),
                 "expense_ratio": _expense_ratio_fraction(info),
-                "base_currency": info.get("currency"),
+                # navPrice/totalAssets are in the fund's own currency, which for
+                # a UCITS ETF differs from the quote currency in info["currency"]
+                # (IUSA.L quotes in GBp but its NAV is USD). financialCurrency is
+                # the fund's reporting currency, but Yahoo leaves it empty for
+                # many funds (BND, TDEM, UCITS); leaving those NULL beats
+                # mislabelling NAV/AUM with the listing code.
+                "base_currency": to_major_currency(info.get("financialCurrency")),
             }
             if not any(v is not None for v in profile.values()):
                 return None
+            if profile["base_currency"] is None:
+                # Applied only after the fund-data check so a bare equity quote
+                # cannot pass as a fund profile on the strength of its currency.
+                profile["base_currency"] = _us_listing_usd(info)
             return profile
 
         return self._fetch_with_resilience(
@@ -94,6 +106,20 @@ class FundsClient(BaseClient):
             "fund_overview": _as_dict(getattr(fd, "fund_overview", None)),
             "description": description,
         }
+
+
+def _us_listing_usd(info: dict[str, Any]) -> str | None:
+    """``"USD"`` for a USD-quoted fund on a US listing, else ``None``.
+
+    US-listed funds report NAV and AUM in dollars, so the quote currency is a
+    safe stand-in when ``financialCurrency`` is missing. Yahoo's ``market``
+    field marks the listing venue (``us_market`` / ``gb_market``); ``region``
+    cannot be used because it carries the fund's domicile and reads ``US`` for
+    London-listed UCITS ETFs on US indices.
+    """
+    if info.get("market") == "us_market" and info.get("currency") == "USD":
+        return "USD"
+    return None
 
 
 def _expense_ratio_fraction(info: dict[str, Any]) -> float | None:
