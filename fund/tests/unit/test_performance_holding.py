@@ -380,3 +380,133 @@ def test_marked_weights_fail_loud_without_fx_coverage(db_session):
 
     with pytest.raises(FxCoverageError):
         marked_weights(_PID, session=db_session, base_currency="GBP")
+
+
+def test_holding_marks_scale_to_mandate_capital(db_session):
+    """Shares, value and P&L are on the mandate's capital, not the ticket's notional.
+
+    The ticket was sized against 10,000; marking against a 20,000 mandate doubles
+    every absolute figure while weights and returns stay put.
+    """
+    _seed(db_session)
+    plain = {
+        m.ticker: m
+        for m in holding_marks(_PID, session=db_session, base_currency="EUR")
+    }
+    scaled = {
+        m.ticker: m
+        for m in holding_marks(
+            _PID, session=db_session, base_currency="EUR", capital=20_000.0
+        )
+    }
+
+    for ticker in ("US1", "LON.L"):
+        assert scaled[ticker].shares == pytest.approx(2 * plain[ticker].shares)
+        assert scaled[ticker].value == pytest.approx(2 * plain[ticker].value)
+        assert scaled[ticker].weight == pytest.approx(plain[ticker].weight)
+        assert scaled[ticker].return_1d == pytest.approx(plain[ticker].return_1d)
+    cost_us = 2 * 6000.0
+    assert scaled["US1"].unrealized_pnl == pytest.approx(
+        scaled["US1"].value - cost_us, rel=1e-6
+    )
+
+
+def test_holding_marks_value_matches_nav_after_a_rebalance(db_session):
+    """After a rebalance the marked book is worth the NAV, not a fresh notional.
+
+    Asset A doubles, then a ticket switches the whole book into B. The holdings table
+    must total the chain-linked NAV (200,000), not the second ticket's flat 100,000.
+    """
+    d = [dt.date(2026, 10, 1) + dt.timedelta(days=i) for i in range(4)]
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, closes in (("A", [100.0, 150.0, 200.0, 200.0]), ("B", [50.0] * 4)):
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        db_session.add_all(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=day,
+                close=Decimal(str(px)),
+                price_unit="USD",
+            )
+            for day, px in zip(d, closes, strict=True)
+        )
+    for key, ticker, fill in (("h1", "A", d[0]), ("h2", "B", d[2])):
+        db_session.add(
+            PaperOrder(
+                portfolio_id=_PID,
+                asof=fill - dt.timedelta(days=1),
+                weights_hash=key,
+                weights={ticker: 1.0},
+                fill_date=fill,
+                lines=[
+                    {
+                        "ticker": ticker,
+                        "notional": 100_000.0,
+                        "fill_date": fill.isoformat(),
+                    }
+                ],
+                notional=100_000.0,
+                total_commission=0.0,
+                total_slippage_cost=0.0,
+            )
+        )
+    db_session.flush()
+
+    marks = holding_marks(_PID, session=db_session, base_currency="USD")
+
+    assert [m.ticker for m in marks] == ["B"]
+    assert marks[0].shares == pytest.approx(4_000.0)  # 200,000 carried / 50
+    assert marks[0].value == pytest.approx(200_000.0)
+    assert marks[0].unrealized_pnl == pytest.approx(0.0, abs=1e-6)
+
+
+def test_holding_marks_value_only_the_invested_part_of_a_half_cash_book(db_session):
+    """A holding is worth its share of the book, not the whole NAV, beside cash.
+
+    A rises 100 -> 130 and a second ticket then holds it at 50% of a 100,000 gross.
+    The book is worth 130,000 on the hand-over bar: 65,000 in A, 65,000 in cash. The
+    holdings table shows the 65,000 invested, bought at cost, with no P&L yet.
+    """
+    d = [dt.date(2026, 10, 1) + dt.timedelta(days=i) for i in range(3)]
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    inst = Instrument(ticker="A", short_name="A", exchange=ex, yfinance_ticker="A")
+    db_session.add(inst)
+    db_session.flush()
+    db_session.add_all(
+        PriceHistory(
+            instrument_id=inst.id, date=day, close=Decimal(str(px)), price_unit="USD"
+        )
+        for day, px in zip(d, [100.0, 115.0, 130.0], strict=True)
+    )
+    for key, notional, fill in (("h1", 100_000.0, d[0]), ("h2", 50_000.0, d[2])):
+        db_session.add(
+            PaperOrder(
+                portfolio_id=_PID,
+                asof=fill - dt.timedelta(days=1),
+                weights_hash=key,
+                weights={"A": notional / 100_000.0},
+                fill_date=fill,
+                lines=[
+                    {"ticker": "A", "notional": notional, "fill_date": fill.isoformat()}
+                ],
+                notional=100_000.0,
+                total_commission=0.0,
+                total_slippage_cost=0.0,
+            )
+        )
+    db_session.flush()
+
+    marks = holding_marks(_PID, session=db_session, base_currency="USD")
+
+    assert [m.ticker for m in marks] == ["A"]
+    assert marks[0].value == pytest.approx(65_000.0)
+    assert marks[0].shares == pytest.approx(500.0)  # 65,000 / 130
+    assert marks[0].unrealized_pnl == pytest.approx(0.0, abs=1e-6)

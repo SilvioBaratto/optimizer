@@ -831,6 +831,7 @@ def _nav_points_to_persist(
             benchmark=mandate.benchmark,
             asof=asof,
             since=since,
+            capital=float(mandate.capital),
         )
 
     last = None if full else nav_repo.last_nav_date(portfolio_id)

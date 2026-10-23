@@ -585,7 +585,8 @@ def holdings_summary(
     compute-on-demand read of ``paper_orders`` / ``price_history`` / ``fx_rates``,
     mirroring :func:`performance_summary`. The base currency is read from the
     portfolio's mandate, falling back to ``"EUR"`` when it has none (the fund's only
-    seeded FX base). An unmarked portfolio (no paper orders) yields ``[]`` rather than
+    seeded FX base); the mandate's capital denominates the book, matching the persisted
+    NAV series. An unmarked portfolio (no paper orders) yields ``[]`` rather than
     a fabricated row. The tracker is imported lazily (it pulls ``optimizer``/``skfolio``
     — allowed, not the agent stack) so ``import fund.observe`` stays agent-stack-free.
     Builds no model, never commits.
@@ -606,11 +607,13 @@ def holdings_summary(
     """
     from fund.performance import holding_marks
 
+    mandate = get_mandate(session, portfolio_id)
     return holding_marks(
         portfolio_id,
         session=session,
-        base_currency=_base_currency(session, portfolio_id),
+        base_currency=mandate.base_currency if mandate is not None else "EUR",
         asof=asof,
+        capital=float(mandate.capital) if mandate is not None else None,
     )
 
 

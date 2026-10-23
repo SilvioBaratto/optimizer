@@ -466,21 +466,21 @@ def _ticket_book(
     return book
 
 
-def _active_book(
+def _active_index(
     ticket_books: list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]],
     day: dt.date,
-) -> dict[str, tuple[float, dt.date, float]]:
-    """The book in force on ``day``: the latest ticket filled at or before it.
+) -> int | None:
+    """Index of the book in force on ``day``: the latest ticket filled at or before it.
 
     Mirrors the full-re-allocation rule (paper tickets replace ``positions`` on each
     approve rather than accumulate), so the active book is the most recent ticket's,
     not the union of every fill. Each line keeps its own fill date so the NAV loop can
-    defer a line that has not yet filled on ``day``.
+    defer a line that has not yet filled on ``day``. ``None`` before the first fill.
     """
-    active: dict[str, tuple[float, dt.date, float]] = {}
-    for fill_date, book in ticket_books:
+    active: int | None = None
+    for index, (fill_date, _) in enumerate(ticket_books):
         if fill_date <= day:
-            active = book
+            active = index
         else:
             break
     return active
@@ -515,42 +515,87 @@ def _book_value(
     return value if marked else None
 
 
-def _chain_scales(
+@dataclass(frozen=True)
+class _ChainLink:
+    """How one ticket's raw book is carried onto the portfolio's NAV.
+
+    Attributes:
+        scale: Factor multiplying the ticket's shares and base notionals.
+        offset: Undeployed cash, net of the first ticket's reserve, that sits beside
+            the book and belongs in NAV (zero for a ticket that deploys everything).
+    """
+
+    scale: float
+    offset: float
+
+
+def _entry_scale(gross: float, capital: float | None) -> float:
+    """Scale taking a ticket sized on ``gross`` to ``capital`` (1.0 when unknown)."""
+    if capital is not None and capital > 0 and gross > 0:
+        return capital / gross
+    return 1.0
+
+
+def _chain_links(
     ticket_books: list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]],
+    grosses: list[float],
     base_prices: pd.DataFrame,
-) -> list[float]:
-    """The factor that rescales each ticket's book so NAV is continuous at its fill.
+    capital: float | None = None,
+) -> list[_ChainLink]:
+    """The scale (and cash) that makes NAV continuous at each ticket's fill.
 
-    Every ticket is sized off the same flat notional, not the portfolio's marked
-    value, so a new ticket's book is worth ``sum(weights) x notional`` on its first
-    bar regardless of what the previous book had earned. Each book after the first
-    is multiplied by the factor that makes it worth exactly what the previous
-    (already rescaled) book is worth on that bar — a rebalance then conserves value
-    and the series keeps its accumulated P&L (time-weighted-return convention).
+    Every ticket is sized off a flat notional (its ``gross``), not the portfolio's
+    marked wealth, so a new ticket's book is worth ``sum(weights) x gross`` on its first
+    bar regardless of what the previous book earned. A rebalance re-allocates wealth; it
+    neither creates nor destroys any, so on each hand-over the ticket's weights are
+    applied to the portfolio's total wealth on that bar (``scale = wealth / gross``) and
+    the series keeps its accumulated P&L (time-weighted-return convention). Whatever
+    the ticket leaves undeployed (a weight sum below one) is held as cash at par:
+    exposure is the weight sum of total wealth and NAV stays continuous through the
+    hand-over.
 
-    When either side cannot be valued on the switch bar the previous factor is
-    carried forward instead of resetting to the flat notional. The first ticket keeps
-    its own notional (factor ``1.0``).
+    The first ticket has nothing to carry, so its wealth is ``capital`` (its own
+    ``gross`` when unknown). The cash it leaves undeployed is a reserve outside NAV, but
+    it is still wealth the later tickets are sized on, so a repeated 90% ticket stays
+    90% exposed instead of shrinking to 90% of 90%.
+
+    When either side cannot be valued on the switch bar the previous link is carried
+    forward instead of resetting to the flat notional.
 
     This is the single source of the per-ticket scale: :func:`build_nav_series` marks
     the rescaled books and :func:`holding_marks` applies the same factor to share
     counts and cost basis, so holdings and NAV cannot disagree after a rebalance.
+
+    Args:
+        ticket_books: Priced tickets ``(fill date, book)``, ascending, non-empty books.
+        grosses: Each ticket's gross notional, aligned with ``ticket_books``.
+        base_prices: Forward-filled base-currency close frame the books are marked on.
+        capital: Mandate capital the first ticket is denominated in; ``None`` keeps the
+            ticket's own notional.
     """
-    scales: list[float] = []
+    links: list[_ChainLink] = []
     previous_book: dict[str, tuple[float, dt.date, float]] | None = None
     scale = 1.0
-    for fill_day, book in ticket_books:
-        if previous_book is not None:
-            position = int(base_prices.index.searchsorted(pd.Timestamp(fill_day)))
-            if position < len(base_prices.index):
-                ts = base_prices.index[position]
-                previous = _book_value(previous_book, ts, base_prices)
-                incoming = _book_value(book, ts, base_prices)
-                if previous is not None and incoming:
-                    scale = previous / incoming
-        scales.append(scale)
+    cash = 0.0
+    reserve = 0.0
+    for (fill_day, book), gross in zip(ticket_books, grosses, strict=True):
+        position = int(base_prices.index.searchsorted(pd.Timestamp(fill_day)))
+        ts = base_prices.index[position] if position < len(base_prices.index) else None
+        incoming = _book_value(book, ts, base_prices) if ts is not None else None
+        if previous_book is None:
+            scale = _entry_scale(gross, capital)
+            if incoming is not None:
+                wealth = scale * (gross if gross > 0 else incoming)
+                cash = reserve = wealth - scale * incoming
+        elif ts is not None and incoming:
+            outgoing = _book_value(previous_book, ts, base_prices)
+            if outgoing is not None:
+                wealth = outgoing + cash
+                scale = wealth / gross if gross > 0 else wealth / incoming
+                cash = wealth - scale * incoming
+        links.append(_ChainLink(scale, cash - reserve))
         previous_book = _scaled_book(book, scale)
-    return scales
+    return links
 
 
 def _scaled_book(
@@ -563,18 +608,6 @@ def _scaled_book(
     }
 
 
-def _chain_link_books(
-    ticket_books: list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]],
-    base_prices: pd.DataFrame,
-) -> list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]]:
-    """Rescale each ticket's book by its :func:`_chain_scales` factor."""
-    scales = _chain_scales(ticket_books, base_prices)
-    return [
-        (fill_day, _scaled_book(book, scale))
-        for (fill_day, book), scale in zip(ticket_books, scales, strict=True)
-    ]
-
-
 def build_nav_series(
     portfolio_id: uuid.UUID,
     *,
@@ -583,6 +616,7 @@ def build_nav_series(
     benchmark: str | None = None,
     asof: dt.date | None = None,
     since: dt.date | None = None,
+    capital: float | None = None,
 ) -> list[NavPoint]:
     """Reconstruct the paper portfolio's NAV series, marked to market in base ccy.
 
@@ -593,9 +627,10 @@ def build_nav_series(
     base-currency close (carried forward over gaps). The benchmark level, when
     given, is pulled from ``price_history``, FX-normalized to base, and date-aligned.
 
-    Rebalances conserve NAV: each ticket after the first is rescaled so the series
-    is continuous on its first active bar (see :func:`_chain_link_books`), instead of
-    snapping back to the flat ticket notional and discarding accumulated P&L.
+    Rebalances conserve NAV: each ticket after the first applies its weights to the
+    portfolio's marked wealth on its first active bar (see :func:`_chain_links`), and
+    any weight it leaves undeployed is held as cash at par, instead of snapping back to
+    the flat ticket notional and discarding accumulated P&L.
 
     NAV is **gross** of paper execution costs: shares are reconstructed from the
     fill-bar *close*, so NAV at the fill equals the deployed base notional. The
@@ -615,6 +650,10 @@ def build_nav_series(
             fill, but only bars on/after ``since`` are returned. ``None`` emits the
             full series from the first fill (backfill). Lets the daily mark re-emit
             only recent bars instead of rewriting the whole history every run.
+        capital: Mandate capital, in base currency, the first ticket is denominated
+            in. Tickets are sized against a paper notional that may not be the
+            mandate's (older ones used a flat default), so without this NAV is on the
+            ticket's own notional instead.
 
     Returns:
         NAV points ordered by date; empty when the portfolio has no fills, no
@@ -682,13 +721,25 @@ def build_nav_series(
         and _expressed_in_base(benchmark, base_currency, currency_map, fx_rates)
     )
 
-    ticket_books = [
-        (ticket.fill_date, _ticket_book(ticket, base_prices)) for ticket in tickets
+    priced = [
+        (
+            ticket.fill_date,
+            _ticket_book(ticket, base_prices),
+            float(ticket.notional or 0),
+        )
+        for ticket in tickets
     ]
-    ticket_books = [(d, b) for d, b in ticket_books if b]
-    if not ticket_books:
+    priced = [entry for entry in priced if entry[1]]
+    if not priced:
         return []
-    ticket_books = _chain_link_books(ticket_books, base_prices)
+    ticket_books = [(fill_date, book) for fill_date, book, _ in priced]
+    links = _chain_links(
+        ticket_books, [gross for _, _, gross in priced], base_prices, capital
+    )
+    scaled_books = [
+        _scaled_book(book, link.scale)
+        for (_, book), link in zip(ticket_books, links, strict=True)
+    ]
     earliest = ticket_books[0][0]
     mark_from = earliest if since is None else max(earliest, since)
 
@@ -697,9 +748,13 @@ def build_nav_series(
         day = ts.date()
         if day < mark_from:
             continue
-        nav = _book_value(_active_book(ticket_books, day), ts, base_prices)
-        if nav is None:
+        index = _active_index(ticket_books, day)
+        if index is None:
             continue
+        raw_nav = _book_value(scaled_books[index], ts, base_prices)
+        if raw_nav is None:
+            continue
+        nav = raw_nav + links[index].offset
         bench_level: float | None = None
         if benchmark and bench_in_base:
             raw = base_prices.at[ts, benchmark]
@@ -1068,6 +1123,7 @@ def holding_marks(
     session: Any,
     base_currency: str,
     asof: dt.date | None = None,
+    capital: float | None = None,
 ) -> list[HoldingMark]:
     """Mark each current holding to market in the mandate base currency.
 
@@ -1078,6 +1134,11 @@ def holding_marks(
     1D/1M/1Y price returns, 1-day contribution (``weight × return_1d``), and
     unrealized P&L (value minus the deployed base cost basis). A holding with no
     usable price degrades to ``None`` fields rather than raising.
+
+    Shares, value and cost basis are rescaled by the same factor
+    :func:`build_nav_series` applies to the current ticket (its chain-linked entry
+    level), so the holdings add up to the NAV instead of the ticket's own notional —
+    less the cash a ticket weighted below 100% holds back, which is not a holding.
 
     Value marks on the carried-forward (``asof``) close, but returns are computed
     on each holding's *own* real closes, so a carry-forward over a day the holding
@@ -1093,6 +1154,8 @@ def holding_marks(
         session: Open SQLAlchemy session (reader; no commit).
         base_currency: Mandate base currency to express values in.
         asof: Mark date upper bound; ``None`` uses the latest available prices.
+        capital: Mandate capital, in base currency, the first ticket is denominated
+            in (see :func:`build_nav_series`); ``None`` keeps the ticket's notional.
 
     Returns:
         One :class:`HoldingMark` per line of the active ticket, in ticket order;
@@ -1120,10 +1183,20 @@ def holding_marks(
         return [_degraded_mark(ticker) for ticker in order]
     base_raw, base_prices = book
     current_book = _ticket_book(ticket, base_prices)
-    scale = 1.0
+    scale = _entry_scale(float(ticket.notional or 0), capital)
     if current_book:
-        ticket_books = [(t.fill_date, _ticket_book(t, base_prices)) for t in tickets]
-        scale = _chain_scales([(d, b) for d, b in ticket_books if b], base_prices)[-1]
+        priced = [
+            (t.fill_date, _ticket_book(t, base_prices), float(t.notional or 0))
+            for t in tickets
+        ]
+        priced = [entry for entry in priced if entry[1]]
+        links = _chain_links(
+            [(fill_date, book) for fill_date, book, _ in priced],
+            [gross for _, _, gross in priced],
+            base_prices,
+            capital,
+        )
+        scale = links[-1].scale
     # Holdings sit on the chain-linked NAV scale, so they sum to the latest NAV and
     # the cost basis is the value carried into the rebalance, not the flat notional.
     shares = {

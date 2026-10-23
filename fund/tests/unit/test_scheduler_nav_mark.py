@@ -69,7 +69,9 @@ def session_factory(tmp_path) -> Generator[SessionFactory, None, None]:
         engine.dispose()
 
 
-def _seed(factory: SessionFactory, *, base_currency: str = "EUR") -> None:
+def _seed(
+    factory: SessionFactory, *, base_currency: str = "EUR", capital: str = "10000"
+) -> None:
     """Seed an active mandate + a USD/GBp ledger with two days of prices/FX.
 
     FX rows are always EUR-base (the feed's only base), so a non-EUR
@@ -178,7 +180,7 @@ def _seed(factory: SessionFactory, *, base_currency: str = "EUR") -> None:
         MandateRepository(session).upsert(
             PortfolioMandate(
                 portfolio_id=str(_PID),
-                capital=Decimal("10000"),
+                capital=Decimal(capital),
                 base_currency=base_currency,
                 drift_l1_threshold=0.1,
                 triggers=RunTriggers(cron=True, drift=False),
@@ -677,3 +679,15 @@ def test_nav_mark_skips_an_invalid_mandate_row_and_marks_the_rest(session_factor
     assert set(_navs(session_factory)) == {_FILL, _NEXT}
     slots = _slots(session_factory)
     assert len(slots) == 1 and slots[0].status == "completed"
+
+
+def test_nav_mark_denominates_nav_in_the_mandate_capital(session_factory):
+    """The persisted NAV starts at the mandate's capital, not the ticket's notional."""
+    _seed(session_factory, capital="20000")  # ticket was sized against 10,000
+
+    assert run_nav_mark(session_factory=session_factory, asof=_ASOF) is True
+
+    navs = _navs(session_factory)
+    assert navs[_FILL] == pytest.approx(20000.0, rel=1e-6)
+    expected_next = 2 * ((6000.0 / 90.0) * 101.2 + (4000.0 / 5.85) * 6.136)
+    assert navs[_NEXT] == pytest.approx(expected_next, rel=1e-6)

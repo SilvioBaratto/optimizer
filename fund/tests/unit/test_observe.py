@@ -2229,6 +2229,16 @@ def test_holdings_summary_uses_mandate_base_currency(db_session):
     assert marks[0].value is not None
 
 
+def test_holdings_summary_marks_in_the_mandate_capital(db_session):
+    """Holdings are valued on the mandate's capital, not the ticket's paper notional."""
+    _seed_holding_book(db_session, with_mandate=True)  # ticket 9,000; capital 100,000
+
+    marks = observe.holdings_summary(db_session, _PID)
+
+    # shares 100000/90 marked at 110*0.92 = 101.2 base.
+    assert marks[0].value == pytest.approx((100_000.0 / 90.0) * 101.2, rel=1e-6)
+
+
 def test_holdings_summary_unmarked_is_empty(db_session):
     """A portfolio with no paper orders degrades to an empty list, not a crash."""
     assert observe.holdings_summary(db_session, _PID) == []

@@ -845,6 +845,128 @@ def test_holding_marks_single_ticket_book_keeps_the_flat_notional(db_session):
     assert mark.unrealized_pnl == pytest.approx(70_000.0)
 
 
+_DAYS = [dt.date(2026, 10, 1) + dt.timedelta(days=i) for i in range(5)]
+
+
+def _seed_usd_floats(db_session, series: dict[str, dict[dt.date, float]]) -> None:
+    """Seed USD closes given as ``{ticker: {date: float}}``."""
+    _seed_usd_closes(
+        db_session,
+        {
+            ticker: {day: str(px) for day, px in closes.items()}
+            for ticker, closes in series.items()
+        },
+    )
+
+
+def _add_flat_ticket(
+    db_session, *, fill: dt.date, notionals: dict[str, float], key: str
+) -> None:
+    """Persist one ticket whose lines all fill on ``fill`` (asof the day before)."""
+    _add_ticket(
+        db_session,
+        asof=fill - dt.timedelta(days=1),
+        key=key,
+        lines={ticker: (notional, fill) for ticker, notional in notionals.items()},
+    )
+
+
+def _set_ticket_gross(db_session, key: str, gross: float) -> None:
+    """Widen a ticket's flat paper notional beyond the sum of its lines."""
+    db_session.query(PaperOrder).filter(PaperOrder.weights_hash == key).update(
+        {"notional": gross}
+    )
+    db_session.flush()
+
+
+def test_nav_series_keeps_a_later_tickets_cash_weight(db_session):
+    """A rebalance into a half-invested book parks the other half in cash.
+
+    A rises 100 -> 140. A second ticket holds A at 50% of its 100k gross and fills at
+    130, when the book is worth 130,000: 65,000 goes into A and 65,000 stays in cash.
+    The level carries through the hand-over, and the last bar is 65,000 * 140/130 +
+    65,000 -- not the 140,000 a book scaled back up to fully invested would show.
+    """
+    prices = dict(zip(_DAYS, [100.0, 120.0, 130.0, 135.0, 140.0], strict=True))
+    _seed_usd_floats(db_session, {"A": prices})
+    _add_flat_ticket(db_session, fill=_DAYS[0], notionals={"A": 100_000.0}, key="h1")
+    _add_flat_ticket(db_session, fill=_DAYS[2], notionals={"A": 50_000.0}, key="h2")
+    _set_ticket_gross(db_session, "h2", 100_000.0)
+
+    points = build_nav_series(_PID, session=db_session, base_currency="USD")
+
+    navs = {p.date: p.nav for p in points}
+    assert navs[_DAYS[1]] == pytest.approx(120_000.0)
+    assert navs[_DAYS[2]] == pytest.approx(130_000.0)
+    assert navs[_DAYS[3]] == pytest.approx(65_000.0 * 135.0 / 130.0 + 65_000.0)
+    assert navs[_DAYS[4]] == pytest.approx(135_000.0)
+    assert performance.nav_return_series(points).iloc[1:].min() >= 0.0
+
+
+def test_nav_series_keeps_a_partly_invested_book_as_exposed_after_a_rebalance(
+    db_session,
+):
+    """Repeating a 90% ticket keeps 90% of total wealth in the market.
+
+    The first ticket's 10,000 of cash stays outside NAV (NAV starts at the 90,000
+    deployed) but is still part of the wealth the second ticket is sized on. Rebalancing
+    at 120, where wealth is 118,000, puts 106,200 in A and 11,800 in cash, so NAV is
+    continuous at 108,000 and then moves with 106,200 of exposure, not 108,000.
+    """
+    prices = dict(zip(_DAYS, [100.0, 105.0, 110.0, 120.0, 126.0], strict=True))
+    _seed_usd_floats(db_session, {"A": prices})
+    _add_flat_ticket(db_session, fill=_DAYS[0], notionals={"A": 90_000.0}, key="h1")
+    _add_flat_ticket(db_session, fill=_DAYS[3], notionals={"A": 90_000.0}, key="h2")
+    _set_ticket_gross(db_session, "h1", 100_000.0)
+    _set_ticket_gross(db_session, "h2", 100_000.0)
+
+    points = build_nav_series(_PID, session=db_session, base_currency="USD")
+
+    navs = {p.date: p.nav for p in points}
+    assert navs[_DAYS[0]] == pytest.approx(90_000.0)
+    assert navs[_DAYS[3]] == pytest.approx(108_000.0)
+    assert navs[_DAYS[4]] == pytest.approx(
+        106_200.0 * 126.0 / 120.0 + 11_800.0 - 10_000.0
+    )
+
+
+def test_nav_series_denominates_the_first_ticket_in_mandate_capital(db_session):
+    """NAV is on the mandate's capital, not the ticket's flat paper notional.
+
+    The ticket sizes weights against 100,000; with a 250,000 mandate the book starts
+    at 250,000 and then moves with the asset, rebalances included.
+    """
+    prices = dict(zip(_DAYS, [100.0, 105.0, 110.0, 120.0, 126.0], strict=True))
+    _seed_usd_floats(db_session, {"A": prices})
+    _add_flat_ticket(db_session, fill=_DAYS[0], notionals={"A": 100_000.0}, key="h1")
+    _add_flat_ticket(db_session, fill=_DAYS[3], notionals={"A": 100_000.0}, key="h2")
+
+    points = build_nav_series(
+        _PID, session=db_session, base_currency="USD", capital=250_000.0
+    )
+
+    navs = {p.date: p.nav for p in points}
+    assert navs[_DAYS[0]] == pytest.approx(250_000.0)
+    assert navs[_DAYS[1]] == pytest.approx(262_500.0)
+    assert navs[_DAYS[4]] == pytest.approx(315_000.0)
+
+
+def test_nav_series_capital_keeps_the_undeployed_cash_weight(db_session):
+    """A ticket weighted 90% in the market deploys 90% of the mandate capital."""
+    _seed_usd_floats(db_session, {"A": dict.fromkeys(_DAYS, 100.0)})
+    _add_flat_ticket(db_session, fill=_DAYS[0], notionals={"A": 90_000.0}, key="h1")
+    # The ticket's gross is its line sum here, so widen it to the 100k book it was
+    # sized against.
+    db_session.query(PaperOrder).update({"notional": 100_000.0})
+    db_session.flush()
+
+    points = build_nav_series(
+        _PID, session=db_session, base_currency="USD", capital=200_000.0
+    )
+
+    assert points[0].nav == pytest.approx(180_000.0)
+
+
 def _agent_stack_offenders(module) -> list[str]:
     """AST-scan a module's source for any top-level agent-stack import."""
     forbidden = ("deepagents", "langgraph", "langchain", "fund.agents", "fund.audit")
