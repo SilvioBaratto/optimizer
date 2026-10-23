@@ -205,6 +205,44 @@ class TestFetchCountryEmptySubSets:
         mock_repo.upsert_bond_yield_observations.assert_not_called()
 
 
+class TestFetchCountryBondFailureIsReported:
+    def test_when_bond_fetch_failed_then_error_is_recorded(self) -> None:
+        service, mock_repo = _build_service(
+            ilsole_forecasts=None,
+            te_response={
+                "status": "success",
+                "indicators": {"inflation_rate": 3.1},
+                "bond_yields": {},
+                "bond_yields_error": "Fetch failed after retries",
+            },
+        )
+
+        result = service.fetch_country("USA", include_bonds=True)
+
+        assert result["errors"] == [
+            "trading_economics_bonds: Fetch failed after retries"
+        ]
+        assert result["counts"]["bond_yields"] == 0
+        mock_repo.upsert_te_indicators.assert_called_once()
+
+    def test_when_bond_fetch_failed_then_bulk_totals_carry_the_error(self) -> None:
+        service, _ = _build_service(
+            ilsole_forecasts=None,
+            te_response={
+                "status": "success",
+                "indicators": {"inflation_rate": 3.1},
+                "bond_yields": {},
+                "bond_yields_error": "Parse structure failure: no rows",
+            },
+        )
+
+        outcome = service.fetch_and_store(["USA"], include_bonds=True)
+
+        assert outcome["errors"] == [
+            "USA: trading_economics_bonds: Parse structure failure: no rows"
+        ]
+
+
 # ---------------------------------------------------------------------------
 # fetch_fred_series — incremental with/without latest date, error + exception
 # ---------------------------------------------------------------------------

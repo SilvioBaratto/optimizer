@@ -254,8 +254,11 @@ class TradingEconomicsIndicatorsScraper:
 
         Returns:
             Dict with ``status``, ``indicators``, and (when ``include_bonds``)
-            ``bond_yields``. ``status`` is ``"error"`` on any fetch or parse
-            failure; ``"success"`` otherwise.
+            ``bond_yields``. ``status`` is ``"error"`` when the indicators page
+            fails to fetch or parse; ``"success"`` otherwise. A failure of the
+            separate bond-yield page leaves ``status`` ``"success"`` (the
+            indicators are still valid) but sets ``bond_yields`` to ``{}`` and
+            adds ``bond_yields_error``, which callers must surface.
         """
         if country not in COUNTRY_MAPPING:
             return {

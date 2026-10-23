@@ -185,6 +185,17 @@ class MacroRegimeService:
                     )
 
                 if include_bonds:
+                    # The indicators fetch can succeed while the separate bond page
+                    # fails; without surfacing it the job would finish "completed"
+                    # with the yield tables silently stale.
+                    if "bond_yields_error" in te_data:
+                        bond_error = te_data["bond_yields_error"] or "Unknown error"
+                        errors.append(f"trading_economics_bonds: {bond_error}")
+                        logger.warning(
+                            "Trading Economics bond yields failed for %s: %s",
+                            country,
+                            bond_error,
+                        )
                     bond_yields = te_data.get("bond_yields", {})
                     if bond_yields:
                         counts["bond_yields"] = self.repo.upsert_bond_yields(
