@@ -85,6 +85,19 @@ def _safe_float(v: Any) -> float | None:
         return None
 
 
+def _insider_lot_order(row: dict[str, Any]) -> tuple[Any, ...]:
+    """Sort key giving same-key insider lots a source-order-independent order."""
+    shares, value = row["shares"], row["value"]
+    return (
+        shares is None,
+        shares or 0,
+        value is None,
+        value or 0,
+        row["ownership"] or "",
+        row["position"] or "",
+    )
+
+
 def _safe_str(v: Any, max_len: int | None = None) -> str | None:
     v = _safe_val(v)
     if v is None:
@@ -1172,14 +1185,14 @@ class YFinanceRepository(RepositoryBase):
                 }
             )
 
-        # Collapse rows that collide on the uq_insider_tx_row constraint
-        # (instrument_id, insider_name, start_date, transaction_type). yfinance
-        # returns several real transactions sharing all four (e.g. same grant,
-        # same day, different share counts); a single INSERT ... ON CONFLICT
-        # cannot touch the same conflict key twice ("ON CONFLICT DO UPDATE
-        # command cannot affect row a second time"). Keep the last occurrence,
-        # matching the DB upsert's last-write-wins semantics.
-        deduped: dict[tuple[Any, ...], dict[str, Any]] = {}
+        # Yahoo returns several real transactions sharing (instrument, insider,
+        # start_date, transaction_type), e.g. two grants of different size on
+        # one day. A single INSERT ... ON CONFLICT cannot touch the same
+        # conflict key twice, and keeping only one of them would drop the other
+        # lots' shares/value for good, so they are numbered with ``lot_index``.
+        # Sorting each group first pins every lot to the same slot regardless of
+        # the order Yahoo lists them in, keeping refetches idempotent.
+        groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
         for r in rows:
             key = (
                 r["instrument_id"],
@@ -1187,11 +1200,18 @@ class YFinanceRepository(RepositoryBase):
                 r["start_date"],
                 r["transaction_type"],
             )
-            deduped[key] = r
+            groups.setdefault(key, []).append(r)
+
+        numbered: list[dict[str, Any]] = []
+        for group in groups.values():
+            group.sort(key=_insider_lot_order)
+            for lot_index, r in enumerate(group):
+                r["lot_index"] = lot_index
+                numbered.append(r)
 
         return self._upsert(
             InsiderTransaction,
-            list(deduped.values()),
+            numbered,
             constraint_name="uq_insider_tx_row",
         )
 

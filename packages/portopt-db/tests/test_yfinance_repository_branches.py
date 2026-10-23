@@ -2089,34 +2089,52 @@ class TestUpsertInsiderTransactionsPreprocessing:
         rows = self._call(db_session, df)
         assert rows == []
 
-    def test_duplicate_key_rows_deduped_last_wins(self, db_session: Session) -> None:
-        # Same insider_name + start_date + transaction_type → last row wins
-        inst_id = uuid.uuid4()
+    def _same_day_lots_df(self, shares: list[int]) -> pd.DataFrame:
         d = pd.Timestamp("2024-01-10")
-        df = pd.DataFrame(
+        n = len(shares)
+        return pd.DataFrame(
             {
-                "Insider": ["Alice CEO", "Alice CEO"],
-                "Transaction": ["Buy", "Buy"],
-                "Text": ["", ""],
-                "Position": ["CEO", "CEO"],
-                "Shares": [1000, 2000],
-                "Value": [150_000, 300_000],
-                "Start Date": [d, d],
-                "Ownership": ["D", "D"],
+                "Insider": ["Alice CEO"] * n,
+                "Transaction": [""] * n,
+                "Text": ["Stock Award(Grant) at price 0.00 per share."] * n,
+                "Position": ["CEO"] * n,
+                "Shares": shares,
+                "Value": [None] * n,
+                "Start Date": [d] * n,
+                "Ownership": ["D"] * n,
             }
         )
-        repo = _repo(db_session)
-        captured: list = []
 
-        def fake_upsert(model, rows, *, constraint_name, update_columns=None):
-            captured.extend(rows)
-            return len(rows)
+    def test_same_key_lots_are_all_kept_with_distinct_lot_index(
+        self, db_session: Session
+    ) -> None:
+        # Two grants on one day render the same Text; collapsing them to one row
+        # would silently drop 12,000 of the 17,000 granted shares.
+        rows = self._call(db_session, self._same_day_lots_df([12_000, 5_000]))
 
-        repo._upsert = fake_upsert  # type: ignore[method-assign]
-        repo.upsert_insider_transactions(inst_id, df)
+        assert sorted(r["shares"] for r in rows) == [5_000, 12_000]
+        assert sorted(r["lot_index"] for r in rows) == [0, 1]
 
-        assert len(captured) == 1
-        assert captured[0]["shares"] == 2000
+    def test_lot_index_does_not_depend_on_source_row_order(
+        self, db_session: Session
+    ) -> None:
+        # Slot assignment must be stable across refetches, or re-ingesting the
+        # same lots in a different order would shuffle them between rows.
+        forward = self._call(db_session, self._same_day_lots_df([12_000, 5_000]))
+        backward = self._call(db_session, self._same_day_lots_df([5_000, 12_000]))
+
+        def by_shares(rows: list) -> dict[int, int]:
+            return {r["shares"]: r["lot_index"] for r in rows}
+
+        assert by_shares(forward) == by_shares(backward)
+
+    def test_distinct_keys_all_get_lot_index_zero(self, db_session: Session) -> None:
+        df = self._same_day_lots_df([1_000, 2_000])
+        df["Insider"] = ["Alice CEO", "Bob CFO"]
+
+        rows = self._call(db_session, df)
+
+        assert [r["lot_index"] for r in rows] == [0, 0]
 
     def test_sentinel_date_used_when_start_date_none(self, db_session: Session) -> None:
         from portopt_db.repositories.market_data.yfinance_repository import (

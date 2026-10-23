@@ -15,6 +15,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -702,7 +703,12 @@ class MutualFundHolder(BaseModel):
 
 
 class InsiderTransaction(BaseModel):
-    """Insider transactions from yf.Ticker.insider_transactions."""
+    """Insider transactions from yf.Ticker.insider_transactions.
+
+    Yahoo renders distinct lots identically (same insider, day and text, e.g.
+    two grants of different size), so ``lot_index`` numbers the rows that share
+    the other key columns and lets each lot keep its own shares and value.
+    """
 
     __tablename__ = "insider_transactions"
     __table_args__ = (
@@ -711,6 +717,7 @@ class InsiderTransaction(BaseModel):
             "insider_name",
             "start_date",
             "transaction_type",
+            "lot_index",
             name="uq_insider_tx_row",
         ),
         Index("ix_insider_transactions_instrument_id", "instrument_id"),
@@ -730,6 +737,9 @@ class InsiderTransaction(BaseModel):
     value: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     start_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     ownership: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    lot_index: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=0, server_default="0"
+    )
 
 
 class TickerNews(BaseModel):
