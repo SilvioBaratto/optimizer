@@ -202,3 +202,10 @@ def test_truncated_versioned_store_is_a_corrupt_store(tmp_path: Path) -> None:
     path.write_bytes(path.read_bytes()[:10])
     with pytest.raises(secret_store.InvalidPassphraseError):
         secret_store.load_secrets("pw", path=path)
+
+
+def test_store_exists_reports_whether_a_store_was_written(tmp_path: Path) -> None:
+    path = _store(tmp_path)
+    assert secret_store.store_exists(path=path) is False
+    secret_store.save_secrets({"A": "1"}, "pw", path=path)
+    assert secret_store.store_exists(path=path) is True

@@ -26,6 +26,10 @@ from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 DEFAULT_SECRETS_PATH = Path.home() / ".portopt" / "secrets.enc"
 
+# The passphrase is the only thing between a copied secrets.enc and its keys, and no
+# strength estimator ships with the CLI, so length is the enforceable floor.
+MIN_PASSPHRASE_LENGTH = 12
+
 _SALT_BYTES = 16
 _KEY_BYTES = 32
 # OWASP's minimum scrypt cost (128 MiB per guess); the file is an offline target.
@@ -119,6 +123,11 @@ def _split_blob(blob: bytes) -> tuple[_KdfParams, bytes, bytes]:
         raise InvalidPassphraseError("Wrong passphrase or corrupt store")
     salt_end = _HEADER_BYTES + _SALT_BYTES
     return params, blob[_HEADER_BYTES:salt_end], blob[salt_end:]
+
+
+def store_exists(*, path: Path | None = None) -> bool:
+    """Return whether a secret store has already been written at ``path``."""
+    return (path or DEFAULT_SECRETS_PATH).exists()
 
 
 def save_secrets(

@@ -25,6 +25,7 @@ from app.setup.prompts import Prompter
 
 # Stable prompt messages (also used as keys by NonInteractivePrompter in tests).
 _MSG_PASSPHRASE = "Master passphrase:"  # noqa: S105 - UI label, not a secret
+_MSG_PASSPHRASE_CONFIRM = "Confirm master passphrase:"  # noqa: S105 - UI label
 _MSG_T212_KEY = "Trading212 API key (optional — paste it, or press Enter to skip):"
 _MSG_T212_SECRET = "Trading212 secret key:"  # noqa: S105 - UI label, not a secret
 _MSG_FRED_KEY = "FRED API key (optional — paste it, or press Enter to skip):"
@@ -61,6 +62,8 @@ _LLM_DEFAULT_MODEL = {"ollama": "deepseek-v4.1-flash:cloud"}
 # Interactive re-prompts for a rejected key before giving up (bounded so a
 # NonInteractivePrompter can never spin forever).
 _LLM_KEY_ATTEMPTS = 3
+# Bounded for the same reason when choosing a new master passphrase.
+_PASSPHRASE_ATTEMPTS = 3
 
 
 class SetupError(RuntimeError):
@@ -107,6 +110,59 @@ def _is_first_run() -> bool:
         secret_store.DEFAULT_SECRETS_PATH.exists()
         or config_file.DEFAULT_CONFIG_PATH.exists()
     )
+
+
+def _require_acceptable_passphrase(passphrase: str) -> None:
+    """Reject a passphrase too short to protect a newly created secret store."""
+    if len(passphrase) < secret_store.MIN_PASSPHRASE_LENGTH:
+        raise SetupError(
+            "The master passphrase must be at least "
+            f"{secret_store.MIN_PASSPHRASE_LENGTH} characters."
+        )
+
+
+def _prompt_new_passphrase(prompter: Prompter) -> str:
+    """Prompt for a passphrase to create a store with, and make the user confirm it.
+
+    A typo here would lock the user out of the store with no recovery path, so the
+    passphrase is entered twice; a too-short or mismatched entry re-prompts.
+    """
+    for _ in range(_PASSPHRASE_ATTEMPTS):
+        pw = prompter.password(_MSG_PASSPHRASE)
+        if not pw:
+            raise SetupError("A master passphrase is required.")
+        try:
+            _require_acceptable_passphrase(pw)
+        except SetupError as exc:
+            prompter.error(str(exc))
+            continue
+        if prompter.password(_MSG_PASSPHRASE_CONFIRM) == pw:
+            return pw
+        prompter.error("The passphrases do not match; try again.")
+    raise SetupError(
+        f"No acceptable master passphrase after {_PASSPHRASE_ATTEMPTS} attempts."
+    )
+
+
+def _resolve_interactive_passphrase(prompter: Prompter, supplied: str | None) -> str:
+    """Pick the master passphrase from arg, env or prompt.
+
+    Creating a store enforces the minimum length (and a confirmation when prompted);
+    an existing store is only ever opened with its original passphrase, so that one
+    is not policed — decrypting it is the check.
+    """
+    pw = supplied or os.getenv("PORTOPT_PASSPHRASE")
+    creating = not secret_store.store_exists()
+    if pw:
+        if creating:
+            _require_acceptable_passphrase(pw)
+        return pw
+    if creating:
+        return _prompt_new_passphrase(prompter)
+    pw = prompter.password(_MSG_PASSPHRASE)
+    if not pw:
+        raise SetupError("A master passphrase is required.")
+    return pw
 
 
 def _merge_with_existing_secrets(
@@ -423,6 +479,8 @@ def run_setup_noninteractive(
     """
     if not passphrase:
         raise SetupError("A master passphrase is required (set PORTOPT_PASSPHRASE).")
+    if not secret_store.store_exists():
+        _require_acceptable_passphrase(passphrase)
     _preflight()
 
     secrets: dict[str, str] = {}
@@ -481,13 +539,7 @@ def run_setup_interactive(
     first_run = _is_first_run()
     existing = config_file.load_config()
 
-    pw = (
-        passphrase
-        or os.getenv("PORTOPT_PASSPHRASE")
-        or prompter.password(_MSG_PASSPHRASE)
-    )
-    if not pw:
-        raise SetupError("A master passphrase is required.")
+    pw = _resolve_interactive_passphrase(prompter, passphrase)
 
     secrets: dict[str, str] = {}
     config: dict[str, object] = {}

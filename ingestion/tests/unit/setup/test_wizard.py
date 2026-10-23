@@ -12,6 +12,9 @@ import pytest
 from app.setup import wizard
 from app.setup.prompts import NonInteractivePrompter
 
+# Long enough for the new-store passphrase policy.
+_PW = "correct-horse-battery"
+
 
 @pytest.fixture
 def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
@@ -54,6 +57,7 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
         raise wizard.secret_store.SecretStoreNotFoundError("none")
 
     monkeypatch.setattr(wizard.secret_store, "load_secrets", _no_store)
+    monkeypatch.setattr(wizard.secret_store, "store_exists", lambda **kw: False)
     monkeypatch.setattr(
         wizard.config_file,
         "update_config",
@@ -94,7 +98,7 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
 
 
 def test_noninteractive_minimal_bootstraps(patched: dict) -> None:
-    wizard.run_setup_noninteractive(passphrase="pw")
+    wizard.run_setup_noninteractive(passphrase=_PW)
     assert patched["saved_secrets"] == {}
     assert patched["saved_config"] == {}
     assert patched["bootstrapped"] == ["db", "migrate"]
@@ -102,13 +106,13 @@ def test_noninteractive_minimal_bootstraps(patched: dict) -> None:
 
 def test_setup_installs_launcher_by_default(patched: dict) -> None:
     """Setup installs the `optimizer` launcher onto PATH unless told to skip."""
-    wizard.run_setup_noninteractive(passphrase="pw")
+    wizard.run_setup_noninteractive(passphrase=_PW)
     assert patched["path_installed"] is True
 
 
 def test_setup_skip_path_install_leaves_path_untouched(patched: dict) -> None:
     """`skip_path_install=True` persists + bootstraps but does no PATH edit."""
-    wizard.run_setup_noninteractive(passphrase="pw", skip_path_install=True)
+    wizard.run_setup_noninteractive(passphrase=_PW, skip_path_install=True)
     assert patched["bootstrapped"] == ["db", "migrate"]
     assert patched["path_installed"] is False
 
@@ -123,7 +127,7 @@ def test_setup_survives_path_install_failure(
         raise wizard.path_install.PathInstallError("no PATH")
 
     monkeypatch.setattr(wizard.path_install, "install_launcher", boom)
-    wizard.run_setup_noninteractive(passphrase="pw")
+    wizard.run_setup_noninteractive(passphrase=_PW)
     assert patched["bootstrapped"] == ["db", "migrate"]
     assert patched["saved_secrets"] == {}
 
@@ -132,7 +136,8 @@ def test_interactive_installs_launcher_by_default(patched: dict) -> None:
     """The interactive path also installs the launcher by default."""
     prompter = NonInteractivePrompter(
         {
-            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
             wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
@@ -146,7 +151,8 @@ def test_interactive_skip_path_install(patched: dict) -> None:
     """The interactive path honours skip_path_install (forwarded to the bootstrap)."""
     prompter = NonInteractivePrompter(
         {
-            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
             wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
@@ -158,7 +164,7 @@ def test_interactive_skip_path_install(patched: dict) -> None:
 
 def test_noninteractive_full_persists_all(patched: dict) -> None:
     wizard.run_setup_noninteractive(
-        passphrase="pw",
+        passphrase=_PW,
         t212_key="tk",
         t212_secret="ts",
         fred_key="fk",
@@ -172,7 +178,7 @@ def test_noninteractive_full_persists_all(patched: dict) -> None:
 
 def test_noninteractive_t212_partial_fails(patched: dict) -> None:
     with pytest.raises(wizard.SetupError):
-        wizard.run_setup_noninteractive(passphrase="pw", t212_key="only-key")
+        wizard.run_setup_noninteractive(passphrase=_PW, t212_key="only-key")
     assert patched["saved_secrets"] is None
 
 
@@ -187,7 +193,7 @@ def test_noninteractive_t212_invalid_fails(
     monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s, **kw: False)
     with pytest.raises(wizard.SetupError):
         wizard.run_setup_noninteractive(
-            passphrase="pw",
+            passphrase=_PW,
             t212_key="tk",
             t212_secret="ts",
         )
@@ -199,14 +205,15 @@ def test_noninteractive_fred_invalid_fails(
 ) -> None:
     monkeypatch.setattr(wizard.validators, "validate_fred", lambda k: False)
     with pytest.raises(wizard.SetupError):
-        wizard.run_setup_noninteractive(passphrase="pw", fred_key="bad")
+        wizard.run_setup_noninteractive(passphrase=_PW, fred_key="bad")
     assert patched["saved_secrets"] is None
 
 
 def test_interactive_t212_no_completes(patched: dict) -> None:
     prompter = NonInteractivePrompter(
         {
-            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
             wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
@@ -221,7 +228,8 @@ def test_interactive_t212_no_completes(patched: dict) -> None:
 def test_interactive_t212_and_fred_yes_persists_all(patched: dict) -> None:
     prompter = NonInteractivePrompter(
         {
-            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
             wizard._MSG_T212_KEY: "tk",
             wizard._MSG_T212_SECRET: "ts",
             wizard._MSG_FRED_KEY: "fk",
@@ -242,7 +250,8 @@ def test_interactive_t212_invalid_fails_loud(
     monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s, **kw: False)
     prompter = NonInteractivePrompter(
         {
-            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
             wizard._MSG_T212_KEY: "tk",
             wizard._MSG_T212_SECRET: "ts",
         }
@@ -258,7 +267,8 @@ def test_interactive_fred_invalid_fails_loud(
     monkeypatch.setattr(wizard.validators, "validate_fred", lambda k: False)
     prompter = NonInteractivePrompter(
         {
-            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
             wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "bad",
         }
@@ -285,7 +295,8 @@ def test_interactive_t212_keys_autodetected_from_env(
     monkeypatch.setenv("TRADING_212_SECRET_KEY", "env-ts")
     prompter = NonInteractivePrompter(
         {
-            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
@@ -315,7 +326,7 @@ def test_noninteractive_t212_validated_against_env_mode(
     # TRADING_212_MODE the daemon reads instead of always probing live.
     seen = _record_t212_mode(monkeypatch)
     monkeypatch.setenv("TRADING_212_MODE", "demo")
-    wizard.run_setup_noninteractive(passphrase="pw", t212_key="tk", t212_secret="ts")
+    wizard.run_setup_noninteractive(passphrase=_PW, t212_key="tk", t212_secret="ts")
     assert seen == ["demo"]
 
 
@@ -323,7 +334,7 @@ def test_noninteractive_t212_mode_defaults_to_live(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seen = _record_t212_mode(monkeypatch)
-    wizard.run_setup_noninteractive(passphrase="pw", t212_key="tk", t212_secret="ts")
+    wizard.run_setup_noninteractive(passphrase=_PW, t212_key="tk", t212_secret="ts")
     assert seen == ["live"]
 
 
@@ -334,7 +345,8 @@ def test_interactive_t212_validated_against_env_mode(
     monkeypatch.setenv("TRADING_212_MODE", " demo ")
     prompter = NonInteractivePrompter(
         {
-            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
             wizard._MSG_T212_KEY: "tk",
             wizard._MSG_T212_SECRET: "ts",
             wizard._MSG_FRED_KEY: "",
@@ -352,7 +364,7 @@ def test_noninteractive_persists_the_t212_mode_it_validated(
     # keys were validated against must travel with them through config.toml.
     _record_t212_mode(monkeypatch)
     monkeypatch.setenv("TRADING_212_MODE", "demo")
-    wizard.run_setup_noninteractive(passphrase="pw", t212_key="tk", t212_secret="ts")
+    wizard.run_setup_noninteractive(passphrase=_PW, t212_key="tk", t212_secret="ts")
     assert patched["saved_config"]["trading_212_mode"] == "demo"
 
 
@@ -361,7 +373,7 @@ def test_noninteractive_persists_live_when_mode_unset(
 ) -> None:
     # Re-running with live keys after a demo setup must flip the stored mode back.
     _record_t212_mode(monkeypatch)
-    wizard.run_setup_noninteractive(passphrase="pw", t212_key="tk", t212_secret="ts")
+    wizard.run_setup_noninteractive(passphrase=_PW, t212_key="tk", t212_secret="ts")
     assert patched["saved_config"]["trading_212_mode"] == "live"
 
 
@@ -369,7 +381,7 @@ def test_noninteractive_without_t212_keys_leaves_stored_mode_alone(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("TRADING_212_MODE", "demo")
-    wizard.run_setup_noninteractive(passphrase="pw", fred_key="fk")
+    wizard.run_setup_noninteractive(passphrase=_PW, fred_key="fk")
     assert "trading_212_mode" not in patched["saved_config"]
 
 
@@ -380,7 +392,8 @@ def test_interactive_persists_the_t212_mode_it_validated(
     monkeypatch.setenv("TRADING_212_MODE", "demo")
     prompter = NonInteractivePrompter(
         {
-            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
             wizard._MSG_T212_KEY: "tk",
             wizard._MSG_T212_SECRET: "ts",
             wizard._MSG_FRED_KEY: "",
@@ -398,9 +411,7 @@ def test_unknown_t212_mode_fails_loud_instead_of_probing_live(
     # "paper" would validate (or fail) against the wrong host and be persisted.
     monkeypatch.setenv("TRADING_212_MODE", "paper")
     with pytest.raises(wizard.SetupError, match="TRADING_212_MODE"):
-        wizard.run_setup_noninteractive(
-            passphrase="pw", t212_key="tk", t212_secret="ts"
-        )
+        wizard.run_setup_noninteractive(passphrase=_PW, t212_key="tk", t212_secret="ts")
     assert patched["saved_config"] is None
 
 
@@ -409,7 +420,7 @@ def test_t212_mode_is_case_insensitive(
 ) -> None:
     seen = _record_t212_mode(monkeypatch)
     monkeypatch.setenv("TRADING_212_MODE", "Demo")
-    wizard.run_setup_noninteractive(passphrase="pw", t212_key="tk", t212_secret="ts")
+    wizard.run_setup_noninteractive(passphrase=_PW, t212_key="tk", t212_secret="ts")
     assert seen == ["demo"]
     assert patched["saved_config"]["trading_212_mode"] == "demo"
 
@@ -420,7 +431,8 @@ def test_interactive_fred_key_autodetected_from_env(
     monkeypatch.setenv("FRED_API_KEY", "env-fk")
     prompter = NonInteractivePrompter(
         {
-            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
             wizard._MSG_T212_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
@@ -437,7 +449,9 @@ def test_interactive_docker_down_propagates(
         "check_docker",
         lambda: (_ for _ in ()).throw(wizard.docker_bootstrap.DockerError("down")),
     )
-    prompter = NonInteractivePrompter({wizard._MSG_PASSPHRASE: "pw"})
+    prompter = NonInteractivePrompter(
+        {wizard._MSG_PASSPHRASE: _PW, wizard._MSG_PASSPHRASE_CONFIRM: _PW}
+    )
     with pytest.raises(wizard.docker_bootstrap.DockerError):
         wizard.run_setup_interactive(prompter)
     assert patched["saved_secrets"] is None
@@ -448,7 +462,8 @@ def test_interactive_docker_down_propagates(
 
 def _llm_prompter(answers: dict) -> NonInteractivePrompter:
     base = {
-        wizard._MSG_PASSPHRASE: "pw",
+        wizard._MSG_PASSPHRASE: _PW,
+        wizard._MSG_PASSPHRASE_CONFIRM: _PW,
         wizard._MSG_T212_KEY: "",
         wizard._MSG_FRED_KEY: "",
         wizard._MSG_CONFIGURE_LLM: True,
@@ -460,7 +475,7 @@ def _llm_prompter(answers: dict) -> NonInteractivePrompter:
 
 def test_noninteractive_llm_persists_config_and_secret(patched: dict) -> None:
     wizard.run_setup_noninteractive(
-        passphrase="pw",
+        passphrase=_PW,
         llm_provider="openai",
         llm_model="gpt-4o",
         llm_key="sk-openai",
@@ -471,7 +486,7 @@ def test_noninteractive_llm_persists_config_and_secret(patched: dict) -> None:
 
 
 def test_noninteractive_llm_none_skips(patched: dict) -> None:
-    wizard.run_setup_noninteractive(passphrase="pw")
+    wizard.run_setup_noninteractive(passphrase=_PW)
     assert "llm_provider" not in patched["saved_config"]
 
 
@@ -481,7 +496,7 @@ def test_noninteractive_llm_bad_key_fails_without_persist(
     monkeypatch.setattr(wizard.validators, "validate_llm", lambda *a, **k: False)
     with pytest.raises(wizard.SetupError):
         wizard.run_setup_noninteractive(
-            passphrase="pw", llm_provider="openai", llm_key="bad"
+            passphrase=_PW, llm_provider="openai", llm_key="bad"
         )
     assert patched["saved_secrets"] is None
 
@@ -495,7 +510,7 @@ def test_noninteractive_llm_network_error_aborts(
     monkeypatch.setattr(wizard.validators, "validate_llm", _boom)
     with pytest.raises(wizard.validators.ValidationNetworkError):
         wizard.run_setup_noninteractive(
-            passphrase="pw", llm_provider="openai", llm_key="k"
+            passphrase=_PW, llm_provider="openai", llm_key="k"
         )
     assert patched["saved_secrets"] is None
 
@@ -504,20 +519,20 @@ def test_noninteractive_llm_key_from_env(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "env-sk")
-    wizard.run_setup_noninteractive(passphrase="pw", llm_provider="anthropic")
+    wizard.run_setup_noninteractive(passphrase=_PW, llm_provider="anthropic")
     assert patched["saved_secrets"]["anthropic_api_key"] == "env-sk"
 
 
 def test_noninteractive_llm_missing_key_fails(patched: dict) -> None:
     with pytest.raises(wizard.SetupError):
-        wizard.run_setup_noninteractive(passphrase="pw", llm_provider="openai")
+        wizard.run_setup_noninteractive(passphrase=_PW, llm_provider="openai")
     assert patched["saved_secrets"] is None
 
 
 def test_noninteractive_llm_unknown_provider_fails(patched: dict) -> None:
     with pytest.raises(wizard.SetupError):
         wizard.run_setup_noninteractive(
-            passphrase="pw", llm_provider="bogus", llm_key="k"
+            passphrase=_PW, llm_provider="bogus", llm_key="k"
         )
     assert patched["saved_secrets"] is None
 
@@ -526,7 +541,7 @@ def test_noninteractive_llm_aws_presence_only_no_secret(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("AWS_REGION", "eu-west-1")
-    wizard.run_setup_noninteractive(passphrase="pw", llm_provider="aws")
+    wizard.run_setup_noninteractive(passphrase=_PW, llm_provider="aws")
     assert patched["saved_config"]["llm_provider"] == "aws"
     assert patched["saved_config"]["aws_region"] == "eu-west-1"
     assert patched["saved_secrets"] == {}
@@ -549,7 +564,8 @@ def test_interactive_llm_persists_config_and_secret(patched: dict) -> None:
 def test_interactive_llm_declined_persists_nothing(patched: dict) -> None:
     prompter = NonInteractivePrompter(
         {
-            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
             wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
@@ -656,7 +672,7 @@ def test_noninteractive_idempotent_rerun_preserves_untouched_secrets(
     monkeypatch.setattr(
         wizard.secret_store, "load_secrets", lambda pw, **k: {"fred_api_key": "fk"}
     )
-    wizard.run_setup_noninteractive(passphrase="pw")
+    wizard.run_setup_noninteractive(passphrase=_PW)
     assert patched["saved_secrets"] == {"fred_api_key": "fk"}
 
 
@@ -667,7 +683,7 @@ def test_noninteractive_idempotent_rerun_merges_new_secret(
     monkeypatch.setattr(
         wizard.secret_store, "load_secrets", lambda pw, **k: {"fred_api_key": "fk"}
     )
-    wizard.run_setup_noninteractive(passphrase="pw", t212_key="tk", t212_secret="ts")
+    wizard.run_setup_noninteractive(passphrase=_PW, t212_key="tk", t212_secret="ts")
     assert patched["saved_secrets"] == {
         "fred_api_key": "fk",
         "trading_212_api_key": "tk",
@@ -677,7 +693,7 @@ def test_noninteractive_idempotent_rerun_merges_new_secret(
 
 def test_noninteractive_first_run_saves_only_new_secrets(patched: dict) -> None:
     """With no existing store (NotFound), the merge is just the new secrets."""
-    wizard.run_setup_noninteractive(passphrase="pw", fred_key="fk")
+    wizard.run_setup_noninteractive(passphrase=_PW, fred_key="fk")
     assert patched["saved_secrets"] == {"fred_api_key": "fk"}
 
 
@@ -690,7 +706,8 @@ def test_noninteractive_rerun_wrong_passphrase_fails_without_wiping(
         raise wizard.secret_store.InvalidPassphraseError("wrong")
 
     monkeypatch.setattr(wizard.secret_store, "load_secrets", _bad)
-    with pytest.raises(wizard.SetupError):
+    monkeypatch.setattr(wizard.secret_store, "store_exists", lambda **kw: True)
+    with pytest.raises(wizard.SetupError, match="original passphrase"):
         wizard.run_setup_noninteractive(passphrase="wrong", fred_key="fk")
     assert patched["saved_secrets"] is None
 
@@ -701,7 +718,7 @@ def test_noninteractive_skip_validation_bypasses_t212(
     """--skip-validation persists T212 without a live call, even if it would fail."""
     monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s, **kw: False)
     wizard.run_setup_noninteractive(
-        passphrase="pw", t212_key="tk", t212_secret="ts", skip_validation=True
+        passphrase=_PW, t212_key="tk", t212_secret="ts", skip_validation=True
     )
     assert patched["saved_secrets"]["trading_212_api_key"] == "tk"
 
@@ -711,9 +728,7 @@ def test_noninteractive_skip_validation_bypasses_fred(
 ) -> None:
     """--skip-validation persists FRED without a live call."""
     monkeypatch.setattr(wizard.validators, "validate_fred", lambda k: False)
-    wizard.run_setup_noninteractive(
-        passphrase="pw", fred_key="fk", skip_validation=True
-    )
+    wizard.run_setup_noninteractive(passphrase=_PW, fred_key="fk", skip_validation=True)
     assert patched["saved_secrets"]["fred_api_key"] == "fk"
 
 
@@ -729,7 +744,7 @@ def test_noninteractive_skip_validation_forwarded_to_validate_llm(
 
     monkeypatch.setattr(wizard.validators, "validate_llm", _capture)
     wizard.run_setup_noninteractive(
-        passphrase="pw",
+        passphrase=_PW,
         llm_provider="openai",
         llm_key="sk",
         skip_validation=True,
@@ -739,7 +754,7 @@ def test_noninteractive_skip_validation_forwarded_to_validate_llm(
 
 def test_noninteractive_never_auto_launches(patched: dict) -> None:
     """Non-interactive/CI setup persists + bootstraps but never brings the stack up."""
-    wizard.run_setup_noninteractive(passphrase="pw")
+    wizard.run_setup_noninteractive(passphrase=_PW)
     assert patched["bootstrapped"] == ["db", "migrate"]
     assert patched["launched"] is False
 
@@ -751,7 +766,8 @@ def test_interactive_first_run_auto_launches(
     monkeypatch.setattr(wizard, "_is_first_run", lambda: True)
     prompter = NonInteractivePrompter(
         {
-            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
             wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
@@ -768,7 +784,8 @@ def test_interactive_no_launch_suppresses_auto_launch(
     monkeypatch.setattr(wizard, "_is_first_run", lambda: True)
     prompter = NonInteractivePrompter(
         {
-            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
             wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
@@ -782,7 +799,8 @@ def test_interactive_rerun_never_auto_launches(patched: dict) -> None:
     """A re-run (not first run) never auto-launches, even interactively."""
     prompter = NonInteractivePrompter(
         {
-            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
             wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
@@ -804,7 +822,8 @@ def test_interactive_auto_launch_failure_is_non_fatal(
     monkeypatch.setattr(wizard.lifecycle, "run_start", _boom)
     prompter = NonInteractivePrompter(
         {
-            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
             wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
@@ -848,10 +867,125 @@ def test_setup_without_a_checkout_fails_before_persisting_anything(
 
     monkeypatch.setattr(wizard.docker_bootstrap, "compose_dir", _no_checkout)
     with pytest.raises(wizard.docker_bootstrap.DockerError):
-        wizard.run_setup_noninteractive(passphrase="pw", skip_validation=True)
-    prompter = NonInteractivePrompter({wizard._MSG_PASSPHRASE: "pw"})
+        wizard.run_setup_noninteractive(passphrase=_PW, skip_validation=True)
+    prompter = NonInteractivePrompter(
+        {wizard._MSG_PASSPHRASE: _PW, wizard._MSG_PASSPHRASE_CONFIRM: _PW}
+    )
     with pytest.raises(wizard.docker_bootstrap.DockerError):
         wizard.run_setup_interactive(prompter)
     assert patched["saved_secrets"] is None
     assert patched["saved_config"] is None
     assert patched["bootstrapped"] == []
+
+
+# --- new-store passphrase policy: minimum length + confirmation ---------------
+
+
+class _ConfirmingPrompter(NonInteractivePrompter):
+    """Presets known prompts; any other password prompt is the confirmation.
+
+    Confirmations are answered from ``confirmations`` in order, so a test can script a
+    typo followed by a correct re-entry without depending on the prompt wording.
+    """
+
+    def __init__(self, answers: dict, confirmations: list[str]) -> None:
+        super().__init__(answers)
+        self._confirmations = list(confirmations)
+        self.confirmations_asked = 0
+
+    def password(self, message: str) -> str:
+        if message in self._answers:
+            return str(self._answers[message])
+        self.confirmations_asked += 1
+        return self._confirmations.pop(0)
+
+
+def _first_run_answers(passphrase: str) -> dict:
+    return {
+        wizard._MSG_PASSPHRASE: passphrase,
+        wizard._MSG_T212_KEY: "",
+        wizard._MSG_FRED_KEY: "",
+        wizard._MSG_CONFIGURE_LLM: False,
+    }
+
+
+def test_noninteractive_rejects_a_short_passphrase_for_a_new_store(
+    patched: dict,
+) -> None:
+    with pytest.raises(wizard.SetupError, match="at least"):
+        wizard.run_setup_noninteractive(passphrase="short")
+    assert patched["saved_secrets"] is None
+
+
+def test_interactive_env_passphrase_too_short_for_a_new_store_is_rejected(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PORTOPT_PASSPHRASE", "short")
+    prompter = _ConfirmingPrompter(_first_run_answers("unused"), confirmations=[])
+    with pytest.raises(wizard.SetupError, match="at least"):
+        wizard.run_setup_interactive(prompter)
+    assert patched["saved_secrets"] is None
+
+
+def test_interactive_new_store_rejects_a_short_passphrase(patched: dict) -> None:
+    prompter = _ConfirmingPrompter(
+        _first_run_answers("short"), confirmations=["short"] * 10
+    )
+    with pytest.raises(wizard.SetupError):
+        wizard.run_setup_interactive(prompter)
+    assert patched["saved_secrets"] is None
+
+
+def test_interactive_new_store_rejects_a_confirmation_mismatch(
+    patched: dict,
+) -> None:
+    prompter = _ConfirmingPrompter(
+        _first_run_answers(_PW), confirmations=["typo-horse-battery"] * 10
+    )
+    with pytest.raises(wizard.SetupError):
+        wizard.run_setup_interactive(prompter)
+    assert patched["saved_secrets"] is None
+
+
+def test_interactive_new_store_reprompts_after_a_confirmation_typo(
+    patched: dict,
+) -> None:
+    prompter = _ConfirmingPrompter(
+        _first_run_answers(_PW), confirmations=["typo-horse-battery", _PW]
+    )
+    wizard.run_setup_interactive(prompter)
+    assert patched["saved_secrets"] == {}
+    assert prompter.confirmations_asked == 2
+
+
+def test_existing_store_is_opened_with_a_short_legacy_passphrase(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The length floor is for choosing a passphrase; a store made under an older
+    # policy must stay reachable with the passphrase it was made with.
+    monkeypatch.setattr(wizard.secret_store, "store_exists", lambda **kw: True)
+    monkeypatch.setattr(
+        wizard.secret_store, "load_secrets", lambda pw, **k: {"fred_api_key": "fk"}
+    )
+    wizard.run_setup_noninteractive(passphrase="pw")
+    assert patched["saved_secrets"] == {"fred_api_key": "fk"}
+
+
+def test_interactive_existing_store_asks_once_and_accepts_a_short_passphrase(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(wizard.secret_store, "store_exists", lambda **kw: True)
+    prompter = _ConfirmingPrompter(_first_run_answers("pw"), confirmations=[])
+    wizard.run_setup_interactive(prompter)
+    assert prompter.confirmations_asked == 0
+    assert patched["saved_secrets"] == {}
+
+
+def test_interactive_env_passphrase_is_not_asked_to_confirm(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PORTOPT_PASSPHRASE", _PW)
+    prompter = _ConfirmingPrompter(_first_run_answers("unused"), confirmations=[])
+    wizard.run_setup_interactive(prompter)
+    assert prompter.confirmations_asked == 0
+    assert patched["saved_secrets"] == {}
