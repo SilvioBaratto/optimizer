@@ -99,6 +99,87 @@ class TestStartup:
         m.scheduler.start.assert_called_once()
 
 
+class TestSchedulerSupervision:
+    """A dead APScheduler thread must take the process down, not idle it green."""
+
+    @staticmethod
+    def _run_main(
+        scheduler: MagicMock, *, join_seconds: float
+    ) -> tuple[bool, dict[str, object]]:
+        """Run ``main()`` off-thread; return (still_blocked, outcome).
+
+        Without supervision ``main()`` waits on ``_shutdown`` forever, so the
+        test must never call it on the pytest thread.
+        """
+        worker_module._shutdown.clear()
+        outcome: dict[str, object] = {}
+
+        def _run() -> None:
+            try:
+                worker_module.main()
+            except SystemExit as exc:
+                outcome["code"] = exc.code
+
+        runner = threading.Thread(target=_run, daemon=True)
+        runner.start()
+        runner.join(timeout=join_seconds)
+        still_blocked = runner.is_alive()
+        worker_module._shutdown.set()  # release a main() that never noticed
+        runner.join(timeout=5)
+        return still_blocked, outcome
+
+    def test_exits_nonzero_when_the_scheduler_thread_dies(self) -> None:
+        """The metrics thread keeps the healthcheck green, so only a restart helps."""
+        scheduler = MagicMock()
+        scheduler.loop_alive.return_value = False
+
+        with (
+            _patched(scheduler=scheduler),
+            patch.object(worker_module, "_SUPERVISION_INTERVAL_SECONDS", 0.01),
+            patch.object(worker_module, "_force_exit"),
+        ):
+            still_blocked, outcome = self._run_main(scheduler, join_seconds=5)
+
+        assert not still_blocked, "main() kept waiting although the scheduler died"
+        assert outcome.get("code") not in (None, 0)
+        scheduler.shutdown.assert_called_once_with(wait=True)
+
+    def test_keeps_running_while_the_scheduler_thread_is_alive(self) -> None:
+        scheduler = MagicMock()
+        scheduler.loop_alive.return_value = True
+
+        with (
+            _patched(scheduler=scheduler),
+            patch.object(worker_module, "_SUPERVISION_INTERVAL_SECONDS", 0.01),
+            patch.object(worker_module, "_force_exit"),
+        ):
+            still_blocked, outcome = self._run_main(scheduler, join_seconds=0.2)
+
+        assert still_blocked
+        assert "code" not in outcome  # a requested shutdown still exits cleanly
+
+    def test_forced_exit_after_scheduler_death_is_nonzero(self) -> None:
+        block = threading.Event()
+        scheduler = MagicMock()
+        scheduler.loop_alive.return_value = False
+        scheduler.shutdown.side_effect = lambda wait=True: block.wait(timeout=5)
+
+        with (
+            _patched(scheduler=scheduler),
+            patch.object(worker_module, "_SUPERVISION_INTERVAL_SECONDS", 0.01),
+            patch.object(
+                worker_module.settings,
+                "scheduler_shutdown_drain_timeout_seconds",
+                0.05,
+            ),
+            patch.object(worker_module, "_force_exit") as fx,
+        ):
+            self._run_main(scheduler, join_seconds=5)
+            block.set()
+
+        fx.assert_called_once_with(1)
+
+
 class TestServeMetrics:
     def test_when_metrics_disabled_then_no_server_is_started(self) -> None:
         with (

@@ -9,6 +9,7 @@ touched.
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -71,3 +72,35 @@ class TestSchedulerRegistration:
         dm.engine = None
         with patch(_DM, dm), pytest.raises(RuntimeError, match="before"):
             create_scheduler()
+
+
+class TestSchedulerLoopLiveness:
+    def test_when_job_store_raises_in_the_loop_then_loop_alive_turns_false(
+        self,
+    ) -> None:
+        """APScheduler's loop thread dies on a job-store error while ``running``
+        stays True; the owner needs a signal that does not depend on that flag."""
+        scheduler = _build_scheduler()
+        with patch.object(
+            MemoryJobStore, "get_next_run_time", side_effect=RuntimeError("db gone")
+        ):
+            scheduler.start()
+            try:
+                deadline = time.monotonic() + 5
+                while scheduler.loop_alive() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                dead = not scheduler.loop_alive()
+                still_running = scheduler.running
+            finally:
+                scheduler.shutdown(wait=False)
+
+        assert dead
+        assert still_running  # the stock flag cannot be trusted
+
+    def test_when_loop_is_healthy_then_loop_alive_is_true(self) -> None:
+        scheduler = _build_scheduler()
+        scheduler.start(paused=True)
+        try:
+            assert scheduler.loop_alive()
+        finally:
+            scheduler.shutdown(wait=False)

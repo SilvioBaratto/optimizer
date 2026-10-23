@@ -130,9 +130,31 @@ _daily_events_jobs = BackgroundJobService(
     heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
+
+class SupervisedScheduler(BackgroundScheduler):
+    """``BackgroundScheduler`` whose owner can tell that its loop thread died.
+
+    APScheduler's loop thread has no error handling around job-store writes, so a
+    transient database error ends the thread while ``state`` stays RUNNING and no
+    further job ever fires. The owner polls :meth:`loop_alive` instead of trusting
+    ``running``.
+    """
+
+    def _main_loop(self) -> None:
+        try:
+            super()._main_loop()
+        except Exception:
+            logger.exception("APScheduler loop crashed; no scheduled job will fire")
+
+    def loop_alive(self) -> bool:
+        """Return whether the scheduling thread is still running."""
+        thread = self._thread
+        return thread is not None and thread.is_alive()
+
+
 # The live scheduler, bound by create_scheduler(). The RECLAIM reaper submits
 # one-shot re-dispatch jobs through it so they run in the drained executor pool.
-_scheduler: BackgroundScheduler | None = None
+_scheduler: SupervisedScheduler | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -842,7 +864,7 @@ def _build_schedule_registry() -> list[ScheduleDefinition]:
 # ---------------------------------------------------------------------------
 
 
-def create_scheduler() -> BackgroundScheduler:
+def create_scheduler() -> SupervisedScheduler:
     """Create a fully configured APScheduler instance (not yet started).
 
     Must be called **after** ``init_db()`` so that ``database_manager.engine``
@@ -861,7 +883,7 @@ def create_scheduler() -> BackgroundScheduler:
         "default": ThreadPoolExecutor(max_workers=4),
     }
 
-    scheduler = BackgroundScheduler(
+    scheduler = SupervisedScheduler(
         jobstores=jobstores,
         executors=executors,
         timezone="UTC",

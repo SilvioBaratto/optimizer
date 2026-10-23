@@ -7,7 +7,8 @@ Boots the process that owns the scheduled data pipeline:
 2. ``init_db()`` — build the engine and session factory.
 3. Reap orphan background jobs left behind by a crashed process, so a job that
    died mid-run does not block its type forever via ``JobAlreadyRunningError``.
-4. Start APScheduler and block until SIGTERM / SIGINT.
+4. Start APScheduler and block until SIGTERM / SIGINT, or until the scheduler
+   thread dies (the process then exits non-zero so the container restarts).
 
 There is no HTTP API. Manual runs go through ``python -m app.cli``; job
 progress is readable from the ``background_jobs`` table and the logs.
@@ -23,6 +24,7 @@ load_dotenv()
 import logging
 import os
 import signal
+import sys
 import threading
 from types import FrameType
 
@@ -30,11 +32,13 @@ from prometheus_client import start_http_server
 
 from app.config import settings
 from app.database import close_db, database_manager, init_db
-from app.services.jobs.scheduler import create_scheduler
+from app.services.jobs.scheduler import SupervisedScheduler, create_scheduler
 
 logger = logging.getLogger(__name__)
 
 _shutdown = threading.Event()
+
+_SUPERVISION_INTERVAL_SECONDS = 30
 
 
 def _configure_logging() -> None:
@@ -99,15 +103,35 @@ def _install_signal_handlers() -> None:
     signal.signal(signal.SIGINT, _handle)
 
 
-def _force_exit() -> None:  # pragma: no cover - terminates the process
+def _force_exit(code: int = 0) -> None:  # pragma: no cover - terminates the process
     """Hard-exit when a step outlives the drain window.
 
-    Exit 0, not non-zero: the shutdown was *requested* (SIGTERM) and the
-    abandoned in-flight work is safe to re-run (idempotent upserts, §5.4), so a
-    drain timeout is a degraded-but-expected outcome, not a crash — a non-zero
+    Exit 0 by default, not non-zero: the shutdown was *requested* (SIGTERM) and
+    the abandoned in-flight work is safe to re-run (idempotent upserts, §5.4), so
+    a drain timeout is a degraded-but-expected outcome, not a crash — a non-zero
     code would misclassify a normal deploy-during-fetch to exit-code alerting.
+    A dead scheduler thread is a crash and passes a non-zero ``code``.
     """
-    os._exit(0)
+    os._exit(code)
+
+
+def _wait_for_shutdown_or_scheduler_death(scheduler: SupervisedScheduler) -> bool:
+    """Block until a shutdown signal arrives or the scheduler thread dies.
+
+    The metrics server runs on its own thread and keeps answering the container
+    healthcheck, so a dead scheduler thread would otherwise leave a daemon that
+    looks healthy and never fires another job.
+
+    Returns:
+        ``True`` if the scheduler thread died, ``False`` on a requested shutdown.
+    """
+    while not _shutdown.wait(timeout=_SUPERVISION_INTERVAL_SECONDS):
+        if not scheduler.loop_alive():
+            logger.critical(
+                "APScheduler thread died — exiting so the container restarts"
+            )
+            return True
+    return False
 
 
 def _drain_and_shutdown(scheduler: object, drain_timeout_seconds: int) -> bool:
@@ -186,7 +210,8 @@ def main() -> None:
     )
 
     _install_signal_handlers()
-    _shutdown.wait()
+    scheduler_died = _wait_for_shutdown_or_scheduler_death(scheduler)
+    exit_code = 1 if scheduler_died else 0
 
     logger.info("Shutting down %s...", settings.project_name)
     drained = _drain_and_shutdown(
@@ -199,7 +224,9 @@ def main() -> None:
         # A step outlived the drain window. Force a hard exit rather than hang;
         # skip close_db, since the stuck job may still hold a pooled connection.
         logger.warning("Shutdown forced after drain timeout")
-        _force_exit()
+        _force_exit(exit_code)
+    if scheduler_died:
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":
