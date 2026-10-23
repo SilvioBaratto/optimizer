@@ -6,6 +6,7 @@ a missing or empty file falls back to env; missing both yields "" (preserves the
 T212-absent skip).
 """
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -85,3 +86,50 @@ def test_empty_placeholder_does_not_block_other_secret_files(
         monkeypatch, FRED_API_KEY="env-key", PORTOPT_SECRETS_DIR=str(tmp_path)
     )
     assert (s.fred_api_key, s.trading_212_api_key) == ("env-key", "t212-file")
+
+
+def _deny_read(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    # chmod 000 is a no-op for root and on Windows; patching read_text reproduces
+    # the container case (0600 host file owned by another uid) on every platform.
+    real_read_text = Path.read_text
+
+    def read_text(self: Path, *args: object, **kwargs: object) -> str:
+        if self.name == name:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_read_text(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+
+def test_unreadable_secret_file_falls_back_to_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / "fred_api_key").write_text("file-key", encoding="utf-8")
+    _deny_read(monkeypatch, "fred_api_key")
+    s = _settings(
+        monkeypatch, FRED_API_KEY="env-key", PORTOPT_SECRETS_DIR=str(tmp_path)
+    )
+    assert s.fred_api_key == "env-key"
+
+
+def test_unreadable_secret_file_does_not_hide_readable_ones(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / "fred_api_key").write_text("file-key", encoding="utf-8")
+    (tmp_path / "trading_212_api_key").write_text("t212-file", encoding="utf-8")
+    _deny_read(monkeypatch, "fred_api_key")
+    s = _settings(monkeypatch, PORTOPT_SECRETS_DIR=str(tmp_path))
+    assert (s.fred_api_key, s.trading_212_api_key) == ("", "t212-file")
+
+
+def test_unreadable_secret_file_is_reported_without_leaking_content(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    (tmp_path / "fred_api_key").write_text("file-key", encoding="utf-8")
+    _deny_read(monkeypatch, "fred_api_key")
+    with caplog.at_level(logging.WARNING, logger="app.config"):
+        _settings(monkeypatch, PORTOPT_SECRETS_DIR=str(tmp_path))
+    assert "fred_api_key" in caplog.text
+    assert "file-key" not in caplog.text

@@ -1,10 +1,13 @@
 """Ingestion-daemon configuration using Pydantic Settings v2."""
 
+import logging
 import os
 from pathlib import Path
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 # Secret fields overridden by mounted Docker-compose secret files at runtime.
 # The container mounts each at ``$PORTOPT_SECRETS_DIR/<field>`` (default
@@ -210,14 +213,24 @@ class Settings(BaseSettings):
         leave the env/default value: ``compose_secrets.render`` writes an empty
         placeholder for every secret the store lacks, and that must not shadow a
         key supplied through ``.env``. An unset secret stays "" (T212-absent skip
-        intact).
+        intact). An unreadable file (compose bind-mounts keep the 0600 host owner,
+        which the container user may not match) also falls back, with a warning,
+        instead of crashing the daemon at import.
         """
         secrets_dir = Path(os.getenv("PORTOPT_SECRETS_DIR", "/run/secrets"))
         for field in _SECRET_FILE_FIELDS:
             secret_path = secrets_dir / field
             if not secret_path.is_file():
                 continue
-            value = secret_path.read_text(encoding="utf-8").strip()
+            try:
+                value = secret_path.read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                logger.warning(
+                    "Ignoring unreadable secret file %s (%s); using env/default",
+                    secret_path,
+                    exc.strerror or type(exc).__name__,
+                )
+                continue
             if value:
                 setattr(self, field, value)
         return self
