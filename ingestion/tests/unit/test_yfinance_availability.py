@@ -238,8 +238,9 @@ class TestRequestOutcomes:
         assert outcomes.failures == []
 
     def test_an_open_circuit_breaker_is_recorded_as_a_failure(self) -> None:
-        """Once rate limits latch the breaker no request reaches Yahoo at all."""
-        breaker = CircuitBreaker(service_name="Yahoo", max_attempts=0)
+        """While rate limits keep the breaker open no request reaches Yahoo at all."""
+        breaker = CircuitBreaker(service_name="Yahoo", max_attempts=1)
+        breaker.trigger()
         cache = MagicMock()
         cache.get.return_value = None
         yf_client = YFinanceClient(

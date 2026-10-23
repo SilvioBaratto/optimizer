@@ -26,7 +26,8 @@ class CircuitBreaker:
     Args:
         service_name: Human-readable name used in error messages.
         max_attempts: Failure count at which ``check()`` raises
-            ``RuntimeError`` instead of sleeping.
+            ``RuntimeError`` instead of sleeping, for as long as the current
+            back-off window is open.
         base_wait_minutes: Scaling factor for the back-off formula.
     """
 
@@ -60,35 +61,36 @@ class CircuitBreaker:
     def check(self) -> None:
         """Block until the back-off window elapses, then return.
 
+        Once the window has elapsed the breaker is half-open: the attempt
+        counter decays by one and the caller proceeds as a probe, even when
+        *max_attempts* had been reached.
+
         Raises:
-            CircuitOpenError: If *max_attempts* has been reached.
+            CircuitOpenError: If *max_attempts* has been reached and the back-off
+                window is still open.
         """
         should_wait = False
         wait_time = 0.0
 
         with self._lock:
-            if self._attempt >= self.max_attempts:
-                raise CircuitOpenError(
-                    f"{self.service_name} rate limit persists after "
-                    f"{self._attempt} attempts. Backing off until cooldown "
-                    "elapses, then retrying."
-                )
-
-            if self._active:
-                now = time.time()
-                if now < self._until:
-                    should_wait = True
-                    wait_time = self._until - now
-                else:
-                    # Cooldown elapsed: half-open. Clear the breaker AND decay
-                    # the attempt counter so a stuck breaker self-heals even
-                    # when no success has been recorded. ``reset`` is the only
-                    # other decrementer and it is unreachable while ``check``
-                    # raises before the fetch runs — without this decay the
-                    # breaker latches open permanently for the life of the
-                    # process.
-                    self._active = False
-                    self._attempt = max(0, self._attempt - 1)
+            now = time.time()
+            if self._active and now < self._until:
+                if self._attempt >= self.max_attempts:
+                    raise CircuitOpenError(
+                        f"{self.service_name} rate limit persists after "
+                        f"{self._attempt} attempts. Backing off until cooldown "
+                        "elapses, then retrying."
+                    )
+                should_wait = True
+                wait_time = self._until - now
+            elif self._active or self._attempt >= self.max_attempts:
+                # Half-open: ``reset`` is the only other decrementer and it
+                # needs a fetch to succeed, which a raising ``check`` never
+                # lets run, so without this decay the breaker would stay
+                # latched for the life of the process. ``is_active`` may have
+                # cleared ``_active`` already, hence the attempt-count test.
+                self._active = False
+                self._attempt = max(0, self._attempt - 1)
 
         # Sleep outside the lock so other threads can check status
         if should_wait:

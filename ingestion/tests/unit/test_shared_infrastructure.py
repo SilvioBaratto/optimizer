@@ -30,13 +30,11 @@ class TestCircuitBreaker:
         assert cb.attempt_count == 1
         assert cb.is_active
 
-    def test_check_raises_after_max_attempts(self):
+    def test_check_raises_after_max_attempts_while_window_is_open(self):
         cb = CircuitBreaker(
-            service_name="TestService", max_attempts=1, base_wait_minutes=0.0001
+            service_name="TestService", max_attempts=1, base_wait_minutes=2.0
         )
         cb.trigger()
-        # Wait for the short backoff to expire so check() evaluates attempt count
-        time.sleep(0.05)
         with pytest.raises(RuntimeError, match="TestService rate limit persists"):
             cb.check()
 
@@ -170,6 +168,108 @@ class TestCircuitBreaker:
         # firing simultaneously exactly ONE trigger may land before the guard
         # is set, meaning attempt_count must be <= 2, not 20.
         assert cb.attempt_count <= 2
+
+
+class _FakeClock:
+    """Stand-in for the ``time`` module whose ``sleep`` advances ``time``."""
+
+    def __init__(self, now: float = 1_000.0) -> None:
+        self.now = now
+        self.sleeps: list[float] = []
+
+    def time(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+@pytest.fixture
+def fake_clock():
+    clock = _FakeClock()
+    with patch("app.services.infrastructure.circuit_breaker.time", clock):
+        yield clock
+
+
+class TestCircuitBreakerRecovery:
+    def _latch(self, cb: CircuitBreaker, clock: _FakeClock) -> None:
+        """Drive the breaker to ``max_attempts`` the way sustained failures do."""
+        while cb.attempt_count < cb.max_attempts:
+            cb.trigger()
+            if cb.attempt_count < cb.max_attempts:
+                clock.now = cb._until + 1.0
+
+    def test_check_recovers_after_cooldown_even_at_max_attempts(self, fake_clock):
+        cb = CircuitBreaker(service_name="svc", max_attempts=3)
+        self._latch(cb, fake_clock)
+
+        with pytest.raises(RuntimeError, match="svc rate limit persists"):
+            cb.check()
+
+        fake_clock.now = cb._until + 1.0
+        cb.check()
+
+        assert fake_clock.sleeps == []
+        assert cb.attempt_count == cb.max_attempts - 1
+        assert not cb.is_active
+
+    def test_check_recovers_when_is_active_already_cleared_the_window(self, fake_clock):
+        cb = CircuitBreaker(service_name="svc", max_attempts=3)
+        self._latch(cb, fake_clock)
+
+        fake_clock.now = cb._until + 1.0
+        assert cb.is_active is False
+        cb.check()
+
+        assert cb.attempt_count == cb.max_attempts - 1
+
+    def test_failed_probe_after_cooldown_reopens_the_window(self, fake_clock):
+        cb = CircuitBreaker(service_name="svc", max_attempts=3)
+        self._latch(cb, fake_clock)
+        fake_clock.now = cb._until + 1.0
+        cb.check()
+
+        cb.trigger()
+
+        assert cb.attempt_count == cb.max_attempts
+        with pytest.raises(RuntimeError, match="svc rate limit persists"):
+            cb.check()
+
+    def test_sustained_outage_heals_once_upstream_recovers(self, fake_clock):
+        # Two scraper calls of three attempts each reach max_attempts=5; the
+        # daemon then lives on, so a later healthy run must get through.
+        cb = CircuitBreaker(service_name="TE", max_attempts=5)
+
+        def timing_out() -> str:
+            cb.check()
+            raise requests.exceptions.ReadTimeout("ReadTimeout")
+
+        def healthy() -> str:
+            cb.check()
+            return "ok"
+
+        with patch("app.services.infrastructure.retry._full_jitter", return_value=0.0):
+            for _ in range(2):
+                retry_with_backoff(
+                    timing_out,
+                    max_retries=3,
+                    is_rate_limit_error=is_transient_network_error,
+                    on_rate_limit=cb.trigger,
+                    on_success=lambda _: cb.reset(),
+                )
+            assert cb.attempt_count >= cb.max_attempts
+
+            fake_clock.now += 3 * 24 * 3600
+            result = retry_with_backoff(
+                healthy,
+                max_retries=3,
+                is_rate_limit_error=is_transient_network_error,
+                on_rate_limit=cb.trigger,
+                on_success=lambda _: cb.reset(),
+            )
+
+        assert result == "ok"
 
 
 # ---------------------------------------------------------------------------
