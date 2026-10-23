@@ -284,8 +284,10 @@ def _compute_period_metrics(
     )
 
     cum = (1.0 + returns_slice).cumprod()
-    running_max = cum.cummax()
-    drawdown = (cum - running_max) / running_max
+    # The running peak starts at the initial equity of 1.0 so that a slice
+    # opening with losses registers them as a drawdown.
+    running_max = np.maximum(cum.cummax(), 1.0)
+    drawdown = cum / running_max - 1.0
     max_dd = float(drawdown.min()) if len(drawdown) > 0 else 0.0
 
     return {

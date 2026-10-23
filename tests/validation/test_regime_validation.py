@@ -399,6 +399,36 @@ class TestRunRegimeValidation:
         ann_ret = result.per_regime_metrics.loc["expansion", "ann_return"]
         assert ann_ret == pytest.approx(float((1.0 + returns).prod() - 1.0), rel=1e-9)
 
+    def test_max_drawdown_counts_loss_from_starting_equity(self) -> None:
+        """A block that opens with a loss is a drawdown from the initial 1.0."""
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        macro = pd.DataFrame(
+            {"pmi": 55.0, "spread_2s10s": 1.5, "hy_oas": 300.0}, index=dates
+        )
+        returns = pd.Series([-0.20, 0.01, 0.01, 0.01], index=dates)
+        config = RegimeValidationConfig(min_regime_obs=1)
+
+        result = run_regime_validation(returns, macro, config=config)
+
+        assert result.per_regime_metrics.loc["expansion", "max_drawdown"] == (
+            pytest.approx(-0.20)
+        )
+        assert result.per_subperiod_metrics["max_drawdown"].iloc[0] == (
+            pytest.approx(-0.20)
+        )
+
+    def test_max_drawdown_zero_for_monotonic_gains(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        macro = pd.DataFrame(
+            {"pmi": 55.0, "spread_2s10s": 1.5, "hy_oas": 300.0}, index=dates
+        )
+        returns = pd.Series([0.01, 0.02, 0.0, 0.01], index=dates)
+        config = RegimeValidationConfig(min_regime_obs=1)
+
+        result = run_regime_validation(returns, macro, config=config)
+
+        assert result.per_regime_metrics.loc["expansion", "max_drawdown"] == 0.0
+
     def test_to_attribution_dict_structure(
         self,
         synthetic_oos_returns: pd.Series,
