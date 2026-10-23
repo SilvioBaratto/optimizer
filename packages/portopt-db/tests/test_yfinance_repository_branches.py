@@ -15,6 +15,7 @@ from __future__ import annotations
 import math
 import uuid
 from datetime import date, datetime
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -24,11 +25,20 @@ from portopt_db.models.market_data.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
     Dividend,
+    EarningsDate,
+    EarningsEstimate,
+    EarningsHistory,
+    EpsRevisions,
+    EpsTrend,
     FinancialStatement,
+    GrowthEstimate,
     InsiderTransaction,
     InstitutionalHolder,
     MutualFundHolder,
     PriceHistory,
+    RevenueEstimate,
+    SecFiling,
+    SharesOutstanding,
     StockSplit,
     TickerNews,
     TickerProfile,
@@ -888,6 +898,16 @@ class TestGetStalenessInfo:
             "mutualfund_holders_updated_at",
             "insider_transactions_updated_at",
             "news_updated_at",
+            "valuation_measures_updated_at",
+            "eps_trend_updated_at",
+            "eps_revisions_updated_at",
+            "earnings_estimate_updated_at",
+            "revenue_estimate_updated_at",
+            "growth_estimates_updated_at",
+            "earnings_history_updated_at",
+            "earnings_dates_updated_at",
+            "sec_filings_updated_at",
+            "shares_outstanding_updated_at",
         }
         assert expected_keys == set(info.keys())
 
@@ -986,6 +1006,95 @@ class TestStatementStaleness:
         assert repo.get_staleness_info_bulk([inst.id])[inst.id] == (
             repo.get_staleness_info(inst.id)
         )
+
+
+_FUNDAMENTAL_SEEDS: dict[str, Any] = {
+    "eps_trend": lambda iid, ts: EpsTrend(
+        instrument_id=iid, period="0q", updated_at=ts
+    ),
+    "eps_revisions": lambda iid, ts: EpsRevisions(
+        instrument_id=iid, period="0q", updated_at=ts
+    ),
+    "earnings_estimate": lambda iid, ts: EarningsEstimate(
+        instrument_id=iid, period="0q", updated_at=ts
+    ),
+    "revenue_estimate": lambda iid, ts: RevenueEstimate(
+        instrument_id=iid, period="0q", updated_at=ts
+    ),
+    "growth_estimates": lambda iid, ts: GrowthEstimate(
+        instrument_id=iid, period="0q", updated_at=ts
+    ),
+    "earnings_history": lambda iid, ts: EarningsHistory(
+        instrument_id=iid, period_date=date(2024, 3, 31), updated_at=ts
+    ),
+    "earnings_dates": lambda iid, ts: EarningsDate(
+        instrument_id=iid, earnings_date=date(2024, 7, 25), updated_at=ts
+    ),
+    "sec_filings": lambda iid, ts: SecFiling(
+        instrument_id=iid,
+        filing_date=date(2024, 2, 1),
+        form_type="10-K",
+        title="Annual report",
+        updated_at=ts,
+    ),
+    "shares_outstanding": lambda iid, ts: SharesOutstanding(
+        instrument_id=iid, date=date(2024, 1, 1), shares=1_000, updated_at=ts
+    ),
+    "valuation_measures": lambda iid, ts: FinancialStatement(
+        instrument_id=iid,
+        statement_type="valuation_measures",
+        period_type="point_in_time",
+        period_date=date(2024, 12, 31),
+        line_item="MarketCap",
+        value=1.0,
+        updated_at=ts,
+    ),
+}
+
+
+class TestFundamentalsCategoryStaleness:
+    """Each fundamentals category reports the freshness of its own table.
+
+    The marker is independent of the statements', so a category whose fetch
+    failed is not hidden by the statements that succeeded.
+    """
+
+    @pytest.mark.parametrize("category", sorted(_FUNDAMENTAL_SEEDS))
+    def test_category_marker_reflects_only_its_own_table(
+        self, db_session: Session, category: str
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        stamp = datetime(2025, 3, 4, 5, 6)
+        db_session.add(_FUNDAMENTAL_SEEDS[category](inst.id, stamp))
+        db_session.flush()
+
+        info = _repo(db_session).get_staleness_info(inst.id)
+
+        assert info[f"{category}_updated_at"] == stamp
+        for other in _FUNDAMENTAL_SEEDS:
+            if other != category:
+                assert info[f"{other}_updated_at"] is None
+        assert info["financials_updated_at"] is None
+
+    @pytest.mark.parametrize("category", sorted(_FUNDAMENTAL_SEEDS))
+    def test_bulk_matches_single_for_category_marker(
+        self, db_session: Session, category: str
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        db_session.add(_FUNDAMENTAL_SEEDS[category](inst.id, datetime(2025, 3, 4)))
+        db_session.flush()
+        repo = _repo(db_session)
+
+        assert repo.get_staleness_info_bulk([inst.id])[inst.id] == (
+            repo.get_staleness_info(inst.id)
+        )
+
+    def test_category_list_covers_every_seeded_category(self) -> None:
+        from portopt_db.repositories.market_data.yfinance_repository import (
+            FUNDAMENTAL_CATEGORIES,
+        )
+
+        assert set(FUNDAMENTAL_CATEGORIES) == set(_FUNDAMENTAL_SEEDS)
 
 
 # ---------------------------------------------------------------------------

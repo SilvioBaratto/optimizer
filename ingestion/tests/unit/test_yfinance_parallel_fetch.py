@@ -178,3 +178,47 @@ class TestParallelExecution:
         assert len(tracker.exited) == len(
             [s for sessions in tracker.sessions_by_thread.values() for s in sessions]
         )
+
+
+class TestSharedEmptyFetchMemory:
+    """Bulk sweeps share one empty-answer memory so it outlives a single run."""
+
+    def test_serial_sweep_injects_the_shared_memory(self):
+        """Pass the process-wide memory to the serial sweep's service."""
+        tracker = _SessionTracker()
+        request = SimpleNamespace(workers=1, period="5y", mode="incremental")
+        instruments = [_make_instrument("AAA")]
+        repo_p, service_p, db_p = _patch_module(
+            instruments, tracker, lambda **_: _ok_result()
+        )
+
+        with (
+            repo_p,
+            service_p as service_cls,
+            db_p,
+            patch.object(svc, "_backfill_instrument_isin_from_profiles"),
+            patch("app.config.settings") as settings,
+        ):
+            settings.yfinance_request_timeout_seconds = 30
+            svc.run_bulk_yfinance_fetch(request, MagicMock())
+
+        assert service_cls.call_args.kwargs["empty_fetches"] is svc.SHARED_EMPTY_FETCHES
+
+    def test_parallel_worker_injects_the_shared_memory(self):
+        """Pass the process-wide memory to every worker's service."""
+        tracker = _SessionTracker()
+        request = SimpleNamespace(workers=2, period="5y", mode="incremental")
+        spec = svc._InstrumentSpec(
+            instrument_id=uuid4(),
+            yfinance_ticker="AAA",
+            exchange_name="NASDAQ",
+            currency_code="USD",
+        )
+        _, service_p, db_p = _patch_module([], tracker, lambda **_: _ok_result())
+
+        with service_p as service_cls, db_p:
+            from app.database import database_manager
+
+            svc._fetch_one_ticker(spec, request, MagicMock(), database_manager)
+
+        assert service_cls.call_args.kwargs["empty_fetches"] is svc.SHARED_EMPTY_FETCHES

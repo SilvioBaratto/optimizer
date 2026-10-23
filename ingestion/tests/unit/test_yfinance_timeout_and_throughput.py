@@ -75,12 +75,23 @@ def _fully_fresh_staleness() -> dict[str, Any]:
     """Return a staleness dict where every category is very recently updated."""
     from datetime import datetime, timezone
 
+    from portopt_db.repositories.market_data.yfinance_repository import (
+        FINANCIAL_STATEMENT_GROUPS,
+        FUNDAMENTAL_CATEGORIES,
+        statement_staleness_key,
+    )
+
     # updated 1 minute ago — well within all thresholds (minimum threshold is
     # 24 h for most categories, 168 h for financials)
     recent = datetime.now(timezone.utc).replace(microsecond=0)
     from datetime import date
 
     return {
+        **{f"{category}_updated_at": recent for category in FUNDAMENTAL_CATEGORIES},
+        **{
+            statement_staleness_key(stmt, period): recent
+            for stmt, period in FINANCIAL_STATEMENT_GROUPS
+        },
         "profile_updated_at": recent,
         "financials_updated_at": recent,
         "dividends_updated_at": recent,

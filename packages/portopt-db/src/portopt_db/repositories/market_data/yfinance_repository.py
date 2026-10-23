@@ -135,6 +135,31 @@ FINANCIAL_STATEMENT_GROUPS: tuple[tuple[str, str], ...] = (
     ("cashflow", "quarterly"),
 )
 
+# valuation_measures rows share financial_statements with the statements but
+# are refreshed independently, so they get their own marker.
+VALUATION_MEASURES_STATEMENT_TYPE = "valuation_measures"
+VALUATION_MEASURES_PERIOD_TYPE = "point_in_time"
+
+_FUNDAMENTALS_CATEGORY_MODELS: tuple[tuple[str, type], ...] = (
+    ("eps_trend", EpsTrend),
+    ("eps_revisions", EpsRevisions),
+    ("earnings_estimate", EarningsEstimate),
+    ("revenue_estimate", RevenueEstimate),
+    ("growth_estimates", GrowthEstimate),
+    ("earnings_history", EarningsHistory),
+    ("earnings_dates", EarningsDate),
+    ("sec_filings", SecFiling),
+    ("shares_outstanding", SharesOutstanding),
+)
+
+# Categories refreshed on the fundamentals window. Each one reports its own
+# ``{category}_updated_at`` so a failed or empty fetch of one category is not
+# hidden by the others being fresh.
+FUNDAMENTAL_CATEGORIES: tuple[str, ...] = (
+    "valuation_measures",
+    *(category for category, _ in _FUNDAMENTALS_CATEGORY_MODELS),
+)
+
 _STALENESS_CATEGORY_MODELS: tuple[tuple[str, type], ...] = (
     ("profile", TickerProfile),
     ("dividends", Dividend),
@@ -145,6 +170,7 @@ _STALENESS_CATEGORY_MODELS: tuple[tuple[str, type], ...] = (
     ("mutualfund_holders", MutualFundHolder),
     ("insider_transactions", InsiderTransaction),
     ("news", TickerNews),
+    *_FUNDAMENTALS_CATEGORY_MODELS,
 )
 
 
@@ -165,11 +191,17 @@ def statement_staleness_key(statement_type: str, period_type: str) -> str:
 def _statement_staleness(
     latest: Mapping[tuple[str, str], datetime | None],
 ) -> dict[str, Any]:
-    """Build the statement entries of a staleness dict from per-group maxima.
+    """Build the financial_statements entries of a staleness dict.
 
-    ``financials_updated_at`` is the *oldest* of the six groups, and ``None``
-    while any group has never been stored: a statement that failed during a
-    rate-limit burst must not be hidden by one that succeeded.
+    Args:
+        latest: ``MAX(updated_at)`` per ``(statement_type, period_type)`` group.
+
+    Returns:
+        One marker per statement group, ``financials_updated_at`` and
+        ``valuation_measures_updated_at``. ``financials_updated_at`` is the
+        *oldest* of the six statement groups, and ``None`` while any group has
+        never been stored: a statement that failed during a rate-limit burst
+        must not be hidden by one that succeeded.
     """
     entries: dict[str, Any] = {
         statement_staleness_key(stmt, period): latest.get((stmt, period))
@@ -178,6 +210,9 @@ def _statement_staleness(
     stamps = list(entries.values())
     entries["financials_updated_at"] = (
         None if any(stamp is None for stamp in stamps) else min(stamps)
+    )
+    entries["valuation_measures_updated_at"] = latest.get(
+        (VALUATION_MEASURES_STATEMENT_TYPE, VALUATION_MEASURES_PERIOD_TYPE)
     )
     return entries
 
@@ -1362,6 +1397,8 @@ class YFinanceRepository(RepositoryBase):
             the six financial statement groups
           - financials_updated_at: the oldest of those six, ``None`` while any
             group is missing
+          - valuation_measures_updated_at: MAX(updated_at) of the valuation rows
+            stored alongside the statements
         """
         result: dict[str, Any] = {}
 

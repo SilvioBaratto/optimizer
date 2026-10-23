@@ -44,7 +44,9 @@ from uuid import uuid4
 
 import pandas as pd
 
+from app.services.market_data.empty_fetch_memory import EmptyFetchMemory
 from app.services.market_data.yfinance_data_service import (
+    StalenessThresholds,
     YFinanceDataService,
     _aggregate_outcome,
     _InstrumentSpec,
@@ -113,14 +115,84 @@ def _make_yf_client_silent() -> MagicMock:
     return yf_client
 
 
-class TestValuationEpsStalenessGate:
-    """valuation/eps_trend/eps_revisions are staleness-gated on the shared
-    financial_statements table (financials_updated_at) — no longer refetched every run."""
+# Categories refreshed on the fundamentals window; each is gated on the
+# ``<name>_updated_at`` marker of its own table.
+_FUNDAMENTAL_CATEGORIES = (
+    "valuation_measures",
+    "eps_trend",
+    "eps_revisions",
+    "earnings_estimate",
+    "revenue_estimate",
+    "growth_estimates",
+    "earnings_history",
+    "earnings_dates",
+    "sec_filings",
+    "shares_outstanding",
+)
 
-    def test_skipped_when_financials_fresh(self) -> None:
+
+def _fresh_fundamentals(
+    stamp: datetime, *, except_for: tuple[str, ...] = ()
+) -> dict[str, Any]:
+    return {
+        f"{category}_updated_at": stamp
+        for category in _FUNDAMENTAL_CATEGORIES
+        if category not in except_for
+    }
+
+
+_STATEMENT_GROUPS = (
+    "income_statement_annual",
+    "income_statement_quarterly",
+    "balance_sheet_annual",
+    "balance_sheet_quarterly",
+    "cashflow_annual",
+    "cashflow_quarterly",
+)
+
+
+def _fully_fresh(
+    now: datetime,
+    *,
+    except_for: tuple[str, ...] = (),
+    except_groups: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Staleness of a ticker whose every gated category was stored at *now*.
+
+    ``except_for`` leaves fundamentals categories unstored and ``except_groups``
+    leaves statement groups unstored (their marker is ``None``).
+    """
+    staleness: dict[str, Any] = {
+        "price_max_date": date.today(),
+        "financials_updated_at": None if except_groups else now,
+        **{
+            f"{group}_updated_at": None if group in except_groups else now
+            for group in _STATEMENT_GROUPS
+        },
+        **_fresh_fundamentals(now, except_for=except_for),
+    }
+    for category in (
+        "profile",
+        "dividends",
+        "splits",
+        "recommendations",
+        "price_targets",
+        "institutional_holders",
+        "mutualfund_holders",
+        "insider_transactions",
+    ):
+        staleness[f"{category}_updated_at"] = now
+    return staleness
+
+
+class TestValuationEpsStalenessGate:
+    """valuation/eps_trend/eps_revisions are gated on their own tables' freshness
+    markers: a fresh marker skips the fetch, a stale one triggers it."""
+
+    def test_skipped_when_fundamentals_fresh(self) -> None:
         now = datetime.now(timezone.utc)
         repo = _make_repo(
-            staleness={"financials_updated_at": now, "price_max_date": None}
+            staleness={**_fresh_fundamentals(now), "price_max_date": None}
         )
         yf = _make_yf_client_silent()
         result = _run(repo, yf, mode="incremental")
@@ -131,7 +203,7 @@ class TestValuationEpsStalenessGate:
         yf.analysis.fetch_eps_trend.assert_not_called()
         yf.analysis.fetch_eps_revisions.assert_not_called()
 
-    def test_fetched_when_financials_stale(self) -> None:
+    def test_fetched_when_fundamentals_stale(self) -> None:
         repo = _make_repo(
             staleness={"financials_updated_at": None, "price_max_date": None}
         )
@@ -149,15 +221,6 @@ class TestStatementStalenessGate:
     that failed during a rate-limit burst are retried on the next run instead of
     waiting out the window.
     """
-
-    _ALL_GROUPS = (
-        "income_statement_annual",
-        "income_statement_quarterly",
-        "balance_sheet_annual",
-        "balance_sheet_quarterly",
-        "cashflow_annual",
-        "cashflow_quarterly",
-    )
 
     def _staleness(self, *fresh_groups: str) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
@@ -182,7 +245,7 @@ class TestStatementStalenessGate:
         assert "financials" not in result["skipped"]
 
     def test_financials_skipped_when_every_statement_is_fresh(self) -> None:
-        repo = _make_repo(staleness=self._staleness(*self._ALL_GROUPS))
+        repo = _make_repo(staleness=self._staleness(*_STATEMENT_GROUPS))
         yf = _make_yf_client_silent()
 
         result = _run(repo, yf, mode="incremental")
@@ -193,7 +256,7 @@ class TestStatementStalenessGate:
         yf.financials.fetch_cashflow.assert_not_called()
 
     def test_full_mode_refetches_every_statement_despite_fresh_markers(self) -> None:
-        repo = _make_repo(staleness=self._staleness(*self._ALL_GROUPS))
+        repo = _make_repo(staleness=self._staleness(*_STATEMENT_GROUPS))
         yf = _make_yf_client_silent()
 
         _run(repo, yf, mode="full")
@@ -201,6 +264,276 @@ class TestStatementStalenessGate:
         assert yf.financials.fetch_income_stmt.call_count == 2
         assert yf.financials.fetch_balance_sheet.call_count == 2
         assert yf.financials.fetch_cashflow.call_count == 2
+
+
+class TestFundamentalsCategoryGate:
+    """Each fundamentals category is gated on its own table's freshness.
+
+    The gate is independent of ``financials_updated_at``: a category whose fetch
+    failed while the statements were stored is retried, and a stored category
+    stays skipped even when the ticker has no statements yet.
+    """
+
+    def test_ticker_with_every_category_fresh_skips_the_network(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(staleness=_fully_fresh(now))
+        yf = _make_yf_client_silent()
+
+        result = _run(repo, yf, mode="incremental")
+
+        assert result["skipped"] == ["all:fresh"]
+        yf.get_ticker.assert_not_called()
+
+    def test_category_that_failed_is_retried_while_statements_are_fresh(self) -> None:
+        now = datetime.now(timezone.utc)
+        repo = _make_repo(staleness=_fully_fresh(now, except_for=("eps_trend",)))
+        yf = _make_yf_client_silent()
+
+        result = _run(repo, yf, mode="incremental")
+
+        assert "all:fresh" not in result["skipped"]
+        assert "eps_trend" not in result["skipped"]
+        yf.analysis.fetch_eps_trend.assert_called_once()
+        yf.analysis.fetch_eps_revisions.assert_not_called()
+        yf.analysis.fetch_earnings_estimate.assert_not_called()
+        yf.financials.fetch_sec_filings.assert_not_called()
+        yf.corporate_actions.fetch_shares_full.assert_not_called()
+        yf.metadata.fetch_valuation_measures.assert_not_called()
+
+    def test_each_category_is_refetched_when_only_it_is_stale(self) -> None:
+        now = datetime.now(timezone.utc)
+        fetchers = {
+            "valuation_measures": lambda yf: yf.metadata.fetch_valuation_measures,
+            "eps_trend": lambda yf: yf.analysis.fetch_eps_trend,
+            "eps_revisions": lambda yf: yf.analysis.fetch_eps_revisions,
+            "earnings_estimate": lambda yf: yf.analysis.fetch_earnings_estimate,
+            "revenue_estimate": lambda yf: yf.analysis.fetch_revenue_estimate,
+            "growth_estimates": lambda yf: yf.analysis.fetch_growth_estimates,
+            "earnings_history": lambda yf: yf.analysis.fetch_earnings_history,
+            "earnings_dates": lambda yf: yf.metadata.fetch_earnings_dates,
+            "sec_filings": lambda yf: yf.financials.fetch_sec_filings,
+            "shares_outstanding": lambda yf: yf.corporate_actions.fetch_shares_full,
+        }
+        assert set(fetchers) == set(_FUNDAMENTAL_CATEGORIES)
+
+        for stale, pick in fetchers.items():
+            repo = _make_repo(staleness=_fully_fresh(now, except_for=(stale,)))
+            yf = _make_yf_client_silent()
+
+            _run(repo, yf, mode="incremental")
+
+            pick(yf).assert_called_once()
+            for other, pick_other in fetchers.items():
+                if other != stale:
+                    pick_other(yf).assert_not_called()
+
+    def test_categories_stored_without_statements_are_not_refetched(self) -> None:
+        now = datetime.now(timezone.utc)
+        staleness = _fully_fresh(now)
+        staleness["financials_updated_at"] = None
+        for group in _STATEMENT_GROUPS:
+            staleness[f"{group}_updated_at"] = None
+        repo = _make_repo(staleness=staleness)
+        yf = _make_yf_client_silent()
+
+        result = _run(repo, yf, mode="incremental")
+
+        assert yf.financials.fetch_income_stmt.call_count == 2
+        for category in _FUNDAMENTAL_CATEGORIES:
+            assert category in result["skipped"]
+        yf.analysis.fetch_eps_trend.assert_not_called()
+        yf.metadata.fetch_valuation_measures.assert_not_called()
+        yf.financials.fetch_sec_filings.assert_not_called()
+
+
+class TestEmptyAnswerMemory:
+    """A category Yahoo answers with nothing is not re-requested on every run.
+
+    Freshness markers advance only when rows are written, so a category or
+    statement group Yahoo has no data for looks stale forever. The service
+    remembers a clean empty answer and treats it as settled for
+    ``no_data_hours``; failures and rate-limited answers stay retryable.
+    """
+
+    _INSTRUMENT = uuid4()
+
+    def _calm_client(self) -> MagicMock:
+        yf = _make_yf_client_silent()
+        yf.circuit_breaker.is_active = False
+        return yf
+
+    def _fetch(
+        self,
+        staleness: dict[str, Any],
+        yf: MagicMock,
+        memory: EmptyFetchMemory,
+        *,
+        mode: str = "incremental",
+        thresholds: StalenessThresholds | None = None,
+    ) -> dict[str, Any]:
+        service = YFinanceDataService(
+            repo=_make_repo(staleness=staleness),
+            yf_client=yf,
+            empty_fetches=memory,
+        )
+        return service.fetch_and_store(
+            instrument_id=self._INSTRUMENT,
+            yfinance_ticker="AAPL",
+            mode=mode,
+            currency_code="USD",
+            thresholds=thresholds,
+        )
+
+    def test_empty_category_is_not_requested_on_the_next_run(self) -> None:
+        """Skip a category whose previous run came back empty."""
+        now = datetime.now(timezone.utc)
+        memory = EmptyFetchMemory()
+        staleness = _fully_fresh(now, except_for=("eps_trend",))
+        staleness["profile_updated_at"] = (
+            None  # keeps the ticker past the short-circuit
+        )
+
+        self._fetch(staleness, self._calm_client(), memory)
+        yf = self._calm_client()
+        result = self._fetch(staleness, yf, memory)
+
+        yf.analysis.fetch_eps_trend.assert_not_called()
+        assert "eps_trend" in result["skipped"]
+
+    def test_empty_category_is_requested_again_after_the_no_data_window(self) -> None:
+        """Retry an empty category once the no-data window has passed."""
+        now = datetime.now(timezone.utc)
+        memory = EmptyFetchMemory()
+        memory.remember(
+            self._INSTRUMENT, "eps_trend_updated_at", now - timedelta(hours=73)
+        )
+        yf = self._calm_client()
+
+        self._fetch(_fully_fresh(now, except_for=("eps_trend",)), yf, memory)
+
+        yf.analysis.fetch_eps_trend.assert_called_once()
+
+    def test_no_data_window_is_taken_from_the_thresholds(self) -> None:
+        """Honour a caller-supplied no-data window."""
+        now = datetime.now(timezone.utc)
+        memory = EmptyFetchMemory()
+        staleness = _fully_fresh(now, except_for=("eps_trend",))
+        thresholds = StalenessThresholds(no_data_hours=0)
+
+        self._fetch(staleness, self._calm_client(), memory, thresholds=thresholds)
+        yf = self._calm_client()
+        self._fetch(staleness, yf, memory, thresholds=thresholds)
+
+        yf.analysis.fetch_eps_trend.assert_called_once()
+
+    def test_failed_category_is_requested_again_on_the_next_run(self) -> None:
+        """Never remember an exception as an empty answer."""
+        now = datetime.now(timezone.utc)
+        memory = EmptyFetchMemory()
+        staleness = _fully_fresh(now, except_for=("eps_trend",))
+        failing = self._calm_client()
+        failing.analysis.fetch_eps_trend.side_effect = TimeoutError("hung")
+
+        result = self._fetch(staleness, failing, memory)
+        yf = self._calm_client()
+        self._fetch(staleness, yf, memory)
+
+        assert any(e.startswith("eps_trend:") for e in result["errors"])
+        yf.analysis.fetch_eps_trend.assert_called_once()
+
+    def test_empty_answer_during_a_rate_limit_is_not_remembered(self) -> None:
+        """Treat an empty answer as a lost request while the breaker is open."""
+        now = datetime.now(timezone.utc)
+        memory = EmptyFetchMemory()
+        staleness = _fully_fresh(now, except_for=("eps_trend",))
+        throttled = self._calm_client()
+        throttled.circuit_breaker.is_active = True
+
+        self._fetch(staleness, throttled, memory)
+        yf = self._calm_client()
+        self._fetch(staleness, yf, memory)
+
+        yf.analysis.fetch_eps_trend.assert_called_once()
+
+    def test_category_that_stored_rows_is_not_remembered_as_empty(self) -> None:
+        """Remember only empty answers; stored rows advance the DB marker."""
+        now = datetime.now(timezone.utc)
+        memory = EmptyFetchMemory()
+        yf = self._calm_client()
+        yf.analysis.fetch_eps_trend.return_value = pd.DataFrame({"current": [1.0]})
+        repo = _make_repo(staleness=_fully_fresh(now, except_for=("eps_trend",)))
+        repo.upsert_eps_trend.return_value = 4
+
+        YFinanceDataService(
+            repo=repo, yf_client=yf, empty_fetches=memory
+        ).fetch_and_store(
+            instrument_id=self._INSTRUMENT,
+            yfinance_ticker="AAPL",
+            mode="incremental",
+            currency_code="USD",
+        )
+
+        assert not memory.is_recent(self._INSTRUMENT, "eps_trend_updated_at", 72, now)
+
+    def test_full_mode_ignores_remembered_empty_answers(self) -> None:
+        """Refetch everything in full mode, whatever the memory holds."""
+        now = datetime.now(timezone.utc)
+        memory = EmptyFetchMemory()
+        memory.remember(self._INSTRUMENT, "eps_trend_updated_at", now)
+        yf = self._calm_client()
+
+        self._fetch(_fully_fresh(now), yf, memory, mode="full")
+
+        yf.analysis.fetch_eps_trend.assert_called_once()
+
+    def test_empty_statement_group_is_not_requested_on_the_next_run(self) -> None:
+        """Gate each statement group on its own empty answer."""
+        now = datetime.now(timezone.utc)
+        memory = EmptyFetchMemory()
+        staleness = _fully_fresh(now, except_groups=("cashflow_quarterly",))
+        staleness["profile_updated_at"] = (
+            None  # keeps the ticker past the short-circuit
+        )
+
+        self._fetch(staleness, self._calm_client(), memory)
+        yf = self._calm_client()
+        result = self._fetch(staleness, yf, memory)
+
+        yf.financials.fetch_cashflow.assert_not_called()
+        assert "financials" in result["skipped"]
+
+    def test_ticker_left_with_only_empty_answers_skips_the_network(self) -> None:
+        """Short-circuit once every remaining gap is a remembered empty answer."""
+        now = datetime.now(timezone.utc)
+        memory = EmptyFetchMemory()
+        staleness = _fully_fresh(
+            now, except_for=("eps_trend",), except_groups=("cashflow_quarterly",)
+        )
+
+        first = self._fetch(staleness, self._calm_client(), memory)
+        yf = self._calm_client()
+        second = self._fetch(staleness, yf, memory)
+
+        assert "all:fresh" not in first["skipped"]
+        assert second["skipped"] == ["all:fresh"]
+        yf.get_ticker.assert_not_called()
+
+    def test_services_do_not_share_memory_unless_it_is_injected(self) -> None:
+        """Keep the default memory private to one service instance."""
+        now = datetime.now(timezone.utc)
+        staleness = _fully_fresh(now, except_for=("eps_trend",))
+
+        for _ in range(2):
+            yf = self._calm_client()
+            YFinanceDataService(
+                repo=_make_repo(staleness=staleness), yf_client=yf
+            ).fetch_and_store(
+                instrument_id=self._INSTRUMENT,
+                yfinance_ticker="AAPL",
+                mode="incremental",
+                currency_code="USD",
+            )
+            yf.analysis.fetch_eps_trend.assert_called_once()
 
 
 class TestPriceUnit:
@@ -286,10 +619,10 @@ class TestAnalystEstimates:
         for col in ("stock_trend", "index_trend"):
             assert hasattr(GrowthEstimate, col)
 
-    def test_skipped_when_financials_fresh(self) -> None:
+    def test_skipped_when_fundamentals_fresh(self) -> None:
         now = datetime.now(timezone.utc)
         repo = _make_repo(
-            staleness={"financials_updated_at": now, "price_max_date": None}
+            staleness={**_fresh_fundamentals(now), "price_max_date": None}
         )
         yf = _make_yf_client_silent()
         result = _run(repo, yf, mode="incremental")
@@ -338,10 +671,10 @@ class TestEarningsTimeline:
         for col in ("earnings_date", "eps_estimate", "eps_actual", "surprise_percent"):
             assert hasattr(EarningsDate, col)
 
-    def test_skipped_when_financials_fresh(self) -> None:
+    def test_skipped_when_fundamentals_fresh(self) -> None:
         now = datetime.now(timezone.utc)
         repo = _make_repo(
-            staleness={"financials_updated_at": now, "price_max_date": None}
+            staleness={**_fresh_fundamentals(now), "price_max_date": None}
         )
         yf = _make_yf_client_silent()
         result = _run(repo, yf, mode="incremental")
@@ -412,10 +745,10 @@ class TestSecFilings:
         for col in ("filing_date", "form_type", "title", "url"):
             assert hasattr(SecFiling, col)
 
-    def test_skipped_when_financials_fresh(self) -> None:
+    def test_skipped_when_fundamentals_fresh(self) -> None:
         now = datetime.now(timezone.utc)
         repo = _make_repo(
-            staleness={"financials_updated_at": now, "price_max_date": None}
+            staleness={**_fresh_fundamentals(now), "price_max_date": None}
         )
         yf = _make_yf_client_silent()
         result = _run(repo, yf, mode="incremental")
@@ -458,10 +791,10 @@ class TestCorpActionExtras:
 
         assert hasattr(PriceHistory, "capital_gains")
 
-    def test_shares_skipped_when_financials_fresh(self) -> None:
+    def test_shares_skipped_when_fundamentals_fresh(self) -> None:
         now = datetime.now(timezone.utc)
         repo = _make_repo(
-            staleness={"financials_updated_at": now, "price_max_date": None}
+            staleness={**_fresh_fundamentals(now), "price_max_date": None}
         )
         yf = _make_yf_client_silent()
         result = _run(repo, yf, mode="incremental")
@@ -606,7 +939,7 @@ class TestStalenessInjection:
             instrument_id=uuid4(),
             yfinance_ticker="AAPL",
             mode="incremental",
-            staleness={"financials_updated_at": now, "price_max_date": None},
+            staleness={**_fresh_fundamentals(now), "price_max_date": None},
         )
         repo.get_staleness_info.assert_not_called()
         assert "valuation_measures" in result["skipped"]

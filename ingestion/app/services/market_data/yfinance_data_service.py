@@ -23,11 +23,15 @@ from portopt_db.repositories.market_data.etf_metadata_repository import (
 )
 from portopt_db.repositories.market_data.yfinance_repository import (
     FINANCIAL_STATEMENT_GROUPS,
+    FUNDAMENTAL_CATEGORIES,
+    VALUATION_MEASURES_PERIOD_TYPE,
+    VALUATION_MEASURES_STATEMENT_TYPE,
     YFinanceRepository,
     statement_staleness_key,
 )
 
 from app.services._shared import ProgressCallback, _noop, has_sufficient_history
+from app.services.market_data.empty_fetch_memory import EmptyFetchMemory
 from app.services.market_data.yfinance import YFinanceClient
 from app.utils.currency import to_major_currency
 
@@ -94,6 +98,11 @@ class StalenessThresholds:
     mutualfund_holders_hours: int = 24
     insider_transactions_hours: int = 24
     etf_metadata_hours: int = 168  # 7 days
+    # How long a clean empty answer for a fundamentals category or statement
+    # settles it. Shorter than financials_hours because the client cannot tell
+    # "no data" from "retries exhausted": a fetch that merely failed is retried
+    # within days, not after a week.
+    no_data_hours: int = 72
     # news: always fetched (no threshold)
     # prices: always fetched (date-ranged)
     price_overlap_days: int = 5
@@ -101,6 +110,11 @@ class StalenessThresholds:
 
 
 DEFAULT_THRESHOLDS = StalenessThresholds()
+
+# One memory for every bulk sweep in the process: services are built per run (or
+# per ticker in the parallel path), so a memory owned by the service would be
+# forgotten before the next daily run could use it.
+SHARED_EMPTY_FETCHES = EmptyFetchMemory()
 
 # Sentinel: distinguishes "caller did not supply staleness" (query it) from
 # "caller supplied None" (no data yet → treat as stale) on fetch_and_store.
@@ -204,9 +218,15 @@ class YFinanceDataService:
         repo: YFinanceRepository,
         yf_client: YFinanceClient,
         request_timeout: float | None = None,
+        empty_fetches: EmptyFetchMemory | None = None,
     ) -> None:
         self.repo = repo
         self.yf_client = yf_client
+        # Private by default so unrelated callers (and tests) never see each
+        # other's empty answers; bulk sweeps inject SHARED_EMPTY_FETCHES.
+        self._empty_fetches = (
+            empty_fetches if empty_fetches is not None else EmptyFetchMemory()
+        )
         # Wall-clock timeout for every yfinance network call.  None disables
         # the watchdog (used in tests that mock fetch methods synchronously).
         self._request_timeout = request_timeout
@@ -273,6 +293,45 @@ class YFinanceDataService:
 
         now = datetime.now(timezone.utc)
 
+        # A fundamentals gate is settled when its marker is inside the
+        # fundamentals window, or when the last fetch came back empty recently:
+        # an empty answer writes no row, so without the second clause a category
+        # Yahoo has nothing for would be requested on every run.
+        def _settled(marker_key: str) -> bool:
+            return (
+                mode == "incremental"
+                and staleness is not None
+                and (
+                    _is_fresh(
+                        staleness.get(marker_key), thresholds.financials_hours, now
+                    )
+                    or self._empty_fetches.is_recent(
+                        instrument_id, marker_key, thresholds.no_data_hours, now
+                    )
+                )
+            )
+
+        # Gated per category on the marker of the category's own table: a
+        # category whose fetch failed while the statements were stored must not
+        # be hidden by them for the whole window.
+        def _fundamentals_fresh(category: str) -> bool:
+            return _settled(f"{category}_updated_at")
+
+        # Gated per statement: one statement stored during a rate-limit burst
+        # must not hide the ones that failed until the window expires.
+        def _statement_fresh(stmt_type: str, period_type: str) -> bool:
+            return _settled(statement_staleness_key(stmt_type, period_type))
+
+        def _record_fetch(marker_key: str, stored: int) -> None:
+            if stored:
+                return
+            # While the breaker is open an empty result is more likely a lost
+            # request than Yahoo's answer; leaving it unrecorded keeps the next
+            # run retrying instead of hiding the category.
+            if self.yf_client.circuit_breaker.is_active:
+                return
+            self._empty_fetches.remember(instrument_id, marker_key, now)
+
         # ------------------------------------------------------------------
         # Incremental short-circuit: skip whole ticker if ALL categories fresh
         # ------------------------------------------------------------------
@@ -286,10 +345,11 @@ class YFinanceDataService:
                     staleness.get("profile_updated_at"), thresholds.profile_hours, now
                 )
                 and staleness.get("price_max_date") is not None  # prices have data
-                and _is_fresh(
-                    staleness.get("financials_updated_at"),
-                    thresholds.financials_hours,
-                    now,
+                and all(
+                    _statement_fresh(st, pt) for st, pt in FINANCIAL_STATEMENT_GROUPS
+                )
+                and all(
+                    _fundamentals_fresh(category) for category in FUNDAMENTAL_CATEGORIES
                 )
                 and _is_fresh(
                     staleness.get("dividends_updated_at"),
@@ -506,19 +566,6 @@ class YFinanceDataService:
                 statement_currency_cell.append(_financial_currency(info_for_currency))
             return statement_currency_cell[0]
 
-        # Gated per statement: one statement stored during a rate-limit burst
-        # must not hide the ones that failed until the window expires.
-        def _statement_fresh(stmt_type: str, period_type: str) -> bool:
-            return (
-                mode == "incremental"
-                and staleness is not None
-                and _is_fresh(
-                    staleness.get(statement_staleness_key(stmt_type, period_type)),
-                    thresholds.financials_hours,
-                    now,
-                )
-            )
-
         if all(_statement_fresh(st, pt) for st, pt in FINANCIAL_STATEMENT_GROUPS):
             skipped.append("financials")
         else:
@@ -556,14 +603,19 @@ class YFinanceDataService:
                         df = self._timed(
                             lambda m=_fm, q=_qf: m(yfinance_ticker, quarterly=q)
                         )
+                        group_rows = 0
                         if df is not None and not df.empty:
-                            fs_count += self.repo.upsert_financial_statements(
+                            group_rows = self.repo.upsert_financial_statements(
                                 instrument_id,
                                 df,
                                 stmt_type,
                                 period_type,
                                 currency_code=_statement_currency(),
                             )
+                            fs_count += group_rows
+                        _record_fetch(
+                            statement_staleness_key(stmt_type, period_type), group_rows
+                        )
                     except Exception as e:
                         errors.append(f"financials.{stmt_type}.{period_type}: {e}")
                         logger.warning(
@@ -581,15 +633,9 @@ class YFinanceDataService:
 
         # 3a. Valuation measures (Ticker.valuation, 9-metric panel).
         # Open-EAV reuse of financial_statements: no migration, no new model.
-        # Staleness-gated on the shared financial_statements table. Market cap
-        # and EV are quote-based, so the rows carry the listing currency's major.
-        if (
-            mode == "incremental"
-            and staleness is not None
-            and _is_fresh(
-                staleness.get("financials_updated_at"), thresholds.financials_hours, now
-            )
-        ):
+        # Market cap and EV are quote-based, so the rows carry the listing
+        # currency's major.
+        if _fundamentals_fresh("valuation_measures"):
             skipped.append("valuation_measures")
         else:
             try:
@@ -613,8 +659,8 @@ class YFinanceDataService:
                             self.repo.upsert_financial_statements(
                                 instrument_id,
                                 dated_val_df,
-                                "valuation_measures",
-                                "point_in_time",
+                                VALUATION_MEASURES_STATEMENT_TYPE,
+                                VALUATION_MEASURES_PERIOD_TYPE,
                                 currency_code=listing_major_currency,
                             )
                         )
@@ -630,13 +676,7 @@ class YFinanceDataService:
         # stood now vs 7/30/60/90 days ago. The panel is indexed by period label
         # ("0q", "+1q", "0y", "+1y") with snapshot-age columns; neither axis is a
         # date, so it lands in the typed eps_trend table (not financial_statements).
-        if (
-            mode == "incremental"
-            and staleness is not None
-            and _is_fresh(
-                staleness.get("financials_updated_at"), thresholds.financials_hours, now
-            )
-        ):
+        if _fundamentals_fresh("eps_trend"):
             skipped.append("eps_trend")
         else:
             try:
@@ -655,13 +695,7 @@ class YFinanceDataService:
         # 3c. EPS revisions — up/down revision counts over the trailing 7/30-day
         # windows, per forward-period label. Same period-label index as eps_trend;
         # stored in the typed eps_revisions table.
-        if (
-            mode == "incremental"
-            and staleness is not None
-            and _is_fresh(
-                staleness.get("financials_updated_at"), thresholds.financials_hours, now
-            )
-        ):
+        if _fundamentals_fresh("eps_revisions"):
             skipped.append("eps_revisions")
         else:
             try:
@@ -678,15 +712,8 @@ class YFinanceDataService:
                 logger.warning("Failed eps_revisions for %s: %s", yfinance_ticker, e)
 
         # 3d/3e/3f. Analyst estimates (earnings / revenue / growth) — dedicated
-        # typed tables, staleness-gated on the shared fundamentals window.
-        estimates_fresh = (
-            mode == "incremental"
-            and staleness is not None
-            and _is_fresh(
-                staleness.get("financials_updated_at"), thresholds.financials_hours, now
-            )
-        )
-        if estimates_fresh:
+        # typed tables, each gated on its own fundamentals-window marker.
+        if _fundamentals_fresh("earnings_estimate"):
             skipped.append("earnings_estimate")
         else:
             try:
@@ -706,7 +733,7 @@ class YFinanceDataService:
                     "Failed earnings_estimate for %s: %s", yfinance_ticker, e
                 )
 
-        if estimates_fresh:
+        if _fundamentals_fresh("revenue_estimate"):
             skipped.append("revenue_estimate")
         else:
             try:
@@ -724,7 +751,7 @@ class YFinanceDataService:
                 errors.append(f"revenue_estimate: {e}")
                 logger.warning("Failed revenue_estimate for %s: %s", yfinance_ticker, e)
 
-        if estimates_fresh:
+        if _fundamentals_fresh("growth_estimates"):
             skipped.append("growth_estimates")
         else:
             try:
@@ -743,7 +770,7 @@ class YFinanceDataService:
                 logger.warning("Failed growth_estimates for %s: %s", yfinance_ticker, e)
 
         # 3g. Earnings history (past-quarter EPS surprise).
-        if estimates_fresh:
+        if _fundamentals_fresh("earnings_history"):
             skipped.append("earnings_history")
         else:
             try:
@@ -762,7 +789,7 @@ class YFinanceDataService:
                 logger.warning("Failed earnings_history for %s: %s", yfinance_ticker, e)
 
         # 3h. Earnings dates (past + upcoming).
-        if estimates_fresh:
+        if _fundamentals_fresh("earnings_dates"):
             skipped.append("earnings_dates")
         else:
             try:
@@ -808,7 +835,7 @@ class YFinanceDataService:
                 logger.warning("Failed analyst_actions for %s: %s", yfinance_ticker, e)
 
         # 3k. SEC filings (list of dicts; fundamentals window).
-        if estimates_fresh:
+        if _fundamentals_fresh("sec_filings"):
             skipped.append("sec_filings")
         else:
             try:
@@ -825,7 +852,7 @@ class YFinanceDataService:
                 logger.warning("Failed sec_filings for %s: %s", yfinance_ticker, e)
 
         # 3l. Shares outstanding (fundamentals window; point-in-time float).
-        if estimates_fresh:
+        if _fundamentals_fresh("shares_outstanding"):
             skipped.append("shares_outstanding")
         else:
             try:
@@ -844,6 +871,12 @@ class YFinanceDataService:
                 logger.warning(
                     "Failed shares_outstanding for %s: %s", yfinance_ticker, e
                 )
+
+        # A category present in counts was fetched without raising; its count says
+        # whether Yahoo had anything.
+        for category in FUNDAMENTAL_CATEGORIES:
+            if category in counts:
+                _record_fetch(f"{category}_updated_at", counts[category])
 
         # 4. Dividends
         if (
@@ -1330,6 +1363,7 @@ def run_bulk_yfinance_fetch(
             repo,
             yf_client,
             request_timeout=float(_settings.yfinance_request_timeout_seconds),
+            empty_fetches=SHARED_EMPTY_FETCHES,
         )
 
         # Incremental: one grouped staleness query for the whole sweep instead
@@ -1438,7 +1472,12 @@ def _fetch_one_ticker(
         raise ValueError("missing yfinance_ticker")
     with database_manager.get_session() as session:
         repo = YFinanceRepository(session)
-        service = YFinanceDataService(repo, yf_client, request_timeout=request_timeout)
+        service = YFinanceDataService(
+            repo,
+            yf_client,
+            request_timeout=request_timeout,
+            empty_fetches=SHARED_EMPTY_FETCHES,
+        )
         try:
             result = service.fetch_and_store(
                 instrument_id=spec.instrument_id,
