@@ -27,6 +27,24 @@ from pathlib import Path
 _EXCLUDE_DIR_PARTS = {"__pycache__", "build"}
 
 
+def _is_in_excluded_dir(path: Path, root: Path) -> bool:
+    """Return whether ``path`` sits in a noise directory *below* ``root``.
+
+    Only the part of the path under ``root`` is inspected: a checkout that
+    itself lives beneath a ``build`` directory (``/home/ci/build/<repo>``,
+    a Docker ``WORKDIR /build``) must not make every guard scan zero files.
+
+    Args:
+        path: A file found by walking ``root``.
+        root: The directory the walk started from.
+
+    Returns:
+        ``True`` when a directory component between ``root`` and the file is
+        in ``_EXCLUDE_DIR_PARTS``.
+    """
+    return not _EXCLUDE_DIR_PARTS.isdisjoint(path.relative_to(root).parent.parts)
+
+
 def _iter_python_files(root: Path, *, exclude: Path | None = None) -> Iterator[Path]:
     """Yield every ``.py`` file under ``root``, skipping generated noise dirs.
 
@@ -41,7 +59,7 @@ def _iter_python_files(root: Path, *, exclude: Path | None = None) -> Iterator[P
         directory and not equal to ``exclude``.
     """
     for path in root.rglob("*.py"):
-        if _EXCLUDE_DIR_PARTS.intersection(path.parts):
+        if _is_in_excluded_dir(path, root):
             continue
         if exclude is not None and path.resolve() == exclude:
             continue

@@ -47,6 +47,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.hygiene._shared_scan import _is_in_excluded_dir
+
 _INGESTION_ROOT = Path(__file__).resolve().parents[3]
 _SELF = Path(__file__).resolve()
 _HYGIENE_DIR = _SELF.parent
@@ -62,8 +64,6 @@ _CASE_SENSITIVE_MARKERS = (
 )
 _ROUTE_DECORATOR_PATTERN = re.compile(r"@\w+\.(get|post|put|delete|patch|websocket)\(")
 _SCAN_SUFFIXES = {".py", ".toml", ".ini", ".cfg", ".txt"}
-# "build": skip the gitignored uv-build artifact tree (see _shared_scan.py).
-_EXCLUDE_DIR_PARTS = {"__pycache__", "build"}
 
 # (path-suffix, line-substring, reason)
 _ALLOWLIST = (
@@ -117,7 +117,7 @@ def _iter_files_under(root: Path) -> Iterator[Path]:
             continue
         if path.suffix not in _SCAN_SUFFIXES:
             continue
-        if _EXCLUDE_DIR_PARTS.intersection(path.parts):
+        if _is_in_excluded_dir(path, root):
             continue
         relative_parts = path.relative_to(root).parts
         if _has_dotted_component(Path(*relative_parts)):

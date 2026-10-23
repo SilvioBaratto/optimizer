@@ -45,6 +45,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.hygiene._shared_scan import _is_in_excluded_dir
+
 _INGESTION_ROOT = Path(__file__).resolve().parents[3]
 _SELF = Path(__file__).resolve()
 _HYGIENE_DIR = _SELF.parent
@@ -52,8 +54,6 @@ _DEPLOYMENT_VERIFICATION_DIR = _INGESTION_ROOT / "tests" / "integration" / "depl
 _EXEMPT_DIRS = (_HYGIENE_DIR, _DEPLOYMENT_VERIFICATION_DIR)
 
 _SCAN_SUFFIXES = {".py", ".toml", ".ini", ".cfg", ".txt", ".yaml", ".yml"}
-# "build": skip the gitignored uv-build artifact tree (see _shared_scan.py).
-_EXCLUDE_DIR_PARTS = {"__pycache__", "build"}
 
 # LLM *libraries*: never a legitimate config string — forbidden anywhere.
 # Case-insensitive: regressions are as likely to be capitalised prose
@@ -172,7 +172,7 @@ def _iter_files_under(root: Path) -> Iterator[Path]:
             continue
         if path.suffix not in _SCAN_SUFFIXES:
             continue
-        if _EXCLUDE_DIR_PARTS.intersection(path.parts):
+        if _is_in_excluded_dir(path, root):
             continue
         if _is_build_artifact(path):
             continue

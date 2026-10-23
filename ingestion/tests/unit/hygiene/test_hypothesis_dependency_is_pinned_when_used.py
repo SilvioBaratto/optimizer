@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.hygiene._shared_scan import _is_in_excluded_dir
+
 _INGESTION_ROOT = Path(__file__).resolve().parents[3]
 _TESTS_ROOT = _INGESTION_ROOT / "tests"
 _PYPROJECT_FILE = _INGESTION_ROOT / "pyproject.toml"
@@ -31,13 +33,11 @@ _HYPOTHESIS_IMPORT_PATTERN = re.compile(
 # Un-anchored: matches a ``hypothesis==<version>`` token wherever it appears —
 # a bare requirements line or a quoted ``pyproject.toml`` dependency entry.
 _HYPOTHESIS_PIN_PATTERN = re.compile(r"hypothesis==\S+")
-# "build": skip the gitignored uv-build artifact tree (see _shared_scan.py).
-_EXCLUDE_DIR_PARTS = {"__pycache__", "build"}
 
 
 def _iter_python_files(root: Path) -> Iterator[Path]:
     for path in root.rglob("*.py"):
-        if _EXCLUDE_DIR_PARTS.intersection(path.parts):
+        if _is_in_excluded_dir(path, root):
             continue
         if path.resolve() == _SELF:
             continue
