@@ -16,12 +16,14 @@ from __future__ import annotations
 import ast
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCHEDULER_DIR = REPO_ROOT / "scheduler"
@@ -36,35 +38,9 @@ SCRIPTS = [FETCH, REFETCH]
 REMOVED_STEPS = {"summarize", "calibrate", "reference-indices", "ref-indices"}
 
 CLI_SOURCE = REPO_ROOT / "ingestion" / "app" / "cli.py"
+COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
 INGESTION_README = REPO_ROOT / "ingestion" / "README.md"
 VSCODE_LAUNCH = REPO_ROOT / ".vscode" / "launch.json"
-
-
-def _registered_cli_commands(source: Path) -> set[str]:
-    """Read the Typer command names off ``cli.py`` without importing it.
-
-    Importing would load dotenv and open the DB engine; the decorators are all
-    ``@app.command()`` / ``@app.command(name=...)`` so the AST is enough, and a
-    hand-kept list goes stale the moment a command is added or removed.
-    """
-    commands: set[str] = set()
-    for node in ast.parse(source.read_text()).body:
-        if not isinstance(node, ast.FunctionDef):
-            continue
-        for deco in node.decorator_list:
-            if not (
-                isinstance(deco, ast.Call)
-                and isinstance(deco.func, ast.Attribute)
-                and deco.func.attr == "command"
-            ):
-                continue
-            named = {
-                kw.arg: kw.value.value
-                for kw in deco.keywords
-                if isinstance(kw.value, ast.Constant)
-            }
-            commands.add(named.get("name", node.name.replace("_", "-")))
-    return commands
 
 
 def _cli_help_texts(source: Path) -> dict[str, str]:
@@ -81,9 +57,86 @@ def _cli_help_texts(source: Path) -> dict[str, str]:
     return texts
 
 
-CLI_COMMANDS = _registered_cli_commands(CLI_SOURCE)
-
 _CLI_INVOCATION = re.compile(r"python -m app\.cli ([a-z-]+)")
+_SERVICE_DEFAULT = re.compile(r'SERVICE="\$\{SERVICE:-([^}]+)\}"')
+
+
+def _command_functions(source: str) -> dict[str, ast.FunctionDef]:
+    """Map each Typer command name in ``source`` to the function behind it.
+
+    Reads the ``@app.command`` decorators statically rather than importing
+    ``app.cli``: that module loads ``.env`` into ``os.environ`` as an import side
+    effect, which must not leak into the library suite.
+    """
+    commands: dict[str, ast.FunctionDef] = {}
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for decorator in node.decorator_list:
+            if _is_app_command(decorator):
+                commands[_command_name(decorator, node.name)] = node
+    return commands
+
+
+def _is_app_command(decorator: ast.expr) -> bool:
+    target = decorator.func if isinstance(decorator, ast.Call) else decorator
+    return (
+        isinstance(target, ast.Attribute)
+        and target.attr == "command"
+        and isinstance(target.value, ast.Name)
+        and target.value.id == "app"
+    )
+
+
+def _command_name(decorator: ast.expr, function_name: str) -> str:
+    """Return the name Typer registers: explicit ``name`` or the derived one."""
+    if isinstance(decorator, ast.Call):
+        explicit = decorator.args[0] if decorator.args else None
+        for keyword in decorator.keywords:
+            if keyword.arg == "name":
+                explicit = keyword.value
+        if isinstance(explicit, ast.Constant) and isinstance(explicit.value, str):
+            return explicit.value
+    # Typer lower-cases the function name and swaps underscores for hyphens.
+    return function_name.lower().replace("_", "-")
+
+
+def registered_cli_commands(source: str) -> set[str]:
+    """Return the subcommand names the Typer app in ``source`` registers."""
+    return set(_command_functions(source))
+
+
+CLI_COMMANDS = registered_cli_commands(CLI_SOURCE.read_text(encoding="utf-8"))
+
+
+def unknown_cli_commands(script_text: str) -> set[str]:
+    """Return CLI subcommands a wrapper invokes that the CLI does not define."""
+    return set(_CLI_INVOCATION.findall(script_text)) - CLI_COMMANDS
+
+
+def refetch_all_step_order(cli_source: str) -> list[str]:
+    """Return the scheduler step functions ``refetch-all`` calls, in call order."""
+    function = _command_functions(cli_source)["refetch-all"]
+    steps = [
+        call
+        for call in ast.walk(function)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id.startswith("run_")
+    ]
+    steps.sort(key=lambda call: (call.lineno, call.col_offset))
+    return [call.func.id for call in steps if isinstance(call.func, ast.Name)]
+
+
+def service_default(script_text: str) -> str | None:
+    """Return the compose service a wrapper targets when ``SERVICE`` is unset."""
+    match = _SERVICE_DEFAULT.search(script_text)
+    return match.group(1) if match else None
+
+
+def compose_services(compose_text: str) -> set[str]:
+    """Return the service names declared in a compose file."""
+    return set(yaml.safe_load(compose_text)["services"])
 
 
 @pytest.mark.parametrize("script", SCRIPTS, ids=lambda p: p.name)
@@ -108,6 +161,75 @@ class TestWrapperContract:
         text = script.read_text()
         assert "/api/v1" not in text
         assert "curl" not in text
+
+    @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not installed")
+    def test_parses_under_bash(self, script: Path) -> None:
+        """A syntax error otherwise only surfaces when cron fires the script."""
+        result = subprocess.run(
+            ["bash", "-n", str(script)], capture_output=True, text=True, check=False
+        )
+        assert result.returncode == 0, result.stderr
+
+    def test_targets_a_service_compose_defines(self, script: Path) -> None:
+        """Renaming the compose service must fail here, not at the next cron run."""
+        target = service_default(script.read_text())
+
+        assert target is not None, f"{script.name} has no SERVICE default"
+        services = compose_services(COMPOSE_FILE.read_text(encoding="utf-8"))
+        assert target in services, (
+            f"{script.name} execs into {target!r}, absent from docker-compose.yml "
+            f"services {sorted(services)}"
+        )
+
+
+class TestCliCommandSet:
+    def test_parser_finds_commands_in_the_real_cli(self) -> None:
+        """An empty set would make every wrapper look like it calls a typo."""
+        assert CLI_COMMANDS, f"no @app.command found in {CLI_SOURCE}"
+
+    def test_every_command_a_wrapper_invokes_is_registered(self) -> None:
+        invoked = {
+            command
+            for script in SCRIPTS
+            for command in _CLI_INVOCATION.findall(script.read_text())
+        }
+
+        assert invoked, "no wrapper invokes the CLI"
+        assert invoked <= CLI_COMMANDS
+
+    def test_wrapper_calling_an_unregistered_command_is_rejected(self) -> None:
+        missing = "no-such-command"
+        assert missing not in CLI_COMMANDS
+        text = f"exec docker compose exec -T x python -m app.cli {missing}"
+
+        assert unknown_cli_commands(text) == {missing}
+
+    def test_explicit_name_overrides_the_function_name(self) -> None:
+        source = (
+            "@app.command(name='refetch-all')\n"
+            "def refetch_all(): ...\n"
+            "@app.command('market-summary')\n"
+            "def market_summary_cmd(): ...\n"
+        )
+
+        assert registered_cli_commands(source) == {"refetch-all", "market-summary"}
+
+    def test_unnamed_command_takes_a_hyphenated_function_name(self) -> None:
+        source = (
+            "@app.command()\ndef market_structure(): ...\n"
+            "@app.command\ndef Daily(): ...\n"
+        )
+
+        assert registered_cli_commands(source) == {"market-structure", "daily"}
+
+    def test_functions_not_registered_on_the_app_are_ignored(self) -> None:
+        source = (
+            "@other.command()\ndef not_ours(): ...\n"
+            "@app.callback()\ndef main(): ...\n"
+            "def helper(): ...\n"
+        )
+
+        assert registered_cli_commands(source) == set()
 
 
 class TestStaleReferences:
@@ -171,11 +293,36 @@ class TestScriptTargets:
             "refetch-all",
         ]
 
+    def test_refetch_all_rebuilds_the_universe_before_fetching(self) -> None:
+        """Every fetch step iterates ``instruments``, so a stale universe caps them."""
+        order = refetch_all_step_order(CLI_SOURCE.read_text(encoding="utf-8"))
+
+        assert order[:1] == ["run_universe_build"], f"refetch-all runs {order}"
+
+    def test_step_order_helper_reports_a_swapped_command(self) -> None:
+        source = (
+            "@app.command(name='refetch-all')\n"
+            "def refetch_all():\n"
+            "    run_weekly_refetch()\n"
+            "    run_universe_build()\n"
+        )
+
+        assert refetch_all_step_order(source) == [
+            "run_weekly_refetch",
+            "run_universe_build",
+        ]
+
     @pytest.mark.parametrize("script", SCRIPTS, ids=lambda p: p.name)
     def test_supports_docker_and_local_runners(self, script: Path) -> None:
         text = script.read_text()
         assert "docker compose exec" in text
         assert 'RUNNER="${RUNNER:-docker}"' in text
+
+    def test_service_default_parser_reads_the_shipped_default(self) -> None:
+        assert service_default('RUNNER="x"\nSERVICE="${SERVICE:-scheduler}"\n') == (
+            "scheduler"
+        )
+        assert service_default("no default here") is None
 
 
 _STUB = """#!/bin/sh
