@@ -139,3 +139,23 @@ class TestFitFactorPrior:
     def test_empty_frame_raises(self, asset_returns: pd.DataFrame) -> None:
         with pytest.raises(DataError, match="non-empty"):
             fit_factor_prior(asset_returns.iloc[:0], asset_returns.iloc[:0])
+
+    def test_duplicate_dates_raise_data_error(
+        self, asset_returns: pd.DataFrame, factor_returns: pd.DataFrame
+    ) -> None:
+        # Duplicated labels make ``.loc[common]`` expand rows in one frame
+        # only, so the two frames would otherwise end up with different lengths.
+        dup = pd.concat([asset_returns, asset_returns.iloc[:5]])
+        with pytest.raises(DataError, match="duplicate"):
+            fit_factor_prior(dup, factor_returns)
+        dup_f = pd.concat([factor_returns, factor_returns.iloc[:5]])
+        with pytest.raises(DataError, match="duplicate"):
+            fit_factor_prior(asset_returns, dup_f)
+
+    def test_duplicate_dates_in_both_frames_raise_data_error(
+        self, asset_returns: pd.DataFrame, factor_returns: pd.DataFrame
+    ) -> None:
+        dup = pd.concat([asset_returns, asset_returns.iloc[:5]])
+        dup_f = pd.concat([factor_returns, factor_returns.iloc[:5]])
+        with pytest.raises(DataError, match="duplicate"):
+            fit_factor_prior(dup, dup_f)
