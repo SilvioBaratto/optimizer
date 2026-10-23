@@ -10109,3 +10109,81 @@ async def test_deliberation_live_survives_focus_move_while_stream_in_flight(
         await pilot.pause()
         assert view.live_run_id == run_id
         assert view.live_portfolio_id == _PID_A  # a barge-in still targets A
+
+
+def _seed_extra_runs(session, count: int) -> list[uuid.UUID]:
+    """Seed ``count`` bare runs for _PID_A, one day apart; return their ids."""
+    repo = AgentRunRepository(session)
+    return [
+        repo.create_run(
+            portfolio_id=_PID_A,
+            asof=date(2026, 2, 1 + offset),
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        ).id
+        for offset in range(count)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_deliberation_poll_tick_keeps_run_and_step_cursors(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_extra_runs(session, 3)
+        run_id = _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        runs_table = view.query_one("#delib-runs", DataTable)
+        steps_table = view.query_one("#delib-steps", DataTable)
+        assert runs_table.row_count == 4
+        assert steps_table.row_count == 3
+        runs_table.move_cursor(row=2)
+        steps_table.move_cursor(row=2)
+        await pilot.pause()
+
+        app._refresh()  # what the 2s poll timer does
+        await pilot.pause()
+
+        assert runs_table.cursor_row == 2  # Enter must still act on the same run
+        assert steps_table.cursor_row == 2
+
+
+def _seed_run_on_day(session, day: int, *, decisions: int = 0) -> uuid.UUID:
+    """Seed a _PID_A run created on 2026-03-``day`` (so list order is deterministic)."""
+    repo = AgentRunRepository(session)
+    run = repo.create_run(
+        portfolio_id=_PID_A,
+        asof=date(2026, 3, day),
+        seed=1,
+        universe=[],
+        optimizer_config={},
+    )
+    run.created_at = datetime(2026, 3, day, tzinfo=UTC)
+    for _ in range(decisions):
+        repo.append_decision(run.id, agent="risk", step="risk_check")
+    session.flush()
+    return run.id
+
+
+@pytest.mark.asyncio
+async def test_deliberation_switching_runs_resets_the_step_cursor(shell_env) -> None:
+    with shell_env.get_session() as session:
+        first = _seed_run_on_day(session, 1, decisions=5)
+        second = _seed_run_on_day(session, 2, decisions=5)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(first)
+        await pilot.pause()
+        steps = view.query_one("#delib-steps", DataTable)
+        steps.move_cursor(row=3)
+        await pilot.pause()
+        view.select_run(second)  # step keys are positions: not comparable across runs
+        await pilot.pause()
+        assert steps.row_count == 5
+        assert steps.cursor_row == 0
