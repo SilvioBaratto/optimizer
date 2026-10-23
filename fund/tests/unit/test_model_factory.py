@@ -833,3 +833,22 @@ def test_nvidia_request_payload_allows_a_long_completion(extra):
         inputs=[{"role": "user", "content": "hi"}], stop=None, stream=False
     )
     assert payload["max_tokens"] >= _MIN_COMPLETION_TOKENS
+
+
+def test_huggingface_chat_wrapper_sends_a_zero_temperature():
+    # ChatHuggingFace inherits temperature from the endpoint only when truthy, so
+    # the falsy 0.0 contract is silently dropped unless set on the wrapper itself.
+    cfg = FundConfig(llm_provider="huggingface", hf_api_token=_FAKE_HF)
+
+    llm = model.build_chat_model(cfg, model_name="meta-llama/Meta-Llama-3-8B-Instruct")
+
+    assert llm._default_params["temperature"] == cfg.model_temperature
+
+
+def test_huggingface_chat_wrapper_allows_a_long_completion():
+    cfg = FundConfig(llm_provider="huggingface", hf_api_token=_FAKE_HF)
+
+    llm = model.build_chat_model(cfg, model_name="meta-llama/Meta-Llama-3-8B-Instruct")
+
+    assert llm._default_params["max_tokens"] >= _MIN_COMPLETION_TOKENS
+    assert llm.llm.max_new_tokens >= _MIN_COMPLETION_TOKENS

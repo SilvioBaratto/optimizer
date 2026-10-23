@@ -352,7 +352,10 @@ def _build_huggingface(config: FundConfig, model_name: str) -> BaseChatModel:
     *before* the import — the ``huggingface`` extra deliberately ships no
     torch/transformers, so local inference is not yet supported. ``model_id`` is
     passed explicitly so construction resolves no tokenizer over the network
-    (build time stays request-free). ``temperature=0`` threads the D4 contract;
+    (build time stays request-free). ``temperature=0`` threads the D4 contract and
+    ``max_tokens`` is set explicitly, both on the wrapper itself: ``ChatHuggingFace``
+    inherits endpoint properties only when truthy, so a ``0.0`` temperature would be
+    dropped and the endpoint's 512-token default would cap every completion.
     ``reasoning=`` is Ollama-only and is never passed here.
     """
     if config.hf_mode != "cloud":
@@ -369,9 +372,15 @@ def _build_huggingface(config: FundConfig, model_name: str) -> BaseChatModel:
         "repo_id": model_name,
         "huggingfacehub_api_token": token,
         "temperature": config.model_temperature,
+        "max_new_tokens": _MAX_COMPLETION_TOKENS,
     }
     endpoint = HuggingFaceEndpoint(**endpoint_kwargs)
-    return ChatHuggingFace(llm=endpoint, model_id=model_name)
+    return ChatHuggingFace(
+        llm=endpoint,
+        model_id=model_name,
+        temperature=config.model_temperature,
+        max_tokens=_MAX_COMPLETION_TOKENS,
+    )
 
 
 # Provider registry: slug → builder. Referencing a builder does NOT import its
