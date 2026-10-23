@@ -31,8 +31,10 @@ _MSG_T212_SECRET = "Trading212 secret key:"  # noqa: S105 - UI label, not a secr
 _MSG_FRED_KEY = "FRED API key (optional — paste it, or press Enter to skip):"
 _MSG_CONFIGURE_LLM = "Configure the fund LLM backend?"
 _MSG_LLM_PROVIDER = "LLM provider:"
-_MSG_LLM_MODEL = "LLM model id:"
-_MSG_LLM_BASE_URL = "LLM base URL (blank for the hosted default):"
+_MSG_LLM_MODEL = "LLM model id (type - to clear a stored one):"
+_MSG_LLM_BASE_URL = (
+    "LLM base URL (blank for the hosted default, type - to clear a stored one):"
+)
 _MSG_LLM_KEY = "LLM API key:"
 _MSG_AWS_REGION = "AWS region:"
 _MSG_AZURE_ENDPOINT = "Azure OpenAI endpoint:"
@@ -76,6 +78,10 @@ _LLM_PROVIDER_SCOPED_KEYS = (
 _LLM_KEY_ATTEMPTS = 3
 # Bounded for the same reason when choosing a new master passphrase.
 _PASSPHRASE_ATTEMPTS = 3
+# Typed at a prompt or passed as --llm-model/--llm-base-url, these remove the stored
+# value. A blank cannot: the plain-stdin prompter turns it into the offered default and
+# a blank flag means "not given", so a stored local URL could never be unset.
+_CLEAR_SENTINELS = frozenset({"-", "none"})
 
 
 class SetupError(RuntimeError):
@@ -274,12 +280,20 @@ def _llm_needs_key(provider: str, base_url: str | None) -> bool:
     return True
 
 
+def _typed_value(answer: str) -> str:
+    """A prompt answer stripped; a clear sentinel becomes blank (= unset)."""
+    value = answer.strip()
+    return "" if value.lower() in _CLEAR_SENTINELS else value
+
+
 def _carry_forward(given: str | None, stored: object) -> str | None:
-    """The value a model/base-URL flag resolves to: the flag, else what is stored."""
-    value = (given or "").strip()
-    if value:
-        return value
-    return str(stored) if stored else None
+    """The value a model/base-URL flag resolves to.
+
+    The flag wins; a blank or absent flag keeps ``stored``; a clear sentinel drops it.
+    """
+    if not (given or "").strip():
+        return str(stored) if stored else None
+    return _typed_value(given or "") or None
 
 
 def _stage_llm(
@@ -449,22 +463,31 @@ def _configure_llm_interactive(
     Declining keeps fund.config's env-free default (or, on a re-run, the provider the
     earlier run persisted — the merge preserves it). The "configure?" prompt defaults
     to reconfigure: off on a first run / a reuse re-run, on when ``--reconfigure`` asks
-    to change it. Prompt defaults are pre-filled from ``existing`` config. A rejected
-    key re-prompts; an unreachable service raises ``ValidationNetworkError``.
+    to change it. Model and base-URL defaults are pre-filled from ``existing`` config
+    only when it was written for the same provider; blank or a clear sentinel (``-``)
+    removes the stored value. A rejected key re-prompts; an unreachable service raises
+    ``ValidationNetworkError``.
     """
     existing = existing or {}
     if not prompter.confirm(_MSG_CONFIGURE_LLM, default=reconfigure):
         return
     provider = prompter.select(_MSG_LLM_PROVIDER, validators.SUPPORTED_LLM_PROVIDERS)
-    model = prompter.text(
-        _MSG_LLM_MODEL,
-        default=_LLM_DEFAULT_MODEL.get(provider)
-        or str(existing.get("llm_model") or ""),
-    ).strip()
-    base_url = (
+    # A stored model/URL belongs to the provider that wrote it. Offering it for
+    # another provider would make a bare Enter probe the new key against the old host.
+    same = existing if existing.get("llm_provider") == provider else {}
+    model = _typed_value(
         prompter.text(
-            _MSG_LLM_BASE_URL, default=str(existing.get("llm_base_url") or "")
-        ).strip()
+            _MSG_LLM_MODEL,
+            default=_LLM_DEFAULT_MODEL.get(provider)
+            or str(same.get("llm_model") or ""),
+        )
+    )
+    base_url = (
+        _typed_value(
+            prompter.text(
+                _MSG_LLM_BASE_URL, default=str(same.get("llm_base_url") or "")
+            )
+        )
         or None
     )
     fields = _prompt_llm_fields(prompter, provider)

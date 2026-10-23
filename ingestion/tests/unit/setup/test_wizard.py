@@ -1247,3 +1247,214 @@ def test_noninteractive_provider_switch_does_not_inherit_model_or_base_url(
         "repo_path": "/home/u/optimizer",
     }
     assert probes == [("anthropic", "sk-ant", None)]
+
+
+# --- prompt defaults come from the stored config only for the same provider ---
+
+
+class _DefaultTakingPrompter(NonInteractivePrompter):
+    """Mimics the real prompters: a blank answer takes the offered default."""
+
+    def __init__(self, answers: dict) -> None:
+        super().__init__(answers)
+        self.defaults: dict[str, str | None] = {}
+
+    def text(self, message: str, *, default: str | None = None) -> str:
+        self.defaults[message] = default
+        return super().text(message, default=default) or (default or "")
+
+
+_STORED_NVIDIA_NIM = {
+    "llm_provider": "nvidia",
+    "llm_model": "meta/llama-3.1-70b-instruct",
+    "llm_base_url": "http://10.0.0.5:8000/v1",
+}
+
+
+def test_interactive_provider_switch_does_not_prefill_the_old_base_url(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Enter at the base-URL prompt must not probe the new key against the old host."""
+    monkeypatch.setattr(
+        wizard.config_file, "load_config", lambda **k: dict(_STORED_NVIDIA_NIM)
+    )
+    probes: list[tuple[str, str | None, str | None]] = []
+
+    def _validate(provider, key=None, base_url=None, **fields):
+        probes.append((provider, key, base_url))
+        return True
+
+    monkeypatch.setattr(wizard.validators, "validate_llm", _validate)
+    prompter = _DefaultTakingPrompter(
+        {
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
+            wizard._MSG_T212_KEY: "",
+            wizard._MSG_FRED_KEY: "",
+            wizard._MSG_CONFIGURE_LLM: True,
+            wizard._MSG_LLM_PROVIDER: "anthropic",
+            wizard._MSG_LLM_MODEL: "",
+            wizard._MSG_LLM_BASE_URL: "",
+            wizard._MSG_LLM_KEY: "sk-ant-real",
+        }
+    )
+
+    wizard.run_setup_interactive(prompter, reconfigure=True)
+
+    assert not prompter.defaults[wizard._MSG_LLM_BASE_URL]
+    assert not prompter.defaults[wizard._MSG_LLM_MODEL]
+    assert probes == [("anthropic", "sk-ant-real", None)]
+    assert patched["saved_config"].get("llm_base_url") is None
+
+
+def test_interactive_same_provider_rerun_prefills_the_stored_values(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A re-run of the same provider still offers what the earlier run stored."""
+    monkeypatch.setattr(
+        wizard.config_file, "load_config", lambda **k: dict(_STORED_NVIDIA_NIM)
+    )
+    prompter = _DefaultTakingPrompter(
+        {
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
+            wizard._MSG_T212_KEY: "",
+            wizard._MSG_FRED_KEY: "",
+            wizard._MSG_CONFIGURE_LLM: True,
+            wizard._MSG_LLM_PROVIDER: "nvidia",
+            wizard._MSG_LLM_MODEL: "",
+            wizard._MSG_LLM_BASE_URL: "",
+        }
+    )
+
+    wizard.run_setup_interactive(prompter, reconfigure=True)
+
+    assert prompter.defaults[wizard._MSG_LLM_BASE_URL] == "http://10.0.0.5:8000/v1"
+    assert patched["saved_config"]["llm_base_url"] == "http://10.0.0.5:8000/v1"
+    assert patched["saved_config"]["llm_model"] == "meta/llama-3.1-70b-instruct"
+
+
+# --- a stored base URL / model can be cleared on a same-provider re-run -------
+#
+# A blank answer cannot express "clear": the plain-stdin prompter (Git Bash) turns it
+# into the offered default, and a missing flag means "not given". A sentinel does.
+
+_STORED_LOCAL_OLLAMA = {
+    "llm_provider": "ollama",
+    "llm_model": "llama3.1:8b",
+    "llm_base_url": "http://localhost:11434",
+}
+
+
+def _same_provider_rerun_answers(**overrides: object) -> dict:
+    answers = {
+        wizard._MSG_PASSPHRASE: _PW,
+        wizard._MSG_PASSPHRASE_CONFIRM: _PW,
+        wizard._MSG_T212_KEY: "",
+        wizard._MSG_FRED_KEY: "",
+        wizard._MSG_CONFIGURE_LLM: True,
+        wizard._MSG_LLM_PROVIDER: "ollama",
+        wizard._MSG_LLM_MODEL: "llama3.1:8b",
+        wizard._MSG_LLM_BASE_URL: "",
+        wizard._MSG_LLM_KEY: "ollama-cloud-key",
+    }
+    answers.update(overrides)
+    return answers
+
+
+def test_enter_at_the_base_url_prompt_keeps_the_stored_url(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    path = _store_config(monkeypatch, tmp_path, _STORED_LOCAL_OLLAMA)
+    prompter = _DefaultTakingPrompter(_same_provider_rerun_answers())
+
+    wizard.run_setup_interactive(prompter, reconfigure=True)
+
+    assert _REAL_LOAD_CONFIG(path=path) == _STORED_LOCAL_OLLAMA
+
+
+@pytest.mark.parametrize("sentinel", ["-", "none", "None", " - "])
+def test_sentinel_at_the_base_url_prompt_clears_the_stored_url(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path, sentinel: str
+) -> None:
+    """Moving local ollama to Ollama Cloud: Enter re-offers the local URL, the
+    sentinel is the way to say "back to the hosted default"."""
+    path = _store_config(monkeypatch, tmp_path, _STORED_LOCAL_OLLAMA)
+    probes = _record_llm_probes(monkeypatch)
+    prompter = _DefaultTakingPrompter(
+        _same_provider_rerun_answers(**{wizard._MSG_LLM_BASE_URL: sentinel})
+    )
+
+    wizard.run_setup_interactive(prompter, reconfigure=True)
+
+    assert _REAL_LOAD_CONFIG(path=path) == {
+        "llm_provider": "ollama",
+        "llm_model": "llama3.1:8b",
+    }
+    assert probes == [("ollama", "ollama-cloud-key", None)]
+    assert patched["saved_secrets"] == {"ollama_api_key": "ollama-cloud-key"}
+
+
+def test_sentinel_at_the_model_prompt_clears_the_stored_model(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    path = _store_config(monkeypatch, tmp_path, _STORED_OPENAI_PROXY)
+    prompter = _DefaultTakingPrompter(
+        _same_provider_rerun_answers(
+            **{
+                wizard._MSG_LLM_PROVIDER: "openai",
+                wizard._MSG_LLM_MODEL: "-",
+                wizard._MSG_LLM_BASE_URL: "",
+                wizard._MSG_LLM_KEY: "sk-new",
+            }
+        )
+    )
+
+    wizard.run_setup_interactive(prompter, reconfigure=True)
+
+    stored = dict(_STORED_OPENAI_PROXY)
+    del stored["llm_model"]
+    assert _REAL_LOAD_CONFIG(path=path) == stored
+
+
+def test_noninteractive_sentinel_clears_the_stored_base_url_and_model(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    path = _store_config(monkeypatch, tmp_path, _STORED_OPENAI_PROXY)
+    probes = _record_llm_probes(monkeypatch)
+
+    wizard.run_setup_noninteractive(
+        passphrase=_PW,
+        llm_provider="openai",
+        llm_model="none",
+        llm_base_url="-",
+        llm_key="sk-new",
+    )
+
+    assert _REAL_LOAD_CONFIG(path=path) == {
+        "llm_provider": "openai",
+        "llm_fallback_model": "gpt-4o-mini",
+        "repo_path": "/home/u/optimizer",
+    }
+    assert probes == [("openai", "sk-new", None)]
+
+
+def test_noninteractive_blank_flag_counts_as_not_given(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """An unset shell variable expanding to "" must not silently wipe the stored URL."""
+    path = _store_config(monkeypatch, tmp_path, _STORED_OPENAI_PROXY)
+
+    wizard.run_setup_noninteractive(
+        passphrase=_PW, llm_provider="openai", llm_base_url="  ", llm_key="sk-new"
+    )
+
+    assert _REAL_LOAD_CONFIG(path=path) == _STORED_OPENAI_PROXY
+
+
+@pytest.mark.parametrize("message", [wizard._MSG_LLM_MODEL, wizard._MSG_LLM_BASE_URL])
+def test_llm_prompts_tell_the_operator_how_to_clear_a_stored_value(
+    message: str,
+) -> None:
+    assert "clear" in message.lower()
+    assert "-" in message

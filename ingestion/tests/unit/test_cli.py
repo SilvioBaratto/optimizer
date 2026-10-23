@@ -113,6 +113,27 @@ class TestSetupCommand:
         assert kwargs["llm_base_url"] == "https://proxy.example/v1"
         assert kwargs["llm_key"] == "sk-x"
 
+    def test_llm_clear_sentinel_reaches_the_wizard_untouched(self) -> None:
+        """``-`` is the "clear the stored value" marker; the CLI must not eat it."""
+        with patch("app.setup.wizard.run_setup_noninteractive") as mock_run:
+            result = runner.invoke(
+                app,
+                [
+                    "setup",
+                    "--non-interactive",
+                    "--llm-provider",
+                    "ollama",
+                    "--llm-base-url",
+                    "-",
+                    "--llm-model",
+                    "none",
+                ],
+            )
+        assert result.exit_code == 0
+        kwargs = mock_run.call_args.kwargs
+        assert kwargs["llm_base_url"] == "-"
+        assert kwargs["llm_model"] == "none"
+
     def test_skip_path_install_forwarded(self) -> None:
         with patch("app.setup.wizard.run_setup_noninteractive") as mock_run:
             result = runner.invoke(

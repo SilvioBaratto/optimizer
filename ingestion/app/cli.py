@@ -396,12 +396,17 @@ def setup(
         help="Fund LLM provider (ollama, openai, anthropic, ...).",
     ),
     llm_model: str | None = typer.Option(
-        None, "--llm-model", help="Fund LLM model id."
+        None,
+        "--llm-model",
+        help="Fund LLM model id ('-' clears the stored one; omitted keeps it).",
     ),
     llm_base_url: str | None = typer.Option(
         None,
         "--llm-base-url",
-        help="Override the hosted default (local ollama, self-hosted NIM, proxy).",
+        help=(
+            "Override the hosted default (local ollama, self-hosted NIM, proxy). "
+            "'-' clears the stored one; omitted keeps it."
+        ),
     ),
     llm_key: str | None = typer.Option(
         None,
