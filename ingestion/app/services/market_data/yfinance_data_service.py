@@ -17,6 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
+import pandas as pd
 from portopt_db.repositories.market_data.etf_metadata_repository import (
     ETFMetadataRepository,
 )
@@ -136,6 +137,59 @@ def _financial_currency(info: dict[str, Any] | None) -> str | None:
     if not isinstance(raw, str) or not raw.strip():
         return None
     return to_major_currency(raw.strip())
+
+
+def _valuation_column_date(label: Any, as_of: date) -> date | None:
+    """Resolve one ``Ticker.valuation`` column label to the date it describes."""
+    if isinstance(label, datetime):
+        return None if pd.isna(label) else label.date()
+    if isinstance(label, date):
+        return label
+    if not isinstance(label, str):
+        return None
+    text = label.strip()
+    if text.lower() == "current":
+        return as_of
+    try:
+        return datetime.strptime(text, "%m/%d/%Y").date()
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(text).date()
+    except ValueError:
+        return None
+
+
+def _date_valuation_columns(df: pd.DataFrame, as_of: date) -> pd.DataFrame:
+    """Relabel a ``Ticker.valuation`` frame so every column is a timestamp.
+
+    yfinance labels the columns ``"Current"`` plus ``"M/D/YYYY"`` strings, which
+    the date-keyed statement repository cannot parse and silently skips, so the
+    labels must be resolved to dates first. ``"Current"`` is the latest trailing
+    value and is stamped with *as_of*; columns that resolve to an already-seen
+    date or to no date are dropped, since a duplicate would collide on the
+    table's unique key.
+
+    Args:
+        df: Measures as rows, one column per period plus ``"Current"``.
+        as_of: Date to stamp the ``"Current"`` column with (the fetch date).
+
+    Returns:
+        A frame with datetime column labels; empty when none resolved.
+    """
+    keep: list[int] = []
+    resolved_dates: list[date] = []
+    seen: set[date] = set()
+    for position, label in enumerate(df.columns):
+        resolved = _valuation_column_date(label, as_of)
+        if resolved is None or resolved in seen:
+            continue
+        seen.add(resolved)
+        keep.append(position)
+        resolved_dates.append(resolved)
+    dated = df.iloc[:, keep].copy()
+    dated.columns = pd.DatetimeIndex(resolved_dates)
+    return dated
 
 
 class YFinanceDataService:
@@ -532,15 +586,25 @@ class YFinanceDataService:
                     )
                 )
                 if val_df is not None and not val_df.empty:
-                    counts["valuation_measures"] = (
-                        self.repo.upsert_financial_statements(
-                            instrument_id,
-                            val_df,
-                            "valuation_measures",
-                            "point_in_time",
-                            currency_code=listing_major_currency,
+                    dated_val_df = _date_valuation_columns(val_df, now.date())
+                    if dated_val_df.empty:
+                        logger.warning(
+                            "valuation_measures for %s: none of the columns %s "
+                            "resolved to a date; nothing stored",
+                            yfinance_ticker,
+                            list(val_df.columns)[:5],
                         )
-                    )
+                        counts["valuation_measures"] = 0
+                    else:
+                        counts["valuation_measures"] = (
+                            self.repo.upsert_financial_statements(
+                                instrument_id,
+                                dated_val_df,
+                                "valuation_measures",
+                                "point_in_time",
+                                currency_code=listing_major_currency,
+                            )
+                        )
                 else:
                     counts["valuation_measures"] = 0
             except Exception as e:

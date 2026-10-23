@@ -16,13 +16,16 @@ coercion (which dropped every column and stored nothing) is gone.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pandas as pd
 import pytest
+from portopt_db.repositories.market_data.yfinance_repository import (
+    YFinanceRepository,
+)
 
 from app.services.market_data.yfinance_data_service import YFinanceDataService
 
@@ -307,3 +310,86 @@ def test_when_profile_fresh_and_no_statements_then_info_is_not_fetched() -> None
     )
 
     yf_client.fetch_info.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# valuation_measures: the real yfinance 1.x frame labels columns with strings
+# ---------------------------------------------------------------------------
+
+
+def _yfinance_valuation_frame() -> pd.DataFrame:
+    """Real ``Ticker.valuation`` shape: measures as rows, string column labels."""
+    return pd.DataFrame(
+        {
+            "Current": [3.0e12, 28.5, 7.5],
+            "9/30/2025": [2.9e12, 27.0, 7.1],
+            "6/30/2025": [2.8e12, float("nan"), 6.9],
+        },
+        index=["Market Cap", "Trailing P/E", "Price/Sales"],
+    )
+
+
+def _persisted_valuation_rows(frame: pd.DataFrame) -> tuple[dict[str, Any], list[Any]]:
+    """Run the service against the real repository row-builder, capturing rows."""
+    real_repo = YFinanceRepository(MagicMock(name="session"))
+    captured = MagicMock(name="_upsert", side_effect=lambda _m, rows, **_k: len(rows))
+    real_repo._upsert = captured  # type: ignore[method-assign]
+    repo = _build_repo()
+    repo.upsert_financial_statements = real_repo.upsert_financial_statements
+    yf_client = _build_yf_client(valuation=frame)
+
+    result = _run(yf_client, repo)
+
+    valuation_rows = [
+        row
+        for call in captured.call_args_list
+        for row in call.args[1]
+        if row["statement_type"] == "valuation_measures"
+    ]
+    return result, valuation_rows
+
+
+def test_when_valuation_columns_are_yfinance_strings_then_rows_are_persisted() -> None:
+    before = datetime.now(timezone.utc).date()
+
+    result, rows = _persisted_valuation_rows(_yfinance_valuation_frame())
+
+    after = datetime.now(timezone.utc).date()
+    assert result["counts"]["valuation_measures"] == 9
+    assert len(rows) == 9
+    dates = {row["period_date"] for row in rows}
+    assert date(2025, 9, 30) in dates
+    assert date(2025, 6, 30) in dates
+    current_dates = dates - {date(2025, 9, 30), date(2025, 6, 30)}
+    assert len(current_dates) == 1
+    assert before <= current_dates.pop() <= after
+
+
+def test_when_valuation_current_column_present_then_it_is_dated_as_of_fetch() -> None:
+    _, rows = _persisted_valuation_rows(_yfinance_valuation_frame())
+
+    today_rows = {
+        row["line_item"]: row["value"]
+        for row in rows
+        if row["period_date"] not in {date(2025, 9, 30), date(2025, 6, 30)}
+    }
+    assert today_rows == {
+        "Market Cap": 3.0e12,
+        "Trailing P/E": 28.5,
+        "Price/Sales": 7.5,
+    }
+
+
+def test_when_no_valuation_column_parses_as_a_date_then_a_warning_is_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    frame = pd.DataFrame({"n/a": [1.0]}, index=["Market Cap"])
+
+    with caplog.at_level(
+        "WARNING", logger="app.services.market_data.yfinance_data_service"
+    ):
+        result, rows = _persisted_valuation_rows(frame)
+
+    assert rows == []
+    assert result["counts"]["valuation_measures"] == 0
+    assert any("valuation_measures" in r.getMessage() for r in caplog.records)
