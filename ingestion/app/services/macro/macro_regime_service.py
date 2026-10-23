@@ -307,7 +307,10 @@ class MacroRegimeService:
         Args:
             max_articles: Maximum number of articles to fetch.
             fetch_full_content: Whether to scrape full article body in addition
-                to the headline snippet.
+                to the headline snippet. When ``True``, articles whose body
+                could not be scraped are skipped; when ``False``, articles are
+                stored with their snippet only and a body scraped by an earlier
+                run for the same article is kept.
 
         Returns:
             Dict with ``"count"`` and ``"errors"`` keys.
@@ -370,7 +373,12 @@ class MacroRegimeService:
                 }
             )
 
-        rows = [r for r in rows if r.get("full_content")]
+        # Drop articles with nothing to analyse. In scrape mode a failed body
+        # scrape leaves only the headline, which is not worth storing; in
+        # snippet-only mode the body is never fetched, so the snippet is the
+        # content and requiring full_content would discard every article.
+        body_field = "full_content" if fetch_full_content else "snippet"
+        rows = [r for r in rows if r.get(body_field)]
 
         try:
             count = self.repo.upsert_macro_news(rows)

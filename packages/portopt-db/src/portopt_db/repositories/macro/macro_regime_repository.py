@@ -580,6 +580,10 @@ class MacroRegimeRepository(RepositoryBase):
         (atomic — a crash rolls back both halves), and the one-daemon-per-DB
         invariant precludes a concurrent writer, so the sequence is idempotent
         on re-run and convergent on a changed set.
+
+        A row whose ``full_content`` is ``None`` (a snippet-only fetch) never
+        overwrites a body already stored for the same ``news_id``; every other
+        column is still refreshed. A row carrying a body replaces the stored one.
         """
         # themes is no longer a DB column; must be extracted before upsert
         themes_by_news_id: dict[str, list[str]] = {}
@@ -593,10 +597,26 @@ class MacroRegimeRepository(RepositoryBase):
                 ]
             clean_rows.append(row_copy)
 
+        with_body = [r for r in clean_rows if r.get("full_content") is not None]
+        snippet_only = [r for r in clean_rows if r.get("full_content") is None]
+
         count = self._upsert(
             MacroNews,
-            clean_rows,
+            with_body,
             constraint_name="uq_macro_news_id",
+        )
+        # A separate statement because ON CONFLICT DO UPDATE applies one column
+        # set to the whole batch: excluding full_content here keeps a body that
+        # an earlier scrape run stored from being nulled by a snippet-only run.
+        count += self._upsert(
+            MacroNews,
+            snippet_only,
+            constraint_name="uq_macro_news_id",
+            update_columns=[
+                col.name
+                for col in MacroNews.__table__.columns
+                if col.name not in {"id", "created_at", "full_content"}
+            ],
         )
 
         if themes_by_news_id:

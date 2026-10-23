@@ -27,6 +27,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy.orm import Session
 
 from app.services.macro.macro_regime_service import MacroRegimeService
 
@@ -372,7 +373,9 @@ class TestFetchMacroNews:
         assert result["count"] == 1
         assert result["errors"] == []
 
-    def test_when_article_has_no_full_content_then_filtered_out(self) -> None:
+    def test_when_scrape_requested_and_article_has_no_full_content_then_filtered_out(
+        self,
+    ) -> None:
         mock_repo = MagicMock()
         mock_repo.upsert_macro_news.return_value = 0
         service, _ = _build_service(repo=mock_repo)
@@ -384,8 +387,11 @@ class TestFetchMacroNews:
         with (
             patch(self._YF_CLIENT_PATCH, return_value=yf_client),
             patch(self._FETCHER_PATCH, return_value=fetcher_mock),
+            patch(
+                "app.services.market_data.yfinance.news.scraper.ArticleScraper",
+            ),
         ):
-            service.fetch_macro_news()
+            service.fetch_macro_news(fetch_full_content=True)
 
         # upsert called with empty list (all articles filtered)
         call_args = mock_repo.upsert_macro_news.call_args
@@ -393,6 +399,110 @@ class TestFetchMacroNews:
             call_args.args[0] if call_args.args else call_args.kwargs.get("rows", [])
         )
         assert upserted_rows == []
+
+    def test_when_snippet_only_mode_then_articles_with_snippet_are_stored(
+        self,
+    ) -> None:
+        mock_repo = MagicMock()
+        mock_repo.upsert_macro_news.side_effect = len
+        service, _ = _build_service(repo=mock_repo)
+
+        yf_client = self._mock_yf_client()
+        fetcher_mock = MagicMock()
+        fetcher_mock.fetch_all.return_value = [self._make_article(full_content=None)]
+
+        with (
+            patch(self._YF_CLIENT_PATCH, return_value=yf_client),
+            patch(self._FETCHER_PATCH, return_value=fetcher_mock),
+        ):
+            result = service.fetch_macro_news(fetch_full_content=False)
+
+        assert result["count"] == 1
+        upserted_rows = mock_repo.upsert_macro_news.call_args.args[0]
+        assert upserted_rows[0]["snippet"] == "Short snippet."
+        assert upserted_rows[0]["full_content"] is None
+
+    def test_when_snippet_only_mode_then_articles_without_snippet_are_dropped(
+        self,
+    ) -> None:
+        mock_repo = MagicMock()
+        mock_repo.upsert_macro_news.side_effect = len
+        service, _ = _build_service(repo=mock_repo)
+
+        bare = self._make_article(full_content=None)
+        bare["snippet"] = ""
+        fetcher_mock = MagicMock()
+        fetcher_mock.fetch_all.return_value = [bare]
+
+        with (
+            patch(self._YF_CLIENT_PATCH, return_value=self._mock_yf_client()),
+            patch(self._FETCHER_PATCH, return_value=fetcher_mock),
+        ):
+            result = service.fetch_macro_news(fetch_full_content=False)
+
+        assert result["count"] == 0
+
+    def test_when_snippet_only_run_follows_scrape_run_then_scraped_body_survives(
+        self, db_session: Session
+    ) -> None:
+        from portopt_db.models.macro.macro_regime import MacroNews
+        from portopt_db.repositories.macro.macro_regime_repository import (
+            MacroRegimeRepository,
+        )
+
+        service = MacroRegimeService(
+            repo=MacroRegimeRepository(db_session),
+            ilsole_scraper=MagicMock(),
+            te_scraper=MagicMock(),
+        )
+
+        def run(article: dict, *, scrape: bool) -> int:
+            fetcher_mock = MagicMock()
+            fetcher_mock.fetch_all.return_value = [article]
+            with (
+                patch(self._YF_CLIENT_PATCH, return_value=self._mock_yf_client()),
+                patch(self._FETCHER_PATCH, return_value=fetcher_mock),
+                patch("app.services.market_data.yfinance.news.scraper.ArticleScraper"),
+            ):
+                result = service.fetch_macro_news(fetch_full_content=scrape)
+            db_session.flush()
+            return result["count"]
+
+        assert run(self._make_article(full_content="Scraped body."), scrape=True) == 1
+        assert run(self._make_article(full_content=None), scrape=False) == 1
+
+        db_session.expire_all()
+        stored = db_session.query(MacroNews).filter(MacroNews.news_id == "abc").one()
+        assert stored.full_content == "Scraped body."
+
+    def test_when_request_disables_scrape_then_run_stores_snippet_articles(
+        self,
+    ) -> None:
+        from app.schemas.macro.macro_regime import MacroNewsFetchRequest
+        from app.services.macro.macro_regime_service import run_macro_news_fetch
+
+        mock_repo = MagicMock()
+        mock_repo.upsert_macro_news.side_effect = len
+        fetcher_mock = MagicMock()
+        fetcher_mock.fetch_all.return_value = [self._make_article(full_content=None)]
+
+        with (
+            patch("app.database.database_manager") as mock_db,
+            patch(
+                "app.services.macro.macro_regime_service.MacroRegimeRepository",
+                return_value=mock_repo,
+            ),
+            patch(self._YF_CLIENT_PATCH, return_value=self._mock_yf_client()),
+            patch(self._FETCHER_PATCH, return_value=fetcher_mock),
+        ):
+            mock_db.get_session.return_value.__enter__.return_value = MagicMock()
+            mock_db.get_session.return_value.__exit__.return_value = False
+
+            result = run_macro_news_fetch(
+                MacroNewsFetchRequest(fetch_full_content=False)
+            )
+
+        assert result["articles_stored"] == 1
 
     def test_when_article_has_no_publish_time_then_pub_time_is_none(self) -> None:
         mock_repo = MagicMock()

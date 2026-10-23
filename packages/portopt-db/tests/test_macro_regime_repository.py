@@ -56,3 +56,74 @@ class TestUpsertMacroNewsThemes:
 
         # inflation dropped, growth added, rates kept — no stale child left behind
         assert _themes_of(db_session, "n2") == {"rates", "growth"}
+
+
+def _body_row(news_id: str, snippet: str, full_content: str | None) -> dict:
+    return {
+        "id": uuid.uuid4(),
+        "news_id": news_id,
+        "title": "t",
+        "snippet": snippet,
+        "full_content": full_content,
+    }
+
+
+def _stored(session: Session, news_id: str) -> MacroNews:
+    session.expire_all()
+    return session.query(MacroNews).filter(MacroNews.news_id == news_id).one()
+
+
+class TestUpsertMacroNewsFullContent:
+    """A snippet-only re-fetch must not erase a body scraped earlier."""
+
+    def test_when_snippet_only_rerun_then_scraped_body_is_preserved(
+        self, db_session: Session
+    ) -> None:
+        repo = MacroRegimeRepository(db_session)
+        repo.upsert_macro_news([_body_row("b1", "old snippet", "scraped body")])
+        db_session.flush()
+        repo.upsert_macro_news([_body_row("b1", "new snippet", None)])
+        db_session.flush()
+
+        stored = _stored(db_session, "b1")
+        assert stored.full_content == "scraped body"
+        assert stored.snippet == "new snippet"
+
+    def test_when_rerun_carries_a_body_then_body_is_replaced(
+        self, db_session: Session
+    ) -> None:
+        repo = MacroRegimeRepository(db_session)
+        repo.upsert_macro_news([_body_row("b2", "s", "old body")])
+        db_session.flush()
+        repo.upsert_macro_news([_body_row("b2", "s", "fresh body")])
+        db_session.flush()
+
+        assert _stored(db_session, "b2").full_content == "fresh body"
+
+    def test_when_new_article_is_snippet_only_then_body_is_null(
+        self, db_session: Session
+    ) -> None:
+        repo = MacroRegimeRepository(db_session)
+        count = repo.upsert_macro_news([_body_row("b3", "s", None)])
+        db_session.flush()
+
+        assert count == 1
+        assert _stored(db_session, "b3").full_content is None
+
+    def test_when_batch_mixes_bodies_and_snippets_then_each_row_is_handled(
+        self, db_session: Session
+    ) -> None:
+        repo = MacroRegimeRepository(db_session)
+        repo.upsert_macro_news(
+            [_body_row("b4", "s", "kept body"), _body_row("b5", "s", "old body")]
+        )
+        db_session.flush()
+
+        count = repo.upsert_macro_news(
+            [_body_row("b4", "s2", None), _body_row("b5", "s2", "fresh body")]
+        )
+        db_session.flush()
+
+        assert count == 2
+        assert _stored(db_session, "b4").full_content == "kept body"
+        assert _stored(db_session, "b5").full_content == "fresh body"
