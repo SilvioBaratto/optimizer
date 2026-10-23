@@ -143,13 +143,52 @@ class TestFetchFundProfile:
         """netExpenseRatio is the key Yahoo actually populates for ETFs (SPY/AGG);
         the legacy mutual-fund keys are fallbacks and must not shadow it."""
         ticker = MagicMock()
-        ticker.info = {"navPrice": 1.0, "netExpenseRatio": 0.0945}
+        ticker.info = {
+            "navPrice": 1.0,
+            "netExpenseRatio": 0.0945,
+            "annualReportExpenseRatio": 0.5,
+        }
 
         with patch.object(client, "_get_ticker", return_value=ticker):
             out = client.fetch_fund_profile("SPY")
 
         assert out is not None
-        assert out["expense_ratio"] == 0.0945
+        assert out["expense_ratio"] == pytest.approx(0.000945)
+
+    def test_net_expense_ratio_percent_points_become_a_decimal_fraction(
+        self, client: FundsClient
+    ) -> None:
+        """Yahoo quotes netExpenseRatio in percent points (SPY 0.0945 = 0.0945%)
+        while the legacy keys are already fractions; the stored column is a
+        fraction, so the percent value is divided by 100."""
+        ticker = MagicMock()
+        ticker.info = {"navPrice": 96.0, "netExpenseRatio": 0.03}
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("AGG")
+
+        assert out is not None
+        assert out["expense_ratio"] == pytest.approx(0.0003)
+
+    def test_net_and_fraction_keys_agree_on_the_same_fee(
+        self, client: FundsClient
+    ) -> None:
+        """A mutual fund exposing both keys (VFIAX 0.04 vs 0.0004) must yield the
+        same stored value whichever key is read."""
+        net_only = MagicMock()
+        net_only.info = {"navPrice": 1.0, "netExpenseRatio": 0.04}
+        fraction_only = MagicMock()
+        fraction_only.info = {"navPrice": 1.0, "annualReportExpenseRatio": 0.0004}
+
+        with patch.object(client, "_get_ticker", return_value=net_only):
+            from_net = client.fetch_fund_profile("VFIAX")
+        with patch.object(client, "_get_ticker", return_value=fraction_only):
+            from_fraction = client.fetch_fund_profile("VFIAX")
+
+        assert from_net is not None and from_fraction is not None
+        assert from_net["expense_ratio"] == pytest.approx(
+            from_fraction["expense_ratio"]
+        )
 
     def test_aum_falls_back_to_net_assets(self, client: FundsClient) -> None:
         """Some UCITS listings expose netAssets but not totalAssets."""

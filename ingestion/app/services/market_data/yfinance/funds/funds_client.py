@@ -51,14 +51,7 @@ class FundsClient(BaseClient):
                 "nav": info.get("navPrice"),
                 "fund_family": info.get("fundFamily"),
                 "legal_type": info.get("legalType"),
-                # netExpenseRatio is the key Yahoo actually populates for ETFs
-                # (US-listed carry it; UCITS listings mostly do not). The other
-                # two are legacy mutual-fund keys kept as fallbacks.
-                "expense_ratio": (
-                    info.get("netExpenseRatio")
-                    or info.get("annualReportExpenseRatio")
-                    or info.get("expenseRatio")
-                ),
+                "expense_ratio": _expense_ratio_fraction(info),
                 "base_currency": info.get("currency"),
             }
             if not any(v is not None for v in profile.values()):
@@ -101,6 +94,20 @@ class FundsClient(BaseClient):
             "fund_overview": _as_dict(getattr(fd, "fund_overview", None)),
             "description": description,
         }
+
+
+def _expense_ratio_fraction(info: dict[str, Any]) -> float | None:
+    """Annual expense ratio as a decimal fraction (0.0009 = 0.09% p.a.).
+
+    ``netExpenseRatio`` is the key Yahoo actually populates for ETFs, but it is
+    quoted in percent points (SPY 0.0945 = 0.0945%), whereas the legacy
+    mutual-fund keys ``annualReportExpenseRatio`` / ``expenseRatio`` are already
+    fractions. Normalising here keeps the stored column in a single unit.
+    """
+    net = info.get("netExpenseRatio")
+    if net:
+        return float(net) / 100.0
+    return info.get("annualReportExpenseRatio") or info.get("expenseRatio")
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
