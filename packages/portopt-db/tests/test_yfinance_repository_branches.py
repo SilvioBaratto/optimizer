@@ -2314,10 +2314,11 @@ class TestUpsertInsiderTransactionsPreprocessing:
         rows = self._call(db_session, df)
         assert rows == []
 
-    def test_name_present_but_no_tx_and_no_text_row_skipped(
+    def test_name_present_but_no_tx_and_no_text_row_kept_with_blank_type(
         self, db_session: Session
     ) -> None:
-        # name set, tx_type empty, Text also None → skip
+        # yfinance 1.3.x emits real grants/vestings with both Transaction and
+        # Text blank; dropping them silently understated insider share counts.
         df = pd.DataFrame(
             {
                 "Insider": ["Carol COO"],
@@ -2331,7 +2332,9 @@ class TestUpsertInsiderTransactionsPreprocessing:
             }
         )
         rows = self._call(db_session, df)
-        assert rows == []
+        assert len(rows) == 1
+        assert rows[0]["transaction_type"] == ""
+        assert rows[0]["shares"] == 100
 
     def _same_day_lots_df(self, shares: list[int]) -> pd.DataFrame:
         d = pd.Timestamp("2024-01-10")
@@ -2421,6 +2424,105 @@ class TestUpsertInsiderTransactionsPreprocessing:
         rows = self._call(db_session, df)
         # Alice: valid (Transaction="Buy"); None: skipped; Bob: Text fallback
         assert len(rows) == 2
+
+
+class TestUpsertInsiderTransactionsPersistence:
+    """Real-row behaviour of the insider upsert (SQLite via the ON CONFLICT path)."""
+
+    @staticmethod
+    def _grant_df(shares: list, values: list | None = None) -> pd.DataFrame:
+        n = len(shares)
+        return pd.DataFrame(
+            {
+                "Insider": ["DOE JOHN"] * n,
+                "Transaction": [""] * n,
+                "Text": ["Stock Award(Grant) at price 0.00 per share."] * n,
+                "Position": ["Director"] * n,
+                "Shares": shares,
+                "Value": values if values is not None else [float("nan")] * n,
+                "Start Date": [pd.Timestamp("2025-09-15")] * n,
+                "Ownership": ["D"] * n,
+            }
+        )
+
+    def test_row_with_blank_transaction_and_text_is_persisted(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session, name="InsEx4")
+        inst = _instrument(db_session, ex, ticker="IN4", yfinance_ticker="IN4")
+        repo = _repo(db_session)
+        df = self._grant_df([99_878])
+        df["Text"] = [""]
+
+        repo.upsert_insider_transactions(inst.id, df)
+
+        stored = repo.get_insider_transactions(inst.id)
+        assert len(stored) == 1
+        assert stored[0].transaction_type == ""
+        assert stored[0].shares == 99_878
+
+
+class TestUpsertFinancialStatementsCurrencyPersistence:
+    """Real-row behaviour of the statement currency label across re-fetches."""
+
+    @staticmethod
+    def _statement(value: float = 1_000.0) -> pd.DataFrame:
+        return pd.DataFrame({pd.Timestamp("2024-12-31"): [value]}, index=["Revenue"])
+
+    @staticmethod
+    def _stored(db_session: Session, instrument_id: uuid.UUID) -> FinancialStatement:
+        db_session.expire_all()
+        return _repo(db_session).get_financial_statements(instrument_id)[0]
+
+    def _seed_instrument(self, db_session: Session, name: str) -> Instrument:
+        ex = _exchange(db_session, name=name)
+        return _instrument(db_session, ex, ticker=name, yfinance_ticker=name)
+
+    def test_unknown_currency_on_refetch_keeps_stored_label(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed_instrument(db_session, "FSCur1")
+        repo = _repo(db_session)
+        repo.upsert_financial_statements(
+            inst.id, self._statement(1_000.0), "income_stmt", "annual", "USD"
+        )
+
+        # Yahoo answered with a partial info dict (no financialCurrency), so the
+        # service passes None; the known label must survive while values refresh.
+        repo.upsert_financial_statements(
+            inst.id, self._statement(1_500.0), "income_stmt", "annual", None
+        )
+
+        stored = self._stored(db_session, inst.id)
+        assert stored.currency_code == "USD"
+        assert stored.value == pytest.approx(1_500.0)
+
+    def test_known_currency_on_refetch_replaces_stored_label(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed_instrument(db_session, "FSCur2")
+        repo = _repo(db_session)
+        repo.upsert_financial_statements(
+            inst.id, self._statement(), "income_stmt", "annual", "USD"
+        )
+
+        repo.upsert_financial_statements(
+            inst.id, self._statement(), "income_stmt", "annual", "EUR"
+        )
+
+        assert self._stored(db_session, inst.id).currency_code == "EUR"
+
+    def test_never_labelled_statement_stores_null_currency(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed_instrument(db_session, "FSCur3")
+        repo = _repo(db_session)
+
+        repo.upsert_financial_statements(
+            inst.id, self._statement(), "income_stmt", "annual", None
+        )
+
+        assert self._stored(db_session, inst.id).currency_code is None
 
 
 # ---------------------------------------------------------------------------

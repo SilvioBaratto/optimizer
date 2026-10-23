@@ -1320,8 +1320,22 @@ class YFinanceRepository(RepositoryBase):
     def upsert_insider_transactions(
         self, instrument_id: UUID, insiders_df: pd.DataFrame
     ) -> int:
-        """Upsert insider transactions from DataFrame."""
-        rows = []
+        """Upsert insider transactions from a ``Ticker.insider_transactions`` frame.
+
+        Rows sharing (insider, start date, transaction type) are merged by
+        summing shares and value, because the unique key cannot tell separate
+        same-day tranches apart. A row whose Transaction and Text are both
+        blank is kept under an empty transaction type; only rows without an
+        insider name are dropped.
+
+        Args:
+            instrument_id: Instrument the transactions belong to.
+            insiders_df: Frame as returned by yfinance.
+
+        Returns:
+            Number of distinct rows upserted.
+        """
+        rows: list[dict[str, Any]] = []
         for _, row_data in insiders_df.iterrows():
             name = _safe_str(row_data.get("Insider"), 500)
             tx_type = _safe_str(row_data.get("Transaction"), 200)
@@ -1332,14 +1346,16 @@ class YFinanceRepository(RepositoryBase):
                 # fallback every row was skipped and insider_transactions
                 # silently stayed empty with no error logged.
                 tx_type = _safe_str(row_data.get("Text"), 200)
-            if not name or not tx_type:
+            if not name:
                 continue
             rows.append(
                 {
                     "instrument_id": instrument_id,
                     "insider_name": name,
                     "position": _safe_str(row_data.get("Position"), 500),
-                    "transaction_type": tx_type,
+                    # Real grants/vestings arrive with Transaction and Text both
+                    # blank; the column is NOT NULL, so keep them under "".
+                    "transaction_type": tx_type or "",
                     "shares": _safe_int(row_data.get("Shares")),
                     "value": _safe_int(row_data.get("Value")),
                     "start_date": _safe_date(row_data.get("Start Date"))
