@@ -888,6 +888,55 @@ def _finalize_respond(
         _finalize_incomplete(audit, run_id, reason)
 
 
+def _frozen_scope(session: Any, portfolio_id: uuid.UUID) -> str | None:
+    """The autonomy scope FROZEN for ``portfolio_id`` (``"fund"`` wins), else ``None``.
+
+    Reads the database rather than the session's cached rows: a run session loads the
+    armed rows when it opens, and a freeze committed by the operator's session while
+    the round is in flight is otherwise invisible to it. Read-only: it never creates a
+    row.
+    """
+    from fund.audit.autonomy_repository import AutonomyRepository
+
+    scope = AutonomyRepository(session).frozen_scope(portfolio_id)
+    return scope.value if scope is not None else None
+
+
+def _raise_if_frozen(session: Any, portfolio_id: uuid.UUID, *, doing: str) -> None:
+    """Raise ``RuntimeError`` when the fund or the portfolio is FROZEN (re-arm first).
+
+    ``doing`` completes the message ("re-arm before ``doing``").
+    """
+    scope = _frozen_scope(session, portfolio_id)
+    if scope == "fund":
+        raise RuntimeError(f"fund autonomy is frozen; re-arm before {doing}")
+    if scope == "portfolio":
+        raise RuntimeError(f"portfolio {portfolio_id} is frozen; re-arm before {doing}")
+
+
+def _halt_if_frozen(
+    session: Any, audit: Any, run_id: uuid.UUID, portfolio_id: uuid.UUID
+) -> bool:
+    """Finalise a run ``rejected`` when a freeze landed while it was in flight.
+
+    The freeze verbs only see runs already committed at a gate, so a round still
+    executing when the operator freezes would otherwise open its gate afterwards and
+    be approvable under a FROZEN posture. Returns ``True`` when the run was halted.
+    No commit.
+    """
+    scope = _frozen_scope(session, portfolio_id)
+    if scope is None:
+        return False
+    audit.append_decision(
+        run_id,
+        agent="orchestrator",
+        step="place_orders",
+        hitl_decision={"decision": "halted", "reason": "frozen", "scope": scope},
+    )
+    audit.finalize_run(run_id, weights={}, status="rejected")
+    return True
+
+
 @dataclass(frozen=True)
 class _FundRunSetup:
     """The built agent + opened run + seed turn one fund round is driven from."""
@@ -931,7 +980,7 @@ def _prepare_fund_run(
 
     from fund.agents.toolsets import RunContext
     from fund.audit import AgentRunRepository, resolve_constraint_set
-    from fund.audit.autonomy_repository import AutonomyRepository, AutonomyScope
+    from fund.audit.autonomy_repository import AutonomyRepository
     from fund.schemas import ConstraintSetRef
 
     pid_uuid = _coerce_uuid(portfolio_id)
@@ -943,14 +992,8 @@ def _prepare_fund_run(
     # row is opened. Read-only on purpose: a row created here would sit uncommitted in
     # the round's transaction for its whole run, and a concurrent freeze would then
     # wait on the unique index until the round ends instead of acting at once.
+    _raise_if_frozen(session, pid_uuid, doing="running a rebalance")
     autonomy = AutonomyRepository(session)
-    frozen = autonomy.frozen_scope(pid_uuid)
-    if frozen is AutonomyScope.FUND:
-        raise RuntimeError("fund autonomy is frozen; re-arm before running a rebalance")
-    if frozen is AutonomyScope.PORTFOLIO:
-        raise RuntimeError(
-            f"portfolio {pid_str} is frozen; re-arm before running a rebalance"
-        )
 
     constraint_set = None
     if store is not None:
@@ -1058,7 +1101,9 @@ def run_fund(
 
     Returns a :class:`FundRun`. When the pipeline never reaches the gate — a blocking
     risk verdict, or the delegation round cap tripping the recursion limit — the run
-    is finalised ``incomplete`` (no ticket) and surfaced for review instead.
+    is finalised ``incomplete`` (no ticket) and surfaced for review instead. A freeze
+    committed while the round was running finalises it ``rejected`` rather than
+    opening a gate under a FROZEN posture.
 
     ``model`` must be a tool-calling chat model. Every write goes through the injected
     ``session`` (caller owns the transaction) and, when given, the ``store``.
@@ -1115,6 +1160,18 @@ def run_fund(
             interrupt=None,
             weights=weights,
             status="incomplete",
+            agent=agent,
+            thread_config=thread_config,
+            session=session,
+        )
+
+    if _halt_if_frozen(session, audit, run.id, _coerce_uuid(portfolio_id)):
+        return FundRun(
+            constraint_set=constraint_set,
+            run_id=run.id,
+            interrupt=None,
+            weights={},
+            status="rejected",
             agent=agent,
             thread_config=thread_config,
             session=session,
@@ -1178,7 +1235,8 @@ def stream_fund(
     commit — in emission order, filtering the interleaved middleware-hook chunks. The
     stream ends on exactly one terminal event: ``paused`` once the ``place_orders`` HITL
     gate is live (the run is flipped ``paused`` so the Decisions queue finds it), or
-    ``incomplete`` on a round-cap / no-order end (the run is finalised ``incomplete``).
+    ``incomplete`` on a round-cap / no-order end (the run is finalised ``incomplete``)
+    or when a freeze landed mid-round (the run is finalised ``rejected``).
 
     The agent stack and the ``StreamEvent`` DTO are imported lazily, so a bare
     ``import fund.agents.graph`` stays agent-stack-free. Every write goes through
@@ -1292,6 +1350,18 @@ def stream_fund(
         )
         return
 
+    if _halt_if_frozen(session, audit, run_id, _coerce_uuid(portfolio_id)):
+        yield StreamEvent(
+            kind="incomplete",
+            run_id=run_id,
+            index=index,
+            agent="orchestrator",
+            step="place_orders",
+            status=StepStatus.PENDING,
+            text="halted: autonomy was frozen while the round was running",
+        )
+        return
+
     # Flip to "paused" so the Decisions queue / observers find the live gate.
     audit.mark_paused(run_id)
     yield StreamEvent(
@@ -1338,7 +1408,9 @@ def resume_fund(
     since the run opened applies on resume too (a vanished mandate falls back to the
     config default gate), rebuilds the ``RunContext`` + PM agent, resumes, and
     finalises. ``decision`` is ``approve``, ``reject``, or ``respond``.
-    Any other value raises ``ValueError``. A ``respond`` threads ``pm_directive`` (the
+    Any other value raises ``ValueError``; ``approve`` / ``respond`` raise
+    ``RuntimeError`` while the fund or portfolio is FROZEN (``reject`` always
+    passes). A ``respond`` threads ``pm_directive`` (the
     adviser's free text) back to the PM via :func:`_finalize_respond`, keeping the run
     alive as ``responded`` if it re-gates; the resume ``thread_config`` keeps the full
     ``recursion_limit`` so a re-gate has headroom. Every write goes through the injected
@@ -1389,17 +1461,10 @@ def resume_fund(
     pid_str = str(portfolio_id)
     resolved_thread_id = run.thread_id or str(rid)
 
-    # A freeze rejects the gates it can see, but a round still in flight when it landed
-    # commits its gate afterwards; approving that gate would place orders on a frozen
-    # scope. Reject and respond stay allowed — they only ever halt or re-gate.
-    if decision == "approve":
-        from fund.audit.autonomy_repository import AutonomyRepository
-
-        frozen = AutonomyRepository(session).frozen_scope(portfolio_id)
-        if frozen is not None:
-            raise RuntimeError(
-                f"{frozen.value} autonomy is frozen; re-arm before approving run {rid}"
-            )
+    # A gate that opened before (or raced) a freeze stays approvable at the DB level,
+    # so approve/respond re-check the posture. Reject is the way out and always passes.
+    if decision != "reject":
+        _raise_if_frozen(session, portfolio_id, doing="resuming a run")
 
     # Re-guard the active ConstraintSet — the run's risk profile must still exist.
     constraint_set = None

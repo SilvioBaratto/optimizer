@@ -23,7 +23,7 @@ import uuid
 from decimal import Decimal
 
 import pytest
-from _fund_fakes import ScriptedFundModel
+from _fund_fakes import FreezeMidRunModel, ScriptedFundModel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision, AgentRun, PaperOrder
@@ -674,6 +674,52 @@ def test_place_orders_ignores_llm_weights_uses_optimizer(db_session) -> None:
     assert finalized.weights == expected
     # Ticket and finalised run derive from one source and cannot diverge.
     assert orders[0].weights == finalized.weights
+
+
+# --- a freeze landing mid-run must not leave an approvable gate --------------
+
+
+def _freeze_fund_from_another_session(db_session) -> None:
+    """Commit a fund-scope FROZEN from a second session over the same connection.
+
+    The run's own session has already loaded the (armed) autonomy rows, so the
+    freeze is only visible to it through a fresh read — exactly what an operator's
+    killswitch in another process looks like.
+    """
+    from sqlalchemy.orm import Session
+
+    from fund.audit.autonomy_repository import (
+        AutonomyRepository,
+        AutonomyScope,
+        AutonomyState,
+    )
+
+    other = Session(bind=db_session.get_bind())
+    try:
+        AutonomyRepository(other).set_state(
+            AutonomyScope.FUND, None, AutonomyState.FROZEN, reason="killswitch"
+        )
+        other.commit()
+    finally:
+        other.close()
+
+
+def test_run_fund_halts_at_the_gate_when_frozen_while_in_flight(db_session) -> None:
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = FreezeMidRunModel(
+        universe=_UNIVERSE,
+        weights=expected,
+        on_first_call=lambda: _freeze_fund_from_another_session(db_session),
+    )
+
+    run = _run(model, db_session, store=_store_with_cs())
+
+    assert run.status == "rejected"
+    assert run.interrupt is None
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "rejected"
+    assert _paper_orders(db_session) == []
 
 
 # --- reject → no order + rejected + HITL recorded ----------------------------

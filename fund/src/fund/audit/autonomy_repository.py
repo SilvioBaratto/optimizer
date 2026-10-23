@@ -65,9 +65,11 @@ class AutonomyRepository(RepositoryBase):
 
         A read-only accessor for display paths (the header/Posture glyph) that must not
         mutate the DB — unlike :meth:`fund_state`, it never inserts a row, so it is safe
-        to call from a short read-only session interleaved with other work.
+        to call from a short read-only session interleaved with other work. It always
+        reads the database, never the session's cached copy of the row, so a freeze
+        committed by another session is seen by a session that loaded the row earlier.
         """
-        row = self._get(AutonomyScope.FUND, None)
+        row = self._get(AutonomyScope.FUND, None, fresh=True)
         return row.state if row is not None else AutonomyState.ARMED.value
 
     def portfolio_posture(self, portfolio_id: uuid.UUID) -> str:
@@ -82,7 +84,7 @@ class AutonomyRepository(RepositoryBase):
         Returns:
             ``"frozen"`` when the portfolio is explicitly frozen, else ``"armed"``.
         """
-        row = self._get(AutonomyScope.PORTFOLIO, portfolio_id)
+        row = self._get(AutonomyScope.PORTFOLIO, portfolio_id, fresh=True)
         return row.state if row is not None else AutonomyState.ARMED.value
 
     def frozen_portfolio_ids(self) -> list[uuid.UUID]:
@@ -192,9 +194,17 @@ class AutonomyRepository(RepositoryBase):
         return bool(cast("CursorResult[Any]", result).rowcount == 1)
 
     def _get(
-        self, scope: AutonomyScope, portfolio_id: uuid.UUID | None
+        self,
+        scope: AutonomyScope,
+        portfolio_id: uuid.UUID | None,
+        *,
+        fresh: bool = False,
     ) -> FundAutonomyState | None:
         stmt = select(FundAutonomyState).where(FundAutonomyState.scope == scope.value)
+        if fresh:
+            # Without this the ORM hands back the already-loaded row with its old
+            # attributes, hiding a state flipped by another session since.
+            stmt = stmt.execution_options(populate_existing=True)
         # The fund row carries a genuine NULL portfolio_id — match with IS NULL,
         # never ``== None`` (which SQL evaluates to UNKNOWN, matching nothing).
         if portfolio_id is None:

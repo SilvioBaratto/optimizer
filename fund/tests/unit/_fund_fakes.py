@@ -219,6 +219,28 @@ class PmFailsAfterOrderModel(ScriptedFundModel):
         return super()._pm_turn(messages)
 
 
+class FreezeMidRunModel(ScriptedFundModel):
+    """A :class:`ScriptedFundModel` that fires ``on_first_call`` on its first turn.
+
+    Stands in for an operator hitting the killswitch while the round is still in
+    flight: the hook runs after the run's own FROZEN pre-check but before the run
+    reaches its gate.
+    """
+
+    on_first_call: Any = None
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        if self.on_first_call is not None and self.generate_calls == 0:
+            self.on_first_call()
+        return super()._generate(messages, stop, run_manager, **kwargs)
+
+
 def _task_call(subagent: str, index: int) -> AIMessage:
     """A PM assistant turn delegating to ``subagent`` via the built-in ``task``."""
     return AIMessage(

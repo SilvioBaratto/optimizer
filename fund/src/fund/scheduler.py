@@ -276,12 +276,21 @@ def _drive_rebalance(
         store=persistence.store,
         fallback=fallback,
     )
-    logger.info(
-        "drive[%s]: run %s status=%s (paused at HITL gate; not resuming)",
-        pid_str,
-        run.run_id,
-        run.status,
-    )
+    if run.status == "paused":
+        logger.info(
+            "drive[%s]: run %s status=paused (at HITL gate; not resuming)",
+            pid_str,
+            run.run_id,
+        )
+    else:
+        # A freeze that landed mid-round or a round-cap end finalises the run without
+        # a gate, so claiming one would send the operator to an empty queue.
+        logger.warning(
+            "drive[%s]: run %s status=%s (no approval gate)",
+            pid_str,
+            run.run_id,
+            run.status,
+        )
 
 
 # ---------------------------------------------------------------------------

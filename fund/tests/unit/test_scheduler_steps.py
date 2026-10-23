@@ -959,6 +959,40 @@ def test_drive_rebalance_reaches_gate_but_never_resumes(session_factory, monkeyp
     fake_run.resume.assert_not_called()  # driver drives to the gate, never approves
 
 
+@pytest.mark.parametrize("status", ["rejected", "incomplete"])
+def test_drive_rebalance_does_not_claim_a_gate_for_a_run_that_has_none(
+    session_factory, monkeypatch, caplog, status
+):
+    """A run halted by a freeze or cut short never paused; the log must not say so."""
+    _seed_mandate(session_factory, PID_A, cron=True, drift=False)
+    store = InMemoryStore()
+    put_constraint_set(
+        store, make_constraint_set(PID_A), store_key=settings.constraint_set_store_key
+    )
+    persistence = SimpleNamespace(store=store, saver=MemorySaver())
+    fake_run = MagicMock()
+    fake_run.run_id = uuid.uuid4()
+    fake_run.status = status
+    monkeypatch.setattr("fund.agents.graph.run_fund", lambda *a, **k: fake_run)
+
+    with (
+        caplog.at_level(logging.INFO, logger="fund.scheduler"),
+        session_factory() as session,
+    ):
+        _drive_rebalance(
+            PID_A,
+            ASOF,
+            session=session,
+            persistence=persistence,
+            model=object(),
+            fallback=None,
+        )
+
+    assert "HITL gate" not in caplog.text
+    assert f"status={status}" in caplog.text
+    assert "no approval gate" in caplog.text
+
+
 def test_drive_rebalance_skips_already_paused(session_factory, monkeypatch):
     _seed_mandate(session_factory, PID_A, cron=True, drift=False)
     _seed_paused_run(session_factory, PID_A)

@@ -21,6 +21,7 @@ from _fund_fakes import (
     ASOF,
     PORTFOLIO_ID,
     UNIVERSE,
+    FreezeMidRunModel,
     ScriptedFundModel,
     expected_weights,
     make_constraint_set,
@@ -35,7 +36,13 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from fund.agents.graph import stream_fund
-from fund.audit import AgentRunRepository, put_constraint_set
+from fund.audit import (
+    AgentRunRepository,
+    AutonomyRepository,
+    AutonomyScope,
+    AutonomyState,
+    put_constraint_set,
+)
 from fund.config import settings
 from fund.tui.stream import StepStatus, StreamEvent
 
@@ -78,6 +85,7 @@ def stream_env():
         get_session=get_session,
         saver=saver,
         store=store,
+        expected=expected,
         model_factory=lambda: ScriptedFundModel(universe=UNIVERSE, weights=expected),
     )
     engine.dispose()
@@ -169,6 +177,48 @@ def test_stream_fund_pm_round_cap_end_records_distinct_reason(stream_env) -> Non
         assert "pm_round_cap" in reasons
         assert "no_order" not in reasons
         assert "round_cap" not in reasons
+
+
+def test_stream_fund_halts_at_the_gate_when_frozen_while_in_flight(
+    stream_env,
+) -> None:
+    """A freeze committed mid-stream ends the round ``incomplete``, never ``paused``.
+
+    Otherwise the Decisions queue would list an ordinary gate under a FROZEN fund and
+    one keypress would approve it.
+    """
+
+    def freeze() -> None:
+        with stream_env.get_session() as other:
+            AutonomyRepository(other).set_state(
+                AutonomyScope.FUND, None, AutonomyState.FROZEN, reason="killswitch"
+            )
+            other.commit()
+
+    model = FreezeMidRunModel(
+        universe=UNIVERSE,
+        weights=stream_env.expected,
+        on_first_call=freeze,
+    )
+    with stream_env.get_session() as session:
+        events = list(
+            stream_fund(
+                model,
+                make_mandate(),
+                portfolio_id=PORTFOLIO_ID,
+                asof=ASOF,
+                session=session,
+                checkpointer=stream_env.saver,
+                store=stream_env.store,
+            )
+        )
+
+        terminal = events[-1]
+        assert terminal.kind == "incomplete"
+        assert not [e for e in events if e.kind == "paused"]
+        run = AgentRunRepository(session).get_run(terminal.run_id)
+        assert run is not None
+        assert run.status == "rejected"
 
 
 def test_import_stream_is_agent_stack_light() -> None:

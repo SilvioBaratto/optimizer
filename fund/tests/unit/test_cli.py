@@ -36,6 +36,7 @@ from _fund_fakes import (
     ASOF,
     PORTFOLIO_ID,
     UNIVERSE,
+    FreezeMidRunModel,
     PmFailsAfterOrderModel,
     ScriptedFundModel,
     expected_weights,
@@ -57,6 +58,9 @@ import fund.cli as cli
 from fund import observe
 from fund.audit import (
     AgentRunRepository,
+    AutonomyRepository,
+    AutonomyScope,
+    AutonomyState,
     MandateRepository,
     OrderRepository,
     put_constraint_set,
@@ -417,6 +421,43 @@ def test_run_that_reached_no_gate_says_so_and_exits_nonzero(
         assert row["run_id"] is not None
         assert str(row["run_id"]) in res.output
         session.rollback()
+
+
+def test_run_frozen_mid_round_fails_without_claiming_a_gate(
+    harness, monkeypatch
+) -> None:
+    """A freeze that lands while the round runs leaves no gate, so the run fails.
+
+    Reporting success with a "(HITL gate)" suffix would send the operator to an
+    approval queue the run never entered.
+    """
+    expected = _seed(harness)
+
+    def freeze() -> None:
+        with harness.read() as other:
+            AutonomyRepository(other).set_state(
+                AutonomyScope.FUND, None, AutonomyState.FROZEN, reason="killswitch"
+            )
+            other.commit()
+
+    monkeypatch.setattr(
+        cli,
+        "build_primary",
+        lambda *a, **k: FreezeMidRunModel(
+            universe=UNIVERSE, weights=expected, on_first_call=freeze
+        ),
+    )
+    _set_mandate(harness)
+
+    res = harness.runner.invoke(
+        cli.app, ["run", str(PORTFOLIO_ID), "--asof", _ASOF_STR]
+    )
+
+    assert res.exit_code == 1
+    assert "HITL gate" not in res.output
+    assert "rejected" in res.output
+    with harness.read() as session:
+        assert AgentRunRepository(session).list_paused_runs(PORTFOLIO_ID) == []
 
 
 def test_run_with_override_flags_keeps_remembered_directives(

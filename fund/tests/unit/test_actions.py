@@ -42,6 +42,8 @@ from fund.actions import ActionResult, apply_action, is_within_suitability_band
 from fund.audit import (
     AgentRunRepository,
     AutonomyRepository,
+    AutonomyScope,
+    AutonomyState,
     HumanAuditLogRepository,
     MandateRepository,
     PositionRepository,
@@ -1003,6 +1005,36 @@ def test_freeze_run_scope_rejects_run_without_autonomy_change(paused_env) -> Non
         autonomy = AutonomyRepository(session)
         assert autonomy.fund_state().state == "armed"
         assert autonomy.portfolio_state(PORTFOLIO_ID).state == "armed"
+
+
+def test_approve_is_refused_when_the_fund_froze_after_the_gate_opened(
+    paused_env,
+) -> None:
+    """A gate that reached the queue after the freeze cannot ship a ticket."""
+    env = paused_env
+    with env.get_session() as session:
+        AutonomyRepository(session).set_state(
+            AutonomyScope.FUND, None, AutonomyState.FROZEN, reason="killswitch"
+        )
+        session.commit()
+
+    with env.get_session() as session:
+        with pytest.raises(RuntimeError, match="frozen"):
+            apply_action(
+                "approve",
+                session=session,
+                run_id=env.run_id,
+                portfolio_id=PORTFOLIO_ID,
+                checkpointer=env.saver,
+                store=env.store,
+                model=env.model_factory(),
+            )
+        session.rollback()
+
+    with env.get_session() as session:
+        assert session.query(PaperOrder).count() == 0
+        assert PositionRepository(session).get_holdings(PORTFOLIO_ID) == []
+        assert HumanAuditLogRepository(session).list_recent(action="approve") == []
 
 
 def test_apply_action_is_idempotent_on_repeated_key(paused_env) -> None:

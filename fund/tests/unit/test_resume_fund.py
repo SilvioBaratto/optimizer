@@ -49,6 +49,9 @@ from fund.agents.graph import (
 )
 from fund.audit import (
     AgentRunRepository,
+    AutonomyRepository,
+    AutonomyScope,
+    AutonomyState,
     MandateRepository,
     OrderRepository,
     PositionRepository,
@@ -304,6 +307,70 @@ def test_resume_fund_requires_active_constraint_set(db_session) -> None:
             store=InMemoryStore(),
             model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
         )
+
+
+# --- resume_fund under a FROZEN posture ---------------------------------------
+
+
+def _freeze(db_session, scope: AutonomyScope) -> None:
+    pid = PORTFOLIO_ID if scope is AutonomyScope.PORTFOLIO else None
+    AutonomyRepository(db_session).set_state(
+        scope, pid, AutonomyState.FROZEN, reason="killswitch"
+    )
+
+
+@pytest.mark.parametrize("scope", [AutonomyScope.FUND, AutonomyScope.PORTFOLIO])
+@pytest.mark.parametrize("decision", ["approve", "respond"])
+def test_resume_fund_refuses_to_continue_a_gate_under_a_freeze(
+    db_session, scope, decision
+) -> None:
+    """A gate that opened before (or raced) a freeze must not be approvable after it."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    _freeze(db_session, scope)
+
+    with pytest.raises(RuntimeError, match="frozen"):
+        resume_fund(
+            run.run_id,
+            decision,
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+            pm_directive="tilt to AAA",
+        )
+
+    assert _paper_orders(db_session) == []
+    assert _positions_map(db_session) == {}
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
+
+
+def test_resume_fund_still_rejects_a_gate_under_a_freeze(db_session) -> None:
+    """Reject is the way out of a frozen gate, so the freeze must not block it."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    _freeze(db_session, AutonomyScope.FUND)
+
+    resume_fund(
+        run.run_id,
+        "reject",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
 
 
 # --- stale approval: an older paused run must not overwrite newer holdings -----
