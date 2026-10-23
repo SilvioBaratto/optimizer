@@ -204,6 +204,37 @@ class TestHeartbeatTick:
         tick.assert_called_once()
 
 
+class _StopAfter:
+    """Stop-event double: ``wait`` reports "not stopped" for ``ticks`` calls."""
+
+    def __init__(self, ticks: int) -> None:
+        self._ticks = ticks
+
+    def wait(self, timeout: float | None = None) -> bool:
+        if self._ticks == 0:
+            return True
+        self._ticks -= 1
+        return False
+
+
+class TestRunHeartbeatRenewalGate:
+    def test_run_heartbeat_skips_the_lease_stamp_while_the_gate_is_closed(
+        self, svc: BackgroundJobService
+    ) -> None:
+        """A wedged worker must stop renewing so the reaper can claim its row."""
+        gate = iter([True, False, False, True])
+
+        with patch.object(svc, "_tick_heartbeat", return_value=True) as tick:
+            svc._run_heartbeat(
+                uuid.UUID(JOB_ID),
+                _StopAfter(4),  # type: ignore[arg-type]
+                cadence=0.001,
+                should_renew=lambda: next(gate),
+            )
+
+        assert tick.call_count == 2
+
+
 class TestExtractJobId:
     @pytest.mark.parametrize("args", [(), (42,), (None,)])
     def test_rejects_args_without_a_leading_job_id_string(self, args) -> None:

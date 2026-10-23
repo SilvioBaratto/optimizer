@@ -597,7 +597,9 @@ class TestRunDailyEventsStep:
         svc.create_job.return_value = job_id
         svc.get_job.return_value = {"status": "completed"}
         svc._heartbeat_cadence = 0.01
-        svc._run_heartbeat.side_effect = lambda _j, stop, _c: stop.wait(timeout=5)
+        svc._run_heartbeat.side_effect = lambda _j, stop, _c, **_kw: stop.wait(
+            timeout=5
+        )
 
         seen: list[list[str]] = []
 
@@ -785,7 +787,7 @@ class TestHeartbeatCompanion:
     """
 
     @staticmethod
-    def _blocking_heartbeat(_job_id, stop_event, _cadence):
+    def _blocking_heartbeat(_job_id, stop_event, _cadence, **_kwargs):
         """Stand-in for the real loop: stays alive until the caller stops it."""
         stop_event.wait(timeout=5)
 
@@ -815,6 +817,52 @@ class TestHeartbeatCompanion:
         assert seen and seen[0], "no heartbeat thread ran alongside the step"
         job_svc._run_heartbeat.assert_called_once()
         assert not self._hb_threads(), "heartbeat outlived the step"
+
+
+class TestStalledStepLease:
+    """A step that stops reporting progress must stop renewing its lease.
+
+    The heartbeat thread is independent of the worker, so without a progress
+    gate a step wedged on a lock keeps a fresh lease forever and the periodic
+    orphan reaper can never free its job slot.
+    """
+
+    def test_lease_renewal_pauses_while_stalled_and_resumes_on_progress(self):
+        import time
+
+        from app.services.jobs import scheduler as sched
+
+        job_id = "33333333-3333-3333-3333-333333333333"
+        svc = MagicMock()
+        svc.create_job.return_value = job_id
+        svc.get_job.return_value = {"status": "completed"}
+        svc._heartbeat_cadence = 0.01
+
+        gates: list = []
+        gate_ready = threading.Event()
+
+        def _hb(_job, stop, _cadence, should_renew=None):
+            gates.append(should_renew)
+            gate_ready.set()
+            stop.wait(timeout=5)
+
+        svc._run_heartbeat.side_effect = _hb
+        observed: list[bool] = []
+
+        def fn(*_args, on_progress):
+            assert gate_ready.wait(timeout=2)
+            gate = gates[0]
+            assert gate is not None, "heartbeat has no progress gate"
+            observed.append(gate())
+            time.sleep(0.3)
+            observed.append(gate())
+            on_progress(current=1)
+            observed.append(gate())
+
+        with patch.object(sched.settings, "scheduler_step_stall_timeout_seconds", 0.2):
+            assert sched._run_step("stall", svc, fn) is True
+
+        assert observed == [True, False, True]
 
 
 # ---------------------------------------------------------------------------

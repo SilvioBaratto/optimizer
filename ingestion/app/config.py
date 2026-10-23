@@ -117,6 +117,17 @@ class Settings(BaseSettings):
         ge=1,
         alias="SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS",
     )
+    scheduler_step_stall_timeout_seconds: int = Field(
+        default=3600,
+        ge=1,
+        alias="SCHEDULER_STEP_STALL_TIMEOUT_SECONDS",
+        description=(
+            "A scheduler-run step that reports no progress for this long stops "
+            "renewing its heartbeat lease, so the orphan reaper can free the job "
+            "slot of a worker wedged on a lock. Keep it well above the longest "
+            "legitimate silent stretch of any step."
+        ),
+    )
     scheduler_orphan_strategy: str = Field(
         default="fail",
         alias="SCHEDULER_ORPHAN_STRATEGY",

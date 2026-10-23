@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -180,9 +181,30 @@ _scheduler: SupervisedScheduler | None = None
 # ---------------------------------------------------------------------------
 
 
+class _ProgressWatch:
+    """Records when a step last reported progress.
+
+    The heartbeat thread proves the process is alive, not that the step is
+    advancing; this is what lets a wedged-but-alive step lose its lease.
+    """
+
+    def __init__(self, stall_timeout_seconds: float) -> None:
+        self._stall_timeout = stall_timeout_seconds
+        self._last_progress = time.monotonic()
+
+    def touch(self) -> None:
+        self._last_progress = time.monotonic()
+
+    def is_stalled(self) -> bool:
+        return time.monotonic() - self._last_progress > self._stall_timeout
+
+
 @contextmanager
 def _heartbeat(
-    job_svc: BackgroundJobService, job_id: str, label: str
+    job_svc: BackgroundJobService,
+    job_id: str,
+    label: str,
+    watch: _ProgressWatch | None = None,
 ) -> Iterator[None]:
     """Run the heartbeat companion for a job executed in the scheduler thread.
 
@@ -193,12 +215,21 @@ def _heartbeat(
     falsely reaped mid-run and its row flips to ``failed`` while the work is
     still going. Both the multi-minute yfinance fetch and the reference-index
     seed exceed that.
+
+    When *watch* is given, the lease is renewed only while the step has
+    reported progress within the stall timeout, so a step wedged on a lock does
+    not hold its job slot forever.
     """
     cadence = job_svc._heartbeat_cadence
     stop = threading.Event()
     thread = threading.Thread(
         target=job_svc._run_heartbeat,
         args=(uuid.UUID(job_id), stop, cadence),
+        kwargs=(
+            {"should_renew": lambda: not watch.is_stalled()}
+            if watch is not None
+            else {}
+        ),
         daemon=True,
         name=f"hb:sched:{label}:{job_id[:8]}",
     )
@@ -258,9 +289,15 @@ def _run_step(
     logger.info("%s: started (job %s)", label, job_id)
     job_svc.update_job(job_id, status="running")
 
-    on_progress = make_progress(job_id, job_svc)
+    report_progress = make_progress(job_id, job_svc)
+    watch = _ProgressWatch(settings.scheduler_step_stall_timeout_seconds)
+
+    def on_progress(**kwargs: Any) -> None:
+        watch.touch()
+        report_progress(**kwargs)
+
     try:
-        with _heartbeat(job_svc, job_id, label):
+        with _heartbeat(job_svc, job_id, label, watch):
             fn(*args, on_progress=on_progress)
         job = job_svc.get_job(job_id) or {}
         if job.get("status") == "failed":
@@ -760,9 +797,11 @@ def run_orphan_reaper() -> None:
 
     Orphan reconciliation otherwise runs only at process startup
     (``app.worker.main``), so a job that hangs while the process stays alive
-    (dead daemon thread, wedged network socket) is never reaped and blocks
-    future runs of its type via ``JobAlreadyRunningError``. This periodic tick
-    closes that gap without requiring a restart.
+    (dead daemon thread, wedged network socket) would block future runs of its
+    type via ``JobAlreadyRunningError``. A scheduler-run step stops renewing its
+    lease once it has reported no progress for
+    ``SCHEDULER_STEP_STALL_TIMEOUT_SECONDS``; this periodic tick then reaps it
+    without requiring a restart.
 
     R3/§5.3 — behaviour depends on ``SCHEDULER_ORPHAN_STRATEGY``:
     - ``fail`` (default): mark stale orphans failed; the next cron re-runs them.

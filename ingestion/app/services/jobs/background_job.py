@@ -12,6 +12,7 @@ import logging
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from app.config import settings
@@ -276,6 +277,7 @@ class BackgroundJobService:
         job_id: uuid.UUID,
         stop_event: threading.Event,
         cadence: float,
+        should_renew: Callable[[], bool] | None = None,
     ) -> None:
         """Refresh ``last_heartbeat_at`` on each cadence tick.
 
@@ -283,8 +285,21 @@ class BackgroundJobService:
         (``update_heartbeat`` returns False) or when a DB error occurs.
         DB errors are logged at WARNING and swallowed so a transient DB
         hiccup does not kill the worker.
+
+        Args:
+            job_id: Row whose lease is renewed.
+            stop_event: Set by the owner when the worker finishes, or by this
+                loop when the row has been reaped.
+            cadence: Seconds between ticks.
+            should_renew: Optional gate evaluated every tick. While it returns
+                ``False`` the stamp is skipped but the loop keeps running, so a
+                worker that stopped making progress lets its lease lapse (the
+                reaper can then claim it) yet renewal resumes if the worker
+                recovers before the row is reaped.
         """
         while not stop_event.wait(timeout=cadence):
+            if should_renew is not None and not should_renew():
+                continue
             if not self._tick_heartbeat(job_id, stop_event):
                 return
 

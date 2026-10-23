@@ -35,6 +35,17 @@ class TestLivenessSettings:
         assert s.scheduler_orphan_heartbeat_timeout_seconds == 120
 
 
+class TestStallTimeoutSettings:
+    def test_when_defaults_then_stall_timeout_is_one_hour(self) -> None:
+        assert Settings().scheduler_step_stall_timeout_seconds == 3600
+
+    def test_when_env_overrides_stall_timeout_then_value_is_applied(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SCHEDULER_STEP_STALL_TIMEOUT_SECONDS", "900")
+        assert Settings().scheduler_step_stall_timeout_seconds == 900
+
+
 class TestOrphanStrategySettings:
     """R3/§5.3 — SCHEDULER_ORPHAN_STRATEGY gates the reclaim behaviour."""
 

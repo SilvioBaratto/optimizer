@@ -93,7 +93,9 @@ Set `NOTIFICATION_WEBHOOK_URL` for a Discord/Slack POST on job failure.
   renewal. It is the renewal — not a flat timeout — that keeps a long synchronous step (the
   multi-minute yfinance fetch, the reference-index seed) from being falsely reaped. Host and
   PID are no longer part of the decision, so the daemon is portable (Windows/macOS dev) and
-  two daemons never reap each other's live jobs.
+  two daemons never reap each other's live jobs. The renewal also needs progress: a step that
+  reports none for `SCHEDULER_STEP_STALL_TIMEOUT_SECONDS` (3600s) stops renewing, so a step
+  wedged on a lock is reaped instead of holding its job slot until the next restart.
 - **Orphan strategy — `SCHEDULER_ORPHAN_STRATEGY` (`fail` | `reclaim`, default `fail`).**
   `fail` marks a dead-worker job failed; the next cron re-runs it. `reclaim` additionally
   re-dispatches the step immediately (at-least-once self-healing), capped by
