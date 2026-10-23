@@ -13,13 +13,16 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pytest
 from portopt_db.repositories.market_data.market_structure_repository import (
     MarketStructureRepository,
 )
+from yfinance.exceptions import YFDataException
 
 from app.services.market_data.market_structure_service import (
     run_market_structure_fetch,
 )
+from app.services.market_data.yfinance import is_no_data_error
 from app.services.market_data.yfinance.market.sectors import (
     SECTOR_KEYS,
     SectorsClient,
@@ -74,6 +77,63 @@ class TestSectorsClient:
         }
         assert {c["symbol"] for c in out["top_companies"]} == {"AAPL", "MSFT"}
         assert out["top_companies"][0]["weight"] == 0.07
+
+
+def _empty_sector() -> SimpleNamespace:
+    """What ``yf.Sector`` exposes once yfinance has swallowed a failed fetch."""
+    return SimpleNamespace(
+        key=None,
+        name=None,
+        symbol=None,
+        overview={},
+        industries=pd.DataFrame(),
+        top_companies=pd.DataFrame(),
+    )
+
+
+class TestSwallowedYahooFailure:
+    def test_empty_sector_payload_raises_a_final_no_data_error(self) -> None:
+        client = SectorsClient(
+            rate_limiter=MagicMock(),
+            circuit_breaker=MagicMock(),
+            default_max_retries=3,
+        )
+        with patch(
+            "app.services.market_data.yfinance.market.sectors.yf.Sector",
+            return_value=_empty_sector(),
+        ) as sector_cls:
+            with pytest.raises(YFDataException) as excinfo:
+                client.fetch_sector("technology", region="GB")
+
+        assert is_no_data_error(excinfo.value)
+        assert sector_cls.call_count == 1
+
+    def test_sweep_writes_nothing_and_reports_the_failures(self) -> None:
+        repo = MagicMock(name="repo")
+        yf = SimpleNamespace(
+            sectors=SectorsClient(
+                rate_limiter=MagicMock(),
+                circuit_breaker=MagicMock(),
+                default_max_retries=1,
+            )
+        )
+        with (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+            patch(
+                "app.services.market_data.yfinance.market.sectors.yf.Sector",
+                return_value=_empty_sector(),
+            ),
+        ):
+            result = run_market_structure_fetch(yf, regions=("GB",))  # type: ignore[arg-type]
+
+        repo.upsert_sector_snapshot.assert_not_called()
+        assert result["sectors_written"] == 0
+        assert result["error_count"] == len(SECTOR_KEYS)
 
 
 class TestRepository:
