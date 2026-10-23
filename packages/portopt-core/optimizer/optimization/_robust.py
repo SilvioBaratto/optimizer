@@ -91,11 +91,22 @@ class RobustMeanRiskConfig:
         )
 
     @classmethod
-    def for_bootstrap_covariance(cls) -> RobustMeanRiskConfig:
-        """Stationary-bootstrap covariance uncertainty preset."""
+    def for_bootstrap_covariance(
+        cls, *, random_state: int | None = 0
+    ) -> RobustMeanRiskConfig:
+        """Stationary-bootstrap covariance uncertainty preset.
+
+        The bootstrap is seeded by default so identical runs give identical
+        weights, which seeded backtest comparisons rely on.
+
+        Args:
+            random_state: Bootstrap RNG seed. Keyword-only. ``None`` draws a
+                fresh bootstrap on every fit.
+        """
         return cls(
             covariance_uncertainty_set_config=CovarianceUncertaintySetConfig(
                 kind=CovarianceUncertaintySetType.BOOTSTRAP,
+                random_state=random_state,
             ),
         )
 

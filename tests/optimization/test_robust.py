@@ -76,6 +76,31 @@ class TestPresets:
         )
 
 
+class TestBootstrapCovariancePresetIsReproducible:
+    """An unseeded bootstrap makes two identical builds return different weights."""
+
+    def test_when_preset_built_then_bootstrap_seed_is_fixed(self) -> None:
+        cfg = RobustMeanRiskConfig.for_bootstrap_covariance()
+
+        assert cfg.covariance_uncertainty_set_config is not None
+        assert cfg.covariance_uncertainty_set_config.random_state is not None
+
+    def test_when_preset_given_seed_then_forwarded_to_config(self) -> None:
+        cfg = RobustMeanRiskConfig.for_bootstrap_covariance(random_state=7)
+
+        assert cfg.covariance_uncertainty_set_config is not None
+        assert cfg.covariance_uncertainty_set_config.random_state == 7
+
+    def test_when_preset_fitted_twice_then_weights_identical(self, returns) -> None:
+        cfg = RobustMeanRiskConfig.for_bootstrap_covariance()
+        window = returns.iloc[-500:, :8]
+
+        first = build_robust_mean_risk(cfg).fit(window).weights_
+        second = build_robust_mean_risk(cfg).fit(window).weights_
+
+        assert np.array_equal(first, second)
+
+
 class TestMuPresetsUseReturnObjective:
     """A mu uncertainty set only acts through the expected-return term."""
 
