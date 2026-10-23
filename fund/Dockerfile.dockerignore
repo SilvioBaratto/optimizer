@@ -26,8 +26,19 @@ venv/
 **/*.egg-info/
 node_modules/
 
+# Gitignored build and test output from a working checkout, kept out of the
+# layers `COPY fund/` and `COPY packages/...` would otherwise bake it into.
+**/build/
+**/dist/
+**/.hypothesis/
+**/.coverage*
+**/coverage.xml
+**/htmlcov/
+
 # Secrets & machine-local — provided at runtime via env_file, never baked in.
-# Recursive: `fund/.env` must not ride along with the `COPY fund/ fund/` tree.
+# Recursive: `fund/.env` must not ride along with the `COPY fund/ fund/` tree, nor
+# packages/*/.env with `COPY packages/...`: patterns are anchored at the context
+# root, so a bare `.env` would let those through.
 **/.env
 **/.env.*
 **/.certs/
