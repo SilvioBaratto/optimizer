@@ -316,7 +316,7 @@ class ScreenerClientProtocol(Protocol):
         sort_field: str | None = None,
         sort_asc: bool = True,
         max_retries: int | None = None,
-    ) -> dict[str, Any] | None: ...
+    ) -> dict[str, Any]: ...
 
     def screen_predefined(
         self,

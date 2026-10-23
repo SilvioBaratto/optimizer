@@ -68,6 +68,7 @@ class UniverseBuilder:
     )
     _errors: list[str] = field(default_factory=list, init=False)
     _live_symbols: frozenset[str] = field(default_factory=frozenset, init=False)
+    _incomplete_types: frozenset[str] = field(default=frozenset(), init=False)
 
     def build(self) -> BuildResult:
         """Run a full universe build from the Trading 212 API.
@@ -84,6 +85,16 @@ class UniverseBuilder:
             if isinstance(self.api_client, LiveSymbolReporter)
             else frozenset()
         )
+        # Read after get_instruments: a source that enumerates lazily only knows
+        # which instrument types it failed to list once it has loaded.
+        self._incomplete_types = frozenset(
+            getattr(self.api_client, "incomplete_instrument_types", ())
+        )
+        for incomplete_type in sorted(self._incomplete_types):
+            self._errors.append(
+                f"{incomplete_type} enumeration incomplete: delisting "
+                "reconciliation skipped"
+            )
 
         self._build_schedule_mappings(exchanges, instruments)
 
@@ -257,9 +268,11 @@ class UniverseBuilder:
                 total_instruments_saved += saved
                 tickers_saved = {d.get("ticker", "") for d in processed}
 
-            self._mark_delisted_instruments(
-                tickers_before, tickers_saved, exchange_dto.id
-            )
+            # With part of the source missing, "absent" no longer means "delisted".
+            if instrument_type not in self._incomplete_types:
+                self._mark_delisted_instruments(
+                    tickers_before, tickers_saved, exchange_dto.id
+                )
 
         return total_exchanges_saved, total_instruments_saved, processed_here
 

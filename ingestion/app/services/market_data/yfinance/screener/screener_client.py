@@ -13,12 +13,20 @@ from typing import Any
 
 import yfinance as yf
 
-from ..infrastructure import is_rate_limit_error, retry_with_backoff
+from ..infrastructure import is_no_data_error, is_rate_limit_error, retry_with_backoff
 from ..protocols import CircuitBreakerProtocol, RateLimiterProtocol
 
 logger = logging.getLogger(__name__)
 
 MAX_SIZE = 250
+
+
+class ScreenerError(RuntimeError):
+    """A screen request failed for good, so its result must not be read as empty.
+
+    Callers that page a ranked query treat an empty page as the end of the
+    results; raising keeps a transient Yahoo failure from passing for that.
+    """
 
 
 class ScreenerClient:
@@ -44,7 +52,7 @@ class ScreenerClient:
         sort_field: str | None = None,
         sort_asc: bool = True,
         max_retries: int | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, Any]:
         """Run one screen with a custom or predefined query.
 
         yfinance sizes custom ``*Query`` objects via ``size`` (max 250) and predefined
@@ -63,11 +71,18 @@ class ScreenerClient:
             max_retries: Retry attempts; None uses the client default.
 
         Returns:
-            Screen result dict from yfinance, or None if all retries fail.
+            Screen result dict from yfinance.
+
+        Raises:
+            ScreenerError: When every attempt fails, or Yahoo gives a final no-data
+                answer that a retry cannot change. The original error, when there
+                is one, is chained as ``__cause__``.
         """
         retries = max_retries if max_retries is not None else self.default_max_retries
+        last_error: Exception | None = None
 
         def _action() -> dict[str, Any] | None:
+            nonlocal last_error
             self.circuit_breaker.check()
             self.rate_limiter.acquire("screener")
             # count signals a predefined-name query (sized by count); otherwise size.
@@ -80,16 +95,29 @@ class ScreenerClient:
                 kwargs["count"] = min(count, MAX_SIZE)
             else:
                 kwargs["size"] = min(size, MAX_SIZE)
-            return yf.screen(query, **kwargs)
+            try:
+                return yf.screen(query, **kwargs)
+            except Exception as exc:
+                last_error = exc
+                raise
 
-        return retry_with_backoff(
-            _action,
-            retries,
-            is_valid=lambda v: v is not None,
-            is_rate_limit_error=is_rate_limit_error,
-            on_rate_limit=self.circuit_breaker.trigger,
-            on_success=lambda _: self.circuit_breaker.reset(),
-        )
+        try:
+            result = retry_with_backoff(
+                _action,
+                retries,
+                is_valid=lambda v: v is not None,
+                is_rate_limit_error=is_rate_limit_error,
+                on_rate_limit=self.circuit_breaker.trigger,
+                on_success=lambda _: self.circuit_breaker.reset(),
+                is_permanent_error=is_no_data_error,
+            )
+        except Exception as exc:
+            raise ScreenerError(f"screen failed with a final answer: {exc}") from exc
+        if result is None:
+            raise ScreenerError(
+                f"screen failed after {retries} attempt(s): {last_error}"
+            ) from last_error
+        return result
 
     def screen_predefined(
         self,
@@ -110,8 +138,10 @@ class ScreenerClient:
             max_retries: Retry attempts; None uses the client default.
 
         Returns:
-            Screen result dict from yfinance, or None if the name is unrecognised or
-            all retries fail.
+            Screen result dict from yfinance, or None if the name is unrecognised.
+
+        Raises:
+            ScreenerError: When every attempt fails (see :meth:`screen`).
         """
         if name not in yf.PREDEFINED_SCREENER_QUERIES:
             logger.error(

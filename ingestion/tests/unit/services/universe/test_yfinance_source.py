@@ -18,6 +18,10 @@ import pytest
 
 pytest.importorskip("yfinance")
 
+from app.services.market_data.yfinance.screener.screener_client import (
+    ScreenerClient,
+    ScreenerError,
+)
 from app.services.universe import yfinance_source
 from app.services.universe.trading212.builder import UniverseBuilder
 from app.services.universe.trading212.config import UniverseBuilderConfig
@@ -122,6 +126,87 @@ def test_screen_none_is_a_failed_query_not_an_empty_universe(
     src, _ = _source([None], monkeypatch)
     with pytest.raises(RuntimeError, match="page failed"):
         src.get_instruments()
+
+
+def test_screener_error_is_a_failed_query_not_an_empty_universe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # ScreenerClient.screen raises once its retries are spent; the source must not
+    # read that as the end of the results.
+    src, _ = _source([ScreenerError("503")], monkeypatch)
+    with pytest.raises(RuntimeError, match="page failed"):
+        src.get_instruments()
+
+
+class _DelistingRepo:
+    """Universe repository fake that records which tickers get marked delisted."""
+
+    def __init__(self, active: set[str]) -> None:
+        self._active = active
+        self.delisted: list[str] = []
+
+    def save_exchange(self, exchange_data: dict) -> MagicMock:
+        return MagicMock(id="ex-1")
+
+    def save_instruments_batch(
+        self, instruments_data: list, exchange_id: object
+    ) -> int:
+        return len(instruments_data)
+
+    def get_active_tickers(
+        self, exchange_id: object, instrument_type: str | None = None
+    ) -> set[str]:
+        return set(self._active)
+
+    def mark_delisted(self, *, ticker: str, **_: object) -> bool:
+        self.delisted.append(ticker)
+        return True
+
+
+def _build_with_second_page(
+    monkeypatch: pytest.MonkeyPatch, second_page: object, repo: _DelistingRepo
+) -> None:
+    # Real client + source + builder; only yf.screen is stubbed, so the test
+    # covers how a failed Yahoo page propagates into delisting reconciliation.
+    page1 = {"quotes": [_quote(f"S{i}", "NMS") for i in range(250)]}
+    monkeypatch.setattr(
+        "app.services.market_data.yfinance.screener.screener_client.yf.screen",
+        MagicMock(side_effect=[page1, second_page]),
+    )
+    client = ScreenerClient(
+        rate_limiter=MagicMock(), circuit_breaker=MagicMock(), default_max_retries=1
+    )
+    src = YFinanceUniverseSource(screener=client, fx_resolver=_fake_fx)
+    monkeypatch.setattr(
+        src, "_build_queries", lambda: [("Q", "STOCK", _STOCK_SORT_FIELD, _BIG_CAP)]
+    )
+    UniverseBuilder(
+        config=UniverseBuilderConfig(),
+        api_client=src,
+        ticker_mapper=PassThroughTickerMapper(),
+        repository=repo,
+        max_workers=1,
+    ).build()
+
+
+def test_failed_page_aborts_the_build_before_any_instrument_is_delisted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _DelistingRepo(active={"S0", "S249", "LIVE_PAGE_2"})
+    with pytest.raises(RuntimeError, match="page failed"):
+        _build_with_second_page(
+            monkeypatch, RuntimeError("503 Service Unavailable"), repo
+        )
+    assert repo.delisted == []
+
+
+def test_genuinely_absent_instrument_is_still_delisted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # LIVE_PAGE_2 sat on the page that is now empty, i.e. Yahoo no longer lists it.
+    repo = _DelistingRepo(active={"S0", "S249", "LIVE_PAGE_2"})
+    _build_with_second_page(monkeypatch, {"quotes": []}, repo)
+    assert repo.delisted == ["LIVE_PAGE_2"]
 
 
 def test_tags_instrument_type(monkeypatch: pytest.MonkeyPatch) -> None:

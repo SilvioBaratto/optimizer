@@ -36,7 +36,10 @@ from app.services.market_data.yfinance.protocols import (
     CircuitBreakerProtocol,
     RateLimiterProtocol,
 )
-from app.services.market_data.yfinance.screener.screener_client import ScreenerClient
+from app.services.market_data.yfinance.screener.screener_client import (
+    ScreenerClient,
+    ScreenerError,
+)
 from app.services.universe.canonical import (
     IngestionFloorConfig,
     Listing,
@@ -346,28 +349,34 @@ class YFinanceUniverseSource:
         deterministic — Yahoo's default order can duplicate or skip rows across pages.
 
         Raises:
-            UniverseSourceError: when a page still fails after the client's retries
-                (``screen`` returned ``None``). A failed page is not the end of the
-                results, so the rows collected so far are discarded.
+            UniverseSourceError: when a page fails (``screen`` raised
+                :class:`ScreenerError`, or a test double returned ``None``). A failed
+                page is not the end of the results, so the rows collected so far
+                are discarded.
         """
         collected: list[dict[str, Any]] = []
         seen_syms: set[Any] = set()
         offset = 0
         while len(collected) < cap:
-            result = self.screener.screen(
-                query,
-                size=_PAGE_SIZE,
-                offset=offset,
-                sort_field=sort_field,
-                sort_asc=False,
-            )
+            failure: ScreenerError | None = None
+            result: dict[str, Any] | None
+            try:
+                result = self.screener.screen(
+                    query,
+                    size=_PAGE_SIZE,
+                    offset=offset,
+                    sort_field=sort_field,
+                    sort_asc=False,
+                )
+            except ScreenerError as exc:
+                result, failure = None, exc
             if result is None:
                 msg = (
                     f"screener page failed after retries (kind={kind}, "
                     f"sort_field={sort_field}, offset={offset}, "
                     f"rows_collected={len(collected)})"
                 )
-                raise UniverseSourceError(msg)
+                raise UniverseSourceError(msg) from failure
             page_quotes = result.get("quotes") or []
             if not page_quotes:
                 break

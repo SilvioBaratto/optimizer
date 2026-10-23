@@ -13,9 +13,11 @@ pytest.importorskip("yfinance")
 
 from app.services.market_data.yfinance.screener.screener_client import (
     ScreenerClient,
+    ScreenerError,
 )
 
 _SCREEN = "app.services.market_data.yfinance.screener.screener_client.yf.screen"
+_RETRY_SLEEP = "app.services.infrastructure.retry.time.sleep"
 
 
 def _client() -> ScreenerClient:
@@ -46,6 +48,39 @@ def test_screen_uses_rate_limiter_and_circuit_breaker(mock_screen: MagicMock) ->
     client.screen("most_actives")
     client.circuit_breaker.check.assert_called_once()
     client.rate_limiter.acquire.assert_called_once_with("screener")
+
+
+@patch(_SCREEN)
+def test_screen_raises_when_every_attempt_fails(mock_screen: MagicMock) -> None:
+    # A failed page must be distinguishable from an empty one: callers paging a
+    # venue read None as "no more rows" and silently truncate the universe.
+    mock_screen.side_effect = RuntimeError("503 Service Unavailable")
+    with pytest.raises(ScreenerError) as excinfo:
+        _client().screen("day_gainers")
+    assert isinstance(excinfo.value.__cause__, RuntimeError)
+
+
+@patch(_RETRY_SLEEP)
+@patch(_SCREEN)
+def test_screen_does_not_retry_a_final_no_data_answer(
+    mock_screen: MagicMock, _sleep: MagicMock
+) -> None:
+    from yfinance.exceptions import YFDataException
+
+    mock_screen.side_effect = YFDataException("unparseable payload")
+    client = ScreenerClient(
+        rate_limiter=MagicMock(), circuit_breaker=MagicMock(), default_max_retries=3
+    )
+    with pytest.raises(ScreenerError):
+        client.screen("day_gainers")
+    assert mock_screen.call_count == 1
+
+
+@patch(_SCREEN)
+def test_screen_raises_when_yahoo_returns_nothing(mock_screen: MagicMock) -> None:
+    mock_screen.return_value = None
+    with pytest.raises(ScreenerError):
+        _client().screen("day_gainers")
 
 
 def test_screen_predefined_rejects_unknown() -> None:

@@ -243,6 +243,56 @@ class TestUniverseBuilderDiscoverNone:
 
 
 # ---------------------------------------------------------------------------
+# UniverseBuilder — delisting reconciliation vs. incomplete enumeration
+# ---------------------------------------------------------------------------
+
+
+class _DelistingRepo(_FakeRepo):
+    def __init__(self, active: set[str]) -> None:
+        super().__init__()
+        self._active = active
+        self.delisted: list[str] = []
+
+    def get_active_tickers(
+        self, exchange_id: Any, instrument_type: str | None = None
+    ) -> set[str]:
+        return set(self._active)
+
+    def mark_delisted(self, **kwargs: Any) -> bool:
+        self.delisted.append(kwargs["ticker"])
+        return True
+
+
+class TestUniverseBuilderIncompleteEnumeration:
+    def _build(self, incomplete: frozenset[str]) -> tuple[_DelistingRepo, BuildResult]:
+        repo = _DelistingRepo(active={"GONE_US"})
+        mapper = MagicMock()
+        mapper.discover.return_value = "AAPL"
+        api_client = _make_api_client()
+        api_client.incomplete_instrument_types = incomplete
+        builder = _make_builder(api_client=api_client, ticker_mapper=mapper, repo=repo)
+        return repo, builder.build()
+
+    def test_absent_ticker_is_delisted_when_enumeration_completed(self) -> None:
+        repo, _ = self._build(frozenset())
+        assert repo.delisted == ["GONE_US"]
+
+    def test_no_ticker_is_delisted_when_stock_enumeration_was_incomplete(
+        self,
+    ) -> None:
+        repo, _ = self._build(frozenset({"STOCK"}))
+        assert repo.delisted == []
+
+    def test_incomplete_enumeration_is_reported_in_build_errors(self) -> None:
+        _, result = self._build(frozenset({"STOCK"}))
+        assert any("STOCK" in e and "incomplete" in e for e in result.errors)
+
+    def test_other_instrument_type_still_reconciles(self) -> None:
+        repo, _ = self._build(frozenset({"ETF"}))
+        assert repo.delisted == ["GONE_US"]
+
+
+# ---------------------------------------------------------------------------
 # UniverseBuilder — exchange scoping
 # ---------------------------------------------------------------------------
 
