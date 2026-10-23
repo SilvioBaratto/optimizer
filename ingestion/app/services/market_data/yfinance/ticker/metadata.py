@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime, time, timezone
 from typing import Any
 
 import pandas as pd
@@ -11,6 +12,53 @@ from .._base import BaseClient
 from ._isin import has_exchange_suffix, is_trusted_isin
 
 logger = logging.getLogger(__name__)
+
+_VALUATION_CURRENT_LABEL = "Current"
+_VALUATION_PERIOD_LABEL_FORMAT = "%m/%d/%Y"
+
+
+def _utc_today() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+def _valuation_label_to_datetime(label: Any, as_of: date) -> datetime | None:
+    if label == _VALUATION_CURRENT_LABEL:
+        return datetime.combine(as_of, time.min)
+    if isinstance(label, str):
+        try:
+            return datetime.strptime(label, _VALUATION_PERIOD_LABEL_FORMAT)
+        except ValueError:
+            return None
+    if isinstance(label, datetime) and not pd.isna(label):
+        return label
+    return None
+
+
+def _date_valuation_columns(panel: pd.DataFrame, as_of: date) -> pd.DataFrame:
+    """Key a valuation panel's columns by date, as the statement repository expects.
+
+    yfinance labels the panel's columns ``"Current"`` (the latest trailing value)
+    and ``"M/D/YYYY"`` period ends. Neither parses as an ISO date, so the
+    date-keyed repository would skip every column and store nothing.
+
+    Args:
+        panel: Panel as returned by ``Ticker.valuation``.
+        as_of: Day to stamp on the ``"Current"`` column, normally the fetch day.
+
+    Returns:
+        The panel with a ``DatetimeIndex`` of columns. Columns whose label is not
+        a date are dropped, and a period column that falls on *as_of* replaces
+        ``"Current"`` so each date appears once.
+    """
+    if not any(isinstance(label, str) for label in panel.columns):
+        return panel
+    parsed = [
+        (label, _valuation_label_to_datetime(label, as_of)) for label in panel.columns
+    ]
+    kept = [(label, stamp) for label, stamp in parsed if stamp is not None]
+    dated = panel[[label for label, _ in kept]].copy()
+    dated.columns = pd.DatetimeIndex([stamp for _, stamp in kept])
+    return dated.loc[:, ~dated.columns.duplicated(keep="last")]
 
 
 class MetadataClient(BaseClient):
@@ -225,7 +273,9 @@ class MetadataClient(BaseClient):
             max_retries: Retry attempts; None uses the client default.
 
         Returns:
-            Valuation measures DataFrame, or None if unavailable or all retries fail.
+            Valuation measures DataFrame whose columns are dates (yfinance's
+            ``"Current"`` column is dated with the fetch day), or None if
+            unavailable or all retries fail.
         """
         logger.debug("Fetching valuation measures for '%s'", symbol)
 
@@ -235,8 +285,11 @@ class MetadataClient(BaseClient):
             # other MetadataClient methods.
             return self._get_ticker(symbol).valuation
 
-        return self._fetch_with_resilience(
+        panel = self._fetch_with_resilience(
             _action,
             max_retries,
             is_valid=lambda df: df is not None and not df.empty,
         )
+        if panel is None:
+            return None
+        return _date_valuation_columns(panel, _utc_today())
