@@ -19,7 +19,8 @@ class CircuitBreaker:
     """Exponential-backoff circuit breaker for rate-limited services.
 
     Tracks consecutive failures and blocks callers via ``check()`` for a
-    back-off window proportional to ``base_wait_minutes * 2**attempt``.
+    back-off window proportional to ``base_wait_minutes * 2**attempt``, capped
+    at ``max_wait_minutes``.
     Decays the attempt counter on each successful recovery so the breaker
     self-heals over time.
 
@@ -29,11 +30,15 @@ class CircuitBreaker:
             ``RuntimeError`` instead of sleeping, for as long as the current
             back-off window is open.
         base_wait_minutes: Scaling factor for the back-off formula.
+        max_wait_minutes: Upper bound on a single back-off window. Uncapped,
+            the window reaches hours, and every worker sleeping through it
+            keeps its job's heartbeat alive and outlasts the upstream ban.
     """
 
     service_name: str = "external service"
     max_attempts: int = 10
     base_wait_minutes: float = 2.0
+    max_wait_minutes: float = 30.0
     _active: bool = field(default=False, repr=False)
     _until: float = field(default=0.0, repr=False)
     _attempt: int = field(default=0, repr=False)
@@ -52,7 +57,10 @@ class CircuitBreaker:
                     return
 
             self._attempt += 1
-            wait_seconds = (2**self._attempt) * 60 * self.base_wait_minutes / 2
+            wait_seconds = min(
+                (2**self._attempt) * 60 * self.base_wait_minutes / 2,
+                self.max_wait_minutes * 60,
+            )
             resume_time = time.time() + wait_seconds
 
             self._until = resume_time

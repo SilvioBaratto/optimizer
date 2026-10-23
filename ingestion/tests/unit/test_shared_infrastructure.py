@@ -236,6 +236,28 @@ class TestCircuitBreakerRecovery:
         with pytest.raises(RuntimeError, match="svc rate limit persists"):
             cb.check()
 
+    def test_backoff_window_is_capped(self, fake_clock):
+        cb = CircuitBreaker(service_name="svc", max_attempts=10, max_wait_minutes=30.0)
+        windows = []
+        for _ in range(9):
+            cb.trigger()
+            windows.append(cb._until - fake_clock.now)
+            fake_clock.now = cb._until + 1.0
+
+        assert windows[:4] == [120.0, 240.0, 480.0, 960.0]
+        assert max(windows) == 30 * 60
+
+    def test_check_never_sleeps_longer_than_the_cap(self, fake_clock):
+        cb = CircuitBreaker(service_name="svc", max_attempts=10)
+        for attempt in range(9):
+            cb.trigger()
+            if attempt < 8:
+                fake_clock.now = cb._until + 1.0
+
+        cb.check()
+
+        assert fake_clock.sleeps == [pytest.approx(30 * 60)]
+
     def test_sustained_outage_heals_once_upstream_recovers(self, fake_clock):
         # Two scraper calls of three attempts each reach max_attempts=5; the
         # daemon then lives on, so a later healthy run must get through.
