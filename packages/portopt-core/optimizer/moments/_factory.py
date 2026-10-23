@@ -327,7 +327,10 @@ def build_prior(
             ``config.factor_model_type`` is ``CHARACTERISTICS`` — a
             ``CharacteristicsFactorModel`` needs an ``AssetPanel`` and
             factor-exposure estimators, so build it with
-            ``build_characteristics_factor_model`` instead.
+            ``build_characteristics_factor_model`` instead. Also raised when
+            ``config.use_factor_model`` is ``True`` and ``config.is_log_normal``
+            is ``True``: skfolio would scale only the factor moments to the
+            horizon and leave the idiosyncratic variance per-period.
     """
     if config is None:
         config = MomentEstimationConfig()
@@ -348,6 +351,14 @@ def build_prior(
                 "CharacteristicsFactorModel cannot be built from config alone; "
                 "use build_characteristics_factor_model(config, factors=...) "
                 "with an AssetPanel and factor-exposure estimators."
+            )
+        if config.is_log_normal:
+            raise ConfigurationError(
+                "is_log_normal/investment_horizon cannot be combined with "
+                "use_factor_model: the horizon scaling would apply to the "
+                "factor moments only, leaving idiosyncratic variance and "
+                "intercepts at the per-period scale. Fit the factor model on "
+                "per-period returns and scale the result instead."
             )
         return TimeSeriesFactorModel(
             factor_prior_estimator=empirical_prior,

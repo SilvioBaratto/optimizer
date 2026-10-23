@@ -118,7 +118,8 @@ class MomentEstimationConfig:
         implied_window_size: Rolling window (in observations) used by
             ``ImpliedCovariance`` to regress realized on implied volatility.
         is_log_normal: Whether returns are log-normal (for multi-period scaling in
-            ``EmpiricalPrior``).
+            ``EmpiricalPrior``). Not supported together with ``use_factor_model``
+            (``build_prior`` raises ``ConfigurationError``).
         investment_horizon: Investment horizon forwarded to ``EmpiricalPrior``.
         use_factor_model: If ``True``, wrap the prior in a factor model. When
             ``factor_model_type`` is ``TIME_SERIES`` (the default),

@@ -455,6 +455,21 @@ class TestBuildPrior:
         assert isinstance(prior, EmpiricalPrior)
         assert prior.investment_horizon == 252.0
 
+    def test_factor_model_rejects_log_normal_horizon_scaling(self) -> None:
+        # skfolio adds the idiosyncratic variance and intercepts at the
+        # per-period scale, so scaling only the factor prior mixes horizons.
+        cfg = MomentEstimationConfig(
+            use_factor_model=True, is_log_normal=True, investment_horizon=21.0
+        )
+        with pytest.raises(ConfigurationError, match="is_log_normal"):
+            build_prior(cfg)
+
+    def test_horizon_scaling_still_allowed_without_factor_model(self) -> None:
+        cfg = MomentEstimationConfig(is_log_normal=True, investment_horizon=21.0)
+        prior = build_prior(cfg)
+        assert isinstance(prior, EmpiricalPrior)
+        assert prior.investment_horizon == 21.0
+
     def test_mu_and_cov_composed(self) -> None:
         cfg = MomentEstimationConfig(
             mu_estimator=MuEstimatorType.SHRUNK,
