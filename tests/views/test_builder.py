@@ -161,6 +161,15 @@ class TestRecommendationConfidence:
         with pytest.raises(ConfigurationError, match="cap"):
             recommendation_confidence(sig, cap=1.5)
 
+    def test_zero_votes_raise_data_error_even_when_min_votes_is_zero(self) -> None:
+        sig = AnalystSignal(current_price=10.0, target_mean=11.0)
+        with pytest.raises(DataError, match="votes"):
+            recommendation_confidence(sig, min_votes=0)
+
+    def test_min_votes_zero_still_scores_a_ticker_with_votes(self) -> None:
+        sig = AnalystSignal(current_price=100.0, strong_buy=3)
+        assert recommendation_confidence(sig, min_votes=0) == pytest.approx(1.0)
+
 
 class TestBuildAnalystBlViews:
     def test_basic_views(self) -> None:
@@ -242,6 +251,29 @@ class TestBuildAnalystBlViews:
         signals = {"AAPL": AnalystSignal(current_price=100.0, target_mean=110.0)}
         with pytest.raises(ConfigurationError, match="precision"):
             build_analyst_bl_views(signals, precision=-1)
+
+    def test_zero_vote_ticker_skipped_when_min_votes_is_zero(self) -> None:
+        signals = {
+            "NOVOTES": AnalystSignal(current_price=100.0, target_mean=110.0),
+            "AAPL": AnalystSignal(
+                current_price=100.0, target_mean=110.0, strong_buy=8, buy=2
+            ),
+        }
+        views, confidences = build_analyst_bl_views(
+            signals, with_confidence=True, min_votes=0
+        )
+        assert views == ("AAPL == 0.100000",)
+        assert confidences is not None
+        assert len(confidences) == 1
+
+    def test_zero_vote_ticker_raises_when_not_skipping_and_min_votes_is_zero(
+        self,
+    ) -> None:
+        signals = {"NOVOTES": AnalystSignal(current_price=100.0, target_mean=110.0)}
+        with pytest.raises(DataError, match="NOVOTES"):
+            build_analyst_bl_views(
+                signals, with_confidence=True, min_votes=0, skip_incomplete=False
+            )
 
     @pytest.mark.parametrize(
         ("current", "target"),

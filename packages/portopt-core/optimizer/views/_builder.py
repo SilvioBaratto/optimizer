@@ -44,6 +44,9 @@ _RECOMMENDATION_SCORES = (5.0, 4.0, 3.0, 2.0, 1.0)
 # Maximum attainable variance of the bucket scores: all mass split evenly across
 # the two extreme buckets, i.e. ((5-3)^2 + (1-3)^2) / 2 = 4.0.
 _MAX_RECOMMENDATION_VARIANCE = 4.0
+# Agreement is a dispersion over the votes, which is undefined without any, so
+# a caller-supplied ``min_votes`` below this cannot admit a vote-less ticker.
+_MIN_VOTES_FLOOR = 1
 
 
 class PriceTargetStatistic(str, Enum):
@@ -204,21 +207,24 @@ def recommendation_confidence(
     Args:
         signal: Per-ticker analyst snapshot with recommendation vote counts.
         min_votes: Minimum total votes required; fewer raises ``DataError``.
+            Values below ``1`` are treated as ``1`` because a ticker without any
+            vote has no defined agreement.
         cap: Upper bound on the returned confidence.
 
     Returns:
         Confidence score in ``[0, cap]``.
 
     Raises:
-        DataError: If fewer than ``min_votes`` total votes are present.
+        DataError: If fewer than ``max(min_votes, 1)`` total votes are present.
         ConfigurationError: If ``cap`` is outside ``(0, 1]``.
     """
     if not (0.0 < cap <= 1.0):
         raise ConfigurationError(f"cap must be in (0, 1], got {cap}")
     total = signal.total_votes
-    if total < min_votes:
+    required = max(min_votes, _MIN_VOTES_FLOOR)
+    if total < required:
         raise DataError(
-            f"recommendation_confidence needs >= {min_votes} votes, got {total}"
+            f"recommendation_confidence needs >= {required} votes, got {total}"
         )
     counts = (
         signal.strong_buy,
@@ -262,7 +268,7 @@ def build_analyst_bl_views(
         compounding: See `implied_return_from_price_target`.
         with_confidence: Emit aligned Idzorek confidences from recommendation votes.
         min_votes: Minimum recommendation votes required when ``with_confidence``
-            is set.
+            is set; values below ``1`` are treated as ``1``.
         confidence_cap: Upper bound for the emitted confidences.
         precision: Decimal places used to format each view's return (fixed-point,
             so no scientific notation reaches skfolio's parser).  Use a larger
@@ -298,11 +304,13 @@ def build_analyst_bl_views(
                 f"{ticker}: missing, non-finite or non-positive "
                 f"current/{statistic.value} target"
             )
-        if with_confidence and signal.total_votes < min_votes:
+        required_votes = max(min_votes, _MIN_VOTES_FLOOR)
+        if with_confidence and signal.total_votes < required_votes:
             if skip_incomplete:
                 continue
             raise DataError(
-                f"{ticker}: needs >= {min_votes} recommendation votes for confidence"
+                f"{ticker}: needs >= {required_votes} recommendation votes "
+                "for confidence"
             )
         implied = implied_return_from_price_target(
             current,
