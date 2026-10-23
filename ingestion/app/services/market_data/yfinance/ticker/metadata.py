@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 
 from .._base import BaseClient
+from ._isin import has_exchange_suffix, is_trusted_isin
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +28,15 @@ class MetadataClient(BaseClient):
             max_retries: Retry attempts; None uses the client default.
 
         Returns:
-            ISIN string, or None if unavailable (yfinance returns ``"-"`` for unknown
-            ISINs, which is treated as absent).
+            ISIN string, or None if unavailable. Symbols with an exchange suffix
+            always give None without a request: yfinance's Business Insider scrape
+            can only match them by name and answers with a secondary line (a
+            depositary receipt, preferred share or bond). For other symbols
+            yfinance's ``"-"`` placeholder and malformed codes are dropped too.
         """
+        if has_exchange_suffix(symbol):
+            logger.debug("Skipping ISIN scrape for '%s': not a US symbol", symbol)
+            return None
         logger.debug("Fetching ISIN for '%s'", symbol)
 
         def _action() -> str | None:
@@ -38,7 +45,7 @@ class MetadataClient(BaseClient):
         return self._fetch_with_resilience(
             _action,
             max_retries,
-            is_valid=lambda v: v is not None and v != "" and v != "-",
+            is_valid=lambda v: isinstance(v, str) and is_trusted_isin(v, symbol),
         )
 
     def fetch_fast_info(
