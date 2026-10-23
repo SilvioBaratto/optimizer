@@ -186,7 +186,11 @@ def fit_factor_prior(
     x = asset_returns.loc[common]
     f = factor_returns.loc[common]
 
-    finite = x.notna().all(axis=1).to_numpy() & f.notna().all(axis=1).to_numpy()
+    # notna() is True for +/-inf (e.g. pct_change off a zero price), which
+    # skfolio rejects just like NaN.
+    x_ok = np.isfinite(x.to_numpy(dtype=float, na_value=np.nan)).all(axis=1)
+    f_ok = np.isfinite(f.to_numpy(dtype=float, na_value=np.nan)).all(axis=1)
+    finite = x_ok & f_ok
     n_finite = int(np.count_nonzero(finite))
     if n_finite < config.min_observations:
         raise DataError(

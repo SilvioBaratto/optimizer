@@ -210,7 +210,11 @@ def _aligned_finite(
     common = nav_returns.index.intersection(factor_returns.index)
     nav = nav_returns.loc[common]
     fac = factor_returns.loc[common]
-    mask = nav.notna() & fac.notna().all(axis=1)
+    # notna() keeps +/-inf (pct_change off a zero level), which would poison n_obs,
+    # R² and the window sums; fit_factor_prior drops those periods the same way.
+    nav_ok = np.isfinite(nav.to_numpy(dtype=float, na_value=np.nan))
+    fac_ok = np.isfinite(fac.to_numpy(dtype=float, na_value=np.nan)).all(axis=1)
+    mask = nav_ok & fac_ok
     return nav[mask], fac[mask]
 
 
@@ -351,7 +355,8 @@ def attribute(
     """
     cols = [c for c in exposure.exposures if c in factor_returns.columns]
     if not cols:
-        total = float(nav_returns.dropna().sum())
+        nav_ok = np.isfinite(nav_returns.to_numpy(dtype=float, na_value=np.nan))
+        total = float(nav_returns[nav_ok].sum())
         return AttributionResult(
             total_return=total,
             contributions={},

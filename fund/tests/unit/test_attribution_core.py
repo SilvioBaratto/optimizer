@@ -128,6 +128,50 @@ def test_attribution_core_constant_factor_dropped_not_crash():
     assert set(result.exposures) == {"rates", "credit"}
 
 
+def test_attribution_core_infinite_periods_are_dropped_like_nan():
+    """A +/-inf NAV or factor period leaves the sample instead of poisoning the fit."""
+    nav, factors = _synthetic(n=80, betas={"rates": 0.8, "credit": -0.3}, alpha=5e-4)
+    nav.iloc[10] = np.inf
+    factors.iloc[25, 1] = -np.inf
+    config = MacroAttributionConfig.for_default()
+
+    exposure = estimate_exposures(nav, factors, config=config)
+    result = attribute(nav, factors, exposure)
+
+    assert exposure.n_obs == 78
+    assert exposure.estimation_index is not None
+    assert nav.index[10] not in exposure.estimation_index
+    assert factors.index[25] not in exposure.estimation_index
+    assert exposure.r2 is not None and np.isfinite(exposure.r2)
+    assert exposure.exposures["rates"] == pytest.approx(0.8, abs=0.02)
+    assert np.isfinite(result.total_return)
+    assert np.isfinite(result.residual)
+    assert result.total_return == pytest.approx(
+        float(nav.iloc[exposure.estimation_index.map(nav.index.get_loc)].sum()),
+        abs=1e-9,
+    )
+
+
+def test_attribution_infinite_period_without_exposures_stays_finite():
+    """The no-exposure total skips +/-inf NAV periods as it skips NaN ones."""
+    nav, _ = _synthetic(n=30, betas={"rates": 0.5})
+    nav.iloc[4] = -np.inf
+    empty_exposure = ExposureResult(
+        exposures={},
+        alpha=0.0,
+        n_obs=0,
+        r2=None,
+        method_used=RegressionMethod.HUBER,
+        insufficient_history=True,
+    )
+
+    result = attribute(nav, pd.DataFrame(index=nav.index), empty_exposure)
+
+    assert np.isfinite(result.total_return)
+    assert result.total_return == pytest.approx(float(nav.drop(nav.index[4]).sum()))
+    assert result.residual == pytest.approx(result.total_return)
+
+
 def test_attribution_all_factors_missing_residual_equals_total():
     """With no exposures the whole period return is idiosyncratic residual."""
     nav, _ = _synthetic(n=30, betas={"rates": 0.5})

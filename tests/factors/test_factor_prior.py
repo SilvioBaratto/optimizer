@@ -120,6 +120,27 @@ class TestFitFactorPrior:
         model = fit_factor_prior(asset_returns, f)
         assert hasattr(model, "return_distribution_")
 
+    def test_drops_infinite_periods(
+        self, asset_returns: pd.DataFrame, factor_returns: pd.DataFrame
+    ) -> None:
+        # pct_change on a zero price yields +/-inf; notna() lets it through
+        # and skfolio then rejects it, so it must be dropped like a NaN row.
+        x = asset_returns.copy()
+        x.iloc[5, 2] = np.inf
+        f = factor_returns.copy()
+        f.iloc[9, 1] = -np.inf
+        model = fit_factor_prior(x, f)
+        assert np.isfinite(np.asarray(model.return_distribution_.mu)).all()
+
+    def test_infinite_periods_count_against_min_observations(
+        self, asset_returns: pd.DataFrame, factor_returns: pd.DataFrame
+    ) -> None:
+        x = asset_returns.iloc[:14].copy()
+        x.iloc[:5, 0] = np.inf
+        cfg = FactorPriorConfig(min_observations=12)
+        with pytest.raises(DataError, match="fully-finite"):
+            fit_factor_prior(x, factor_returns.iloc[:14], cfg)
+
     def test_no_common_dates_raises(
         self, asset_returns: pd.DataFrame, factor_returns: pd.DataFrame
     ) -> None:
