@@ -196,6 +196,13 @@ def should_rebalance(
     return bool(np.any(drift_breach_mask(current_weights, target_weights, config)))
 
 
+# Largest factor by which the breached targets may be rescaled to fill the
+# budget the held weights leave. Beyond it the targets carry too little (or too
+# much) mass to stand in for that budget: scaling them would re-inflate a
+# position the optimizer all but exited, so the whole vector is renormalised.
+_MAX_BREACH_RESCALE = 2.0
+
+
 def apply_no_trade_band(
     current_weights: npt.ArrayLike,
     target_weights: npt.ArrayLike,
@@ -203,13 +210,21 @@ def apply_no_trade_band(
 ) -> npt.NDArray[np.float64]:
     """Apply a no-trade band, trading only assets that breach the threshold.
 
-    Turnover-reducing partial rebalance: positions whose drift breaches the
-    threshold snap to their target weight; the rest keep their current
-    (drifted) weight. The resulting vector is renormalised to sum to 1 so it
-    remains a valid fully-invested allocation.
+    Turnover-reducing partial rebalance: assets inside the band keep their
+    current (drifted) weight exactly, and the assets that breach the band
+    move to their target weights, rescaled pro rata so the whole vector sums
+    to 1 (the breached targets share ``1 - sum(held weights)``). Held
+    positions are never touched by the rescale, so no in-band asset is traded.
 
-    When no asset breaches the band the current weights are returned unchanged
-    (renormalised), i.e. no trading occurs.
+    When the breached targets cannot stand in for the budget the held weights
+    leave (their sum is not positive, that budget is not positive, or filling
+    it would rescale them by more than a factor of two), the whole blend is
+    renormalised instead, so the held positions absorb the difference and the
+    vector still sums to 1. This covers the exit-only case where every
+    breached target is zero.
+
+    When no asset breaches the band the current weights are returned
+    (renormalised to sum to 1), i.e. no trading occurs.
 
     Args:
         current_weights: Current (drifted) portfolio weights, shape (n_assets,).
@@ -218,15 +233,31 @@ def apply_no_trade_band(
         config: Threshold configuration. Defaults to absolute 5pp threshold.
 
     Returns:
-        Post-band weights renormalised to sum to 1, shape (n_assets,). If the
-        total is zero or non-finite the un-normalised blend is returned.
+        Post-band weights summing to 1, shape (n_assets,). If the weights that
+        would be renormalised sum to zero or a non-finite value, the plain
+        blend (breached targets, held current weights) is returned
+        un-normalised.
     """
     cur = _as_1d("current_weights", current_weights)
     tgt = _as_1d("target_weights", target_weights)
     _check_aligned(cur, tgt, "current_weights", "target_weights")
 
     mask = drift_breach_mask(cur, tgt, config)
+    if not mask.any():
+        total = cur.sum()
+        if not np.isfinite(total) or total == 0.0:
+            return cur
+        return cur / total
+
     blended = np.where(mask, tgt, cur)
+    traded_total = tgt[mask].sum()
+    budget = 1.0 - cur[~mask].sum()
+    if traded_total > 0.0 and budget > 0.0:
+        scale = budget / traded_total
+        if 1.0 / _MAX_BREACH_RESCALE <= scale <= _MAX_BREACH_RESCALE:
+            blended[mask] = tgt[mask] * scale
+            return blended
+
     total = blended.sum()
     if not np.isfinite(total) or total == 0.0:
         return blended

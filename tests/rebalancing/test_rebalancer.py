@@ -334,6 +334,67 @@ class TestApplyNoTradeBand:
         out = apply_no_trade_band([0.0, 0.0], [0.0, 0.0])
         np.testing.assert_allclose(out, [0.0, 0.0])
 
+    def test_in_band_asset_is_not_traded_when_others_breach(self) -> None:
+        current = np.array([0.52, 0.30, 0.18])
+        target = np.array([0.40, 0.33, 0.27])
+        cfg = ThresholdRebalancingConfig.for_absolute(threshold=0.05)
+        out = apply_no_trade_band(current, target, cfg)
+        # asset 1 drifts 3pp (inside the 5pp band): it must keep its weight.
+        assert out[1] == pytest.approx(0.30)
+        assert out.sum() == pytest.approx(1.0)
+
+    def test_breached_assets_share_remaining_budget_pro_rata_to_target(
+        self,
+    ) -> None:
+        current = np.array([0.52, 0.30, 0.18])
+        target = np.array([0.40, 0.33, 0.27])
+        cfg = ThresholdRebalancingConfig.for_absolute(threshold=0.05)
+        out = apply_no_trade_band(current, target, cfg)
+        # held 0.30 -> traded targets (0.40, 0.27) rescale to sum to 0.70.
+        np.testing.assert_allclose(out, [0.40 * 0.70 / 0.67, 0.30, 0.27 * 0.70 / 0.67])
+
+    def test_all_assets_breaching_returns_target(self) -> None:
+        current = np.array([0.70, 0.20, 0.10])
+        target = np.array([0.40, 0.40, 0.20])
+        cfg = ThresholdRebalancingConfig.for_absolute(threshold=0.05)
+        np.testing.assert_allclose(apply_no_trade_band(current, target, cfg), target)
+
+    def test_traded_targets_summing_to_zero_renormalise_the_blend(self) -> None:
+        # Long/short book: the breached targets (0.30, -0.30) cancel, so no
+        # positive scale can make them fill the remaining budget. The held
+        # asset absorbs the gap through the plain renormalisation.
+        current = np.array([0.50, -0.47, 0.97])
+        target = np.array([0.30, -0.30, 1.00])
+        cfg = ThresholdRebalancingConfig.for_absolute(threshold=0.05)
+        out = apply_no_trade_band(current, target, cfg)
+        assert np.all(np.isfinite(out))
+        assert out.sum() == pytest.approx(1.0)
+        np.testing.assert_allclose(out, np.array([0.30, -0.30, 0.97]) / 0.97)
+
+    def test_exit_only_breach_stays_fully_invested(self) -> None:
+        # Only the held name being exited breaches; its target is zero, so the
+        # 10% it frees must flow to the held names instead of going missing.
+        current = np.array([0.45, 0.45, 0.10])
+        target = np.array([0.50, 0.50, 0.0])
+        cfg = ThresholdRebalancingConfig.for_absolute(threshold=0.05)
+        out = apply_no_trade_band(current, target, cfg)
+        np.testing.assert_allclose(out, [0.50, 0.50, 0.0], atol=1e-12)
+        assert out.sum() == pytest.approx(1.0)
+
+    @pytest.mark.parametrize("exit_target", [1e-12, 1e-9, 1e-6, 1e-5, 1e-4])
+    def test_near_zero_breached_target_is_not_reinflated(
+        self, exit_target: float
+    ) -> None:
+        # A breached target the optimizer all but zeroed must not be scaled up
+        # to soak the whole budget, which would undo the exit.
+        current = np.array([0.45, 0.45, 0.10])
+        target = np.array([0.50, 0.50 - exit_target, exit_target])
+        cfg = ThresholdRebalancingConfig.for_absolute(threshold=0.05)
+        out = apply_no_trade_band(current, target, cfg)
+        assert out.sum() == pytest.approx(1.0)
+        assert out[2] < 1e-3
+        assert np.all(out >= 0.0)
+
 
 class TestBuildRebalancingWalkForward:
     def _returns(self) -> pd.DataFrame:
