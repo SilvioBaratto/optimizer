@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -451,6 +451,34 @@ class TestGetPriceHistory:
             date(2024, 1, 9),
             date(2024, 1, 8),
         ]
+
+    def test_no_hidden_row_cap_on_open_ended_queries(self, db_session: Session) -> None:
+        # ~20y of daily bars after a `--period max` backfill. A silent default
+        # cap drops the newest bars for ascending callers (stale NAV marks) and
+        # the oldest for descending ones.
+        ex = _exchange(db_session)
+        inst = _instrument(db_session, ex)
+        first = date(2000, 1, 1)
+        total = 5_010
+        db_session.add_all(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=first + timedelta(days=i),
+                close=100.0 + i,
+            )
+            for i in range(total)
+        )
+        db_session.flush()
+        last = first + timedelta(days=total - 1)
+
+        repo = _repo(db_session)
+        ascending = repo.get_price_history(inst.id, ascending=True)
+        descending = repo.get_price_history(inst.id)
+
+        assert len(ascending) == total
+        assert ascending[-1].date == last
+        assert len(descending) == total
+        assert descending[-1].date == first
 
 
 # ---------------------------------------------------------------------------
