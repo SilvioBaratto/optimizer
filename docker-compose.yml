@@ -1,3 +1,7 @@
+# Pinned so the data volume (`optimizer_postgres_data`) and network do not follow
+# the checkout directory's name; the fixed container_names below already don't.
+name: optimizer
+
 services:
   # PostgreSQL Database
   db:

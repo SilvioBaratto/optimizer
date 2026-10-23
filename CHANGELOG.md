@@ -97,6 +97,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **docker**: `docker-compose.yml` now pins the project name with a top-level
+  `name: optimizer`. Without it Compose took the name from the checkout
+  directory, so re-cloning or unzipping under another basename (for example
+  `optimizer-development`) created a new, empty `<basename>_postgres_data`
+  volume: the database looked wiped and a full refetch started. The pin matches
+  the `optimizer_postgres_data` volume of installs cloned as `optimizer` (what
+  the README says to do), which need no action. **Upgrade note — checkouts
+  under any other name:** their data lives in `<basename>_postgres_data`, and
+  the old containers still hold the fixed `container_name`s (`optimizer_db`,
+  …), so the next `portopt start` would either fail with a name conflict or
+  come up on an empty database. Before upgrading, either
+  - keep the old project: set `COMPOSE_PROJECT_NAME=<basename>` (it overrides
+    `name:`, as does `-p`) and nothing moves; or
+  - move to the pinned name: run `docker compose -p <basename> --profile
+    ingestion --profile fund --profile tools down` (it frees the container names
+    and keeps the volume; never use `down -v`, which deletes the database), then
+    copy the data across with `docker volume create optimizer_postgres_data &&
+    docker run --rm -v <basename>_postgres_data:/from -v
+    optimizer_postgres_data:/to postgres:16-alpine cp -a /from/. /to/`. Compose
+    may warn that it did not create `optimizer_postgres_data`; it still uses it
 - **api**: synchronous scheduler steps now run a heartbeat companion. Only the
   heartbeat stamps `last_heartbeat_at`, so a step running in the scheduler thread
   went silent to the orphan reaper and was failed mid-run once it outlived the
