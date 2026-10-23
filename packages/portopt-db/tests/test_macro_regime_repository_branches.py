@@ -711,6 +711,35 @@ class TestGetFredObservations:
         assert results[0].date < results[1].date
         assert results[0].date >= self._D3  # D3 and D4 are the two most recent
 
+    def test_limit_without_series_id_applies_per_series(
+        self, db_session: Session
+    ) -> None:
+        _flush(
+            db_session,
+            *(_fred("A", _D(2026, 1, day), float(day)) for day in range(1, 6)),
+            *(_fred("B", _D(2026, 1, day), float(day)) for day in range(1, 6)),
+        )
+        repo = MacroRegimeRepository(db_session)
+        results = repo.get_fred_observations(limit=2)
+        assert [(r.series_id, r.date.day) for r in results] == [
+            ("A", 4),
+            ("A", 5),
+            ("B", 4),
+            ("B", 5),
+        ]
+
+    def test_limit_without_series_id_respects_date_filters(
+        self, db_session: Session
+    ) -> None:
+        _flush(
+            db_session,
+            *(_fred("A", _D(2026, 1, day)) for day in range(1, 6)),
+            *(_fred("B", _D(2026, 1, day)) for day in range(1, 6)),
+        )
+        repo = MacroRegimeRepository(db_session)
+        results = repo.get_fred_observations(end_date=_D(2026, 1, 3), limit=1)
+        assert [(r.series_id, r.date.day) for r in results] == [("A", 3), ("B", 3)]
+
     def test_limit_none_uses_ascending_order(self, db_session: Session) -> None:
         _flush(
             db_session,

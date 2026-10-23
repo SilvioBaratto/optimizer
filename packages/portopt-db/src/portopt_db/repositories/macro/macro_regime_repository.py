@@ -514,8 +514,10 @@ class MacroRegimeRepository(RepositoryBase):
             series_id: Filter to this series. ``None`` returns all series.
             start_date: Inclusive lower bound on observation date.
             end_date: Inclusive upper bound on observation date.
-            limit: When supplied, the *limit* most-recent rows are fetched and
-                re-sorted ascending so ``result[-1]`` is always the latest value.
+            limit: When supplied, the *limit* most-recent rows of each series
+                are kept, so ``result[-1]`` of a single series is always its
+                latest value and no series is starved when *series_id* is
+                ``None``.
             exclude_null: Drop rows whose ``value`` is NULL (FRED ``.``
                 placeholders for holidays/missing readings) before *limit* is
                 applied, so the window holds the most recent real readings.
@@ -535,13 +537,20 @@ class MacroRegimeRepository(RepositoryBase):
             stmt = stmt.where(FredObservation.value.is_not(None))
 
         if limit is not None:
-            stmt = stmt.order_by(
-                FredObservation.series_id,
-                FredObservation.date.desc(),
-            ).limit(limit)
-            rows = list(self.session.execute(stmt).scalars().all())
-            rows.sort(key=lambda r: (r.series_id, r.date))
-            return rows
+            # A plain LIMIT would be taken across series in series_id order and
+            # return only the alphabetically first series.
+            recency = sa_func.row_number().over(
+                partition_by=FredObservation.series_id,
+                order_by=FredObservation.date.desc(),
+            )
+            ranked = stmt.with_only_columns(
+                FredObservation.id, recency.label("recency")
+            ).subquery()
+            stmt = (
+                select(FredObservation)
+                .join(ranked, FredObservation.id == ranked.c.id)
+                .where(ranked.c.recency <= limit)
+            )
 
         stmt = stmt.order_by(FredObservation.series_id, FredObservation.date)
         return self.session.execute(stmt).scalars().all()
