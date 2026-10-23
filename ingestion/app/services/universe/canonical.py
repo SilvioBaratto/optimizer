@@ -360,7 +360,9 @@ def dedup_canonical(
     symbol so it is never merged away.
     Within a group the max-``_rank_key`` line is canonical; when ``keep_dual_class``
     is set, same-exchange siblings clearing ``dual_class_min_addv_usd`` are also kept
-    (recovers GOOG beside GOOGL). ``incumbents`` are the symbols persisted by the
+    (recovers GOOG beside GOOGL) when quoted in the winner's major currency: a second
+    currency line on one exchange is the same security again (a UCITS ETF listed in
+    USD and GBp), not another share class. ``incumbents`` are the symbols persisted by the
     previous build: one keeps its place unless a challenger beats its ADDV by
     ``incumbent_addv_margin`` or it no longer clears the member floor (see
     :func:`_pick_winner`). Order of survivors is deterministic.
@@ -401,7 +403,7 @@ def dedup_canonical(
         members.sort(
             key=lambda lm: _rank_key(lm[0], lm[1], exchange_pref), reverse=True
         )
-        winner, _ = _pick_winner(members, incumbents, cfg)
+        winner, winner_metrics = _pick_winner(members, incumbents, cfg)
         survivors.append(winner)
         if keep_dual_class:
             for sibling, sib_metrics in members:
@@ -409,6 +411,7 @@ def dedup_canonical(
                     continue
                 if (
                     sibling.exchange == winner.exchange
+                    and sib_metrics.major_ccy == winner_metrics.major_ccy
                     and sib_metrics.addv_usd is not None
                     and sib_metrics.addv_usd >= cfg.dual_class_min_addv_usd
                 ):

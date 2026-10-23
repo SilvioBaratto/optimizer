@@ -392,6 +392,27 @@ class TestDedupCanonical:
         out = dedup_canonical(listings, _FX)
         assert {x.symbol for x in out} == {"GOOGL", "GOOG"}
 
+    def test_same_fund_second_currency_line_is_not_a_dual_class_sibling(self) -> None:
+        # CSPX.L (USD) and CSP1.L (GBp) are one fund quoted in two currencies on the
+        # same exchange; both clear the dual-class ADDV bar but only one is kept.
+        fund = "iShares Core S&P 500 UCITS ETF"
+        listings = [
+            _mk("CSPX.L", "LSE", fund, "USD", 500.0, 500_000, fin_ccy=None),
+            _mk("CSP1.L", "LSE", fund, "GBp", 47_000.0, 60_000, fin_ccy=None),
+        ]
+        out = dedup_canonical(listings, _FX)
+        assert [x.symbol for x in out] == ["CSPX.L"]
+
+    def test_dual_class_siblings_quoted_in_pence_are_both_kept(self) -> None:
+        # GBX and GBp are the same major currency, so this is a genuine share-class
+        # pair (same unit, same exchange), not a second-currency line.
+        listings = [
+            _mk("AAA.L", "LSE", "Acme Group PLC", "GBp", 2_000.0, 8e6, fin_ccy="GBP"),
+            _mk("AAB.L", "LSE", "Acme Group PLC", "GBX", 1_900.0, 7e6, fin_ccy="GBP"),
+        ]
+        out = dedup_canonical(listings, _FX)
+        assert {x.symbol for x in out} == {"AAA.L", "AAB.L"}
+
     def test_illiquid_sibling_dropped(self) -> None:
         # BRK-A (5 sh/day) below the dual-class ADDV bar -> only BRK-B survives.
         listings = [
