@@ -18,7 +18,7 @@ import types
 import pytest
 
 from fund.agents import model
-from fund.config import FundConfig
+from fund.config import FundConfig, load_config
 
 # A config carrying every default plus a key, so build never hits use-time None.
 _CFG = FundConfig(ollama_api_key="sk-ollama-test")
@@ -193,6 +193,22 @@ def test_openai_omits_base_url_when_unset(monkeypatch):
     llm = model.build_chat_model(cfg, model_name="gpt-4o")
 
     assert "base_url" not in llm.kwargs
+
+
+def test_openai_blank_base_url_env_falls_back_to_the_openai_host(monkeypatch):
+    # Real SDK, construction only: an exported `OPENAI_BASE_URL=` (the template
+    # line left blank) must not leave ChatOpenAI with an empty base URL.
+    pytest.importorskip("langchain_openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
+    monkeypatch.setenv("OPENAI_BASE_URL", "")
+    cfg = load_config(load_dotenv_file=False)
+
+    llm = model.build_chat_model(
+        FundConfig(llm_provider="openai", openai_api_key=cfg.openai_api_key),
+        model_name="gpt-4o",
+    )
+
+    assert str(llm.root_client.base_url) == "https://api.openai.com/v1/"
 
 
 def test_openai_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):

@@ -170,6 +170,19 @@ def _read_secret(env: Mapping[str, str], name: str) -> str | None:
     return env.get(name) or None
 
 
+# Endpoint overrides the provider SDKs read from ``os.environ`` on their own. They
+# keep a blank value verbatim (`is None` checks, not truthiness), so an exported
+# `OPENAI_BASE_URL=` would become an empty base URL instead of "use the default host".
+_SDK_ENDPOINT_ENV_VARS = ("OPENAI_BASE_URL", "NVIDIA_BASE_URL")
+
+
+def _drop_blank_sdk_endpoint_env() -> None:
+    """Unset blank SDK endpoint overrides so the SDK falls back to its own host."""
+    for name in _SDK_ENDPOINT_ENV_VARS:
+        if name in os.environ and not os.environ[name].strip():
+            del os.environ[name]
+
+
 def load_config(
     *,
     env: Mapping[str, str] | None = None,
@@ -196,6 +209,7 @@ def load_config(
             # stock cacert.pem lacking the corporate CA; without override that
             # shadows the correct .env value and breaks TLS to Ollama Cloud.
             load_dotenv(override=True)
+        _drop_blank_sdk_endpoint_env()
         env = os.environ
 
     defaults = FundConfig()

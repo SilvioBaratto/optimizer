@@ -43,3 +43,15 @@ def test_env_example_documents_provider_env_var(env_var: str):
     assert env_var in _env_example_text(), (
         f"{env_var} must be documented in .env.example (D4 provider contract)"
     )
+
+
+def test_env_example_ships_no_active_blank_base_url():
+    """A blank `*_BASE_URL=` is exported verbatim and reaches the SDK as `""`."""
+    from dotenv import dotenv_values
+
+    blank = [
+        key
+        for key, value in dotenv_values(_ENV_EXAMPLE).items()
+        if key.endswith("_BASE_URL") and not (value or "").strip()
+    ]
+    assert not blank, f"comment out optional endpoint overrides: {blank}"

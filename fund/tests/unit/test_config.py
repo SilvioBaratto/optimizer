@@ -10,7 +10,10 @@ dataclass defaults so a bare import yields the verified values; secrets
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+import pytest
 
 from fund.config import FundConfig, load_config, settings
 
@@ -241,6 +244,31 @@ def test_provider_fields_default_safe_so_bare_import_never_fails():
     assert cfg.azure_openai_api_version is None
     assert cfg.azure_openai_deployment_name is None
     assert cfg.hf_mode == "cloud"
+
+
+@pytest.mark.parametrize("name", ["OPENAI_BASE_URL", "NVIDIA_BASE_URL"])
+def test_blank_sdk_endpoint_env_is_dropped_so_the_sdk_uses_its_default_host(
+    monkeypatch, name
+):
+    # The provider SDKs read these variables from os.environ themselves and keep a
+    # blank value verbatim, so a `KEY=` line copied from .env.example would become
+    # an empty base URL rather than "use the default host".
+    monkeypatch.setenv(name, "")
+
+    cfg = load_config(load_dotenv_file=False)
+
+    assert name not in os.environ
+    assert cfg.openai_base_url is None
+    assert cfg.nvidia_base_url is None
+
+
+def test_nonblank_sdk_endpoint_env_survives_load_config(monkeypatch):
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://oai.example/v1")
+
+    cfg = load_config(load_dotenv_file=False)
+
+    assert os.environ["OPENAI_BASE_URL"] == "https://oai.example/v1"
+    assert cfg.openai_base_url == "https://oai.example/v1"
 
 
 # --- file-based docker secrets (<NAME>_FILE wins over inline <NAME>) -----------
