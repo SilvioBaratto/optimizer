@@ -340,3 +340,54 @@ class TestDecomposeUnknownFx:
         assert (1.0 + row["local"]) * (1.0 + row["fx"]) - 1.0 == pytest.approx(
             row["total"], abs=1e-10
         )
+
+
+class TestDecomposeUnionCalendarGaps:
+    """A NaN price (market holiday on a union calendar) must not drop its move."""
+
+    @staticmethod
+    def _frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, str]]:
+        dates = pd.bdate_range("2024-01-02", periods=6)
+        local = pd.DataFrame(
+            {
+                "A": [100.0, 101.0, np.nan, 103.0, 104.0, 104.0],
+                "B": [50.0, 51.0, np.nan, 49.0, 52.0, 53.0],
+            },
+            index=dates,
+        )
+        rate = pd.Series([0.90, 0.91, 0.93, 0.92, 0.94, 0.95], index=dates)
+        base = local.copy()
+        base["A"] = local["A"] * rate
+        return local, base, pd.DataFrame({"USD": rate}), {"A": "USD", "B": "EUR"}
+
+    def test_gap_move_lands_on_first_observed_date(self) -> None:
+        local, base, fx, cmap = self._frames()
+        result = decompose_fx_returns(local, base, fx, cmap, "EUR")
+        dates = local.index
+
+        assert np.isnan(result.local_returns.loc[dates[2], "A"])
+        assert result.local_returns.loc[dates[3], "A"] == pytest.approx(103 / 101 - 1)
+        assert result.fx_returns.loc[dates[3], "A"] == pytest.approx(0.92 / 0.91 - 1)
+
+    def test_cumulative_return_covers_full_price_move(self) -> None:
+        local, base, fx, cmap = self._frames()
+        summary = decompose_fx_returns(
+            local, base, fx, cmap, "EUR"
+        ).cumulative_contributions()
+
+        assert summary.loc["A", "local"] == pytest.approx(104 / 100 - 1)
+        assert summary.loc["A", "fx"] == pytest.approx(0.95 / 0.90 - 1)
+        assert summary.loc["A", "total"] == pytest.approx(
+            (104 * 0.95) / (100 * 0.90) - 1
+        )
+        assert summary.loc["B", "total"] == pytest.approx(53 / 50 - 1)
+
+    def test_identity_holds_across_gap(self) -> None:
+        local, base, fx, cmap = self._frames()
+        result = decompose_fx_returns(local, base, fx, cmap, "EUR")
+
+        recon = result.local_returns + result.fx_returns + result.cross_terms
+        pd.testing.assert_frame_equal(
+            result.total_returns, recon, check_exact=False, atol=1e-10
+        )
+        assert result.total_returns["A"].notna().sum() == 4
