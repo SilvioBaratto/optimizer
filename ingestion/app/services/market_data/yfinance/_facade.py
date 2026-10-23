@@ -38,6 +38,63 @@ if _env_path.exists():
     load_dotenv(_env_path)
 
 
+# Outlasts the longest scheduled exchange closure (Lunar New Year, Golden Week)
+# while another exchange keeps trading; a ticker silent for longer has stopped
+# trading. Calendar time rather than a bar count, so hourly and daily panels
+# tolerate the same closure.
+_MAX_TRAILING_GAP = pd.Timedelta(days=10)
+# Ten days is under two weekly bars and under one monthly bar, so coarse
+# intervals are allowed this many bars of silence instead.
+_MAX_TRAILING_GAP_BARS = 5
+
+
+def _align_close_prices(prices: pd.DataFrame) -> pd.DataFrame:
+    """Align per-ticker Close series into one gap-free panel.
+
+    Interior gaps are carried forward, as the exchanges' holiday calendars
+    differ. A ticker whose last print trails the panel end by more than
+    ``_MAX_TRAILING_GAP`` (or ``_MAX_TRAILING_GAP_BARS`` bars when that is
+    longer) is dropped instead, as is one that never printed: carrying its
+    last price to the end would present a delisted or halted ticker as a
+    constant-price, zero-volatility asset. The panel is then trimmed to the
+    dates every remaining ticker covers, so no leading gaps remain.
+
+    Args:
+        prices: Close prices, one column per ticker, indexed by bar time.
+
+    Returns:
+        The aligned panel, possibly empty when no date is shared.
+    """
+    prices = prices.dropna(how="all")
+    if prices.empty:
+        return prices
+    index = prices.index
+    # Bars since each ticker's last real print: the NaN run at the panel's end.
+    trailing_bars = (prices.notna().iloc[::-1].cumsum() == 0).sum()
+    max_gap = _MAX_TRAILING_GAP
+    bar_span = index.to_series().diff().median()
+    if pd.notna(bar_span):
+        max_gap = max(max_gap, _MAX_TRAILING_GAP_BARS * bar_span)
+    panel_end = index[-1]
+    stopped = [
+        ticker
+        for ticker, bars in trailing_bars.items()
+        if bars >= len(index) or panel_end - index[-1 - bars] > max_gap
+    ]
+    if stopped:
+        logger.warning(
+            "Dropping %d ticker(s) with no price for over %g days before the "
+            "panel end: %s",
+            len(stopped),
+            max_gap / pd.Timedelta(days=1),
+            ", ".join(map(str, stopped)),
+        )
+        prices = prices.drop(columns=stopped)
+    # Trim to the date range where every ticker has data; portfolios need a
+    # consistent shared history with no leading gaps.
+    return prices.ffill().dropna()
+
+
 class YFinanceClient:
     """Process-wide singleton facade over the yfinance API.
 
@@ -452,6 +509,8 @@ class YFinanceClient:
 
         Suitable for feeding into ``skfolio.preprocessing.prices_to_returns()``.
         Tries bulk download first, falls back to individual fetches on failure.
+        Tickers that stopped trading before the panel's end are omitted rather
+        than carried forward at their last price.
         """
         logger.info(
             "Fetching prices DataFrame for %d symbols",
@@ -506,11 +565,7 @@ class YFinanceClient:
             if not frames:
                 return None
 
-            prices = pd.DataFrame(frames)
-            prices = prices.ffill().dropna(how="all")
-            # Trim to the date range where every ticker has data; portfolios
-            # need a consistent shared history with no leading gaps.
-            prices = prices.dropna()
+            prices = _align_close_prices(pd.DataFrame(frames))
 
             if prices.empty:
                 logger.warning("Extracted prices DataFrame is empty after cleanup")
@@ -555,8 +610,7 @@ class YFinanceClient:
             logger.warning("No price data retrieved for any symbol")
             return None
 
-        prices = pd.DataFrame(frames)
-        prices = prices.ffill().dropna(how="all").dropna()
+        prices = _align_close_prices(pd.DataFrame(frames))
 
         if prices.empty:
             logger.warning("Individual prices DataFrame is empty after cleanup")

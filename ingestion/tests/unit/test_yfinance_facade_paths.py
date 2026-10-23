@@ -552,6 +552,164 @@ class TestFetchPricesDataframe:
         assert sorted(out.columns) == ["AAPL", "MSFT"]
 
 
+class TestStoppedTradingTickers:
+    """A ticker that stopped trading must not be held flat to the panel's end."""
+
+    @staticmethod
+    def _bulk_from_closes(
+        idx: pd.DatetimeIndex, closes: dict[str, list[float]]
+    ) -> pd.DataFrame:
+        """MultiIndex bulk frame with one Close column per symbol."""
+        return pd.concat(
+            {
+                sym: pd.DataFrame({"Close": values}, index=idx)
+                for sym, values in closes.items()
+            },
+            axis=1,
+        )
+
+    @classmethod
+    def _bulk_frame(
+        cls, last_real_bar: dict[str, int], bars: int, freq: str = "B"
+    ) -> pd.DataFrame:
+        """Bulk frame where each symbol prints only up to its last bar."""
+        idx = pd.date_range("2024-01-01", periods=bars, freq=freq)
+        return cls._bulk_from_closes(
+            idx,
+            {
+                sym: [100.0 + i if i <= last else float("nan") for i in range(bars)]
+                for sym, last in last_real_bar.items()
+            },
+        )
+
+    def test_bulk_path_drops_a_ticker_that_stopped_trading(
+        self, client: YFinanceClient
+    ) -> None:
+        frame = self._bulk_frame({"DEAD": 3, "ALIVE": 29}, bars=30)
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["DEAD", "ALIVE"])
+
+        assert out is not None
+        assert list(out.columns) == ["ALIVE"]
+        assert len(out) == 30
+
+    def test_bulk_path_still_bridges_a_short_holiday_gap_at_the_end(
+        self, client: YFinanceClient
+    ) -> None:
+        """Exchanges close on different days; a few missing bars is not delisting."""
+        frame = self._bulk_frame({"LSE": 26, "NYSE": 29}, bars=30)
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["LSE", "NYSE"])
+
+        assert out is not None
+        assert list(out.columns) == ["LSE", "NYSE"]
+        assert out["LSE"].iloc[-1] == out["LSE"].iloc[-4]
+
+    def test_intraday_panel_keeps_a_ticker_whose_session_closed_hours_earlier(
+        self, client: YFinanceClient
+    ) -> None:
+        """Hourly bars of a US and a Hong Kong stock never overlap in time, so the
+        Hong Kong stock trails the panel end by a whole US session of bars."""
+        idx = pd.date_range("2024-01-02", periods=72, freq="h", tz="UTC")
+        hk_hours, us_hours = range(1, 8), range(14, 21)
+        frame = self._bulk_from_closes(
+            idx,
+            {
+                "HK": [
+                    100.0 + i if ts.hour in hk_hours else float("nan")
+                    for i, ts in enumerate(idx)
+                ],
+                "US": [
+                    200.0 + i if ts.hour in us_hours else float("nan")
+                    for i, ts in enumerate(idx)
+                ],
+            },
+        )
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["HK", "US"], interval="1h")
+
+        assert out is not None
+        assert list(out.columns) == ["HK", "US"]
+
+    def test_daily_panel_keeps_a_ticker_through_a_week_long_exchange_closure(
+        self, client: YFinanceClient
+    ) -> None:
+        """Lunar New Year closes Asian exchanges for six trading days while
+        Western ones keep printing."""
+        frame = self._bulk_frame({"HK": 23, "NYSE": 29}, bars=30)
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["HK", "NYSE"])
+
+        assert out is not None
+        assert list(out.columns) == ["HK", "NYSE"]
+
+    def test_daily_panel_drops_a_ticker_silent_for_two_weeks(
+        self, client: YFinanceClient
+    ) -> None:
+        frame = self._bulk_frame({"HALTED": 19, "ALIVE": 29}, bars=30)
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["HALTED", "ALIVE"])
+
+        assert out is not None
+        assert list(out.columns) == ["ALIVE"]
+
+    def test_a_ticker_that_never_printed_is_dropped_even_in_a_short_panel(
+        self, client: YFinanceClient
+    ) -> None:
+        """Without a print there is nothing to carry forward, and keeping the
+        column would leave no date shared by every ticker."""
+        frame = self._bulk_frame({"EMPTY": -1, "ALIVE": 3}, bars=4)
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["EMPTY", "ALIVE"])
+
+        assert out is not None
+        assert list(out.columns) == ["ALIVE"]
+
+    def test_weekly_panel_allows_the_same_number_of_bars_as_a_daily_one(
+        self, client: YFinanceClient
+    ) -> None:
+        """Three weekly bars behind is three weeks, far past a daily panel's limit,
+        but it is no more bars than a daily ticker may miss."""
+        frame = self._bulk_frame({"LATE": 26, "ALIVE": 29}, bars=30, freq="W")
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["LATE", "ALIVE"], interval="1wk")
+
+        assert out is not None
+        assert list(out.columns) == ["LATE", "ALIVE"]
+
+    def test_weekly_panel_drops_a_ticker_silent_for_many_bars(
+        self, client: YFinanceClient
+    ) -> None:
+        frame = self._bulk_frame({"DEAD": 19, "ALIVE": 29}, bars=30, freq="W")
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["DEAD", "ALIVE"], interval="1wk")
+
+        assert out is not None
+        assert list(out.columns) == ["ALIVE"]
+
+    def test_individual_path_drops_a_ticker_that_stopped_trading(
+        self, client: YFinanceClient
+    ) -> None:
+        alive = _hist(30)
+        dead = _hist(30).iloc[:4]
+
+        with patch.object(client, "bulk_download", return_value=None):
+            with patch.object(client, "fetch_history", side_effect=[dead, alive]):
+                out = client.fetch_prices_dataframe(["DEAD", "ALIVE"])
+
+        assert out is not None
+        assert list(out.columns) == ["ALIVE"]
+        assert len(out) == 30
+
+
 class TestCacheHelpers:
     def test_stats_are_read_from_the_cache(self, client: YFinanceClient) -> None:
         client.cache.size.return_value = 7
