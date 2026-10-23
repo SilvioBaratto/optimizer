@@ -191,6 +191,46 @@ class TestRunFactorOOSValidation:
         assert isinstance(result.mean_oos_icir, pd.Series)
         assert list(result.mean_oos_icir.index) == _FACTORS
 
+    def test_zero_folds_gives_float_nan_ic_and_icir(self) -> None:
+        dates = pd.date_range("2019-01-31", periods=24, freq="ME")
+        scores, returns = _make_panel(dates, np.random.default_rng(0))
+        config = FactorOOSConfig(train_periods=36, val_periods=12, step_periods=6)
+
+        result = run_factor_oos_validation(scores, returns, config)
+
+        assert result.n_folds == 0
+        assert result.mean_oos_ic.dtype == float
+        assert result.mean_oos_icir.dtype == float
+        assert result.mean_oos_ic.isna().all()
+        assert result.mean_oos_icir.isna().all()
+        assert list(result.mean_oos_icir.index) == _FACTORS
+
+    def test_single_fold_has_no_icir(self) -> None:
+        """One fold IC cannot give a dispersion, so ICIR is undefined, not 0."""
+        dates = pd.date_range("2019-01-31", periods=48, freq="ME")
+        scores, returns = _make_panel(dates, np.random.default_rng(3))
+        config = FactorOOSConfig(train_periods=36, val_periods=12, step_periods=12)
+
+        result = run_factor_oos_validation(scores, returns, config)
+
+        assert result.n_folds == 1
+        assert result.mean_oos_ic.notna().all()
+        assert result.mean_oos_icir.isna().all()
+
+    def test_factor_without_valid_fold_ic_has_nan_icir_alongside_others(
+        self, panel_48: tuple[pd.DataFrame, pd.DataFrame]
+    ) -> None:
+        scores, returns = panel_48
+        scores = scores.assign(value=np.nan)
+        config = FactorOOSConfig(train_periods=36, val_periods=12, step_periods=6)
+
+        result = run_factor_oos_validation(scores, returns, config)
+
+        assert result.n_folds == 2
+        assert np.isnan(result.mean_oos_ic["value"])
+        assert np.isnan(result.mean_oos_icir["value"])
+        assert np.isfinite(result.mean_oos_icir["momentum"])
+
     def test_oos_ic_unaffected_by_train_data(
         self,
         panel_48: tuple[pd.DataFrame, pd.DataFrame],

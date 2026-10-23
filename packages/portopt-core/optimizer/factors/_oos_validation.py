@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from itertools import combinations
-from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -63,6 +62,7 @@ class FactorOOSResult:
         per_fold_spread: ``n_folds × factors`` matrix of mean quintile spread per fold.
         mean_oos_ic: Mean OOS IC aggregated across folds (one value per factor).
         mean_oos_icir: OOS ICIR (mean IC / std IC across folds) per factor.
+            NaN for a factor with fewer than two valid fold ICs.
         n_folds: Number of folds generated.
     """
 
@@ -277,10 +277,23 @@ def run_factor_oos_validation(
         per_fold_spread_rows.append(fold_spread)
 
     n_folds = len(folds)
-    per_fold_ic = pd.DataFrame(per_fold_ic_rows, columns=factors)
-    per_fold_spread = pd.DataFrame(per_fold_spread_rows, columns=factors)
+    # Explicit float dtype: a frame built from an empty row list would
+    # otherwise be object-typed and make the aggregates object-typed too.
+    per_fold_ic = pd.DataFrame(per_fold_ic_rows, columns=factors, dtype=float)
+    per_fold_spread = pd.DataFrame(per_fold_spread_rows, columns=factors, dtype=float)
     mean_oos_ic = per_fold_ic.mean(axis=0)
-    mean_oos_icir = cast(pd.Series, per_fold_ic.apply(compute_icir, axis=0))
+
+    # compute_icir returns 0.0 below two valid observations, which would rank an
+    # unvalidated factor as zero skill while mean_oos_ic reports it as NaN.
+    valid_folds = per_fold_ic.notna().sum(axis=0).to_numpy()
+    mean_oos_icir = pd.Series(
+        [
+            compute_icir(per_fold_ic.iloc[:, j]) if valid_folds[j] >= 2 else np.nan
+            for j in range(per_fold_ic.shape[1])
+        ],
+        index=per_fold_ic.columns,
+        dtype=float,
+    )
 
     return FactorOOSResult(
         per_fold_ic=per_fold_ic,
