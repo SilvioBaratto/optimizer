@@ -515,8 +515,9 @@ def _configure_llm_interactive(
     model = _typed_value(
         prompter.text(
             _MSG_LLM_MODEL,
-            default=_LLM_DEFAULT_MODEL.get(provider)
-            or str(same.get("llm_model") or ""),
+            default=str(
+                same.get("llm_model") or _LLM_DEFAULT_MODEL.get(provider) or ""
+            ),
         )
     )
     base_url = (

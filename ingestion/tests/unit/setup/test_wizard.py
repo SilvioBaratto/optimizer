@@ -1337,6 +1337,92 @@ def test_interactive_same_provider_rerun_prefills_the_stored_values(
     assert patched["saved_config"]["llm_model"] == "meta/llama-3.1-70b-instruct"
 
 
+def _model_default_after(
+    patched: dict,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    stored: dict[str, object],
+    provider: str,
+) -> tuple[str | None, str | None]:
+    """Run a reconfigure that presses Enter at the model prompt.
+
+    Returns the model default that was offered and the model that got staged.
+    """
+    monkeypatch.setattr(wizard.config_file, "load_config", lambda **k: dict(stored))
+    prompter = _DefaultTakingPrompter(
+        {
+            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_T212_KEY: "",
+            wizard._MSG_FRED_KEY: "",
+            wizard._MSG_CONFIGURE_LLM: True,
+            wizard._MSG_LLM_PROVIDER: provider,
+            wizard._MSG_LLM_MODEL: "",
+            wizard._MSG_LLM_BASE_URL: "",
+            wizard._MSG_LLM_KEY: "sk-test",
+        }
+    )
+    wizard.run_setup_interactive(prompter, reconfigure=True)
+    return (
+        prompter.defaults[wizard._MSG_LLM_MODEL],
+        patched["saved_config"].get("llm_model"),
+    )
+
+
+def test_ollama_rerun_offers_the_stored_model_not_the_cloud_default(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Enter at the model prompt must keep a model the user chose earlier."""
+    offered, staged = _model_default_after(
+        patched,
+        monkeypatch,
+        stored={"llm_provider": "ollama", "llm_model": "qwen3:8b"},
+        provider="ollama",
+    )
+
+    assert offered == "qwen3:8b"
+    assert staged == "qwen3:8b"
+
+
+def test_ollama_first_setup_offers_the_cloud_default_model(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offered, staged = _model_default_after(
+        patched, monkeypatch, stored={}, provider="ollama"
+    )
+
+    assert offered == "deepseek-v4.1-flash:cloud"
+    assert staged == "deepseek-v4.1-flash:cloud"
+
+
+def test_switching_to_ollama_offers_the_cloud_default_not_the_old_model(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offered, staged = _model_default_after(
+        patched,
+        monkeypatch,
+        stored={"llm_provider": "openai", "llm_model": "gpt-4o"},
+        provider="ollama",
+    )
+
+    assert offered == "deepseek-v4.1-flash:cloud"
+    assert staged == "deepseek-v4.1-flash:cloud"
+
+
+def test_switching_providers_never_offers_the_old_providers_model(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bare Enter used to store ``gpt-4o`` as the model id for anthropic."""
+    offered, staged = _model_default_after(
+        patched,
+        monkeypatch,
+        stored={"llm_provider": "openai", "llm_model": "gpt-4o"},
+        provider="anthropic",
+    )
+
+    assert not offered
+    assert staged is None
+
+
 # --- a stored base URL / model can be cleared on a same-provider re-run -------
 #
 # A blank answer cannot express "clear": the plain-stdin prompter (Git Bash) turns it
