@@ -476,7 +476,8 @@ class MacroRegimeRepository(RepositoryBase):
             observations: List of ``{"date": datetime.date, "value": float|None}``.
 
         Returns:
-            Number of rows processed.
+            Number of rows processed. Observations with a ``None`` value
+            (FRED's ``"."`` placeholder) are skipped.
         """
         if not observations:
             return 0
@@ -486,9 +487,10 @@ class MacroRegimeRepository(RepositoryBase):
                 "id": uuid.uuid4(),
                 "series_id": series_id,
                 "date": obs["date"],
-                "value": obs.get("value"),
+                "value": obs["value"],
             }
             for obs in observations
+            if obs.get("value") is not None
         ]
 
         return self._upsert(

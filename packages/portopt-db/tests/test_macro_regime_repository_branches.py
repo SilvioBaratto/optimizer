@@ -26,7 +26,9 @@ exercised below.
 from __future__ import annotations
 
 import datetime
+from typing import Any
 
+import pytest
 from sqlalchemy.orm import Session
 
 from portopt_db.models.macro.macro_regime import (
@@ -161,6 +163,36 @@ class TestUpsertEmptyInputGuards:
     ) -> None:
         repo = MacroRegimeRepository(db_session)
         assert repo.upsert_fred_observations("T10Y2Y", []) == 0
+
+    def test_upsert_fred_observations_skips_null_values(
+        self, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: list[dict[str, Any]] = []
+
+        def _capture(self: Any, model: type, rows: list[dict[str, Any]], **_: Any):
+            captured.extend(rows)
+            return len(rows)
+
+        monkeypatch.setattr(MacroRegimeRepository, "_upsert", _capture)
+        repo = MacroRegimeRepository(db_session)
+
+        processed = repo.upsert_fred_observations(
+            "DGS10",
+            [
+                {"date": _D(2026, 1, 1), "value": 4.1},
+                {"date": _D(2026, 1, 2), "value": None},
+            ],
+        )
+
+        assert processed == 1
+        assert [r["date"] for r in captured] == [_D(2026, 1, 1)]
+
+    def test_upsert_fred_observations_all_null_values_returns_zero(
+        self, db_session: Session
+    ) -> None:
+        repo = MacroRegimeRepository(db_session)
+        observations = [{"date": _D(2026, 1, 2), "value": None}]
+        assert repo.upsert_fred_observations("DGS10", observations) == 0
 
     def test_upsert_macro_news_empty_list_returns_zero(
         self, db_session: Session
