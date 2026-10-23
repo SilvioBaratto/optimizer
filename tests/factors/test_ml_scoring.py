@@ -10,7 +10,7 @@ import pytest
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.linear_model import RidgeCV
 
-from optimizer.exceptions import ConfigurationError
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.factors import (
     CompositeMethod,
     CompositeScoringConfig,
@@ -297,6 +297,47 @@ class TestPredictCompositeScores:
         model = fit_ridge_composite(training_scores, training_returns)
         result = predict_composite_scores(model, current_scores)
         pd.testing.assert_index_equal(result.index, current_scores.index)
+
+    @pytest.mark.parametrize("fit", [fit_ridge_composite, fit_gbt_composite])
+    def test_columns_matched_by_name_not_position(self, fit) -> None:
+        """A prediction frame with reordered columns scores identically."""
+        rng = np.random.default_rng(11)
+        cols = ["a", "b", "c"]
+        train = pd.DataFrame(rng.normal(0, 1, (300, 3)), columns=cols)
+        returns = pd.Series(
+            train["a"] - train["c"] + rng.normal(0, 0.01, len(train)),
+        )
+        model = fit(train, returns)
+        current = pd.DataFrame(
+            rng.normal(0, 1, (40, 3)),
+            index=[f"S{i}" for i in range(40)],
+            columns=cols,
+        )
+
+        expected = predict_composite_scores(model, current)
+        reordered = predict_composite_scores(model, current[["c", "b", "a"]])
+
+        pd.testing.assert_series_equal(reordered, expected)
+
+    def test_missing_factor_column_raises_data_error(self) -> None:
+        rng = np.random.default_rng(12)
+        cols = ["a", "b", "c"]
+        train = pd.DataFrame(rng.normal(0, 1, (100, 3)), columns=cols)
+        model = fit_ridge_composite(train, pd.Series(rng.normal(0, 1, 100)))
+        current = pd.DataFrame(rng.normal(0, 1, (10, 3)), columns=cols)
+
+        with pytest.raises(DataError, match=r"missing.*'c'"):
+            predict_composite_scores(model, current[["a", "b"]])
+
+    def test_unexpected_factor_column_raises_data_error(self) -> None:
+        rng = np.random.default_rng(13)
+        cols = ["a", "b", "c"]
+        train = pd.DataFrame(rng.normal(0, 1, (100, 3)), columns=cols)
+        model = fit_ridge_composite(train, pd.Series(rng.normal(0, 1, 100)))
+        current = pd.DataFrame(rng.normal(0, 1, (10, 3)), columns=cols)
+
+        with pytest.raises(DataError, match=r"unexpected.*'d'"):
+            predict_composite_scores(model, current.assign(d=0.0))
 
     def test_single_ticker_returns_zero(
         self,
