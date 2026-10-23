@@ -2,10 +2,16 @@
 
 No matrix inversion — robust to small-sample covariance error.
 
-The ``gamma`` parameter linearly interpolates between two anchors:
+The ``gamma`` parameter moves the allocation from Hierarchical Risk Parity
+(HRP) toward the Minimum Variance Portfolio (MVP):
 
-* ``gamma=0.0`` recovers Hierarchical Risk Parity (HRP).
-* ``gamma=1.0`` recovers the Minimum Variance Portfolio (MVP).
+* ``gamma=0.0`` recovers HRP.
+* ``gamma=1.0`` approaches the MVP but does not reach it in general. With
+  ``keep_monotonic=True`` (default) skfolio caps gamma at ``effective_gamma_``,
+  the turning point where variance stops decreasing; on strongly correlated
+  universes that cap can be low and the result close to HRP. With
+  ``keep_monotonic=False`` skfolio can fail on ill-conditioned covariances.
+  Use a ``MeanRisk`` minimum-variance optimiser when the exact MVP is needed.
 * ``gamma=0.5`` is the skfolio default (balanced).
 
 This default behaviour is non-obvious — callers expecting pure HRP must
@@ -36,10 +42,13 @@ class SchurComplementaryConfig:
     """Immutable configuration for `SchurComplementary`.
 
     Attributes:
-        gamma: HRP↔MVP interpolation parameter in [0, 1]. 0.0 recovers
-            HRP, 1.0 recovers MVP, 0.5 is the balanced skfolio default.
-        keep_monotonic: Forwarded to skfolio; preserves monotonicity of
-            risk contributions across the dendrogram.
+        gamma: HRP-to-MVP regularisation parameter in [0, 1]. 0.0 recovers
+            HRP, values toward 1.0 approach the MVP without reaching it in
+            general, 0.5 is the balanced skfolio default.
+        keep_monotonic: Forwarded to skfolio. When ``True``, gamma is capped
+            at the fitted ``effective_gamma_`` so variance decreases
+            monotonically with gamma; the requested gamma may then not be
+            applied in full.
         prior_config: Inner prior configuration.
         distance_config: Distance estimator configuration.
         clustering_config: Hierarchical-clustering configuration.
@@ -70,7 +79,14 @@ class SchurComplementaryConfig:
 
     @classmethod
     def for_mvp_anchor(cls) -> SchurComplementaryConfig:
-        """Return a config with gamma=1.0 to recover the Minimum Variance Portfolio."""
+        """Return a config with gamma=1.0, the closest anchor to the MVP.
+
+        This approaches the Minimum Variance Portfolio but does not recover
+        it in general: with ``keep_monotonic=True`` gamma is capped at the
+        fitted ``effective_gamma_`` (possibly 0.0, i.e. plain HRP), and
+        ``keep_monotonic=False`` can raise on ill-conditioned covariances.
+        Use a ``MeanRisk`` minimum-variance optimiser for the exact MVP.
+        """
         return cls(gamma=1.0)
 
     @classmethod

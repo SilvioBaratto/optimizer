@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 
 import numpy as np
 import pytest
@@ -15,6 +16,7 @@ from optimizer.optimization import (
     SchurComplementaryConfig,
     build_schur_complementary,
 )
+from optimizer.optimization import _schur as schur_module
 
 
 @pytest.fixture(scope="module")
@@ -60,6 +62,40 @@ class TestPresets:
     def test_when_for_balanced_then_gamma_half(self) -> None:
         cfg = SchurComplementaryConfig.for_balanced()
         assert cfg.gamma == 0.5
+
+
+class TestMvpAnchorContract:
+    """gamma=1.0 approaches the MVP but is not guaranteed to reach it."""
+
+    @staticmethod
+    def _flat(doc: str | None) -> str:
+        return re.sub(r"\s+", " ", doc or "").lower()
+
+    @pytest.mark.parametrize(
+        "doc",
+        [
+            schur_module.__doc__,
+            SchurComplementaryConfig.__doc__,
+            SchurComplementaryConfig.for_mvp_anchor.__doc__,
+        ],
+        ids=["module", "config", "for_mvp_anchor"],
+    )
+    def test_when_documented_then_does_not_claim_exact_mvp_recovery(
+        self, doc: str | None
+    ) -> None:
+        flat = self._flat(doc)
+        assert not re.search(r"recover\w* (the )?(minimum[- ]variance|mvp)", flat)
+
+    def test_when_for_mvp_anchor_documented_then_discloses_gamma_cap(self) -> None:
+        flat = self._flat(SchurComplementaryConfig.for_mvp_anchor.__doc__)
+        assert "effective_gamma_" in flat
+
+    def test_when_mvp_anchor_fitted_then_gamma_can_be_capped_below_one(
+        self, returns
+    ) -> None:
+        est = build_schur_complementary(SchurComplementaryConfig.for_mvp_anchor())
+        est.fit(returns)
+        assert est.effective_gamma_ < 1.0
 
 
 class TestBuildSchurComplementary:
