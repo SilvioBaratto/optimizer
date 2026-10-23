@@ -82,6 +82,40 @@ class TestBuildFactorBLViews:
         assert len(views) == 2
 
 
+class TestBlackLittermanScoreOrdering:
+    """The view level carries the score; confidence must not undo its ordering."""
+
+    @staticmethod
+    def _posterior_mu(scores: pd.Series) -> np.ndarray:
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame(
+            rng.normal(0.0004, 0.01, (500, len(scores))), columns=scores.index
+        )
+        config = FactorIntegrationConfig.for_black_litterman()
+        prior, _ = build_factor_integration(
+            config=config,
+            composite_scores=scores,
+            standardized_factors=pd.DataFrame(),
+            selected_tickers=scores.index,
+        )
+        assert prior is not None
+        prior.fit(X)
+        return np.asarray(prior.return_distribution_.mu)
+
+    def test_neutral_score_view_keeps_positive_confidence(self) -> None:
+        config = FactorIntegrationConfig.for_black_litterman()
+        scores = pd.Series([-2.0, 0.0, 2.0], index=["A", "B", "C"])
+        _views, confidences = build_factor_bl_views(scores, scores.index, config)
+        assert all(c > 0.0 for c in confidences)
+
+    def test_posterior_mu_is_monotonic_in_score(self) -> None:
+        scores = pd.Series(
+            [-2.0, -1.0, 0.0, 0.3, 1.0, 2.0], index=list("ABCDEF"), name="composite"
+        )
+        mu = self._posterior_mu(scores)
+        assert np.all(np.diff(mu) > 0.0), f"mu not increasing in score: {mu}"
+
+
 class TestBuildFactorIntegration:
     def test_bl_path_returns_prior(
         self, composite_scores: pd.Series, factor_scores: pd.DataFrame

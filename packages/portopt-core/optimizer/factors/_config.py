@@ -913,7 +913,7 @@ class FactorIntegrationConfig:
         score_premium: Annualized premium per unit of composite z-score.
         use_black_litterman: Whether to generate Black-Litterman views from
             factor scores.
-        view_confidence_cap: Maximum Idzorek confidence for BL views (0–1).
+        view_confidence_cap: Idzorek confidence applied to every BL view (0–1).
             At 1.0 the posterior equals the view exactly, causing extreme
             concentration. Values 0.25–0.50 blend the view with the
             equilibrium prior.

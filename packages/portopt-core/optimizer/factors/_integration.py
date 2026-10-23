@@ -55,6 +55,10 @@ def build_factor_bl_views(
 
         E[r_i] = (rf + market_premium + z_i * score_premium) / 252
 
+    Every view carries the same Idzorek confidence,
+    ``config.view_confidence_cap``: the signed score already sets the view
+    level, so the posterior expected return is monotonic in the score.
+
     Args:
         composite_scores: Composite factor scores indexed by ticker.
         selected_tickers: Tickers in the portfolio.
@@ -70,7 +74,6 @@ def build_factor_bl_views(
         return (), ()
 
     views: list[str] = []
-    raw_confidences: list[float] = []
 
     for ticker, z_i in scores.items():
         daily_er = (
@@ -79,17 +82,14 @@ def build_factor_bl_views(
             + float(z_i) * config.score_premium
         ) / 252.0
         views.append(f"{ticker} == {daily_er:.8f}")
-        raw_confidences.append(abs(float(z_i)))
 
-    # Scale confidences to [0, cap].  Idzorek confidence=1.0 means
-    # "posterior equals view exactly" — extreme concentration.
-    # Typical calibrations use 0.25–0.50 to blend view with prior.
-    cap = config.view_confidence_cap
-    max_abs_z = max(raw_confidences) if raw_confidences else 1.0
-    if max_abs_z > 0:
-        confidences = [(c / max_abs_z) * cap for c in raw_confidences]
-    else:
-        confidences = [cap] * len(raw_confidences)
+    # Each view is an absolute return level that already encodes the score, so
+    # confidence is constant.  Scaling it by |z| would zero out the neutral
+    # names' (well above equilibrium) views and let bearish names, whose views
+    # still sit above the prior, pull the posterior up more than neutral ones.
+    # Idzorek confidence=1.0 means "posterior equals view exactly" — extreme
+    # concentration; the cap keeps the blend towards the prior.
+    confidences = [config.view_confidence_cap] * len(views)
 
     return tuple(views), tuple(confidences)
 
