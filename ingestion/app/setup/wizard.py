@@ -199,7 +199,9 @@ def _merge_with_existing_secrets(
     except secret_store.InvalidPassphraseError as exc:
         raise SetupError(
             "The existing secret store could not be decrypted with this passphrase; "
-            "re-run with the original passphrase."
+            "re-run with the original passphrase. If it is lost, delete "
+            f"{secret_store.DEFAULT_SECRETS_PATH} and run setup again "
+            "(every stored key must then be re-entered)."
         ) from exc
     return {**existing, **new}
 

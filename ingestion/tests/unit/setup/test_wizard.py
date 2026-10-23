@@ -1458,3 +1458,22 @@ def test_llm_prompts_tell_the_operator_how_to_clear_a_stored_value(
 ) -> None:
     assert "clear" in message.lower()
     assert "-" in message
+
+
+def test_wrong_passphrase_error_names_the_recovery_path(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The only way out of a lost passphrase is deleting the store; say so."""
+    store = tmp_path / "secrets.enc"
+    monkeypatch.setattr(wizard.secret_store, "DEFAULT_SECRETS_PATH", store)
+
+    def _bad(pw: str, **k: object) -> dict:
+        raise wizard.secret_store.InvalidPassphraseError("wrong")
+
+    monkeypatch.setattr(wizard.secret_store, "load_secrets", _bad)
+    monkeypatch.setattr(wizard.secret_store, "store_exists", lambda **kw: True)
+    with pytest.raises(wizard.SetupError) as excinfo:
+        wizard.run_setup_noninteractive(passphrase=_PW)
+    message = str(excinfo.value)
+    assert str(store) in message
+    assert "delete" in message.lower()
