@@ -9,6 +9,7 @@ the caller's args. These assert the funnel shape, not a live run (live smoke is 
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -121,6 +122,20 @@ class TestSetupPs1:
         assert "portopt setup" in text
         assert "@args" in text
 
+    def test_puts_uv_tool_bin_on_path_before_installing_the_cli(self) -> None:
+        """The session sees ~/.local/bin before ``uv`` and the shim are needed.
+
+        astral's installer only edits the registry PATH, so right after it runs the
+        current session still cannot resolve ``uv`` or the ``portopt`` shim, and a
+        pre-existing uv does not imply its tool bin dir is on PATH either.
+        """
+        text = _read("setup.ps1")
+        path_export = re.search(
+            r'\$env:Path\s*=\s*"\$env:USERPROFILE\\\.local\\bin;', text
+        )
+        assert path_export is not None
+        assert path_export.start() < text.index("uv tool install")
+
 
 class TestSetupCmd:
     """The Windows cmd.exe front door funnels into ``portopt setup``."""
@@ -144,6 +159,20 @@ class TestSetupCmd:
         text = _read("setup.cmd")
         assert "portopt setup" in text
         assert "%*" in text
+
+    def test_puts_uv_tool_bin_on_path_before_installing_the_cli(self) -> None:
+        """The session sees ~/.local/bin before ``uv`` and the shim are needed.
+
+        astral's installer only edits the registry PATH, so right after it runs the
+        current cmd.exe still cannot resolve ``uv`` or the ``portopt`` shim, and a
+        pre-existing uv does not imply its tool bin dir is on PATH either.
+        """
+        text = _read("setup.cmd")
+        path_export = re.search(
+            r'set "PATH=%USERPROFILE%\\\.local\\bin;%PATH%"', text, re.IGNORECASE
+        )
+        assert path_export is not None
+        assert path_export.start() < text.index("uv tool install")
 
 
 class TestMakefileSetup:

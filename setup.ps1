@@ -17,6 +17,11 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
 }
 
+# uv drops tool executables in ~/.local/bin. astral's installer only edits the
+# registry PATH, so this session would not see a fresh uv or the portopt shim, and a
+# uv that was already installed does not imply the directory is on PATH either.
+$env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
+
 Set-Location $here
 Write-Host "Installing the portopt CLI from this checkout..."
 uv tool install --from ./ingestion portopt
