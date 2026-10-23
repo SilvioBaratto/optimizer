@@ -34,6 +34,21 @@ class SelectionCriterionType(str, Enum):
     BIC = "bic"
 
 
+def _central_assets_tuple(central_assets: Iterable[str]) -> tuple[str, ...]:
+    """Normalise ``central_assets`` to a non-empty tuple of symbols.
+
+    A bare string is one symbol, not an iterable of characters; without the
+    special case ``"AAPL"`` would become ``("A", "A", "P", "L")`` and skfolio
+    would silently drop the unknown names, leaving no asset central.
+    """
+    central = (
+        (central_assets,) if isinstance(central_assets, str) else tuple(central_assets)
+    )
+    if not central:
+        raise ConfigurationError("central_assets must be non-empty")
+    return central
+
+
 # ---------------------------------------------------------------------------
 # Configs
 # ---------------------------------------------------------------------------
@@ -151,10 +166,7 @@ class VineCopulaConfig:
         slower and less accurate. Pairs with
         `build_conditional_synthetic_data`.
         """
-        central = tuple(central_assets)
-        if not central:
-            raise ConfigurationError("central_assets must be non-empty")
-        return cls(central_assets=central)
+        return cls(central_assets=_central_assets_tuple(central_assets))
 
 
 @dataclass(frozen=True)
@@ -228,13 +240,10 @@ class SyntheticDataConfig:
         Uses BIC selection and a deeper vine (``max_depth=6``) to capture
         tail dependence.
         """
-        central = tuple(central_assets)
-        if not central:
-            raise ConfigurationError("central_assets must be non-empty")
         return cls(
             n_samples=n_samples,
             vine_copula_config=VineCopulaConfig(
-                central_assets=central,
+                central_assets=_central_assets_tuple(central_assets),
                 selection_criterion=SelectionCriterionType.BIC,
                 max_depth=6,
             ),

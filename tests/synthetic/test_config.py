@@ -172,6 +172,12 @@ class TestVineCopulaPresets:
         with pytest.raises(ConfigurationError, match="central_assets"):
             VineCopulaConfig.for_conditional_sampling([])
 
+    def test_when_for_conditional_sampling_bare_string_then_single_asset(
+        self,
+    ) -> None:
+        cfg = VineCopulaConfig.for_conditional_sampling("AAPL")
+        assert cfg.central_assets == ("AAPL",)
+
 
 class TestSyntheticDataConfig:
     def test_default_values(self) -> None:
@@ -239,3 +245,8 @@ class TestSyntheticDataConfig:
 
         with pytest.raises(ConfigurationError, match="central_assets"):
             SyntheticDataConfig.for_conditional_stress([])
+
+    def test_for_conditional_stress_bare_string_then_single_asset(self) -> None:
+        cfg = SyntheticDataConfig.for_conditional_stress("MSFT")
+        assert cfg.vine_copula_config is not None
+        assert cfg.vine_copula_config.central_assets == ("MSFT",)
