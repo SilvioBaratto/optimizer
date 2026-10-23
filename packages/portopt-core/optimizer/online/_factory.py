@@ -61,6 +61,28 @@ def _resolve_measure(scorer_config: Any) -> Any:
     return _RATIO_MEASURE_MAP[measure]
 
 
+def _resolve_portfolio_params(scorer_config: Any) -> dict[str, Any] | None:
+    """Translate a `ScorerConfig`'s risk-free rate and annualization to skfolio.
+
+    ``OnlineGridSearch`` / ``OnlineRandomizedSearch`` evaluate the aggregated
+    `MultiPeriodPortfolio`, which only sees ``risk_free_rate`` and
+    ``annualization_factor`` through ``portfolio_params``. Values left at their
+    defaults are omitted so skfolio still inherits the optimizer's own
+    ``risk_free_rate`` instead of having ``0.0`` forced over it.
+
+    Returns:
+        The non-default overrides, or ``None`` when there are none.
+    """
+    params: dict[str, Any] = {}
+    risk_free_rate = getattr(scorer_config, "risk_free_rate", 0.0)
+    if risk_free_rate != 0.0:
+        params["risk_free_rate"] = risk_free_rate
+    annualization_factor = getattr(scorer_config, "annualization_factor", None)
+    if annualization_factor is not None:
+        params["annualization_factor"] = annualization_factor
+    return params or None
+
+
 def _to_offset(freq_offset: str | None) -> Any:
     """Parse a pandas offset alias into a ``BaseOffset`` (or ``None``)."""
     if freq_offset is None:
@@ -164,6 +186,7 @@ def build_online_grid_search(
         estimator=estimator,
         param_grid=param_grid,
         scoring=_resolve_measure(config.base.scorer_config),
+        portfolio_params=_resolve_portfolio_params(config.base.scorer_config),
         warmup_size=config.online.warmup_size,
         test_size=config.online.test_size,
         purged_size=config.online.purged_size,
@@ -195,6 +218,7 @@ def build_online_randomized_search(
         param_distributions=param_distributions,
         n_iter=config.base.n_iter,
         scoring=_resolve_measure(config.base.scorer_config),
+        portfolio_params=_resolve_portfolio_params(config.base.scorer_config),
         warmup_size=config.online.warmup_size,
         test_size=config.online.test_size,
         purged_size=config.online.purged_size,

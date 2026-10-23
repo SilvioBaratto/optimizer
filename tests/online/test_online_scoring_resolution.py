@@ -26,6 +26,7 @@ from optimizer.online import (
 from optimizer.online._factory import _resolve_measure
 from optimizer.optimization._config import RatioMeasureType
 from optimizer.scoring._config import ScorerConfig
+from optimizer.tuning._config import GridSearchConfig, RandomizedSearchConfig
 
 
 @pytest.fixture(scope="module")
@@ -105,3 +106,79 @@ def test_when_resolve_custom_none_ratio_then_raises() -> None:
 def test_when_resolve_information_ratio_then_raises() -> None:
     with pytest.raises(ConfigurationError, match="Information Ratio"):
         _resolve_measure(ScorerConfig(ratio_measure=RatioMeasureType.INFORMATION_RATIO))
+
+
+def _online_cfg(scorer_config: ScorerConfig) -> OnlineGridSearchConfig:
+    return OnlineGridSearchConfig(
+        base=GridSearchConfig(scorer_config=scorer_config),
+        online=OnlinePredictConfig(warmup_size=150, n_jobs=1),
+    )
+
+
+def test_when_grid_scorer_has_rf_and_annualization_then_portfolio_params_set(
+    estimator: MeanRisk,
+) -> None:
+    cfg = _online_cfg(
+        ScorerConfig(
+            ratio_measure=RatioMeasureType.ANNUALIZED_SHARPE_RATIO,
+            risk_free_rate=0.01,
+            annualization_factor=365.0,
+        )
+    )
+    search = build_online_grid_search(
+        cfg, estimator, {"prior_estimator__mu_estimator__half_life": [20.0, 40.0]}
+    )
+    assert search.portfolio_params == {
+        "risk_free_rate": 0.01,
+        "annualization_factor": 365.0,
+    }
+
+
+def test_when_randomized_scorer_has_rf_and_annualization_then_portfolio_params_set(
+    estimator: MeanRisk,
+) -> None:
+    cfg = OnlineRandomizedSearchConfig(
+        base=RandomizedSearchConfig(
+            scorer_config=ScorerConfig(risk_free_rate=0.01, annualization_factor=12.0)
+        ),
+        online=OnlinePredictConfig(warmup_size=150, n_jobs=1),
+    )
+    search = build_online_randomized_search(
+        cfg, estimator, {"prior_estimator__mu_estimator__half_life": [20.0, 40.0]}
+    )
+    assert search.portfolio_params == {
+        "risk_free_rate": 0.01,
+        "annualization_factor": 12.0,
+    }
+
+
+def test_when_scorer_uses_defaults_then_portfolio_params_left_unset(
+    estimator: MeanRisk,
+) -> None:
+    # Leaving portfolio_params unset lets skfolio inherit the optimizer's own
+    # risk_free_rate instead of forcing 0.0 over it.
+    search = build_online_grid_search(
+        _online_cfg(ScorerConfig()),
+        estimator,
+        {"prior_estimator__mu_estimator__half_life": [20.0, 40.0]},
+    )
+    assert search.portfolio_params is None
+
+
+def test_when_scorer_sets_risk_free_rate_then_search_scores_change(
+    estimator: MeanRisk,
+    returns: pd.DataFrame,
+) -> None:
+    grid = {"prior_estimator__mu_estimator__half_life": [20.0, 40.0]}
+    base = build_online_grid_search(_online_cfg(ScorerConfig()), estimator, grid)
+    base.fit(returns)
+    hurdle = build_online_grid_search(
+        _online_cfg(ScorerConfig(risk_free_rate=0.01)), estimator, grid
+    )
+    hurdle.fit(returns)
+    # A 1%-per-period hurdle dwarfs the ~0.05% mean return, so every Sharpe
+    # score must drop.
+    assert np.all(
+        np.asarray(hurdle.cv_results_["mean_score"])
+        < np.asarray(base.cv_results_["mean_score"])
+    )
