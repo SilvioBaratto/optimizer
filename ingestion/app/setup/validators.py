@@ -24,6 +24,8 @@ from urllib.parse import urlsplit
 import httpx
 import requests
 
+from app.utils.log_redaction import redact_secrets
+
 _TIMEOUT = 10
 
 _T212_BASE = {
@@ -141,7 +143,7 @@ def _llm_get(
         with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
             return client.get(url, headers=headers)
     except httpx.RequestError as exc:
-        raise ValidationNetworkError(str(exc)) from exc
+        raise ValidationNetworkError(redact_secrets(str(exc))) from None
 
 
 def _bearer_get_ok(url: str, key: str | None) -> bool:

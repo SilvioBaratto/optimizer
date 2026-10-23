@@ -62,6 +62,26 @@ import pytest
 
 from app.setup.validators import ValidationNetworkError
 
+
+def test_validate_fred_network_error_never_carries_the_api_key() -> None:
+    """requests embeds the full URL, query string included, in its errors."""
+    leaked = "FREDSECRETKEY0123456789abcdef"
+    session = requests.Session()
+    session.trust_env = False
+
+    def refused(_url: str, **kwargs: object) -> requests.Response:
+        # A real urllib3 connection error against a closed local port, so the
+        # message has the exact shape a TLS-inspecting proxy failure produces.
+        return session.get("http://127.0.0.1:1/fred/series", **kwargs)  # type: ignore[arg-type]
+
+    with patch("app.setup.validators.requests.get", side_effect=refused):
+        with pytest.raises(ValidationNetworkError) as exc_info:
+            validators.validate_fred(leaked)
+
+    assert leaked not in str(exc_info.value)
+    assert "api.stlouisfed.org" in str(exc_info.value)
+
+
 # Providers that do a real authed probe (200 -> ok, 401/403 -> bad, connect ->
 # raise). ollama(cloud+key) and nvidia(hosted+key) belong here; aws + microsoft
 # are presence-only and tested separately.
