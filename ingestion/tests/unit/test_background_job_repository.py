@@ -11,10 +11,14 @@ import os
 import socket
 import uuid
 from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
 
+from sqlalchemy import false
 from sqlalchemy.orm import Session
 
 from app.repositories.jobs.background_job_repository import BackgroundJobRepository
+
+_REPO_MODULE = "app.repositories.jobs.background_job_repository"
 
 
 def _make_stale(
@@ -71,6 +75,28 @@ class TestClaimOrCreate:
 
         second = repo.claim_or_create("test_job_type_314_e")
         assert second is not None
+
+    def test_returns_none_when_a_concurrent_claimer_won_the_race(
+        self, db_session: Session
+    ) -> None:
+        """The unique index, not the NOT EXISTS check, is what makes a claim atomic.
+
+        Under READ COMMITTED a racing claimer cannot see the winner's
+        uncommitted row, so its NOT EXISTS passes. The check is blinded here to
+        reproduce that, leaving only the database to refuse the second row.
+        """
+        repo = BackgroundJobRepository(db_session)
+        first = repo.claim_or_create("test_job_type_race_a")
+        assert first is not None
+
+        blind_check = MagicMock()
+        blind_check.where.return_value = false()
+        with patch(f"{_REPO_MODULE}.exists", return_value=blind_check):
+            second = repo.claim_or_create("test_job_type_race_a")
+
+        assert second is None
+        assert repo.is_any_running("test_job_type_race_a") == (True, str(first))
+        assert repo.claim_or_create("test_job_type_race_b") is not None
 
     def test_different_job_types_do_not_conflict(self, db_session: Session) -> None:
         repo = BackgroundJobRepository(db_session)

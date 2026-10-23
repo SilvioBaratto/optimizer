@@ -16,6 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -40,6 +41,18 @@ class BackgroundJob(BaseModel):
             "ix_background_jobs_status_heartbeat",
             "status",
             "last_heartbeat_at",
+        ),
+        # The job-slot claim is INSERT ... SELECT ... WHERE NOT EXISTS, and under
+        # READ COMMITTED two concurrent claimers both pass that check. This
+        # partial unique index is what actually caps a job_type at one
+        # pending/running row; SQLite supports partial indexes, so it also fires
+        # in the in-memory test harness.
+        Index(
+            "uq_background_jobs_active_type",
+            "job_type",
+            unique=True,
+            postgresql_where=text("status IN ('pending', 'running')"),
+            sqlite_where=text("status IN ('pending', 'running')"),
         ),
     )
 

@@ -467,9 +467,12 @@ class TestListJobsFilters:
         assert count >= 1
 
     def test_offset_paginates_results(self, db_session: Session) -> None:
-        for _ in range(3):
-            _pending(db_session, "list_paginate_unique_xyz")
         repo = _new_repo(db_session)
+        for _ in range(3):
+            # Finished before the next row: only one active row per type exists.
+            repo.update(
+                _pending(db_session, "list_paginate_unique_xyz"), status="completed"
+            )
 
         page0 = repo.list_jobs(domain="list_paginate_unique_xyz", limit=2, offset=0)
         page1 = repo.list_jobs(domain="list_paginate_unique_xyz", limit=2, offset=2)

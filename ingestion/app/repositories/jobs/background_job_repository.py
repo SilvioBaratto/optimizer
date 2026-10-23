@@ -22,6 +22,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 _ACTIVE_STATUSES: tuple[str, ...] = ("pending", "running")
@@ -233,6 +234,11 @@ class BackgroundJobRepository(RepositoryBase):
     ) -> uuid.UUID | None:
         """Atomically create a job only if none is already active.
 
+        The NOT EXISTS check alone is not atomic under READ COMMITTED: a racing
+        claimer cannot see the winner's uncommitted row. The partial unique
+        index ``uq_background_jobs_active_type`` makes the loser's INSERT fail
+        instead, and that is reported like any other busy slot (``None``).
+
         Stamps ``worker_pid``, ``worker_host`` and ``last_heartbeat_at`` so
         the liveness-aware reaper can distinguish a live worker from a dead
         one. ``attempt`` records the reclaim-retry generation (R3/§5.3) — 0 for
@@ -290,7 +296,13 @@ class BackgroundJobRepository(RepositoryBase):
             source,
         )
 
-        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]  # type: ignore[assignment]
+        try:
+            # SAVEPOINT: a unique violation aborts the whole PostgreSQL
+            # transaction unless it is confined to a nested one.
+            with self.session.begin_nested():
+                result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
+        except IntegrityError:
+            return None
         self.session.flush()
         if result.rowcount == 1:
             return new_id

@@ -43,6 +43,7 @@ from sqlalchemy import (
     select,
     update,
 )
+from sqlalchemy.exc import IntegrityError
 
 # The fund daemon job slots. Each gets at most one active (pending|running) row;
 # the scheduler's rebalance sweep, drift monitor, and daily NAV mark claim these.
@@ -72,9 +73,13 @@ class FundJobRepository(RepositoryBase):
         """Atomically create a ``pending`` job iff no active row of *job_type* exists.
 
         A single ``INSERT … FROM SELECT … WHERE NOT EXISTS(active row)`` keeps at
-        most one active row per ``job_type`` even under concurrent daemons: exactly
-        one insert affects a row (``rowcount == 1`` → the new UUID), the rest see
-        the existing row and no-op (``None``). Stamps ``worker_pid`` /
+        most one active row per ``job_type``: exactly one insert affects a row
+        (``rowcount == 1`` → the new UUID), the rest see the existing row and no-op
+        (``None``). Under READ COMMITTED a racing claimer cannot see the winner's
+        uncommitted row, so the partial unique index
+        ``uq_background_jobs_active_type`` is what holds the line concurrently: the
+        loser's INSERT violates it and is reported as a busy slot (``None``) too.
+        Stamps ``worker_pid`` /
         ``worker_host`` / ``last_heartbeat_at = now`` (observability + the initial
         lease) and commits so the slot is immediately visible to other processes.
         Dialect-agnostic (PostgreSQL + SQLite).
@@ -120,7 +125,11 @@ class FundJobRepository(RepositoryBase):
             ],
             source,
         )
-        result = self.session.execute(stmt)
+        try:
+            result = self.session.execute(stmt)
+        except IntegrityError:
+            self.session.rollback()
+            return None
         self.session.commit()
         return new_id if _rows_affected(result) == 1 else None
 

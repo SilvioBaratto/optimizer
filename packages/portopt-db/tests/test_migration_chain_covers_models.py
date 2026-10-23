@@ -578,10 +578,17 @@ def test_chain_without_the_bond_yields_revision_is_flagged(
     chain_sources: list[str],
 ) -> None:
     """The original defect: ``bond_yields`` created by no revision."""
-    without = [
+    removed = next(
         source
         for source in chain_sources
-        if _parse_revision(source).revision != _BOND_YIELDS_REVISION
+        if _parse_revision(source).revision == _BOND_YIELDS_REVISION
+    )
+    (parent,) = _parse_revision(removed).down
+    # Later revisions chain on top of it; splice it out so they stay reachable.
+    without = [
+        source.replace(f'"{_BOND_YIELDS_REVISION}"', f'"{parent}"')
+        for source in chain_sources
+        if source is not removed
     ]
 
     drift = _drift(Base.metadata.tables, _replay(without))

@@ -33,10 +33,11 @@ import socket
 import uuid
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock, patch
 
 import pytest
 from portopt_db.models import BackgroundJob, Base
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, false
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -129,6 +130,33 @@ def test_claim_or_create_returns_uuid_then_none_for_double_claim(job_session):
         .all()
     )
     assert len(rows) == 1  # the second claim never inserted a row
+
+
+def test_claim_returns_none_when_a_concurrent_claimer_won_the_race(job_session):
+    """The unique index, not NOT EXISTS, is the atomicity guarantee.
+
+    Under READ COMMITTED a racing claimer cannot see the winner's uncommitted
+    row, so its NOT EXISTS passes; blinding the check reproduces that and leaves
+    only the database to refuse the second row. The slot must read as busy
+    (``None``), not raise, and the session must stay usable.
+    """
+    repo = FundJobRepository(job_session)
+    first = repo.claim_or_create("fund_rebalance_sweep")
+    assert first is not None
+
+    blind_check = MagicMock()
+    blind_check.where.return_value = false()
+    with patch("fund.audit.fund_job_repository.exists", return_value=blind_check):
+        second = repo.claim_or_create("fund_rebalance_sweep")
+
+    assert second is None
+    rows = (
+        job_session.query(BackgroundJob)
+        .filter_by(job_type="fund_rebalance_sweep")
+        .all()
+    )
+    assert [r.id for r in rows] == [first]
+    assert repo.claim_or_create("fund_drift_monitor") is not None
 
 
 def test_claim_stamps_pending_heartbeat_and_worker_identity(job_session):
@@ -272,7 +300,7 @@ def test_reap_orphans_fails_stale_and_null_leaves_fresh(job_session):
         job_session, job_type="fund_drift_monitor", status="running", heartbeat="stale"
     )
     null_hb = _insert_job(
-        job_session, job_type="fund_drift_monitor", status="pending", heartbeat="none"
+        job_session, job_type="fund_nav_mark", status="pending", heartbeat="none"
     )
 
     reaped = repo.reap_orphans("lease expired", heartbeat_timeout_seconds=300)
