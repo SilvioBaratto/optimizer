@@ -15,7 +15,10 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from app.setup import path_install
+from app.setup import ca_bundle, path_install
+
+# Env var docker-compose.yml's `ca_bundle` secret reads its file path from.
+_CA_BUNDLE_ENV = "CA_BUNDLE_FILE"
 
 
 class DockerError(RuntimeError):
@@ -66,9 +69,26 @@ def compose_dir() -> Path:
     return repo
 
 
+def _compose_env(repo: Path) -> dict[str, str] | None:
+    """Return the compose environment, or ``None`` to inherit the caller's.
+
+    docker-compose.yml defaults the ``ca_bundle`` build secret to a committed empty
+    file so a plain ``docker compose`` works on a fresh clone. Once ``--corp-ca`` has
+    generated a real bundle, ``CA_BUNDLE_FILE`` swaps it in; an operator-exported
+    value is left alone.
+    """
+    if _CA_BUNDLE_ENV in os.environ:
+        return None
+    bundle = repo / ca_bundle.DEFAULT_BUNDLE_PATH
+    if not bundle.is_file() or bundle.stat().st_size == 0:
+        return None
+    return {**os.environ, _CA_BUNDLE_ENV: str(bundle)}
+
+
 def _compose(*args: str) -> subprocess.CompletedProcess[str]:
     """Run ``docker compose <args>`` with the checkout as the project directory."""
-    return _run(["docker", "compose", *args], cwd=str(compose_dir()))
+    repo = compose_dir()
+    return _run(["docker", "compose", *args], cwd=str(repo), env=_compose_env(repo))
 
 
 def check_docker() -> None:

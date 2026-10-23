@@ -47,6 +47,8 @@ services:
     build:
       context: .
       dockerfile: ingestion/Dockerfile
+      secrets:
+        - ca_bundle
     container_name: optimizer_scheduler
     profiles: ["ingestion"]
     command: ["python", "-m", "app.worker"]
@@ -103,6 +105,8 @@ services:
     build:
       context: .
       dockerfile: fund/Dockerfile
+      secrets:
+        - ca_bundle
     container_name: optimizer_fund
     profiles: ["fund"]
     command: ["python", "-m", "fund.worker"]
@@ -222,3 +226,13 @@ secrets:
     file: ./secrets/huggingfacehub_api_token
   azure_openai_api_key:
     file: ./secrets/azure_openai_api_key
+  # Build-time only (listed under `build.secrets`, never mounted at runtime): the
+  # merged certifi + corporate-root bundle `portopt setup --corp-ca` writes to
+  # .certs/ca-bundle.pem, so `uv sync` trusts a TLS-inspecting proxy. Compose stats
+  # a secret's file before any build or `up` and .certs/ is git-ignored, so the
+  # default is a committed empty file (the Dockerfiles read an empty mount as "no
+  # bundle") and `portopt` sets CA_BUNDLE_FILE once a real bundle exists. A plain
+  # `docker compose build` behind such a proxy needs it exported by hand:
+  #   CA_BUNDLE_FILE=./.certs/ca-bundle.pem docker compose build
+  ca_bundle:
+    file: ${CA_BUNDLE_FILE:-./docker/ca-bundle.empty}

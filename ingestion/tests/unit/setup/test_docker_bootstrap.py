@@ -6,13 +6,20 @@ with a hint; `bring_up_db` runs `docker compose up -d --wait db`; `migrate` runs
 Docker in the unit suite.
 """
 
+import re
+import shutil
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.setup import ca_bundle
 from app.setup import docker_bootstrap as db
+
+# unit -> setup -> tests -> ingestion -> repo root (docker-compose.yml owner).
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _cp(returncode: int, stderr: str = "") -> subprocess.CompletedProcess:
@@ -249,6 +256,12 @@ class TestVersionGates:
 class TestBuildAndUp:
     """`build_and_up` builds only when an image is absent, then `up -d --wait`."""
 
+    @pytest.fixture(autouse=True)
+    def _checkout(self, tmp_path, monkeypatch: pytest.MonkeyPatch):
+        """Pin the checkout to a tmp dir so the real repo is never written to."""
+        monkeypatch.setattr(db, "compose_dir", lambda: tmp_path)
+        return tmp_path
+
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
     @patch("app.setup.docker_bootstrap._image_exists", return_value=False)
     @patch("app.setup.docker_bootstrap.subprocess.run")
@@ -434,3 +447,125 @@ class TestComposeRunsFromTheCheckout:
         monkeypatch.setattr(path_install, "_repo_root", lambda: bare)
         assert db.running_services() == set()
         mock_run.assert_not_called()
+
+
+class TestCaBundleBuildSecret:
+    """The image builds read an optional `ca_bundle` secret. Compose stats the secret
+    file before building, so the file it names must exist on a fresh clone; the
+    generated corporate bundle is swapped in through `CA_BUNDLE_FILE` instead of
+    being created at a path the committed compose file hard-codes."""
+
+    @pytest.fixture
+    def checkout(self, tmp_path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(db, "compose_dir", lambda: tmp_path)
+        monkeypatch.delenv("CA_BUNDLE_FILE", raising=False)
+        return tmp_path
+
+    @staticmethod
+    def _compose_env(mock_run: MagicMock) -> dict[str, str] | None:
+        """Env passed to the last compose call (None means 'inherit')."""
+        return mock_run.call_args.kwargs["env"]
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_a_generated_bundle_is_handed_to_compose(
+        self, mock_run: MagicMock, checkout: Path
+    ) -> None:
+        bundle = checkout / ca_bundle.DEFAULT_BUNDLE_PATH
+        bundle.parent.mkdir()
+        bundle.write_text("CORP BUNDLE", encoding="utf-8")
+        mock_run.return_value = _cp(0)
+        db.bring_up_db()
+        env = self._compose_env(mock_run)
+        assert env is not None
+        assert env["CA_BUNDLE_FILE"] == str(bundle)
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    @pytest.mark.parametrize("content", [None, ""])
+    def test_without_a_real_bundle_compose_keeps_its_committed_default(
+        self, mock_run: MagicMock, checkout: Path, content: str | None
+    ) -> None:
+        if content is not None:
+            bundle = checkout / ca_bundle.DEFAULT_BUNDLE_PATH
+            bundle.parent.mkdir()
+            bundle.write_text(content, encoding="utf-8")
+        mock_run.return_value = _cp(0)
+        db.bring_up_db()
+        env = self._compose_env(mock_run)
+        assert env is None or "CA_BUNDLE_FILE" not in env
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_an_operator_supplied_bundle_wins(
+        self, mock_run: MagicMock, checkout: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bundle = checkout / ca_bundle.DEFAULT_BUNDLE_PATH
+        bundle.parent.mkdir()
+        bundle.write_text("CORP BUNDLE", encoding="utf-8")
+        monkeypatch.setenv("CA_BUNDLE_FILE", "/operator/bundle.pem")
+        mock_run.return_value = _cp(0)
+        db.bring_up_db()
+        env = self._compose_env(mock_run)
+        assert env is None or env["CA_BUNDLE_FILE"] == "/operator/bundle.pem"
+
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap._image_exists", return_value=False)
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_build_and_up_writes_nothing_into_the_checkout(
+        self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock, checkout: Path
+    ) -> None:
+        """The committed default makes a placeholder unnecessary, and a stray
+        `.certs/ca-bundle.pem` would shadow nothing but still litter the clone."""
+        mock_run.return_value = _cp(0)
+        db.build_and_up(profiles=("fund",))
+        assert list(checkout.iterdir()) == []
+
+
+def _compose_doc() -> dict:
+    yaml = pytest.importorskip("yaml")
+    return yaml.safe_load((_REPO_ROOT / "docker-compose.yml").read_text("utf-8"))
+
+
+@pytest.mark.parametrize("service", ["scheduler", "fund"])
+def test_compose_passes_the_ca_bundle_secret_to_each_image_build(
+    service: str,
+) -> None:
+    """Without `build.secrets` the Dockerfiles' optional `--mount=type=secret` is
+    always empty, so `uv sync` still cannot verify PyPI behind a TLS-inspecting
+    proxy even after `portopt setup --corp-ca` produced a bundle."""
+    build = _compose_doc()["services"][service]["build"]
+    assert "ca_bundle" in build["secrets"]
+
+
+_SECRET_FILE = re.compile(r"^\$\{CA_BUNDLE_FILE:-(?P<default>[^}]+)\}$")
+
+
+def _ca_bundle_default() -> Path:
+    declared = _compose_doc()["secrets"]["ca_bundle"]["file"]
+    match = _SECRET_FILE.match(declared)
+    assert match, f"ca_bundle.file must default through CA_BUNDLE_FILE: {declared!r}"
+    return _REPO_ROOT / match["default"]
+
+
+def test_ca_bundle_secret_default_is_not_the_generated_bundle() -> None:
+    """The generated path is git-ignored, so a default pointing at it would be
+    missing on a fresh clone."""
+    assert _ca_bundle_default() != _REPO_ROOT / ca_bundle.DEFAULT_BUNDLE_PATH
+
+
+def test_ca_bundle_secret_default_exists_on_a_fresh_clone() -> None:
+    """Compose aborts `build` and `up` when a `file:` secret is missing, and the
+    generated `.certs/` is git-ignored: the default must be a committed, empty
+    file so a plain `docker compose up` works before `portopt setup` ever ran."""
+    default = _ca_bundle_default()
+    assert default.is_file()
+    assert default.stat().st_size == 0
+    git = shutil.which("git")
+    if git is None or not (_REPO_ROOT / ".git").exists():
+        pytest.skip("not a git checkout")
+    tracked = subprocess.run(  # noqa: S603 - resolved git path, static argv
+        [git, "ls-files", "--error-unmatch", str(default.relative_to(_REPO_ROOT))],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert tracked.returncode == 0, tracked.stderr
