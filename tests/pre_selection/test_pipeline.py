@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 from sklearn.pipeline import Pipeline
 
-from optimizer.exceptions import DataError
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.pre_selection import (
     PreSelectionConfig,
     SelectKMeasure,
@@ -457,6 +457,18 @@ class TestOutlierMethodValidation:
         cfg = PreSelectionConfig(outlier_method="time_series")
         pipe = build_preselection_pipeline(cfg)
         assert isinstance(pipe, Pipeline)
+
+
+class TestImputationFallbackValidation:
+    def test_unsupported_imputation_fallback_raises_on_fit(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        # The config rejects the value up front; set_params / grid-search sweeps
+        # bypass it, so the imputer has to refuse it at fit as well.
+        pipe = build_preselection_pipeline(PreSelectionConfig())
+        pipe.set_params(impute__fallback_strategy="zero")
+        with pytest.raises(ConfigurationError, match="fallback_strategy"):
+            pipe.fit(returns_df)
 
 
 class TestPreSelectionBehavioral:

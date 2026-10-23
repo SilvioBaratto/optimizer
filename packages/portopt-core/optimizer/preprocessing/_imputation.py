@@ -10,7 +10,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
-from optimizer.exceptions import DataError
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.preprocessing._alignment import (
     _align_to_fit_columns,
     _fit_feature_names_out,
@@ -61,7 +61,15 @@ class SectorImputer(BaseEstimator, TransformerMixin):
 
         Returns:
             The fitted imputer (self).
+
+        Raises:
+            ConfigurationError: If ``fallback_strategy`` is not ``"global_mean"``.
         """
+        if self.fallback_strategy != "global_mean":
+            raise ConfigurationError(
+                f"Unsupported fallback_strategy: '{self.fallback_strategy}'. "
+                "Only 'global_mean' is supported."
+            )
         X = self._validate_input(X)
         self.n_features_in_: int = X.shape[1]
         self.feature_names_in_: np.ndarray = np.asarray(X.columns)

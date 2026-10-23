@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 from sklearn.utils.validation import check_is_fitted
 
-from optimizer.exceptions import DataError
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.preprocessing import SectorImputer
 
 
@@ -166,3 +166,16 @@ class TestSectorImputer:
         df = pd.DataFrame(index=pd.date_range("2024-01-01", periods=3))
         out = SectorImputer().fit_transform(df)
         assert out.shape == (3, 0)
+
+    @pytest.mark.parametrize("strategy", ["zero", "sector_mean", ""])
+    def test_unsupported_fallback_strategy_raises(
+        self, sector_df: pd.DataFrame, strategy: str
+    ) -> None:
+        with pytest.raises(ConfigurationError, match="fallback_strategy"):
+            SectorImputer(fallback_strategy=strategy).fit(sector_df)
+
+    def test_global_mean_fallback_strategy_accepted(
+        self, sector_df: pd.DataFrame
+    ) -> None:
+        out = SectorImputer(fallback_strategy="global_mean").fit_transform(sector_df)
+        assert not out.isna().any().any()
