@@ -7,6 +7,7 @@ Uses ``index_elements`` upserts (SQLite-testable); one row per
 from __future__ import annotations
 
 import datetime as dt
+import math
 import uuid
 from collections.abc import Sequence
 from typing import Any
@@ -18,10 +19,12 @@ from portopt_db.repository import RepositoryBase
 
 
 def _num(v: Any) -> float | None:
+    """Coerce to a finite float; NaN/inf quotes are stored as missing (NULL)."""
     try:
-        return float(v) if v is not None else None
+        f = float(v) if v is not None else None
     except (TypeError, ValueError):
         return None
+    return f if f is not None and math.isfinite(f) else None
 
 
 def _str(v: Any, n: int) -> str | None:

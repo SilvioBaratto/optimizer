@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import datetime as dt
 
+import pytest
+
 from portopt_db.models.market_data.market_summary import MarketSummary
 from portopt_db.repositories.market_data.market_summary_repository import (
     MarketSummaryRepository,
@@ -101,3 +103,21 @@ def test_get_latest_as_of_honours_on_or_before_bound(db_session) -> None:
         repo.get_latest_as_of("us_market", on_or_before=_AS_OF - dt.timedelta(days=1))
         is None
     )
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_upsert_stores_non_finite_numbers_as_null(db_session, bad: float) -> None:
+    """NaN/inf quotes must be stored as NULL so they cannot poison aggregates."""
+    repo = MarketSummaryRepository(db_session)
+    repo.upsert_summaries(
+        "us_market",
+        _AS_OF,
+        [{**_ROW, "price": bad, "change": bad, "change_percent": bad}],
+    )
+    db_session.flush()
+
+    row = db_session.query(MarketSummary).one()
+    assert row.price is None
+    assert row.change is None
+    assert row.change_percent is None
+    assert float(row.previous_close) == 5588.2
