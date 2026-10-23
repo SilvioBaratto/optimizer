@@ -254,7 +254,8 @@ def backtest(
         "mean": float(portfolio.mean),
         "standard_deviation": float(portfolio.standard_deviation),
         "sharpe_ratio": float(portfolio.sharpe_ratio),
-        "max_drawdown": float(portfolio.max_drawdown),
+        # skfolio yields -0.0 for a path with no drawdown; max() pins it to +0.0.
+        "max_drawdown": max(0.0, float(portfolio.max_drawdown)),
     }
     # A degenerate series (zero variance) yields NaN/inf, which are not valid JSON
     # for the agent and compare False against every ceiling, so nothing is flagged.

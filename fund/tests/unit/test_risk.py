@@ -100,6 +100,25 @@ def _seed_single_day(db_session) -> None:
     db_session.flush()
 
 
+def _seed_consecutive_closes(db_session, ticker: str, closes: list[float]) -> None:
+    """Seed one explicit close per consecutive day, the last one on ``_ASOF``.
+
+    Ending on the decision bar keeps the ticker live: the price panel excludes an
+    instrument whose last bar is stale against ``asof``.
+    """
+    inst = _seed_instrument(db_session, ticker)
+    for i, close in enumerate(closes):
+        db_session.add(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=_ASOF - dt.timedelta(days=len(closes) - 1 - i),
+                close=close,
+                volume=1000,
+            )
+        )
+    db_session.flush()
+
+
 class TestRiskCheck:
     def test_long_only_fully_invested_passes(self) -> None:
         result = risk_check({"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})
@@ -418,6 +437,47 @@ class TestBacktest:
         # the evaluated window starts strictly after the sample start (no leak).
         assert data["n_observations"] < _N_DAYS - 1
         assert data["window_start"] > data["sample_start"]
+
+    def test_max_drawdown_is_peak_to_trough_of_compounded_curve(
+        self, db_session
+    ) -> None:
+        # 100 -> 200 -> 150 -> 100 is a 50% peak-to-trough loss. skfolio's default
+        # arithmetic drawdown sums the simple returns instead and reads 58.3%.
+        _seed_consecutive_closes(db_session, "AAA", [100.0, 200.0, 150.0, 100.0])
+
+        result = backtest(db_session, _ASOF, {"AAA": 1.0})
+
+        assert result["ok"] is True
+        assert result["data"]["metrics"]["max_drawdown"] == pytest.approx(0.5)
+
+    def test_walk_forward_max_drawdown_is_compounded_over_test_block(
+        self, db_session
+    ) -> None:
+        # The fold's test block holds the whole 100 -> 200 -> 100 slide; the drawdown
+        # is read on the compounded curve of the concatenated test returns.
+        closes = [100.0, 100.0, 100.0, 200.0, 150.0, 100.0, 100.0, 100.0]
+        _seed_consecutive_closes(db_session, "AAA", closes)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 1.0},
+            window={"train_size": 2, "test_size": 5, "purged_size": 0},
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["out_of_sample"] is True
+        assert result["data"]["metrics"]["max_drawdown"] == pytest.approx(0.5)
+
+    def test_rising_book_reports_positive_zero_drawdown(self, db_session) -> None:
+        _seed_consecutive_closes(db_session, "AAA", [100.0, 101.0, 103.0, 104.0])
+
+        result = backtest(db_session, _ASOF, {"AAA": 1.0})
+
+        assert result["ok"] is True
+        drawdown = result["data"]["metrics"]["max_drawdown"]
+        assert drawdown == 0.0
+        assert math.copysign(1.0, drawdown) == 1.0
 
     def test_unpriced_weighted_ticker_is_an_error_not_a_partial_book(
         self, db_session

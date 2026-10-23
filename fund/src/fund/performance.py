@@ -1001,7 +1001,9 @@ def _risk_measures(
             annualization_factor=annualization_factor,
             compounded=True,
         )
-        max_drawdown = _finite(float(portfolio.max_drawdown))
+        # skfolio yields -0.0 for a path with no drawdown; max() pins it to +0.0.
+        drawdown = _finite(float(portfolio.max_drawdown))
+        max_drawdown = None if drawdown is None else max(0.0, drawdown)
         if len(returns) >= 2:
             volatility = _finite(float(portfolio.annualized_standard_deviation))
             sharpe = _finite(float(portfolio.annualized_sharpe_ratio))

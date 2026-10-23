@@ -9,6 +9,7 @@ degrades to ``None`` on short/empty/benchmark-less history.
 from __future__ import annotations
 
 import datetime as dt
+import math
 import uuid
 
 import numpy as np
@@ -40,17 +41,48 @@ def _nav_max_drawdown(values):
     return float(np.max(1.0 - nav / np.maximum.accumulate(nav)))
 
 
+_peak_to_trough = _nav_max_drawdown
+
+# A run-up followed by a multi-step slide: the NAV drawdown (50%) and the
+# drawdown of summed simple returns (58.3%) visibly disagree on this path.
+_VOLATILE_NAVS = [100.0, 200.0, 150.0, 100.0, 130.0]
+
+
 def test_metrics_vol_sharpe_maxdd_match_independent_numpy():
     """vol/Sharpe/maxDD match a numpy hand computation to tolerance."""
-    summary = portfolio_metrics(_PID, _points(_NAVS))
-    rets = _returns(_NAVS)
+    summary = portfolio_metrics(_PID, _points(_VOLATILE_NAVS))
+    rets = _returns(_VOLATILE_NAVS)
     exp_vol = float(np.std(rets, ddof=1) * np.sqrt(252.0))
     exp_sharpe = float((rets.mean() / np.std(rets, ddof=1)) * np.sqrt(252.0))
-    exp_maxdd = _nav_max_drawdown(_NAVS)
 
     assert summary.volatility == pytest.approx(exp_vol, rel=1e-6)
     assert summary.sharpe == pytest.approx(exp_sharpe, rel=1e-6)
-    assert summary.max_drawdown == pytest.approx(exp_maxdd, rel=1e-6)
+    assert summary.max_drawdown == pytest.approx(
+        _peak_to_trough(_VOLATILE_NAVS), rel=1e-6
+    )
+
+
+@pytest.mark.parametrize(
+    ("navs", "expected"),
+    [
+        ([100.0, 200.0, 150.0, 100.0], 0.5),
+        ([100.0, 130.0, 169.0, 118.3, 82.81], 0.51),
+        ([100.0, 80.0, 64.0, 51.2], 0.488),
+        ([100.0, 50.0, 25.0], 0.75),
+    ],
+)
+def test_metrics_max_drawdown_is_peak_to_trough_of_compounded_nav(navs, expected):
+    """Max drawdown is measured on the NAV level, not on summed simple returns."""
+    summary = portfolio_metrics(_PID, _points(navs))
+    assert summary.max_drawdown == pytest.approx(expected, rel=1e-9)
+    assert summary.max_drawdown <= 1.0
+
+
+def test_metrics_max_drawdown_of_rising_nav_is_positive_zero():
+    """A NAV that never falls reports a plain ``0.0``, not a signed ``-0.0``."""
+    summary = portfolio_metrics(_PID, _points([100.0, 101.0, 103.0]))
+    assert summary.max_drawdown == 0.0
+    assert math.copysign(1.0, summary.max_drawdown) == 1.0
 
 
 def test_metrics_max_drawdown_compounds_consecutive_losses():
