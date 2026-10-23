@@ -28,9 +28,15 @@ def returns():
     return prices_to_returns(prices).tail(500)
 
 
+@pytest.fixture(scope="module")
+def short_returns(returns):
+    """120 daily observations: enough to separate the presets, cheap to fit."""
+    return returns.tail(120)
+
+
 class TestDRCVaRConfig:
-    def test_when_default_then_epsilon_0_05(self) -> None:
-        assert DRCVaRConfig().epsilon == 0.05
+    def test_when_default_then_epsilon_on_daily_return_scale(self) -> None:
+        assert DRCVaRConfig().epsilon == 5e-4
 
     def test_when_default_then_cvar_beta_0_95(self) -> None:
         assert DRCVaRConfig().cvar_beta == 0.95
@@ -57,14 +63,43 @@ class TestDRCVaRConfig:
 
 
 class TestPresets:
-    def test_when_for_default_then_epsilon_0_05(self) -> None:
-        assert DRCVaRConfig.for_default().epsilon == 0.05
+    def test_when_for_default_then_matches_default_config(self) -> None:
+        assert DRCVaRConfig.for_default() == DRCVaRConfig()
 
-    def test_when_for_aggressive_then_epsilon_0_01(self) -> None:
-        assert DRCVaRConfig.for_aggressive().epsilon == 0.01
+    def test_when_for_aggressive_then_narrower_than_default(self) -> None:
+        assert DRCVaRConfig.for_aggressive().epsilon == 1e-4
 
-    def test_when_for_conservative_then_epsilon_0_10(self) -> None:
-        assert DRCVaRConfig.for_conservative().epsilon == 0.10
+    def test_when_for_conservative_then_wider_than_default(self) -> None:
+        assert DRCVaRConfig.for_conservative().epsilon == 2e-3
+
+
+class TestRadiusCalibration:
+    """Radii are in return units, so the presets must sit at daily-return scale."""
+
+    @staticmethod
+    def _l1_from_equal_weight(config: DRCVaRConfig, data) -> float:
+        est = build_dr_cvar(config)
+        est.fit(data)
+        n_assets = data.shape[1]
+        return float(np.abs(est.weights_ - 1.0 / n_assets).sum())
+
+    def test_when_default_then_weights_depend_on_data_not_equal_weight(
+        self, short_returns
+    ) -> None:
+        assert self._l1_from_equal_weight(DRCVaRConfig(), short_returns) > 0.1
+
+    def test_when_presets_fitted_then_wider_ball_stays_closer_to_equal_weight(
+        self, short_returns
+    ) -> None:
+        aggressive = self._l1_from_equal_weight(
+            DRCVaRConfig.for_aggressive(), short_returns
+        )
+        default = self._l1_from_equal_weight(DRCVaRConfig.for_default(), short_returns)
+        conservative = self._l1_from_equal_weight(
+            DRCVaRConfig.for_conservative(), short_returns
+        )
+        assert conservative > 0.1
+        assert aggressive > default > conservative
 
 
 class TestBuildDRCVaR:

@@ -28,8 +28,13 @@ class DRCVaRConfig:
     """Immutable configuration for `DistributionallyRobustCVaR`.
 
     Attributes:
-        epsilon: Wasserstein-ball radius. ``0`` falls back to empirical CVaR.
-            Default ``0.05``.
+        epsilon: Wasserstein-ball radius, in the units of the returns the
+            optimiser is fitted on (per period, not annualised).  ``0`` falls
+            back to empirical CVaR.  The radius is added to the CVaR as a
+            penalty on the largest weight, so a radius of the same order as
+            per-period asset volatility drives the solution to equal weight
+            whatever the data say; daily returns call for roughly ``1e-4`` to
+            ``2e-3``.  Default ``5e-4``.
         cvar_beta: CVaR confidence level. Default ``0.95``.
         risk_aversion: Risk-aversion coefficient.
         prior_config: Inner prior configuration.
@@ -40,7 +45,7 @@ class DRCVaRConfig:
         solver_params: Additional solver parameters.
     """
 
-    epsilon: float = 0.05
+    epsilon: float = 5e-4
     cvar_beta: float = 0.95
     risk_aversion: float = 1.0
     prior_config: MomentEstimationConfig | None = None
@@ -62,18 +67,18 @@ class DRCVaRConfig:
 
     @classmethod
     def for_default(cls) -> DRCVaRConfig:
-        """Default preset (eps=0.05)."""
+        """Default preset (eps=5e-4, sized for daily returns)."""
         return cls()
 
     @classmethod
     def for_aggressive(cls) -> DRCVaRConfig:
-        """Aggressive preset (eps=0.01) — narrow Wasserstein ball."""
-        return cls(epsilon=0.01)
+        """Aggressive preset (eps=1e-4) — narrow Wasserstein ball."""
+        return cls(epsilon=1e-4)
 
     @classmethod
     def for_conservative(cls) -> DRCVaRConfig:
-        """Conservative preset (eps=0.10) — wide Wasserstein ball."""
-        return cls(epsilon=0.10)
+        """Conservative preset (eps=2e-3) — wide Wasserstein ball."""
+        return cls(epsilon=2e-3)
 
 
 def build_dr_cvar(
