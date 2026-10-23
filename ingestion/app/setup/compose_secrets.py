@@ -1,11 +1,13 @@
 """Render decrypted secrets into Docker-compose secret files (SPEC D6).
 
 `portopt start` decrypts `~/.portopt/secrets.enc` and calls `render` to write
-each value to `<repo>/secrets/<name>` (owner-only 0600), which docker-compose mounts
-at `/run/secrets/<name>`. Every declared secret is written — empty when
-unconfigured — so `docker compose up` never fails on a missing file. `portopt
-stop` calls `cleanup` for the secrets no still-running service mounts (the fund's
-LLM keys); `portopt stop --all` and a failed setup remove every plaintext file.
+each value to `<repo>/secrets/<name>`, which docker-compose mounts at
+`/run/secrets/<name>`. The directory is owner-only (0700) and holds the files at
+0644 so the containers' non-root user can read them. Every declared secret is
+written — empty when unconfigured — so `docker compose up` never fails on a
+missing file. `portopt stop` calls `cleanup` for the secrets no still-running
+service mounts (the fund's LLM keys); `portopt stop --all` and a failed setup
+remove every plaintext file.
 """
 
 from __future__ import annotations
@@ -56,12 +58,32 @@ FUND_ONLY_SECRET_NAMES = tuple(
 DEFAULT_SECRETS_DIR = Path("secrets")
 
 
+def _restrict_dir(target: Path) -> bool:
+    """Create ``target`` owner-only; report whether that actually gates access.
+
+    A git checkout creates ``secrets/`` 0755, and some filesystems (exFAT, drvfs
+    mounts) silently ignore a directory chmod, so the resulting mode is re-read
+    rather than assumed.
+    """
+    target.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with contextlib.suppress(OSError):
+        target.chmod(0o700)
+    return target.stat().st_mode & 0o077 == 0
+
+
 def render(
     secrets: Mapping[str, str], *, secrets_dir: Path | None = None
 ) -> list[Path]:
-    """Write every declared secret to `<secrets_dir>/<name>` (0600). Returns paths."""
+    """Write every declared secret to `<secrets_dir>/<name>`. Returns the paths.
+
+    The directory is made owner-only (0700). Files are then 0644 so the containers'
+    uid-1000 user can read them: a compose `file:` secret is a plain bind mount, so
+    the host owner and mode apply inside the container, and a 0600 file owned by a
+    different host uid is unreadable there. When the directory cannot be made
+    owner-only the files stay 0600 rather than exposing the keys to other users.
+    """
     target = secrets_dir or DEFAULT_SECRETS_DIR
-    target.mkdir(parents=True, exist_ok=True)
+    file_mode = 0o644 if _restrict_dir(target) else 0o600
     written: list[Path] = []
     for name in SECRET_NAMES:
         path = target / name
@@ -71,7 +93,7 @@ def render(
         if path.is_dir():
             shutil.rmtree(path)
         path.write_text(secrets.get(name, ""), encoding="utf-8")
-        path.chmod(0o600)
+        path.chmod(file_mode)
         written.append(path)
     return written
 

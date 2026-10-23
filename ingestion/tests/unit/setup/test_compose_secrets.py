@@ -1,15 +1,18 @@
 """Compose-secret rendering contract (SPEC D6).
 
 `render` writes every declared secret to `<secrets_dir>/<name>` (empty for
-unconfigured ones so `docker compose up` never fails on a missing file), each
-owner-only (0600); `cleanup` removes them (all, or just the ones named).
+unconfigured ones so `docker compose up` never fails on a missing file) inside an
+owner-only directory, with a mode the containers' non-root user can read;
+`cleanup` removes them (all, or just the ones named).
 """
 
+import os
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -59,12 +62,51 @@ def test_secret_names_grew_beyond_the_original_three() -> None:
     assert len(set(cs.SECRET_NAMES)) == len(cs.SECRET_NAMES)
 
 
-@pytest.mark.skipif(
+_POSIX_ONLY = pytest.mark.skipif(
     sys.platform == "win32", reason="POSIX file mode not enforced on Windows"
 )
-def test_rendered_files_are_owner_only(tmp_path: Path) -> None:
-    cs.render({"fred_api_key": "x"}, secrets_dir=tmp_path)
-    assert (tmp_path / "fred_api_key").stat().st_mode & 0o777 == 0o600
+
+
+@_POSIX_ONLY
+def test_rendered_files_are_readable_by_the_container_user(tmp_path: Path) -> None:
+    # Compose file secrets are plain bind mounts: the host owner and mode apply inside
+    # the container, whose appuser (uid 1000) is not the host operator on Linux. A
+    # 0600 file owned by another uid is unreadable there, so the worker crash-loops.
+    cs.render({"fred_api_key": "x"}, secrets_dir=tmp_path / "secrets")
+    assert (tmp_path / "secrets" / "fred_api_key").stat().st_mode & 0o777 == 0o644
+
+
+@_POSIX_ONLY
+def test_secrets_dir_is_owner_only_even_when_it_pre_existed_world_readable(
+    tmp_path: Path,
+) -> None:
+    # The directory is what keeps other host users out once the files are readable by
+    # the container; a git checkout creates it 0755.
+    target = tmp_path / "secrets"
+    target.mkdir()
+    target.chmod(0o755)
+    cs.render({"fred_api_key": "x"}, secrets_dir=target)
+    assert target.stat().st_mode & 0o777 == 0o700
+
+
+@_POSIX_ONLY
+def test_files_stay_owner_only_when_the_dir_cannot_be_locked_down(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # On filesystems where a directory chmod does not take effect, widening the files
+    # would expose the keys to other users, so they fall back to 0600.
+    target = tmp_path / "secrets"
+    target.mkdir()
+    target.chmod(0o755)
+    real_chmod = os.chmod
+
+    def _chmod_files_only(path: str | os.PathLike[str], mode: int, **kw: Any) -> None:
+        if not Path(path).is_dir():
+            real_chmod(path, mode, **kw)
+
+    monkeypatch.setattr(os, "chmod", _chmod_files_only)
+    cs.render({"fred_api_key": "x"}, secrets_dir=target)
+    assert (target / "fred_api_key").stat().st_mode & 0o777 == 0o600
 
 
 def test_cleanup_removes_rendered_files(tmp_path: Path) -> None:
