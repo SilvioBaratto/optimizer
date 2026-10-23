@@ -325,6 +325,20 @@ def _compute_ic_series_cs_regression(
     return pd.Series(slopes, index=pd.Index(kept_dates), name=factor_name)
 
 
+# A constant series' mean is off by round-off, so its sample std is ~1e-17
+# rather than 0.0; below this fraction of the series magnitude the std is that
+# noise, not dispersion, and dividing by it yields a ~1e15 ratio.
+_ICIR_DEGENERATE_REL_STD: float = 1e-12
+
+
+def _information_ratio(ic_series: pd.Series, mean_ic: float, ic_std: float) -> float:
+    """Return ``mean_ic / ic_std``, or 0.0 for a constant or undefined-std series."""
+    scale = float(ic_series.abs().max())
+    if not ic_std > _ICIR_DEGENERATE_REL_STD * scale:
+        return 0.0
+    return mean_ic / ic_std
+
+
 def compute_icir(ic_series: pd.Series) -> float:
     """Compute the IC Information Ratio (mean IC / std IC).
 
@@ -336,15 +350,15 @@ def compute_icir(ic_series: pd.Series) -> float:
         ic_series: Time series of IC values (one per cross-section date).
 
     Returns:
-        ICIR value, or 0.0 if ``std(IC) == 0`` or fewer than
-        2 non-NaN observations.
+        ICIR value, or 0.0 if the IC series is constant (``std(IC)`` is zero
+        or round-off) or has fewer than 2 non-NaN observations.
     """
     clean = ic_series.dropna()
     if len(clean) < 2:
         return 0.0
     mean_ic = float(clean.mean())
     ic_std = float(cast(float, clean.std(ddof=1)))
-    return mean_ic / ic_std if ic_std > 0.0 else 0.0
+    return _information_ratio(clean, mean_ic, ic_std)
 
 
 # Below this fraction of the squared series magnitude the HAC variance is
@@ -457,7 +471,7 @@ def compute_ic_stats(
 
     mean_ic = float(ic_series.mean())
     ic_std = float(cast(float, ic_series.std(ddof=1)))
-    icir = mean_ic / ic_std if ic_std > 0.0 else 0.0
+    icir = _information_ratio(ic_series, mean_ic, ic_std)
 
     nw_var = _newey_west_variance(ic_series, lags)
     if n < _min_newey_west_periods(lags) or not nw_var > 0.0:
@@ -607,7 +621,7 @@ def compute_composite_ic(
 
     mean_ic = float(ic_series.mean())
     ic_std = float(cast(float, ic_series.std(ddof=1)))
-    icir = mean_ic / ic_std if ic_std > 0.0 else 0.0
+    icir = _information_ratio(ic_series, mean_ic, ic_std)
 
     t_stat, p_value = compute_newey_west_tstat(ic_series, n_lags=newey_west_lags)
     significant = abs(t_stat) >= t_stat_threshold

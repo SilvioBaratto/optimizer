@@ -18,6 +18,7 @@ from optimizer.factors import (
     compute_composite_ic,
     compute_ic_series,
     compute_ic_stats,
+    compute_icir,
     compute_monthly_ic,
     compute_newey_west_tstat,
     compute_quantile_spread,
@@ -858,6 +859,51 @@ class TestComputeICStats:
 
         assert (result["p_value_raw"] == 1.0).all()
         assert result["significant_bh"].sum() == 0
+
+
+class TestICIRConstantSeries:
+    """A constant IC series has no dispersion: ICIR is 0.0, not mean / noise."""
+
+    @pytest.mark.parametrize(
+        ("value", "n"), [(0.05, 20), (0.1, 13), (0.2, 7), (-0.03, 20)]
+    )
+    def test_when_ic_series_constant_then_compute_icir_is_zero(
+        self, value: float, n: int
+    ) -> None:
+        assert compute_icir(pd.Series([value] * n)) == 0.0
+
+    @pytest.mark.parametrize(
+        ("value", "n"), [(0.05, 20), (0.1, 13), (0.2, 7), (-0.03, 20)]
+    )
+    def test_when_ic_series_constant_then_ic_stats_icir_is_zero(
+        self, value: float, n: int
+    ) -> None:
+        assert compute_ic_stats(pd.Series([value] * n)).icir == 0.0
+
+    def test_when_composite_ic_constant_then_icir_is_zero(self) -> None:
+        rng = np.random.default_rng(0)
+        n_tickers, n_dates = 8, 20
+        dates = pd.date_range("2020-01-31", periods=n_dates, freq="ME")
+        tickers = [f"T{i}" for i in range(n_tickers)]
+        score_row = rng.normal(size=n_tickers)
+        return_row = rng.normal(size=n_tickers) * 0.02
+        scores = pd.DataFrame([score_row] * n_dates, index=dates, columns=tickers)
+        returns = pd.DataFrame([return_row] * n_dates, index=dates, columns=tickers)
+
+        result = compute_composite_ic(scores, returns)
+
+        assert result.mean_ic == pytest.approx(0.238095, abs=1e-6)
+        assert result.icir == 0.0
+
+    def test_when_ic_series_small_but_dispersed_then_icir_is_finite_ratio(
+        self,
+    ) -> None:
+        """The degenerate test is relative to the series scale."""
+        rng = np.random.default_rng(3)
+        ic = pd.Series(rng.normal(2.0, 1.0, 40) * 1e-9)
+        expected = float(ic.mean()) / float(ic.std(ddof=1))
+        assert compute_icir(ic) == pytest.approx(expected, rel=1e-12)
+        assert compute_ic_stats(ic).icir == pytest.approx(expected, rel=1e-12)
 
 
 class TestCorrectPValues:
