@@ -241,6 +241,53 @@ class TestPointInTimeMacroDeltas:
         assert row.macro_deltas == {}
 
 
+class TestPointInTimeMarketMoves:
+    """The market-summary fallback never reaches past the digest date."""
+
+    @staticmethod
+    def _summary(as_of: datetime.date, price: float) -> MarketSummary:
+        return MarketSummary(
+            market="US",
+            symbol="^GSPC",
+            as_of=as_of,
+            price=price,
+            change=1.0,
+            change_percent=0.1,
+        )
+
+    def test_fallback_uses_latest_snapshot_on_or_before_as_of(
+        self, committing_session: Session
+    ) -> None:
+        """With no snapshot on ``as_of``, the newest earlier one is used."""
+        committing_session.add_all(
+            [
+                self._summary(datetime.date(2023, 12, 29), 4700.0),
+                self._summary(datetime.date(2024, 6, 3), 9999.0),
+            ]
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.market_moves["US"]["^GSPC"]["price"] == 4700.0
+
+    def test_snapshots_only_after_as_of_yield_no_market_moves(
+        self, committing_session: Session
+    ) -> None:
+        """A market whose snapshots all post-date ``as_of`` contributes nothing."""
+        committing_session.add(self._summary(datetime.date(2024, 6, 3), 9999.0))
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.market_moves == {}
+        assert row.source_counts["market_rows"] == 0
+
+
 class TestIdempotency:
     """Re-running the builder for a date converges to a single row."""
 

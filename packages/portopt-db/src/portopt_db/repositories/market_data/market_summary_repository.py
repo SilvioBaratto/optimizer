@@ -106,7 +106,9 @@ class MarketSummaryRepository(RepositoryBase):
         )
         return self.session.execute(stmt).scalars().all()
 
-    def get_latest_as_of(self, market: str) -> dt.date | None:
+    def get_latest_as_of(
+        self, market: str, on_or_before: dt.date | None = None
+    ) -> dt.date | None:
         """Return the most recent ``as_of`` date available for the given market.
 
         Useful for the digest builder to discover the freshest snapshot without
@@ -114,12 +116,17 @@ class MarketSummaryRepository(RepositoryBase):
 
         Args:
             market: Market identifier to query.
+            on_or_before: Inclusive upper bound on the snapshot date.  Point-in-time
+                callers (a backfilled digest) pass their target date so a later
+                snapshot is never returned; ``None`` leaves the search unbounded.
 
         Returns:
-            The latest ``as_of`` date, or ``None`` when no rows exist for the
-            market.
+            The latest ``as_of`` date within the bound, or ``None`` when no rows
+            exist for the market.
         """
         stmt = select(func.max(MarketSummary.as_of)).where(
             MarketSummary.market == market
         )
+        if on_or_before is not None:
+            stmt = stmt.where(MarketSummary.as_of <= on_or_before)
         return self.session.execute(stmt).scalar_one_or_none()

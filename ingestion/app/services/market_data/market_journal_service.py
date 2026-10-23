@@ -125,15 +125,15 @@ def _build_market_moves(
     """Return per-market symbol moves plus the total summary-row count.
 
     Prefers the snapshot dated ``as_of``; when none exists it falls back to the
-    market's freshest snapshot so a weekday digest still reflects the weekend
-    sweep.
+    market's freshest snapshot dated before ``as_of`` so a weekday digest still
+    reflects the weekend sweep without a backfilled digest seeing later prices.
     """
     out: dict[str, Any] = {}
     total = 0
     for market in markets:
         rows = list(repo.get_summaries(market, as_of))
         if not rows:
-            latest = repo.get_latest_as_of(market)
+            latest = repo.get_latest_as_of(market, on_or_before=as_of)
             if latest is not None:
                 rows = list(repo.get_summaries(market, latest))
         if not rows:
