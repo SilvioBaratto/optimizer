@@ -203,6 +203,41 @@ class TestFactorConstructionConfig:
         assert cfg.publication_lag.annual_days == 60
         assert cfg.publication_lag.analyst_days == 3
 
+    @pytest.mark.parametrize(
+        "field_name",
+        [
+            "momentum_lookback",
+            "volatility_lookback",
+            "beta_lookback",
+            "amihud_lookback",
+        ],
+    )
+    @pytest.mark.parametrize("value", [0, -5])
+    def test_non_positive_lookback_rejected(self, field_name: str, value: int) -> None:
+        with pytest.raises(ConfigurationError, match=field_name):
+            FactorConstructionConfig(**{field_name: value})  # type: ignore[arg-type]
+
+    def test_negative_momentum_skip_rejected(self) -> None:
+        with pytest.raises(ConfigurationError, match="momentum_skip"):
+            FactorConstructionConfig(momentum_skip=-3)
+
+    @pytest.mark.parametrize(
+        ("lookback", "skip"),
+        [(63, 126), (21, 21), (21, 20)],
+    )
+    def test_momentum_skip_must_leave_a_non_empty_window(
+        self, lookback: int, skip: int
+    ) -> None:
+        # skip >= lookback - 1 makes the start and end prices coincide (zero
+        # momentum) or reverse them, and a larger skip raises IndexError later.
+        with pytest.raises(ConfigurationError, match="momentum_skip"):
+            FactorConstructionConfig(momentum_lookback=lookback, momentum_skip=skip)
+
+    def test_momentum_skip_zero_and_narrow_window_accepted(self) -> None:
+        assert FactorConstructionConfig(momentum_skip=0).momentum_skip == 0
+        cfg = FactorConstructionConfig(momentum_lookback=22, momentum_skip=20)
+        assert cfg.momentum_lookback == 22
+
     def test_for_core_factors(self) -> None:
         cfg = FactorConstructionConfig.for_core_factors()
         assert len(cfg.factors) == 11

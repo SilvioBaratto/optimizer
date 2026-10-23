@@ -239,9 +239,13 @@ class FactorConstructionConfig:
         factors: Which factors to compute.
         momentum_lookback: Lookback window for momentum in trading days.
         momentum_skip: Recent days to skip for momentum (reversal avoidance).
+            Must be ``>= 0`` and ``< momentum_lookback - 1`` so the momentum
+            window is non-empty.
         volatility_lookback: Lookback window for volatility in trading days.
         beta_lookback: Lookback window for beta estimation in trading days.
         amihud_lookback: Lookback window for Amihud illiquidity in trading days.
+            All four lookbacks must be ``>= 1``; invalid values raise
+            ``ConfigurationError``.
         publication_lag: Per-source publication lags for point-in-time
             correctness. Accepts a plain ``int`` for a uniform lag across all
             sources (backward-compatible; converted to
@@ -269,6 +273,26 @@ class FactorConstructionConfig:
     publication_lag: PublicationLagConfig = field(default_factory=PublicationLagConfig)
 
     def __post_init__(self) -> None:
+        for name in (
+            "momentum_lookback",
+            "volatility_lookback",
+            "beta_lookback",
+            "amihud_lookback",
+        ):
+            value = getattr(self, name)
+            if value < 1:
+                msg = f"{name} must be >= 1, got {value}"
+                raise ConfigurationError(msg)
+        # Momentum compares the price `skip + 1` bars back with the price
+        # `lookback` bars back; they coincide (zero momentum) once
+        # skip + 1 >= lookback and reverse order beyond that.
+        if self.momentum_skip < 0 or self.momentum_skip + 1 >= self.momentum_lookback:
+            msg = (
+                "momentum_skip must satisfy 0 <= momentum_skip < "
+                f"momentum_lookback - 1, got momentum_skip={self.momentum_skip} "
+                f"with momentum_lookback={self.momentum_lookback}"
+            )
+            raise ConfigurationError(msg)
         # Runtime backward-compat: accept plain int for uniform lag
         if not isinstance(self.publication_lag, PublicationLagConfig):
             object.__setattr__(
