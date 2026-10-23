@@ -9,7 +9,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from portopt_db.models.jobs.background_job import BackgroundJob, BackgroundJobError
+from portopt_db.models.jobs.background_job import (
+    FUND_JOB_TYPES,
+    BackgroundJob,
+    BackgroundJobError,
+)
 from portopt_db.repository import RepositoryBase
 from sqlalchemy import (
     delete,
@@ -354,7 +358,12 @@ class BackgroundJobRepository(RepositoryBase):
         return self.session.execute(stmt).scalar_one_or_none()
 
     def cleanup_expired(self, ttl_seconds: int) -> int:
-        """Delete completed/failed jobs older than *ttl_seconds*."""
+        """Delete completed/failed jobs older than *ttl_seconds*.
+
+        Deliberately not scoped to ingestion job types: the fund daemon has no
+        retention of its own, so this is the only thing that stops its terminal
+        rows from accumulating in the shared ``background_jobs`` table.
+        """
         self._ensure_tables_exist()
 
         cutoff = datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)
@@ -390,6 +399,11 @@ class BackgroundJobRepository(RepositoryBase):
         false-reaped across a container/host change and were inert off Linux
         (``worker_host`` / ``worker_pid`` are still recorded for observability).
 
+        Rows of the fund daemon's job types are never touched: it shares this
+        table but runs its own lease reaper with its own TTL, so reaping them
+        here would fail a live fund slot early (letting a duplicate run start)
+        and emit terminal metrics for a gauge this process never incremented.
+
         Returns ``{"job_type": ..., "attempt": ...}`` per reaped row so the
         caller can emit terminal metrics and (under RECLAIM) re-dispatch the
         step. The single source of the reap rule — :meth:`reconcile_orphans`
@@ -404,6 +418,7 @@ class BackgroundJobRepository(RepositoryBase):
             seconds=heartbeat_timeout_seconds,
         )
         stale_active = (
+            BackgroundJob.job_type.not_in(FUND_JOB_TYPES),
             BackgroundJob.status.in_(_ACTIVE_STATUSES),
             or_(
                 BackgroundJob.last_heartbeat_at.is_(None),

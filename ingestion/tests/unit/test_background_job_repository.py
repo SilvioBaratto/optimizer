@@ -13,12 +13,14 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
+import pytest
 from sqlalchemy import false
 from sqlalchemy.orm import Session
 
 from app.repositories.jobs.background_job_repository import BackgroundJobRepository
 
 _REPO_MODULE = "app.repositories.jobs.background_job_repository"
+_FUND_JOB_TYPES = ["fund_rebalance_sweep", "fund_drift_monitor", "fund_nav_mark"]
 
 
 def _make_stale(
@@ -552,6 +554,45 @@ class TestReapOrphans:
         row = repo.get(jid)
         assert row is not None
         assert row.status == "pending"
+
+    def test_fund_job_types_exclusion_covers_every_fund_slot(self) -> None:
+        from portopt_db.models.jobs.background_job import FUND_JOB_TYPES
+
+        assert set(FUND_JOB_TYPES) == set(_FUND_JOB_TYPES)
+
+    @pytest.mark.parametrize("fund_job_type", _FUND_JOB_TYPES)
+    def test_stale_fund_slot_is_left_for_the_fund_reaper(
+        self, db_session: Session, fund_job_type: str
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        fund_id = repo.claim_or_create(fund_job_type)
+        ingestion_id = repo.claim_or_create("yfinance_fetch")
+        assert fund_id is not None
+        assert ingestion_id is not None
+        _make_stale(repo, fund_id, db_session)
+        _make_stale(repo, ingestion_id, db_session)
+
+        reaped = repo.reap_orphans("orphan")
+
+        assert reaped == [{"job_type": "yfinance_fetch", "attempt": 0}]
+        fund_row = repo.get(fund_id)
+        assert fund_row is not None
+        assert fund_row.status == "pending"
+        assert fund_row.error is None
+        assert fund_row.finished_at is None
+
+    def test_startup_reconcile_does_not_count_stale_fund_slots(
+        self, db_session: Session
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        fund_id = repo.claim_or_create("fund_nav_mark")
+        assert fund_id is not None
+        _make_stale(repo, fund_id, db_session)
+
+        assert repo.reconcile_orphans("orphaned at startup") == 0
+        fund_row = repo.get(fund_id)
+        assert fund_row is not None
+        assert fund_row.status == "pending"
 
     def test_claim_or_create_stores_attempt(self, db_session: Session) -> None:
         repo = BackgroundJobRepository(db_session)

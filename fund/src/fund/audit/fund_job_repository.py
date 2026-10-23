@@ -31,6 +31,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from portopt_db.models import BackgroundJob
+from portopt_db.models.jobs.background_job import FUND_JOB_TYPES
 from portopt_db.repository import RepositoryBase
 from sqlalchemy import (
     CursorResult,
@@ -44,14 +45,6 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.exc import IntegrityError
-
-# The fund daemon job slots. Each gets at most one active (pending|running) row;
-# the scheduler's rebalance sweep, drift monitor, and daily NAV mark claim these.
-FUND_JOB_TYPES: tuple[str, ...] = (
-    "fund_rebalance_sweep",
-    "fund_drift_monitor",
-    "fund_nav_mark",
-)
 
 _ACTIVE_STATUSES: tuple[str, ...] = ("pending", "running")
 
