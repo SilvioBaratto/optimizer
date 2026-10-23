@@ -1,5 +1,6 @@
 """Article fetching and content extraction from financial news URLs."""
 
+import re
 import time
 from dataclasses import dataclass, field
 from typing import TypedDict
@@ -29,6 +30,11 @@ ARTICLE_SELECTORS = [
     "main",
 ]
 
+
+# Postgres text columns reject NUL outright, and one rejected row fails the
+# whole multi-row upsert, so a single hostile page could block every article
+# in the batch. Tab, newline and carriage return are legitimate whitespace.
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 # Small on purpose: urllib3 bounds each decoded read to this size, so it is
 # also the most a gzip bomb can inflate between two cap checks.
@@ -110,9 +116,10 @@ class ArticleScraper:
 
             if article_content:
                 paragraphs = article_content.find_all("p")
-                full_text = "\n\n".join(
-                    [p.get_text().strip() for p in paragraphs if p.get_text().strip()]
-                )[: self.max_text_chars]
+                texts = (
+                    _CONTROL_CHARS.sub("", p.get_text()).strip() for p in paragraphs
+                )
+                full_text = "\n\n".join(t for t in texts if t)[: self.max_text_chars]
 
                 return ArticleResult(
                     success=True,

@@ -68,6 +68,12 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif self.path == "/control-chars":
+            body = _page("<p>hello\x00world</p><p>\x00\x01</p><p>tab\there</p>")
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         elif self.path == "/ok":
             body = gzip.compress(_page("<p>First.</p><p>Second.</p>"))
             self.send_response(200)
@@ -208,6 +214,19 @@ class TestWallClockDeadline:
         assert result["success"] is False
         assert elapsed < _DRIP_STEPS * _DRIP_INTERVAL_S / 2
         assert "timeout" in (result["error"] or "").lower()
+
+
+class TestControlCharacters:
+    """Text bound for Postgres must not carry characters it rejects."""
+
+    def test_when_page_contains_nul_bytes_then_content_has_none(
+        self, server_url: str
+    ) -> None:
+        """NUL and other C0 controls are dropped; tabs and newlines survive."""
+        result = ArticleScraper(delay=0).fetch(f"{server_url}/control-chars")
+
+        assert result["success"] is True
+        assert result["content"] == "helloworld\n\ntab\there"
 
 
 class TestTextCap:
