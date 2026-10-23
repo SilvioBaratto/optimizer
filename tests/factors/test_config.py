@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from optimizer.exceptions import ConfigurationError
@@ -513,3 +515,14 @@ class TestFactorIntegrationConfig:
     def test_for_black_litterman(self) -> None:
         cfg = FactorIntegrationConfig.for_black_litterman()
         assert cfg.use_black_litterman is True
+
+    def test_does_not_advertise_an_unenforced_weight_cap(self) -> None:
+        """The integration returns a prior, never an optimizer, so it cannot cap.
+
+        A silently ignored risk limit is worse than none: weight caps belong to
+        ``MeanRiskConfig.max_weights``.
+        """
+        names = {f.name for f in dataclasses.fields(FactorIntegrationConfig)}
+        assert "max_weight" not in names
+        with pytest.raises(TypeError):
+            FactorIntegrationConfig(max_weight=0.05)  # type: ignore[call-arg]

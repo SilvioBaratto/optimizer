@@ -239,7 +239,8 @@ def build_factor_integration(
 
     Returns:
         ``(prior, constraints)`` — one of the two will be set, the other
-        ``None``.
+        ``None``.  Neither carries a per-asset weight cap; the caller bounds
+        weights on the optimizer (``MeanRiskConfig.max_weights``).
     """
     if config.use_black_litterman:
         views, confidences = build_factor_bl_views(

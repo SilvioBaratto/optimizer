@@ -917,9 +917,8 @@ class FactorIntegrationConfig:
         view_confidence_cap: Idzorek confidence applied to every BL view (0–1).
             At 1.0 the posterior equals the view exactly, causing extreme
             concentration. Values 0.25–0.50 blend the view with the
-            equilibrium prior.
-        max_weight: Maximum per-asset weight enforced on the optimizer when
-            the integration injects a BL prior. 0.0 disables the constraint.
+            equilibrium prior. Per-asset weight caps are not part of the
+            integration: set ``MeanRiskConfig.max_weights`` on the optimizer.
         exposure_lower_bound: Lower bound for factor exposure constraints.
         exposure_upper_bound: Upper bound for factor exposure constraints.
     """
@@ -929,7 +928,6 @@ class FactorIntegrationConfig:
     score_premium: float = 0.02
     use_black_litterman: bool = False
     view_confidence_cap: float = 0.50
-    max_weight: float = 0.10
     exposure_lower_bound: float = -0.5
     exposure_upper_bound: float = 0.5
 
