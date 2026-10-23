@@ -15,6 +15,7 @@ to surface disagreements between any two regime classifications.
 from __future__ import annotations
 
 import logging
+import math
 
 import numpy as np
 import pandas as pd
@@ -33,6 +34,15 @@ logger = logging.getLogger(__name__)
 # was never observed costs a handful of passes rather than one per row.
 _LAST_VALID_CHUNK = 16
 _LAST_VALID_GROWTH = 4
+
+# A rolling mean of equal prints can differ from them by an ulp, which would
+# otherwise decide whether steady growth sits above or below its own trend.
+_GDP_TIE_TOLERANCE = 1e-9
+
+# RECESSION drives the defensive tilts and the tight sector caps, so positive
+# growth that dips below its trend must fall under this fraction of the trend
+# before it counts; a smaller dip is only a slowdown.
+_GDP_SEVERE_DECELERATION = 0.5
 
 
 def _last_valid(macro_data: pd.DataFrame, column: str) -> float | None:
@@ -63,6 +73,35 @@ def _last_valid(macro_data: pd.DataFrame, column: str) -> float | None:
         stop = start
         chunk *= _LAST_VALID_GROWTH
     return None
+
+
+def _classify_gdp_growth(current: float, previous: float, trend: float) -> MacroRegime:
+    """Map the latest GDP growth print to a regime.
+
+    Contracting growth (``current <= 0``) is never an expansion or a
+    slowdown: it is a recovery only while it is improving, otherwise a
+    recession.  For positive growth the print is read against its trend and
+    the previous print; growth that sits exactly on its trend and did not
+    change is steady expansion.  Growth that is falling and below trend is a
+    slowdown, and a recession only once it has dropped under
+    ``_GDP_SEVERE_DECELERATION`` of its trend.
+    """
+    if current <= 0.0:
+        return MacroRegime.RECOVERY if current > previous else MacroRegime.RECESSION
+
+    at_trend = math.isclose(current, trend, rel_tol=0.0, abs_tol=_GDP_TIE_TOLERANCE)
+    unchanged = math.isclose(current, previous, rel_tol=0.0, abs_tol=_GDP_TIE_TOLERANCE)
+    if at_trend and unchanged:
+        return MacroRegime.EXPANSION
+    if current > trend and current > previous:
+        return MacroRegime.EXPANSION
+    if current > trend and current <= previous:
+        return MacroRegime.SLOWDOWN
+    if current <= trend and current <= previous:
+        if current < _GDP_SEVERE_DECELERATION * trend:
+            return MacroRegime.RECESSION
+        return MacroRegime.SLOWDOWN
+    return MacroRegime.RECOVERY
 
 
 def classify_regime_composite(
@@ -195,7 +234,8 @@ def classify_regime(
 
     Uses a simple heuristic based on GDP growth and leading
     indicators.  The regime is determined by the latest
-    observation's position relative to trend.
+    observation's position relative to trend; contracting GDP growth is
+    never classified as an expansion or slowdown.
 
     When richer indicators (``pmi``, ``spread_2s10s``, ``hy_oas``)
     have at least one observation, delegates to
@@ -233,9 +273,9 @@ def classify_regime(
     if "gdp_growth" in macro_data.columns:
         gdp = macro_data["gdp_growth"].dropna()
         if len(gdp) >= 2:
-            current = gdp.iloc[-1]
-            previous = gdp.iloc[-2]
-            trend = gdp.rolling(4, min_periods=1).mean().iloc[-1]
+            current = float(gdp.iloc[-1])
+            previous = float(gdp.iloc[-2])
+            trend = float(gdp.rolling(4, min_periods=1).mean().iloc[-1])
 
             # Multi-indicator override: rising unemployment + positive GDP → SLOWDOWN
             if "unemployment_rate" in macro_data.columns:
@@ -243,13 +283,7 @@ def classify_regime(
                 if len(unemp) >= 2 and unemp.iloc[-1] > unemp.iloc[-2] and current > 0:
                     return MacroRegime.SLOWDOWN
 
-            if current > trend and current > previous:
-                return MacroRegime.EXPANSION
-            if current > trend and current <= previous:
-                return MacroRegime.SLOWDOWN
-            if current <= trend and current <= previous:
-                return MacroRegime.RECESSION
-            return MacroRegime.RECOVERY
+            return _classify_gdp_growth(current, previous, trend)
 
     if "yield_spread" in macro_data.columns:
         spread = macro_data["yield_spread"].dropna()

@@ -859,3 +859,80 @@ class TestTiltFloorScope:
         # held at its base weight, never raised past it.
         assert abs(result[FactorGroupType.MOMENTUM] - 0.03) < 1e-12
         assert abs(result[FactorGroupType.VALUE] - 0.97) < 1e-12
+
+
+class TestGdpHeuristicTiesAndSign:
+    """The GDP fallback must not read steady growth as a recession or a
+    still-contracting economy as an expansion."""
+
+    @staticmethod
+    def _gdp(values: list[float]) -> pd.DataFrame:
+        return pd.DataFrame(
+            {"gdp_growth": values},
+            index=pd.date_range("2023-01-01", periods=len(values), freq="QE"),
+        )
+
+    def test_steady_positive_growth_is_expansion(self) -> None:
+        assert classify_regime(self._gdp([3.0, 3.0, 3.0, 3.0])) == MacroRegime.EXPANSION
+
+    def test_steady_growth_is_not_split_by_float_rounding(self) -> None:
+        for level in (0.1, 2.9, 3.3, 1.7):
+            regime = classify_regime(self._gdp([level] * 6))
+            assert regime == MacroRegime.EXPANSION, level
+
+    def test_steady_contraction_is_recession(self) -> None:
+        assert classify_regime(self._gdp([-1.0, -1.0, -1.0, -1.0])) == (
+            MacroRegime.RECESSION
+        )
+
+    def test_contraction_that_is_improving_is_recovery_not_expansion(self) -> None:
+        macro = self._gdp([-2.0, -1.5, -1.0, -0.5])
+        assert classify_regime(macro) == MacroRegime.RECOVERY
+
+    def test_contraction_above_trend_but_worsening_is_recession(self) -> None:
+        macro = self._gdp([-3.0, -2.0, -1.0, -1.5])
+        assert classify_regime(macro) == MacroRegime.RECESSION
+
+    def test_contraction_is_not_masked_by_rising_unemployment_override(self) -> None:
+        macro = self._gdp([-2.0, -1.5, -1.0, -0.5])
+        macro["unemployment_rate"] = [4.0, 4.2, 4.5, 4.9]
+        assert classify_regime(macro) == MacroRegime.RECOVERY
+
+    def test_sharp_positive_deceleration_stays_recession(self) -> None:
+        assert classify_regime(self._gdp([3.0, 2.0, 1.0, 0.5])) == (
+            MacroRegime.RECESSION
+        )
+
+    def test_mild_deceleration_below_trend_is_a_slowdown_not_a_recession(
+        self,
+    ) -> None:
+        for values in (
+            [3.0, 3.0, 3.0, 2.99],
+            [3.0, 3.0, 3.0, 2.9],
+            [2.5, 3.0, 2.8, 2.4],
+        ):
+            regime = classify_regime(self._gdp(values))
+            assert regime == MacroRegime.SLOWDOWN, values
+
+    def test_a_vanishing_dip_does_not_jump_from_expansion_to_recession(
+        self,
+    ) -> None:
+        steady = classify_regime(self._gdp([3.0, 3.0, 3.0, 3.0]))
+        dipped = classify_regime(self._gdp([3.0, 3.0, 3.0, 3.0 - 1e-6]))
+        assert steady == MacroRegime.EXPANSION
+        assert dipped == MacroRegime.SLOWDOWN
+
+    def test_deceleration_to_under_half_of_trend_is_the_recession_cut(self) -> None:
+        # For [4, 4, 4, x] the four-print trend is 3 + x / 4, so growth sits
+        # under half of it once x < 12 / 7 (about 1.71).
+        assert classify_regime(self._gdp([4.0, 4.0, 4.0, 1.6])) == (
+            MacroRegime.RECESSION
+        )
+        assert classify_regime(self._gdp([4.0, 4.0, 4.0, 1.8])) == (
+            MacroRegime.SLOWDOWN
+        )
+
+    def test_flat_growth_below_trend_is_a_slowdown(self) -> None:
+        assert classify_regime(self._gdp([4.0, 4.0, 2.5, 2.5])) == (
+            MacroRegime.SLOWDOWN
+        )
