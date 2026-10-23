@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 from optimizer.exceptions import ConfigurationError
@@ -202,7 +202,13 @@ class PublicationLagConfig:
     Each source has an independent delay between the period end date and
     the date the data is reliably available for use in factor construction.
     Using source-specific lags avoids look-ahead bias when aligning
-    fundamental data to price dates.
+    fundamental data to price dates. The lags are not applied automatically:
+    pass the matching field as ``lag_days`` to ``align_to_pit``.
+
+    The defaults follow US filing cadence (10-K / 10-Q). Non-US issuers can
+    publish later (EU annual reports and 20-F filings up to ~120 days after
+    fiscal year end, half-year reports up to ~90 days), so global universes
+    should override ``annual_days`` and ``quarterly_days``.
 
     Attributes:
         annual_days: Lag for annual financial statements in days after fiscal
@@ -235,6 +241,11 @@ class PublicationLagConfig:
 class FactorConstructionConfig:
     """Configuration for factor computation.
 
+    The factor calculators consume cross-sectional fundamentals that carry no
+    period dates, so they cannot apply publication lags themselves. Point-in-time
+    correctness is the caller's job: align statements with ``align_to_pit``
+    (see ``PublicationLagConfig`` for the lag to pass) before computing factors.
+
     Attributes:
         factors: Which factors to compute.
         momentum_lookback: Lookback window for momentum in trading days.
@@ -246,10 +257,6 @@ class FactorConstructionConfig:
         amihud_lookback: Lookback window for Amihud illiquidity in trading days.
             All four lookbacks must be ``>= 1``; invalid values raise
             ``ConfigurationError``.
-        publication_lag: Per-source publication lags for point-in-time
-            correctness. Accepts a plain ``int`` for a uniform lag across all
-            sources (backward-compatible; converted to
-            ``PublicationLagConfig`` automatically).
     """
 
     factors: tuple[FactorType, ...] = (
@@ -270,7 +277,6 @@ class FactorConstructionConfig:
     volatility_lookback: int = 252
     beta_lookback: int = 252
     amihud_lookback: int = 252
-    publication_lag: PublicationLagConfig = field(default_factory=PublicationLagConfig)
 
     def __post_init__(self) -> None:
         for name in (
@@ -293,13 +299,6 @@ class FactorConstructionConfig:
                 f"with momentum_lookback={self.momentum_lookback}"
             )
             raise ConfigurationError(msg)
-        # Runtime backward-compat: accept plain int for uniform lag
-        if not isinstance(self.publication_lag, PublicationLagConfig):
-            object.__setattr__(
-                self,
-                "publication_lag",
-                PublicationLagConfig.uniform(int(self.publication_lag)),
-            )
 
     @classmethod
     def for_core_factors(cls) -> FactorConstructionConfig:

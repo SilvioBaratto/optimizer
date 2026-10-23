@@ -162,6 +162,34 @@ class TestPublicationLagConfig:
         assert lag.analyst_days == 30
         assert lag.macro_days == 30
 
+    def test_annual_lag_feeds_align_to_pit(self) -> None:
+        import pandas as pd
+
+        from optimizer.factors import align_to_pit
+
+        statements = pd.DataFrame(
+            {
+                "ticker": ["A", "A"],
+                "period_date": ["2023-12-31", "2024-12-31"],
+                "net_income": [1.0, 2.0],
+            }
+        )
+        as_of = "2025-03-31"
+        default = align_to_pit(
+            statements,
+            "period_date",
+            as_of,
+            lag_days=PublicationLagConfig().annual_days,
+        )
+        slower = align_to_pit(
+            statements,
+            "period_date",
+            as_of,
+            lag_days=PublicationLagConfig(annual_days=120).annual_days,
+        )
+        assert default.loc["A", "net_income"] == 2.0
+        assert slower.loc["A", "net_income"] == 1.0
+
     def test_custom_values(self) -> None:
         lag = PublicationLagConfig(annual_days=120, analyst_days=2)
         assert lag.annual_days == 120
@@ -177,31 +205,22 @@ class TestFactorConstructionConfig:
         assert len(cfg.factors) == 11
         assert cfg.momentum_lookback == 252
         assert cfg.momentum_skip == 21
-        assert isinstance(cfg.publication_lag, PublicationLagConfig)
-        assert cfg.publication_lag.annual_days == 90
-        assert cfg.publication_lag.quarterly_days == 45
-        assert cfg.publication_lag.analyst_days == 5
-        assert cfg.publication_lag.macro_days == 63
 
     def test_frozen(self) -> None:
         cfg = FactorConstructionConfig()
         with pytest.raises(AttributeError):
             cfg.momentum_lookback = 126  # type: ignore[misc]
 
-    def test_publication_lag_int_converted_to_config(self) -> None:
-        """Passing a plain int converts to PublicationLagConfig.uniform(n)."""
-        cfg = FactorConstructionConfig(publication_lag=100)  # type: ignore[arg-type]
-        assert isinstance(cfg.publication_lag, PublicationLagConfig)
-        assert cfg.publication_lag.annual_days == 100
-        assert cfg.publication_lag.quarterly_days == 100
-        assert cfg.publication_lag.analyst_days == 100
-        assert cfg.publication_lag.macro_days == 100
+    def test_publication_lag_is_not_a_construction_option(self) -> None:
+        import dataclasses
 
-    def test_publication_lag_config_accepted(self) -> None:
-        lag = PublicationLagConfig(annual_days=60, analyst_days=3)
-        cfg = FactorConstructionConfig(publication_lag=lag)
-        assert cfg.publication_lag.annual_days == 60
-        assert cfg.publication_lag.analyst_days == 3
+        # compute_* receive cross-sectional fundamentals with no period dates,
+        # so a lag stored here could never be applied and would only suggest
+        # point-in-time protection. Lags belong to align_to_pit(lag_days=...).
+        names = {f.name for f in dataclasses.fields(FactorConstructionConfig)}
+        assert "publication_lag" not in names
+        with pytest.raises(TypeError):
+            FactorConstructionConfig(publication_lag=120)  # type: ignore[call-arg]
 
     @pytest.mark.parametrize(
         "field_name",
