@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 from sklearn.pipeline import Pipeline
 
+from optimizer.exceptions import DataError
 from optimizer.preprocessing import (
     CleaningConfig,
     DataValidator,
@@ -127,3 +128,61 @@ class TestFactory:
         out = make_cleaning_pipeline().fit_transform(df)
         assert (out.dtypes == np.float64).all()
         assert not np.isinf(out.to_numpy()).any()
+
+
+class TestTransformTimeColumns:
+    """Column-aware transformers align by label and never relabel positionally."""
+
+    @pytest.fixture()
+    def frame(self) -> pd.DataFrame:
+        rng = np.random.default_rng(1)
+        scales = {"A": 0.005, "B": 0.01, "C": 0.02, "D": 0.03}
+        return pd.DataFrame(
+            {name: rng.normal(0.0, sd, 120) for name, sd in scales.items()},
+            index=pd.date_range("2021-01-01", periods=120),
+        )
+
+    makers = pytest.mark.parametrize(
+        "make",
+        [DataValidator, OutlierTreater, SectorImputer],
+        ids=["validator", "outliers", "sector_imputer"],
+    )
+
+    @makers
+    def test_reordered_columns_are_realigned_by_label(
+        self, frame: pd.DataFrame, make: type
+    ) -> None:
+        fitted = make().fit(frame)
+        out = fitted.transform(frame[["D", "C", "B", "A"]])
+        assert list(out.columns) == list(frame.columns)
+        pd.testing.assert_frame_equal(out, fitted.transform(frame))
+
+    @makers
+    def test_pandas_output_does_not_scramble_reordered_columns(
+        self, frame: pd.DataFrame, make: type
+    ) -> None:
+        pipe = Pipeline([("step", make())]).set_output(transform="pandas")
+        pipe.fit(frame)
+        out = pipe.transform(frame[["D", "C", "B", "A"]])
+        pd.testing.assert_frame_equal(out, pipe.transform(frame))
+
+    @makers
+    def test_missing_column_raises(self, frame: pd.DataFrame, make: type) -> None:
+        fitted = make().fit(frame)
+        with pytest.raises(DataError, match=r"missing.*'C'"):
+            fitted.transform(frame[["A", "B", "D"]])
+
+    @makers
+    def test_unseen_column_raises(self, frame: pd.DataFrame, make: type) -> None:
+        fitted = make().fit(frame[["A", "B", "C"]])
+        with pytest.raises(DataError, match=r"unexpected.*'D'"):
+            fitted.transform(frame[["A", "B", "D"]])
+
+    @makers
+    def test_same_width_different_universe_is_not_relabelled(
+        self, frame: pd.DataFrame, make: type
+    ) -> None:
+        pipe = Pipeline([("step", make())]).set_output(transform="pandas")
+        pipe.fit(frame[["A", "B", "C"]])
+        with pytest.raises(DataError):
+            pipe.transform(frame[["A", "B", "D"]])

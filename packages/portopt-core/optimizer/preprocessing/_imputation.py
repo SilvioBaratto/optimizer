@@ -11,6 +11,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
 from optimizer.exceptions import DataError
+from optimizer.preprocessing._alignment import _align_to_fit_columns
 from optimizer.preprocessing._coerce import _coerce_numeric
 
 logger = logging.getLogger(__name__)
@@ -74,13 +75,19 @@ class SectorImputer(BaseEstimator, TransformerMixin):
         """Fill NaN with leave-one-out sector averages.
 
         Args:
-            X: Asset return DataFrame; must have the same columns seen in fit.
+            X: Asset return DataFrame; must have the same columns seen in fit,
+                in any order.
 
         Returns:
-            DataFrame with the same shape as X, missing values filled.
+            DataFrame with missing values filled, columns in fit order.
+
+        Raises:
+            DataError: If X lacks a fit column or has one unseen in fit.
         """
         check_is_fitted(self)
-        X = self._validate_input(X)
+        X = _align_to_fit_columns(
+            self._validate_input(X), self.feature_names_in_, "SectorImputer"
+        )
 
         out = X.copy()
 

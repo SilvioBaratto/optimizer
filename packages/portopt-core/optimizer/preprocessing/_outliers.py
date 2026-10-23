@@ -10,6 +10,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
 from optimizer.exceptions import DataError
+from optimizer.preprocessing._alignment import _align_to_fit_columns
 from optimizer.preprocessing._coerce import _coerce_numeric
 
 logger = logging.getLogger(__name__)
@@ -92,15 +93,21 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
         """Apply three-group outlier treatment to the input returns.
 
         Args:
-            X: Returns DataFrame with the same columns as the training data.
+            X: Returns DataFrame with the same columns as the training data,
+                in any order.
 
         Returns:
-            DataFrame of the same shape with data errors replaced by ``NaN``
-            and outliers winsorised to ``mu ± winsorize_threshold * sigma``.
-            Protected cells pass through unmodified.
+            DataFrame with data errors replaced by ``NaN`` and outliers
+            winsorised to ``mu ± winsorize_threshold * sigma``, columns in fit
+            order. Protected cells pass through unmodified.
+
+        Raises:
+            DataError: If X lacks a fit column or has one unseen in fit.
         """
         check_is_fitted(self)
-        X = self._validate_input(X)
+        X = _align_to_fit_columns(
+            self._validate_input(X), self.feature_names_in_, "OutlierTreater"
+        )
 
         out = X.copy()
         prot = self._exempt_mask(X)

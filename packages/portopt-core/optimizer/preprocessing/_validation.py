@@ -10,6 +10,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
 from optimizer.exceptions import DataError
+from optimizer.preprocessing._alignment import _align_to_fit_columns
 from optimizer.preprocessing._coerce import _coerce_numeric
 
 logger = logging.getLogger(__name__)
@@ -53,13 +54,20 @@ class DataValidator(BaseEstimator, TransformerMixin):
         """Replace inf/-inf and extreme returns with NaN.
 
         Args:
-            X: Return DataFrame to clean.
+            X: Return DataFrame to clean; must carry the columns seen in fit, in
+                any order.
 
         Returns:
-            Copy of X with infinities and returns beyond max_abs_return set to NaN.
+            Copy of X with infinities and returns beyond max_abs_return set to
+            NaN, columns in fit order.
+
+        Raises:
+            DataError: If X lacks a fit column or has one unseen in fit.
         """
         check_is_fitted(self)
-        X = self._validate_input(X)
+        X = _align_to_fit_columns(
+            self._validate_input(X), self.feature_names_in_, "DataValidator"
+        )
 
         out = X.copy()
         out.replace([np.inf, -np.inf], np.nan, inplace=True)

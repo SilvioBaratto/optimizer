@@ -5,7 +5,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from skfolio.optimization import EqualWeighted, HierarchicalRiskParity, MeanRisk
+from skfolio.optimization import (
+    EqualWeighted,
+    HierarchicalRiskParity,
+    InverseVolatility,
+    MeanRisk,
+)
 from sklearn.pipeline import Pipeline
 
 from optimizer.optimization import MeanRiskConfig, build_mean_risk
@@ -104,3 +109,22 @@ class TestBuildPortfolioPipeline:
         pipe = build_portfolio_pipeline(EqualWeighted(), expiration_dates=exp)
         step_names = [name for name, _ in pipe.steps]
         assert "select_non_expiring" not in step_names
+
+
+class TestPredictColumnOrder:
+    def test_predict_on_reordered_columns_matches_original_order(self) -> None:
+        # Daily vols differ per asset so a positional relabel of a reordered
+        # frame feeds one asset's series to another asset's fitted weight.
+        rng = np.random.default_rng(0)
+        vols = {"A": 0.005, "B": 0.01, "C": 0.02, "D": 0.03}
+        X = pd.DataFrame(
+            {k: rng.normal(0.0005, v, 300) for k, v in vols.items()},
+            index=pd.date_range("2022-01-01", periods=300, freq="B"),
+        )
+        pipe = build_portfolio_pipeline(InverseVolatility())
+        pipe.fit(X)
+
+        reference = pipe.predict(X)
+        reordered = pipe.predict(X[["D", "C", "B", "A"]])
+
+        np.testing.assert_allclose(reordered.returns, reference.returns)
