@@ -1,9 +1,12 @@
 """Article fetching and content extraction from financial news URLs."""
 
+import ipaddress
 import re
+import socket
 import time
 from dataclasses import dataclass, field
 from typing import TypedDict
+from urllib.parse import urljoin, urlsplit
 
 import requests
 import urllib3.exceptions
@@ -41,8 +44,16 @@ _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _READ_CHUNK_BYTES = 8192
 
 
+_ALLOWED_SCHEMES = frozenset({"http", "https"})
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+
+
 class _ResponseTooLarge(Exception):
     """Raised when a response body exceeds ``ArticleScraper.max_bytes``."""
+
+
+class _BlockedDestination(Exception):
+    """Raised when a URL points somewhere the scraper must not connect to."""
 
 
 class ArticleResult(TypedDict):
@@ -75,6 +86,10 @@ class ArticleScraper:
         max_text_chars: Cap on the extracted article text, which is stored in
             an unbounded ``Text`` column.
         headers: HTTP headers forwarded with each request.
+        max_redirects: Redirect hops followed before the fetch fails. Each hop
+            is validated like the original URL.
+        allow_private_hosts: Skip the check that every resolved address is
+            public. Only for tests and local mirrors; the scheme check stays.
     """
 
     timeout: int = 10
@@ -83,9 +98,16 @@ class ArticleScraper:
     max_seconds: float = 30.0
     max_text_chars: int = 200_000
     headers: dict[str, str] = field(default_factory=lambda: DEFAULT_HEADERS.copy())
+    max_redirects: int = 5
+    allow_private_hosts: bool = False
 
     def fetch(self, url: str) -> ArticleResult:
         """Fetch and extract the main article text from a URL.
+
+        Only http and https URLs whose host resolves exclusively to public
+        addresses are fetched, and the same rule applies to every redirect
+        hop, because article links come from third-party feeds and must not
+        steer the daemon at loopback, private-network or metadata services.
 
         Args:
             url: Article URL to fetch.
@@ -99,9 +121,9 @@ class ArticleScraper:
             if self.delay > 0:
                 time.sleep(self.delay)
 
-            with requests.get(
-                url, headers=self.headers, timeout=self.timeout, stream=True
-            ) as response:
+            # One session per fetch: cookies set by a redirecting page (consent
+            # and cookie-check hops) reach the next hop, but never another article.
+            with requests.Session() as session, self._open(session, url) as response:
                 response.raise_for_status()
                 body = self._read_body(response)
 
@@ -135,6 +157,13 @@ class ArticleScraper:
                 error="Could not find article content",
             )
 
+        except _BlockedDestination as e:
+            return ArticleResult(
+                success=False,
+                content=None,
+                content_length=None,
+                error=f"Blocked URL: {e!s}",
+            )
         except _ResponseTooLarge:
             return ArticleResult(
                 success=False,
@@ -163,6 +192,59 @@ class ArticleScraper:
                 content_length=None,
                 error=f"Parsing error: {e!s}",
             )
+
+    def _open(self, session: requests.Session, url: str) -> requests.Response:
+        """Open ``url`` as a stream, following redirects one validated hop at a time."""
+        for _ in range(self.max_redirects + 1):
+            self._check_destination(url)
+            # requests would follow redirects without re-running the check.
+            response = session.get(
+                url,
+                headers=self.headers,
+                timeout=self.timeout,
+                stream=True,
+                allow_redirects=False,
+            )
+            location = response.headers.get("Location")
+            if response.status_code not in _REDIRECT_STATUSES or not location:
+                return response
+            response.close()
+            url = urljoin(url, location)
+        raise requests.exceptions.TooManyRedirects(
+            f"Exceeded {self.max_redirects} redirects"
+        )
+
+    def _check_destination(self, url: str) -> None:
+        """Raise ``_BlockedDestination`` unless ``url`` is a fetchable public target.
+
+        The name is resolved here and again by ``requests`` when it connects,
+        so a resolver that answers differently the second time is not covered.
+        """
+        try:
+            # urlsplit and urllib3 disagree on where the authority ends for a
+            # URL like ``http://127.0.0.1:80\@93.184.216.34/``: urlsplit sees
+            # the public host, the connection goes to loopback. Checking the
+            # URL as requests will send it leaves no second parse to differ.
+            parts = urlsplit(requests.Request("GET", url).prepare().url or "")
+            host = parts.hostname
+            port = parts.port
+        except (requests.exceptions.RequestException, ValueError) as e:
+            raise _BlockedDestination(f"unsupported URL {url!r}") from e
+        if parts.scheme not in _ALLOWED_SCHEMES or not host:
+            raise _BlockedDestination(f"unsupported URL {url!r}")
+        if self.allow_private_hosts:
+            return
+        try:
+            port = port or (443 if parts.scheme == "https" else 80)
+            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        except (ValueError, OSError) as e:
+            raise _BlockedDestination(f"cannot resolve {host!r}: {e}") from e
+        for info in infos:
+            address = ipaddress.ip_address(str(info[4][0]).split("%", 1)[0])
+            if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+                address = address.ipv4_mapped
+            if not address.is_global or address.is_multicast:
+                raise _BlockedDestination(f"{host!r} resolves to non-public {address}")
 
     def _read_body(self, response: requests.Response) -> bytes:
         """Read the decoded body, enforcing ``max_bytes`` and ``max_seconds``.
