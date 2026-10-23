@@ -30,7 +30,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from portopt_db.base import BaseModel
+from portopt_db.base import BaseModel, ClockTimestamp
 
 # Use JSONB on PostgreSQL, plain JSON elsewhere (e.g. SQLite in tests).
 _JSON = JSON().with_variant(JSONB, "postgresql")
@@ -61,7 +61,10 @@ class AgentRun(BaseModel):
         String(20), nullable=False, server_default="pending"
     )
     started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
+        DateTime(timezone=True),
+        nullable=False,
+        default=ClockTimestamp(),
+        server_default=func.now(),
     )
     finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

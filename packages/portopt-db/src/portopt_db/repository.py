@@ -10,7 +10,7 @@ from sqlalchemy import Table, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import DeclarativeBase, Session
 
-from portopt_db.base import Base
+from portopt_db.base import Base, ClockTimestamp
 
 ModelType = TypeVar("ModelType", bound=Base)
 CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
@@ -67,11 +67,12 @@ class RepositoryBase:
             }
 
         # Always stamp updated_at with the server's current time on conflict.
-        # excluded.updated_at is unreliable: server_default columns are omitted
-        # from the proposed-INSERT VALUES list, so excluded reflects the original
-        # insert timestamp or NULL — never the conflict timestamp.
+        # excluded.updated_at is the proposed row's own insert stamp, never the
+        # conflict time, and ON CONFLICT DO UPDATE does not fire ``onupdate``.
+        # The statement clock (not now()) keeps the stamp current when the
+        # caller's transaction has been open for a long time.
         if "updated_at" in update_dict:
-            update_dict["updated_at"] = func.now()
+            update_dict["updated_at"] = ClockTimestamp()
 
         if constraint_name is not None:
             stmt = stmt.on_conflict_do_update(
