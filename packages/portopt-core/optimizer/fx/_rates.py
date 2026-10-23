@@ -29,8 +29,12 @@ def build_fx_pair_ticker(
 
     Returns:
         ``None`` when ``from_ccy == to_ccy``.
-        A single ticker string when one side is USD.
-        A tuple ``(FROM/USD, TO/USD)`` when crossing via USD.
+        A single ticker string when one side is USD, or when
+        ``cross_via_usd`` is ``False``.  It is always ``<FROM><TO>=X``, which
+        Yahoo quotes as units of TO per one unit of FROM, so the series needs
+        no inversion before use as a base-per-foreign rate.
+        A tuple ``(FROM/USD, TO/USD)`` when crossing via USD; both legs are
+        USD-per-unit quotes to feed `compute_cross_rate`.
 
     Note:
         Minor-unit codes (``GBp``, ``ZAc``, ``ILA``, ...) are resolved to their
@@ -43,15 +47,10 @@ def build_fx_pair_ticker(
     if from_ccy == to_ccy:
         return None
 
-    if from_ccy == "USD":
-        return f"{to_ccy}USD=X"
-    if to_ccy == "USD":
-        return f"{from_ccy}USD=X"
+    if "USD" in (from_ccy, to_ccy) or not cross_via_usd:
+        return f"{from_ccy}{to_ccy}=X"
 
-    if cross_via_usd:
-        return (f"{from_ccy}USD=X", f"{to_ccy}USD=X")
-
-    return f"{from_ccy}{to_ccy}=X"
+    return (f"{from_ccy}USD=X", f"{to_ccy}USD=X")
 
 
 def compute_cross_rate(

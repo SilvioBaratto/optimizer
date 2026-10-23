@@ -22,9 +22,20 @@ class TestBuildFxPairTicker:
         assert build_fx_pair_ticker("EUR", "EUR") is None
         assert build_fx_pair_ticker("usd", "USD") is None
 
-    def test_from_usd(self) -> None:
-        result = build_fx_pair_ticker("USD", "EUR")
-        assert result == "EURUSD=X"
+    def test_from_usd_quotes_target_per_usd(self) -> None:
+        # USDEUR=X is EUR per 1 USD, the to-per-from direction the converter
+        # needs; EURUSD=X would be its reciprocal.
+        assert build_fx_pair_ticker("USD", "EUR") == "USDEUR=X"
+        assert build_fx_pair_ticker("USD", "JPY") == "USDJPY=X"
+
+    @pytest.mark.parametrize(
+        ("from_ccy", "to_ccy"),
+        [("USD", "EUR"), ("EUR", "USD"), ("USD", "JPY"), ("GBP", "USD")],
+    )
+    def test_single_ticker_quotes_to_per_from(self, from_ccy: str, to_ccy: str) -> None:
+        # Yahoo's "<BASE><QUOTE>=X" quotes QUOTE per 1 BASE, so a ticker that
+        # needs no inversion has BASE == from_ccy and QUOTE == to_ccy.
+        assert build_fx_pair_ticker(from_ccy, to_ccy) == f"{from_ccy}{to_ccy}=X"
 
     def test_to_usd(self) -> None:
         result = build_fx_pair_ticker("GBP", "USD")
