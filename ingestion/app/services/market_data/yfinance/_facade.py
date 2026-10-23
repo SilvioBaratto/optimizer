@@ -221,7 +221,8 @@ class YFinanceClient:
         Args:
             symbol: Ticker symbol.
             period: Lookback period string accepted by yfinance (e.g. ``"5y"``).
-                Ignored when *start* is provided.
+                Ignored when *start* is provided; with only *end*, it sets the
+                length of the window that ends there.
             start: ISO date string for the start of the range (inclusive).
             end: ISO date string for the end of the range (exclusive).
             interval: Bar interval (e.g. ``"1d"``, ``"1h"``).
@@ -267,6 +268,8 @@ class YFinanceClient:
             try:
                 if start is not None:
                     return ticker.history(start=start, end=end, **history_kwargs)
+                if end is not None:
+                    return ticker.history(period=period, end=end, **history_kwargs)
                 return ticker.history(period=period, **history_kwargs)
             finally:
                 reapply_yfinance_log_level()
@@ -366,7 +369,8 @@ class YFinanceClient:
             symbols: Ticker symbols to download.
             start: ISO date string for the start of the range (inclusive).
             end: ISO date string for the end of the range (exclusive).
-            period: Lookback period when *start* is not provided.
+            period: Lookback period when *start* is not provided; with only
+                *end*, it sets the length of the window that ends there.
             interval: Bar interval (e.g. ``"1d"``).
             threads: Use threading inside yfinance for parallel downloads.
             group_by: Column grouping strategy in the returned DataFrame.
@@ -397,6 +401,8 @@ class YFinanceClient:
             kwargs["end"] = end
         else:
             kwargs["period"] = period
+            if end is not None:
+                kwargs["end"] = end
 
         def _action() -> pd.DataFrame | None:
             self.circuit_breaker.check()

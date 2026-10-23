@@ -372,6 +372,19 @@ class TestFetchHistory:
 
         assert ticker.history.call_args.kwargs["period"] == "1y"
 
+    def test_end_alone_bounds_the_period_window(self, client: YFinanceClient) -> None:
+        """A backfill bounded by end= must not silently return the latest window."""
+        ticker = MagicMock()
+        ticker.history.return_value = _hist(20)
+
+        with patch.object(client, "get_ticker", return_value=ticker):
+            client.fetch_history("AAPL", period="1y", end="2020-01-01")
+
+        kwargs = ticker.history.call_args.kwargs
+        assert kwargs["end"] == "2020-01-01"
+        assert kwargs["period"] == "1y"
+        assert "start" not in kwargs
+
     def test_repair_is_enabled_by_default(self, client: YFinanceClient) -> None:
         """Price repair fixes bad Yahoo prints; it must stay on by default.
         It requires scikit-learn (yfinance uses DBSCAN) — with repair on and
@@ -455,6 +468,15 @@ class TestBulkDownload:
         kwargs = dl.call_args.kwargs
         assert kwargs["start"] == "2024-01-01"
         assert "period" not in kwargs
+
+    def test_end_alone_bounds_the_period_window(self, client: YFinanceClient) -> None:
+        with patch(f"{M}.yf.download", return_value=_hist(5)) as dl:
+            client.bulk_download(["AAPL"], period="1y", end="2020-01-01")
+
+        kwargs = dl.call_args.kwargs
+        assert kwargs["end"] == "2020-01-01"
+        assert kwargs["period"] == "1y"
+        assert "start" not in kwargs
 
     def test_empty_frame_is_a_failed_download(self, client: YFinanceClient) -> None:
         with patch(f"{M}.yf.download", return_value=pd.DataFrame()):
