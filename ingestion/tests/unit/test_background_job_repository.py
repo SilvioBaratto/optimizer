@@ -145,8 +145,11 @@ class TestCleanupExpired:
         repo = BackgroundJobRepository(db_session)
         job_id = repo.claim_or_create("test_job_type_314_cleanup_e")
         assert job_id is not None
-        repo.update(job_id, status="completed")  # no finished_at
+        row = repo.get(job_id)
+        assert row is not None
+        row.status = "completed"  # bypasses update(), which would stamp finished_at
         db_session.flush()
+        assert row.finished_at is None
 
         deleted = repo.cleanup_expired(ttl_seconds=0)
         assert deleted == 0
@@ -162,6 +165,86 @@ class TestCleanupExpired:
 
         deleted = repo.cleanup_expired(ttl_seconds=3600)
         assert deleted == 3
+
+
+class TestTerminalUpdateStampsFinishedAt:
+    """A terminal write that omits ``finished_at`` must not leave it NULL.
+
+    ``cleanup_expired`` and ``get_latest_by_type`` both filter on
+    ``finished_at IS NOT NULL``; a completed row without it is never deleted
+    and never reported as the latest run.
+    """
+
+    def test_completed_without_finished_at_is_stamped_and_reported_latest(
+        self, db_session: Session
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        job_id = repo.claim_or_create("test_finished_at_completed")
+        assert job_id is not None
+        before = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=5)
+
+        repo.update(job_id, status="completed")
+        db_session.flush()
+
+        row = repo.get(job_id)
+        assert row is not None
+        assert row.finished_at is not None
+        assert row.finished_at.replace(tzinfo=None) >= before
+        latest = repo.get_latest_by_type("test_finished_at_completed")
+        assert latest is not None
+        assert latest.id == job_id
+
+    def test_completed_without_finished_at_is_eligible_for_cleanup(
+        self, db_session: Session
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        job_id = repo.claim_or_create("test_finished_at_cleanup")
+        assert job_id is not None
+
+        repo.update(job_id, status="completed")
+        db_session.flush()
+
+        assert repo.cleanup_expired(ttl_seconds=-10) == 1
+
+    def test_failed_without_finished_at_is_stamped(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        job_id = repo.claim_or_create("test_finished_at_failed")
+        assert job_id is not None
+
+        repo.update(job_id, status="failed", error="boom")
+        db_session.flush()
+
+        row = repo.get(job_id)
+        assert row is not None
+        assert row.finished_at is not None
+
+    def test_caller_supplied_finished_at_is_kept(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        job_id = repo.claim_or_create("test_finished_at_explicit")
+        assert job_id is not None
+        explicit = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+
+        repo.update(job_id, status="completed", finished_at=explicit)
+        db_session.flush()
+
+        row = repo.get(job_id)
+        assert row is not None
+        assert row.finished_at is not None
+        assert row.finished_at.replace(tzinfo=None) == explicit.replace(tzinfo=None)
+
+    def test_non_terminal_update_leaves_finished_at_null(
+        self, db_session: Session
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        job_id = repo.claim_or_create("test_finished_at_running")
+        assert job_id is not None
+
+        repo.update(job_id, status="running", current=3)
+        db_session.flush()
+
+        row = repo.get(job_id)
+        assert row is not None
+        assert row.finished_at is None
 
 
 class TestGetLatestByType:

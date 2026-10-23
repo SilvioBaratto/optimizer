@@ -99,12 +99,19 @@ class BackgroundJobRepository(RepositoryBase):
         a row the reaper already failed can never be flipped back to
         ``completed`` (or re-failed) by its zombie worker's late write.
 
+        A terminal ``status`` without a ``finished_at`` is stamped with the
+        current time: retention (:meth:`cleanup_expired`) and
+        :meth:`get_latest_by_type` both key on ``finished_at``, so a finished
+        row without one would be immortal and invisible.
+
         Returns the affected rowcount (0 or 1). The ``errors`` child-table
         replacement only runs when the main UPDATE matched a row.
         """
         errors_value = kwargs.pop("errors", None)
 
         core, extras = self._partition_kwargs(kwargs)
+        if kwargs.get("status") in _TERMINAL_STATUSES and not core.get("finished_at"):
+            core["finished_at"] = datetime.now(timezone.utc)
         values = self._build_values(core, extras, job_id)
 
         rowcount = self._exec_status_guarded_update(job_id, values)
