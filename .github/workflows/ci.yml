@@ -29,7 +29,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --all-packages --all-extras
+      - run: uv sync --locked --all-packages --all-extras
       - run: uv run ruff check packages/portopt-core/optimizer/ tests/
       - run: uv run ruff format --check packages/portopt-core/optimizer/ tests/
       # pip-audit the resolved third-party set. The three editable workspace
@@ -47,7 +47,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --all-packages --all-extras
+      - run: uv sync --locked --all-packages --all-extras
       - run: uv run mypy packages/portopt-core/optimizer/
       # portopt-db ships py.typed; hold it to its own strict [tool.mypy] gate.
       - run: cd packages/portopt-db && uv run mypy src/portopt_db
@@ -59,7 +59,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --all-packages --all-extras
+      - run: uv sync --locked --all-packages --all-extras
       - run: uv run pyright
 
   test:
@@ -73,7 +73,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --all-packages --all-extras --python ${{ matrix.python-version }}
+      - run: uv sync --locked --all-packages --all-extras --python ${{ matrix.python-version }}
       - run: uv run --python ${{ matrix.python-version }} pytest tests/ -v --tb=short --cov=optimizer --cov-branch --cov-report=xml --cov-report=term-missing --cov-fail-under=90
       - if: matrix.python-version == '3.12'
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v5
@@ -88,7 +88,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --all-packages --all-extras
+      - run: uv sync --locked --all-packages --all-extras
       - run: cd ingestion && uv run pytest tests/ -v --tb=short --cov=app --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=80
 
   portopt-db-test:
@@ -98,7 +98,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --all-packages --all-extras
+      - run: uv sync --locked --all-packages --all-extras
       - run: cd packages/portopt-db && uv run pytest -v --tb=short --cov=portopt_db --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=90
 
   fund-test:
@@ -112,5 +112,5 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --all-packages --all-extras --python ${{ matrix.python-version }}
+      - run: uv sync --locked --all-packages --all-extras --python ${{ matrix.python-version }}
       - run: cd fund && uv run --python ${{ matrix.python-version }} pytest tests/ -v --tb=short --cov=fund --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=80
