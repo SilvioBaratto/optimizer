@@ -28,11 +28,18 @@ class FactorOOSConfig:
         train_periods: Length of the training window in index periods.
         val_periods: Length of the validation window in index periods.
         step_periods: Number of index periods to roll forward between folds.
+        min_observations: Minimum common non-NaN names a validation date needs
+            for its rank IC and quintile spread to count.  Applies to both the
+            rolling and CPCV paths.  Default 24 matches
+            ``FactorValidationConfig.min_ic_observations`` so both validation
+            paths apply the same minimum-data guard; a Spearman IC over a
+            handful of names is mostly noise.
     """
 
     train_periods: int = 36
     val_periods: int = 12
     step_periods: int = 6
+    min_observations: int = 24
 
 
 @dataclass
@@ -167,8 +174,10 @@ def run_factor_oos_validation(
             ``(date, ticker)`` and one column per factor.
         returns: Forward returns panel with the same ``(date, ticker)`` MultiIndex
             and a single return column.
-        config: Rolling window parameters.  Defaults to ``FactorOOSConfig()``.
-            Ignored when ``cpcv_config`` is provided.
+        config: Rolling window parameters and the per-date minimum-observation
+            guard.  Defaults to ``FactorOOSConfig()``.  The window parameters
+            are ignored when ``cpcv_config`` is provided; ``min_observations``
+            still applies.
         cpcv_config: When provided, uses combinatorial purged cross-validation
             instead of rolling blocks.  Overrides ``config``.
 
@@ -226,7 +235,12 @@ def run_factor_oos_validation(
 
         for factor in factors:
             factor_history = scores_val[factor]  # date × ticker for this factor
-            ic_series = compute_ic_series(factor_history, returns_val, factor)
+            ic_series = compute_ic_series(
+                factor_history,
+                returns_val,
+                factor,
+                min_observations=config.min_observations,
+            )
             fold_ic[factor] = (
                 float(ic_series.mean()) if len(ic_series) > 0 else float("nan")
             )
@@ -237,6 +251,11 @@ def run_factor_oos_validation(
                     continue
                 f_scores = factor_history.loc[date].dropna()
                 r_returns = returns_val.loc[date].dropna()
+                if (
+                    len(f_scores.index.intersection(r_returns.index))
+                    < config.min_observations
+                ):
+                    continue
                 spread = compute_quantile_spread(f_scores, r_returns)
                 if not np.isnan(spread):
                     spreads.append(spread)
