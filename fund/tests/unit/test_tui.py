@@ -6476,6 +6476,42 @@ async def test_daily_brief_shows_bracketed_journal_and_read_text_literally(
 
 
 @pytest.mark.asyncio
+async def test_daily_brief_long_recap_scrolls_and_keeps_the_hint_on_screen(
+    shell_env, monkeypatch
+) -> None:
+    """A recap taller than the pane scrolls by key, with the key hint still visible."""
+    long_read = " ".join(f"economist sentence {i} on rates." for i in range(60))
+    brief = dataclasses.replace(
+        _full_brief(_PID_A),
+        economist_read=long_read,
+        market_events=tuple(
+            {"as_of": "2026-10-06", "narrative": f"headline {i}"} for i in range(10)
+        ),
+    )
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=(100, 24)) as pilot:
+        # Scroll animations advance on the animator's clock, which pilot.pause()
+        # does not wait for: on a loaded runner the asserts below would sample a
+        # mid-flight scroll_y (34.79 of 35) instead of the settled offset.
+        app.animation_level = "none"
+        view = await _open_brief(app, pilot)
+        view.focus()
+        await pilot.pause()
+        hint = view.query_one("#brief-hint", Static)
+        assert hint.region.bottom <= app.size.height  # not pushed below the fold
+        pane = view.query_one("#brief-detail", Static).parent
+        assert pane is not None and pane.max_scroll_y > 0
+        await pilot.press("end")
+        await pilot.pause()
+        assert pane.scroll_y == pane.max_scroll_y  # the tail sections are reachable
+        await pilot.press("home")
+        await pilot.pause()
+        assert pane.scroll_y == 0
+
+
+@pytest.mark.asyncio
 async def test_daily_brief_degrades_missing_sections(shell_env, monkeypatch) -> None:
     """Each missing section renders an explicit no-data line rather than crashing."""
     brief = _empty_brief(_PID_A)

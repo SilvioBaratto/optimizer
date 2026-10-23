@@ -28,6 +28,7 @@ from weakref import WeakKeyDictionary
 
 from rich.text import Text
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.coordinate import Coordinate
 from textual.widgets import (
@@ -1973,6 +1974,14 @@ class DailyBriefView(ShellView):
         ("right", "next_day", "Next day"),
         ("enter", "app.open_deliberation", "Open deliberation"),
         ("e", "app.export_brief", "Export"),
+        # The view keeps focus (for the keys above), so it forwards the scroll keys to
+        # the recap pane rather than making the pane a second focus stop.
+        Binding("up", "scroll_brief('scroll_up')", "Scroll up", show=False),
+        Binding("down", "scroll_brief('scroll_down')", "Scroll down", show=False),
+        Binding("pageup", "scroll_brief('page_up')", "Page up", show=False),
+        Binding("pagedown", "scroll_brief('page_down')", "Page down", show=False),
+        Binding("home", "scroll_brief('scroll_home')", "Top", show=False),
+        Binding("end", "scroll_brief('scroll_end')", "Bottom", show=False),
     ]
 
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
@@ -1984,9 +1993,13 @@ class DailyBriefView(ShellView):
     def compose(self) -> ComposeResult:
         """Yield the title, the five-section detail pane, and the key hint."""
         yield Label(self.view_title, classes="view-title")
-        yield Static(
-            "(loading…)", id="brief-detail", classes="brief-detail", markup=False
-        )
+        # The recap outgrows a normal terminal (journal rows + a paragraph-long
+        # economist read), so it scrolls inside the pane and the key hint stays put.
+        with VerticalScroll(id="brief-scroll", classes="brief-scroll", can_focus=False):
+            # The economist read and journal narratives are LLM prose; see delib-detail.
+            yield Static(
+                "(loading…)", id="brief-detail", classes="brief-detail", markup=False
+            )
         yield Static(
             "← prev day · → next · ↵ open deliberation · e export · esc",
             id="brief-hint",
@@ -2004,6 +2017,16 @@ class DailyBriefView(ShellView):
         )
         self.detail_text = text
         self.query_one("#brief-detail", Static).update(text)
+
+    def action_scroll_brief(self, scroll_action: str) -> None:
+        """Scroll the recap pane (``up`` / ``down`` / ``pageup`` / ``pagedown`` keys).
+
+        Args:
+            scroll_action: Name of the ``VerticalScroll`` action to run, e.g.
+                ``"page_down"`` or ``"scroll_end"``.
+        """
+        pane = self.query_one("#brief-scroll", VerticalScroll)
+        getattr(pane, f"action_{scroll_action}")()
 
     def _read(self) -> DailyBrief | None:
         """Assemble the brief in one short session (None on no focus or any error)."""
