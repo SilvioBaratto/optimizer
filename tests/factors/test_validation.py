@@ -586,6 +586,42 @@ class TestNeweyWestTStat:
         assert t_stat == 0.0
         assert p_value == 1.0
 
+    @pytest.mark.parametrize("scale", [1e-3, 1e-7, 1e-9, 1e-12, 1e3])
+    def test_when_series_rescaled_then_t_stat_unchanged(self, scale: float) -> None:
+        """The t-statistic is scale-free: no absolute variance floor."""
+        rng = np.random.default_rng(0)
+        base = pd.Series(rng.normal(2.0, 1.0, 60))
+        ref_t, ref_p = compute_newey_west_tstat(base, 6)
+
+        t_stat, p_value = compute_newey_west_tstat(base * scale, 6)
+
+        assert t_stat == pytest.approx(ref_t, rel=1e-9)
+        assert p_value == pytest.approx(ref_p, rel=1e-9, abs=1e-15)
+
+    def test_when_cs_slopes_tiny_then_t_stat_matches_standardised_slopes(
+        self,
+    ) -> None:
+        """Slopes on unscaled scores (raw market cap) are ~1e-12 per unit."""
+        rng = np.random.default_rng(4)
+        dates = pd.date_range("2020-01-31", periods=60, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(40)]
+        caps = pd.DataFrame(
+            rng.lognormal(23.0, 1.0, (60, 40)), index=dates, columns=tickers
+        )
+        returns = pd.DataFrame(
+            1e-3 * (caps.values - caps.values.mean(axis=1, keepdims=True)) / 1e10
+            + rng.normal(0.0, 1e-3, (60, 40)),
+            index=dates,
+            columns=tickers,
+        )
+        slopes = compute_ic_series(caps, returns, "cap", use_cs_regression=True)
+
+        t_raw, _ = compute_newey_west_tstat(slopes, 6)
+        t_scaled, _ = compute_newey_west_tstat(slopes * 1e10, 6)
+
+        assert t_raw == pytest.approx(t_scaled, rel=1e-9)
+        assert abs(t_raw) > 10.0
+
 
 class TestQuantileSpread:
     def test_returns_float(
@@ -859,6 +895,19 @@ class TestComputeICStats:
 
         assert (result["p_value_raw"] == 1.0).all()
         assert result["significant_bh"].sum() == 0
+
+    @pytest.mark.parametrize("scale", [1e-3, 1e-9, 1e-12, 1e3])
+    def test_when_series_rescaled_then_t_stat_and_icir_unchanged(
+        self, scale: float
+    ) -> None:
+        rng = np.random.default_rng(0)
+        base = pd.Series(rng.normal(2.0, 1.0, 60))
+        ref = compute_ic_stats(base)
+
+        scaled = compute_ic_stats(base * scale)
+
+        assert scaled.t_stat_nw == pytest.approx(ref.t_stat_nw, rel=1e-9)
+        assert scaled.icir == pytest.approx(ref.icir, rel=1e-9)
 
 
 class TestICIRConstantSeries:
