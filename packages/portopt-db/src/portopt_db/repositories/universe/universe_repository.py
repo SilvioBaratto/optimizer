@@ -174,19 +174,23 @@ class UniverseRepository(RepositoryBase):
         ticker: str,
         exchange_id: Any,
         delisted_at: date,
-        delisting_return: float | None = -0.30,
+        delisting_return: float | None = None,
     ) -> bool:
         """Mark an instrument as delisted.
 
+        Being absent from a universe snapshot is also what a still-trading name
+        looks like after a screener floor change, a truncated page or a flipped
+        canonical listing, so this method never invents a terminal return.
+
         Args:
-            ticker: Trading 212 ticker of the instrument.
+            ticker: Ticker of the instrument within ``exchange_id``.
             exchange_id: UUID of the exchange the instrument belongs to.
-            delisted_at: Date the instrument was last seen in the T212 universe.
-            delisting_return: Final return to assign. Defaults to the CRSP
-                convention (-30%). Pass -1.0 for bankruptcy or the actual
-                acquisition premium when known, or ``None`` when the instrument
-                left the universe but is still trading, so no terminal return
-                is invented for it.
+            delisted_at: Date the instrument was first found missing from the
+                universe snapshot (a detection date, not a last trading date).
+            delisting_return: Realised terminal return when it is known, e.g.
+                -1.0 for bankruptcy or the actual acquisition premium. ``None``
+                leaves the column NULL so consumers resolve the unknown return
+                themselves instead of booking a fabricated loss.
 
         Returns:
             True if the row was updated, False if no matching active instrument

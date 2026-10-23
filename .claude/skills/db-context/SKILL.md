@@ -48,7 +48,8 @@ Alembic head `c4d5e6f7a8b9`, 68 migrations. Row counts below are the last verifi
 universe silently caps what yfinance fetches. Rebuilt weekly (`universe_build`, Sat 02:00 —
 deliberately ahead of `weekly_refetch`). Now built from the yfinance source, so `t212_ticker` and
 `exchanges.t212_id` are legacy/NULL. `delisted_at`/`delisting_return` are currently all-NULL
-(fresh universe); `delisting_return` default is CRSP-style −0.30 (−1.0 = bankruptcy).
+(fresh universe); `delisting_return` stays NULL (unknown) when a ticker merely drops out of a
+universe build — only a caller that knows the terminal return passes one (−1.0 = bankruptcy).
 
 ### Per-ticker — Prices & Actions (4, FK → `instruments.id` CASCADE)
 | Table | Model | Rows | Unique On | Purpose |
@@ -282,9 +283,10 @@ Composite unique constraints make re-fetch upserts safe:
 `(instrument_id, date)` price_history/dividends/stock_splits/shares_outstanding.
 
 ### Survivorship Bias
-`instruments.delisted_at` (Date) + `delisting_return` (Float, default −0.30) are set when a ticker
-disappears, cleared on re-import. Currently all-NULL (fresh universe). Do not filter delisted rows
-blindly — that reintroduces survivorship bias.
+`instruments.delisted_at` (Date, detection date) + `delisting_return` (Float, NULL unless the real
+terminal return is known) are set when a ticker disappears, cleared on re-import. Currently
+all-NULL (fresh universe). Do not filter delisted rows blindly — that reintroduces survivorship
+bias.
 
 ---
 

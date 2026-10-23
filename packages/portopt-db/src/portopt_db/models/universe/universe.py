@@ -75,11 +75,13 @@ class Instrument(BaseModel):
         asset_class: Coarse asset class string ("equity", "fixed_income", …); always present.
         fi_subclass: Fixed-income sub-category; None for non-fixed-income instruments.
         duration_bucket: Duration bracket for fixed-income; None for all other asset classes.
-        delisted_at: Date the instrument left the active T212 universe; None while active.
+        delisted_at: Date the instrument was first found missing from a universe
+            build (a detection date, not a last trading date); None while active.
         delisting_return: Final price return on the delisting date; None while active,
-            and None for an instrument that left the universe but is still trading.
-            A consumer must treat ``delisted_at`` set with a None return as "no
-            terminal return" and never substitute a default such as -0.30.
+            and None for an instrument that left the universe but is still trading
+            or whose terminal return is unknown. A consumer must treat
+            ``delisted_at`` set with a None return as "no terminal return" and
+            never substitute a default such as -0.30.
         exchange_id: Foreign key to the hosting exchange row.
     """
 
@@ -116,8 +118,9 @@ class Instrument(BaseModel):
     fi_subclass: Mapped[str | None] = mapped_column(String(20), nullable=True)
     duration_bucket: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
-    # Survivorship-bias correction: populated when an instrument drops out of
-    # the active Trading 212 universe.
+    # Survivorship-bias correction: delisted_at is the date a universe build first
+    # found the instrument missing, not a confirmed last trading date, and
+    # delisting_return stays NULL unless the realised terminal return is known.
     delisted_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     delisting_return: Mapped[float | None] = mapped_column(Float, nullable=True)
 
