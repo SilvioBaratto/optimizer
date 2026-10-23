@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.setup._shell_stubs import run_front_door
+
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
@@ -74,6 +76,22 @@ class TestSetupSh:
             text=True,
         )
         assert result.returncode == 0, result.stderr
+
+    def test_finds_the_portopt_shim_when_uv_was_already_installed(
+        self, tmp_path: Path
+    ) -> None:
+        """``uv tool install`` drops the shim in ~/.local/bin even for an old uv.
+
+        A uv from Homebrew or a distro package sits on PATH while ~/.local/bin often
+        does not, so the handoff needs that directory on PATH regardless of whether
+        this run installed uv itself.
+        """
+        run = run_front_door("setup.sh", tmp_path, "--non-interactive")
+
+        assert run.result.returncode == 0, run.result.stderr
+        (setup,) = run.calls_to("portopt")
+        assert setup[3] == "setup --non-interactive"
+        assert Path(setup[2]).resolve() == _REPO_ROOT
 
 
 class TestSetupPs1:
