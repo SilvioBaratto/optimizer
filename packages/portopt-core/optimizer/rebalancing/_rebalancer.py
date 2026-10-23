@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from collections.abc import Iterator
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-
-if TYPE_CHECKING:
-    from skfolio.model_selection import WalkForward
+from skfolio.model_selection import WalkForward
+from skfolio.typing import IntArray
 
 from optimizer.rebalancing._config import (
     CalendarRebalancingConfig,
@@ -307,6 +307,99 @@ def should_rebalance_hybrid(
     return False, "threshold_not_met"
 
 
+class _CalendarWalkForward(WalkForward):
+    """`WalkForward` that never walks a period boundary it cannot resolve.
+
+    A period boundary that has no observation to land on (a positive
+    ``freq_offset`` past the final row with ``previous=False``, or a negative
+    one before the first row with ``previous=True``) is resolved by skfolio to
+    index -1. That index then starts a fold that spans the whole sample or ends
+    a zero-length test window, which crashes ``cross_val_predict`` and is still
+    counted by ``get_n_splits``. Such boundaries are dropped from the grid,
+    whatever the cadence and ``reduce_test`` setting.
+
+    Only integer ``train_size`` windows are walked here; a date-offset
+    ``train_size`` or an observation-count walk (``freq=None``) is delegated to
+    skfolio and only stripped of folds whose test window is empty or starts
+    before the first observation.
+    """
+
+    def split(
+        self,
+        X: npt.ArrayLike,
+        y: None = None,
+        groups: None = None,
+    ) -> Iterator[tuple[IntArray, IntArray]]:
+        """Yield the folds of the calendar grid, skipping unresolvable ones."""
+        if self.freq is not None and isinstance(self.train_size, int | np.integer):
+            folds = self._split_calendar(X, y, groups)
+        else:
+            folds = super().split(X, y, groups)
+        for train_idx, test_idx in folds:
+            # Test windows are ascending aranges, so a leading -1 marks a
+            # boundary skfolio could not resolve to an observation.
+            if len(test_idx) > 0 and test_idx[0] >= 0:
+                yield train_idx, test_idx
+
+    def get_n_splits(
+        self,
+        X: npt.ArrayLike | None = None,
+        y: None = None,
+        groups: None = None,
+    ) -> int:
+        """Return the number of folds `split` yields for *X*."""
+        n_splits = super().get_n_splits(X, y, groups)
+        if X is None or self.freq is None or self.freq_offset is None:
+            return n_splits
+        return sum(1 for _ in self.split(X))
+
+    def _period_positions(self, ts_index: pd.DatetimeIndex) -> IntArray:
+        """Return the observation index of each period boundary inside the sample."""
+        start = ts_index[0]
+        if self.freq_offset is not None:
+            start = min(start, start - self.freq_offset)
+        boundaries = pd.date_range(start=start, end=ts_index[-1], freq=self.freq)
+        if self.freq_offset is not None:
+            boundaries = boundaries + self.freq_offset
+        positions = ts_index.get_indexer(
+            boundaries, method="ffill" if self.previous else "bfill"
+        )
+        return positions[positions >= 0]
+
+    def _split_calendar(
+        self,
+        X: npt.ArrayLike,
+        y: None,
+        groups: None,
+    ) -> Iterator[tuple[IntArray, IntArray]]:
+        """Walk forward over the period grid with an integer ``train_size``.
+
+        Mirrors skfolio's period-based loop on a grid that keeps only the
+        boundaries it can resolve to an observation.
+        """
+        # Reuses skfolio's validation of the window sizes and the datetime index.
+        super().get_n_splits(X, y, groups)
+        ts_index = cast("pd.DataFrame", X).index
+        n_samples = len(ts_index)
+        train_size = int(cast("int", self.train_size))
+        test_size = int(self.test_size)
+
+        positions = self._period_positions(ts_index)
+        n = len(positions)
+        i = 0
+        while i + train_size < n:
+            test_start = positions[i + train_size]
+            if i + train_size + test_size >= n:
+                if not self.reduce_test:
+                    return
+                test_idx = np.arange(test_start, n_samples)
+            else:
+                test_idx = np.arange(test_start, positions[i + train_size + test_size])
+            train_start = 0 if self.expand_train else positions[i]
+            yield np.arange(train_start, test_start - self.purged_size), test_idx
+            i += test_size
+
+
 def build_rebalancing_walk_forward(
     config: CalendarRebalancingConfig | None = None,
     *,
@@ -350,10 +443,11 @@ def build_rebalancing_walk_forward(
             `to_offset` when a string.
 
     Returns:
-        Configured walk-forward cross-validator.
+        Configured walk-forward cross-validator. A fold whose shifted test
+        boundary lies beyond the last observation (possible with
+        ``freq_offset``) is dropped rather than emitted with an empty test
+        window.
     """
-    from skfolio.model_selection import WalkForward
-
     if config is None:
         config = CalendarRebalancingConfig()
 
@@ -363,7 +457,7 @@ def build_rebalancing_walk_forward(
         else freq_offset
     )
 
-    return WalkForward(
+    return _CalendarWalkForward(
         test_size=test_size,
         train_size=train_size,
         freq=config.pandas_freq,

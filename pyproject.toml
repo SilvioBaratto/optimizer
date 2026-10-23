@@ -136,6 +136,7 @@ module = [
     "optimizer.tuning._factory",
     "optimizer.uncertainty_set._factory",
     "optimizer.universe._transformer",
+    "optimizer.rebalancing._rebalancer",
 ]
 disallow_subclassing_any = false
 

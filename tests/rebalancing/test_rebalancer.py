@@ -440,6 +440,51 @@ class TestBuildRebalancingWalkForward:
         )
         assert cv.freq_offset == pd.tseries.frequencies.to_offset("2D")
 
+    @staticmethod
+    def _returns_ending(end: str) -> pd.DataFrame:
+        idx = pd.bdate_range("2022-01-03", end)
+        rng = np.random.default_rng(1)
+        return pd.DataFrame(
+            rng.normal(0.0, 0.01, size=(len(idx), 3)),
+            index=idx,
+            columns=["A", "B", "C"],
+        )
+
+    def test_freq_offset_past_last_observation_drops_empty_test_fold(self) -> None:
+        # The last month start (2024-12-01) + 2D lies after the final row.
+        X = self._returns_ending("2024-12-02")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_monthly(), train_size=12, freq_offset="2D"
+        )
+        folds = list(cv.split(X))
+        assert folds
+        assert all(len(test_idx) > 0 for _, test_idx in folds)
+        assert cv.get_n_splits(X) == len(folds)
+
+    def test_freq_offset_past_last_observation_works_with_cross_val_predict(
+        self,
+    ) -> None:
+        from skfolio.model_selection import cross_val_predict
+        from skfolio.optimization import EqualWeighted
+
+        X = self._returns_ending("2024-12-02")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_monthly(), train_size=12, freq_offset="2D"
+        )
+        pred = cross_val_predict(EqualWeighted(), X, cv=cv)
+        assert len(pred) == cv.get_n_splits(X)
+
+    def test_freq_offset_inside_data_keeps_every_fold(self) -> None:
+        X = self._returns_ending("2024-12-04")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_monthly(), train_size=12, freq_offset="2D"
+        )
+        folds = list(cv.split(X))
+        assert all(len(test_idx) > 0 for _, test_idx in folds)
+        assert cv.get_n_splits(X) == len(folds)
+        # The 2024-12-03 boundary is now observable, so it closes a fold.
+        assert X.index[folds[-1][1][-1] + 1] == pd.Timestamp("2024-12-03")
+
     def test_splits_are_time_ordered(self) -> None:
         cv = build_rebalancing_walk_forward(
             CalendarRebalancingConfig.for_monthly(), train_size=6
@@ -451,6 +496,136 @@ class TestBuildRebalancingWalkForward:
             assert train_idx.max() < test_idx.min()
             assert test_idx.min() > prev_test_start
             prev_test_start = test_idx.min()
+
+    @staticmethod
+    def _returns_between(start: str, end: str) -> pd.DataFrame:
+        idx = pd.bdate_range(start, end)
+        rng = np.random.default_rng(3)
+        return pd.DataFrame(
+            rng.normal(0.0, 0.01, size=(len(idx), 2)),
+            index=idx,
+            columns=["A", "B"],
+        )
+
+    @staticmethod
+    def _assert_folds_inside_sample(
+        folds: list[tuple[np.ndarray, np.ndarray]], n_samples: int
+    ) -> None:
+        assert folds
+        for train_idx, test_idx in folds:
+            assert len(train_idx) > 0
+            assert len(test_idx) > 0
+            assert train_idx.min() >= 0
+            assert test_idx.min() >= 0
+            assert train_idx.max() < n_samples
+            assert test_idx.max() < n_samples
+
+    @pytest.mark.parametrize("reduce_test", [False, True])
+    @pytest.mark.parametrize("expand_train", [False, True])
+    @pytest.mark.parametrize(
+        ("config", "end"),
+        [
+            (CalendarRebalancingConfig.for_monthly(), "2024-12-02"),
+            (CalendarRebalancingConfig.for_quarterly(), "2024-10-02"),
+            (CalendarRebalancingConfig.for_semiannual(), "2024-07-02"),
+            (CalendarRebalancingConfig.for_annual(), "2025-01-02"),
+        ],
+        ids=["monthly", "quarterly", "semiannual", "annual"],
+    )
+    def test_freq_offset_past_last_observation_never_leaves_the_sample(
+        self,
+        config: CalendarRebalancingConfig,
+        end: str,
+        expand_train: bool,
+        reduce_test: bool,
+    ) -> None:
+        from skfolio.model_selection import cross_val_predict
+        from skfolio.optimization import EqualWeighted
+
+        # The final shifted boundary lies after the last row. skfolio resolves
+        # it to -1, which must not become a fold start or a window edge.
+        X = self._returns_between("2018-01-01", end)
+        cv = build_rebalancing_walk_forward(
+            config,
+            train_size=2,
+            freq_offset="2D",
+            expand_train=expand_train,
+            reduce_test=reduce_test,
+        )
+        folds = list(cv.split(X))
+        self._assert_folds_inside_sample(folds, len(X))
+        assert cv.get_n_splits(X) == len(folds)
+        assert len(cross_val_predict(EqualWeighted(), X, cv=cv)) == len(folds)
+
+    @pytest.mark.parametrize("reduce_test", [False, True])
+    def test_negative_offset_drops_boundaries_before_first_observation(
+        self, reduce_test: bool
+    ) -> None:
+        # With previous=True the first boundary minus two days precedes the
+        # first row and resolves to -1.
+        X = self._returns_between("2020-01-01", "2021-12-31")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_monthly(),
+            train_size=2,
+            freq_offset="-2D",
+            previous=True,
+            reduce_test=reduce_test,
+        )
+        folds = list(cv.split(X))
+        self._assert_folds_inside_sample(folds, len(X))
+        assert cv.get_n_splits(X) == len(folds)
+
+    def test_date_offset_train_window_drops_the_unresolved_boundary_fold(
+        self,
+    ) -> None:
+        X = self._returns_between("2018-01-01", "2024-12-02")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_monthly(),
+            freq_offset="2D",
+            reduce_test=True,
+        )
+        # The helper only builds integer windows; a DateOffset window is walked
+        # by skfolio itself, whose -1 boundary must still not become a fold.
+        cv.train_size = pd.DateOffset(months=12)
+        folds = list(cv.split(X))
+        self._assert_folds_inside_sample(folds, len(X))
+        assert cv.get_n_splits(X) == len(folds)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {},
+            {"expand_train": True, "purged_size": 2},
+            {"reduce_test": True},
+            {"test_size": 2, "previous": True},
+        ],
+    )
+    @pytest.mark.parametrize(
+        "config",
+        [
+            CalendarRebalancingConfig.for_monthly(),
+            CalendarRebalancingConfig.for_quarterly(),
+            CalendarRebalancingConfig.for_annual(),
+        ],
+        ids=["monthly", "quarterly", "annual"],
+    )
+    def test_matches_skfolio_when_the_period_grid_has_no_unresolved_boundary(
+        self, config: CalendarRebalancingConfig, kwargs: dict[str, object]
+    ) -> None:
+        from skfolio.model_selection import WalkForward
+
+        X = self._returns_between("2015-03-10", "2023-03-10")
+        cv = build_rebalancing_walk_forward(config, train_size=2, **kwargs)
+        reference = WalkForward(
+            freq=config.pandas_freq,
+            **{"test_size": 1, "train_size": 2, **kwargs},  # type: ignore[arg-type]
+        )
+        got = list(cv.split(X))
+        want = list(reference.split(X))
+        assert len(got) == len(want) > 0
+        for (g_train, g_test), (w_train, w_test) in zip(got, want, strict=True):
+            np.testing.assert_array_equal(g_train, w_train)
+            np.testing.assert_array_equal(g_test, w_test)
 
 
 # ---------------------------------------------------------------------------
