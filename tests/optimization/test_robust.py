@@ -76,6 +76,23 @@ class TestPresets:
         )
 
 
+class TestMuPresetsUseReturnObjective:
+    """A mu uncertainty set only acts through the expected-return term."""
+
+    @pytest.mark.parametrize(
+        "preset",
+        ["for_conservative", "for_moderate", "for_aggressive"],
+    )
+    def test_when_mu_preset_fitted_then_weights_differ_from_plain_base(
+        self, returns, preset: str
+    ) -> None:
+        cfg = getattr(RobustMeanRiskConfig, preset)()
+        robust = build_robust_mean_risk(cfg).fit(returns)
+        plain = build_mean_risk(cfg.mean_risk_config).fit(returns)
+
+        assert np.abs(robust.weights_ - plain.weights_).max() > 1e-3
+
+
 class TestBuildRobustMeanRisk:
     def test_when_built_then_returns_skfolio_mean_risk(self) -> None:
         est = build_robust_mean_risk(RobustMeanRiskConfig())

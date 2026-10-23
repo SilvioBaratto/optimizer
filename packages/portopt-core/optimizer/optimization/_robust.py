@@ -34,7 +34,9 @@ class RobustMeanRiskConfig:
 
     Attributes:
         mean_risk_config: Forwarded to `build_mean_risk`. Default
-            `MeanRiskConfig` (minimum-variance).
+            `MeanRiskConfig` (minimum-variance), which never uses expected
+            returns, so a mu uncertainty set has no effect on it. The mu
+            presets therefore use a maximum-Sharpe base.
         mu_uncertainty_set_config: Mu uncertainty-set configuration. ``None``
             disables it.
         covariance_uncertainty_set_config: Covariance uncertainty-set
@@ -47,8 +49,12 @@ class RobustMeanRiskConfig:
 
     @classmethod
     def for_conservative(cls) -> RobustMeanRiskConfig:
-        """High-confidence preset (99%) — wide ellipsoidal uncertainty."""
+        """High-confidence preset (99%) — wide ellipsoidal uncertainty.
+
+        Uses a maximum-Sharpe base so the mu uncertainty set is active.
+        """
         return cls(
+            mean_risk_config=MeanRiskConfig.for_max_sharpe(),
             mu_uncertainty_set_config=MuUncertaintySetConfig.for_empirical(
                 confidence_level=0.99
             ),
@@ -58,11 +64,14 @@ class RobustMeanRiskConfig:
     def for_moderate(cls, *, uncertainty_level: float = 0.95) -> RobustMeanRiskConfig:
         """Moderate confidence preset (default 95%).
 
+        Uses a maximum-Sharpe base so the mu uncertainty set is active.
+
         Args:
             uncertainty_level: Confidence level forwarded to
                 `for_empirical`. Keyword-only.
         """
         return cls(
+            mean_risk_config=MeanRiskConfig.for_max_sharpe(),
             mu_uncertainty_set_config=MuUncertaintySetConfig.for_empirical(
                 confidence_level=uncertainty_level
             ),
@@ -70,8 +79,12 @@ class RobustMeanRiskConfig:
 
     @classmethod
     def for_aggressive(cls) -> RobustMeanRiskConfig:
-        """Low-confidence preset (90%) — narrow ellipsoidal uncertainty."""
+        """Low-confidence preset (90%) — narrow ellipsoidal uncertainty.
+
+        Uses a maximum-Sharpe base so the mu uncertainty set is active.
+        """
         return cls(
+            mean_risk_config=MeanRiskConfig.for_max_sharpe(),
             mu_uncertainty_set_config=MuUncertaintySetConfig.for_empirical(
                 confidence_level=0.90
             ),
