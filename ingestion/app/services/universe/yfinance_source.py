@@ -312,6 +312,12 @@ class YFinanceUniverseSource:
         # ticker of that venue that the snapshot no longer contains.
         for query, kind, sort_field, cap in self._build_queries():
             quotes.extend(self._paginate(query, kind, sort_field, cap))
+        # Every venue holds thousands of listings, so an all-empty answer means
+        # Yahoo returned nothing usable, not that the market emptied; reporting
+        # it as a completed build would silently freeze the universe.
+        if not quotes:
+            msg = "screener returned no quotes for any query"
+            raise UniverseSourceError(msg)
         self._build_shape(quotes)
         self._loaded = True
 

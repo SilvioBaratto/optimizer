@@ -171,6 +171,34 @@ class TestRunUniverseBuild:
         assert completed[0]["errors"] == ["boom"]
 
 
+class TestRunUniverseBuildWithAnEmptyScreener:
+    def test_empty_screener_raises_instead_of_reporting_completed(self) -> None:
+        screener = MagicMock()
+        screener.screen.return_value = {"quotes": []}
+        client = MagicMock()
+        client.screener = screener
+        seen: list[dict] = []
+
+        @contextmanager
+        def _session_cm():
+            yield MagicMock()
+
+        dm = MagicMock()
+        dm.get_session = _session_cm
+
+        with (
+            patch(f"{M}.database_manager", dm),
+            patch(f"{M}.UniverseRepository"),
+            patch(f"{M}.get_yfinance_client", return_value=client),
+            pytest.raises(RuntimeError, match="no quotes"),
+        ):
+            run_universe_build(
+                UniverseBuildRequest(), on_progress=lambda **kw: seen.append(kw)
+            )
+
+        assert not [c for c in seen if c.get("status") == "completed"]
+
+
 class TestAUMScreenRemoved:
     """The ETF AUM screen was removed — no class, no config surface, no export."""
 

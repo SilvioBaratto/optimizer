@@ -108,10 +108,12 @@ def test_drops_out_of_scope_exchange(monkeypatch: pytest.MonkeyPatch) -> None:
     assert {i["ticker"] for i in src.get_instruments()} == {"AAPL"}
 
 
-def test_empty_result_yields_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_empty_universe_is_a_failed_build_not_a_completed_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     src, _ = _source([{"quotes": []}], monkeypatch)
-    assert src.get_instruments() == []
-    assert src.get_exchanges() == []
+    with pytest.raises(RuntimeError, match="no quotes"):
+        src.get_instruments()
 
 
 def test_screen_none_is_a_failed_query_not_an_empty_universe(
