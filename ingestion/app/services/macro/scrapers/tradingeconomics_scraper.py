@@ -7,7 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from app.services.infrastructure import (
     CircuitBreaker,
@@ -300,6 +300,17 @@ def _normalize_monetary_row(
         None if previous is None else _to_billions(previous, multiplier),
         f"{match.group('currency').upper()} Billion",
     )
+
+
+def _country_list_tables(soup: BeautifulSoup) -> list[Tag]:
+    """Return the tables of a ``country-list`` page, whatever their styling.
+
+    The data rows used to sit in a ``table-heatmap`` table. The pages now render
+    Tailwind-styled tables (one holding only the header, another the data rows)
+    with no class worth selecting on, so rows are recognised by their cells and
+    the callers skip anything that is not a country link followed by values.
+    """
+    return list(soup.find_all("table"))
 
 
 def _is_comparable_measure(key: str, unit: str, country: str | None) -> bool:
@@ -862,7 +873,7 @@ class TradingEconomicsIndicatorsScraper:
     def _parse_industrial_production_table(self, soup: BeautifulSoup) -> dict:
         production = {}
 
-        tables = soup.find_all("table", class_="table-heatmap")
+        tables = _country_list_tables(soup)
 
         for table in tables:
             rows = table.find_all("tr")
@@ -926,7 +937,7 @@ class TradingEconomicsIndicatorsScraper:
     def _parse_capacity_utilization_table(self, soup: BeautifulSoup) -> dict:
         capacity = {}
 
-        tables = soup.find_all("table", class_="table-heatmap")
+        tables = _country_list_tables(soup)
 
         for table in tables:
             rows = table.find_all("tr")

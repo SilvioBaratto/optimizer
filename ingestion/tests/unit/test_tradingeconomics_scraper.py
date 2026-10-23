@@ -567,6 +567,91 @@ class TestIndicatorKeyComparability:
         assert key not in _make_scraper()._parse_indicators_table(soup)
 
 
+def _live_country_row(country: str, slug: str, last: str, unit: str) -> str:
+    """A body row as the country-list pages render it today: the name sits in a
+    link inside a span, and a trailing empty cell holds the row actions."""
+    return (
+        "<tr>"
+        f'<td><a href="/{slug}/industrial-production">'
+        f'<span class="whitespace-nowrap">{country}</span></a></td>'
+        f'<td style="min-width:70px">{last}</td>'
+        '<td style="min-width:94px">6.9</td>'
+        '<td style="min-width:110px">Aug/26</td>'
+        f'<td style="min-width:60px">{unit}</td>'
+        '<td class="sticky right-0"></td>'
+        "</tr>"
+    )
+
+
+def _live_country_list_html(*rows: str) -> bytes:
+    """Country-list page as served now: Tailwind tables, one holding only the
+    header and a second one holding the data rows, with no ``table-heatmap``."""
+    table = '<table class="w-max min-w-full border-spacing-0">'
+    header = (
+        f"{table}<thead><tr><th>Country</th><th>Last</th><th>Previous</th>"
+        "<th>Reference</th><th>Unit</th><th></th></tr></thead></table>"
+    )
+    return (header + f"{table}<tbody>" + "".join(rows) + "</tbody></table>").encode()
+
+
+_LIVE_COUNTRY_ROWS = (
+    _live_country_row("Singapore", "singapore", "15.4", "%"),
+    _live_country_row("India", "india", "8", "%"),
+    _live_country_row("Germany", "germany", "-1.2", "%"),
+)
+
+
+class TestCountryListPageLayout:
+    """The bulk pages no longer use the legacy ``table-heatmap`` class."""
+
+    @pytest.mark.parametrize(
+        "parse",
+        [
+            TradingEconomicsIndicatorsScraper._parse_industrial_production_table,
+            TradingEconomicsIndicatorsScraper._parse_capacity_utilization_table,
+        ],
+    )
+    def test_rows_are_read_from_the_tailwind_data_table(self, parse) -> None:
+        soup = BeautifulSoup(
+            _live_country_list_html(*_LIVE_COUNTRY_ROWS), "html.parser"
+        )
+
+        result = parse(_make_scraper(), soup)
+
+        assert set(result) == {"Singapore", "India", "Germany"}
+        assert result["Singapore"] == {
+            "value": pytest.approx(15.4),
+            "previous": pytest.approx(6.9),
+            "reference": "Aug/26",
+            "unit": "%",
+        }
+        assert result["Germany"]["value"] == pytest.approx(-1.2)
+
+    @pytest.mark.parametrize(
+        ("fetch", "url_part"),
+        [
+            ("get_industrial_production_all", "industrial-production"),
+            ("get_capacity_utilization_all", "capacity-utilization"),
+        ],
+    )
+    def test_bulk_fetch_succeeds_on_the_current_page_without_tripping_breaker(
+        self, fetch: str, url_part: str
+    ) -> None:
+        scraper = _make_scraper()
+        scraper.session = MagicMock()
+        scraper.session.get.return_value = _fake_response(
+            _live_country_list_html(*_LIVE_COUNTRY_ROWS)
+        )
+
+        with patch(f"{_MOD}._te_circuit_breaker") as mock_cb:
+            result = getattr(scraper, fetch)()
+
+        assert result["status"] == "success"
+        assert url_part in result["source_url"]
+        assert set(result["data"]) == {"Singapore", "India", "Germany"}
+        mock_cb.trigger.assert_not_called()
+
+
 class TestMonetaryIndicatorScale:
     """Money rows arrive in the scale each page prefers; one key, one scale."""
 
