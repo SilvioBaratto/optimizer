@@ -334,8 +334,10 @@ def _bind_get_macro(ctx: RunContext) -> BaseTool:
     @tool
     def get_macro_series(names: list[str]) -> ToolResult:
         """Macro-series coverage summary for the FRED ``names`` as of the run date.
-        Returns the ``{ok, data}`` envelope; absent series are flagged in
-        ``missing``, never raised."""
+        Observations appear only after an estimated publication lag, so the newest
+        monthly/quarterly prints may be absent and the NBER recession flags
+        (``USREC``/``USRECDM``) are never shown. Returns the ``{ok, data}``
+        envelope; absent series are flagged in ``missing``, never raised."""
         return _get_macro_impl(ctx, names)
 
     return get_macro_series

@@ -18,7 +18,7 @@ import datetime as dt
 import pandas as pd
 from portopt_db.models.macro.macro_regime import FredObservation
 
-from fund.tools.macro import get_macro_series
+from fund.tools.macro import get_macro_series, load_macro_frame
 
 _ASOF = dt.date(2024, 1, 5)
 
@@ -173,3 +173,127 @@ class TestGetMacroSeriesDeterminism:
         second = get_macro_series(db_session, ["T10Y2Y", "VIXCLS"], _ASOF)
 
         assert first == second
+
+
+def _daily(start: dt.date, days: int, value: float) -> dict[dt.date, float]:
+    return {start + dt.timedelta(days=i): value for i in range(days)}
+
+
+class TestGetMacroSeriesPointInTime:
+    """Observations dated before ``asof`` may still have been unpublished."""
+
+    def test_quarterly_gdp_print_is_hidden_until_its_release_window(
+        self, db_session
+    ) -> None:
+        # The Q2 advance estimate dated 2026-04-01 is released around 30 July.
+        _seed_series(
+            db_session,
+            "A191RL1Q225SBEA",
+            {
+                dt.date(2025, 10, 1): 2.0,
+                dt.date(2026, 1, 1): 1.5,
+                dt.date(2026, 4, 1): 3.0,
+            },
+        )
+
+        result = get_macro_series(db_session, ["A191RL1Q225SBEA"], "2026-04-02")
+
+        assert result["ok"] is True
+        assert result["data"]["rows"] == 1
+        assert result["data"]["index_end"].startswith("2025-10-01")
+
+    def test_quarterly_gdp_print_is_visible_once_published(self, db_session) -> None:
+        _seed_series(
+            db_session,
+            "A191RL1Q225SBEA",
+            {dt.date(2026, 1, 1): 1.5, dt.date(2026, 4, 1): 3.0},
+        )
+
+        result = get_macro_series(db_session, ["A191RL1Q225SBEA"], "2026-09-01")
+
+        assert result["data"]["index_end"].startswith("2026-04-01")
+
+    def test_monthly_series_hides_the_period_still_being_reported(
+        self, db_session
+    ) -> None:
+        # OECD CLI for September is published mid-October, so at 2026-09-30 the
+        # latest known month is July.
+        _seed_series(
+            db_session,
+            "USALOLITOAASTSAM",
+            {
+                dt.date(2026, 5, 1): 99.1,
+                dt.date(2026, 6, 1): 99.3,
+                dt.date(2026, 7, 1): 99.4,
+                dt.date(2026, 8, 1): 99.6,
+                dt.date(2026, 9, 1): 99.7,
+            },
+        )
+
+        result = get_macro_series(db_session, ["USALOLITOAASTSAM"], "2026-09-30")
+
+        assert result["data"]["index_end"].startswith("2026-07-01")
+
+    def test_nber_recession_flag_is_an_ex_post_label(self, db_session) -> None:
+        # NBER announced the Feb-2020 peak in June 2020; the daily flag cannot be
+        # known on 2020-04-15.
+        _seed_series(db_session, "USRECDM", _daily(dt.date(2020, 3, 1), 30, 1.0))
+
+        result = get_macro_series(db_session, ["USRECDM"], "2020-04-15")
+
+        assert result["ok"] is True
+        assert result["data"]["missing"] == ["USRECDM"]
+
+    def test_daily_series_keeps_the_previous_day(self, db_session) -> None:
+        _seed_series(db_session, "DGS10", _daily(dt.date(2024, 1, 1), 5, 4.0))
+
+        result = get_macro_series(db_session, ["DGS10"], dt.date(2024, 1, 6))
+
+        assert result["data"]["rows"] == 5
+
+    def test_load_macro_frame_can_skip_the_publication_lag(self, db_session) -> None:
+        _seed_series(
+            db_session,
+            "A191RL1Q225SBEA",
+            {dt.date(2026, 1, 1): 1.5, dt.date(2026, 4, 1): 3.0},
+        )
+
+        frame, missing = load_macro_frame(
+            db_session, ["A191RL1Q225SBEA"], "2026-04-02", point_in_time=False
+        )
+
+        assert missing == []
+        assert len(frame) == 2
+
+
+class TestGetMacroSeriesLiveRead:
+    """The publication lag is not a replay-only filter: a live run is lagged too."""
+
+    def test_live_read_hides_the_latest_monthly_prints_like_a_replay(
+        self, db_session
+    ) -> None:
+        today = dt.date.today()
+        _seed_series(
+            db_session,
+            "USALOLITOAASTSAM",
+            {today - dt.timedelta(days=days): 99.0 for days in (100, 70, 40, 10)},
+        )
+
+        result = get_macro_series(db_session, ["USALOLITOAASTSAM"], today)
+
+        assert result["data"]["rows"] == 2
+        assert result["data"]["index_end"].startswith(
+            (today - dt.timedelta(days=70)).isoformat()
+        )
+
+    def test_live_read_never_shows_the_ex_post_recession_flags(
+        self, db_session
+    ) -> None:
+        today = dt.date.today()
+        _seed_series(
+            db_session, "USREC", _daily(today - dt.timedelta(days=30), 30, 0.0)
+        )
+
+        result = get_macro_series(db_session, ["USREC"], today)
+
+        assert result["data"]["missing"] == ["USREC"]

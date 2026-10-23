@@ -439,7 +439,11 @@ def build_macro_factor_returns(
         from fund.tools.macro import load_macro_frame
 
         series_ids = [str(s.fred_series_id) for s in fred_specs]
-        frame, _ = load_macro_frame(session, series_ids, grid[-1].date())
+        # Attribution explains realised returns after the fact, so it wants the
+        # series as finally published rather than as known at each date.
+        frame, _ = load_macro_frame(
+            session, series_ids, grid[-1].date(), point_in_time=False
+        )
 
     for spec in config.factors:
         if spec.fred_series_id is None:
