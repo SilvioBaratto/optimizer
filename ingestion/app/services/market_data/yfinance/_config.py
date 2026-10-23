@@ -6,6 +6,10 @@ import logging
 
 _YFINANCE_LOGGER = "yfinance"
 
+# Remembered so the level can be re-applied after yfinance's price repair has
+# overwritten it; None until an entry point calls configure_yfinance.
+_configured_level: int | None = None
+
 
 def configure_yfinance(*, log_level: str) -> None:
     """Set how much of yfinance's own logging reaches the operator.
@@ -28,7 +32,27 @@ def configure_yfinance(*, log_level: str) -> None:
     Raises:
         ValueError: If *log_level* is not a standard logging level name.
     """
+    global _configured_level
     level = getattr(logging, log_level.upper(), None)
     if not isinstance(level, int):
         raise ValueError(f"Unknown log level: {log_level!r}")
+    _configured_level = level
     logging.getLogger(_YFINANCE_LOGGER).setLevel(level)
+
+
+def reapply_yfinance_log_level() -> None:
+    """Put the ``yfinance`` logger back at the level chosen by ``configure_yfinance``.
+
+    yfinance's price repair lowers the shared logger to ``CRITICAL`` around a
+    nested history call and then restores the level it read beforehand, with
+    no lock and no ``finally``. Overlapping repairs in parallel fetch workers
+    can leave ``CRITICAL`` behind as the "original" level, and a rate limit
+    raised from the nested call skips the restore, so the operator's level is
+    lost for the rest of the process. Fetches call this once the library has
+    returned. It does nothing when ``configure_yfinance`` was never called.
+    """
+    if _configured_level is None:
+        return
+    logger = logging.getLogger(_YFINANCE_LOGGER)
+    if logger.level != _configured_level:
+        logger.setLevel(_configured_level)

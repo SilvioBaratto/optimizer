@@ -11,6 +11,7 @@ import yfinance as yf
 from dotenv import load_dotenv
 
 from ._base import fetch_with_resilience
+from ._config import reapply_yfinance_log_level
 from .funds import FundsClient
 from .infrastructure import (
     CircuitBreaker,
@@ -257,9 +258,12 @@ class YFinanceClient:
         def _action() -> pd.DataFrame | None:
             ticker = self.get_ticker(symbol)
 
-            if start is not None:
-                return ticker.history(start=start, end=end, **history_kwargs)
-            return ticker.history(period=period, **history_kwargs)
+            try:
+                if start is not None:
+                    return ticker.history(start=start, end=end, **history_kwargs)
+                return ticker.history(period=period, **history_kwargs)
+            finally:
+                reapply_yfinance_log_level()
 
         result = fetch_with_resilience(
             _action,

@@ -36,7 +36,7 @@ from app.services.infrastructure.circuit_breaker import (
     CircuitBreaker,
     CircuitOpenError,
 )
-from app.services.market_data.yfinance import configure_yfinance
+from app.services.market_data.yfinance import _config, configure_yfinance
 from app.services.market_data.yfinance._base import fetch_with_resilience
 from app.services.market_data.yfinance._facade import YFinanceClient
 from app.services.market_data.yfinance.infrastructure import (
@@ -275,9 +275,11 @@ class TestRequestOutcomes:
 def _restore_yfinance_config() -> Iterator[None]:
     hide = yf.config.debug.hide_exceptions
     level = logging.getLogger("yfinance").level
+    configured = _config._configured_level
     yield
     yf.config.debug.hide_exceptions = hide
     logging.getLogger("yfinance").setLevel(level)
+    _config._configured_level = configured
 
 
 @pytest.mark.usefixtures("_restore_yfinance_config")
@@ -308,6 +310,62 @@ class TestConfigureYfinance:
         """A typo in YFINANCE_LOG_LEVEL fails at startup, not silently."""
         with pytest.raises(ValueError, match="Unknown log level"):
             configure_yfinance(log_level="LOUD")
+
+    def test_level_survives_a_repair_that_never_restores_it(
+        self, client: YFinanceClient
+    ) -> None:
+        """yfinance's repair lowers the shared logger to CRITICAL around a nested
+        history call and skips the restore when that call raises a rate limit."""
+        configure_yfinance(log_level="DEBUG")
+        ticker = MagicMock()
+
+        def _repair_then_rate_limit(**_: object) -> None:
+            logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+            raise YFRateLimitError
+
+        ticker.history.side_effect = _repair_then_rate_limit
+        with patch.object(client, "get_ticker", return_value=ticker):
+            assert client.fetch_history("AAPL") is None
+
+        assert logging.getLogger("yfinance").level == logging.DEBUG
+
+    def test_level_survives_overlapping_repairs_in_other_workers(
+        self, client: YFinanceClient
+    ) -> None:
+        """A worker that entered a repair while another had already lowered the
+        level saves CRITICAL as the level to restore, and puts it back last."""
+        configure_yfinance(log_level="DEBUG")
+        ticker = MagicMock()
+
+        def _overlapping_repair(**_: object) -> pd.DataFrame:
+            logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+            return pd.DataFrame(
+                {"Close": range(1, 21)},
+                index=pd.date_range("2024-01-01", periods=20),
+            )
+
+        ticker.history.side_effect = _overlapping_repair
+        with patch.object(client, "get_ticker", return_value=ticker):
+            assert client.fetch_history("AAPL") is not None
+
+        assert logging.getLogger("yfinance").level == logging.DEBUG
+
+    def test_nothing_is_changed_when_the_level_was_never_configured(
+        self, client: YFinanceClient
+    ) -> None:
+        """Library users of the client that never call configure_yfinance keep
+        whatever level they set themselves."""
+        with patch.object(_config, "_configured_level", None):
+            logging.getLogger("yfinance").setLevel(logging.WARNING)
+            ticker = MagicMock()
+            ticker.history.return_value = pd.DataFrame(
+                {"Close": range(1, 21)},
+                index=pd.date_range("2024-01-01", periods=20),
+            )
+            with patch.object(client, "get_ticker", return_value=ticker):
+                client.fetch_history("AAPL")
+
+        assert logging.getLogger("yfinance").level == logging.WARNING
 
 
 class TestSubClientCalls:
