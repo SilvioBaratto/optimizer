@@ -133,10 +133,10 @@ def test_reject_records_hitl_decision_in_audit(db_session):
     )
 
 
-# --- idempotent re-profile still finalises its (otherwise orphaned) run ------
+# --- re-profiling appends the next version ----------------------------------
 
 
-def test_reprofile_idempotent_hit_finalizes_run_and_logs_decision(db_session):
+def test_reprofile_appends_a_new_version_and_refreshes_the_store(db_session):
     pid = uuid.uuid4()
     store = InMemoryStore()
 
@@ -165,17 +165,17 @@ def test_reprofile_idempotent_hit_finalizes_run_and_logs_decision(db_session):
     )
     run2.resume("approve")
 
-    # Deferred-by-design: no v2; v1 (run1's mapping) stays active.
+    # The amended assessment is the next append-only version and is the active one.
     active = MifidProfileRepository(db_session).get_active(pid)
-    assert active.version == 1
-    assert active.constraint_set == run1.constraint_set.model_dump(mode="json")
+    assert active.version == 2
+    assert active.constraint_set == run2.constraint_set.model_dump(mode="json")
+    assert run2.constraint_set != run1.constraint_set
+    cached = store.get((str(pid),), "constraint_set")
+    assert cached.value == run2.constraint_set.model_dump(mode="json")
 
-    # Audit-integrity: run2 is finalised, not orphaned at "pending".
     run2_row = AgentRunRepository(db_session).get_run(run2.run_id)
     assert run2_row.status == "completed"
     assert run2_row.finished_at is not None
-
-    # ...and run2's save step is recorded as an idempotent approve.
     saves = [
         d
         for d in db_session.query(AgentDecision)
@@ -183,5 +183,46 @@ def test_reprofile_idempotent_hit_finalizes_run_and_logs_decision(db_session):
         .all()
         if d.step == "save_profile"
     ]
-    assert saves and saves[0].hitl_decision.get("idempotent") is True
-    assert saves[0].hitl_decision.get("existing_version") == 1
+    assert len(saves) == 1
+    assert saves[0].hitl_decision.get("decision") == "approve"
+    assert not saves[0].hitl_decision.get("idempotent")
+
+
+def test_save_profile_replay_of_a_completed_run_writes_nothing(db_session):
+    """A same-run replay (SPEC D3) appends no version and re-logs no decision."""
+    import json
+
+    from fund.agents.profiler import _make_save_profile
+    from fund.config import settings
+
+    pid = uuid.uuid4()
+    run = _run(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        portfolio_id=pid,
+        store=InMemoryStore(),
+    )
+    run.resume("approve")
+
+    replay = _make_save_profile(
+        session=db_session,
+        store=None,
+        config=settings,
+        answers=run.answers,
+        constraint_set=run.constraint_set,
+        suitability=run.suitability,
+        run_id=run.run_id,
+        portfolio_id=pid,
+    )
+    result = json.loads(replay.invoke({"portfolio_id": str(pid)}))
+
+    assert result == {"saved": True, "idempotent": True, "version": 1}
+    assert MifidProfileRepository(db_session).get_active(pid).version == 1
+    saves = [
+        d
+        for d in db_session.query(AgentDecision)
+        .filter(AgentDecision.run_id == run.run_id)
+        .all()
+        if d.step == "save_profile"
+    ]
+    assert len(saves) == 1

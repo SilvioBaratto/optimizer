@@ -53,6 +53,7 @@ from fund.audit import (
     AutonomyScope,
     AutonomyState,
     MandateRepository,
+    MifidProfileRepository,
     OrderRepository,
     PositionRepository,
     put_constraint_set,
@@ -439,6 +440,125 @@ def test_resume_fund_still_rejects_a_gate_under_a_freeze(db_session) -> None:
     )
 
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
+
+
+# --- resume_fund after the portfolio was re-profiled ---------------------------
+
+
+def _add_profile_version(db_session) -> int:
+    """Append the next MiFID profile version for ``PORTFOLIO_ID``; return it."""
+    return (
+        MifidProfileRepository(db_session)
+        .add_version(
+            portfolio_id=PORTFOLIO_ID,
+            questionnaire={"knowledge": "basic"},
+            constraint_set={"a_gamma": 2.5},
+            suitability={"inconsistency_flags": []},
+            store_key=settings.constraint_set_store_key,
+        )
+        .version
+    )
+
+
+def test_run_fund_records_the_profile_version_it_was_built_under(db_session) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    _add_profile_version(db_session)
+    v2 = _add_profile_version(db_session)
+
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        db_session,
+        MemorySaver(),
+        _store_with_cs(),
+    )
+
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.optimizer_config["profile_version"] == v2
+
+
+@pytest.mark.parametrize("decision", ["approve", "respond"])
+def test_resume_fund_refuses_a_gate_built_under_a_superseded_profile(
+    db_session, decision
+) -> None:
+    """A re-profile voids every gate opened under the old profile.
+
+    ``place_orders`` sizes the ticket from the weights the optimizer produced under
+    the old ``ConstraintSet``; committing them after the adviser tightened the
+    bounds would trade a portfolio the new profile never validated.
+    """
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    _add_profile_version(db_session)
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    _add_profile_version(db_session)  # the adviser re-profiles while the gate waits
+
+    with pytest.raises(RuntimeError, match="re-profiled"):
+        resume_fund(
+            run.run_id,
+            decision,
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+            pm_directive="tilt to AAA",
+        )
+
+    assert _paper_orders(db_session) == []
+    assert _positions_map(db_session) == {}
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
+
+
+def test_resume_fund_still_rejects_a_gate_built_under_a_superseded_profile(
+    db_session,
+) -> None:
+    """Reject is how the adviser clears the stale gate, so it must stay open."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    _add_profile_version(db_session)
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    _add_profile_version(db_session)
+
+    resume_fund(
+        run.run_id,
+        "reject",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
+
+
+def test_resume_fund_approves_when_the_profile_is_unchanged(db_session) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    _add_profile_version(db_session)
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
 
 
 # --- stale approval: an older paused run must not overwrite newer holdings -----

@@ -30,6 +30,12 @@ from _fund_fakes import (
     make_mandate,
     seed_paused_fund_run,
 )
+from _profiler_fakes import (
+    ScriptedProfilerModel,
+    final_reply,
+    make_answers,
+)
+from _profiler_fakes import make_model as make_profiler_model
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import Base, PaperOrder
@@ -46,12 +52,14 @@ from fund.audit import (
     AutonomyState,
     HumanAuditLogRepository,
     MandateRepository,
+    MifidProfileRepository,
     PositionRepository,
     put_constraint_set,
 )
 from fund.audit.orders_repository import weights_hash
 from fund.config import settings
 from fund.schemas.constraint_set import UniverseFilters
+from fund.schemas.enums import LossReaction
 
 
 class _StopRunError(Exception):
@@ -768,6 +776,51 @@ def test_profile_requires_a_portfolio_id(db_session) -> None:
     """``profile`` without a ``portfolio_id`` raises before building the agent."""
     with pytest.raises(ValueError, match="requires a portfolio_id"):
         apply_action("profile", session=db_session)
+
+
+def test_reprofile_through_actions_supersedes_the_active_profile(clean_db) -> None:
+    """A second ``profile`` + ``approve`` must land as the next version.
+
+    Otherwise the adviser sees "approved" while the old, riskier bounds stay active
+    and the re-profile flag never clears.
+    """
+    pid = uuid.UUID("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d")
+    saver, store = MemorySaver(), InMemoryStore()
+
+    def profile_and_approve(answers) -> None:
+        profiled = apply_action(
+            "profile",
+            session=clean_db,
+            portfolio_id=pid,
+            questionnaire="questionnaire ...",
+            model=make_profiler_model(answers, portfolio_id=str(pid)),
+            checkpointer=saver,
+            store=store,
+        )
+        apply_action(
+            "approve",
+            session=clean_db,
+            run_id=profiled.run_id,
+            checkpointer=saver,
+            store=store,
+            model=ScriptedProfilerModel(chat_responses=[final_reply(), final_reply()]),
+        )
+        clean_db.commit()
+
+    balanced = make_answers()
+    defensive = make_answers(
+        likert=(2, 2, 2), max_loss=0.05, buffer=12.0, reaction=LossReaction.SELL_ALL
+    )
+    profile_and_approve(balanced)
+    first = MifidProfileRepository(clean_db).get_active(pid)
+    profile_and_approve(defensive)
+
+    active = MifidProfileRepository(clean_db).get_active(pid)
+    assert first.version == 1
+    assert active.version == 2
+    assert active.constraint_set["a_gamma"] > first.constraint_set["a_gamma"]
+    cached = store.get((str(pid),), settings.constraint_set_store_key)
+    assert cached.value["a_gamma"] == active.constraint_set["a_gamma"]
 
 
 def test_run_requires_a_portfolio_id_and_a_mandate(db_session) -> None:

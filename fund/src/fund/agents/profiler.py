@@ -581,11 +581,10 @@ def _make_save_profile(
     The write is driven entirely by the captured, deterministically-mapped values
     — the LLM-supplied ``portfolio_id`` argument is advisory only, so no knob can
     enter through a tool argument (the load-bearing rule). Idempotent per the HITL
-    re-run contract (SPEC D3): a second call for an already-profiled portfolio
-    never writes a new version (re-profiling is deferred, D11), but it
-    still finalises the (otherwise orphaned) run and records the idempotent
-    approve so the audit trail reflects what actually applied. A same-run replay
-    (already finalised) is a true no-op — no double-log.
+    re-run contract (SPEC D3): a replay of a run that already completed is a true
+    no-op — no second version, no double-log. A fresh run for an already-profiled
+    portfolio is a re-profile: it appends the next version and re-caches the
+    ``ConstraintSet``, so the amended assessment supersedes the prior one.
     """
     from langchain_core.tools import tool
 
@@ -604,31 +603,18 @@ def _make_save_profile(
         and cache the active ``ConstraintSet`` in the Store. Call once, after
         adviser approval, with the portfolio id."""
         repo = MifidProfileRepository(session)
-        existing = repo.get_active(portfolio_id_uuid)
-        if existing is not None:
-            # Re-profiling to a new version is deferred (D11). A fresh
-            # run that hits this branch (a manual re-profile) is otherwise
-            # orphaned at "pending"; finalise it + record the idempotent approve
-            # so the audit trail reflects what actually applied. A same-run
-            # replay (already finalised) is left untouched — no double-log
-            # (SPEC-D3 precedent).
-            audit = AgentRunRepository(session)
-            run = audit.get_run(run_id)
-            if run is not None and run.finished_at is None:
-                audit.append_decision(
-                    run_id,
-                    agent="profiler",
-                    step=_SAVE_PROFILE_TOOL,
-                    hitl_decision={
-                        "decision": "approve",
-                        "idempotent": True,
-                        "existing_version": existing.version,
-                        "flags": list(suitability.inconsistency_flags),
-                    },
-                )
-                audit.finalize_run(run_id, weights={}, status="completed")
+        audit = AgentRunRepository(session)
+        run = audit.get_run(run_id)
+        if run is not None and run.status == "completed":
+            # A replay of a run whose approval already applied (SPEC D3): writing
+            # again would append a duplicate version and double-log the decision.
+            current = repo.get_active(portfolio_id_uuid)
             return json.dumps(
-                {"saved": True, "idempotent": True, "version": existing.version}
+                {
+                    "saved": True,
+                    "idempotent": True,
+                    "version": current.version if current is not None else None,
+                }
             )
 
         profile = repo.add_version(
@@ -641,7 +627,6 @@ def _make_save_profile(
         if store is not None:
             put_constraint_set(store, constraint_set, store_key=store_key)
 
-        audit = AgentRunRepository(session)
         audit.append_decision(
             run_id,
             agent="profiler",

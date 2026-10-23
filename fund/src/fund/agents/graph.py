@@ -914,6 +914,39 @@ def _raise_if_frozen(session: Any, portfolio_id: uuid.UUID, *, doing: str) -> No
         raise RuntimeError(f"portfolio {portfolio_id} is frozen; re-arm before {doing}")
 
 
+def _raise_if_profile_superseded(session: Any, run: Any) -> None:
+    """Raise ``RuntimeError`` when the portfolio was re-profiled after ``run`` opened.
+
+    A gate parks the optimizer weights computed under the profile that was active when
+    the round opened, and ``place_orders`` sizes the ticket from exactly those weights.
+    A re-profile appends a new ``mifid_profiles`` version (the old one stays), so a
+    gate left waiting would otherwise still be approvable and trade a book the new
+    ``ConstraintSet`` never validated. A run opened before the version was recorded
+    carries none and is not checked.
+
+    Args:
+        session: A sync ``portopt_db`` session; not owned here.
+        run: The ``agent_run`` row being resumed; its ``optimizer_config`` holds the
+            ``profile_version`` it was opened under.
+
+    Raises:
+        RuntimeError: A newer profile version exists; the message tells the adviser
+            to reject the run and start a new round.
+    """
+    from fund.audit import MifidProfileRepository
+
+    built_under = (run.optimizer_config or {}).get("profile_version")
+    if built_under is None:
+        return
+    current = MifidProfileRepository(session).get_active(run.portfolio_id)
+    if current is not None and current.version > built_under:
+        raise RuntimeError(
+            f"portfolio {run.portfolio_id} was re-profiled (v{built_under} -> "
+            f"v{current.version}) after run {run.id} opened; reject this run and "
+            "start a new round under the current profile"
+        )
+
+
 def _halt_if_frozen(
     session: Any, audit: Any, run_id: uuid.UUID, portfolio_id: uuid.UUID
 ) -> bool:
@@ -969,7 +1002,8 @@ def _prepare_fund_run(
     other: a FROZEN fund or portfolio raises ``RuntimeError`` (re-arm first — Q3, fund
     scope wins); a missing active ``ConstraintSet`` raises ``RuntimeError`` (profile
     first); a pending ``agent_run`` is opened recording the seed + ``temperature`` + 3y
-    lookback (D31) + the mandate's ``capital`` (the ticket's gross book); its
+    lookback (D31) + the mandate's ``capital`` (the ticket's gross book) + the active
+    MiFID ``profile_version`` (``None`` when unprofiled); its
     checkpointer thread is pinned to ``str(run_id)`` so the rebuild-to-resume path
     recovers it; and the PM agent is built against this run's
     ``RunContext`` with the effective gate set — the portfolio's **first** round forces
@@ -980,7 +1014,11 @@ def _prepare_fund_run(
     import secrets
 
     from fund.agents.toolsets import RunContext
-    from fund.audit import AgentRunRepository, resolve_constraint_set
+    from fund.audit import (
+        AgentRunRepository,
+        MifidProfileRepository,
+        resolve_constraint_set,
+    )
     from fund.audit.autonomy_repository import AutonomyRepository
     from fund.schemas import ConstraintSetRef
 
@@ -1011,6 +1049,7 @@ def _prepare_fund_run(
         )
 
     run_seed = seed if seed is not None else secrets.randbits(32)
+    active_profile = MifidProfileRepository(session).get_active(pid_uuid)
     audit = AgentRunRepository(session)
     run = audit.create_run(
         portfolio_id=pid_uuid,
@@ -1024,6 +1063,11 @@ def _prepare_fund_run(
             # Recorded so the rebuild-to-resume path sizes the ticket at the capital
             # the PM was told, even if the mandate is edited before approval.
             "capital": float(mandate.capital),
+            # Recorded so approving the gate can tell the portfolio was re-profiled
+            # while the round was running or waiting.
+            "profile_version": (
+                active_profile.version if active_profile is not None else None
+            ),
         },
     )
     resolved_thread_id = thread_id or str(run.id)
@@ -1434,9 +1478,10 @@ def resume_fund(
     config default gate), rebuilds the ``RunContext`` + PM agent, resumes, and
     finalises. ``decision`` is ``approve``, ``reject``, or ``respond``.
     Any other value raises ``ValueError``; ``approve`` / ``respond`` raise
-    ``RuntimeError`` while the fund or portfolio is FROZEN (``reject`` always
-    passes). A ``respond`` threads ``pm_directive`` (the
-    adviser's free text) back to the PM via :func:`_finalize_respond`, keeping the run
+    ``RuntimeError`` while the fund or portfolio is FROZEN, or when the portfolio was
+    re-profiled after the run opened (``reject`` always passes). A ``respond`` threads
+    ``pm_directive`` (the adviser's free text) back to the PM via
+    :func:`_finalize_respond`, keeping the run
     alive as ``responded`` if it re-gates; the resume ``thread_config`` keeps the full
     ``recursion_limit`` so a re-gate has headroom. Every write goes through the injected
     ``session`` (caller owns the transaction); the agent stack is imported lazily so a
@@ -1486,10 +1531,12 @@ def resume_fund(
     pid_str = str(portfolio_id)
     resolved_thread_id = run.thread_id or str(rid)
 
-    # A gate that opened before (or raced) a freeze stays approvable at the DB level,
-    # so approve/respond re-check the posture. Reject is the way out and always passes.
+    # A gate that opened before (or raced) a freeze, or under a since-replaced profile,
+    # stays approvable at the DB level, so approve/respond re-check both. Reject is the
+    # way out and always passes.
     if decision != "reject":
         _raise_if_frozen(session, portfolio_id, doing="resuming a run")
+        _raise_if_profile_superseded(session, run)
 
     # Re-guard the active ConstraintSet — the run's risk profile must still exist.
     constraint_set = None
