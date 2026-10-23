@@ -78,7 +78,9 @@ class PreSelectionConfig:
         pareto_threshold: Domination threshold forwarded to
             ``SelectNonDominated.threshold`` (skfolio default ``-0.5``).
         use_non_expiring: If ``True``, apply ``SelectNonExpiring`` to remove
-            soon-expiring assets.
+            soon-expiring assets.  Requires ``expiration_lookahead`` here and
+            ``expiration_dates`` on the pipeline factory; building without
+            either raises ``ValueError``.
         expiration_lookahead: Number of calendar days to look ahead for
             expiring assets, forwarded to ``SelectNonExpiring`` as a
             ``timedelta``.

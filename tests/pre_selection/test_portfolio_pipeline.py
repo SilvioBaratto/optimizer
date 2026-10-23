@@ -102,6 +102,13 @@ class TestBuildPortfolioPipeline:
         assert "select_non_expiring" in steps
         assert steps["select_non_expiring"].expiration_dates == exp
 
+    def test_non_expiring_without_dates_raises_at_build(self) -> None:
+        """The portfolio factory shares the pre-selection contract: a requested
+        expiry filter needs the dates it filters on."""
+        cfg = PreSelectionConfig(use_non_expiring=True, expiration_lookahead=30)
+        with pytest.raises(ValueError, match="expiration_dates"):
+            build_portfolio_pipeline(EqualWeighted(), pre_selection_config=cfg)
+
     def test_expiration_dates_noop_by_default(self, returns_df: pd.DataFrame) -> None:
         """Without use_non_expiring, no SelectNonExpiring step is added."""
         import datetime as dt

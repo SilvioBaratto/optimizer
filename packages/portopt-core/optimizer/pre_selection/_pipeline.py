@@ -89,10 +89,10 @@ def build_preselection_pipeline(
             mean imputation is used.
         expiration_dates: Ticker → expiration date, forwarded to
             `SelectNonExpiring` (non-serialisable, so a factory keyword
-            rather than a config field).  Only used when
-            ``config.use_non_expiring`` is set with a positive
-            ``expiration_lookahead``.  Without it, ``SelectNonExpiring`` has no
-            expiry information and retains every asset.
+            rather than a config field).  Required when
+            ``config.use_non_expiring`` is set; assets absent from the mapping
+            never expire, so an empty dict retains every asset.  Ignored when
+            ``use_non_expiring`` is off.
         outlier_protection_mask: Boolean matrix (dates x tickers) forwarded to
             `OutlierTreater` as ``protected_mask``.  Flags cells that
             are real economic events (e.g. a delisted asset's terminal return)
@@ -108,6 +108,11 @@ def build_preselection_pipeline(
         columns rather than an error.  Fitting raises `DataError` naming the
         dates on which no asset has an observation once cleaning has run,
         because the imputer has no peer to fill them from.
+
+    Raises:
+        ValueError: If ``config.outlier_method`` is unsupported, or if
+            ``config.use_non_expiring`` is set without an
+            ``expiration_lookahead`` or without ``expiration_dates``.
     """
     steps = _build_steps(
         config,
@@ -211,7 +216,20 @@ def _build_steps(
             )
         )
 
-    if config.use_non_expiring and config.expiration_lookahead is not None:
+    if config.use_non_expiring:
+        # Fail at build rather than skip the step: an expiry filter the caller
+        # asked for but that cannot run would let expiring contracts through
+        # unnoticed.
+        if config.expiration_lookahead is None:
+            raise ValueError(
+                "use_non_expiring requires expiration_lookahead to be set "
+                "(number of calendar days)."
+            )
+        if expiration_dates is None:
+            raise ValueError(
+                "use_non_expiring requires expiration_dates "
+                "(pass an empty dict if no asset expires)."
+            )
         steps.append(
             (
                 "select_non_expiring",
@@ -256,9 +274,9 @@ def build_portfolio_pipeline(
         expiration_dates: Ticker → expiration date, forwarded to the
             pre-selection pipeline's ``SelectNonExpiring`` step
             (non-serialisable, hence a factory keyword rather than a config
-            field).  Only takes effect when the pre-selection config sets
-            ``use_non_expiring`` with a positive ``expiration_lookahead``;
-            ``None`` (default) retains every asset.
+            field).  Required when the pre-selection config sets
+            ``use_non_expiring``; ignored otherwise.  Assets absent from the
+            mapping never expire.
         outlier_protection_mask: Boolean matrix (dates x tickers) forwarded
             to the pre-selection ``OutlierTreater`` so genuine economic events
             (e.g. delisting returns) are exempt from outlier
@@ -268,6 +286,10 @@ def build_portfolio_pipeline(
         A fitted-ready pipeline whose ``fit(X)`` cleans and filters
         returns then optimises, and whose ``predict(X)`` produces
         a skfolio ``Portfolio``.
+
+    Raises:
+        ValueError: Under the same conditions as
+            `build_preselection_pipeline`.
 
     Examples:
         >>> from optimizer.optimization import MeanRiskConfig, build_mean_risk

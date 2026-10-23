@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime as dt
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -92,13 +94,26 @@ class TestBuildPreselectionPipeline:
 
     def test_non_expiring_step_added(self) -> None:
         cfg = PreSelectionConfig(use_non_expiring=True, expiration_lookahead=90)
-        pipe = build_preselection_pipeline(cfg)
+        pipe = build_preselection_pipeline(cfg, expiration_dates={})
         step_names = [name for name, _ in pipe.steps]
         assert "select_non_expiring" in step_names
 
-    def test_non_expiring_requires_lookahead(self) -> None:
+    def test_non_expiring_without_lookahead_raises_at_build(self) -> None:
+        # Silently skipping a hard eligibility filter the caller switched on
+        # would leave expiring contracts in the universe unnoticed.
         cfg = PreSelectionConfig(use_non_expiring=True)
-        pipe = build_preselection_pipeline(cfg)
+        with pytest.raises(ValueError, match="expiration_lookahead"):
+            build_preselection_pipeline(cfg, expiration_dates={})
+
+    def test_non_expiring_without_dates_raises_at_build(self) -> None:
+        cfg = PreSelectionConfig(use_non_expiring=True, expiration_lookahead=30)
+        with pytest.raises(ValueError, match="expiration_dates"):
+            build_preselection_pipeline(cfg)
+
+    def test_expiration_dates_ignored_when_non_expiring_disabled(self) -> None:
+        pipe = build_preselection_pipeline(
+            expiration_dates={"A": dt.datetime(2030, 1, 1)}
+        )
         step_names = [name for name, _ in pipe.steps]
         assert "select_non_expiring" not in step_names
 
@@ -315,8 +330,6 @@ class TestDegenerateUniverses:
 
     @pytest.mark.parametrize("n_assets", [0, 1])
     def test_all_optional_steps_tolerate_tiny_universes(self, n_assets: int) -> None:
-        import datetime as dt
-
         pipe = build_preselection_pipeline(
             self._all_optional_steps(),
             expiration_dates={"S0": dt.datetime(2030, 1, 1)},
@@ -607,7 +620,7 @@ class TestStepOrdering:
             use_non_expiring=True,
             expiration_lookahead=90,
         )
-        pipe = build_preselection_pipeline(cfg)
+        pipe = build_preselection_pipeline(cfg, expiration_dates={})
         step_names = [name for name, _ in pipe.steps]
         assert step_names.index("drop_correlated") < step_names.index("select_k")
         assert step_names.index("select_k") < step_names.index("select_pareto")
@@ -746,13 +759,8 @@ class TestNonExpiringWithDates:
         assert "LIVE" in out.columns
         assert "OTHER" in out.columns
 
-    def test_no_dates_requires_dates_at_fit(self) -> None:
-        """skfolio's SelectNonExpiring mandates expiration_dates at fit time.
-
-        Building without them still assembles the pipeline (step-ordering
-        tests rely on that), but fitting raises — documenting that
-        expiration_dates is a required companion of use_non_expiring.
-        """
+    def test_empty_dates_retain_every_asset(self) -> None:
+        """An explicit empty mapping means no asset expires, so nothing is dropped."""
         rng = np.random.default_rng(2)
         n_obs = 120
         df = pd.DataFrame(
@@ -765,6 +773,5 @@ class TestNonExpiringWithDates:
             expiration_lookahead=30,
             correlation_threshold=1.0,
         )
-        pipe = build_preselection_pipeline(cfg)
-        with pytest.raises(ValueError, match="expiration_dates"):
-            pipe.fit_transform(df)
+        out = build_preselection_pipeline(cfg, expiration_dates={}).fit_transform(df)
+        assert list(out.columns) == ["A", "B", "C"]
