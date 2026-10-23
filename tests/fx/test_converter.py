@@ -525,3 +525,97 @@ class TestFxPriceConverterFillLimitWarning:
         # Warning must report correct total NaN count (6) and include hint
         assert any("6" in m for m in warning_messages)
         assert any("Consider increasing fill_limit" in m for m in warning_messages)
+
+
+class TestFxPriceConverterUnmappedTickers:
+    """A column with no known currency must never be silently valued as base."""
+
+    @staticmethod
+    def _prices() -> pd.DataFrame:
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        return pd.DataFrame(
+            {"VOD.L": [70.0, 71.0, 72.0, 73.0], "AAPL": [190.0] * 4}, index=dates
+        )
+
+    @staticmethod
+    def _fx(prices: pd.DataFrame) -> pd.DataFrame:
+        return pd.DataFrame({"USD": [0.9] * 4}, index=prices.index)
+
+    def test_ticker_absent_from_currency_map_is_flagged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        prices = self._prices()
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"AAPL": "USD"},
+            fx_rates=self._fx(prices),
+        )
+        with caplog.at_level(logging.WARNING, logger="optimizer.fx._converter"):
+            converter.fit(prices)
+
+        assert any(
+            "VOD.L" in r.message and r.levelno == logging.WARNING
+            for r in caplog.records
+        )
+        assert converter.unmapped_tickers_ == ["VOD.L"]
+        assert "AAPL" not in converter.unmapped_tickers_
+
+    def test_ticker_absent_from_currency_map_raises_when_full_coverage_required(
+        self,
+    ) -> None:
+        prices = self._prices()
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"AAPL": "USD"},
+            fx_rates=self._fx(prices),
+            require_full_coverage=True,
+        )
+        with pytest.raises(DataError, match=r"VOD\.L"):
+            converter.fit(prices)
+
+    @pytest.mark.parametrize("missing_code", [None, float("nan"), "", "  "])
+    def test_null_currency_code_is_unknown_not_a_bogus_currency(
+        self, missing_code: object
+    ) -> None:
+        prices = self._prices()
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"AAPL": "USD", "VOD.L": missing_code},  # type: ignore[dict-item]
+            fx_rates=self._fx(prices),
+        )
+        converter.fit(prices)
+
+        assert converter.unmapped_tickers_ == ["VOD.L"]
+        assert converter.missing_currencies_ == set()
+        assert "VOD.L" not in converter.foreign_tickers_
+
+    def test_null_currency_code_raises_unmapped_error_when_full_coverage_required(
+        self,
+    ) -> None:
+        prices = self._prices()
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"AAPL": "USD", "VOD.L": None},  # type: ignore[dict-item]
+            fx_rates=self._fx(prices),
+            require_full_coverage=True,
+        )
+        with pytest.raises(DataError, match=r"VOD\.L") as excinfo:
+            converter.fit(prices)
+        assert "NONE" not in str(excinfo.value)
+
+    def test_fully_mapped_frame_has_no_unmapped_tickers(
+        self,
+        local_prices: pd.DataFrame,
+        currency_map: dict[str, str],
+        fx_rates: pd.DataFrame,
+    ) -> None:
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map=currency_map,
+            fx_rates=fx_rates,
+            require_full_coverage=True,
+        )
+        converter.fit(local_prices)
+        assert converter.unmapped_tickers_ == []

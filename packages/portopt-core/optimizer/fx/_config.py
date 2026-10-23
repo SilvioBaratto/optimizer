@@ -45,9 +45,12 @@ class FxConfig:
         fill_limit: Maximum number of trading days to forward-fill missing FX
             rates (weekends, holidays).
         require_full_coverage: If ``True``, raise ``DataError`` when any
-            required FX pair has insufficient data. If ``False``, log a
-            warning and leave the affected foreign-currency tickers
-            unconverted.
+            required FX pair has insufficient data, or when a ticker has no
+            known currency (absent from ``currency_map`` or mapped to
+            ``None`` / NaN / a blank string). If ``False``, log a warning and
+            leave the affected tickers unconverted: an FX pair with no data
+            leaves its tickers in local currency, and a ticker with no known
+            currency is valued as if quoted in the base major currency.
         cross_via_usd: When ``True``, compute cross-rates via USD
             (e.g. GBP/EUR = GBP/USD / EUR/USD) rather than looking up direct
             pairs. yfinance direct cross pairs are often sparse. Read by

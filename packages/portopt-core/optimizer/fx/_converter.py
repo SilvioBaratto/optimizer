@@ -17,6 +17,20 @@ from optimizer.fx._rates import align_fx_rates
 logger = logging.getLogger(__name__)
 
 
+def _is_unknown_code(code: object) -> bool:
+    """Whether a currency-map value carries no usable currency.
+
+    ``normalize_currency_code`` stringifies its input, so a ``None`` or NaN
+    code from a nullable DB column would otherwise become the bogus
+    currency ``"NONE"`` / ``"NAN"``.
+    """
+    if code is None:
+        return True
+    if isinstance(code, str):
+        return not code.strip()
+    return bool(pd.isna(code))
+
+
 class FxPriceConverter(BaseEstimator, TransformerMixin):
     """Convert local-currency prices to base-currency prices.
 
@@ -41,7 +55,11 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
         currency_map: Mapping of ticker → currency / price-unit code as stored in the DB
             (``price_history.price_unit``).  Minor-unit codes (``GBp``, ``ZAc``,
             ``ILA``, ...) are recognised and rescaled; do **not** pre-normalise
-            them to the major code, or the sub-unit scale would be lost.
+            them to the major code, or the sub-unit scale would be lost.  A
+            ticker that is absent from the map, or mapped to ``None`` / NaN /
+            a blank string, has an unknown currency: it is logged and passed
+            through as if quoted in the base major currency (or rejected when
+            ``require_full_coverage`` is set).
         fx_rates: Pre-loaded FX rate DataFrame indexed by date, with one column
             per foreign **major** currency.  Each column holds the rate expressed
             as units-of-base per one unit-of-foreign.  For example, if
@@ -49,8 +67,8 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
             (≈ 1.16).  (Pence tickers are rescaled to GBP first, so only the
             major-unit ``GBP`` rate is needed — never a ``GBp`` column.)
         fill_limit: Forward-fill limit for aligning FX rates to the price index.
-        require_full_coverage: If ``True``, raise ``DataError`` when any non-base
-            currency lacks FX rate data.
+        require_full_coverage: If ``True``, raise ``DataError`` when any ticker
+            has an unknown currency or any non-base currency lacks FX rate data.
     """
 
     base_currency: str
@@ -105,9 +123,13 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
         foreign_tickers: dict[str, str] = {}
         ticker_scale: dict[str, int] = {}
         minor_unit_tickers: dict[str, int] = {}
+        unmapped: list[str] = []
         for ticker in X.columns:
-            raw_code = currency_map.get(ticker, base_ccy)
-            major, scale = normalize_currency_code(raw_code)
+            raw_code = currency_map.get(ticker)
+            if _is_unknown_code(raw_code):
+                unmapped.append(ticker)
+                raw_code = base_ccy
+            major, scale = normalize_currency_code(cast(str, raw_code))
             ticker_scale[ticker] = scale
             if scale != 1:
                 minor_unit_tickers[ticker] = scale
@@ -117,6 +139,17 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
         self.foreign_tickers_: dict[str, str] = foreign_tickers
         self.ticker_scale_: dict[str, int] = ticker_scale
         self.minor_unit_tickers_: dict[str, int] = minor_unit_tickers
+        self.unmapped_tickers_: list[str] = unmapped
+
+        if unmapped:
+            msg = f"No currency known for ticker(s) {unmapped}."
+            if self.require_full_coverage:
+                raise DataError(msg)
+            logger.warning(
+                "%s Treating them as %s: no FX conversion and no minor-unit rescaling.",
+                msg,
+                base_ccy,
+            )
 
         if minor_unit_tickers:
             logger.info(
