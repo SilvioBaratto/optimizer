@@ -31,7 +31,10 @@ class BenchmarkTrackerConfig:
         transaction_costs: Linear transaction costs penalising turnover.
         management_fees: Linear management fees proportional to position size.
         l1_coef: L1 regularisation coefficient.
-        l2_coef: L2 regularisation coefficient.
+        l2_coef: L2 regularisation coefficient.  Applied to the absolute
+            weights, so it shrinks toward equal weight rather than toward the
+            benchmark and typically widens tracking error; it is not a
+            tracking-error target.
         risk_free_rate: Risk-free rate.
         solver: CVXPY solver name.
         solver_params: Additional solver keyword arguments.
@@ -40,6 +43,11 @@ class BenchmarkTrackerConfig:
         The benchmark return series is NOT a config field. Pass it as ``y``
         to ``fit(X, y)`` after building the optimizer; it is a non-serialisable
         runtime object and cannot be held in a frozen dataclass.
+
+        ``BenchmarkTracker`` minimises tracking error and exposes no hard
+        tracking-error bound.  For an explicit cap use
+        ``MeanRiskConfig.for_tracking_error``, which takes the benchmark as
+        ``y`` at fit time.
     """
 
     risk_measure: RiskMeasureType = RiskMeasureType.STANDARD_DEVIATION
@@ -53,26 +61,6 @@ class BenchmarkTrackerConfig:
     risk_free_rate: float = 0.0
     solver: str = "CLARABEL"
     solver_params: dict[str, object] | None = None
-
-    @classmethod
-    def for_te_target(cls, target: float = 0.01) -> BenchmarkTrackerConfig:
-        """Return a config with a soft L2 tracking-error penalty.
-
-        Uses a soft L2 penalty proportional to ``target`` to discourage
-        large deviations from the benchmark.  ``BenchmarkTracker``
-        minimises tracking error as its objective and exposes NO hard
-        tracking-error bound parameter — for an explicit cap use
-        ``MeanRiskConfig.for_tracking_error`` (which sets
-        ``max_tracking_error`` and takes the benchmark as ``y`` at fit
-        time), or pass custom ``linear_constraints`` via factory kwargs.
-
-        Args:
-            target: Desired tracking-error level; mapped to ``l2_coef``.
-
-        Returns:
-            A BenchmarkTrackerConfig with l2_coef set to target.
-        """
-        return cls(l2_coef=target)
 
     @classmethod
     def for_information_ratio(cls) -> BenchmarkTrackerConfig:

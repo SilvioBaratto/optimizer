@@ -43,9 +43,11 @@ class TestBenchmarkTrackerConfig:
 
 
 class TestPresets:
-    def test_when_for_te_target_then_l2_coef_set(self) -> None:
-        cfg = BenchmarkTrackerConfig.for_te_target(target=0.01)
-        assert cfg.l2_coef > 0.0
+    def test_when_no_hard_te_bound_then_no_te_target_preset(self) -> None:
+        # l2_coef is a ridge on absolute weights (it shrinks toward equal
+        # weight), so mapping a tracking-error target onto it makes a larger
+        # "target" track the benchmark worse instead of capping the error.
+        assert not hasattr(BenchmarkTrackerConfig, "for_te_target")
 
     def test_when_for_information_ratio_then_returns_config(self) -> None:
         cfg = BenchmarkTrackerConfig.for_information_ratio()
@@ -110,11 +112,6 @@ class TestIntegration:
         est = build_benchmark_tracker(BenchmarkTrackerConfig())
         with pytest.raises(ValueError, match="benchmark"):
             est.fit(returns)
-
-    def test_when_for_te_target_then_fits(self, returns, benchmark) -> None:
-        est = build_benchmark_tracker(BenchmarkTrackerConfig.for_te_target(target=0.01))
-        est.fit(returns, benchmark)
-        assert est.weights_.shape == (returns.shape[1],)
 
     def test_when_for_information_ratio_then_fits(self, returns, benchmark) -> None:
         est = build_benchmark_tracker(BenchmarkTrackerConfig.for_information_ratio())
