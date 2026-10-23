@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Secret fields overridden by mounted Docker-compose secret files at runtime.
 # The container mounts each at ``$PORTOPT_SECRETS_DIR/<field>`` (default
-# ``/run/secrets``); a present file wins over env/.env and is stripped.
+# ``/run/secrets``); a non-empty file wins over env/.env and is stripped.
 _SECRET_FILE_FIELDS = (
     "trading_212_api_key",
     "trading_212_secret_key",
@@ -205,15 +205,21 @@ class Settings(BaseSettings):
         """Override secret fields from mounted Docker-compose secret files.
 
         In the container each secret is mounted at ``$PORTOPT_SECRETS_DIR/<field>``
-        (default ``/run/secrets``). A present file wins over env/.env (the compose
-        secret is source of truth), value stripped. Missing files leave the
-        env/default value, so an unset secret stays "" (T212-absent skip intact).
+        (default ``/run/secrets``). A file with content wins over env/.env (the
+        compose secret is source of truth), value stripped. Missing or empty files
+        leave the env/default value: ``compose_secrets.render`` writes an empty
+        placeholder for every secret the store lacks, and that must not shadow a
+        key supplied through ``.env``. An unset secret stays "" (T212-absent skip
+        intact).
         """
         secrets_dir = Path(os.getenv("PORTOPT_SECRETS_DIR", "/run/secrets"))
         for field in _SECRET_FILE_FIELDS:
             secret_path = secrets_dir / field
-            if secret_path.is_file():
-                setattr(self, field, secret_path.read_text(encoding="utf-8").strip())
+            if not secret_path.is_file():
+                continue
+            value = secret_path.read_text(encoding="utf-8").strip()
+            if value:
+                setattr(self, field, value)
         return self
 
     @property
