@@ -17,6 +17,7 @@ from optimizer.optimization import (
     RegimeBlendedMeanRiskConfig,
     build_regime_blended_mean_risk,
 )
+from optimizer.pre_selection import PreSelectionConfig
 
 # ---------------------------------------------------------------------------
 # Module-scoped fixtures — computed once per test session
@@ -292,6 +293,64 @@ class TestExplicitConfigAndPreviousWeights:
             previous_weights=prev,
         )
         np.testing.assert_array_equal(pipeline[-1].previous_weights, prev)
+
+
+class TestPreviousWeightsSurvivePreSelection:
+    """Name-keyed previous weights stay valid when pre-selection drops assets."""
+
+    @staticmethod
+    def _build(
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+        previous_weights: object,
+    ) -> Pipeline:
+        cfg = RegimeBlendedMeanRiskConfig(
+            mean_risk_config=MeanRiskConfig(transaction_costs=0.001)
+        )
+        pipeline, _ = build_regime_blended_mean_risk(
+            cfg,
+            factor_returns=factor_returns_df,
+            regime_probabilities=regime_probs_df,
+            pre_selection_config=PreSelectionConfig(top_k=10),
+            previous_weights=previous_weights,  # type: ignore[arg-type]
+        )
+        return pipeline
+
+    def test_series_previous_weights_fit_after_top_k_drops_assets(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+    ) -> None:
+        prev = pd.Series(1.0 / len(_COLS), index=_COLS)
+        pipeline = self._build(factor_returns_df, regime_probs_df, prev)
+
+        pipeline.fit(returns_df, optimizer__factors=factor_returns_df)
+
+        assert pipeline[-1].weights_.shape == (10,)
+
+    def test_series_is_forwarded_as_a_name_keyed_dict(
+        self, factor_returns_df: pd.DataFrame, regime_probs_df: pd.DataFrame
+    ) -> None:
+        prev = pd.Series(1.0 / len(_COLS), index=_COLS)
+        pipeline = self._build(factor_returns_df, regime_probs_df, prev)
+
+        forwarded = pipeline[-1].previous_weights
+        assert isinstance(forwarded, dict)
+        assert forwarded == prev.to_dict()
+
+    def test_dict_previous_weights_fit_after_top_k_drops_assets(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+    ) -> None:
+        prev = dict.fromkeys(_COLS, 1.0 / len(_COLS))
+        pipeline = self._build(factor_returns_df, regime_probs_df, prev)
+
+        pipeline.fit(returns_df, optimizer__factors=factor_returns_df)
+
+        assert pipeline[-1].weights_.shape == (10,)
 
 
 # ---------------------------------------------------------------------------

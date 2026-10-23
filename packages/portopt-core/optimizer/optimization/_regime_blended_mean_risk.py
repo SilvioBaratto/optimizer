@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -195,6 +196,17 @@ class _ExternallyControlledRegimeCovariance(BaseCovariance):
         return self
 
 
+def _name_keyed_weights(
+    previous_weights: Mapping[str, float] | pd.Series | np.ndarray,
+) -> dict[str, float] | np.ndarray:
+    """Convert name-labelled weights to a plain dict that skfolio resolves by name."""
+    if isinstance(previous_weights, pd.Series):
+        return {str(name): float(w) for name, w in previous_weights.items()}
+    if isinstance(previous_weights, Mapping):
+        return dict(previous_weights)
+    return previous_weights
+
+
 def build_regime_blended_mean_risk(
     config: RegimeBlendedMeanRiskConfig | None = None,
     *,
@@ -204,7 +216,7 @@ def build_regime_blended_mean_risk(
     sector_mapping: dict[str, str] | None = None,
     min_sector_weights: dict[str, float] | None = None,
     sector_bands: dict[str, tuple[float, float]] | None = None,
-    previous_weights: np.ndarray | None = None,
+    previous_weights: Mapping[str, float] | pd.Series | np.ndarray | None = None,
 ) -> tuple[Pipeline, WalkForward]:
     """Build a regime-blended MeanRisk pipeline and walk-forward CV splitter.
 
@@ -243,7 +255,12 @@ def build_regime_blended_mean_risk(
         sector_bands: Regime-conditional per-sector ``(floor, cap)`` bands
             forwarded to `build_mean_risk`. Requires ``sector_mapping``.
         previous_weights: Previous portfolio weights for turnover control.
-            Forwarded to `build_mean_risk` via ``**kwargs``.
+            Forwarded to `build_mean_risk` via ``**kwargs``. Prefer a
+            ticker → weight mapping (or a ticker-indexed `pd.Series`, which is
+            converted to one): skfolio resolves it by name after pre-selection,
+            treating dropped assets as liquidated. A positional array is only
+            valid when pre-selection keeps every asset; it raises at fit time
+            as soon as one column is dropped.
 
     Returns:
         A 2-tuple of the pre-selection → MeanRisk(TimeSeriesFactorModel)
@@ -278,7 +295,7 @@ def build_regime_blended_mean_risk(
 
     extra_kwargs: dict[str, Any] = {}
     if previous_weights is not None:
-        extra_kwargs["previous_weights"] = previous_weights
+        extra_kwargs["previous_weights"] = _name_keyed_weights(previous_weights)
 
     optimizer = build_mean_risk(
         config.mean_risk_config,
