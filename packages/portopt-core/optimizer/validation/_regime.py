@@ -265,25 +265,30 @@ def _compute_period_metrics(
             "max_drawdown": np.nan,
         }
     mean_daily = returns_slice.mean()
-    std_daily = returns_slice.std(ddof=1) if n > 1 else 0.0
-
-    # Realised CAGR, not (1 + mean)^T - 1: compounding the arithmetic mean
-    # ignores volatility drag and overstates returns, most in the high-vol
-    # regimes this module exists to scrutinise.
     valid = returns_slice.dropna()
-    growth = float(np.prod(1.0 + valid.to_numpy())) if len(valid) > 0 else np.nan
-    if np.isnan(growth):
+    # Volatility is undefined for a single observation, and annualising one
+    # day's return only extrapolates it, so both stay NaN rather than 0.0 / a
+    # four-digit percentage.
+    if len(valid) < 2:
         ann_return = np.nan
-    elif growth <= 0.0:
-        ann_return = -1.0
+        ann_vol = np.nan
+        sharpe = np.nan
     else:
-        ann_return = float(growth ** (trading_days / len(valid)) - 1.0)
-    ann_vol = float(std_daily * np.sqrt(trading_days))
-    sharpe = (
-        float((mean_daily - rf_daily) / std_daily) * np.sqrt(trading_days)
-        if std_daily > 0
-        else np.nan
-    )
+        std_daily = returns_slice.std(ddof=1)
+        # Realised CAGR, not (1 + mean)^T - 1: compounding the arithmetic mean
+        # ignores volatility drag and overstates returns, most in the high-vol
+        # regimes this module exists to scrutinise.
+        growth = float(np.prod(1.0 + valid.to_numpy()))
+        if growth <= 0.0:
+            ann_return = -1.0
+        else:
+            ann_return = float(growth ** (trading_days / len(valid)) - 1.0)
+        ann_vol = float(std_daily * np.sqrt(trading_days))
+        sharpe = (
+            float((mean_daily - rf_daily) / std_daily) * np.sqrt(trading_days)
+            if std_daily > 0
+            else np.nan
+        )
 
     cum = (1.0 + returns_slice).cumprod()
     # The running peak starts at the initial equity of 1.0 so that a slice

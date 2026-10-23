@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -398,6 +400,38 @@ class TestRunRegimeValidation:
         result = run_regime_validation(returns, macro)
         ann_ret = result.per_regime_metrics.loc["expansion", "ann_return"]
         assert ann_ret == pytest.approx(float((1.0 + returns).prod() - 1.0), rel=1e-9)
+
+    def test_single_observation_block_reports_undefined_dispersion_as_nan(
+        self,
+    ) -> None:
+        """One day has no volatility, and annualising it only extrapolates."""
+        dates = pd.bdate_range("2024-01-02", periods=61)
+        macro = pd.DataFrame(
+            {
+                "pmi": [55.0] * 60 + [46.0],
+                "spread_2s10s": [1.5] * 60 + [-0.5],
+                "hy_oas": [300.0] * 60 + [600.0],
+            },
+            index=dates,
+        )
+        returns = pd.Series([0.001] * 60 + [-0.02], index=dates)
+        config = RegimeValidationConfig(min_regime_obs=1)
+
+        result = run_regime_validation(returns, macro, config=config)
+
+        one_day = result.per_regime_metrics.loc["recession"]
+        assert one_day["obs"] == 1
+        assert np.isnan(one_day["ann_vol"])
+        assert np.isnan(one_day["ann_return"])
+        assert np.isnan(one_day["sharpe"])
+        assert one_day["max_drawdown"] == pytest.approx(-0.02)
+        last_block = result.per_subperiod_metrics.iloc[-1]
+        assert last_block["obs"] == 1
+        assert np.isnan(last_block["ann_vol"])
+        attribution = result.to_attribution_dict()
+        regimes = cast(list[dict[str, object]], attribution["regimes"])
+        recession = next(r for r in regimes if r["regime"] == "recession")
+        assert recession["ann_vol"] is None
 
     def test_max_drawdown_counts_loss_from_starting_equity(self) -> None:
         """A block that opens with a loss is a drawdown from the initial 1.0."""
