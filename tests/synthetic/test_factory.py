@@ -256,6 +256,39 @@ class TestBuildConditionalSyntheticData:
         assert prior.covariance is not None
         assert len(prior.mu) == returns_df.shape[1]
 
+    def test_when_random_state_set_then_conditional_fit_is_reproducible(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        cfg = SyntheticDataConfig(
+            n_samples=300,
+            vine_copula_config=VineCopulaConfig(
+                random_state=7, central_assets=("TICK_00",)
+            ),
+        )
+
+        def fit_once() -> np.ndarray:
+            model = build_conditional_synthetic_data({"TICK_00": -0.10}, cfg)
+            model.fit(returns_df)
+            return np.asarray(model.return_distribution_.returns)
+
+        assert np.array_equal(fit_once(), fit_once())
+
+    def test_when_seeded_conditional_fit_then_global_numpy_state_restored(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        cfg = SyntheticDataConfig(
+            n_samples=300,
+            vine_copula_config=VineCopulaConfig(
+                random_state=7, central_assets=("TICK_00",)
+            ),
+        )
+        model = build_conditional_synthetic_data({"TICK_00": -0.10}, cfg)
+        np.random.seed(123)
+        expected_next = np.random.rand()
+        np.random.seed(123)
+        model.fit(returns_df)
+        assert np.random.rand() == expected_next
+
 
 # ---------------------------------------------------------------------------
 # Integration tests

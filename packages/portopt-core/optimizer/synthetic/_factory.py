@@ -27,8 +27,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from numbers import Integral
 from typing import Any
 
+import numpy as np
 from skfolio.distribution import (
     ClaytonCopula,
     DependenceMethod,
@@ -180,6 +182,30 @@ def build_vine_copula(
     )
 
 
+class _SeededSyntheticData(SyntheticData):
+    """`SyntheticData` whose conditional jitter honours the vine's seed.
+
+    skfolio adds ``1e-6 * np.random.randn`` noise to the constant columns that
+    conditioning produces, drawing from the *global* NumPy generator instead of
+    ``random_state``. Fixed-seed stress runs would otherwise differ in the
+    conditioned column from one fit to the next. When the distribution
+    estimator carries an integer seed, the global generator is seeded for the
+    duration of ``fit`` and its previous state restored afterwards, so
+    callers' own global-RNG streams are left untouched.
+    """
+
+    def fit(self, X: Any, y: None = None, **fit_params: Any) -> SyntheticData:
+        seed = getattr(self.distribution_estimator, "random_state", None)
+        if not isinstance(seed, Integral):
+            return super().fit(X, y, **fit_params)
+        saved_state = np.random.get_state()
+        try:
+            np.random.seed(int(seed))
+            return super().fit(X, y, **fit_params)
+        finally:
+            np.random.set_state(saved_state)
+
+
 def build_synthetic_data(
     config: SyntheticDataConfig | None = None,
     *,
@@ -207,7 +233,7 @@ def build_synthetic_data(
     if distribution_estimator is None and config.vine_copula_config is not None:
         distribution_estimator = build_vine_copula(config.vine_copula_config)
 
-    return SyntheticData(
+    return _SeededSyntheticData(
         distribution_estimator=distribution_estimator,
         n_samples=config.n_samples,
         sample_args=sample_args,
