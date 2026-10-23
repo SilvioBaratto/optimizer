@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from cvxpy.error import SolverError
-from skfolio.measures import BaseMeasure, RatioMeasure
+from skfolio.measures import BaseMeasure, PerfMeasure, RatioMeasure, RiskMeasure
 from skfolio.moments import EWCovariance, EWMu
 from skfolio.optimization import MeanRisk
 from skfolio.prior import EmpiricalPrior
@@ -25,8 +25,8 @@ from optimizer.online import (
     build_online_randomized_search,
 )
 from optimizer.online._factory import _resolve_measure
-from optimizer.optimization._config import RatioMeasureType
-from optimizer.scoring._config import ScorerConfig
+from optimizer.optimization._config import RatioMeasureType, RiskMeasureType
+from optimizer.scoring._config import PerfMeasureType, ScorerConfig
 from optimizer.tuning._config import GridSearchConfig, RandomizedSearchConfig
 
 
@@ -241,3 +241,53 @@ def test_when_error_score_raise_and_candidate_infeasible_then_fit_raises(
     search = build_online_grid_search(cfg, estimator, grid)
     with pytest.raises(SolverError):
         search.fit(returns)
+
+
+def test_when_resolve_risk_measure_then_returns_matching_measure() -> None:
+    measure = _resolve_measure(ScorerConfig.for_risk_measure(RiskMeasureType.CVAR))
+    assert measure is RiskMeasure.CVAR
+
+
+def test_when_resolve_perf_measure_then_returns_matching_measure() -> None:
+    measure = _resolve_measure(
+        ScorerConfig.for_perf_measure(PerfMeasureType.ANNUALIZED_MEAN)
+    )
+    assert measure is PerfMeasure.ANNUALIZED_MEAN
+
+
+@pytest.mark.parametrize(
+    ("scorer_config", "expected"),
+    [
+        (ScorerConfig.for_risk_measure(), RiskMeasure.VARIANCE),
+        (ScorerConfig.for_perf_measure(), PerfMeasure.MEAN),
+    ],
+)
+def test_when_scorer_is_perf_or_risk_family_then_searches_accept_it(
+    estimator: MeanRisk, scorer_config: ScorerConfig, expected: object
+) -> None:
+    grid = {"prior_estimator__mu_estimator__half_life": [20.0, 40.0]}
+    grid_search = build_online_grid_search(_online_cfg(scorer_config), estimator, grid)
+    randomized = build_online_randomized_search(
+        OnlineRandomizedSearchConfig(
+            base=RandomizedSearchConfig(scorer_config=scorer_config),
+            online=OnlinePredictConfig(warmup_size=150, n_jobs=1),
+        ),
+        estimator,
+        grid,
+    )
+    assert grid_search.scoring is expected
+    assert randomized.scoring is expected
+
+
+def test_when_risk_measure_scorer_then_online_search_fits(
+    estimator: MeanRisk,
+    returns: pd.DataFrame,
+) -> None:
+    search = build_online_grid_search(
+        _online_cfg(ScorerConfig.for_risk_measure()),
+        estimator,
+        {"prior_estimator__mu_estimator__half_life": [20.0, 40.0]},
+    )
+    search.fit(returns)
+    # skfolio negates risk measures so that a higher score is always better.
+    assert np.all(np.asarray(search.cv_results_["mean_score"]) <= 0.0)

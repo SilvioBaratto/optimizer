@@ -36,29 +36,35 @@ def _resolve_measure(scorer_config: Any) -> Any:
 
     Online *portfolio* evaluation (``OnlineGridSearch`` / ``online_score``
     on optimizers) rejects ``make_scorer`` objects and requires a
-    ``BaseMeasure`` passed directly. Custom callables and the
-    benchmark-relative Information Ratio cannot be expressed as a single
-    ``BaseMeasure``, so they are unsupported here.
+    ``BaseMeasure`` passed directly. Ratio, perf and risk measure families
+    all map onto one; custom callables and the benchmark-relative
+    Information Ratio cannot be expressed as a single ``BaseMeasure``, so
+    they are unsupported here.
     """
     from optimizer.optimization._config import RatioMeasureType
-    from optimizer.scoring._factory import _RATIO_MEASURE_MAP
+    from optimizer.scoring._factory import build_online_measure
 
-    measure = getattr(scorer_config, "ratio_measure", None)
-    if measure is None:
-        raise ConfigurationError(
-            "Online portfolio search requires a built-in ratio measure. "
-            "ScorerConfig.ratio_measure=None (custom callable) is not "
-            "supported — online evaluation scores the aggregated "
-            "MultiPeriodPortfolio and rejects make_scorer objects. "
-            "Set ratio_measure=RatioMeasureType.SHARPE_RATIO (or similar)."
-        )
-    if measure == RatioMeasureType.INFORMATION_RATIO:
+    ratio_measure = getattr(scorer_config, "ratio_measure", None)
+    if ratio_measure == RatioMeasureType.INFORMATION_RATIO:
         raise ConfigurationError(
             "Information Ratio is benchmark-relative and not expressible as "
             "a skfolio BaseMeasure for online portfolio search. Use a "
             "built-in ratio measure (e.g. SHARPE_RATIO, SORTINO_RATIO)."
         )
-    return _RATIO_MEASURE_MAP[measure]
+    if (
+        ratio_measure is None
+        and getattr(scorer_config, "perf_measure", None) is None
+        and getattr(scorer_config, "risk_measure", None) is None
+    ):
+        raise ConfigurationError(
+            "Online portfolio search requires a built-in ratio measure, perf "
+            "measure or risk measure. A ScorerConfig with no measure family "
+            "(custom callable) is not supported — online evaluation scores "
+            "the aggregated MultiPeriodPortfolio and rejects make_scorer "
+            "objects. Set ratio_measure=RatioMeasureType.SHARPE_RATIO (or "
+            "similar), or use perf_measure / risk_measure."
+        )
+    return build_online_measure(scorer_config)
 
 
 def _resolve_portfolio_params(scorer_config: Any) -> dict[str, Any] | None:
