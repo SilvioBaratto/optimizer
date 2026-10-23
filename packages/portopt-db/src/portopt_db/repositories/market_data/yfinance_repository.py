@@ -108,6 +108,24 @@ def _safe_str(v: Any, max_len: int | None = None) -> str | None:
     return s
 
 
+def _last_wins(rows: list[dict[str, Any]], *key_fields: str) -> list[dict[str, Any]]:
+    """Collapse rows that share a conflict key, keeping the last occurrence.
+
+    A single ``INSERT ... ON CONFLICT DO UPDATE`` cannot affect the same key
+    twice ("cannot affect row a second time"), and the error aborts the whole
+    statement, so a duplicate in one feed would drop that category for the
+    ticker on every run. ``instrument_id`` is constant within a batch and is
+    left out of ``key_fields``.
+    """
+    return list({tuple(r[k] for k in key_fields): r for r in rows}.values())
+
+
+def _latest_reported_per_holder(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep one row per holder name, preferring the most recent report date."""
+    ordered = sorted(rows, key=lambda r: r["date_reported"] or _SENTINEL_DATE)
+    return _last_wins(ordered, "holder_name")
+
+
 def _safe_date(v: Any) -> date | None:
     """Convert various date-like values to date."""
     v = _safe_val(v)
@@ -534,6 +552,7 @@ class YFinanceRepository(RepositoryBase):
                 }
             )
 
+        rows = _last_wins(rows, "date")
         return self._upsert(
             PriceHistory,
             rows,
@@ -557,7 +576,7 @@ class YFinanceRepository(RepositoryBase):
         ]
         return self._upsert(
             EarningsEstimate,
-            rows,
+            _last_wins(rows, "period"),
             constraint_name="uq_earnings_estimate_instrument_period",
         )
 
@@ -578,7 +597,7 @@ class YFinanceRepository(RepositoryBase):
         ]
         return self._upsert(
             RevenueEstimate,
-            rows,
+            _last_wins(rows, "period"),
             constraint_name="uq_revenue_estimate_instrument_period",
         )
 
@@ -607,7 +626,7 @@ class YFinanceRepository(RepositoryBase):
         ]
         return self._upsert(
             GrowthEstimate,
-            rows,
+            _last_wins(rows, "period"),
             constraint_name="uq_growth_estimate_instrument_period",
         )
 
@@ -631,7 +650,7 @@ class YFinanceRepository(RepositoryBase):
         ]
         return self._upsert(
             EpsTrend,
-            rows,
+            _last_wins(rows, "period"),
             constraint_name="uq_eps_trend_instrument_period",
         )
 
@@ -653,7 +672,7 @@ class YFinanceRepository(RepositoryBase):
         ]
         return self._upsert(
             EpsRevisions,
-            rows,
+            _last_wins(rows, "period"),
             constraint_name="uq_eps_revisions_instrument_period",
         )
 
@@ -844,12 +863,14 @@ class YFinanceRepository(RepositoryBase):
             Number of rows written.
         """
         rows = []
-        for col in df.columns:
+        for col_pos, col in enumerate(df.columns):
             period_date = _safe_date(col)
             if period_date is None:
                 continue
-            for line_item in df.index:
-                val = _safe_float(df.at[line_item, col])
+            # Positional access: label lookup returns an array, not a scalar,
+            # when a line-item label repeats.
+            for row_pos, line_item in enumerate(df.index):
+                val = _safe_float(df.iat[row_pos, col_pos])
                 rows.append(
                     {
                         "instrument_id": instrument_id,
@@ -867,7 +888,7 @@ class YFinanceRepository(RepositoryBase):
         update_columns = None if currency_code is not None else ["value", "updated_at"]
         return self._upsert(
             FinancialStatement,
-            rows,
+            _last_wins(rows, "period_date", "line_item"),
             constraint_name="uq_financial_statement_row",
             update_columns=update_columns,
         )
@@ -923,7 +944,7 @@ class YFinanceRepository(RepositoryBase):
 
         return self._upsert(
             Dividend,
-            rows,
+            _last_wins(rows, "date"),
             constraint_name="uq_dividend_instrument_date",
         )
 
@@ -958,7 +979,7 @@ class YFinanceRepository(RepositoryBase):
 
         return self._upsert(
             StockSplit,
-            rows,
+            _last_wins(rows, "date"),
             constraint_name="uq_stock_split_instrument_date",
         )
 
@@ -1027,7 +1048,7 @@ class YFinanceRepository(RepositoryBase):
 
         return self._upsert(
             AnalystRecommendation,
-            rows,
+            _last_wins(rows, "period"),
             constraint_name="uq_analyst_rec_instrument_period",
         )
 
@@ -1096,7 +1117,7 @@ class YFinanceRepository(RepositoryBase):
 
         return self._upsert(
             InstitutionalHolder,
-            rows,
+            _latest_reported_per_holder(rows),
             constraint_name="uq_inst_holder_instrument_name",
         )
 
@@ -1137,7 +1158,7 @@ class YFinanceRepository(RepositoryBase):
 
         return self._upsert(
             MutualFundHolder,
-            rows,
+            _latest_reported_per_holder(rows),
             constraint_name="uq_mutual_fund_holder_instrument_name",
         )
 
@@ -1414,6 +1435,7 @@ class YFinanceRepository(RepositoryBase):
         # yields no body, and rewriting every column would NULL a body stored by
         # an earlier run, so those rows leave full_content out of the conflict
         # update.
+        rows = _last_wins(rows, "news_uuid")
         with_body = [r for r in rows if r["full_content"]]
         without_body = [r for r in rows if not r["full_content"]]
         keep_body_columns = [

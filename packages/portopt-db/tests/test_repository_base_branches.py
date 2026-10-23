@@ -9,14 +9,18 @@ exercised, which returns 0 without touching the DB.
 
 from __future__ import annotations
 
+import datetime
 import uuid
 
 import pytest
 from pydantic import BaseModel as PydanticBase
+from sqlalchemy import event, select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from portopt_db.models.jobs.background_job import BackgroundJob
+from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.repository import BaseRepository, RepositoryBase
 
 
@@ -66,6 +70,79 @@ class TestUpsertEmptyRowsGuard:
             BackgroundJob, [], "some_constraint", update_columns=["status"]
         )
         assert result == 0
+
+
+class TestUpsertSavepoint:
+    """A failing multi-row upsert must not poison the caller's transaction.
+
+    On PostgreSQL an error inside a transaction aborts it, and a later COMMIT
+    silently becomes a ROLLBACK. Running each upsert in its own SAVEPOINT
+    confines the failure to that statement. SQLite cannot reproduce the abort,
+    so the SAVEPOINT round-trip itself is asserted, using SQLite's own
+    ``insert`` as a stand-in for the PostgreSQL construct.
+    """
+
+    _KEY = ["instrument_id", "date"]
+
+    @pytest.fixture
+    def sqlite_upsert(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("portopt_db.repository.pg_insert", sqlite_insert)
+
+    @staticmethod
+    def _record_savepoints(session: Session) -> list[str]:
+        # The fixture's own SAVEPOINT is emitted lazily on first use; touch the
+        # connection first so only the upsert's savepoints are recorded.
+        session.connection()
+        events: list[str] = []
+        conn = session.get_bind()
+        for name in ("savepoint", "rollback_savepoint", "release_savepoint"):
+            event.listen(conn, name, lambda *a, _n=name, **k: events.append(_n))
+        return events
+
+    def test_failed_upsert_rolls_back_its_savepoint_and_reraises(
+        self, db_session: Session, sqlite_upsert: None
+    ) -> None:
+        iid = uuid.uuid4()
+        repo = RepositoryBase(db_session)
+        repo._upsert(
+            PriceHistory,
+            [{"instrument_id": iid, "date": datetime.date(2024, 1, 2), "close": 1.0}],
+            index_elements=self._KEY,
+        )
+
+        events = self._record_savepoints(db_session)
+
+        with pytest.raises(IntegrityError):
+            repo._upsert(
+                PriceHistory,
+                [{"instrument_id": iid, "date": None, "close": 2.0}],
+                index_elements=self._KEY,
+            )
+
+        assert events == ["savepoint", "rollback_savepoint"]
+        kept = db_session.execute(
+            select(PriceHistory).where(PriceHistory.instrument_id == iid)
+        ).scalars()
+        assert [r.date for r in kept] == [datetime.date(2024, 1, 2)]
+
+    def test_successful_upsert_releases_its_savepoint(
+        self, db_session: Session, sqlite_upsert: None
+    ) -> None:
+        events = self._record_savepoints(db_session)
+
+        RepositoryBase(db_session)._upsert(
+            PriceHistory,
+            [
+                {
+                    "instrument_id": uuid.uuid4(),
+                    "date": datetime.date(2024, 1, 2),
+                    "close": 1.0,
+                }
+            ],
+            index_elements=self._KEY,
+        )
+
+        assert events == ["savepoint", "release_savepoint"]
 
 
 class TestGet:

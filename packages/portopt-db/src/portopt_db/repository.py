@@ -85,7 +85,12 @@ class RepositoryBase:
                 set_=update_dict,
             )
 
-        self.session.execute(stmt)
+        # PostgreSQL aborts the whole transaction on a statement error and turns
+        # the later COMMIT into a silent ROLLBACK. Callers that catch a failure
+        # and carry on (per-category fetches) would lose every earlier write, so
+        # the failure is confined to a SAVEPOINT and still propagates.
+        with self.session.begin_nested():
+            self.session.execute(stmt)
         return len(rows)
 
 

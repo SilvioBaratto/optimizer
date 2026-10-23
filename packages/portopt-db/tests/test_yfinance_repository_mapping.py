@@ -453,3 +453,123 @@ class TestUpsertNewsKeepsScrapedBody:
             ],
         )
         assert n == 3
+
+
+class TestInBatchDedup:
+    """One INSERT ... ON CONFLICT cannot hit the same key twice, so every
+    batch must be collapsed on its conflict key before it reaches ``_upsert``."""
+
+    def test_price_history_same_date_keeps_last(self, repo) -> None:
+        df = pd.DataFrame(
+            {"Close": [1.0, 2.0]},
+            index=pd.to_datetime(["2024-01-02", "2024-01-02"]),
+        )
+        repo.upsert_price_history(_IID, df)
+        rows = _rows(repo)
+        assert len(rows) == 1
+        assert rows[0]["close"] == 2.0
+
+    def test_dividends_same_date_keeps_last(self, repo) -> None:
+        s = pd.Series(
+            [0.2, 0.3], index=pd.to_datetime(["2024-02-01 09:00", "2024-02-01 16:00"])
+        )
+        repo.upsert_dividends(_IID, s)
+        rows = _rows(repo)
+        assert [r["amount"] for r in rows] == [0.3]
+
+    def test_splits_same_date_keeps_last(self, repo) -> None:
+        s = pd.Series(
+            [2.0, 3.0], index=pd.to_datetime(["2024-02-01 09:00", "2024-02-01 16:00"])
+        )
+        repo.upsert_splits(_IID, s)
+        assert [r["ratio"] for r in _rows(repo)] == [3.0]
+
+    def test_recommendations_same_period_keeps_last(self, repo) -> None:
+        df = pd.DataFrame(
+            {
+                "period": ["0m", "0m"],
+                "strongBuy": [1, 5],
+                "buy": [1, 1],
+                "hold": [1, 1],
+                "sell": [1, 1],
+                "strongSell": [1, 1],
+            }
+        )
+        repo.upsert_recommendations(_IID, df)
+        rows = _rows(repo)
+        assert len(rows) == 1
+        assert rows[0]["strong_buy"] == 5
+
+    def test_financial_statements_duplicate_line_items_keep_last(self, repo) -> None:
+        df = pd.DataFrame(
+            [[1.0, 10.0], [2.0, 20.0]],
+            index=["TotalRevenue", "TotalRevenue"],
+            columns=pd.to_datetime(["2024-12-31", "2023-12-31"]),
+        )
+        repo.upsert_financial_statements(_IID, df, "income_statement", "annual")
+        rows = _rows(repo)
+        assert len(rows) == 2
+        by_date = {r["period_date"]: r["value"] for r in rows}
+        assert by_date == {dt.date(2024, 12, 31): 2.0, dt.date(2023, 12, 31): 20.0}
+
+    @pytest.mark.parametrize(
+        "method", ["upsert_institutional_holders", "upsert_mutualfund_holders"]
+    )
+    def test_holders_same_name_keeps_latest_reported(self, repo, method) -> None:
+        df = pd.DataFrame(
+            {
+                "Holder": ["Vanguard", "Vanguard"],
+                "Date Reported": pd.to_datetime(["2024-06-30", "2024-03-31"]),
+                "Shares": [200, 100],
+                "Value": [2000, 1000],
+                "pctHeld": [0.02, 0.01],
+            }
+        )
+        getattr(repo, method)(_IID, df)
+        rows = _rows(repo)
+        assert len(rows) == 1
+        assert rows[0]["shares"] == 200
+        assert rows[0]["date_reported"] == dt.date(2024, 6, 30)
+
+    def test_holders_names_equal_after_truncation_collapse(self, repo) -> None:
+        long_a = "X" * 500 + "a"
+        long_b = "X" * 500 + "b"
+        df = pd.DataFrame(
+            {
+                "Holder": [long_a, long_b],
+                "Date Reported": pd.to_datetime(["2024-06-30", "2024-06-30"]),
+                "Shares": [1, 2],
+            }
+        )
+        repo.upsert_institutional_holders(_IID, df)
+        assert len(_rows(repo)) == 1
+
+    def test_news_same_uuid_keeps_last(self, repo) -> None:
+        articles = [
+            {"id": "n1", "content": {"title": "first"}},
+            {"id": "n1", "content": {"title": "second"}},
+            {"id": "n2", "content": {"title": "other"}},
+        ]
+        repo.upsert_news(_IID, articles)
+        rows = _rows(repo)
+        assert [(r["news_uuid"], r["title"]) for r in rows] == [
+            ("n1", "second"),
+            ("n2", "other"),
+        ]
+
+    @pytest.mark.parametrize(
+        ("method", "frame"),
+        [
+            ("upsert_earnings_estimate", {"avg": [1.0, 2.0]}),
+            ("upsert_revenue_estimate", {"avg": [1.0, 2.0]}),
+            ("upsert_growth_estimates", {"stockTrend": [0.1, 0.2]}),
+            ("upsert_eps_trend", {"current": [1.0, 2.0]}),
+            ("upsert_eps_revisions", {"upLast7days": [1, 2]}),
+        ],
+    )
+    def test_period_indexed_estimates_keep_one_row_per_period(
+        self, repo, method, frame
+    ) -> None:
+        df = pd.DataFrame(frame, index=["0q", "0q"])
+        getattr(repo, method)(_IID, df)
+        assert [r["period"] for r in _rows(repo)] == ["0q"]
