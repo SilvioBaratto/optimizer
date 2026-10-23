@@ -13,8 +13,11 @@ universe-first ordering.
 
 from __future__ import annotations
 
+import os
 import re
 import stat
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -82,3 +85,89 @@ class TestScriptTargets:
         text = script.read_text()
         assert "docker compose exec" in text
         assert 'RUNNER="${RUNNER:-docker}"' in text
+
+
+_STUB = """#!/bin/sh
+{ pwd -P; printf '%s\\n' "$@"; } > "$RECORD_FILE"
+"""
+
+
+def _run_with_stub_tool(
+    script: Path, tool: str, tmp_path: Path, env_extra: dict[str, str]
+) -> tuple[str, list[str]]:
+    """Run ``script`` from an unrelated cwd with ``tool`` replaced by a recorder.
+
+    Returns the cwd and argv the stub saw, i.e. what the wrapper really handed
+    to docker / uv.
+    """
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    stub = stub_dir / tool
+    stub.write_text(_STUB)
+    stub.chmod(0o755)
+    record = tmp_path / "record.txt"
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    env = {
+        "PATH": f"{stub_dir}{os.pathsep}/usr/bin{os.pathsep}/bin",
+        "HOME": str(tmp_path),
+        "RECORD_FILE": str(record),
+        **env_extra,
+    }
+    done = subprocess.run(
+        ["/bin/bash", str(script)],
+        cwd=elsewhere,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 0, done.stderr
+    cwd, *argv = record.read_text().splitlines()
+    return cwd, argv
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="bash wrappers")
+@pytest.mark.parametrize(
+    ("script", "command"),
+    [(FETCH, "daily"), (REFETCH, "refetch-all")],
+    ids=lambda v: v.name if isinstance(v, Path) else v,
+)
+class TestRunnerEnvironment:
+    """The wrappers must work from any cwd, e.g. a cron entry or ``$HOME``."""
+
+    def test_docker_runner_executes_from_the_repo_root(
+        self, script: Path, command: str, tmp_path: Path
+    ) -> None:
+        """Compose finds docker-compose.yml only from the cwd or a parent."""
+        cwd, argv = _run_with_stub_tool(script, "docker", tmp_path, {})
+
+        assert Path(cwd) == REPO_ROOT.resolve()
+        assert argv == [
+            "compose",
+            "exec",
+            "-T",
+            "scheduler",
+            "python",
+            "-m",
+            "app.cli",
+            command,
+        ]
+
+    def test_local_runner_uses_the_workspace_venv_from_the_ingestion_dir(
+        self, script: Path, command: str, tmp_path: Path
+    ) -> None:
+        """Bare ``python`` is whatever the caller has on PATH, not the workspace."""
+        cwd, argv = _run_with_stub_tool(script, "uv", tmp_path, {"RUNNER": "local"})
+
+        assert Path(cwd) == (REPO_ROOT / "ingestion").resolve()
+        assert argv == [
+            "run",
+            "--package",
+            "portopt",
+            "python",
+            "-m",
+            "app.cli",
+            command,
+        ]

@@ -10,7 +10,7 @@
 # Expect this to take hours on a cold database.
 #
 #   ./scheduler/refetch_all.sh                # inside docker compose (default)
-#   RUNNER=local ./scheduler/refetch_all.sh   # against the host venv + local DB
+#   RUNNER=local ./scheduler/refetch_all.sh   # via uv in the workspace venv + local DB
 #
 set -euo pipefail
 
@@ -19,11 +19,15 @@ SERVICE="${SERVICE:-scheduler}"
 
 case "$RUNNER" in
     docker)
+        # Compose resolves docker-compose.yml from the cwd upward, so a caller
+        # outside the checkout (cron, $HOME) would otherwise get "no configuration
+        # file provided".
+        cd "$(dirname "$0")/.."
         exec docker compose exec -T "$SERVICE" python -m app.cli refetch-all
         ;;
     local)
         cd "$(dirname "$0")/../ingestion"
-        exec python -m app.cli refetch-all
+        exec uv run --package portopt python -m app.cli refetch-all
         ;;
     *)
         echo "unknown RUNNER='$RUNNER' (expected 'docker' or 'local')" >&2

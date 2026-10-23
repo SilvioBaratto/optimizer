@@ -13,7 +13,7 @@
 # JobAlreadyRunningError rather than double-fetching.
 #
 #   ./scheduler/fetch.sh                # inside docker compose (default)
-#   RUNNER=local ./scheduler/fetch.sh   # against the host venv + local DB
+#   RUNNER=local ./scheduler/fetch.sh   # via uv in the workspace venv + local DB
 #
 set -euo pipefail
 
@@ -22,11 +22,15 @@ SERVICE="${SERVICE:-scheduler}"
 
 case "$RUNNER" in
     docker)
+        # Compose resolves docker-compose.yml from the cwd upward, so a caller
+        # outside the checkout (cron, $HOME) would otherwise get "no configuration
+        # file provided".
+        cd "$(dirname "$0")/.."
         exec docker compose exec -T "$SERVICE" python -m app.cli daily
         ;;
     local)
         cd "$(dirname "$0")/../ingestion"
-        exec python -m app.cli daily
+        exec uv run --package portopt python -m app.cli daily
         ;;
     *)
         echo "unknown RUNNER='$RUNNER' (expected 'docker' or 'local')" >&2
