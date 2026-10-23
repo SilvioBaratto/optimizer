@@ -8,6 +8,7 @@ import pytest
 from skfolio.distribution import DependenceMethod, SelectionCriterion, VineCopula
 from skfolio.prior import SyntheticData
 
+from optimizer.exceptions import DataError
 from optimizer.synthetic import (
     DependenceMethodType,
     SelectionCriterionType,
@@ -49,7 +50,7 @@ class TestBuildVineCopula:
         assert model.max_depth == 6
 
     def test_fit_marginals_forwarded(self) -> None:
-        cfg = VineCopulaConfig(fit_marginals=False)
+        cfg = VineCopulaConfig(fit_marginals=False, log_transform=False)
         model = build_vine_copula(cfg)
         assert model.fit_marginals is False
 
@@ -299,6 +300,72 @@ class TestIntegration:
         cov_uncond = model_uncond.return_distribution_.covariance
         cov_stress = model_stress.return_distribution_.covariance
         assert not np.allclose(cov_uncond, cov_stress)
+
+    def test_when_default_config_then_sampled_simple_returns_stay_above_minus_one(
+        self,
+    ) -> None:
+        rng = np.random.default_rng(1)
+        heavy_tailed = pd.DataFrame(
+            (0.03 * rng.standard_t(3, size=(750, 3))).clip(min=-0.9),
+            columns=["A", "B", "C"],
+        )
+        model = build_vine_copula(VineCopulaConfig(random_state=0)).fit(heavy_tailed)
+        samples = model.sample(n_samples=200_000)
+        assert samples.min() > -1.0
+
+    def test_when_marginals_unfitted_then_samples_stay_in_unit_interval(
+        self,
+    ) -> None:
+        rng = np.random.default_rng(0)
+        uniform = pd.DataFrame(
+            rng.uniform(0.0, 1.0, size=(500, 3)), columns=["A", "B", "C"]
+        )
+        cfg = VineCopulaConfig(fit_marginals=False, log_transform=False, random_state=0)
+        samples = build_vine_copula(cfg).fit(uniform).sample(n_samples=5_000)
+        assert samples.min() >= 0.0
+        assert samples.max() <= 1.0
+
+    def test_when_return_at_minus_one_and_log_transform_then_fit_raises_data_error(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        # log1p(-1) is -inf; skfolio would otherwise fail with an opaque
+        # "Input X contains infinity" that never mentions the log_transform option.
+        delisted = returns_df.copy()
+        delisted.iloc[10, 0] = -1.0
+        model = build_vine_copula(VineCopulaConfig(random_state=0))
+        with pytest.raises(DataError, match="log_transform"):
+            model.fit(delisted)
+
+    def test_when_return_below_minus_one_and_log_transform_then_fit_raises_data_error(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        impossible = returns_df.copy()
+        impossible.iloc[10, 0] = -1.5
+        model = build_vine_copula(VineCopulaConfig(random_state=0))
+        with pytest.raises(DataError, match="log_transform"):
+            model.fit(impossible)
+
+    def test_when_return_at_minus_one_and_log_transform_off_then_fit_succeeds(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        delisted = returns_df.copy()
+        delisted.iloc[10, 0] = -1.0
+        model = build_vine_copula(VineCopulaConfig(log_transform=False, random_state=0))
+        samples = model.fit(delisted).sample(n_samples=50)
+        assert samples.shape == (50, returns_df.shape[1])
+
+    def test_when_synthetic_data_fit_on_minus_one_return_then_raises_data_error(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        delisted = returns_df.copy()
+        delisted.iloc[10, 0] = -1.0
+        model = build_synthetic_data(
+            SyntheticDataConfig(
+                n_samples=100, vine_copula_config=VineCopulaConfig(random_state=0)
+            )
+        )
+        with pytest.raises(DataError, match="log_transform"):
+            model.fit(delisted)
 
     def test_synthetic_data_fit_predict(self, returns_df: pd.DataFrame) -> None:
         cfg = SyntheticDataConfig(

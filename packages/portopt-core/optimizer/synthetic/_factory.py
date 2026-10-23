@@ -11,7 +11,11 @@ prepare ``X`` upstream (in ``preprocessing``/``moments``, not here):
 * cast ``Numeric`` columns ``Decimal`` -> ``float`` (never pass ``Decimal`` /
   SQL ``NULL``/``None`` objects);
 * normalise mixed ``price_unit`` scale/currency before ``prices_to_returns``;
-* pass **linear** (simple) returns only;
+* pass **linear** (simple) returns only, each strictly greater than -1: the
+  default ``VineCopulaConfig(log_transform=True)`` fits on ``log1p(R)``, which
+  is ``-inf`` at exactly -100% (a delisting to zero) and NaN below it, so
+  `VineCopula.fit` raises `DataError` -- clip such observations above -1
+  upstream or build the vine with ``log_transform=False``;
 * drop/align ragged listing history so no leading or interior NaN remain
   (unequal-length series across assets otherwise trip the finite check);
 * keep ticker **column names** on the DataFrame -- symbol-keyed conditioning
@@ -43,7 +47,7 @@ from skfolio.distribution import (
 from skfolio.distribution._base import BaseDistribution
 from skfolio.prior import SyntheticData
 
-from optimizer.exceptions import ConfigurationError
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.synthetic._config import (
     DependenceMethodType,
     SelectionCriterionType,
@@ -101,6 +105,33 @@ _SELECTION_MAP: dict[SelectionCriterionType, SelectionCriterion] = {
 }
 
 
+class _LogReturnVineCopula(VineCopula):
+    """`VineCopula` that names ``log_transform`` when a return breaks ``log1p``.
+
+    ``log1p(R)`` is ``-inf`` at R == -1 and NaN below it, so skfolio's generic
+    finite-input check would fail with a message that never mentions the option
+    responsible. Raising here points the caller at the offending observations
+    and at the opt-out.
+    """
+
+    def fit(self, X: Any, y: None = None) -> VineCopula:
+        # A per-asset dict/array log_transform (only reachable through factory
+        # kwargs) needs skfolio's fitted feature names to map onto columns, so
+        # it keeps skfolio's own validation.
+        if np.isscalar(self.log_transform) and self.log_transform:
+            returns = np.asarray(X, dtype=float)
+            n_invalid = int(np.count_nonzero(returns <= -1.0))
+            if n_invalid:
+                raise DataError(
+                    f"log_transform=True needs every return to be > -1 (log1p "
+                    f"is undefined at and below -100%), found {n_invalid} "
+                    f"observation(s) <= -1 (minimum {np.nanmin(returns):.4g}). "
+                    "Clip them above -1 upstream or build the vine with "
+                    "VineCopulaConfig(log_transform=False)."
+                )
+        return super().fit(X, y)
+
+
 def build_vine_copula(
     config: VineCopulaConfig | None = None,
     **kwargs: Any,
@@ -115,7 +146,9 @@ def build_vine_copula(
             ``copula_candidates``, ``central_assets``).
 
     Returns:
-        A fitted-ready skfolio vine copula estimator.
+        A fitted-ready skfolio vine copula estimator. With
+        ``config.log_transform`` set, ``fit`` raises `DataError` when any
+        return is <= -1.
     """
     if config is None:
         config = VineCopulaConfig()
@@ -133,7 +166,7 @@ def build_vine_copula(
         list(config.central_assets) if config.central_assets is not None else None,
     )
 
-    return VineCopula(
+    return _LogReturnVineCopula(
         fit_marginals=config.fit_marginals,
         max_depth=config.max_depth,
         log_transform=config.log_transform,

@@ -42,7 +42,7 @@ class TestVineCopulaConfig:
         cfg = VineCopulaConfig()
         assert cfg.fit_marginals is True
         assert cfg.max_depth == 4
-        assert cfg.log_transform is False
+        assert cfg.log_transform is True
         assert cfg.dependence_method == DependenceMethodType.KENDALL_TAU
         assert cfg.selection_criterion == SelectionCriterionType.AIC
         assert cfg.independence_level == 0.05
@@ -58,7 +58,7 @@ class TestVineCopulaConfig:
         cfg = VineCopulaConfig(
             fit_marginals=False,
             max_depth=6,
-            log_transform=True,
+            log_transform=False,
             dependence_method=DependenceMethodType.MUTUAL_INFORMATION,
             selection_criterion=SelectionCriterionType.BIC,
             independence_level=0.01,
@@ -67,7 +67,7 @@ class TestVineCopulaConfig:
         )
         assert cfg.fit_marginals is False
         assert cfg.max_depth == 6
-        assert cfg.log_transform is True
+        assert cfg.log_transform is False
         assert cfg.dependence_method == DependenceMethodType.MUTUAL_INFORMATION
         assert cfg.selection_criterion == SelectionCriterionType.BIC
         assert cfg.independence_level == 0.01
@@ -116,6 +116,22 @@ class TestVineCopulaConfig:
 
         with pytest.raises(ConfigurationError, match="independence_level"):
             VineCopulaConfig(independence_level=-0.01)
+
+    def test_when_unfitted_marginals_with_log_transform_then_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        # skfolio log-transforms X before the marginal step, so with
+        # fit_marginals=False the uniform pseudo-observations would be mapped
+        # through log1p and sampled back outside [0, 1].
+        with pytest.raises(ConfigurationError, match="log_transform"):
+            VineCopulaConfig(fit_marginals=False)
+
+    def test_when_unfitted_marginals_without_log_transform_then_allowed(
+        self,
+    ) -> None:
+        cfg = VineCopulaConfig(fit_marginals=False, log_transform=False)
+        assert cfg.fit_marginals is False
+        assert cfg.log_transform is False
 
 
 class TestVineCopulaPresets:
