@@ -2956,6 +2956,33 @@ async def test_questionnaire_rejects_non_positive_capital(shell_env) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("size", [(80, 24), (120, 40)])
+async def test_questionnaire_submit_and_error_stay_reachable_on_short_terminals(
+    shell_env, size
+) -> None:
+    """The form scrolls, so Submit, Cancel and the inline error stay on screen."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=size) as pilot:
+        await pilot.pause()
+        screen = QuestionnaireScreen(ask_capital=True)
+        app.push_screen(screen)
+        await pilot.pause()
+        for selector in ("#q-submit", "#q-cancel", "#q-error"):
+            assert app.screen.region.contains_region(
+                screen.query_one(selector).region
+            ), selector
+        esg = screen.query_one("#q-esg")
+        esg.focus()
+        await pilot.pause()
+        assert screen.query_one(".q-form").scroll_y > 0  # focus scrolls the field in
+        # An empty form fails on the first required choice; the message must be seen.
+        await pilot.click("#q-submit")
+        await pilot.pause()
+        assert isinstance(app.screen, QuestionnaireScreen)
+        assert "required" in str(screen.query_one("#q-error", Static).render())
+
+
+@pytest.mark.asyncio
 async def test_drive_actions_inert_off_posture_or_without_focus(shell_env) -> None:
     app = _make_shell(shell_env)  # fund-wide landing
     async with app.run_test(size=_SIZE) as pilot:

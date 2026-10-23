@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, SelectionList, Static
 
@@ -62,6 +62,7 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
         border: thick $accent; background: $surface;
     }
     .q-title { text-style: bold; color: $accent; }
+    .q-form { height: 1fr; }
     .q-error { height: auto; color: $error; }
     .q-actions { height: auto; align-horizontal: center; padding-top: 1; }
     .q-dialog Button { margin: 0 1; }
@@ -85,35 +86,42 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
 
         with Vertical(classes="q-dialog"):
             yield Label("MiFID suitability questionnaire", classes="q-title")
-            if self._ask_capital:
-                yield Input(placeholder="capital (e.g. 100000)", id="q-capital")
-            yield Input(value="EUR", placeholder="base currency", id="q-base-currency")
-            yield Select(
-                [(level.value, level.value) for level in KnowledgeLevel],
-                id="q-knowledge",
-                prompt="knowledge & experience",
-            )
-            yield Input(placeholder="max 1yr loss (fraction 0-1)", id="q-max-loss")
-            yield Input(placeholder="cash buffer (months)", id="q-buffer")
-            yield Select(
-                [(goal.value, goal.value) for goal in ObjectiveChoice],
-                id="q-goal",
-                prompt="primary objective",
-            )
-            yield Select(
-                [(horizon.value, horizon.value) for horizon in Horizon],
-                id="q-horizon",
-                prompt="horizon",
-            )
-            yield Input(placeholder="risk likert 1-7 (comma-separated)", id="q-likert")
-            yield Select(
-                [(reaction.value, reaction.value) for reaction in LossReaction],
-                id="q-loss-reaction",
-                prompt="reaction to a severe loss",
-            )
-            yield SelectionList[str](
-                *((sector.value, sector.value) for sector in GicsSector), id="q-esg"
-            )
+            # Only the fields scroll; the error line and buttons sit outside the
+            # scroll area so a short terminal can never push them out of reach.
+            with VerticalScroll(classes="q-form"):
+                if self._ask_capital:
+                    yield Input(placeholder="capital (e.g. 100000)", id="q-capital")
+                yield Input(
+                    value="EUR", placeholder="base currency", id="q-base-currency"
+                )
+                yield Select(
+                    [(level.value, level.value) for level in KnowledgeLevel],
+                    id="q-knowledge",
+                    prompt="knowledge & experience",
+                )
+                yield Input(placeholder="max 1yr loss (fraction 0-1)", id="q-max-loss")
+                yield Input(placeholder="cash buffer (months)", id="q-buffer")
+                yield Select(
+                    [(goal.value, goal.value) for goal in ObjectiveChoice],
+                    id="q-goal",
+                    prompt="primary objective",
+                )
+                yield Select(
+                    [(horizon.value, horizon.value) for horizon in Horizon],
+                    id="q-horizon",
+                    prompt="horizon",
+                )
+                yield Input(
+                    placeholder="risk likert 1-7 (comma-separated)", id="q-likert"
+                )
+                yield Select(
+                    [(reaction.value, reaction.value) for reaction in LossReaction],
+                    id="q-loss-reaction",
+                    prompt="reaction to a severe loss",
+                )
+                yield SelectionList[str](
+                    *((sector.value, sector.value) for sector in GicsSector), id="q-esg"
+                )
             yield Static("", id="q-error", classes="q-error", markup=False)
             with Horizontal(classes="q-actions"):
                 yield Button("Submit", variant="primary", id="q-submit")
