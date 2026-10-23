@@ -45,6 +45,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from apscheduler.executors.pool import ThreadPoolExecutor
+from apscheduler.jobstores.base import BaseJobStore
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.base import STATE_PAUSED, STATE_STOPPED
@@ -988,6 +989,48 @@ def _build_schedule_registry() -> list[ScheduleDefinition]:
 # ---------------------------------------------------------------------------
 
 
+def _same_schedule(persisted: Any, current: Any) -> bool:
+    """Whether two triggers describe the same recurrence.
+
+    Triggers define no ``__eq__``; their string form carries the cron fields or
+    the interval, which is exactly what a config edit would change.
+    """
+    return (
+        type(persisted) is type(current)
+        and str(persisted) == str(current)
+        and getattr(persisted, "timezone", None) == getattr(current, "timezone", None)
+    )
+
+
+def _persisted_next_run_time(
+    store: BaseJobStore, entry: ScheduleDefinition
+) -> datetime | None:
+    """Return the fire time already stored for ``entry`` when its schedule is unchanged.
+
+    ``add_job(replace_existing=True)`` recomputes ``next_run_time`` from *now*,
+    which silently discards a fire that was missed while the daemon was down and
+    makes the misfire grace window moot. Carrying the stored value over lets
+    APScheduler run the missed fire at startup (or skip it once it is past the
+    grace). A changed trigger is rescheduled from now so cron edits still apply.
+    """
+    try:
+        existing = store.lookup_job(entry.job_id)
+    except Exception:
+        # An unreadable row (e.g. a job function that no longer exists) must
+        # not stop the daemon from booting; replacing it is the old behaviour.
+        logger.warning(
+            "scheduler: could not read persisted job %s — rescheduling from now",
+            entry.job_id,
+            exc_info=True,
+        )
+        return None
+    if existing is None or existing.next_run_time is None:
+        return None
+    if not _same_schedule(existing.trigger, entry.trigger):
+        return None
+    return existing.next_run_time
+
+
 def create_scheduler() -> SupervisedScheduler:
     """Create a fully configured APScheduler instance (not yet started).
 
@@ -1000,9 +1043,8 @@ def create_scheduler() -> SupervisedScheduler:
             "create_scheduler() called before database_manager.initialize()"
         )
 
-    jobstores = {
-        "default": SQLAlchemyJobStore(engine=engine),
-    }
+    jobstore = SQLAlchemyJobStore(engine=engine)
+    jobstores = {"default": jobstore}
     executors = {
         "default": ThreadPoolExecutor(max_workers=4),
     }
@@ -1013,7 +1055,18 @@ def create_scheduler() -> SupervisedScheduler:
         timezone="UTC",
     )
 
+    # Binds the store and creates its table now, so persisted schedules can be
+    # read before the scheduler starts. The scheduler's own start() repeats
+    # this harmlessly.
+    jobstore.start(scheduler, "default")
+
     for entry in _build_schedule_registry():
+        # Passing next_run_time=None would register the job paused, so the
+        # argument is only supplied when a stored fire time is carried over.
+        resume: dict[str, Any] = {}
+        resume_at = _persisted_next_run_time(jobstore, entry)
+        if resume_at is not None:
+            resume["next_run_time"] = resume_at
         scheduler.add_job(
             entry.func,
             trigger=entry.trigger,
@@ -1022,6 +1075,7 @@ def create_scheduler() -> SupervisedScheduler:
             replace_existing=entry.replace_existing,
             misfire_grace_time=entry.misfire_grace_time,
             coalesce=entry.coalesce,
+            **resume,
         )
 
     # Bind the live scheduler so the RECLAIM reaper can submit one-shot
