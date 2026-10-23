@@ -55,6 +55,55 @@ _SCOPE_VERBS: frozenset[str] = frozenset({"freeze", "rearm"})
 # misroute a focused freeze/rearm onto the whole fund on words like "refund"/"funding".
 _FUND_WORD = re.compile(r"\bfund\b")
 
+# "run" opens many ordinary questions ("run me through…", "run the numbers…"), so it
+# only means a rebalance when a rebalance word follows it, past a few filler words.
+_RUN_REBALANCE = re.compile(
+    r"run\b(?:\s+(?:a|an|the|my|our|one|another|new|fresh|paper|manual|full|quick|now"
+    r"|please))*\s+re-?balanc(?:e|ing)\b"
+)
+
+# "rebalance" is also a noun that heads many reads ("rebalance impact analysis", "the
+# rebalancing numbers", "rebalance history"), so it only commands a rebalance when
+# nothing but a target (an id, "the fund", "all portfolios") or politeness follows it.
+_REBALANCE_WORD = re.compile(r"[#\w-]+")
+_REBALANCE_FILLER: frozenset[str] = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "my",
+        "our",
+        "this",
+        "that",
+        "it",
+        "them",
+        "for",
+        "of",
+        "on",
+        "in",
+        "at",
+        "to",
+        "and",
+        "or",
+        "now",
+        "today",
+        "again",
+        "please",
+        "asap",
+        "immediately",
+        "portfolio",
+        "portfolios",
+        "fund",
+        "whole",
+        "entire",
+        "all",
+        "every",
+        "each",
+        "both",
+        "everything",
+    }
+)
+
 # Words that make a turn name "all of them" (a blanket target) or exclude something.
 # Neither can be honoured by a single focused portfolio, so a turn using one asks which
 # target is meant instead of quietly narrowing to the focus.
@@ -122,7 +171,12 @@ def classify(turn: str) -> Literal["query", "action"]:
     verb (approve / reject / killswitch / freeze / re-arm / run / steer, plus the
     synonyms kill / arm / rebalance / respond) is an ``action``; everything else is a
     ``query`` — including a question that merely *mentions* a verb mid-sentence ("why
-    did the allocator trim energy?"), so a read is never mistaken for a mutation.
+    did the allocator trim energy?"), so a read is never mistaken for a mutation. A
+    turn ending in "?" is a question whatever its first word ("Reject the null: is drift
+    significant?"). A leading "run" counts only when a rebalance word follows ("run a
+    rebalance"); "run me through why…" is a question. A rebalance word counts only when
+    nothing but a target follows it: "rebalance impact analysis" and "run the rebalance
+    numbers" are reads.
 
     Args:
         turn: The adviser's natural-language turn.
@@ -135,8 +189,36 @@ def classify(turn: str) -> Literal["query", "action"]:
 
 def _leading_verb(turn: str) -> str | None:
     """The ``apply_action`` verb a turn's leading word maps to, or ``None``."""
-    match = re.match(r"[a-z][a-z-]*", turn.strip().lower())
-    return _ACTION_VERBS.get(match.group(0)) if match else None
+    lowered = turn.strip().lower()
+    if lowered.endswith("?"):
+        return None
+    match = re.match(r"[a-z][a-z-]*", lowered)
+    if match is None:
+        return None
+    word = match.group(0)
+    verb = _ACTION_VERBS.get(word)
+    if word == "run":
+        opened = _RUN_REBALANCE.match(lowered)
+        if opened is None:
+            return None
+        return verb if _is_rebalance_command(lowered[opened.end() :]) else None
+    if verb == "run":  # the leading synonym "rebalance"
+        return verb if _is_rebalance_command(lowered[match.end() :]) else None
+    return verb
+
+
+def _is_rebalance_command(rest: str) -> bool:
+    """Whether what follows a rebalance word is only a target or politeness.
+
+    A negation counts as part of the command: the resolver asks about a negated target,
+    which is safer than quietly answering the turn as a question.
+    """
+    if _NEGATION.search(rest):
+        return True
+    return all(
+        word in _REBALANCE_FILLER or _ID_TOKEN.match(word) is not None
+        for word in _REBALANCE_WORD.findall(rest)
+    )
 
 
 def resolve_target(

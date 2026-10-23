@@ -109,6 +109,83 @@ def test_classify_tags_questions_as_query():
         assert ask.classify(turn) == "query", turn
 
 
+def test_classify_run_is_a_rebalance_only_when_it_says_so():
+    """'run' opens plenty of ordinary questions; only 'run … rebalance' is an action."""
+    for turn in (
+        "Run me through why the allocator trimmed energy",
+        "run the numbers on drift",
+        "run it by me again",
+        "run",
+    ):
+        assert ask.classify(turn) == "query", turn
+    for turn in (
+        "run a rebalance",
+        "Run a paper rebalance",
+        "run the rebalance now",
+        "run rebalance",
+        "rebalance",
+    ):
+        assert ask.classify(turn) == "action", turn
+
+
+def test_classify_rebalance_followed_by_a_topic_is_a_query():
+    """'rebalance' only commands a rebalance when nothing but a target follows it: a
+    noun after it ("analysis", "numbers", "history") makes the turn a read."""
+    for turn in (
+        "run the rebalancing analysis for energy",
+        "run rebalance impact analysis",
+        "Run the rebalance numbers on drift",
+        "run a rebalance cost estimate",
+        "Rebalance history last month",
+        "rebalance turnover this quarter",
+        "run the rebalanced numbers",
+    ):
+        assert ask.classify(turn) == "query", turn
+
+
+def test_classify_rebalance_with_a_target_is_an_action():
+    """A rebalance word followed by only a target (id, portfolio, the fund, 'now') is
+    still the command, as is a negated one so that the resolver can ask."""
+    for turn in (
+        "run a rebalance for #bbbb0002",
+        "rebalance portfolio bbbb0002",
+        "run the rebalance for the whole fund",
+        "run a rebalance for all portfolios",
+        "run a rebalance for #bbbb0002 and #cccc0003",
+        "rebalance it now, please",
+        "rebalance everything",
+        "run rebalancing now",
+        "run a rebalance but not for #bbbb0002",
+        "run a rebalance, don't touch the fund",
+    ):
+        assert ask.classify(turn) == "action", turn
+
+
+def test_classify_a_trailing_question_mark_makes_any_turn_a_query():
+    """A question is never a command, even when it opens with a decision verb."""
+    for turn in (
+        "Rebalance history last month?",
+        "Reject the null: is drift significant?",
+        "approve the gate?",
+        "should I freeze the fund?",
+        "run a rebalance now?  ",
+    ):
+        assert ask.classify(turn) == "query", turn
+
+
+def test_resolve_target_run_question_is_not_a_rebalance(db_session):
+    """A 'run me through…' turn that reaches the resolver is not a recognised action."""
+    res = ask.resolve_target(
+        "Run me through why the allocator trimmed energy",
+        db_session,
+        MemorySaver(),
+        _PID_A,
+    )
+
+    assert res.status == "unresolved"
+    assert res.action is None
+
+
 # --- resolve_target: resume verbs (gates) -----------------------------------
 
 
