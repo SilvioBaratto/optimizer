@@ -129,16 +129,17 @@ def _llm_get(
     url: str,
     *,
     headers: Mapping[str, str] | None = None,
-    params: Mapping[str, str] | None = None,
 ) -> httpx.Response:
     """One cheap httpx GET; connect/timeout → ``ValidationNetworkError``.
 
     Isolated so tests mock a single seam and the network→exception mapping lives
     in one place. httpx only — no agent-stack/provider SDK ever imported here.
+    Credentials go in ``headers`` only: httpx logs the full request URL at INFO,
+    so a key in the query string would land in the operator's terminal.
     """
     try:
         with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
-            return client.get(url, headers=headers, params=params)
+            return client.get(url, headers=headers)
     except httpx.RequestError as exc:
         raise ValidationNetworkError(str(exc)) from exc
 
@@ -188,7 +189,7 @@ def _v_google(
     if not key:
         return False
     url = f"{(base_url or _GOOGLE_BASE).rstrip('/')}/models"
-    resp = _llm_get(url, params={"key": key})
+    resp = _llm_get(url, headers={"x-goog-api-key": key})
     return _accepted(resp.status_code, url)
 
 

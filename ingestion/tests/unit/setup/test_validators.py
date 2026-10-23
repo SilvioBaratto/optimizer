@@ -8,6 +8,7 @@ other non-200), or raises `ValidationNetworkError` when the request itself fails
 
 from __future__ import annotations
 
+import logging
 import re
 import traceback
 from pathlib import Path
@@ -142,11 +143,36 @@ def test_validate_llm_anthropic_uses_x_api_key_header() -> None:
     assert "anthropic-version" in kwargs["headers"]
 
 
-def test_validate_llm_google_passes_key_as_query_param() -> None:
+def test_validate_llm_google_sends_key_in_header_not_url() -> None:
     with patch("app.setup.validators._llm_get", return_value=_resp(200)) as m:
         assert validators.validate_llm("google", key="goog") is True
     _, kwargs = m.call_args
-    assert kwargs["params"]["key"] == "goog"
+    assert kwargs["headers"]["x-goog-api-key"] == "goog"
+    assert not kwargs.get("params")
+
+
+def test_validate_llm_google_key_never_reaches_the_httpx_request_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """httpx logs the full request URL at INFO, which setup enables by default."""
+    leaked = "AIzaSECRETGOOGLEKEY"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"models": []})
+
+    real_client = httpx.Client
+
+    def client_with_mock_transport(*args: object, **kwargs: object) -> httpx.Client:
+        return real_client(*args, transport=httpx.MockTransport(handler), **kwargs)  # type: ignore[arg-type]
+
+    with (
+        patch("app.setup.validators.httpx.Client", client_with_mock_transport),
+        caplog.at_level(logging.INFO, logger="httpx"),
+    ):
+        assert validators.validate_llm("google", key=leaked) is True
+
+    assert any("HTTP Request" in r.getMessage() for r in caplog.records)
+    assert leaked not in caplog.text
 
 
 def test_validate_llm_ollama_cloud_without_key_is_bad_without_network() -> None:
