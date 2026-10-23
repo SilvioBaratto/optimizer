@@ -35,6 +35,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import numpy as np
 from skfolio.moments import (
     OAS,
     DenoiseCovariance,
@@ -83,7 +84,6 @@ from optimizer.moments._config import (
 )
 
 if TYPE_CHECKING:
-    import numpy as np
     from skfolio.factor_exposure import BaseFactorExposure
 
 logger = logging.getLogger(__name__)
@@ -107,6 +107,41 @@ _REGIME_METHOD_MAP: dict[RegimeAdjustmentMethodType, RegimeAdjustmentMethod] = {
 }
 
 
+def _normalise_market_weights(market_weights: np.ndarray) -> np.ndarray:
+    """Validate market capitalisations and rescale them to sum to one.
+
+    ``EquilibriumMu`` computes ``risk_aversion * covariance @ weights`` without
+    normalising, so raw capitalisations (~1e12) would inflate the implied
+    returns by the same factor and a single NaN would poison every asset.
+
+    Args:
+        market_weights: Non-negative capitalisations or weights, one per asset.
+
+    Returns:
+        A float vector of the same length that sums to 1.
+
+    Raises:
+        ConfigurationError: If the input is not a non-empty 1-D array, holds
+            non-finite or negative values, or sums to zero.
+    """
+    weights = np.asarray(market_weights, dtype=float)
+    if weights.ndim != 1 or weights.size == 0:
+        raise ConfigurationError(
+            f"market_weights must be a non-empty 1-D array, got shape {weights.shape}"
+        )
+    if not np.isfinite(weights).all():
+        raise ConfigurationError(
+            "market_weights must be finite; drop or impute assets with a "
+            "missing market cap before building EquilibriumMu"
+        )
+    if (weights < 0).any():
+        raise ConfigurationError("market_weights must be non-negative")
+    total = float(weights.sum())
+    if total <= 0.0:
+        raise ConfigurationError("market_weights must have a positive sum")
+    return weights / total
+
+
 def build_mu_estimator(
     config: MomentEstimationConfig,
     *,
@@ -116,17 +151,24 @@ def build_mu_estimator(
 
     Args:
         config: Moment estimation configuration.
-        market_weights: Market-capitalisation weights (aligned to the
+        market_weights: Market capitalisations or weights (aligned to the
             asset-column order of the returns frame passed to ``fit``) for
             ``EquilibriumMu``'s reverse-optimisation. Sourced from the DB
             (``shares_outstanding`` x price, or
-            ``ticker_profiles.market_cap``); as a non-serialisable array it is
+            ``ticker_profiles.market_cap``); raw capitalisations are fine, they
+            are rescaled to sum to 1. As a non-serialisable array it is
             a factory keyword, never a config field. ``None`` falls back to
             skfolio's equal-weight default (i.e. a degenerate, non-cap-weighted
             equilibrium). Ignored for non-``EQUILIBRIUM`` estimators.
 
     Returns:
         A fitted-ready skfolio expected return estimator.
+
+    Raises:
+        ConfigurationError: If the mu estimator is unsupported, or
+            ``market_weights`` is supplied for ``EQUILIBRIUM`` but is not a
+            non-empty 1-D array of finite, non-negative values with a
+            positive sum.
     """
     match config.mu_estimator:
         case MuEstimatorType.EMPIRICAL:
@@ -145,7 +187,11 @@ def build_mu_estimator(
             # supplied market-cap weights (else equal-weight equilibrium).
             return EquilibriumMu(
                 risk_aversion=config.risk_aversion,
-                weights=market_weights,
+                weights=(
+                    None
+                    if market_weights is None
+                    else _normalise_market_weights(market_weights)
+                ),
                 covariance_estimator=build_cov_estimator(config),
             )
         case _:

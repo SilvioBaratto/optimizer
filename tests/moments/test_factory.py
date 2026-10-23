@@ -184,6 +184,76 @@ class TestEquilibriumMuWiring:
         assert rd.covariance.shape == (4, 4)
 
 
+class TestEquilibriumMarketWeightValidation:
+    """Raw market caps are normalised and malformed caps are rejected, so the
+    reverse-optimised equilibrium mu keeps a return-sized scale."""
+
+    @staticmethod
+    def _returns() -> pd.DataFrame:
+        rng = np.random.default_rng(3)
+        cols = [f"A{i}" for i in range(5)]
+        return pd.DataFrame(rng.normal(0.0005, 0.01, (300, 5)), columns=cols)
+
+    @staticmethod
+    def _equilibrium_cfg() -> MomentEstimationConfig:
+        return MomentEstimationConfig.for_equilibrium_ledoitwolf()
+
+    def test_raw_market_caps_give_same_mu_as_normalised_weights(self) -> None:
+        returns = self._returns()
+        caps = np.array([2.8e12, 1.1e12, 3e11, 8e10, 2e10])
+        raw = build_prior(self._equilibrium_cfg(), market_weights=caps)
+        raw.fit(returns)
+        normalised = build_prior(
+            self._equilibrium_cfg(), market_weights=caps / caps.sum()
+        )
+        normalised.fit(returns)
+        np.testing.assert_allclose(
+            raw.return_distribution_.mu, normalised.return_distribution_.mu
+        )
+        assert np.abs(raw.return_distribution_.mu).max() < 1.0
+
+    def test_built_estimator_weights_sum_to_one(self) -> None:
+        estimator = build_mu_estimator(
+            self._equilibrium_cfg(), market_weights=np.array([3.0, 1.0])
+        )
+        assert isinstance(estimator, EquilibriumMu)
+        np.testing.assert_allclose(estimator.weights, [0.75, 0.25])
+
+    def test_nan_market_cap_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="market_weights"):
+            build_mu_estimator(
+                self._equilibrium_cfg(),
+                market_weights=np.array([1e12, np.nan, 1e11]),
+            )
+
+    def test_infinite_market_cap_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="market_weights"):
+            build_mu_estimator(
+                self._equilibrium_cfg(),
+                market_weights=np.array([1e12, np.inf, 1e11]),
+            )
+
+    def test_negative_market_cap_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="market_weights"):
+            build_mu_estimator(
+                self._equilibrium_cfg(),
+                market_weights=np.array([1e12, -1e11, 1e11]),
+            )
+
+    def test_all_zero_market_caps_raise(self) -> None:
+        with pytest.raises(ConfigurationError, match="market_weights"):
+            build_mu_estimator(self._equilibrium_cfg(), market_weights=np.zeros(3))
+
+    def test_non_vector_market_weights_raise(self) -> None:
+        with pytest.raises(ConfigurationError, match="market_weights"):
+            build_mu_estimator(self._equilibrium_cfg(), market_weights=np.ones((2, 2)))
+
+    def test_invalid_weights_ignored_for_non_equilibrium(self) -> None:
+        cfg = MomentEstimationConfig(mu_estimator=MuEstimatorType.EMPIRICAL)
+        estimator = build_mu_estimator(cfg, market_weights=np.array([np.nan, 1.0]))
+        assert isinstance(estimator, EmpiricalMu)
+
+
 class TestBuildCovEstimator:
     @pytest.mark.parametrize(
         ("cov_type", "expected_class"),
