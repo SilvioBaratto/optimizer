@@ -196,6 +196,63 @@ class TestFetchCountryIlsoleRaises:
 
 
 # ---------------------------------------------------------------------------
+# fetch_country — ilsole row found but nothing parsed
+# ---------------------------------------------------------------------------
+
+_ALL_NONE_FORECAST = {
+    "last_inflation": None,
+    "inflation_6m": None,
+    "inflation_10y_avg": None,
+    "gdp_growth_6m": None,
+    "earnings_12m": None,
+    "eps_expected_12m": None,
+    "peg_ratio": None,
+    "lt_rate_forecast": None,
+    "reference_date": None,
+    "timestamp": "2026-01-01T00:00:00",
+}
+
+
+class TestFetchCountryIlsoleUnusableForecast:
+    def test_when_every_forecast_value_is_none_then_snapshot_not_overwritten(
+        self,
+    ) -> None:
+        service, mock_repo = _build_service(
+            ilsole_forecasts=_ALL_NONE_FORECAST,
+            te_response=_TE_SUCCESS,
+        )
+
+        service.fetch_country("USA")
+
+        mock_repo.upsert_economic_indicator.assert_not_called()
+        mock_repo.upsert_economic_indicator_observation.assert_not_called()
+
+    def test_when_every_forecast_value_is_none_then_error_surfaced(self) -> None:
+        service, _ = _build_service(
+            ilsole_forecasts=_ALL_NONE_FORECAST,
+            te_response=_TE_SUCCESS,
+        )
+
+        result = service.fetch_country("USA")
+
+        assert any(e.startswith("ilsole_forecast") for e in result["errors"])
+        assert result["counts"]["ilsole_forecast"] == 0
+        assert result["counts"]["ilsole_observations"] == 0
+
+    def test_when_one_forecast_value_parsed_then_row_is_stored(self) -> None:
+        partial = {**_ALL_NONE_FORECAST, "lt_rate_forecast": 4.6}
+        service, mock_repo = _build_service(
+            ilsole_forecasts=partial,
+            te_response=_TE_SUCCESS,
+        )
+
+        result = service.fetch_country("USA")
+
+        mock_repo.upsert_economic_indicator.assert_called_once()
+        assert result["errors"] == []
+
+
+# ---------------------------------------------------------------------------
 # fetch_country — te scraper raises
 # ---------------------------------------------------------------------------
 

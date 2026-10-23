@@ -26,6 +26,19 @@ from app.services.macro.scrapers.tradingeconomics_scraper import (
 
 logger = logging.getLogger(__name__)
 
+# Numeric columns of an IlSole forecast row. ``reference_date`` and ``timestamp``
+# are metadata and must not count as usable data.
+_ILSOLE_VALUE_FIELDS = (
+    "last_inflation",
+    "inflation_6m",
+    "inflation_10y_avg",
+    "gdp_growth_6m",
+    "earnings_12m",
+    "eps_expected_12m",
+    "peg_ratio",
+    "lt_rate_forecast",
+)
+
 
 class MacroRegimeService:
     """Fetches macroeconomic data from scrapers and stores via repository.
@@ -135,7 +148,20 @@ class MacroRegimeService:
         today = datetime.date.today()
         try:
             forecast_data = self.ilsole_scraper.get_forecasts(country)
-            if forecast_data:
+            if forecast_data and all(
+                forecast_data.get(field) is None for field in _ILSOLE_VALUE_FIELDS
+            ):
+                # The country row was found but no cell parsed (renamed cell
+                # ids, masked paywall overlay). Upserting it would replace the
+                # last good snapshot with NULLs, so skip the write and report.
+                counts["ilsole_forecast"] = 0
+                counts["ilsole_observations"] = 0
+                errors.append(
+                    "ilsole_forecast: row found but no forecast value parsed "
+                    "(page structure may have drifted)"
+                )
+                logger.warning("IlSole forecasts for %s parsed to all-None", country)
+            elif forecast_data:
                 counts["ilsole_forecast"] = self.repo.upsert_economic_indicator(
                     country=country,
                     data=forecast_data,
