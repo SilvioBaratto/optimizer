@@ -336,6 +336,34 @@ class TestBulkFetch:
 
         assert result["error_count"] == 1
 
+    def test_failed_fetch_is_recorded_as_error_not_as_empty_calendar(self) -> None:
+        repo = MagicMock(name="repo")
+        repo.upsert_economic_events.return_value = 1
+        yf = MagicMock()
+        # The client returns None only once its retries are exhausted, whereas an
+        # empty list is Yahoo genuinely answering with no events.
+        yf.calendars.fetch_earnings.return_value = None
+        yf.calendars.fetch_ipos.return_value = []
+        yf.calendars.fetch_splits.return_value = None
+        yf.calendars.fetch_economic_events.return_value = [{"event": "CPI"}]
+        on_progress = MagicMock()
+
+        with (
+            patch(
+                "portopt_db.repositories.market_data.calendars_repository.CalendarsRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        ):
+            result = run_calendars_fetch(yf, on_progress=on_progress)
+
+        assert result["error_count"] == 2
+        assert result["counts"] == {"ipos": 0, "economic_events": 1}
+        repo.upsert_earnings.assert_not_called()
+        repo.upsert_splits.assert_not_called()
+        final = on_progress.call_args_list[-1].kwargs
+        assert final["errors"] == ["earnings: fetch failed", "splits: fetch failed"]
+
 
 class TestSchedulerStep:
     def test_composes_run_step(self) -> None:
