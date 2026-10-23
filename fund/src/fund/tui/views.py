@@ -767,9 +767,18 @@ class MandateView(ShellView):
         return PortfolioMandate.model_validate(data)
 
     def _proposed_gates(self) -> list[str]:
-        """The PM gates checked in the editor (``save_profile`` is not a gate here)."""
+        """The mandate's gates with ``place_orders`` set from the checkbox.
+
+        Only ``place_orders`` is editable here (``save_profile`` is not a mandate
+        gate). Any other gate on the mandate (e.g. one added through the CLI's
+        ``--interrupt-on``) is carried over untouched, so saving never drops an
+        approval requirement the editor cannot show.
+        """
         checked = self.query_one("#gate-place-orders", Checkbox).value
-        return ["place_orders"] if checked else []
+        current = list(self.mandate.hitl_gates) if self.mandate is not None else []
+        if not checked:
+            return [gate for gate in current if gate != "place_orders"]
+        return current if "place_orders" in current else [*current, "place_orders"]
 
     def action_remove_directive(self) -> None:
         """Drop the highlighted remembered directive (persisted on the next save)."""

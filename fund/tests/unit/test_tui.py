@@ -9545,3 +9545,56 @@ async def test_mandate_repaints_when_focus_moves_to_another_portfolio(
         app.focus_portfolio(_PID_B)
         await pilot.pause()
         assert view.query_one("#mandate-capital", Input).value == "100000"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("stored", "place_orders_checked", "expected"),
+    [
+        (
+            ("place_orders", "optimize_portfolio"),
+            True,
+            ("place_orders", "optimize_portfolio"),
+        ),
+        (("place_orders", "optimize_portfolio"), False, ("optimize_portfolio",)),
+        (("optimize_portfolio",), False, ("optimize_portfolio",)),
+        (("optimize_portfolio",), True, ("optimize_portfolio", "place_orders")),
+    ],
+)
+async def test_mandate_gate_edit_preserves_gates_outside_the_editor(
+    shell_env, stored, place_orders_checked, expected
+) -> None:
+    # Only ``place_orders`` is editable here; a CLI-configured extra gate must survive.
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(update={"hitl_gates": stored})
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#gate-place-orders", Checkbox).value = place_orders_checked
+        assert view.proposed_mandate().hitl_gates == expected
+
+
+@pytest.mark.asyncio
+async def test_mandate_save_keeps_extra_gate_when_only_drift_changes(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"hitl_gates": ("place_orders", "optimize_portfolio")}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = "0.2"
+        app.action_save_mandate()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        reloaded = observe.get_mandate(session, PORTFOLIO_ID)
+        assert reloaded.drift_l1_threshold == 0.2
+        assert reloaded.hitl_gates == ("place_orders", "optimize_portfolio")
