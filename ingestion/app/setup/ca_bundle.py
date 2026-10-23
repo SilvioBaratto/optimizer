@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import certifi
@@ -98,16 +99,60 @@ def _windows_roots() -> str:
     )
 
 
+def _macos_trusts(cert: Path) -> bool:
+    """True if macOS itself evaluates the certificate at ``cert`` as trusted.
+
+    ``security verify-cert`` consults the admin/user trust settings, so a root marked
+    Never Trust, expired, or trusted only for another policy (e.g. code signing) is
+    rejected. ``basic`` rather than ``ssl`` because the SSL policy refuses a CA as the
+    leaf (``-l`` allows that); ``-L`` keeps the evaluation offline.
+
+    Raises:
+        CABundleError: If the ``security`` tool is missing.
+    """
+    argv = ["security", "verify-cert", "-c", str(cert), "-p", "basic", "-l", "-L", "-q"]
+    try:
+        result = subprocess.run(  # noqa: S603 - static, trusted argv; never shell=True
+            argv, capture_output=True, text=True, check=False
+        )
+    except FileNotFoundError as exc:
+        raise CABundleError("cannot verify macOS trust: security not found") from exc
+    return result.returncode == 0
+
+
 def _macos_roots() -> str:
-    """Export the macOS System and SystemRoot keychains as PEM via ``security``."""
-    parts = [
+    """Export the macOS System and SystemRoot keychains as PEM via ``security``.
+
+    ``find-certificate`` dumps every keychain item regardless of trust settings, so
+    each certificate is then filtered through macOS's own trust evaluation: the
+    bundle becomes a global TLS anchor for Python, uv and docker builds and must not
+    admit anything the OS itself distrusts.
+
+    Raises:
+        CABundleError: If the export fails, or the OS rejects every certificate (a
+            broken evaluator, which would otherwise silently drop the corporate root).
+    """
+    exported = "\n".join(
         _run_capture(
             ["security", "find-certificate", "-a", "-p", keychain],
             f"macOS keychain {keychain}",
         )
         for keychain in _MACOS_KEYCHAINS
-    ]
-    return "\n".join(parts)
+    )
+    blocks = _pem_blocks(exported)
+    trusted: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        cert = Path(tmp) / "cert.pem"
+        for block in blocks:
+            cert.write_text(block + "\n", encoding="utf-8")
+            if _macos_trusts(cert):
+                trusted.append(block)
+    if blocks and not trusted:
+        raise CABundleError(
+            "macOS trust evaluation rejected every keychain certificate; "
+            "cannot build a trustworthy CA bundle"
+        )
+    return "\n".join(trusted)
 
 
 def _linux_roots() -> str:
