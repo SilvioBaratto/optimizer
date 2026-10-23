@@ -229,3 +229,43 @@ def test_when_same_query_repeats_then_second_call_returns_fresh_news() -> None:
     assert first is not None and second is not None
     assert first["news"][0]["title"] == "morning"
     assert second["news"][0]["title"] == "midday"
+
+
+def _requested_flags(get: MagicMock) -> dict[str, Any]:
+    # ``cache_get`` forwards the query string positionally: (url, params, timeout).
+    params = get.call_args.args[1]
+    return {
+        "research": params["enableResearchReports"],
+        "nav": params["enableNavLinks"],
+    }
+
+
+@pytest.mark.usefixtures("_real_search_http")
+def test_when_research_and_nav_opted_in_then_yahoo_is_asked_for_them() -> None:
+    # yf.Search only requests research reports and nav links when its
+    # constructor flags are set, so reading the attributes alone returns [].
+    client = SearchClient(MagicMock(), MagicMock(), default_max_retries=1)
+    payload = _Resp(
+        {
+            "quotes": [{"symbol": "AAPL"}],
+            "news": [],
+            "researchReports": [{"reportTitle": "AAPL outlook"}],
+            "nav": [{"navName": "Markets"}],
+        }
+    )
+    with _serve(payload) as get:
+        result = client.search("AAPL", include_research=True, include_nav=True)
+
+    assert _requested_flags(get) == {"research": True, "nav": True}
+    assert result is not None
+    assert result["research"] == [{"reportTitle": "AAPL outlook"}]
+    assert result["nav"] == [{"navName": "Markets"}]
+
+
+@pytest.mark.usefixtures("_real_search_http")
+def test_when_extras_not_opted_in_then_yahoo_is_not_asked_for_them() -> None:
+    client = SearchClient(MagicMock(), MagicMock(), default_max_retries=1)
+    with _serve(_news("headline")) as get:
+        client.search("AAPL")
+
+    assert _requested_flags(get) == {"research": False, "nav": False}

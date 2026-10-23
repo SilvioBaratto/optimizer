@@ -107,7 +107,15 @@ class SearchClient:
             self.circuit_breaker.check()
             self.rate_limiter.acquire("search")
             _evict_response_cache()
-            s = yf.Search(query, max_results=max_results, news_count=news_count)
+            # Yahoo only returns research reports and nav links when the request
+            # asks for them; reading the attributes afterwards finds them empty.
+            s = yf.Search(
+                query,
+                max_results=max_results,
+                news_count=news_count,
+                include_research=include_research,
+                include_nav_links=include_nav,
+            )
             return {"quotes": s.quotes, "news": s.news, **_collect_extras(s, flags)}
 
         return retry_with_backoff(
