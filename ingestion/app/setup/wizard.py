@@ -59,6 +59,18 @@ _LLM_SECRET_NAMES = {
 _OLLAMA_CLOUD_HOST = "ollama.com"
 # Sensible model default per provider (blank = the operator must type one).
 _LLM_DEFAULT_MODEL = {"ollama": "deepseek-v4.1-flash:cloud"}
+# Config keys that only make sense for the provider that wrote them. Staging a
+# provider replaces all of them, because the config merge would otherwise carry a
+# previous provider's endpoint/model onto the new one (and send its key there).
+_LLM_PROVIDER_SCOPED_KEYS = (
+    "llm_model",
+    "llm_fallback_model",
+    "llm_base_url",
+    "aws_region",
+    "azure_openai_endpoint",
+    "azure_openai_api_version",
+    "azure_openai_deployment_name",
+)
 # Interactive re-prompts for a rejected key before giving up (bounded so a
 # NonInteractivePrompter can never spin forever).
 _LLM_KEY_ATTEMPTS = 3
@@ -262,6 +274,14 @@ def _llm_needs_key(provider: str, base_url: str | None) -> bool:
     return True
 
 
+def _carry_forward(given: str | None, stored: object) -> str | None:
+    """The value a model/base-URL flag resolves to: the flag, else what is stored."""
+    value = (given or "").strip()
+    if value:
+        return value
+    return str(stored) if stored else None
+
+
 def _stage_llm(
     config: dict[str, object],
     secrets: dict[str, str],
@@ -272,13 +292,21 @@ def _stage_llm(
     fields: dict[str, str | None],
     secret_name: str | None,
     key: str | None,
+    existing: dict[str, object],
 ) -> None:
-    """Stage validated LLM choices: non-secret → ``config``, key → ``secrets``."""
+    """Stage validated LLM choices: non-secret → ``config``, key → ``secrets``.
+
+    A provider switch replaces the whole provider-scoped section: anything not
+    supplied here is staged as ``None`` so ``config_file.update_config`` deletes the
+    value the previous provider left. A re-run of the same provider keeps the keys the
+    wizard never asks about (``llm_fallback_model``); ``model`` and ``base_url`` are
+    the resolved answers, so ``None`` there clears the stored value.
+    """
+    if existing.get("llm_provider") != provider:
+        config.update(dict.fromkeys(_LLM_PROVIDER_SCOPED_KEYS))
     config["llm_provider"] = provider
-    if model:
-        config["llm_model"] = model
-    if base_url:
-        config["llm_base_url"] = base_url
+    config["llm_model"] = model or None
+    config["llm_base_url"] = base_url or None
     if provider == "aws" and fields.get("region"):
         config["aws_region"] = fields["region"]
     if provider == "microsoft":
@@ -305,7 +333,9 @@ def _configure_llm_noninteractive(
 ) -> None:
     """Stage the fund LLM backend from flags/env; validate before anything persists.
 
-    ``llm_provider`` unset → no LLM config (fund keeps its env-free default).
+    ``llm_provider`` unset → no LLM config (fund keeps its env-free default). Re-running
+    the stored provider keeps a model/base URL the flags do not mention, and the key is
+    validated against that same effective base URL, so what is probed is what is stored.
     """
     if not llm_provider:
         return
@@ -314,6 +344,10 @@ def _configure_llm_noninteractive(
             f"Unknown LLM provider {llm_provider!r}; expected one of "
             f"{', '.join(validators.SUPPORTED_LLM_PROVIDERS)}."
         )
+    existing = config_file.load_config()
+    stored = existing if existing.get("llm_provider") == llm_provider else {}
+    llm_model = _carry_forward(llm_model, stored.get("llm_model"))
+    llm_base_url = _carry_forward(llm_base_url, stored.get("llm_base_url"))
     fields = _llm_fields_from_env(llm_provider, llm_base_url)
     secret_name = _LLM_SECRET_NAMES.get(llm_provider)
     key: str | None = None
@@ -341,6 +375,7 @@ def _configure_llm_noninteractive(
         fields=fields,
         secret_name=secret_name,
         key=key,
+        existing=existing,
     )
 
 
@@ -454,6 +489,7 @@ def _configure_llm_interactive(
         fields=fields,
         secret_name=secret_name,
         key=key,
+        existing=existing,
     )
 
 

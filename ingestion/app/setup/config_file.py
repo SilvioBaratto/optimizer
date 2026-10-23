@@ -60,12 +60,17 @@ def update_config(updates: Mapping[str, Any], *, path: Path | None = None) -> Pa
     """Merge ``updates`` into the existing config, preserving the other keys.
 
     Load-merge-save so a targeted write (e.g. persisting ``repo_path``) does not
-    clobber the wizard's LLM selection already on disk. The secret-key guard in
-    ``save_config`` still applies to the merged result.
+    clobber the wizard's LLM selection already on disk. A ``None`` value removes
+    that key, since a plain merge could never unset a stale setting. The secret-key
+    guard in ``save_config`` still applies to the merged result.
     """
     path = path or DEFAULT_CONFIG_PATH
     merged = load_config(path=path)
-    merged.update(updates)
+    for key, value in updates.items():
+        if value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = value
     return save_config(merged, path=path)
 
 

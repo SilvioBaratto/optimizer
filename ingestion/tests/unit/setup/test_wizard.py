@@ -9,11 +9,17 @@ credentials are auto-detected before prompting.
 
 import pytest
 
-from app.setup import wizard
+from app.setup import compose_env, config_file, wizard
 from app.setup.prompts import NonInteractivePrompter
 
 # Long enough for the new-store passphrase policy.
 _PW = "correct-horse-battery"
+
+# Captured at import, before the `patched` fixture swaps the module attributes, so
+# a test can run the wizard against the real on-disk config merge.
+_REAL_UPDATE_CONFIG = config_file.update_config
+_REAL_LOAD_CONFIG = config_file.load_config
+_REAL_SAVE_CONFIG = config_file.save_config
 
 
 @pytest.fixture
@@ -989,3 +995,255 @@ def test_interactive_env_passphrase_is_not_asked_to_confirm(
     wizard.run_setup_interactive(prompter)
     assert prompter.confirmations_asked == 0
     assert patched["saved_secrets"] == {}
+
+
+# --- provider switch replaces the LLM section instead of merging over it -----
+
+
+def _use_real_config_file(monkeypatch: pytest.MonkeyPatch, path) -> None:
+    monkeypatch.setattr(
+        wizard.config_file,
+        "update_config",
+        lambda config, **kw: _REAL_UPDATE_CONFIG(config, path=path),
+    )
+    monkeypatch.setattr(
+        wizard.config_file, "load_config", lambda **kw: _REAL_LOAD_CONFIG(path=path)
+    )
+
+
+def test_provider_switch_drops_the_previous_providers_llm_settings(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """A stale model/base URL/region/Azure field must not follow a new provider.
+
+    The merge keeps keys a run does not stage, so ``--llm-provider openai`` over an
+    earlier local-ollama setup would otherwise route the OpenAI key to the old
+    ollama endpoint (and ask it for an ollama model id).
+    """
+    path = tmp_path / "config.toml"
+    _REAL_SAVE_CONFIG(
+        {
+            "llm_provider": "ollama",
+            "llm_model": "llama3.1:8b",
+            "llm_fallback_model": "llama3",
+            "llm_base_url": "http://localhost:11434",
+            "aws_region": "eu-west-1",
+            "azure_openai_endpoint": "https://az.openai.azure.com",
+            "azure_openai_api_version": "2024-06-01",
+            "azure_openai_deployment_name": "gpt4o-deploy",
+            "repo_path": "/home/u/optimizer",
+        },
+        path=path,
+    )
+    _use_real_config_file(monkeypatch, path)
+
+    wizard.run_setup_noninteractive(
+        passphrase=_PW, llm_provider="openai", llm_model="gpt-4o", llm_key="sk-o"
+    )
+
+    persisted = _REAL_LOAD_CONFIG(path=path)
+    assert persisted == {
+        "llm_provider": "openai",
+        "llm_model": "gpt-4o",
+        "repo_path": "/home/u/optimizer",
+    }
+    env = compose_env.config_to_env(persisted)
+    assert "OPENAI_BASE_URL" not in env
+    assert env["FUND_FALLBACK_MODEL"] == "gpt-4o"
+
+
+def test_interactive_blank_model_and_base_url_clear_the_stored_values(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Blank answers mean "hosted default", not "keep whatever was stored"."""
+    path = tmp_path / "config.toml"
+    _REAL_SAVE_CONFIG(
+        {
+            "llm_provider": "ollama",
+            "llm_model": "llama3.1:8b",
+            "llm_base_url": "http://localhost:11434",
+        },
+        path=path,
+    )
+    _use_real_config_file(monkeypatch, path)
+    prompter = _llm_prompter(
+        {
+            wizard._MSG_LLM_PROVIDER: "openai",
+            wizard._MSG_LLM_MODEL: "",
+            wizard._MSG_LLM_KEY: "sk-openai",
+        }
+    )
+
+    wizard.run_setup_interactive(prompter, reconfigure=True)
+
+    assert _REAL_LOAD_CONFIG(path=path) == {"llm_provider": "openai"}
+
+
+def test_declining_llm_reconfigure_keeps_the_stored_llm_settings(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Only a staged provider replaces the section; declining must not wipe it."""
+    path = tmp_path / "config.toml"
+    stored = {
+        "llm_provider": "ollama",
+        "llm_model": "llama3.1:8b",
+        "llm_base_url": "http://localhost:11434",
+    }
+    _REAL_SAVE_CONFIG(stored, path=path)
+    _use_real_config_file(monkeypatch, path)
+    prompter = NonInteractivePrompter(
+        {
+            wizard._MSG_PASSPHRASE: _PW,
+            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
+            wizard._MSG_T212_KEY: "",
+            wizard._MSG_FRED_KEY: "",
+            wizard._MSG_CONFIGURE_LLM: False,
+        }
+    )
+
+    wizard.run_setup_interactive(prompter)
+
+    assert _REAL_LOAD_CONFIG(path=path) == stored
+
+
+# --- a same-provider re-run keeps what it was not asked about ----------------
+
+_STORED_OPENAI_PROXY = {
+    "llm_provider": "openai",
+    "llm_model": "gpt-4o",
+    "llm_fallback_model": "gpt-4o-mini",
+    "llm_base_url": "http://proxy.internal/v1",
+    "repo_path": "/home/u/optimizer",
+}
+
+
+def _store_config(monkeypatch: pytest.MonkeyPatch, tmp_path, stored: dict):
+    path = tmp_path / "config.toml"
+    _REAL_SAVE_CONFIG(dict(stored), path=path)
+    _use_real_config_file(monkeypatch, path)
+    return path
+
+
+def _record_llm_probes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[tuple[str, str | None, str | None]]:
+    probes: list[tuple[str, str | None, str | None]] = []
+
+    def _validate(provider, key=None, base_url=None, **fields):
+        probes.append((provider, key, base_url))
+        return True
+
+    monkeypatch.setattr(wizard.validators, "validate_llm", _validate)
+    return probes
+
+
+def test_interactive_same_provider_rerun_keeps_the_hand_set_fallback_model(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The wizard never asks for ``llm_fallback_model``, so a reconfigure of the same
+    provider must not drop the one the operator set by hand."""
+    path = _store_config(monkeypatch, tmp_path, _STORED_OPENAI_PROXY)
+    prompter = _llm_prompter(
+        {
+            wizard._MSG_LLM_PROVIDER: "openai",
+            wizard._MSG_LLM_MODEL: "gpt-4.1",
+            wizard._MSG_LLM_BASE_URL: "http://proxy.internal/v1",
+            wizard._MSG_LLM_KEY: "sk-new",
+        }
+    )
+
+    wizard.run_setup_interactive(prompter, reconfigure=True)
+
+    assert _REAL_LOAD_CONFIG(path=path) == {
+        **_STORED_OPENAI_PROXY,
+        "llm_model": "gpt-4.1",
+    }
+
+
+def test_interactive_same_provider_blank_answers_clear_model_and_base_url(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Only the fields the wizard asks about follow the answer; blank clears them."""
+    path = _store_config(
+        monkeypatch,
+        tmp_path,
+        {
+            "llm_provider": "ollama",
+            "llm_model": "llama3.1:8b",
+            "llm_fallback_model": "llama3",
+            "llm_base_url": "http://localhost:11434",
+        },
+    )
+    prompter = _llm_prompter(
+        {
+            wizard._MSG_LLM_PROVIDER: "ollama",
+            wizard._MSG_LLM_MODEL: "",
+            wizard._MSG_LLM_BASE_URL: "",
+            wizard._MSG_LLM_KEY: "ollama-cloud-key",
+        }
+    )
+
+    wizard.run_setup_interactive(prompter, reconfigure=True)
+
+    assert _REAL_LOAD_CONFIG(path=path) == {
+        "llm_provider": "ollama",
+        "llm_fallback_model": "llama3",
+    }
+
+
+def test_noninteractive_same_provider_key_rotation_keeps_model_and_base_url(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """``--llm-provider openai --llm-key NEW`` must not forget the proxy or model,
+    and must probe the new key against the host the config keeps pointing at."""
+    path = _store_config(monkeypatch, tmp_path, _STORED_OPENAI_PROXY)
+    probes = _record_llm_probes(monkeypatch)
+
+    wizard.run_setup_noninteractive(
+        passphrase=_PW, llm_provider="openai", llm_key="sk-new"
+    )
+
+    assert _REAL_LOAD_CONFIG(path=path) == _STORED_OPENAI_PROXY
+    assert patched["saved_secrets"] == {"openai_api_key": "sk-new"}
+    assert probes == [("openai", "sk-new", "http://proxy.internal/v1")]
+    env = compose_env.config_to_env(_REAL_LOAD_CONFIG(path=path))
+    assert env["FUND_FALLBACK_MODEL"] == "gpt-4o-mini"
+
+
+def test_noninteractive_same_provider_flags_override_the_stored_values(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    path = _store_config(monkeypatch, tmp_path, _STORED_OPENAI_PROXY)
+    probes = _record_llm_probes(monkeypatch)
+
+    wizard.run_setup_noninteractive(
+        passphrase=_PW,
+        llm_provider="openai",
+        llm_model="gpt-4.1",
+        llm_base_url="http://other.internal/v1",
+        llm_key="sk-new",
+    )
+
+    assert _REAL_LOAD_CONFIG(path=path) == {
+        **_STORED_OPENAI_PROXY,
+        "llm_model": "gpt-4.1",
+        "llm_base_url": "http://other.internal/v1",
+    }
+    assert probes == [("openai", "sk-new", "http://other.internal/v1")]
+
+
+def test_noninteractive_provider_switch_does_not_inherit_model_or_base_url(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    path = _store_config(monkeypatch, tmp_path, _STORED_OPENAI_PROXY)
+    probes = _record_llm_probes(monkeypatch)
+
+    wizard.run_setup_noninteractive(
+        passphrase=_PW, llm_provider="anthropic", llm_key="sk-ant"
+    )
+
+    assert _REAL_LOAD_CONFIG(path=path) == {
+        "llm_provider": "anthropic",
+        "repo_path": "/home/u/optimizer",
+    }
+    assert probes == [("anthropic", "sk-ant", None)]
