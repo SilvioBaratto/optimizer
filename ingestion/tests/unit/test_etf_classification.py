@@ -126,3 +126,39 @@ class TestFixedIncomeSubclass:
         assert result.asset_class == "fixed_income"
         assert result.fi_subclass == subclass
         assert result.duration_bucket == duration
+
+
+class TestEquityFundsWithBondVocabulary:
+    """Words like "high yield" or "inflation" also name equity strategies; they
+    must not by themselves turn an equity ETF into a bond fund."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "Invesco High Yield Equity Dividend Achievers ETF",
+            "Horizon Kinetics Inflation Beneficiaries ETF",
+            "Global X Government Infrastructure Equity ETF",
+            "Corporate Governance Leaders Stock ETF",
+            "Credit Services Dividend ETF",
+        ],
+    )
+    def test_equity_etf_with_bond_like_word_is_rejected(self, name: str) -> None:
+        assert classify_instrument(name, "ETF") is None
+
+    @pytest.mark.parametrize(
+        ("name", "subclass"),
+        [
+            ("Amundi Prime Euro Corporates (Dist)", "corporate"),
+            ("UBS Bloomberg Euro Area Liquid Corporates (Acc)", "corporate"),
+            ("iShares Euro Government (Dist)", "government"),
+            ("SPDR Bloomberg High Yield (Dist)", "high_yield"),
+            ("Equity Hedged Government Bond (Acc)", "government"),
+        ],
+    )
+    def test_bond_fund_naming_the_segment_without_the_word_bond_is_kept(
+        self, name: str, subclass: str
+    ) -> None:
+        result = classify_instrument(name, "ETF")
+        assert result is not None
+        assert result.asset_class == "fixed_income"
+        assert result.fi_subclass == subclass

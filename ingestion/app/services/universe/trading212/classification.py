@@ -62,11 +62,23 @@ _MULTI_ASSET = re.compile(
     re.I,
 )
 
+# Words that only ever describe debt: enough on their own to call a fund a bond
+# fund.
 _BOND_MARKER = re.compile(
-    r"\bbond\b|treasur|\bgilt|\bbund\b|sovereign|government|\bgov(t|ies)?\b"
-    r"|corporate|\bcredit\b|aggregate|fixed income|inflation|linker|\btips\b"
-    r"|high[\s-]?yield|\bagg\b|\bbtp\b",
+    r"\bbond\b|treasur|\bgilt|\bbund\b|sovereign|\bgov(t|ies)?\b"
+    r"|fixed income|linker|\btips\b|\bagg\b|\bbtp\b",
     re.I,
+)
+
+# Segment words that bond funds use ("Euro Corporates", "High Yield") but equity
+# strategies use too ("High Yield Equity Dividend", "Inflation Beneficiaries"),
+# so they count only when the name carries no equity vocabulary.
+_AMBIGUOUS_BOND_MARKER = re.compile(
+    r"government|corporate|\bcredit\b|aggregate|inflation|high[\s-]?yield",
+    re.I,
+)
+_EQUITY_VOCABULARY = re.compile(
+    r"\bequit(?:y|ies)\b|\bstocks?\b|\bdividend|\bbeneficiar", re.I
 )
 
 # Fixed-income sub-class, most-specific first.
@@ -116,6 +128,14 @@ def _fi_subclass(name: str) -> str:
     return FiSubclass.AGGREGATE.value  # broad/mixed bond fund
 
 
+def _is_bond_fund(name: str) -> bool:
+    if _BOND_MARKER.search(name):
+        return True
+    return bool(
+        _AMBIGUOUS_BOND_MARKER.search(name) and not _EQUITY_VOCABULARY.search(name)
+    )
+
+
 def classify_instrument(
     name: str | None,
     instrument_type: str | None,
@@ -137,7 +157,7 @@ def classify_instrument(
     if _MULTI_ASSET.search(name):
         return Classification(AssetClass.MULTI_ASSET.value, None, None)
 
-    if _BOND_MARKER.search(name):
+    if _is_bond_fund(name):
         return Classification(
             AssetClass.FIXED_INCOME.value, _fi_subclass(name), _duration(name)
         )
