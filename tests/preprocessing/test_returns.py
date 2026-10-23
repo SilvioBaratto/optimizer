@@ -79,6 +79,23 @@ class TestToReturns:
             to_returns(prices, np.zeros((6, 1)))  # type: ignore[arg-type]
 
 
+class TestJoinMethods:
+    """Every selectable join must keep the date index of the price panels."""
+
+    @pytest.mark.parametrize("join", list(JoinMethod), ids=lambda j: j.value)
+    def test_benchmark_join_keeps_the_date_index(
+        self, prices: pd.DataFrame, join: JoinMethod
+    ) -> None:
+        bench = prices[["MSFT"]].rename(columns={"MSFT": "BENCH"})
+        x_ret, y_ret = to_returns(prices, bench, config=ReturnsConfig(join=join))
+        assert isinstance(x_ret.index, pd.DatetimeIndex)
+        assert x_ret.index.equals(y_ret.index)
+        assert len(x_ret) == len(prices) - 1
+
+    def test_cartesian_cross_join_is_not_offered(self) -> None:
+        assert "cross" not in {m.value for m in JoinMethod}
+
+
 class TestDecimalCoercion:
     """DB price_history is Numeric(20, 6) -> Decimal (object dtype)."""
 

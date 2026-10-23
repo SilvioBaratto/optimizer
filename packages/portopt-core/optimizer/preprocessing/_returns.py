@@ -54,14 +54,16 @@ def _coerce_price_frame(frame: pd.DataFrame, *, name: str) -> pd.DataFrame:
 class JoinMethod(str, Enum):
     """How to align the price and (optional) benchmark price frames.
 
-    Maps directly to the ``join`` argument of `prices_to_returns`.
+    Maps to the ``join`` argument of `prices_to_returns`.  skfolio's ``"cross"``
+    is deliberately absent: a Cartesian product pairs every price date with every
+    benchmark date and discards the date index, so its output is not a return
+    series.
     """
 
     LEFT = "left"
     RIGHT = "right"
     INNER = "inner"
     OUTER = "outer"
-    CROSS = "cross"
 
 
 @dataclass(frozen=True)
