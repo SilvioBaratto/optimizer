@@ -11,6 +11,7 @@ Covers:
 from __future__ import annotations
 
 import threading
+import time
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
@@ -125,6 +126,45 @@ class TestCallWithTimeout:
             call_with_timeout(_hang, timeout=0.1)
 
         barrier.set()  # release the daemon thread
+
+    def test_when_function_outlives_timeout_then_caller_returns_at_the_deadline(self):
+        """The wait is bounded: a stuck call is abandoned, not joined."""
+        release = threading.Event()
+        started = time.monotonic()
+        try:
+            with pytest.raises(TimeoutError, match="did not complete within"):
+                call_with_timeout(lambda: release.wait(timeout=3), timeout=0.2)
+            elapsed = time.monotonic() - started
+        finally:
+            release.set()
+
+        assert elapsed < 1.5
+
+    def test_when_function_succeeds_late_then_caller_still_times_out_promptly(self):
+        """A result that arrives after the deadline is dropped without a wait."""
+        started = time.monotonic()
+        with pytest.raises(TimeoutError):
+            call_with_timeout(lambda: (time.sleep(1.5), "late")[1], timeout=0.1)
+
+        assert time.monotonic() - started < 1.0
+
+    def test_when_function_outlives_timeout_then_worker_is_a_daemon_thread(self):
+        """An abandoned worker must not hold the interpreter open at exit."""
+        release = threading.Event()
+        workers: list[threading.Thread] = []
+
+        def _hang():
+            workers.append(threading.current_thread())
+            release.wait(timeout=3)
+
+        try:
+            with pytest.raises(TimeoutError):
+                call_with_timeout(_hang, timeout=0.1)
+        finally:
+            release.set()
+
+        assert workers
+        assert workers[0].daemon
 
     def test_when_function_raises_then_exception_propagates(self):
         def _boom():

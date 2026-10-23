@@ -21,7 +21,7 @@ import logging
 import math
 import threading
 from collections.abc import Callable, Iterable
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -67,10 +67,12 @@ logger = logging.getLogger(__name__)
 # signals (signals may only be set from the main thread, which is illegal
 # inside the thread pool workers used by the parallel fetch path).
 #
-# `call_with_timeout` submits the callable to a fresh one-shot thread pool,
-# waits at most `timeout` seconds for a result, and raises `TimeoutError` on
-# expiry.  The underlying thread is a daemon so it does not prevent process
-# shutdown even if the network call never returns.
+# `call_with_timeout` runs the callable on a fresh daemon thread, waits at most
+# `timeout` seconds for it, and raises `TimeoutError` on expiry.  The caller is
+# released at the deadline and the thread is abandoned rather than joined: a
+# `ThreadPoolExecutor` (non-daemon workers, joined on shutdown) would hold the
+# caller until the call finished and could keep the interpreter alive at exit.
+# An abandoned call runs on in the background and its result is dropped.
 #
 # `fetch_history` already accepts a `timeout` kwarg in yfinance 1.3 (passed
 # directly to `requests`) — for that call we still use the kwarg because it
@@ -80,6 +82,9 @@ logger = logging.getLogger(__name__)
 
 def call_with_timeout(fn: "Any", timeout: float) -> "Any":
     """Execute *fn* in a daemon thread; raise ``TimeoutError`` after *timeout* seconds.
+
+    On expiry the caller is released immediately; *fn* keeps running in the
+    abandoned thread and whatever it returns or raises afterwards is dropped.
 
     Args:
         fn: Zero-argument callable to execute.
@@ -92,18 +97,35 @@ def call_with_timeout(fn: "Any", timeout: float) -> "Any":
         TimeoutError: If *fn* does not complete within *timeout* seconds.
         Exception: Any exception raised by *fn* is re-raised in the caller.
     """
-    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="yf-timeout") as _pool:
-        # A copy of the caller's context carries its request-outcome scope into
-        # the worker thread, which would otherwise start with an empty one.
-        future: Future[Any] = _pool.submit(contextvars.copy_context().run, fn)
+    outcome: list[tuple[bool, Any]] = []
+    finished = threading.Event()
+    # A copy of the caller's context carries its request-outcome scope into the
+    # worker thread, which would otherwise start with an empty one.
+    context = contextvars.copy_context()
+
+    def _run() -> None:
         try:
-            return future.result(timeout=timeout)
-        except TimeoutError as err:
-            message = f"yfinance call did not complete within {timeout:.0f}s"
-            record_failure(f"TimeoutError: {message}")
-            # The worker thread is a daemon — it will be abandoned but won't
-            # block process shutdown.
-            raise TimeoutError(message) from err
+            outcome.append((True, context.run(fn)))
+        except BaseException as exc:
+            # BaseException so an exit signal raised in the worker still
+            # reaches the caller instead of leaving it with no outcome.
+            outcome.append((False, exc))
+        finally:
+            finished.set()
+
+    # A daemon thread that is abandoned at the deadline: joining it (as a
+    # ThreadPoolExecutor does on exit) would block the caller until the hung call
+    # ends, and a non-daemon worker could keep the interpreter alive.
+    threading.Thread(target=_run, name="yf-timeout", daemon=True).start()
+    if not finished.wait(timeout):
+        message = f"yfinance call did not complete within {timeout:.0f}s"
+        record_failure(f"TimeoutError: {message}")
+        raise TimeoutError(message)
+
+    succeeded, value = outcome[0]
+    if succeeded:
+        return value
+    raise value
 
 
 @dataclass
