@@ -1,9 +1,10 @@
 """Live API-key validators for the portopt install wizard (SPEC D8).
 
 Each validator issues one cheap request and returns ``True`` on HTTP 200,
-``False`` on auth/other non-200 (invalid key), or raises
-``ValidationNetworkError`` when the request itself fails (network/timeout) so the
-wizard can tell "bad key" (retry) apart from "network down" (abort/inform).
+``False`` on a definitive non-200 answer (invalid key), or raises
+``ValidationNetworkError`` when the service gave no verdict: the request itself
+failed (network/timeout) or it answered 429/5xx (throttled/outage). That lets the
+wizard tell "bad key" (retry) apart from "service unavailable" (abort/inform).
 
 The LLM-backend validator (``validate_llm()``, SPEC "Switchable LLM Backends")
 probes the fund's ten switchable providers over **httpx only** — never an
@@ -48,24 +49,49 @@ def _get(url: str, **kwargs: object) -> requests.Response:
         ) from None
 
 
+def _accepted(status_code: int, url: str) -> bool:
+    """Map a probe's HTTP status to "key accepted".
+
+    Raises:
+        ValidationNetworkError: The service answered 429 or 5xx, which says nothing
+            about the key; reporting it as invalid would send the user hunting for
+            a typo in a correct credential. Only the host is named because ``url``
+            can carry the key in its query string.
+    """
+    if status_code == 429 or status_code >= 500:
+        host = urlsplit(url).hostname
+        raise ValidationNetworkError(
+            f"{host} answered HTTP {status_code} (rate-limited or unavailable), so "
+            "the key could not be checked; retry shortly or use --skip-validation."
+        )
+    return status_code == 200
+
+
 def validate_t212(api_key: str, secret_key: str, *, mode: str = "live") -> bool:
-    """True if the Trading212 metadata endpoint accepts the key/secret pair."""
+    """True if the Trading212 metadata endpoint accepts the key/secret pair.
+
+    Raises:
+        ValidationNetworkError: Trading212 is unreachable, throttling or erroring.
+    """
     base = _T212_BASE.get(mode, _T212_BASE["live"])
     token = base64.b64encode(f"{api_key}:{secret_key}".encode()).decode()
-    resp = _get(
-        f"{base}/api/v0/equity/metadata/exchanges",
-        headers={"Authorization": f"Basic {token}"},
-    )
-    return resp.status_code == 200
+    url = f"{base}/api/v0/equity/metadata/exchanges"
+    resp = _get(url, headers={"Authorization": f"Basic {token}"})
+    return _accepted(resp.status_code, url)
 
 
 def validate_fred(api_key: str) -> bool:
-    """True if the FRED API accepts the key on a minimal series request."""
+    """True if the FRED API accepts the key on a minimal series request.
+
+    Raises:
+        ValidationNetworkError: FRED is unreachable, throttling or erroring.
+    """
+    url = "https://api.stlouisfed.org/fred/series"
     resp = _get(
-        "https://api.stlouisfed.org/fred/series",
+        url,
         params={"series_id": "GNPCA", "api_key": api_key, "file_type": "json"},
     )
-    return resp.status_code == 200
+    return _accepted(resp.status_code, url)
 
 
 # --- LLM backend validators (SPEC "Switchable LLM Backends", httpx only) -------
@@ -122,7 +148,7 @@ def _bearer_get_ok(url: str, key: str | None) -> bool:
     if not key:
         return False
     resp = _llm_get(url, headers={"Authorization": f"Bearer {key}"})
-    return resp.status_code == 200
+    return _accepted(resp.status_code, url)
 
 
 def _v_openai(
@@ -149,11 +175,11 @@ def _v_anthropic(
 ) -> bool:
     if not key:
         return False
+    url = f"{(base_url or _ANTHROPIC_BASE).rstrip('/')}/v1/models"
     resp = _llm_get(
-        f"{(base_url or _ANTHROPIC_BASE).rstrip('/')}/v1/models",
-        headers={"x-api-key": key, "anthropic-version": _ANTHROPIC_VERSION},
+        url, headers={"x-api-key": key, "anthropic-version": _ANTHROPIC_VERSION}
     )
-    return resp.status_code == 200
+    return _accepted(resp.status_code, url)
 
 
 def _v_google(
@@ -161,10 +187,9 @@ def _v_google(
 ) -> bool:
     if not key:
         return False
-    resp = _llm_get(
-        f"{(base_url or _GOOGLE_BASE).rstrip('/')}/models", params={"key": key}
-    )
-    return resp.status_code == 200
+    url = f"{(base_url or _GOOGLE_BASE).rstrip('/')}/models"
+    resp = _llm_get(url, params={"key": key})
+    return _accepted(resp.status_code, url)
 
 
 def _v_huggingface(
@@ -183,7 +208,8 @@ def _v_ollama(
     if _OLLAMA_CLOUD_HOST in base and not key:
         return False
     headers = {"Authorization": f"Bearer {key}"} if key else None
-    return _llm_get(f"{base}/api/tags", headers=headers).status_code == 200
+    url = f"{base}/api/tags"
+    return _accepted(_llm_get(url, headers=headers).status_code, url)
 
 
 def _v_nvidia(
@@ -192,7 +218,8 @@ def _v_nvidia(
     # Self-hosted NIM (base_url set) needs no key — reachability only; hosted
     # (build.nvidia.com) requires the key.
     if base_url:
-        return _llm_get(f"{base_url.rstrip('/')}/models").status_code == 200
+        url = f"{base_url.rstrip('/')}/models"
+        return _accepted(_llm_get(url).status_code, url)
     return _bearer_get_ok(f"{_NVIDIA_BASE}/models", key)
 
 
@@ -249,7 +276,8 @@ def validate_llm(
     Returns ``True`` when the provider accepts the credentials (or, for the
     presence-only providers, when the required fields are present and the endpoint
     is reachable); ``False`` on a bad/absent key (the wizard re-prompts); raises
-    ``ValidationNetworkError`` when the service is unreachable (abort/inform).
+    ``ValidationNetworkError`` when the service is unreachable or answers 429/5xx
+    (abort/inform; neither says anything about the key).
 
     Args:
         provider: One of ``SUPPORTED_LLM_PROVIDERS``.

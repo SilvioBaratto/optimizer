@@ -278,3 +278,68 @@ def test_validate_t212_network_failure_raises_validation_network_error(
     mock_get.side_effect = requests.ConnectionError("no route")
     with pytest.raises(ValidationNetworkError, match="live.trading212.com"):
         validators.validate_t212("k", "s")
+
+
+# --- throttling / outages are not "invalid key" ---------------------------------
+
+_UNAVAILABLE_STATUSES = (429, 500, 502, 503, 504)
+
+
+@pytest.mark.parametrize("status", _UNAVAILABLE_STATUSES)
+@patch("app.setup.validators.requests.get")
+def test_validate_t212_rate_limit_or_outage_is_not_an_invalid_key(
+    mock_get: MagicMock, status: int
+) -> None:
+    mock_get.return_value = _resp(status)
+    with pytest.raises(
+        ValidationNetworkError, match=rf"live\.trading212\.com.*{status}"
+    ):
+        validators.validate_t212("k", "s")
+
+
+@pytest.mark.parametrize("status", _UNAVAILABLE_STATUSES)
+@patch("app.setup.validators.requests.get")
+def test_validate_fred_rate_limit_or_outage_is_not_an_invalid_key(
+    mock_get: MagicMock, status: int
+) -> None:
+    mock_get.return_value = _resp(status)
+    with pytest.raises(
+        ValidationNetworkError, match=rf"api\.stlouisfed\.org.*{status}"
+    ) as info:
+        validators.validate_fred(_FRED_KEY)
+    assert _FRED_KEY not in str(info.value)
+
+
+@pytest.mark.parametrize("status", [401, 403])
+@patch("app.setup.validators.requests.get")
+def test_validate_t212_definitive_auth_answers_stay_an_invalid_key(
+    mock_get: MagicMock, status: int
+) -> None:
+    mock_get.return_value = _resp(status)
+    assert validators.validate_t212("k", "s") is False
+
+
+@pytest.mark.parametrize("status", _UNAVAILABLE_STATUSES)
+@pytest.mark.parametrize("provider", _AUTHED_PROVIDERS)
+def test_validate_llm_rate_limit_or_outage_is_not_a_rejected_key(
+    provider: str, status: int
+) -> None:
+    with patch("app.setup.validators._llm_get", return_value=_resp(status)):
+        with pytest.raises(ValidationNetworkError, match=str(status)):
+            validators.validate_llm(provider, key="k")
+
+
+@pytest.mark.parametrize("status", _UNAVAILABLE_STATUSES)
+def test_validate_llm_keyless_local_probes_surface_outages_too(status: int) -> None:
+    with patch("app.setup.validators._llm_get", return_value=_resp(status)):
+        with pytest.raises(ValidationNetworkError, match=str(status)):
+            validators.validate_llm("ollama", base_url="http://localhost:11434")
+        with pytest.raises(ValidationNetworkError, match=str(status)):
+            validators.validate_llm("nvidia", base_url="http://nim:8000/v1")
+
+
+@pytest.mark.parametrize("provider", _AUTHED_PROVIDERS)
+def test_validate_llm_bad_request_still_means_a_rejected_key(provider: str) -> None:
+    # Google answers 400 (not 401) for an unknown API key.
+    with patch("app.setup.validators._llm_get", return_value=_resp(400)):
+        assert validators.validate_llm(provider, key="k") is False
