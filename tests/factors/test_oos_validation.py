@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.factors import (
     FactorOOSConfig,
     FactorOOSResult,
@@ -73,6 +74,16 @@ class TestFactorOOSConfig:
         cfg = FactorOOSConfig()
         with pytest.raises(AttributeError):
             cfg.train_periods = 24  # type: ignore[misc]
+
+    @pytest.mark.parametrize("field", ["train_periods", "val_periods", "step_periods"])
+    @pytest.mark.parametrize("value", [0, -3])
+    def test_non_positive_window_is_rejected(self, field: str, value: int) -> None:
+        with pytest.raises(ConfigurationError, match=field):
+            FactorOOSConfig(**{field: value})
+
+    def test_minimum_window_is_accepted(self) -> None:
+        cfg = FactorOOSConfig(train_periods=1, val_periods=1, step_periods=1)
+        assert (cfg.train_periods, cfg.val_periods, cfg.step_periods) == (1, 1, 1)
 
     def test_custom_values(self) -> None:
         cfg = FactorOOSConfig(train_periods=24, val_periods=6, step_periods=3)

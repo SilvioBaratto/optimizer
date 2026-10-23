@@ -10,6 +10,7 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.factors._validation import (
     compute_ic_series,
     compute_icir,
@@ -34,12 +35,23 @@ class FactorOOSConfig:
             ``FactorValidationConfig.min_ic_observations`` so both validation
             paths apply the same minimum-data guard; a Spearman IC over a
             handful of names is mostly noise.
+
+    Raises:
+        ConfigurationError: If ``train_periods``, ``val_periods`` or
+            ``step_periods`` is below 1.
     """
 
     train_periods: int = 36
     val_periods: int = 12
     step_periods: int = 6
     min_observations: int = 24
+
+    def __post_init__(self) -> None:
+        for name in ("train_periods", "val_periods", "step_periods"):
+            value = getattr(self, name)
+            if value < 1:
+                msg = f"{name} must be >= 1, got {value}"
+                raise ConfigurationError(msg)
 
 
 @dataclass
