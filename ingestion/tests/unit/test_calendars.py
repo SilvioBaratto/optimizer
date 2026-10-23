@@ -93,6 +93,19 @@ class TestCalendarsClient:
         assert fwd.kwargs["start"] == today and fwd.kwargs["end"] > today
         assert past.kwargs["start"] < today and past.kwargs["end"] == today
 
+    def test_windowed_fetch_fails_when_only_one_pass_fails(self) -> None:
+        # Forward pass failing then backward succeeding, and the reverse: a
+        # half-fetched window would persist rows while silently leaving either
+        # the upcoming estimates or the realised actuals stale.
+        for passes in (
+            [RuntimeError("boom"), _page(2, 50)],
+            [_page(2, 0), RuntimeError("boom")],
+        ):
+            cal = MagicMock()
+            cal.get_earnings_calendar.side_effect = passes
+            with patch(_CAL, return_value=cal):
+                assert _client().fetch_earnings() is None
+
     def test_short_first_page_stops_immediately(self) -> None:
         cal = MagicMock()
         cal.get_ipo_info_calendar.return_value = _page(5)

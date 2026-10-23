@@ -168,14 +168,20 @@ class CalendarsClient:
         which is the only place realized "actual" values exist). Merged forward-first
         so the repo upsert (keyed on the event's natural key) lets a realized actual
         win over the same event's earlier estimate.
+
+        Either pass failing fails the whole fetch (``None``): persisting one half
+        would leave the upcoming estimates or the realised actuals stale with
+        nothing in the job result to show it.
         """
         forward = self._paginate(method, extra, max_retries)
+        if forward is None:
+            return None
         past = self._paginate(
             method, extra, max_retries, lookback_days=lookback_days, forward_days=0
         )
-        if forward is None and past is None:
+        if past is None:
             return None
-        return [*(forward or []), *(past or [])]
+        return [*forward, *past]
 
     def fetch_earnings(
         self, max_retries: int | None = None
