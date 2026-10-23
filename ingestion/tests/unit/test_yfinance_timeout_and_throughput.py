@@ -657,6 +657,43 @@ class TestSchedulerWorkerSettings:
 
         assert captured[0].workers <= 16
 
+    @pytest.mark.parametrize(
+        ("pool_size", "max_overflow", "expected"),
+        [
+            (5, 10, 12),
+            (5, 5, 7),
+            (2, 1, 1),
+        ],
+    )
+    def test_when_workers_exceed_pool_capacity_then_clamped_below_pool(
+        self, pool_size: int, max_overflow: int, expected: int
+    ):
+        """Each worker pins a pooled connection for a whole ticker.
+
+        The progress writer, the heartbeat thread and the job store need
+        connections too, so the pool must keep headroom beyond the workers.
+        """
+        from app.services.jobs import scheduler as sched_module
+
+        captured: list[Any] = []
+
+        def _fake_run_step(label, job_svc, fn, *args, **kwargs):
+            captured.extend(args)
+            return True
+
+        with (
+            patch.object(sched_module, "_run_step", side_effect=_fake_run_step),
+            patch.object(sched_module.settings, "database_pool_size", pool_size),
+            patch.object(sched_module.settings, "database_max_overflow", max_overflow),
+            patch(
+                "app.services.market_data.yfinance.get_yfinance_client",
+                return_value=MagicMock(),
+            ),
+        ):
+            sched_module.run_yfinance_step(workers=16)
+
+        assert captured[0].workers == expected
+
 
 # ---------------------------------------------------------------------------
 # Parallel path: on_progress current/total advances correctly

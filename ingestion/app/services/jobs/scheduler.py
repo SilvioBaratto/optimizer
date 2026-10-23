@@ -65,7 +65,10 @@ from app.services.macro.macro_regime_service import (
     run_macro_news_fetch,
 )
 from app.services.macro.scrapers.fred_scraper import FRED_DAILY_SERIES
-from app.services.market_data.yfinance_data_service import run_bulk_yfinance_fetch
+from app.services.market_data.yfinance_data_service import (
+    pool_safe_worker_limit,
+    run_bulk_yfinance_fetch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -405,6 +408,19 @@ def run_yfinance_step(
     if workers is None:
         workers = settings.yfinance_fetch_workers
     workers = max(1, min(workers, 16))
+    pool_limit = pool_safe_worker_limit(
+        settings.database_pool_size, settings.database_max_overflow
+    )
+    if workers > pool_limit:
+        logger.warning(
+            "yfinance: clamping workers %d -> %d to fit the DB pool "
+            "(pool_size=%d, max_overflow=%d)",
+            workers,
+            pool_limit,
+            settings.database_pool_size,
+            settings.database_max_overflow,
+        )
+        workers = pool_limit
 
     return _run_step(
         "yfinance",

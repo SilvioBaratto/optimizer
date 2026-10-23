@@ -1963,6 +1963,31 @@ def run_bulk_yfinance_fetch(
 # Parallel bulk fetch
 # ---------------------------------------------------------------------------
 
+# Pooled connections the sweep needs outside the worker threads: the main
+# thread's progress writes, the job heartbeat thread, and the APScheduler job
+# store or a concurrent pipeline step.
+_NON_WORKER_DB_CONNECTIONS = 3
+
+
+def pool_safe_worker_limit(pool_size: int, max_overflow: int) -> int:
+    """Return the largest worker count the connection pool can serve safely.
+
+    Every worker pins one pooled connection from its first upsert until the
+    ticker's commit, across all remaining network calls and news scrapes.
+    Workers beyond the pool capacity queue on checkout and fail with a
+    ``QueuePool`` timeout, losing that ticker's data, while the progress and
+    heartbeat writes starve for the same connections.
+
+    Args:
+        pool_size: Persistent connections held by the engine's pool.
+        max_overflow: Extra connections the pool may open under load.
+
+    Returns:
+        ``pool_size + max_overflow`` minus the connections reserved for the
+        non-worker threads, never below 1.
+    """
+    return max(1, pool_size + max_overflow - _NON_WORKER_DB_CONNECTIONS)
+
 
 @dataclass(frozen=True)
 class _InstrumentSpec:
