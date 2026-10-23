@@ -413,6 +413,45 @@ class TestFxPriceConverterDecimalInput:
         )
         pd.testing.assert_series_equal(result["LLOY.L"], expected, check_names=False)
 
+    def test_decimal_fx_rates_converted(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        prices = pd.DataFrame({"LLOY.L": [50.0, 51.0, 52.0, 53.0]}, index=dates)
+        fx = pd.DataFrame({"GBP": [Decimal("1.16")] * 4}, index=dates)
+        assert fx["GBP"].dtype == object  # sanity: Decimal object dtype
+
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map={"LLOY.L": "GBP"}, fx_rates=fx
+        )
+        result = converter.fit_transform(prices)
+
+        expected = pd.Series([v * 1.16 for v in (50.0, 51.0, 52.0, 53.0)], index=dates)
+        pd.testing.assert_series_equal(result["LLOY.L"], expected, check_names=False)
+
+    def test_decimal_fx_rates_with_gap_still_forward_fill(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        prices = pd.DataFrame({"LLOY.L": [50.0] * 4}, index=dates)
+        fx = pd.DataFrame(
+            {"GBP": [Decimal("1.10"), None, None, Decimal("1.20")]}, index=dates
+        )
+
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map={"LLOY.L": "GBP"}, fx_rates=fx
+        )
+        result = converter.fit_transform(prices)
+
+        assert result["LLOY.L"].tolist() == pytest.approx([55.0, 55.0, 55.0, 60.0])
+
+    def test_non_numeric_fx_rates_raise_data_error(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=2)
+        prices = pd.DataFrame({"LLOY.L": [50.0, 51.0]}, index=dates)
+        fx = pd.DataFrame({"GBP": ["n/a", "n/a"]}, index=dates)
+
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map={"LLOY.L": "GBP"}, fx_rates=fx
+        )
+        with pytest.raises(DataError, match="numeric"):
+            converter.fit(prices)
+
 
 class TestFxPriceConverterFillLimitWarning:
     """Tests for fill_limit exhaustion NaN warning."""

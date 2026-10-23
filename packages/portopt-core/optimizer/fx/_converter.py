@@ -161,8 +161,16 @@ class FxPriceConverter(BaseEstimator, TransformerMixin):
 
         # Normalise FX rate columns to upper-case currency codes so that
         # currency matching is case-insensitive (e.g. "gbp" vs "GBP").
+        # Rates are cast to float like the prices: DB Numeric columns arrive as
+        # Decimal (object dtype), which cannot multiply against float prices.
         if not raw_fx_rates.empty:
             fx_rates = raw_fx_rates.rename(columns=lambda c: str(c).upper())
+            try:
+                fx_rates = fx_rates.astype("float64")
+            except (TypeError, ValueError) as exc:
+                raise DataError(
+                    f"fx_rates must be numeric (castable to float64): {exc}"
+                ) from exc
         else:
             fx_rates = raw_fx_rates
 
