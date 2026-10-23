@@ -47,6 +47,15 @@ __all__ = [
 # *requires* a key; a local `base_url` (e.g. http://localhost:11434) does not.
 _OLLAMA_CLOUD_HOST = "ollama.com"
 
+# Install-hint overrides for providers whose SDK is not shipped by an extra named
+# after them: openrouter/microsoft reuse `langchain-openai` (the `openai` extra);
+# ollama is a hard dependency, so there is no extra to suggest (None).
+_INSTALL_EXTRA: dict[str, str | None] = {
+    "ollama": None,
+    "openrouter": "openai",
+    "microsoft": "openai",
+}
+
 # OpenRouter has no dedicated LangChain package — it is `ChatOpenAI` aimed at this
 # fixed OpenAI-compatible gateway with its own `OPENROUTER_API_KEY`.
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -320,7 +329,9 @@ def build_chat_model(config: FundConfig, *, model_name: str) -> BaseChatModel:
     * unknown provider → :class:`RuntimeError` listing the valid providers;
     * a provider whose optional extra is not installed → the builder's
       ``ImportError`` is caught and re-raised as a :class:`RuntimeError` naming the
-      ``uv sync --package portopt-fund --extra <provider>`` command;
+      ``uv sync --package portopt-fund --extra <extra>`` command, where ``<extra>``
+      is the extra that actually ships the SDK (``openai`` for ``openrouter`` and
+      ``microsoft``);
     * required-secret checks happen inside the builder (build time, not import).
     """
     try:
@@ -334,10 +345,16 @@ def build_chat_model(config: FundConfig, *, model_name: str) -> BaseChatModel:
     try:
         return builder(config, model_name)
     except ImportError as exc:
+        extra = _INSTALL_EXTRA.get(config.llm_provider, config.llm_provider)
+        if extra is None:
+            raise RuntimeError(
+                f"The {config.llm_provider!r} provider's package is a core "
+                f"dependency of portopt-fund but failed to import; reinstall "
+                f"with `uv sync --package portopt-fund`."
+            ) from exc
         raise RuntimeError(
             f"The {config.llm_provider!r} provider needs its optional extra; "
-            f"install it with `uv sync --package portopt-fund "
-            f"--extra {config.llm_provider}`."
+            f"install it with `uv sync --package portopt-fund --extra {extra}`."
         ) from exc
 
 

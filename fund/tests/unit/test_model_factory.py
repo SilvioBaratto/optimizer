@@ -12,16 +12,22 @@ missing key raises at *build* time (never at import, so a bare
 
 from __future__ import annotations
 
+import re
 import sys
 import types
+from pathlib import Path
 
 import pytest
+import tomllib
 
 from fund.agents import model
 from fund.config import FundConfig, load_config
 
 # A config carrying every default plus a key, so build never hits use-time None.
 _CFG = FundConfig(ollama_api_key="sk-ollama-test")
+
+# unit -> tests -> fund.
+_FUND_PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
 
 def test_build_chat_model_threads_config_onto_chatollama():
@@ -98,6 +104,44 @@ def test_uninstalled_provider_extra_reraises_as_runtimeerror_with_hint(monkeypat
     cfg = FundConfig(llm_provider="faux")
     with pytest.raises(RuntimeError, match="--extra faux"):
         model.build_chat_model(cfg, model_name="m")
+
+
+def _install_hint_extra(provider: str, monkeypatch: pytest.MonkeyPatch) -> str | None:
+    """Fail `build_chat_model` on a missing SDK; return the extra the hint names."""
+
+    def _missing_sdk(_config, _model_name):
+        raise ImportError("No module named 'provider_sdk'")
+
+    monkeypatch.setitem(model._BUILDERS, provider, _missing_sdk)
+    with pytest.raises(RuntimeError) as err:
+        model.build_chat_model(FundConfig(llm_provider=provider), model_name="m")
+    match = re.search(r"--extra (\S+?)`", str(err.value))
+    return match[1] if match else None
+
+
+@pytest.mark.parametrize(
+    ("provider", "extra"), [("openrouter", "openai"), ("microsoft", "openai")]
+)
+def test_providers_without_their_own_extra_hint_the_openai_extra(
+    provider, extra, monkeypatch
+):
+    # openrouter/microsoft ride on ChatOpenAI; `--extra openrouter` does not exist.
+    assert _install_hint_extra(provider, monkeypatch) == extra
+
+
+@pytest.mark.parametrize("provider", sorted(model._BUILDERS))
+def test_every_install_hint_names_an_extra_declared_in_pyproject(provider, monkeypatch):
+    declared = tomllib.loads(_FUND_PYPROJECT.read_text(encoding="utf-8"))["project"][
+        "optional-dependencies"
+    ]
+    hinted = _install_hint_extra(provider, monkeypatch)
+    assert hinted is None or hinted in declared, (
+        f"`--extra {hinted}` is not a defined extra"
+    )
+
+
+def test_ollama_is_a_core_dependency_so_its_hint_names_no_extra(monkeypatch):
+    assert _install_hint_extra("ollama", monkeypatch) is None
 
 
 # --- Ollama cloud-vs-local key rule -----------------------------------------

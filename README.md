@@ -250,7 +250,8 @@ model is chosen by `LLM_PROVIDER` from a ten-provider registry (ollama, openai,
 openrouter, anthropic, google, groq, nvidia, huggingface, aws, microsoft); set
 nothing and it stays on the verified default — DeepSeek on Ollama Cloud. Install
 a provider's SDK with the matching extra (`uv sync --package portopt-fund
---extra <provider>`, or `--extra all-llm`). CLI (`fund <command>`):
+--extra <provider>`, or `--extra all-llm`; `openrouter` and `microsoft` use
+`--extra openai`, `ollama` needs none). CLI (`fund <command>`):
 
 | Command | What it does |
 |---|---|

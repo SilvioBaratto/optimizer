@@ -49,8 +49,9 @@ test = [
 # Optional per-provider LLM backends (switchable). Each is
 # a plain extra; `langchain-ollama` stays a hard dep above (the default provider).
 # Install one with `uv sync --package portopt-fund --extra <provider>`. `openai`
-# also backs the `openrouter` provider (ChatOpenAI at OpenRouter's base_url) and,
-# later, `microsoft`/Azure OpenAI — no separate package.
+# also backs the `openrouter` provider (ChatOpenAI at OpenRouter's base_url) and
+# `microsoft`/Azure OpenAI — neither has its own extra, so `--extra openai`
+# installs them; `agents/model.py` hints accordingly.
 openai = ["langchain-openai"]
 anthropic = ["langchain-anthropic"]
 groq = ["langchain-groq"]
