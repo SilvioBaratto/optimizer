@@ -355,3 +355,57 @@ class TestOptionChain:
         )
         # nothing valid → _upsert not called (returns 0 early)
         assert repo._upsert.call_count == 0
+
+
+class TestUpsertNewsKeepsScrapedBody:
+    """News is re-fetched every run and the same articles reappear for days, so
+    a failed re-scrape (no ``full_content``) must not erase a stored body."""
+
+    @staticmethod
+    def _conflict_updates(articles: list[dict]) -> list[str]:
+        """SQL of every INSERT ... ON CONFLICT issued for ``articles`` on PG."""
+        from sqlalchemy.dialects import postgresql
+        from sqlalchemy.sql.dml import Insert
+
+        executed: list = []
+        session = MagicMock(name="session")
+        session.execute.side_effect = lambda stmt: executed.append(stmt) or MagicMock()
+        YFinanceRepository(session).upsert_news(_IID, articles)
+        return [
+            str(s.compile(dialect=postgresql.dialect()))
+            for s in executed
+            if isinstance(s, Insert)
+        ]
+
+    def test_article_without_body_leaves_stored_full_content_untouched(self) -> None:
+        (sql,) = self._conflict_updates([{"uuid": "a1", "title": "T"}])
+        assert "title = excluded.title" in sql
+        assert "full_content = excluded.full_content" not in sql
+
+    def test_article_with_body_replaces_stored_full_content(self) -> None:
+        (sql,) = self._conflict_updates(
+            [{"uuid": "a1", "title": "T", "full_content": "Body"}]
+        )
+        assert "full_content = excluded.full_content" in sql
+
+    def test_mixed_batch_only_protects_the_articles_without_a_body(self) -> None:
+        with_body, without_body = self._conflict_updates(
+            [
+                {"uuid": "a1", "title": "T", "full_content": "Body"},
+                {"uuid": "a2", "title": "U"},
+            ]
+        )
+        assert "full_content = excluded.full_content" in with_body
+        assert "full_content = excluded.full_content" not in without_body
+
+    def test_returns_total_rows_written_across_both_groups(self) -> None:
+        session = MagicMock(name="session")
+        n = YFinanceRepository(session).upsert_news(
+            _IID,
+            [
+                {"uuid": "a1", "full_content": "Body"},
+                {"uuid": "a2"},
+                {"uuid": "a3"},
+            ],
+        )
+        assert n == 3

@@ -1384,11 +1384,34 @@ class YFinanceRepository(RepositoryBase):
                 }
             )
 
-        return self._upsert(
-            TickerNews,
-            rows,
-            constraint_name="uq_ticker_news_instrument_uuid",
-        )
+        # The same articles reappear in ticker.news for days and each run
+        # re-scrapes them. A scrape that fails (timeout, paywall, consent wall)
+        # yields no body, and rewriting every column would NULL a body stored by
+        # an earlier run, so those rows leave full_content out of the conflict
+        # update.
+        with_body = [r for r in rows if r["full_content"]]
+        without_body = [r for r in rows if not r["full_content"]]
+        keep_body_columns = [
+            col.name
+            for col in TickerNews.__table__.columns
+            if col.name not in {"id", "created_at", "full_content"}
+        ]
+
+        written = 0
+        if with_body:
+            written += self._upsert(
+                TickerNews,
+                with_body,
+                constraint_name="uq_ticker_news_instrument_uuid",
+            )
+        if without_body:
+            written += self._upsert(
+                TickerNews,
+                without_body,
+                constraint_name="uq_ticker_news_instrument_uuid",
+                update_columns=keep_body_columns,
+            )
+        return written
 
     def get_news(self, instrument_id: UUID) -> Sequence[TickerNews]:
         """Return news articles for an instrument, ordered by publish time descending."""
