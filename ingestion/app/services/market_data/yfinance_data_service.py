@@ -46,6 +46,7 @@ from app.services._shared import (
     has_sufficient_history,
     parse_period_years,
 )
+from app.services._shared.trading_calendar import last_completed_session
 from app.services.market_data.empty_fetch_memory import EmptyFetchMemory
 from app.services.market_data.yfinance import (
     YFinanceClient,
@@ -140,6 +141,25 @@ SHARED_EMPTY_FETCHES = EmptyFetchMemory()
 # Sentinel: distinguishes "caller did not supply staleness" (query it) from
 # "caller supplied None" (no data yet → treat as stale) on fetch_and_store.
 _UNSET: Any = object()
+
+
+def _prices_are_current(
+    price_max_date: date | None,
+    exchange_name: str | None,
+    today: date,
+) -> bool:
+    """Return True if an incremental price fetch would add no new bar.
+
+    The incremental fetch ends at *today* (exclusive), so the newest bar it can
+    return is the last session before *today*. Prices need no fetch only when
+    the stored series already reaches that session; fresh fundamentals say
+    nothing about it.
+    """
+    if price_max_date is None:
+        return False
+    if isinstance(price_max_date, datetime):
+        price_max_date = price_max_date.date()
+    return price_max_date >= last_completed_session(exchange_name, today)
 
 
 def _is_fresh(
@@ -608,7 +628,8 @@ class YFinanceDataService:
         # Incremental short-circuit: skip whole ticker if ALL categories fresh
         # ------------------------------------------------------------------
         # In incremental mode we know staleness upfront.  If every category
-        # passes its freshness check there is nothing to fetch — avoid
+        # passes its freshness check and the stored prices already reach the
+        # last completed session there is nothing to fetch — avoid
         # constructing a yf.Ticker at all (which acquires the rate-limiter
         # even on a cache hit, adding ~100ms×N delay over 2907 tickers).
         if mode == "incremental" and staleness is not None:
@@ -616,7 +637,6 @@ class YFinanceDataService:
                 _is_fresh(
                     staleness.get("profile_updated_at"), thresholds.profile_hours, now
                 )
-                and staleness.get("price_max_date") is not None  # prices have data
                 and all(
                     _statement_fresh(st, pt) for st, pt in FINANCIAL_STATEMENT_GROUPS
                 )
@@ -655,6 +675,9 @@ class YFinanceDataService:
                     staleness.get("insider_transactions_updated_at"),
                     thresholds.insider_transactions_hours,
                     now,
+                )
+                and _prices_are_current(
+                    staleness.get("price_max_date"), exchange_name, now.date()
                 )
             )
             if all_fresh:

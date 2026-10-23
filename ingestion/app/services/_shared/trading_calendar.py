@@ -2,7 +2,7 @@
 
 import logging
 import re
-from datetime import date
+from datetime import date, timedelta
 
 import exchange_calendars as xcals
 import pandas as pd
@@ -199,6 +199,40 @@ def iter_trading_days(
         return []
 
     return [s.date() if hasattr(s, "date") else s for s in sessions]
+
+
+# Wider than any real run of consecutive closures (the longest exchange
+# shutdowns are a few days), so the window always contains a session.
+_LAST_SESSION_LOOKBACK_DAYS = 14
+
+
+def last_completed_session(exchange_name: str | None, as_of: date) -> date:
+    """Return the newest trading session strictly before *as_of*.
+
+    Args:
+        exchange_name: Exchange name as stored in the database. ``None`` or an
+            exchange without a calendar falls back to the previous weekday,
+            which ignores holidays and so can only err towards "a newer
+            session exists".
+        as_of: Reference date; its own session is excluded because it has not
+            completed (and a date-ranged fetch ending on it excludes it too).
+
+    Returns:
+        The date of the most recent session before *as_of*.
+    """
+    day_before = as_of - timedelta(days=1)
+    if exchange_name is not None:
+        sessions = iter_trading_days(
+            as_of - timedelta(days=_LAST_SESSION_LOOKBACK_DAYS),
+            day_before,
+            exchange_name,
+        )
+        if sessions:
+            return sessions[-1]
+
+    while day_before.weekday() >= 5:
+        day_before -= timedelta(days=1)
+    return day_before
 
 
 def has_sufficient_history(

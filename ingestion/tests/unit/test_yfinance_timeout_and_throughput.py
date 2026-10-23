@@ -348,6 +348,86 @@ class TestIncrementalShortCircuit:
         # Profile fetch attempted even though data was "fresh"
         yf_client.fetch_info.assert_called_once()
 
+    def test_when_price_history_is_days_old_then_prices_fetched_despite_fresh_categories(
+        self,
+    ):
+        """Fresh fundamentals must not hide a stale price series.
+
+        Every non-price category was refreshed within its window, but the
+        newest stored bar is ten days old: the ticker still needs its prices.
+        """
+        from datetime import date, timedelta
+
+        staleness = _fully_fresh_staleness()
+        staleness["price_max_date"] = date.today() - timedelta(days=10)
+
+        repo = _make_repo(staleness=staleness)
+        yf_client = _make_yf_client_silent()
+
+        service = YFinanceDataService(repo=repo, yf_client=yf_client)
+        result = service.fetch_and_store(
+            instrument_id=uuid4(),
+            yfinance_ticker="AAPL",
+            mode="incremental",
+        )
+
+        assert "all:fresh" not in result["skipped"]
+        yf_client.fetch_history.assert_called_once()
+        # Only prices were stale: the fresh categories stay skipped.
+        yf_client.fetch_info.assert_not_called()
+        assert "profile" in result["skipped"]
+
+    def test_when_price_history_is_one_session_behind_then_prices_fetched(self):
+        from datetime import datetime, timedelta, timezone
+
+        from app.services._shared.trading_calendar import last_completed_session
+
+        today = datetime.now(timezone.utc).date()
+        staleness = _fully_fresh_staleness()
+        staleness["price_max_date"] = last_completed_session("NYSE", today) - timedelta(
+            days=1
+        )
+
+        repo = _make_repo(staleness=staleness)
+        yf_client = _make_yf_client_silent()
+
+        service = YFinanceDataService(repo=repo, yf_client=yf_client)
+        result = service.fetch_and_store(
+            instrument_id=uuid4(),
+            yfinance_ticker="AAPL",
+            mode="incremental",
+            exchange_name="NYSE",
+        )
+
+        assert "all:fresh" not in result["skipped"]
+        yf_client.fetch_history.assert_called_once()
+
+    def test_when_price_history_reaches_last_completed_session_then_short_circuit_fires(
+        self,
+    ):
+        """The incremental window ends before today, so that bar is the newest."""
+        from datetime import datetime, timezone
+
+        from app.services._shared.trading_calendar import last_completed_session
+
+        today = datetime.now(timezone.utc).date()
+        staleness = _fully_fresh_staleness()
+        staleness["price_max_date"] = last_completed_session("NYSE", today)
+
+        repo = _make_repo(staleness=staleness)
+        yf_client = _make_yf_client_silent()
+
+        service = YFinanceDataService(repo=repo, yf_client=yf_client)
+        result = service.fetch_and_store(
+            instrument_id=uuid4(),
+            yfinance_ticker="AAPL",
+            mode="incremental",
+            exchange_name="NYSE",
+        )
+
+        assert "all:fresh" in result["skipped"]
+        yf_client.fetch_history.assert_not_called()
+
     def test_when_no_price_max_date_then_short_circuit_does_not_fire(self):
         """Fresh staleness without a price_max_date must NOT short-circuit."""
         staleness = _fully_fresh_staleness()

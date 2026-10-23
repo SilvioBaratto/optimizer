@@ -21,6 +21,7 @@ from app.services._shared.trading_calendar import (
     get_expected_trading_sessions,
     has_sufficient_history,
     iter_trading_days,
+    last_completed_session,
     parse_period_years,
     period_start_date,
 )
@@ -196,6 +197,37 @@ class TestIterTradingDays:
 
         assert days == []
         mock_cal.sessions_in_range.assert_not_called()
+
+
+class TestLastCompletedSession:
+    """Newest session strictly before a date: the bar an incremental fetch ends on."""
+
+    def test_monday_resolves_to_the_previous_friday(self) -> None:
+        assert last_completed_session("NYSE", date(2024, 7, 8)) == date(2024, 7, 5)
+
+    def test_midweek_resolves_to_the_previous_day(self) -> None:
+        assert last_completed_session("NYSE", date(2024, 7, 9)) == date(2024, 7, 8)
+
+    def test_skips_an_exchange_holiday(self) -> None:
+        """2024-07-04 is a NYSE holiday, so Friday 07-05 looks back to Wed 07-03."""
+        assert last_completed_session("NYSE", date(2024, 7, 5)) == date(2024, 7, 3)
+
+    def test_the_reference_date_itself_never_counts(self) -> None:
+        assert last_completed_session("NYSE", date(2024, 7, 9)) < date(2024, 7, 9)
+
+    def test_unknown_exchange_falls_back_to_the_previous_weekday(self) -> None:
+        assert last_completed_session("Bogus", date(2024, 7, 5)) == date(2024, 7, 4)
+        assert last_completed_session("Bogus", date(2024, 7, 8)) == date(2024, 7, 5)
+
+    def test_missing_exchange_falls_back_to_the_previous_weekday(self) -> None:
+        assert last_completed_session(None, date(2024, 7, 8)) == date(2024, 7, 5)
+
+    def test_calendar_failure_falls_back_to_the_previous_weekday(self) -> None:
+        with patch(
+            "app.services._shared.trading_calendar.xcals.get_calendar",
+            side_effect=Exception("boom"),
+        ):
+            assert last_completed_session("NYSE", date(2024, 7, 5)) == date(2024, 7, 4)
 
 
 class TestHasSufficientHistory:
