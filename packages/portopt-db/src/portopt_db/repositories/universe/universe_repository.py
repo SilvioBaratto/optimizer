@@ -64,7 +64,8 @@ class UniverseRepository(RepositoryBase):
         """Upsert a batch of instruments for the given exchange.
 
         Matched on the ``uq_instrument_ticker_exchange`` constraint (ticker +
-        exchange). On conflict every mutable field is overwritten and
+        exchange). On conflict every mutable field is overwritten, except that a
+        missing ``isin`` leaves the stored one in place, and
         ``delisted_at``/``delisting_return`` are cleared so a re-listed
         instrument is automatically re-activated. The session is flushed but
         not committed.
@@ -104,7 +105,9 @@ class UniverseRepository(RepositoryBase):
             set_={
                 "short_name": stmt.excluded.short_name,
                 "name": stmt.excluded.name,
-                "isin": stmt.excluded.isin,
+                # The screener carries no ISIN; the profile backfill is its only
+                # source, so a NULL here must not erase what it already filled.
+                "isin": func.coalesce(stmt.excluded.isin, Instrument.isin),
                 "instrument_type": stmt.excluded.instrument_type,
                 "currency_code": stmt.excluded.currency_code,
                 "yfinance_ticker": stmt.excluded.yfinance_ticker,

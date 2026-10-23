@@ -11,19 +11,22 @@ Missed lines targeted
 158-167     get_instruments — exchange_name filter, search filter, skip/limit, no-filter
 170         get_exchanges — empty + populated
 
-PG-only methods (skipped)
---------------------------
+PG-only methods
+---------------
 - save_instruments_batch (lines 41-80): uses pg_insert + ON CONFLICT DO UPDATE
   with a named constraint that does not exist in SQLite — SQLite raises
-  ``OperationalError: no such constraint``.  Document-only, no test.
+  ``OperationalError: no such constraint``.  It cannot be executed here, so only
+  the statement it emits is checked, compiled for the PostgreSQL dialect.
 """
 
 from __future__ import annotations
 
 from datetime import date
+from unittest.mock import MagicMock
 
 import pytest
 from _fixtures import add_and_flush, seed_universe
+from sqlalchemy.dialects import postgresql
 
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repositories.universe.universe_repository import UniverseRepository
@@ -199,6 +202,25 @@ class TestGetInstruments:
             _make_instrument(db_session, ex, f"LIM{i}")
         result = _repo(db_session).get_instruments(limit=2)
         assert len(result) == 2
+
+
+class TestSaveInstrumentsBatchConflictUpdate:
+    @staticmethod
+    def _upsert_sql() -> str:
+        session = MagicMock()
+        UniverseRepository(session).save_instruments_batch(
+            [{"ticker": "AGG", "shortName": "AGG", "isin": None}], "exchange-id"
+        )
+        stmt = session.execute.call_args.args[0]
+        return " ".join(str(stmt.compile(dialect=postgresql.dialect())).split())
+
+    def test_null_incoming_isin_does_not_overwrite_the_stored_one(self):
+        # The screener-backed build carries no ISIN, so a plain
+        # ``isin = excluded.isin`` would blank every ISIN the profile backfill
+        # had filled on each weekly rebuild.
+        assert "isin = coalesce(excluded.isin, instruments.isin)" in (
+            self._upsert_sql().lower()
+        )
 
 
 class TestMarkDelisted:
