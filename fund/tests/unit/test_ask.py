@@ -152,6 +152,63 @@ def test_resolve_target_named_gate_resolves_among_many(db_session):
     assert res.action is not None and res.action.run_id == run_a
 
 
+def test_resolve_target_stale_gate_id_is_not_retargeted_to_the_sole_gate(db_session):
+    """A typed id that names no live gate is unresolved, never swapped for the only
+    live gate (the operator may have meant a gate that is already decided)."""
+    saver = MemorySaver()
+    live = _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b")
+
+    for turn in (
+        "approve gate #aaaa1111",
+        "approve 1a2b3c4d",
+        "reject #deadbeef",
+        "approve aaaa1111-0000-4000-8000-000000000001",
+    ):
+        res = ask.resolve_target(turn, db_session, saver, None)
+        assert res.status == "unresolved", turn
+        assert res.action is None, turn
+
+    short = str(live).split("-", 1)[0]
+    named = ask.resolve_target(f"approve gate #{short}", db_session, saver, None)
+    assert named.status == "resolved"
+    assert named.action is not None and named.action.run_id == live
+
+
+def test_resolve_target_stale_gate_id_with_many_gates_is_unresolved(db_session):
+    """With several live gates a stale id is still a dead end, not a gate pick-list."""
+    saver = MemorySaver()
+    _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
+    _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b")
+
+    res = ask.resolve_target("approve #deadbeef", db_session, saver, None)
+
+    assert res.status == "unresolved"
+    assert res.action is None
+
+
+def test_resolve_target_live_and_stale_ids_together_are_unresolved(db_session):
+    """Naming a live gate alongside an id that matches nothing is contradictory."""
+    saver = MemorySaver()
+    live = _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
+    short = str(live).split("-", 1)[0]
+
+    res = ask.resolve_target(f"approve #{short} and #deadbeef", db_session, saver, None)
+
+    assert res.status == "unresolved"
+    assert res.action is None
+
+
+def test_resolve_target_gate_named_by_portfolio_short_id_resolves(db_session):
+    """A gate may also be named by its portfolio's short id."""
+    saver = MemorySaver()
+    run_a = _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
+
+    res = ask.resolve_target("approve aaaa0001", db_session, saver, None)
+
+    assert res.status == "resolved"
+    assert res.action is not None and res.action.run_id == run_a
+
+
 def test_resolve_target_no_gate_is_unresolved(db_session):
     """A resume verb with no pending gate is a dead end, not an ambiguity."""
     saver = MemorySaver()

@@ -55,6 +55,11 @@ _SCOPE_VERBS: frozenset[str] = frozenset({"freeze", "rearm"})
 # misroute a focused freeze/rearm onto the whole fund on words like "refund"/"funding".
 _FUND_WORD = re.compile(r"\bfund\b")
 
+# A typed id: the 8-hex short form the views render (optionally ``#``-prefixed) or a
+# ``#``-prefixed partial of it. Delimited so a word that merely contains hex letters is
+# not read as one; a hyphen may follow so a pasted full UUID is read by its first group.
+_ID_TOKEN = re.compile(r"(?<![0-9a-z])(?:#[0-9a-f]{4,8}|[0-9a-f]{8})(?![0-9a-z])")
+
 Status = Literal["resolved", "ambiguous", "unresolved"]
 
 
@@ -131,7 +136,8 @@ def resolve_target(
     * a resume verb (approve / reject / killswitch / respond) resolves against the
       pending-HITL gates: a single gate (or one named by its short id in the turn) is
       ``resolved``, two or more unnamed are ``ambiguous`` (the candidates), none is
-      ``unresolved``;
+      ``unresolved`` — as is a turn naming an id that matches no live gate (already
+      decided, or a typo), which is never swapped for another gate;
     * a scope verb (freeze / rearm) resolves to ``fund`` when the turn says so, else the
       focused portfolio, else ``ambiguous`` (ask which);
     * ``run`` (rebalance) resolves to the focused portfolio, else ``ambiguous``.
@@ -163,6 +169,15 @@ def _resolve_gate(verb: str, turn: str, session: Any, saver: Any) -> TargetResol
         return TargetResolution(
             "unresolved", None, (), "no gate is awaiting a decision"
         )
+    stale = _stale_ids(turn, gates)
+    if stale:
+        typed = ", ".join(f"#{token}" for token in stale)
+        return TargetResolution(
+            "unresolved",
+            None,
+            (),
+            f"no gate awaiting a decision matches {typed} — it may already be decided",
+        )
     named = _match_gate(turn, gates)
     if named is not None:
         return _resolved_gate(verb, named)
@@ -171,20 +186,46 @@ def _resolve_gate(verb: str, turn: str, session: Any, saver: Any) -> TargetResol
     return TargetResolution("ambiguous", None, tuple(gates), _gate_prompt(verb, gates))
 
 
+def _id_tokens(turn: str) -> list[str]:
+    """The id-like tokens typed in ``turn``, lower-cased and without the ``#``."""
+    return [match.group(0).lstrip("#") for match in _ID_TOKEN.finditer(turn.lower())]
+
+
+def _gate_ids(gate: RunSummary) -> list[str]:
+    """The short ids a gate answers to: its run id and its portfolio id, if any."""
+    ids = [_short(gate.run_id)]
+    if gate.portfolio_id is not None:
+        ids.append(_short(gate.portfolio_id))
+    return ids
+
+
 def _match_gate(turn: str, gates: list[RunSummary]) -> RunSummary | None:
     """The single gate named by its short run/portfolio id in ``turn``, else ``None``.
 
     Returns ``None`` when zero or more than one gate matches, so a bare "approve the
     gate" (no id) and an ambiguous "approve both" both fall through to the gate count.
     """
-    lowered = turn.lower()
+    tokens = _id_tokens(turn)
     matched = [
         gate
         for gate in gates
-        if _short(gate.run_id) in lowered
-        or (gate.portfolio_id is not None and _short(gate.portfolio_id) in lowered)
+        if any(gid.startswith(token) for token in tokens for gid in _gate_ids(gate))
     ]
     return matched[0] if len(matched) == 1 else None
+
+
+def _stale_ids(turn: str, gates: list[RunSummary]) -> list[str]:
+    """The ids typed in ``turn`` that name none of ``gates``.
+
+    A non-empty result means the adviser pointed at something that is not a live gate,
+    so the turn must not fall back to "the only gate" — that would act on a proposal
+    they never named.
+    """
+    return [
+        token
+        for token in _id_tokens(turn)
+        if not any(gid.startswith(token) for gate in gates for gid in _gate_ids(gate))
+    ]
 
 
 def _resolved_gate(verb: str, gate: RunSummary) -> TargetResolution:
