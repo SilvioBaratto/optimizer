@@ -10,6 +10,8 @@ Covers gaps NOT already in test_macro_regime_service_fred_key.py:
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Iterator
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -291,6 +293,176 @@ class TestFetchCountryTeRaises:
         assert result["counts"].get("te_observations", 0) == 0
         assert result["counts"].get("bond_yields", 0) == 0
         assert result["counts"].get("bond_yield_observations", 0) == 0
+
+
+# ---------------------------------------------------------------------------
+# Write failures on a shared Postgres-style transaction
+# ---------------------------------------------------------------------------
+
+
+class _PgLikeSession:
+    """Models the part of a Postgres transaction that matters for error recovery.
+
+    A failed statement aborts the transaction: every later statement raises
+    until the failure is rolled back, and a ``commit`` on an aborted
+    transaction silently discards everything (Postgres turns it into a
+    ROLLBACK). A SAVEPOINT scope confines the damage to its own writes.
+    """
+
+    def __init__(self, fail_on: set[str]) -> None:
+        self.fail_on = fail_on
+        self.pending: list[str] = []
+        self.committed: list[str] = []
+        self._aborted = False
+
+    def write(self, label: str) -> int:
+        if self._aborted:
+            raise RuntimeError("InFailedSqlTransaction: transaction is aborted")
+        if label in self.fail_on:
+            self._aborted = True
+            raise RuntimeError("DataError: value too long for type varchar(50)")
+        self.pending.append(label)
+        return 1
+
+    @contextlib.contextmanager
+    def begin_nested(self) -> Iterator[None]:
+        mark = len(self.pending)
+        try:
+            yield
+        except BaseException:
+            del self.pending[mark:]
+            self._aborted = False
+            raise
+
+    def commit(self) -> None:
+        if not self._aborted:
+            self.committed.extend(self.pending)
+        self.pending.clear()
+        self._aborted = False
+
+
+class _PgLikeRepo:
+    """Repository double whose every upsert is a write on a ``_PgLikeSession``."""
+
+    def __init__(self, session: _PgLikeSession) -> None:
+        self.session = session
+
+    def upsert_economic_indicator(self, **_: object) -> int:
+        return self.session.write("ilsole_forecast")
+
+    def upsert_economic_indicator_observation(self, **_: object) -> int:
+        return self.session.write("ilsole_observations")
+
+    def upsert_te_indicators(self, **_: object) -> int:
+        return self.session.write("te_indicators")
+
+    def upsert_te_observations(self, **_: object) -> int:
+        return self.session.write("te_observations")
+
+    def upsert_bond_yields(self, **_: object) -> int:
+        return self.session.write("bond_yields")
+
+    def upsert_bond_yield_observations(self, **_: object) -> int:
+        return self.session.write("bond_yield_observations")
+
+    def get_fred_latest_date(self, series_id: str) -> None:
+        return None
+
+    def upsert_fred_observations(self, series_id: str, observations: list) -> int:
+        return self.session.write(f"fred:{series_id}")
+
+
+def _service_on_pg_like_repo(
+    fail_on: set[str],
+    te_response: dict | None = None,
+    fred_scraper: MagicMock | None = None,
+) -> tuple[MacroRegimeService, _PgLikeSession]:
+    session = _PgLikeSession(fail_on)
+    ilsole = MagicMock()
+    ilsole.get_forecasts.return_value = _FORECAST_DATA
+    te = MagicMock()
+    te.get_country_indicators.return_value = te_response or _TE_SUCCESS
+    service = MacroRegimeService(
+        repo=_PgLikeRepo(session),  # type: ignore[arg-type]
+        ilsole_scraper=ilsole,
+        te_scraper=te,
+        fred_scraper=fred_scraper or MagicMock(),
+    )
+    return service, session
+
+
+class TestFetchCountryWriteFailureIsolation:
+    def test_when_te_write_fails_then_earlier_ilsole_rows_survive_the_commit(
+        self,
+    ) -> None:
+        service, session = _service_on_pg_like_repo({"te_indicators"})
+
+        result = service.fetch_country("USA")
+        session.commit()
+
+        assert session.committed == ["ilsole_forecast", "ilsole_observations"]
+        assert any(e.startswith("trading_economics") for e in result["errors"])
+
+    def test_when_te_observation_write_fails_then_te_counts_report_nothing_stored(
+        self,
+    ) -> None:
+        service, session = _service_on_pg_like_repo({"te_observations"})
+
+        result = service.fetch_country("USA")
+        session.commit()
+
+        assert "te_indicators" not in session.committed
+        assert result["counts"]["te_indicators"] == 0
+        assert result["counts"]["te_observations"] == 0
+
+    def test_when_bond_write_fails_then_te_indicators_are_still_committed(
+        self,
+    ) -> None:
+        service, session = _service_on_pg_like_repo({"bond_yields"})
+
+        result = service.fetch_country("USA")
+        session.commit()
+
+        assert "te_indicators" in session.committed
+        assert "te_observations" in session.committed
+        assert "bond_yields" not in session.committed
+        assert result["counts"]["te_indicators"] == 1
+        assert result["counts"]["bond_yields"] == 0
+
+
+class TestFetchFredSeriesWriteFailureIsolation:
+    @staticmethod
+    def _fred_scraper() -> MagicMock:
+        scraper = MagicMock()
+        scraper.get_series_observations.return_value = {
+            "status": "success",
+            "observations": [{"date": None, "value": 1.0}],
+        }
+        return scraper
+
+    def test_when_one_series_write_fails_then_other_series_are_committed(
+        self,
+    ) -> None:
+        service, session = _service_on_pg_like_repo(
+            {"fred:VIXCLS"}, fred_scraper=self._fred_scraper()
+        )
+
+        result = service.fetch_fred_series(series_ids=["DGS2", "VIXCLS", "DGS10"])
+        session.commit()
+
+        assert session.committed == ["fred:DGS2", "fred:DGS10"]
+        assert result["counts"] == {"DGS2": 1, "VIXCLS": 0, "DGS10": 1}
+
+    def test_when_one_series_write_fails_then_only_that_series_is_an_error(
+        self,
+    ) -> None:
+        service, _ = _service_on_pg_like_repo(
+            {"fred:VIXCLS"}, fred_scraper=self._fred_scraper()
+        )
+
+        result = service.fetch_fred_series(series_ids=["DGS2", "VIXCLS", "DGS10"])
+
+        assert [e.split(":")[0] for e in result["errors"]] == ["VIXCLS"]
 
 
 # ---------------------------------------------------------------------------

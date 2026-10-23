@@ -6,6 +6,13 @@ per-source ``except`` logs and accumulates the failure into an ``errors`` /
 ``all_errors`` list, then continues — one failing source or country must not
 abort the whole macro refresh. Those lists are returned to the caller, so every
 drop is surfaced, not silent.
+
+Every independent write group (one source, one FRED series) runs in its own
+SAVEPOINT. Postgres aborts the whole transaction on a failed statement, so
+without that scope one bad write would make the later writes fail and the
+caller's commit would silently discard the groups that had already succeeded.
+Counts are recorded only after their group's savepoint is released, so they
+never claim rows that were rolled back.
 """
 
 import datetime
@@ -162,23 +169,25 @@ class MacroRegimeService:
                 )
                 logger.warning("IlSole forecasts for %s parsed to all-None", country)
             elif forecast_data:
-                counts["ilsole_forecast"] = self.repo.upsert_economic_indicator(
-                    country=country,
-                    data=forecast_data,
-                )
-                counts["ilsole_observations"] = (
-                    self.repo.upsert_economic_indicator_observation(
+                with self.repo.session.begin_nested():
+                    n_forecast = self.repo.upsert_economic_indicator(
+                        country=country,
+                        data=forecast_data,
+                    )
+                    n_forecast_obs = self.repo.upsert_economic_indicator_observation(
                         country=country,
                         snapshot_date=today,
                         data=forecast_data,
                     )
-                )
+                counts["ilsole_forecast"] = n_forecast
+                counts["ilsole_observations"] = n_forecast_obs
             else:
                 counts["ilsole_forecast"] = 0
                 counts["ilsole_observations"] = 0
                 logger.info("No IlSole forecasts for %s", country)
         except Exception as e:
             errors.append(f"ilsole_forecast: {e}")
+            counts.setdefault("ilsole_forecast", 0)
             counts.setdefault("ilsole_observations", 0)
             logger.warning("Failed IlSole forecasts for %s: %s", country, e)
 
@@ -190,15 +199,17 @@ class MacroRegimeService:
             if te_data.get("status") == "success":
                 indicators = te_data.get("indicators", {})
                 if indicators:
-                    counts["te_indicators"] = self.repo.upsert_te_indicators(
-                        country=country,
-                        indicators_dict=indicators,
-                    )
-                    n_obs = self.repo.upsert_te_observations(
-                        country=country,
-                        snapshot_date=today,
-                        indicators_dict=indicators,
-                    )
+                    with self.repo.session.begin_nested():
+                        n_indicators = self.repo.upsert_te_indicators(
+                            country=country,
+                            indicators_dict=indicators,
+                        )
+                        n_obs = self.repo.upsert_te_observations(
+                            country=country,
+                            snapshot_date=today,
+                            indicators_dict=indicators,
+                        )
+                    counts["te_indicators"] = n_indicators
                     counts["te_observations"] = n_obs
                 else:
                     counts["te_indicators"] = 0
@@ -224,15 +235,17 @@ class MacroRegimeService:
                         )
                     bond_yields = te_data.get("bond_yields", {})
                     if bond_yields:
-                        counts["bond_yields"] = self.repo.upsert_bond_yields(
-                            country=country,
-                            yields_dict=bond_yields,
-                        )
-                        n_bond_obs = self.repo.upsert_bond_yield_observations(
-                            country=country,
-                            snapshot_date=today,
-                            yields_dict=bond_yields,
-                        )
+                        with self.repo.session.begin_nested():
+                            n_bonds = self.repo.upsert_bond_yields(
+                                country=country,
+                                yields_dict=bond_yields,
+                            )
+                            n_bond_obs = self.repo.upsert_bond_yield_observations(
+                                country=country,
+                                snapshot_date=today,
+                                yields_dict=bond_yields,
+                            )
+                        counts["bond_yields"] = n_bonds
                         counts["bond_yield_observations"] = n_bond_obs
                     else:
                         counts["bond_yields"] = 0
@@ -310,7 +323,8 @@ class MacroRegimeService:
 
                 if result["status"] == "success":
                     observations = result.get("observations", [])
-                    n = self.repo.upsert_fred_observations(series_id, observations)
+                    with self.repo.session.begin_nested():
+                        n = self.repo.upsert_fred_observations(series_id, observations)
                     counts[series_id] = n
                     logger.info(
                         "FRED %s: upserted %d observations (start_date=%s)",
