@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from sqlalchemy import JSON, Date, Index, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Date, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -42,10 +42,7 @@ class MarketJournal(BaseModel):
     """
 
     __tablename__ = "market_journal"
-    __table_args__ = (
-        UniqueConstraint("as_of", name="uq_market_journal_as_of"),
-        Index("ix_market_journal_as_of", "as_of"),
-    )
+    __table_args__ = (UniqueConstraint("as_of", name="uq_market_journal_as_of"),)
 
     as_of: Mapped[date] = mapped_column(Date, nullable=False)
     region: Mapped[str] = mapped_column(String(8), nullable=False, default="US")

@@ -38,7 +38,6 @@ class ETFMetadata(BaseModel):
     __tablename__ = "etf_metadata"
     __table_args__ = (
         UniqueConstraint("instrument_id", name="uq_etf_metadata_instrument"),
-        Index("ix_etf_metadata_instrument_id", "instrument_id"),
     )
 
     instrument_id: Mapped[uuid.UUID] = mapped_column(

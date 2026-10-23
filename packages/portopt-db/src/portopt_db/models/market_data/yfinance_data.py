@@ -531,7 +531,6 @@ class MajorHolders(BaseModel):
     __tablename__ = "major_holders"
     __table_args__ = (
         UniqueConstraint("instrument_id", name="uq_major_holders_instrument"),
-        Index("ix_major_holders_instrument_id", "instrument_id"),
     )
 
     instrument_id: Mapped[uuid.UUID] = mapped_column(
@@ -555,7 +554,6 @@ class InsiderPurchaseSummary(BaseModel):
     __tablename__ = "insider_purchases"
     __table_args__ = (
         UniqueConstraint("instrument_id", name="uq_insider_purchases_instrument"),
-        Index("ix_insider_purchases_instrument_id", "instrument_id"),
     )
 
     instrument_id: Mapped[uuid.UUID] = mapped_column(
@@ -629,7 +627,6 @@ class AnalystPriceTarget(BaseModel):
     __tablename__ = "analyst_price_targets"
     __table_args__ = (
         UniqueConstraint("instrument_id", name="uq_analyst_pt_instrument"),
-        Index("ix_analyst_price_targets_instrument_id", "instrument_id"),
     )
 
     instrument_id: Mapped[uuid.UUID] = mapped_column(
@@ -764,7 +761,6 @@ class TickerProfileExtra(BaseModel):
     __tablename__ = "ticker_profile_extras"
     __table_args__ = (
         UniqueConstraint("instrument_id", name="uq_ticker_profile_extras_instrument"),
-        Index("ix_ticker_profile_extras_instrument_id", "instrument_id"),
     )
 
     instrument_id: Mapped[uuid.UUID] = mapped_column(
