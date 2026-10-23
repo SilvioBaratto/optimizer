@@ -21,6 +21,12 @@ Branches covered:
     - insufficient history + existing prices → skip, append prices:insufficient_history
     - insufficient history + no existing prices (young listing) → accept short history
 
+  fetch_and_store() — adjustment-basis re-base
+    - stored overlap closes disagree with the re-fetched window → full re-fetch
+    - re-base fetch truncated or empty → the window is stored alone
+    - young listing whose refetch reaches the first stored bar → stored
+    - stored series older than the period → fetch starts at its oldest bar
+
   fetch_and_store() — news scraper branches
     - news list non-empty, link from canonicalUrl dict
     - news list non-empty, link from previewUrl fallback
@@ -32,7 +38,9 @@ Branches covered:
   run_bulk_yfinance_fetch() — missing yfinance_ticker guard
     - ticker is None/empty → skipped with error
 
-All external I/O is mocked. No DB sessions are opened.
+External I/O (Yahoo, the scraper) is mocked and most tests use a MagicMock
+repository. The re-base tests that depend on real write semantics run the real
+repository on the SQLite ``db_session`` fixture.
 """
 
 from __future__ import annotations
@@ -43,6 +51,7 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pandas as pd
+import pytest
 
 from app.services.market_data.empty_fetch_memory import EmptyFetchMemory
 from app.services.market_data.yfinance_data_service import (
@@ -1310,6 +1319,461 @@ class TestInsufficientHistoryBranches:
 
         # price_max_date=date(2024,6,1) → has_existing_prices=True → skip
         assert "prices:insufficient_history" in result["skipped"]
+
+
+# ===========================================================================
+# fetch_and_store() — adjustment-basis re-base
+# ===========================================================================
+
+
+def _stored_prices(closes: dict[date, float]) -> Any:
+    """Fake ``repo.get_price_history`` over a dict of stored closes.
+
+    Honours the date window, ordering and limit so the service's reads are
+    checked against the contract of the real repository method.
+    """
+    from types import SimpleNamespace
+
+    bars = [SimpleNamespace(date=d, close=c) for d, c in sorted(closes.items())]
+
+    def get_price_history(
+        instrument_id: Any,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        limit: int = 5000,
+        ascending: bool = False,
+    ) -> list[Any]:
+        picked = [
+            b
+            for b in bars
+            if (start_date is None or b.date >= start_date)
+            and (end_date is None or b.date <= end_date)
+        ]
+        picked.sort(key=lambda b: b.date, reverse=not ascending)
+        return picked[:limit]
+
+    return get_price_history
+
+
+_OVERLAP_STALENESS_MAX_DATE = date(2025, 1, 15)
+
+
+def _incremental_staleness() -> dict[str, Any]:
+    return {
+        "profile_updated_at": None,
+        "financials_updated_at": None,
+        "dividends_updated_at": None,
+        "splits_updated_at": None,
+        "recommendations_updated_at": None,
+        "price_targets_updated_at": None,
+        "institutional_holders_updated_at": None,
+        "mutualfund_holders_updated_at": None,
+        "insider_transactions_updated_at": None,
+        "price_max_date": _OVERLAP_STALENESS_MAX_DATE,
+    }
+
+
+def _window_history(close: float) -> pd.DataFrame:
+    idx = pd.date_range("2025-01-10", "2025-01-16", freq="B")
+    return pd.DataFrame({"Close": [close] * len(idx)}, index=idx)
+
+
+def _full_history(close: float, periods: int = 800) -> pd.DataFrame:
+    idx = pd.date_range(end="2025-01-16", periods=periods, freq="B")
+    return pd.DataFrame({"Close": [close] * len(idx)}, index=idx)
+
+
+def _history_by_request(window: Any, full: Any) -> Any:
+    """``fetch_history`` fake: date-ranged call -> *window*, period call -> *full*."""
+
+    def fetch_history(symbol: str, **kwargs: Any) -> Any:
+        return window if kwargs.get("start") is not None else full
+
+    return fetch_history
+
+
+_FROZEN_TODAY = date(2025, 1, 16)
+
+
+@pytest.fixture
+def frozen_today(monkeypatch: pytest.MonkeyPatch) -> date:
+    """Pin the service clock to the day the fixture histories end on."""
+    monkeypatch.setattr(
+        "app.services.market_data.yfinance_data_service._today",
+        lambda: _FROZEN_TODAY,
+    )
+    return _FROZEN_TODAY
+
+
+def _years_back(day: date, years: int) -> date:
+    return day.replace(year=day.year - years)
+
+
+def _yahoo_serving(bars: pd.DataFrame, today: date) -> Any:
+    """``fetch_history`` fake that answers like Yahoo.
+
+    A ``period`` reaches back from *today*, a ``start`` from that date; every
+    answer is cut from *bars*, i.e. carries one adjustment basis.
+    """
+
+    def fetch_history(symbol: str, **kwargs: Any) -> pd.DataFrame:
+        if kwargs.get("start") is not None:
+            floor = pd.Timestamp(kwargs["start"])
+        else:
+            floor = pd.Timestamp(_years_back(today, int(kwargs["period"][:-1])))
+        end = kwargs.get("end")
+        ceiling = pd.Timestamp(end) if end else pd.Timestamp.max
+        return bars[(bars.index >= floor) & (bars.index < ceiling)]
+
+    return fetch_history
+
+
+@pytest.mark.usefixtures("frozen_today")
+class TestAdjustmentBasisRebase:
+    """yfinance prices are split/dividend adjusted as of fetch time, so a new
+    split or ex-dividend rescales every earlier bar. The 5-day incremental
+    overlap rewrites only the window; the older stored bars must be re-based by
+    a full-period fetch, or the series carries a phantom step at the window
+    start that ``prices_to_returns`` turns into a fake return."""
+
+    def test_incremental_refetches_full_history_when_overlap_was_readjusted(
+        self,
+    ) -> None:
+        repo = _make_repo(staleness=_incremental_staleness())
+        # Stored before a 2:1 split: 200. Yahoo now reports the same days at 100.
+        repo.get_price_history.side_effect = _stored_prices(
+            {
+                date(2025, 1, 10): 200.0,
+                date(2025, 1, 13): 200.0,
+                date(2025, 1, 14): 200.0,
+                date(2025, 1, 15): 200.0,
+            }
+        )
+        window, full = _window_history(100.0), _full_history(100.0)
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.side_effect = _history_by_request(window, full)
+
+        _run(repo, yf_client, mode="incremental")
+
+        requests = [c.kwargs for c in yf_client.fetch_history.call_args_list]
+        assert [r.get("period") for r in requests if "start" not in r] == ["5y"]
+        stored_frame = repo.upsert_price_history.call_args.args[1]
+        assert len(stored_frame) == len(full)
+
+    def test_incremental_keeps_window_only_when_overlap_unchanged(self) -> None:
+        repo = _make_repo(staleness=_incremental_staleness())
+        repo.get_price_history.side_effect = _stored_prices(
+            {date(2025, 1, 10): 100.0, date(2025, 1, 13): 100.0}
+        )
+        window = _window_history(100.0)
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.side_effect = _history_by_request(
+            window, _full_history(100.0)
+        )
+
+        _run(repo, yf_client, mode="incremental")
+
+        assert yf_client.fetch_history.call_count == 1
+        assert repo.upsert_price_history.call_args.args[1] is window
+
+    def test_incremental_ignores_provisional_last_bar_when_comparing(self) -> None:
+        """The newest stored bar can be an intraday snapshot (exchanges still
+        open at the 07:00 UTC run); its final close differing is not a re-base."""
+        repo = _make_repo(staleness=_incremental_staleness())
+        repo.get_price_history.side_effect = _stored_prices(
+            {
+                date(2025, 1, 10): 100.0,
+                date(2025, 1, 13): 100.0,
+                date(2025, 1, 15): 97.3,
+            }
+        )
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.side_effect = _history_by_request(
+            _window_history(100.0), _full_history(100.0)
+        )
+
+        _run(repo, yf_client, mode="incremental")
+
+        assert yf_client.fetch_history.call_count == 1
+
+    def test_incremental_falls_back_to_window_when_rebase_fetch_is_truncated(
+        self,
+    ) -> None:
+        repo = _make_repo(staleness=_incremental_staleness())
+        repo.get_price_history.side_effect = _stored_prices(
+            {
+                date(2023, 1, 3): 180.0,
+                date(2025, 1, 10): 200.0,
+                date(2025, 1, 13): 200.0,
+                date(2025, 1, 15): 200.0,
+            }
+        )
+        window = _window_history(100.0)
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.side_effect = _history_by_request(
+            window, _full_history(100.0, periods=60)
+        )
+
+        with patch(
+            "app.services.market_data.yfinance_data_service.has_sufficient_history",
+            return_value=(False, 1260, 1197),
+        ):
+            result = _run(repo, yf_client, mode="incremental", exchange_name="NYSE")
+
+        assert "prices:insufficient_history" in result["skipped"]
+        assert repo.upsert_price_history.call_args.args[1] is window
+
+    def test_incremental_falls_back_to_window_when_rebase_fetch_returns_nothing(
+        self,
+    ) -> None:
+        repo = _make_repo(staleness=_incremental_staleness())
+        repo.get_price_history.side_effect = _stored_prices(
+            {date(2025, 1, 10): 200.0, date(2025, 1, 13): 200.0}
+        )
+        window = _window_history(100.0)
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.side_effect = _history_by_request(window, None)
+
+        _run(repo, yf_client, mode="incremental")
+
+        assert repo.upsert_price_history.call_args.args[1] is window
+
+    def test_full_refetch_of_young_listing_with_stored_prices_is_stored(
+        self,
+    ) -> None:
+        """A listing younger than the 5y session floor never passes the row-count
+        guard; refusing its refetch would leave it on a stale basis forever. The
+        refetch reaches back to the first stored bar, so it re-bases everything."""
+        repo = _make_repo(staleness=None)
+        repo.get_staleness_info.return_value = {"price_max_date": date(2024, 4, 10)}
+        history = _short_history(80)
+        repo.get_price_history.side_effect = _stored_prices(
+            {history.index[0].date(): 49.0, date(2024, 4, 10): 49.5}
+        )
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.return_value = history
+
+        with patch(
+            "app.services.market_data.yfinance_data_service.has_sufficient_history",
+            return_value=(False, 1260, 1197),
+        ):
+            result = _run(
+                repo, yf_client, mode="full", exchange_name="NYSE", period="5y"
+            )
+
+        assert "prices:insufficient_history" not in result["skipped"]
+        assert repo.upsert_price_history.call_args.args[1] is history
+
+    def test_full_refetch_shorter_than_stored_series_is_still_protected(
+        self,
+    ) -> None:
+        repo = _make_repo(staleness=None)
+        repo.get_staleness_info.return_value = {"price_max_date": date(2024, 12, 1)}
+        history = _short_history(100)
+        repo.get_price_history.side_effect = _stored_prices(
+            {date(2022, 1, 3): 40.0, date(2024, 12, 1): 50.0}
+        )
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.return_value = history
+
+        with patch(
+            "app.services.market_data.yfinance_data_service.has_sufficient_history",
+            return_value=(False, 1260, 1197),
+        ):
+            result = _run(
+                repo, yf_client, mode="full", exchange_name="NYSE", period="5y"
+            )
+
+        assert "prices:insufficient_history" in result["skipped"]
+        repo.upsert_price_history.assert_not_called()
+
+
+class TestAdjustmentBasisChanged:
+    def test_rounding_noise_and_missing_values_are_not_a_basis_change(self) -> None:
+        from decimal import Decimal
+        from types import SimpleNamespace
+
+        from app.services.market_data.yfinance_data_service import (
+            _adjustment_basis_changed,
+        )
+
+        stored = [
+            SimpleNamespace(date=date(2025, 1, 10), close=Decimal("123.456789")),
+            SimpleNamespace(date=date(2025, 1, 13), close=None),
+            SimpleNamespace(date=date(2025, 1, 14), close=Decimal("50.0")),
+        ]
+        fresh = pd.DataFrame(
+            {"Close": [123.4567890004, 77.0, float("nan")]},
+            index=pd.DatetimeIndex(
+                ["2025-01-10", "2025-01-13", "2025-01-14"], tz="America/New_York"
+            ),
+        )
+        fresh = pd.concat(
+            [fresh, pd.DataFrame({"Close": [1.0]}, index=pd.DatetimeIndex([pd.NaT]))]
+        )
+
+        assert _adjustment_basis_changed(stored, fresh) is False
+
+    def test_a_dividend_sized_gap_is_a_basis_change(self) -> None:
+        from types import SimpleNamespace
+
+        from app.services.market_data.yfinance_data_service import (
+            _adjustment_basis_changed,
+        )
+
+        stored = [SimpleNamespace(date=date(2025, 1, 10), close=100.0)]
+        fresh = pd.DataFrame({"Close": [99.5]}, index=pd.to_datetime(["2025-01-10"]))
+
+        assert _adjustment_basis_changed(stored, fresh) is True
+
+
+@pytest.mark.usefixtures("frozen_today")
+class TestRebaseSpansWholeStoredSeries:
+    """Nothing prunes price_history, so the stored series outgrows any fixed
+    fetch period. A re-base that reaches back only ``period`` leaves every older
+    bar on the previous adjustment basis, and ``prices_to_returns`` turns that
+    seam into a fake return; the full fetch has to start at the oldest stored bar.
+    """
+
+    def _full_fetch_request(
+        self, stored: dict[date, float], *, period: str = "5y"
+    ) -> dict[str, Any]:
+        repo = _make_repo(staleness=None)
+        repo.get_staleness_info.return_value = {"price_max_date": date(2025, 1, 15)}
+        repo.get_price_history.side_effect = _stored_prices(stored)
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.return_value = _full_history(100.0)
+
+        _run(repo, yf_client, mode="full", period=period)
+
+        yf_client.fetch_history.assert_called_once()
+        return dict(yf_client.fetch_history.call_args.kwargs)
+
+    def test_full_fetch_starts_at_the_oldest_stored_bar_older_than_the_period(
+        self,
+    ) -> None:
+        request = self._full_fetch_request(
+            {date(2018, 1, 2): 30.0, date(2024, 6, 3): 90.0}
+        )
+
+        assert request["start"] == "2018-01-02"
+        assert "period" not in request
+
+    def test_full_fetch_starts_at_a_stored_bar_sitting_on_the_period_edge(
+        self,
+    ) -> None:
+        """Yahoo's clock is a day or two off ours, so a bar on the edge may fall
+        just outside a period fetch."""
+        request = self._full_fetch_request(
+            {date(2020, 1, 17): 40.0, date(2024, 6, 3): 90.0}
+        )
+
+        assert request["start"] == "2020-01-17"
+        assert "period" not in request
+
+    def test_full_fetch_keeps_the_period_when_the_series_is_younger_than_it(
+        self,
+    ) -> None:
+        """The period still backfills bars that were never stored."""
+        request = self._full_fetch_request(
+            {date(2022, 3, 1): 40.0, date(2024, 6, 3): 90.0}
+        )
+
+        assert request["period"] == "5y"
+        assert "start" not in request
+
+    @pytest.mark.parametrize("period", ["max", "6mo"])
+    def test_periods_other_than_whole_years_are_left_to_yfinance(
+        self, period: str
+    ) -> None:
+        request = self._full_fetch_request({date(2010, 1, 4): 20.0}, period=period)
+
+        assert request["period"] == period
+        assert "start" not in request
+
+    def test_incremental_rebase_leaves_a_series_older_than_the_period_on_one_basis(
+        self, db_session: Any, frozen_today: date
+    ) -> None:
+        from portopt_db.repositories.market_data.yfinance_repository import (
+            YFinanceRepository,
+        )
+
+        from tests._fixtures import seed_universe
+
+        instrument = seed_universe(db_session).instrument
+        repo = YFinanceRepository(db_session)
+        stored_span = pd.bdate_range("2018-01-02", "2025-01-15")
+        repo.upsert_price_history(
+            instrument.id, pd.DataFrame({"Close": 200.0}, index=stored_span)
+        )
+        yahoo = pd.DataFrame(
+            {"Close": 100.0}, index=pd.bdate_range("2017-06-01", frozen_today)
+        )
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.side_effect = _yahoo_serving(yahoo, frozen_today)
+
+        YFinanceDataService(repo=repo, yf_client=yf_client).fetch_and_store(
+            instrument_id=instrument.id,
+            yfinance_ticker="AAPL",
+            mode="incremental",
+            staleness={
+                **_incremental_staleness(),
+                "price_max_date": stored_span[-1].date(),
+            },
+        )
+
+        closes = [
+            float(bar.close)
+            for bar in repo.get_price_history(instrument.id, limit=10_000)
+        ]
+        assert len(closes) == len(stored_span) + 1
+        assert set(closes) == {100.0}
+
+
+@pytest.mark.usefixtures("frozen_today")
+class TestAdjustmentBasisRebaseAgainstRealRepository:
+    def test_incremental_run_leaves_every_stored_close_on_the_new_basis(
+        self, db_session: Any
+    ) -> None:
+        from portopt_db.models.market_data.yfinance_data import PriceHistory
+        from portopt_db.repositories.market_data.yfinance_repository import (
+            YFinanceRepository,
+        )
+
+        from tests._fixtures import seed_universe
+
+        instrument = seed_universe(db_session).instrument
+        repo = YFinanceRepository(db_session)
+        old_basis = pd.DataFrame(
+            {"Close": [200.0] * 10},
+            index=pd.date_range("2025-01-02", periods=10, freq="B"),
+        )
+        repo.upsert_price_history(instrument.id, old_basis)
+        max_date = old_basis.index[-1].date()
+
+        new_basis = pd.DataFrame(
+            {"Close": [100.0] * 12},
+            index=pd.date_range("2025-01-02", periods=12, freq="B"),
+        )
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.side_effect = _history_by_request(
+            new_basis.loc[new_basis.index >= pd.Timestamp("2025-01-10")], new_basis
+        )
+
+        YFinanceDataService(repo=repo, yf_client=yf_client).fetch_and_store(
+            instrument_id=instrument.id,
+            yfinance_ticker="AAPL",
+            mode="incremental",
+            staleness={**_incremental_staleness(), "price_max_date": max_date},
+        )
+
+        closes = {
+            float(r.close)
+            for r in db_session.query(PriceHistory).filter_by(
+                instrument_id=instrument.id
+            )
+        }
+        assert closes == {100.0}
 
 
 # ===========================================================================

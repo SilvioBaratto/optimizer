@@ -10,7 +10,9 @@ intentional per-item resilience, not silent swallows.
 """
 
 import logging
+import math
 import threading
+from collections.abc import Iterable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -30,7 +32,12 @@ from portopt_db.repositories.market_data.yfinance_repository import (
     statement_staleness_key,
 )
 
-from app.services._shared import ProgressCallback, _noop, has_sufficient_history
+from app.services._shared import (
+    ProgressCallback,
+    _noop,
+    has_sufficient_history,
+    parse_period_years,
+)
 from app.services.market_data.empty_fetch_memory import EmptyFetchMemory
 from app.services.market_data.yfinance import YFinanceClient
 from app.utils.currency import to_major_currency
@@ -210,6 +217,79 @@ def _date_valuation_columns(df: pd.DataFrame, as_of: date) -> pd.DataFrame:
     return dated
 
 
+# Re-fetched closes inside this relative band of the stored ones share one
+# adjustment basis: NUMERIC(20,6) rounding stays orders of magnitude below it,
+# while a dividend of one basis point of price (the smallest that moves a
+# return) is above it.
+_BASIS_REL_TOL = 1e-4
+_BASIS_ABS_TOL = 1e-6
+
+# A re-based history may open a few sessions after the first stored bar
+# (holiday, first-day gap) and still cover the whole stored series.
+_REBASE_START_TOLERANCE = timedelta(days=7)
+
+# Yahoo resolves a period such as "5y" on its own clock, a day or two off ours: a
+# stored bar this close to the period's edge could fall just outside the fetch.
+_PERIOD_EDGE_MARGIN = timedelta(days=7)
+
+
+def _today() -> date:
+    """Return the current date; the one clock read the price-fetch logic uses."""
+    return date.today()
+
+
+def _years_before(day: date, years: int) -> date:
+    """Return *day* moved back by whole *years*, clamping 29 Feb to 28 Feb."""
+    try:
+        return day.replace(year=day.year - years)
+    except ValueError:
+        return day.replace(year=day.year - years, day=28)
+
+
+def _bar_date(stamp: Any) -> date | None:
+    """Return the calendar date of a history index value, or None if missing."""
+    try:
+        ts = pd.Timestamp(stamp)
+    except (TypeError, ValueError):
+        return None
+    return ts.date() if isinstance(ts, pd.Timestamp) else None
+
+
+def _adjustment_basis_changed(
+    stored_bars: Iterable[Any], fresh: pd.DataFrame | None
+) -> bool:
+    """Report whether re-fetched closes disagree with the stored closes.
+
+    yfinance returns closes adjusted for splits and dividends as of the fetch
+    date, so a split or ex-dividend date after the last fetch rescales every
+    earlier bar. Stored bars on the old basis and re-fetched bars on the new one
+    therefore differ by a constant factor on any date they share.
+
+    Args:
+        stored_bars: Stored price rows exposing ``date`` and ``close``.
+        fresh: Re-fetched history with a ``Close`` column and a date index.
+
+    Returns:
+        True when any date present on both sides differs beyond rounding noise.
+    """
+    if fresh is None or fresh.empty or "Close" not in fresh:
+        return False
+    fresh_close: dict[date, float] = {}
+    for stamp, close in fresh["Close"].items():
+        day = _bar_date(stamp)
+        if day is not None and pd.notna(close):
+            fresh_close[day] = float(close)
+    for bar in stored_bars:
+        new = fresh_close.get(bar.date)
+        if bar.close is None or new is None:
+            continue
+        if not math.isclose(
+            float(bar.close), new, rel_tol=_BASIS_REL_TOL, abs_tol=_BASIS_ABS_TOL
+        ):
+            return True
+    return False
+
+
 class YFinanceDataService:
     """Fetches all yfinance data categories for a ticker and stores via repository."""
 
@@ -237,6 +317,95 @@ class YFinanceDataService:
             return fn()
         return call_with_timeout(fn, self._request_timeout)
 
+    def _overlap_was_readjusted(
+        self,
+        instrument_id: UUID,
+        fresh: pd.DataFrame | None,
+        start_date: date,
+        max_date: date,
+    ) -> bool:
+        """Compare the stored overlap bars with the freshly fetched window.
+
+        The newest stored bar is left out: an exchange still open at fetch time
+        stores an intraday snapshot there, and its final close differing is not
+        a re-adjustment. Every older bar is final, and any split or dividend
+        since the last fetch rescales all of them.
+        """
+        stored = self.repo.get_price_history(
+            instrument_id,
+            start_date=start_date,
+            end_date=max_date - timedelta(days=1),
+        )
+        return _adjustment_basis_changed(stored, fresh)
+
+    def _covers_stored_series(self, instrument_id: UUID, history: pd.DataFrame) -> bool:
+        """Return True when *history* opens no later than the first stored bar.
+
+        Such a history rewrites every stored bar on one basis, so it is safe to
+        store even when it is shorter than the exchange calendar predicts (a
+        young listing). A history that opens later would re-base only its own
+        span and leave the older bars on the previous basis.
+        """
+        first = next(
+            iter(self.repo.get_price_history(instrument_id, limit=1, ascending=True)),
+            None,
+        )
+        if first is None:
+            return False
+        opens = _bar_date(history.index.min())
+        return opens is not None and opens <= first.date + _REBASE_START_TOLERANCE
+
+    def _full_fetch_start(self, instrument_id: UUID, period: str) -> date | None:
+        """Return where a full-history fetch must start to span the stored series.
+
+        Nothing prunes ``price_history``, so a series outgrows a rolling period
+        within a week of its first load. A fetch that reaches back only ``period``
+        would re-base the newest bars and leave every older one on the previous
+        adjustment basis, a seam that ``prices_to_returns`` turns into a fake
+        return. Periods that are not whole years ("max", "6mo") are left to
+        yfinance.
+
+        Args:
+            instrument_id: Instrument whose stored bars set the start.
+            period: yfinance period string the caller asked for.
+
+        Returns:
+            The oldest stored bar's date when *period* would stop short of it,
+            else None to fetch by *period* (which also backfills unstored bars).
+        """
+        years = parse_period_years(period)
+        if years is None:
+            return None
+        oldest = next(
+            iter(self.repo.get_price_history(instrument_id, limit=1, ascending=True)),
+            None,
+        )
+        if oldest is None:
+            return None
+        if oldest.date > _years_before(_today(), years) + _PERIOD_EDGE_MARGIN:
+            return None
+        return oldest.date
+
+    def _fetch_full_price_history(
+        self, instrument_id: UUID, yfinance_ticker: str, period: str
+    ) -> pd.DataFrame | None:
+        start = self._full_fetch_start(instrument_id, period)
+        window = {"period": period} if start is None else {"start": start.isoformat()}
+        # fetch_history accepts a native `timeout` kwarg (passed to requests),
+        # so we pass it directly without an extra watchdog thread. Closes are
+        # adjusted as of the fetch date (yfinance default), which is why every
+        # stored bar has to come from one fetch to share a basis.
+        return self.yf_client.fetch_history(
+            yfinance_ticker,
+            **window,
+            min_rows=1,
+            # actions=True adds Dividends / Stock Splits columns the
+            # price-history upsert persists (Capital Gains no longer
+            # emitted by Yahoo → stays NULL).
+            actions=True,
+            timeout=self._request_timeout,
+        )
+
     def fetch_and_store(
         self,
         instrument_id: UUID,
@@ -254,7 +423,9 @@ class YFinanceDataService:
         Args:
             instrument_id: Database instrument UUID.
             yfinance_ticker: Yahoo Finance ticker symbol.
-            period: Price history period for full mode (e.g. "5y").
+            period: Price history period for full mode (e.g. "5y"). A stored
+                series older than a whole-year period is fetched from its oldest
+                bar instead, so one fetch re-bases all of it.
             mode: "full" preserves original behaviour; "incremental" skips
                   fresh categories and date-ranges the price fetch.
             thresholds: Override default staleness thresholds.
@@ -438,17 +609,18 @@ class YFinanceDataService:
                 errors.append(f"profile: {e}")
                 logger.warning("Failed to fetch profile for %s: %s", yfinance_ticker, e)
 
-        # fetch_history accepts a native `timeout` kwarg (passed to requests),
-        # so we pass it directly without an extra watchdog thread.
         try:
-            if (
+            incremental_window = (
                 mode == "incremental"
                 and staleness is not None
                 and staleness.get("price_max_date") is not None
-            ):
+            )
+            # Set only when a re-base fetch replaced the incremental window, so
+            # the window can still be stored if the full history is unusable.
+            window_history: pd.DataFrame | None = None
+            if incremental_window:
                 max_date = staleness["price_max_date"]
                 start_date = max_date - timedelta(days=thresholds.price_overlap_days)
-                # Split-adjusted close (the yfinance default) is required by prices_to_returns() downstream.
                 history = self.yf_client.fetch_history(
                     yfinance_ticker,
                     start=start_date.isoformat(),
@@ -460,25 +632,32 @@ class YFinanceDataService:
                     actions=True,
                     timeout=self._request_timeout,
                 )
+                # A split or dividend since the last fetch rescales all earlier
+                # bars, but the window rewrites only its own: re-fetch the whole
+                # period so the stored series stays on a single basis.
+                if self._overlap_was_readjusted(
+                    instrument_id, history, start_date, max_date
+                ):
+                    try:
+                        rebased = self._fetch_full_price_history(
+                            instrument_id, yfinance_ticker, period
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Re-base fetch failed for %s, storing the window only: %s",
+                            yfinance_ticker,
+                            e,
+                        )
+                        rebased = None
+                    if rebased is not None and not rebased.empty:
+                        window_history, history = history, rebased
             else:
-                # Split-adjusted close (the yfinance default) is required by prices_to_returns() downstream.
-                history = self.yf_client.fetch_history(
-                    yfinance_ticker,
-                    period=period,
-                    min_rows=1,
-                    # actions=True adds Dividends / Stock Splits columns the
-                    # price-history upsert persists (Capital Gains no longer
-                    # emitted by Yahoo → stays NULL).
-                    actions=True,
-                    timeout=self._request_timeout,
+                history = self._fetch_full_price_history(
+                    instrument_id, yfinance_ticker, period
                 )
 
             if history is not None and not history.empty:
-                is_full_period = not (
-                    mode == "incremental"
-                    and staleness is not None
-                    and staleness.get("price_max_date") is not None
-                )
+                is_full_period = not incremental_window or window_history is not None
                 if is_full_period:
                     sufficient, expected, minimum = has_sufficient_history(
                         len(history),
@@ -488,13 +667,12 @@ class YFinanceDataService:
                     )
                     if not sufficient:
                         # The insufficient-history guard exists to stop a
-                        # truncated/glitchy re-fetch from clobbering an
-                        # established price series. But for an instrument with
+                        # truncated/glitchy re-fetch from re-basing only part of
+                        # an established price series. For an instrument with
                         # NO stored prices yet, a short history is simply a
                         # young listing's complete, legitimate history (recent
                         # IPOs/SPACs). Discarding it permanently excluded ~102
                         # instruments from price_history with no error logged.
-                        # Only discard when prior price data exists.
                         stored = (
                             staleness
                             if staleness is not None
@@ -516,7 +694,15 @@ class YFinanceDataService:
                                 thresholds.min_history_tolerance,
                                 since=price_min_date,
                             )
-                        if not sufficient:
+                        # A history that reaches back to the first stored bar
+                        # rewrites every stored price on one adjustment basis;
+                        # refusing it would pin a young listing to a stale basis
+                        # for good. One that opens later would re-base only its
+                        # own span, so it is still refused.
+                        if not sufficient and not (
+                            has_existing_prices
+                            and self._covers_stored_series(instrument_id, history)
+                        ):
                             if has_existing_prices:
                                 logger.info(
                                     "Skipping price storage for %s: got %d rows, "
@@ -531,7 +717,7 @@ class YFinanceDataService:
                                 )
                                 counts["prices"] = 0
                                 skipped.append("prices:insufficient_history")
-                                history = None
+                                history = window_history
                             else:
                                 logger.info(
                                     "Storing short history for %s: %d rows "
@@ -542,6 +728,16 @@ class YFinanceDataService:
                                     expected,
                                     period,
                                 )
+                        elif not sufficient:
+                            logger.info(
+                                "Storing short history for %s: %d rows "
+                                "(below expected ~%d for %s) — young listing, "
+                                "history spans every stored price",
+                                yfinance_ticker,
+                                len(history),
+                                expected,
+                                period,
+                            )
 
             if history is not None and not history.empty:
                 # Store the listing currency as the price unit (raw, unconverted) so
