@@ -458,3 +458,110 @@ class TestHappyPathParsing:
         assert len(result) >= _MIN_CAPACITY_UTILIZATION_ROWS
         assert "United States" in result
         assert result["United States"]["value"] == pytest.approx(78.5)
+
+
+# ---------------------------------------------------------------------------
+# TestIndicatorKeyComparability — one canonical key must hold one measure
+# ---------------------------------------------------------------------------
+
+
+def _unit_row(name: str, last: str, unit: str) -> str:
+    return (
+        "<tr>"
+        f"<td><a href='#'>{name}</a></td>"
+        f"<td>{last}</td>"
+        "<td>1.0</td>"
+        "<td>3.0</td>"
+        "<td>0.5</td>"
+        f"<td>{unit}</td>"
+        "<td>Feb 2026</td>"
+        "</tr>"
+    )
+
+
+_FILLER_ROWS = (
+    _indicators_row("GDP Growth Rate", "2.1"),
+    _indicators_row("Inflation Rate", "3.5"),
+    _indicators_row("Interest Rate", "5.25"),
+)
+
+
+class TestIndicatorKeyComparability:
+    def test_capacity_utilization_index_points_are_not_stored_as_percent(
+        self,
+    ) -> None:
+        """Japan reports an index (103 points) under the same row label as the
+        US utilisation rate (76.9 percent); only the rate may share the key."""
+        index_soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Capacity Utilization", "103", "points")
+        )
+        rate_soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Capacity Utilization", "76.9", "percent")
+        )
+        scraper = _make_scraper()
+
+        assert "capacity_utilization" not in scraper._parse_indicators_table(index_soup)
+        kept = scraper._parse_indicators_table(rate_soup)
+        assert kept["capacity_utilization"]["value"] == pytest.approx(76.9)
+
+    def test_leading_index_percent_changes_are_not_stored_as_index_level(
+        self,
+    ) -> None:
+        change_soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Leading Economic Index", "0.7", "percent")
+        )
+        level_soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Leading Economic Index", "99.6", "Points")
+        )
+        scraper = _make_scraper()
+
+        assert "leading_economic_index" not in scraper._parse_indicators_table(
+            change_soup
+        )
+        kept = scraper._parse_indicators_table(level_soup)
+        assert kept["leading_economic_index"]["value"] == pytest.approx(99.6)
+
+    def test_personal_savings_percent_of_gdp_is_not_a_savings_rate(self) -> None:
+        soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Personal Savings", "18.3", "percent of GDP")
+        )
+
+        assert "personal_savings" not in _make_scraper()._parse_indicators_table(soup)
+
+    def test_us_only_labour_series_are_not_taken_from_other_countries(self) -> None:
+        """France's 'Non Farm Payrolls' row is an employment level in thousands,
+        not the US monthly payroll change."""
+        html = (
+            '<table class="table table-hover"><tbody>'
+            + "".join(_FILLER_ROWS)
+            + _unit_row("Non Farm Payrolls", "27021", "Thousand")
+            + _unit_row("Initial Jobless Claims", "-61.3", "Thousand")
+            + "</tbody></table>"
+        ).encode()
+        scraper = _make_scraper()
+
+        with (
+            patch(f"{_MOD}.retry_with_backoff", return_value=_fake_response(html)),
+            patch(f"{_MOD}._te_circuit_breaker"),
+        ):
+            france = scraper.get_country_indicators("France", include_bonds=False)
+            usa = scraper.get_country_indicators("USA", include_bonds=False)
+
+        assert "non_farm_payrolls" not in france["indicators"]
+        assert "initial_jobless_claims" not in france["indicators"]
+        assert usa["indicators"]["non_farm_payrolls"]["value"] == pytest.approx(27021)
+        assert "initial_jobless_claims" in usa["indicators"]
+
+    @pytest.mark.parametrize(
+        ("name", "key", "unit"),
+        [
+            ("Factory Orders", "factory_orders", "Net Balance"),
+            ("Employment Change", "employment_change", "percent"),
+        ],
+    )
+    def test_survey_balance_and_growth_rows_do_not_share_a_level_key(
+        self, name: str, key: str, unit: str
+    ) -> None:
+        soup = _indicators_soup(*_FILLER_ROWS, _unit_row(name, "-32", unit))
+
+        assert key not in _make_scraper()._parse_indicators_table(soup)

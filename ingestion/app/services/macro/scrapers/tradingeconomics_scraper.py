@@ -215,6 +215,48 @@ INDICATOR_PATTERNS = {
     ],
 }
 
+# Trading Economics reuses one row label for different measures per country (an
+# index vs a rate, a level vs a change) and the observation tables keep no unit,
+# so a mixed key cannot be separated afterwards. Where the unit column tells the
+# measures apart, only rows in the listed units may carry the canonical key.
+# Lower-cased; a row with no unit cell cannot be checked and is kept.
+_EXPECTED_INDICATOR_UNITS: dict[str, frozenset[str]] = {
+    "capacity_utilization": frozenset({"percent"}),
+    "leading_economic_index": frozenset({"points"}),
+    "factory_orders": frozenset({"percent"}),
+    "personal_savings": frozenset({"percent"}),
+    "employment_change": frozenset({"thousand"}),
+}
+
+# Series defined for one country only. Other country pages reuse the label for an
+# unrelated measure (France's "Non Farm Payrolls" is an employment level) with
+# the same unit, so the unit cannot separate them.
+_COUNTRY_SPECIFIC_INDICATORS: dict[str, frozenset[str]] = {
+    "non_farm_payrolls": frozenset({"USA"}),
+    "initial_jobless_claims": frozenset({"USA"}),
+    "continuing_jobless_claims": frozenset({"USA"}),
+}
+
+
+def _is_comparable_measure(key: str, unit: str, country: str | None) -> bool:
+    """Whether a matched row holds the measure its canonical key stands for.
+
+    Args:
+        key: Canonical indicator key from ``INDICATOR_PATTERNS``.
+        unit: Unit cell text of the row; empty when the page gave none.
+        country: Country the page belongs to, or ``None`` to skip the
+            country check.
+
+    Returns:
+        ``False`` when the unit or country shows the row is a different
+        measure that happens to share the key's row label.
+    """
+    countries = _COUNTRY_SPECIFIC_INDICATORS.get(key)
+    if countries is not None and country is not None and country not in countries:
+        return False
+    units = _EXPECTED_INDICATOR_UNITS.get(key)
+    return units is None or not unit or unit.strip().lower() in units
+
 
 class TradingEconomicsIndicatorsScraper:
     """Scraper for Trading Economics indicator, bond-yield, and production tables."""
@@ -295,7 +337,7 @@ class TradingEconomicsIndicatorsScraper:
 
         try:
             soup = BeautifulSoup(response.content, "html.parser")
-            indicators = self._parse_indicators_table(soup)
+            indicators = self._parse_indicators_table(soup, country)
 
             result = {
                 "country": country,
@@ -341,7 +383,9 @@ class TradingEconomicsIndicatorsScraper:
                 "error": f"Parsing failed: {e!s}",
             }
 
-    def _parse_indicators_table(self, soup: BeautifulSoup) -> dict:
+    def _parse_indicators_table(
+        self, soup: BeautifulSoup, country: str | None = None
+    ) -> dict:
         indicators = {}
 
         tables = soup.find_all("table", class_="table-hover")
@@ -382,7 +426,18 @@ class TradingEconomicsIndicatorsScraper:
                         if last_value is not None:
                             matched_key = self._match_indicator_name(indicator_name)
 
-                            if matched_key:
+                            if matched_key and not _is_comparable_measure(
+                                matched_key, unit, country
+                            ):
+                                logger.debug(
+                                    "Skipping %r (%s, unit=%r): not the measure "
+                                    "behind %s",
+                                    indicator_name,
+                                    country,
+                                    unit,
+                                    matched_key,
+                                )
+                            elif matched_key:
                                 indicators[matched_key] = {
                                     "value": last_value,
                                     "previous": previous_value,
