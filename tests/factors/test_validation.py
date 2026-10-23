@@ -26,6 +26,7 @@ from optimizer.factors import (
     run_factor_validation,
     validate_factor_universe,
 )
+from optimizer.linear_model import CSLinearRegressionConfig
 
 
 @pytest.fixture()
@@ -183,8 +184,6 @@ class TestComputeICSeriesCSRegression:
         self,
         panel: tuple[pd.DataFrame, pd.DataFrame],
     ) -> None:
-        from optimizer.linear_model import CSLinearRegressionConfig
-
         scores, returns = panel
         cfg = CSLinearRegressionConfig(fit_intercept=False)
         result = compute_ic_series(
@@ -288,9 +287,48 @@ class TestComputeICSeriesCSRegression:
             "f",
             min_observations=3,
             use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(min_observations=3),
         )
         assert len(result) == 1
         assert result.iloc[0] == pytest.approx(2.0, abs=1e-6)
+
+    def test_when_cs_config_min_observations_exceeds_valid_names_then_periods_dropped(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        """cs_config.min_observations gates periods, not just the function arg."""
+        scores, returns = panel  # 20 valid names per period
+        cfg = CSLinearRegressionConfig(min_observations=30)
+        result = compute_ic_series(
+            scores, returns, "f", use_cs_regression=True, cs_config=cfg
+        )
+        assert len(result) == 0
+
+    def test_when_cs_config_none_then_default_min_observations_applies(self) -> None:
+        """None defers to CSLinearRegressionConfig defaults (10 names)."""
+        rng = np.random.default_rng(8)
+        dates = pd.date_range("2023-01-01", periods=6, freq="ME")
+        tickers = [f"T{i}" for i in range(8)]
+        scores = pd.DataFrame(rng.normal(0, 1, (6, 8)), index=dates, columns=tickers)
+        returns = 0.01 * scores
+        result = compute_ic_series(scores, returns, "f", use_cs_regression=True)
+        assert len(result) == 0
+
+    def test_when_function_min_observations_stricter_than_cs_config_then_it_wins(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        scores, returns = panel  # 20 valid names per period
+        cfg = CSLinearRegressionConfig(min_observations=5)
+        result = compute_ic_series(
+            scores,
+            returns,
+            "f",
+            min_observations=25,
+            use_cs_regression=True,
+            cs_config=cfg,
+        )
+        assert len(result) == 0
 
     def test_when_return_columns_reordered_then_slope_pairs_by_ticker(self) -> None:
         """Scores and returns are paired by ticker label, not column position."""

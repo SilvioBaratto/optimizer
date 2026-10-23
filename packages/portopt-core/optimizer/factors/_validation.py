@@ -201,7 +201,8 @@ def compute_ic_series(
         returns_history: Dates x tickers matrix of forward returns.
         factor_name: Used only for labeling.
         min_observations: Minimum number of common non-NaN observations per
-            date.
+            date.  With ``use_cs_regression`` the stricter of this and
+            ``cs_config.min_observations`` applies.
         use_cs_regression: When ``True``, replace the per-period rank
             correlation with the slope coefficient of a per-period
             cross-sectional regression (built via
@@ -250,7 +251,8 @@ def _compute_ic_series_cs_regression(
 ) -> pd.Series:
     """Per-period CS regression slope as IC.
 
-    Drops periods with fewer than ``min_observations`` non-NaN pairs.
+    Drops periods with fewer than ``max(min_observations,
+    cs_config.min_observations)`` non-NaN pairs.
     """
     from optimizer.linear_model import (
         CSLinearRegressionConfig,
@@ -261,6 +263,7 @@ def _compute_ic_series_cs_regression(
         returns_history.index,
     )
     cfg = cs_config if cs_config is not None else CSLinearRegressionConfig()
+    required = max(min_observations, cfg.min_observations)
     # Score and price panels are built separately and rarely share a ticker
     # order or universe; positional pairing would regress one name's score on
     # another's return (or crash on a length mismatch).
@@ -274,7 +277,7 @@ def _compute_ic_series_cs_regression(
         scores = factor_scores_history.loc[date, tickers]
         rets = returns_history.loc[date, tickers]
         valid = (scores.notna() & rets.notna()).to_numpy()
-        if int(valid.sum()) < min_observations:
+        if int(valid.sum()) < required:
             continue
         kept_dates.append(date)
         # skfolio CSLinearRegression rejects any (period, asset) pair with a
