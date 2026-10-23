@@ -61,12 +61,15 @@ ENV VIRTUAL_ENV=/venv PATH=/venv/bin:$PATH
 # no corporate root. Honour an OPTIONAL BuildKit secret (absent by default —
 # required=false — so an off-network build still resolves on plain certifi) and
 # point Python's TLS at it only when the mount is non-empty.
+# `--extra all-llm`: the install wizard offers every switchable provider and a
+# running container cannot `uv sync` an extra later, so the image must ship all
+# provider SDKs (no torch/transformers - the huggingface extra is cloud-only).
 RUN --mount=type=secret,id=ca_bundle \
     if [ -s /run/secrets/ca_bundle ]; then \
         export SSL_CERT_FILE=/run/secrets/ca_bundle \
                REQUESTS_CA_BUNDLE=/run/secrets/ca_bundle; \
     fi; \
-    uv sync --frozen --no-dev --package portopt-fund --active
+    uv sync --frozen --no-dev --package portopt-fund --extra all-llm --active
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM python:3.12-slim

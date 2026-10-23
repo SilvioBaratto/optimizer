@@ -8,10 +8,13 @@ other non-200), or raises `ValidationNetworkError` when the request itself fails
 
 from __future__ import annotations
 
+import re
 import traceback
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import requests
+import tomllib
 
 from app.setup import validators
 
@@ -343,3 +346,60 @@ def test_validate_llm_bad_request_still_means_a_rejected_key(provider: str) -> N
     # Google answers 400 (not 401) for an unknown API key.
     with patch("app.setup.validators._llm_get", return_value=_resp(400)):
         assert validators.validate_llm(provider, key="k") is False
+
+
+# --- the wizard only offers providers the fund image can actually import ------
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+
+# Provider -> the fund optional extra that ships its SDK. openrouter and
+# microsoft/Azure reuse the `openai` extra; ollama is a hard dependency.
+_PROVIDER_EXTRA = {
+    "ollama": None,
+    "openai": "openai",
+    "openrouter": "openai",
+    "anthropic": "anthropic",
+    "google": "google",
+    "groq": "groq",
+    "nvidia": "nvidia",
+    "huggingface": "huggingface",
+    "aws": "aws",
+    "microsoft": "openai",
+}
+
+
+def _fund_image_extras() -> set[str]:
+    """Extras the fund Dockerfile's ``uv sync`` installs, ``all-llm`` expanded."""
+    text = (_REPO_ROOT / "fund" / "Dockerfile").read_text(encoding="utf-8")
+    sync = next(
+        line
+        for line in text.replace("\\\n", " ").splitlines()
+        if "uv sync" in line and not line.lstrip().startswith("#")
+    )
+    extras = set(re.findall(r"--extra[ =](\S+)", sync))
+    if "--all-extras" in sync:
+        extras.add("all-llm")
+    if "all-llm" in extras:
+        pyproject = tomllib.loads(
+            (_REPO_ROOT / "fund" / "pyproject.toml").read_text(encoding="utf-8")
+        )
+        for spec in pyproject["project"]["optional-dependencies"]["all-llm"]:
+            match = re.search(r"\[(?P<extras>[^\]]+)\]", spec)
+            if match:
+                extras.update(p.strip() for p in match["extras"].split(","))
+    return extras
+
+
+def test_every_wizard_provider_has_an_extra_mapping() -> None:
+    assert set(_PROVIDER_EXTRA) == set(validators.SUPPORTED_LLM_PROVIDERS)
+
+
+@pytest.mark.parametrize("provider", validators.SUPPORTED_LLM_PROVIDERS)
+def test_fund_image_installs_the_sdk_for_every_wizard_provider(provider: str) -> None:
+    needed = _PROVIDER_EXTRA[provider]
+    if needed is None:
+        pytest.skip("hard dependency of portopt-fund")
+    assert needed in _fund_image_extras(), (
+        f"wizard offers {provider!r} but fund/Dockerfile does not install the "
+        f"{needed!r} extra"
+    )
