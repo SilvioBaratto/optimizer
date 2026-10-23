@@ -492,11 +492,11 @@ def _book_value(
     return value if marked else None
 
 
-def _chain_link_books(
+def _chain_scales(
     ticket_books: list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]],
     base_prices: pd.DataFrame,
-) -> list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]]:
-    """Rescale each ticket's book so NAV is continuous across a rebalance.
+) -> list[float]:
+    """The factor that rescales each ticket's book so NAV is continuous at its fill.
 
     Every ticket is sized off the same flat notional, not the portfolio's marked
     value, so a new ticket's book is worth ``sum(weights) x notional`` on its first
@@ -506,25 +506,50 @@ def _chain_link_books(
     and the series keeps its accumulated P&L (time-weighted-return convention).
 
     When either side cannot be valued on the switch bar the previous factor is
-    carried forward instead of resetting to the flat notional.
+    carried forward instead of resetting to the flat notional. The first ticket keeps
+    its own notional (factor ``1.0``).
+
+    This is the single source of the per-ticket scale: :func:`build_nav_series` marks
+    the rescaled books and :func:`holding_marks` applies the same factor to share
+    counts and cost basis, so holdings and NAV cannot disagree after a rebalance.
     """
-    linked: list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]] = []
+    scales: list[float] = []
+    previous_book: dict[str, tuple[float, dt.date, float]] | None = None
     scale = 1.0
     for fill_day, book in ticket_books:
-        if linked:
+        if previous_book is not None:
             position = int(base_prices.index.searchsorted(pd.Timestamp(fill_day)))
             if position < len(base_prices.index):
                 ts = base_prices.index[position]
-                previous = _book_value(linked[-1][1], ts, base_prices)
+                previous = _book_value(previous_book, ts, base_prices)
                 incoming = _book_value(book, ts, base_prices)
                 if previous is not None and incoming:
                     scale = previous / incoming
-            book = {
-                ticker: (qty * scale, line_fill, notional * scale)
-                for ticker, (qty, line_fill, notional) in book.items()
-            }
-        linked.append((fill_day, book))
-    return linked
+        scales.append(scale)
+        previous_book = _scaled_book(book, scale)
+    return scales
+
+
+def _scaled_book(
+    book: dict[str, tuple[float, dt.date, float]], scale: float
+) -> dict[str, tuple[float, dt.date, float]]:
+    """``book`` with every line's shares and base notional multiplied by ``scale``."""
+    return {
+        ticker: (qty * scale, line_fill, notional * scale)
+        for ticker, (qty, line_fill, notional) in book.items()
+    }
+
+
+def _chain_link_books(
+    ticket_books: list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]],
+    base_prices: pd.DataFrame,
+) -> list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]]:
+    """Rescale each ticket's book by its :func:`_chain_scales` factor."""
+    scales = _chain_scales(ticket_books, base_prices)
+    return [
+        (fill_day, _scaled_book(book, scale))
+        for (fill_day, book), scale in zip(ticket_books, scales, strict=True)
+    ]
 
 
 def build_nav_series(
@@ -925,6 +950,20 @@ def _active_ticket(session: Any, portfolio_id: uuid.UUID, asof: dt.date | None) 
     return session.execute(stmt).scalars().first()
 
 
+def _tickets_through(
+    session: Any, portfolio_id: uuid.UUID, asof: dt.date | None
+) -> list[Any]:
+    """Every paper ticket filled at or before ``asof``, oldest first (the NAV chain)."""
+    from portopt_db.models.orders.paper_order import PaperOrder
+    from sqlalchemy import select
+
+    stmt = select(PaperOrder).where(PaperOrder.portfolio_id == portfolio_id)
+    if asof is not None:
+        stmt = stmt.where(PaperOrder.fill_date <= asof)
+    stmt = stmt.order_by(PaperOrder.fill_date, PaperOrder.asof)
+    return list(session.execute(stmt).scalars().all())
+
+
 def _ticket_lines(ticket: Any) -> tuple[list[str], dict[str, dict[str, Any]]]:
     """A ticket's tickers in line order, and the (last) line for each of them."""
     line_by_ticker: dict[str, dict[str, Any]] = {}
@@ -1026,18 +1065,34 @@ def holding_marks(
         FxCoverageError: Foreign holdings exist but no FX rate covers their currency
             under ``base_currency`` (see :func:`build_nav_series`).
     """
-    ticket = _active_ticket(session, portfolio_id, asof)
-    if ticket is None:
+    tickets = _tickets_through(session, portfolio_id, asof)
+    if not tickets:
         return []
+    ticket = tickets[-1]
 
     order, line_by_ticker = _ticket_lines(ticket)
+    # Earlier tickets' instruments are loaded too: the current ticket's scale depends
+    # on the value of every book it replaced.
+    chain_tickers = sorted(
+        {line["ticker"] for t in tickets for line in t.lines if line.get("ticker")}
+    )
     book = _book_base_prices(
-        session, order, base_currency=base_currency, start=None, end=asof
+        session, chain_tickers, base_currency=base_currency, start=None, end=asof
     )
     if book is None:
         return [_degraded_mark(ticker) for ticker in order]
     base_raw, base_prices = book
-    shares = _ticket_shares(ticket, base_prices)
+    current_book = _ticket_book(ticket, base_prices)
+    scale = 1.0
+    if current_book:
+        ticket_books = [(t.fill_date, _ticket_book(t, base_prices)) for t in tickets]
+        scale = _chain_scales([(d, b) for d, b in ticket_books if b], base_prices)[-1]
+    # Holdings sit on the chain-linked NAV scale, so they sum to the latest NAV and
+    # the cost basis is the value carried into the rebalance, not the flat notional.
+    shares = {
+        ticker: qty * scale
+        for ticker, qty in _ticket_shares(ticket, base_prices).items()
+    }
 
     computed: dict[str, tuple[float, float, pd.Series]] = {}
     for ticker in order:
@@ -1063,7 +1118,7 @@ def holding_marks(
             weight * return_1d if weight is not None and return_1d is not None else None
         )
         notional = line_by_ticker[ticker].get("notional")
-        pnl = value - float(notional) if notional is not None else None
+        pnl = value - float(notional) * scale if notional is not None else None
         marks.append(
             HoldingMark(
                 ticker=ticker,

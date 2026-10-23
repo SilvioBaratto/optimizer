@@ -15,6 +15,9 @@ span one cycle::
     status             runs + statuses + awaiting-HITL flag (no model)
     report             tabular audit of one run (no model)
 
+plus ``nav-mark [--rebuild]``, the daily NAV mark run on demand (``--rebuild``
+re-marks the whole history, e.g. after the NAV construction changes).
+
 **Transactions:** each command owns its session — ``with get_session() as
 session:`` — and commits (writes) or rolls back (reads); the repositories and
 ``apply_action`` never ``commit``, so an action and its audit row land together.
@@ -584,6 +587,29 @@ def report(run_id: str = typer.Argument(..., help="Run UUID.")) -> None:
         session.rollback()
     typer.echo("\n".join(lines))
     _exit(True)
+
+
+# --- nav-mark ---------------------------------------------------------------
+
+
+@app.command("nav-mark")
+def nav_mark(
+    rebuild: bool = typer.Option(
+        False,
+        "--rebuild",
+        help="Re-mark every portfolio from its first fill, overwriting stored NAV.",
+    ),
+) -> None:
+    """Mark every active mandate's NAV into ``nav_history`` now (no model).
+
+    The daily scheduler step, run by hand. ``--rebuild`` re-emits the whole series
+    rather than the recent window: use it once when the NAV construction changes, so
+    rows persisted under the old scale do not sit beside the new ones.
+    """
+    _boot()
+    from fund.scheduler import run_nav_mark
+
+    _exit(run_nav_mark(full=rebuild))
 
 
 if __name__ == "__main__":

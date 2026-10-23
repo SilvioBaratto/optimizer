@@ -243,6 +243,34 @@ def test_cli_exposes_the_seven_commands() -> None:
     assert set(click_app.commands["mandate"].commands) >= {"set", "show"}  # type: ignore[attr-defined]
 
 
+def test_nav_mark_command_forwards_the_rebuild_flag(monkeypatch) -> None:
+    import fund.scheduler as scheduler
+
+    calls: list[dict[str, Any]] = []
+
+    def _fake_run_nav_mark(**kwargs: Any) -> bool:
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr(scheduler, "run_nav_mark", _fake_run_nav_mark)
+    runner = CliRunner()
+
+    assert runner.invoke(cli.app, ["nav-mark"]).exit_code == 0
+    assert runner.invoke(cli.app, ["nav-mark", "--rebuild"]).exit_code == 0
+
+    assert [c.get("full", False) for c in calls] == [False, True]
+
+
+def test_nav_mark_command_exits_nonzero_when_the_slot_did_not_complete(
+    monkeypatch,
+) -> None:
+    import fund.scheduler as scheduler
+
+    monkeypatch.setattr(scheduler, "run_nav_mark", lambda **_: False)
+
+    assert CliRunner().invoke(cli.app, ["nav-mark"]).exit_code == 1
+
+
 # --- mandate set|show -------------------------------------------------------
 
 

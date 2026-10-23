@@ -26,6 +26,7 @@ from fund.performance import (
     _load_price_frame,
     _to_base_prices,
     build_nav_series,
+    holding_marks,
 )
 
 _D1 = dt.date(2026, 10, 1)
@@ -628,6 +629,179 @@ def test_nav_series_rebalance_with_staggered_new_line_stays_continuous(db_sessio
     assert navs[_R3] == pytest.approx(15_000.0)
     # BBB fills at the R4 close (110): its 5000 notional is carried until then.
     assert navs[_R4] == pytest.approx((5_000.0 / 150.0 * 165.0 + 5_000.0) * 1.5)
+
+
+def _seed_rebalanced_eur_book(
+    db_session,
+    closes: dict[str, list[float]],
+    tickets: list[tuple[int, dict[str, float]]],
+) -> list[dt.date]:
+    """Seed EUR instruments plus fixed-notional tickets; returns the bar dates.
+
+    ``tickets`` holds ``(bar index of the fill, weights)``; every ticket is sized at
+    the flat 100k notional ``place_orders`` applies, whatever the book is worth.
+    """
+    bars = [dt.date(2026, 10, 1) + dt.timedelta(days=i) for i in range(5)]
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, series in closes.items():
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        db_session.add_all(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=bar,
+                close=Decimal(str(close)),
+                price_unit="EUR",
+            )
+            for bar, close in zip(bars, series, strict=True)
+        )
+    for n, (bar_idx, weights) in enumerate(tickets):
+        db_session.add(
+            PaperOrder(
+                portfolio_id=_PID,
+                asof=bars[bar_idx] - dt.timedelta(days=1),
+                weights_hash=f"h{n}",
+                weights=weights,
+                fill_date=bars[bar_idx],
+                lines=[
+                    {
+                        "ticker": ticker,
+                        "notional": weight * 100_000.0,
+                        "fill_date": bars[bar_idx].isoformat(),
+                    }
+                    for ticker, weight in weights.items()
+                ],
+                notional=100_000.0,
+                total_commission=0.0,
+                total_slippage_cost=0.0,
+            )
+        )
+    db_session.flush()
+    return bars
+
+
+def test_nav_series_stays_continuous_across_a_same_weights_rebalance(db_session):
+    """A rebalance fill must not re-base NAV to the ticket's flat notional.
+
+    The book is worth 132k when the second 100k-notional ticket fills; the series has
+    to carry that value across the switch instead of dropping back to 100k, which
+    would print a fake loss and a fake drawdown for a monotonically rising asset.
+    """
+    _seed_rebalanced_eur_book(
+        db_session,
+        {"AAA": [100.0, 120.0, 120.0, 132.0, 132.0]},
+        [(0, {"AAA": 1.0}), (3, {"AAA": 1.0})],
+    )
+
+    points = build_nav_series(_PID, session=db_session, base_currency="EUR")
+
+    assert [p.nav for p in points] == pytest.approx(
+        [100_000.0, 120_000.0, 120_000.0, 132_000.0, 132_000.0]
+    )
+    summary = performance.portfolio_metrics(_PID, points)
+    assert summary.max_drawdown == pytest.approx(0.0, abs=1e-12)
+    assert summary.returns["max"] == pytest.approx(0.32)
+
+
+def test_nav_series_carries_accumulated_value_into_a_reweighted_book(db_session):
+    """Switching assets keeps NAV at the old book's value and compounds from there."""
+    _seed_rebalanced_eur_book(
+        db_session,
+        {
+            "AAA": [100.0, 110.0, 110.0, 110.0, 110.0],
+            "BBB": [50.0, 50.0, 50.0, 55.0, 55.0],
+        },
+        [(0, {"AAA": 1.0}), (2, {"BBB": 1.0})],
+    )
+
+    points = build_nav_series(_PID, session=db_session, base_currency="EUR")
+
+    assert [p.nav for p in points] == pytest.approx(
+        [100_000.0, 110_000.0, 110_000.0, 121_000.0, 121_000.0]
+    )
+
+
+def test_nav_series_since_keeps_the_rebalance_chain(db_session):
+    """Trimming with ``since`` must not drop the value carried over earlier switches."""
+    bars = _seed_rebalanced_eur_book(
+        db_session,
+        {"AAA": [100.0, 120.0, 120.0, 132.0, 132.0]},
+        [(0, {"AAA": 1.0}), (3, {"AAA": 1.0})],
+    )
+
+    points = build_nav_series(
+        _PID, session=db_session, base_currency="EUR", since=bars[4]
+    )
+
+    assert [(p.date, p.nav) for p in points] == [(bars[4], pytest.approx(132_000.0))]
+
+
+def test_holding_marks_value_matches_the_chain_linked_nav(db_session):
+    """Holdings are sized on the same chain as NAV, so they sum to the last NAV.
+
+    The second flat-100k ticket fills when the book is worth 130k; NAV carries that
+    value, so the holding must hold the shares that 130k buys (1000), not the 769 a
+    flat 100k would. Unrealized P&L is measured from the value carried in at the
+    rebalance (130k), on the same scale as NAV.
+    """
+    _seed_rebalanced_eur_book(
+        db_session,
+        {"AAA": [100.0, 120.0, 130.0, 150.0, 170.0]},
+        [(0, {"AAA": 1.0}), (2, {"AAA": 1.0})],
+    )
+
+    nav = build_nav_series(_PID, session=db_session, base_currency="EUR")[-1].nav
+    (mark,) = holding_marks(_PID, session=db_session, base_currency="EUR")
+
+    assert nav == pytest.approx(170_000.0)
+    assert mark.value == pytest.approx(nav)
+    assert mark.shares == pytest.approx(1000.0)
+    assert mark.unrealized_pnl == pytest.approx(170_000.0 - 130_000.0)
+
+
+def test_holding_marks_scale_every_line_of_a_reweighted_book(db_session):
+    """A reweighted ticket scales all its lines by the one carried-over factor."""
+    _seed_rebalanced_eur_book(
+        db_session,
+        {
+            "AAA": [100.0, 110.0, 120.0, 130.0, 140.0],
+            "BBB": [50.0, 50.0, 60.0, 60.0, 66.0],
+        },
+        [(0, {"AAA": 0.5, "BBB": 0.5}), (2, {"AAA": 0.25, "BBB": 0.75})],
+    )
+
+    nav = build_nav_series(_PID, session=db_session, base_currency="EUR")[-1].nav
+    marks = {
+        m.ticker: m
+        for m in holding_marks(_PID, session=db_session, base_currency="EUR")
+    }
+
+    # The old book is worth 120k at the switch, so the new one is sized 1.2x flat.
+    assert marks["AAA"].shares == pytest.approx(250.0)
+    assert marks["BBB"].shares == pytest.approx(1500.0)
+    assert sum(m.value for m in marks.values()) == pytest.approx(nav)
+    assert marks["AAA"].unrealized_pnl == pytest.approx(250.0 * 140.0 - 30_000.0)
+    assert marks["BBB"].unrealized_pnl == pytest.approx(1500.0 * 66.0 - 90_000.0)
+    assert marks["AAA"].weight == pytest.approx(35_000.0 / nav)
+
+
+def test_holding_marks_single_ticket_book_keeps_the_flat_notional(db_session):
+    """With no rebalance the chain is trivial: shares and P&L are the flat ticket's."""
+    _seed_rebalanced_eur_book(
+        db_session,
+        {"AAA": [100.0, 120.0, 130.0, 150.0, 170.0]},
+        [(0, {"AAA": 1.0})],
+    )
+
+    (mark,) = holding_marks(_PID, session=db_session, base_currency="EUR")
+
+    assert mark.shares == pytest.approx(1000.0)
+    assert mark.unrealized_pnl == pytest.approx(70_000.0)
 
 
 def _agent_stack_offenders(module) -> list[str]:
