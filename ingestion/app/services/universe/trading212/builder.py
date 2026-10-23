@@ -113,22 +113,23 @@ class UniverseBuilder:
         # Delisting reconciliation is scoped per instrument_type so the stock
         # and ETF passes over shared exchanges don't falsely mark each other's
         # instruments as delisted.
-        exchanges_saved, instruments_saved, total_processed = self._process_exchanges(
+        exchange_names, instruments_saved, total_processed = self._process_exchanges(
             exchange_stocks, total, instrument_type="STOCK"
         )
         if exchange_etfs:
-            ex_e, inst_e, proc_e = self._process_exchanges(
+            etf_exchange_names, inst_e, proc_e = self._process_exchanges(
                 exchange_etfs,
                 total,
                 current_offset=total_processed,
                 instrument_type="ETF",
             )
-            exchanges_saved += ex_e
+            # Both passes upsert the same exchange rows; count each row once.
+            exchange_names |= etf_exchange_names
             instruments_saved += inst_e
             total_processed += proc_e
 
         return BuildResult(
-            exchanges_saved=exchanges_saved,
+            exchanges_saved=len(exchange_names),
             instruments_saved=instruments_saved,
             total_processed=total_processed,
             filter_stats={},
@@ -237,14 +238,14 @@ class UniverseBuilder:
         total_stocks: int,
         current_offset: int = 0,
         instrument_type: str | None = None,
-    ) -> tuple[int, int, int]:
-        total_exchanges_saved = 0
+    ) -> tuple[set[str], int, int]:
+        saved_exchange_names: set[str] = set()
         total_instruments_saved = 0
         processed_here = 0
 
         for ex_data, instruments in exchange_stocks:
             exchange_dto = self.repository.save_exchange(ex_data)
-            total_exchanges_saved += 1
+            saved_exchange_names.add(ex_data["name"])
 
             # Snapshot before the build so absent tickers can be marked
             # delisted after; scoped per instrument_type so the stock and ETF
@@ -293,7 +294,7 @@ class UniverseBuilder:
                 instrument_type,
             )
 
-        return total_exchanges_saved, total_instruments_saved, processed_here
+        return saved_exchange_names, total_instruments_saved, processed_here
 
     def _skip_reconciliation(
         self, exchange_name: str, instrument_type: str | None, reason: str

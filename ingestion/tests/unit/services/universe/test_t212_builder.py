@@ -536,3 +536,31 @@ class TestMappingMissIsNotDelisting:
         repo, _ = _delisting_build(active=3, returned=3, discover=discover)
 
         assert repo.delisted == []
+
+
+class TestExchangesSavedCount:
+    def test_exchange_shared_by_stock_and_etf_passes_is_counted_once(self) -> None:
+        nasdaq = {"name": "NASDAQ", "workingSchedules": [{"id": 1}]}
+        bond_etf = {
+            "ticker": "AGG_US",
+            "type": "ETF",
+            "shortName": "AGG",
+            "name": "iShares Core Aggregate Bond",
+            "isin": "US0000000001",
+            "workingScheduleId": 1,
+        }
+        repo = _FakeRepo()
+        mapper = MagicMock()
+        mapper.discover.side_effect = lambda short, ex: short
+        builder = _make_builder(
+            api_client=_make_api_client(
+                exchanges=[nasdaq], instruments=[_AAPL_INSTRUMENT, bond_etf]
+            ),
+            ticker_mapper=mapper,
+            repo=repo,
+        )
+
+        result = builder.build()
+
+        assert result.instruments_saved == 2
+        assert result.exchanges_saved == 1
