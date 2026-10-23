@@ -313,8 +313,9 @@ class ScreenerClientProtocol(Protocol):
         *,
         size: int = 25,
         offset: int = 0,
+        count: int | None = None,
         sort_field: str | None = None,
-        sort_asc: bool = True,
+        sort_asc: bool | None = None,
         max_retries: int | None = None,
     ) -> dict[str, Any]: ...
 
@@ -322,7 +323,7 @@ class ScreenerClientProtocol(Protocol):
         self,
         name: str,
         *,
-        size: int = 25,
+        count: int = 25,
         offset: int = 0,
         max_retries: int | None = None,
     ) -> dict[str, Any] | None: ...

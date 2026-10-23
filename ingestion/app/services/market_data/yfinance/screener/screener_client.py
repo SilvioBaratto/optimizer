@@ -50,7 +50,7 @@ class ScreenerClient:
         offset: int = 0,
         count: int | None = None,
         sort_field: str | None = None,
-        sort_asc: bool = True,
+        sort_asc: bool | None = None,
         max_retries: int | None = None,
     ) -> dict[str, Any]:
         """Run one screen with a custom or predefined query.
@@ -59,6 +59,11 @@ class ScreenerClient:
         name strings via ``count`` (max 250). Passing ``count`` signals a predefined
         name; otherwise ``size`` applies. Page results with ``offset``.
 
+        A predefined name's first page (``offset`` 0) goes to Yahoo's predefined
+        endpoint, which honors ``count`` and the screen's own ranking. Later pages
+        must use the offset endpoint, which sizes pages by ``size`` instead, so
+        ``count`` is sent as ``size`` there.
+
         Args:
             query: An ``EquityQuery``, ``FundQuery``, ``ETFQuery``, or a predefined-
                 screen name string.
@@ -66,8 +71,10 @@ class ScreenerClient:
             offset: Pagination offset.
             count: Result page size when ``query`` is a predefined name; overrides
                 ``size``.
-            sort_field: yfinance field name to sort results by.
-            sort_asc: Sort ascending when True.
+            sort_field: yfinance field name to sort results by; None keeps the
+                predefined screen's own field (``ticker`` for custom queries).
+            sort_asc: Sort ascending when True; None keeps the predefined screen's
+                own direction (descending for custom queries).
             max_retries: Retry attempts; None uses the client default.
 
         Returns:
@@ -85,16 +92,20 @@ class ScreenerClient:
             nonlocal last_error
             self.circuit_breaker.check()
             self.rate_limiter.acquire("screener")
-            # count signals a predefined-name query (sized by count); otherwise size.
-            kwargs: dict[str, Any] = {
-                "offset": offset,
-                "sortField": sort_field,
-                "sortAsc": sort_asc,
-            }
-            if count is not None:
-                kwargs["count"] = min(count, MAX_SIZE)
+            page_size = min(size if count is None else count, MAX_SIZE)
+            kwargs: dict[str, Any] = {}
+            if isinstance(query, str) and offset == 0:
+                # Any explicit offset diverts yfinance to the offset endpoint, which
+                # ignores ``count``; leaving it out keeps the predefined endpoint.
+                kwargs["size" if count is None else "count"] = page_size
             else:
-                kwargs["size"] = min(size, MAX_SIZE)
+                kwargs["offset"] = offset
+                kwargs["size"] = page_size
+            # Pinning a sort here would override a predefined screen's own ranking.
+            if sort_field is not None:
+                kwargs["sortField"] = sort_field
+            if sort_asc is not None:
+                kwargs["sortAsc"] = sort_asc
             try:
                 return yf.screen(query, **kwargs)
             except Exception as exc:
@@ -129,7 +140,8 @@ class ScreenerClient:
     ) -> dict[str, Any] | None:
         """Run a predefined screen by name from ``yf.PREDEFINED_SCREENER_QUERIES``.
 
-        Predefined screens are sized via ``count`` (max 250), not ``size``.
+        Predefined screens are sized via ``count`` (max 250), not ``size``, and keep
+        their own ranking (field and direction).
 
         Args:
             name: Predefined screen name; must be in ``yf.PREDEFINED_SCREENER_QUERIES``.

@@ -5,6 +5,9 @@ shared rate-limiter / circuit-breaker / retry infrastructure, and is exposed on
 the facade as ``.screener``. yfinance calls are patched.
 """
 
+import importlib
+import json
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -81,6 +84,87 @@ def test_screen_raises_when_yahoo_returns_nothing(mock_screen: MagicMock) -> Non
     mock_screen.return_value = None
     with pytest.raises(ScreenerError):
         _client().screen("day_gainers")
+
+
+def _capture_yahoo_requests(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """Stub yfinance's HTTP layer and record what a screen actually sends."""
+    sent: list[dict[str, Any]] = []
+    response = MagicMock()
+    response.json.return_value = {"finance": {"result": [{"quotes": []}]}}
+    http = MagicMock()
+
+    def _get(url: str, params: dict[str, Any]) -> MagicMock:
+        sent.append({"method": "GET", **params})
+        return response
+
+    def _post(url: str, data: str, params: dict[str, Any]) -> MagicMock:
+        sent.append({"method": "POST", **params, **json.loads(data)})
+        return response
+
+    http.get.side_effect = _get
+    http.post.side_effect = _post
+    monkeypatch.setattr(
+        importlib.import_module("yfinance.screener.screener"),
+        "YfData",
+        lambda session=None: http,
+    )
+    return sent
+
+
+@pytest.mark.parametrize(
+    "name", ["day_gainers", "day_losers", "most_actives", "top_etfs_us"]
+)
+def test_screen_predefined_first_page_keeps_the_screens_own_ranking(
+    monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    import yfinance as yf
+
+    sent = _capture_yahoo_requests(monkeypatch)
+    _client().screen_predefined(name, count=5)
+    own = yf.PREDEFINED_SCREENER_QUERIES[name]["sortType"].upper()
+    (request,) = sent
+    # Pinning a direction would invert every screen ranked the other way round.
+    assert request.get("sortType", own) == own
+    assert "sortAsc" not in request
+    # Only the paging-less predefined endpoint honors ``count``.
+    assert request["method"] == "GET"
+    assert request["count"] == 5
+
+
+@pytest.mark.parametrize("name", ["day_gainers", "day_losers"])
+def test_screen_predefined_later_page_keeps_ranking_and_page_size(
+    monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    import yfinance as yf
+
+    sent = _capture_yahoo_requests(monkeypatch)
+    _client().screen_predefined(name, count=5, offset=10)
+    own = yf.PREDEFINED_SCREENER_QUERIES[name]["sortType"].upper()
+    (request,) = sent
+    assert request["sortType"] == own
+    assert request["offset"] == 10
+    # Offset paging goes through the POST endpoint, which sizes pages by ``size``.
+    assert request["size"] == 5
+
+
+@patch(_SCREEN)
+def test_screen_without_sort_arguments_leaves_ranking_to_yfinance(
+    mock_screen: MagicMock,
+) -> None:
+    mock_screen.return_value = {"quotes": []}
+    _client().screen("day_gainers", count=10)
+    kwargs = mock_screen.call_args.kwargs
+    assert "sortAsc" not in kwargs
+    assert "sortField" not in kwargs
+
+
+@patch(_SCREEN)
+def test_screen_forwards_explicit_sort(mock_screen: MagicMock) -> None:
+    mock_screen.return_value = {"quotes": []}
+    _client().screen("Q", size=50, sort_field="intradaymarketcap", sort_asc=False)
+    kwargs = mock_screen.call_args.kwargs
+    assert kwargs["sortField"] == "intradaymarketcap"
+    assert kwargs["sortAsc"] is False
 
 
 def test_screen_predefined_rejects_unknown() -> None:
