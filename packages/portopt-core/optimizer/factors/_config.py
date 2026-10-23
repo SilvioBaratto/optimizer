@@ -373,8 +373,8 @@ class CompositeScoringConfig:
     Attributes:
         method: Equal-weight, IC-weighted, ICIR-weighted, ridge, or GBT
             composite.
-        ic_lookback: Number of periods for IC estimation when using IC
-            weighting.
+        ic_lookback: Number of periods for IC estimation when using IC or
+            ICIR weighting.
         core_weight: Relative weight for core factor groups.
         supplementary_weight: Relative weight for supplementary factor groups.
         ridge_alpha: L2 regularisation strength for ``RIDGE_WEIGHTED``.
@@ -400,7 +400,9 @@ class CompositeScoringConfig:
             IC-weighted scoring. ``0`` (default) disables decay and uses the
             simple trailing mean over ``ic_lookback`` periods. Positive values
             apply ``ic_history.ewm(halflife=N, min_periods=1).mean().iloc[-1]``
-            so the most recent fold dominates older folds.
+            so the most recent fold dominates older folds. ICIR-weighted
+            scoring does not decay: it uses the plain mean and standard
+            deviation of IC over the last ``ic_lookback`` periods.
     """
 
     method: CompositeMethod = CompositeMethod.EQUAL_WEIGHT

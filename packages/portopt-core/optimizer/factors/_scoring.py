@@ -170,6 +170,13 @@ def compute_equal_weight_composite(
     return _renormalized_weighted_composite(group_scores, weights)
 
 
+def _trim_to_lookback(ic_history: pd.DataFrame, lookback: int) -> pd.DataFrame:
+    """Keep the most recent ``lookback`` periods of ``ic_history``."""
+    n_keep = min(lookback, len(ic_history))
+    # Not iloc[-n_keep:]: a zero lookback would select the whole history.
+    return ic_history.iloc[len(ic_history) - n_keep :]
+
+
 def _summarize_ic_history(ic_history: pd.DataFrame, decay_halflife: int) -> pd.Series:
     """Reduce IC history to a per-group point estimate.
 
@@ -209,9 +216,7 @@ def compute_ic_weighted_composite(
     if config is None:
         config = CompositeScoringConfig()
 
-    lookback = min(config.ic_lookback, len(ic_history))
-    # Not iloc[-lookback:]: a zero lookback would select the whole history.
-    trimmed_ic = ic_history.iloc[len(ic_history) - lookback :]
+    trimmed_ic = _trim_to_lookback(ic_history, config.ic_lookback)
     recent_ic = _summarize_ic_history(trimmed_ic, config.ic_decay_halflife)
 
     weights: dict[str, float] = {}
@@ -262,8 +267,10 @@ def compute_icir_weighted_composite(
 
     Args:
         group_scores: Tickers x groups matrix.
-        ic_series_per_group: Per-group IC time series. Keys must match
-            ``group_scores`` columns.
+        ic_series_per_group: Per-group IC time series, used as given: the
+            caller selects the estimation window (``compute_composite_score``
+            applies ``config.ic_lookback``). Keys must match ``group_scores``
+            columns.
         config: Scoring configuration.
         group_weights: Pre-computed group weights (e.g. from regime tilts). When
             provided, use as tier multipliers instead of config
@@ -404,7 +411,8 @@ def compute_composite_score(
         config: Scoring configuration.
         ic_history: Required when ``config.method`` is ``IC_WEIGHTED`` or
             ``ICIR_WEIGHTED``. Columns must match group names; each column
-            is treated as the IC time series for that group.
+            is treated as the IC time series for that group. Only the most
+            recent ``config.ic_lookback`` periods are used.
         training_scores: Required when ``config.method`` is
             ``RIDGE_WEIGHTED`` or ``GBT_WEIGHTED``. Historical tickers x
             factors matrix used to train the ML model (must not overlap with
@@ -437,8 +445,9 @@ def compute_composite_score(
         if ic_history is None:
             msg = "ic_history required for ICIR_WEIGHTED composite method"
             raise ConfigurationError(msg)
+        recent_history = _trim_to_lookback(ic_history, config.ic_lookback)
         ic_series_per_group = {
-            col: ic_history[col].dropna() for col in ic_history.columns
+            col: recent_history[col].dropna() for col in recent_history.columns
         }
         composite = compute_icir_weighted_composite(
             group_scores, ic_series_per_group, config, group_weights

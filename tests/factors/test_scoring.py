@@ -1193,3 +1193,80 @@ class TestICWeightedEmptyHistory:
         with pytest.warns(UserWarning, match="non-positive IC"):
             result = compute_ic_weighted_composite(group_scores, ic_history, config)
         assert result.isna().all()
+
+
+class TestICIRWeightedLookback:
+    """ICIR weighting must estimate over ``ic_lookback`` periods, like IC weighting."""
+
+    @staticmethod
+    def _inputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        rng = np.random.default_rng(7)
+        tickers = [f"T{i}" for i in range(6)]
+        standardized = pd.DataFrame(
+            rng.normal(0, 1, (6, 2)),
+            index=tickers,
+            columns=["book_to_price", "momentum_12_1"],
+        )
+        coverage = pd.DataFrame(True, index=tickers, columns=standardized.columns)
+        noise = rng.normal(0, 0.005, (105, 2))
+        value_ic = np.r_[np.full(100, 0.08), np.full(5, -0.08)]
+        momentum_ic = np.full(105, 0.03)
+        ic_history = pd.DataFrame(
+            {"value": value_ic, "momentum": momentum_ic}
+        ) + pd.DataFrame(noise, columns=["value", "momentum"])
+        return standardized, coverage, ic_history
+
+    def test_flipped_group_is_dropped_inside_the_lookback_window(self) -> None:
+        standardized, coverage, ic_history = self._inputs()
+        config = CompositeScoringConfig(
+            method=CompositeMethod.ICIR_WEIGHTED, ic_lookback=5
+        )
+        result = compute_composite_score(
+            standardized, coverage, config=config, ic_history=ic_history
+        )
+        assert isinstance(result, pd.Series)
+        momentum_only = compute_group_scores(standardized, coverage)["momentum"]
+        np.testing.assert_allclose(result.to_numpy(), momentum_only.to_numpy())
+
+    def test_lookback_matches_explicitly_trimmed_history(self) -> None:
+        standardized, coverage, ic_history = self._inputs()
+        config = CompositeScoringConfig(
+            method=CompositeMethod.ICIR_WEIGHTED, ic_lookback=20
+        )
+        windowed = compute_composite_score(
+            standardized, coverage, config=config, ic_history=ic_history
+        )
+        trimmed = compute_composite_score(
+            standardized, coverage, config=config, ic_history=ic_history.iloc[-20:]
+        )
+        pd.testing.assert_series_equal(windowed, trimmed)
+
+    def test_lookback_longer_than_history_uses_all_of_it(self) -> None:
+        standardized, coverage, ic_history = self._inputs()
+        long_window = CompositeScoringConfig(
+            method=CompositeMethod.ICIR_WEIGHTED, ic_lookback=1000
+        )
+        result = compute_composite_score(
+            standardized, coverage, config=long_window, ic_history=ic_history
+        )
+        group_scores = compute_group_scores(standardized, coverage)
+        expected = compute_icir_weighted_composite(
+            group_scores,
+            {c: ic_history[c].dropna() for c in ic_history.columns},
+            long_window,
+        )
+        pd.testing.assert_series_equal(result, expected)
+
+    def test_zero_lookback_uses_no_history(self) -> None:
+        standardized, coverage, ic_history = self._inputs()
+        config = CompositeScoringConfig(
+            method=CompositeMethod.ICIR_WEIGHTED,
+            ic_lookback=0,
+            ic_fallback_strategy=ICFallbackStrategy.NAN,
+        )
+        with pytest.warns(UserWarning, match="non-positive ICIR"):
+            result = compute_composite_score(
+                standardized, coverage, config=config, ic_history=ic_history
+            )
+        assert isinstance(result, pd.Series)
+        assert result.isna().all()
