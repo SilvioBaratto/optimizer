@@ -21,6 +21,7 @@ PG-only methods
 
 from __future__ import annotations
 
+import uuid
 from datetime import date
 from unittest.mock import MagicMock
 
@@ -382,3 +383,32 @@ class TestGetActiveTickersTypeScope:
         assert repo.get_active_tickers(ex.id, instrument_type="ETF") == {"AGG_US"}
         assert repo.get_active_tickers(ex.id, instrument_type="STOCK") == {"AAPL_US"}
         assert repo.get_active_tickers(ex.id) == {"AAPL_US", "AGG_US"}
+
+
+class TestSaveInstrumentsBatchKeepsBackfilledIsin:
+    """The screener source carries no ISIN, so a rebuild upserts ``isin=NULL``;
+    the conflict update must not erase an ISIN backfilled from ticker_profiles.
+
+    ``save_instruments_batch`` is PG-only (ON CONFLICT on a named constraint),
+    so the statement it emits is captured and compiled for PostgreSQL."""
+
+    def _upsert_sql(self, db_session, monkeypatch) -> str:
+        from sqlalchemy.dialects import postgresql
+
+        statements: list = []
+        monkeypatch.setattr(
+            db_session, "execute", lambda stmt, *a, **k: statements.append(stmt)
+        )
+        _repo(db_session).save_instruments_batch(
+            [{"ticker": "AAPL_US", "shortName": "AAPL", "isin": None}],
+            exchange_id=uuid.uuid4(),
+        )
+        assert len(statements) == 1
+        return str(statements[0].compile(dialect=postgresql.dialect()))
+
+    def test_null_incoming_isin_does_not_overwrite_stored_isin(
+        self, db_session, monkeypatch
+    ) -> None:
+        sql = self._upsert_sql(db_session, monkeypatch)
+
+        assert "isin = coalesce(excluded.isin, instruments.isin)" in sql
