@@ -18,8 +18,8 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 # portopt shim is callable right after install.
 $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
 
-# Nothing in this project ships to PyPI, so install the CLI member straight from
-# git. The install tracks a branch instead of a published release.
+# release.yml only builds the portopt-core library, never the CLI member, so
+# install the CLI straight from git. The install tracks a branch instead of a release.
 $PortoptRepo = if ($env:PORTOPT_REPO) { $env:PORTOPT_REPO } else { "https://github.com/SilvioBaratto/optimizer.git" }
 $PortoptRef  = if ($env:PORTOPT_REF)  { $env:PORTOPT_REF }  else { "development" }
 Write-Host "Installing the portopt CLI from $PortoptRepo@$PortoptRef..."

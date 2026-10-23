@@ -8,7 +8,11 @@ a reformat cannot hide a regression.
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -42,8 +46,13 @@ def _jobs(name: str = "ci.yml") -> dict[str, dict[str, Any]]:
     return _load(name)["jobs"]
 
 
+def _steps(job: dict[str, Any]) -> list[dict[str, Any]]:
+    # A job that calls a reusable workflow (``uses:``) has no steps of its own.
+    return job.get("steps", [])
+
+
 def _run_commands(job: dict[str, Any]) -> list[str]:
-    return [step["run"] for step in job["steps"] if "run" in step]
+    return [step["run"] for step in _steps(job) if "run" in step]
 
 
 def _postgres_jobs() -> dict[str, dict[str, Any]]:
@@ -114,7 +123,7 @@ def test_every_action_is_pinned_to_a_full_commit_sha(name: str) -> None:
     unpinned = [
         step["uses"]
         for job in _jobs(name).values()
-        for step in job["steps"]
+        for step in _steps(job)
         if "uses" in step and not _FULL_SHA.fullmatch(step["uses"].partition("@")[2])
     ]
 
@@ -180,9 +189,15 @@ def test_every_uv_job_names_its_python_version() -> None:
 
 @pytest.mark.parametrize("name", ["ci.yml", "release.yml"])
 def test_every_job_has_a_timeout(name: str) -> None:
-    """A hung job must not burn the six-hour runner default."""
+    """A hung job must not burn the six-hour runner default.
+
+    A job that calls a reusable workflow cannot set its own timeout; the called
+    workflow's jobs carry theirs.
+    """
     untimed = [
-        job for job, body in _jobs(name).items() if "timeout-minutes" not in body
+        job
+        for job, body in _jobs(name).items()
+        if "uses" not in body and "timeout-minutes" not in body
     ]
 
     assert untimed == []
@@ -297,3 +312,212 @@ def test_codecov_upload_is_authenticated_and_cannot_fail_silently_on_main() -> N
         inputs = step["with"]
         assert "CODECOV_TOKEN" in str(inputs.get("token", ""))
         assert "refs/heads/main" in str(inputs.get("fail_ci_if_error", False))
+
+
+_CI_WORKFLOW_REF = "./.github/workflows/ci.yml"
+
+
+def _needs_closure(name: str, job: str) -> set[str]:
+    """Every job that must finish before ``job`` starts, transitively."""
+    jobs = _jobs(name)
+    seen: set[str] = set()
+    pending = [job]
+    while pending:
+        needs = jobs[pending.pop()].get("needs", [])
+        for dependency in [needs] if isinstance(needs, str) else needs:
+            if dependency not in seen:
+                seen.add(dependency)
+                pending.append(dependency)
+    return seen
+
+
+def _release_step(marker: str) -> tuple[str, dict[str, Any]]:
+    """The one release-workflow step whose script contains ``marker``."""
+    matches = [
+        (job_name, step)
+        for job_name, job in _jobs("release.yml").items()
+        for step in _steps(job)
+        if marker in step.get("run", "")
+    ]
+    assert len(matches) == 1, f"expected one release step running {marker!r}"
+    return matches[0]
+
+
+def _run_release_step(
+    marker: str, cwd: Path, env: dict[str, str]
+) -> subprocess.CompletedProcess[str]:
+    """Execute a release step's script the way the runner's default shell does."""
+    _, step = _release_step(marker)
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash is not installed")
+    path = os.pathsep.join([str(Path(sys.executable).parent), os.environ["PATH"]])
+    return subprocess.run(  # noqa: S603
+        [bash, "-e", "-c", step["run"]],
+        cwd=cwd,
+        env={**os.environ, "PATH": path, **env},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_ci_workflow_is_reusable_so_the_release_can_run_it() -> None:
+    """``workflow_call`` lets the release workflow run the whole CI as a gate."""
+    assert "workflow_call" in _triggers(_load("ci.yml"))
+
+
+def test_release_publish_waits_for_the_full_ci_workflow() -> None:
+    """A tag must not reach PyPI without the lint, type and test gates passing."""
+    ci_jobs = {
+        name
+        for name, job in _jobs("release.yml").items()
+        if job.get("uses") == _CI_WORKFLOW_REF
+    }
+
+    assert ci_jobs, "release.yml never calls the CI workflow"
+    assert ci_jobs <= _needs_closure("release.yml", "publish")
+
+
+def test_release_checks_run_before_the_build_and_publish() -> None:
+    """The tag checks must gate publishing, not merely exist in the workflow."""
+    for marker in ("merge-base", "pyproject.toml"):
+        job_name, _ = _release_step(marker)
+        assert job_name in _needs_closure("release.yml", "publish")
+
+
+def test_release_tag_check_sees_the_full_history_of_the_tagged_commit() -> None:
+    """A shallow checkout cannot tell whether the tag is an ancestor of main."""
+    job_name, _ = _release_step("merge-base")
+    checkouts = [
+        step
+        for step in _steps(_jobs("release.yml")[job_name])
+        if step.get("uses", "").startswith("actions/checkout@")
+    ]
+
+    assert checkouts
+    assert all(step.get("with", {}).get("fetch-depth") == 0 for step in checkouts)
+
+
+def _git(cwd: Path, *args: str) -> str:
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("git is not installed")
+    identity = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.com",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.com",
+    }
+    return subprocess.run(  # noqa: S603
+        [git, *args],
+        cwd=cwd,
+        env={**os.environ, **identity},
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
+@pytest.fixture
+def tagged_clone(tmp_path: Path) -> tuple[Path, str, str]:
+    """A clone of a remote whose ``main`` and ``feature`` branches have diverged.
+
+    Returns the clone, the SHA on ``main`` and the SHA only on ``feature``.
+    """
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    _git(origin, "init", "-q", "-b", "main")
+    (origin / "file.txt").write_text("base\n", encoding="utf-8")
+    _git(origin, "add", ".")
+    _git(origin, "commit", "-q", "-m", "base")
+    on_main = _git(origin, "rev-parse", "HEAD")
+    _git(origin, "checkout", "-q", "-b", "feature")
+    (origin / "file.txt").write_text("feature\n", encoding="utf-8")
+    _git(origin, "commit", "-q", "-am", "feature")
+    off_main = _git(origin, "rev-parse", "HEAD")
+    _git(origin, "checkout", "-q", "main")
+
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", "-q", str(origin), str(clone))
+    return clone, on_main, off_main
+
+
+@pytest.mark.parametrize(("which", "ok"), [("on_main", True), ("off_main", False)])
+def test_release_only_accepts_tags_reachable_from_main(
+    tagged_clone: tuple[Path, str, str], which: str, ok: bool
+) -> None:
+    """A ``v*`` tag pushed on a feature branch must not be published."""
+    clone, on_main, off_main = tagged_clone
+    sha = on_main if which == "on_main" else off_main
+    _git(clone, "fetch", "-q", "origin", "feature")
+    _git(clone, "checkout", "-q", "--detach", sha)
+
+    result = _run_release_step(
+        "merge-base", clone, {"GITHUB_SHA": sha, "GITHUB_REF_NAME": "v0.1.0"}
+    )
+
+    assert (result.returncode == 0) is ok, result.stdout + result.stderr
+
+
+def _pyproject_version() -> str:
+    text = (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    return tomllib.loads(text)["project"]["version"]
+
+
+@pytest.mark.parametrize(
+    ("tag_template", "ok"),
+    [
+        ("v{version}", True),
+        ("v{version}1", False),
+        ("v9.9.9", False),
+        ("{version}", False),
+    ],
+)
+def test_release_tag_must_equal_the_pyproject_version(
+    tmp_path: Path, tag_template: str, ok: bool
+) -> None:
+    """A wheel whose version differs from its tag cannot be replaced on PyPI."""
+    (tmp_path / "pyproject.toml").write_text(
+        (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    tag = tag_template.format(version=_pyproject_version())
+
+    result = _run_release_step("pyproject.toml", tmp_path, {"GITHUB_REF_NAME": tag})
+
+    assert (result.returncode == 0) is ok, result.stdout + result.stderr
+
+
+# portopt-core is not on PyPI until a tagged release has actually published it,
+# so prose may say what ``release.yml`` does but must not state it as a done deal.
+_PYPI_PRESENT_FACT = re.compile(
+    r"\b(?:is|are|been)\s+published\s+to\s+pypi"
+    r"|only\s+the\s+`?portopt-core`?\s+library\s+is\b",
+    re.IGNORECASE,
+)
+
+
+def _prose(path: str) -> str:
+    """Return a doc's text with comment markers dropped and line breaks joined."""
+    text = (_REPO_ROOT / path).read_text(encoding="utf-8")
+    return re.sub(r"\s+", " ", re.sub(r"^\s*#", "", text, flags=re.MULTILINE))
+
+
+def test_docs_attribute_the_pypi_release_to_the_workflow() -> None:
+    """``release.yml`` publishes ``portopt-core``; docs describe it, not claim it."""
+    publishes = any(
+        "pypa/gh-action-pypi-publish" in step.get("uses", "")
+        for job in _jobs("release.yml").values()
+        for step in _steps(job)
+    )
+    assert publishes
+    assert "`release.yml` publishes `portopt-core` to PyPI" in _prose("README.md")
+    assert "release workflow" in _prose("CONTRIBUTING.md")
+
+    claims = [
+        doc
+        for doc in ("README.md", "CONTRIBUTING.md", "install.sh", "install.ps1")
+        if _PYPI_PRESENT_FACT.search(_prose(doc))
+    ]
+
+    assert claims == []

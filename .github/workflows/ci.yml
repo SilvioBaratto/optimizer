@@ -5,6 +5,8 @@ on:
     branches: [main, development]
   pull_request:
     branches: [main, development]
+  # release.yml runs this whole workflow as the gate in front of the PyPI upload.
+  workflow_call:
 
 permissions:
   contents: read

@@ -15,8 +15,8 @@ fi
 # That keeps the portopt shim callable in this session even when uv already existed.
 export PATH="$HOME/.local/bin:$PATH"
 
-# Nothing in this project ships to PyPI, so install the CLI member straight from
-# git. The install tracks a branch instead of a published release.
+# release.yml only builds the portopt-core library, never the CLI member, so
+# install the CLI straight from git. The install tracks a branch instead of a release.
 PORTOPT_REPO="${PORTOPT_REPO:-https://github.com/SilvioBaratto/optimizer.git}"
 PORTOPT_REF="${PORTOPT_REF:-development}"
 echo "Installing the portopt CLI from ${PORTOPT_REPO}@${PORTOPT_REF}..."

@@ -137,7 +137,9 @@ Use conventional commit style:
 3. Commit: `git commit -m "release: v0.x.0"`
 4. Tag: `git tag v0.x.0`
 5. Push: `git push origin main --tags`
-6. The release workflow will automatically publish to PyPI
+6. The release workflow rejects the tag unless its commit is on `main` and the tag
+   equals `v` plus the `pyproject.toml` version, re-runs the full CI workflow, and
+   only then publishes `portopt-core` to PyPI
 
 ## Questions?
 

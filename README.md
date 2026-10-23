@@ -123,8 +123,9 @@ those unpublished names up on PyPI), so install those two through uv.
 ### 2. The full platform (ingestion daemon)
 
 The daemon ships an install wizard. The one-line bootstrap installs `uv`, installs
-the `portopt` CLI straight from this repo — **nothing here is published to PyPI** —
-then launches the wizard:
+the `portopt` CLI straight from this repo (the CLI and the daemon are never
+published to PyPI; `release.yml` builds only the `portopt-core` library), then
+launches the wizard:
 
 ```bash
 # macOS / Linux
@@ -335,7 +336,9 @@ all four members → shellcheck → pip-audit), `typecheck` (mypy), `pyright` (p
 `portopt-db-test` (`--cov=portopt_db` ≥ 90%), `fund-test` (`--cov=fund` ≥
 80%), `postgres-integration` (`alembic upgrade head` on a real PostgreSQL plus
 the `integration`-marked tests), and `docker-images` (compose config + build of
-both images). `release.yml` builds `portopt-core` on `v*` tags.
+both images). `release.yml` publishes `portopt-core` to PyPI on `v*` tags, but only
+after checking that the tagged commit is on `main`, that the tag equals
+`v<pyproject version>`, and that the whole CI workflow passes on it.
 
 ---
 
