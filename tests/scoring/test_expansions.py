@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from skfolio.measures import PerfMeasure, RatioMeasure, RiskMeasure
-from skfolio.optimization import EqualWeighted
+from skfolio.optimization import EqualWeighted, MeanRisk
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.optimization import RatioMeasureType, RiskMeasureType
@@ -58,6 +58,24 @@ class TestRiskFreeRateWiring:
         scorer = build_scorer(ScorerConfig.for_sharpe())
         expected = float(fitted.predict(returns).sharpe_ratio)
         assert scorer(fitted, returns) == pytest.approx(expected)
+
+    def test_explicit_zero_rf_overrides_estimator_rf(
+        self, returns: pd.DataFrame
+    ) -> None:
+        # The estimator carries rf=0.001 into the predicted portfolio. An
+        # explicit scorer rate of 0.0 must still win, otherwise candidates with
+        # different estimator rates are scored against different yardsticks.
+        model = MeanRisk(risk_free_rate=0.001).fit(returns)
+        reference = MeanRisk(risk_free_rate=0.0).fit(returns)
+        score = build_scorer(ScorerConfig(risk_free_rate=0.0))(model, returns)
+        assert score == pytest.approx(float(reference.predict(returns).sharpe_ratio))
+
+    def test_failed_portfolio_scores_nan_at_default_rf(
+        self, returns: pd.DataFrame
+    ) -> None:
+        with pytest.warns(UserWarning, match="failed"):
+            model = MeanRisk(raise_on_failure=False, min_weights=0.5).fit(returns)
+        assert np.isnan(build_scorer(ScorerConfig())(model, returns))
 
     def test_rf_does_not_mutate_across_calls(
         self, fitted: EqualWeighted, returns: pd.DataFrame

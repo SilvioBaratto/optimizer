@@ -153,21 +153,18 @@ def _build_measure_scorer(
 ) -> Callable[..., float]:
     """Build a scorer from a skfolio measure.
 
-    When neither ``risk_free_rate`` nor ``annualization_factor`` deviates
-    from the portfolio defaults the bare measure is handed to skfolio's
-    ``make_scorer`` (preserving its auto ``greater_is_better`` detection and
-    readable repr).  Otherwise the predicted portfolio's ``risk_free_rate``
-    and ``annualization_factor`` are set before the measure is read.
+    The predicted portfolio's ``risk_free_rate`` is always set to the
+    configured value, including an explicit ``0.0``. skfolio copies the
+    optimizer's own rate onto the predicted portfolio, so leaving the portfolio
+    default in place would score candidates that differ in their estimator rate
+    against different yardsticks. ``annualization_factor`` is only set when
+    given; ``None`` keeps the skfolio default.
     """
-    if risk_free_rate == 0.0 and annualization_factor is None:
-        return _skfolio_make_scorer(measure)
-
     greater_is_better = bool(measure.is_perf or measure.is_ratio)
     attr = measure.value
 
     def _score(portfolio: Any) -> float:
-        if risk_free_rate != 0.0:
-            portfolio.risk_free_rate = risk_free_rate
+        portfolio.risk_free_rate = risk_free_rate
         if annualization_factor is not None:
             portfolio.annualization_factor = annualization_factor
         return float(getattr(portfolio, attr))
