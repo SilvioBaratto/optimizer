@@ -9721,7 +9721,7 @@ async def test_status_bar_shows_a_validation_error_verbatim(shell_env) -> None:
         app.action_save_mandate()
         await pilot.pause()
         assert app.last_status.startswith("invalid mandate:")
-        assert "[type=" in app.last_status
+        assert "capital" in app.last_status
         shown = app.query_one("#status-bar", Static).visual.plain
         assert shown == app.last_status
 
@@ -10675,3 +10675,105 @@ async def test_performance_failed_read_does_not_show_another_portfolios_book(
         app.focus_portfolio(_PID_B)
         await pilot.pause()
         assert table.row_count == 0  # A's holdings must not linger under B
+
+
+@pytest.mark.asyncio
+async def test_mandate_save_with_invalid_edit_reports_status_without_crashing(
+    shell_env,
+) -> None:
+    """A pydantic error on a bad edit lands in the status bar as plain text."""
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-base-currency", Input).value = "usd"
+        app.action_save_mandate()
+        await pilot.pause()
+        assert app.is_running
+        assert app.last_worker is None
+        assert app.last_status.startswith("invalid mandate")
+        assert "base_currency" in str(app.query_one("#status-bar", Static).render())
+
+
+@pytest.mark.asyncio
+async def test_order_edit_error_with_bracketed_input_is_plain_text(shell_env) -> None:
+    """Echoing the adviser's typo must not be parsed as markup (it would crash)."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        screen = OrderEditScreen({"AAA": 1.0})
+        app.push_screen(screen)
+        await pilot.pause()
+        screen.query_one("#edit-weights", Input).value = "[/x]"
+        screen._submit()
+        await pilot.pause()
+        assert app.is_running
+        assert isinstance(app.screen, OrderEditScreen)
+        assert "[/x]" in str(screen.query_one("#edit-error", Static).render())
+
+
+class _FailingAskModel(BaseChatModel):
+    """A chat model whose call raises a pydantic-style bracketed error message."""
+
+    @property
+    def _llm_type(self) -> str:
+        return "failing-ask"
+
+    def _generate(self, messages, stop=None, run_manager=None, **_):
+        """Raise an error whose text looks like Textual markup (no network)."""
+        raise ValueError(
+            "1 validation error for Answer\n"
+            "  Input should be <= 1 [type=less_than_equal, input_value=5.0, "
+            "input_type=float]"
+        )
+
+
+@pytest.mark.asyncio
+async def test_ask_model_error_with_bracketed_text_is_plain_text(shell_env) -> None:
+    """A model error echoed into the log must not be parsed as markup."""
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        session.commit()
+
+    app = _make_shell(
+        shell_env, portfolio_id=_PID_A, model_factory=lambda: _FailingAskModel()
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("how are we doing?")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert app.is_running
+        assert view.last_answer == ""
+        log = str(view.query_one("#ask-log", Static).render())
+        assert "ask failed" in log
+        assert "[type=less_than_equal" in log
+
+
+@pytest.mark.asyncio
+async def test_ask_turn_and_answer_with_brackets_render_verbatim(shell_env) -> None:
+    """Bracketed adviser input and model output are shown literally, not as markup."""
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        session.commit()
+
+    app = _make_shell(
+        shell_env,
+        portfolio_id=_PID_A,
+        model_factory=lambda: _CannedAskModel(answer="see [/x] and [1] for detail"),
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("what is [/y]?")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert app.is_running
+        log = str(view.query_one("#ask-log", Static).render())
+        assert "what is [/y]?" in log
+        assert "see [/x] and [1] for detail" in log

@@ -145,7 +145,7 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
         try:
             submission = self.build_submission()
         except Exception as exc:  # pydantic/parse errors → an inline message, stay open
-            self.query_one("#q-error", Static).update(f"invalid: {_describe(exc)}")
+            self.query_one("#q-error", Static).update(f"invalid: {describe_error(exc)}")
             return
         self.dismiss(submission)
 
@@ -220,7 +220,7 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
         return capital
 
 
-def _describe(exc: Exception) -> str:
+def describe_error(exc: Exception) -> str:
     """One-line, per-field summary of a form error.
 
     A pydantic ``ValidationError`` stringifies to a multi-line dump with the offending
@@ -243,4 +243,4 @@ def _describe(exc: Exception) -> str:
     return str(exc)
 
 
-__all__ = ["OnboardingSubmission", "QuestionnaireScreen"]
+__all__ = ["OnboardingSubmission", "QuestionnaireScreen", "describe_error"]

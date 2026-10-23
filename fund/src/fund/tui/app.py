@@ -60,7 +60,7 @@ from fund import observe
 from fund.config import FundConfig, settings
 from fund.tui import ask
 from fund.tui.barge_in import BargeInResult, BargeInScreen
-from fund.tui.questionnaire import QuestionnaireScreen
+from fund.tui.questionnaire import QuestionnaireScreen, describe_error
 from fund.tui.views import (
     RAIL_LABELS,
     VIEW_SPECS,
@@ -1518,7 +1518,7 @@ class ShellApp(App[None]):
         try:
             proposed = view.proposed_mandate()
         except Exception as exc:  # pydantic ValidationError on an out-of-contract edit
-            self._set_status(f"invalid mandate: {exc}")
+            self._set_status(f"invalid mandate: {describe_error(exc)}")
             return
         prev_value = view.mandate.model_dump(mode="json")
         self.last_worker = self._mandate_worker(
@@ -1646,7 +1646,7 @@ class ShellApp(App[None]):
             try:
                 mandate = _initial_mandate(new_id, submission)
             except Exception as exc:  # pydantic ValidationError (e.g. bad capital)
-                self._set_status(f"invalid onboarding: {exc}")
+                self._set_status(f"invalid onboarding: {describe_error(exc)}")
                 return
             self.last_worker = self._onboard_worker(
                 new_id,
