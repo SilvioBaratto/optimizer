@@ -1389,6 +1389,97 @@ class TestGetInstrumentByYfinanceTicker:
         assert result is None
 
 
+class TestGetInstrumentByYfinanceTickerDuplicates:
+    """yfinance_ticker is only indexed, not unique: an exchange transfer leaves
+    the old (delisted) row next to the new active one."""
+
+    def _twin(
+        self,
+        db_session: Session,
+        *,
+        name: str,
+        delisted_at: date | None = None,
+        created_at: datetime | None = None,
+        ticker: str = "XYZ",
+    ) -> Instrument:
+        ex = _exchange(db_session, name=name)
+        inst = Instrument(
+            ticker=ticker,
+            short_name=ticker,
+            exchange=ex,
+            yfinance_ticker=ticker,
+            delisted_at=delisted_at,
+        )
+        if created_at is not None:
+            inst.created_at = created_at
+        db_session.add(inst)
+        db_session.flush()
+        return inst
+
+    def test_active_row_wins_over_delisted_twin(self, db_session: Session) -> None:
+        old = self._twin(db_session, name="OLDX", delisted_at=date(2024, 5, 1))
+        new = self._twin(db_session, name="NEWX")
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("XYZ")
+
+        assert result is not None
+        assert result.id == new.id
+        assert result.id != old.id
+
+    def test_active_row_wins_regardless_of_insert_order(
+        self, db_session: Session
+    ) -> None:
+        new = self._twin(db_session, name="NEWX2")
+        self._twin(db_session, name="OLDX2", delisted_at=date(2024, 5, 1))
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("XYZ")
+
+        assert result is not None
+        assert result.id == new.id
+
+    def test_lone_delisted_row_is_still_returned(self, db_session: Session) -> None:
+        only = self._twin(db_session, name="GONEX", delisted_at=date(2024, 5, 1))
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("XYZ")
+
+        assert result is not None
+        assert result.id == only.id
+
+    def test_most_recently_delisted_row_wins_when_none_active(
+        self, db_session: Session
+    ) -> None:
+        self._twin(db_session, name="GONE1", delisted_at=date(2023, 1, 1))
+        latest = self._twin(db_session, name="GONE2", delisted_at=date(2024, 6, 1))
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("XYZ")
+
+        assert result is not None
+        assert result.id == latest.id
+
+    def test_newest_active_row_wins_when_several_are_active(
+        self, db_session: Session
+    ) -> None:
+        self._twin(db_session, name="ACT1", created_at=datetime(2024, 1, 1))
+        newest = self._twin(db_session, name="ACT2", created_at=datetime(2024, 6, 1))
+        self._twin(db_session, name="ACT3", created_at=datetime(2024, 3, 1))
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("XYZ")
+
+        assert result is not None
+        assert result.id == newest.id
+
+    def test_exchange_stays_eager_loaded_on_the_chosen_row(
+        self, db_session: Session
+    ) -> None:
+        self._twin(db_session, name="OLDX3", delisted_at=date(2024, 5, 1))
+        self._twin(db_session, name="NEWX3")
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("XYZ")
+
+        assert result is not None
+        assert result.exchange.name == "NEWX3"
+
+
 # ---------------------------------------------------------------------------
 # Upsert methods — Postgres-only ON CONFLICT, NOT executable on SQLite
 # ---------------------------------------------------------------------------

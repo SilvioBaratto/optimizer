@@ -1787,10 +1787,18 @@ class YFinanceRepository(RepositoryBase):
     ) -> Instrument | None:
         """Return the instrument for a yfinance_ticker, with exchange eager-loaded.
 
-        ``instruments`` is unique on ``(ticker, exchange)``, so a symbol that moved
-        venues leaves a delisted row beside its active one. The active listing wins;
-        among delisted rows only, the most recently delisted does, so the result is
-        deterministic and a genuinely delisted holding still resolves.
+        ``instruments`` is unique on ``(ticker, exchange)`` and ``yfinance_ticker``
+        is indexed but not unique, so a symbol that moved venues leaves a delisted
+        row beside its active one. The active listing wins; among several
+        candidates the most recently delisted (or, for active rows, the most
+        recently created) does, so the result is deterministic and a genuinely
+        delisted holding still resolves.
+
+        Args:
+            yfinance_ticker: The Yahoo Finance symbol to look up.
+
+        Returns:
+            The chosen instrument, or ``None`` when no row has that symbol.
         """
         return (
             self.session.execute(
@@ -1800,6 +1808,7 @@ class YFinanceRepository(RepositoryBase):
                 .order_by(
                     Instrument.delisted_at.is_(None).desc(),
                     Instrument.delisted_at.desc(),
+                    Instrument.created_at.desc(),
                     Instrument.ticker,
                     Instrument.id,
                 )
