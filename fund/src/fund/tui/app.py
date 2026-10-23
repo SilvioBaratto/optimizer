@@ -1909,6 +1909,7 @@ class ShellApp(App[None]):
                         base_currency=(
                             mandate.base_currency if mandate is not None else None
                         ),
+                        lookback_days=(run.optimizer_config or {}).get("lookback_days"),
                     )
                 else:
                     weights = repo.latest_optimizer_weights(run_id)

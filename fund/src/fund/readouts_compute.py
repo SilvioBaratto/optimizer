@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from fund.agents.toolsets import _bounds_args, _optimizer_constraints
+from fund.config import DEFAULT_LOOKBACK_DAYS
 from fund.schemas import ConstraintSet
 from fund.tools.mandate import constraint_set_breaches, held_tickers
 from fund.tools.optimize import optimize_portfolio
@@ -129,6 +130,8 @@ def compute_results(
     constraint_set: Mapping[str, Any] | None,
     weights: Mapping[str, float],
     base_currency: str | None = None,
+    *,
+    lookback_days: int | None = None,
 ) -> ResultsCompute:
     """Recompute the results read-out by replaying the compute tools at ``asof``.
 
@@ -144,6 +147,9 @@ def compute_results(
         base_currency: The mandate's reporting currency. Prices are FX-converted to it
             exactly as the agent's allocator tools did, so the replay reproduces the
             numbers the run was decided on; ``None`` keeps listing currency.
+        lookback_days: The run's recorded walk-forward training window; ``None`` uses
+            ``DEFAULT_LOOKBACK_DAYS``. The risk agent's backtest trains on this window,
+            so the replay must too or it evaluates folds the risk gate never saw.
 
     Returns:
         A :class:`ResultsCompute`. A failing tool yields a ``None`` slot plus its
@@ -167,9 +173,15 @@ def compute_results(
         )
     # The held weights were optimised on every bar up to ``asof``, so the replayed
     # test blocks are inside their estimation sample (reported in-sample).
+    train_size = DEFAULT_LOOKBACK_DAYS if lookback_days is None else lookback_days
     result, backtest_error = _backtest(
         backtest(
-            session, asof, dict(weights), base_currency=base_currency, fit_end=asof
+            session,
+            asof,
+            dict(weights),
+            window={"train_size": train_size},
+            base_currency=base_currency,
+            fit_end=asof,
         )
     )
     return ResultsCompute(

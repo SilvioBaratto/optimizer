@@ -25,6 +25,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+# Rolling 3y (~756 trading days) moments/backtest lookback. A run records it and the
+# drill-down replay re-reads it, so both must share one value or a replayed backtest
+# trains on a different window than the risk gate evaluated.
+DEFAULT_LOOKBACK_DAYS = 756
+
 
 @dataclass(frozen=True)
 class FundConfig:
@@ -335,4 +340,10 @@ def load_config(
 # Module-level singleton: cheap to import, secrets validated when used.
 settings: FundConfig = load_config()
 
-__all__ = ["FundConfig", "load_config", "load_project_env", "settings"]
+__all__ = [
+    "DEFAULT_LOOKBACK_DAYS",
+    "FundConfig",
+    "load_config",
+    "load_project_env",
+    "settings",
+]

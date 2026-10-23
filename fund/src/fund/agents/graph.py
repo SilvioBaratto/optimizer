@@ -48,7 +48,7 @@ from fund.agents.prompts import (
 )
 from fund.agents.skills import skill_sources
 from fund.agents.summarization import summarization_override
-from fund.config import FundConfig, settings
+from fund.config import DEFAULT_LOOKBACK_DAYS, FundConfig, settings
 
 _log = logging.getLogger(__name__)
 
@@ -78,9 +78,9 @@ __all__ = [
     "stream_fund",
 ]
 
-# The moments/backtest lookback recorded on every run (mirrors the
-# ``RunContext.lookback_days`` default — 3y rolling, ~756 trading days).
-_LOOKBACK_DAYS = 756
+# The moments/backtest lookback recorded on every run (the ``RunContext.lookback_days``
+# default — 3y rolling, ~756 trading days).
+_LOOKBACK_DAYS = DEFAULT_LOOKBACK_DAYS
 
 # One-line descriptions the PM reads (via the built-in ``task`` tool) to decide
 # when to delegate — each names the role's fixed pipeline position.

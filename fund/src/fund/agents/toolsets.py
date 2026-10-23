@@ -59,6 +59,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec
 
 from fund import tools as _tools
+from fund.config import DEFAULT_LOOKBACK_DAYS
 from fund.tools._base import ToolResult, err, ok, tool_envelope
 from fund.tools.mandate import HELD_TOL, constraint_set_breaches, held_tickers
 
@@ -143,7 +144,7 @@ class RunContext:
     # ``estimate_moments`` / ``optimize_portfolio`` take no start bound in the frozen
     # Phase-3 backbone, so it is recorded on the run but inert there. Additive
     # default keeps existing callers unchanged.
-    lookback_days: int = 756
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS
     base_currency: str | None = None
     notional: float | None = None
     # Held for the whole body of every bound tool: the parallel tool calls of one

@@ -97,12 +97,48 @@ def test_compute_results_labels_held_weights_in_sample_even_with_folds(
     asof = START + dt.timedelta(days=_LONG_PANEL_DAYS - 1)
 
     result = compute_results(
-        long_priced_session, asof, list(UNIVERSE), constraint_set, weights
+        long_priced_session,
+        asof,
+        list(UNIVERSE),
+        constraint_set,
+        weights,
+        lookback_days=252,
     )
 
     assert result.backtest is not None
     assert result.backtest.n_folds >= 1
     assert result.backtest.out_of_sample is False
+
+
+def test_compute_results_backtest_uses_the_run_lookback_window(
+    long_priced_session: Session,
+) -> None:
+    """The replay trains on the run's 756-day lookback, like the risk agent did.
+
+    A 400-row panel is too short for a 756+5+63 walk-forward fold, so the agent's
+    backtest fell back to the full sample. A replay on the library's default 252-day
+    window would instead show folds the risk gate never evaluated.
+    """
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    weights = {"AAA": 0.4, "BBB": 0.3, "CCC": 0.3}
+    asof = START + dt.timedelta(days=_LONG_PANEL_DAYS - 1)
+
+    default = compute_results(
+        long_priced_session, asof, list(UNIVERSE), constraint_set, weights
+    )
+    assert default.backtest is not None
+    assert default.backtest.n_folds == 0
+
+    narrow = compute_results(
+        long_priced_session,
+        asof,
+        list(UNIVERSE),
+        constraint_set,
+        weights,
+        lookback_days=100,
+    )
+    assert narrow.backtest is not None
+    assert narrow.backtest.n_folds >= 1
 
 
 def test_compute_results_degrades_on_empty_inputs(priced_session: Session) -> None:

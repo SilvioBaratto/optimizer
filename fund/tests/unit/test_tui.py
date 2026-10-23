@@ -3820,7 +3820,7 @@ async def test_deliberation_unmapped_step_with_payload_falls_back_to_json(
 # --- Deliberation drill-down recompute: expand → worker → render (Phase 4 T6) --
 
 
-def _seed_allocator_run(session) -> uuid.UUID:
+def _seed_allocator_run(session, optimizer_config=None) -> uuid.UUID:
     """Seed a run with a constraint-set-bearing allocator step; return its id."""
     repo = AgentRunRepository(session)
     run = repo.create_run(
@@ -3828,7 +3828,7 @@ def _seed_allocator_run(session) -> uuid.UUID:
         asof=date(2026, 1, 2),
         seed=1,
         universe=[],
-        optimizer_config={},
+        optimizer_config=optimizer_config or {},
     )
     repo.append_decision(
         run.id,
@@ -3889,6 +3889,42 @@ async def test_deliberation_expand_renders_recomputed_results(
         assert "compute to view" not in detail  # markers replaced by live numbers
         assert "sharpe 0.60" in detail  # the frontier point
         assert "sharpe 0.55" in detail  # the backtest
+
+
+@pytest.mark.asyncio
+async def test_deliberation_expand_replays_with_the_runs_recorded_lookback(
+    shell_env, monkeypatch
+) -> None:
+    """The recompute worker hands the run's recorded lookback to the replay, so the
+    backtest trains on the window the risk agent used rather than a library default."""
+    from fund import readouts_compute
+
+    captured: dict[str, object] = {}
+
+    def _capture(*_args, **kwargs):
+        captured.update(kwargs)
+        return readouts_compute.ResultsCompute(
+            frontier=None, frontier_error="stub", backtest=None, backtest_error="stub"
+        )
+
+    monkeypatch.setattr(readouts_compute, "compute_results", _capture)
+    with shell_env.get_session() as session:
+        run_id = _seed_allocator_run(session, {"step": "fund", "lookback_days": 321})
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(0)
+        await pilot.pause()
+        app.action_expand_readout()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+    assert captured["lookback_days"] == 321
 
 
 @pytest.mark.asyncio
@@ -3974,9 +4010,7 @@ async def test_deliberation_expand_scopes_to_selected_allocator_step(
 
     captured = {}
 
-    def _capture(
-        _session, _asof, _universe, constraint_set, weights, base_currency=None
-    ):
+    def _capture(_session, _asof, _universe, constraint_set, weights, **_kwargs):
         captured["constraint_set"] = constraint_set
         captured["weights"] = dict(weights)
         return readouts_compute.ResultsCompute(
@@ -4052,7 +4086,13 @@ async def test_deliberation_expand_recomputes_in_the_mandate_base_currency(
     captured = {}
 
     def _capture(
-        _session, _asof, _universe, _constraint_set, _weights, base_currency=None
+        _session,
+        _asof,
+        _universe,
+        _constraint_set,
+        _weights,
+        base_currency=None,
+        **_kwargs,
     ):
         captured["base_currency"] = base_currency
         return readouts_compute.ResultsCompute(
