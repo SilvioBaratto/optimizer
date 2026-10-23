@@ -261,3 +261,37 @@ class TestCriteriaEnforcement:
         result = universe_filter(db_session, _ASOF, _THREE)
 
         assert set(result) == {"ok", "data"}
+
+
+class TestShortHistory:
+    _LONG_DAYS = 120
+    _YOUNG_DAYS = 6
+
+    def _seed_with_young_listing(self, db_session) -> dt.date:
+        """Three long histories plus NEW, quoted only for the last few bars."""
+        _seed_panel(db_session, tickers=_THREE, n_days=self._LONG_DAYS)
+        young = _seed_instrument(db_session, "NEW")
+        for i in range(self._LONG_DAYS - self._YOUNG_DAYS, self._LONG_DAYS):
+            close = 40.0 * (1.0 + 0.001 * i + 0.025 * math.sin(i / 3.0 + 0.5))
+            db_session.add(
+                PriceHistory(
+                    instrument_id=young.id,
+                    date=_START + dt.timedelta(days=i),
+                    close=round(close, 6),
+                    volume=1000,
+                )
+            )
+        db_session.flush()
+        return _START + dt.timedelta(days=self._LONG_DAYS - 1)
+
+    def test_short_history_listing_is_dropped_not_kept_by_a_truncated_sample(
+        self, db_session
+    ) -> None:
+        # Truncating every asset to NEW's first quote hides its leading NaNs from
+        # SelectComplete, so the pipeline would keep it and judge the rest on 5 rows.
+        asof = self._seed_with_young_listing(db_session)
+
+        result = universe_filter(db_session, asof, [*_THREE, "NEW"])
+
+        assert result["ok"] is True
+        assert result["data"] == _THREE

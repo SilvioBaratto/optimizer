@@ -198,7 +198,10 @@ def universe_filter(
     if frame.shape[1] == 0 or frame.shape[0] < 2:
         return _result([], ignored, barred)
 
-    returns = prices_to_returns(frame)
+    # Keep the leading NaNs of a young listing: the default would drop those rows
+    # for every asset, so SelectComplete would never see the short history it exists
+    # to screen out and the other statistics would run on the truncated sample.
+    returns = prices_to_returns(frame, drop_inceptions_nan=False)
     pipeline = build_preselection_pipeline(config=config, sector_mapping=sector_mapping)
     selected = pipeline.fit_transform(returns)
 
