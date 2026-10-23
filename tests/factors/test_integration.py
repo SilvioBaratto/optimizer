@@ -167,6 +167,79 @@ class TestBuildFactorIntegration:
         assert prior is None
         assert isinstance(constraints, FactorExposureConstraints)
 
+    def test_default_bounds_are_feasible_for_a_score_selected_portfolio(
+        self,
+    ) -> None:
+        from scipy.optimize import linprog
+
+        rng = np.random.default_rng(7)
+        n_assets = 400
+        tickers = pd.Index([f"T{i:03d}" for i in range(n_assets)])
+        common = rng.normal(0, 1, (n_assets, 1))
+        raw = 0.5 * common + rng.normal(0, 1, (n_assets, 4))
+        z = pd.DataFrame(
+            (raw - raw.mean(axis=0)) / raw.std(axis=0),
+            index=tickers,
+            columns=["value", "momentum", "quality", "low_vol"],
+        )
+        composite = z.mean(axis=1)
+        selected = composite.nlargest(40).index
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            _prior, constraints = build_factor_integration(
+                config=FactorIntegrationConfig.for_linear_mapping(),
+                composite_scores=composite,
+                standardized_factors=z,
+                selected_tickers=selected,
+            )
+
+        assert constraints is not None
+        n_selected = len(selected)
+        res = linprog(
+            c=np.zeros(n_selected),
+            A_ub=constraints.left_inequality,
+            b_ub=constraints.right_inequality,
+            A_eq=np.ones((1, n_selected)),
+            b_eq=np.array([1.0]),
+            bounds=[(0.0, None)] * n_selected,
+        )
+        assert res.status == 0
+
+    def test_exposure_band_keeps_configured_width_around_selection(
+        self, factor_scores: pd.DataFrame
+    ) -> None:
+        selected = factor_scores.index[:8]
+        config = FactorIntegrationConfig(
+            exposure_lower_bound=-0.3, exposure_upper_bound=0.7
+        )
+        _prior, constraints = build_factor_integration(
+            config=config,
+            composite_scores=factor_scores.mean(axis=1),
+            standardized_factors=factor_scores,
+            selected_tickers=selected,
+        )
+        assert constraints is not None
+        centre = factor_scores.loc[selected].mean().to_numpy()
+        np.testing.assert_allclose(constraints.lower_bounds, centre - 0.3)
+        np.testing.assert_allclose(constraints.upper_bounds, centre + 0.7)
+
+    def test_full_universe_selection_keeps_absolute_bounds(self) -> None:
+        tickers = pd.Index(["A", "B", "C", "D"])
+        z = pd.DataFrame(
+            {"value": [-1.0, -0.5, 0.5, 1.0], "momentum": [1.0, -1.0, 1.0, -1.0]},
+            index=tickers,
+        )
+        _prior, constraints = build_factor_integration(
+            config=FactorIntegrationConfig.for_linear_mapping(),
+            composite_scores=z.mean(axis=1),
+            standardized_factors=z,
+            selected_tickers=tickers,
+        )
+        assert constraints is not None
+        np.testing.assert_allclose(constraints.lower_bounds, [-0.5, -0.5])
+        np.testing.assert_allclose(constraints.upper_bounds, [0.5, 0.5])
+
 
 class TestConstraintColumnsMatchSelectedTickers:
     """left_inequality columns must line up with the optimizer's asset set."""

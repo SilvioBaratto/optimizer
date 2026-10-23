@@ -229,7 +229,9 @@ def build_factor_integration(
 
     Depending on ``config.use_black_litterman``, either creates a
     Black-Litterman prior from composite scores or builds linear
-    factor exposure constraints.
+    factor exposure constraints. The constraint bounds are an active band
+    of ``[exposure_lower_bound, exposure_upper_bound]`` around the
+    equal-weight exposure of ``selected_tickers`` to each factor.
 
     Args:
         config: Integration configuration.
@@ -284,10 +286,21 @@ def build_factor_integration(
                 list(unscored),
             )
 
-        constraints = build_factor_exposure_constraints(
-            selected_factors,
-            bounds=(config.exposure_lower_bound, config.exposure_upper_bound),
-        )
+        # The selected names are the top scorers, so their equal-weight
+        # exposure sits far from the universe mean of 0. Centring the band on
+        # that exposure keeps the equal-weight portfolio feasible by
+        # construction; absolute +/-0.5 bounds would be infeasible for any
+        # top-N selection. Unscored cells count as neutral (0), as they do in
+        # the constraint matrix itself.
+        centre = selected_factors.fillna(0.0).mean()
+        bounds = {
+            name: (
+                config.exposure_lower_bound + float(c),
+                config.exposure_upper_bound + float(c),
+            )
+            for name, c in centre.items()
+        }
+        constraints = build_factor_exposure_constraints(selected_factors, bounds)
         return None, constraints
 
 

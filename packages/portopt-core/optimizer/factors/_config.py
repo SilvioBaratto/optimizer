@@ -931,8 +931,11 @@ class FactorIntegrationConfig:
             concentration. Values 0.25–0.50 blend the view with the
             equilibrium prior. Per-asset weight caps are not part of the
             integration: set ``MeanRiskConfig.max_weights`` on the optimizer.
-        exposure_lower_bound: Lower bound for factor exposure constraints.
-        exposure_upper_bound: Upper bound for factor exposure constraints.
+        exposure_lower_bound: Lower edge of the factor exposure band, in
+            z-score units relative to the equal-weight exposure of the
+            selected tickers (not to the universe mean).
+        exposure_upper_bound: Upper edge of the factor exposure band, relative
+            to the same equal-weight selected-ticker exposure.
     """
 
     risk_free_rate: float = 0.04
