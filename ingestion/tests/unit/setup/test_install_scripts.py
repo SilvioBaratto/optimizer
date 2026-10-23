@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -22,12 +23,12 @@ from tests.unit.setup._shell_stubs import run_front_door
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
+_DEFAULT_REPO = "https://github.com/SilvioBaratto/optimizer.git"
+_DEFAULT_REF = "development"
+
 
 def _read(name: str) -> str:
     return (_REPO_ROOT / name).read_text(encoding="utf-8")
-
-
-_DEFAULT_REPO = "https://github.com/SilvioBaratto/optimizer.git"
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -75,6 +76,29 @@ def _make_origin(path: Path) -> tuple[str, str]:
     return first, _git(path, "rev-parse", "HEAD")
 
 
+def _tool_install_lines(name: str) -> list[str]:
+    """Return the script's executable `uv tool install` lines (comments excluded)."""
+    return [
+        line.strip()
+        for line in _read(name).splitlines()
+        if "uv tool install" in line and not line.lstrip().startswith("#")
+    ]
+
+
+def _assert_installs_the_cli_from_git(name: str) -> None:
+    """The one install line force-installs the ingestion member from a git spec.
+
+    Nothing here ships to PyPI, so a bare ``uv tool install portopt`` resolves to
+    nothing (or a stranger's package); ``--force`` lets a re-run upgrade the tool.
+    """
+    lines = _tool_install_lines(name)
+    assert len(lines) == 1, lines
+    line = lines[0]
+    assert "--force" in line
+    assert "git+" in line
+    assert line.rstrip('"').endswith("#subdirectory=ingestion")
+
+
 class TestInstallSh:
     """The POSIX clone-free installer reaches interactive prompts under curl|bash."""
 
@@ -106,9 +130,64 @@ class TestInstallSh:
         """It forwards args so `curl … | bash -s -- --non-interactive …` works."""
         assert '"$@"' in _read("install.sh")
 
-    def test_installs_the_cli_via_uv_tool(self) -> None:
-        """The clone-free path installs the published `portopt` via uv tool."""
-        assert "uv tool install portopt" in _read("install.sh")
+    def test_installs_the_cli_from_git_via_uv_tool(self) -> None:
+        """The clone-free path installs the `portopt` CLI from git via uv tool."""
+        _assert_installs_the_cli_from_git("install.sh")
+
+    def test_install_source_defaults_and_env_overrides(self) -> None:
+        """PORTOPT_REPO / PORTOPT_REF override the repo and branch it installs from."""
+        text = _read("install.sh")
+        assert f'PORTOPT_REPO="${{PORTOPT_REPO:-{_DEFAULT_REPO}}}"' in text
+        assert f'PORTOPT_REF="${{PORTOPT_REF:-{_DEFAULT_REF}}}"' in text
+
+    @pytest.mark.parametrize(
+        ("overrides", "expected_spec"),
+        [
+            ({}, f"git+{_DEFAULT_REPO}@{_DEFAULT_REF}#subdirectory=ingestion"),
+            (
+                {"PORTOPT_REPO": "https://example.test/fork.git", "PORTOPT_REF": "x"},
+                "git+https://example.test/fork.git@x#subdirectory=ingestion",
+            ),
+        ],
+    )
+    def test_hands_uv_the_resolved_git_spec(
+        self, tmp_path: Path, overrides: dict[str, str], expected_spec: str
+    ) -> None:
+        """Executed with a stub `uv`, the script passes the resolved git spec to it.
+
+        The environment is built from scratch so the real uv and portopt are never
+        reached. The exit code is not asserted: whether the final `/dev/tty`
+        redirect opens depends on the session running the test, and the install has
+        already been recorded by then.
+        """
+        bash = shutil.which("bash")
+        if bash is None:
+            pytest.skip("bash not available")
+        stubs = tmp_path / "stubs"
+        stubs.mkdir()
+        calls = tmp_path / "calls.log"
+        for tool in ("uv", "portopt"):
+            stub = stubs / tool
+            stub.write_text(
+                f'#!/bin/sh\necho "{tool} $*" >> {shlex.quote(str(calls))}\n',
+                encoding="utf-8",
+            )
+            stub.chmod(0o755)
+        home = tmp_path / "home"
+        # An existing checkout keeps the script from cloning (network) before the
+        # install line this test is about.
+        (home / "optimizer").mkdir(parents=True)
+        (home / "optimizer" / "docker-compose.yml").write_text("services: {}\n")
+
+        subprocess.run(  # noqa: S603 - fixed bash path + our own install script
+            [bash, str(_REPO_ROOT / "install.sh"), "--non-interactive"],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            env={"PATH": f"{stubs}:/usr/bin:/bin", "HOME": str(home), **overrides},
+        )
+        recorded = calls.read_text(encoding="utf-8").splitlines()
+        assert recorded[0] == f"uv tool install --force {expected_spec}"
 
     def test_ensures_uv(self) -> None:
         """It bootstraps uv when missing."""
@@ -343,9 +422,31 @@ class TestInstallPs1:
         assert "portopt setup" in text
         assert "@args" in text
 
-    def test_installs_the_cli_via_uv_tool(self) -> None:
-        """It installs the published `portopt` via uv tool."""
-        assert "uv tool install portopt" in _read("install.ps1")
+    def test_installs_the_cli_from_git_via_uv_tool(self) -> None:
+        """It installs the `portopt` CLI from git via uv tool (parity with install.sh)."""
+        _assert_installs_the_cli_from_git("install.ps1")
+
+    def test_install_source_defaults_and_env_overrides(self) -> None:
+        """PORTOPT_REPO / PORTOPT_REF override the repo and branch it installs from."""
+        text = _read("install.ps1")
+        for variable, env_var, default in (
+            ("PortoptRepo", "PORTOPT_REPO", _DEFAULT_REPO),
+            ("PortoptRef", "PORTOPT_REF", _DEFAULT_REF),
+        ):
+            assignment = (
+                rf"^\${variable}\s*=\s*if \(\$env:{env_var}\)\s*"
+                rf'\{{ \$env:{env_var} \}}\s*else \{{ "{re.escape(default)}" \}}$'
+            )
+            assert re.search(assignment, text, re.MULTILINE), variable
+
+    def test_install_line_uses_the_resolved_repo_and_ref(self) -> None:
+        """The install line interpolates both overrides, so neither is a dead knob.
+
+        Without the ``@$PortoptRef`` pin the install silently tracks the default
+        branch while ``PORTOPT_REF`` is still read, which no other check notices.
+        """
+        (line,) = _tool_install_lines("install.ps1")
+        assert line.endswith('"git+$PortoptRepo@$PortoptRef#subdirectory=ingestion"')
 
     def test_ensures_uv(self) -> None:
         """It bootstraps uv when missing."""
