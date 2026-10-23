@@ -429,11 +429,15 @@ class MacroNewsFetcher:
             reverse=True,
         )
 
-        # Give search articles priority (at least 40 % of budget)
+        # Give search articles priority (at least 40 % of budget). The take is
+        # clamped to max_articles: a small budget with many search articles
+        # would otherwise leave a negative ticker budget, and a negative slice
+        # bound keeps nearly every ticker article instead of none.
         search_budget = max(max_articles * 4 // 10, min(len(search_articles), 10))
-        ticker_budget = max_articles - min(search_budget, len(search_articles))
+        search_take = min(search_budget, len(search_articles), max_articles)
+        ticker_budget = max(0, max_articles - search_take)
 
-        selected = search_articles[:search_budget] + capped_ticker[:ticker_budget]
+        selected = search_articles[:search_take] + capped_ticker[:ticker_budget]
 
         # 4. Theme-diversity pass: if any theme is missing, pull its
         #    best article from the remaining pool.

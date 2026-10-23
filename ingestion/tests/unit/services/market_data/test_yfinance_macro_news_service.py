@@ -346,3 +346,61 @@ class TestMacroNewsPublishTimeIsUtc:
 
         expected = datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
         assert [a["publish_time"] for a in result] == [expected]
+
+
+def _article(
+    title: str, *, age: timedelta, publisher: str = "Reuters"
+) -> dict[str, Any]:
+    published = datetime.now(timezone.utc) - age
+    return {
+        "title": title,
+        "pubDate": published.isoformat(),
+        "publisher": publisher,
+        "link": f"https://reuters.com/{title.replace(' ', '-')}",
+    }
+
+
+def _build_feed_fetcher(
+    ticker_feeds: dict[str, list[dict[str, Any]]],
+    search_feeds: dict[str, list[dict[str, Any]]],
+    scraper: Any = None,
+) -> MacroNewsFetcher:
+    """Build a fetcher whose feeds differ per ticker and per search query."""
+    search_client = MagicMock(name="search_client")
+    search_client.search.side_effect = lambda query, max_results=8: {
+        "news": search_feeds.get(query, [])
+    }
+    fetcher = MacroNewsFetcher(
+        yf_client=MagicMock(name="yf_client"),
+        search_client=search_client,
+        scraper=scraper,
+    )
+    fetcher._news_client = MagicMock()
+    fetcher._news_client.fetch.side_effect = lambda ticker: ticker_feeds.get(ticker, [])
+    return fetcher
+
+
+class TestMacroNewsFetcherSearchPriority:
+    def test_when_budget_below_search_count_then_search_keeps_forty_percent(
+        self,
+    ) -> None:
+        tickers = list(MACRO_TICKERS)[:3]
+        ticker_feeds = {
+            t: [
+                _article(f"{t} fresh story {i}", age=timedelta(minutes=i))
+                for i in range(3)
+            ]
+            for t in tickers
+        }
+        search_feeds = {
+            next(iter(MACRO_SEARCH_QUERIES)): [
+                _article(f"Search story {i}", age=timedelta(days=1, minutes=i))
+                for i in range(11)
+            ]
+        }
+        fetcher = _build_feed_fetcher(ticker_feeds, search_feeds)
+
+        result = fetcher.fetch_all(max_articles=5)
+
+        from_search = [a for a in result if a["source_query"] is not None]
+        assert len(from_search) >= 2
