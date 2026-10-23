@@ -197,6 +197,42 @@ class TestDeriveMetrics:
         assert m.mcap_usd == pytest.approx(795e9)
         assert m.has_fundamentals is True
 
+    def test_existence_gate_does_not_depend_on_fx(self) -> None:
+        # GBP rate unresolved: shares x price still prove the line is a security.
+        lst = _mk(
+            "SEQI.L",
+            "LSE",
+            "Sequoia Economic Infrastructure Income Fund",
+            "GBp",
+            70.0,
+            1e6,
+            fin_ccy=None,
+            shares=1.5e9,
+        )
+        m = derive_metrics(lst, {"USD": 1.0})
+        assert m.mcap_usd is None
+        assert m.has_fundamentals is True
+        assert passes_floor(m, IngestionFloorConfig()) is True
+
+    def test_reported_market_cap_proves_existence_without_fx(self) -> None:
+        lst = _mk(
+            "EUx", "GER", "Eu Co", "EUR", 50.0, 1e5, fin_ccy=None, shares=None, mcap=2e9
+        )
+        assert derive_metrics(lst, {"USD": 1.0}).has_fundamentals is True
+
+    def test_certificate_stays_without_fundamentals_when_fx_is_missing(self) -> None:
+        lst = _mk(
+            "AT0000A3.VI",
+            "VIE",
+            "RBI Expr.Z./Nvidia",
+            "EUR",
+            100.0,
+            500,
+            fin_ccy=None,
+            shares=None,
+        )
+        assert derive_metrics(lst, {"USD": 1.0}).has_fundamentals is False
+
     def test_certificate_has_no_fundamentals(self) -> None:
         # No financialCurrency, no marketCap, no shares, no netAssets -> not a security.
         lst = _mk(

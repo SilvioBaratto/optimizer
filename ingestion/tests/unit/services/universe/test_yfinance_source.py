@@ -863,3 +863,22 @@ def test_existence_failing_line_without_a_sibling_is_dropped(
         queries=[("Q", "ETF", _ETF_SORT_FIELD, _BIG_CAP)],
     )
     assert [i["ticker"] for i in src.get_instruments()] == ["OTHER"]
+
+
+def test_real_security_without_fundamentals_fields_is_kept_on_shares_and_price(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The line has shares and a price but no financialCurrency or netAssets, so the
+    # existence gate must rest on those local-currency quantities, not on a
+    # market cap that needs an FX rate.
+    seqi = _quote(
+        "SEQI.L",
+        "LSE",
+        longName="Sequoia Economic Infrastructure Income Fund",
+        currency="GBp",
+        financialCurrency=None,
+        regularMarketPrice=70.0,
+        sharesOutstanding=1_500_000_000,
+    )
+    src, _ = _source([{"quotes": [seqi]}, {"quotes": []}], monkeypatch)
+    assert [i["ticker"] for i in src.get_instruments()] == ["SEQI.L"]

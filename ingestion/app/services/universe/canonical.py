@@ -215,9 +215,12 @@ def derive_metrics(listing: Listing, usd_per_major: dict[str, float]) -> Metrics
     # structured product or bond has NONE of these — verified: the screener carries
     # no financialCurrency / marketCap / netAssets / sharesOutstanding for them. This
     # is what distinguishes them from equities, by nature — not a name pattern.
+    # Evaluated on local-currency quantities: a failed FX lookup must not turn a
+    # real security into a "certificate" (the floor is fail-open on missing FX).
     has_fundamentals = (
         listing.financial_currency is not None
-        or mcap_usd is not None
+        or _positive(listing.market_cap) is not None
+        or (shares is not None and price_major is not None)
         or _positive(listing.net_assets) is not None
     )
 
