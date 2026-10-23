@@ -13,6 +13,7 @@ from sklearn.pipeline import Pipeline
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.optimization import (
+    MeanRiskConfig,
     RegimeBlendedMeanRiskConfig,
     build_regime_blended_mean_risk,
 )
@@ -320,3 +321,85 @@ class TestRegimeCovarianceFitGuards:
         )
         with pytest.raises(ConfigurationError, match="pandas DataFrame"):
             cov.fit(np.zeros((50, 3)))
+
+
+# ---------------------------------------------------------------------------
+# 10. Sector constraints reach the optimiser
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def sector_map() -> dict[str, str]:
+    sectors = ["Tech", "Util", "Health"]
+    return {col: sectors[i // 5] for i, col in enumerate(_COLS)}
+
+
+def _sector_weights(
+    weights: np.ndarray, sector_map: dict[str, str]
+) -> dict[str, float]:
+    totals: dict[str, float] = {}
+    for col, w in zip(_COLS, weights, strict=True):
+        totals[sector_map[col]] = totals.get(sector_map[col], 0.0) + float(w)
+    return totals
+
+
+class TestSectorConstraintsForwarded:
+    def test_max_sector_weight_is_enforced_on_the_fitted_weights(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+        sector_map: dict[str, str],
+    ) -> None:
+        cap = 0.40
+        cfg = RegimeBlendedMeanRiskConfig(
+            mean_risk_config=dataclasses.replace(
+                MeanRiskConfig.for_max_sharpe(), max_sector_weight=cap
+            )
+        )
+        pipeline, _ = build_regime_blended_mean_risk(
+            cfg,
+            factor_returns=factor_returns_df,
+            regime_probabilities=regime_probs_df,
+            sector_mapping=sector_map,
+        )
+        optimizer = pipeline[-1]
+        assert optimizer.groups == sector_map
+        assert optimizer.linear_constraints is not None
+        assert "Tech <= 0.4" in optimizer.linear_constraints
+
+        pipeline.fit(returns_df, optimizer__factors=factor_returns_df)
+        totals = _sector_weights(pipeline[-1].weights_, sector_map)
+        assert max(totals.values()) <= cap + 1e-6
+
+    def test_min_sector_weights_are_forwarded(
+        self,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+        sector_map: dict[str, str],
+    ) -> None:
+        pipeline, _ = build_regime_blended_mean_risk(
+            factor_returns=factor_returns_df,
+            regime_probabilities=regime_probs_df,
+            sector_mapping=sector_map,
+            min_sector_weights={"Util": 0.2},
+        )
+        assert pipeline[-1].linear_constraints is not None
+        assert "Util >= 0.2" in pipeline[-1].linear_constraints
+
+    def test_sector_bands_are_forwarded(
+        self,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+        sector_map: dict[str, str],
+    ) -> None:
+        pipeline, _ = build_regime_blended_mean_risk(
+            factor_returns=factor_returns_df,
+            regime_probabilities=regime_probs_df,
+            sector_mapping=sector_map,
+            sector_bands={"Tech": (0.1, 0.5)},
+        )
+        constraints = pipeline[-1].linear_constraints
+        assert constraints is not None
+        assert "Tech >= 0.1" in constraints
+        assert "Tech <= 0.5" in constraints

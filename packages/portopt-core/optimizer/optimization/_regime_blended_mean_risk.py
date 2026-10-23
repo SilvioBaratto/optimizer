@@ -175,6 +175,8 @@ def build_regime_blended_mean_risk(
     regime_probabilities: pd.DataFrame,
     pre_selection_config: PreSelectionConfig | None = None,
     sector_mapping: dict[str, str] | None = None,
+    min_sector_weights: dict[str, float] | None = None,
+    sector_bands: dict[str, tuple[float, float]] | None = None,
     previous_weights: np.ndarray | None = None,
 ) -> tuple[Pipeline, WalkForward]:
     """Build a regime-blended MeanRisk pipeline and walk-forward CV splitter.
@@ -205,8 +207,14 @@ def build_regime_blended_mean_risk(
             date, shape ``(T, n_regimes)``. Baked into the covariance estimator;
             sliced to each CV fold's training window automatically during fit.
         pre_selection_config: Pre-selection pipeline configuration.
-        sector_mapping: Ticker → sector mapping forwarded to
-            `build_portfolio_pipeline`.
+        sector_mapping: Ticker → sector mapping. Forwarded both to
+            `build_portfolio_pipeline` and to `build_mean_risk`, so
+            ``config.mean_risk_config.max_sector_weight`` is enforced on the
+            fitted weights.
+        min_sector_weights: Per-sector floor weights forwarded to
+            `build_mean_risk`. Requires ``sector_mapping``.
+        sector_bands: Regime-conditional per-sector ``(floor, cap)`` bands
+            forwarded to `build_mean_risk`. Requires ``sector_mapping``.
         previous_weights: Previous portfolio weights for turnover control.
             Forwarded to `build_mean_risk` via ``**kwargs``.
 
@@ -246,6 +254,9 @@ def build_regime_blended_mean_risk(
     optimizer = build_mean_risk(
         config.mean_risk_config,
         prior_estimator=factor_model,
+        sector_mapping=sector_mapping,
+        min_sector_weights=min_sector_weights,
+        sector_bands=sector_bands,
         **extra_kwargs,
     )
 
