@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TypeVar
+from typing import TypeVar, cast
 
 import numpy as np
 import pandas as pd
@@ -66,6 +66,13 @@ def build_fx_pair_ticker(
     return (f"{from_ccy}USD=X", f"{to_ccy}USD=X")
 
 
+def _wall_clock(index: pd.Index) -> pd.Index:
+    """Return ``index`` without its timezone, keeping each label's local date."""
+    if getattr(index, "tz", None) is None:
+        return index
+    return cast(pd.DatetimeIndex, index).tz_localize(None)
+
+
 def compute_cross_rate(
     fx_from_usd: pd.Series,
     fx_to_usd: pd.Series,
@@ -99,7 +106,8 @@ def align_fx_rates(
     """Align FX rate DataFrame to a price calendar.
 
     Reindexes FX rates to the ``price_index`` and forward-fills gaps
-    (weekends, holidays) up to ``fill_limit`` days.
+    (weekends, holidays) up to ``fill_limit`` days.  When exactly one of the
+    two indexes is tz-aware, rates are matched on local calendar date.
 
     Args:
         fx_rates: FX rates indexed by date with currency codes as columns.
@@ -118,8 +126,20 @@ def align_fx_rates(
     if fx_rates.empty:
         raise DataError("fx_rates DataFrame is empty.")
 
-    aligned = _mask_invalid_rates(fx_rates).reindex(price_index)
-    aligned = aligned.ffill(limit=fill_limit)
+    rates = _mask_invalid_rates(fx_rates)
+    lookup = price_index
+    # A tz-aware index never matches a tz-naive one label-for-label, so the whole
+    # frame would come back NaN.  Daily bars are identified by their local date,
+    # which is also what a naive rate frame holds.
+    if (getattr(price_index, "tz", None) is None) != (
+        getattr(rates.index, "tz", None) is None
+    ):
+        rates = rates.set_axis(_wall_clock(rates.index), axis=0)
+        lookup = cast(pd.DatetimeIndex, _wall_clock(price_index))
+
+    aligned = rates.reindex(lookup).ffill(limit=fill_limit)
+    # Callers multiply against the price frame, which aligns on labels.
+    aligned.index = price_index
     return aligned
 
 

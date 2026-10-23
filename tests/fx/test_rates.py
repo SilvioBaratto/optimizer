@@ -160,6 +160,41 @@ class TestAlignFxRates:
 
         assert result["GBP"].tolist() == [1.15, 1.15, 1.17]
 
+    def test_tz_aware_prices_with_naive_rates(self) -> None:
+        naive = pd.bdate_range("2024-01-02", periods=4)
+        aware = naive.tz_localize("UTC")
+        fx = pd.DataFrame({"GBP": [1.15, 1.16, 1.17, 1.18]}, index=naive)
+
+        result = align_fx_rates(fx, aware)
+
+        assert result["GBP"].tolist() == [1.15, 1.16, 1.17, 1.18]
+        # Callers multiply against the price frame, so labels must stay the
+        # price index's own, tz included.
+        assert result.index.equals(aware)
+
+    def test_naive_prices_with_tz_aware_rates(self) -> None:
+        naive = pd.bdate_range("2024-01-02", periods=4)
+        fx = pd.DataFrame(
+            {"GBP": [1.15, 1.16, 1.17, 1.18]},
+            index=naive.tz_localize("Europe/London"),
+        )
+
+        result = align_fx_rates(fx, naive)
+
+        assert result["GBP"].tolist() == [1.15, 1.16, 1.17, 1.18]
+        assert result.index.equals(naive)
+
+    def test_tz_aware_price_dates_match_rates_by_local_date(self) -> None:
+        # A daily bar stamped at local midnight is that local date; converting
+        # to UTC first would shift London summer-time bars onto the prior day.
+        naive = pd.bdate_range("2024-06-03", periods=3)
+        aware = naive.tz_localize("Europe/London")
+        fx = pd.DataFrame({"GBP": [1.1, 1.2, 1.3]}, index=naive)
+
+        result = align_fx_rates(fx, aware)
+
+        assert result["GBP"].tolist() == [1.1, 1.2, 1.3]
+
     def test_empty_raises(self) -> None:
         from optimizer.exceptions import DataError
 

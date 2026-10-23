@@ -777,3 +777,35 @@ class TestFxPriceConverterInvalidRates:
         assert np.isnan(result["LLOY.L"].iloc[0])
         assert result["LLOY.L"].iloc[1:].tolist() == pytest.approx([61.2, 62.4])
         assert any("NaN prices" in r.message for r in caplog.records)
+
+
+class TestFxPriceConverterTimezones:
+    """Prices and rates may differ in tz-awareness; dates still line up."""
+
+    @staticmethod
+    def _frames(
+        price_tz: str | None, fx_tz: str | None
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        dates = pd.bdate_range("2024-01-02", periods=5)
+        prices = pd.DataFrame({"LLOY.L": [50.0] * 5}, index=dates.tz_localize(price_tz))
+        fx = pd.DataFrame({"GBP": [1.2] * 5}, index=dates.tz_localize(fx_tz))
+        return prices, fx
+
+    @pytest.mark.parametrize(
+        ("price_tz", "fx_tz"), [("UTC", None), (None, "UTC"), ("Europe/London", None)]
+    )
+    def test_mixed_tz_awareness_converts_instead_of_all_nan(
+        self, price_tz: str | None, fx_tz: str | None
+    ) -> None:
+        prices, fx = self._frames(price_tz, fx_tz)
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"LLOY.L": "GBP"},
+            fx_rates=fx,
+            require_full_coverage=True,
+        )
+
+        result = converter.fit_transform(prices)
+
+        assert result["LLOY.L"].tolist() == pytest.approx([60.0] * 5)
+        assert result.index.equals(prices.index)
