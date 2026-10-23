@@ -184,6 +184,8 @@ def apply_action(
         LookupError: ``run_id`` names no run (propagated from ``resume_run``).
         RuntimeError: ``run`` on a portfolio with no active ``ConstraintSet``
             (propagated from ``run_fund`` — profile it first).
+        sqlalchemy.exc.DBAPIError: A resume-style action whose ``idempotency_key`` is
+            held by a concurrent in-flight submit; that submit owns the action.
     """
     if idempotency_key is not None:
         replay = _replayed_action(session, idempotency_key)
@@ -336,7 +338,7 @@ def _apply_resume(
     rationale: str | None,
     config: FundConfig,
 ) -> ActionResult:
-    """Resume a paused run by its gate, then log the decision.
+    """Log the decision (claiming its idempotency key), then resume the paused run.
 
     ``decision`` is the ``resume_run`` verb (``approve`` / ``reject`` / ``respond``);
     ``action`` is what gets logged — they coincide for approve/reject/respond but
@@ -351,17 +353,10 @@ def _apply_resume(
     if action == "respond" and not pm_directive:
         raise ValueError("'respond' requires a pm_directive")
     rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
-    result = resume_run(
-        rid,
-        decision,
-        session=session,
-        checkpointer=checkpointer,
-        store=store,
-        model=model,
-        pm_directive=pm_directive,
-        config=config,
-    )
     pid = portfolio_id if portfolio_id is not None else _portfolio_of(session, rid)
+    # Claim the idempotency key before resuming: the checkpointer commits on its own
+    # connection, so once the graph has moved nothing rolls it back, and the audit row's
+    # unique key is the only thing that can turn a concurrent duplicate submit away.
     row = _append_audit(
         session,
         action=action,
@@ -373,6 +368,16 @@ def _apply_resume(
         suitability_flag=suitability_flag,
         idempotency_key=idempotency_key,
         rationale=rationale,
+    )
+    result = resume_run(
+        rid,
+        decision,
+        session=session,
+        checkpointer=checkpointer,
+        store=store,
+        model=model,
+        pm_directive=pm_directive,
+        config=config,
     )
     return ActionResult(
         action=action,
@@ -508,6 +513,24 @@ def _apply_edit(
     if shortfalls:
         raise ValueError(f"'edit' cannot be ticketed: {'; '.join(shortfalls)}")
 
+    # Claimed before the resume: the checkpointer commits on its own connection, so a
+    # second submit of the same keyed action must be turned away by the unique
+    # idempotency key before it can drive the same gate again.
+    pid = portfolio_id if portfolio_id is not None else run.portfolio_id
+    row = _append_audit(
+        session,
+        action="edit",
+        run_id=rid,
+        portfolio_id=pid,
+        actor=actor,
+        target="weights",
+        new_value=edited,
+        source=source,
+        override_flag=True,
+        suitability_flag=False,
+        idempotency_key=idempotency_key,
+        rationale=rationale,
+    )
     run_repo.append_decision(
         rid,
         agent="allocator",
@@ -529,21 +552,6 @@ def _apply_edit(
         store=store,
         model=model,
         config=config,
-    )
-    pid = portfolio_id if portfolio_id is not None else _portfolio_of(session, rid)
-    row = _append_audit(
-        session,
-        action="edit",
-        run_id=rid,
-        portfolio_id=pid,
-        actor=actor,
-        target="weights",
-        new_value=edited,
-        source=source,
-        override_flag=True,
-        suitability_flag=False,
-        idempotency_key=idempotency_key,
-        rationale=rationale,
     )
     return ActionResult(
         action="edit",
@@ -670,15 +678,6 @@ def _apply_freeze(
         if run_id is None:
             raise ValueError("'freeze' scope='run' requires a run_id")
         rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
-        result = resume_run(
-            rid,
-            "reject",
-            session=session,
-            checkpointer=checkpointer,
-            store=store,
-            model=model,
-            config=config,
-        )
         pid = portfolio_id if portfolio_id is not None else _portfolio_of(session, rid)
         row = _append_audit(
             session,
@@ -692,6 +691,15 @@ def _apply_freeze(
             suitability_flag=False,
             idempotency_key=idempotency_key,
             rationale=rationale,
+        )
+        result = resume_run(
+            rid,
+            "reject",
+            session=session,
+            checkpointer=checkpointer,
+            store=store,
+            model=model,
+            config=config,
         )
         return ActionResult(
             action="freeze",
@@ -835,7 +843,9 @@ def _replayed_action(session: Session, idempotency_key: str) -> ActionResult | N
     keyed action (a double-submitted approve, a retried drive) neither re-invokes
     ``resume_run`` / the profiler / the rebalance nor creates an orphan run — it replays
     the first audit row's outcome. The row carries no stored ``detail``, so a replay's
-    :attr:`ActionResult.detail` is ``None``.
+    :attr:`ActionResult.detail` is ``None``. This read only sees committed rows; the
+    resume-style actions additionally claim the key by writing their audit row before
+    any side effect, so a submit racing an in-flight one is stopped by the unique key.
     """
     from fund.audit.human_audit_repository import HumanAuditLogRepository
 

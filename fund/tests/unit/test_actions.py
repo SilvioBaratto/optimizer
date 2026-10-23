@@ -12,6 +12,7 @@ cockpit tests use: an isolated in-memory SQLite engine + ``MemorySaver`` +
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import uuid
 from contextlib import contextmanager
@@ -44,6 +45,7 @@ from portopt_db.models import Base, FundAutonomyState, PaperOrder
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
 from sqlalchemy import create_engine
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -1610,3 +1612,93 @@ def test_edit_applies_the_portfolio_constraint_set_bounds(paused_env) -> None:
     with env.get_session() as session:
         assert session.query(PaperOrder).count() == 0
         assert HumanAuditLogRepository(session).list_recent(action="edit") == []
+
+
+# --- the idempotency key is claimed before the resume's side effects ---------------
+
+
+def test_concurrent_submit_of_a_keyed_approve_cannot_resume_the_gate_twice(
+    tmp_path,
+) -> None:
+    """The checkpointer commits on its own connection, so only the audit row's unique
+    key can stop a second submit of the same approve from re-driving the gate while
+    the first is still inside ``resume_run`` (its audit row not yet committed)."""
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'actions.db'}",
+        connect_args={"timeout": 0},  # a held write lock fails fast instead of waiting
+    )
+    Base.metadata.create_all(engine)
+    session_local = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    with session_local() as seed:
+        run = AgentRunRepository(seed).create_run(
+            portfolio_id=PORTFOLIO_ID,
+            asof=ASOF,
+            seed=1,
+            universe=[],
+            optimizer_config={"step": "fund"},
+        )
+        seed.commit()
+        run_id = run.id
+
+    key = f"{run_id}:approve"
+    resumes: list[str] = []
+
+    def fake_resume(rid, decision, **_kwargs):
+        resumes.append(decision)
+        if len(resumes) == 1:
+            # The loser of the claim is refused while the winner is mid-resume.
+            with session_local() as other, contextlib.suppress(DBAPIError):
+                apply_action("approve", session=other, run_id=rid, idempotency_key=key)
+        return {}
+
+    with session_local() as first:
+        with mock.patch("fund.agents.graph.resume_run", side_effect=fake_resume):
+            apply_action("approve", session=first, run_id=run_id, idempotency_key=key)
+        first.commit()
+
+    assert resumes == ["approve"]
+    with session_local() as check:
+        rows = HumanAuditLogRepository(check).list_recent(action="approve")
+        assert [r.idempotency_key for r in rows] == [key]
+    engine.dispose()
+
+
+def test_retry_after_a_rolled_back_approve_places_the_lost_ticket(paused_env) -> None:
+    """If the approve's transaction is lost after the checkpoint advanced, a retry of
+    the same key must not mark the run completed over a ticket that no longer exists:
+    it places the ticket again and completes only once one backs the run."""
+    env = paused_env
+    key = f"{env.run_id}:approve"
+
+    def approve(session) -> ActionResult:
+        return apply_action(
+            "approve",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+            idempotency_key=key,
+        )
+
+    with env.get_session() as session:
+        approve(session)
+        session.rollback()  # the commit never landed; the checkpoint already moved on
+
+    with env.get_session() as session:
+        assert session.query(PaperOrder).count() == 0
+        approve(session)
+        session.commit()
+
+    with env.get_session() as session:
+        run = AgentRunRepository(session).get_run(env.run_id)
+        assert run.status == "completed"
+        (order,) = session.query(PaperOrder).all()
+        assert order.weights == env.expected
+        assert {
+            p.ticker: p.weight
+            for p in PositionRepository(session).get_holdings(PORTFOLIO_ID)
+        } == env.expected
+        rows = HumanAuditLogRepository(session).list_recent(action="approve")
+        assert [r.idempotency_key for r in rows] == [key]
