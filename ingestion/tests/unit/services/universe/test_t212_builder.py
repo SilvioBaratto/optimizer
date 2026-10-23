@@ -462,3 +462,77 @@ class TestDelistingSkippedForIncompleteExchange:
         repo, _ = self._build(["ETF"])
 
         assert repo.delisted == ["GONE_US"]
+
+
+# ---------------------------------------------------------------------------
+# Delisting reconciliation: partial / failed source answers
+# ---------------------------------------------------------------------------
+
+
+def _stock(i: int) -> dict[str, Any]:
+    return {
+        "ticker": f"T{i}_US",
+        "type": "STOCK",
+        "shortName": f"T{i}",
+        "name": f"Company {i}",
+        "currencyCode": "USD",
+        "workingScheduleId": 1,
+    }
+
+
+def _delisting_build(
+    *, active: int, returned: int, discover: Any = lambda short, ex: short
+) -> tuple[_DelistingRepo, Any]:
+    repo = _DelistingRepo(active={f"T{i}_US" for i in range(active)})
+    mapper = MagicMock()
+    mapper.discover.side_effect = discover
+    builder = _make_builder(
+        api_client=_make_api_client(instruments=[_stock(i) for i in range(returned)]),
+        ticker_mapper=mapper,
+        repo=repo,
+    )
+    return repo, builder.build()
+
+
+class TestDelistingSanityGuard:
+    def test_mass_absence_looks_like_a_truncated_source_and_delists_nothing(
+        self,
+    ) -> None:
+        # 60 of 100 active tickers missing in one weekly run is a cut-off
+        # answer, not 60 real delistings.
+        repo, result = _delisting_build(active=100, returned=40)
+
+        assert repo.delisted == []
+        assert any("delisting" in e for e in result.errors)
+
+    def test_ordinary_churn_is_still_delisted(self) -> None:
+        repo, result = _delisting_build(active=100, returned=98)
+
+        assert sorted(repo.delisted) == ["T98_US", "T99_US"]
+        assert result.errors == []
+
+    def test_small_venue_is_not_judged_by_fraction(self) -> None:
+        repo, _ = _delisting_build(active=10, returned=5)
+
+        assert len(repo.delisted) == 5
+
+
+class TestMappingMissIsNotDelisting:
+    def test_ticker_the_source_returned_but_mapper_missed_stays_active(self) -> None:
+        repo, _ = _delisting_build(
+            active=3,
+            returned=3,
+            discover=lambda short, ex: None if short == "T1" else short,
+        )
+
+        assert repo.delisted == []
+
+    def test_ticker_whose_processing_raised_stays_active(self) -> None:
+        def discover(short: str, exchange: str) -> str:
+            if short == "T2":
+                raise RuntimeError("lookup failed")
+            return short
+
+        repo, _ = _delisting_build(active=3, returned=3, discover=discover)
+
+        assert repo.delisted == []

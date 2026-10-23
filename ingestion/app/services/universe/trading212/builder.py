@@ -263,50 +263,84 @@ class UniverseBuilder:
             )
             processed_here += len(instruments)
 
-            tickers_saved: set[str] = set()
             if processed:
                 saved = self.repository.save_instruments_batch(
                     processed, exchange_dto.id
                 )
                 total_instruments_saved += saved
-                tickers_saved = {d.get("ticker", "") for d in processed}
 
             if instrument_type in ex_data.get("incompleteTypes", ()):
                 # The source says this venue's list is short, so absence proves
                 # nothing; marking the gap delisted would stamp live names.
-                message = (
-                    f"{ex_data['name']}: {instrument_type} listing is incomplete; "
-                    "delisting reconciliation skipped"
+                self._skip_reconciliation(
+                    ex_data["name"], instrument_type, "the source listing is incomplete"
                 )
-                logger.warning(message)
-                self._errors.append(message)
                 continue
 
             # With part of the source missing, "absent" no longer means "delisted".
-            if instrument_type not in self._incomplete_types:
-                self._mark_delisted_instruments(
-                    tickers_before, tickers_saved, exchange_dto.id
-                )
+            if instrument_type in self._incomplete_types:
+                continue
+
+            # Every ticker the source returned counts as present, whatever
+            # happened to it in mapping: a mapper miss or a per-instrument
+            # error is not evidence that the instrument left the venue.
+            tickers_present = {i["ticker"] for i in instruments if i.get("ticker")}
+            self._mark_delisted_instruments(
+                tickers_before,
+                tickers_present,
+                exchange_dto.id,
+                ex_data["name"],
+                instrument_type,
+            )
 
         return total_exchanges_saved, total_instruments_saved, processed_here
+
+    def _skip_reconciliation(
+        self, exchange_name: str, instrument_type: str | None, reason: str
+    ) -> None:
+        message = (
+            f"{exchange_name}: {instrument_type or 'all'} delisting reconciliation "
+            f"skipped; {reason}"
+        )
+        logger.warning(message)
+        self._errors.append(message)
 
     def _mark_delisted_instruments(
         self,
         tickers_before: set[str],
         tickers_seen: set[str],
         exchange_id: Any,
+        exchange_name: str,
+        instrument_type: str | None,
     ) -> None:
-        """Mark instruments that were active but absent from the latest build.
+        """Mark instruments that were active but absent from the latest run.
 
         A ticker the source still reports as trading left the universe through
         dedup, the floor or the venue allowlist, so it is stamped without a
         terminal return; the default -30% is reserved for tickers that vanished.
+
+        Skipped, with a warning in ``BuildResult.errors``, when the absences
+        exceed ``config.max_delisting_fraction`` of the venue's active tickers:
+        that pattern is a truncated source answer, and marking it would flag
+        live instruments as delisted until the next complete build.
         """
         if not hasattr(self.repository, "mark_delisted"):
             return
 
         dropped = tickers_before - tickers_seen
         if not dropped:
+            return
+
+        if (
+            len(tickers_before) >= self.config.delisting_guard_min_tickers
+            and len(dropped) / len(tickers_before) > self.config.max_delisting_fraction
+        ):
+            self._skip_reconciliation(
+                exchange_name,
+                instrument_type,
+                f"{len(dropped)} of {len(tickers_before)} active tickers are "
+                "missing, which looks like a partial source answer",
+            )
             return
 
         today = date.today()
