@@ -10,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from cvxpy.error import SolverError
 from skfolio.measures import BaseMeasure, RatioMeasure
 from skfolio.moments import EWCovariance, EWMu
 from skfolio.optimization import MeanRisk
@@ -182,3 +183,61 @@ def test_when_scorer_sets_risk_free_rate_then_search_scores_change(
         np.asarray(hurdle.cv_results_["mean_score"])
         < np.asarray(base.cv_results_["mean_score"])
     )
+
+
+def test_when_grid_base_sets_error_score_refit_verbose_then_forwarded(
+    estimator: MeanRisk,
+) -> None:
+    cfg = OnlineGridSearchConfig(
+        base=GridSearchConfig(error_score="raise", refit=False, verbose=5),
+        online=OnlinePredictConfig(warmup_size=150, n_jobs=1),
+    )
+    search = build_online_grid_search(
+        cfg, estimator, {"prior_estimator__mu_estimator__half_life": [20.0, 40.0]}
+    )
+    assert search.error_score == "raise"
+    assert search.refit is False
+    assert search.verbose == 5
+
+
+def test_when_randomized_base_sets_error_score_refit_verbose_then_forwarded(
+    estimator: MeanRisk,
+) -> None:
+    cfg = OnlineRandomizedSearchConfig(
+        base=RandomizedSearchConfig(error_score="raise", refit=False, verbose=3),
+        online=OnlinePredictConfig(warmup_size=150, n_jobs=1),
+    )
+    search = build_online_randomized_search(
+        cfg, estimator, {"prior_estimator__mu_estimator__half_life": [20.0, 40.0]}
+    )
+    assert search.error_score == "raise"
+    assert search.refit is False
+    assert search.verbose == 3
+
+
+def test_when_online_verbose_set_then_it_still_enables_verbosity(
+    estimator: MeanRisk,
+) -> None:
+    cfg = OnlineGridSearchConfig(
+        base=GridSearchConfig(),
+        online=OnlinePredictConfig(warmup_size=150, n_jobs=1, verbose=True),
+    )
+    search = build_online_grid_search(
+        cfg, estimator, {"prior_estimator__mu_estimator__half_life": [20.0, 40.0]}
+    )
+    assert search.verbose == 1
+
+
+def test_when_error_score_raise_and_candidate_infeasible_then_fit_raises(
+    estimator: MeanRisk,
+    returns: pd.DataFrame,
+) -> None:
+    # 5 assets capped at 0.1 each can never sum to a fully-invested portfolio.
+    grid = {"max_weights": [1.0, 0.1]}
+    cfg = OnlineGridSearchConfig(
+        base=GridSearchConfig(error_score="raise"),
+        online=OnlinePredictConfig(warmup_size=150, n_jobs=1),
+    )
+    search = build_online_grid_search(cfg, estimator, grid)
+    with pytest.raises(SolverError):
+        search.fit(returns)

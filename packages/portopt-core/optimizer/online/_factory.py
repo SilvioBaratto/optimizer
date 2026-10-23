@@ -197,7 +197,11 @@ def build_online_grid_search(
         n_jobs=config.online.n_jobs
         if config.online.n_jobs is not None
         else config.base.n_jobs,
-        verbose=int(config.online.verbose),
+        refit=config.base.refit,
+        # sklearn accepts "raise" or a float for error_score; its stub types it float.
+        error_score=config.base.error_score,  # pyright: ignore[reportArgumentType]
+        # Either level may switch verbosity on; the stricter (louder) one wins.
+        verbose=max(config.base.verbose, int(config.online.verbose)),
     )
 
 
@@ -230,7 +234,11 @@ def build_online_randomized_search(
         n_jobs=config.online.n_jobs
         if config.online.n_jobs is not None
         else config.base.n_jobs,
-        verbose=int(config.online.verbose),
+        refit=config.base.refit,
+        # sklearn accepts "raise" or a float for error_score; its stub types it float.
+        error_score=config.base.error_score,  # pyright: ignore[reportArgumentType]
+        # Either level may switch verbosity on; the stricter (louder) one wins.
+        verbose=max(config.base.verbose, int(config.online.verbose)),
     )
 
 
