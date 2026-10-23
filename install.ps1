@@ -48,6 +48,9 @@ $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
 # install the CLI straight from git. The install tracks a branch instead of a release.
 Write-Host "Installing the portopt CLI from $PortoptRepo@$PortoptRef..."
 uv tool install --force "git+$PortoptRepo@$PortoptRef#subdirectory=ingestion"
+# A native command's non-zero exit is not an exception even under "Stop"; without this
+# a failed install would fall through and launch whatever portopt is already on PATH.
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "Launching the setup wizard..."
 portopt setup @args

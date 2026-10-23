@@ -11,6 +11,7 @@ stdin directly — so parity there is arg-forwarding + matching structure).
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -349,3 +350,16 @@ class TestInstallPs1:
     def test_ensures_uv(self) -> None:
         """It bootstraps uv when missing."""
         assert "astral.sh/uv/install.ps1" in _read("install.ps1")
+
+    def test_stops_when_the_cli_install_fails(self) -> None:
+        """A failed ``uv tool install`` must not fall through to a stale ``portopt``.
+
+        ``$ErrorActionPreference = "Stop"`` does not turn a native command's non-zero
+        exit into an exception, so the exit code has to be checked explicitly.
+        """
+        text = _read("install.ps1")
+        assert re.search(
+            r"^uv tool install[^\n]*\n(?:#[^\n]*\n)*if \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}",
+            text,
+            re.MULTILINE,
+        )

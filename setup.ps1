@@ -25,5 +25,8 @@ $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
 Set-Location $here
 Write-Host "Installing the portopt CLI from this checkout..."
 uv tool install --reinstall --from ./ingestion portopt
+# A native command's non-zero exit is not an exception even under "Stop"; without this
+# a failed install would fall through and launch whatever portopt is already on PATH.
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 portopt setup @args

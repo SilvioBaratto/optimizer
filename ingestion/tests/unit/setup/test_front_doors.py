@@ -160,6 +160,19 @@ class TestSetupPs1:
         assert path_export is not None
         assert path_export.start() < text.index("uv tool install")
 
+    def test_stops_when_the_cli_install_fails(self) -> None:
+        """A failed ``uv tool install`` must not fall through to a stale ``portopt``.
+
+        ``$ErrorActionPreference = "Stop"`` does not turn a native command's non-zero
+        exit into an exception, so the exit code has to be checked explicitly.
+        """
+        text = _read("setup.ps1")
+        assert re.search(
+            r"^uv tool install[^\n]*\n(?:#[^\n]*\n)*if \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}",
+            text,
+            re.MULTILINE,
+        )
+
     def test_puts_uv_tool_dir_on_session_path_before_using_uv(self) -> None:
         """A freshly bootstrapped uv is callable in the same session.
 
