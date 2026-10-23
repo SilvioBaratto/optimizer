@@ -262,6 +262,68 @@ class TestFailedFetchAccounting:
         assert "technology/GB: no data" in errors
 
 
+class TestRolledBackPairsAreNotCounted:
+    @staticmethod
+    def _client() -> MagicMock:
+        yf = MagicMock()
+        yf.sectors.fetch_sector.return_value = {
+            "key": "technology",
+            "name": "Technology",
+            "symbol": "^YH311",
+            "overview": {"market_cap": 1.0},
+            "industries": [{"key": "semiconductors", "name": "Semis"}],
+            "top_companies": [{"symbol": "AAPL", "name": "Apple"}],
+        }
+        return yf
+
+    def test_later_upsert_failure_leaves_every_counter_at_zero(self) -> None:
+        repo = MagicMock(name="repo")
+        repo.upsert_industries.return_value = 2
+        repo.upsert_top_companies.side_effect = RuntimeError("constraint")
+        with (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        ):
+            result = run_market_structure_fetch(self._client(), regions=("US",))
+
+        assert result["error_count"] == len(SECTOR_KEYS)
+        assert result["sectors_written"] == 0
+        assert result["industries_written"] == 0
+        assert result["top_companies_written"] == 0
+
+    def test_commit_failure_leaves_every_counter_at_zero(self) -> None:
+        repo = MagicMock(name="repo")
+        repo.upsert_industries.return_value = 2
+        repo.upsert_top_companies.return_value = 3
+        session = MagicMock(name="session")
+        session.commit.side_effect = RuntimeError("connection lost")
+
+        @contextmanager
+        def _cm():
+            yield session
+
+        dbm = MagicMock()
+        dbm.get_session = _cm
+        with (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", dbm),
+        ):
+            result = run_market_structure_fetch(self._client(), regions=("US",))
+
+        assert result["error_count"] == len(SECTOR_KEYS)
+        assert result["sectors_written"] == 0
+        assert result["industries_written"] == 0
+        assert result["top_companies_written"] == 0
+
+
 class TestSectorOverviewScope:
     """Yahoo's overview figures are global, so only one region row may carry them."""
 

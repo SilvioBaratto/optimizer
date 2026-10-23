@@ -115,14 +115,16 @@ def run_market_structure_fetch(
                         industries_count=_int(ov.get("industries_count")),
                         employee_count=_int(ov.get("employee_count")),
                     )
-                    sectors_written += 1
-                    industries_written += repo.upsert_industries(
+                    n_industries = repo.upsert_industries(
                         key, region, as_of, data.get("industries") or []
                     )
-                    companies_written += repo.upsert_top_companies(
+                    n_companies = repo.upsert_top_companies(
                         key, region, as_of, data.get("top_companies") or []
                     )
                     session.commit()
+                    sectors_written += 1
+                    industries_written += n_industries
+                    companies_written += n_companies
                 except Exception as e:  # one bad sector/region must not abort
                     logger.warning("Failed sector %s/%s: %s", key, region, e)
                     errors.append(f"{key}/{region}: {e}")
