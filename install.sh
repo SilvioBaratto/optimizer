@@ -47,9 +47,12 @@ uv tool install --force "git+${PORTOPT_REPO}@${PORTOPT_REF}#subdirectory=ingesti
 echo "Launching the setup wizard..."
 # `curl | bash` binds this shell's stdin to the piped script, not the terminal, so
 # an interactive `portopt setup` would read EOF and abort. When a controlling
-# terminal is readable, reconnect stdin to it; otherwise (headless / CI, no
-# /dev/tty) run as-is so a flag-driven `--non-interactive` install still works.
-if [ -r /dev/tty ]; then
+# terminal can be opened, reconnect stdin to it; otherwise (headless / CI, no
+# controlling terminal) run as-is so a flag-driven `--non-interactive` install
+# still works. The probe really opens the device: /dev/tty is rw-rw-rw- even with
+# no controlling terminal, so `-r` would pass and the redirect would then abort
+# the script under `set -e`.
+if { : < /dev/tty; } 2>/dev/null; then
   portopt setup "$@" < /dev/tty
 else
   portopt setup "$@"

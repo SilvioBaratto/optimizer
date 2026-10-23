@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.setup._shell_stubs import run_front_door
+
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
@@ -35,10 +37,14 @@ class TestInstallSh:
         assert b"\r" not in (_REPO_ROOT / "install.sh").read_bytes()
 
     def test_guards_the_dev_tty_read(self) -> None:
-        """It reconnects stdin to /dev/tty only when a terminal is readable."""
+        """It reconnects stdin to /dev/tty only when the device can be opened.
+
+        A ``-r /dev/tty`` mode-bit test is not a guard: it passes with no
+        controlling terminal.
+        """
         text = _read("install.sh")
-        assert "/dev/tty" in text
-        assert "-r /dev/tty" in text
+        assert "< /dev/tty" in text
+        assert "-r /dev/tty" not in text
 
     def test_has_a_headless_fallback(self) -> None:
         """A no-tty branch still runs setup (so --non-interactive/CI survives)."""
@@ -69,6 +75,22 @@ class TestInstallSh:
             text=True,
         )
         assert result.returncode == 0, result.stderr
+
+    def test_headless_run_without_a_controlling_terminal_still_runs_setup(
+        self, tmp_path: Path
+    ) -> None:
+        """No controlling terminal (CI, cron, ``ssh -T``) takes the plain fallback.
+
+        ``/dev/tty`` stays world-readable by mode even when it cannot be opened, so
+        a mode-bit check sends the script into a ``< /dev/tty`` redirect that fails
+        and ``set -e`` aborts before ``portopt setup`` ever runs.
+        """
+        run = run_front_door("install.sh", tmp_path, "--non-interactive")
+
+        assert run.result.returncode == 0, run.result.stderr
+        setups = run.calls_to("portopt")
+        assert len(setups) == 1, run.result.stderr
+        assert setups[0][3] == "setup --non-interactive"
 
 
 class TestInstallPs1:
