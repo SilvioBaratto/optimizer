@@ -13,10 +13,14 @@ remove every plaintext file.
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import shutil
+import sys
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+
+_logger = logging.getLogger(__name__)
 
 # Must match the top-level `secrets:` keys in docker-compose.yml.
 # The `portopt setup` wizard also configures the fund's switchable-LLM backend
@@ -67,8 +71,12 @@ def _restrict_dir(target: Path) -> bool:
     rather than assumed.
     """
     target.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # A Docker-created (root-owned) directory cannot be chmod'ed by the host user.
     with contextlib.suppress(OSError):
         target.chmod(0o700)
+    if sys.platform == "win32":
+        # POSIX mode bits are not enforced on Windows; ACLs govern access there.
+        return True
     return target.stat().st_mode & 0o077 == 0
 
 
@@ -105,7 +113,15 @@ def render(secrets: Mapping[str, str], *, secrets_dir: Path) -> list[Path]:
     different host uid is unreadable there. When the directory cannot be made
     owner-only the files stay 0600 rather than exposing the keys to other users.
     """
-    file_mode = 0o644 if _restrict_dir(secrets_dir) else 0o600
+    locked = _restrict_dir(secrets_dir)
+    if not locked:
+        _logger.warning(
+            "Cannot restrict %s to its owner; writing secrets as 0600 so other local "
+            "users cannot read them. The container user may be unable to read them "
+            "unless it owns the files.",
+            secrets_dir,
+        )
+    file_mode = 0o644 if locked else 0o600
     written: list[Path] = []
     for name in SECRET_NAMES:
         path = secrets_dir / name

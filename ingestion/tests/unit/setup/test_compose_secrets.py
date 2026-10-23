@@ -6,6 +6,7 @@ owner-only directory, with a mode the containers' non-root user can read;
 `cleanup` removes them (all, or just the ones named).
 """
 
+import logging
 import os
 import re
 import shutil
@@ -311,3 +312,44 @@ def test_a_looser_leftover_file_gets_its_final_mode_before_the_value_lands(
     # Leftover is 0666; a freshly created file gets the creation mode.
     assert set(modes_at_write) == {final_mode}
     assert leftover.read_text(encoding="utf-8") == "fresh"
+
+
+def _deny_dir_chmod(monkeypatch: pytest.MonkeyPatch, denied: Path) -> None:
+    """Make `denied.chmod` fail like a directory owned by another host user."""
+    real_chmod = Path.chmod
+
+    def _chmod(self: Path, *args: object, **kwargs: object) -> None:
+        if self == denied:
+            raise PermissionError(1, "Operation not permitted", str(self))
+        real_chmod(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "chmod", _chmod)
+
+
+@_POSIX_ONLY
+def test_unlockable_open_directory_is_reported_to_the_operator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    target = tmp_path / "secrets"
+    target.mkdir(mode=0o755)
+    target.chmod(0o755)
+    _deny_dir_chmod(monkeypatch, target)
+    with caplog.at_level(logging.WARNING):
+        cs.render({"fred_api_key": "x"}, secrets_dir=target)
+    assert str(target) in caplog.text
+
+
+@_POSIX_ONLY
+def test_files_stay_readable_when_the_directory_is_already_owner_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A failed chmod is harmless when the directory is already closed to other
+    # users, so the container-readable mode must not be downgraded needlessly.
+    target = tmp_path / "secrets"
+    target.mkdir(mode=0o700)
+    target.chmod(0o700)
+    _deny_dir_chmod(monkeypatch, target)
+    with caplog.at_level(logging.WARNING):
+        cs.render({"fred_api_key": "x"}, secrets_dir=target)
+    assert (target / "fred_api_key").stat().st_mode & 0o777 == 0o644
+    assert caplog.text == ""
