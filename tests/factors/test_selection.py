@@ -138,6 +138,28 @@ class TestSelectFixedCount:
         )
         assert set(result) == {"A", "B", "E", "F", "G"}
 
+    def test_zero_buffer_fraction_returns_pure_top_n_despite_held_names(self) -> None:
+        scores = pd.Series([5.0, 4.0, 3.0, 2.0, 1.0], index=list("ABCDE"))
+        result = select_fixed_count(
+            scores,
+            target_count=3,
+            buffer_fraction=0.0,
+            current_members=pd.Index(["A", "B", "D"]),
+        )
+        assert list(result) == ["A", "B", "C"]
+
+    def test_zero_buffer_fraction_does_not_retain_held_rank_below_target(
+        self,
+    ) -> None:
+        scores = pd.Series([float(10 - i) for i in range(10)], index=list("ABCDEFGHIJ"))
+        result = select_fixed_count(
+            scores,
+            target_count=5,
+            buffer_fraction=0.0,
+            current_members=pd.Index(["F"]),
+        )
+        assert set(result) == set("ABCDE")
+
 
 class TestSelectQuantile:
     def test_selects_above_threshold(self, scores: pd.Series) -> None:

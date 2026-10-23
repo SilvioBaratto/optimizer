@@ -29,7 +29,9 @@ def select_fixed_count(
             lowest-ranked direct entrants that are not current members
             (held names inside the top ``target_count`` are never displaced),
             but the returned index always contains exactly
-            ``min(len(valid_scores), target_count)`` tickers.
+            ``min(len(valid_scores), target_count)`` tickers. A positive
+            fraction yields a buffer of at least one rank; ``0`` disables the
+            buffer and returns the pure top ``target_count``.
         current_members: Tickers currently selected.
 
     Returns:
@@ -43,9 +45,11 @@ def select_fixed_count(
 
     direct = cast(pd.Index, ranked.index[:target_count])
 
-    if current_members is None or len(current_members) == 0:
+    if current_members is None or len(current_members) == 0 or buffer_fraction <= 0:
         return direct
 
+    # A positive fraction always buys at least one rank of hysteresis; only a
+    # non-positive fraction disables the buffer.
     buffer_size = max(1, int(target_count * buffer_fraction))
     extended_idx = min(target_count + buffer_size, len(ranked))
     buffer_zone = cast(pd.Index, ranked.index[target_count:extended_idx])
