@@ -145,7 +145,9 @@ def compute_equal_weight_composite(
             provided, skip tier-based derivation and use these weights directly.
 
     Returns:
-        Composite score per ticker.
+        Composite score per ticker. All NaN when no group in ``group_scores``
+        has a usable weight (no recognised factor columns, or
+        ``group_weights`` sharing no key with ``group_scores``).
     """
     if config is None:
         config = CompositeScoringConfig()
@@ -165,7 +167,14 @@ def compute_equal_weight_composite(
             )
 
     if not weights:
-        return pd.Series(0.0, index=group_scores.index)
+        # NaN, not 0.0: a constant score would rank every ticker as a tie and
+        # let selection pick arbitrary names without any sign of missing data.
+        logger.warning(
+            "compute_equal_weight_composite: no factor group has a usable "
+            "weight (group_scores columns: %s); returning NaN scores.",
+            list(group_scores.columns),
+        )
+        return pd.Series(np.nan, index=group_scores.index)
 
     return _renormalized_weighted_composite(group_scores, weights)
 

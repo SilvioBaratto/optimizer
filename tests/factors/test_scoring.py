@@ -1270,3 +1270,58 @@ class TestICIRWeightedLookback:
             )
         assert isinstance(result, pd.Series)
         assert result.isna().all()
+
+
+class TestEqualWeightCompositeWithoutUsableGroups:
+    """No usable group must read as missing data, not as a neutral score."""
+
+    @staticmethod
+    def _unrecognised_factors() -> tuple[pd.DataFrame, pd.DataFrame]:
+        rng = np.random.default_rng(3)
+        tickers = [f"T{i}" for i in range(5)]
+        factors = pd.DataFrame(
+            rng.normal(0, 1, (5, 2)), index=tickers, columns=["PC1", "PC2"]
+        )
+        return factors, pd.DataFrame(True, index=tickers, columns=factors.columns)
+
+    def test_unrecognised_factor_columns_score_nan_not_zero(self) -> None:
+        factors, coverage = self._unrecognised_factors()
+        result = compute_composite_score(factors, coverage)
+        assert isinstance(result, pd.Series)
+        assert list(result.index) == list(factors.index)
+        assert result.isna().all()
+
+    def test_group_weights_without_overlap_score_nan_not_zero(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        group_scores = compute_group_scores(standardized_factors, coverage)
+        result = compute_equal_weight_composite(
+            group_scores, group_weights={"not_a_group": 1.0}
+        )
+        assert result.isna().all()
+
+    def test_empty_group_scores_score_nan(self) -> None:
+        empty = pd.DataFrame(index=["a", "b", "c"], dtype=float)
+        result = compute_equal_weight_composite(empty)
+        assert list(result.index) == ["a", "b", "c"]
+        assert result.isna().all()
+
+    def test_ic_weighted_equal_weight_fallback_scores_nan_for_unusable_groups(
+        self,
+    ) -> None:
+        factors, coverage = self._unrecognised_factors()
+        ic_history = pd.DataFrame({"value": [0.05, 0.04, 0.06]})
+        config = CompositeScoringConfig.for_ic_weighted()
+        with pytest.warns(UserWarning, match="non-positive IC"):
+            result = compute_composite_score(
+                factors, coverage, config=config, ic_history=ic_history
+            )
+        assert isinstance(result, pd.Series)
+        assert result.isna().all()
+
+    def test_usable_groups_are_unaffected(
+        self, standardized_factors: pd.DataFrame, coverage: pd.DataFrame
+    ) -> None:
+        result = compute_composite_score(standardized_factors, coverage)
+        assert isinstance(result, pd.Series)
+        assert result.notna().all()
