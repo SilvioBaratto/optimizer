@@ -1,6 +1,6 @@
 """DistributionallyRobustCVaR configuration and factory.
 
-``epsilon=0`` falls back to empirical CVaR.
+``epsilon=0`` falls back to the empirical CVaR utility.
 
 The skfolio class accepts ``wasserstein_ball_radius=epsilon``; the
 local Config exposes ``epsilon`` to keep the parameter naming
@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 from skfolio.measures import RiskMeasure
 from skfolio.optimization import DistributionallyRobustCVaR, MeanRisk
 from skfolio.optimization._base import BaseOptimization
@@ -30,11 +31,11 @@ class DRCVaRConfig:
     Attributes:
         epsilon: Wasserstein-ball radius, in the units of the returns the
             optimiser is fitted on (per period, not annualised).  ``0`` falls
-            back to empirical CVaR.  The radius is added to the CVaR as a
-            penalty on the largest weight, so a radius of the same order as
-            per-period asset volatility drives the solution to equal weight
-            whatever the data say; daily returns call for roughly ``1e-4`` to
-            ``2e-3``.  Default ``5e-4``.
+            back to the empirical CVaR utility.  The radius is added to the
+            CVaR as a penalty on the largest weight, so a radius of the same
+            order as per-period asset volatility drives the solution to equal
+            weight whatever the data say; daily returns call for roughly
+            ``1e-4`` to ``2e-3``.  Default ``5e-4``.
         cvar_beta: CVaR confidence level. Default ``0.95``.
         risk_aversion: Risk-aversion coefficient.
         prior_config: Inner prior configuration.
@@ -89,10 +90,14 @@ def build_dr_cvar(
 ) -> BaseOptimization:
     """Build a skfolio `DistributionallyRobustCVaR` from `config`.
 
-    When ``epsilon == 0``, this falls back to plain ``MeanRisk(CVaR)``
-    so the empirical-CVaR fallback is exact (the DRCVaR formulation
-    and ``MeanRisk(CVaR)`` use different solver paths and produce
-    weights that differ at ~1e-3 even at ``wasserstein_ball_radius=0``).
+    When ``epsilon == 0``, this falls back to ``MeanRisk`` maximising
+    the ``return - risk_aversion * CVaR`` utility, which is the exact
+    radius -> 0 limit of the DR-CVaR objective, so a sweep over radii
+    that includes ``0`` stays continuous and ``risk_aversion`` keeps its
+    meaning.  The return term is the (sample-weighted) mean of the prior's
+    return distribution rather than the prior's ``mu``, because skfolio's
+    DR-CVaR ignores ``mu``; a caller-supplied ``overwrite_expected_return``
+    takes precedence over that choice and then forfeits the continuity.
 
     Args:
         config: DR-CVaR configuration. ``None`` triggers default.
@@ -133,9 +138,10 @@ def _build_empirical_cvar_fallback(
     prior_estimator: BasePrior | None,
     **kwargs: Any,
 ) -> MeanRisk:
-    """Empirical-CVaR fallback for ``epsilon=0`` — plain `MeanRisk`."""
+    """Empirical-CVaR fallback for ``epsilon=0`` — utility-maximising `MeanRisk`."""
+    kwargs.setdefault("overwrite_expected_return", _sample_mean_expected_return)
     return MeanRisk(
-        objective_function=ObjectiveFunction.MINIMIZE_RISK,
+        objective_function=ObjectiveFunction.MAXIMIZE_UTILITY,
         risk_measure=RiskMeasure.CVAR,
         cvar_beta=config.cvar_beta,
         risk_aversion=config.risk_aversion,
@@ -147,6 +153,19 @@ def _build_empirical_cvar_fallback(
         solver_params=config.solver_params,
         **kwargs,
     )
+
+
+def _sample_mean_expected_return(w: Any, model: Any) -> Any:
+    """Return term of `DistributionallyRobustCVaR` at radius zero.
+
+    skfolio's DR-CVaR evaluates ``returns @ w`` on the raw scenarios and never
+    reads the prior's ``mu``; `MeanRisk` defaults to ``mu @ w``.  Any prior
+    whose ``mu`` is not the scenario mean (EW, shrunk, equilibrium, ...) would
+    otherwise make the fallback optimise a different objective.
+    """
+    dist = model.prior_estimator_.return_distribution_
+    scenario_mean = np.average(dist.returns, axis=0, weights=dist.sample_weight)
+    return scenario_mean @ w
 
 
 __all__ = ["DRCVaRConfig", "build_dr_cvar"]

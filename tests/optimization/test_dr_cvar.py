@@ -5,11 +5,13 @@ from __future__ import annotations
 import dataclasses
 
 import numpy as np
+import pandas as pd
 import pytest
 from skfolio.measures import RiskMeasure
 from skfolio.optimization import DistributionallyRobustCVaR, MeanRisk
 from skfolio.optimization.convex._base import ObjectiveFunction
 
+from optimizer.moments import MomentEstimationConfig, MuEstimatorType
 from optimizer.optimization import DRCVaRConfig, build_dr_cvar
 
 
@@ -136,28 +138,82 @@ class TestBuildDRCVaR:
         assert isinstance(est.prior_estimator, EmpiricalPrior)
 
 
-class TestEpsilonZeroFallback:
-    """epsilon=0 must collapse to plain MeanRisk(CVaR) — weights identical."""
+@pytest.fixture(scope="module")
+def distinct_mean_returns() -> pd.DataFrame:
+    """Five assets whose mean returns differ enough to move a utility objective."""
+    rng = np.random.default_rng(7)
+    means = np.array([0.001, 0.002, 0.003, 0.004, 0.005])
+    return pd.DataFrame(rng.normal(means, 0.01, size=(300, 5)), columns=list("ABCDE"))
 
-    def test_when_epsilon_zero_then_weights_match_plain_meanrisk_cvar(
+
+class TestEpsilonZeroFallback:
+    """epsilon=0 must be the exact radius -> 0 limit of the DR-CVaR utility."""
+
+    def test_when_epsilon_zero_then_weights_match_utility_meanrisk_cvar(
         self, returns
     ) -> None:
-        from optimizer.optimization import RiskMeasureType
-
         cfg = DRCVaRConfig(epsilon=0.0)
         dr = build_dr_cvar(cfg)
         dr.fit(returns)
 
         plain = MeanRisk(
-            objective_function=ObjectiveFunction.MINIMIZE_RISK,
+            objective_function=ObjectiveFunction.MAXIMIZE_UTILITY,
             risk_measure=RiskMeasure.CVAR,
             cvar_beta=cfg.cvar_beta,
+            risk_aversion=cfg.risk_aversion,
         )
         plain.fit(returns)
 
-        # Confirm the fallback config reuses CVAR semantics.
-        assert RiskMeasureType.CVAR.value == "cvar"
         assert np.allclose(dr.weights_, plain.weights_, atol=1e-8)
+
+    def test_when_epsilon_zero_then_continuous_with_vanishing_radius(
+        self, distinct_mean_returns
+    ) -> None:
+        zero = build_dr_cvar(DRCVaRConfig(epsilon=0.0))
+        zero.fit(distinct_mean_returns)
+        tiny = build_dr_cvar(DRCVaRConfig(epsilon=1e-9))
+        tiny.fit(distinct_mean_returns)
+
+        assert np.allclose(zero.weights_, tiny.weights_, atol=1e-4)
+
+    @pytest.mark.parametrize(
+        "mu_estimator", [MuEstimatorType.EW, MuEstimatorType.SHRUNK]
+    )
+    def test_when_prior_mu_is_not_sample_mean_then_still_continuous(
+        self, distinct_mean_returns, mu_estimator
+    ) -> None:
+        # DistributionallyRobustCVaR builds its return term from the raw sample
+        # returns and ignores the prior's mu, so the fallback must do the same.
+        prior = MomentEstimationConfig(mu_estimator=mu_estimator)
+        zero = build_dr_cvar(DRCVaRConfig(epsilon=0.0, prior_config=prior))
+        zero.fit(distinct_mean_returns)
+        tiny = build_dr_cvar(DRCVaRConfig(epsilon=1e-9, prior_config=prior))
+        tiny.fit(distinct_mean_returns)
+
+        assert np.allclose(zero.weights_, tiny.weights_, atol=1e-4)
+
+    def test_when_caller_overrides_expected_return_then_override_wins(
+        self, distinct_mean_returns
+    ) -> None:
+        def no_return(w):
+            return np.zeros(5) @ w
+
+        est = build_dr_cvar(
+            DRCVaRConfig(epsilon=0.0), overwrite_expected_return=no_return
+        )
+        assert est.overwrite_expected_return is no_return
+        est.fit(distinct_mean_returns)
+        assert est.weights_.shape == (5,)
+
+    def test_when_epsilon_zero_then_risk_aversion_changes_weights(
+        self, distinct_mean_returns
+    ) -> None:
+        risk_tolerant = build_dr_cvar(DRCVaRConfig(epsilon=0.0, risk_aversion=0.1))
+        risk_tolerant.fit(distinct_mean_returns)
+        risk_averse = build_dr_cvar(DRCVaRConfig(epsilon=0.0, risk_aversion=1.0))
+        risk_averse.fit(distinct_mean_returns)
+
+        assert np.abs(risk_tolerant.weights_ - risk_averse.weights_).max() > 0.05
 
 
 class TestIntegration:
