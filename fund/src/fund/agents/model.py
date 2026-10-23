@@ -28,6 +28,7 @@ lazily; the first request happens later at call time.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any
 
 from fund.config import FundConfig, settings
@@ -41,6 +42,7 @@ __all__ = [
     "build_chat_model",
     "build_fallback",
     "build_primary",
+    "effective_temperature",
 ]
 
 # Ollama Cloud host marker: a `base_url` on this host is the cloud path and so
@@ -68,6 +70,14 @@ _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 _CONNECT_TIMEOUT_SECONDS = 10.0
 _READ_TIMEOUT_SECONDS = 180.0
 
+# Model families whose APIs reject any non-default sampling temperature: OpenAI's
+# o-series ("o1", "o3-mini", "o4-mini", ...) answers HTTP 400, and langchain-anthropic
+# raises client-side for the Fable family. The fallback model goes through the same
+# builder, so sending the temperature=0 contract anyway would fail every request
+# with nothing for ModelFallbackMiddleware to fall back to.
+_OPENAI_REASONING_MODEL = re.compile(r"o\d")
+_ANTHROPIC_FIXED_SAMPLING_PREFIX = "claude-fable-5"
+
 
 def _require(value: str | None, env_name: str) -> str:
     """Return ``value`` or raise a clear build-time error naming ``env_name``.
@@ -80,6 +90,42 @@ def _require(value: str | None, env_name: str) -> str:
             f"{env_name} is required to build a chat model; set it in the environment."
         )
     return value
+
+
+def _rejects_temperature(provider: str, model_name: str) -> bool:
+    """Return whether ``provider`` refuses a non-default temperature for the model."""
+    if provider in ("openai", "microsoft"):
+        return _OPENAI_REASONING_MODEL.match(model_name) is not None
+    if provider == "anthropic":
+        return model_name.startswith(_ANTHROPIC_FIXED_SAMPLING_PREFIX)
+    return False
+
+
+def effective_temperature(config: FundConfig, model_name: str) -> float | None:
+    """Return the temperature the selected provider is actually sent for a model.
+
+    The builders and the run audit record both go through this, so the audit row
+    cannot claim a deterministic ``temperature=0`` for a model that was built
+    without one.
+
+    Args:
+        config: Run config carrying the D4 ``model_temperature`` contract and the
+            selected ``llm_provider``.
+        model_name: Model id the chat model is built for.
+
+    Returns:
+        ``config.model_temperature``, or ``None`` when the model family rejects a
+        non-default value and the SDK's own sampling default applies.
+    """
+    if _rejects_temperature(config.llm_provider, model_name):
+        return None
+    return config.model_temperature
+
+
+def _temperature_kwargs(config: FundConfig, model_name: str) -> dict[str, float]:
+    """Return the ``temperature`` kwarg, or nothing for a model that rejects it."""
+    temperature = effective_temperature(config, model_name)
+    return {} if temperature is None else {"temperature": temperature}
 
 
 def _build_ollama(config: FundConfig, model_name: str) -> BaseChatModel:
@@ -119,9 +165,10 @@ def _build_openai(config: FundConfig, model_name: str) -> BaseChatModel:
 
     Requires ``OPENAI_API_KEY``; honours ``OPENAI_BASE_URL`` when set (a proxy or
     self-hosted gateway), otherwise ``ChatOpenAI`` targets OpenAI's own host.
-    ``temperature=0`` threads the D4 contract; ``reasoning=`` is Ollama-only and is
-    never passed here — the o-series non-thinking route is an operator model-id
-    choice (SPEC Open Q2), not a constructor flag.
+    ``temperature=0`` threads the D4 contract except for o-series reasoning models,
+    which reject it; ``reasoning=`` is Ollama-only and is never passed here — the
+    o-series non-thinking route is an operator model-id choice (SPEC Open Q2), not a
+    constructor flag.
     """
     from langchain_openai import ChatOpenAI
 
@@ -129,7 +176,7 @@ def _build_openai(config: FundConfig, model_name: str) -> BaseChatModel:
     kwargs: dict[str, Any] = {
         "model": model_name,
         "api_key": api_key,
-        "temperature": config.model_temperature,
+        **_temperature_kwargs(config, model_name),
     }
     if config.openai_base_url:
         kwargs["base_url"] = config.openai_base_url
@@ -158,10 +205,10 @@ def _build_openrouter(config: FundConfig, model_name: str) -> BaseChatModel:
 def _build_anthropic(config: FundConfig, model_name: str) -> BaseChatModel:
     """Build a ``ChatAnthropic`` (Anthropic's Claude models).
 
-    Requires ``ANTHROPIC_API_KEY``; ``temperature=0`` threads the D4 contract.
-    ``reasoning=`` is Ollama-only and is never passed here — Anthropic's extended
-    thinking is an operator model-id / separate-flag choice (SPEC Open Q2), not
-    this constructor flag.
+    Requires ``ANTHROPIC_API_KEY``; ``temperature=0`` threads the D4 contract except
+    for the Fable family, which rejects it. ``reasoning=`` is Ollama-only and is
+    never passed here — Anthropic's extended thinking is an operator model-id /
+    separate-flag choice (SPEC Open Q2), not this constructor flag.
     """
     from langchain_anthropic import ChatAnthropic
 
@@ -169,7 +216,7 @@ def _build_anthropic(config: FundConfig, model_name: str) -> BaseChatModel:
     kwargs: dict[str, Any] = {
         "model": model_name,
         "api_key": api_key,
-        "temperature": config.model_temperature,
+        **_temperature_kwargs(config, model_name),
     }
     return ChatAnthropic(**kwargs)
 
@@ -242,8 +289,8 @@ def _build_microsoft(config: FundConfig, model_name: str) -> BaseChatModel:
     ``AZURE_OPENAI_DEPLOYMENT_NAME``); a missing one raises via :func:`_require`
     naming it. ``model`` / ``api_key`` / ``api_version`` / ``azure_deployment`` are
     the class's accepted aliases, so this stays consistent with the other builders.
-    ``temperature=0`` threads the D4 contract; ``reasoning=`` is Ollama-only and is
-    never passed here.
+    ``temperature=0`` threads the D4 contract except for o-series reasoning models,
+    which reject it; ``reasoning=`` is Ollama-only and is never passed here.
     """
     from langchain_openai import AzureChatOpenAI
 
@@ -257,7 +304,7 @@ def _build_microsoft(config: FundConfig, model_name: str) -> BaseChatModel:
         "azure_deployment": _require(
             config.azure_openai_deployment_name, "AZURE_OPENAI_DEPLOYMENT_NAME"
         ),
-        "temperature": config.model_temperature,
+        **_temperature_kwargs(config, model_name),
     }
     return AzureChatOpenAI(**kwargs)
 

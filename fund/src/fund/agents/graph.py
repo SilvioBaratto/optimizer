@@ -1604,8 +1604,9 @@ def _prepare_fund_run(
     The setup :func:`run_fund` and :func:`stream_fund` share so neither drifts from the
     other: a FROZEN fund or portfolio raises ``RuntimeError`` (re-arm first — Q3, fund
     scope wins); a missing active ``ConstraintSet`` raises ``RuntimeError`` (profile
-    first); a pending ``agent_run`` is opened recording the seed + ``temperature`` + the
-    3y backtest training window (D31) + the mandate's ``capital`` (the ticket's gross
+    first); a pending ``agent_run`` is opened recording the seed + the effective
+    ``temperature`` (``None`` for a model built without one) + the 3y backtest training
+    window (D31) + the mandate's ``capital`` (the ticket's gross
     book) + the active MiFID ``profile_version`` (``None`` when unprofiled); its
     checkpointer thread is pinned to ``str(run_id)`` so the rebuild-to-resume path
     recovers it; and the PM agent is built against this run's ``RunContext`` with the
@@ -1618,6 +1619,7 @@ def _prepare_fund_run(
     """
     import secrets
 
+    from fund.agents.model import effective_temperature
     from fund.agents.toolsets import RunContext
     from fund.audit import (
         AgentRunRepository,
@@ -1671,7 +1673,7 @@ def _prepare_fund_run(
         universe=[],
         optimizer_config={
             "step": "fund",
-            "temperature": config.model_temperature,
+            "temperature": effective_temperature(config, config.primary_model),
             "backtest_train_size": _LOOKBACK_DAYS,
             # Recorded so the rebuild-to-resume path sizes the ticket at the capital
             # the PM was told, even if the mandate is edited before approval.

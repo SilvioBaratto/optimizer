@@ -1277,3 +1277,19 @@ def test_default_run_seed_fits_postgres_signed_integer(
 
     created = AgentRunRepository(db_session).get_run(run.run_id)
     assert 0 <= created.seed <= 2**31 - 1
+
+
+def test_records_no_temperature_for_a_model_that_skips_it(db_session) -> None:
+    # claude-fable-5 is built without a temperature (the SDK default applies), so the
+    # audit row must not claim the configured 0.0 for that run.
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=expected)
+    config = dataclasses.replace(
+        settings, llm_provider="anthropic", primary_model="claude-fable-5"
+    )
+
+    run = _run(model, db_session, store=_store_with_cs(), config=config)
+
+    created = AgentRunRepository(db_session).get_run(run.run_id)
+    assert created.optimizer_config["temperature"] is None

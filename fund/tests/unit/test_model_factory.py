@@ -724,3 +724,86 @@ def test_huggingface_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):
 
     assert "reasoning" not in llm.kwargs
     assert "reasoning" not in llm.llm.kwargs
+
+
+# --- temperature is sent only to models that accept it -----------------------
+#
+# Anthropic's Fable family and OpenAI's o-series reject a non-default sampling
+# temperature. These tests use the real SDK classes and inspect the request body
+# the SDK would send, because construction alone succeeds for every model id.
+
+
+def _sent_temperature(llm: object) -> object:
+    """Temperature in the request body, wherever the SDK places it.
+
+    ``anthropic>=1`` no longer accepts ``temperature`` as a named argument, so
+    ``langchain-anthropic`` relocates it into ``extra_body``.
+    """
+    from langchain_core.messages import HumanMessage
+
+    payload = llm._get_request_payload([HumanMessage("hi")])  # type: ignore[attr-defined]
+    extra_body = payload.get("extra_body") or {}
+    return payload.get("temperature", extra_body.get("temperature"))
+
+
+def test_anthropic_fable_request_payload_builds_without_a_temperature():
+    cfg = FundConfig(llm_provider="anthropic", anthropic_api_key="sk-ant-test")
+
+    llm = model.build_chat_model(cfg, model_name="claude-fable-5")
+
+    assert _sent_temperature(llm) is None
+
+
+def test_anthropic_sonnet_keeps_the_configured_temperature():
+    cfg = FundConfig(llm_provider="anthropic", anthropic_api_key="sk-ant-test")
+
+    llm = model.build_chat_model(cfg, model_name="claude-sonnet-4-5")
+
+    assert _sent_temperature(llm) == cfg.model_temperature
+
+
+@pytest.mark.parametrize("model_name", ["o1", "o3", "o3-mini", "o4-mini"])
+def test_openai_reasoning_models_are_built_without_a_temperature(model_name):
+    cfg = FundConfig(llm_provider="openai", openai_api_key="sk-openai-test")
+
+    llm = model.build_chat_model(cfg, model_name=model_name)
+
+    # langchain-openai itself pins o1 to the default temperature of 1.
+    assert _sent_temperature(llm) in (None, 1)
+
+
+@pytest.mark.parametrize(
+    ("provider", "model_name", "expected"),
+    [
+        ("anthropic", "claude-fable-5", None),
+        ("anthropic", "claude-sonnet-4-5", 0.0),
+        ("openai", "o3-mini", None),
+        ("openai", "gpt-4o", 0.0),
+        ("microsoft", "o4-mini", None),
+        ("microsoft", "gpt-4o", 0.0),
+        ("groq", "o1", 0.0),
+        ("ollama", "deepseek-v4-pro:cloud", 0.0),
+    ],
+)
+def test_effective_temperature_reports_what_the_provider_is_sent(
+    provider, model_name, expected
+):
+    # The audit record of a run must say None for a model built without a
+    # temperature, and only for the families whose builder skips it.
+    cfg = FundConfig(llm_provider=provider)
+
+    assert model.effective_temperature(cfg, model_name) == expected
+
+
+def test_openai_chat_model_keeps_the_configured_temperature():
+    cfg = FundConfig(llm_provider="openai", openai_api_key="sk-openai-test")
+
+    llm = model.build_chat_model(cfg, model_name="gpt-4o")
+
+    assert _sent_temperature(llm) == cfg.model_temperature
+
+
+def test_azure_reasoning_model_is_built_without_a_temperature():
+    llm = model.build_chat_model(_azure_cfg(), model_name="o3-mini")
+
+    assert _sent_temperature(llm) in (None, 1)
