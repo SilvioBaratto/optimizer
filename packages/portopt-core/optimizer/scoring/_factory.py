@@ -257,25 +257,15 @@ def build_scorer(
     )
 
 
-def build_online_measure(
+def _resolve_native_measure(
     config: ScorerConfig | None = None,
 ) -> RatioMeasure | PerfMeasure | RiskMeasure:
-    """Return the bare skfolio measure for online model selection.
-
-    ``OnlineGridSearch`` / ``online_score`` score the aggregated
-    `MultiPeriodPortfolio` and therefore expect a
-    `measure` passed directly to ``scoring`` -- not a
-    ``make_scorer`` wrapper (which averages per-fold scores).  This helper
-    resolves a `ScorerConfig` to that measure.
-
-    Args:
-        config: Scorer configuration. Defaults to ``ScorerConfig()``
-            (Sharpe ratio).
+    """Map a `ScorerConfig` onto the skfolio measure it names, ignoring its rate.
 
     Raises:
         ConfigurationError: For the custom Information Ratio scorer or a
-            custom ``score_func`` config -- neither maps onto a native skfolio
-            measure and so cannot be used with the online utilities.
+            custom ``score_func`` config, neither of which has a native skfolio
+            measure.
     """
     if config is None:
         config = ScorerConfig()
@@ -298,3 +288,81 @@ def build_online_measure(
         "utilities require a ratio/perf/risk measure"
     )
     raise ConfigurationError(msg)
+
+
+def build_online_measure(
+    config: ScorerConfig | None = None,
+) -> RatioMeasure | PerfMeasure | RiskMeasure:
+    """Return the bare skfolio measure for online model selection.
+
+    ``OnlineGridSearch`` / ``online_score`` score the aggregated
+    `MultiPeriodPortfolio` and therefore expect a
+    `measure` passed directly to ``scoring`` -- not a
+    ``make_scorer`` wrapper (which averages per-fold scores).  This helper
+    resolves a `ScorerConfig` to that measure.
+
+    A bare measure cannot carry ``risk_free_rate`` or ``annualization_factor``;
+    online search takes them from ``portfolio_params`` instead. Use
+    `build_online_portfolio_params` for that dictionary and pass it to
+    ``run_online_score`` / ``run_online_predict``.
+
+    Args:
+        config: Scorer configuration. Defaults to ``ScorerConfig()``
+            (Sharpe ratio).
+
+    Raises:
+        ConfigurationError: For the custom Information Ratio scorer or a
+            custom ``score_func`` config -- neither maps onto a native skfolio
+            measure and so cannot be used with the online utilities -- or when
+            the config sets a non-zero ``risk_free_rate`` or an
+            ``annualization_factor`` that the returned measure would silently
+            drop.
+    """
+    if config is None:
+        config = ScorerConfig()
+    measure = _resolve_native_measure(config)
+
+    dropped = []
+    if config.risk_free_rate != 0.0:
+        dropped.append(f"risk_free_rate={config.risk_free_rate!r}")
+    if config.annualization_factor is not None:
+        dropped.append(f"annualization_factor={config.annualization_factor!r}")
+    if dropped:
+        msg = (
+            f"a bare skfolio measure cannot carry {', '.join(dropped)}; pass "
+            "portfolio_params=build_online_portfolio_params(config) alongside "
+            "the measure (accepted by run_online_score and run_online_predict), "
+            "or build the search with build_online_grid_search / "
+            "build_online_randomized_search, which do so"
+        )
+        raise ConfigurationError(msg)
+    return measure
+
+
+def build_online_portfolio_params(
+    config: ScorerConfig | None = None,
+) -> dict[str, float]:
+    """Return the ``portfolio_params`` that apply a scorer's rate and annualisation.
+
+    Online model selection scores the aggregated `MultiPeriodPortfolio` with a
+    bare measure, so the ``risk_free_rate`` and ``annualization_factor`` of a
+    `ScorerConfig` reach the scored portfolio only through the
+    ``portfolio_params`` argument of ``OnlineGridSearch`` /
+    ``OnlineRandomizedSearch`` / ``online_score``. They take precedence over
+    the estimator's own ``risk_free_rate``, so every candidate is scored at the
+    same rate.
+
+    Args:
+        config: Scorer configuration. Defaults to ``ScorerConfig()``.
+
+    Returns:
+        A dictionary with ``risk_free_rate`` and, when the config sets one,
+        ``annualization_factor``.
+    """
+    if config is None:
+        config = ScorerConfig()
+
+    params: dict[str, float] = {"risk_free_rate": config.risk_free_rate}
+    if config.annualization_factor is not None:
+        params["annualization_factor"] = config.annualization_factor
+    return params

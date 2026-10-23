@@ -43,7 +43,7 @@ def _resolve_measure(scorer_config: Any) -> Any:
     they are unsupported here.
     """
     from optimizer.optimization._config import RatioMeasureType
-    from optimizer.scoring._factory import build_online_measure
+    from optimizer.scoring._factory import _resolve_native_measure
 
     ratio_measure = getattr(scorer_config, "ratio_measure", None)
     if ratio_measure == RatioMeasureType.INFORMATION_RATIO:
@@ -65,7 +65,7 @@ def _resolve_measure(scorer_config: Any) -> Any:
             "objects. Set ratio_measure=RatioMeasureType.SHARPE_RATIO (or "
             "similar), or use perf_measure / risk_measure."
         )
-    return build_online_measure(scorer_config)
+    return _resolve_native_measure(scorer_config)
 
 
 def _resolve_portfolio_params(scorer_config: Any) -> dict[str, Any] | None:
@@ -151,6 +151,7 @@ def run_online_score(
     scorer: Any,
     config: OnlinePredictConfig,
     per_step: bool = False,
+    portfolio_params: dict[str, Any] | None = None,
 ) -> Any:
     """Forward to `online_score`.
 
@@ -159,6 +160,11 @@ def run_online_score(
     online portfolio evaluation rejects ``make_scorer`` objects. When
     ``per_step`` is ``True`` a per-rebalance array is returned instead of
     a single aggregated scalar.
+
+    A bare ``scorer`` cannot carry a ``risk_free_rate`` or
+    ``annualization_factor``; pass ``portfolio_params`` (see
+    `optimizer.scoring.build_online_portfolio_params`) so the aggregated
+    portfolio is scored at the same rate as the online searches.
     """
     _validate_partial_fit(estimator)
     return online_score(
@@ -174,6 +180,7 @@ def run_online_score(
         reduce_test=config.reduce_test,
         scoring=scorer,
         per_step=per_step,
+        portfolio_params=portfolio_params,
     )
 
 

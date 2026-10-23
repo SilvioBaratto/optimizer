@@ -16,6 +16,7 @@ from optimizer.scoring import (
     PerfMeasureType,
     ScorerConfig,
     build_online_measure,
+    build_online_portfolio_params,
     build_scorer,
 )
 from optimizer.scoring._factory import _build_ir_scorer
@@ -220,3 +221,33 @@ class TestBuildOnlineMeasure:
         cfg = ScorerConfig.for_custom()
         with pytest.raises(ConfigurationError, match="custom"):
             build_online_measure(cfg)
+
+    def test_non_default_risk_free_rate_rejected_not_silently_dropped(self) -> None:
+        # A bare measure cannot carry the rate, so accepting it would score the
+        # online search at the estimator's rate while the config says otherwise.
+        with pytest.raises(ConfigurationError, match="risk_free_rate"):
+            build_online_measure(ScorerConfig.for_sharpe_with_rf(0.0003))
+
+    def test_non_default_annualization_factor_rejected(self) -> None:
+        cfg = ScorerConfig(
+            ratio_measure=RatioMeasureType.ANNUALIZED_SHARPE_RATIO,
+            annualization_factor=12,
+        )
+        with pytest.raises(ConfigurationError, match="annualization_factor"):
+            build_online_measure(cfg)
+
+
+class TestBuildOnlinePortfolioParams:
+    def test_default_carries_zero_risk_free_rate_only(self) -> None:
+        assert build_online_portfolio_params() == {"risk_free_rate": 0.0}
+
+    def test_rf_and_annualization_factor_carried(self) -> None:
+        cfg = ScorerConfig(
+            ratio_measure=RatioMeasureType.ANNUALIZED_SHARPE_RATIO,
+            risk_free_rate=0.0002,
+            annualization_factor=12,
+        )
+        assert build_online_portfolio_params(cfg) == {
+            "risk_free_rate": 0.0002,
+            "annualization_factor": 12,
+        }

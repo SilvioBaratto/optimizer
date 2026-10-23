@@ -7,11 +7,14 @@ with a ``TypeError`` at ``.fit()``. The wrappers therefore resolve the
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 import pytest
 from cvxpy.error import SolverError
 from skfolio.measures import BaseMeasure, PerfMeasure, RatioMeasure, RiskMeasure
+from skfolio.model_selection import online_score
 from skfolio.moments import EWCovariance, EWMu
 from skfolio.optimization import MeanRisk
 from skfolio.prior import EmpiricalPrior
@@ -23,9 +26,11 @@ from optimizer.online import (
     OnlineRandomizedSearchConfig,
     build_online_grid_search,
     build_online_randomized_search,
+    run_online_score,
 )
 from optimizer.online._factory import _resolve_measure
 from optimizer.optimization._config import RatioMeasureType, RiskMeasureType
+from optimizer.scoring import build_online_portfolio_params
 from optimizer.scoring._config import PerfMeasureType, ScorerConfig
 from optimizer.tuning._config import GridSearchConfig, RandomizedSearchConfig
 
@@ -291,3 +296,141 @@ def test_when_risk_measure_scorer_then_online_search_fits(
     search.fit(returns)
     # skfolio negates risk measures so that a higher score is always better.
     assert np.all(np.asarray(search.cv_results_["mean_score"]) <= 0.0)
+
+
+def test_when_grid_search_built_with_rf_and_annualization_then_params_forwarded(
+    estimator: MeanRisk,
+) -> None:
+    scorer_config = ScorerConfig(
+        ratio_measure=RatioMeasureType.ANNUALIZED_SHARPE_RATIO,
+        risk_free_rate=0.0002,
+        annualization_factor=12,
+    )
+    cfg = OnlineGridSearchConfig(
+        base=GridSearchConfig(scorer_config=scorer_config),
+        online=OnlinePredictConfig(warmup_size=150, n_jobs=1),
+    )
+    search = build_online_grid_search(
+        cfg, estimator, {"prior_estimator__mu_estimator__half_life": [20.0, 40.0]}
+    )
+    assert search.portfolio_params == {
+        "risk_free_rate": 0.0002,
+        "annualization_factor": 12,
+    }
+
+
+def test_when_randomized_search_built_with_rf_then_params_forwarded(
+    estimator: MeanRisk,
+) -> None:
+    cfg = OnlineRandomizedSearchConfig(
+        base=replace(
+            RandomizedSearchConfig(),
+            scorer_config=ScorerConfig.for_sharpe_with_rf(0.0003),
+        ),
+        online=OnlinePredictConfig(warmup_size=150, n_jobs=1),
+    )
+    search = build_online_randomized_search(
+        cfg, estimator, {"prior_estimator__mu_estimator__half_life": [20.0, 40.0]}
+    )
+    assert search.portfolio_params == {"risk_free_rate": 0.0003}
+
+
+def _fresh_estimator() -> MeanRisk:
+    # Online state mutates during scoring, so every scored run needs its own.
+    return MeanRisk(
+        prior_estimator=EmpiricalPrior(
+            mu_estimator=EWMu(half_life=40.0),
+            covariance_estimator=EWCovariance(half_life=40.0),
+        )
+    )
+
+
+def test_when_run_online_score_with_portfolio_params_then_matches_skfolio(
+    returns: pd.DataFrame,
+) -> None:
+    cfg = OnlinePredictConfig(warmup_size=150)
+    scorer_config = ScorerConfig(
+        ratio_measure=RatioMeasureType.ANNUALIZED_SHARPE_RATIO,
+        risk_free_rate=0.0004,
+        annualization_factor=12,
+    )
+    params = build_online_portfolio_params(scorer_config)
+
+    forwarded = run_online_score(
+        _fresh_estimator(),
+        returns,
+        None,
+        scorer=RatioMeasure.ANNUALIZED_SHARPE_RATIO,
+        config=cfg,
+        portfolio_params=params,
+    )
+    expected = online_score(
+        _fresh_estimator(),
+        returns,
+        warmup_size=cfg.warmup_size,
+        scoring=RatioMeasure.ANNUALIZED_SHARPE_RATIO,
+        portfolio_params=params,
+    )
+    unforwarded = run_online_score(
+        _fresh_estimator(),
+        returns,
+        None,
+        scorer=RatioMeasure.ANNUALIZED_SHARPE_RATIO,
+        config=cfg,
+    )
+    assert forwarded == pytest.approx(expected)
+    assert forwarded != pytest.approx(unforwarded)
+
+
+def test_when_grid_search_fit_with_rf_then_score_matches_online_score(
+    returns: pd.DataFrame,
+) -> None:
+    scorer_config = ScorerConfig(
+        ratio_measure=RatioMeasureType.ANNUALIZED_SHARPE_RATIO,
+        risk_free_rate=0.0004,
+        annualization_factor=12,
+    )
+    cfg = OnlineGridSearchConfig(
+        base=GridSearchConfig(scorer_config=scorer_config),
+        online=OnlinePredictConfig(warmup_size=150, n_jobs=1),
+    )
+    search = build_online_grid_search(
+        cfg,
+        _fresh_estimator(),
+        {"prior_estimator__mu_estimator__half_life": [40.0]},
+    )
+    search.fit(returns)
+
+    expected = online_score(
+        _fresh_estimator(),
+        returns,
+        warmup_size=150,
+        scoring=RatioMeasure.ANNUALIZED_SHARPE_RATIO,
+        portfolio_params=build_online_portfolio_params(scorer_config),
+    )
+    assert search.best_score_ == pytest.approx(expected)
+
+
+def test_when_randomized_search_fit_with_rf_then_score_matches_online_score(
+    returns: pd.DataFrame,
+) -> None:
+    scorer_config = ScorerConfig.for_sharpe_with_rf(0.0004)
+    cfg = OnlineRandomizedSearchConfig(
+        base=replace(RandomizedSearchConfig(), scorer_config=scorer_config, n_iter=1),
+        online=OnlinePredictConfig(warmup_size=150, n_jobs=1),
+    )
+    search = build_online_randomized_search(
+        cfg,
+        _fresh_estimator(),
+        {"prior_estimator__mu_estimator__half_life": [40.0]},
+    )
+    search.fit(returns)
+
+    expected = online_score(
+        _fresh_estimator(),
+        returns,
+        warmup_size=150,
+        scoring=RatioMeasure.SHARPE_RATIO,
+        portfolio_params=build_online_portfolio_params(scorer_config),
+    )
+    assert search.best_score_ == pytest.approx(expected)
