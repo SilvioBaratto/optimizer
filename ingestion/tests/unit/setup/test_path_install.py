@@ -11,6 +11,7 @@ privilege (Windows without Developer Mode).
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -90,6 +91,47 @@ def test_windows_writes_cmd_with_embedded_repo(tmp_path: Path) -> None:
     text = launcher.read_text(encoding="utf-8")
     assert str(path_install._repo_root()) in text
     assert "%~dp0.." not in text
+
+
+def _checkout_under_non_ascii_dir(root: Path) -> Path:
+    repo = root / "Zoë" / "optimizer"
+    (repo / "scripts").mkdir(parents=True)
+    shutil.copy(
+        path_install._repo_root() / "scripts" / "optimizer.cmd",
+        repo / "scripts" / "optimizer.cmd",
+    )
+    return repo
+
+
+def test_windows_launcher_encodes_a_non_ascii_repo_in_the_console_code_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """cmd.exe decodes a batch file with the console (OEM) code page, never UTF-8, so
+    a UTF-8 baked path such as C:\\Users\\Zoë turns to mojibake and the launcher
+    points at a directory that does not exist."""
+    monkeypatch.setattr(path_install, "_CMD_ENCODING", "cp850")
+    repo = _checkout_under_non_ascii_dir(tmp_path)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    data = path_install._install_windows(bin_dir, repo).read_bytes()
+    assert str(repo).encode("cp850") in data
+    assert "ë".encode() not in data
+    assert b"\n" not in data.replace(b"\r\n", b"")
+
+
+def test_windows_launcher_rejects_a_repo_path_the_code_page_cannot_encode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unrepresentable path must fail loudly instead of writing a launcher that
+    silently points nowhere, and must not clobber an existing working launcher."""
+    monkeypatch.setattr(path_install, "_CMD_ENCODING", "ascii")
+    repo = _checkout_under_non_ascii_dir(tmp_path)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "optimizer.cmd").write_text("old launcher", encoding="ascii")
+    with pytest.raises(path_install.PathInstallError, match="code page"):
+        path_install._install_windows(bin_dir, repo)
+    assert (bin_dir / "optimizer.cmd").read_text(encoding="ascii") == "old launcher"
 
 
 @pytest.mark.parametrize(

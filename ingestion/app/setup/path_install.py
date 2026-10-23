@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from pathlib import Path
 
 import userpath
@@ -21,6 +22,11 @@ from app.setup import config_file
 _logger = logging.getLogger(__name__)
 
 _BIN_DIR = Path.home() / ".local" / "bin"
+
+# cmd.exe decodes a batch file with the console's code page (OEM by default), never
+# UTF-8, so the baked repo path has to be written in that encoding to survive a
+# non-ASCII directory name. "oem" is a Windows-only codec.
+_CMD_ENCODING = "oem" if sys.platform == "win32" else "utf-8"
 
 # The env var the front doors (setup.sh/.ps1/.cmd) export so an out-of-repo tool-venv
 # install of `portopt` (uv tool install --from .) can still locate the checkout.
@@ -146,10 +152,23 @@ def _install_posix(bin_dir: Path, repo: Path) -> Path:
 
 
 def _install_windows(bin_dir: Path, repo: Path) -> Path:
-    """Write ``bin_dir/optimizer.cmd`` with the repo path baked in (not ``%~dp0``)."""
+    """Write ``bin_dir/optimizer.cmd`` with the repo path baked in (not ``%~dp0``).
+
+    Raises:
+        PathInstallError: If the repo path has characters the console code page
+            cannot represent. The existing launcher is left untouched.
+    """
     template = (repo / "scripts" / "optimizer.cmd").read_text(encoding="utf-8")
     launcher = bin_dir / "optimizer.cmd"
-    launcher.write_text(template.replace("%~dp0..", str(repo)), encoding="utf-8")
+    baked = template.replace("%~dp0..", str(repo)).replace("\n", "\r\n")
+    try:
+        payload = baked.encode(_CMD_ENCODING)
+    except UnicodeEncodeError as exc:
+        raise PathInstallError(
+            f"{repo} has characters the console code page ({_CMD_ENCODING}) cannot "
+            "represent; move the checkout to an ASCII-only path."
+        ) from exc
+    launcher.write_bytes(payload)
     return launcher
 
 
