@@ -8,6 +8,7 @@ hands the database to everyone on the same network.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -29,7 +30,9 @@ def _published_ports() -> list[tuple[str, str | None]]:
             if isinstance(port, dict):
                 found.append((name, port.get("host_ip")))
                 continue
-            parts = str(port).rsplit(":", 2)
+            # Resolve ``${VAR:-default}`` first: its ``:-`` would otherwise be split.
+            resolved = re.sub(r"\$\{\w+:-([^}]*)\}", r"\1", str(port))
+            parts = resolved.rsplit(":", 2)
             found.append((name, parts[0] if len(parts) == 3 else None))
     return found
 

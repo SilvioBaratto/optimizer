@@ -75,6 +75,10 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
       DB_USER: postgres
+      # Same interpolation as the published port and the healthcheck below, so a
+      # METRICS_PORT set only in the shell (not in the root .env that env_file
+      # loads) still moves the listener together with its mapping.
+      METRICS_PORT: "${METRICS_PORT:-9000}"
     # Secrets are mounted read-only at /run/secrets/<name>; app.config reads them
     # (see PORTOPT_SECRETS_DIR). `portopt start` renders ./secrets/<name> from the
     # encrypted store before `docker compose up`; the files are git-ignored.
@@ -84,7 +88,7 @@ services:
       - fred_api_key
     ports:
       # Prometheus metrics only — no API is served
-      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:${METRICS_PORT:-9000}:${METRICS_PORT:-9000}"
     depends_on:
       db:
         condition: service_healthy
@@ -92,7 +96,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/metrics').read()"]
+      test: ["CMD", "python", "-c", "import os, urllib.request; urllib.request.urlopen('http://localhost:%s/metrics' % os.environ.get('METRICS_PORT', '9000')).read()"]
       interval: 30s
       timeout: 10s
       start_period: 60s

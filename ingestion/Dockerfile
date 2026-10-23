@@ -68,11 +68,12 @@ ENV PATH=/venv/bin:$PATH
 USER appuser
 WORKDIR /app/ingestion
 
-# Prometheus metrics — also the healthcheck target
+# Prometheus metrics — also the healthcheck target. EXPOSE is documentation only;
+# the daemon listens on $METRICS_PORT (default 9000) and the probe follows it.
 EXPOSE 9000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:9000/metrics').read()"
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://localhost:%s/metrics' % os.environ.get('METRICS_PORT', '9000')).read()"
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["python", "-m", "app.worker"]
