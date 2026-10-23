@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -79,3 +80,51 @@ def test_evaluate_query_asks_for_the_news_count_production_asks_for(script, sear
         max_results=8,
         news_count=production_news_count,
     )
+
+
+def test_evaluate_query_counts_only_recent_articles_from_trusted_publishers(
+    script, search
+):
+    """Production drops untrusted publishers, so they cannot make a query pass."""
+    search.return_value.news = [
+        _article(_UNTRUSTED, age_days=1),
+        _article(_UNTRUSTED, age_days=2),
+        _article(_TRUSTED, age_days=3),
+        _article(_TRUSTED, age_days=90),
+    ]
+
+    result = script.evaluate_query("high yield bond market", _cutoff())
+
+    assert result["total"] == 4
+    assert result["recent"] == 1
+    assert result["publishers"] == {_TRUSTED, _UNTRUSTED}
+
+
+def test_main_fails_a_query_whose_recent_articles_are_all_untrusted(
+    script, search, monkeypatch, capsys
+):
+    """The coverage regression the gate exists to catch must not exit 0."""
+    search.return_value.news = [_article(_UNTRUSTED), _article(_UNTRUSTED)]
+    monkeypatch.setattr(script, "MACRO_SEARCH_QUERIES", {"Britain inflation": []})
+    monkeypatch.setattr(sys, "argv", ["validate_macro_queries"])
+
+    exit_code = script.main()
+
+    out = capsys.readouterr().out
+    assert exit_code == 1
+    assert "FAIL" in out
+    assert "PASS" not in out
+
+
+def test_main_passes_a_query_with_a_recent_trusted_article(
+    script, search, monkeypatch, capsys
+):
+    """A trusted article inside the recency window is what a query needs."""
+    search.return_value.news = [_article(_UNTRUSTED), _article(_TRUSTED)]
+    monkeypatch.setattr(script, "MACRO_SEARCH_QUERIES", {"Britain inflation": []})
+    monkeypatch.setattr(sys, "argv", ["validate_macro_queries"])
+
+    exit_code = script.main()
+
+    assert exit_code == 0
+    assert "PASS" in capsys.readouterr().out
