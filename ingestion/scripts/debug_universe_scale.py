@@ -74,6 +74,38 @@ def fetch_history_fixed(
     return hist
 
 
+def fetch_history_retrying_empties(
+    client: YFinanceClient,
+    symbol: str,
+    *,
+    attempts: int,
+    period: str = "5y",
+):
+    """Request *symbol*'s history, asking again after each empty answer.
+
+    The facade treats an empty or short frame as Yahoo's final answer and
+    returns ``None`` after one request whatever ``max_retries`` says, so
+    re-asking for empties - what ``--hist-retries`` and the serial re-fetch
+    exist to test - has to happen here.
+
+    Args:
+        client: Facade used for every request.
+        symbol: yfinance ticker.
+        attempts: Total requests allowed; a value below 1 still makes one.
+        period: Lookback period passed to ``fetch_history``.
+
+    Returns:
+        The first non-empty frame, or ``None`` when every attempt came back
+        empty.
+    """
+    hist = None
+    for _ in range(max(1, attempts)):
+        hist = client.fetch_history(symbol, period=period, max_retries=1, min_rows=1)
+        if hist is not None and not hist.empty:
+            return hist
+    return hist
+
+
 # T212 metadata endpoints are strictly rate-limited (~1 req/min on /instruments).
 # Cache the raw exchanges+instruments once so repeated debug runs of THIS script
 # don't trip 429 — the investigation target is yfinance, not T212.
@@ -139,9 +171,7 @@ def _probe(
         if yf:
             out["info_ok"] = bool(client.fetch_info(yf, max_retries=1, min_fields=5))
             try:
-                hist = client.fetch_history(
-                    yf, period="5y", max_retries=hist_retries, min_rows=1
-                )
+                hist = fetch_history_retrying_empties(client, yf, attempts=hist_retries)
                 if hist is None or hist.empty:
                     out["hist_rows"] = 0
                 else:
@@ -170,7 +200,8 @@ def main() -> None:
         "--hist-retries",
         type=int,
         default=1,
-        help="fetch_history max_retries; >1 makes the facade retry empty results",
+        help="history requests per symbol; >1 re-asks after an empty answer, "
+        "which the facade itself treats as final",
     )
     ap.add_argument(
         "--fix",
@@ -307,7 +338,7 @@ def main() -> None:
         how = (
             "fetch_history_fixed (evict + fresh Ticker)"
             if args.fix
-            else "client.fetch_history (current, retries=3)"
+            else "client.fetch_history (current, up to 3 attempts)"
         )
         print(f"\nre-fetching {len(hist_empty)} EMPTY tickers SERIALLY via {how}:")
         recovered = 0
@@ -316,9 +347,7 @@ def main() -> None:
                 if args.fix:
                     h = fetch_history_fixed(client, r["yf"], period="5y", min_rows=1)
                 else:
-                    h = client.fetch_history(
-                        r["yf"], period="5y", max_retries=3, min_rows=1
-                    )
+                    h = fetch_history_retrying_empties(client, r["yf"], attempts=3)
                 n = 0 if h is None or h.empty else len(h)
             except Exception:
                 n = 0
