@@ -16,6 +16,7 @@ from __future__ import annotations
 import datetime as dt
 
 import pandas as pd
+import pytest
 from portopt_db.models.macro.macro_regime import FredObservation
 
 from fund.tools.macro import get_macro_series, load_macro_frame
@@ -131,6 +132,99 @@ class TestGetMacroSeriesHappyPath:
 
         assert result["ok"] is True
         assert result["data"]["asof"] == "2024-01-05"
+
+
+class TestGetMacroSeriesPublicationLag:
+    """FRED dates monthly/quarterly values at period start, long before release."""
+
+    def test_quarterly_value_is_hidden_until_after_its_release(
+        self, db_session
+    ) -> None:
+        _seed_series(
+            db_session,
+            "A191RL1Q225SBEA",
+            {
+                dt.date(2026, 1, 1): 1.5,
+                dt.date(2026, 4, 1): 3.8,
+                dt.date(2026, 7, 1): 2.9,
+            },
+        )
+
+        mid_july = get_macro_series(
+            db_session, ["A191RL1Q225SBEA"], dt.date(2026, 7, 15)
+        )
+        mid_november = get_macro_series(
+            db_session, ["A191RL1Q225SBEA"], dt.date(2026, 11, 15)
+        )
+
+        # Q2 advance is published at the end of July and Q3 at the end of October.
+        assert mid_july["data"]["rows"] == 1
+        assert mid_july["data"]["index_end"].startswith("2026-01-01")
+        assert mid_november["data"]["rows"] == 3
+
+    def test_monthly_value_is_not_visible_on_the_last_day_of_its_month(
+        self, db_session
+    ) -> None:
+        _seed_series(
+            db_session,
+            "USALOLITOAASTSAM",
+            {
+                dt.date(2026, 7, 1): 100.4,
+                dt.date(2026, 8, 1): 100.1,
+                dt.date(2026, 9, 1): 99.8,
+            },
+        )
+
+        result = get_macro_series(
+            db_session, ["USALOLITOAASTSAM"], dt.date(2026, 9, 30)
+        )
+
+        assert result["data"]["rows"] == 1
+        assert result["data"]["index_end"].startswith("2026-07-01")
+
+    @pytest.mark.parametrize("series_id", ["USREC", "USRECDM"])
+    def test_nber_flag_stays_hidden_through_the_longest_dating_delay(
+        self, db_session, series_id: str
+    ) -> None:
+        # NBER dates a trough up to 21 months late, so a replay inside that span
+        # would show the 0 -> 1 flip that was not yet announced.
+        _seed_series(
+            db_session,
+            series_id,
+            {dt.date(2022, 12, 1): 0.0, dt.date(2024, 1, 1): 1.0},
+        )
+
+        inside_delay = get_macro_series(db_session, [series_id], dt.date(2025, 9, 30))
+        after_delay = get_macro_series(db_session, [series_id], dt.date(2025, 10, 2))
+
+        assert inside_delay["data"]["rows"] == 1
+        assert inside_delay["data"]["index_end"].startswith("2022-12-01")
+        assert after_delay["data"]["rows"] == 2
+
+    def test_daily_value_is_not_visible_on_its_own_date(self, db_session) -> None:
+        _seed_series(
+            db_session,
+            "VIXCLS",
+            {dt.date(2024, 1, 3): 14.0, dt.date(2024, 1, 4): 12.5},
+        )
+
+        result = get_macro_series(db_session, ["VIXCLS"], dt.date(2024, 1, 4))
+
+        assert result["data"]["rows"] == 1
+        assert result["data"]["index_end"].startswith("2024-01-03")
+
+    def test_series_without_cadence_information_is_only_withheld_for_a_day(
+        self, db_session
+    ) -> None:
+        # A lone observation carries no cadence: assume the shortest lag rather
+        # than hiding the series on a guess.
+        _seed_series(db_session, "AAA", {dt.date(2024, 1, 5): 1.0})
+
+        on_own_date = get_macro_series(db_session, ["AAA"], dt.date(2024, 1, 5))
+        next_day = get_macro_series(db_session, ["AAA"], dt.date(2024, 1, 6))
+
+        assert on_own_date["data"]["rows"] == 0
+        assert next_day["data"]["rows"] == 1
 
 
 class TestGetMacroSeriesFlagsAndErrors:

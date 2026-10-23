@@ -180,7 +180,7 @@ def get_macro_series(
     if not names:
         return err("no series requested")
 
-    frame, missing = load_macro_frame(session, names, asof)
+    frame, missing = load_macro_frame(session, names, asof, point_in_time=True)
 
     summary = summarize_frame(frame, name="macro")
     summary["asof"] = coerce_date(asof).isoformat()
