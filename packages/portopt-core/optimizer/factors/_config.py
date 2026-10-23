@@ -757,7 +757,8 @@ class SectorRegimeBandsConfig:
     Stores the full regime × sector band matrix as a serialisable tuple of
     ``(regime_value, sector_name, floor, cap)`` entries.  The default bands
     are loaded from the module-level ``SECTOR_REGIME_BANDS`` matrix via the
-    `for_default` classmethod.
+    `for_default` classmethod, and also when an enabled config is built with
+    no ``bands``.
 
     Single-regime-per-run semantics: the regime is resolved once from the
     lagged classified macro regime and injected into the optimizer before
@@ -767,11 +768,13 @@ class SectorRegimeBandsConfig:
     the implementation simple.
 
     Attributes:
-        enable: Whether to apply dynamic sector bands. When ``False``, the
-            optimizer constraints are left unchanged.
+        enable: Whether to apply dynamic sector bands. When ``False``,
+            `resolve_sector_bands` returns an empty mapping so the optimizer
+            constraints are left unchanged.
         bands: Serialisable flat representation of the band matrix. Each entry
             is ``(regime_value, sector_name, floor, cap)`` with
-            ``0.0 <= floor <= cap <= 1.0``.
+            ``0.0 <= floor <= cap <= 1.0``. Left empty on an enabled config,
+            it is filled with the default ``SECTOR_REGIME_BANDS`` matrix.
 
     Examples:
         >>> cfg = SectorRegimeBandsConfig.for_default()
@@ -784,7 +787,15 @@ class SectorRegimeBandsConfig:
     bands: tuple[tuple[str, str, float, float], ...] = ()
 
     def __post_init__(self) -> None:
-        from optimizer.factors._sector_bands import ALL_11_SECTORS
+        from optimizer.factors._sector_bands import (
+            ALL_11_SECTORS,
+            _matrix_to_bands_tuple,
+        )
+
+        if self.enable and not self.bands:
+            # An enabled config with no matrix would otherwise resolve every
+            # regime to the same flat fallback bands.
+            object.__setattr__(self, "bands", _matrix_to_bands_tuple())
 
         valid_regimes = {r.value for r in MacroRegime}
         regime_floors: dict[str, float] = {}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import warnings
 
@@ -388,3 +389,37 @@ def test_bands_for_narrow_universe_do_not_make_optimisation_infeasible(
         warnings.simplefilter("ignore")
         model.fit(returns)
     assert np.asarray(model.weights_).sum() == pytest.approx(1.0)
+
+
+# enable flag and default construction
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_disabled_config_with_bands_returns_no_bands() -> None:
+    cfg = dataclasses.replace(SectorRegimeBandsConfig.for_default(), enable=False)
+    assert resolve_sector_bands(MacroRegime.RECESSION, cfg) == {}
+
+
+def test_disabled_bands_add_no_optimizer_constraints() -> None:
+    bands = resolve_sector_bands(
+        MacroRegime.RECESSION, SectorRegimeBandsConfig.disabled()
+    )
+    model = build_mean_risk(
+        MeanRiskConfig(),
+        sector_mapping={"A": "Technology", "B": "Utilities"},
+        sector_bands=bands,
+    )
+    assert not model.linear_constraints
+
+
+def test_bare_config_resolves_default_regime_matrix() -> None:
+    bare = SectorRegimeBandsConfig()
+    recession = resolve_sector_bands(MacroRegime.RECESSION, bare)
+    expansion = resolve_sector_bands(MacroRegime.EXPANSION, bare)
+    assert recession["Technology"] == (0.0, 0.06)
+    assert recession["Utilities"] == (0.10, 0.28)
+    assert recession != expansion
+
+
+def test_bare_config_matches_for_default() -> None:
+    assert SectorRegimeBandsConfig() == SectorRegimeBandsConfig.for_default()
