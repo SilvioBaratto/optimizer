@@ -333,6 +333,47 @@ class TestPredictCompositeScores:
         assert abs(scored.mean()) < 1e-10
         assert abs(scored.std(ddof=0) - 1.0) < 1e-10
 
+    @pytest.mark.parametrize("fit", [fit_ridge_composite, fit_gbt_composite])
+    def test_factor_missing_for_every_ticker_is_scored_neutrally(self, fit) -> None:
+        """A factor with no observation this period must not abort the composite."""
+        rng = np.random.default_rng(24)
+        cols = ["a", "b", "c"]
+        train = pd.DataFrame(rng.normal(0, 1, (120, 3)), columns=cols)
+        returns = pd.Series(train["a"] + rng.normal(0, 0.1, 120))
+        model = fit(train, returns)
+        scores = pd.DataFrame(
+            rng.normal(0, 1, (15, 3)),
+            index=[f"S{i}" for i in range(15)],
+            columns=cols,
+        )
+        scores["b"] = float("nan")
+
+        result = predict_composite_scores(model, scores)
+
+        assert result.notna().all()
+        assert abs(result.mean()) < 1e-10
+        assert abs(result.std(ddof=0) - 1.0) < 1e-10
+
+    def test_factor_missing_for_every_ticker_matches_zero_filled_factor(
+        self,
+    ) -> None:
+        """The neutral z-score (0.0) stands in for a factor nobody reports."""
+        rng = np.random.default_rng(25)
+        cols = ["a", "b", "c"]
+        train = pd.DataFrame(rng.normal(0, 1, (120, 3)), columns=cols)
+        returns = pd.Series(train["a"] + train["b"] + rng.normal(0, 0.1, 120))
+        model = fit_ridge_composite(train, returns)
+        scores = pd.DataFrame(
+            rng.normal(0, 1, (15, 3)),
+            index=[f"S{i}" for i in range(15)],
+            columns=cols,
+        )
+
+        missing = predict_composite_scores(model, scores.assign(b=float("nan")))
+        neutral = predict_composite_scores(model, scores.assign(b=0.0))
+
+        pd.testing.assert_series_equal(missing, neutral)
+
     def test_all_rows_missing_returns_all_nan(self) -> None:
         rng = np.random.default_rng(23)
         cols = ["a", "b"]
