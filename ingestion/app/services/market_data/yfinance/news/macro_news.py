@@ -373,7 +373,7 @@ class MacroNewsFetcher:
                         key=lambda a: a.get("publish_time") or "",
                         reverse=True,
                     )
-                    ticker_buckets[ticker] = bucket[:max_per_ticker]
+                    ticker_buckets[ticker] = self._keep_unique(bucket, max_per_ticker)
             except Exception:
                 sources_failed += 1
                 logger.warning(
@@ -420,6 +420,7 @@ class MacroNewsFetcher:
             key=lambda a: a.get("publish_time") or "",
             reverse=True,
         )
+        search_articles = self._keep_unique(search_articles, None)
 
         capped_ticker: list[dict[str, Any]] = []
         for bucket in ticker_buckets.values():
@@ -477,6 +478,27 @@ class MacroNewsFetcher:
 
     # -- private helpers ----------------------------------------------------
 
+    def _keep_unique(
+        self,
+        candidates: list[dict[str, Any]],
+        limit: int | None,
+    ) -> list[dict[str, Any]]:
+        """Keep up to ``limit`` candidates whose titles were not kept before.
+
+        Titles are registered here and nowhere else, so an article rejected by
+        a filter or cut by the per-ticker cap never shadows a later copy of the
+        same story from another feed or from search.
+        """
+        kept: list[dict[str, Any]] = []
+        for article in candidates:
+            if limit is not None and len(kept) >= limit:
+                break
+            if article["title"] in self._seen_titles:
+                continue
+            self._seen_titles.add(article["title"])
+            kept.append(article)
+        return kept
+
     def _process_article(
         self,
         raw: dict[str, Any],
@@ -496,10 +518,6 @@ class MacroNewsFetcher:
         if not _is_article_recent(pub_time):
             return None
 
-        if title in self._seen_titles:
-            return None
-        self._seen_titles.add(title)
-
         publisher = (
             content.get("provider", {}).get("displayName", "")
             if isinstance(content.get("provider"), dict)
@@ -507,6 +525,9 @@ class MacroNewsFetcher:
         )
 
         if publisher not in TRUSTED_PUBLISHERS:
+            return None
+
+        if title in self._seen_titles:
             return None
 
         link = (

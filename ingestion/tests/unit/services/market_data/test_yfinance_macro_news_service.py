@@ -404,3 +404,55 @@ class TestMacroNewsFetcherSearchPriority:
 
         from_search = [a for a in result if a["source_query"] is not None]
         assert len(from_search) >= 2
+
+
+class TestMacroNewsFetcherTitleDedup:
+    """Only articles that end up in the result may shadow a later duplicate."""
+
+    def test_when_untrusted_copy_seen_first_then_trusted_copy_is_kept(self) -> None:
+        first, second = list(MACRO_TICKERS)[:2]
+        title = "Fed holds rates steady"
+        ticker_feeds = {
+            first: [_article(title, age=timedelta(hours=1), publisher="Zacks")],
+            second: [_article(title, age=timedelta(hours=1))],
+        }
+        fetcher = _build_feed_fetcher(ticker_feeds, {})
+
+        result = fetcher.fetch_all(max_articles=30)
+
+        assert [(a["title"], a["publisher"]) for a in result] == [(title, "Reuters")]
+
+    def test_when_ticker_cap_cuts_title_then_search_copy_is_kept(self) -> None:
+        ticker = next(iter(MACRO_TICKERS))
+        ticker_feeds = {
+            ticker: [
+                _article(f"Story {i}", age=timedelta(hours=i)) for i in range(1, 6)
+            ]
+        }
+        search_feeds = {
+            next(iter(MACRO_SEARCH_QUERIES)): [
+                _article(f"Story {i}", age=timedelta(hours=i, minutes=1))
+                for i in (4, 5)
+            ]
+        }
+        fetcher = _build_feed_fetcher(ticker_feeds, search_feeds)
+
+        result = fetcher.fetch_all(max_articles=30, max_per_ticker=3)
+
+        assert {a["title"] for a in result} == {f"Story {i}" for i in range(1, 6)}
+
+    def test_when_title_repeats_across_feeds_then_it_is_returned_once(self) -> None:
+        first, second = list(MACRO_TICKERS)[:2]
+        title = "Fed holds rates steady"
+        ticker_feeds = {
+            first: [_article(title, age=timedelta(hours=1))],
+            second: [_article(title, age=timedelta(hours=1))],
+        }
+        search_feeds = {
+            next(iter(MACRO_SEARCH_QUERIES)): [_article(title, age=timedelta(hours=1))]
+        }
+        fetcher = _build_feed_fetcher(ticker_feeds, search_feeds)
+
+        result = fetcher.fetch_all(max_articles=30)
+
+        assert [a["title"] for a in result] == [title]
