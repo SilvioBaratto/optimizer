@@ -362,6 +362,8 @@ class YFinanceClient:
         auto_adjust: bool = True,
         progress: bool = False,
         max_retries: int | None = None,
+        *,
+        repair: bool = True,
     ) -> pd.DataFrame | None:
         """Download price history for multiple symbols in a single yfinance call.
 
@@ -377,6 +379,10 @@ class YFinanceClient:
             auto_adjust: Adjust OHLC for splits/dividends.
             progress: Show a yfinance progress bar.
             max_retries: Override the instance default retry budget.
+            repair: Enable yfinance's bad-price reconstruction, matching
+                ``fetch_history`` so a bulk download and its per-ticker
+                fallback return the same prices. yfinance itself defaults to
+                off for downloads.
 
         Returns:
             A potentially MultiIndex DataFrame, or ``None`` on failure.
@@ -395,6 +401,7 @@ class YFinanceClient:
             "group_by": group_by,
             "auto_adjust": auto_adjust,
             "progress": progress,
+            "repair": repair,
         }
         if start is not None:
             kwargs["start"] = start
@@ -407,7 +414,13 @@ class YFinanceClient:
         def _action() -> pd.DataFrame | None:
             self.circuit_breaker.check()
             self.rate_limiter.acquire("bulk_download")
-            data = yf.download(**kwargs)
+            try:
+                data = yf.download(**kwargs)
+            finally:
+                # Price repair lowers the shared yfinance log level without a
+                # lock, in every download thread, just as it does for
+                # fetch_history.
+                reapply_yfinance_log_level()
 
             if data is None or (hasattr(data, "empty") and data.empty):
                 return None

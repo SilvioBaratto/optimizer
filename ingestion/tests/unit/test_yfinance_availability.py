@@ -350,6 +350,41 @@ class TestConfigureYfinance:
 
         assert logging.getLogger("yfinance").level == logging.DEBUG
 
+    def test_bulk_download_restores_the_level_a_repair_left_behind(
+        self, client: YFinanceClient
+    ) -> None:
+        """Bulk downloads repair prices too, so they hit the same unrestored
+        CRITICAL as a single-ticker history fetch."""
+        configure_yfinance(log_level="DEBUG")
+
+        def _repairing_download(**_: object) -> pd.DataFrame:
+            logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+            return pd.DataFrame(
+                {"Close": range(1, 21)},
+                index=pd.date_range("2024-01-01", periods=20),
+            )
+
+        with patch("yfinance.download", side_effect=_repairing_download):
+            assert client.bulk_download(["AAPL", "MSFT"]) is not None
+
+        assert logging.getLogger("yfinance").level == logging.DEBUG
+
+    def test_bulk_download_restores_the_level_when_the_download_raises(
+        self, client: YFinanceClient
+    ) -> None:
+        """A rate limit raised from the nested repair call skips yfinance's own
+        restore, and the failed attempt must not leave CRITICAL behind."""
+        configure_yfinance(log_level="DEBUG")
+
+        def _repair_then_rate_limit(**_: object) -> None:
+            logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+            raise YFRateLimitError
+
+        with patch("yfinance.download", side_effect=_repair_then_rate_limit):
+            assert client.bulk_download(["AAPL"]) is None
+
+        assert logging.getLogger("yfinance").level == logging.DEBUG
+
     def test_nothing_is_changed_when_the_level_was_never_configured(
         self, client: YFinanceClient
     ) -> None:

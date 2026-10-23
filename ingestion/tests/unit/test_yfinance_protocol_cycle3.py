@@ -46,6 +46,12 @@ def test_when_inspecting_bulk_download_then_max_retries_present() -> None:
     assert sig.parameters["max_retries"].default is None
 
 
+def test_when_inspecting_bulk_download_then_repair_defaults_true_keyword_only() -> None:
+    param = inspect.signature(YFinanceClientProtocol.bulk_download).parameters["repair"]
+    assert param.default is True
+    assert param.kind == inspect.Parameter.KEYWORD_ONLY
+
+
 def test_when_inspecting_fetch_history_then_kwargs_are_keyword_only() -> None:
     sig = inspect.signature(YFinanceClientProtocol.fetch_history)
     for name in _HISTORY_PRICE_QUALITY_DEFAULTS:

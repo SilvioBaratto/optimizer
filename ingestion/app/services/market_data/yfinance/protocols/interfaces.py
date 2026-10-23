@@ -115,6 +115,8 @@ class YFinanceClientProtocol(Protocol):
         auto_adjust: bool = True,
         progress: bool = False,
         max_retries: int | None = None,
+        *,
+        repair: bool = True,
     ) -> pd.DataFrame | None: ...
 
     def fetch_prices_dataframe(

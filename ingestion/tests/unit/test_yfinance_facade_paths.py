@@ -478,6 +478,19 @@ class TestBulkDownload:
         assert kwargs["period"] == "1y"
         assert "start" not in kwargs
 
+    def test_repairs_bad_prices_by_default(self, client: YFinanceClient) -> None:
+        """yf.download defaults to repair=False; fetch_history repairs, so must this."""
+        with patch(f"{M}.yf.download", return_value=_hist(5)) as dl:
+            client.bulk_download(["AAPL"])
+
+        assert dl.call_args.kwargs["repair"] is True
+
+    def test_repair_can_be_disabled(self, client: YFinanceClient) -> None:
+        with patch(f"{M}.yf.download", return_value=_hist(5)) as dl:
+            client.bulk_download(["AAPL"], repair=False)
+
+        assert dl.call_args.kwargs["repair"] is False
+
     def test_empty_frame_is_a_failed_download(self, client: YFinanceClient) -> None:
         with patch(f"{M}.yf.download", return_value=pd.DataFrame()):
             assert client.bulk_download(["AAPL"]) is None
@@ -498,6 +511,15 @@ class TestFetchPricesDataframe:
 
         assert out is not None
         assert list(out.columns) == ["AAPL", "MSFT"]
+
+    def test_bulk_path_repairs_like_the_individual_path(
+        self, client: YFinanceClient
+    ) -> None:
+        """Both paths must return the same prices, so both repair bad prints."""
+        with patch(f"{M}.yf.download", return_value=_hist(5)) as dl:
+            client.fetch_prices_dataframe(["AAPL"])
+
+        assert dl.call_args.kwargs["repair"] is True
 
     def test_individual_fallback_skips_tickers_with_no_history(
         self, client: YFinanceClient
