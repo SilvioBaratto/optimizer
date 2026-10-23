@@ -12,11 +12,15 @@ whole batch.
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+import yfinance as yf
+from yfinance.base import TickerBase
+from yfinance.scrapers.history import PriceHistory
 
 from app.services.infrastructure.cache import LRUCache
 from app.services.market_data.yfinance._facade import YFinanceClient
@@ -192,6 +196,41 @@ class TestCachedTickerMemoization:
         client.fetch_info("TEST", min_fields=10)
 
         assert memoizing_yahoo.built == 1
+
+
+class TestFetchHistoryTimeout:
+    """The request timeout yfinance applies to a history call that sets none."""
+
+    @staticmethod
+    def _timeout_reaching_yfinance(client: YFinanceClient, **kwargs: Any) -> Any:
+        """Return the ``timeout`` that yfinance's own history signature resolves to."""
+        history_signature = inspect.signature(PriceHistory.history)
+        seen: dict[str, Any] = {}
+
+        def _spy(self: PriceHistory, *args: Any, **call_kwargs: Any) -> pd.DataFrame:
+            bound = history_signature.bind(self, *args, **call_kwargs)
+            bound.apply_defaults()
+            seen["timeout"] = bound.arguments["timeout"]
+            return _hist(20)
+
+        with (
+            patch.object(PriceHistory, "history", _spy),
+            patch.object(TickerBase, "_get_ticker_tz", return_value="UTC"),
+            patch.object(client, "get_ticker", return_value=yf.Ticker("TEST")),
+        ):
+            client.fetch_history("TEST", **kwargs)
+        return seen["timeout"]
+
+    def test_default_call_keeps_yfinances_finite_timeout(
+        self, client: YFinanceClient
+    ) -> None:
+        """An explicit None would disable it, and the call could then hang forever."""
+        timeout = self._timeout_reaching_yfinance(client)
+
+        assert timeout is not None and timeout > 0
+
+    def test_an_explicit_timeout_is_forwarded(self, client: YFinanceClient) -> None:
+        assert self._timeout_reaching_yfinance(client, timeout=12.5) == 12.5
 
 
 class TestFetchHistory:

@@ -230,7 +230,8 @@ class YFinanceClient:
             prepost: Include pre/post-market data.
             keepna: Retain NaN rows rather than dropping them.
             rounding: Round prices to 2 decimal places.
-            timeout: Per-request network timeout in seconds.
+            timeout: Per-request network timeout in seconds. ``None`` keeps
+                yfinance's own finite default instead of disabling the timeout.
 
         Returns:
             DataFrame with a DatetimeIndex, or ``None`` on failure.
@@ -247,8 +248,11 @@ class YFinanceClient:
             "prepost": prepost,
             "keepna": keepna,
             "rounding": rounding,
-            "timeout": timeout,
         }
+        # An explicit timeout=None would override yfinance's finite default and
+        # leave a stalled connection waiting forever.
+        if timeout is not None:
+            history_kwargs["timeout"] = timeout
 
         def _action() -> pd.DataFrame | None:
             ticker = self.get_ticker(symbol)

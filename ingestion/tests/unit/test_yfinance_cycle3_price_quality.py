@@ -34,7 +34,6 @@ _HISTORY_KWARGS: dict[str, Any] = {
     "prepost": False,
     "keepna": False,
     "rounding": False,
-    "timeout": None,
 }
 
 
