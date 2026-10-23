@@ -45,6 +45,11 @@ _FRED_REVISION_LOOKBACK = datetime.timedelta(days=FRED_REVISION_LOOKBACK_DAYS)
 # persisted separately.
 _ERROR_SUMMARY_LIMIT = 3
 
+# Countries IlSole publishes a forecast row for. For these a ``None`` from the
+# scraper means the page was unreachable or its structure drifted; for any other
+# country it just means there is nothing to fetch.
+_ILSOLE_FORECAST_COUNTRIES = frozenset(IlSoleScraper.COUNTRY_MAP_FORECAST.values())
+
 # Numeric columns of an IlSole forecast row. ``reference_date`` and ``timestamp``
 # are metadata and must not count as usable data.
 _ILSOLE_VALUE_FIELDS = (
@@ -196,7 +201,14 @@ class MacroRegimeService:
             else:
                 counts["ilsole_forecast"] = 0
                 counts["ilsole_observations"] = 0
-                logger.info("No IlSole forecasts for %s", country)
+                if country in _ILSOLE_FORECAST_COUNTRIES:
+                    errors.append(
+                        "ilsole_forecast: no data returned (page unreachable "
+                        "or table structure changed)"
+                    )
+                    logger.warning("IlSole returned no forecasts for %s", country)
+                else:
+                    logger.info("No IlSole forecasts for %s", country)
         except Exception as e:
             errors.append(f"ilsole_forecast: {e}")
             counts.setdefault("ilsole_forecast", 0)

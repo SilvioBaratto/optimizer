@@ -143,6 +143,29 @@ class TestFetchCountrySuccess:
 
         assert result["counts"]["ilsole_forecast"] == 0
         assert result["counts"]["ilsole_observations"] == 0
+
+    def test_when_ilsole_returns_none_for_supported_country_then_error_reported(
+        self,
+    ) -> None:
+        """The scraper returns None for an unreachable page or a drifted table."""
+        service, mock_repo = _build_service(
+            ilsole_forecasts=None,
+            te_response=_TE_SUCCESS,
+        )
+
+        result = service.fetch_country("USA")
+
+        assert any(e.startswith("ilsole_forecast:") for e in result["errors"])
+        mock_repo.upsert_economic_indicator.assert_not_called()
+
+    def test_when_ilsole_has_no_table_for_country_then_no_error(self) -> None:
+        service, _ = _build_service(
+            ilsole_forecasts=None,
+            te_response=_TE_SUCCESS,
+        )
+
+        result = service.fetch_country("Atlantis")
+
         assert result["errors"] == []
 
     def test_when_include_bonds_false_then_bond_counts_zeroed(self) -> None:
