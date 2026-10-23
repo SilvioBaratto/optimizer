@@ -203,9 +203,15 @@ def build_entropy_pooling(
             Required together with *prior_moments*.
 
     Returns:
-        A fitted-ready `EntropyPooling`.
+        A fitted-ready `EntropyPooling`.  Its ``prior_estimator`` is ``None``
+        unless ``config.prior_config`` is set, so the result can be used as an
+        `OpinionPooling` expert (which forbids per-expert priors).
     """
-    inner_prior = build_prior(config.prior_config)
+    # OpinionPooling rejects experts that carry their own prior_estimator, so an
+    # unset prior_config must stay None and fall back to skfolio's EmpiricalPrior().
+    inner_prior = (
+        build_prior(config.prior_config) if config.prior_config is not None else None
+    )
     merged_mean_views = _merge_mean_views(config)
 
     variance_views = list(config.variance_views) if config.variance_views else None

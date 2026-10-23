@@ -221,6 +221,11 @@ class TestBuildEntropyPooling:
 
         assert isinstance(prior.prior_estimator.mu_estimator, ShrunkMu)
 
+    def test_default_prior_left_unset_so_pooling_can_own_it(self) -> None:
+        cfg = EntropyPoolingConfig(mean_views=("TICK_00 == 0.05",))
+        prior = build_entropy_pooling(cfg)
+        assert prior.prior_estimator is None
+
     def test_none_views_stay_none(self) -> None:
         cfg = EntropyPoolingConfig(mean_views=("TICK_00 == 0.05",))
         prior = build_entropy_pooling(cfg)
@@ -494,6 +499,28 @@ class TestIntegration:
         rd = prior.return_distribution_
         assert rd.mu is not None
         assert rd.covariance is not None
+
+    def test_built_entropy_pooling_experts_compose_with_opinion_pooling(self) -> None:
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+
+        expert_1 = build_entropy_pooling(
+            EntropyPoolingConfig(mean_views=("AAPL == 0.001",))
+        )
+        expert_2 = build_entropy_pooling(
+            EntropyPoolingConfig(mean_views=("JPM == 0.001",))
+        )
+        estimators: list[tuple[str, BasePrior]] = [
+            ("ep_1", expert_1),
+            ("ep_2", expert_2),
+        ]
+        cfg = OpinionPoolingConfig(opinion_probabilities=(0.6, 0.4))
+        prior = build_opinion_pooling(estimators, cfg)
+        prior.fit(returns)
+        assert np.all(np.isfinite(prior.return_distribution_.mu))
 
     def test_bl_factor_model_fit(self) -> None:
         from skfolio.datasets import load_factors_dataset, load_sp500_dataset
