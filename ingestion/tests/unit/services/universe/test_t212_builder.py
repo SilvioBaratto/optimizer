@@ -416,3 +416,49 @@ class TestProcessInstrumentsCancellation:
             f"{len(processed)} of {len(instruments)} queued instruments still ran"
         )
         assert builder._errors == [], "cancellation was recorded as a build error"
+
+
+# ---------------------------------------------------------------------------
+# Delisting reconciliation vs. source-reported incompleteness
+# ---------------------------------------------------------------------------
+
+
+class _DelistingRepo(_FakeRepo):
+    def __init__(self, active: set[str]) -> None:
+        super().__init__()
+        self._active = active
+        self.delisted: list[str] = []
+
+    def get_active_tickers(
+        self, exchange_id: Any, instrument_type: str | None = None
+    ) -> set[str]:
+        return set(self._active) if instrument_type == "STOCK" else set()
+
+    def mark_delisted(self, **kwargs: Any) -> bool:
+        self.delisted.append(kwargs["ticker"])
+        return True
+
+
+class TestDelistingSkippedForIncompleteExchange:
+    def _build(self, incomplete_types: list[str]) -> tuple[_DelistingRepo, Any]:
+        repo = _DelistingRepo(active={"AAPL_US", "GONE_US"})
+        mapper = MagicMock()
+        mapper.discover.return_value = "AAPL"
+        exchange = {**_NYSE_EXCHANGE, "incompleteTypes": incomplete_types}
+        builder = _make_builder(
+            api_client=_make_api_client(exchanges=[exchange]),
+            ticker_mapper=mapper,
+            repo=repo,
+        )
+        return repo, builder.build()
+
+    def test_incomplete_type_does_not_delist_absent_tickers(self) -> None:
+        repo, result = self._build(["STOCK"])
+
+        assert repo.delisted == []
+        assert any("incomplete" in e for e in result.errors)
+
+    def test_other_type_incomplete_still_reconciles_this_type(self) -> None:
+        repo, _ = self._build(["ETF"])
+
+        assert repo.delisted == ["GONE_US"]

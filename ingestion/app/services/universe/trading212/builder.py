@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 from collections.abc import Callable
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
@@ -38,6 +39,8 @@ class BuildResult:
     filter_stats: dict[str, dict[str, int]] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
+
+logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[BuildProgress], None]
 
@@ -268,6 +271,17 @@ class UniverseBuilder:
                 total_instruments_saved += saved
                 tickers_saved = {d.get("ticker", "") for d in processed}
 
+            if instrument_type in ex_data.get("incompleteTypes", ()):
+                # The source says this venue's list is short, so absence proves
+                # nothing; marking the gap delisted would stamp live names.
+                message = (
+                    f"{ex_data['name']}: {instrument_type} listing is incomplete; "
+                    "delisting reconciliation skipped"
+                )
+                logger.warning(message)
+                self._errors.append(message)
+                continue
+
             # With part of the source missing, "absent" no longer means "delisted".
             if instrument_type not in self._incomplete_types:
                 self._mark_delisted_instruments(
@@ -307,11 +321,7 @@ class UniverseBuilder:
                 **still_trading,
             )
             if marked:
-                import logging as _logging
-
-                _logging.getLogger(__name__).info(
-                    "Marked instrument %s as delisted on %s", ticker, today
-                )
+                logger.info("Marked instrument %s as delisted on %s", ticker, today)
 
     def _process_instruments(
         self,
