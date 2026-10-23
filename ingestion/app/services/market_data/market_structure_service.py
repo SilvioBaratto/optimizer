@@ -95,6 +95,8 @@ def run_market_structure_fetch(
                 try:
                     data = yf_client.sectors.fetch_sector(key, region=region)
                     if not data:
+                        logger.warning("No data for sector %s/%s", key, region)
+                        errors.append(f"{key}/{region}: no data")
                         continue
                     ov = (
                         (data.get("overview") or {})

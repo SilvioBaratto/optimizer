@@ -232,6 +232,36 @@ class TestBulkFetch:
         assert result["error_count"] == len(SECTOR_KEYS)
 
 
+class TestFailedFetchAccounting:
+    @staticmethod
+    def _patches(repo: MagicMock):
+        return (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        )
+
+    def test_none_from_the_client_is_counted_as_an_error(self) -> None:
+        repo = MagicMock(name="repo")
+        yf = MagicMock()
+        yf.sectors.fetch_sector.return_value = None
+        progress = MagicMock()
+        repo_patch, dbm_patch = self._patches(repo)
+        with repo_patch, dbm_patch:
+            result = run_market_structure_fetch(
+                yf, regions=("GB",), on_progress=progress
+            )
+
+        repo.upsert_sector_snapshot.assert_not_called()
+        assert result["sectors_written"] == 0
+        assert result["error_count"] == len(SECTOR_KEYS)
+        errors = progress.call_args_list[-1].kwargs["errors"]
+        assert "technology/GB: no data" in errors
+
+
 class TestSectorOverviewScope:
     """Yahoo's overview figures are global, so only one region row may carry them."""
 
