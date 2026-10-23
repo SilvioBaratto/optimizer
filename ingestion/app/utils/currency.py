@@ -2,21 +2,45 @@
 
 from __future__ import annotations
 
-# Maps minor-unit ISO / yfinance currency codes to their major-unit equivalent.
-# Yahoo emits the sub-unit with a lower-case final letter (``GBp``, ``ZAc``), so
-# every casing seen in the wild is listed explicitly: matching case-insensitively
-# would turn the pound code ``GBP`` into pence.
+# Every spelling of a minor-unit code seen in the wild, mapped to its major. Yahoo
+# emits the sub-unit with a lower-case final letter (``GBp``, ``ZAc``, ``ILa``);
+# ``GBX``, ``ZAC`` and ``ILA`` are the upper-cased variants other feeds use. Kept in
+# step with ``optimizer.fx._minor_units`` by hand because ingestion must not import
+# the optimizer package.
 MINOR_TO_MAJOR: dict[str, str] = {
-    "GBX": "GBP",
     "GBp": "GBP",
+    "GBX": "GBP",
     "GBx": "GBP",
-    "ILA": "ILS",
-    "ILa": "ILS",
-    "ZAC": "ZAR",
     "ZAc": "ZAR",
+    "ZAC": "ZAR",
     "ZAX": "ZAR",
     "ZAx": "ZAR",
+    "ILA": "ILS",
+    "ILa": "ILS",
 }
+
+# Upper-cased fallback so a differently-cased minor code still resolves, except
+# those that upper-case onto their own major (``GBp`` -> ``GBP``): matching
+# those case-insensitively would read a plain pound as pence.
+_MINOR_TO_MAJOR_CI: dict[str, str] = {
+    code.upper(): major
+    for code, major in MINOR_TO_MAJOR.items()
+    if code.upper() != major
+}
+
+
+def minor_unit_major(code: str | None) -> str | None:
+    """Return the major-unit code if ``code`` is a minor unit, else ``None``.
+
+    The exact spelling is tried first so ``GBp`` (pence) is distinguished from
+    ``GBP`` (pounds); any other minor code also matches case-insensitively.
+    """
+    if not isinstance(code, str):
+        return None
+    exact = MINOR_TO_MAJOR.get(code)
+    if exact is not None:
+        return exact
+    return _MINOR_TO_MAJOR_CI.get(code.upper())
 
 
 def to_major_currency(code: str | None) -> str | None:
@@ -35,4 +59,4 @@ def to_major_currency(code: str | None) -> str | None:
     """
     if code is None:
         return None
-    return MINOR_TO_MAJOR.get(code, code)
+    return minor_unit_major(code) or code

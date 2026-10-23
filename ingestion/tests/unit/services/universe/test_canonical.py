@@ -93,7 +93,8 @@ class TestSplitCurrency:
             ("ILA", "ILS", 100.0),
             ("ILa", "ILS", 100.0),
             ("ZAC", "ZAR", 100.0),
-            ("ZAc", "ZAR", 100.0),
+            ("ZAc", "ZAR", 100.0),  # the spelling Yahoo actually emits for JSE
+            ("GBP", "GBP", 1.0),  # pounds must not be read as pence
             ("USD", "USD", 1.0),
             ("EUR", "EUR", 1.0),
             (None, None, 1.0),

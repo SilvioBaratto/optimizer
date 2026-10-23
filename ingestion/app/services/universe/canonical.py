@@ -29,7 +29,7 @@ import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from app.utils.currency import MINOR_TO_MAJOR
+from app.utils.currency import minor_unit_major
 
 logger = logging.getLogger(__name__)
 
@@ -58,16 +58,17 @@ def normalize_name(name: str | None) -> str:
 def split_currency(code: str | None) -> tuple[str | None, float]:
     """``currency`` → ``(major_unit_code, divisor)``.
 
-    ``GBX``/``GBp`` → ``("GBP", 100)``, ``ILA`` → ``("ILS", 100)``, ``ZAC``/``ZAc``
-    → ``("ZAR", 100)`` (every Yahoo casing in ``MINOR_TO_MAJOR``); any
-    already-major or unknown code → ``(code, 1)`` (fail-open, caller warns on
-    unknown sub-units). The divisor applies to PRICE-derived quantities only —
-    never to share or volume counts.
+    ``GBX``/``GBp`` → ``("GBP", 100)``, ``ILA`` → ``("ILS", 100)``, ``ZAc`` →
+    ``("ZAR", 100)`` (and the other spellings of each); any already-major or
+    unknown code → ``(code, 1)`` (fail-open, caller warns on unknown sub-units).
+    The divisor applies to PRICE-derived quantities only — never to share or
+    volume counts.
     """
     if code is None:
         return None, 1.0
-    if code in MINOR_TO_MAJOR:
-        return MINOR_TO_MAJOR[code], _SUBUNIT_DIVISOR
+    major = minor_unit_major(code)
+    if major is not None:
+        return major, _SUBUNIT_DIVISOR
     return code, 1.0
 
 
