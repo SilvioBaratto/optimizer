@@ -34,6 +34,7 @@ import pytest
 
 pytest.importorskip("yfinance")
 
+from app.services.market_data.yfinance.infrastructure import CircuitBreaker
 from app.services.market_data.yfinance.news.aggregator import (
     CountryNewsFetcher,
     _is_article_recent,
@@ -160,6 +161,33 @@ class TestNewsClientFetch:
         client = NewsClient(yf_client=yf_client, scraper=scraper)
         client.fetch("^GSPC", max_retries=1, fetch_full_content=True, max_articles=2)
         assert scraper.fetch.call_count == 2
+
+
+class TestNewsClientSharedCircuitBreaker:
+    def test_when_rate_limited_then_trips_the_shared_breaker(self) -> None:
+        breaker = CircuitBreaker(service_name="yfinance")
+        yf_client = MagicMock()
+        yf_client.circuit_breaker = breaker
+        yf_client.get_ticker.side_effect = RuntimeError("429 Too Many Requests")
+        client = NewsClient(yf_client=yf_client, scraper=MagicMock())
+        assert client.fetch("^GSPC", max_retries=1) is None
+        assert breaker.attempt_count == 1
+
+    def test_when_breaker_is_exhausted_then_no_request_is_made(self) -> None:
+        breaker = CircuitBreaker(service_name="yfinance", max_attempts=1)
+        breaker.trigger()
+        yf_client = _make_yf_client(news=[_make_article()])
+        yf_client.circuit_breaker = breaker
+        client = NewsClient(yf_client=yf_client, scraper=MagicMock())
+        assert client.fetch("^GSPC", max_retries=1) is None
+        yf_client.get_ticker.assert_not_called()
+
+    def test_when_fetch_succeeds_then_breaker_is_reset(self) -> None:
+        yf_client = _make_yf_client(news=[_make_article()])
+        client = NewsClient(yf_client=yf_client, scraper=MagicMock())
+        client.fetch("^GSPC", max_retries=1)
+        yf_client.circuit_breaker.check.assert_called_once()
+        yf_client.circuit_breaker.reset.assert_called_once()
 
 
 class TestNewsClientEmptyFeedSignal:

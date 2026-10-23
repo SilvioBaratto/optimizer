@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..infrastructure import retry_with_backoff
+from .._base import fetch_with_resilience
 from ..protocols import ArticleScraperProtocol, YFinanceClientProtocol
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,8 @@ class NewsClient:
                 ``fetch_full_content`` is ``True``. ``None`` means all.
 
         Returns:
-            List of article dicts from ``ticker.news``, or ``None`` on failure.
+            List of article dicts from ``ticker.news``, or ``None`` when Yahoo
+            has no usable answer or every attempt failed.
         """
         max_retries = max_retries or self.default_max_retries
 
@@ -63,10 +64,10 @@ class NewsClient:
             ticker = self.yf_client.get_ticker(symbol)
             return ticker.news
 
-        news = retry_with_backoff(
+        news = fetch_with_resilience(
             _action,
             max_retries,
-            is_valid=lambda n: n is not None,
+            circuit_breaker=self.yf_client.circuit_breaker,
         )
 
         self._record_feed(symbol, news)

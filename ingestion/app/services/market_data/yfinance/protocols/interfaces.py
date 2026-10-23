@@ -61,6 +61,9 @@ class ArticleScraperProtocol(Protocol):
 class YFinanceClientProtocol(Protocol):
     """Core yfinance client — price history, ticker info, and bulk downloads."""
 
+    @property
+    def circuit_breaker(self) -> CircuitBreakerProtocol: ...
+
     def get_ticker(self, symbol: str) -> Any: ...
 
     def fetch_info(
