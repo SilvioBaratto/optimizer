@@ -64,8 +64,9 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
             and (b) never removed or winsorised during ``transform``. The mask
             is realigned to each ``X`` by label
             (``reindex(..., fill_value=False)``), so it works unchanged across
-            CV folds and any column subset. The canonical producer is
-            ``delisting_protection_mask`` in
+            CV folds and any column subset; ``fit`` raises ``DataError`` when a
+            non-empty mask shares no index or column label with ``X``. The
+            canonical producer is ``delisting_protection_mask`` in
             ``optimizer.preprocessing._delisting``, which flags each delisted
             asset's terminal-return cell. Pass ``None`` (default) to protect
             nothing. The run of exact ``0.0`` (or ``NaN``) cells that follows a
@@ -98,8 +99,13 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
 
         Returns:
             The fitted estimator.
+
+        Raises:
+            DataError: If X is not a DataFrame, or ``protected_mask`` is
+                non-empty but shares no index or column label with X.
         """
         X = self._validate_input(X)
+        self._check_mask_labels_overlap(X)
         self.n_features_in_: int = X.shape[1]
         self.feature_names_in_: np.ndarray = np.asarray(X.columns)
         # Exclude protected cells from the moment estimate so an exempt extreme
@@ -171,6 +177,21 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
         return _fit_feature_names_out(self.feature_names_in_, input_features)
 
     # -- internals -----------------------------------------------------------
+
+    def _check_mask_labels_overlap(self, X: pd.DataFrame) -> None:
+        """Reject a mask that shares no row or column label with the fit data.
+
+        Partial overlap is expected (CV folds, column subsets), but none at all
+        means a tz, dtype or naming mismatch that would silently protect nothing.
+        """
+        mask = self.protected_mask
+        if mask is None or mask.empty:
+            return
+        if not mask.index.isin(X.index).any() or not mask.columns.isin(X.columns).any():
+            raise DataError(
+                "OutlierTreater protected_mask shares no index or column labels "
+                "with X; check for a timezone, dtype or ticker-naming mismatch"
+            )
 
     def _aligned_protected_mask(self, X: pd.DataFrame) -> pd.DataFrame:
         """Boolean mask aligned to *X* (``False`` when no mask was supplied)."""

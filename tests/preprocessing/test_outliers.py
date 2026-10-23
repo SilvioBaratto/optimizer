@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
 
 import numpy as np
@@ -440,3 +441,55 @@ class TestScreenWithVolatilityRegimes:
         df = self._regime_frame(seed)
         out = OutlierTreater().fit_transform(df)
         assert out["X"].isna().sum() <= 2
+
+
+class TestProtectedMaskLabelMismatch:
+    """A mask that shares no labels with X would silently protect nothing."""
+
+    @staticmethod
+    def _panel() -> tuple[pd.DataFrame, pd.DataFrame]:
+        rng = np.random.default_rng(1)
+        col = [*rng.normal(0.0, 0.02, size=199).tolist(), -0.50]
+        df = pd.DataFrame({"X": col}, index=pd.date_range("2024-01-01", periods=200))
+        mask = pd.DataFrame(False, index=df.index, columns=df.columns)
+        mask.iloc[-1, 0] = True
+        return df, mask
+
+    def test_aligned_mask_protects_the_cell(self) -> None:
+        df, mask = self._panel()
+        out = OutlierTreater(protected_mask=mask).fit_transform(df)
+        assert out.iloc[-1, 0] == pytest.approx(-0.50)
+
+    @pytest.mark.parametrize(
+        "relabel",
+        [
+            pytest.param(lambda m: m.tz_localize("UTC", level=0), id="tz-aware"),
+            pytest.param(lambda m: m.set_axis(m.index.strftime("%Y-%m-%d")), id="str"),
+            pytest.param(lambda m: m.reset_index(drop=True), id="range-index"),
+        ],
+    )
+    def test_mask_with_no_index_overlap_raises(
+        self, relabel: Callable[[pd.DataFrame], pd.DataFrame]
+    ) -> None:
+        df, mask = self._panel()
+        mismatched = relabel(mask)
+        with pytest.raises(DataError, match="protected_mask"):
+            OutlierTreater(protected_mask=mismatched).fit(df)
+
+    def test_mask_with_no_column_overlap_raises(self) -> None:
+        df, mask = self._panel()
+        with pytest.raises(DataError, match="protected_mask"):
+            OutlierTreater(protected_mask=mask.rename(columns={"X": "Y"})).fit(df)
+
+    def test_partial_overlap_is_still_allowed(self) -> None:
+        # A CV fold only sees a slice of the mask's dates and columns.
+        df, mask = self._panel()
+        wide = mask.assign(Z=False)
+        fold = df.iloc[100:]
+        out = OutlierTreater(protected_mask=wide).fit_transform(fold)
+        assert out.iloc[-1, 0] == pytest.approx(-0.50)
+
+    def test_empty_mask_is_not_a_mismatch(self) -> None:
+        df, _ = self._panel()
+        empty = pd.DataFrame(dtype=bool)
+        OutlierTreater(protected_mask=empty).fit(df)
