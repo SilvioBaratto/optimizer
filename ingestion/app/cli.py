@@ -375,9 +375,8 @@ def setup(
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
     from app.setup import (
         ca_bundle,
-        compose_env,
-        compose_secrets,
         docker_bootstrap,
+        lifecycle,
         wizard,
     )
     from app.setup.ca_bundle import CABundleError
@@ -391,7 +390,9 @@ def setup(
         if corp_ca:
             # Generate the merged bundle first and point this process's TLS stack at
             # it, so the live key validation below trusts the corporate proxy's root.
-            bundle = ca_bundle.generate()
+            bundle = ca_bundle.generate(
+                path=docker_bootstrap.compose_dir() / ca_bundle.DEFAULT_BUNDLE_PATH
+            )
             os.environ["SSL_CERT_FILE"] = str(bundle)
             os.environ["REQUESTS_CA_BUNDLE"] = str(bundle)
             typer.echo(f"Corporate CA bundle written to {bundle}.")
@@ -426,8 +427,7 @@ def setup(
     ) as exc:
         # All-or-nothing: wipe any plaintext secret/env files a partial run rendered so
         # a failed setup never leaves decrypted credentials on disk.
-        compose_secrets.cleanup()
-        compose_env.cleanup()
+        lifecycle.cleanup_rendered()
         typer.echo(f"Setup failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     _print_post_install_note()

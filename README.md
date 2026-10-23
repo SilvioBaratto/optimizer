@@ -122,10 +122,10 @@ those unpublished names up on PyPI), so install those two through uv.
 
 ### 2. The full platform (ingestion daemon)
 
-The daemon ships an install wizard. The one-line bootstrap installs `uv`, installs
-the `portopt` CLI straight from this repo (the CLI and the daemon are never
-published to PyPI; `release.yml` builds only the `portopt-core` library), then
-launches the wizard:
+The daemon ships an install wizard. The one-line bootstrap needs **git**: it clones
+this repo, installs `uv`, installs the `portopt` CLI straight from it (the CLI and the
+daemon are never published to PyPI; `release.yml` builds only the `portopt-core`
+library), then launches the wizard:
 
 ```bash
 # macOS / Linux
@@ -137,11 +137,27 @@ powershell -c "irm https://raw.githubusercontent.com/SilvioBaratto/optimizer/dev
 Both scripts pull from the `development` branch by default; set `PORTOPT_REF`
 (or `PORTOPT_REPO`) before running to install a different ref or fork.
 
-Equivalently, by hand:
+`portopt` runs `docker compose` and renders its plaintext secrets inside a **checkout**
+of this repo (it owns `docker-compose.yml`), and installing the CLI into a `uv` tool
+venv does not provide one. The scripts therefore clone into `~/optimizer`
+(`%USERPROFILE%\optimizer` on Windows; set `PORTOPT_HOME` to choose elsewhere), reuse
+that directory if it already holds a checkout, and export `OPTIMIZER_REPO` for the
+wizard, which then remembers the location in `~/.portopt/config.toml`. Without a
+checkout, `portopt setup` stops with "Cannot locate the optimizer checkout" before it
+persists anything.
+
+Equivalently, by hand — clone first, then run the from-clone front door:
+
+```bash
+git clone https://github.com/SilvioBaratto/optimizer && cd optimizer
+./setup.sh      # setup.cmd / setup.ps1 on Windows; interactive wizard (see below)
+```
+
+To install the CLI yourself, point it at an existing checkout:
 
 ```bash
 uv tool install "git+https://github.com/SilvioBaratto/optimizer.git@development#subdirectory=ingestion"
-portopt setup   # interactive wizard (see below)
+OPTIMIZER_REPO=/path/to/optimizer portopt setup
 ```
 
 **`portopt setup`** verifies Docker + the compose plugin, validates your

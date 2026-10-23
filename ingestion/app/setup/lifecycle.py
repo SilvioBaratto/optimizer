@@ -13,6 +13,7 @@ from app.setup import (
     compose_secrets,
     config_file,
     docker_bootstrap,
+    path_install,
     secret_store,
 )
 
@@ -37,12 +38,20 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
             "A master passphrase is required (set PORTOPT_PASSPHRASE)."
         )
     docker_bootstrap.check_docker()
+    # Resolved before anything is decrypted: compose mounts <checkout>/secrets/*, so
+    # plaintext rendered into the cwd would both miss the mounts and litter a random
+    # directory with live keys.
+    repo = docker_bootstrap.compose_dir()
     secrets = secret_store.load_secrets(passphrase)
-    compose_secrets.render(secrets)
+    compose_secrets.render(
+        secrets, secrets_dir=repo / compose_secrets.DEFAULT_SECRETS_DIR
+    )
     # The fund container never reads config.toml — its non-secret LLM selection
     # reaches it only through the generated .env.fund env_file (the compose
     # `environment:` block omits these vars so nothing shadows the file).
-    compose_env.render(config_file.load_config())
+    compose_env.render(
+        config_file.load_config(), path=repo / compose_env.DEFAULT_ENV_FUND_PATH
+    )
     # Every service is profile-gated (a bare `up` starts nothing). Bring up BOTH
     # the fund profile (db + decision engine) AND the ingestion profile (the
     # scheduler daemon): the scheduler must stay up for the daily/macro/news jobs,
@@ -60,7 +69,22 @@ def run_stop() -> None:
     for the still-running scheduler (``portopt start`` re-renders them anyway).
     """
     docker_bootstrap.stop_services(["fund"])
-    compose_env.cleanup()
+    compose_env.cleanup(
+        path=docker_bootstrap.compose_dir() / compose_env.DEFAULT_ENV_FUND_PATH
+    )
+
+
+def cleanup_rendered() -> None:
+    """Remove every rendered plaintext secret/env file from the checkout.
+
+    Best effort and silent when no checkout is found: nothing could have been
+    rendered there, so there is nothing to wipe.
+    """
+    repo = path_install.locate_repo()
+    if repo is None:
+        return
+    compose_secrets.cleanup(secrets_dir=repo / compose_secrets.DEFAULT_SECRETS_DIR)
+    compose_env.cleanup(path=repo / compose_env.DEFAULT_ENV_FUND_PATH)
 
 
 def run_status() -> dict[str, bool]:

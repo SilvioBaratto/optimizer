@@ -73,6 +73,17 @@ def resolve_repo(repo: Path | None = None) -> Path:
     return _repo_root()
 
 
+def locate_repo() -> Path | None:
+    """Return the checkout that owns ``docker-compose.yml``, or ``None`` without one.
+
+    Unlike ``resolve_repo`` this never hands back a path that has no compose file: the
+    ``__file__``-derived fallback points into site-packages for a ``uv tool install``
+    with no clone, where compose can only fail with "no configuration file provided".
+    """
+    repo = resolve_repo()
+    return repo if _is_repo(repo) else None
+
+
 def install_launcher(*, repo: Path | None = None, bin_dir: Path | None = None) -> Path:
     """Install the ``optimizer`` launcher onto the user's PATH.
 

@@ -1,10 +1,34 @@
 #!/usr/bin/env bash
-# portopt bootstrap (mac/linux): install uv if missing, install the portopt CLI,
-# then launch the interactive setup wizard.
+# portopt bootstrap (mac/linux): clone the repo (needs git; PORTOPT_HOME, default
+# ~/optimizer), install uv if missing, install the portopt CLI, then launch the
+# interactive setup wizard.
 #
 #   curl -LsSf https://raw.githubusercontent.com/SilvioBaratto/optimizer/development/install.sh | bash
 #   curl -LsSf .../install.sh | bash -s -- --non-interactive --llm-provider openrouter …
 set -euo pipefail
+
+# The CLI drives `docker compose` against a checkout of this repo (compose file,
+# Dockerfiles, scripts/), and installing it into a uv tool venv does not provide
+# one. Leave a clone behind, reuse an existing one, and point the CLI at it.
+PORTOPT_REPO="${PORTOPT_REPO:-https://github.com/SilvioBaratto/optimizer.git}"
+PORTOPT_REF="${PORTOPT_REF:-development}"
+PORTOPT_HOME="${PORTOPT_HOME:-$HOME/optimizer}"
+
+if ! command -v git >/dev/null 2>&1; then
+  echo "git is required to fetch the optimizer checkout; install it and re-run." >&2
+  exit 1
+fi
+
+if [ -f "${PORTOPT_HOME}/docker-compose.yml" ]; then
+  echo "Using the existing checkout at ${PORTOPT_HOME}"
+else
+  echo "Cloning ${PORTOPT_REPO} into ${PORTOPT_HOME}..."
+  git clone "${PORTOPT_REPO}" "${PORTOPT_HOME}"
+  # A separate checkout (not `clone --branch`) so PORTOPT_REF may be a branch, tag
+  # or commit.
+  git -C "${PORTOPT_HOME}" checkout --quiet "${PORTOPT_REF}"
+fi
+export OPTIMIZER_REPO="${PORTOPT_HOME}"
 
 if ! command -v uv >/dev/null 2>&1; then
   echo "Installing uv (Astral)..."
@@ -17,8 +41,6 @@ export PATH="$HOME/.local/bin:$PATH"
 
 # release.yml only builds the portopt-core library, never the CLI member, so
 # install the CLI straight from git. The install tracks a branch instead of a release.
-PORTOPT_REPO="${PORTOPT_REPO:-https://github.com/SilvioBaratto/optimizer.git}"
-PORTOPT_REF="${PORTOPT_REF:-development}"
 echo "Installing the portopt CLI from ${PORTOPT_REPO}@${PORTOPT_REF}..."
 uv tool install --force "git+${PORTOPT_REPO}@${PORTOPT_REF}#subdirectory=ingestion"
 

@@ -15,6 +15,8 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from app.setup import path_install
+
 
 class DockerError(RuntimeError):
     """Raised when Docker is unavailable or a bootstrap command fails."""
@@ -43,6 +45,32 @@ def _start_hint() -> str:
     return "Start the Docker daemon (e.g. `sudo systemctl start docker`) and retry."
 
 
+def compose_dir() -> Path:
+    """Return the checkout whose ``docker-compose.yml`` drives the stack.
+
+    Compose resolves the compose file and every ``./secrets/<name>`` mount source
+    relative to its project directory, so each compose call and each rendered
+    plaintext file must be anchored here rather than to the current directory.
+
+    Raises:
+        DockerError: If no checkout can be located (e.g. ``portopt`` was installed
+            with ``uv tool install`` and never cloned), before anything is written.
+    """
+    repo = path_install.locate_repo()
+    if repo is None:
+        raise DockerError(
+            "Cannot locate the optimizer checkout (no docker-compose.yml). Run "
+            "portopt from inside a clone of the repository, or set OPTIMIZER_REPO "
+            "to its path."
+        )
+    return repo
+
+
+def _compose(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run ``docker compose <args>`` with the checkout as the project directory."""
+    return _run(["docker", "compose", *args], cwd=str(compose_dir()))
+
+
 def check_docker() -> None:
     """Verify the Docker CLI, a reachable daemon, and the compose v2 plugin."""
     if shutil.which("docker") is None:
@@ -55,7 +83,7 @@ def check_docker() -> None:
 
 def bring_up_db() -> None:
     """Start the Postgres service and wait for it to become healthy."""
-    result = _run(["docker", "compose", "up", "-d", "--wait", "db"])
+    result = _compose("up", "-d", "--wait", "db")
     if result.returncode != 0:
         raise DockerError(f"Failed to start the db service:\n{result.stderr}")
 
@@ -126,9 +154,10 @@ def migrate() -> None:
 
 def running_services() -> set[str]:
     """Return the set of compose services currently running (empty on error)."""
-    result = _run(
-        ["docker", "compose", "ps", "--services", "--filter", "status=running"]
-    )
+    try:
+        result = _compose("ps", "--services", "--filter", "status=running")
+    except DockerError:
+        return set()
     if result.returncode != 0:
         return set()
     return {line.strip() for line in result.stdout.splitlines() if line.strip()}
@@ -236,7 +265,7 @@ def stop_services(services: Sequence[str]) -> None:
     targets services by name so ``portopt stop`` can halt the fund decision engine
     without taking down the persistent ingestion daemon or the shared db.
     """
-    result = _run(["docker", "compose", "stop", *services])
+    result = _compose("stop", *services)
     if result.returncode != 0:
         raise DockerError(f"`docker compose stop` failed:\n{result.stderr}")
 
@@ -277,31 +306,12 @@ def build_and_up(
     built = [img for profile in profiles for img in _BUILT_IMAGES.get(profile, ())]
     if force_build or any(not _image_exists(ref) for ref in built):
         print("Building images — slow the first time; later starts reuse them.")
-        build = _run(
-            [
-                "docker",
-                "compose",
-                *profile_args,
-                "--progress",
-                "plain",
-                "build",
-                "--pull",
-            ]
-        )
+        build = _compose(*profile_args, "--progress", "plain", "build", "--pull")
         if build.returncode != 0:
             raise DockerError(f"`docker compose build` failed:\n{build.stderr}")
 
-    up = _run(
-        [
-            "docker",
-            "compose",
-            *profile_args,
-            "up",
-            "-d",
-            "--wait",
-            "--wait-timeout",
-            str(wait_timeout),
-        ]
+    up = _compose(
+        *profile_args, "up", "-d", "--wait", "--wait-timeout", str(wait_timeout)
     )
     if up.returncode != 0:
         raise DockerError(f"`docker compose up --wait` failed:\n{up.stderr}")

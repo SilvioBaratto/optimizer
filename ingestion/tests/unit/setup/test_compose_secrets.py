@@ -72,3 +72,18 @@ def test_cleanup_removes_rendered_files(tmp_path: Path) -> None:
 
 def test_cleanup_missing_dir_is_noop(tmp_path: Path) -> None:
     cs.cleanup(secrets_dir=tmp_path / "does-not-exist")  # no raise
+
+
+def test_dockerignore_keeps_plaintext_secrets_out_of_the_build_context() -> None:
+    """The compose build context is the repo root, so an unignored `secrets/` or
+    `.certs/` is uploaded to the daemon on every `docker compose build`."""
+    entries = {
+        line.strip()
+        for line in (_REPO_ROOT / ".dockerignore")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    }
+    # The recursive form also matches at the context root and additionally drops
+    # the nested copies under each member tree.
+    assert entries & {"secrets/", "**/secrets/"}
+    assert entries & {".certs/", "**/.certs/"}

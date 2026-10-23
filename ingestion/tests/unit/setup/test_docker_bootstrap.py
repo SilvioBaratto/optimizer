@@ -346,3 +346,73 @@ class TestImageExists:
     def test_false_when_inspect_fails(self, mock_run: MagicMock) -> None:
         mock_run.return_value = _cp(1, "No such image")
         assert db._image_exists("absent:latest") is False
+
+
+class TestComposeRunsFromTheCheckout:
+    """Compose resolves `docker-compose.yml` and `./secrets/*` relative to the cwd, so
+    every compose call must be pinned to the checkout, never to wherever the operator
+    happens to be (a `uv tool install` user runs `portopt` from `~`)."""
+
+    @pytest.fixture
+    def checkout(self, tmp_path, monkeypatch: pytest.MonkeyPatch):
+        repo = tmp_path / "checkout"
+        repo.mkdir()
+        (repo / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.setenv("OPTIMIZER_REPO", str(repo))
+        monkeypatch.chdir(elsewhere)
+        return repo
+
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap._image_exists", return_value=False)
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_every_compose_command_runs_in_the_checkout(
+        self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock, checkout
+    ) -> None:
+        mock_run.return_value = _cp(0)
+        db.bring_up_db()
+        db.stop_services(["fund"])
+        db.running_services()
+        db.build_and_up(profiles=("fund",))
+        compose_calls = [
+            c for c in mock_run.call_args_list if c[0][0][:2] == ["docker", "compose"]
+        ]
+        assert len(compose_calls) >= 5  # up db, stop, ps, build, up
+        assert {c.kwargs.get("cwd") for c in compose_calls} == {str(checkout)}
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_no_checkout_fails_before_any_compose_call(
+        self,
+        mock_run: MagicMock,
+        tmp_path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A `uv tool install` with no clone has no compose file anywhere: fail with
+        guidance instead of letting compose answer 'no configuration file'."""
+        from app.setup import path_install
+
+        bare = tmp_path / "bare"
+        bare.mkdir()
+        monkeypatch.delenv("OPTIMIZER_REPO", raising=False)
+        monkeypatch.chdir(bare)
+        monkeypatch.setattr(path_install.config_file, "load_config", lambda **kw: {})
+        monkeypatch.setattr(path_install, "_repo_root", lambda: bare)
+        with pytest.raises(db.DockerError, match="OPTIMIZER_REPO"):
+            db.bring_up_db()
+        mock_run.assert_not_called()
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_running_services_is_empty_without_a_checkout(
+        self, mock_run: MagicMock, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.setup import path_install
+
+        bare = tmp_path / "bare"
+        bare.mkdir()
+        monkeypatch.delenv("OPTIMIZER_REPO", raising=False)
+        monkeypatch.chdir(bare)
+        monkeypatch.setattr(path_install.config_file, "load_config", lambda **kw: {})
+        monkeypatch.setattr(path_install, "_repo_root", lambda: bare)
+        assert db.running_services() == set()
+        mock_run.assert_not_called()

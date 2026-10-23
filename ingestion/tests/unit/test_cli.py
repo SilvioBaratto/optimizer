@@ -146,6 +146,33 @@ class TestSetupCommand:
         secrets_cleanup.assert_called_once()
         env_cleanup.assert_called_once()
 
+    def test_failed_setup_wipes_the_checkouts_plaintext_not_the_cwd(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """Rendered plaintext lives under the checkout, so that is what a failed
+        setup must wipe — a cwd-relative cleanup misses it when run from elsewhere."""
+        from app.setup.wizard import SetupError
+
+        repo = tmp_path / "checkout"
+        (repo / "secrets").mkdir(parents=True)
+        (repo / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+        (repo / "secrets" / "fred_api_key").write_text("live", encoding="utf-8")
+        (repo / ".env.fund").write_text("LLM_PROVIDER=x\n", encoding="utf-8")
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.setenv("OPTIMIZER_REPO", str(repo))
+        monkeypatch.chdir(elsewhere)
+        with patch(
+            "app.setup.wizard.run_setup_noninteractive",
+            side_effect=SetupError("bad key"),
+        ):
+            result = runner.invoke(
+                app, ["setup", "--non-interactive", "--fred-key", "x"]
+            )
+        assert result.exit_code == 1
+        assert not (repo / "secrets" / "fred_api_key").exists()
+        assert not (repo / ".env.fund").exists()
+
     def test_success_prints_post_install_note(self) -> None:
         """A successful setup surfaces the passphrase-backup + reopen guidance (AC3)."""
         with patch("app.setup.wizard.run_setup_noninteractive"):

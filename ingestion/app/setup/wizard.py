@@ -100,6 +100,17 @@ def _merge_with_existing_secrets(
     return {**existing, **new}
 
 
+def _preflight() -> None:
+    """Verify Docker and the checkout before anything is persisted.
+
+    No checkout means no compose file to bring the db up from; finding that out after
+    the secret store and config were written leaves a half-done install whose re-run
+    is no longer a first run, so it would never auto-launch.
+    """
+    docker_bootstrap.check_docker()
+    docker_bootstrap.compose_dir()
+
+
 def _persist_and_bootstrap(
     secrets: dict[str, str],
     config: dict[str, object],
@@ -382,7 +393,7 @@ def run_setup_noninteractive(
     """
     if not passphrase:
         raise SetupError("A master passphrase is required (set PORTOPT_PASSPHRASE).")
-    docker_bootstrap.check_docker()
+    _preflight()
 
     secrets: dict[str, str] = {}
     config: dict[str, object] = {}
@@ -430,7 +441,7 @@ def run_setup_interactive(
     a re-run never auto-launches and merges over the existing store/config, pre-filling
     the LLM prompts from what was persisted. ``skip_validation`` bypasses live checks.
     """
-    docker_bootstrap.check_docker()
+    _preflight()
     first_run = _is_first_run()
     existing = config_file.load_config()
 

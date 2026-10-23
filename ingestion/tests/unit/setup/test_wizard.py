@@ -714,3 +714,24 @@ def test_interactive_reconfigure_reruns_the_llm_prompt(
     wizard.run_setup_interactive(prompter, reconfigure=True)
     assert patched["saved_config"]["llm_provider"] == "openai"
     assert patched["saved_secrets"]["openai_api_key"] == "sk-openai"
+
+
+def test_setup_without_a_checkout_fails_before_persisting_anything(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stack can only be brought up from a checkout; discovering that after the
+    secret store and config were written leaves a half-installed machine whose re-run
+    is no longer a first run (so it never auto-launches)."""
+
+    def _no_checkout() -> None:
+        raise wizard.docker_bootstrap.DockerError("no docker-compose.yml")
+
+    monkeypatch.setattr(wizard.docker_bootstrap, "compose_dir", _no_checkout)
+    with pytest.raises(wizard.docker_bootstrap.DockerError):
+        wizard.run_setup_noninteractive(passphrase="pw", skip_validation=True)
+    prompter = NonInteractivePrompter({wizard._MSG_PASSPHRASE: "pw"})
+    with pytest.raises(wizard.docker_bootstrap.DockerError):
+        wizard.run_setup_interactive(prompter)
+    assert patched["saved_secrets"] is None
+    assert patched["saved_config"] is None
+    assert patched["bootstrapped"] == []

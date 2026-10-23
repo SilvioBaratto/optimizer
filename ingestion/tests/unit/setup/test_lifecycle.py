@@ -39,6 +39,7 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
     monkeypatch.setattr(lifecycle.config_file, "load_config", lambda **kw: {})
     monkeypatch.setattr(lifecycle.compose_env, "DEFAULT_ENV_FUND_PATH", env_fund)
     monkeypatch.setattr(lifecycle.docker_bootstrap, "check_docker", lambda: None)
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "compose_dir", lambda: tmp_path)
 
     def _fake_build_and_up(**kw: object) -> list[str]:
         calls["build_profiles"] = kw.get("profiles")
@@ -219,3 +220,88 @@ def test_run_status_docker_down(patched: dict, monkeypatch: pytest.MonkeyPatch) 
         "scheduler": False,
         "fund": False,
     }
+
+
+@pytest.fixture
+def real_render(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
+    """A checkout and an unrelated cwd, with the real secret/env renderers."""
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    (repo / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.setenv("OPTIMIZER_REPO", str(repo))
+    monkeypatch.chdir(elsewhere)
+    monkeypatch.setattr(
+        lifecycle.secret_store, "load_secrets", lambda pw, **kw: {"fred_api_key": "fk"}
+    )
+    monkeypatch.setattr(lifecycle.config_file, "load_config", lambda **kw: {})
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "check_docker", lambda: None)
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "build_and_up", lambda **kw: [])
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "stop_services", lambda s: None)
+    return {"repo": repo, "elsewhere": elsewhere}
+
+
+def test_run_start_renders_plaintext_into_the_checkout_not_the_cwd(
+    real_render: dict,
+) -> None:
+    """Compose mounts `<checkout>/secrets/*`; rendering into the cwd would leave those
+    mount sources missing and scatter plaintext keys into an arbitrary directory."""
+    lifecycle.run_start("pw")
+    repo, elsewhere = real_render["repo"], real_render["elsewhere"]
+    assert (repo / "secrets" / "fred_api_key").read_text(encoding="utf-8") == "fk"
+    assert (repo / ".env.fund").is_file()
+    assert not (elsewhere / "secrets").exists()
+    assert not (elsewhere / ".env.fund").exists()
+
+
+def test_run_start_without_a_checkout_writes_nothing(
+    real_render: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No docker-compose.yml anywhere: fail before decrypting or rendering."""
+    from app.setup import path_install
+
+    elsewhere = real_render["elsewhere"]
+    monkeypatch.delenv("OPTIMIZER_REPO", raising=False)
+    monkeypatch.setattr(path_install.config_file, "load_config", lambda **kw: {})
+    monkeypatch.setattr(path_install, "_repo_root", lambda: elsewhere)
+    loaded: list[str] = []
+    monkeypatch.setattr(
+        lifecycle.secret_store,
+        "load_secrets",
+        lambda pw, **kw: loaded.append(pw) or {},
+    )
+    with pytest.raises(lifecycle.docker_bootstrap.DockerError):
+        lifecycle.run_start("pw")
+    assert loaded == []
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_run_stop_removes_the_checkouts_env_fund(real_render: dict) -> None:
+    repo, elsewhere = real_render["repo"], real_render["elsewhere"]
+    (repo / ".env.fund").write_text("LLM_PROVIDER=openai\n", encoding="utf-8")
+    (elsewhere / ".env.fund").write_text("UNRELATED=1\n", encoding="utf-8")
+    lifecycle.run_stop()
+    assert not (repo / ".env.fund").exists()
+    assert (elsewhere / ".env.fund").exists()
+
+
+def test_cleanup_rendered_wipes_the_checkouts_plaintext(real_render: dict) -> None:
+    repo = real_render["repo"]
+    lifecycle.run_start("pw")
+    lifecycle.cleanup_rendered()
+    assert not (repo / ".env.fund").exists()
+    assert not (repo / "secrets" / "fred_api_key").exists()
+
+
+def test_cleanup_rendered_is_a_noop_without_a_checkout(
+    real_render: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.setup import path_install
+
+    elsewhere = real_render["elsewhere"]
+    monkeypatch.delenv("OPTIMIZER_REPO", raising=False)
+    monkeypatch.setattr(path_install.config_file, "load_config", lambda **kw: {})
+    monkeypatch.setattr(path_install, "_repo_root", lambda: elsewhere)
+    lifecycle.cleanup_rendered()  # must not raise or touch the cwd
+    assert list(elsewhere.iterdir()) == []
