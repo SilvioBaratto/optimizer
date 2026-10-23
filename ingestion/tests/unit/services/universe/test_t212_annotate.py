@@ -21,14 +21,20 @@ M = "app.services.universe.t212_annotate"
 
 
 @contextmanager
-def _patched(repo: MagicMock, client: MagicMock):
+def _patched(repo: MagicMock, client: MagicMock, events: list[str] | None = None):
     sessions: list[MagicMock] = []
+    log = events if events is not None else []
 
     @contextmanager
     def _session_cm():
         session = MagicMock()
+        session.commit.side_effect = lambda: log.append("commit")
         sessions.append(session)
-        yield session
+        log.append("open")
+        try:
+            yield session
+        finally:
+            log.append("close")
 
     dm = MagicMock()
     dm.get_session = _session_cm
@@ -44,12 +50,14 @@ def _inst(
     ticker: str,
     exchange_id: int = 1,
     *,
+    isin: str | None = None,
     currency_code: str | None = None,
     t212_ticker: str | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         ticker=ticker,
         exchange_id=exchange_id,
+        isin=isin,
         currency_code=currency_code,
         t212_ticker=t212_ticker,
     )
@@ -268,6 +276,84 @@ def test_unmatched_instrument_without_a_t212_ticker_is_left_alone() -> None:
     repo.set_t212_ticker.assert_not_called()
 
 
+def _open_sessions_at_each_lookup(events: list[str]) -> list[int]:
+    open_now = 0
+    seen: list[int] = []
+    for event in events:
+        if event == "open":
+            open_now += 1
+        elif event == "close":
+            open_now -= 1
+        elif event.startswith("lookup:"):
+            seen.append(open_now)
+    return seen
+
+
+def test_isin_lookups_run_with_no_database_session_open() -> None:
+    repo = MagicMock()
+    repo.get_active_instruments.return_value = [_inst(f"T{i}") for i in range(3)]
+    repo.set_t212_ticker.return_value = True
+    events: list[str] = []
+
+    def lookup(ticker: str) -> str:
+        events.append(f"lookup:{ticker}")
+        return "ISIN"
+
+    client = _client([{"ticker": "T_EQ", "isin": "ISIN"}])
+    with _patched(repo, client, events):
+        t212_annotate.run_t212_annotate(isin_lookup=lookup)
+
+    assert _open_sessions_at_each_lookup(events) == [0, 0, 0]
+
+
+def test_annotations_are_committed_in_batches_during_the_run(monkeypatch) -> None:
+    monkeypatch.setattr(t212_annotate, "_COMMIT_EVERY", 2)
+    repo = MagicMock()
+    repo.get_active_instruments.return_value = [_inst(f"T{i}") for i in range(5)]
+    repo.set_t212_ticker.return_value = True
+    events: list[str] = []
+
+    def lookup(ticker: str) -> str:
+        events.append(f"lookup:{ticker}")
+        return "ISIN"
+
+    client = _client([{"ticker": "T_EQ", "isin": "ISIN"}])
+    with _patched(repo, client, events):
+        summary = t212_annotate.run_t212_annotate(isin_lookup=lookup)
+
+    first_commit = events.index("commit")
+    assert events[:first_commit].count("lookup:T0") == 1
+    assert "lookup:T4" not in events[:first_commit]
+    assert events.count("commit") == 3  # batches of 2, 2, then the last 1
+    assert summary["annotated"] == 5
+
+
+def test_stored_isin_is_used_without_a_network_lookup() -> None:
+    repo = MagicMock()
+    repo.get_active_instruments.return_value = [
+        _inst("AAPL", isin="US123"),
+        _inst("VOD"),
+    ]
+    repo.set_t212_ticker.return_value = True
+    client = _client(
+        [
+            {"ticker": "AAPL_US_EQ", "isin": "US123"},
+            {"ticker": "VODl_EQ", "isin": "GB1"},
+        ]
+    )
+    looked_up: list[str] = []
+
+    def lookup(ticker: str) -> str:
+        looked_up.append(ticker)
+        return "GB1"
+
+    with _patched(repo, client):
+        summary = t212_annotate.run_t212_annotate(isin_lookup=lookup)
+
+    assert looked_up == ["VOD"]
+    assert summary["annotated"] == 2
+
+
 def _yf_client(*, isin: str | None, lost: Exception | None = None) -> MagicMock:
     yf_client = MagicMock()
     if lost is not None:
@@ -417,7 +503,7 @@ def test_step_fails_instead_of_completing_when_lookups_keep_erroring() -> None:
 
     assert len(calls) == limit + 1  # aborted early, not after the whole universe
     repo.set_t212_ticker.assert_called_once()  # work done before the outage is kept
-    sessions[0].commit.assert_called()
+    assert any(s.commit.called for s in sessions)
     assert not any(
         c.kwargs.get("status") == "completed" for c in on_progress.call_args_list
     )

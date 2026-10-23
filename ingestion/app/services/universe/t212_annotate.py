@@ -2,8 +2,8 @@
 
 Runs *after* the yfinance universe build. Trading 212 is an add-on: this step
 attaches each T212 ticker to the matching yfinance instrument by ISIN. Because
-the Screener build carries no ISIN, ISIN is fetched lazily here (one call per
-active instrument) and matched against T212's ``isin -> ticker`` metadata.
+the Screener build carries no ISIN, ISIN is fetched lazily here (only for instruments
+without a stored one) and matched against T212's ``isin -> ticker`` metadata.
 
 Skips cleanly when Trading 212 is not configured.
 """
@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from portopt_db.repositories.universe.universe_repository import UniverseRepository
@@ -36,9 +37,34 @@ IsinLookup = Callable[[str], str | None]
 # a clean run with nothing annotated.
 _MAX_CONSECUTIVE_LOOKUP_ERRORS = 20
 
+# Lookups take about a second each, so writes are committed every this many
+# instruments rather than once at the end: a crash loses at most one batch and row
+# locks are held for one short run of UPDATEs, not for the hours the loop lasts.
+_COMMIT_EVERY = 100
+
 
 class IsinLookupError(RuntimeError):
     """The ISIN source failed (throttled, unreachable), which is not "no ISIN"."""
+
+
+@dataclass(frozen=True)
+class _Target:
+    """Plain snapshot of an active instrument, readable after its session closed."""
+
+    ticker: str
+    exchange_id: Any
+    isin: str | None
+    currency_code: str | None
+    t212_ticker: str | None
+
+
+@dataclass(frozen=True)
+class _Update:
+    """One pending ``instruments.t212_ticker`` write; ``None`` clears the value."""
+
+    ticker: str
+    exchange_id: Any
+    t212_ticker: str | None
 
 
 def _default_isin_lookup(ticker: str) -> str | None:
@@ -94,6 +120,44 @@ def _pick_t212_ticker(
     return None
 
 
+def _plan_update(
+    target: _Target, isin: str | None, isin_to_t212: dict[str, dict[str, str | None]]
+) -> _Update | None:
+    if not isin:
+        return None
+    t212_ticker = _pick_t212_ticker(isin_to_t212.get(isin, {}), target.currency_code)
+    # A known ISIN with no unambiguous T212 line proves a stored cross-reference
+    # stale; a missing ISIN proves nothing.
+    if t212_ticker is None and target.t212_ticker is None:
+        return None
+    return _Update(target.ticker, target.exchange_id, t212_ticker)
+
+
+def _apply_updates(updates: list[_Update]) -> tuple[int, int]:
+    """Write one batch in its own short transaction.
+
+    Returns:
+        ``(annotated, cleared)`` row counts for the batch.
+    """
+    if not updates:
+        return 0, 0
+    annotated = cleared = 0
+    with database_manager.get_session() as session:
+        repo = UniverseRepository(session)
+        for update in updates:
+            if repo.set_t212_ticker(
+                ticker=update.ticker,
+                exchange_id=update.exchange_id,
+                t212_ticker=update.t212_ticker,
+            ):
+                if update.t212_ticker is None:
+                    cleared += 1
+                else:
+                    annotated += 1
+        session.commit()
+    return annotated, cleared
+
+
 def run_t212_annotate(
     *,
     isin_lookup: IsinLookup | None = None,
@@ -129,54 +193,47 @@ def run_t212_annotate(
         if t212_isin and t212_symbol:
             isin_to_t212[t212_isin][t212_symbol] = inst.get("currencyCode")
 
+    # Snapshot first and look up with no session open: holding a connection (and
+    # the row locks of every UPDATE so far) across thousands of network calls would
+    # block concurrent writers on ``instruments``.
+    with database_manager.get_session() as session:
+        targets = [
+            _Target(i.ticker, i.exchange_id, i.isin, i.currency_code, i.t212_ticker)
+            for i in UniverseRepository(session).get_active_instruments()
+        ]
+    total = len(targets)
+
     annotated = 0
     cleared = 0
     lookup_errors = 0
     consecutive_errors = 0
-    with database_manager.get_session() as session:
-        repo = UniverseRepository(session)
-        instruments = list(repo.get_active_instruments())
-        total = len(instruments)
-        for i, instrument in enumerate(instruments, start=1):
-            looked_up: str | None = None
+    pending: list[_Update] = []
+    for i, target in enumerate(targets, start=1):
+        isin = target.isin
+        if not isin:
             try:
-                looked_up = lookup(instrument.ticker)
+                isin = lookup(target.ticker)
                 consecutive_errors = 0
             except Exception as exc:
                 lookup_errors += 1
                 consecutive_errors += 1
                 logger.warning(
-                    "t212_annotate: ISIN lookup failed for %s: %s",
-                    instrument.ticker,
-                    exc,
+                    "t212_annotate: ISIN lookup failed for %s: %s", target.ticker, exc
                 )
                 if consecutive_errors >= _MAX_CONSECUTIVE_LOOKUP_ERRORS:
                     break
-            t212_ticker = (
-                _pick_t212_ticker(
-                    isin_to_t212.get(looked_up, {}), instrument.currency_code
-                )
-                if looked_up
-                else None
-            )
-            # A known ISIN with no unambiguous T212 line proves the stored
-            # cross-reference stale; a missing ISIN proves nothing.
-            stale = (
-                t212_ticker is None
-                and bool(looked_up)
-                and instrument.t212_ticker is not None
-            )
-            if (t212_ticker is not None or stale) and repo.set_t212_ticker(
-                ticker=instrument.ticker,
-                exchange_id=instrument.exchange_id,
-                t212_ticker=t212_ticker,
-            ):
-                if stale:
-                    cleared += 1
-                else:
-                    annotated += 1
-            on_progress(current=i, total=total, current_stock=instrument.ticker)
-        session.commit()
+        update = _plan_update(target, isin, isin_to_t212)
+        if update is not None:
+            pending.append(update)
+        if i % _COMMIT_EVERY == 0:
+            done, dropped = _apply_updates(pending)
+            annotated += done
+            cleared += dropped
+            pending = []
+        on_progress(current=i, total=total, current_stock=target.ticker)
+    done, dropped = _apply_updates(pending)
+    annotated += done
+    cleared += dropped
 
     if consecutive_errors >= _MAX_CONSECUTIVE_LOOKUP_ERRORS:
         msg = (
