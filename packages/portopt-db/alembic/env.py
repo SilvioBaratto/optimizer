@@ -31,6 +31,8 @@ elif not context.is_offline_mode():
         "Docker, which sets it) before `alembic upgrade`."
     )
 
+from portopt_db.migration_lock import acquire_migration_lock
+
 # Importing the models package registers every model on Base.metadata, so
 # autogenerate/upgrade see the complete schema.
 from portopt_db.models import Base
@@ -64,6 +66,10 @@ def run_migrations_online() -> None:
         context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
+            # The scheduler and fund containers both migrate on start and come up
+            # together; taking the lock before Alembic reads alembic_version makes
+            # the second runner wait and then see nothing left to apply.
+            acquire_migration_lock(connection)
             context.run_migrations()
 
 
