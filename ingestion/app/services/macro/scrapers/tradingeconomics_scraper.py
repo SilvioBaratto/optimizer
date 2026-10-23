@@ -19,7 +19,11 @@ from app.services.macro.scrapers.exceptions import ParseStructureError
 logger = logging.getLogger(__name__)
 
 _te_circuit_breaker = CircuitBreaker(service_name="Trading Economics", max_attempts=5)
-_te_rate_limiter = RateLimiter(delay=1.5)
+
+# Every page lives on one host, so the minimum interval has to be shared by all
+# of them; keying the limiter by URL would let each distinct page go out at once.
+_TE_RATE_LIMIT_KEY = "tradingeconomics.com"
+_DEFAULT_RATE_LIMIT_DELAY = 1.5
 
 # Minimum row thresholds — below these counts after a successful HTTP fetch,
 # the result is treated as a structural HTML change rather than legitimately
@@ -270,9 +274,21 @@ class TradingEconomicsIndicatorsScraper:
 
     BASE_URL = "https://tradingeconomics.com"
 
-    def __init__(self, timeout: int = 20, rate_limit_delay: float = 1.0):
+    def __init__(
+        self,
+        timeout: int = 20,
+        rate_limit_delay: float = _DEFAULT_RATE_LIMIT_DELAY,
+    ):
+        """Create a scraper with its own HTTP session and request pacing.
+
+        Args:
+            timeout: Per-request timeout in seconds.
+            rate_limit_delay: Minimum seconds between any two requests this
+                scraper sends to Trading Economics, whatever the page.
+        """
         self.timeout = timeout
         self.rate_limit_delay = rate_limit_delay
+        self._rate_limiter = RateLimiter(delay=rate_limit_delay)
         self.session = requests.Session()
 
         # Browser-like UA to avoid bot detection.
@@ -322,7 +338,7 @@ class TradingEconomicsIndicatorsScraper:
 
         def _fetch() -> requests.Response:
             _te_circuit_breaker.check()
-            _te_rate_limiter.acquire(url)
+            self._rate_limiter.acquire(_TE_RATE_LIMIT_KEY)
             resp = self.session.get(url, timeout=self.timeout)
             resp.raise_for_status()
             return resp
@@ -517,7 +533,7 @@ class TradingEconomicsIndicatorsScraper:
 
         def _fetch() -> requests.Response:
             _te_circuit_breaker.check()
-            _te_rate_limiter.acquire(url)
+            self._rate_limiter.acquire(_TE_RATE_LIMIT_KEY)
             resp = self.session.get(url, timeout=self.timeout)
             resp.raise_for_status()
             return resp
@@ -683,7 +699,7 @@ class TradingEconomicsIndicatorsScraper:
 
         def _fetch() -> requests.Response:
             _te_circuit_breaker.check()
-            _te_rate_limiter.acquire(url)
+            self._rate_limiter.acquire(_TE_RATE_LIMIT_KEY)
             resp = self.session.get(url, timeout=self.timeout)
             resp.raise_for_status()
             return resp
@@ -735,7 +751,7 @@ class TradingEconomicsIndicatorsScraper:
 
         def _fetch() -> requests.Response:
             _te_circuit_breaker.check()
-            _te_rate_limiter.acquire(url)
+            self._rate_limiter.acquire(_TE_RATE_LIMIT_KEY)
             resp = self.session.get(url, timeout=self.timeout)
             resp.raise_for_status()
             return resp
@@ -973,8 +989,6 @@ class TradingEconomicsIndicatorsScraper:
                     results[country]["capacity_utilization"] = (
                         capacity_utilization_data[country_full_name]
                     )
-
-            # Rate limiting handled by _te_rate_limiter inside fetch calls
 
         return results
 

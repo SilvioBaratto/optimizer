@@ -626,3 +626,62 @@ class TestGdpQuarterlyConvention:
 
         assert "annualised" in summary
         assert "2.20" in summary
+
+
+# ---------------------------------------------------------------------------
+# TestRequestSpacing — one interval across every Trading Economics page
+# ---------------------------------------------------------------------------
+
+
+class _FakeClock:
+    """Stand-in for the ``time`` module: sleeping advances the clock."""
+
+    def __init__(self) -> None:
+        self.now = 1_000.0
+
+    def time(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def _page_with_indicators_and_bonds() -> bytes:
+    return (
+        '<table class="table table-hover"><tbody>'
+        + "".join(_FILLER_ROWS)
+        + "</tbody></table>"
+        + '<table class="table-heatmap"><tbody>'
+        + _bond_row("USA 10Y", "4.25")
+        + "</tbody></table>"
+    ).encode()
+
+
+class TestRequestSpacing:
+    @pytest.mark.parametrize("delay", [0.25, 2.0])
+    def test_requests_to_different_pages_are_spaced_by_the_configured_delay(
+        self, delay: float
+    ) -> None:
+        """The indicators page and the bond-yield page have different URLs but
+        the same host, so the interval has to apply across them."""
+        clock = _FakeClock()
+        stamps: list[float] = []
+
+        def _get(url: str, **_: object) -> MagicMock:
+            stamps.append(clock.now)
+            return _fake_response(_page_with_indicators_and_bonds())
+
+        scraper = TradingEconomicsIndicatorsScraper(timeout=5, rate_limit_delay=delay)
+        scraper.session = MagicMock()
+        scraper.session.get.side_effect = _get
+
+        with (
+            patch("app.services.infrastructure.rate_limiter.time", clock),
+            patch(f"{_MOD}._te_circuit_breaker"),
+        ):
+            result = scraper.get_country_indicators("USA", include_bonds=True)
+
+        assert result["status"] == "success"
+        assert result["num_bond_yields"] == 1
+        assert len(stamps) == 2
+        assert stamps[1] - stamps[0] == pytest.approx(delay)
