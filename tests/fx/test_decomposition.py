@@ -391,3 +391,45 @@ class TestDecomposeUnionCalendarGaps:
             result.total_returns, recon, check_exact=False, atol=1e-10
         )
         assert result.total_returns["A"].notna().sum() == 4
+
+
+class TestCumulativeContributionsNoData:
+    """A ticker with no valid returns has an unknown, not a 0%, return."""
+
+    def test_all_nan_returns_stay_nan(self) -> None:
+        dates = pd.bdate_range("2024-01-03", periods=4)
+        nan_col = pd.Series(np.nan, index=dates)
+        valid = pd.Series([0.01, -0.02, 0.03, 0.0], index=dates)
+        result = FxReturnDecomposition(
+            total_returns=pd.DataFrame({"A": nan_col, "B": valid}),
+            local_returns=pd.DataFrame({"A": nan_col, "B": valid}),
+            fx_returns=pd.DataFrame({"A": nan_col, "B": 0.0}),
+            cross_terms=pd.DataFrame({"A": nan_col, "B": 0.0}),
+            currency_map={"A": "USD", "B": "EUR"},
+            base_currency="EUR",
+        )
+
+        summary = result.cumulative_contributions()
+
+        assert summary.loc["A"].isna().all()
+        assert summary.loc["B", "total"] == pytest.approx(
+            (1.01 * 0.98 * 1.03 * 1.0) - 1.0
+        )
+
+    def test_ticker_without_prices_is_nan_end_to_end(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=5)
+        local = pd.DataFrame(
+            {"NEW": np.nan, "SPY": [480.0, 482.0, 481.0, 485.0, 487.0]}, index=dates
+        )
+        rate = pd.Series([0.91, 0.92, 0.92, 0.93, 0.92], index=dates)
+        base = local.multiply(rate, axis=0)
+        cmap = {"NEW": "USD", "SPY": "USD"}
+
+        summary = decompose_fx_returns(
+            local, base, pd.DataFrame({"USD": rate}), cmap, "EUR"
+        ).cumulative_contributions()
+
+        assert summary.loc["NEW"].isna().all()
+        assert summary.loc["SPY", "total"] == pytest.approx(
+            (487 * 0.92) / (480 * 0.91) - 1.0
+        )

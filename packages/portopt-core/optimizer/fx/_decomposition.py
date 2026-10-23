@@ -99,11 +99,14 @@ class FxReturnDecomposition:
 
         Returns:
             DataFrame indexed by ticker with columns
-            ``["local", "fx", "cross", "total"]``.
+            ``["local", "fx", "cross", "total"]``.  A component with no
+            valid return for a ticker is ``NaN``, not ``0.0``.
         """
 
         def _compound(frame: pd.DataFrame) -> pd.Series:
-            return (1.0 + frame).prod(axis=0) - 1.0
+            # min_count=1: prod() of an all-NaN column is 1.0, which would
+            # report a ticker with no data as a 0% return.
+            return (1.0 + frame).prod(axis=0, min_count=1) - 1.0
 
         return pd.DataFrame(
             {
