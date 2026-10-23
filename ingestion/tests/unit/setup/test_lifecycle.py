@@ -18,11 +18,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 @pytest.fixture
 def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
     env_fund = tmp_path / ".env.fund"
+    env_scheduler = tmp_path / ".env.scheduler"
     calls: dict = {
         "rendered": None,
         "compose": [],
         "cleaned": False,
         "env_fund_path": env_fund,
+        "env_scheduler_path": env_scheduler,
         "build_profiles": None,
         "force_build": None,
     }
@@ -42,9 +44,12 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
         lambda **kw: calls.update(cleaned=True, cleaned_names=kw.get("names")),
     )
     # Default to no persisted LLM config; real compose_env.render/cleanup run, but
-    # against a tmp .env.fund so they never touch the repo root.
+    # against tmp env files so they never touch the repo root.
     monkeypatch.setattr(lifecycle.config_file, "load_config", lambda **kw: {})
     monkeypatch.setattr(lifecycle.compose_env, "DEFAULT_ENV_FUND_PATH", env_fund)
+    monkeypatch.setattr(
+        lifecycle.compose_env, "DEFAULT_ENV_SCHEDULER_PATH", env_scheduler
+    )
     monkeypatch.setattr(lifecycle.docker_bootstrap, "check_docker", lambda: None)
     monkeypatch.setattr(lifecycle.docker_bootstrap, "compose_dir", lambda: tmp_path)
 
@@ -90,13 +95,23 @@ def test_run_start_propagates_bad_passphrase(
 
 
 def test_run_stop_stops_fund_and_keeps_scheduler(patched: dict) -> None:
-    """Stopping the fund halts only that service; the scheduler's secrets stay, and
-    only the fund's own .env.fund and fund-only LLM keys are removed."""
+    """Stopping the fund halts only that service; the scheduler's secrets and
+    .env.scheduler stay, and only the fund's own .env.fund and fund-only LLM keys
+    are removed."""
     patched["env_fund_path"].write_text("LLM_PROVIDER=openai\n", encoding="utf-8")
+    patched["env_scheduler_path"].write_text(
+        "TRADING_212_MODE=demo\n", encoding="utf-8"
+    )
     lifecycle.run_stop()
     assert patched["compose"] == ["stop:fund"]
     assert patched["cleaned_names"] == lifecycle.compose_secrets.FUND_ONLY_SECRET_NAMES
     assert not patched["env_fund_path"].exists()  # fund's own env file wiped
+    # Wiping it would let a later `docker compose up` recreate the scheduler
+    # without the mode, so a demo key would 401 against the live host.
+    assert (
+        patched["env_scheduler_path"].read_text(encoding="utf-8")
+        == "TRADING_212_MODE=demo\n"
+    )
 
 
 def test_run_start_writes_env_fund_from_config(
@@ -119,8 +134,8 @@ def test_run_start_writes_env_fund_from_config(
 def test_run_start_renders_secrets_and_env_before_bringing_up(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Secrets and the .env.fund selection are rendered before `compose up` — a
-    reordering that started the stack before rendering would be a regression."""
+    """Secrets and both env files are rendered before `compose up` — a reordering
+    that started the stack before rendering would be a regression."""
     order: list[str] = []
     monkeypatch.setattr(
         lifecycle.compose_secrets,
@@ -130,6 +145,11 @@ def test_run_start_renders_secrets_and_env_before_bringing_up(
     monkeypatch.setattr(
         lifecycle.compose_env, "render", lambda config, **kw: order.append("env")
     )
+    monkeypatch.setattr(
+        lifecycle.compose_env,
+        "render_scheduler",
+        lambda config, **kw: order.append("scheduler-env"),
+    )
 
     def _fake_build_and_up(**kw: object) -> list[str]:
         order.append("up")
@@ -137,7 +157,34 @@ def test_run_start_renders_secrets_and_env_before_bringing_up(
 
     monkeypatch.setattr(lifecycle.docker_bootstrap, "build_and_up", _fake_build_and_up)
     lifecycle.run_start("pw")
-    assert order == ["secrets", "env", "up"]
+    assert order == ["secrets", "env", "scheduler-env", "up"]
+
+
+def test_run_start_hands_the_trading_212_mode_to_the_scheduler(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mode the wizard validated the keys against lands in .env.scheduler, not
+    in the fund's file that `portopt stop` deletes."""
+    monkeypatch.setattr(
+        lifecycle.config_file,
+        "load_config",
+        lambda **kw: {"trading_212_mode": "demo", "llm_provider": "openai"},
+    )
+    lifecycle.run_start("pw")
+    scheduler_text = patched["env_scheduler_path"].read_text(encoding="utf-8")
+    assert scheduler_text == "TRADING_212_MODE=demo\n"
+    assert "TRADING_212_MODE" not in patched["env_fund_path"].read_text(
+        encoding="utf-8"
+    )
+
+
+def test_run_start_writes_empty_scheduler_env_when_unconfigured(
+    patched: dict,
+) -> None:
+    """With no persisted mode the file is still written (empty) so the scheduler's
+    env_file entry resolves and the daemon's own default applies."""
+    lifecycle.run_start("pw")
+    assert patched["env_scheduler_path"].read_text(encoding="utf-8") == ""
 
 
 def test_run_start_brings_up_fund_and_ingestion(patched: dict) -> None:

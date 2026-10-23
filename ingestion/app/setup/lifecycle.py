@@ -47,11 +47,14 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     compose_secrets.render(
         secrets, secrets_dir=repo / compose_secrets.DEFAULT_SECRETS_DIR
     )
-    # The fund container never reads config.toml — its non-secret LLM selection
+    # Containers never read config.toml — the fund's non-secret LLM selection
     # reaches it only through the generated .env.fund env_file (the compose
-    # `environment:` block omits these vars so nothing shadows the file).
-    compose_env.render(
-        config_file.load_config(), path=repo / compose_env.DEFAULT_ENV_FUND_PATH
+    # `environment:` block omits these vars so nothing shadows the file), and the
+    # scheduler's Trading212 mode through .env.scheduler.
+    config = config_file.load_config()
+    compose_env.render(config, path=repo / compose_env.DEFAULT_ENV_FUND_PATH)
+    compose_env.render_scheduler(
+        config, path=repo / compose_env.DEFAULT_ENV_SCHEDULER_PATH
     )
     # Every service is profile-gated (a bare `up` starts nothing). Bring up BOTH
     # the fund profile (db + decision engine) AND the ingestion profile (the
@@ -67,8 +70,10 @@ def run_stop(*, all_services: bool = False) -> None:
     The scheduler is a persistent data daemon (daily pipeline, macro/news) that must
     stay up, so stopping the fund no longer tears down the whole stack. The fund's
     own ``.env.fund`` and the LLM keys only it mounts are wiped; the three scheduler
-    secrets stay in ``./secrets`` because the daemon restarts on its own and needs
-    them (``portopt start`` re-renders everything anyway).
+    secrets and the scheduler's ``.env.scheduler`` stay in place because the daemon
+    restarts on its own and needs them (``portopt start`` re-renders everything
+    anyway), so a later plain ``docker compose up`` recreates it with the same
+    credentials and mode.
 
     Args:
         all_services: Also stop the scheduler, adminer and db, then wipe every rendered

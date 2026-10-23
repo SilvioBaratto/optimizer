@@ -67,14 +67,34 @@ class SetupError(RuntimeError):
     """Raised when the wizard cannot complete (validation or config error)."""
 
 
+_T212_MODES = ("live", "demo")
+
+
 def _t212_mode() -> str:
     """Trading212 environment (``live``/``demo``) the credentials belong to.
 
     Reads the same ``TRADING_212_MODE`` the daemon uses so a demo key is probed
     against the demo host; Trading212 keys are environment-scoped and 401 on the
     other one. Unset falls back to ``live``, matching the daemon default.
+
+    Raises:
+        SetupError: The value is neither ``live`` nor ``demo``. The validator and
+            the daemon both fall back to live on an unknown mode, which would
+            probe (and later run) against the wrong host without a word.
     """
-    return (os.getenv("TRADING_212_MODE") or "live").strip()
+    mode = (os.getenv("TRADING_212_MODE") or "live").strip().lower()
+    if mode not in _T212_MODES:
+        raise SetupError(
+            f"TRADING_212_MODE must be one of {', '.join(_T212_MODES)}; got {mode!r}."
+        )
+    return mode
+
+
+def _t212_failure_message(mode: str) -> str:
+    return (
+        f"Trading212 credentials failed validation against the {mode} host "
+        "(demo/paper keys need TRADING_212_MODE=demo)."
+    )
 
 
 def _is_first_run() -> bool:
@@ -411,12 +431,16 @@ def run_setup_noninteractive(
     if t212_key or t212_secret:
         if not (t212_key and t212_secret):
             raise SetupError("Trading212 needs both an API key and a secret key.")
+        t212_mode = _t212_mode()
         if not skip_validation and not validators.validate_t212(
-            t212_key, t212_secret, mode=_t212_mode()
+            t212_key, t212_secret, mode=t212_mode
         ):
-            raise SetupError("Trading212 credentials failed validation.")
+            raise SetupError(_t212_failure_message(t212_mode))
         secrets["trading_212_api_key"] = t212_key
         secrets["trading_212_secret_key"] = t212_secret
+        # The scheduler container reads env vars only; persisting the mode with the
+        # keys lets `portopt start` hand the daemon the host these keys belong to.
+        config["trading_212_mode"] = t212_mode
 
     if fred_key:
         if not skip_validation and not validators.validate_fred(fred_key):
@@ -478,12 +502,16 @@ def run_setup_interactive(
         t212_secret = (
             os.getenv("TRADING_212_SECRET_KEY") or prompter.password(_MSG_T212_SECRET)
         ).strip()
+        t212_mode = _t212_mode()
         if not skip_validation and not validators.validate_t212(
-            t212_key, t212_secret, mode=_t212_mode()
+            t212_key, t212_secret, mode=t212_mode
         ):
-            raise SetupError("Trading212 credentials failed validation.")
+            raise SetupError(_t212_failure_message(t212_mode))
         secrets["trading_212_api_key"] = t212_key
         secrets["trading_212_secret_key"] = t212_secret
+        # The scheduler container reads env vars only; persisting the mode with the
+        # keys lets `portopt start` hand the daemon the host these keys belong to.
+        config["trading_212_mode"] = t212_mode
 
     fred_key = (os.getenv("FRED_API_KEY") or prompter.password(_MSG_FRED_KEY)).strip()
     if fred_key:

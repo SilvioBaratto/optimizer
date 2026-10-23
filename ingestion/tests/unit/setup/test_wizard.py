@@ -345,6 +345,75 @@ def test_interactive_t212_validated_against_env_mode(
     assert seen == ["demo"]
 
 
+def test_noninteractive_persists_the_t212_mode_it_validated(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The scheduler container never sees the wizard's shell env, so the mode the
+    # keys were validated against must travel with them through config.toml.
+    _record_t212_mode(monkeypatch)
+    monkeypatch.setenv("TRADING_212_MODE", "demo")
+    wizard.run_setup_noninteractive(passphrase="pw", t212_key="tk", t212_secret="ts")
+    assert patched["saved_config"]["trading_212_mode"] == "demo"
+
+
+def test_noninteractive_persists_live_when_mode_unset(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Re-running with live keys after a demo setup must flip the stored mode back.
+    _record_t212_mode(monkeypatch)
+    wizard.run_setup_noninteractive(passphrase="pw", t212_key="tk", t212_secret="ts")
+    assert patched["saved_config"]["trading_212_mode"] == "live"
+
+
+def test_noninteractive_without_t212_keys_leaves_stored_mode_alone(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TRADING_212_MODE", "demo")
+    wizard.run_setup_noninteractive(passphrase="pw", fred_key="fk")
+    assert "trading_212_mode" not in patched["saved_config"]
+
+
+def test_interactive_persists_the_t212_mode_it_validated(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _record_t212_mode(monkeypatch)
+    monkeypatch.setenv("TRADING_212_MODE", "demo")
+    prompter = NonInteractivePrompter(
+        {
+            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_T212_KEY: "tk",
+            wizard._MSG_T212_SECRET: "ts",
+            wizard._MSG_FRED_KEY: "",
+            wizard._MSG_CONFIGURE_LLM: False,
+        }
+    )
+    wizard.run_setup_interactive(prompter)
+    assert patched["saved_config"]["trading_212_mode"] == "demo"
+
+
+def test_unknown_t212_mode_fails_loud_instead_of_probing_live(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # validate_t212 silently maps an unknown mode to live; a typo such as
+    # "paper" would validate (or fail) against the wrong host and be persisted.
+    monkeypatch.setenv("TRADING_212_MODE", "paper")
+    with pytest.raises(wizard.SetupError, match="TRADING_212_MODE"):
+        wizard.run_setup_noninteractive(
+            passphrase="pw", t212_key="tk", t212_secret="ts"
+        )
+    assert patched["saved_config"] is None
+
+
+def test_t212_mode_is_case_insensitive(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen = _record_t212_mode(monkeypatch)
+    monkeypatch.setenv("TRADING_212_MODE", "Demo")
+    wizard.run_setup_noninteractive(passphrase="pw", t212_key="tk", t212_secret="ts")
+    assert seen == ["demo"]
+    assert patched["saved_config"]["trading_212_mode"] == "demo"
+
+
 def test_interactive_fred_key_autodetected_from_env(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -1,16 +1,20 @@
-"""Contract: config.toml -> fund env-var translation + .env.fund rendering.
+"""Contract: config.toml -> compose env-file translation and rendering.
 
 `config_to_env` is a pure map from the wizard's persisted config keys to the exact
 env-var names `fund.config.load_config` reads; `render`/`cleanup` write/remove the
-generated `.env.fund` env_file the fund service mounts.
+generated `.env.fund` env_file the fund service mounts. The scheduler's one setting
+(`TRADING_212_MODE`) lives in a separate `.env.scheduler` so that `portopt stop`,
+which deletes `.env.fund`, cannot strip it from a still-running scheduler.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from app.setup import compose_env
-from app.setup.compose_env import config_to_env
+from app.setup.compose_env import config_to_env, config_to_scheduler_env
 
 
 def test_translates_provider_and_model() -> None:
@@ -71,6 +75,42 @@ def test_azure_api_version_uses_openai_env_name() -> None:
     assert env["OPENAI_API_VERSION"] == "2024-02-01"
     assert "AZURE_OPENAI_API_VERSION" not in env
     assert env["AZURE_OPENAI_DEPLOYMENT_NAME"] == "gpt4o-dep"
+
+
+def test_trading_212_mode_is_not_a_fund_setting() -> None:
+    """.env.fund is the fund's file and is wiped on stop; the scheduler's mode must
+    not ride in it."""
+    assert config_to_env({"trading_212_mode": "demo"}) == {}
+
+
+def test_scheduler_env_carries_the_trading_212_mode() -> None:
+    """The mode the keys were validated against must reach the daemon: it only
+    sees env vars, never config.toml, and defaults to live without this."""
+    assert config_to_scheduler_env({"trading_212_mode": "demo"}) == {
+        "TRADING_212_MODE": "demo"
+    }
+
+
+def test_scheduler_env_omits_absent_mode_and_ignores_other_keys() -> None:
+    """An unset mode stays absent (so the daemon's own default applies); LLM keys
+    are the fund's business and never reach the scheduler file."""
+    assert config_to_scheduler_env({}) == {}
+    assert config_to_scheduler_env({"llm_provider": "openai"}) == {}
+
+
+def test_scheduler_reads_its_own_env_file_after_root_env() -> None:
+    """TRADING_212_MODE rides in its own file, mounted last so the wizard's choice
+    overrides a stale root .env; the fund's file is not the scheduler's concern."""
+    yaml = pytest.importorskip("yaml")
+    compose = Path(__file__).resolve().parents[4] / "docker-compose.yml"
+    scheduler = yaml.safe_load(compose.read_text(encoding="utf-8"))["services"][
+        "scheduler"
+    ]
+    entries = [e if isinstance(e, dict) else {"path": e} for e in scheduler["env_file"]]
+    paths = [e["path"] for e in entries]
+    assert paths[-1] == compose_env.DEFAULT_ENV_SCHEDULER_PATH.name
+    assert entries[-1].get("required") is False
+    assert compose_env.DEFAULT_ENV_FUND_PATH.name not in paths
 
 
 def test_aws_region() -> None:
@@ -166,3 +206,36 @@ def test_cleanup_removes_file(tmp_path: Path) -> None:
 def test_cleanup_missing_file_is_noop(tmp_path: Path) -> None:
     """cleanup on an absent file does not raise."""
     compose_env.cleanup(path=tmp_path / "absent")
+
+
+def test_render_scheduler_writes_the_mode(tmp_path: Path) -> None:
+    """render_scheduler writes TRADING_212_MODE=<mode> for the scheduler env_file."""
+    path = tmp_path / ".env.scheduler"
+    compose_env.render_scheduler({"trading_212_mode": "demo"}, path=path)
+    assert path.read_text(encoding="utf-8") == "TRADING_212_MODE=demo\n"
+
+
+def test_render_scheduler_empties_the_file_when_mode_is_unset(tmp_path: Path) -> None:
+    """The file is always rewritten, so a mode dropped from config.toml cannot
+    linger from an earlier start and keep pinning the scheduler to it."""
+    path = tmp_path / ".env.scheduler"
+    path.write_text("TRADING_212_MODE=demo\n", encoding="utf-8")
+    compose_env.render_scheduler({}, path=path)
+    assert path.read_text(encoding="utf-8") == ""
+
+
+def test_cleanup_never_touches_the_scheduler_env_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`portopt stop` and a failed setup both call cleanup() while the scheduler
+    keeps running; losing its mode file would make the next `docker compose up`
+    recreate it against the live host."""
+    fund = tmp_path / ".env.fund"
+    scheduler = tmp_path / ".env.scheduler"
+    monkeypatch.setattr(compose_env, "DEFAULT_ENV_FUND_PATH", fund)
+    monkeypatch.setattr(compose_env, "DEFAULT_ENV_SCHEDULER_PATH", scheduler)
+    fund.write_text("LLM_PROVIDER=openai\n", encoding="utf-8")
+    scheduler.write_text("TRADING_212_MODE=demo\n", encoding="utf-8")
+    compose_env.cleanup()
+    assert not fund.exists()
+    assert scheduler.read_text(encoding="utf-8") == "TRADING_212_MODE=demo\n"

@@ -62,6 +62,14 @@ services:
       # store (~/.portopt rendered to /run/secrets), so it has no root .env.
       - path: .env
         required: false
+      # Carries TRADING_212_MODE from ~/.portopt/config.toml (rendered by
+      # `portopt start`). Listed last so the mode the wizard validated the keys
+      # against overrides .env; without it a demo key would hit the live host.
+      # A file of its own, not the fund's .env.fund, because `portopt stop`
+      # deletes that one while this service keeps running; a later plain
+      # `docker compose up` would then recreate it against the live host.
+      - path: .env.scheduler
+        required: false
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/optimizer_db
       DB_HOST: db
