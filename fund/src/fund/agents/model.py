@@ -78,6 +78,13 @@ _READ_TIMEOUT_SECONDS = 180.0
 _OPENAI_REASONING_MODEL = re.compile(r"o\d")
 _ANTHROPIC_FIXED_SAMPLING_PREFIX = "claude-fable-5"
 
+# Explicit completion budget for the providers whose SDK wrapper otherwise caps
+# output silently (ChatNVIDIA at 1024 tokens, the Hugging Face wrapper at 512). A
+# PM `task` brief, an allocator report or a tool-call argument above the cap is
+# cut off mid-JSON and surfaces as an invalid tool call that loops until the
+# recursion limit. Reasoning models also spend this budget on thinking tokens.
+_MAX_COMPLETION_TOKENS = 4096
+
 
 def _require(value: str | None, env_name: str) -> str:
     """Return ``value`` or raise a clear build-time error naming ``env_name``.
@@ -318,14 +325,16 @@ def _build_nvidia(config: FundConfig, model_name: str) -> BaseChatModel:
     * **self-hosted NIM** (``NVIDIA_BASE_URL`` set, e.g. ``http://host:8000/v1``)
       routes by ``base_url`` and needs **no** key.
 
-    ``temperature=0`` threads the D4 contract; ``reasoning=`` is Ollama-only and is
-    never passed here.
+    ``temperature=0`` threads the D4 contract and ``max_completion_tokens`` is set
+    explicitly because ``ChatNVIDIA`` otherwise caps every completion at 1024 tokens;
+    ``reasoning=`` is Ollama-only and is never passed here.
     """
     from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
     kwargs: dict[str, Any] = {
         "model": model_name,
         "temperature": config.model_temperature,
+        "max_completion_tokens": _MAX_COMPLETION_TOKENS,
     }
     if config.nvidia_base_url:
         kwargs["base_url"] = config.nvidia_base_url

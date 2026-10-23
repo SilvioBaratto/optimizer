@@ -807,3 +807,29 @@ def test_azure_reasoning_model_is_built_without_a_temperature():
     llm = model.build_chat_model(_azure_cfg(), model_name="o3-mini")
 
     assert _sent_temperature(llm) in (None, 1)
+
+
+# --- completion budget is not left at a provider's tiny default --------------
+#
+# ChatNVIDIA defaults to 1024 completion tokens and the Hugging Face wrapper to
+# 512; a long `task` brief or tool-call argument is cut off mid-JSON. Both are
+# checked through the real SDK classes' request payloads.
+
+# Smallest budget that still holds a full allocator report plus tool arguments.
+_MIN_COMPLETION_TOKENS = 4096
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{"nvidia_api_key": "nvapi-test"}, {"nvidia_base_url": "http://localhost:8000/v1"}],
+    ids=["hosted", "self-hosted"],
+)
+def test_nvidia_request_payload_allows_a_long_completion(extra):
+    cfg = FundConfig(llm_provider="nvidia", **extra)
+
+    llm = model.build_chat_model(cfg, model_name="meta/llama-3.1-70b-instruct")
+
+    payload = llm._get_payload(
+        inputs=[{"role": "user", "content": "hi"}], stop=None, stream=False
+    )
+    assert payload["max_tokens"] >= _MIN_COMPLETION_TOKENS
