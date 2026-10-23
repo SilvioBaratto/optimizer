@@ -41,6 +41,10 @@ logger = logging.getLogger(__name__)
 FRED_REVISION_LOOKBACK_DAYS = 730
 _FRED_REVISION_LOOKBACK = datetime.timedelta(days=FRED_REVISION_LOOKBACK_DAYS)
 
+# Errors quoted in a failed job's one-line ``error`` summary; the full list is
+# persisted separately.
+_ERROR_SUMMARY_LIMIT = 3
+
 # Numeric columns of an IlSole forecast row. ``reference_date`` and ``timestamp``
 # are metadata and must not count as usable data.
 _ILSOLE_VALUE_FIELDS = (
@@ -470,6 +474,28 @@ class MacroRegimeService:
 # ---------------------------------------------------------------------------
 
 
+def _final_progress(errors: list[str], result: dict[str, Any]) -> dict[str, Any]:
+    """Build the terminal ``on_progress`` kwargs for a bulk fetch.
+
+    A partial failure (e.g. one country's Trading Economics circuit breaker
+    tripping) must not produce a ``completed`` status, because callers rely on
+    the status to detect gaps in the dataset. ``error`` carries a one-line
+    summary since the failure webhook reads it and would otherwise post a blank
+    alert.
+    """
+    progress: dict[str, Any] = {
+        "status": "failed" if errors else "completed",
+        "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "errors": errors,
+        "result": result,
+    }
+    if errors:
+        shown = "; ".join(errors[:_ERROR_SUMMARY_LIMIT])
+        hidden = len(errors) - _ERROR_SUMMARY_LIMIT
+        progress["error"] = f"{shown} (+{hidden} more)" if hidden > 0 else shown
+    return progress
+
+
 def run_bulk_macro_fetch(
     request: Any,
     *,
@@ -526,16 +552,7 @@ def run_bulk_macro_fetch(
             "counts": total_counts,
             "error_count": len(all_errors),
         }
-        # A partial failure (e.g. one country's Trading Economics circuit
-        # breaker tripping) must not produce a "completed" status — callers
-        # rely on the status to detect gaps in the macro dataset.
-        had_errors = len(all_errors) > 0
-        on_progress(
-            status="failed" if had_errors else "completed",
-            finished_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            errors=all_errors,
-            result=result_dict,
-        )
+        on_progress(**_final_progress(all_errors, result_dict))
         logger.info(
             "Bulk macro fetch finished: %d countries, %d error(s)",
             total,

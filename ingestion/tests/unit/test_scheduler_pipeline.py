@@ -446,6 +446,65 @@ class TestShutdownDrain:
             fns[label].assert_not_called()
 
 
+class _StatefulJobService:
+    """Minimal in-memory job service that keeps the last written status."""
+
+    _heartbeat_cadence = 30
+
+    def __init__(self) -> None:
+        self.status = "pending"
+        self.updates: list[dict] = []
+
+    def create_job(self, attempt: int = 0) -> str:
+        return _VALID_JOB_ID
+
+    def _run_heartbeat(self, *args) -> None:
+        return None
+
+    def get_job(self, job_id: str) -> dict:
+        return {"status": self.status}
+
+    def update_job(self, job_id: str, **kwargs) -> None:
+        self.updates.append(kwargs)
+        if "status" in kwargs:
+            self.status = kwargs["status"]
+
+
+class TestRunStepHonoursFailedStatus:
+    """A step that reports ``failed`` through ``on_progress`` has failed."""
+
+    def _run(self, fn) -> tuple[bool, _StatefulJobService]:
+        from app.services.jobs.scheduler import _run_step
+
+        svc = _StatefulJobService()
+        with patch(f"{M}.threading.Thread", return_value=MagicMock()):
+            ok = _run_step("macro", svc, fn)  # type: ignore[arg-type]
+        return ok, svc
+
+    def test_when_fn_reports_failed_then_status_stays_failed(self):
+        def fn(*, on_progress):
+            on_progress(status="failed", errors=["Germany: boom"])
+
+        _, svc = self._run(fn)
+
+        assert svc.status == "failed"
+        assert [u for u in svc.updates if u.get("status") == "completed"] == []
+
+    def test_when_fn_reports_failed_then_step_returns_false(self):
+        def fn(*, on_progress):
+            on_progress(status="failed", errors=["Germany: boom"])
+
+        ok, _ = self._run(fn)
+
+        assert ok is False
+
+    def test_when_fn_never_reports_a_status_then_it_is_still_completed(self):
+        ok, svc = self._run(lambda *, on_progress: None)
+
+        assert ok is True
+        assert svc.status == "completed"
+
+
 # ---------------------------------------------------------------------------
 # TestRunDailyPipeline
 # ---------------------------------------------------------------------------

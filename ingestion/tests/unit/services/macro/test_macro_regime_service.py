@@ -714,6 +714,34 @@ class TestRunBulkMacroFetch:
         mock_session, _ = self._run_bulk(["USA", "Germany"])
         assert mock_session.commit.call_count == 2
 
+    def test_when_a_country_fails_then_failed_progress_carries_error_text(
+        self,
+    ) -> None:
+        """The failure webhook reads ``error``; an empty value posts a blank alert."""
+        request = SimpleNamespace(countries=["Germany"], include_bonds=True)
+        mock_svc_cls = MagicMock()
+        mock_svc_cls.return_value.fetch_country.return_value = {
+            "counts": {},
+            "errors": ["trading_economics: breaker open"],
+        }
+        on_progress = MagicMock()
+
+        with (
+            patch("app.database.database_manager") as mock_db,
+            patch("app.services.macro.macro_regime_service.MacroRegimeRepository"),
+            patch(
+                "app.services.macro.macro_regime_service.MacroRegimeService",
+                mock_svc_cls,
+            ),
+        ):
+            mock_db.get_session.return_value.__enter__.return_value = MagicMock()
+            mock_db.get_session.return_value.__exit__.return_value = False
+            run_bulk_macro_fetch(request, on_progress=on_progress)
+
+        final = on_progress.call_args_list[-1].kwargs
+        assert final["status"] == "failed"
+        assert "Germany: trading_economics: breaker open" in final["error"]
+
     def test_when_no_errors_then_final_progress_status_is_completed(self) -> None:
         on_progress = MagicMock()
         self._run_bulk(["USA", "Germany"], on_progress=on_progress)
