@@ -268,8 +268,8 @@ def run_build_market_journal(
         on_progress: Optional callback; invoked with ``total`` at start and
             ``status="completed"`` at the end.  A failure is *not* swallowed: the
             exception propagates so the scheduler's ``_run_step`` records the job
-            as failed (it flips any non-``completed`` status to ``completed``, so
-            a swallowed failure would be mislabelled a success).
+            as failed (it flips a still-active status to ``completed``, so a
+            swallowed failure would be mislabelled a success).
 
     Returns:
         Result dict with ``as_of``, ``region``, ``source_counts``, and

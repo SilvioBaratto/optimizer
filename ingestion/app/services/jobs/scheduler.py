@@ -228,7 +228,8 @@ def _run_step(
     argument.  Job lifecycle (create / running / failed) is managed here.
     If ``fn`` returns without raising and without calling
     ``on_progress(status='completed')``, the job is marked completed
-    defensively so downstream steps are not silently skipped.
+    defensively so downstream steps are not silently skipped. A status the
+    step reported as ``failed`` is final and is never overwritten.
 
     ``attempt`` records the reclaim generation (R3/§5.3); it is 0 on the normal
     cron/CLI path and ``prev + 1`` when the orphan reaper re-dispatches.
@@ -262,6 +263,12 @@ def _run_step(
         with _heartbeat(job_svc, job_id, label):
             fn(*args, on_progress=on_progress)
         job = job_svc.get_job(job_id) or {}
+        if job.get("status") == "failed":
+            # The step itself (or the orphan reaper) ended the row as failed.
+            # Overwriting it would hide a partial failure from the exit code,
+            # the status column and the metrics gauge.
+            logger.warning("%s: finished with status 'failed'", label)
+            return False
         if job.get("status") != "completed":
             logger.warning(
                 "%s: returned without calling on_progress(status='completed')"

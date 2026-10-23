@@ -94,6 +94,27 @@ class TestRunStep:
         )
         assert found
 
+    def test_when_fn_reports_failed_status_then_returns_false_and_row_stays_failed(
+        self,
+    ):
+        # run_bulk_macro_fetch reports a partial failure via
+        # on_progress(status="failed") and then returns normally; the step
+        # runner must treat that as final instead of defensively completing it.
+        job_svc = _make_job_svc(get_job_return={"status": "failed"})
+        fn = MagicMock()
+
+        with patch(f"{M}.threading.Thread") as mock_thread:
+            mock_thread.return_value = MagicMock()
+            result = self._call(job_svc, fn)
+
+        assert result is False
+        completed_writes = [
+            c
+            for c in job_svc.update_job.call_args_list
+            if c.kwargs.get("status") == "completed"
+        ]
+        assert completed_writes == []
+
     def test_when_fn_raises_then_returns_false_and_status_failed(self):
         job_svc = _make_job_svc()
         fn = MagicMock(side_effect=Exception("boom"))
