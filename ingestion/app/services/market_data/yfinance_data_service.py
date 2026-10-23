@@ -6,13 +6,15 @@ prices, financials, dividends, holders, news, …) runs under its own
 per-ticker ``errors`` list before continuing. One bad field never aborts the
 ticker, and one bad ticker never aborts the batch (``all_errors``). Those
 lists are surfaced to the caller in the fetch result, so the drops are
-intentional per-item resilience, not silent swallows.
+intentional per-item resilience, not silent swallows. Every repository write
+runs in its own SAVEPOINT (``YFinanceDataService._write``) so a failed category
+cannot abort the shared transaction and take the ticker's other writes with it.
 """
 
 import logging
 import math
 import threading
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -317,6 +319,27 @@ class YFinanceDataService:
             return fn()
         return call_with_timeout(fn, self._request_timeout)
 
+    def _write(self, write: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
+        """Run one category's repository write inside its own SAVEPOINT.
+
+        PostgreSQL aborts the whole transaction after any failed statement, and
+        COMMIT of an aborted transaction silently becomes ROLLBACK. With one
+        shared session, a single bad category would therefore fail every later
+        category and discard the ticker's earlier writes, while ``counts`` still
+        reported them. The savepoint rolls back only the category that raised;
+        the exception still propagates to that category's own handler.
+
+        Args:
+            write: Repository upsert to run.
+            *args: Positional arguments for *write*.
+            **kwargs: Keyword arguments for *write*.
+
+        Returns:
+            Whatever *write* returns (the number of rows it stored).
+        """
+        with self.repo.session.begin_nested():
+            return write(*args, **kwargs)
+
     def _overlap_was_readjusted(
         self,
         instrument_id: UUID,
@@ -390,7 +413,9 @@ class YFinanceDataService:
         self, instrument_id: UUID, yfinance_ticker: str, period: str
     ) -> pd.DataFrame | None:
         start = self._full_fetch_start(instrument_id, period)
-        window = {"period": period} if start is None else {"start": start.isoformat()}
+        window: dict[str, Any] = (
+            {"period": period} if start is None else {"start": start.isoformat()}
+        )
         # fetch_history accepts a native `timeout` kwarg (passed to requests),
         # so we pass it directly without an extra watchdog thread. Closes are
         # adjusted as of the fetch date (yfinance default), which is why every
@@ -597,11 +622,13 @@ class YFinanceDataService:
                     )
                     if isin:
                         info["isin"] = isin
-                    counts["profile"] = self.repo.upsert_profile(instrument_id, info)
+                    counts["profile"] = self._write(
+                        self.repo.upsert_profile, instrument_id, info
+                    )
                     # Extra info fields (short interest, momentum, governance risk)
                     # reuse the already-fetched dict — no separate network call.
-                    counts["profile_extras"] = self.repo.upsert_profile_extras(
-                        instrument_id, info
+                    counts["profile_extras"] = self._write(
+                        self.repo.upsert_profile_extras, instrument_id, info
                     )
                 else:
                     counts["profile"] = 0
@@ -742,8 +769,11 @@ class YFinanceDataService:
             if history is not None and not history.empty:
                 # Store the listing currency as the price unit (raw, unconverted) so
                 # sub-unit series (GBX pence) are unambiguous downstream.
-                counts["prices"] = self.repo.upsert_price_history(
-                    instrument_id, history, price_unit=currency_code
+                counts["prices"] = self._write(
+                    self.repo.upsert_price_history,
+                    instrument_id,
+                    history,
+                    price_unit=currency_code,
                 )
             else:
                 counts["prices"] = counts.get("prices", 0)
@@ -816,7 +846,8 @@ class YFinanceDataService:
                         )
                         group_rows = 0
                         if df is not None and not df.empty:
-                            group_rows = self.repo.upsert_financial_statements(
+                            group_rows = self._write(
+                                self.repo.upsert_financial_statements,
                                 instrument_id,
                                 df,
                                 stmt_type,
@@ -866,14 +897,13 @@ class YFinanceDataService:
                         )
                         counts["valuation_measures"] = 0
                     else:
-                        counts["valuation_measures"] = (
-                            self.repo.upsert_financial_statements(
-                                instrument_id,
-                                dated_val_df,
-                                VALUATION_MEASURES_STATEMENT_TYPE,
-                                VALUATION_MEASURES_PERIOD_TYPE,
-                                currency_code=listing_major_currency,
-                            )
+                        counts["valuation_measures"] = self._write(
+                            self.repo.upsert_financial_statements,
+                            instrument_id,
+                            dated_val_df,
+                            VALUATION_MEASURES_STATEMENT_TYPE,
+                            VALUATION_MEASURES_PERIOD_TYPE,
+                            currency_code=listing_major_currency,
                         )
                 else:
                     counts["valuation_measures"] = 0
@@ -895,7 +925,7 @@ class YFinanceDataService:
                     lambda: self.yf_client.analysis.fetch_eps_trend(yfinance_ticker)
                 )
                 counts["eps_trend"] = (
-                    self.repo.upsert_eps_trend(instrument_id, eps_trend_df)
+                    self._write(self.repo.upsert_eps_trend, instrument_id, eps_trend_df)
                     if eps_trend_df is not None and not eps_trend_df.empty
                     else 0
                 )
@@ -914,7 +944,9 @@ class YFinanceDataService:
                     lambda: self.yf_client.analysis.fetch_eps_revisions(yfinance_ticker)
                 )
                 counts["eps_revisions"] = (
-                    self.repo.upsert_eps_revisions(instrument_id, eps_rev_df)
+                    self._write(
+                        self.repo.upsert_eps_revisions, instrument_id, eps_rev_df
+                    )
                     if eps_rev_df is not None and not eps_rev_df.empty
                     else 0
                 )
@@ -934,7 +966,9 @@ class YFinanceDataService:
                     )
                 )
                 counts["earnings_estimate"] = (
-                    self.repo.upsert_earnings_estimate(instrument_id, ee_df)
+                    self._write(
+                        self.repo.upsert_earnings_estimate, instrument_id, ee_df
+                    )
                     if ee_df is not None and not ee_df.empty
                     else 0
                 )
@@ -954,7 +988,7 @@ class YFinanceDataService:
                     )
                 )
                 counts["revenue_estimate"] = (
-                    self.repo.upsert_revenue_estimate(instrument_id, re_df)
+                    self._write(self.repo.upsert_revenue_estimate, instrument_id, re_df)
                     if re_df is not None and not re_df.empty
                     else 0
                 )
@@ -972,7 +1006,7 @@ class YFinanceDataService:
                     )
                 )
                 counts["growth_estimates"] = (
-                    self.repo.upsert_growth_estimates(instrument_id, ge_df)
+                    self._write(self.repo.upsert_growth_estimates, instrument_id, ge_df)
                     if ge_df is not None and not ge_df.empty
                     else 0
                 )
@@ -991,7 +1025,7 @@ class YFinanceDataService:
                     )
                 )
                 counts["earnings_history"] = (
-                    self.repo.upsert_earnings_history(instrument_id, eh_df)
+                    self._write(self.repo.upsert_earnings_history, instrument_id, eh_df)
                     if eh_df is not None and not eh_df.empty
                     else 0
                 )
@@ -1010,7 +1044,7 @@ class YFinanceDataService:
                     )
                 )
                 counts["earnings_dates"] = (
-                    self.repo.upsert_earnings_dates(instrument_id, ed_df)
+                    self._write(self.repo.upsert_earnings_dates, instrument_id, ed_df)
                     if ed_df is not None and not ed_df.empty
                     else 0
                 )
@@ -1037,7 +1071,7 @@ class YFinanceDataService:
                     )
                 )
                 counts["analyst_actions"] = (
-                    self.repo.upsert_analyst_actions(instrument_id, ad_df)
+                    self._write(self.repo.upsert_analyst_actions, instrument_id, ad_df)
                     if ad_df is not None and not ad_df.empty
                     else 0
                 )
@@ -1054,7 +1088,7 @@ class YFinanceDataService:
                     lambda: self.yf_client.financials.fetch_sec_filings(yfinance_ticker)
                 )
                 counts["sec_filings"] = (
-                    self.repo.upsert_sec_filings(instrument_id, filings)
+                    self._write(self.repo.upsert_sec_filings, instrument_id, filings)
                     if filings
                     else 0
                 )
@@ -1073,7 +1107,9 @@ class YFinanceDataService:
                     )
                 )
                 counts["shares_outstanding"] = (
-                    self.repo.upsert_shares_outstanding(instrument_id, shares)
+                    self._write(
+                        self.repo.upsert_shares_outstanding, instrument_id, shares
+                    )
                     if shares is not None and not getattr(shares, "empty", True)
                     else 0
                 )
@@ -1106,8 +1142,8 @@ class YFinanceDataService:
                     )
                 )
                 if dividends is not None and not dividends.empty:
-                    counts["dividends"] = self.repo.upsert_dividends(
-                        instrument_id, dividends
+                    counts["dividends"] = self._write(
+                        self.repo.upsert_dividends, instrument_id, dividends
                     )
                 else:
                     counts["dividends"] = 0
@@ -1132,7 +1168,9 @@ class YFinanceDataService:
                     )
                 )
                 if splits is not None and not splits.empty:
-                    counts["splits"] = self.repo.upsert_splits(instrument_id, splits)
+                    counts["splits"] = self._write(
+                        self.repo.upsert_splits, instrument_id, splits
+                    )
                 else:
                     counts["splits"] = 0
             except Exception as e:
@@ -1158,8 +1196,8 @@ class YFinanceDataService:
                     )
                 )
                 if rec_df is not None and not rec_df.empty:
-                    counts["recommendations"] = self.repo.upsert_recommendations(
-                        instrument_id, rec_df
+                    counts["recommendations"] = self._write(
+                        self.repo.upsert_recommendations, instrument_id, rec_df
                     )
                 else:
                     counts["recommendations"] = 0
@@ -1186,8 +1224,8 @@ class YFinanceDataService:
                     )
                 )
                 if targets:
-                    counts["price_targets"] = self.repo.upsert_price_targets(
-                        instrument_id, targets
+                    counts["price_targets"] = self._write(
+                        self.repo.upsert_price_targets, instrument_id, targets
                     )
                 else:
                     counts["price_targets"] = 0
@@ -1214,8 +1252,8 @@ class YFinanceDataService:
                     )
                 )
                 if inst_df is not None and not inst_df.empty:
-                    counts["institutional_holders"] = (
-                        self.repo.upsert_institutional_holders(instrument_id, inst_df)
+                    counts["institutional_holders"] = self._write(
+                        self.repo.upsert_institutional_holders, instrument_id, inst_df
                     )
                 else:
                     counts["institutional_holders"] = 0
@@ -1244,8 +1282,8 @@ class YFinanceDataService:
                     )
                 )
                 if mf_df is not None and not mf_df.empty:
-                    counts["mutualfund_holders"] = self.repo.upsert_mutualfund_holders(
-                        instrument_id, mf_df
+                    counts["mutualfund_holders"] = self._write(
+                        self.repo.upsert_mutualfund_holders, instrument_id, mf_df
                     )
                 else:
                     counts["mutualfund_holders"] = 0
@@ -1274,10 +1312,10 @@ class YFinanceDataService:
                     )
                 )
                 if insiders_df is not None and not insiders_df.empty:
-                    counts["insider_transactions"] = (
-                        self.repo.upsert_insider_transactions(
-                            instrument_id, insiders_df
-                        )
+                    counts["insider_transactions"] = self._write(
+                        self.repo.upsert_insider_transactions,
+                        instrument_id,
+                        insiders_df,
                     )
                 else:
                     counts["insider_transactions"] = 0
@@ -1304,7 +1342,7 @@ class YFinanceDataService:
                     lambda: self.yf_client.holders.fetch_major_holders(yfinance_ticker)
                 )
                 counts["major_holders"] = (
-                    self.repo.upsert_major_holders(instrument_id, mh_df)
+                    self._write(self.repo.upsert_major_holders, instrument_id, mh_df)
                     if mh_df is not None and not mh_df.empty
                     else 0
                 )
@@ -1332,7 +1370,9 @@ class YFinanceDataService:
                     )
                 )
                 counts["insider_purchases"] = (
-                    self.repo.upsert_insider_purchases(instrument_id, ip_df)
+                    self._write(
+                        self.repo.upsert_insider_purchases, instrument_id, ip_df
+                    )
                     if ip_df is not None and not ip_df.empty
                     else 0
                 )
@@ -1352,7 +1392,7 @@ class YFinanceDataService:
                     )
                 )
                 counts["insider_roster"] = (
-                    self.repo.upsert_insider_roster(instrument_id, ir_df)
+                    self._write(self.repo.upsert_insider_roster, instrument_id, ir_df)
                     if ir_df is not None and not ir_df.empty
                     else 0
                 )
@@ -1381,7 +1421,9 @@ class YFinanceDataService:
                         result = scraper.fetch(link)
                         if result["success"] and result["content"]:
                             article["full_content"] = result["content"]
-                counts["news"] = self.repo.upsert_news(instrument_id, news_list)
+                counts["news"] = self._write(
+                    self.repo.upsert_news, instrument_id, news_list
+                )
             else:
                 counts["news"] = 0
         except Exception as e:
@@ -1438,7 +1480,8 @@ class YFinanceDataService:
             description = (fdata or {}).get("description")
             profile = profile or {}
             if profile or overview or description:
-                etf_repo.upsert_metadata(
+                self._write(
+                    etf_repo.upsert_metadata,
                     instrument_id,
                     aum=profile.get("aum"),
                     nav=profile.get("nav"),
@@ -1465,38 +1508,43 @@ class YFinanceDataService:
                 # An all-NULL row would become the newest as_of snapshot and
                 # shadow the last real allocation.
                 if any(v is not None for v in buckets.values()):
-                    etf_repo.upsert_asset_classes(instrument_id, as_of, **buckets)
+                    self._write(
+                        etf_repo.upsert_asset_classes, instrument_id, as_of, **buckets
+                    )
                     counts["etf_asset_classes"] = 1
                 holdings = fdata.get("top_holdings") or []
                 if holdings:
-                    counts["etf_holdings"] = etf_repo.upsert_holdings(
-                        instrument_id, as_of, holdings
+                    counts["etf_holdings"] = self._write(
+                        etf_repo.upsert_holdings, instrument_id, as_of, holdings
                     )
                 sectors = fdata.get("sector_weightings") or {}
                 if sectors:
-                    counts["etf_sector_weights"] = etf_repo.upsert_sector_weights(
-                        instrument_id, as_of, sectors
+                    counts["etf_sector_weights"] = self._write(
+                        etf_repo.upsert_sector_weights, instrument_id, as_of, sectors
                     )
                 # Depth (SPEC A8): equity/bond metrics, ratings, operations.
                 equity = fdata.get("equity_holdings") or {}
                 if equity:
-                    counts["etf_equity_holdings"] = etf_repo.upsert_equity_holdings(
-                        instrument_id, as_of, equity
+                    counts["etf_equity_holdings"] = self._write(
+                        etf_repo.upsert_equity_holdings, instrument_id, as_of, equity
                     )
                 bonds = fdata.get("bond_holdings") or {}
                 if bonds:
-                    counts["etf_bond_holdings"] = etf_repo.upsert_bond_holdings(
-                        instrument_id, as_of, bonds
+                    counts["etf_bond_holdings"] = self._write(
+                        etf_repo.upsert_bond_holdings, instrument_id, as_of, bonds
                     )
                 ratings = fdata.get("bond_ratings") or {}
                 if ratings:
-                    counts["etf_bond_ratings"] = etf_repo.upsert_bond_ratings(
-                        instrument_id, as_of, ratings
+                    counts["etf_bond_ratings"] = self._write(
+                        etf_repo.upsert_bond_ratings, instrument_id, as_of, ratings
                     )
                 operations = fdata.get("fund_operations") or {}
                 if operations:
-                    counts["etf_fund_operations"] = etf_repo.upsert_fund_operations(
-                        instrument_id, as_of, operations
+                    counts["etf_fund_operations"] = self._write(
+                        etf_repo.upsert_fund_operations,
+                        instrument_id,
+                        as_of,
+                        operations,
                     )
         except Exception as e:
             errors.append(f"etf_metadata: {e}")

@@ -27,6 +27,9 @@ Branches covered:
     - young listing whose refetch reaches the first stored bar → stored
     - stored series older than the period → fetch starts at its oldest bar
 
+  fetch_and_store() — per-category SAVEPOINT isolation
+    - a failed category rolls back alone; earlier and later writes survive
+
   fetch_and_store() — news scraper branches
     - news list non-empty, link from canonicalUrl dict
     - news list non-empty, link from previewUrl fallback
@@ -39,12 +42,13 @@ Branches covered:
     - ticker is None/empty → skipped with error
 
 External I/O (Yahoo, the scraper) is mocked and most tests use a MagicMock
-repository. The re-base tests that depend on real write semantics run the real
-repository on the SQLite ``db_session`` fixture.
+repository. The re-base and SAVEPOINT tests that depend on real write semantics
+run the real repository on the SQLite ``db_session`` fixture.
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -1774,6 +1778,148 @@ class TestAdjustmentBasisRebaseAgainstRealRepository:
             )
         }
         assert closes == {100.0}
+
+
+# ===========================================================================
+# fetch_and_store() — per-category SAVEPOINT isolation
+# ===========================================================================
+
+
+class _PgLikeSession:
+    """Models the PostgreSQL rule that defeats per-category error handling.
+
+    A failed statement aborts the whole transaction: every later statement
+    raises until the enclosing SAVEPOINT is rolled back, and COMMIT of an
+    aborted transaction silently turns into ROLLBACK instead of raising.
+    """
+
+    def __init__(self) -> None:
+        self.committed: list[str] = []
+        self._pending: list[str] = []
+        self._aborted = False
+
+    def write(self, label: str) -> None:
+        if self._aborted:
+            raise RuntimeError("InFailedSqlTransaction: current transaction is aborted")
+        self._pending.append(label)
+
+    def fail(self, error: Exception) -> None:
+        self._aborted = True
+        raise error
+
+    @contextmanager
+    def begin_nested(self) -> Any:
+        if self._aborted:
+            raise RuntimeError("InFailedSqlTransaction: current transaction is aborted")
+        mark = len(self._pending)
+        try:
+            yield
+        except BaseException:
+            del self._pending[mark:]
+            self._aborted = False
+            raise
+
+    def commit(self) -> None:
+        if not self._aborted:
+            self.committed.extend(self._pending)
+        self._pending.clear()
+        self._aborted = False
+
+
+class TestCategoryWriteIsolation:
+    """One failing category must not take the ticker's other writes with it."""
+
+    def test_failed_category_does_not_discard_earlier_or_later_writes(self) -> None:
+        session = _PgLikeSession()
+        repo = _make_repo(staleness=None)
+        repo.session = session
+
+        def ok(label: str, count: int) -> Any:
+            def write(*args: Any, **kwargs: Any) -> int:
+                session.write(label)
+                return count
+
+            return write
+
+        def duplicate_key(*args: Any, **kwargs: Any) -> int:
+            session.fail(
+                RuntimeError(
+                    "CardinalityViolation: ON CONFLICT DO UPDATE command "
+                    "cannot affect row a second time"
+                )
+            )
+            return 0
+
+        repo.upsert_profile.side_effect = ok("profile", 1)
+        repo.upsert_price_history.side_effect = ok("prices", 3)
+        repo.upsert_dividends.side_effect = duplicate_key
+        repo.upsert_splits.side_effect = ok("splits", 1)
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_info.return_value = {"longName": "Apple Inc."}
+        yf_client.fetch_history.return_value = _stale_history()
+        yf_client.corporate_actions.fetch_dividends.return_value = pd.Series(
+            [0.2, 0.2], index=pd.to_datetime(["2024-02-01", "2024-02-01"])
+        )
+        yf_client.corporate_actions.fetch_splits.return_value = pd.Series(
+            [2.0], index=pd.to_datetime(["2024-03-01"])
+        )
+
+        result = _run(repo, yf_client, mode="full")
+        session.commit()
+
+        assert {"profile", "prices", "splits"} <= set(session.committed)
+        assert "dividends" not in result["counts"]
+        assert len(result["errors"]) == 1
+        assert result["errors"][0].startswith("dividends:")
+
+    def test_failed_category_rolls_back_alone_on_a_real_session(
+        self, db_session: Any
+    ) -> None:
+        from portopt_db.models.market_data.yfinance_data import Dividend, PriceHistory
+        from portopt_db.repositories.market_data.yfinance_repository import (
+            YFinanceRepository,
+        )
+
+        from tests._fixtures import seed_universe
+
+        class _DividendsFailAfterWriting(YFinanceRepository):
+            def upsert_dividends(self, instrument_id: Any, dividends: Any) -> int:
+                super().upsert_dividends(instrument_id, dividends)
+                raise RuntimeError("statement timeout")
+
+        instrument = seed_universe(db_session).instrument
+        repo = _DividendsFailAfterWriting(db_session)
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.return_value = _stale_history()
+        yf_client.corporate_actions.fetch_dividends.return_value = pd.Series(
+            [0.2], index=pd.to_datetime(["2024-02-01"])
+        )
+
+        result = YFinanceDataService(repo=repo, yf_client=yf_client).fetch_and_store(
+            instrument_id=instrument.id, yfinance_ticker="AAPL", mode="full"
+        )
+        db_session.commit()
+
+        assert db_session.query(PriceHistory).count() == 800
+        assert db_session.query(Dividend).count() == 0
+        assert result["errors"] == ["dividends: statement timeout"]
+
+    def test_no_repository_write_bypasses_the_savepoint_helper(self) -> None:
+        import ast
+        import inspect
+
+        import app.services.market_data.yfinance_data_service as svc_module
+
+        tree = ast.parse(inspect.getsource(svc_module))
+        direct_writes = sorted(
+            f"line {node.lineno}: {node.func.attr}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr.startswith("upsert_")
+        )
+
+        assert direct_writes == []
 
 
 # ===========================================================================
