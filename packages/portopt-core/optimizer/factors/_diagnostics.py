@@ -140,9 +140,12 @@ def check_survivorship_bias(
     """Check for potential survivorship bias in a return panel.
 
     Survivorship bias occurs when delisted or failed assets are excluded
-    from the sample. A simple heuristic: if no asset has near-zero returns
-    in the final ``final_periods`` rows (i.e., no asset appears to have
-    stopped trading), the panel may suffer from survivorship bias.
+    from the sample. A simple heuristic: an asset appears to have stopped
+    trading when every return in the final ``final_periods`` rows is either
+    near zero or missing (NaN, the usual padding for a delisted asset in a
+    wide return matrix). If no asset has stopped trading, the panel may
+    suffer from survivorship bias. A single flat or missing day does not
+    count, since illiquid but live assets show those routinely.
 
     Args:
         returns: Dates × assets return matrix.
@@ -156,12 +159,12 @@ def check_survivorship_bias(
         return False
 
     tail = returns.iloc[-final_periods:]
-    has_zeros = (tail.abs() <= zero_threshold).any(axis=0)
+    stopped = ((tail.abs() <= zero_threshold) | tail.isna()).all(axis=0)
 
-    if not has_zeros.any():
+    if not stopped.any():
         warnings.warn(
-            "No assets have near-zero returns in the final "
-            f"{final_periods} periods.  The dataset may suffer from "
+            "No assets have stopped trading (all-zero or missing returns) in "
+            f"the final {final_periods} periods.  The dataset may suffer from "
             "survivorship bias (delisted assets excluded).",
             UserWarning,
             stacklevel=2,

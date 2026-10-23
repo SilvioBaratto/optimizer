@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -262,8 +264,8 @@ class TestCheckSurvivorshipBias:
         """Near-zero returns in tail → no warning and returns False."""
         rng = np.random.default_rng(42)
         data = rng.normal(0.001, 0.02, (100, 10))
-        # Make one asset have zero returns in the tail
-        data[-5:, 3] = 0.0
+        # Make one asset flat across the whole inspected tail
+        data[-12:, 3] = 0.0
         returns = pd.DataFrame(data, columns=[f"A{i}" for i in range(10)])
         result = check_survivorship_bias(returns)
         assert result is False
@@ -282,8 +284,39 @@ class TestCheckSurvivorshipBias:
         """Custom zero_threshold correctly detects small returns."""
         rng = np.random.default_rng(42)
         data = rng.normal(0.001, 0.02, (100, 5))
-        # Set tiny returns below custom threshold
-        data[-3:, 0] = 1e-8
+        # Set tiny returns below custom threshold across the whole tail
+        data[-12:, 0] = 1e-8
         returns = pd.DataFrame(data, columns=[f"A{i}" for i in range(5)])
         result = check_survivorship_bias(returns, zero_threshold=1e-7)
         assert result is False
+
+    def test_nan_padded_delisted_asset_counts_as_stopped(self) -> None:
+        """A delisted asset padded with NaN over the tail is not a survivor."""
+        rng = np.random.default_rng(42)
+        data = rng.normal(0.001, 0.02, (100, 10))
+        data[-12:, 3] = np.nan
+        returns = pd.DataFrame(data, columns=[f"A{i}" for i in range(10)])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            result = check_survivorship_bias(returns)
+        assert result is False
+
+    def test_single_stray_zero_does_not_mask_survivor_only_panel(self) -> None:
+        """One flat day in a live asset is not evidence that an asset left."""
+        rng = np.random.default_rng(42)
+        data = rng.normal(0.001, 0.02, (100, 10))
+        data[-4, 7] = 0.0
+        returns = pd.DataFrame(data, columns=[f"A{i}" for i in range(10)])
+        with pytest.warns(UserWarning, match="survivorship bias"):
+            result = check_survivorship_bias(returns)
+        assert result is True
+
+    def test_partial_nan_gap_does_not_count_as_stopped(self) -> None:
+        """A missing day inside the tail is a data gap, not a delisting."""
+        rng = np.random.default_rng(42)
+        data = rng.normal(0.001, 0.02, (100, 10))
+        data[-6, 2] = np.nan
+        returns = pd.DataFrame(data, columns=[f"A{i}" for i in range(10)])
+        with pytest.warns(UserWarning, match="survivorship bias"):
+            result = check_survivorship_bias(returns)
+        assert result is True
