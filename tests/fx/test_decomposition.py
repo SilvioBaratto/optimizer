@@ -273,3 +273,70 @@ class TestDecomposeDecimalPrices:
         recon = result.local_returns + result.fx_returns + result.cross_terms
         assert (result.total_returns - recon).abs().max().max() < 1e-10
         assert result.local_returns["SPY"].iloc[0] == pytest.approx(482 / 480 - 1.0)
+
+
+class TestDecomposeUnknownFx:
+    """An unknown FX rate must not be booked as a 0% FX move."""
+
+    @staticmethod
+    def _frames(
+        rate_values: list[float],
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, str]]:
+        dates = pd.bdate_range("2024-01-02", periods=len(rate_values))
+        rng = np.random.default_rng(7)
+        local = pd.DataFrame(
+            {"A": 100.0 + rng.standard_normal(len(dates)).cumsum()}, index=dates
+        )
+        rate = pd.Series(rate_values, index=dates)
+        base = local.multiply(rate, axis=0)
+        return local, base, pd.DataFrame({"USD": rate}), {"A": "USD"}
+
+    @pytest.mark.parametrize(
+        "rate_values",
+        [
+            pytest.param(
+                [np.nan] * 4 + [0.90, 0.91, 0.92, 0.91, 0.93, 0.94],
+                id="rates-start-late",
+            ),
+            pytest.param(
+                [0.90, 0.91, 0.92, np.nan, np.nan, 0.93, 0.92, 0.94, 0.95, 0.94],
+                id="gap-beyond-fill-limit",
+            ),
+        ],
+    )
+    def test_unhedged_returns_match_total_where_fx_unknown(
+        self, rate_values: list[float]
+    ) -> None:
+        local, base, fx, cmap = self._frames(rate_values)
+        result = decompose_fx_returns(local, base, fx, cmap, "EUR")
+
+        unhedged = result.hedged_returns(hedge_ratio=0.0)
+        pd.testing.assert_frame_equal(
+            unhedged, result.total_returns, check_exact=False, atol=1e-10
+        )
+
+    @pytest.mark.parametrize(
+        "rate_values",
+        [
+            pytest.param(
+                [np.nan] * 4 + [0.90, 0.91, 0.92, 0.91, 0.93, 0.94],
+                id="rates-start-late",
+            ),
+            pytest.param(
+                [0.90, 0.91, 0.92, np.nan, np.nan, 0.93, 0.92, 0.94, 0.95, 0.94],
+                id="gap-beyond-fill-limit",
+            ),
+        ],
+    )
+    def test_cumulative_components_reconcile_where_fx_unknown(
+        self, rate_values: list[float]
+    ) -> None:
+        local, base, fx, cmap = self._frames(rate_values)
+        summary = decompose_fx_returns(
+            local, base, fx, cmap, "EUR"
+        ).cumulative_contributions()
+
+        row = summary.loc["A"]
+        assert (1.0 + row["local"]) * (1.0 + row["fx"]) - 1.0 == pytest.approx(
+            row["total"], abs=1e-10
+        )

@@ -24,7 +24,8 @@ class FxReturnDecomposition:
     For base-currency assets, ``r_fx = 0`` and ``r_total = r_local``.
 
     Attributes:
-        total_returns: Base-currency total returns (dates x tickers).
+        total_returns: Base-currency total returns (dates x tickers). All
+            components are ``NaN`` on dates where any of them is unknown.
         local_returns: Local-currency stock returns (dates x tickers).
         fx_returns: FX contribution (dates x tickers). Zero for
             base-currency tickers.
@@ -134,7 +135,7 @@ def decompose_fx_returns(
     # holds exactly — the only sub-unit concern here is resolving each ticker
     # to its *major* currency so the correct FX column is found.
     local_returns = local_prices.pct_change().iloc[1:]
-    total_returns = base_prices.pct_change().iloc[1:]
+    total_returns = base_prices.pct_change().iloc[1:].reindex_like(local_returns)
 
     fx_col_by_ccy = {str(c).upper(): c for c in fx_rates_aligned.columns}
 
@@ -155,7 +156,16 @@ def decompose_fx_returns(
         # correct r_fx the identity r_total = r_local + r_fx + r_local*r_fx
         # holds exactly for foreign assets.
         fx_ret = fx_rates_aligned[col].pct_change()
-        fx_returns[ticker] = fx_ret.reindex(local_returns.index).fillna(0.0)
+        fx_returns[ticker] = fx_ret.reindex(local_returns.index)
+
+    # An unknown FX move (rate history starting late, or a gap longer than the
+    # fill limit) is not a 0% move: keep every component on the dates where all
+    # of them are known, so hedged_returns(0.0) equals total_returns and the
+    # compounded columns describe the same window.
+    known = local_returns.notna() & total_returns.notna() & fx_returns.notna()
+    local_returns = local_returns.where(known)
+    total_returns = total_returns.where(known)
+    fx_returns = fx_returns.where(known)
 
     cross_terms = local_returns * fx_returns
 
