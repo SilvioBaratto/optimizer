@@ -185,6 +185,30 @@ class TestFetchSharesFull:
         )
         assert client.fetch_shares_full("AAPL", max_retries=1) is None
 
+    def test_when_no_start_given_then_history_is_requested_from_an_early_date(
+        self,
+    ) -> None:
+        """yfinance alone stops at the trailing 548 days; "earliest available"
+        needs an explicit start or the share-count series never gets older rows."""
+        client, ticker = _corp_client(get_shares_full=MagicMock(return_value=_SERIES))
+
+        client.fetch_shares_full("AAPL", max_retries=1)
+
+        start = ticker.get_shares_full.call_args.kwargs["start"]
+        assert start is not None
+        assert pd.Timestamp(start) <= pd.Timestamp("2000-01-01")
+
+    def test_when_start_given_then_it_is_passed_through_unchanged(self) -> None:
+        client, ticker = _corp_client(get_shares_full=MagicMock(return_value=_SERIES))
+
+        client.fetch_shares_full(
+            "AAPL", start="2020-01-01", end="2021-01-01", max_retries=1
+        )
+
+        ticker.get_shares_full.assert_called_once_with(
+            start="2020-01-01", end="2021-01-01"
+        )
+
     def test_when_get_shares_full_raises_then_returns_none(self) -> None:
         fake_ticker = MagicMock(name="yf.Ticker")
         fake_ticker.get_shares_full.side_effect = RuntimeError("network")

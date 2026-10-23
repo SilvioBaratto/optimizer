@@ -11,6 +11,10 @@ from .._base import BaseClient
 
 logger = logging.getLogger(__name__)
 
+# yfinance silently narrows an open-ended request to the trailing 548 days, so
+# "everything Yahoo has" has to be asked for with an explicit early start.
+_SHARES_HISTORY_START = "1990-01-01"
+
 
 class CorporateActionsClient(BaseClient):
     """Wraps ``yf.Ticker`` corporate-action attributes."""
@@ -101,7 +105,8 @@ class CorporateActionsClient(BaseClient):
 
         Args:
             symbol: Ticker symbol.
-            start: Start date (ISO format); None fetches from earliest available.
+            start: Start date (ISO format); None requests the full history
+                Yahoo holds, not yfinance's trailing 548-day default.
             end: End date (ISO format); None fetches to latest available.
             max_retries: Retry attempts; None uses the client default.
 
@@ -109,11 +114,14 @@ class CorporateActionsClient(BaseClient):
             Share count DataFrame, or None if unavailable or all retries fail.
         """
         logger.debug("Fetching shares full for '%s'", symbol)
+        effective_start = start if start is not None else _SHARES_HISTORY_START
 
         def _action() -> pd.DataFrame | None:
             return cast(
                 pd.DataFrame,
-                self._get_ticker(symbol).get_shares_full(start=start, end=end),
+                self._get_ticker(symbol).get_shares_full(
+                    start=effective_start, end=end
+                ),
             )
 
         return self._fetch_with_resilience(
