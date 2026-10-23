@@ -116,6 +116,30 @@ RAIL_LABELS: dict[str, str] = {
 }
 
 
+@contextmanager
+def _keep_cursor(table: DataTable) -> Generator[None]:
+    """Hold ``table``'s cursor row across a clear-and-refill repaint.
+
+    ``DataTable.clear()`` resets the cursor to row 0, so a table repainted on every
+    poll tick would yank the adviser's highlight back to the top and a following Enter
+    would act on the wrong row. The cursor is re-seated on the same row key when that
+    row survives the refill, else on the same index clamped to the new row count (rows
+    added without a key get a fresh random key each paint and so take that fallback).
+    """
+    index = table.cursor_row
+    key = (
+        table.coordinate_to_cell_key(table.cursor_coordinate).row_key
+        if table.row_count
+        else None
+    )
+    yield
+    if not table.row_count:
+        return
+    if key is not None and key in table.rows:
+        index = table.get_row_index(key)
+    table.move_cursor(row=min(index, table.row_count - 1))
+
+
 class ShellView(Vertical):
     """A dumb placeholder view: a title line, a body line, and a refresh counter.
 
@@ -310,14 +334,15 @@ class DecisionsView(ShellView):
     def _paint_queue(self, rows: list[RunSummary]) -> None:
         self._queue = rows
         table = self.query_one("#decisions-table", DataTable)
-        table.clear()
-        for row in rows:
-            table.add_row(
-                _short(row.run_id),
-                _short(row.portfolio_id) if row.portfolio_id else "fund-wide",
-                row.asof.isoformat(),
-                key=str(row.run_id),
-            )
+        with _keep_cursor(table):
+            table.clear()
+            for row in rows:
+                table.add_row(
+                    _short(row.run_id),
+                    _short(row.portfolio_id) if row.portfolio_id else "fund-wide",
+                    row.asof.isoformat(),
+                    key=str(row.run_id),
+                )
         self.query_one("#decisions-count", Label).update(f"{len(rows)} awaiting")
         # Drop a selection that has left the queue (e.g. the gate we just resolved).
         if self.selected_run_id is not None and all(
@@ -962,14 +987,15 @@ class PostureView(ShellView):
     def _paint_roster(self, rows: list[_RosterRow], strip: str) -> None:
         self._roster = rows
         table = self.query_one("#posture-roster", DataTable)
-        table.clear()
-        for row in rows:
-            table.add_row(
-                _short(row.portfolio_id),
-                row.run_glyph,
-                f"{row.dot} {row.label}",
-                key=str(row.portfolio_id),
-            )
+        with _keep_cursor(table):
+            table.clear()
+            for row in rows:
+                table.add_row(
+                    _short(row.portfolio_id),
+                    row.run_glyph,
+                    f"{row.dot} {row.label}",
+                    key=str(row.portfolio_id),
+                )
         self.query_one("#posture-strip", Static).update(strip)
 
     def _paint_detail(self) -> None:

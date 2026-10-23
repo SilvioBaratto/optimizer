@@ -1678,6 +1678,75 @@ async def test_decisions_freshly_selected_gate_that_cannot_render_is_not_actiona
         assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
 
 
+def _cursor_key(table: DataTable) -> str | None:
+    """The row key under ``table``'s cursor, or ``None`` for an empty table."""
+    if not table.row_count:
+        return None
+    return table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+
+
+@pytest.mark.asyncio
+async def test_decisions_repaint_keeps_the_highlighted_gate(tui_env) -> None:
+    # The poll tick repaints the queue every couple of seconds; DataTable.clear()
+    # resets the cursor to row 0, so without restoring it an Enter after navigating
+    # would select the first gate instead of the one the adviser moved to.
+    _seed_gate(tui_env, _PID_B, tui_env.expected)
+    _seed_gate(tui_env, _PID_A, tui_env.expected)
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        table = view.query_one("#decisions-table", DataTable)
+        assert table.row_count == 3
+        table.move_cursor(row=2)
+        highlighted = _cursor_key(table)
+
+        view.refresh_view()  # what every poll tick does
+        await pilot.pause()
+
+        assert table.cursor_row == 2
+        assert _cursor_key(table) == highlighted
+
+
+@pytest.mark.asyncio
+async def test_decisions_repaint_follows_the_highlighted_gate_by_key(tui_env) -> None:
+    # A gate landing above the highlighted one shifts its row index; the cursor must
+    # stay on the same gate, not on whatever now occupies the old index.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        table = view.query_one("#decisions-table", DataTable)
+        assert _cursor_key(table) == str(tui_env.run_id)
+
+        newer = _seed_gate(tui_env, _PID_B, tui_env.expected)  # newest first => row 0
+        view.refresh_view()
+        await pilot.pause()
+
+        assert table.row_count == 2
+        assert table.coordinate_to_cell_key(Coordinate(0, 0)).row_key.value == str(
+            newer
+        )
+        assert _cursor_key(table) == str(tui_env.run_id)
+
+
+@pytest.mark.asyncio
+async def test_posture_repaint_keeps_the_highlighted_portfolio(tui_env) -> None:
+    _seed_gate(tui_env, _PID_B, tui_env.expected)
+    _seed_gate(tui_env, _PID_A, tui_env.expected)
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        table = view.query_one("#posture-roster", DataTable)
+        assert table.row_count == 3
+        table.move_cursor(row=2)
+        highlighted = _cursor_key(table)
+
+        view.refresh_view()
+        await pilot.pause()
+
+        assert table.cursor_row == 2
+        assert _cursor_key(table) == highlighted
+
+
 @pytest.mark.asyncio
 async def test_decisions_edit_modal_is_seeded_from_audited_weights(tui_env) -> None:
     run_id = _seed_gate(tui_env, _PID_B, {"CCC": 1.0})
