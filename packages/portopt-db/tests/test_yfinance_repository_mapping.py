@@ -64,6 +64,47 @@ def _constraint(repo: YFinanceRepository) -> str:
     return repo._upsert.call_args.kwargs["constraint_name"]
 
 
+class TestProfileRatioUnits:
+    """Yahoo quotes dividendYield, fiveYearAvgDividendYield and debtToEquity in
+    percent but trailingAnnualDividendYield and payoutRatio as fractions; the
+    row must carry one unit."""
+
+    def test_percent_quoted_fields_are_stored_as_fractions(self, repo) -> None:
+        repo.upsert_profile(
+            _IID,
+            {
+                "dividendYield": 0.31,
+                "fiveYearAvgDividendYield": 0.47,
+                "trailingAnnualDividendYield": 0.003015,
+                "payoutRatio": 0.1204,
+                "debtToEquity": 78.445,
+            },
+        )
+        row = _rows(repo)[0]
+        assert row["dividend_yield"] == pytest.approx(0.0031)
+        assert row["five_year_avg_dividend_yield"] == pytest.approx(0.0047)
+        assert row["debt_to_equity"] == pytest.approx(0.78445)
+        # Already fractions at the source.
+        assert row["trailing_annual_dividend_yield"] == 0.003015
+        assert row["payout_ratio"] == 0.1204
+
+    def test_dividend_yield_agrees_with_the_trailing_fraction(self, repo) -> None:
+        repo.upsert_profile(
+            _IID, {"dividendYield": 2.22, "trailingAnnualDividendYield": 0.0218}
+        )
+        row = _rows(repo)[0]
+        assert row["dividend_yield"] == pytest.approx(
+            row["trailing_annual_dividend_yield"], rel=0.05
+        )
+
+    def test_absent_percent_fields_stay_none(self, repo) -> None:
+        repo.upsert_profile(_IID, {"symbol": "X"})
+        row = _rows(repo)[0]
+        assert row["dividend_yield"] is None
+        assert row["five_year_avg_dividend_yield"] is None
+        assert row["debt_to_equity"] is None
+
+
 class TestAnalystEstimates:
     def test_earnings_estimate_maps_period_and_fields(self, repo) -> None:
         df = pd.DataFrame(

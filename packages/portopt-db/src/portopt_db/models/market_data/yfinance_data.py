@@ -121,11 +121,15 @@ class TickerProfile(BaseModel):
     total_cash: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     total_cash_per_share: Mapped[float | None] = mapped_column(Float, nullable=True)
     total_debt: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Plain ratio (0.78 = 0.78x); Yahoo quotes it in percent and the writer rescales.
     debt_to_equity: Mapped[float | None] = mapped_column(Float, nullable=True)
     current_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     quick_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     dividend_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Both dividend yields are fractions (0.0031 = 0.31%), like the payout ratio
+    # and the trailing yield; Yahoo quotes these two in percent and the writer
+    # rescales.
     dividend_yield: Mapped[float | None] = mapped_column(Float, nullable=True)
     ex_dividend_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
     payout_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)

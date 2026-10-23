@@ -98,6 +98,12 @@ def _insider_lot_order(row: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
+def _safe_percent_as_fraction(v: Any) -> float | None:
+    """Convert a figure Yahoo quotes in percent (``0.44`` = 0.44%) to a fraction."""
+    f = _safe_float(v)
+    return None if f is None else f / 100.0
+
+
 def _safe_str(v: Any, max_len: int | None = None) -> str | None:
     v = _safe_val(v)
     if v is None:
@@ -356,14 +362,14 @@ class YFinanceRepository(RepositoryBase):
             "total_cash": _safe_int(info.get("totalCash")),
             "total_cash_per_share": _safe_float(info.get("totalCashPerShare")),
             "total_debt": _safe_int(info.get("totalDebt")),
-            "debt_to_equity": _safe_float(info.get("debtToEquity")),
+            "debt_to_equity": _safe_percent_as_fraction(info.get("debtToEquity")),
             "current_ratio": _safe_float(info.get("currentRatio")),
             "quick_ratio": _safe_float(info.get("quickRatio")),
             "dividend_rate": _safe_float(info.get("dividendRate")),
-            "dividend_yield": _safe_float(info.get("dividendYield")),
+            "dividend_yield": _safe_percent_as_fraction(info.get("dividendYield")),
             "ex_dividend_date": ex_div,
             "payout_ratio": _safe_float(info.get("payoutRatio")),
-            "five_year_avg_dividend_yield": _safe_float(
+            "five_year_avg_dividend_yield": _safe_percent_as_fraction(
                 info.get("fiveYearAvgDividendYield")
             ),
             "trailing_annual_dividend_rate": _safe_float(
