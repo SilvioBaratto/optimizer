@@ -4361,6 +4361,62 @@ async def test_deliberation_live_drops_events_of_another_run(shell_env) -> None:
         assert view.live_run_id == rid
 
 
+_BRACKETED_TEXT = (
+    "short [/ES] futures; top picks [NVDA] [MSFT]; see [Reuters](http://x.y)"
+)
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_detail_shows_bracketed_agent_text_literally(
+    shell_env,
+) -> None:
+    """Agent text with ``[/x]`` / ``[TICKER]`` is shown verbatim, not as markup."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        view.ingest_event(
+            StreamEvent(
+                kind="step",
+                run_id=rid,
+                index=0,
+                agent="economist",
+                step="report",
+                status=StepStatus.LIVE,
+                text=_BRACKETED_TEXT,
+            )
+        )
+        await pilot.pause()
+        detail = view.query_one("#delib-detail", Static)
+        assert _BRACKETED_TEXT in detail.visual.plain
+
+
+@pytest.mark.asyncio
+async def test_deliberation_replay_detail_shows_bracketed_agent_text_literally(
+    shell_env,
+) -> None:
+    """The replay detail pane renders a step's text verbatim, like the live pane."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view._entries = [
+            SimpleNamespace(
+                agent="economist",
+                step="report",
+                source="message",
+                index=0,
+                text=_BRACKETED_TEXT,
+                payload=None,
+            )
+        ]
+        view.selected_step = 0
+        view._paint_detail()
+        await pilot.pause()
+        detail = view.query_one("#delib-detail", Static)
+        assert _BRACKETED_TEXT in detail.visual.plain
+
+
 def test_deliberation_binds_follow_live() -> None:
     """``f`` is view-scoped to Deliberation (follow-live), not the global filter."""
     actions = {binding[1] for binding in DeliberationView.BINDINGS}
@@ -6397,6 +6453,26 @@ async def test_daily_brief_view_renders_five_sections(shell_env, monkeypatch) ->
         assert "ECONOMIST READ" in text and "tech tilt" in text
         assert "(from 10-03)" in text  # carried-forward read is dated
         assert "FUND DID" in text and "rebalance" in text
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_shows_bracketed_journal_and_read_text_literally(
+    shell_env, monkeypatch
+) -> None:
+    """A ``[/ES]`` in the economist read or a journal row is neither lost nor fatal."""
+    brief = dataclasses.replace(
+        _full_brief(_PID_A),
+        economist_read="short [/ES] futures; top picks [NVDA]",
+        market_events=({"as_of": "2026-10-06", "narrative": "CPI [Reuters] < exp"},),
+    )
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        rendered = view.query_one("#brief-detail", Static).visual.plain
+        assert "short [/ES] futures; top picks [NVDA]" in rendered
+        assert "CPI [Reuters] < exp" in rendered
 
 
 @pytest.mark.asyncio
