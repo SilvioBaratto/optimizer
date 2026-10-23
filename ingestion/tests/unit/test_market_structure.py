@@ -17,7 +17,8 @@ import pytest
 from portopt_db.repositories.market_data.market_structure_repository import (
     MarketStructureRepository,
 )
-from yfinance.exceptions import YFDataException
+from yfinance.data import YfData
+from yfinance.exceptions import YFDataException, YFRateLimitError
 
 from app.services.market_data.market_structure_service import (
     run_market_structure_fetch,
@@ -77,6 +78,30 @@ class TestSectorsClient:
         }
         assert {c["symbol"] for c in out["top_companies"]} == {"AAPL", "MSFT"}
         assert out["top_companies"][0]["weight"] == 0.07
+
+    def test_swallowed_fetch_failure_is_raised_not_returned_as_a_hollow_sector(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # yfinance (hide_exceptions=True) swallows the rate-limit error and leaves
+        # every Sector field None; that must not come back as a truthy dict.
+        monkeypatch.setattr(
+            "app.services.infrastructure.retry.time.sleep", lambda _: None
+        )
+        client = SectorsClient(
+            rate_limiter=MagicMock(),
+            circuit_breaker=MagicMock(),
+            default_max_retries=2,
+        )
+        with patch.object(
+            YfData, "get_raw_json", side_effect=YFRateLimitError()
+        ) as fetch:
+            with pytest.raises(YFDataException):
+                client.fetch_sector("technology", region="US")
+
+        # The empty payload is a final answer, so the failed fetch is not retried:
+        # one attempt reads the overview and probes the name, nothing more.
+        assert fetch.call_count == 2
+        client.circuit_breaker.reset.assert_not_called()
 
 
 def _empty_sector() -> SimpleNamespace:
@@ -230,6 +255,26 @@ class TestBulkFetch:
 
         assert result["sectors_written"] == 0
         assert result["error_count"] == len(SECTOR_KEYS)
+
+    def test_sector_without_data_is_recorded_as_an_error_and_not_persisted(
+        self,
+    ) -> None:
+        repo = MagicMock(name="repo")
+        yf = MagicMock()
+        yf.sectors.fetch_sector.return_value = None
+        with (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        ):
+            result = run_market_structure_fetch(yf, regions=("US",))
+
+        assert result["sectors_written"] == 0
+        assert result["error_count"] == len(SECTOR_KEYS)
+        repo.upsert_sector_snapshot.assert_not_called()
 
 
 class TestFailedFetchAccounting:
