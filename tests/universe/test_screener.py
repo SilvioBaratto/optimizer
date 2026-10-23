@@ -191,6 +191,76 @@ class TestComputeTradingFrequency:
         assert freq["TINY"] < freq["AAPL"]
 
 
+class TestTradingFrequencyNaNConvention:
+    """NaN volume means "market closed / not listed", never "did not trade"."""
+
+    def test_nan_volume_days_are_excluded_from_the_denominator(self) -> None:
+        dates = pd.bdate_range("2023-01-01", periods=300)
+        volume = pd.DataFrame({"A": np.full(300, 1_000.0)}, index=dates)
+        volume.iloc[-40:-20, 0] = np.nan  # exchange holidays on a union calendar
+        freq = compute_trading_frequency(volume, window=252)
+        assert freq["A"] == pytest.approx(1.0)
+
+    def test_zero_volume_days_still_count_as_non_trading(self) -> None:
+        dates = pd.bdate_range("2023-01-01", periods=300)
+        volume = pd.DataFrame({"A": np.full(300, 1_000.0)}, index=dates)
+        volume.iloc[-40:-20, 0] = np.nan
+        volume.iloc[-10:, 0] = 0.0
+        freq = compute_trading_frequency(volume, window=252)
+        assert freq["A"] == pytest.approx(222 / 232)
+
+    def test_ticker_without_any_observation_is_nan(self) -> None:
+        dates = pd.bdate_range("2023-01-01", periods=300)
+        volume = pd.DataFrame(
+            {"A": np.full(300, 1_000.0), "B": np.full(300, np.nan)}, index=dates
+        )
+        freq = compute_trading_frequency(volume, window=252)
+        assert np.isnan(freq["B"])
+
+    def test_pre_listing_nan_does_not_override_short_history_presets(self) -> None:
+        dates = pd.bdate_range("2022-01-01", periods=300)
+        prices = pd.DataFrame({"YOUNG": np.full(300, 50.0)}, index=dates)
+        volume = pd.DataFrame({"YOUNG": np.full(300, 100_000.0)}, index=dates)
+        prices.iloc[:170, 0] = np.nan
+        volume.iloc[:170, 0] = np.nan  # 130 clean trading days
+        fundamentals = pd.DataFrame(
+            {"market_cap": [5e8], "current_price": [50.0]},
+            index=pd.Index(["YOUNG"], name="ticker"),
+        )
+        result = apply_investability_screens(
+            fundamentals=fundamentals,
+            price_history=prices,
+            volume_history=volume,
+            config=InvestabilityScreenConfig.for_broad_universe(),
+        )
+        assert list(result) == ["YOUNG"]
+
+    def test_union_calendar_holidays_do_not_fail_large_cap_frequency_gate(
+        self,
+    ) -> None:
+        dates = pd.bdate_range("2023-01-01", periods=300)
+        prices = pd.DataFrame(
+            {"US1": np.full(300, 100.0), "EU1": np.full(300, 100.0)}, index=dates
+        )
+        volume = pd.DataFrame(
+            {"US1": np.full(300, 1e6), "EU1": np.full(300, 1e6)}, index=dates
+        )
+        # Each market is closed on 9 days the other one trades.
+        volume.iloc[-120:-111, 0] = np.nan
+        volume.iloc[-60:-51, 1] = np.nan
+        fundamentals = pd.DataFrame(
+            {"market_cap": [5e9, 5e9], "current_price": [100.0, 100.0]},
+            index=pd.Index(["US1", "EU1"], name="ticker"),
+        )
+        result = apply_investability_screens(
+            fundamentals=fundamentals,
+            price_history=prices,
+            volume_history=volume,
+            config=InvestabilityScreenConfig.for_large_cap(),
+        )
+        assert set(result) == {"US1", "EU1"}
+
+
 class TestComputeListingAge:
     def test_basic(self, price_history: pd.DataFrame) -> None:
         age = compute_listing_age(price_history)

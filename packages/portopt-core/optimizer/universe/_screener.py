@@ -80,20 +80,26 @@ def compute_trading_frequency(
     volume_history: pd.DataFrame,
     window: int,
 ) -> pd.Series:
-    """Compute fraction of trading days with nonzero volume.
+    """Compute fraction of observed trading days with nonzero volume.
+
+    NaN volume means the market was closed or the instrument was not yet
+    listed, so it is dropped from the denominator (the same convention as
+    `compute_addv`).  Only an explicit zero counts as a day without trading.
 
     Args:
         volume_history: Volume matrix (dates x tickers).
         window: Number of trailing trading days.
 
     Returns:
-        Trading frequency per ticker (0 to 1).
+        Trading frequency per ticker (0 to 1); NaN for a ticker with no
+        observed volume in the window.
     """
     if len(volume_history) >= window:
         tail = volume_history.iloc[-window:]
     else:
         tail = volume_history
-    return (tail > 0).mean()
+    observed = tail.notna().sum()
+    return (tail > 0).sum() / observed.where(observed > 0)
 
 
 def compute_listing_age(price_history: pd.DataFrame) -> pd.Series:
