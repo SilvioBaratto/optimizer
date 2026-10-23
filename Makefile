@@ -1,4 +1,4 @@
-.PHONY: setup sync lint format typecheck test coverage coverage-report all clean contract-snapshots
+.PHONY: setup sync lint format typecheck test coverage coverage-report all clean
 
 # One-command onboarding: delegate to the thin POSIX front door (no logic here).
 setup:
@@ -38,6 +38,3 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	rm -rf .mypy_cache .pytest_cache .coverage htmlcov/ coverage.xml dist/
 	find . -type d -name '*.egg-info' -exec rm -rf {} +
-
-contract-snapshots:
-	uv run python ingestion/tests/contract/emit_schemas.py
