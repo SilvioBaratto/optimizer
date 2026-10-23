@@ -181,10 +181,12 @@ class MultipleRandomizedCVConfig:
     Args:
         walk_forward_config: Inner walk-forward configuration for temporal
             splitting.
-        n_subsamples: Number of random trials.
+        n_subsamples: Number of random trials. Must be >= 2 and at most
+            ``C(n_assets, asset_subset_size)``; the upper bound depends on the
+            universe size and is checked when splitting.
         asset_subset_size: Number of assets drawn per trial.
         window_size: Length of the random temporal window drawn per trial.
-            ``None`` uses the full sample.
+            Must be >= 2 when set. ``None`` uses the full sample.
         random_state: Seed for reproducibility.
     """
 
@@ -195,15 +197,15 @@ class MultipleRandomizedCVConfig:
     random_state: int | None = None
 
     def __post_init__(self) -> None:
-        if self.n_subsamples < 1:
-            raise ValueError(f"n_subsamples must be >= 1, got {self.n_subsamples}")
+        if self.n_subsamples < 2:
+            raise ValueError(f"n_subsamples must be >= 2, got {self.n_subsamples}")
         if self.asset_subset_size < 1:
             raise ValueError(
                 f"asset_subset_size must be >= 1, got {self.asset_subset_size}"
             )
-        if self.window_size is not None and self.window_size < 1:
+        if self.window_size is not None and self.window_size < 2:
             raise ValueError(
-                f"window_size must be >= 1 or None, got {self.window_size}"
+                f"window_size must be >= 2 or None, got {self.window_size}"
             )
 
     @classmethod
