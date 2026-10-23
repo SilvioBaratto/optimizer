@@ -118,10 +118,10 @@ def migrate() -> None:
     ``DATABASE_URL``, and a bare ``alembic`` on PATH may belong to an unrelated
     environment (or be absent). So run it as ``sys.executable -m alembic`` — the
     interpreter running ``portopt``, which has ``portopt_db`` + alembic — from the
-    package dir with the host DB URL injected. On any failure (missing dir, alembic
-    not importable, or a non-zero exit) warn and continue rather than aborting
-    setup: the fund container runs the same migration on start and its healthcheck
-    gates on it, so the DB reaches head there regardless.
+    package dir with the compose host DB URL forced. On any failure (missing dir,
+    alembic not importable, or a non-zero exit) warn and continue rather than
+    aborting setup: the fund container runs the same migration on start and its
+    healthcheck gates on it, so the DB reaches head there regardless.
     """
     db_dir = _find_db_package()
     if db_dir is None:
@@ -130,8 +130,9 @@ def migrate() -> None:
             "migration — the fund container migrates on start."
         )
         return
-    env = {**os.environ}
-    env.setdefault("DATABASE_URL", _HOST_DB_URL)
+    # Assigned, not setdefault: an ambient DATABASE_URL (shell, direnv, .env) belongs
+    # to some other database and must never receive this DDL.
+    env = {**os.environ, "DATABASE_URL": _HOST_DB_URL}
     try:
         result = _run(
             [sys.executable, "-m", "alembic", "upgrade", "head"],

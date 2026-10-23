@@ -90,6 +90,24 @@ def test_migrate_runs_alembic_from_db_package(
 
 @patch("app.setup.docker_bootstrap._find_db_package")
 @patch("app.setup.docker_bootstrap.subprocess.run")
+def test_migrate_targets_the_compose_db_despite_an_ambient_database_url(
+    mock_run: MagicMock,
+    mock_find: MagicMock,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The wizard just started the compose db for exactly this migration; a
+    DATABASE_URL exported for another project (or production) must not redirect
+    `alembic upgrade head` onto that database."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://prod-user:secret@prod.example/app")
+    mock_find.return_value = tmp_path
+    mock_run.return_value = _cp(0)
+    db.migrate()
+    assert mock_run.call_args.kwargs["env"]["DATABASE_URL"] == db._HOST_DB_URL
+
+
+@patch("app.setup.docker_bootstrap._find_db_package")
+@patch("app.setup.docker_bootstrap.subprocess.run")
 def test_migrate_failure_is_best_effort(
     mock_run: MagicMock, mock_find: MagicMock, tmp_path, capsys
 ) -> None:
