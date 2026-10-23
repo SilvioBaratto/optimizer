@@ -58,6 +58,9 @@ def run_market_summary_fetch(
                 if rows is None:
                     # None is the client's "retries exhausted" signal; an empty
                     # list is a genuine empty answer and still goes to the repo.
+                    logger.warning(
+                        "Failed market summary %s: fetch returned no result", market
+                    )
                     errors.append(f"{market}: no data")
                     continue
                 counts[market] = repo.upsert_summaries(market, as_of, rows)
