@@ -593,6 +593,19 @@ class TestSectorBandsAndFactorExposure:
         assert "Energy >= 0.0" not in constraints
         assert model.groups == mapping
 
+    def test_sector_bands_without_sector_mapping_raises(self) -> None:
+        """Bands with no group mapping would be dropped at fit time, so reject."""
+        with pytest.raises(ValueError, match="sector_mapping"):
+            build_mean_risk(MeanRiskConfig(), sector_bands={"Tech": (0.0, 0.2)})
+
+    def test_sector_bands_with_explicit_groups_kwarg_is_accepted(self) -> None:
+        groups = {"AAPL": "Tech", "XOM": "Energy"}
+        model = build_mean_risk(
+            MeanRiskConfig(), sector_bands={"Tech": (0.0, 0.2)}, groups=groups
+        )
+        assert model.groups == groups
+        assert model.linear_constraints == ["Tech <= 0.2"]
+
     def test_factor_exposure_constraints_injected(self) -> None:
         """factor_exposure_constraints inject left/right_inequality into MeanRisk."""
         from optimizer.factors._integration import FactorExposureConstraints

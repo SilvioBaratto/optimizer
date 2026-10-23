@@ -193,7 +193,9 @@ def build_mean_risk(
             ``linear_constraints`` after any ``min_sector_weights`` rows.
             Sectors with ``floor == 0.0`` emit no floor row. This is the
             low-level factory path for injecting regime-conditional sector
-            bands into a `MeanRisk` optimizer. ``None`` is a no-op.
+            bands into a `MeanRisk` optimizer. Requires ``sector_mapping``
+            (or an explicit ``groups`` in ``kwargs``); raises ``ValueError``
+            otherwise. ``None`` is a no-op.
         **kwargs: Additional keyword arguments forwarded to the
             `MeanRisk` constructor (for non-serialisable parameters
             such as ``previous_weights``, ``groups``,
@@ -244,6 +246,15 @@ def build_mean_risk(
         sector_constraints.extend(_build_sector_floor_constraints(min_sector_weights))
 
     if sector_bands:
+        # skfolio drops (with only a UserWarning) every constraint row naming a
+        # group it cannot resolve, so bands without groups would be silently
+        # unenforced.
+        if sector_mapping is None and kwargs.get("groups") is None:
+            raise ValueError(
+                "sector_bands requires sector_mapping or an explicit groups "
+                "kwarg to enforce sector constraints (no group mapping "
+                "available)."
+            )
         kwargs.setdefault("groups", sector_mapping)
         sector_constraints.extend(_build_sector_cap_constraints(sector_bands))
 

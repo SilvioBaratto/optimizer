@@ -226,6 +226,8 @@ def build_regime_blended_mean_risk(
     Raises:
         ConfigurationError: If ``factor_returns`` or ``regime_probabilities``
             are empty.
+        ValueError: If ``min_sector_weights`` or ``sector_bands`` is given
+            without ``sector_mapping``, or the floors are infeasible.
     """
     if config is None:
         config = RegimeBlendedMeanRiskConfig()
