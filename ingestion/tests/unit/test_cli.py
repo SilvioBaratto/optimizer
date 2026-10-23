@@ -183,8 +183,12 @@ class TestSetupCommand:
         from app.setup.wizard import SetupError
 
         monkeypatch.chdir(tmp_path)
-        rendered = compose_secrets.render({"fred_api_key": "live-key"})
-        env_file = compose_env.render({"llm_provider": "openai"})
+        rendered = compose_secrets.render(
+            {"fred_api_key": "live-key"}, secrets_dir=tmp_path / "secrets"
+        )
+        env_file = compose_env.render(
+            {"llm_provider": "openai"}, path=tmp_path / ".env.fund"
+        )
         target, flags = failure_args
 
         with (
@@ -221,6 +225,7 @@ class TestSetupCommand:
             result = runner.invoke(
                 app, ["setup", "--non-interactive", "--fred-key", "x"]
             )
+
         assert result.exit_code == 1
         assert (repo / "secrets" / "fred_api_key").read_text() == "live"
         assert (repo / ".env.fund").is_file()

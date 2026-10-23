@@ -308,10 +308,21 @@ def test_cleanup_never_touches_the_scheduler_env_file(
     recreate it against the live host."""
     fund = tmp_path / ".env.fund"
     scheduler = tmp_path / ".env.scheduler"
-    monkeypatch.setattr(compose_env, "DEFAULT_ENV_FUND_PATH", fund)
-    monkeypatch.setattr(compose_env, "DEFAULT_ENV_SCHEDULER_PATH", scheduler)
     fund.write_text("LLM_PROVIDER=openai\n", encoding="utf-8")
     scheduler.write_text("TRADING_212_MODE=demo\n", encoding="utf-8")
-    compose_env.cleanup()
+    compose_env.cleanup(path=fund)
     assert not fund.exists()
     assert scheduler.read_text(encoding="utf-8") == "TRADING_212_MODE=demo\n"
+
+
+def test_render_and_cleanup_require_an_explicit_path_never_the_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A default of `./.env.fund` would write next to wherever the operator stood
+    while compose read the checkout's own file."""
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(TypeError):
+        compose_env.render({"llm_provider": "openai"})  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        compose_env.cleanup()  # type: ignore[call-arg]
+    assert list(tmp_path.iterdir()) == []

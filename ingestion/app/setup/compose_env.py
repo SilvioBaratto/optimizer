@@ -122,17 +122,22 @@ def config_to_scheduler_env(config: Mapping[str, object]) -> dict[str, str]:
     return _translate(config, _SCHEDULER_ENV_BY_CONFIG_KEY)
 
 
-def render(config: Mapping[str, object], *, path: Path | None = None) -> Path:
+def render(config: Mapping[str, object], *, path: Path) -> Path:
     """Write the fund's translated env vars to `<path>` (`.env.fund`).
+
+    ``path`` has no default on purpose: a cwd-relative one would write the file
+    wherever the operator happened to run, not where compose reads it.
 
     Always writes the file (empty when nothing is configured) so the fund service's
     `env_file` entry resolves. Returns the path written.
     """
-    return _write_env_file(path or DEFAULT_ENV_FUND_PATH, config_to_env(config))
+    return _write_env_file(path, config_to_env(config))
 
 
-def render_scheduler(config: Mapping[str, object], *, path: Path | None = None) -> Path:
+def render_scheduler(config: Mapping[str, object], *, path: Path) -> Path:
     """Write the scheduler's translated env vars to `<path>` (`.env.scheduler`).
+
+    ``path`` has no default on purpose, for the same reason as :func:`render`.
 
     Always rewrites the file (empty when no mode is configured) so the scheduler's
     `env_file` entry resolves and a mode dropped from config.toml cannot linger
@@ -140,17 +145,14 @@ def render_scheduler(config: Mapping[str, object], *, path: Path | None = None) 
     after `portopt stop`, and a plain `docker compose up` must still find it.
     Returns the path written.
     """
-    return _write_env_file(
-        path or DEFAULT_ENV_SCHEDULER_PATH, config_to_scheduler_env(config)
-    )
+    return _write_env_file(path, config_to_scheduler_env(config))
 
 
-def cleanup(*, path: Path | None = None) -> None:
+def cleanup(*, path: Path) -> None:
     """Remove the rendered `.env.fund` file (best effort).
 
     Deliberately leaves `.env.scheduler` alone: callers (`portopt stop`, a failed
     setup) run while the scheduler is still up.
     """
-    target = path or DEFAULT_ENV_FUND_PATH
     with contextlib.suppress(OSError):
-        target.unlink(missing_ok=True)
+        path.unlink(missing_ok=True)

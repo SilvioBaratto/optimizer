@@ -149,6 +149,17 @@ def test_cleanup_missing_dir_is_noop(tmp_path: Path) -> None:
     cs.cleanup(secrets_dir=tmp_path / "does-not-exist")  # no raise
 
 
+def test_render_requires_an_explicit_directory_and_never_uses_the_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A default of `./secrets` would drop plaintext keys into whatever directory the
+    # operator happened to be in while compose mounted another checkout's secrets.
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(TypeError):
+        cs.render({"fred_api_key": "x"})  # type: ignore[call-arg]
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_dockerignore_keeps_plaintext_secrets_out_of_the_build_context() -> None:
     """The compose build context is the repo root, so an unignored `secrets/` or
     `.certs/` is uploaded to the daemon on every `docker compose build`."""

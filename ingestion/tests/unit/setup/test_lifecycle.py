@@ -32,7 +32,6 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
         "rendered": None,
         "secrets_dir": None,
         "compose": [],
-        "cleaned": False,
         "repo": repo,
         "env_fund_path": env_fund,
         "env_scheduler_path": env_scheduler,

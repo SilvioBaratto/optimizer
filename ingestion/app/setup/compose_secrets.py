@@ -71,10 +71,11 @@ def _restrict_dir(target: Path) -> bool:
     return target.stat().st_mode & 0o077 == 0
 
 
-def render(
-    secrets: Mapping[str, str], *, secrets_dir: Path | None = None
-) -> list[Path]:
+def render(secrets: Mapping[str, str], *, secrets_dir: Path) -> list[Path]:
     """Write every declared secret to `<secrets_dir>/<name>`. Returns the paths.
+
+    ``secrets_dir`` has no default on purpose: a cwd-relative one would plant the
+    keys wherever the operator happened to run, not where compose mounts them.
 
     The directory is made owner-only (0700). Files are then 0644 so the containers'
     uid-1000 user can read them: a compose `file:` secret is a plain bind mount, so
@@ -82,11 +83,10 @@ def render(
     different host uid is unreadable there. When the directory cannot be made
     owner-only the files stay 0600 rather than exposing the keys to other users.
     """
-    target = secrets_dir or DEFAULT_SECRETS_DIR
-    file_mode = 0o644 if _restrict_dir(target) else 0o600
+    file_mode = 0o644 if _restrict_dir(secrets_dir) else 0o600
     written: list[Path] = []
     for name in SECRET_NAMES:
-        path = target / name
+        path = secrets_dir / name
         # Docker creates a missing file-mount source as a directory when the stack
         # comes up before the secret is rendered, and a later write then fails with a
         # directory error. Clear any such placeholder so the value lands as a file.
@@ -98,16 +98,14 @@ def render(
     return written
 
 
-def cleanup(
-    *, secrets_dir: Path | None = None, names: Iterable[str] | None = None
-) -> None:
+def cleanup(*, secrets_dir: Path, names: Iterable[str] | None = None) -> None:
     """Remove rendered plaintext secret files (best effort).
 
     Args:
-        secrets_dir: Directory the files were rendered into.
+        secrets_dir: Directory the files were rendered into; required for the same
+            reason as in :func:`render`.
         names: Secrets to remove; every declared secret when omitted.
     """
-    target = secrets_dir or DEFAULT_SECRETS_DIR
     for name in SECRET_NAMES if names is None else names:
         with contextlib.suppress(OSError):
-            (target / name).unlink(missing_ok=True)
+            (secrets_dir / name).unlink(missing_ok=True)
