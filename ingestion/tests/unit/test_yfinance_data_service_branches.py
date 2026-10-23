@@ -24,7 +24,7 @@ Branches covered:
   fetch_and_store() — adjustment-basis re-base
     - stored overlap closes disagree with the re-fetched window → full re-fetch
     - re-base fetch truncated or empty → the window is stored alone
-    - young listing whose refetch reaches the first stored bar → stored
+    - young listing / thin name whose refetch reaches the first stored bar → stored
     - stored series older than the period → fetch starts at its oldest bar
 
   fetch_and_store() — per-category SAVEPOINT isolation
@@ -1579,6 +1579,89 @@ class TestAdjustmentBasisRebase:
         )
         yf_client = _make_yf_client_silent()
         yf_client.fetch_history.return_value = history
+
+        with patch(
+            "app.services.market_data.yfinance_data_service.has_sufficient_history",
+            return_value=(False, 1260, 1197),
+        ):
+            result = _run(
+                repo, yf_client, mode="full", exchange_name="NYSE", period="5y"
+            )
+
+        assert "prices:insufficient_history" in result["skipped"]
+        repo.upsert_price_history.assert_not_called()
+
+    def test_full_refetch_of_thin_name_older_than_the_period_is_stored(
+        self,
+    ) -> None:
+        """A thinly traded name never reaches 95% of the exchange sessions. Once
+        its stored series is older than the period, the refetch starts at the
+        oldest stored bar and still reaches it, so refusing it would freeze the
+        adjustment basis for good."""
+        repo = _make_repo(staleness=None)
+        repo.get_staleness_info.return_value = {"price_max_date": date(2025, 1, 15)}
+        yahoo = pd.DataFrame(
+            {"Close": 50.0},
+            index=pd.bdate_range("2017-06-01", _FROZEN_TODAY)[::2],
+        )
+        stored = {
+            stamp.date(): 49.5 for stamp in yahoo.index[yahoo.index >= "2018-01-02"]
+        }
+        repo.get_price_history.side_effect = _stored_prices(stored)
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.side_effect = _yahoo_serving(yahoo, _FROZEN_TODAY)
+
+        with patch(
+            "app.services.market_data.yfinance_data_service.has_sufficient_history",
+            return_value=(False, 1260, 1197),
+        ):
+            result = _run(
+                repo, yf_client, mode="full", exchange_name="NYSE", period="5y"
+            )
+
+        assert "prices:insufficient_history" not in result["skipped"]
+        refetched = repo.upsert_price_history.call_args.args[1]
+        assert refetched.index.min().date() == min(stored)
+
+    def test_full_refetch_missing_stored_bars_inside_the_window_is_protected(
+        self,
+    ) -> None:
+        repo = _make_repo(staleness=None)
+        repo.get_staleness_info.return_value = {"price_max_date": date(2025, 1, 15)}
+        idx = pd.date_range("2023-01-02", "2025-01-16", freq="B")[::2]
+        history = pd.DataFrame({"Close": [50.0] * len(idx)}, index=idx)
+        stored = {date(2018, 1, 2): 30.0, date(2020, 3, 2): 35.0}
+        stored.update({stamp.date(): 49.5 for stamp in idx})
+        repo.get_price_history.side_effect = _stored_prices(stored)
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.return_value = history
+
+        with patch(
+            "app.services.market_data.yfinance_data_service.has_sufficient_history",
+            return_value=(False, 1260, 1197),
+        ):
+            result = _run(
+                repo, yf_client, mode="full", exchange_name="NYSE", period="5y"
+            )
+
+        assert "prices:insufficient_history" in result["skipped"]
+        repo.upsert_price_history.assert_not_called()
+
+    def test_full_refetch_stopping_at_the_period_window_is_protected(self) -> None:
+        """The series is older than the period, so the fetch asked for its oldest
+        bar. A response that stops at the period window would re-base only that
+        span and leave the older bars on the previous basis."""
+        repo = _make_repo(staleness=None)
+        repo.get_staleness_info.return_value = {"price_max_date": date(2025, 1, 15)}
+        window_only = pd.DataFrame(
+            {"Close": 50.0},
+            index=pd.bdate_range("2020-01-17", _FROZEN_TODAY)[::2],
+        )
+        stored = {date(2018, 1, 2): 30.0, date(2019, 6, 3): 35.0}
+        stored.update({stamp.date(): 49.5 for stamp in window_only.index})
+        repo.get_price_history.side_effect = _stored_prices(stored)
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.return_value = window_only
 
         with patch(
             "app.services.market_data.yfinance_data_service.has_sufficient_history",

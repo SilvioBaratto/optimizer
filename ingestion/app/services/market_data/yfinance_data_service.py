@@ -366,8 +366,10 @@ class YFinanceDataService:
 
         Such a history rewrites every stored bar on one basis, so it is safe to
         store even when it is shorter than the exchange calendar predicts (a
-        young listing). A history that opens later would re-base only its own
-        span and leave the older bars on the previous basis.
+        young listing, or a thin name Yahoo has no-trade gaps for). A history
+        that opens later would re-base only its own span and leave the older bars
+        on the previous basis. Every stored bar is within a full fetch's reach:
+        it starts at the oldest stored bar whenever the period would stop short.
         """
         first = next(
             iter(self.repo.get_price_history(instrument_id, limit=1, ascending=True)),
