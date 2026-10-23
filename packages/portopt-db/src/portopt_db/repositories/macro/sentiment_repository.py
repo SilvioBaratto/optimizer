@@ -1,8 +1,10 @@
 """Repository for sentiment-related database queries."""
 
 import logging
+import re
 from collections.abc import Sequence
 from datetime import datetime
+from itertools import islice
 from uuid import UUID
 
 from sqlalchemy import ColumnElement, or_, select
@@ -29,6 +31,12 @@ _ETF_TO_SECTOR: dict[str, str] = {
     "XLRE": "Real Estate",
     "XLC": "Communication Services",
 }
+
+# Below this length a ticker ("A", "T", "ON") collides with ordinary words and
+# initials, so the last-resort text search would return unrelated headlines.
+_MIN_TEXT_SEARCH_TICKER_LEN = 3
+
+_TEXT_SEARCH_BATCH_SIZE = 100
 
 _SECTOR_TO_ETFS: dict[str, set[str]] = {}
 for _etf, _sector in _ETF_TO_SECTOR.items():
@@ -135,8 +143,11 @@ class SentimentRepository(RepositoryBase):
 
         Uses a cascading strategy, returning as soon as one yields results:
         direct ``source_ticker`` match, then sector-ETF feed match (resolves
-        the ticker's GICS sector to corresponding ETF tickers), then a
-        case-insensitive text search on title and full content.
+        the ticker's GICS sector to corresponding ETF tickers), then a text
+        search on title and full content. The text search only accepts the
+        ticker as a standalone, exactly-cased token (so ``NOW`` never matches
+        "now" or "know") and is skipped for tickers shorter than
+        ``_MIN_TEXT_SEARCH_TICKER_LEN``.
 
         Args:
             ticker: Equity ticker symbol to find relevant macro news for.
@@ -185,14 +196,43 @@ class SentimentRepository(RepositoryBase):
                 if rows:
                     return rows
 
-        pattern = f"%{ticker}%"
-        return self._newest_macro_news(
-            [
+        return self._newest_ticker_mentions(ticker, base_filters, limit)
+
+    def _newest_ticker_mentions(
+        self,
+        ticker: str,
+        conditions: Sequence[ColumnElement[bool]],
+        limit: int,
+    ) -> Sequence[MacroNews]:
+        """Return the *limit* newest articles that mention *ticker* as a token.
+
+        The SQL ``contains`` filter is only a cheap superset (LIKE cannot express
+        word boundaries portably), so candidates are streamed newest first and
+        confirmed in Python; ``limit`` therefore counts real mentions only.
+        """
+        if len(ticker) < _MIN_TEXT_SEARCH_TICKER_LEN:
+            return []
+
+        mention = re.compile(rf"(?<![A-Za-z0-9]){re.escape(ticker)}(?![A-Za-z0-9])")
+        result = self.session.execute(
+            select(MacroNews)
+            .where(
                 or_(
-                    MacroNews.title.ilike(pattern),
-                    MacroNews.full_content.ilike(pattern),
+                    MacroNews.title.icontains(ticker, autoescape=True),
+                    MacroNews.full_content.icontains(ticker, autoescape=True),
                 ),
-                *base_filters,
-            ],
-            limit,
-        )
+                *conditions,
+            )
+            .order_by(MacroNews.publish_time.desc())
+            .execution_options(yield_per=_TEXT_SEARCH_BATCH_SIZE)
+        ).scalars()
+        try:
+            confirmed = (
+                row
+                for row in result
+                if mention.search(row.title or "")
+                or mention.search(row.full_content or "")
+            )
+            return list(reversed(list(islice(confirmed, limit))))
+        finally:
+            result.close()
