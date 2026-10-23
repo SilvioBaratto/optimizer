@@ -55,9 +55,11 @@ class CSLinearRegressionConfig:
 class CSLinearRegressorWrapperConfig:
     """Immutable configuration for a wrapped per-period sklearn regressor.
 
-    Adapts any scikit-learn ``Regressor`` (Ridge, Lasso, tree-based, ...) to
-    the cross-sectional contract via `CSLinearRegressorWrapper`: the wrapped
-    regressor is fit independently for each observation ``t``.
+    Adapts a scikit-learn linear ``Regressor`` (Ridge, Lasso, ElasticNet,
+    Huber, ...) to the cross-sectional contract via `CSLinearRegressorWrapper`:
+    the wrapped regressor is fit independently for each observation ``t``. It
+    must define ``fit_intercept``, accept ``sample_weight`` and expose
+    ``coef_`` / ``intercept_``, so tree-based estimators are not supported.
 
     The regressor instance itself is **not** a serialisable primitive, so it
     is passed to the factory as a ``**kwargs`` argument rather than stored on

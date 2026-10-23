@@ -7,7 +7,10 @@ import dataclasses
 import numpy as np
 import pytest
 from skfolio.linear_model import CSLinearRegression, CSLinearRegressorWrapper
-from sklearn.linear_model import Ridge
+from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.linear_model import Lasso, Ridge
+from sklearn.tree import DecisionTreeRegressor
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.linear_model import (
@@ -203,3 +206,41 @@ class TestBuildCSLinearRegressorWrapper:
         assert est.coef_.shape == (T, K)
         assert est.predict(X).shape == y.shape
         assert np.allclose(est.coef_.mean(axis=0), beta_true, atol=0.1)
+
+    @pytest.mark.parametrize(
+        "regressor",
+        [
+            RandomForestRegressor(),
+            DecisionTreeRegressor(),
+            GradientBoostingRegressor(),
+        ],
+        ids=["random_forest", "decision_tree", "gradient_boosting"],
+    )
+    def test_when_regressor_lacks_fit_intercept_then_configuration_error(
+        self, regressor: BaseEstimator
+    ) -> None:
+        with pytest.raises(ConfigurationError, match="fit_intercept"):
+            build_cs_linear_regressor_wrapper(
+                CSLinearRegressorWrapperConfig(), regressor=regressor
+            )
+
+    def test_when_regressor_ignores_sample_weight_then_configuration_error(
+        self,
+    ) -> None:
+        class NoWeightRegressor(RegressorMixin, BaseEstimator):
+            def __init__(self, fit_intercept: bool = True) -> None:
+                self.fit_intercept = fit_intercept
+
+            def fit(self, X: object, y: object) -> NoWeightRegressor:
+                return self
+
+        with pytest.raises(ConfigurationError, match="sample_weight"):
+            build_cs_linear_regressor_wrapper(
+                CSLinearRegressorWrapperConfig(), regressor=NoWeightRegressor()
+            )
+
+    def test_when_regressor_is_lasso_then_accepted(self) -> None:
+        est = build_cs_linear_regressor_wrapper(
+            CSLinearRegressorWrapperConfig(), regressor=Lasso(alpha=0.1)
+        )
+        assert isinstance(est, CSLinearRegressorWrapper)
