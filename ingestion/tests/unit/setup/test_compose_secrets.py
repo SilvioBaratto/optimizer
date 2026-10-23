@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 import pytest
 
@@ -269,3 +269,45 @@ def test_docker_build_context_excludes_every_secrets_directory(
     lines = ignore_file.read_text(encoding="utf-8").splitlines()
     # The trailing-slash spelling names the same directories; either one counts.
     assert {"**/secrets", "**/secrets/"} & {line.strip() for line in lines}
+
+
+@_POSIX_ONLY
+@pytest.mark.parametrize(("dir_is_gate", "final_mode"), [(True, 0o644), (False, 0o600)])
+def test_a_looser_leftover_file_gets_its_final_mode_before_the_value_lands(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dir_is_gate: bool,
+    final_mode: int,
+) -> None:
+    leftover = tmp_path / "fred_api_key"
+    leftover.write_text("stale", encoding="utf-8")
+    leftover.chmod(0o666)
+    monkeypatch.setattr(cs, "_restrict_dir", lambda _target: dir_is_gate)
+
+    # The final mode cannot tell settle-then-write from write-then-settle, so sample
+    # the mode of the open file at the moment each value is written.
+    modes_at_write: list[int] = []
+    real_fdopen = os.fdopen
+
+    class _SpyHandle:
+        def __init__(self, handle: IO[str]) -> None:
+            self._handle = handle
+
+        def __enter__(self) -> "_SpyHandle":
+            self._handle.__enter__()
+            return self
+
+        def __exit__(self, *exc: Any) -> None:
+            self._handle.__exit__(*exc)
+
+        def write(self, data: str) -> int:
+            modes_at_write.append(os.fstat(self._handle.fileno()).st_mode & 0o777)
+            return self._handle.write(data)
+
+    monkeypatch.setattr(os, "fdopen", lambda *a, **k: _SpyHandle(real_fdopen(*a, **k)))
+    cs.render({"fred_api_key": "fresh"}, secrets_dir=tmp_path)
+
+    assert len(modes_at_write) == len(cs.SECRET_NAMES)
+    # Leftover is 0666; a freshly created file gets the creation mode.
+    assert set(modes_at_write) == {final_mode}
+    assert leftover.read_text(encoding="utf-8") == "fresh"

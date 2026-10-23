@@ -77,13 +77,18 @@ def _write_secret(path: Path, value: str, mode: int) -> None:
 
     A symlink at ``path`` is replaced, never followed, and ``O_NOFOLLOW`` turns a
     link swapped in after that check into an error instead of a write through it.
-    The trailing chmod only matters for a pre-existing file, whose mode ``open``
-    keeps, and for a umask that narrowed the creation mode.
+    The trailing chmod only matters for a umask that narrowed the creation mode.
     """
     if path.is_symlink():
         path.unlink()
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
-    with os.fdopen(os.open(path, flags, mode), "w", encoding="utf-8") as handle:
+    fd = os.open(path, flags, mode)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        # A leftover keeps the mode it had, possibly looser than *mode*: settle the
+        # final mode before the value lands, in place so a running container's bind
+        # mount keeps its inode.
+        if hasattr(os, "fchmod"):  # POSIX only
+            os.fchmod(fd, mode)
         handle.write(value)
     path.chmod(mode)
 
