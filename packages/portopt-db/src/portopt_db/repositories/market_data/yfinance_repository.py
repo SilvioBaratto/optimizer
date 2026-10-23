@@ -4,7 +4,7 @@ import contextlib
 import logging
 import math
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, cast
 from uuid import UUID
 
@@ -155,9 +155,11 @@ def _safe_date(v: Any) -> date | None:
         except (ValueError, TypeError):
             return None
     if isinstance(v, int | float):
+        # Yahoo epoch dates sit at 00:00 UTC, so reading them in the host's
+        # timezone would shift the calendar day on any host west of UTC.
         try:
-            return datetime.fromtimestamp(v).date()
-        except (ValueError, TypeError, OSError):
+            return datetime.fromtimestamp(v, tz=timezone.utc).date()
+        except (ValueError, TypeError, OSError, OverflowError):
             return None
     return None
 
@@ -1439,15 +1441,21 @@ class YFinanceRepository(RepositoryBase):
                     from dateutil import parser as dateutil_parser
 
                     publish_time = dateutil_parser.isoparse(pub_date_str)
-                    # Strip tz for consistency with TickerNews column type
-                    publish_time = publish_time.replace(tzinfo=None)
+                    # The column is timestamptz: keep UTC rather than a naive
+                    # value the database would read in its session timezone.
+                    if publish_time.tzinfo is None:
+                        publish_time = publish_time.replace(tzinfo=timezone.utc)
+                    else:
+                        publish_time = publish_time.astimezone(timezone.utc)
                 except (ValueError, TypeError):
                     pass
             if publish_time is None:
                 pt = article.get("providerPublishTime")
                 if pt is not None:
-                    with contextlib.suppress(ValueError, TypeError, OSError):
-                        publish_time = datetime.fromtimestamp(int(pt))
+                    with contextlib.suppress(
+                        ValueError, TypeError, OSError, OverflowError
+                    ):
+                        publish_time = datetime.fromtimestamp(int(pt), tz=timezone.utc)
 
             news_type = _safe_str(
                 content.get("contentType") or article.get("type"), 100

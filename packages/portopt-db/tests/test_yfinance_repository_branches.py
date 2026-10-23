@@ -13,8 +13,10 @@ have no DB dependency and are tested directly.  ``get_staleness_info`` uses
 from __future__ import annotations
 
 import math
+import time
 import uuid
-from datetime import date, datetime, timedelta
+from collections.abc import Callable, Iterator
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import pandas as pd
@@ -52,6 +54,22 @@ from portopt_db.repositories.market_data.yfinance_repository import (
     _safe_str,
     _safe_val,
 )
+
+
+@pytest.fixture
+def host_timezone(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[[str], None]]:
+    """Switch the process-local timezone, restoring it on teardown."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is unavailable on this platform")
+
+    def _set(name: str) -> None:
+        monkeypatch.setenv("TZ", name)
+        time.tzset()
+
+    yield _set
+    monkeypatch.undo()
+    time.tzset()
+
 
 # ---------------------------------------------------------------------------
 # Seed helpers
@@ -267,6 +285,17 @@ class TestSafeDate:
         ts = int(datetime(2024, 1, 1).timestamp())
         result = _safe_date(ts)
         assert isinstance(result, date)
+
+    def test_epoch_midnight_utc_is_that_utc_date_in_any_host_timezone(
+        self, host_timezone
+    ) -> None:
+        # Yahoo's exDividendDate is an epoch at 00:00 UTC; a host west of UTC
+        # must not read it as the previous calendar day.
+        host_timezone("America/New_York")
+        assert _safe_date(1715299200) == date(2024, 5, 10)
+
+    def test_epoch_beyond_platform_time_t_returns_none(self) -> None:
+        assert _safe_date(10**20) is None
 
     def test_nan_float_returns_none(self) -> None:
         # _safe_val returns None for NaN before the int/float branch
@@ -2309,7 +2338,9 @@ class TestUpsertNewsPreprocessing:
         rows = self._call(db_session, inst.id, [article])
         assert rows[0]["link"] == "https://preview.example.com/1"
 
-    def test_pub_date_iso_string_parsed_tz_stripped(self, db_session: Session) -> None:
+    def test_pub_date_iso_string_converted_to_utc(self, db_session: Session) -> None:
+        # The column is timestamptz: a naive value would be read in the DB
+        # session's timezone, so the offset is applied and UTC is kept.
         ex = _exchange(db_session, name="NewsEx6")
         inst = _instrument(db_session, ex, ticker="N6", yfinance_ticker="N6")
         article = {
@@ -2317,8 +2348,21 @@ class TestUpsertNewsPreprocessing:
             "content": {"pubDate": "2024-06-15T14:30:00+05:00"},
         }
         rows = self._call(db_session, inst.id, [article])
-        assert rows[0]["publish_time"] is not None
-        assert rows[0]["publish_time"].tzinfo is None
+        assert rows[0]["publish_time"] == datetime(
+            2024, 6, 15, 9, 30, tzinfo=timezone.utc
+        )
+
+    def test_legacy_epoch_publish_time_is_utc_whatever_the_host_timezone(
+        self, db_session: Session, host_timezone
+    ) -> None:
+        ex = _exchange(db_session, name="NewsEx6b")
+        inst = _instrument(db_session, ex, ticker="N6b", yfinance_ticker="N6b")
+        host_timezone("America/New_York")
+        article = {"uuid": "legacy-epoch-uuid", "providerPublishTime": 1715299200}
+        rows = self._call(db_session, inst.id, [article])
+        assert rows[0]["publish_time"] == datetime(
+            2024, 5, 10, 0, 0, tzinfo=timezone.utc
+        )
 
     def test_pub_date_invalid_string_falls_through_to_provider_publish_time(
         self, db_session: Session
