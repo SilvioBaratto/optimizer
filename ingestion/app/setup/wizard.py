@@ -4,8 +4,8 @@ Two entry points share one persist+bootstrap core:
 - ``run_setup_noninteractive`` — flags/env for CI; fails loud, never loops.
 - ``run_setup_interactive`` — drives a `Prompter`.
 
-Secrets are validated live *before* anything is written, so a failure at any
-step leaves nothing persisted.
+Secrets are validated live and the database is brought up and migrated *before*
+anything is written, so a failure at any of those steps leaves nothing persisted.
 """
 
 from __future__ import annotations
@@ -224,13 +224,16 @@ def _persist_and_bootstrap(
     *,
     skip_path_install: bool = False,
 ) -> None:
+    # Decrypt-check first and bootstrap before writing: a failure at either step must
+    # leave no store/config behind, or the retry stops counting as a first run (no
+    # auto-launch) and is pinned to the first attempt's passphrase.
     merged = _merge_with_existing_secrets(secrets, passphrase)
+    docker_bootstrap.bring_up_db()
+    docker_bootstrap.migrate()
     secret_store.save_secrets(merged, passphrase)
     # Merge, never clobber: a re-run that omits a section must keep the config the
     # earlier run persisted (and the repo_path the launcher install records).
     config_file.update_config(config)
-    docker_bootstrap.bring_up_db()
-    docker_bootstrap.migrate()
     if not skip_path_install:
         # Best-effort: secrets are already encrypted and the DB migrated, so a PATH
         # failure must not fail the whole setup — warn and let the user add it manually.

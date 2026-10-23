@@ -9,7 +9,7 @@ credentials are auto-detected before prompting.
 
 import pytest
 
-from app.setup import compose_env, config_file, wizard
+from app.setup import compose_env, config_file, secret_store, wizard
 from app.setup.prompts import NonInteractivePrompter
 
 # Long enough for the new-store passphrase policy.
@@ -20,6 +20,8 @@ _PW = "correct-horse-battery"
 _REAL_UPDATE_CONFIG = config_file.update_config
 _REAL_LOAD_CONFIG = config_file.load_config
 _REAL_SAVE_CONFIG = config_file.save_config
+_REAL_SAVE_SECRETS = secret_store.save_secrets
+_REAL_IS_FIRST_RUN = wizard._is_first_run
 
 
 @pytest.fixture
@@ -1477,3 +1479,81 @@ def test_wrong_passphrase_error_names_the_recovery_path(
     message = str(excinfo.value)
     assert str(store) in message
     assert "delete" in message.lower()
+
+
+# --- persistence happens only after the DB bootstrap succeeded --------------
+
+
+def test_bootstrap_failure_persists_nothing(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Docker failure must not leave an encrypted store or config behind."""
+
+    def _down() -> None:
+        raise wizard.docker_bootstrap.DockerError("port 54320 busy")
+
+    monkeypatch.setattr(wizard.docker_bootstrap, "bring_up_db", _down)
+    with pytest.raises(wizard.docker_bootstrap.DockerError):
+        wizard.run_setup_noninteractive(passphrase="pw", fred_key="fk")
+    assert patched["saved_secrets"] is None
+    assert patched["saved_config"] is None
+
+
+def test_secrets_and_config_are_written_after_the_bootstrap(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[str] = []
+    monkeypatch.setattr(
+        wizard.docker_bootstrap, "bring_up_db", lambda: events.append("db")
+    )
+    monkeypatch.setattr(
+        wizard.docker_bootstrap, "migrate", lambda: events.append("migrate")
+    )
+    monkeypatch.setattr(
+        wizard.secret_store,
+        "save_secrets",
+        lambda secrets, passphrase, **kw: events.append("secrets"),
+    )
+    monkeypatch.setattr(
+        wizard.config_file,
+        "update_config",
+        lambda config, **kw: events.append("config"),
+    )
+    wizard.run_setup_noninteractive(passphrase="pw")
+    assert events == ["db", "migrate", "secrets", "config"]
+
+
+def test_wrong_passphrase_fails_before_the_db_is_touched(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _bad(pw: str, **k: object) -> dict:
+        raise wizard.secret_store.InvalidPassphraseError("wrong")
+
+    monkeypatch.setattr(wizard.secret_store, "load_secrets", _bad)
+    with pytest.raises(wizard.SetupError):
+        wizard.run_setup_noninteractive(passphrase="wrong")
+    assert patched["bootstrapped"] == []
+
+
+def test_failed_first_setup_is_still_a_first_run_on_retry(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The retry after a Docker failure must still auto-launch and take a new passphrase."""
+    monkeypatch.setattr(
+        wizard.secret_store, "DEFAULT_SECRETS_PATH", tmp_path / "new" / "secrets.enc"
+    )
+    monkeypatch.setattr(
+        wizard.config_file, "DEFAULT_CONFIG_PATH", tmp_path / "new" / "config.toml"
+    )
+    monkeypatch.setattr(wizard.secret_store, "save_secrets", _REAL_SAVE_SECRETS)
+    monkeypatch.setattr(wizard.config_file, "update_config", _REAL_UPDATE_CONFIG)
+    monkeypatch.setattr(wizard, "_is_first_run", _REAL_IS_FIRST_RUN)
+
+    def _down() -> None:
+        raise wizard.docker_bootstrap.DockerError("image pull failed")
+
+    monkeypatch.setattr(wizard.docker_bootstrap, "bring_up_db", _down)
+    with pytest.raises(wizard.docker_bootstrap.DockerError):
+        wizard.run_setup_noninteractive(passphrase="pw", fred_key="fk")
+
+    assert wizard._is_first_run() is True
