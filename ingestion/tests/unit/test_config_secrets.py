@@ -133,3 +133,17 @@ def test_unreadable_secret_file_is_reported_without_leaking_content(
         _settings(monkeypatch, PORTOPT_SECRETS_DIR=str(tmp_path))
     assert "fred_api_key" in caplog.text
     assert "file-key" not in caplog.text
+
+
+def test_empty_secret_files_keep_every_env_value(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / "fred_api_key").write_text("", encoding="utf-8")
+    (tmp_path / "trading_212_api_key").write_text("\n", encoding="utf-8")
+    s = _settings(
+        monkeypatch,
+        FRED_API_KEY="env-fred",
+        TRADING_212_API_KEY="env-t212",
+        PORTOPT_SECRETS_DIR=str(tmp_path),
+    )
+    assert (s.fred_api_key, s.trading_212_api_key) == ("env-fred", "env-t212")
