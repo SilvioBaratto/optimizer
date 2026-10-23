@@ -8,6 +8,11 @@ the effective set is logged each run (no silent cap).
 
 Market-wide + slow-moving → run by its own weekly scheduler step, not the daily
 per-ticker loop.
+
+Yahoo returns the same sector overview (market cap, weight, counts) whatever
+``region`` is requested; only the industry / top-company lists vary.  The
+overview columns are therefore persisted on the ``OVERVIEW_REGION`` row alone and
+left NULL elsewhere, so a regional snapshot never carries another scope's totals.
 """
 
 from __future__ import annotations
@@ -36,6 +41,8 @@ DEFAULT_REGIONS: tuple[str, ...] = (
     "SE",
     "CA",
 )
+
+OVERVIEW_REGION = "US"
 
 
 def run_market_structure_fetch(
@@ -89,7 +96,11 @@ def run_market_structure_fetch(
                     data = yf_client.sectors.fetch_sector(key, region=region)
                     if not data:
                         continue
-                    ov = data.get("overview") or {}
+                    ov = (
+                        (data.get("overview") or {})
+                        if region == OVERVIEW_REGION
+                        else {}
+                    )
                     repo.upsert_sector_snapshot(
                         key,
                         region,

@@ -232,6 +232,73 @@ class TestBulkFetch:
         assert result["error_count"] == len(SECTOR_KEYS)
 
 
+class TestSectorOverviewScope:
+    """Yahoo's overview figures are global, so only one region row may carry them."""
+
+    @staticmethod
+    def _sweep(regions: tuple[str, ...]) -> MagicMock:
+        repo = MagicMock(name="repo")
+        repo.upsert_industries.return_value = 1
+        repo.upsert_top_companies.return_value = 1
+        yf = MagicMock()
+        yf.sectors.fetch_sector.return_value = {
+            "key": "technology",
+            "name": "Technology",
+            "symbol": "^YH311",
+            "overview": {
+                "market_cap": 2.8e13,
+                "market_weight": 0.32,
+                "companies_count": 866,
+                "industries_count": 12,
+                "employee_count": 5_000_000,
+            },
+            "industries": [],
+            "top_companies": [],
+        }
+        with (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        ):
+            run_market_structure_fetch(yf, regions=regions)
+        return repo
+
+    def test_overview_is_stored_once_not_under_every_region(self) -> None:
+        repo = self._sweep(("US", "GB", "IT"))
+
+        carriers = {
+            call.args[1]
+            for call in repo.upsert_sector_snapshot.call_args_list
+            if call.kwargs["market_cap"] is not None
+        }
+        assert carriers == {"US"}
+
+    def test_non_us_rows_keep_identity_but_drop_every_overview_column(self) -> None:
+        repo = self._sweep(("GB",))
+
+        kwargs = repo.upsert_sector_snapshot.call_args.kwargs
+        assert kwargs["name"] == "Technology"
+        assert kwargs["symbol"] == "^YH311"
+        for column in (
+            "market_cap",
+            "market_weight",
+            "companies_count",
+            "industries_count",
+            "employee_count",
+        ):
+            assert kwargs[column] is None
+
+    def test_us_row_keeps_the_overview(self) -> None:
+        repo = self._sweep(("US",))
+
+        kwargs = repo.upsert_sector_snapshot.call_args.kwargs
+        assert kwargs["market_cap"] == 2.8e13
+        assert kwargs["companies_count"] == 866
+
+
 class TestSchedulerStep:
     def test_composes_run_step(self) -> None:
         M = "app.services.jobs.scheduler"

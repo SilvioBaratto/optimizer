@@ -27,6 +27,10 @@ from portopt_db.base import BaseModel
 class SectorSnapshot(BaseModel):
     """Sector overview (market cap / weight / counts) per region, per snapshot.
 
+    Yahoo's overview figures do not vary by region, so the ingestion sweep fills
+    ``market_cap`` through ``employee_count`` on the ``"US"`` row only; they are
+    NULL for every other region.
+
     Attributes:
         sector_key: yfinance sector slug (e.g. ``"technology"``).
         market_weight: Sector's fraction of total market cap (0–1 range).
