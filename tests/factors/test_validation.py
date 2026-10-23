@@ -59,6 +59,14 @@ def _reference_newey_west(values: np.ndarray, n_lags: int) -> tuple[float, float
     return float(t_stat), float(2.0 * sp_stats.t.sf(abs(t_stat), df=n - 1))
 
 
+# 14 usable periods around one gap: above the 2 * lags + 1 Newey-West floor for
+# both lags=5 and lags=6, so the NaN handling is what the tests exercise.
+_IC_WITH_GAP: list[float] = [
+    0.05, 0.02, np.nan, 0.04, 0.06, 0.03, 0.05,
+    0.04, 0.02, 0.07, 0.05, 0.03, 0.06, 0.04, 0.05,
+]  # fmt: skip
+
+
 class TestComputeMonthlyIC:
     def test_returns_float(
         self, factor_scores: pd.Series, forward_returns: pd.Series
@@ -622,6 +630,22 @@ class TestNeweyWestTStat:
         assert t_raw == pytest.approx(t_scaled, rel=1e-9)
         assert abs(t_raw) > 10.0
 
+    def test_when_series_has_nan_then_matches_series_with_nan_dropped(self) -> None:
+        """A gap is a missing period, not a poisoned HAC sum."""
+        ic = pd.Series(_IC_WITH_GAP)
+
+        t_stat, p_value = compute_newey_west_tstat(ic, 6)
+        ref_t, ref_p = compute_newey_west_tstat(ic.dropna(), 6)
+
+        assert np.isfinite(t_stat)
+        assert t_stat > 2.0
+        assert t_stat == pytest.approx(ref_t, rel=1e-12)
+        assert p_value == pytest.approx(ref_p, rel=1e-12, abs=1e-15)
+
+    def test_when_nan_leaves_fewer_than_three_values_then_no_evidence(self) -> None:
+        ic = pd.Series([0.05, np.nan, 0.04, np.nan, np.nan])
+        assert compute_newey_west_tstat(ic, 6) == (0.0, 1.0)
+
 
 class TestQuantileSpread:
     def test_returns_float(
@@ -908,6 +932,34 @@ class TestComputeICStats:
 
         assert scaled.t_stat_nw == pytest.approx(ref.t_stat_nw, rel=1e-9)
         assert scaled.icir == pytest.approx(ref.icir, rel=1e-9)
+
+    def test_when_series_has_nan_then_stats_match_series_with_nan_dropped(
+        self,
+    ) -> None:
+        """NaN is dropped before n, mean and the HAC sums, so they stay consistent."""
+        ic = pd.Series(_IC_WITH_GAP)
+
+        result = compute_ic_stats(ic, lags=5)
+        ref = compute_ic_stats(ic.dropna(), lags=5)
+
+        assert np.isfinite(result.variance_nw)
+        assert result.t_stat_nw > 2.0
+        assert result.p_value < 0.05
+        assert result.mean == pytest.approx(ref.mean, rel=1e-12)
+        assert result.variance_nw == pytest.approx(ref.variance_nw, rel=1e-12)
+        assert result.t_stat_nw == pytest.approx(ref.t_stat_nw, rel=1e-12)
+        assert result.p_value == pytest.approx(ref.p_value, rel=1e-12, abs=1e-15)
+        assert result.icir == pytest.approx(ref.icir, rel=1e-12)
+
+    def test_when_nan_leaves_fewer_than_three_values_then_short_series_result(
+        self,
+    ) -> None:
+        ic = pd.Series([0.05, np.nan, 0.04, np.nan, np.nan])
+        result = compute_ic_stats(ic)
+        assert np.isnan(result.mean)
+        assert np.isnan(result.variance_nw)
+        assert result.t_stat_nw == 0.0
+        assert result.p_value == 1.0
 
 
 class TestICIRConstantSeries:

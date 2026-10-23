@@ -415,7 +415,8 @@ def compute_newey_west_tstat(
     """Compute Newey-West t-statistic for IC significance.
 
     Args:
-        ic_series: Time series of IC values.
+        ic_series: Time series of IC values.  NaN observations are dropped
+            before any statistic is computed.
         n_lags: Number of lags for HAC standard errors.
 
     Returns:
@@ -424,6 +425,7 @@ def compute_newey_west_tstat(
         The floor makes the inference defined; it does not make the test
         exact, as HAC t-tests still over-reject on short histories.
     """
+    ic_series = ic_series.dropna()
     n = len(ic_series)
     if n < _min_newey_west_periods(n_lags):
         return 0.0, 1.0
@@ -449,6 +451,7 @@ def compute_ic_stats(
 
     Args:
         ic_series: Time series of IC values (one per cross-section date).
+            NaN observations are dropped before any statistic is computed.
         lags: Number of lags for Newey-West HAC standard errors.
 
     Returns:
@@ -459,6 +462,7 @@ def compute_ic_stats(
     """
     from scipy import stats as sp_stats
 
+    ic_series = ic_series.dropna()
     n = len(ic_series)
     if n < 3:
         return ICStats(
