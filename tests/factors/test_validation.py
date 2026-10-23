@@ -278,6 +278,37 @@ class TestComputeICSeriesCSRegression:
         assert len(result) == 1
         assert result.iloc[0] == pytest.approx(2.0, abs=1e-6)
 
+    def test_when_return_columns_reordered_then_slope_pairs_by_ticker(self) -> None:
+        """Scores and returns are paired by ticker label, not column position."""
+        rng = np.random.default_rng(5)
+        dates = pd.date_range("2023-01-01", periods=6, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(10)]
+        scores = pd.DataFrame(rng.normal(0, 1, (6, 10)), index=dates, columns=tickers)
+        returns = 0.01 * scores
+        shuffled = returns[tickers[::-1]]
+
+        result = compute_ic_series(scores, shuffled, "f", use_cs_regression=True)
+
+        assert len(result) == 6
+        np.testing.assert_allclose(result.to_numpy(), 0.01, atol=1e-9)
+
+    def test_when_returns_cover_extra_tickers_then_only_common_names_used(
+        self,
+    ) -> None:
+        """A returns panel wider than the score panel must not crash the fit."""
+        rng = np.random.default_rng(6)
+        dates = pd.date_range("2023-01-01", periods=6, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(12)]
+        returns = pd.DataFrame(
+            rng.normal(0, 0.02, (6, 12)), index=dates, columns=tickers
+        )
+        scores = returns.iloc[:, :10] / 0.01
+
+        result = compute_ic_series(scores, returns, "f", use_cs_regression=True)
+
+        assert len(result) == 6
+        np.testing.assert_allclose(result.to_numpy(), 0.01, atol=1e-9)
+
 
 class TestNeweyWestTStat:
     def test_significant_ic(self) -> None:

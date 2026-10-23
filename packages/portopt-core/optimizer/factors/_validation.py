@@ -249,14 +249,18 @@ def _compute_ic_series_cs_regression(
         returns_history.index,
     )
     cfg = cs_config if cs_config is not None else CSLinearRegressionConfig()
+    # Score and price panels are built separately and rarely share a ticker
+    # order or universe; positional pairing would regress one name's score on
+    # another's return (or crash on a length mismatch).
+    tickers = factor_scores_history.columns.intersection(returns_history.columns)
 
     kept_dates: list[object] = []
     rows_x: list[npt.NDArray[np.float64]] = []
     rows_y: list[npt.NDArray[np.float64]] = []
     rows_w: list[npt.NDArray[np.float64]] = []
     for date in common_dates:
-        scores = factor_scores_history.loc[date]
-        rets = returns_history.loc[date]
+        scores = factor_scores_history.loc[date, tickers]
+        rets = returns_history.loc[date, tickers]
         valid = (scores.notna() & rets.notna()).to_numpy()
         if int(valid.sum()) < min_observations:
             continue
