@@ -31,7 +31,7 @@ uv run --package portopt python -m app.worker      # blocks until SIGTERM/SIGINT
 
 | Job | Default | What it does |
 |-----|---------|--------------|
-| `daily_pipeline` | `0 7 * * *` | yfinance → fx → macro → daily FRED series → news → digest |
+| `daily_pipeline` | `0 7 * * *` | fx → yfinance → macro → daily FRED series → news → digest |
 | `midday_news` | `0 14 * * *` | news (afternoon refresh) |
 | `universe_build` | `0 2 * * sat` | instrument universe from the yfinance Screener, then Trading 212 tickers via `t212_annotate` when keyed (Saturday) |
 | `weekly_refetch` | `0 3 * * sat` | full yfinance + macro rebuild (5y), Saturday after Friday close |

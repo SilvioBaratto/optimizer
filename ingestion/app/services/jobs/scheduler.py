@@ -2,7 +2,7 @@
 
 Scheduled jobs:
   1. **daily_pipeline** (CronTrigger, default 07:00 UTC) — sequential data
-     pipeline: yfinance → fx → macro → daily FRED series → news → daily-events
+     pipeline: fx → yfinance → macro → daily FRED series → news → daily-events
      digest (the digest summarises the day's ingested data into
      ``market_journal``).
   2. **midday_news** (CronTrigger, default 14:00 UTC) — macro news fetch
@@ -629,23 +629,26 @@ def run_t212_annotate_step(*, attempt: int = 0) -> bool:
 
 
 def run_daily_pipeline() -> None:
-    """Sequential pipeline: yfinance → fx → macro → fred → news → digest.
+    """Sequential pipeline: fx → yfinance → macro → daily FRED → news → digest.
 
     News depends on yfinance (it fetches article content for the fetched
     tickers), so a failed yfinance step skips news rather than scraping against
-    a stale universe. The FX fetch is independent and always runs — it feeds the
-    downstream fund NAV-mark step fresh rates. Macro is independent of yfinance
-    and always runs. The FRED refresh covers only the daily-frequency series:
-    the fund attribution engine forward-fills them onto the NAV grid, so a stale
-    tail would turn into zero factor returns. The daily-events digest runs last
-    and unconditionally — it only reads whatever the earlier steps landed,
-    tolerating partial or empty sources.
+    a stale universe. The FX fetch is independent and always runs; it goes first
+    because the fund NAV-mark (08:00 UTC) reads its rates and the multi-thousand
+    ticker yfinance sweep can run past that mark, which would leave the mark
+    valuing foreign holdings at the previous day's FX. The currency set it needs
+    is already stored by the previous universe build and price sweeps. Macro is
+    independent of yfinance and always runs. The FRED refresh covers only the
+    daily-frequency series: the fund attribution engine forward-fills them onto
+    the NAV grid, so a stale tail would turn into zero factor returns. The
+    daily-events digest runs last and unconditionally — it only reads whatever
+    the earlier steps landed, tolerating partial or empty sources.
     """
     logger.info("daily_pipeline: starting")
 
-    yf_ok = run_yfinance_step(mode="incremental")
-
     run_fx_step()
+
+    yf_ok = run_yfinance_step(mode="incremental")
 
     run_macro_step()
 

@@ -593,6 +593,41 @@ class TestRunDailyPipelineFredRefresh:
         assert labels.index("fred") < labels.index("daily_events")
 
 
+class TestDailyPipelineFxOrdering:
+    """The fund NAV mark runs at 08:00 UTC and reads ``fx_rates``; the FX feed is
+    short and independent of prices, so it must land ahead of the long yfinance
+    sweep rather than queue behind it."""
+
+    @staticmethod
+    def _run(yf_ok: bool) -> list[str]:
+        order: list[str] = []
+
+        def _effect(label, *_args, **_kwargs):
+            order.append(label)
+            return yf_ok if label == "yfinance" else True
+
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{M}._run_step", side_effect=_effect))
+            stack.enter_context(
+                patch(
+                    "app.services.market_data.yfinance.get_yfinance_client",
+                    return_value=MagicMock(),
+                )
+            )
+
+            from app.services.jobs.scheduler import run_daily_pipeline
+
+            run_daily_pipeline()
+        return order
+
+    @pytest.mark.parametrize("yf_ok", [True, False])
+    def test_daily_pipeline_fetches_fx_before_the_yfinance_sweep(self, yf_ok):
+        order = self._run(yf_ok)
+
+        assert "fx" in order
+        assert order.index("fx") < order.index("yfinance")
+
+
 # ---------------------------------------------------------------------------
 # TestRunMiddayNewsRefresh
 # ---------------------------------------------------------------------------
