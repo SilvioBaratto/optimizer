@@ -136,6 +136,11 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
         elif event.button.id == "q-cancel":
             self.dismiss(None)
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """``↵`` in any text field submits, so the form works without a pointer."""
+        event.stop()
+        self._submit()
+
     def action_cancel(self) -> None:
         """``escape`` dismisses the questionnaire as a cancel (a caller no-op)."""
         self.dismiss(None)

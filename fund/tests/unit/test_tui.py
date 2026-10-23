@@ -2194,8 +2194,8 @@ async def test_mandate_invalid_capital_reports_on_status_line_without_crashing(
         await pilot.pause()
         assert app.last_status.startswith("invalid mandate")
         shown = str(app.query_one("#status-bar", Static).render())
-        assert shown == app.last_status  # bracketed pydantic detail survives verbatim
-        assert "[type=" in shown
+        assert shown == app.last_status  # the status line renders as plain text
+        assert "capital" in shown  # the shared per-field summary names the field
 
 
 @pytest.mark.asyncio
@@ -10777,3 +10777,24 @@ async def test_ask_turn_and_answer_with_brackets_render_verbatim(shell_env) -> N
         log = str(view.query_one("#ask-log", Static).render())
         assert "what is [/y]?" in log
         assert "see [/x] and [1] for detail" in log
+
+
+@pytest.mark.asyncio
+async def test_questionnaire_enter_in_a_text_field_submits(shell_env) -> None:
+    """``↵`` in an Input submits, matching the order editor, for keyboard-only use."""
+    from _profiler_fakes import make_answers
+
+    results: list = []
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        screen = QuestionnaireScreen(ask_capital=True)
+        app.push_screen(screen, results.append)
+        await pilot.pause()
+        _fill_questionnaire(screen, make_answers(), capital="100000")
+        screen.query_one("#q-buffer", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert not isinstance(app.screen, QuestionnaireScreen)
+    assert len(results) == 1
+    assert results[0].capital == Decimal("100000")
