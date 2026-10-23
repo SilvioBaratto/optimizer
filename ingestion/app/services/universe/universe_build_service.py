@@ -75,9 +75,6 @@ def run_universe_build(
         ``total_processed``, ``filter_stats``, and ``errors``.
     """
     config = UniverseBuilderConfig()
-    source = YFinanceUniverseSource(
-        screener=get_yfinance_client().screener, config=config
-    )
 
     def _forward(p: BuildProgress) -> None:
         on_progress(
@@ -88,11 +85,17 @@ def run_universe_build(
         )
 
     with database_manager.get_session() as session:
+        repository = UniverseRepository(session)
+        source = YFinanceUniverseSource(
+            screener=get_yfinance_client().screener,
+            config=config,
+            member_lookup=repository.get_active_listings,
+        )
         builder = UniverseBuilder(
             config=config,
             api_client=source,
             ticker_mapper=PassThroughTickerMapper(),
-            repository=UniverseRepository(session),
+            repository=repository,
             max_workers=request.max_workers,
             only_exchanges=request.exchanges,
             progress_callback=_forward,

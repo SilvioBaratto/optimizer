@@ -172,6 +172,20 @@ class UniverseRepository(RepositoryBase):
         rows = self.session.execute(stmt).all()
         return {r[0] for r in rows}
 
+    def get_active_listings(self) -> set[tuple[str, str]]:
+        """Return ``(ticker, exchange name)`` for every non-delisted instrument.
+
+        The universe build uses it to tell existing members from new entrants,
+        so members can be retained down to the lower exit band of the
+        investability floor instead of churning in and out at the entry band.
+        """
+        rows = self.session.execute(
+            select(Instrument.ticker, Exchange.name)
+            .join(Exchange, Instrument.exchange_id == Exchange.id)
+            .where(Instrument.delisted_at.is_(None))
+        ).all()
+        return {(ticker, exchange) for ticker, exchange in rows}
+
     def set_t212_ticker(
         self, *, ticker: str, exchange_id: Any, t212_ticker: str
     ) -> bool:

@@ -1,7 +1,8 @@
 """Tests for UniverseRepository T212-annotation helpers.
 
 Covers ``set_t212_ticker`` (update by ticker + exchange),
-``get_active_instruments`` (non-delisted rows), and
+``get_active_instruments`` (non-delisted rows),
+``get_active_listings`` ((ticker, exchange name) of non-delisted rows), and
 ``backfill_isin_from_profiles``.
 """
 
@@ -69,6 +70,30 @@ def test_get_active_instruments_excludes_delisted(db_session) -> None:
     )
     tickers = {i.ticker for i in _repo(db_session).get_active_instruments()}
     assert tickers == {"AAPL"}
+
+
+def test_get_active_listings_pairs_ticker_with_exchange_name(db_session) -> None:
+    nasdaq = add_and_flush(db_session, Exchange(name="NASDAQ"))
+    xetra = add_and_flush(db_session, Exchange(name="Deutsche Börse Xetra"))
+    add_and_flush(
+        db_session, Instrument(ticker="AAPL", short_name="Apple", exchange=nasdaq)
+    )
+    add_and_flush(
+        db_session, Instrument(ticker="AAPL", short_name="Apple", exchange=xetra)
+    )
+    add_and_flush(
+        db_session,
+        Instrument(
+            ticker="OLD",
+            short_name="Old",
+            exchange=nasdaq,
+            delisted_at=date(2020, 1, 1),
+        ),
+    )
+    assert _repo(db_session).get_active_listings() == {
+        ("AAPL", "NASDAQ"),
+        ("AAPL", "Deutsche Börse Xetra"),
+    }
 
 
 def test_backfill_isin_fills_null_from_profile(db_session) -> None:

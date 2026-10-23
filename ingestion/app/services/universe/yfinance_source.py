@@ -262,6 +262,10 @@ class YFinanceUniverseSource:
     # Injected so tests don't hit the network; ``None`` resolves live FX spot
     # through the screener's shared rate limiter and circuit breaker.
     fx_resolver: Callable[[set[str]], dict[str, float]] | None = None
+    # ``(symbol, exchange name)`` of the instruments already active in the
+    # universe. They are held to the floor's lower exit band so a name hovering
+    # around the entry threshold does not flip between delisted and re-activated.
+    member_lookup: Callable[[], set[tuple[str, str]]] | None = None
     _loaded: bool = field(default=False, init=False)
     _exchanges: list[dict[str, Any]] = field(default_factory=list, init=False)
     _instruments: list[dict[str, Any]] = field(default_factory=list, init=False)
@@ -425,15 +429,19 @@ class YFinanceUniverseSource:
             else parsed
         )
 
+        members = self.member_lookup() if self.member_lookup is not None else set()
         schedule_ids: dict[str, int] = {}
         by_exchange: dict[str, list[dict[str, Any]]] = defaultdict(list)
         floored = 0
         for lst in survivors:
-            if not passes_floor(derive_metrics(lst, fx), self.floor_config):
-                floored += 1
-                continue
             name = _CODE_TO_CONFIG_NAME.get(lst.exchange or "")
             if name is None:
+                continue
+            is_member = (lst.symbol, name) in members
+            if not passes_floor(
+                derive_metrics(lst, fx), self.floor_config, is_member=is_member
+            ):
+                floored += 1
                 continue
             sched_id = schedule_ids.setdefault(name, len(schedule_ids) + 1)
             by_exchange[name].append(

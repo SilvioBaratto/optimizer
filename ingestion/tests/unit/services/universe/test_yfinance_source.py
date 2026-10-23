@@ -470,3 +470,55 @@ def test_unresolved_fx_aborts_instead_of_ranking_with_a_sentinel(
     )
     with pytest.raises(RuntimeError, match="CHF"):
         src.get_instruments()
+
+
+def _hysteresis_source(
+    monkeypatch: pytest.MonkeyPatch,
+    quote: dict,
+    members: set[tuple[str, str]],
+) -> YFinanceUniverseSource:
+    screener = MagicMock()
+    screener.screen.side_effect = [{"quotes": [quote]}, {"quotes": []}]
+    src = YFinanceUniverseSource(
+        screener=screener, fx_resolver=_fake_fx, member_lookup=lambda: members
+    )
+    monkeypatch.setattr(
+        src, "_build_queries", lambda: [("Q", "STOCK", _STOCK_SORT_FIELD, _BIG_CAP)]
+    )
+    return src
+
+
+# $15.2M market cap: above the $10M exit band, below the $25M entry band.
+_MID_CAP = {"regularMarketPrice": 15.2, "sharesOutstanding": 1_000_000}
+
+
+def test_existing_member_is_retained_down_to_the_exit_band(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    src = _hysteresis_source(
+        monkeypatch, _quote("MID", "NMS", **_MID_CAP), {("MID", "NASDAQ")}
+    )
+    assert [i["ticker"] for i in src.get_instruments()] == ["MID"]
+
+
+def test_new_entrant_must_clear_the_entry_band(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    src = _hysteresis_source(monkeypatch, _quote("MID", "NMS", **_MID_CAP), set())
+    assert src.get_instruments() == []
+
+
+def test_membership_is_per_exchange(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Same symbol held on a different exchange does not buy retention here.
+    src = _hysteresis_source(
+        monkeypatch, _quote("MID", "NMS", **_MID_CAP), {("MID", "NYSE")}
+    )
+    assert src.get_instruments() == []
+
+
+def test_member_below_the_exit_band_is_still_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tiny = _quote("TINY", "NMS", regularMarketPrice=5.0, sharesOutstanding=1_000_000)
+    src = _hysteresis_source(monkeypatch, tiny, {("TINY", "NASDAQ")})
+    assert src.get_instruments() == []
