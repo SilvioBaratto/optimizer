@@ -4023,8 +4023,8 @@ async def test_deliberation_expand_renders_recomputed_results(
         assert "sharpe 0.60" in detail  # the frontier point
         assert "sharpe 0.55" in detail  # the backtest
         # Both figures are annual, and the adviser is told so.
-        assert "frontier point (annualised)" in detail
-        assert "backtest (annualised)" in detail
+        assert "sharpe 0.60 (annualised)" in detail
+        assert "sharpe 0.55 (annualised)" in detail
 
 
 @pytest.mark.asyncio
@@ -9956,3 +9956,93 @@ async def test_mandate_read_failure_after_switch_does_not_keep_the_old_portfolio
         assert view.query_one("#mandate-capital", Input).value == ""
         triggers = str(view.query_one("#mandate-triggers", Static).render())
         assert "read failed" in triggers
+
+
+def _seed_gated_run(session, status: str = "paused") -> uuid.UUID:
+    """Seed a run for _PID_A parked at ``status``; return its id."""
+    repo = AgentRunRepository(session)
+    run = repo.create_run(
+        portfolio_id=_PID_A,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={},
+    )
+    if status == "paused":
+        repo.mark_paused(run.id)
+    return run.id
+
+
+async def _stream_to_gate(view, pilot, run_id: uuid.UUID) -> None:
+    """Drive the scripted round into the live tail, ending at the paused gate."""
+    view.start_live(run_id, _PID_A)
+    for event in _scripted_stream(run_id):
+        view.ingest_event(event)
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_ends_once_the_gated_run_is_resolved(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        run_id = _seed_gated_run(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        await _stream_to_gate(view, pilot, run_id)
+        app._refresh()
+        await pilot.pause()
+        assert view.live_run_id == run_id  # still at the gate: the tail stays up
+
+        with shell_env.get_session() as session:  # the gate is approved elsewhere
+            AgentRunRepository(session).finalize_run(
+                run_id, weights={}, status="completed"
+            )
+            session.commit()
+        app._refresh()
+        await pilot.pause()
+
+        assert view.live_run_id is None
+        assert view.live_portfolio_id is None
+        assert view.query_one("#delib-live", DataTable).display is False
+        assert view.query_one("#delib-runs", DataTable).display is True
+        assert view.query_one("#delib-runs", DataTable).row_count == 1
+        view.select_run(run_id)  # replay is reachable again (the brief jump)
+        assert view.selected_run_id == run_id
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_ends_when_focus_leaves_the_streamed_portfolio(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        run_id = _seed_gated_run(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        await _stream_to_gate(view, pilot, run_id)
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+        assert view.live_run_id is None  # B must not show A's stale tail
+        assert view.query_one("#delib-runs", DataTable).display is True
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_survives_focus_move_while_stream_in_flight(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        run_id = _seed_gated_run(session, status="pending")
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.start_live(run_id, _PID_A)
+        app._streaming = True  # the stream worker is still feeding events
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+        assert view.live_run_id == run_id
+        assert view.live_portfolio_id == _PID_A  # a barge-in still targets A
