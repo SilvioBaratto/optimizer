@@ -37,6 +37,7 @@ from app.services.infrastructure.circuit_breaker import (
     CircuitOpenError,
 )
 from app.services.market_data.yfinance import configure_yfinance
+from app.services.market_data.yfinance._base import fetch_with_resilience
 from app.services.market_data.yfinance._facade import YFinanceClient
 from app.services.market_data.yfinance.infrastructure import (
     FaultWatch,
@@ -360,6 +361,56 @@ class TestSubClientCalls:
 
         assert result is not None
         assert prop.call_count == 2
+
+
+class TestBreakerHealing:
+    """Only a usable answer proves Yahoo is serving again."""
+
+    def test_a_rejected_empty_result_does_not_heal_the_breaker(self) -> None:
+        """A swallowed 429 comes back as an empty frame and says nothing about Yahoo."""
+        breaker = MagicMock()
+
+        out = fetch_with_resilience(
+            lambda: pd.DataFrame(),
+            3,
+            circuit_breaker=breaker,
+            is_valid=lambda df: not df.empty,
+        )
+
+        assert out is None
+        breaker.reset.assert_not_called()
+
+    def test_a_usable_result_heals_the_breaker(self) -> None:
+        """A valid frame is the evidence the breaker decays on."""
+        breaker = MagicMock()
+        frame = pd.DataFrame({"holder": ["x"]})
+
+        out = fetch_with_resilience(
+            lambda: frame,
+            3,
+            circuit_breaker=breaker,
+            is_valid=lambda df: not df.empty,
+        )
+
+        assert out is frame
+        breaker.reset.assert_called_once_with()
+
+    def test_a_result_without_a_validity_check_still_heals_the_breaker(self) -> None:
+        """Callers that accept any answer keep the original healing behaviour."""
+        breaker = MagicMock()
+
+        assert fetch_with_resilience(lambda: {"a": 1}, 3, circuit_breaker=breaker)
+
+        breaker.reset.assert_called_once_with()
+
+    def test_an_empty_sub_client_answer_leaves_the_breaker_untouched(self) -> None:
+        """An empty holders frame during a throttle must not undo the escalation."""
+        prop = PropertyMock(return_value=pd.DataFrame())
+        client = _sub_client(HoldersClient, _ticker_with(major_holders=prop))
+
+        assert client.fetch_major_holders("AAPL") is None
+
+        client.circuit_breaker.reset.assert_not_called()
 
 
 @pytest.fixture

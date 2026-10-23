@@ -69,7 +69,7 @@ def fetch_with_resilience(
         action: Zero-argument callable performing one yfinance request.
         retries: Attempt budget, including the first attempt.
         circuit_breaker: Breaker checked before each attempt and tripped by
-            rate limits.
+            rate limits. It is reset only by a result *is_valid* accepts.
         rate_limit_predicate: Recognises rate-limit errors that should trip
             the breaker.
         is_valid: Predicate a usable result must satisfy; a result it rejects
@@ -90,8 +90,9 @@ def fetch_with_resilience(
             raise
 
     def _on_success(_: T) -> None:
+        # Deliberately no breaker reset: a non-exception return can still be the
+        # empty frame yfinance gives for a swallowed 429.
         attempts.answered = True
-        circuit_breaker.reset()
 
     try:
         result = retry_with_backoff(
@@ -117,8 +118,12 @@ def fetch_with_resilience(
     else:
         record_answer()
 
-    if result is not None and is_valid is not None and not is_valid(result):
+    if result is None or (is_valid is not None and not is_valid(result)):
         return None
+
+    # yfinance swallows a 429 on several modules and returns an empty frame, so
+    # only a result the caller accepts counts as proof Yahoo is serving again.
+    circuit_breaker.reset()
     return result
 
 
