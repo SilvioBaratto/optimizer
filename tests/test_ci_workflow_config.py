@@ -264,3 +264,36 @@ def test_makefile_runs_the_same_lint_and_typecheck_gates_as_ci() -> None:
         assert any("mypy" in line and _mentions(line, member) for line in lines), (
             f"make typecheck never runs mypy on {member}"
         )
+
+
+def _codecov_steps() -> list[dict[str, Any]]:
+    return [
+        step
+        for job in _jobs().values()
+        for step in job["steps"]
+        if step.get("uses", "").startswith("codecov/codecov-action@")
+    ]
+
+
+def test_codecov_upload_uses_inputs_the_action_declares() -> None:
+    """codecov-action v5 reads ``files``; ``file`` is dropped with only a warning."""
+    steps = _codecov_steps()
+
+    assert steps
+    for step in steps:
+        inputs = step.get("with", {})
+        assert "file" not in inputs
+        assert inputs.get("files")
+
+
+def test_codecov_upload_is_authenticated_and_cannot_fail_silently_on_main() -> None:
+    """A rejected upload on the main branch must turn the job red.
+
+    Without a token (or OIDC) Codecov rejects the upload of a protected branch,
+    and ``fail_ci_if_error: false`` made that invisible, so coverage reporting
+    could stay empty indefinitely.
+    """
+    for step in _codecov_steps():
+        inputs = step["with"]
+        assert "CODECOV_TOKEN" in str(inputs.get("token", ""))
+        assert "refs/heads/main" in str(inputs.get("fail_ci_if_error", False))
