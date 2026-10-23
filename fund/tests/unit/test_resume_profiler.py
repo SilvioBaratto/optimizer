@@ -248,6 +248,76 @@ def test_resume_profiler_rejects_unknown_decision(db_session) -> None:
         )
 
 
+def test_resume_profiler_refuses_to_approve_a_run_a_freeze_already_rejected(
+    db_session,
+) -> None:
+    """A freeze rejects the gate at the DB but leaves the checkpoint pending.
+
+    Approving from a stale list must not run the pending ``save_profile`` and flip
+    the rejected run to completed.
+    """
+    pid = uuid.uuid4()
+    saver, store = MemorySaver(), InMemoryStore()
+    run = _run_to_gate(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        saver,
+        store,
+        portfolio_id=pid,
+    )
+    AgentRunRepository(db_session).finalize_run(
+        run.run_id, weights={}, status="rejected"
+    )
+
+    with pytest.raises(ValueError, match="already finalised"):
+        resume_profiler(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=_resume_model(),
+        )
+
+    assert MifidProfileRepository(db_session).get_active(pid) is None
+    assert store.get((str(pid),), settings.constraint_set_store_key) is None
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
+
+
+def test_resume_profiler_refuses_to_reject_an_already_approved_run(db_session) -> None:
+    """A second operator's stale reject must not relabel an approved profile's run."""
+    pid = uuid.uuid4()
+    saver, store = MemorySaver(), InMemoryStore()
+    run = _run_to_gate(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        saver,
+        store,
+        portfolio_id=pid,
+    )
+    resume_profiler(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=_resume_model(),
+    )
+
+    with pytest.raises(ValueError, match="already finalised"):
+        resume_profiler(
+            run.run_id,
+            "reject",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=_resume_model(),
+        )
+
+    assert MifidProfileRepository(db_session).get_active(pid) is not None
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
+
+
 # --- resume_run dispatches by the run's step --------------------------------
 
 

@@ -866,8 +866,10 @@ def resume_profiler(
     row, caching the active ``ConstraintSet`` in the Store, and finalising the run
     ``completed``; on reject nothing is written and the run is finalised ``rejected``
     (symmetric with :meth:`ProfilerRun.resume`). ``decision`` must be ``"approve"``
-    or ``"reject"``; an unknown ``run_id`` raises ``LookupError``. Every write goes
-    through the injected ``session`` (caller owns the transaction). Mirrors
+    or ``"reject"``; an unknown ``run_id`` raises ``LookupError`` and an already
+    finalised run (completed / rejected / incomplete / blocked) raises ``ValueError``.
+    Every write goes through the injected ``session`` (caller owns the transaction).
+    Mirrors
     :func:`~fund.agents.graph.resume_fund` for the ``place_orders`` gate; the CLI /
     TUI dispatch on the run's recorded ``step`` so the two paths cannot diverge.
     """
@@ -883,6 +885,15 @@ def resume_profiler(
     run = audit.get_run(rid)
     if run is None:
         raise LookupError(f"no agent_run {rid}")
+    # A freeze rejects live gates at the DB without resolving the checkpoint, and a
+    # stale observer can race a concurrent decision: the checkpoint is still pending,
+    # so a blind Command(resume=…) would run save_profile on a rejected run or relabel
+    # an approved profile's run as rejected. Mirrors the resume_fund guard.
+    if run.status in ("completed", "rejected", "incomplete", "blocked"):
+        raise ValueError(
+            f"agent_run {rid} is {run.status!r}, already finalised and not resumable "
+            "(it completed, or was rejected/frozen/blocked since the gate opened)"
+        )
     if run.portfolio_id is None:
         raise RuntimeError(f"profiler run {rid} has no portfolio to resume")
     resolved_thread_id = run.thread_id or str(rid)
