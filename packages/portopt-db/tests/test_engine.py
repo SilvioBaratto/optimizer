@@ -1,6 +1,7 @@
 """Tests for portopt_db.engine.DatabaseManager.
 
-Config-injected; ``create_engine`` patched throughout — no server is contacted.
+Config-injected. Most tests patch ``create_engine``; the ones that take
+``tmp_path`` build a real file-SQLite engine instead. No server is contacted.
 """
 
 from __future__ import annotations
@@ -8,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy import event, text
 from sqlalchemy.exc import DisconnectionError, OperationalError, SQLAlchemyError
 
 from portopt_db.config import DbConfig
@@ -20,6 +22,24 @@ _URL = "postgresql://u:p@h:5432/db"
 
 def _cfg(**kw) -> DbConfig:
     return DbConfig(url=_URL, **kw)
+
+
+class _SqliteConfig(DbConfig):
+    """File-SQLite config: the psycopg2 connect args would be rejected."""
+
+    def connect_args(self) -> dict:
+        return {}
+
+
+def _sqlite_manager(tmp_path) -> tuple[DatabaseManager, list[str]]:
+    """Return an initialized real-engine manager and its pool event log."""
+    mgr = DatabaseManager(_SqliteConfig(url=f"sqlite:///{tmp_path / 'engine.db'}"))
+    mgr.initialize()
+    events: list[str] = []
+    assert mgr.engine is not None
+    for name in ("checkout", "invalidate"):
+        event.listen(mgr.engine, name, lambda *_a, _n=name: events.append(_n))
+    return mgr, events
 
 
 def _make_manager(
@@ -165,20 +185,24 @@ class TestGetSession:
             OperationalError("stmt", {}, Exception("dropped")),
         ],
     )
-    def test_on_disconnect_rolls_back_invalidates_and_reraises(self, exc) -> None:
+    def test_on_connection_error_rolls_back_and_reraises(self, exc) -> None:
         mgr, session = self._ready()
         with pytest.raises(type(exc)), mgr.get_session():
             raise exc
         session.rollback.assert_called_once()
-        session.connection.return_value.invalidate.assert_called_once()
         session.close.assert_called_once()
 
-    def test_when_invalidate_fails_then_original_error_still_propagates(self) -> None:
-        mgr, session = self._ready()
-        session.connection.return_value.invalidate.side_effect = RuntimeError("nope")
-        with pytest.raises(DisconnectionError), mgr.get_session():
-            raise DisconnectionError("dropped")
-        session.close.assert_called_once()
+    def test_on_operational_error_does_not_check_out_another_connection(
+        self, tmp_path
+    ) -> None:
+        mgr, events = _sqlite_manager(tmp_path)
+        try:
+            with pytest.raises(OperationalError), mgr.get_session() as session:
+                session.execute(text("SELECT 1"))
+                raise OperationalError("stmt", {}, Exception("QueryCanceled"))
+            assert events == ["checkout"]
+        finally:
+            mgr.close()
 
     def test_on_sqlalchemy_error_rolls_back_and_reraises(self) -> None:
         mgr, session = self._ready()

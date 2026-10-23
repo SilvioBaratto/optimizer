@@ -132,7 +132,13 @@ class DatabaseManager:
 
     @contextmanager
     def get_session(self) -> Generator[Session, None, None]:
-        """Session with rollback-on-error, disconnect-invalidate, always-close."""
+        """Session with rollback-on-error and always-close.
+
+        Dead connections are not invalidated here: SQLAlchemy discards them
+        itself on a disconnect error, and `pool_pre_ping` screens the rest at
+        checkout. After `rollback()` the session holds no connection, so a
+        manual invalidate would only check out and throw away a healthy one.
+        """
         if not self._is_initialized:
             self.initialize()
 
@@ -143,11 +149,6 @@ class DatabaseManager:
             logger.error(f"Database connection error: {e}")
             if hasattr(session, "rollback"):
                 session.rollback()
-            try:
-                if hasattr(session, "connection"):
-                    session.connection().invalidate()
-            except Exception as recovery_error:
-                logger.debug(f"Connection invalidation failed: {recovery_error}")
             raise
         except SQLAlchemyError as e:
             logger.error(f"Database error: {e}")
