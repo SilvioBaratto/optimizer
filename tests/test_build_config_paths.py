@@ -7,17 +7,21 @@ so never actually lints. This guard fails if either the Makefile or the CI
 workflow passes a bare ``optimizer/`` path to ruff or mypy, and asserts both
 reference the real src-layout path. The pre-commit ruff hooks must match files in
 every workspace source tree at the same ruff version the lock (and CI) uses, and CI
-must lint every member, not only the library.
+must lint every member, not only the library. The coverage ``exclude_lines`` of each
+member must keep annotated-``...`` signatures measured.
 """
 
 from __future__ import annotations
 
 import re
+import textwrap
 from pathlib import Path
 
 import pytest
 import tomllib
 import yaml
+from coverage.misc import join_regex
+from coverage.parser import PythonParser
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _MAKEFILE = _REPO_ROOT / "Makefile"
@@ -103,3 +107,59 @@ def test_ci_lints_every_workspace_member(member: str, command: str) -> None:
         if command in step.get("run", "")
     ]
     assert any(member in run for run in runs)
+
+
+_COVERAGE_PYPROJECTS = [
+    "pyproject.toml",
+    "ingestion/pyproject.toml",
+    "fund/pyproject.toml",
+]
+
+_ELLIPSIS_SIGNATURES = textwrap.dedent(
+    """\
+    from typing import Callable
+
+
+    def make(
+        scale: float,
+    ) -> Callable[..., float]:
+        value = scale * 2
+        return lambda *args: value
+
+
+    def count(views: tuple[str, ...]) -> int:
+        total = len(views)
+        return total
+
+
+    class Proto:
+        def stub(self) -> int:
+            ...
+    """
+)
+
+
+@pytest.mark.parametrize("pyproject", _COVERAGE_PYPROJECTS)
+def test_coverage_exclusion_keeps_bodies_of_ellipsis_signatures(
+    pyproject: str,
+) -> None:
+    """A `...` inside a type annotation must not drop the function from the gate.
+
+    coverage.py excludes the whole block opened by a matching line, so an
+    unanchored `...` pattern hides every function whose signature mentions
+    ``Callable[..., X]`` or ``tuple[X, ...]`` from the `--cov-fail-under` floor;
+    only a bare `...` stub body is meant to be excluded.
+    """
+    config = tomllib.loads((_REPO_ROOT / pyproject).read_text(encoding="utf-8"))
+    patterns = config["tool"]["coverage"]["report"]["exclude_lines"]
+    parser = PythonParser(text=_ELLIPSIS_SIGNATURES, exclude=join_regex(patterns))
+
+    parser.parse_source()
+
+    lines = _ELLIPSIS_SIGNATURES.splitlines()
+    measured_bodies = {
+        lines.index("    value = scale * 2") + 1,
+        lines.index("    total = len(views)") + 1,
+    }
+    assert measured_bodies <= parser.statements
+    assert parser.raw_excluded == {lines.index("        ...") + 1}

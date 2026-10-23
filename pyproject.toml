@@ -160,7 +160,10 @@ exclude_lines = [
     "if __name__ == .__main__.",
     "@overload",
     "raise NotImplementedError",
-    "\\.\\.\\.",
+    # Anchored: coverage drops the whole block a matching line opens, so an
+    # unanchored pattern would hide every function whose signature contains
+    # `Callable[..., X]` or `tuple[X, ...]` from the coverage floor.
+    "^\\s*\\.\\.\\.$",
 ]
 
 [tool.pyright]
