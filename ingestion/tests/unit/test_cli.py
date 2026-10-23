@@ -490,6 +490,14 @@ class TestFlagOptions:
 
         assert fn.call_args.kwargs == {"incremental": False}
 
+    def test_fred_incremental_help_describes_the_trailing_window(self) -> None:
+        """Incremental re-fetches a window behind the last date; help must say so."""
+        result = runner.invoke(app, ["fred", "--help"])
+
+        help_text = " ".join(result.output.split())
+        assert "trailing" in help_text
+        assert "newer than" not in help_text
+
 
 class TestCompositeCommands:
     def test_daily_runs_the_daily_pipeline(self) -> None:
@@ -513,13 +521,14 @@ class TestCompositeCommands:
                 side_effect=lambda: calls.append("weekly"),
             ),
             patch(
-                f"{SCHED}.run_fred_monthly", side_effect=lambda: calls.append("fred")
+                f"{SCHED}.run_fred_step",
+                side_effect=lambda **kw: calls.append(f"fred:{kw}"),
             ),
         ):
             result = runner.invoke(app, ["refetch-all"])
 
         assert result.exit_code == 0
-        assert calls == ["universe", "weekly", "fred"]
+        assert calls == ["universe", "weekly", "fred:{'incremental': False}"]
 
 
 class TestDailyEventsBackfill:

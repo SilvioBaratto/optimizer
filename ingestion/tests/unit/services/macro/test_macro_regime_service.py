@@ -11,6 +11,7 @@ Covers gaps NOT already in test_macro_regime_service_fred_key.py:
 from __future__ import annotations
 
 import contextlib
+import datetime
 from collections.abc import Iterator
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -463,6 +464,103 @@ class TestFetchFredSeriesWriteFailureIsolation:
         result = service.fetch_fred_series(series_ids=["DGS2", "VIXCLS", "DGS10"])
 
         assert [e.split(":")[0] for e in result["errors"]] == ["VIXCLS"]
+
+
+# ---------------------------------------------------------------------------
+# fetch_fred_series — restated observations
+# ---------------------------------------------------------------------------
+
+
+class _FredStore:
+    """Repository double with the real upsert contract: ``value`` is overwritten."""
+
+    def __init__(self) -> None:
+        self.session = MagicMock()
+        self.rows: dict[tuple[str, datetime.date], float | None] = {}
+
+    def get_fred_latest_date(self, series_id: str) -> datetime.date | None:
+        dates = [d for (sid, d) in self.rows if sid == series_id]
+        return max(dates) if dates else None
+
+    def upsert_fred_observations(self, series_id: str, observations: list) -> int:
+        for obs in observations:
+            self.rows[(series_id, obs["date"])] = obs["value"]
+        return len(observations)
+
+
+class _FredSource:
+    """FRED double: serves the current vintage, honouring ``observation_start``."""
+
+    def __init__(self, truth: dict[datetime.date, float | None]) -> None:
+        self.truth = truth
+
+    def get_series_observations(
+        self, series_id: str, start_date: str | None = None
+    ) -> dict:
+        floor = datetime.date.fromisoformat(start_date) if start_date else None
+        observations = [
+            {"date": d, "value": v}
+            for d, v in sorted(self.truth.items())
+            if floor is None or d >= floor
+        ]
+        return {"status": "success", "observations": observations}
+
+
+class TestFetchFredSeriesRestatements:
+    _Q2 = datetime.date(2026, 4, 1)
+    _Q3 = datetime.date(2026, 7, 1)
+
+    def _service(self, store: _FredStore, source: _FredSource) -> MacroRegimeService:
+        return MacroRegimeService(
+            repo=store,  # type: ignore[arg-type]
+            ilsole_scraper=MagicMock(),
+            te_scraper=MagicMock(),
+            fred_scraper=source,  # type: ignore[arg-type]
+        )
+
+    def test_when_latest_print_is_revised_then_incremental_run_stores_revision(
+        self,
+    ) -> None:
+        store = _FredStore()
+        source = _FredSource({self._Q2: 3.8, self._Q3: 2.9})
+        service = self._service(store, source)
+        service.fetch_fred_series(series_ids=["A191RL1Q225SBEA"])
+
+        source.truth = {self._Q2: 3.5, self._Q3: 4.3}
+        service.fetch_fred_series(series_ids=["A191RL1Q225SBEA"])
+
+        assert store.rows[("A191RL1Q225SBEA", self._Q3)] == 4.3
+        assert store.rows[("A191RL1Q225SBEA", self._Q2)] == 3.5
+
+    def test_when_last_observation_was_missing_then_later_run_fills_it_in(
+        self,
+    ) -> None:
+        store = _FredStore()
+        source = _FredSource({self._Q2: 3.8, self._Q3: None})
+        service = self._service(store, source)
+        service.fetch_fred_series(series_ids=["USREC"])
+
+        source.truth = {self._Q2: 3.8, self._Q3: 1.0}
+        service.fetch_fred_series(series_ids=["USREC"])
+
+        assert store.rows[("USREC", self._Q3)] == 1.0
+
+    def test_when_incremental_then_request_starts_before_latest_stored_date(
+        self,
+    ) -> None:
+        store = _FredStore()
+        store.rows[("DGS10", datetime.date(2026, 7, 1))] = 4.1
+        source = MagicMock()
+        source.get_series_observations.return_value = {
+            "status": "success",
+            "observations": [],
+        }
+        service = self._service(store, source)
+
+        service.fetch_fred_series(series_ids=["DGS10"])
+
+        start = source.get_series_observations.call_args.kwargs["start_date"]
+        assert datetime.date.fromisoformat(start) < datetime.date(2026, 7, 1)
 
 
 # ---------------------------------------------------------------------------

@@ -31,7 +31,10 @@ class FredFetchRequest(BaseModel):
     )
     incremental: bool = Field(
         default=True,
-        description="When True, only fetch observations newer than last stored date.",
+        description=(
+            "When True, re-fetch a trailing window behind the last stored date "
+            "(to pick up restated values) instead of the full history."
+        ),
     )
 
 

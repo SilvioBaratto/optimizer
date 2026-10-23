@@ -105,14 +105,14 @@ def refetch_all() -> None:
     """Full rebuild: universe, then yfinance + macro (5y), then FRED."""
     _boot()
     from app.services.jobs.scheduler import (
-        run_fred_monthly,
+        run_fred_step,
         run_universe_build,
         run_weekly_refetch,
     )
 
     run_universe_build()
     run_weekly_refetch()
-    run_fred_monthly()
+    run_fred_step(incremental=False)
 
 
 @app.command()
@@ -174,7 +174,10 @@ def fx() -> None:
 def fred(
     incremental: bool = typer.Option(
         True,
-        help="Fetch only observations newer than what is stored.",
+        help=(
+            "Re-fetch a trailing window behind the latest stored date (to pick "
+            "up restated values) instead of the full history."
+        ),
     ),
 ) -> None:
     """Fetch FRED economic series into economic_indicators / fred_observations."""

@@ -29,7 +29,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from sqlalchemy.orm import Session
 
-from app.services.macro.macro_regime_service import MacroRegimeService
+from app.services.macro.macro_regime_service import (
+    FRED_REVISION_LOOKBACK_DAYS,
+    MacroRegimeService,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -270,7 +273,10 @@ class TestFetchFredSeries:
         result = service.fetch_fred_series(series_ids=["GDP"], incremental=True)
 
         call_kwargs = fake_scraper.get_series_observations.call_args
-        assert call_kwargs.kwargs.get("start_date") == "2025-01-02"
+        expected = datetime.date(2025, 1, 1) - datetime.timedelta(
+            days=FRED_REVISION_LOOKBACK_DAYS
+        )
+        assert call_kwargs.kwargs.get("start_date") == expected.isoformat()
         assert result["counts"]["GDP"] == 2
 
     def test_when_incremental_and_no_latest_date_then_start_date_none(self) -> None:

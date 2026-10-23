@@ -33,6 +33,14 @@ from app.services.macro.scrapers.tradingeconomics_scraper import (
 
 logger = logging.getLogger(__name__)
 
+# Trailing window an incremental FRED fetch re-requests behind the latest stored
+# date. FRED restates observations after the first print (GDP advance, second and
+# third estimates plus annual revisions, monthly OECD CLI revisions, NBER
+# recession dates assigned up to ~21 months late) and the upsert overwrites
+# ``value`` on conflict, so re-pulling the window is what stores the restatement.
+FRED_REVISION_LOOKBACK_DAYS = 730
+_FRED_REVISION_LOOKBACK = datetime.timedelta(days=FRED_REVISION_LOOKBACK_DAYS)
+
 # Numeric columns of an IlSole forecast row. ``reference_date`` and ``timestamp``
 # are metadata and must not count as usable data.
 _ILSOLE_VALUE_FIELDS = (
@@ -292,7 +300,9 @@ class MacroRegimeService:
 
         Args:
             series_ids: Series to fetch. ``None`` means all ``FRED_SERIES`` keys.
-            incremental: When ``True``, fetch only observations newer than last stored.
+            incremental: When ``True``, fetch from ``FRED_REVISION_LOOKBACK_DAYS``
+                before the last stored date, so recent restatements are refreshed
+                along with new observations.
             on_progress: Callback invoked once per series with ``current``,
                 ``total``, and ``current_country`` (the FRED series ID).
 
@@ -325,7 +335,7 @@ class MacroRegimeService:
                 if incremental:
                     latest = self.repo.get_fred_latest_date(series_id)
                     if latest is not None:
-                        start_date = (latest + datetime.timedelta(days=1)).isoformat()
+                        start_date = (latest - _FRED_REVISION_LOOKBACK).isoformat()
 
                 result = scraper.get_series_observations(
                     series_id, start_date=start_date
