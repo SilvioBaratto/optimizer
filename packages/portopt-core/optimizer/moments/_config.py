@@ -119,8 +119,11 @@ class MomentEstimationConfig:
             ``ImpliedCovariance`` to regress realized on implied volatility.
         is_log_normal: Whether returns are log-normal (for multi-period scaling in
             ``EmpiricalPrior``). Not supported together with ``use_factor_model``
-            (``build_prior`` raises ``ConfigurationError``).
-        investment_horizon: Investment horizon forwarded to ``EmpiricalPrior``.
+            or ``build_characteristics_factor_model`` (both raise
+            ``ConfigurationError``).
+        investment_horizon: Investment horizon forwarded to ``EmpiricalPrior``;
+            requires ``is_log_normal`` and is rejected with a factor model for
+            the same reason.
         use_factor_model: If ``True``, wrap the prior in a factor model. Not
             supported together with ``mu_estimator=EQUILIBRIUM`` (the prior is
             fit on factor returns, so asset-aligned market weights cannot

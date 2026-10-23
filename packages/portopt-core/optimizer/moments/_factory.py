@@ -321,6 +321,30 @@ def _reject_equilibrium_factor_prior(config: MomentEstimationConfig) -> None:
         )
 
 
+def _reject_horizon_scaled_factor_prior(config: MomentEstimationConfig) -> None:
+    """Raise if horizon scaling would reach only the factor prior.
+
+    skfolio scales the factor prior's moments to ``investment_horizon`` but
+    adds the idiosyncratic variance and intercepts at the per-period scale, so
+    the resulting asset mean and variance would live on different horizons.
+    ``investment_horizon`` without ``is_log_normal`` is rejected too: skfolio
+    refuses that pair at fit time, and the characteristics builder would
+    otherwise drop the horizon without a trace.
+
+    Raises:
+        ConfigurationError: If ``config.is_log_normal`` is ``True`` or
+            ``config.investment_horizon`` is set.
+    """
+    if config.is_log_normal or config.investment_horizon is not None:
+        raise ConfigurationError(
+            "is_log_normal/investment_horizon cannot be combined with a "
+            "factor model: the horizon scaling would apply to the "
+            "factor moments only, leaving idiosyncratic variance and "
+            "intercepts at the per-period scale. Fit the factor model on "
+            "per-period returns and scale the result instead."
+        )
+
+
 def build_prior(
     config: MomentEstimationConfig | None = None,
     *,
@@ -352,8 +376,9 @@ def build_prior(
             ``build_characteristics_factor_model`` instead. ``mu_estimator``
             is ``EQUILIBRIUM``: the prior is fit on factor returns, so
             asset-aligned market weights cannot apply. ``is_log_normal`` is
-            ``True``: skfolio would scale only the factor moments to the
-            horizon and leave the idiosyncratic variance per-period.
+            ``True`` or ``investment_horizon`` is set: skfolio would scale
+            only the factor moments to the horizon and leave the idiosyncratic
+            variance per-period.
     """
     if config is None:
         config = MomentEstimationConfig()
@@ -376,14 +401,7 @@ def build_prior(
                 "with an AssetPanel and factor-exposure estimators."
             )
         _reject_equilibrium_factor_prior(config)
-        if config.is_log_normal:
-            raise ConfigurationError(
-                "is_log_normal/investment_horizon cannot be combined with "
-                "use_factor_model: the horizon scaling would apply to the "
-                "factor moments only, leaving idiosyncratic variance and "
-                "intercepts at the per-period scale. Fit the factor model on "
-                "per-period returns and scale the result instead."
-            )
+        _reject_horizon_scaled_factor_prior(config)
         return TimeSeriesFactorModel(
             factor_prior_estimator=empirical_prior,
         )
@@ -431,11 +449,15 @@ def build_characteristics_factor_model(
     Raises:
         ConfigurationError: If ``config.mu_estimator`` is ``EQUILIBRIUM``; the
             factor prior is fit on factor returns, so asset-aligned market
-            weights cannot apply.
+            weights cannot apply. Also if ``config.is_log_normal`` is ``True``
+            or ``config.investment_horizon`` is set: skfolio would scale only
+            the factor moments to the horizon and leave the idiosyncratic
+            variance per-period.
     """
     if config is None:
         config = MomentEstimationConfig()
     _reject_equilibrium_factor_prior(config)
+    _reject_horizon_scaled_factor_prior(config)
 
     factor_prior = EmpiricalPrior(
         mu_estimator=build_mu_estimator(config),

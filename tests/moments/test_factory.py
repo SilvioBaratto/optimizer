@@ -464,6 +464,11 @@ class TestBuildPrior:
         with pytest.raises(ConfigurationError, match="is_log_normal"):
             build_prior(cfg)
 
+    def test_factor_model_rejects_horizon_without_log_normal(self) -> None:
+        cfg = MomentEstimationConfig(use_factor_model=True, investment_horizon=21.0)
+        with pytest.raises(ConfigurationError, match="investment_horizon"):
+            build_prior(cfg)
+
     @pytest.mark.parametrize("with_weights", [False, True])
     def test_factor_model_rejects_equilibrium_mu(self, with_weights: bool) -> None:
         # The factor prior is fit on the (n_obs, n_factors) factor matrix, so
@@ -650,6 +655,29 @@ class TestBuildCharacteristicsFactorModel:
         cfg = MomentEstimationConfig(mu_estimator=MuEstimatorType.EQUILIBRIUM)
         with pytest.raises(ConfigurationError, match="EQUILIBRIUM"):
             build_characteristics_factor_model(cfg, factors=_make_factors())
+
+    def test_log_normal_horizon_scaling_rejected_for_factor_prior(self) -> None:
+        # The same config is rejected by build_prior with a factor model; the
+        # characteristics path must not silently return per-period moments.
+        cfg = MomentEstimationConfig(is_log_normal=True, investment_horizon=21.0)
+        with pytest.raises(ConfigurationError, match="is_log_normal"):
+            build_characteristics_factor_model(cfg, factors=_make_factors())
+
+    def test_horizon_without_log_normal_rejected_for_factor_prior(self) -> None:
+        # build_prior's factor path fails on this config (skfolio requires
+        # investment_horizon=None when is_log_normal is False); the
+        # characteristics path must not build a prior that drops the horizon.
+        cfg = MomentEstimationConfig(investment_horizon=21.0)
+        with pytest.raises(ConfigurationError, match="investment_horizon"):
+            build_characteristics_factor_model(cfg, factors=_make_factors())
+
+    def test_horizon_rejection_does_not_blame_use_factor_model(self) -> None:
+        # The caller never set use_factor_model here; the message must not
+        # point at a setting they did not use.
+        cfg = MomentEstimationConfig(is_log_normal=True, investment_horizon=21.0)
+        with pytest.raises(ConfigurationError) as excinfo:
+            build_characteristics_factor_model(cfg, factors=_make_factors())
+        assert "use_factor_model" not in str(excinfo.value)
 
     def test_fit_produces_full_universe_moments(self, asset_panel) -> None:  # type: ignore[no-untyped-def]
         cfg = MomentEstimationConfig(min_regression_assets=3)
