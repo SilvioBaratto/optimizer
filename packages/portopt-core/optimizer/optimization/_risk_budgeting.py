@@ -33,7 +33,8 @@ class RiskBudgetingConfig:
     Attributes:
         budgets: Custom risk budgets as ``((ticker, share), ...)``. ``None``
             selects the equal-risk-contribution (ERC) special case (skfolio
-            default). Must sum to 1 within 1e-6. Shares are matched to the
+            default). Tickers must be unique, shares finite and non-negative,
+            and the total must sum to 1 within 1e-6. Shares are matched to the
             fitted ``X`` columns by ticker, so ``X`` must be a DataFrame;
             assets without a share get a negligible budget and tickers
             absent from ``X`` are ignored.
@@ -57,10 +58,20 @@ class RiskBudgetingConfig:
     solver_params: dict[str, object] | None = None
 
     def __post_init__(self) -> None:
-        if self.budgets is not None:
-            total = sum(value for _, value in self.budgets)
-            if not np.isclose(total, 1.0, atol=_BUDGET_SUM_ATOL):
-                raise ConfigurationError(f"budgets must sum to 1 (got {total:.6f})")
+        if self.budgets is None:
+            return
+        tickers = [ticker for ticker, _ in self.budgets]
+        if len(set(tickers)) != len(tickers):
+            raise ConfigurationError("budgets contain duplicate tickers")
+        for ticker, value in self.budgets:
+            if not np.isfinite(value) or value < 0:
+                raise ConfigurationError(
+                    f"budget shares must be finite and non-negative "
+                    f"(got {value} for {ticker!r})"
+                )
+        total = sum(value for _, value in self.budgets)
+        if not np.isclose(total, 1.0, rtol=0.0, atol=_BUDGET_SUM_ATOL):
+            raise ConfigurationError(f"budgets must sum to 1 (got {total:.6f})")
 
     @classmethod
     def for_equal_risk_contribution(cls) -> RiskBudgetingConfig:

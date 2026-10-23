@@ -50,6 +50,26 @@ class TestRiskBudgetingConfig:
                 budgets=(("AAPL", 0.5), ("MSFT", 0.3)),
             )
 
+    def test_when_negative_share_sums_to_one_then_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="non-negative"):
+            RiskBudgetingConfig.for_custom_budgets(
+                {"AAPL": 1.5, "MSFT": -0.5, "JPM": 0.0}
+            )
+
+    @pytest.mark.parametrize("share", [float("nan"), float("inf")])
+    def test_when_share_not_finite_then_raises(self, share: float) -> None:
+        with pytest.raises(ConfigurationError, match="finite"):
+            RiskBudgetingConfig(budgets=(("AAPL", share), ("MSFT", 0.5)))
+
+    def test_when_sum_off_by_more_than_atol_then_raises(self) -> None:
+        # np.isclose's default rtol would accept a sum of 1.000009.
+        with pytest.raises(ConfigurationError, match="sum to 1"):
+            RiskBudgetingConfig(budgets=(("AAPL", 0.500009), ("MSFT", 0.5)))
+
+    def test_when_ticker_repeated_then_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="duplicate"):
+            RiskBudgetingConfig(budgets=(("AAPL", 0.5), ("AAPL", 0.5)))
+
 
 class TestPresets:
     def test_when_for_equal_risk_contribution_then_default_config(self) -> None:
