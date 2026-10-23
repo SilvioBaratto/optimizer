@@ -67,18 +67,26 @@ def build_sector_constraints(
         is one constraint string per sector (``"SectorName <= cap"``).
 
     Note:
-        Tickers whose sector is missing (``None`` or empty string) are
-        excluded from constraint emission.  ``TickerProfile.sector`` is
-        nullable in the source DB (ETFs and some equities carry no GICS
-        sector), so a DB-sourced mapping can legitimately contain such
-        values.  skfolio maps an asset that is ``None`` / absent in
-        ``groups`` to its own singleton group, leaving it unconstrained by
-        sector — the correct behaviour for an unknown-sector asset.
-        Emitting a ``"None <= cap"`` row (or sorting a set that mixes
-        ``str`` and ``None``) would instead raise ``TypeError`` or attach a
-        bogus constraint, so those values are skipped here.
+        Tickers whose sector is missing (``None``, ``NaN``, ``pd.NA`` or empty
+        string) are excluded from constraint emission.
+        ``TickerProfile.sector`` is nullable in the source DB (ETFs and some
+        equities carry no GICS sector), so a DB-sourced mapping can
+        legitimately contain such values.  skfolio maps an asset that is
+        ``None`` / absent in ``groups`` to its own singleton group, leaving it
+        unconstrained by sector — the correct behaviour for an unknown-sector
+        asset.  Emitting a ``"None <= cap"`` row (or sorting a set that mixes
+        ``str`` and ``None``/``NaN``) would instead raise ``TypeError`` or
+        attach a bogus constraint, so those values are skipped here.  pandas
+        turns a NULL into ``NaN`` in string columns, which is truthy, so only
+        a non-empty ``str`` counts as a sector label.
     """
-    sectors = sorted({sector for sector in sector_mapping.values() if sector})
+    sectors = sorted(
+        {
+            sector
+            for sector in sector_mapping.values()
+            if isinstance(sector, str) and sector
+        }
+    )
     cap = round(max_sector_weight, 6)
     linear_constraints = [f"{sector} <= {cap}" for sector in sectors]
 

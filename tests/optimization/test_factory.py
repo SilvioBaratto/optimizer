@@ -306,6 +306,35 @@ class TestBuildSectorConstraints:
         assert constraints == ["Technology <= 0.25"]
         assert not any("None" in c for c in constraints)
 
+    def test_nan_sector_value_skipped_no_crash(self) -> None:
+        """pandas turns a NULL sector into NaN (a truthy float); it must be
+        skipped like None instead of crashing sorted() against the str labels."""
+        mapping = {
+            "AAPL": "Technology",
+            "MSFT": "Technology",
+            "JPM": "Financials",
+            "XYZ": float("nan"),
+        }
+        groups, constraints = build_sector_constraints(mapping, 0.25)  # type: ignore[dict-item]
+        assert groups is mapping
+        assert constraints == ["Financials <= 0.25", "Technology <= 0.25"]
+
+    def test_pd_na_sector_value_skipped_no_crash(self) -> None:
+        mapping = {"AAPL": "Technology", "XYZ": pd.NA}
+        _, constraints = build_sector_constraints(mapping, 0.25)  # type: ignore[dict-item]
+        assert constraints == ["Technology <= 0.25"]
+
+    def test_nan_sector_in_pandas_sourced_mapping_builds_mean_risk(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        labels = ["Tech", "Fin", float("nan"), "Tech"] * 5
+        mapping = pd.Series(labels, index=returns_df.columns).to_dict()
+
+        model = build_mean_risk(
+            MeanRiskConfig(max_sector_weight=0.6), sector_mapping=mapping
+        )
+        assert model.linear_constraints == ["Fin <= 0.6", "Tech <= 0.6"]
+
     def test_empty_string_sector_value_skipped(self) -> None:
         """An empty-string sector is treated like NULL: excluded from caps."""
         mapping = {"AAPL": "Technology", "XYZ": ""}
