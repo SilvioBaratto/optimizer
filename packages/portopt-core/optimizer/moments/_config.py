@@ -121,7 +121,10 @@ class MomentEstimationConfig:
             ``EmpiricalPrior``). Not supported together with ``use_factor_model``
             (``build_prior`` raises ``ConfigurationError``).
         investment_horizon: Investment horizon forwarded to ``EmpiricalPrior``.
-        use_factor_model: If ``True``, wrap the prior in a factor model. When
+        use_factor_model: If ``True``, wrap the prior in a factor model. Not
+            supported together with ``mu_estimator=EQUILIBRIUM`` (the prior is
+            fit on factor returns, so asset-aligned market weights cannot
+            apply); the factory raises ``ConfigurationError``. When
             ``factor_model_type`` is ``TIME_SERIES`` (the default),
             ``build_prior`` returns a ``TimeSeriesFactorModel`` fit with factor
             returns via the keyword ``factors=`` (skfolio 1.0; the former

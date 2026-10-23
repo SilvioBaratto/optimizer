@@ -464,6 +464,18 @@ class TestBuildPrior:
         with pytest.raises(ConfigurationError, match="is_log_normal"):
             build_prior(cfg)
 
+    @pytest.mark.parametrize("with_weights", [False, True])
+    def test_factor_model_rejects_equilibrium_mu(self, with_weights: bool) -> None:
+        # The factor prior is fit on the (n_obs, n_factors) factor matrix, so
+        # asset-aligned market weights cannot apply and an equal-weight "market
+        # portfolio of factors" would discard the factor risk premia.
+        cfg = MomentEstimationConfig(
+            mu_estimator=MuEstimatorType.EQUILIBRIUM, use_factor_model=True
+        )
+        weights = np.ones(8) / 8 if with_weights else None
+        with pytest.raises(ConfigurationError, match="EQUILIBRIUM"):
+            build_prior(cfg, market_weights=weights)
+
     def test_horizon_scaling_still_allowed_without_factor_model(self) -> None:
         cfg = MomentEstimationConfig(is_log_normal=True, investment_horizon=21.0)
         prior = build_prior(cfg)
@@ -634,17 +646,10 @@ class TestBuildCharacteristicsFactorModel:
         )
         assert model.neutralize_against == {"value": ["market"]}
 
-    def test_market_weights_forwarded_to_factor_prior(self) -> None:
-        weights = np.array([0.7, 0.3])
+    def test_equilibrium_mu_rejected_for_factor_prior(self) -> None:
         cfg = MomentEstimationConfig(mu_estimator=MuEstimatorType.EQUILIBRIUM)
-        model = build_characteristics_factor_model(
-            cfg, factors=_make_factors(), market_weights=weights
-        )
-        assert isinstance(model.factor_prior_estimator, EmpiricalPrior)
-        assert isinstance(model.factor_prior_estimator.mu_estimator, EquilibriumMu)
-        assert np.array_equal(
-            model.factor_prior_estimator.mu_estimator.weights, weights
-        )
+        with pytest.raises(ConfigurationError, match="EQUILIBRIUM"):
+            build_characteristics_factor_model(cfg, factors=_make_factors())
 
     def test_fit_produces_full_universe_moments(self, asset_panel) -> None:  # type: ignore[no-untyped-def]
         cfg = MomentEstimationConfig(min_regression_assets=3)
