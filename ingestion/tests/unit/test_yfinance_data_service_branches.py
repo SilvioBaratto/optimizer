@@ -1075,7 +1075,7 @@ class TestTimedMethod:
 
         captured: list[Any] = []
 
-        def _fake_call_with_timeout(fn: Any, timeout: float) -> Any:
+        def _fake_call_with_timeout(fn: Any, timeout: float, **_: Any) -> Any:
             captured.append(timeout)
             return fn()
 

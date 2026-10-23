@@ -148,6 +148,7 @@ def run_bulk_options_fetch(
                             t
                         ),
                         request_timeout,
+                        circuit_breaker=yf_client.circuit_breaker,
                     )
                     or ()
                 )
@@ -158,6 +159,7 @@ def run_bulk_options_fetch(
                             yf_client.metadata.fetch_option_chain(t, date=e)
                         ),
                         request_timeout,
+                        circuit_breaker=yf_client.circuit_breaker,
                     )
                     if chain is None:
                         continue

@@ -144,7 +144,7 @@ class TestBulkFetch:
         yf = _yf_with_options()
         with (
             patch(f"{M}.YFinanceRepository", return_value=repo),
-            patch(f"{M}.call_with_timeout", lambda fn, _t: fn()),
+            patch(f"{M}.call_with_timeout", lambda fn, _t, **_: fn()),
             patch("app.database.database_manager", _session_ctx()),
         ):
             result = run_bulk_options_fetch(yf)
@@ -162,7 +162,7 @@ class TestBulkFetch:
         yf = _yf_with_options()
         with (
             patch(f"{M}.YFinanceRepository", return_value=repo),
-            patch(f"{M}.call_with_timeout", lambda fn, _t: fn()),
+            patch(f"{M}.call_with_timeout", lambda fn, _t, **_: fn()),
             patch("app.database.database_manager", _session_ctx()),
         ):
             result = run_bulk_options_fetch(yf, staleness_hours=168)
@@ -177,7 +177,7 @@ class TestBulkFetch:
         yf = _yf_with_options()
         seen: list[float] = []
 
-        def _capture(fn, timeout):
+        def _capture(fn, timeout, **_):
             seen.append(timeout)
             return fn()
 
@@ -190,3 +190,44 @@ class TestBulkFetch:
 
         # expirations + one option_chain both routed through the watchdog
         assert seen and all(t == 7.5 for t in seen)
+
+    def test_breaker_window_is_waited_out_instead_of_timing_out_the_ticker(
+        self,
+    ) -> None:
+        """A rate-limit back-off is not a hang: it must not burn the deadline.
+
+        Otherwise every ticker reached during the window times out after
+        ``request_timeout``, is recorded as an error, and leaves an abandoned
+        thread sleeping in ``check()`` that fires together with the others when
+        the window closes.
+        """
+        from app.services.infrastructure.circuit_breaker import CircuitBreaker
+
+        iid = uuid4()
+        repo = self._repo(iid=iid, as_of=None)
+        breaker = CircuitBreaker(base_wait_minutes=0.4 / 60)
+        breaker.trigger()
+        assert breaker.is_active
+
+        def _guarded_expirations(_ticker: str) -> tuple[str, ...]:
+            breaker.check()  # what fetch_with_resilience does before each attempt
+            return ("2026-09-18",)
+
+        def _guarded_chain(_ticker: str, date: str) -> SimpleNamespace:
+            breaker.check()
+            return _chain()
+
+        yf = _yf_with_options()
+        yf.circuit_breaker = breaker
+        yf.metadata.fetch_options_expirations.side_effect = _guarded_expirations
+        yf.metadata.fetch_option_chain.side_effect = _guarded_chain
+
+        with (
+            patch(f"{M}.YFinanceRepository", return_value=repo),
+            patch("app.database.database_manager", _session_ctx()),
+        ):
+            result = run_bulk_options_fetch(yf, request_timeout=0.1)
+
+        assert result["error_count"] == 0
+        assert result["instruments_processed"] == 1
+        assert result["contract_rows"] == 2

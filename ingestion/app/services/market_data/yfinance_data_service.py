@@ -22,6 +22,7 @@ import math
 import threading
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -49,6 +50,7 @@ from app.services._shared import (
 from app.services._shared.trading_calendar import last_completed_session
 from app.services.market_data.empty_fetch_memory import EmptyFetchMemory
 from app.services.market_data.yfinance import (
+    CircuitBreakerProtocol,
     YFinanceClient,
     record_failure,
     track_request_outcomes,
@@ -80,7 +82,11 @@ logger = logging.getLogger(__name__)
 # the retry loop in `_facade.py` is also bounded.
 
 
-def call_with_timeout(fn: "Any", timeout: float) -> "Any":
+def call_with_timeout(
+    fn: "Any",
+    timeout: float,
+    circuit_breaker: CircuitBreakerProtocol | None = None,
+) -> "Any":
     """Execute *fn* in a daemon thread; raise ``TimeoutError`` after *timeout* seconds.
 
     On expiry the caller is released immediately; *fn* keeps running in the
@@ -89,6 +95,14 @@ def call_with_timeout(fn: "Any", timeout: float) -> "Any":
     Args:
         fn: Zero-argument callable to execute.
         timeout: Maximum wall-clock seconds to wait.
+        circuit_breaker: Breaker guarding the requests *fn* makes. An open
+            window is waited out before the deadline starts. ``check()`` sleeps
+            the window out, so inside *fn* that wait would be charged to
+            *timeout*: the call would be recorded as a hang, and the abandoned
+            thread would sleep on and fire its request when the window closes,
+            one per timed-out call. When the breaker has hit its attempt limit
+            ``check()`` raises instead of waiting; that is left to the guarded
+            request inside *fn*, which decides what to do with it.
 
     Returns:
         The return value of *fn*.
@@ -97,6 +111,10 @@ def call_with_timeout(fn: "Any", timeout: float) -> "Any":
         TimeoutError: If *fn* does not complete within *timeout* seconds.
         Exception: Any exception raised by *fn* is re-raised in the caller.
     """
+    if circuit_breaker is not None:
+        with suppress(RuntimeError):
+            circuit_breaker.check()
+
     outcome: list[tuple[bool, Any]] = []
     finished = threading.Event()
     # A copy of the caller's context carries its request-outcome scope into the
@@ -368,10 +386,16 @@ class YFinanceDataService:
         self._request_timeout = request_timeout
 
     def _timed(self, fn: "Any") -> "Any":
-        """Execute *fn*, enforcing ``self._request_timeout`` if set."""
+        """Execute *fn*, enforcing ``self._request_timeout`` if set.
+
+        The circuit-breaker window is waited out before the deadline starts
+        (see ``call_with_timeout``).
+        """
         if self._request_timeout is None:
             return fn()
-        return call_with_timeout(fn, self._request_timeout)
+        return call_with_timeout(
+            fn, self._request_timeout, circuit_breaker=self.yf_client.circuit_breaker
+        )
 
     def _write(self, write: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
         """Run one category's repository write inside its own SAVEPOINT.

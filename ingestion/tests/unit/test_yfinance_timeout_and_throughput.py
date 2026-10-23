@@ -175,6 +175,100 @@ class TestCallWithTimeout:
 
 
 # ---------------------------------------------------------------------------
+# circuit-breaker back-off is not a hang
+# ---------------------------------------------------------------------------
+
+
+class TestBreakerBackoffOutsideDeadline:
+    """The watchdog bounds network I/O, not the breaker's deliberate wait."""
+
+    @staticmethod
+    def _open_breaker(window_seconds: float):
+        from app.services.infrastructure.circuit_breaker import CircuitBreaker
+
+        breaker = CircuitBreaker(base_wait_minutes=window_seconds / 60)
+        breaker.trigger()  # first attempt: window = 2**1 * 60 * base / 2 seconds
+        assert breaker.is_active
+        return breaker
+
+    def test_when_breaker_window_exceeds_timeout_then_call_waits_it_out_and_succeeds(
+        self,
+    ):
+        """A 0.4s back-off against a 0.1s watchdog must not become a timeout."""
+        breaker = self._open_breaker(window_seconds=0.4)
+        yf_client = _make_yf_client_silent()
+        yf_client.circuit_breaker = breaker
+
+        def _guarded_fetch(_ticker: str) -> dict[str, Any]:
+            breaker.check()  # what fetch_with_resilience does before each attempt
+            return {"shortName": "ACME"}
+
+        yf_client.fetch_info.side_effect = _guarded_fetch
+        yf_client.metadata.fetch_isin.return_value = None
+        repo = _make_repo()
+        repo.upsert_profile.return_value = 1
+
+        service = YFinanceDataService(
+            repo=repo, yf_client=yf_client, request_timeout=0.1
+        )
+        result = service.fetch_and_store(
+            instrument_id=uuid4(), yfinance_ticker="ACME", mode="full"
+        )
+
+        assert not any("profile" in e for e in result["errors"])
+        assert result["counts"]["profile"] == 1
+
+    def test_when_breaker_attempts_exhausted_then_the_guarded_call_still_decides(
+        self,
+    ):
+        """check() raising RuntimeError must reach the retry loop, not mask fn."""
+        from app.services.infrastructure.circuit_breaker import CircuitBreaker
+
+        breaker = CircuitBreaker(max_attempts=1)
+        breaker.trigger()  # attempt count now equals max_attempts
+        yf_client = _make_yf_client_silent()
+        yf_client.circuit_breaker = breaker
+        service = YFinanceDataService(
+            repo=_make_repo(), yf_client=yf_client, request_timeout=5.0
+        )
+
+        assert service._timed(lambda: "reached fn") == "reached fn"
+
+    def test_when_call_with_timeout_gets_a_breaker_then_window_is_waited_before_deadline(
+        self,
+    ):
+        """Every caller of the watchdog gets the same pre-wait, not just _timed."""
+        breaker = self._open_breaker(window_seconds=0.4)
+        started_at: list[float] = []
+
+        def _guarded() -> str:
+            started_at.append(time.monotonic())
+            breaker.check()
+            return "fetched"
+
+        begun = time.monotonic()
+        result = call_with_timeout(_guarded, 0.1, circuit_breaker=breaker)
+
+        assert result == "fetched"
+        # fn only started once the window had closed, so the 0.1s deadline
+        # covered the request and not the back-off.
+        assert started_at[0] - begun >= 0.3
+
+    def test_when_call_with_timeout_breaker_is_exhausted_then_fn_still_runs(self):
+        from app.services.infrastructure.circuit_breaker import CircuitBreaker
+
+        breaker = CircuitBreaker(max_attempts=1)
+        breaker.trigger()
+
+        result = call_with_timeout(lambda: "reached fn", 5.0, circuit_breaker=breaker)
+
+        assert result == "reached fn"
+
+    def test_when_call_with_timeout_has_no_breaker_then_nothing_is_waited(self):
+        assert call_with_timeout(lambda: "ok", 5.0) == "ok"
+
+
+# ---------------------------------------------------------------------------
 # timeout applied per-category, job continues on TimeoutError
 # ---------------------------------------------------------------------------
 
