@@ -16,7 +16,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -322,3 +322,142 @@ def test_nav_mark_incremental_extends_without_rewriting(session_factory):
     assert set(second) == {_FILL, _NEXT, d3}
     assert second[_FILL] == pytest.approx(first[_FILL], rel=1e-6)
     assert second[_NEXT] == pytest.approx(first[_NEXT], rel=1e-6)
+
+
+_C1, _C2, _C3, _C4 = (date(2026, 10, d) for d in (1, 2, 3, 4))
+_C20, _C21, _C22 = (date(2026, 10, d) for d in (20, 21, 22))
+_CHAIN_CLOSES = {
+    _C1: "100",
+    _C2: "150",
+    _C3: "150",
+    _C4: "165",
+    _C20: "165",
+    _C21: "180",
+    _C22: "180",
+}
+# One name, two flat-notional tickets, the second filled on _C3 with the same weights.
+# Chain-linked, the +50% earned by _C3 survives the rebalance.
+_CHAIN_LINKED = {
+    _C1: 10_000.0,
+    _C2: 15_000.0,
+    _C3: 15_000.0,
+    _C4: 16_500.0,
+    _C20: 16_500.0,
+    _C21: 18_000.0,
+    _C22: 18_000.0,
+}
+# What the pre-chain-link marker persisted: ticket 2 snaps back to its flat notional.
+_FLAT_NOTIONAL = {
+    _C1: 10_000.0,
+    _C2: 15_000.0,
+    _C3: 10_000.0,
+    _C4: 11_000.0,
+    _C20: 11_000.0,
+    _C21: 12_000.0,
+    _C22: 12_000.0,
+}
+
+
+def _seed_chained(factory: SessionFactory, persisted: dict[date, float]) -> None:
+    """Seed a USD book with two tickets plus already-persisted ``nav_history`` rows."""
+    with factory() as session:
+        ex = Exchange(name="CX")
+        session.add(ex)
+        session.flush()
+        inst = Instrument(
+            ticker="AAA", short_name="AAA", exchange=ex, yfinance_ticker="AAA"
+        )
+        session.add(inst)
+        session.flush()
+        session.add_all(
+            PriceHistory(
+                instrument_id=inst.id, date=day, close=Decimal(close), price_unit="USD"
+            )
+            for day, close in _CHAIN_CLOSES.items()
+        )
+        for fill, key in ((_C1, "c1"), (_C3, "c2")):
+            session.add(
+                PaperOrder(
+                    portfolio_id=_PID,
+                    asof=fill - timedelta(days=1),
+                    weights_hash=key,
+                    weights={"AAA": 1.0},
+                    fill_date=fill,
+                    lines=[
+                        {
+                            "ticker": "AAA",
+                            "notional": 10_000.0,
+                            "fill_date": fill.isoformat(),
+                        }
+                    ],
+                    notional=10_000.0,
+                    total_commission=0.0,
+                    total_slippage_cost=0.0,
+                )
+            )
+        session.add_all(
+            NavHistory(portfolio_id=_PID, date=day, nav=Decimal(str(nav)))
+            for day, nav in persisted.items()
+        )
+        MandateRepository(session).upsert(
+            PortfolioMandate(
+                portfolio_id=str(_PID),
+                capital=Decimal("10000"),
+                base_currency="USD",
+                drift_l1_threshold=0.1,
+                triggers=RunTriggers(cron=True, drift=False),
+            )
+        )
+        session.commit()
+
+
+def test_nav_mark_repairs_flat_notional_history_older_than_the_lookback(
+    session_factory,
+):
+    """History persisted before chain-linking is re-marked in full, not just a week.
+
+    The daily mark only re-emits the last week, so a flat-notional cliff at an older
+    rebalance would survive, and the rewritten recent window (now chain-linked) would
+    add a second, spurious jump at the window boundary.
+    """
+    _seed_chained(session_factory, _FLAT_NOTIONAL)
+
+    assert run_nav_mark(session_factory=session_factory, asof=_C22) is True
+
+    navs = _navs(session_factory)
+    assert set(navs) == set(_CHAIN_LINKED)
+    for day, expected in _CHAIN_LINKED.items():
+        assert navs[day] == pytest.approx(expected, rel=1e-6), day
+
+
+def test_nav_mark_leaves_consistent_old_history_alone(session_factory):
+    """A healthy series is still extended incrementally, not rewritten each run."""
+    _seed_chained(session_factory, _CHAIN_LINKED)
+    sentinel = 1.0  # a value no real mark would produce, on a bar outside the window
+    with session_factory() as session:
+        session.query(NavHistory).filter_by(
+            portfolio_id=_PID, date=_C2
+        ).one().nav = Decimal(str(sentinel))
+        session.commit()
+
+    assert run_nav_mark(session_factory=session_factory, asof=_C22) is True
+
+    navs = _navs(session_factory)
+    assert navs[_C2] == pytest.approx(sentinel)
+    assert navs[_C22] == pytest.approx(_CHAIN_LINKED[_C22], rel=1e-6)
+
+
+def test_nav_mark_full_rewrites_the_whole_series_on_request(session_factory):
+    """``full=True`` is the explicit operator hook for a one-time full re-mark."""
+    _seed_chained(session_factory, _CHAIN_LINKED)
+    with session_factory() as session:
+        session.query(NavHistory).filter_by(
+            portfolio_id=_PID, date=_C2
+        ).one().nav = Decimal("1.0")
+        session.commit()
+
+    assert run_nav_mark(session_factory=session_factory, asof=_C22, full=True) is True
+
+    navs = _navs(session_factory)
+    for day, expected in _CHAIN_LINKED.items():
+        assert navs[day] == pytest.approx(expected, rel=1e-6), day

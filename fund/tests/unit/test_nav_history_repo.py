@@ -111,6 +111,35 @@ def test_get_navs_without_range_returns_full_series(db_session):
     assert [n.date for n in got] == [dt.date(2026, 10, 1), dt.date(2026, 10, 2)]
 
 
+def test_last_nav_before_returns_newest_strictly_earlier_row(db_session):
+    """The anchor row is the latest one before the bound, scoped to the portfolio."""
+    repo = NavHistoryRepository(db_session)
+    repo.upsert_navs(
+        [
+            _row(_PID, dt.date(2026, 10, 1), 101.0),
+            _row(_PID, dt.date(2026, 10, 5), 105.0),
+            _row(_PID, dt.date(2026, 10, 9), 109.0),
+            _row(_PID2, dt.date(2026, 10, 7), 999.0),
+        ]
+    )
+    db_session.flush()
+
+    got = repo.last_nav_before(_PID, dt.date(2026, 10, 9))
+
+    assert got is not None
+    assert got.date == dt.date(2026, 10, 5)
+    assert float(got.nav) == 105.0
+
+
+def test_last_nav_before_is_none_without_an_earlier_row(db_session):
+    repo = NavHistoryRepository(db_session)
+    repo.upsert_navs([_row(_PID, dt.date(2026, 10, 5), 105.0)])
+    db_session.flush()
+
+    assert repo.last_nav_before(_PID, dt.date(2026, 10, 5)) is None
+    assert repo.last_nav_before(_PID2, dt.date(2026, 10, 9)) is None
+
+
 def test_module_declares_no_agent_stack_imports():
     """The repo module's own imports reference no agent stack.
 

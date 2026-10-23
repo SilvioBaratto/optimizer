@@ -107,5 +107,30 @@ class NavHistoryRepository(RepositoryBase):
         )
         return self.session.execute(stmt).scalar_one_or_none()
 
+    def last_nav_before(
+        self, portfolio_id: uuid.UUID, before: dt.date
+    ) -> NavHistory | None:
+        """Return the newest persisted NAV row strictly earlier than ``before``.
+
+        The incremental mark never re-emits bars before its lookback window, so this
+        row is the boundary the stored history is trusted up to; comparing it with a
+        fresh computation detects history persisted under an older NAV convention.
+
+        Args:
+            portfolio_id: Portfolio to query.
+            before: Exclusive upper date bound.
+
+        Returns:
+            The latest :class:`NavHistory` row with ``date < before``, or ``None``
+            when the portfolio has no earlier row.
+        """
+        stmt = (
+            select(NavHistory)
+            .where(NavHistory.portfolio_id == portfolio_id, NavHistory.date < before)
+            .order_by(NavHistory.date.desc())
+            .limit(1)
+        )
+        return self.session.execute(stmt).scalars().first()
+
 
 __all__ = ["NavHistoryRepository"]

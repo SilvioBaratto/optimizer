@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import math
 import sys
 import threading
 import uuid
@@ -528,6 +529,7 @@ def run_nav_mark(
     session_factory: SessionFactory | None = None,
     asof: dt.date | None = None,
     config: FundConfig = settings,
+    full: bool = False,
 ) -> bool:
     """Claim the NAV-mark slot and persist every active mandate's NAV series.
 
@@ -537,8 +539,11 @@ def run_nav_mark(
     the first run backfills) and upserts it into ``nav_history`` — idempotent on
     ``(portfolio_id, date)``, so a re-run leaves the same rows. One portfolio
     erroring is logged and rolled back, never aborting the sweep. Runs under the
-    shared heartbeat lease. Returns ``True`` when the slot completed (``False`` if
-    the slot was busy or the sweep failed at the infrastructure level).
+    shared heartbeat lease. ``full=True`` re-marks every bar instead of the recent
+    window — the explicit hook for a one-time repair (e.g. after a mandate benchmark
+    change, which the incremental mark does not back-propagate). Returns ``True``
+    when the slot completed (``False`` if the slot was busy or the sweep failed at
+    the infrastructure level).
     """
     from fund.audit.fund_job_repository import FundJobRepository
 
@@ -557,7 +562,7 @@ def run_nav_mark(
                 cadence=config.fund_heartbeat_cadence_seconds,
                 session_factory=factory,
             ):
-                _mark_all_navs(session, asof_date)
+                _mark_all_navs(session, asof_date, full=full)
         except Exception as exc:
             logger.exception("nav mark: aborted")
             job_repo.mark_done(job_id, status="failed", error=str(exc))
@@ -572,37 +577,96 @@ def run_nav_mark(
 # bulk of the history is not rewritten every day.
 _NAV_MARK_LOOKBACK_DAYS = 7
 
+# Persisted NAV is Numeric(20, 6); this only has to absorb that rounding.
+_NAV_ANCHOR_REL_TOL = 1e-6
 
-def _mark_all_navs(session: Session, asof: dt.date) -> None:
+
+def _anchor_drifted(anchor: Any, points: list[Any]) -> bool:
+    """Whether the freshly computed NAV disagrees with the persisted anchor row.
+
+    A recomputed series that has no bar on the anchor's date cannot be compared and
+    is not treated as drift: a stale row would otherwise force a full re-mark on every
+    run, since the upsert never deletes it.
+    """
+    for point in points:
+        if point.date == anchor.date:
+            return not math.isclose(
+                float(point.nav),
+                float(anchor.nav),
+                rel_tol=_NAV_ANCHOR_REL_TOL,
+                abs_tol=_NAV_ANCHOR_REL_TOL,
+            )
+    return False
+
+
+def _nav_points_to_persist(
+    session: Session,
+    nav_repo: Any,
+    portfolio_id: uuid.UUID,
+    mandate: PortfolioMandate,
+    asof: dt.date,
+    *,
+    full: bool,
+) -> list[Any]:
+    """The NAV points one mandate's mark should upsert.
+
+    Incremental marking assumes every bar before the lookback window is already
+    right. The newest persisted bar before the window is therefore recomputed too and
+    checked against what is stored: when they disagree the stored history was written
+    under another NAV convention (e.g. flat-notional marks from before rebalances were
+    chain-linked), and the whole series is rebuilt rather than leaving a seam at the
+    window boundary.
+    """
+    from fund.performance import build_nav_series
+
+    def _build(since: dt.date | None) -> list[Any]:
+        return build_nav_series(
+            portfolio_id,
+            session=session,
+            base_currency=mandate.base_currency,
+            benchmark=mandate.benchmark,
+            asof=asof,
+            since=since,
+        )
+
+    last = None if full else nav_repo.last_nav_date(portfolio_id)
+    if last is None:
+        return _build(None)
+    window_start = last - dt.timedelta(days=_NAV_MARK_LOOKBACK_DAYS)
+    anchor = nav_repo.last_nav_before(portfolio_id, window_start)
+    points = _build(window_start if anchor is None else anchor.date)
+    if anchor is not None and _anchor_drifted(anchor, points):
+        logger.warning(
+            "nav mark: portfolio %s history before %s no longer matches the "
+            "recomputed series; re-marking in full",
+            portfolio_id,
+            window_start,
+        )
+        return _build(None)
+    return points
+
+
+def _mark_all_navs(session: Session, asof: dt.date, *, full: bool = False) -> None:
     """Build + upsert each active mandate's NAV series; one error is skipped.
 
     Incremental after the first run: only bars from ``_NAV_MARK_LOOKBACK_DAYS``
     before the last persisted NAV are re-emitted, so the whole history is not
-    rewritten daily. A mandate whose base currency has no FX coverage (e.g. a
-    non-EUR mandate against the EUR-only feed) is skipped loudly, not mis-marked.
+    rewritten daily — unless the persisted history no longer matches the recomputed
+    series (see :func:`_nav_points_to_persist`) or ``full`` is set. A mandate whose
+    base currency has no FX coverage (e.g. a non-EUR mandate against the EUR-only
+    feed) is skipped loudly, not mis-marked.
     """
     from fund.audit.mandate_repository import MandateRepository
     from fund.audit.nav_history_repository import NavHistoryRepository
-    from fund.performance import FxCoverageError, build_nav_series
+    from fund.performance import FxCoverageError
 
     nav_repo = NavHistoryRepository(session)
     for row in MandateRepository(session).list_active():
         mandate = PortfolioMandate.model_validate(row.mandate)
         pid = row.portfolio_id
         try:
-            last = nav_repo.last_nav_date(pid)
-            since = (
-                last - dt.timedelta(days=_NAV_MARK_LOOKBACK_DAYS)
-                if last is not None
-                else None
-            )
-            points = build_nav_series(
-                pid,
-                session=session,
-                base_currency=mandate.base_currency,
-                benchmark=mandate.benchmark,
-                asof=asof,
-                since=since,
+            points = _nav_points_to_persist(
+                session, nav_repo, pid, mandate, asof, full=full
             )
             if not points:
                 continue
@@ -711,15 +775,17 @@ def _build_runtime(
     return SchedulerRuntime(model=model, fallback=fallback, persistence=persistence)
 
 
-def _run_once(step: str) -> bool:  # pragma: no cover - manual entrypoint wiring
+def _run_once(
+    step: str, *, full: bool = False
+) -> bool:  # pragma: no cover - manual entrypoint wiring
     """Run one step manually.
 
     The NAV mark is pure compute (no model/persistence), so it runs without
     building a runtime; the rebalance/drift steps build a throwaway runtime and
-    close its pool afterwards.
+    close its pool afterwards. ``full`` applies to the NAV mark only.
     """
     if step == "nav-mark":
-        return run_nav_mark()
+        return run_nav_mark(full=full)
     runtime = _build_runtime()
     try:
         if step == "rebalance-sweep":
@@ -737,19 +803,26 @@ def _run_once(step: str) -> bool:  # pragma: no cover - manual entrypoint wiring
 def main(
     argv: list[str] | None = None,
 ) -> int:  # pragma: no cover - manual entrypoint wiring
-    """``python -m fund.scheduler {rebalance-sweep|drift-monitor}`` — one manual run."""
+    """``python -m fund.scheduler {rebalance-sweep|drift-monitor|nav-mark} [--full]``.
+
+    One manual run. ``--full`` makes ``nav-mark`` re-mark every bar rather than the
+    recent window.
+    """
     from dotenv import load_dotenv
 
     # override=True so the project .env wins over ambient shell pollution (e.g. a
     # conda env exporting SSL_CERT_FILE without the corporate CA).
     load_dotenv(override=True)
     logging.basicConfig(level=logging.INFO)
-    args = argv if argv is not None else sys.argv[1:]
+    raw = argv if argv is not None else sys.argv[1:]
+    full = "--full" in raw
+    args = [a for a in raw if a != "--full"]
     if not args:
         raise SystemExit(
-            "usage: python -m fund.scheduler {rebalance-sweep|drift-monitor|nav-mark}"
+            "usage: python -m fund.scheduler "
+            "{rebalance-sweep|drift-monitor|nav-mark} [--full]"
         )
-    return 0 if _run_once(args[0]) else 1
+    return 0 if _run_once(args[0], full=full) else 1
 
 
 if __name__ == "__main__":  # pragma: no cover - manual entrypoint

@@ -409,6 +409,70 @@ def _active_book(
     return active
 
 
+def _book_value(
+    book: dict[str, tuple[float, dt.date, float]],
+    ts: pd.Timestamp,
+    base_prices: pd.DataFrame,
+) -> float | None:
+    """Base-currency value of ``book`` on bar ``ts``; ``None`` when nothing marks.
+
+    A line that has not yet filled on the bar is carried at its book notional rather
+    than marked early at a price it was never bought at (look-ahead) or dropped, which
+    would read the undeployed capital as a drawdown and recover it as a fake gain. A
+    filled line with no price on the bar contributes nothing.
+    """
+    day = ts.date()
+    value = 0.0
+    marked = False
+    for ticker, (qty, line_fill, notional) in book.items():
+        if line_fill > day:
+            value += notional
+            marked = True
+            continue
+        if ticker not in base_prices.columns:
+            continue
+        price = base_prices.at[ts, ticker]
+        if pd.notna(price):
+            value += qty * float(price)
+            marked = True
+    return value if marked else None
+
+
+def _chain_link_books(
+    ticket_books: list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]],
+    base_prices: pd.DataFrame,
+) -> list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]]:
+    """Rescale each ticket's book so NAV is continuous across a rebalance.
+
+    Every ticket is sized off the same flat notional, not the portfolio's marked
+    value, so a new ticket's book is worth ``sum(weights) x notional`` on its first
+    bar regardless of what the previous book had earned. Each book after the first
+    is multiplied by the factor that makes it worth exactly what the previous
+    (already rescaled) book is worth on that bar — a rebalance then conserves value
+    and the series keeps its accumulated P&L (time-weighted-return convention).
+
+    When either side cannot be valued on the switch bar the previous factor is
+    carried forward instead of resetting to the flat notional.
+    """
+    linked: list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]] = []
+    scale = 1.0
+    for fill_day, book in ticket_books:
+        if linked:
+            position = int(base_prices.index.searchsorted(pd.Timestamp(fill_day)))
+            if position < len(base_prices.index):
+                ts = base_prices.index[position]
+                previous = _book_value(linked[-1][1], ts, base_prices)
+                incoming = _book_value(book, ts, base_prices)
+                if previous is not None and incoming:
+                    scale = previous / incoming
+            book = {
+                ticker: (qty * scale, line_fill, notional * scale)
+                for ticker, (qty, line_fill, notional) in book.items()
+            }
+        linked.append((fill_day, book))
+    return linked
+
+
 def build_nav_series(
     portfolio_id: uuid.UUID,
     *,
@@ -426,6 +490,10 @@ def build_nav_series(
     Each trading day at or after the first fill is marked with that day's
     base-currency close (carried forward over gaps). The benchmark level, when
     given, is pulled from ``price_history``, FX-normalized to base, and date-aligned.
+
+    Rebalances conserve NAV: each ticket after the first is rescaled so the series
+    is continuous on its first active bar (see :func:`_chain_link_books`), instead of
+    snapping back to the flat ticket notional and discarding accumulated P&L.
 
     NAV is **gross** of paper execution costs: shares are reconstructed from the
     fill-bar *close*, so NAV at the fill equals the deployed base notional. The
@@ -508,6 +576,7 @@ def build_nav_series(
     ticket_books = [(d, b) for d, b in ticket_books if b]
     if not ticket_books:
         return []
+    ticket_books = _chain_link_books(ticket_books, base_prices)
     earliest = ticket_books[0][0]
     mark_from = earliest if since is None else max(earliest, since)
 
@@ -516,25 +585,8 @@ def build_nav_series(
         day = ts.date()
         if day < mark_from:
             continue
-        book = _active_book(ticket_books, day)
-        nav = 0.0
-        marked = False
-        for ticker, (qty, line_fill, notional) in book.items():
-            if line_fill > day:
-                # Committed but not yet filled on this bar: carry at base-currency book
-                # value (its notional) so a staggered line is neither marked early at
-                # its future fill price (look-ahead) nor dropped — which would misread
-                # the undeployed capital as a drawdown and recover it as a fake gain.
-                nav += notional
-                marked = True
-                continue
-            if ticker not in base_prices.columns:
-                continue
-            price = base_prices.at[ts, ticker]
-            if pd.notna(price):
-                nav += qty * float(price)
-                marked = True
-        if not marked:
+        nav = _book_value(_active_book(ticket_books, day), ts, base_prices)
+        if nav is None:
             continue
         bench_level: float | None = None
         if benchmark and benchmark in base_prices.columns:

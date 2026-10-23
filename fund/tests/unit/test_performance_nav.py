@@ -470,6 +470,166 @@ def test_nav_series_uses_each_lines_own_fill_date(db_session):
     assert navs[d_b] == pytest.approx((6000.0 / 100.0) * 110.0 + 4000.0, rel=1e-6)
 
 
+_R1 = dt.date(2026, 11, 1)
+_R2 = dt.date(2026, 11, 2)
+_R3 = dt.date(2026, 11, 3)
+_R4 = dt.date(2026, 11, 4)
+
+
+def _seed_usd_closes(db_session, closes: dict[str, dict[dt.date, str]]) -> None:
+    """Seed USD price rows for ``{ticker: {date: close}}`` (base USD ⇒ no FX)."""
+    ex = Exchange(name="RX")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, by_date in closes.items():
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        db_session.add_all(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=day,
+                close=Decimal(close),
+                price_unit="USD",
+            )
+            for day, close in by_date.items()
+        )
+    db_session.flush()
+
+
+def _add_ticket(
+    db_session,
+    *,
+    asof: dt.date,
+    key: str,
+    lines: dict[str, tuple[float, dt.date]],
+) -> None:
+    """Persist a paper ticket from ``{ticker: (notional, line_fill_date)}``."""
+    total = sum(n for n, _ in lines.values())
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=asof,
+            weights_hash=key,
+            weights={t: n / total for t, (n, _) in lines.items()},
+            fill_date=min(f for _, f in lines.values()),
+            lines=[
+                {
+                    "ticker": ticker,
+                    "notional": notional,
+                    "fill_date": fill.isoformat(),
+                }
+                for ticker, (notional, fill) in lines.items()
+            ],
+            notional=total,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+
+def test_nav_series_rebalance_into_same_weights_conserves_nav(db_session):
+    """A rebalance neither creates nor destroys value: NAV is continuous at the fill.
+
+    Every ticket is sized off the flat ticket notional, so a naive reconstruction
+    re-marks the book back to that notional on the new ticket's first bar — a
+    spurious one-day loss that also discards all accumulated P&L.
+    """
+    _seed_usd_closes(
+        db_session,
+        {"AAA": {_R1: "100", _R2: "110", _R3: "120", _R4: "130"}},
+    )
+    _add_ticket(
+        db_session,
+        asof=_R1 - dt.timedelta(days=1),
+        key="h1",
+        lines={"AAA": (10_000.0, _R1)},
+    )
+    _add_ticket(db_session, asof=_R2, key="h2", lines={"AAA": (10_000.0, _R3)})
+
+    points = build_nav_series(_PID, session=db_session, base_currency="USD")
+
+    navs = {p.date: p.nav for p in points}
+    assert navs[_R2] == pytest.approx(11_000.0)
+    assert navs[_R3] == pytest.approx(12_000.0)
+    assert navs[_R4] == pytest.approx(13_000.0)
+
+
+def test_nav_series_rebalance_carries_nav_into_new_weights(db_session):
+    """The new book is sized to the NAV in force, and ``since`` does not change it.
+
+    100% AAA doubles to 15,000 (+50%), then the portfolio rebalances to 50/50
+    AAA/BBB: the series must carry on from 15,000, and re-emitting only a recent
+    window must reproduce the same levels as the full backfill.
+    """
+    _seed_usd_closes(
+        db_session,
+        {
+            "AAA": {_R1: "100", _R2: "150", _R3: "150", _R4: "165"},
+            "BBB": {_R3: "100", _R4: "110"},
+        },
+    )
+    _add_ticket(
+        db_session,
+        asof=_R1 - dt.timedelta(days=1),
+        key="h1",
+        lines={"AAA": (10_000.0, _R1)},
+    )
+    _add_ticket(
+        db_session,
+        asof=_R2,
+        key="h2",
+        lines={"AAA": (5_000.0, _R3), "BBB": (5_000.0, _R3)},
+    )
+
+    full = {
+        p.date: p.nav
+        for p in build_nav_series(_PID, session=db_session, base_currency="USD")
+    }
+    assert full[_R2] == pytest.approx(15_000.0)
+    assert full[_R3] == pytest.approx(15_000.0)
+    # 1.5x scale on the 50/50 book: (5000/150*165 + 5000/100*110) * 1.5.
+    assert full[_R4] == pytest.approx(16_500.0)
+
+    recent = build_nav_series(_PID, session=db_session, base_currency="USD", since=_R4)
+    assert [p.date for p in recent] == [_R4]
+    assert recent[0].nav == pytest.approx(16_500.0)
+
+
+def test_nav_series_rebalance_with_staggered_new_line_stays_continuous(db_session):
+    """A not-yet-filled line of the new ticket must not distort the switch bar."""
+    _seed_usd_closes(
+        db_session,
+        {
+            "AAA": {_R1: "100", _R2: "150", _R3: "150", _R4: "165"},
+            "BBB": {_R3: "100", _R4: "110"},
+        },
+    )
+    _add_ticket(
+        db_session,
+        asof=_R1 - dt.timedelta(days=1),
+        key="h1",
+        lines={"AAA": (10_000.0, _R1)},
+    )
+    _add_ticket(
+        db_session,
+        asof=_R2,
+        key="h2",
+        lines={"AAA": (5_000.0, _R3), "BBB": (5_000.0, _R4)},
+    )
+
+    navs = {
+        p.date: p.nav
+        for p in build_nav_series(_PID, session=db_session, base_currency="USD")
+    }
+    assert navs[_R3] == pytest.approx(15_000.0)
+    # BBB fills at the R4 close (110): its 5000 notional is carried until then.
+    assert navs[_R4] == pytest.approx((5_000.0 / 150.0 * 165.0 + 5_000.0) * 1.5)
+
+
 def _agent_stack_offenders(module) -> list[str]:
     """AST-scan a module's source for any top-level agent-stack import."""
     forbidden = ("deepagents", "langgraph", "langchain", "fund.agents", "fund.audit")
