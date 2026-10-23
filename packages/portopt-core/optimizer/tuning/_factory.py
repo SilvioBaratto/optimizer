@@ -6,8 +6,10 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
+from optimizer.exceptions import OptimizationError
 from optimizer.tuning._config import GridSearchConfig, RandomizedSearchConfig
 
 # ``build_scorer`` (from ``optimizer.scoring``) and ``build_walk_forward`` (from
@@ -20,6 +22,47 @@ if TYPE_CHECKING:
     import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+def _raise_if_no_candidate_scored(search: GridSearchCV | RandomizedSearchCV) -> None:
+    """Fail loudly when a fitted search has no finite candidate score.
+
+    With ``error_score=nan`` sklearn demotes a candidate that fails on some
+    fold, which is the intended resilience.  But when *every* candidate is NaN
+    (a scorer that cannot run, e.g. a benchmark missing a scored date, or a
+    solver failing on a shared fold) they all tie at rank 1 and ``best_params_``
+    silently becomes the first candidate, which is then refit and used as if it
+    had won.
+    """
+    scores = np.asarray(search.cv_results_["mean_test_score"], dtype=float)
+    if scores.size and np.isnan(scores).all():
+        msg = (
+            f"every candidate scored NaN: all {scores.size} parameter "
+            "combinations failed to fit or score on at least one "
+            "cross-validation fold, so no best candidate can be chosen. "
+            "Check that benchmark_returns covers every scored window and that "
+            "the data has no ragged or NaN history, or set error_score='raise' "
+            "to surface the underlying error"
+        )
+        raise OptimizationError(msg)
+
+
+class _CheckedGridSearchCV(GridSearchCV):
+    """``GridSearchCV`` that refuses to report a best candidate nobody scored."""
+
+    def fit(self, X: Any, y: Any = None, **params: Any) -> _CheckedGridSearchCV:
+        super().fit(X, y, **params)
+        _raise_if_no_candidate_scored(self)
+        return self
+
+
+class _CheckedRandomizedSearchCV(RandomizedSearchCV):
+    """``RandomizedSearchCV`` that refuses to report a best candidate nobody scored."""
+
+    def fit(self, X: Any, y: Any = None, **params: Any) -> _CheckedRandomizedSearchCV:
+        super().fit(X, y, **params)
+        _raise_if_no_candidate_scored(self)
+        return self
 
 
 def build_grid_search_cv(
@@ -47,7 +90,8 @@ def build_grid_search_cv(
             config selects the Information Ratio. Forwarded to ``build_scorer``.
 
     Returns:
-        A fitted-ready grid search estimator.
+        A fitted-ready grid search estimator. Its ``fit`` raises
+        `OptimizationError` when no candidate produced a finite score.
     """
     from optimizer.scoring._factory import build_scorer
     from optimizer.validation._factory import build_walk_forward
@@ -62,7 +106,7 @@ def build_grid_search_cv(
         benchmark_returns=benchmark_returns,
     )
 
-    return GridSearchCV(
+    return _CheckedGridSearchCV(
         estimator=estimator,
         param_grid=param_grid,
         cv=cv,
@@ -98,7 +142,8 @@ def build_randomized_search_cv(
             scoring, forwarded to ``build_scorer``.
 
     Returns:
-        A fitted-ready randomised search estimator.
+        A fitted-ready randomised search estimator. Its ``fit`` raises
+        `OptimizationError` when no candidate produced a finite score.
     """
     from optimizer.scoring._factory import build_scorer
     from optimizer.validation._factory import build_walk_forward
@@ -113,7 +158,7 @@ def build_randomized_search_cv(
         benchmark_returns=benchmark_returns,
     )
 
-    return RandomizedSearchCV(
+    return _CheckedRandomizedSearchCV(
         estimator=estimator,
         param_distributions=param_distributions,
         n_iter=config.n_iter,
