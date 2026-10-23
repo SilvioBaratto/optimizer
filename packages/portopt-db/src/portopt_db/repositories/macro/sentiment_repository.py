@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import ColumnElement, or_, select
 from sqlalchemy.orm import Session
 
 from portopt_db.models.macro.macro_regime import MacroNews
@@ -73,35 +73,63 @@ class SentimentRepository(RepositoryBase):
         self,
         instrument_id: UUID,
         cutoff: datetime,
+        as_of: datetime | None = None,
     ) -> Sequence[TickerNews]:
-        """Return news rows for an instrument published at or after a cutoff.
+        """Return news rows for an instrument published inside a time window.
 
         Args:
             instrument_id: Primary key of the instrument to query.
             cutoff: Lower bound (inclusive) on ``publish_time``.
+            as_of: Upper bound (inclusive) on ``publish_time``. ``None`` leaves
+                the window open; point-in-time callers pass the decision date so
+                later articles cannot leak in.
 
         Returns:
             Rows ordered by ``publish_time`` ascending; empty if none found.
         """
+        conditions = [
+            TickerNews.instrument_id == instrument_id,
+            TickerNews.title.isnot(None),
+            TickerNews.publish_time >= cutoff,
+        ]
+        if as_of is not None:
+            conditions.append(TickerNews.publish_time <= as_of)
         return (
             self.session.execute(
                 select(TickerNews)
-                .where(
-                    TickerNews.instrument_id == instrument_id,
-                    TickerNews.title.isnot(None),
-                    TickerNews.publish_time >= cutoff,
-                )
+                .where(*conditions)
                 .order_by(TickerNews.publish_time.asc())
             )
             .scalars()
             .all()
         )
 
+    def _newest_macro_news(
+        self, conditions: Sequence[ColumnElement[bool]], limit: int
+    ) -> Sequence[MacroNews]:
+        """Return the *limit* newest matching rows, oldest first.
+
+        Ordering descending before the LIMIT keeps the most recent articles of
+        the window; the final reversal restores the ascending contract.
+        """
+        rows = (
+            self.session.execute(
+                select(MacroNews)
+                .where(*conditions)
+                .order_by(MacroNews.publish_time.desc())
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+        return list(reversed(rows))
+
     def get_macro_news_fallback(
         self,
         ticker: str,
         cutoff: datetime,
         limit: int = 30,
+        as_of: datetime | None = None,
     ) -> Sequence[MacroNews]:
         """Search ``macro_news`` for articles relevant to *ticker*.
 
@@ -114,6 +142,10 @@ class SentimentRepository(RepositoryBase):
             ticker: Equity ticker symbol to find relevant macro news for.
             cutoff: Only rows with ``publish_time`` at or after this value.
             limit: Maximum rows fetched per strategy attempt, not a total cap.
+                When more rows match, the newest *limit* are kept.
+            as_of: Upper bound (inclusive) on ``publish_time``. ``None`` leaves
+                the window open; point-in-time callers pass the decision date so
+                later articles cannot leak in.
 
         Returns:
             MacroNews rows ordered by ``publish_time`` ascending; empty if no
@@ -123,16 +155,11 @@ class SentimentRepository(RepositoryBase):
             MacroNews.title.isnot(None),
             MacroNews.publish_time >= cutoff,
         ]
+        if as_of is not None:
+            base_filters.append(MacroNews.publish_time <= as_of)
 
-        rows: Sequence[MacroNews] = (
-            self.session.execute(
-                select(MacroNews)
-                .where(MacroNews.source_ticker == ticker, *base_filters)
-                .order_by(MacroNews.publish_time.asc())
-                .limit(limit)
-            )
-            .scalars()
-            .all()
+        rows = self._newest_macro_news(
+            [MacroNews.source_ticker == ticker, *base_filters], limit
         )
         if rows:
             return rows
@@ -152,37 +179,20 @@ class SentimentRepository(RepositoryBase):
         if sector:
             etf_tickers = _SECTOR_TO_ETFS.get(sector, set())
             if etf_tickers:
-                rows = (
-                    self.session.execute(
-                        select(MacroNews)
-                        .where(
-                            MacroNews.source_ticker.in_(etf_tickers),
-                            *base_filters,
-                        )
-                        .order_by(MacroNews.publish_time.asc())
-                        .limit(limit)
-                    )
-                    .scalars()
-                    .all()
+                rows = self._newest_macro_news(
+                    [MacroNews.source_ticker.in_(etf_tickers), *base_filters], limit
                 )
                 if rows:
                     return rows
 
         pattern = f"%{ticker}%"
-        rows = (
-            self.session.execute(
-                select(MacroNews)
-                .where(
-                    or_(
-                        MacroNews.title.ilike(pattern),
-                        MacroNews.full_content.ilike(pattern),
-                    ),
-                    *base_filters,
-                )
-                .order_by(MacroNews.publish_time.asc())
-                .limit(limit)
-            )
-            .scalars()
-            .all()
+        return self._newest_macro_news(
+            [
+                or_(
+                    MacroNews.title.ilike(pattern),
+                    MacroNews.full_content.ilike(pattern),
+                ),
+                *base_filters,
+            ],
+            limit,
         )
-        return rows

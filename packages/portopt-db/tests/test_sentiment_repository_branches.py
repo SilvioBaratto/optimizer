@@ -419,3 +419,89 @@ class TestMacroNewsFallbackStrategyC:
         repo = SentimentRepository(db_session)
         result = list(repo.get_macro_news_fallback("DDOG", _CUTOFF))
         assert result == []
+
+
+def _hourly(hour: int) -> datetime:
+    return datetime(2024, 6, 9, hour, 0, 0, tzinfo=timezone.utc)
+
+
+class TestMacroNewsFallbackKeepsNewestRows:
+    """``limit`` must drop the oldest rows in the window, never the newest."""
+
+    def test_strategy_a_limit_keeps_newest_rows_in_ascending_order(
+        self, db_session: Session
+    ) -> None:
+        _seed_instrument(db_session, "TSLA")
+        for hour in (1, 2, 3, 4):
+            _seed_macro_news(
+                db_session,
+                news_id=f"newest-a-{hour}",
+                title=f"TSLA story {hour}",
+                publish_time=_hourly(hour),
+                source_ticker="TSLA",
+            )
+        repo = SentimentRepository(db_session)
+        result = list(repo.get_macro_news_fallback("TSLA", _CUTOFF, limit=2))
+        assert [r.news_id for r in result] == ["newest-a-3", "newest-a-4"]
+
+    def test_strategy_b_limit_keeps_newest_rows_in_ascending_order(
+        self, db_session: Session
+    ) -> None:
+        inst = _seed_instrument(db_session, "CRM")
+        _seed_profile(db_session, inst, sector="Technology")
+        for hour in (1, 2, 3, 4):
+            _seed_macro_news(
+                db_session,
+                news_id=f"newest-b-{hour}",
+                title=f"Tech ETF story {hour}",
+                publish_time=_hourly(hour),
+                source_ticker="XLK",
+            )
+        repo = SentimentRepository(db_session)
+        result = list(repo.get_macro_news_fallback("CRM", _CUTOFF, limit=2))
+        assert [r.news_id for r in result] == ["newest-b-3", "newest-b-4"]
+
+    def test_strategy_c_limit_keeps_newest_rows_in_ascending_order(
+        self, db_session: Session
+    ) -> None:
+        _seed_instrument(db_session, "PLTR")
+        for hour in (1, 2, 3, 4):
+            _seed_macro_news(
+                db_session,
+                news_id=f"newest-c-{hour}",
+                title=f"PLTR story {hour}",
+                publish_time=_hourly(hour),
+            )
+        repo = SentimentRepository(db_session)
+        result = list(repo.get_macro_news_fallback("PLTR", _CUTOFF, limit=2))
+        assert [r.news_id for r in result] == ["newest-c-3", "newest-c-4"]
+
+
+class TestAsOfUpperBound:
+    """``as_of`` keeps point-in-time runs from reading post-decision news."""
+
+    def test_get_recent_news_excludes_rows_after_as_of(
+        self, db_session: Session
+    ) -> None:
+        inst = _seed_instrument(db_session, "AMZN")
+        before = _seed_ticker_news(db_session, inst, "Before", _hourly(6), "asof-1")
+        _seed_ticker_news(db_session, inst, "After", _hourly(18), "asof-2")
+        repo = SentimentRepository(db_session)
+        result = list(repo.get_recent_news(inst.id, _CUTOFF, as_of=_hourly(12)))
+        assert [r.id for r in result] == [before.id]
+
+    def test_macro_news_fallback_excludes_rows_after_as_of(
+        self, db_session: Session
+    ) -> None:
+        _seed_instrument(db_session, "TSLA")
+        for hour in (6, 18):
+            _seed_macro_news(
+                db_session,
+                news_id=f"asof-macro-{hour}",
+                title=f"TSLA story {hour}",
+                publish_time=_hourly(hour),
+                source_ticker="TSLA",
+            )
+        repo = SentimentRepository(db_session)
+        result = list(repo.get_macro_news_fallback("TSLA", _CUTOFF, as_of=_hourly(12)))
+        assert [r.news_id for r in result] == ["asof-macro-6"]
