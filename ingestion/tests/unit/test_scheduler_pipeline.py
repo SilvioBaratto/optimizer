@@ -613,7 +613,10 @@ class TestRunDailyPipelineFredRefresh:
     }
 
     def _run(self, returns: dict[str, bool]):
-        with patch(f"{M}._run_step") as mock_step:
+        with (
+            patch(f"{M}._run_step") as mock_step,
+            patch(f"{M}.settings.fred_api_key", "test-key"),
+        ):
             mock_step.side_effect = _make_step_side_effect(returns)
 
             from app.services.jobs.scheduler import run_daily_pipeline
@@ -691,7 +694,7 @@ class TestDailyPipelineRefreshesFred:
     """FRED holds daily series (VIXCLS, DGS10, BAA10Y, DTWEXBGS), so the daily
     pipeline must refresh it rather than leaving it to the monthly job."""
 
-    def _run_pipeline(self, *, yf_ok: bool) -> list[tuple]:
+    def _run_pipeline(self, *, yf_ok: bool, fred_key: str = "test-key") -> list[tuple]:
         calls: list[tuple] = []
 
         def _fake_run_step(label, job_svc, fn, *args, **kwargs):
@@ -700,6 +703,7 @@ class TestDailyPipelineRefreshesFred:
 
         with (
             patch(f"{M}._run_step", side_effect=_fake_run_step),
+            patch(f"{M}.settings.fred_api_key", fred_key),
             patch(
                 "app.services.market_data.yfinance.get_yfinance_client",
                 return_value=MagicMock(),
@@ -731,6 +735,45 @@ class TestDailyPipelineRefreshesFred:
         from app.schemas.macro.macro_regime import MacroFetchRequest
 
         assert "include_fred" not in MacroFetchRequest.model_fields
+
+    def test_when_no_fred_key_then_pipeline_skips_fred_and_runs_the_rest(self):
+        calls = self._run_pipeline(yf_ok=True, fred_key="")
+
+        labels = [label for label, _ in calls]
+        assert "fred" not in labels
+        assert {"yfinance", "macro", "news", "daily_events"} <= set(labels)
+
+
+class TestRunFredStep:
+    """FRED is an optional add-on: the setup wizard lets the key be skipped, so an
+    unconfigured install must not log a failed job every day."""
+
+    def test_skips_without_claiming_a_slot_when_key_not_configured(self):
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{M}.settings.fred_api_key", ""))
+            run_step = stack.enter_context(patch(f"{M}._run_step"))
+
+            from app.services.jobs.scheduler import run_fred_step
+
+            assert run_fred_step() is False
+
+        run_step.assert_not_called()
+
+    def test_runs_the_fred_step_when_key_is_configured(self):
+        from app.services.macro.macro_regime_service import run_bulk_fred_fetch
+
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{M}.settings.fred_api_key", "test-key"))
+            run_step = stack.enter_context(patch(f"{M}._run_step", return_value=True))
+
+            from app.services.jobs.scheduler import run_fred_step
+
+            assert run_fred_step(incremental=False) is True
+
+        args = run_step.call_args.args
+        assert args[0] == "fred"
+        assert args[2] is run_bulk_fred_fetch
+        assert args[3].incremental is False
 
 
 # ---------------------------------------------------------------------------
@@ -853,6 +896,7 @@ class TestRunWeeklyMarketWide:
 class TestRunFredMonthly:
     def test_when_called_then_fred_step_runs(self):
         with ExitStack() as stack:
+            stack.enter_context(patch(f"{M}.settings.fred_api_key", "test-key"))
             mock_step = stack.enter_context(patch(f"{M}._run_step"))
             stack.enter_context(
                 patch(

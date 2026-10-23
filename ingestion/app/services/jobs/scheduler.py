@@ -531,8 +531,17 @@ def run_fred_step(
     series_ids: list[str] | None = None,
     attempt: int = 0,
 ) -> bool:
-    """Fetch FRED economic series (``series_ids=None`` means every series)."""
+    """Fetch FRED economic series (``series_ids=None`` means every series).
+
+    FRED is an add-on — the setup wizard lets the key be skipped — so a missing
+    key is a config state, not a failure: the step logs, returns ``False``, and
+    never claims a job slot. Real fetch errors still end the job ``failed``.
+    """
     from app.schemas.macro.macro_regime import FredFetchRequest
+
+    if not settings.fred_api_key:
+        logger.info("fred: skipped — FRED_API_KEY is not configured")
+        return False
 
     return _run_step(
         "fred",

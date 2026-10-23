@@ -91,6 +91,7 @@ class TestStepWrappersForwardAttempt:
 
         with (
             patch.object(sched, "_run_step", return_value=True) as run_step,
+            patch.object(sched.settings, "fred_api_key", "test-key"),
             patch(
                 "app.services.market_data.yfinance.get_yfinance_client",
                 return_value=MagicMock(),

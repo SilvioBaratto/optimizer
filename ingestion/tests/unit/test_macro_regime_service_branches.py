@@ -791,7 +791,7 @@ class TestRunBulkFredFetch:
         assert result["series_fetched"] == 5
         assert result["error_count"] == 0
 
-    def test_when_fetch_errors_then_error_count_accumulated(self) -> None:
+    def test_when_fetch_errors_then_final_status_is_failed(self) -> None:
         from app.services.macro.macro_regime_service import run_bulk_fred_fetch
 
         request = SimpleNamespace(series_ids=["BAD"], incremental=False)
@@ -819,7 +819,37 @@ class TestRunBulkFredFetch:
 
         assert result["error_count"] == 1
         final_kwargs = on_progress.call_args_list[-1].kwargs
-        assert final_kwargs.get("status") == "completed"
+        assert final_kwargs.get("status") == "failed"
+        assert "BAD: fetch failed" in final_kwargs["error"]
+
+    def test_when_api_key_missing_then_job_is_reported_failed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An empty key fetches nothing; reporting completed hides the data gap."""
+        from app.config import settings as app_settings
+        from app.services.macro.macro_regime_service import run_bulk_fred_fetch
+
+        monkeypatch.setattr(app_settings, "fred_api_key", "", raising=False)
+        request = SimpleNamespace(series_ids=None, incremental=True)
+        on_progress = MagicMock()
+
+        with (
+            patch("app.database.database_manager") as mock_db,
+            patch("app.services.macro.macro_regime_service.MacroRegimeRepository"),
+            patch("app.services.macro.macro_regime_service.IlSoleScraper"),
+            patch(
+                "app.services.macro.macro_regime_service."
+                "TradingEconomicsIndicatorsScraper"
+            ),
+        ):
+            mock_db.get_session.return_value.__enter__.return_value = MagicMock()
+            mock_db.get_session.return_value.__exit__.return_value = False
+
+            run_bulk_fred_fetch(request, on_progress=on_progress)
+
+        final_kwargs = on_progress.call_args_list[-1].kwargs
+        assert final_kwargs.get("status") == "failed"
+        assert "FRED_API_KEY missing" in final_kwargs["error"]
 
 
 # ---------------------------------------------------------------------------

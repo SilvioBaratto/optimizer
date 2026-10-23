@@ -235,8 +235,10 @@ class MacroRegimeService:
 
                 if include_bonds:
                     # The indicators fetch can succeed while the separate bond page
-                    # fails; without surfacing it the job would finish "completed"
-                    # with the yield tables silently stale.
+                    # fails (the scraper reports it as an otherwise successful result
+                    # carrying only ``bond_yields_error``); without surfacing it the
+                    # job would finish "completed" with the yield tables silently
+                    # stale.
                     if "bond_yields_error" in te_data:
                         bond_error = te_data["bond_yields_error"] or "Unknown error"
                         errors.append(f"trading_economics_bonds: {bond_error}")
@@ -262,16 +264,6 @@ class MacroRegimeService:
                     else:
                         counts["bond_yields"] = 0
                         counts["bond_yield_observations"] = 0
-                        # The scraper reports a failed bond page as an otherwise
-                        # successful result carrying only this key.
-                        bond_error = te_data.get("bond_yields_error")
-                        if bond_error:
-                            errors.append(f"trading_economics_bonds: {bond_error}")
-                            logger.warning(
-                                "Trading Economics bond yields failed for %s: %s",
-                                country,
-                                bond_error,
-                            )
                 else:
                     counts["bond_yields"] = 0
                     counts["bond_yield_observations"] = 0
@@ -569,6 +561,10 @@ def run_bulk_fred_fetch(
 ) -> dict[str, Any]:
     """Execute bulk FRED time-series fetch.
 
+    The job ends ``failed`` when any series errored; rows fetched before the
+    failure are kept. A missing API key also fails here, but ``run_fred_step``
+    skips an unconfigured install before it claims a job slot.
+
     Args:
         request: ``FredFetchRequest`` with ``series_ids`` and ``incremental``.
         on_progress: Optional callback for progress updates.
@@ -595,14 +591,9 @@ def run_bulk_fred_fetch(
             "series_fetched": sum(counts.values()),
             "error_count": len(errors),
         }
-        on_progress(
-            status="completed",
-            finished_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            errors=errors,
-            result=result_dict,
-        )
+        on_progress(**_final_progress(errors, result_dict))
         logger.info(
-            "Bulk FRED fetch completed: %d observations across %d series",
+            "Bulk FRED fetch finished: %d observations across %d series",
             result_dict["series_fetched"],
             len(counts),
         )
