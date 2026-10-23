@@ -5,11 +5,18 @@ Composes `_ExternallyControlledRegimeCovariance` →
 `TimeSeriesFactorModel` →
 `build_mean_risk` → `build_portfolio_pipeline`.
 
-Factor returns are passed via the optimizer step's ``factors`` fit param —
-``pipeline.fit(X, optimizer__factors=factor_returns)``, or through
-`run_cross_val` with
-``params={"factors": factor_returns}`` (skfolio 1.0 replaced the former
-positional ``y`` factor argument).
+Factor returns are passed as the optimizer step's ``factors`` fit param
+(skfolio 1.0 replaced the former positional ``y`` factor argument). Its
+spelling depends on sklearn's ``enable_metadata_routing`` switch, which is
+off by default, and only the matching spelling is accepted:
+
+- routing off (default): ``pipeline.fit(X, optimizer__factors=factor_returns)``
+  or `run_cross_val` with ``params={"optimizer__factors": factor_returns}``;
+- ``sklearn.set_config(enable_metadata_routing=True)``:
+  ``pipeline.fit(X, factors=factor_returns)`` or `run_cross_val` with
+  ``params={"factors": factor_returns}``.
+
+The other spelling raises ``ValueError`` or ``TypeError`` at fit time.
 """
 
 from __future__ import annotations
@@ -228,20 +235,25 @@ def build_regime_blended_mean_risk(
                     └─ MeanRisk
                          └─ Pipeline           (pre-selection → optimizer)
 
-    Pass factor returns (aligned to the asset return index) via the
-    ``optimizer`` step's ``factors`` fit param:
-    ``pipeline.fit(X, optimizer__factors=factor_returns)``, or through
-    `run_cross_val` with
-    ``params={"factors": factor_returns}`` (skfolio 1.0).
+    Pass factor returns (aligned to the asset return index) as the
+    ``optimizer`` step's ``factors`` fit param. The spelling depends on
+    sklearn's ``enable_metadata_routing`` switch (off by default):
+
+    - routing off: ``pipeline.fit(X, optimizer__factors=factor_returns)`` or
+      `run_cross_val` with ``params={"optimizer__factors": factor_returns}``;
+    - ``sklearn.set_config(enable_metadata_routing=True)``:
+      ``pipeline.fit(X, factors=factor_returns)`` or `run_cross_val` with
+      ``params={"factors": factor_returns}``.
+
+    The spelling of the other setting raises at fit time.
 
     Args:
         config: Configuration. Defaults to `RegimeBlendedMeanRiskConfig`
             with max-Sharpe objective and quarterly rolling walk-forward.
         factor_returns: Factor return time series indexed by date, shape
-            ``(T, n_factors)``. Pass via the ``optimizer`` step's ``factors``
-            fit param: ``pipeline.fit(X, optimizer__factors=...)`` or through
-            `run_cross_val` with
-            ``params={"factors": factor_returns}``.
+            ``(T, n_factors)``. Pass again at fit time as the ``optimizer``
+            step's ``factors`` fit param, spelled per the
+            ``enable_metadata_routing`` setting described above.
         regime_probabilities: Pre-computed HMM regime probabilities indexed by
             date, shape ``(T, n_regimes)``. Baked into the covariance estimator;
             sliced to each CV fold's training window automatically during fit.

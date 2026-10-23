@@ -7,6 +7,7 @@ import dataclasses
 import numpy as np
 import pandas as pd
 import pytest
+import sklearn
 from skfolio.model_selection import WalkForward
 from skfolio.portfolio import Portfolio
 from sklearn.pipeline import Pipeline
@@ -15,9 +16,11 @@ from optimizer.exceptions import ConfigurationError
 from optimizer.optimization import (
     MeanRiskConfig,
     RegimeBlendedMeanRiskConfig,
+    _regime_blended_mean_risk,
     build_regime_blended_mean_risk,
 )
 from optimizer.pre_selection import PreSelectionConfig
+from optimizer.validation import run_cross_val
 
 # ---------------------------------------------------------------------------
 # Module-scoped fixtures — computed once per test session
@@ -531,3 +534,72 @@ class TestSectorConstraintsForwarded:
         assert constraints is not None
         assert "Tech >= 0.1" in constraints
         assert "Tech <= 0.5" in constraints
+
+
+# ---------------------------------------------------------------------------
+# 11. The ``factors`` fit param spelling depends on metadata routing
+# ---------------------------------------------------------------------------
+
+
+class TestFactorsFitParamSpelling:
+    """The documented recipes work only under the routing setting that fits."""
+
+    @pytest.mark.parametrize(
+        ("routing", "key"),
+        [(False, "optimizer__factors"), (True, "factors")],
+    )
+    def test_run_cross_val_accepts_the_spelling_matching_the_routing_setting(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+        routing: bool,
+        key: str,
+    ) -> None:
+        with sklearn.config_context(enable_metadata_routing=routing):
+            pipeline, cv = build_regime_blended_mean_risk(
+                factor_returns=factor_returns_df,
+                regime_probabilities=regime_probs_df,
+            )
+            population = run_cross_val(
+                pipeline, returns_df, cv=cv, params={key: factor_returns_df}
+            )
+        assert len(population) > 0
+
+    @pytest.mark.parametrize(
+        ("routing", "key"),
+        [(False, "factors"), (True, "optimizer__factors")],
+    )
+    def test_run_cross_val_rejects_the_spelling_of_the_other_routing_setting(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+        routing: bool,
+        key: str,
+    ) -> None:
+        with sklearn.config_context(enable_metadata_routing=routing):
+            pipeline, cv = build_regime_blended_mean_risk(
+                factor_returns=factor_returns_df,
+                regime_probabilities=regime_probs_df,
+            )
+            with pytest.raises((ValueError, TypeError)):
+                run_cross_val(
+                    pipeline, returns_df, cv=cv, params={key: factor_returns_df}
+                )
+
+    @pytest.mark.parametrize(
+        "doc",
+        [
+            _regime_blended_mean_risk.__doc__,
+            build_regime_blended_mean_risk.__doc__,
+        ],
+        ids=["module", "builder"],
+    )
+    def test_docs_state_which_spelling_needs_which_routing_setting(
+        self, doc: str | None
+    ) -> None:
+        assert doc is not None
+        assert "enable_metadata_routing" in doc
+        assert '"optimizer__factors"' in doc
+        assert '"factors"' in doc

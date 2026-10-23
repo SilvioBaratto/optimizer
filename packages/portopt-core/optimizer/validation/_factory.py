@@ -133,7 +133,10 @@ def run_cross_val(
         params: Auxiliary metadata forwarded to nested estimators via sklearn
             metadata routing (e.g. {"implied_vol": implied_vol_df}). Requires
             sklearn.set_config(enable_metadata_routing=True) and the relevant
-            set_fit_request calls on sub-estimators.
+            set_fit_request calls on sub-estimators. With routing off (the
+            default), a Pipeline instead accepts only step-prefixed keys
+            (e.g. {"optimizer__factors": factor_returns}) and rejects bare
+            ones; with routing on it is the reverse.
         n_jobs: Number of parallel jobs.
         portfolio_params: Additional parameters forwarded to the portfolio
             constructor.
