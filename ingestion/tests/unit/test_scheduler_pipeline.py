@@ -568,6 +568,13 @@ class TestRunDailyPipelineFredRefresh:
         labels = {c.args[0] for c in mock_step.call_args_list}
         assert {"fred", "news", "daily_events"} <= labels
 
+    def test_fred_refresh_runs_even_when_yfinance_fails(self):
+        mock_step = self._run({"yfinance": False})
+
+        labels = [c.args[0] for c in mock_step.call_args_list]
+        assert "fred" in labels
+        assert labels.index("fred") < labels.index("daily_events")
+
 
 # ---------------------------------------------------------------------------
 # TestRunMiddayNewsRefresh
