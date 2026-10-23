@@ -427,6 +427,80 @@ class TestComputeICSeriesCSRegression:
 
         assert len(result) == 0
 
+    @pytest.mark.parametrize("constant", [0.0, 0.1, 3.7])
+    def test_when_period_scores_are_constant_then_period_dropped(
+        self, constant: float
+    ) -> None:
+        """A zero-dispersion cross-section has no rank IC and no slope either."""
+        rng = np.random.default_rng(21)
+        dates = pd.date_range("2023-01-01", periods=6, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(12)]
+        scores = pd.DataFrame(rng.normal(0, 1, (6, 12)), index=dates, columns=tickers)
+        returns = pd.DataFrame(
+            0.05 * scores.values + rng.normal(0, 0.02, (6, 12)),
+            index=dates,
+            columns=tickers,
+        )
+        scores.iloc[2] = constant
+
+        result = compute_ic_series(scores, returns, "f", use_cs_regression=True)
+
+        assert dates[2] not in result.index
+        assert len(result) == 5
+
+    def test_when_valid_scores_all_tied_after_masking_then_period_dropped(
+        self,
+    ) -> None:
+        """Ties among the finite names count, not the NaN placeholders."""
+        dates = pd.date_range("2023-01-01", periods=2, freq="ME")
+        tickers = [f"T{i}" for i in range(6)]
+        scores = pd.DataFrame(
+            [
+                [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                [0.5, 0.5, 0.5, np.nan, np.nan, np.nan],
+            ],
+            index=dates,
+            columns=tickers,
+        )
+        returns = pd.DataFrame(
+            [[2.0, 4.0, 6.0, 8.0, 10.0, 12.0], [0.1, -0.2, 0.3, 0.0, 0.0, 0.0]],
+            index=dates,
+            columns=tickers,
+        )
+
+        result = compute_ic_series(
+            scores,
+            returns,
+            "f",
+            min_observations=3,
+            use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(min_observations=3),
+        )
+
+        assert list(result.index) == [dates[0]]
+        assert result.iloc[0] == pytest.approx(2.0, abs=1e-6)
+
+    def test_when_scores_tiny_but_dispersed_then_period_kept(self) -> None:
+        """The zero-dispersion test is scale-free, not an absolute epsilon."""
+        dates = pd.date_range("2023-01-01", periods=1, freq="ME")
+        tickers = [f"T{i}" for i in range(6)]
+        scores = pd.DataFrame(
+            [[1e-9, 2e-9, 3e-9, 4e-9, 5e-9, 6e-9]], index=dates, columns=tickers
+        )
+        returns = 2.0e9 * scores
+
+        result = compute_ic_series(
+            scores,
+            returns,
+            "f",
+            min_observations=3,
+            use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(min_observations=3),
+        )
+
+        assert len(result) == 1
+        assert result.iloc[0] == pytest.approx(2.0e9, rel=1e-6)
+
 
 class TestNeweyWestTStat:
     def test_significant_ic(self) -> None:

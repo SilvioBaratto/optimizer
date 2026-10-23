@@ -241,6 +241,21 @@ def compute_ic_series(
     return pd.Series(ics, name=factor_name, dtype=float)
 
 
+# Relative score spread (peak-to-peak over the largest magnitude) below which a
+# cross-section is constant up to round-off.  Its weighted mean misses the
+# constant by ~1e-17, so X'WX is ~1e-34 rather than exactly singular and the
+# solve returns a noise/noise slope instead of the pinv fallback's zero.
+_CS_CONSTANT_REL_SPREAD: float = 1e-12
+
+
+def _has_cross_sectional_dispersion(scores: npt.NDArray[np.float64]) -> bool:
+    """Whether finite scores differ enough to identify a cross-sectional slope."""
+    if scores.size < 2:
+        return False
+    spread = float(np.ptp(scores))
+    return spread > _CS_CONSTANT_REL_SPREAD * float(np.max(np.abs(scores)))
+
+
 def _compute_ic_series_cs_regression(
     factor_scores_history: pd.DataFrame,
     returns_history: pd.DataFrame,
@@ -252,7 +267,8 @@ def _compute_ic_series_cs_regression(
     """Per-period CS regression slope as IC.
 
     Drops periods with fewer than ``max(min_observations,
-    cs_config.min_observations)`` finite pairs.
+    cs_config.min_observations)`` finite pairs, and periods whose finite
+    scores are all equal (no cross-sectional dispersion to regress on).
     """
     from optimizer.linear_model import (
         CSLinearRegressionConfig,
@@ -280,6 +296,10 @@ def _compute_ic_series_cs_regression(
         ret_vals = rets.to_numpy(dtype=float)
         valid = np.isfinite(score_vals) & np.isfinite(ret_vals)
         if int(valid.sum()) < required:
+            continue
+        # The rank path yields NaN (and compute_ic_series drops it) for a
+        # constant cross-section; a regression slope there is arbitrary.
+        if not _has_cross_sectional_dispersion(score_vals[valid]):
             continue
         kept_dates.append(date)
         # skfolio CSLinearRegression rejects any (period, asset) pair with a
