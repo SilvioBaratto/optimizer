@@ -64,7 +64,7 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(
         wizard.lifecycle, "run_start", lambda pw: calls.update(launched=True)
     )
-    monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s: True)
+    monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s, **kw: True)
     monkeypatch.setattr(wizard.validators, "validate_fred", lambda k: True)
     monkeypatch.setattr(wizard.validators, "validate_llm", lambda *a, **k: True)
     # Clear every credential env var so interactive tests are deterministic:
@@ -73,6 +73,7 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
         "PORTOPT_PASSPHRASE",
         "TRADING_212_API_KEY",
         "TRADING_212_SECRET_KEY",
+        "TRADING_212_MODE",
         "FRED_API_KEY",
         "OLLAMA_API_KEY",
         "OPENAI_API_KEY",
@@ -183,7 +184,7 @@ def test_noninteractive_requires_passphrase(patched: dict) -> None:
 def test_noninteractive_t212_invalid_fails(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s: False)
+    monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s, **kw: False)
     with pytest.raises(wizard.SetupError):
         wizard.run_setup_noninteractive(
             passphrase="pw",
@@ -238,7 +239,7 @@ def test_interactive_t212_and_fred_yes_persists_all(patched: dict) -> None:
 def test_interactive_t212_invalid_fails_loud(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s: False)
+    monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s, **kw: False)
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
@@ -292,6 +293,56 @@ def test_interactive_t212_keys_autodetected_from_env(
     wizard.run_setup_interactive(prompter)
     assert patched["saved_secrets"]["trading_212_api_key"] == "env-tk"
     assert patched["saved_secrets"]["trading_212_secret_key"] == "env-ts"  # noqa: S105 - test fixture value, not a secret
+
+
+def _record_t212_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[str]:
+    seen: list[str] = []
+
+    def _fake(key: str, secret: str, *, mode: str = "live") -> bool:
+        seen.append(mode)
+        return True
+
+    monkeypatch.setattr(wizard.validators, "validate_t212", _fake)
+    return seen
+
+
+def test_noninteractive_t212_validated_against_env_mode(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Demo keys 401 on the live host; the wizard must honour the same
+    # TRADING_212_MODE the daemon reads instead of always probing live.
+    seen = _record_t212_mode(monkeypatch)
+    monkeypatch.setenv("TRADING_212_MODE", "demo")
+    wizard.run_setup_noninteractive(passphrase="pw", t212_key="tk", t212_secret="ts")
+    assert seen == ["demo"]
+
+
+def test_noninteractive_t212_mode_defaults_to_live(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen = _record_t212_mode(monkeypatch)
+    wizard.run_setup_noninteractive(passphrase="pw", t212_key="tk", t212_secret="ts")
+    assert seen == ["live"]
+
+
+def test_interactive_t212_validated_against_env_mode(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen = _record_t212_mode(monkeypatch)
+    monkeypatch.setenv("TRADING_212_MODE", " demo ")
+    prompter = NonInteractivePrompter(
+        {
+            wizard._MSG_PASSPHRASE: "pw",
+            wizard._MSG_T212_KEY: "tk",
+            wizard._MSG_T212_SECRET: "ts",
+            wizard._MSG_FRED_KEY: "",
+            wizard._MSG_CONFIGURE_LLM: False,
+        }
+    )
+    wizard.run_setup_interactive(prompter)
+    assert seen == ["demo"]
 
 
 def test_interactive_fred_key_autodetected_from_env(
@@ -579,7 +630,7 @@ def test_noninteractive_skip_validation_bypasses_t212(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """--skip-validation persists T212 without a live call, even if it would fail."""
-    monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s: False)
+    monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s, **kw: False)
     wizard.run_setup_noninteractive(
         passphrase="pw", t212_key="tk", t212_secret="ts", skip_validation=True
     )

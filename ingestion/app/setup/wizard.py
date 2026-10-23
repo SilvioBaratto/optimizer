@@ -67,6 +67,16 @@ class SetupError(RuntimeError):
     """Raised when the wizard cannot complete (validation or config error)."""
 
 
+def _t212_mode() -> str:
+    """Trading212 environment (``live``/``demo``) the credentials belong to.
+
+    Reads the same ``TRADING_212_MODE`` the daemon uses so a demo key is probed
+    against the demo host; Trading212 keys are environment-scoped and 401 on the
+    other one. Unset falls back to ``live``, matching the daemon default.
+    """
+    return (os.getenv("TRADING_212_MODE") or "live").strip()
+
+
 def _is_first_run() -> bool:
     """True when neither the secret store nor the config file exists yet.
 
@@ -401,7 +411,9 @@ def run_setup_noninteractive(
     if t212_key or t212_secret:
         if not (t212_key and t212_secret):
             raise SetupError("Trading212 needs both an API key and a secret key.")
-        if not skip_validation and not validators.validate_t212(t212_key, t212_secret):
+        if not skip_validation and not validators.validate_t212(
+            t212_key, t212_secret, mode=_t212_mode()
+        ):
             raise SetupError("Trading212 credentials failed validation.")
         secrets["trading_212_api_key"] = t212_key
         secrets["trading_212_secret_key"] = t212_secret
@@ -466,7 +478,9 @@ def run_setup_interactive(
         t212_secret = (
             os.getenv("TRADING_212_SECRET_KEY") or prompter.password(_MSG_T212_SECRET)
         ).strip()
-        if not skip_validation and not validators.validate_t212(t212_key, t212_secret):
+        if not skip_validation and not validators.validate_t212(
+            t212_key, t212_secret, mode=_t212_mode()
+        ):
             raise SetupError("Trading212 credentials failed validation.")
         secrets["trading_212_api_key"] = t212_key
         secrets["trading_212_secret_key"] = t212_secret
