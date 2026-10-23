@@ -9,7 +9,7 @@ Covers every format and edge-case branch in parse_reference_date:
   - "Mon YYYY" with bad year         → falls through to ISO / datetime formats
   - "MM/YY" two-digit year           → date(20YY, month, 1)
   - "MM/ YY" with interior space     → same (normalised)
-  - "Mon/DD" slash variant           → date(current_year, month, day)
+  - "Mon/DD" slash variant           → latest such date not after today
   - Mon/DD with invalid day          → falls through
   - ISO "YYYY-MM-DD"                 → date
   - US format "M/D/YYYY"            → date
@@ -21,7 +21,19 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
+
+from portopt_db import coerce
 from portopt_db.coerce import parse_reference_date
+
+
+def _freeze_today(monkeypatch: pytest.MonkeyPatch, today: date) -> None:
+    class _FrozenDate(date):
+        @classmethod
+        def today(cls) -> date:
+            return today
+
+    monkeypatch.setattr(coerce, "date", _FrozenDate)
 
 
 class TestNoneAndNonStringInputs:
@@ -124,15 +136,56 @@ class TestMmYyFormat:
 
 class TestMonDdSlashFormat:
     def test_when_jan_slash_15_then_jan_15_current_year(self) -> None:
-        # Mon/DD uses date.today().year — just verify it parses to Jan 15 of some year
+        # Year is inferred from today — just verify it parses to Jan 15 of some year
         result = parse_reference_date("Jan/15")
         assert result is not None
         assert result.month == 1
         assert result.day == 15
 
-    def test_when_dec_slash_31_then_dec_31_current_year(self) -> None:
-        result = parse_reference_date("Dec/31")
-        assert result == date(date.today().year, 12, 31)
+    def test_when_dec_slash_31_seen_in_early_january_then_previous_year(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _freeze_today(monkeypatch, date(2027, 1, 2))
+        assert parse_reference_date("Dec/31") == date(2026, 12, 31)
+
+    def test_when_dec_slash_30_seen_in_early_january_then_previous_year(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _freeze_today(monkeypatch, date(2027, 1, 4))
+        assert parse_reference_date("Dec/30") == date(2026, 12, 30)
+
+    def test_when_month_day_not_after_today_then_current_year(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _freeze_today(monkeypatch, date(2026, 10, 23))
+        assert parse_reference_date("Oct/23") == date(2026, 10, 23)
+        assert parse_reference_date("Jan/15") == date(2026, 1, 15)
+
+    def test_when_month_day_is_later_this_year_then_previous_year(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A quote cannot be dated in the future, so "Nov/15" seen on Oct 23 is
+        # last year's.
+        _freeze_today(monkeypatch, date(2026, 10, 23))
+        assert parse_reference_date("Nov/15") == date(2025, 11, 15)
+
+    def test_when_month_day_is_a_day_ahead_then_treated_as_timezone_skew(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _freeze_today(monkeypatch, date(2026, 10, 23))
+        assert parse_reference_date("Oct/24") == date(2026, 10, 24)
+
+    def test_when_new_year_is_a_day_ahead_then_next_year(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _freeze_today(monkeypatch, date(2026, 12, 31))
+        assert parse_reference_date("Jan/01") == date(2027, 1, 1)
+
+    def test_when_feb_29_in_non_leap_year_then_latest_leap_day(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _freeze_today(monkeypatch, date(2027, 3, 1))
+        assert parse_reference_date("Feb/29") == date(2024, 2, 29)
 
     def test_when_mon_slash_invalid_day_then_returns_none(self) -> None:
         # "Feb/99" → day=99 invalid
