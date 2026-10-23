@@ -131,3 +131,57 @@ def test_release_build_tool_is_version_pinned() -> None:
 
     assert installs
     assert all(re.search(r"\w==\d", cmd) for cmd in installs)
+
+
+_SETUP_UV = "astral-sh/setup-uv@"
+_DOCKER_UV_PIN = re.compile(r"astral-sh/uv:(\d+\.\d+\.\d+)")
+
+
+def _setup_uv_steps() -> list[tuple[str, dict[str, Any]]]:
+    return [
+        (name, step)
+        for name, job in _jobs().items()
+        for step in job["steps"]
+        if step.get("uses", "").startswith(_SETUP_UV)
+    ]
+
+
+def _docker_uv_pins() -> set[str]:
+    return {
+        pin
+        for dockerfile in ("ingestion/Dockerfile", "fund/Dockerfile")
+        for pin in _DOCKER_UV_PIN.findall(
+            (_REPO_ROOT / dockerfile).read_text(encoding="utf-8")
+        )
+    }
+
+
+def test_ci_uses_the_uv_version_the_docker_images_ship() -> None:
+    """CI must resolve and lock with the uv that builds the images."""
+    pins = _docker_uv_pins()
+    steps = _setup_uv_steps()
+
+    assert len(pins) == 1, f"the two Dockerfiles disagree on the uv pin: {pins}"
+    assert steps
+    assert {step.get("with", {}).get("version") for _, step in steps} == pins
+
+
+def test_every_uv_job_names_its_python_version() -> None:
+    """A runner-image Python bump must not silently change what CI tests."""
+    missing = [
+        name
+        for name, step in _setup_uv_steps()
+        if not step.get("with", {}).get("python-version")
+    ]
+
+    assert missing == []
+
+
+@pytest.mark.parametrize("name", ["ci.yml", "release.yml"])
+def test_every_job_has_a_timeout(name: str) -> None:
+    """A hung job must not burn the six-hour runner default."""
+    untimed = [
+        job for job, body in _jobs(name).items() if "timeout-minutes" not in body
+    ]
+
+    assert untimed == []

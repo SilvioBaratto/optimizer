@@ -20,14 +20,22 @@ concurrency:
 # ingestion-must-not-import-optimizer boundary now rests entirely on the static
 # source-scan guard (tests/unit/hygiene/test_no_optimizer_import.py) + the
 # portopt-core⊬portopt_db guard. See tasks/plan.md risk #1.
+#
+# Tool versions are pinned so a new uv release or runner-image Python cannot
+# change CI without a commit: setup-uv's `version` mirrors the uv pinned in both
+# Dockerfiles (tests/test_ci_workflow_config.py keeps them equal), and every job
+# names its Python.
 
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: "0.11.19"
+          python-version: "3.12"
           enable-cache: true
       - run: uv sync --locked --all-packages --all-extras
       - run: uv run ruff check packages/portopt-core/optimizer/ tests/
@@ -45,10 +53,13 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: "0.11.19"
+          python-version: "3.12"
           enable-cache: true
       - run: uv sync --locked --all-packages --all-extras
       - run: uv run mypy packages/portopt-core/optimizer/
@@ -57,16 +68,20 @@ jobs:
 
   pyright:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: "0.11.19"
+          python-version: "3.12"
           enable-cache: true
       - run: uv sync --locked --all-packages --all-extras
       - run: uv run pyright
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -75,6 +90,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: "0.11.19"
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
       - run: uv sync --locked --all-packages --all-extras --python ${{ matrix.python-version }}
       - run: uv run --python ${{ matrix.python-version }} pytest tests/ -v --tb=short --cov=optimizer --cov-branch --cov-report=xml --cov-report=term-missing --cov-fail-under=90
@@ -86,26 +103,33 @@ jobs:
 
   ingestion-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: "0.11.19"
+          python-version: "3.12"
           enable-cache: true
       - run: uv sync --locked --all-packages --all-extras
       - run: cd ingestion && uv run pytest tests/ -v --tb=short --cov=app --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=80
 
   portopt-db-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: "0.11.19"
+          python-version: "3.12"
           enable-cache: true
       - run: uv sync --locked --all-packages --all-extras
       - run: cd packages/portopt-db && uv run pytest -v --tb=short --cov=portopt_db --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=90
 
   fund-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -114,6 +138,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: "0.11.19"
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
       - run: uv sync --locked --all-packages --all-extras --python ${{ matrix.python-version }}
       - run: cd fund && uv run --python ${{ matrix.python-version }} pytest tests/ -v --tb=short --cov=fund --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=80
@@ -124,6 +150,7 @@ jobs:
   # DATABASE_URL) pass.
   postgres-integration:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16-alpine
@@ -144,6 +171,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: "0.11.19"
+          python-version: "3.12"
           enable-cache: true
       - run: uv sync --all-packages --all-extras
       - run: cd packages/portopt-db && uv run alembic upgrade head
@@ -153,6 +182,7 @@ jobs:
   # Dockerfile or compose edit fails here instead of on a user's `portopt start`.
   docker-images:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       # Secret files are git-ignored and rendered by `portopt start`; empty
