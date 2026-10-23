@@ -39,7 +39,10 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
 
     Args:
         n_neighbors: Number of most-correlated assets used as regression
-            predictors.
+            predictors. Candidates are taken in descending ``|corr|`` order and
+            kept only while the target and all kept neighbours stay jointly
+            observed on at least ``min_train_periods`` rows, so an asset may
+            end up with fewer neighbours (or none).
         min_train_periods: Minimum complete-row count required to fit the OLS
             regression for an asset. Assets below this threshold use the
             fallback strategy.
@@ -88,28 +91,37 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
                 "Only 'sector_mean' is supported."
             )
 
-        corr = X.corr().abs()
+        # pandas' default min_periods=1 scores a 2-6 row overlap as |corr|~1, so a
+        # recent listing would outrank every full-history asset. Pairs without
+        # enough overlap become NaN and drop out of the ranking.
+        corr = X.corr(min_periods=self.min_train_periods).abs()
+        observed = X.notna()
 
         self.neighbors_: dict[str, list[str]] = {}
-        for col in X.columns:
-            others = corr[col].drop(col)
-            k = min(self.n_neighbors, len(others))
-            self.neighbors_[col] = others.nlargest(k).index.tolist()
-
         self.coefs_: dict[str, np.ndarray | None] = {}
         for col in X.columns:
-            nbrs = self.neighbors_[col]
+            ranked = corr[col].drop(col).nlargest(len(X.columns)).index
+            # Pairwise overlap does not bound the joint overlap of K neighbours:
+            # two assets with disjoint histories each overlap the target but
+            # leave no complete row together. Keeping a candidate only while the
+            # running joint count stays sufficient guarantees the OLS below has
+            # at least min_train_periods rows.
+            joint = observed[col]
+            nbrs: list[str] = []
+            for cand in ranked:
+                if len(nbrs) >= self.n_neighbors:
+                    break
+                cand_joint = joint & observed[cand]
+                if cand_joint.sum() >= self.min_train_periods:
+                    nbrs.append(cand)
+                    joint = cand_joint
+            self.neighbors_[col] = nbrs
+
             if not nbrs:
                 self.coefs_[col] = None
                 continue
 
-            cols_needed = [col, *nbrs]
-            complete = X[cols_needed].dropna()
-
-            if len(complete) < self.min_train_periods:
-                self.coefs_[col] = None
-                continue
-
+            complete = X.loc[joint, [col, *nbrs]]
             y_train = complete[col].to_numpy()
             X_train = complete[nbrs].to_numpy()
             # Design matrix: [1, r_j1, ..., r_jK]

@@ -85,6 +85,67 @@ class TestFit:
         for col in df.columns:
             assert imp.coefs_[col] is None
 
+    def test_short_overlap_listing_is_not_ranked_as_neighbor(self) -> None:
+        """A recent listing with a handful of overlapping rows is ineligible.
+
+        Pairwise correlation over 6 shared points is ~1.0 by chance; ranking on
+        it would make every asset pick the new listing, whose joint history is
+        then too short for any OLS fit.
+        """
+        df = _make_correlated_df(n_periods=300)
+        df["NEW"] = np.nan
+        df.iloc[-6:, df.columns.get_loc("NEW")] = 2.0 * df["A"].iloc[-6:]
+
+        imp = RegressionImputer(n_neighbors=3, min_train_periods=60).fit(df)
+
+        for col in ["A", "B", "C", "D", "E"]:
+            assert "NEW" not in imp.neighbors_[col]
+            assert imp.coefs_[col] is not None
+
+    def test_short_overlap_listing_does_not_disable_regression_imputation(
+        self,
+    ) -> None:
+        df = _make_correlated_df(n_periods=300)
+        df["NEW"] = np.nan
+        df.iloc[-3:, df.columns.get_loc("NEW")] = 2.0 * df["A"].iloc[-3:]
+        df.iloc[150, df.columns.get_loc("A")] = np.nan
+
+        imp = RegressionImputer(n_neighbors=3, min_train_periods=60).fit(df)
+        out = imp.transform(df)
+
+        sector_fill = SectorImputer().fit(df).transform(df).iloc[150]["A"]
+        assert out.iloc[150]["A"] != pytest.approx(sector_fill)
+
+    def test_non_nested_histories_do_not_disable_regression(self) -> None:
+        """Neighbours must overlap the target jointly, not just pairwise.
+
+        OLD (first 100 rows) and NEW (last 70 rows) each share >= 60 rows with
+        every full-history asset but never with each other, so selecting both
+        leaves no complete row for the OLS fit.
+        """
+        df = _make_correlated_df(n_periods=300)
+        old = 2.0 * df["A"] + 0.01 * df["E"]
+        new = 3.0 * df["A"] - 0.01 * df["E"]
+        df["OLD"] = old.where(df.index < df.index[100])
+        df["NEW"] = new.where(df.index >= df.index[-70])
+
+        imp = RegressionImputer(n_neighbors=3, min_train_periods=60).fit(df)
+
+        for col in ["A", "B", "C", "D", "E"]:
+            nbrs = imp.neighbors_[col]
+            assert not {"OLD", "NEW"} <= set(nbrs)
+            assert len(df[[col, *nbrs]].dropna()) >= 60
+            assert imp.coefs_[col] is not None
+
+    def test_neighbours_keep_ranking_order_when_overlap_is_sufficient(self) -> None:
+        df = _make_correlated_df(n_periods=300)
+        corr = df.corr().abs()
+        expected = corr["A"].drop("A").nlargest(3).index.tolist()
+
+        imp = RegressionImputer(n_neighbors=3, min_train_periods=60).fit(df)
+
+        assert imp.neighbors_["A"] == expected
+
     def test_fallback_imputer_fitted(self, clean_df: pd.DataFrame) -> None:
         imp = RegressionImputer().fit(clean_df)
         check_is_fitted(imp._fallback_imputer_)
