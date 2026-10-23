@@ -1,5 +1,5 @@
 """Guard: the ingestion daemon never depends on ``optimizer`` or the portfolio-
-optimization stack (``skfolio``).
+optimization stack (``skfolio``, or ``portopt-core`` which would pull it in).
 
 ``scikit-learn`` is intentionally NOT forbidden: yfinance's price-repair path
 (``repair=True``) imports ``sklearn.cluster.DBSCAN`` to reconstruct bad prints,
@@ -11,7 +11,8 @@ the presence of any ML library — the daemon ingests, it does not optimize.
 
 Source-blind by construction: parses each file's syntax tree for import
 statements (and string-literal ``import_module`` / ``__import__`` calls) and
-scans the dependency manifest text. No implementation module is imported.
+reads requirement names out of the parsed dependency manifest. No implementation
+module is imported.
 
 Anchoring reuses the shape established by ``test_no_http_surface.py`` (the
 checkpoint guard): ``Path(__file__).resolve().parents[3]`` resolves directly
@@ -29,6 +30,7 @@ from pathlib import Path
 import pytest
 
 from tests.unit.hygiene._shared_scan import (
+    _declared_distribution_names,
     _imported_module_names,
     _iter_python_files,
 )
@@ -44,7 +46,10 @@ _SELF = Path(__file__).resolve()
 _SCANNED_TREES = ("app", "scripts", "tests")
 # Only the optimization stack is forbidden. scikit-learn is a required data-layer
 # dep (yfinance price-repair) and scipy is its transitive dep, so neither is here.
-_FORBIDDEN_STACK_PACKAGES = ("skfolio",)
+# ``portopt-core`` (import name ``optimizer``) is listed beside ``skfolio``
+# because it is how the stack would arrive: its manifest names skfolio, ours
+# would not.
+_FORBIDDEN_STACK_PACKAGES = ("skfolio", "portopt-core", "optimizer")
 
 
 def find_optimizer_import_violations(root: Path) -> list[str]:
@@ -73,18 +78,36 @@ def find_optimizer_import_violations(root: Path) -> list[str]:
 
 
 def find_forbidden_stack_dependencies(dependencies_text: str) -> list[str]:
-    """Return which sklearn-stack packages a dependency manifest declares.
+    """Return which optimization-stack distributions a manifest requires.
 
     Args:
-        dependencies_text: Raw contents of a dependency manifest (the daemon's
-            ``pyproject.toml``).
+        dependencies_text: Raw contents of the daemon's ``pyproject.toml``.
 
     Returns:
-        The subset of the forbidden optimization stack (``skfolio``) present,
-        empty when the manifest declares none of them.
+        The subset of the forbidden optimization stack (``skfolio``,
+        ``portopt-core``, ``optimizer``) declared as a requirement, empty when
+        the manifest requires none of them.
     """
-    lowered = dependencies_text.lower()
-    return [pkg for pkg in _FORBIDDEN_STACK_PACKAGES if pkg in lowered]
+    declared = _declared_distribution_names(dependencies_text)
+    return [pkg for pkg in _FORBIDDEN_STACK_PACKAGES if pkg in declared]
+
+
+def _pyproject(
+    *,
+    dependencies: str = "[]",
+    extras: str = "",
+    groups: str = "",
+    description: str = "daemon",
+) -> str:
+    """Build a minimal ``pyproject.toml`` body for the manifest fail-injection tests."""
+    return (
+        "[project]\n"
+        'name = "x"\n'
+        f'description = "{description}"\n'
+        f"dependencies = {dependencies}\n"
+        f"[project.optional-dependencies]\n{extras}\n"
+        f"[dependency-groups]\n{groups}\n"
+    )
 
 
 @pytest.mark.criterion("global-6")
@@ -108,7 +131,8 @@ def test_when_ingestion_pyproject_is_read_then_no_optimization_stack_dependency_
 def test_when_scikit_learn_is_declared_then_the_guard_allows_it():
     """scikit-learn is required by yfinance price-repair — it must NOT trip the
     optimization-stack guard."""
-    assert find_forbidden_stack_dependencies("scikit-learn==1.9.0\n") == []
+    manifest = _pyproject(dependencies='["scikit-learn==1.9.0"]')
+    assert find_forbidden_stack_dependencies(manifest) == []
 
 
 def test_when_ingestion_root_is_resolved_then_it_points_at_the_ingestion_directory():
@@ -126,8 +150,67 @@ def test_when_an_optimizer_import_is_injected_then_the_guard_fails(tmp_path):
 
 
 def test_when_a_forbidden_stack_package_is_injected_then_the_guard_fails():
-    violations = find_forbidden_stack_dependencies("skfolio==0.20.1\n")
-    assert violations == ["skfolio"]
+    manifest = _pyproject(dependencies='["skfolio==0.20.1"]')
+    assert find_forbidden_stack_dependencies(manifest) == ["skfolio"]
+
+
+@pytest.mark.parametrize(
+    ("manifest", "expected"),
+    [
+        (_pyproject(dependencies='["portopt-core"]'), ["portopt-core"]),
+        (_pyproject(dependencies='["portopt-core==0.1.0"]'), ["portopt-core"]),
+        (_pyproject(dependencies='["optimizer>=1"]'), ["optimizer"]),
+        (
+            _pyproject(
+                dependencies="[\"Portopt_Core[extra]>=0.1; python_version >= '3.12'\"]"
+            ),
+            ["portopt-core"],
+        ),
+        (
+            _pyproject(dependencies='["portopt-core @ file:///tmp/portopt-core"]'),
+            ["portopt-core"],
+        ),
+        (
+            _pyproject(extras='stack = ["portopt-core"]'),
+            ["portopt-core"],
+        ),
+        (
+            _pyproject(groups='dev = ["pytest", {include-group = "x"}, "skfolio"]'),
+            ["skfolio"],
+        ),
+        (
+            _pyproject(dependencies='["skfolio", "portopt-core"]'),
+            ["skfolio", "portopt-core"],
+        ),
+    ],
+    ids=[
+        "portopt-core",
+        "pinned",
+        "optimizer",
+        "extras-marker-and-case",
+        "direct-reference",
+        "optional-dependencies",
+        "dependency-groups",
+        "several",
+    ],
+)
+def test_when_a_forbidden_distribution_is_declared_in_any_manifest_table_then_the_guard_fails(
+    manifest, expected
+):
+    assert find_forbidden_stack_dependencies(manifest) == expected
+
+
+def test_when_a_manifest_only_mentions_the_stack_in_prose_then_the_guard_allows_it():
+    manifest = "# never add skfolio or portopt-core here\n" + _pyproject(
+        dependencies='["numpy==2.5.3"]',
+        description="runs without skfolio, portopt-core or optimizer",
+    )
+    assert find_forbidden_stack_dependencies(manifest) == []
+
+
+def test_when_a_distribution_merely_resembles_a_forbidden_name_then_the_guard_allows_it():
+    manifest = _pyproject(dependencies='["skfolio-extras==1", "portopt-core-docs"]')
+    assert find_forbidden_stack_dependencies(manifest) == []
 
 
 def test_when_own_source_is_scanned_then_it_is_excluded_from_the_tree():

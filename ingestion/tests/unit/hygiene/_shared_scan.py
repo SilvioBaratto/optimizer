@@ -16,10 +16,13 @@ not a test module in its own right.
 from __future__ import annotations
 
 import ast
+import re
 import shutil
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
+
+import tomllib
 
 # "build" catches ``ingestion/build/`` — a gitignored setuptools/``uv build``
 # artifact (``uv tool install --from ./ingestion`` during onboarding creates it)
@@ -27,6 +30,10 @@ from pathlib import Path
 _EXCLUDE_DIR_PARTS = {"__pycache__", "build"}
 
 _DYNAMIC_IMPORT_CALLEES = frozenset({"import_module", "__import__"})
+
+# PEP 508: the distribution name is the leading token of a requirement string,
+# before any extras, version specifier, environment marker or ``@ url``.
+_REQUIREMENT_NAME = re.compile(r"\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)")
 
 
 def _is_in_excluded_dir(path: Path, root: Path) -> bool:
@@ -134,3 +141,45 @@ def _iter_git_tracked_relpaths(root: Path) -> list[str] | None:
     if result.returncode != 0:
         return None
     return result.stdout.splitlines()
+
+
+def _declared_distribution_names(pyproject_text: str) -> set[str]:
+    """Return the normalized distribution names a ``pyproject.toml`` requires.
+
+    Reading the parsed manifest instead of substring-matching its text means a
+    dependency spelled ``Portopt_Core[x]>=1`` is seen as ``portopt-core``, while
+    a comment, description or lookalike such as ``portopt-core-docs`` is not
+    mistaken for the distribution a boundary guard forbids.
+
+    Args:
+        pyproject_text: Raw contents of a ``pyproject.toml``.
+
+    Returns:
+        PEP 503-normalized names (lowercase, runs of ``-_.`` collapsed to
+        ``-``) from ``project.dependencies``, every ``project.optional-
+        dependencies`` extra, every ``dependency-groups`` group,
+        ``tool.uv.dev-dependencies`` and ``build-system.requires``.
+
+    Raises:
+        tomllib.TOMLDecodeError: ``pyproject_text`` is not valid TOML — a guard
+            must fail loudly on a manifest it cannot read.
+    """
+    data = tomllib.loads(pyproject_text)
+    project = data.get("project", {})
+    requirement_lists: list[list[object]] = [
+        project.get("dependencies", []),
+        *project.get("optional-dependencies", {}).values(),
+        *data.get("dependency-groups", {}).values(),
+        data.get("tool", {}).get("uv", {}).get("dev-dependencies", []),
+        data.get("build-system", {}).get("requires", []),
+    ]
+    names: set[str] = set()
+    for requirements in requirement_lists:
+        for requirement in requirements:
+            # dependency-groups also holds ``{include-group = "..."}`` tables.
+            if not isinstance(requirement, str):
+                continue
+            match = _REQUIREMENT_NAME.match(requirement)
+            if match:
+                names.add(re.sub(r"[-_.]+", "-", match.group(1)).lower())
+    return names
