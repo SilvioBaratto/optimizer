@@ -57,17 +57,19 @@ def compute_addv(
     """Compute average daily dollar volume over a trailing window.
 
     Args:
-        price_history: Price matrix (dates x tickers). Must be denominated
-            in major currency units (e.g. GBP, not GBX).
-            ``price_history.price_unit`` carries the listing currency;
-            minor-unit normalisation must be applied upstream via
-            `fx` (e.g. `FxPriceConverter`).
+        price_history: Price matrix (dates x tickers), USD-normalised and in
+            major units (dollars, not cents; a GBP or GBX listing converted to
+            USD).  The result is compared against the USD ADDV thresholds of
+            `InvestabilityScreenConfig` and no conversion happens here, so
+            ``price_history.price_unit`` minor-unit normalisation and FX
+            conversion must be applied upstream via `fx` (e.g.
+            `FxPriceConverter` with a USD base).
         volume_history: Volume matrix (dates x tickers), aligned with
             price_history.
         window: Number of trailing trading days.
 
     Returns:
-        Average daily dollar volume per ticker.
+        Average daily dollar volume per ticker, in USD.
     """
     dollar_volume = price_history * volume_history
     if len(dollar_volume) >= window:
@@ -290,12 +292,18 @@ def apply_investability_screens(
             ``instruments.exchange``) for the per-exchange market-cap percentile
             screen, ``delisted_at`` (``instruments.delisted_at``) for the
             survivorship policy, and ``is_etf`` (``etf_metadata`` presence) to
-            exempt funds from the equity-only financial-statement screen. All
-            monetary columns (``market_cap``, ``current_price``, etc.) must be
-            denominated in major currency units (e.g. GBP, not GBX); minor-unit
-            normalisation must be applied upstream via `fx`
-            before this function is called.
-        price_history: Price matrix (dates x tickers).
+            exempt funds from the equity-only financial-statement screen.
+            Monetary inputs are never converted here, and the market-cap and
+            dollar-volume thresholds are in USD, so ``market_cap`` and
+            ``price_history`` must be USD-normalised major units (a JPY or EUR
+            value would be compared against the USD thresholds as is).
+            ``current_price`` is the listing price in major units (e.g. GBP, not
+            GBX): USD for ``ExchangeRegion.US`` and local currency for
+            ``ExchangeRegion.EUROPE``.  Apply minor-unit and FX normalisation
+            upstream via `fx` (e.g. `FxPriceConverter` with a USD base) before
+            calling this function.
+        price_history: Price matrix (dates x tickers), USD-normalised major
+            units; drives the USD ADDV screens.
         volume_history: Volume matrix (dates x tickers).
         financial_statements: Statement-level data with ``ticker``,
             ``period_type``, and optionally ``period_date`` columns.

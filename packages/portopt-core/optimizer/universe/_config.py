@@ -72,6 +72,10 @@ class InvestabilityScreenConfig:
     hysteresis thresholds use separate entry/exit values to reduce
     turnover at screen boundaries.
 
+    The screens never convert currencies: the market-cap and dollar-volume
+    thresholds below are USD, so the ``market_cap`` and price-history inputs
+    must already be USD-normalised (see ``apply_investability_screens``).
+
     Attributes:
         market_cap: Free-float market capitalization thresholds (USD).
         addv_12m: 12-month average daily dollar volume thresholds (USD).

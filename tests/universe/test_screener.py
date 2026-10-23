@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -12,13 +14,16 @@ from optimizer.universe import (
     ExchangeRegion,
     HysteresisConfig,
     InvestabilityScreenConfig,
+    InvestabilityScreenSelector,
     apply_investability_screens,
     apply_screen,
+    build_investability_screen,
     compute_addv,
     compute_exchange_mcap_percentile_thresholds,
     compute_listing_age,
     compute_trading_frequency,
     count_financial_statements,
+    screen_universe,
 )
 
 
@@ -892,6 +897,30 @@ class TestMcapPercentileScreenHysteresis:
         )
         assert "T0" not in result  # existing member fails the exit threshold
         assert "T9" in result  # largest stock is a new entrant
+
+
+class TestUsdNumeraireContract:
+    """Thresholds are in USD, so every API fed to them must say USD is required."""
+
+    @pytest.mark.parametrize(
+        "obj",
+        [
+            compute_addv,
+            apply_investability_screens,
+            screen_universe,
+            build_investability_screen,
+            InvestabilityScreenSelector,
+        ],
+    )
+    def test_docstring_requires_usd_normalised_monetary_inputs(
+        self, obj: object
+    ) -> None:
+        doc = inspect.getdoc(obj) or ""
+        assert "USD" in doc, f"{getattr(obj, '__name__', obj)} does not state USD"
+
+    def test_config_documents_usd_normalised_inputs(self) -> None:
+        doc = inspect.getdoc(InvestabilityScreenConfig) or ""
+        assert "USD-normalised" in doc
 
 
 class TestRequiredInputs:

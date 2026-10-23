@@ -157,8 +157,10 @@ class InvestabilityScreenSelector(SelectorMixin, BaseEstimator):
 
     Args:
         fundamentals: Cross-sectional data, one row per ticker (see
-            `apply_investability_screens`).  Required at ``fit`` time.
-        price_history: Price matrix (dates x tickers).  Required at ``fit`` time.
+            `apply_investability_screens`); ``market_cap`` must be
+            USD-normalised.  Required at ``fit`` time.
+        price_history: Price matrix (dates x tickers), USD-normalised.  Required
+            at ``fit`` time.
         volume_history: Volume matrix (dates x tickers).  Required at ``fit`` time.
         financial_statements: Optional statement-level data for the
             data-availability screen.
