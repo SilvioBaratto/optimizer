@@ -108,6 +108,65 @@ class TestCalendarsClient:
             assert _client().fetch_splits() == []
 
 
+class _TieOrderedCalendar:
+    """Serves *n* rows that all tie on Yahoo's sort key, like a day of 00:00 events.
+
+    Yahoo does not fix the order of tied rows between requests, so each call
+    sees the tied rows rotated by a different amount. Rows are ``T0..T{n-1}``.
+    """
+
+    def __init__(self, n: int, duplicate_of: int | None = None) -> None:
+        self.rows = [f"T{i}" for i in range(n)]
+        if duplicate_of is not None:
+            self.rows.append(self.rows[duplicate_of])
+        self.calls = 0
+
+    def get_splits_calendar(
+        self, *, start: object, end: object, limit: int, offset: int
+    ) -> pd.DataFrame:
+        self.calls += 1
+        shift = (self.calls * 37) % len(self.rows)
+        order = self.rows[shift:] + self.rows[:shift]
+        page = order[offset : offset + limit]
+        # yfinance indexes every calendar frame by its natural-key column.
+        return pd.DataFrame(
+            {"Symbol": page, "Event Start Date": ["2026-10-30"] * len(page)}
+        ).set_index("Symbol")
+
+
+class TestTieOrderedPagination:
+    def test_rows_displaced_by_unstable_tie_order_are_recovered(self) -> None:
+        # A single pass over 130 tied rows returns 30 of them twice and never
+        # shows 30 others; re-pulling and unioning must recover the full set.
+        cal = _TieOrderedCalendar(130)
+        with patch(_CAL, return_value=cal):
+            out = _client().fetch_splits()
+
+        assert out is not None
+        symbols = [r["Symbol"] for r in out]
+        assert len(symbols) == len(set(symbols))
+        assert set(symbols) == set(cal.rows)
+
+    def test_stable_ordering_costs_a_single_pass(self) -> None:
+        cal = MagicMock()
+        cal.get_splits_calendar.side_effect = [_page(100, 0), _page(30, 100)]
+        with patch(_CAL, return_value=cal):
+            out = _client().fetch_splits()
+
+        assert out is not None and len(out) == 130
+        assert cal.get_splits_calendar.call_count == 2
+
+    def test_genuinely_repeated_row_does_not_cause_endless_repulls(self) -> None:
+        # Yahoo can list one event twice; no number of passes will ever make the
+        # distinct count reach the raw row count.
+        cal = _TieOrderedCalendar(5, duplicate_of=0)
+        with patch(_CAL, return_value=cal):
+            out = _client().fetch_splits()
+
+        assert out is not None and len(out) == 5
+        assert cal.calls <= 2
+
+
 class TestRepository:
     """Uses the humanized label columns yfinance actually emits (reset_index of
     the label-keyed DataFrames), not the raw includeFields names — matching the

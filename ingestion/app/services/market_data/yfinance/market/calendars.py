@@ -7,6 +7,12 @@ Rather than the bare convenience properties (which return only ~12 rows over a
 market-wide sweep captures the full set. Yahoo caps each page at 100 rows; we
 page up to ``_MAX_ROWS`` and log if that cap is hit (no silent truncation).
 
+Yahoo sorts each calendar by a key with many ties (an economic day's 00:00
+events, earnings names without a market cap) and does not fix the order of tied
+rows between requests. Offset pages therefore repeat some rows and never show
+others, and the repeats equal the omissions. A pass that returns fewer distinct
+rows than it fetched is repeated and the passes are unioned until the gap closes.
+
 Earnings additionally fetch a **backward** window: a forward-only calendar only
 carries the consensus ``EPS Estimate`` (upcoming events have no result yet), so
 ``Reported EPS`` / ``Surprise(%)`` are always NULL. The past window backfills the
@@ -35,6 +41,7 @@ logger = logging.getLogger(__name__)
 
 _PAGE = 100  # Yahoo caps calendar pages at 100 (calendars.py: min(limit, 100))
 _MAX_ROWS = 2000  # safety cap across pages; logged if reached
+_MAX_REPASSES = 3  # extra passes to recover rows displaced by unstable tie order
 _WINDOW_DAYS = 90  # forward window fetched each run
 # Backward windows: fetched as a separate pass (own row budget) so forward rows
 # never crowd out the realized values. Earnings spans a quarterly reporting cycle;
@@ -53,6 +60,15 @@ def _records(value: Any) -> list[dict[str, Any]]:
     if isinstance(value, list):
         return [r for r in value if isinstance(r, dict)]
     return []
+
+
+def _unique_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop exact repeats, keeping the first occurrence of each row in order."""
+    seen: dict[tuple[tuple[str, str], ...], dict[str, Any]] = {}
+    for row in rows:
+        key = tuple(sorted((str(k), repr(v)) for k, v in row.items()))
+        seen.setdefault(key, row)
+    return list(seen.values())
 
 
 class CalendarsClient:
@@ -87,25 +103,48 @@ class CalendarsClient:
             end = today + timedelta(days=forward_days)
             fn = getattr(yf.Calendars(), method)
 
-            collected: list[dict[str, Any]] = []
-            offset = 0
-            while len(collected) < _MAX_ROWS:
-                recs = _records(
-                    fn(start=start, end=end, limit=_PAGE, offset=offset, **extra)
-                )
-                if not recs:
-                    break
-                collected.extend(recs)
-                if len(recs) < _PAGE:
-                    break
-                offset += _PAGE
-            if len(collected) >= _MAX_ROWS:
+            def _one_pass() -> list[dict[str, Any]]:
+                collected: list[dict[str, Any]] = []
+                offset = 0
+                while len(collected) < _MAX_ROWS:
+                    recs = _records(
+                        fn(start=start, end=end, limit=_PAGE, offset=offset, **extra)
+                    )
+                    if not recs:
+                        break
+                    collected.extend(recs)
+                    if len(recs) < _PAGE:
+                        break
+                    offset += _PAGE
+                return collected
+
+            fetched = _one_pass()
+            rows = _unique_rows(fetched)
+            if len(fetched) >= _MAX_ROWS:
                 logger.warning(
                     "calendars %s hit the %d-row cap; more rows may exist",
                     method,
                     _MAX_ROWS,
                 )
-            return collected[:_MAX_ROWS]
+                return rows[:_MAX_ROWS]
+
+            for _ in range(_MAX_REPASSES):
+                if len(rows) >= len(fetched):
+                    break
+                self.rate_limiter.acquire(f"calendars:{method}")
+                merged = _unique_rows([*rows, *_one_pass()])
+                if len(merged) == len(rows):
+                    break
+                rows = merged
+            if len(rows) < len(fetched):
+                logger.warning(
+                    "calendars %s: %d distinct rows out of %d fetched; "
+                    "Yahoo's page order was unstable or it repeats rows",
+                    method,
+                    len(rows),
+                    len(fetched),
+                )
+            return rows
 
         return retry_with_backoff(
             _action,
