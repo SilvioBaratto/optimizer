@@ -35,7 +35,6 @@ from skfolio.distribution import (
     Gaussian,
     GaussianCopula,
     GumbelCopula,
-    IndependentCopula,
     JoeCopula,
     JohnsonSU,
     NormalInverseGaussian,
@@ -62,11 +61,13 @@ _MARGINAL_MAP: dict[str, type[BaseDistribution]] = {
     "NormalInverseGaussian": NormalInverseGaussian,
 }
 
+# IndependentCopula is deliberately absent: skfolio applies it internally to
+# edges that pass the independence test, and as a user candidate it crashes
+# select_bivariate_copula (it has no ``itau`` attribute).
 _COPULA_MAP: dict[str, type[BaseDistribution]] = {
     "ClaytonCopula": ClaytonCopula,
     "GaussianCopula": GaussianCopula,
     "GumbelCopula": GumbelCopula,
-    "IndependentCopula": IndependentCopula,
     "JoeCopula": JoeCopula,
     "StudentTCopula": StudentTCopula,
 }

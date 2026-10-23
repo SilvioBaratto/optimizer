@@ -141,6 +141,15 @@ class TestBuildVineCopula:
         with pytest.raises(ConfigurationError, match="BogusCopula"):
             build_vine_copula(cfg)
 
+    def test_when_independent_copula_candidate_then_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        cfg = VineCopulaConfig(
+            copula_candidates=("GaussianCopula", "IndependentCopula")
+        )
+        with pytest.raises(ConfigurationError, match="IndependentCopula"):
+            build_vine_copula(cfg)
+
 
 # ---------------------------------------------------------------------------
 # SyntheticData
