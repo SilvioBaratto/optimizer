@@ -681,3 +681,49 @@ def test_member_below_the_exit_band_is_still_dropped(
     tiny = _quote("TINY", "NMS", regularMarketPrice=5.0, sharesOutstanding=1_000_000)
     src = _hysteresis_source(monkeypatch, tiny, {("TINY", "NASDAQ")})
     assert src.get_instruments() == []
+
+
+def test_cross_listed_currency_without_a_rate_fails_the_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A silently omitted CHF rate would rank the Swiss primary below a thin EUR
+    # line and the builder would then mark the real primary delisted.
+    nesn = _quote(
+        "NESN.SW",
+        "EBS",
+        longName="Nestle S.A.",
+        currency="CHF",
+        financialCurrency="CHF",
+        averageDailyVolume3Month=3_000_000,
+    )
+    thin = _quote(
+        "NSRGF.DE",
+        "GER",
+        longName="Nestle S.A.",
+        currency="EUR",
+        financialCurrency="CHF",
+        averageDailyVolume3Month=2_000,
+    )
+    src, _ = _source([{"quotes": [nesn, thin]}, {"quotes": []}], monkeypatch)
+    src.fx_resolver = lambda majors: {"USD": 1.0, "EUR": 1.1}
+    with pytest.raises(RuntimeError, match="CHF"):
+        src.get_instruments()
+
+
+def test_live_fx_retries_a_transient_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    class _FlakyTicker:
+        def __init__(self, symbol: str) -> None:
+            self.symbol = symbol
+
+        def history(self, period: str) -> pd.DataFrame:
+            calls.append(self.symbol)
+            if len(calls) == 1:
+                raise RuntimeError("Too Many Requests")
+            return pd.DataFrame({"Close": [1.05, 1.1]})
+
+    monkeypatch.setattr("app.services.infrastructure.retry.time.sleep", lambda _s: None)
+    monkeypatch.setattr("app.services.universe.yfinance_source.yf.Ticker", _FlakyTicker)
+    assert yfinance_source._live_usd_per_major({"EUR"}) == {"USD": 1.0, "EUR": 1.1}
+    assert calls == ["EURUSD=X", "EURUSD=X"]

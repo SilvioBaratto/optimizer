@@ -277,6 +277,33 @@ class TestDedupCanonical:
         b = [x.symbol for x in dedup_canonical(list(reversed(listings)), _FX)]
         assert a == b
 
+    def test_unresolved_fx_on_cross_listing_aborts_instead_of_demoting_primary(
+        self,
+    ) -> None:
+        # CHF rate missing: NESN.SW would get ADDV -1 and lose to the 2k-share EUR
+        # line, silently swapping the primary listing for a thin one.
+        fx = {k: v for k, v in _FX.items() if k != "CHF"}
+        listings = [
+            _mk("NESN.SW", "EBS", "Nestle S.A.", "CHF", 100.0, 3e6, fin_ccy="CHF"),
+            _mk("NSRGF.DE", "GER", "Nestle S.A.", "EUR", 90.0, 2000, fin_ccy="CHF"),
+        ]
+        with pytest.raises(ValueError, match="CHF"):
+            dedup_canonical(listings, fx)
+
+    def test_unresolved_fx_on_lone_listing_is_fail_open(self) -> None:
+        # Nothing to rank against, so a missing rate cannot change a winner.
+        lone = _mk("ABC.XX", "XXX", "Abc Ltd", "XYZ", 10.0, 1e6)
+        assert [x.symbol for x in dedup_canonical([lone], _FX)] == ["ABC.XX"]
+
+    def test_line_without_volume_still_loses_without_fx_error(self) -> None:
+        # No traded volume is a dead line, not an FX gap: ranked last, no abort.
+        listings = [
+            _mk("ACME", "NMS", "Acme Corp", "USD", 10.0, 1e6),
+            _mk("ACME.MU", "MUN", "Acme Corp", "EUR", 9.0, 0),
+        ]
+        fx = {"USD": 1.0}
+        assert [x.symbol for x in dedup_canonical(listings, fx)] == ["ACME"]
+
 
 # --------------------------------------------------------------------------- #
 # passes_floor

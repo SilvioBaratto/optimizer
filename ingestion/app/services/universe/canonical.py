@@ -233,6 +233,8 @@ def _rank_key(
     beats warrants/units/rights, which carry longer symbols), then a deterministic
     exchange preference order.
     """
+    # Unknown ADDV means no traded volume (a missing FX rate aborts earlier in
+    # dedup_canonical), so a dead line must rank below every liquid one.
     addv = metrics.addv_usd if metrics.addv_usd is not None else -1.0
     home = int(
         listing.currency is not None and listing.currency == listing.financial_currency
@@ -244,6 +246,23 @@ def _rank_key(
         else len(exchange_pref) + 1
     )
     return (addv, home, mcap, -len(listing.symbol), -pref)
+
+
+def _fx_blocked_currency(
+    listing: Listing, usd_per_major: dict[str, float]
+) -> str | None:
+    """Major currency whose missing rate is the ONLY thing hiding this line's ADDV.
+
+    A line that has price and volume but whose currency has no usable FX rate is
+    liquid-but-unrankable, unlike a dead line (no volume) that legitimately ranks
+    last. Returns ``None`` when ADDV is derivable or hopeless for another reason.
+    """
+    major, _ = split_currency(listing.currency)
+    if major is None or _positive(usd_per_major.get(major)) is not None:
+        return None
+    if _positive(listing.price) is None or _positive(listing.avg_volume) is None:
+        return None
+    return major
 
 
 def dedup_canonical(
@@ -263,6 +282,12 @@ def dedup_canonical(
     Within a group the max-``_rank_key`` line is canonical; when ``keep_dual_class``
     is set, same-exchange siblings clearing ``dual_class_min_addv_usd`` are also kept
     (recovers GOOG beside GOOGL). Order of survivors is deterministic.
+
+    Raises:
+        ValueError: A cross-listing group contains a line with price and volume
+            whose currency has no FX rate in ``usd_per_major``. Its USD ADDV is
+            unknowable, and ranking it below known lines would silently demote the
+            real primary listing, so the caller must resolve the rate and retry.
     """
     cfg = config or IngestionFloorConfig()
     enriched = [(lst, derive_metrics(lst, usd_per_major)) for lst in listings]
@@ -275,6 +300,20 @@ def dedup_canonical(
         if not name_key:
             name_key = f"\x00sym\x00{lst.symbol}"  # never merge an unnamed listing
         groups[(name_key, lst.financial_currency)].append((lst, metrics))
+
+    unresolved = {
+        major
+        for members in groups.values()
+        if len(members) > 1
+        for lst, _ in members
+        if (major := _fx_blocked_currency(lst, usd_per_major)) is not None
+    }
+    if unresolved:
+        msg = (
+            "cannot rank cross-listings: no USD rate for "
+            f"{', '.join(sorted(unresolved))}"
+        )
+        raise ValueError(msg)
 
     survivors: list[Listing] = []
     for members in groups.values():
