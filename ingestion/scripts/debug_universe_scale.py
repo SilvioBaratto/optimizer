@@ -124,35 +124,39 @@ def _probe(
     inst: dict,
     hist_retries: int = 1,
 ) -> dict[str, Any]:
-    """Real per-instrument path: map -> fetch_info -> fetch_history. Record outcome."""
+    """Real per-instrument path: map -> fetch_info -> fetch_history. Record outcome.
+
+    A failure inside the probe is recorded under ``error`` instead of raised:
+    ``Future.result()`` would re-raise it in the main thread and discard every
+    other result.
+    """
     symbol = inst.get("shortName") or inst.get("ticker") or "?"
     out: dict[str, Any] = {"symbol": symbol, "exchange": exchange_name}
-    yf = mapper.discover(symbol, exchange_name)
-    out["yf"] = yf
-    if not yf:
-        out.update(mapped=False)
-        with _lock:
-            out["idx"] = next(_counter)
-        return out
-    out["mapped"] = True
-    out["info_ok"] = bool(mapper.fetch_basic_data(yf))
     try:
-        hist = client.fetch_history(
-            yf, period="5y", max_retries=hist_retries, min_rows=1
-        )
-        if hist is None or hist.empty:
-            out["hist_rows"] = 0
-        else:
-            out["hist_rows"] = len(hist)
-            # Capture the real span so a short row-count can be classified as
-            # genuinely-young (recent first date) vs gappy/partial (old first
-            # date, sparse rows) rather than assumed "short history".
-            out["first"] = str(hist.index[0].date())
-            out["last"] = str(hist.index[-1].date())
-        out["hist_err"] = None
+        yf = mapper.discover(symbol, exchange_name)
+        out["yf"] = yf
+        out["mapped"] = bool(yf)
+        if yf:
+            out["info_ok"] = bool(client.fetch_info(yf, max_retries=1, min_fields=5))
+            try:
+                hist = client.fetch_history(
+                    yf, period="5y", max_retries=hist_retries, min_rows=1
+                )
+                if hist is None or hist.empty:
+                    out["hist_rows"] = 0
+                else:
+                    out["hist_rows"] = len(hist)
+                    # Capture the real span so a short row-count can be classified as
+                    # genuinely-young (recent first date) vs gappy/partial (old first
+                    # date, sparse rows) rather than assumed "short history".
+                    out["first"] = str(hist.index[0].date())
+                    out["last"] = str(hist.index[-1].date())
+                out["hist_err"] = None
+            except Exception as exc:
+                out["hist_rows"] = 0
+                out["hist_err"] = repr(exc)[:120]
     except Exception as exc:
-        out["hist_rows"] = 0
-        out["hist_err"] = repr(exc)[:120]
+        out["error"] = repr(exc)[:120]
     with _lock:
         out["idx"] = next(_counter)
     return out
@@ -202,13 +206,20 @@ def main() -> None:
     info_ok = [r for r in mapped if r.get("info_ok")]
     hist_ok = [r for r in mapped if r.get("hist_rows", 0) >= cfg.min_trading_days]
     hist_empty = [
-        r for r in mapped if r.get("hist_rows", 0) == 0 and not r.get("hist_err")
+        r
+        for r in mapped
+        if r.get("hist_rows", 0) == 0 and not r.get("hist_err") and not r.get("error")
     ]
     hist_err = [r for r in mapped if r.get("hist_err")]
+    probe_err = [r for r in results if r.get("error")]
 
     # Throttle onset: first completion where info worked but history came back empty.
     onset = next(
-        (r for r in results if r.get("info_ok") and r.get("hist_rows", 0) == 0),
+        (
+            r
+            for r in results
+            if r.get("info_ok") and r.get("hist_rows", 0) == 0 and not r.get("error")
+        ),
         None,
     )
 
@@ -219,6 +230,7 @@ def main() -> None:
     print(f"fetch_history >=750 : {len(hist_ok)}")
     print(f"history EMPTY (0)   : {len(hist_empty)}")
     print(f"history ERROR       : {len(hist_err)}")
+    print(f"probe ERROR         : {len(probe_err)}")
     if onset:
         print(
             f"\n*** THROTTLE ONSET at completion idx {onset['idx']}: "
@@ -240,6 +252,11 @@ def main() -> None:
         print("\nsample history errors:")
         for r in hist_err[:5]:
             print(f"  {r['symbol']} ({r['yf']}): {r['hist_err']}")
+
+    if probe_err:
+        print("\nsample probe errors:")
+        for r in probe_err[:5]:
+            print(f"  {r['symbol']} ({r.get('yf')}): {r['error']}")
 
     # Short-history diagnosis: 0 < rows < min_trading_days. Classify each as
     #   YOUNG   -> first trade date is recent; the listing is genuinely too short
