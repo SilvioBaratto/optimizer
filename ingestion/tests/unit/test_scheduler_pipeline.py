@@ -171,6 +171,36 @@ class TestRunStep:
 
         assert result is False
 
+    @pytest.mark.parametrize("interrupt", [KeyboardInterrupt, SystemExit])
+    def test_when_fn_is_interrupted_then_row_failed_and_interrupt_propagates(
+        self, interrupt
+    ):
+        # Ctrl-C / SIGTERM-driven exit in a CLI run bypasses ``except
+        # Exception``; the row must still leave the active state so an
+        # immediate re-run is not refused as "already running".
+        job_svc = _make_job_svc()
+        fn = MagicMock(side_effect=interrupt())
+
+        with patch(f"{M}.threading.Thread") as mock_thread:
+            mock_thread.return_value = MagicMock()
+            with pytest.raises(interrupt):
+                self._call(job_svc, fn)
+
+        statuses = [c.kwargs.get("status") for c in job_svc.update_job.call_args_list]
+        assert statuses == ["running", "failed"]
+
+    def test_when_interrupted_and_failed_write_errors_then_interrupt_still_propagates(
+        self,
+    ):
+        job_svc = _make_job_svc()
+        job_svc.update_job.side_effect = [None, _db_error()]
+        fn = MagicMock(side_effect=KeyboardInterrupt())
+
+        with patch(f"{M}.threading.Thread") as mock_thread:
+            mock_thread.return_value = MagicMock()
+            with pytest.raises(KeyboardInterrupt):
+                self._call(job_svc, fn)
+
 
 class TestStepFailureIsolation:
     def test_when_yfinance_claim_errors_then_daily_pipeline_runs_independent_steps(

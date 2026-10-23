@@ -289,7 +289,8 @@ def _run_step(
 
     Returns ``True`` if the step completed, ``False`` on skip or failure. It
     never raises for a database fault around the job row: callers chain steps
-    back to back, so one step's bookkeeping error must not skip the rest.
+    back to back, so one step's bookkeeping error must not skip the rest. A
+    ``KeyboardInterrupt`` / ``SystemExit`` marks the row failed and propagates.
     """
     if _scheduler is not None and _scheduler.draining:
         logger.warning("%s: skipped — scheduler is shutting down", label)
@@ -346,6 +347,13 @@ def _run_step(
         logger.exception("%s: raised an exception", label)
         _mark_job_failed(job_svc, job_id, label)
         return False
+    except BaseException:
+        # KeyboardInterrupt / SystemExit bypass ``except Exception``. The
+        # heartbeat dies with the process, so a row left active would refuse
+        # every re-run as "already running" until the reaper lease expires.
+        logger.warning("%s: interrupted", label)
+        _mark_job_failed(job_svc, job_id, label)
+        raise
 
 
 # ---------------------------------------------------------------------------
