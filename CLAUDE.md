@@ -124,7 +124,7 @@ Full tables and internals live in the `portopt_db` models and the ingestion serv
 - **Gotcha — transient-error detection** (`infrastructure/retry.py`): case-sensitive substring match. `"Too Many Requests"` trips the breaker; `"too many requests"` does not
 - **Cron weekday gotcha**: APScheduler `from_crontab` numbers days `0=Mon..6=Sun`. Use weekday names (`sat`); a bare `0` fires Monday
 
-Key env vars: `DATABASE_URL`, `TRADING_212_API_KEY` (absent ⇒ `universe_build` skips without claiming a slot), `FRED_API_KEY`, `METRICS_PORT` (9000), `YFINANCE_FETCH_WORKERS` (1-16, default 4). The full list + `SCHEDULER_*` crons are documented in `ingestion/.env.example` and `app/config.py`.
+Key env vars: `DATABASE_URL`, `TRADING_212_API_KEY` (absent ⇒ `t212_annotate` skips without claiming a slot; `universe_build` runs from the yfinance Screener regardless), `FRED_API_KEY`, `METRICS_PORT` (9000), `YFINANCE_FETCH_WORKERS` (1-16, default 4). The full list + `SCHEDULER_*` crons are documented in `ingestion/.env.example` and `app/config.py`.
 
 ## Fund bridge (`fund/`, LIVE)
 

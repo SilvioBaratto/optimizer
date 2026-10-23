@@ -33,7 +33,7 @@ uv run --package portopt python -m app.worker      # blocks until SIGTERM/SIGINT
 |-----|---------|--------------|
 | `daily_pipeline` | `0 7 * * *` | yfinance → macro → news |
 | `midday_news` | `0 14 * * *` | news (afternoon refresh) |
-| `universe_build` | `0 2 * * sat` | Trading 212 instrument universe (Saturday) |
+| `universe_build` | `0 2 * * sat` | instrument universe from the yfinance Screener, then Trading 212 tickers via `t212_annotate` when keyed (Saturday) |
 | `weekly_refetch` | `0 3 * * sat` | full yfinance + macro rebuild (5y), Saturday after Friday close |
 | `weekly_market_wide` | `0 4 * * sat` | sector/industry structure, calendars, market summaries, full option chains |
 | `fred_monthly` | `0 8 1 * *` | FRED economic series |
@@ -104,8 +104,9 @@ Set `NOTIFICATION_WEBHOOK_URL` for a Discord/Slack POST on job failure.
   container `stop_grace_period` / `terminationGracePeriodSeconds` above that (compose ships
   `60s`; the compose default is only 10s) so the drain is not SIGKILLed mid-write. Raise both
   together to drain long fetches cleanly.
-- **`TRADING_212_API_KEY` absent** ⇒ `universe_build` skips without claiming a job slot. That
-  is a configuration state, not a failure — but nothing will refresh `instruments`.
+- **`TRADING_212_API_KEY` absent** ⇒ the `t212_annotate` step skips without claiming a job
+  slot. That is a configuration state, not a failure: `universe_build` still refreshes
+  `instruments` from the yfinance Screener, the instruments just carry no Trading 212 ticker.
 - **Migration `d1e2f3a4b5c6` is one-way.** It drops the 17 non-ingestion tables and its
   `downgrade()` raises. Restore from a dump taken before the upgrade.
 
@@ -139,7 +140,7 @@ app/
     jobs/          APScheduler wiring + BackgroundJobService
     market_data/   yfinance client, bulk fetch, reference-index seeding
     macro/         FRED / Il Sole / Trading Economics scrapers, macro news scraping
-    universe/      Trading 212 universe build
+    universe/      yfinance-Screener universe build + Trading 212 ticker annotation
     infrastructure/ circuit breaker, rate limiter, retry, TTL cache
   repositories/
     jobs/          BackgroundJobRepository (behavior stays here); domain repos re-exported

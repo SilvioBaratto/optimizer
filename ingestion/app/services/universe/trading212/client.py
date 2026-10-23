@@ -175,7 +175,8 @@ class Trading212Client:
 
         Returns:
             A configured client, or ``None`` when either API credential is
-            absent from settings (universe build skips without claiming a slot).
+            absent from settings (the ``t212_annotate`` step skips without
+            claiming a slot; the universe build does not need this client).
         """
         api_key = settings.trading_212_api_key
         api_secret = settings.trading_212_secret_key

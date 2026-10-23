@@ -100,7 +100,8 @@ submodule's source and docstrings under `packages/portopt-core/optimizer/`.
 - **Docker + the `docker compose` v2 plugin** — only for the ingestion daemon
   and the fund bridge (they need PostgreSQL 16). Not needed for the library.
 - Optional API keys (ingestion): `TRADING_212_API_KEY` (+ secret),
-  `FRED_API_KEY`. Absent Trading 212 ⇒ the universe-build step skips cleanly.
+  `FRED_API_KEY`. Absent Trading 212 ⇒ only the `t212_annotate` step skips cleanly;
+  the universe itself is built from the yfinance Screener either way.
 
 ---
 
