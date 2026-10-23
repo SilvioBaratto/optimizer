@@ -834,6 +834,30 @@ class TestGetNews:
 # ---------------------------------------------------------------------------
 
 
+class TestGetOldestPriceDate:
+    def test_when_no_prices_returns_none(self, db_session: Session) -> None:
+        repo = _repo(db_session)
+
+        assert repo.get_oldest_price_date(uuid.uuid4()) is None
+
+    def test_when_prices_exist_returns_earliest_bar_of_that_instrument(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session)
+        inst = _instrument(db_session, ex)
+        other = _instrument(db_session, ex, ticker="OTHR", yfinance_ticker="OTHR")
+        for d in [date(2024, 1, 1), date(2022, 3, 9), date(2023, 12, 31)]:
+            db_session.add(PriceHistory(instrument_id=inst.id, date=d, close=150.0))
+        db_session.add(
+            PriceHistory(instrument_id=other.id, date=date(2010, 1, 4), close=1.0)
+        )
+        db_session.flush()
+
+        repo = _repo(db_session)
+
+        assert repo.get_oldest_price_date(inst.id) == date(2022, 3, 9)
+
+
 class TestGetStalenessInfo:
     def test_when_no_data_all_none(self, db_session: Session) -> None:
         repo = _repo(db_session)

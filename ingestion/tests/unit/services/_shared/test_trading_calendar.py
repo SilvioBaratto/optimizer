@@ -22,6 +22,7 @@ from app.services._shared.trading_calendar import (
     has_sufficient_history,
     iter_trading_days,
     parse_period_years,
+    period_start_date,
 )
 
 
@@ -33,6 +34,35 @@ class TestParsePeriodYears:
     @pytest.mark.parametrize("period", ["6mo", "max", "1d", "ytd", ""])
     def test_when_non_year_period_then_none(self, period: str) -> None:
         assert parse_period_years(period) is None
+
+
+class TestPeriodStartDate:
+    _REF = date(2024, 12, 31)
+
+    @pytest.mark.parametrize(
+        "period,expected",
+        [
+            ("5y", date(2019, 12, 31)),
+            ("1y", date(2023, 12, 31)),
+            ("6mo", date(2024, 6, 30)),
+            ("2wk", date(2024, 12, 17)),
+            ("10d", date(2024, 12, 21)),
+            ("ytd", date(2024, 1, 1)),
+        ],
+    )
+    def test_when_valid_period_then_window_start_returned(
+        self, period: str, expected: date
+    ) -> None:
+        assert period_start_date(period, self._REF) == expected
+
+    def test_when_leap_day_reference_then_year_offset_clamps_to_month_end(
+        self,
+    ) -> None:
+        assert period_start_date("1y", date(2024, 2, 29)) == date(2023, 2, 28)
+
+    @pytest.mark.parametrize("period", ["max", "5yrs", "", "0y"])
+    def test_when_period_has_no_finite_start_then_none(self, period: str) -> None:
+        assert period_start_date(period, self._REF) is None
 
 
 class TestExpectedTradingSessions:

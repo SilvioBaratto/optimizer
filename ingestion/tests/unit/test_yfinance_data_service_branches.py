@@ -1167,6 +1167,88 @@ class TestIncrementalPriceFetch:
 
 
 # ===========================================================================
+# fetch_and_store() — full refetch must cover every stored bar
+# ===========================================================================
+
+
+class TestFullModeCoversStoredHistory:
+    """auto_adjust rescales the whole series on each split/dividend, so a full
+    refetch that stops short of the oldest stored bar leaves that tail on a stale
+    adjustment basis and the series gains a spurious step at the window edge."""
+
+    @staticmethod
+    def _history_kwargs(repo: MagicMock, **run_kwargs: Any) -> dict[str, Any]:
+        yf_client = _make_yf_client_silent()
+        _run(repo, yf_client, **run_kwargs)
+        assert yf_client.fetch_history.call_count == 1
+        return yf_client.fetch_history.call_args.kwargs
+
+    def test_when_stored_history_older_than_period_then_refetch_starts_at_oldest_bar(
+        self,
+    ) -> None:
+        oldest = date.today() - timedelta(days=6 * 365)
+        repo = _make_repo(staleness=None)
+        repo.get_price_history.side_effect = _stored_prices({oldest: 100.0})
+
+        kwargs = self._history_kwargs(repo, mode="full", period="5y")
+
+        assert kwargs["start"] == oldest.isoformat()
+
+    def test_when_stored_history_within_period_then_period_is_requested(self) -> None:
+        repo = _make_repo(staleness=None)
+        repo.get_price_history.side_effect = _stored_prices(
+            {date.today() - timedelta(days=2 * 365): 100.0}
+        )
+
+        kwargs = self._history_kwargs(repo, mode="full", period="5y")
+
+        assert kwargs["period"] == "5y"
+        assert kwargs.get("start") is None
+
+    def test_when_no_stored_prices_then_period_is_requested(self) -> None:
+        repo = _make_repo(staleness=None)
+        repo.get_price_history.side_effect = _stored_prices({})
+
+        kwargs = self._history_kwargs(repo, mode="full", period="5y")
+
+        assert kwargs["period"] == "5y"
+        assert kwargs.get("start") is None
+
+    def test_when_period_is_max_then_period_is_requested(self) -> None:
+        repo = _make_repo(staleness=None)
+        repo.get_price_history.side_effect = _stored_prices(
+            {date.today() - timedelta(days=9 * 365): 100.0}
+        )
+
+        kwargs = self._history_kwargs(repo, mode="full", period="max")
+
+        assert kwargs["period"] == "max"
+        assert kwargs.get("start") is None
+
+    def test_when_oldest_bar_lookup_fails_then_period_is_requested_without_error(
+        self,
+    ) -> None:
+        repo = _make_repo(staleness=None)
+        repo.get_price_history.side_effect = RuntimeError("db gone")
+        yf_client = _make_yf_client_silent()
+
+        result = _run(repo, yf_client, mode="full", period="5y")
+
+        kwargs = yf_client.fetch_history.call_args.kwargs
+        assert kwargs["period"] == "5y"
+        assert kwargs.get("start") is None
+        assert not any(e.startswith("prices") for e in result["errors"])
+
+    def test_when_incremental_first_load_then_oldest_bar_is_not_queried(self) -> None:
+        repo = _make_repo(staleness={"price_max_date": None})
+
+        kwargs = self._history_kwargs(repo, mode="incremental")
+
+        assert kwargs["period"] == "5y"
+        repo.get_price_history.assert_not_called()
+
+
+# ===========================================================================
 # fetch_and_store() — insufficient history protection
 # ===========================================================================
 

@@ -413,10 +413,23 @@ class YFinanceDataService:
         years = parse_period_years(period)
         if years is None:
             return None
-        oldest = next(
-            iter(self.repo.get_price_history(instrument_id, limit=1, ascending=True)),
-            None,
-        )
+        try:
+            oldest = next(
+                iter(
+                    self.repo.get_price_history(instrument_id, limit=1, ascending=True)
+                ),
+                None,
+            )
+        except Exception as e:
+            # The widening only improves the basis of old bars; a failed lookup must
+            # not cost the ticker its price refresh.
+            logger.warning(
+                "Oldest stored price lookup failed for %s, refetching %s only: %s",
+                instrument_id,
+                period,
+                e,
+            )
+            return None
         if oldest is None:
             return None
         if oldest.date > _years_before(_today(), years) + _PERIOD_EDGE_MARGIN:
@@ -424,9 +437,19 @@ class YFinanceDataService:
         return oldest.date
 
     def _fetch_full_price_history(
-        self, instrument_id: UUID, yfinance_ticker: str, period: str
+        self,
+        instrument_id: UUID,
+        yfinance_ticker: str,
+        period: str,
+        *,
+        may_have_stored_bars: bool = True,
     ) -> pd.DataFrame | None:
-        start = self._full_fetch_start(instrument_id, period)
+        # A first load has nothing stored to reach back to, so skip the lookup.
+        start = (
+            self._full_fetch_start(instrument_id, period)
+            if may_have_stored_bars
+            else None
+        )
         window: dict[str, Any] = (
             {"period": period} if start is None else {"start": start.isoformat()}
         )
@@ -465,8 +488,9 @@ class YFinanceDataService:
             period: Price history period for full mode (e.g. "5y"). A stored
                 series older than a whole-year period is fetched from its oldest
                 bar instead, so one fetch re-bases all of it.
-            mode: "full" preserves original behaviour; "incremental" skips
-                  fresh categories and date-ranges the price fetch.
+            mode: "full" re-downloads every category and the whole stored price
+                  series; "incremental" skips fresh categories and date-ranges
+                  the price fetch.
             thresholds: Override default staleness thresholds.
             exchange_name: Exchange name for calendar-based history validation.
             currency_code: Instrument listing currency (e.g. "GBX"). Stored raw
@@ -741,7 +765,13 @@ class YFinanceDataService:
                         window_history, history = history, rebased
             else:
                 history = self._fetch_full_price_history(
-                    instrument_id, yfinance_ticker, period
+                    instrument_id,
+                    yfinance_ticker,
+                    period,
+                    may_have_stored_bars=not (
+                        isinstance(staleness, dict)
+                        and staleness.get("price_max_date") is None
+                    ),
                 )
 
             if history is not None and not history.empty:

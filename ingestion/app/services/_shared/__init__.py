@@ -21,6 +21,7 @@ from app.services._shared.trading_calendar import (
     get_expected_trading_sessions,
     has_sufficient_history,
     parse_period_years,
+    period_start_date,
 )
 
 __all__ = [
@@ -35,6 +36,7 @@ __all__ = [
     "make_progress",
     "notify_failure",
     "parse_period_years",
+    "period_start_date",
     "resolve_sector_map",
     "safe_float",
 ]

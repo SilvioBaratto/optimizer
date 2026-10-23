@@ -115,7 +115,13 @@ def yfinance(
         FetchMode.INCREMENTAL,
         help="'incremental' fetches only what is missing; 'full' re-downloads.",
     ),
-    period: str = typer.Option("5y", help="Lookback window for mode=full."),
+    period: str = typer.Option(
+        "5y",
+        help=(
+            "Minimum lookback window for mode=full; stored bars older than it "
+            "are refetched too."
+        ),
+    ),
     workers: int = typer.Option(
         settings.yfinance_fetch_workers,
         min=1,

@@ -1403,6 +1403,19 @@ class YFinanceRepository(RepositoryBase):
     # Staleness info (for incremental fetch)
     # ------------------------------------------------------------------
 
+    def get_oldest_price_date(self, instrument_id: UUID) -> date | None:
+        """Return the date of the instrument's earliest stored price bar.
+
+        Lets a full refetch reach back over the whole stored series, so every
+        bar is rewritten on the provider's current split/dividend adjustment
+        basis. ``None`` when the instrument has no stored prices.
+        """
+        return self.session.execute(
+            select(func.min(PriceHistory.date)).where(
+                PriceHistory.instrument_id == instrument_id
+            )
+        ).scalar_one_or_none()
+
     def get_staleness_info(self, instrument_id: UUID) -> dict[str, Any]:
         """Return staleness metadata for incremental fetch decisions.
 

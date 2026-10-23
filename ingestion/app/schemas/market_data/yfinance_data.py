@@ -15,20 +15,38 @@ class YFinanceFetchRequest(BaseModel):
     workers: int = Field(
         default=1, ge=1, le=16, description="Parallel workers (1 = serial)"
     )
-    period: str = Field(default="5y", description="Price history period")
+    period: str = Field(
+        default="5y",
+        description=(
+            "Minimum price history window; a full fetch reaches further back "
+            "when older bars are stored"
+        ),
+    )
     mode: Literal["full", "incremental"] = Field(
         default="incremental",
-        description="'incremental' skips fresh data; 'full' re-downloads everything",
+        description=(
+            "'incremental' skips fresh data; 'full' re-downloads every category and "
+            "the whole stored price series"
+        ),
     )
 
 
 class YFinanceSingleFetchRequest(BaseModel):
     """Request body for single-ticker fetch."""
 
-    period: str = Field(default="5y", description="Price history period")
+    period: str = Field(
+        default="5y",
+        description=(
+            "Minimum price history window; a full fetch reaches further back "
+            "when older bars are stored"
+        ),
+    )
     mode: Literal["full", "incremental"] = Field(
         default="incremental",
-        description="'incremental' skips fresh data; 'full' re-downloads everything",
+        description=(
+            "'incremental' skips fresh data; 'full' re-downloads every category and "
+            "the whole stored price series"
+        ),
     )
 
 

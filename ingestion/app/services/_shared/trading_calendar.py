@@ -5,6 +5,7 @@ import re
 from datetime import date
 
 import exchange_calendars as xcals
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,38 @@ def parse_period_years(period: str) -> int | None:
     """
     match = re.fullmatch(r"(\d+)y", period)
     return int(match.group(1)) if match else None
+
+
+_PERIOD_PATTERN = re.compile(r"([1-9]\d*)(d|wk|mo|y)")
+
+
+def period_start_date(period: str, reference_date: date) -> date | None:
+    """Return the first calendar date covered by a yfinance period string.
+
+    Args:
+        period: yfinance period such as ``"5y"``, ``"6mo"``, ``"2wk"``,
+            ``"10d"`` or ``"ytd"``.
+        reference_date: End of the window, normally today.
+
+    Returns:
+        The window's start date. Month and year offsets clamp to the end of a
+        shorter month (one year before 2024-02-29 is 2023-02-28). ``None`` when the
+        period has no finite start (``"max"``) or is not a recognised period.
+    """
+    if period == "ytd":
+        return date(reference_date.year, 1, 1)
+    match = _PERIOD_PATTERN.fullmatch(period)
+    if match is None:
+        return None
+    count = int(match.group(1))
+    offsets = {
+        "d": pd.DateOffset(days=count),
+        "wk": pd.DateOffset(weeks=count),
+        "mo": pd.DateOffset(months=count),
+        "y": pd.DateOffset(years=count),
+    }
+    offset = offsets[match.group(2)]
+    return (pd.Timestamp(reference_date) - offset).date()
 
 
 def get_expected_trading_sessions(
