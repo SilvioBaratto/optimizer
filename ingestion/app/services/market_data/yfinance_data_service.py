@@ -1645,73 +1645,89 @@ class YFinanceDataService:
             overview = (fdata or {}).get("fund_overview") or {}
             description = (fdata or {}).get("description")
             profile = profile or {}
-            if profile or overview or description:
-                self._write(
-                    etf_repo.upsert_metadata,
-                    instrument_id,
-                    aum=profile.get("aum"),
-                    nav=profile.get("nav"),
-                    fund_family=profile.get("fund_family"),
-                    legal_type=profile.get("legal_type"),
-                    expense_ratio=profile.get("expense_ratio"),
-                    # Yahoo reports the listing currency, a sub-unit ('GBp') for
-                    # LSE listings; a sub-unit is never a fund's base currency.
-                    base_currency=to_major_currency(profile.get("base_currency")),
-                    category=overview.get("categoryName") or overview.get("category"),
-                    description=description,
-                    as_of=as_of,
-                )
-                counts["etf_metadata"] = 1
-
-            if fdata:
-                ac = fdata.get("asset_classes") or {}
-                buckets = {
-                    "stock_pct": ac.get("stockPosition"),
-                    "bond_pct": ac.get("bondPosition"),
-                    "cash_pct": ac.get("cashPosition"),
-                    "other_pct": ac.get("otherPosition"),
-                }
-                # An all-NULL row would become the newest as_of snapshot and
-                # shadow the last real allocation.
-                if any(v is not None for v in buckets.values()):
+            etf_counts: dict[str, int] = {}
+            # One savepoint for the whole fund snapshot: a later failed write must
+            # not leave metadata behind without its holdings, and the counts are
+            # published only after it succeeds.
+            with self.repo.session.begin_nested():
+                if profile or overview or description:
                     self._write(
-                        etf_repo.upsert_asset_classes, instrument_id, as_of, **buckets
-                    )
-                    counts["etf_asset_classes"] = 1
-                holdings = fdata.get("top_holdings") or []
-                if holdings:
-                    counts["etf_holdings"] = self._write(
-                        etf_repo.upsert_holdings, instrument_id, as_of, holdings
-                    )
-                sectors = fdata.get("sector_weightings") or {}
-                if sectors:
-                    counts["etf_sector_weights"] = self._write(
-                        etf_repo.upsert_sector_weights, instrument_id, as_of, sectors
-                    )
-                # Depth (SPEC A8): equity/bond metrics, ratings, operations.
-                equity = fdata.get("equity_holdings") or {}
-                if equity:
-                    counts["etf_equity_holdings"] = self._write(
-                        etf_repo.upsert_equity_holdings, instrument_id, as_of, equity
-                    )
-                bonds = fdata.get("bond_holdings") or {}
-                if bonds:
-                    counts["etf_bond_holdings"] = self._write(
-                        etf_repo.upsert_bond_holdings, instrument_id, as_of, bonds
-                    )
-                ratings = fdata.get("bond_ratings") or {}
-                if ratings:
-                    counts["etf_bond_ratings"] = self._write(
-                        etf_repo.upsert_bond_ratings, instrument_id, as_of, ratings
-                    )
-                operations = fdata.get("fund_operations") or {}
-                if operations:
-                    counts["etf_fund_operations"] = self._write(
-                        etf_repo.upsert_fund_operations,
+                        etf_repo.upsert_metadata,
                         instrument_id,
-                        as_of,
-                        operations,
+                        aum=profile.get("aum"),
+                        nav=profile.get("nav"),
+                        fund_family=profile.get("fund_family"),
+                        legal_type=profile.get("legal_type"),
+                        expense_ratio=profile.get("expense_ratio"),
+                        # Yahoo reports the listing currency, a sub-unit ('GBp') for
+                        # LSE listings; a sub-unit is never a fund's base currency.
+                        base_currency=to_major_currency(profile.get("base_currency")),
+                        category=overview.get("categoryName")
+                        or overview.get("category"),
+                        description=description,
+                        as_of=as_of,
                     )
+                    etf_counts["etf_metadata"] = 1
+
+                if fdata:
+                    ac = fdata.get("asset_classes") or {}
+                    buckets = {
+                        "stock_pct": ac.get("stockPosition"),
+                        "bond_pct": ac.get("bondPosition"),
+                        "cash_pct": ac.get("cashPosition"),
+                        "other_pct": ac.get("otherPosition"),
+                    }
+                    # An all-NULL row would become the newest as_of snapshot and
+                    # shadow the last real allocation.
+                    if any(v is not None for v in buckets.values()):
+                        self._write(
+                            etf_repo.upsert_asset_classes,
+                            instrument_id,
+                            as_of,
+                            **buckets,
+                        )
+                        etf_counts["etf_asset_classes"] = 1
+                    holdings = fdata.get("top_holdings") or []
+                    if holdings:
+                        etf_counts["etf_holdings"] = self._write(
+                            etf_repo.upsert_holdings, instrument_id, as_of, holdings
+                        )
+                    sectors = fdata.get("sector_weightings") or {}
+                    if sectors:
+                        etf_counts["etf_sector_weights"] = self._write(
+                            etf_repo.upsert_sector_weights,
+                            instrument_id,
+                            as_of,
+                            sectors,
+                        )
+                    # Depth (SPEC A8): equity/bond metrics, ratings, operations.
+                    equity = fdata.get("equity_holdings") or {}
+                    if equity:
+                        etf_counts["etf_equity_holdings"] = self._write(
+                            etf_repo.upsert_equity_holdings,
+                            instrument_id,
+                            as_of,
+                            equity,
+                        )
+                    bonds = fdata.get("bond_holdings") or {}
+                    if bonds:
+                        etf_counts["etf_bond_holdings"] = self._write(
+                            etf_repo.upsert_bond_holdings, instrument_id, as_of, bonds
+                        )
+                    ratings = fdata.get("bond_ratings") or {}
+                    if ratings:
+                        etf_counts["etf_bond_ratings"] = self._write(
+                            etf_repo.upsert_bond_ratings, instrument_id, as_of, ratings
+                        )
+                    operations = fdata.get("fund_operations") or {}
+                    if operations:
+                        etf_counts["etf_fund_operations"] = self._write(
+                            etf_repo.upsert_fund_operations,
+                            instrument_id,
+                            as_of,
+                            operations,
+                        )
+            counts.update(etf_counts)
         except Exception as e:
             errors.append(f"etf_metadata: {e}")
             logger.warning("Failed ETF metadata for %s: %s", yfinance_ticker, e)
