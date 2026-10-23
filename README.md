@@ -330,11 +330,13 @@ note that it and the CI `lint`/`typecheck` jobs currently pass the bare path
 fixed.
 
 **CI** (`.github/workflows/ci.yml`, push/PR to `main` and `development`, Ubuntu, Python 3.12 &
-3.13, uv-driven) runs seven jobs: `lint` (ruff check → ruff format --check →
+3.13, uv-driven) runs nine jobs: `lint` (ruff check → ruff format --check →
 pip-audit), `typecheck` (mypy), `pyright` (pinned `1.1.398`), `test`
 (`--cov=optimizer` ≥ 90%), `ingestion-test` (`--cov=app` ≥ 80%),
-`portopt-db-test` (`--cov=portopt_db` ≥ 90%), and `fund-test` (`--cov=fund` ≥
-80%). `release.yml` builds `portopt-core` on `v*` tags.
+`portopt-db-test` (`--cov=portopt_db` ≥ 90%), `fund-test` (`--cov=fund` ≥
+80%), `postgres-integration` (`alembic upgrade head` on a real PostgreSQL plus
+the `integration`-marked tests), and `docker-images` (compose config + build of
+both images). `release.yml` builds `portopt-core` on `v*` tags.
 
 ---
 

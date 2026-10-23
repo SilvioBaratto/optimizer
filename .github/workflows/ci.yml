@@ -117,3 +117,48 @@ jobs:
           enable-cache: true
       - run: uv sync --locked --all-packages --all-extras --python ${{ matrix.python-version }}
       - run: cd fund && uv run --python ${{ matrix.python-version }} pytest tests/ -v --tb=short --cov=fund --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=80
+
+  # The unit suites run on in-memory SQLite with hand-built prerequisite tables,
+  # so only this job proves the whole Alembic chain applies to an empty
+  # PostgreSQL and that the live-Postgres `integration` tests (skipped without
+  # DATABASE_URL) pass.
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: optimizer_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d optimizer_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/optimizer_db
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages --all-extras
+      - run: cd packages/portopt-db && uv run alembic upgrade head
+      - run: cd fund && uv run pytest tests/integration -m integration -v --tb=short
+
+  # Parses the compose file and builds both shipped images, so a broken
+  # Dockerfile or compose edit fails here instead of on a user's `portopt start`.
+  docker-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      # Secret files are git-ignored and rendered by `portopt start`; empty
+      # placeholders let the compose file resolve the same way it does there.
+      - run: |
+          mkdir -p secrets
+          grep -oE '\./secrets/[a-z0-9_]+' docker-compose.yml | xargs touch
+      - run: docker compose --profile ingestion --profile fund config --quiet
+      - run: docker compose --profile ingestion --profile fund build
