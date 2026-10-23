@@ -41,6 +41,16 @@ from app.services.universe.trading212.config import UniverseBuilderConfig
 
 logger = logging.getLogger(__name__)
 
+
+class UniverseSourceError(RuntimeError):
+    """The screener could not deliver a complete universe snapshot.
+
+    Raised instead of returning a partial universe: the builder treats every
+    previously active ticker missing from the snapshot as delisted, so a
+    truncated snapshot would mass-delist live instruments.
+    """
+
+
 _PAGE_SIZE = 250
 # The screener returns at most a ~10k-row window per query; page to that ceiling
 # and let dedup + the floor be the reducer (no artificial per-venue size cap).
@@ -254,12 +264,11 @@ class YFinanceUniverseSource:
         if self._loaded:
             return
         quotes: list[dict[str, Any]] = []
+        # A failed query aborts the load: skipping it would leave its venue
+        # partially populated, and the builder would then delist every active
+        # ticker of that venue that the snapshot no longer contains.
         for query, kind, sort_field, cap in self._build_queries():
-            # One venue/region failing must not abort the whole universe build.
-            try:
-                quotes.extend(self._paginate(query, kind, sort_field, cap))
-            except Exception:
-                logger.exception("Screener query failed (kind=%s); skipping", kind)
+            quotes.extend(self._paginate(query, kind, sort_field, cap))
         self._build_shape(quotes)
         self._loaded = True
 
@@ -270,6 +279,11 @@ class YFinanceUniverseSource:
 
         A stable, meaningful ``sort_field`` (size descending) makes offset paging
         deterministic — Yahoo's default order can duplicate or skip rows across pages.
+
+        Raises:
+            UniverseSourceError: when a page still fails after the client's retries
+                (``screen`` returned ``None``). A failed page is not the end of the
+                results, so the rows collected so far are discarded.
         """
         collected: list[dict[str, Any]] = []
         seen_syms: set[Any] = set()
@@ -282,7 +296,14 @@ class YFinanceUniverseSource:
                 sort_field=sort_field,
                 sort_asc=False,
             )
-            page_quotes = (result or {}).get("quotes", [])
+            if result is None:
+                msg = (
+                    f"screener page failed after retries (kind={kind}, "
+                    f"sort_field={sort_field}, offset={offset}, "
+                    f"rows_collected={len(collected)})"
+                )
+                raise UniverseSourceError(msg)
+            page_quotes = result.get("quotes") or []
             if not page_quotes:
                 break
             # Past the ~10k window the screener clamps offset and re-returns the last

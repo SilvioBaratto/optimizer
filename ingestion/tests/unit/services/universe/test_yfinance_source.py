@@ -10,12 +10,15 @@ ETFs per region by net assets descending, each capped — so paging returns the
 investable head of every venue, not the alphabetical microcap tail.
 """
 
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
 pytest.importorskip("yfinance")
 
+from app.services.universe.trading212.builder import UniverseBuilder
+from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.yfinance_source import (
     _CODE_TO_CONFIG_NAME,
     _CODE_TO_REGION,
@@ -109,9 +112,12 @@ def test_empty_result_yields_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     assert src.get_exchanges() == []
 
 
-def test_screen_none_is_handled(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_screen_none_is_a_failed_query_not_an_empty_universe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     src, _ = _source([None], monkeypatch)
-    assert src.get_instruments() == []
+    with pytest.raises(RuntimeError, match="page failed"):
+        src.get_instruments()
 
 
 def test_tags_instrument_type(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -285,3 +291,93 @@ def test_etf_with_net_assets_kept(monkeypatch: pytest.MonkeyPatch) -> None:
         queries=[("Q", "ETF", _ETF_SORT_FIELD, _BIG_CAP)],
     )
     assert [i["ticker"] for i in src.get_instruments()] == ["SPY"]
+
+
+class _RecordingRepo:
+    """In-memory universe repo that records the writes the builder issues."""
+
+    def __init__(self, active: dict[str, set[str]]) -> None:
+        self._active = active  # exchange name -> active tickers
+        self._names: dict[str, str] = {}
+        self.saved: list[str] = []
+        self.delisted: list[tuple[str, float]] = []
+
+    def save_exchange(self, exchange_data: dict[str, Any]) -> Any:
+        exchange = MagicMock()
+        exchange.id = exchange_data["name"]
+        self._names[exchange.id] = exchange_data["name"]
+        return exchange
+
+    def save_instruments_batch(
+        self, rows: list[dict[str, Any]], exchange_id: Any
+    ) -> int:
+        self.saved.extend(r["ticker"] for r in rows)
+        return len(rows)
+
+    def get_active_tickers(
+        self, exchange_id: Any, instrument_type: str | None = None
+    ) -> set[str]:
+        return set(self._active.get(exchange_id, set()))
+
+    def mark_delisted(self, ticker: str, exchange_id: Any, delisted_at: Any) -> bool:
+        self.delisted.append((ticker, exchange_id))
+        return True
+
+
+def _build(src: YFinanceUniverseSource, repo: _RecordingRepo) -> None:
+    UniverseBuilder(
+        config=UniverseBuilderConfig(),
+        api_client=src,
+        ticker_mapper=PassThroughTickerMapper(),
+        repository=repo,
+        max_workers=1,
+    ).build()
+
+
+def test_failed_page_aborts_instead_of_truncating_the_venue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Page 1 succeeds, page 2 exhausts its retries (screen -> None). That is a
+    # failed fetch, not the end of the venue's results.
+    page1 = {"quotes": [_quote(f"S{i}", "NMS") for i in range(250)]}
+    src, _ = _source([page1, None], monkeypatch)
+    with pytest.raises(RuntimeError, match="page failed"):
+        src.get_instruments()
+
+
+def test_failed_page_never_delists_the_unseen_tail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active = {f"S{i}" for i in range(500)}
+    repo = _RecordingRepo({"NASDAQ": active})
+    page1 = {"quotes": [_quote(f"S{i}", "NMS") for i in range(250)]}
+    src, _ = _source([page1, None], monkeypatch)
+
+    with pytest.raises(RuntimeError, match="page failed"):
+        _build(src, repo)
+
+    assert repo.delisted == []
+    assert repo.saved == []
+
+
+def test_failed_code_inside_a_merged_exchange_never_delists_its_listings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # NMS and NGM both feed the NASDAQ exchange: when only the NGM query fails,
+    # NASDAQ is still populated by NMS, so a tolerated failure would delist every
+    # active NGM ticker.
+    active = {"AAA", "BBB", "NGM1", "NGM2"}
+    repo = _RecordingRepo({"NASDAQ": active})
+    src, _ = _source(
+        [{"quotes": [_quote("AAA", "NMS"), _quote("BBB", "NMS")]}, None],
+        monkeypatch,
+        queries=[
+            ("NMS", "STOCK", _STOCK_SORT_FIELD, _BIG_CAP),
+            ("NGM", "STOCK", _STOCK_SORT_FIELD, _BIG_CAP),
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="page failed"):
+        _build(src, repo)
+
+    assert repo.delisted == []
