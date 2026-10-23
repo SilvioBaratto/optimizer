@@ -18,12 +18,31 @@ from optimizer.preprocessing._coerce import _coerce_numeric
 
 logger = logging.getLogger(__name__)
 
+# Makes the MAD a consistent estimator of the standard deviation for normal data.
+_MAD_TO_SIGMA = 1.4826
+
+# The fit-time screen only has to catch errors so large that they hide
+# themselves, so it sits well beyond ``remove_threshold``.  A MAD reflects the
+# calm days of a column; at the removal bar itself it would also drop the crisis
+# days of a column whose volatility switches between regimes and shrink
+# ``sigma_`` until ``transform`` deletes more of them.
+_SCREEN_THRESHOLD_MULTIPLE = 2.0
+
 
 class OutlierTreater(BaseEstimator, TransformerMixin):
     """Three-group outlier methodology on per-column z-scores.
 
     During ``fit``, compute per-column mean (``mu_``) and standard deviation
-    (``sigma_``) from the training data.
+    (``sigma_``) from the training data, leaving out cells that sit at least
+    twice ``remove_threshold`` robust standard deviations (median / scaled MAD)
+    from the column median.  A sample z-score cannot exceed ``(n - 1) / sqrt(n)``,
+    so a gross error left in the sample would inflate ``sigma_`` until it can no
+    longer reach ``remove_threshold`` on short windows; the screen is looser than
+    the removal bar so that crisis days of a regime-switching column still count
+    towards the scale.  The MAD is taken over the non-zero cells only, because
+    the exact-zero returns that forward-filled prices produce would otherwise
+    shrink it far below the real volatility.  Columns whose non-zero cells all
+    coincide have no scale and are not screened.
 
     During ``transform``, classify each observation into one of three groups
     based on its z-score ``z = (x - mu) / sigma``:
@@ -88,6 +107,7 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
         # genuine outliers in the same column.  The padding after it is dropped
         # for the opposite reason: its exact zeros would deflate sigma_.
         X_fit = X.mask(self._exempt_mask(X))
+        X_fit = X_fit.mask(self._gross_error_mask(X_fit))
         self.mu_: pd.Series = X_fit.mean()
         self.sigma_: pd.Series = X_fit.std()
         return self
@@ -159,6 +179,25 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
         return self.protected_mask.reindex(
             index=X.index, columns=X.columns, fill_value=False
         ).astype(bool)
+
+    def _gross_error_mask(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Cells far beyond ``remove_threshold`` robust sigmas of the column median.
+
+        The median and MAD are unaffected by a handful of errors, unlike the
+        mean and standard deviation that ``fit`` estimates afterwards.
+        """
+        median = X.median()
+        deviation = (X - median).abs()
+        # Forward-filled prices give illiquid tickers many exact-zero returns.
+        # Just below a 50% share they pull the MAD of the whole column towards
+        # zero without making it zero, so ten "robust sigmas" would shrink to
+        # a sliver of the real volatility and genuine returns would be
+        # screened as errors.  The scale comes from the cells that moved.
+        moved_deviation = deviation.where(X != 0.0)
+        robust_sigma = (moved_deviation.median() * _MAD_TO_SIGMA).replace(0, np.nan)
+        return (deviation / robust_sigma) >= (
+            _SCREEN_THRESHOLD_MULTIPLE * self.remove_threshold
+        )
 
     def _exempt_mask(self, X: pd.DataFrame) -> pd.DataFrame:
         """Protected cells plus the post-delisting padding that follows them."""

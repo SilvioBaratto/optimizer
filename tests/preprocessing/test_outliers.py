@@ -233,10 +233,11 @@ class TestProtectedMask:
         assert out.iloc[-1, 0] == pytest.approx(-0.50)
 
     def test_protected_cell_excluded_from_moments(self) -> None:
-        df = self._spiked(spike=-0.50)
+        # Below remove_threshold robust sigmas, so only the mask can exempt it.
+        df = self._spiked(spike=-0.15)
         with_spike = OutlierTreater().fit(df)
         without = OutlierTreater(protected_mask=self._mask_last(df)).fit(df)
-        # Dropping the -0.50 from the fit shrinks sigma and pulls mu to ~0.
+        # Dropping the -0.15 from the fit shrinks sigma and pulls mu to ~0.
         assert without.sigma_["X"] < with_spike.sigma_["X"]
         assert abs(without.mu_["X"]) < abs(with_spike.mu_["X"])
 
@@ -327,3 +328,115 @@ class TestDelistingPadding:
         ot = OutlierTreater(protected_mask=mask).fit(df)
         expected = np.delete(col, 100)
         assert ot.sigma_["X"] == pytest.approx(expected.std(ddof=1))
+
+
+class TestScaleEstimateRobustToErrors:
+    """A gross data error must not inflate the scale that is meant to catch it."""
+
+    @staticmethod
+    def _with_bad_tick(n: int, tick: float = 5.0) -> pd.DataFrame:
+        rng = np.random.default_rng(0)
+        col = rng.normal(0.0, 0.01, size=n)
+        col[n // 2] = tick
+        return pd.DataFrame({"X": col}, index=pd.date_range("2024-01-01", periods=n))
+
+    @pytest.mark.parametrize("n", [30, 60, 100, 126, 252])
+    def test_bad_tick_is_removed_whatever_the_window_length(self, n: int) -> None:
+        df = self._with_bad_tick(n)
+        out = OutlierTreater().fit_transform(df)
+        assert np.isnan(out.iloc[n // 2, 0])
+        assert out["X"].notna().sum() == n - 1
+
+    def test_scale_is_estimated_without_the_bad_tick(self) -> None:
+        df = self._with_bad_tick(60)
+        clean = np.delete(df["X"].to_numpy(), 30)
+        ot = OutlierTreater().fit(df)
+        assert ot.sigma_["X"] == pytest.approx(clean.std(ddof=1))
+        assert ot.mu_["X"] == pytest.approx(clean.mean())
+
+    def test_clean_column_statistics_are_plain_mean_and_std(
+        self, normal_returns: pd.DataFrame
+    ) -> None:
+        ot = OutlierTreater().fit(normal_returns)
+        pd.testing.assert_series_equal(ot.mu_, normal_returns.mean())
+        pd.testing.assert_series_equal(ot.sigma_, normal_returns.std())
+
+    def test_column_with_zero_mad_keeps_all_observations_in_the_scale(self) -> None:
+        # More than half the cells equal the median, so the robust scale is 0
+        # and cannot screen anything; every non-median cell must not be
+        # mistaken for an error.
+        col = [0.0] * 60 + [0.01, -0.01] * 10
+        df = pd.DataFrame({"X": col}, index=pd.date_range("2024-01-01", periods=80))
+        ot = OutlierTreater().fit(df)
+        assert ot.sigma_["X"] == pytest.approx(np.std(col, ddof=1))
+
+
+class TestScreenWithStaleZeroReturns:
+    """Forward-filled prices give illiquid tickers many exact-zero returns.
+
+    Just below a 50% zero share the MAD of the whole column is tiny but not
+    zero, so a screen built on it would call genuine returns gross errors.
+    """
+
+    @staticmethod
+    def _column(zero_share: float, *, vol: float = 0.02, n: int = 756) -> np.ndarray:
+        rng = np.random.default_rng(7)
+        col = rng.normal(0.0, vol, size=n)
+        col[rng.permutation(n)[: round(zero_share * n)]] = 0.0
+        return col
+
+    @staticmethod
+    def _frame(col: np.ndarray) -> pd.DataFrame:
+        return pd.DataFrame(
+            {"X": col}, index=pd.date_range("2020-01-01", periods=len(col))
+        )
+
+    @pytest.mark.parametrize("zero_share", [0.30, 0.44, 0.46, 0.48, 0.499])
+    def test_clean_column_keeps_plain_mean_and_std(self, zero_share: float) -> None:
+        col = self._column(zero_share)
+        ot = OutlierTreater().fit(self._frame(col))
+        assert ot.sigma_["X"] == pytest.approx(np.std(col, ddof=1))
+        assert ot.mu_["X"] == pytest.approx(np.mean(col))
+
+    @pytest.mark.parametrize("zero_share", [0.45, 0.48, 0.499])
+    def test_genuine_returns_are_never_deleted(self, zero_share: float) -> None:
+        df = self._frame(self._column(zero_share))
+        out = OutlierTreater().fit_transform(df)
+        assert out["X"].notna().all()
+
+    @pytest.mark.parametrize("zero_share", [0.30, 0.48, 0.60])
+    def test_bad_tick_is_still_screened_out_of_the_scale(
+        self, zero_share: float
+    ) -> None:
+        col = self._column(zero_share, vol=0.01)
+        col[10] = 5.0
+        df = self._frame(col)
+        ot = OutlierTreater().fit(df)
+        assert ot.sigma_["X"] == pytest.approx(np.delete(col, 10).std(ddof=1))
+        assert np.isnan(ot.transform(df).iloc[10, 0])
+
+
+class TestScreenWithVolatilityRegimes:
+    """A calm-regime robust scale must not label crisis-day returns as errors."""
+
+    @staticmethod
+    def _regime_frame(seed: int) -> pd.DataFrame:
+        # 10% of days at ten times the volatility of the other 90%.
+        rng = np.random.default_rng(seed)
+        vol = np.where(rng.random(756) < 0.10, 0.10, 0.01)
+        return pd.DataFrame(
+            {"X": rng.normal(0.0, 1.0, size=756) * vol},
+            index=pd.date_range("2020-01-01", periods=756),
+        )
+
+    @pytest.mark.parametrize("seed", range(8))
+    def test_crisis_days_do_not_collapse_the_scale(self, seed: int) -> None:
+        df = self._regime_frame(seed)
+        ot = OutlierTreater().fit(df)
+        assert ot.sigma_["X"] >= 0.8 * df["X"].std()
+
+    @pytest.mark.parametrize("seed", range(8))
+    def test_few_crisis_days_are_deleted(self, seed: int) -> None:
+        df = self._regime_frame(seed)
+        out = OutlierTreater().fit_transform(df)
+        assert out["X"].isna().sum() <= 2
