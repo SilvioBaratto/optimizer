@@ -348,6 +348,11 @@ class TestPreSelectionConfigValidation:
         cfg = PreSelectionConfig(winsorize_threshold=3.0, remove_threshold=10.0)
         assert cfg.winsorize_threshold == 3.0
 
+    @pytest.mark.parametrize("threshold", [0.0, -1.0])
+    def test_winsorize_non_positive_raises(self, threshold: float) -> None:
+        with pytest.raises(ValueError, match="winsorize_threshold"):
+            PreSelectionConfig(winsorize_threshold=threshold)
+
     def test_correlation_threshold_zero_raises(self) -> None:
         with pytest.raises(ValueError, match="correlation_threshold"):
             PreSelectionConfig(correlation_threshold=0.0)

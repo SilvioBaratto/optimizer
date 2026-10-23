@@ -42,7 +42,9 @@ class PreSelectionConfig:
         max_abs_return: Maximum absolute return before treating as a data
             error (DataValidator).
         winsorize_threshold: Z-score threshold for winsorisation
-            (OutlierTreater).
+            (OutlierTreater). Must be positive and below ``remove_threshold``:
+            a non-positive value clips every observation onto (or past) the
+            mean instead of only the tails.
         remove_threshold: Z-score threshold for removal as a data error
             (OutlierTreater).
         outlier_method: Outlier detection approach. Currently only
@@ -103,6 +105,10 @@ class PreSelectionConfig:
     is_log_normal: bool = True
 
     def __post_init__(self) -> None:
+        if not self.winsorize_threshold > 0:
+            raise ValueError(
+                f"winsorize_threshold must be positive, got {self.winsorize_threshold}"
+            )
         if self.winsorize_threshold >= self.remove_threshold:
             raise ValueError(
                 f"winsorize_threshold ({self.winsorize_threshold}) must be "
