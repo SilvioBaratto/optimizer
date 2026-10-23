@@ -507,6 +507,56 @@ class TestFetchCountryTeNonSuccess:
 
 
 # ---------------------------------------------------------------------------
+# fetch_country — te indicators ok but bond-yield page failed
+# ---------------------------------------------------------------------------
+
+
+class TestFetchCountryBondYieldFailure:
+    _TE_BONDS_FAILED = {
+        "status": "success",
+        "indicators": {"inflation_rate": 3.1},
+        "bond_yields": {},
+        "bond_yields_error": "Parse structure failure: bond table not found",
+    }
+
+    def test_when_bond_page_fails_then_error_names_the_bond_source(self) -> None:
+        service, _ = _build_service(
+            ilsole_forecasts=_FORECAST_DATA,
+            te_response=self._TE_BONDS_FAILED,
+        )
+
+        result = service.fetch_country("USA", include_bonds=True)
+
+        assert any(
+            e.startswith("trading_economics_bonds") and "bond table not found" in e
+            for e in result["errors"]
+        )
+
+    def test_when_bond_page_fails_then_indicators_are_still_stored(self) -> None:
+        service, mock_repo = _build_service(
+            ilsole_forecasts=_FORECAST_DATA,
+            te_response=self._TE_BONDS_FAILED,
+        )
+
+        result = service.fetch_country("USA", include_bonds=True)
+
+        mock_repo.upsert_te_indicators.assert_called_once()
+        mock_repo.upsert_bond_yields.assert_not_called()
+        assert result["counts"]["te_indicators"] == 3
+        assert result["counts"]["bond_yields"] == 0
+
+    def test_when_bonds_not_requested_then_no_bond_error_reported(self) -> None:
+        service, _ = _build_service(
+            ilsole_forecasts=_FORECAST_DATA,
+            te_response=self._TE_BONDS_FAILED,
+        )
+
+        result = service.fetch_country("USA", include_bonds=False)
+
+        assert result["errors"] == []
+
+
+# ---------------------------------------------------------------------------
 # run_bulk_macro_fetch — progress and session.commit contract
 # ---------------------------------------------------------------------------
 

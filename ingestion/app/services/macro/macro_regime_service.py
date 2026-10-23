@@ -250,6 +250,16 @@ class MacroRegimeService:
                     else:
                         counts["bond_yields"] = 0
                         counts["bond_yield_observations"] = 0
+                        # The scraper reports a failed bond page as an otherwise
+                        # successful result carrying only this key.
+                        bond_error = te_data.get("bond_yields_error")
+                        if bond_error:
+                            errors.append(f"trading_economics_bonds: {bond_error}")
+                            logger.warning(
+                                "Trading Economics bond yields failed for %s: %s",
+                                country,
+                                bond_error,
+                            )
                 else:
                     counts["bond_yields"] = 0
                     counts["bond_yield_observations"] = 0
