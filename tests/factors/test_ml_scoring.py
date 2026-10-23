@@ -288,6 +288,63 @@ class TestPredictCompositeScores:
         result = predict_composite_scores(model, scores)
         assert pd.isna(result.iloc[2])
 
+    def test_partially_missing_ticker_is_still_scored(self) -> None:
+        """Only tickers with every factor missing are masked, as documented."""
+        rng = np.random.default_rng(21)
+        cols = ["a", "b", "c"]
+        train = pd.DataFrame(rng.normal(0, 1, (80, 3)), columns=cols)
+        returns = pd.Series(rng.normal(0, 1, 80))
+        model = fit_ridge_composite(train, returns)
+        scores = pd.DataFrame(
+            rng.normal(0, 1, (12, 3)),
+            index=[f"S{i}" for i in range(12)],
+            columns=cols,
+        )
+        scores.iloc[2, 1] = float("nan")
+        scores.iloc[5, 0] = float("nan")
+        scores.iloc[5, 2] = float("nan")
+        scores.iloc[7, :] = float("nan")
+
+        result = predict_composite_scores(model, scores)
+
+        assert result.drop("S7").notna().all()
+        assert pd.isna(result["S7"])
+
+    def test_standardised_over_the_tickers_that_are_scored(self) -> None:
+        """Masked tickers must not contribute to the zero-mean/unit-variance fit."""
+        rng = np.random.default_rng(22)
+        cols = ["a", "b", "c"]
+        train = pd.DataFrame(rng.normal(0, 1, (80, 3)), columns=cols)
+        returns = pd.Series(train["a"] + rng.normal(0, 0.1, 80))
+        model = fit_ridge_composite(train, returns)
+        scores = pd.DataFrame(
+            rng.normal(0, 1, (20, 3)),
+            index=[f"S{i}" for i in range(20)],
+            columns=cols,
+        )
+        scores.iloc[0, 0] = float("nan")
+        scores.iloc[1, 2] = float("nan")
+        scores.iloc[2:6, :] = float("nan")
+
+        result = predict_composite_scores(model, scores)
+
+        scored = result.dropna()
+        assert len(scored) == 16
+        assert abs(scored.mean()) < 1e-10
+        assert abs(scored.std(ddof=0) - 1.0) < 1e-10
+
+    def test_all_rows_missing_returns_all_nan(self) -> None:
+        rng = np.random.default_rng(23)
+        cols = ["a", "b"]
+        train = pd.DataFrame(rng.normal(0, 1, (40, 2)), columns=cols)
+        model = fit_ridge_composite(train, pd.Series(rng.normal(0, 1, 40)))
+        scores = pd.DataFrame(np.nan, index=["x", "y", "z"], columns=cols)
+
+        result = predict_composite_scores(model, scores)
+
+        assert result.isna().all()
+        assert list(result.index) == ["x", "y", "z"]
+
     def test_index_preserved(
         self,
         training_scores: pd.DataFrame,

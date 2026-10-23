@@ -138,8 +138,10 @@ def predict_composite_scores(
             the training frame.
 
     Returns:
-        Normalised composite score per ticker (zero mean, unit variance).
-        Tickers with all-NaN factor rows receive ``NaN``.
+        Normalised composite score per ticker (zero mean, unit variance over
+        the scored tickers).  Tickers missing only some factors are scored with
+        the cross-sectional mean standing in for the missing values; tickers
+        with all-NaN factor rows receive ``NaN``.
 
     Raises:
         DataError: If ``scores`` lacks a factor the model was trained on or
@@ -147,13 +149,20 @@ def predict_composite_scores(
     """
     frame = _align_to_training_columns(model, scores)
     X = frame.to_numpy(dtype=float)
-    row_has_nan = np.isnan(X).any(axis=1)
 
-    # sklearn predictors reject NaN; fill with column means so predictions cover
-    # every ticker, then re-apply the missing-row mask in the output.
+    result = pd.Series(np.nan, index=scores.index, dtype=float)
+    scorable = ~np.isnan(X).all(axis=1)
+    if not scorable.any():
+        return result
+    X = X[scorable]
+
+    # sklearn predictors reject NaN, so a ticker covering only some factors
+    # takes the cross-sectional column mean (neutral for standardised inputs)
+    # for the rest.  Masked rows are excluded before this and before scaling
+    # so they cannot shift the statistics of the tickers that are scored.
     col_means = np.nanmean(X, axis=0)
-    nan_mask = np.isnan(X)
-    X_filled = np.where(nan_mask, col_means, X)
+    X_filled = np.where(np.isnan(X), col_means, X)
+
     # Feeding a frame to a model fitted on a bare array (or vice versa) makes
     # sklearn warn about mismatched feature names.
     X_in = (
@@ -171,6 +180,5 @@ def predict_composite_scores(
     else:
         normalised = np.zeros_like(raw)
 
-    result = pd.Series(normalised, index=scores.index, dtype=float)
-    result[row_has_nan] = np.nan
+    result[scorable] = normalised
     return result
