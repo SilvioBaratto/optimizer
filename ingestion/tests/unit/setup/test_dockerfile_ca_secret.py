@@ -13,6 +13,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 # unit -> setup -> tests -> ingestion -> repo root (both Dockerfiles live here).
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _FUND_DOCKERFILE = _REPO_ROOT / "fund" / "Dockerfile"
@@ -56,3 +58,11 @@ def test_fund_image_sets_term_for_textual() -> None:
     """The fund runtime image sets TERM so the Textual cockpit renders in colour."""
     text = _FUND_DOCKERFILE.read_text(encoding="utf-8")
     assert re.search(r"ENV\s+TERM=xterm-256color", text)
+
+
+@pytest.mark.parametrize("service", ["scheduler", "fund"])
+def test_compose_ca_bundle_is_build_only(service: str) -> None:
+    """The corporate bundle is a build-time input; it is never mounted at runtime."""
+    yaml = pytest.importorskip("yaml")
+    doc = yaml.safe_load((_REPO_ROOT / "docker-compose.yml").read_text("utf-8"))
+    assert "ca_bundle" not in doc["services"][service].get("secrets", [])
