@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from optimizer.exceptions import ConfigurationError
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.factors import (
     build_all_factor_mimicking_portfolios,
     build_factor_mimicking_portfolios,
@@ -407,6 +407,75 @@ class TestBetaNeutral:
             scores, returns, beta_neutral=False, market_returns=market_returns
         )
         pd.testing.assert_frame_equal(standard, explicit_false)
+
+    def test_non_overlapping_market_index_raises(
+        self, scores: pd.DataFrame, returns: pd.DataFrame, market_returns: pd.Series
+    ) -> None:
+        """A market series that shares no dates must not yield an unhedged series."""
+        tz_aware = market_returns.copy()
+        tz_aware.index = tz_aware.index.tz_localize("UTC")
+        with pytest.raises(DataError, match="market_returns"):
+            build_factor_mimicking_portfolios(
+                scores, returns, beta_neutral=True, market_returns=tz_aware
+            )
+
+    def test_two_observation_overlap_raises(
+        self, scores: pd.DataFrame, returns: pd.DataFrame, market_returns: pd.Series
+    ) -> None:
+        """A beta estimated from two points is exactly determined, not a hedge."""
+        with pytest.raises(DataError, match="market_returns"):
+            build_factor_mimicking_portfolios(
+                scores,
+                returns,
+                beta_neutral=True,
+                market_returns=market_returns.iloc[:2],
+            )
+
+    def test_constant_market_returns_raises(
+        self, scores: pd.DataFrame, returns: pd.DataFrame, market_returns: pd.Series
+    ) -> None:
+        flat = pd.Series(0.01, index=market_returns.index)
+        with pytest.raises(DataError, match="variance"):
+            build_factor_mimicking_portfolios(
+                scores, returns, beta_neutral=True, market_returns=flat
+            )
+
+    def test_disjoint_scores_and_returns_give_empty_frame(
+        self, scores: pd.DataFrame, returns: pd.DataFrame, market_returns: pd.Series
+    ) -> None:
+        """An empty factor panel is not a market_returns problem."""
+        shifted = scores.copy()
+        shifted.index = shifted.index + pd.DateOffset(years=10)
+        unhedged = build_factor_mimicking_portfolios(shifted, returns)
+        hedged = build_factor_mimicking_portfolios(
+            shifted, returns, beta_neutral=True, market_returns=market_returns
+        )
+        assert hedged.empty
+        pd.testing.assert_frame_equal(hedged, unhedged)
+
+    def test_all_nan_legs_give_nan_frame(
+        self, scores: pd.DataFrame, returns: pd.DataFrame, market_returns: pd.Series
+    ) -> None:
+        """No date with enough valid assets mirrors the unhedged NaN output."""
+        blank = scores.copy()
+        blank.iloc[:, :] = np.nan
+        unhedged = build_factor_mimicking_portfolios(blank, returns)
+        hedged = build_factor_mimicking_portfolios(
+            blank, returns, beta_neutral=True, market_returns=market_returns
+        )
+        assert hedged["factor_return"].isna().all()
+        pd.testing.assert_frame_equal(hedged, unhedged)
+
+    def test_build_all_propagates_hedge_data_error(
+        self, scores: pd.DataFrame, returns: pd.DataFrame, market_returns: pd.Series
+    ) -> None:
+        with pytest.raises(DataError, match="market_returns"):
+            build_all_factor_mimicking_portfolios(
+                {"value": scores},
+                returns,
+                beta_neutral=True,
+                market_returns=market_returns.iloc[:2],
+            )
 
 
 class TestBuildAllFactorMimickingPortfolios:

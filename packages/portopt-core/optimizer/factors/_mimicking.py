@@ -10,11 +10,15 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
-from optimizer.exceptions import ConfigurationError
+from optimizer.exceptions import ConfigurationError, DataError
 
 logger = logging.getLogger(__name__)
 
 _WEIGHTING_MODES = frozenset({"equal", "value"})
+
+# Matches FactorPriorConfig.min_observations: below this a leg beta is too
+# noisy to hedge with, and two points always fit a line exactly.
+_MIN_BETA_OBSERVATIONS = 12
 
 
 @dataclass
@@ -102,16 +106,30 @@ def _compute_leg_beta(
 
     Returns:
         OLS beta coefficient.
+
+    Raises:
+        DataError: If fewer than ``_MIN_BETA_OBSERVATIONS`` dates are shared
+            by both series (e.g. a timezone or frequency mismatch in the
+            index), or if the market series is constant over the overlap.
+            A silent default beta would turn the hedge into a no-op.
     """
     common = leg_returns.dropna().index.intersection(market_returns.dropna().index)
-    if len(common) < 2:
-        return 1.0
+    if len(common) < _MIN_BETA_OBSERVATIONS:
+        raise DataError(
+            f"market_returns shares only {len(common)} dates with the factor "
+            f"legs; at least {_MIN_BETA_OBSERVATIONS} dates with values in both "
+            "are required to estimate the hedge beta. Check that the index "
+            "types, timezones and frequencies match scores and returns."
+        )
     y = leg_returns.loc[common].to_numpy(dtype=np.float64)
     x = market_returns.loc[common].to_numpy(dtype=np.float64)
     cov_xy = float(np.cov(y, x, ddof=1)[0, 1])
     var_x = float(np.var(x, ddof=1))
     if var_x < 1e-20:
-        return 1.0
+        raise DataError(
+            "market_returns has zero variance over the dates shared with the "
+            "factor legs, so the hedge beta is undefined."
+        )
     return cov_xy / var_x
 
 
@@ -172,6 +190,11 @@ def build_factor_mimicking_portfolios(
     Raises:
         ConfigurationError: If ``quantile`` is outside ``(0, 0.5]`` or ``weighting``
             is unknown.
+        DataError: If ``beta_neutral=True`` and *market_returns* overlaps the
+            factor legs on too few dates (fewer than 12) or has no variance
+            there, so the hedge beta cannot be estimated.  Not raised when no
+            date has enough valid assets: the result is then an empty or
+            all-NaN frame, exactly as with ``beta_neutral=False``.
     """
     if not (0.0 < quantile <= 0.5):
         raise ConfigurationError(f"quantile must be in (0, 0.5], got {quantile}")
@@ -213,6 +236,12 @@ def build_factor_mimicking_portfolios(
     if beta_neutral and market_returns is not None:
         long_s = pd.Series(long_ret_series, dtype=float)
         short_s = pd.Series(short_ret_series, dtype=float)
+        if not (long_s.notna() & short_s.notna()).any():
+            # An empty or all-NaN factor panel gives the hedge nothing to fit;
+            # report it like the unhedged path rather than blaming market_returns.
+            return pd.DataFrame(
+                {"factor_return": long_s}, index=common_dates, dtype=float
+            )
         beta_long = _compute_leg_beta(long_s, market_returns)
         beta_short = _compute_leg_beta(short_s, market_returns)
         hedge_ratio = beta_long / beta_short if abs(beta_short) > 1e-10 else 1.0
@@ -265,6 +294,9 @@ def build_all_factor_mimicking_portfolios(
     Raises:
         ConfigurationError: If ``factor_scores`` is empty, or any per-factor argument
             is invalid (propagated from ``build_factor_mimicking_portfolios``).
+        DataError: If ``beta_neutral=True`` and *market_returns* cannot hedge a
+            factor (too few shared dates or no variance); propagated from
+            ``build_factor_mimicking_portfolios``.
     """
     if not factor_scores:
         raise ConfigurationError("factor_scores must be a non-empty mapping")
