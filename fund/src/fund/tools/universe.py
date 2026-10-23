@@ -21,37 +21,62 @@ Contract (via ``tool_envelope``):
 * a bad selection criterion (e.g. an unknown ``select_k_measure`` enum) is caught
   by ``PreSelectionConfig`` validation and returned as ``{ok: false, error}``,
   never raised;
-* every other failure is caught by the envelope and returned as ``{ok: false}``.
+* every other failure is caught by the envelope and returned as ``{ok: false}``;
+* an ``exclusions`` criterion (GICS sector values) is enforced against each
+  instrument's ``TickerProfile.sector``; an instrument whose sector is unknown
+  cannot be shown to sit outside the excluded sectors, so it is dropped (fails
+  closed) and reported in ``excluded_by_esg``;
+* a criterion the tool cannot apply is never silently dropped behind ``ok``: its
+  key is listed in ``ignored_criteria`` so the caller knows it was not enforced.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import re
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from optimizer.pre_selection import PreSelectionConfig, build_preselection_pipeline
 from optimizer.preprocessing import prices_to_returns
+from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 
+from fund.schemas.enums import GicsSector
 from fund.tools._base import ToolResult, ok, tool_envelope
 from fund.tools.prices import load_price_frame
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-# ``PreSelectionConfig`` field names — criteria keys outside this set are silently
-# dropped, mirroring ``optimize``.
+# ``PreSelectionConfig`` field names; the other criterion the tool applies is
+# ``exclusions``. Any other key is reported back in ``ignored_criteria``.
 _CONFIG_FIELDS: frozenset[str] = frozenset(
     f.name for f in dataclasses.fields(PreSelectionConfig)
 )
+_EXCLUSIONS_KEY = "exclusions"
+_APPLIED_CRITERIA: frozenset[str] = _CONFIG_FIELDS | {_EXCLUSIONS_KEY}
+
+_UNCLASSIFIED = "unclassified"
+
+# ``TickerProfile.sector`` carries Yahoo's sector labels (normalised to snake case);
+# the ones that differ from GICS are mapped here. GICS-named labels pass through.
+_YAHOO_SECTOR_TO_GICS: dict[str, GicsSector] = {
+    "basic_materials": GicsSector.MATERIALS,
+    "consumer_cyclical": GicsSector.CONSUMER_DISCRETIONARY,
+    "consumer_defensive": GicsSector.CONSUMER_STAPLES,
+    "healthcare": GicsSector.HEALTH_CARE,
+    "financial_services": GicsSector.FINANCIALS,
+    "technology": GicsSector.INFORMATION_TECHNOLOGY,
+}
 
 
 def _resolve_config(criteria: dict[str, Any] | None) -> PreSelectionConfig:
     """Build a ``PreSelectionConfig`` from raw ``criteria``.
 
-    Unknown keys are ignored; a *known* field carrying a bad value (e.g. an
-    invalid ``select_k_measure`` enum, or an out-of-range threshold) raises inside
+    Keys that are not config fields are left out here (``universe_filter`` reports
+    them); a *known* field carrying a bad value (e.g. an invalid
+    ``select_k_measure`` enum, or an out-of-range threshold) raises inside
     ``PreSelectionConfig.__post_init__`` and is turned into ``{ok: false}`` by the
     envelope.
     """
@@ -59,6 +84,67 @@ def _resolve_config(criteria: dict[str, Any] | None) -> PreSelectionConfig:
         return PreSelectionConfig()
     overrides = {k: v for k, v in criteria.items() if k in _CONFIG_FIELDS}
     return PreSelectionConfig(**overrides)
+
+
+def _resolve_exclusions(criteria: dict[str, Any] | None) -> frozenset[GicsSector]:
+    """Parse the ``exclusions`` criterion into GICS sectors.
+
+    Raises:
+        ValueError: If an entry is not one of the GICS sector values.
+    """
+    raw = (criteria or {}).get(_EXCLUSIONS_KEY) or ()
+    entries = [raw] if isinstance(raw, str) else list(raw)
+    try:
+        return frozenset(GicsSector(entry) for entry in entries)
+    except ValueError:
+        valid = sorted(sector.value for sector in GicsSector)
+        raise ValueError(
+            f"unknown exclusion in {entries!r}; expected GICS sectors from {valid}"
+        ) from None
+
+
+def _gics_sector(session: Session, ticker: str) -> GicsSector | None:
+    """The GICS sector of ``ticker`` from its stored profile, or ``None`` if unknown."""
+    repo = YFinanceRepository(session)
+    instrument = repo.get_instrument_by_yfinance_ticker(ticker)
+    profile = None if instrument is None else repo.get_profile(instrument.id)
+    if profile is None or not profile.sector:
+        return None
+    label = re.sub(r"[^a-z]+", "_", profile.sector.lower()).strip("_")
+    if label in _YAHOO_SECTOR_TO_GICS:
+        return _YAHOO_SECTOR_TO_GICS[label]
+    try:
+        return GicsSector(label)
+    except ValueError:
+        return None
+
+
+def _esg_barred(
+    session: Session, tickers: Sequence[str], exclusions: frozenset[GicsSector]
+) -> dict[str, str]:
+    """Map each ticker that may not be held to the sector (or ``unclassified``)."""
+    barred: dict[str, str] = {}
+    for ticker in tickers:
+        sector = _gics_sector(session, ticker)
+        if sector is None:
+            barred[ticker] = _UNCLASSIFIED
+        elif sector in exclusions:
+            barred[ticker] = sector.value
+    return barred
+
+
+def _result(
+    survivors: list[str],
+    ignored: list[str],
+    barred: dict[str, str],
+) -> ToolResult:
+    """Envelope the survivors; report keys appear only when non-empty."""
+    result = ok(survivors)
+    if ignored:
+        result["ignored_criteria"] = ignored
+    if barred:
+        result["excluded_by_esg"] = barred
+    return result
 
 
 @tool_envelope
@@ -80,8 +166,10 @@ def universe_filter(
         universe: Candidate yfinance tickers, in the order the result should
             follow.
         criteria: Optional overrides mapped onto ``PreSelectionConfig`` fields
-            (e.g. ``top_k``, ``correlation_threshold``, ``select_k_measure``);
-            unknown keys are ignored. ``None`` uses the default pipeline.
+            (e.g. ``top_k``, ``correlation_threshold``, ``select_k_measure``),
+            plus ``exclusions``, a list of GICS sector values to bar. Any other
+            key is not applied and is returned in ``ignored_criteria``. ``None``
+            uses the default pipeline.
         sector_mapping: Optional ticker → sector ``dict`` forwarded to the
             pipeline's ``SectorImputer`` (injected, not DB-queried).
         base_currency: Mandate base currency prices are FX-converted to before
@@ -91,24 +179,33 @@ def universe_filter(
     Returns:
         ``ok`` with a ``list[str]`` of surviving tickers (subset of ``universe``,
         in requested order). An empty universe, no priced assets, or too little
-        history all yield ``ok([])``. ``err`` on a bad criterion.
+        history all yield ``ok([])``. The envelope also carries
+        ``ignored_criteria`` (keys that were not applied) and ``excluded_by_esg``
+        (``{ticker: sector or "unclassified"}``) when either is non-empty.
+        ``err`` on a bad criterion.
     """
     config = _resolve_config(criteria)
+    exclusions = _resolve_exclusions(criteria)
+    ignored = sorted(k for k in (criteria or {}) if k not in _APPLIED_CRITERIA)
     if not universe:
-        return ok([])
+        return _result([], ignored, {})
 
     frame, _ = load_price_frame(session, asof, universe, base_currency=base_currency)
+    barred = _esg_barred(session, list(frame.columns), exclusions) if exclusions else {}
+    frame = frame.drop(columns=list(barred))
     # No priced assets, or too little history to derive returns: an empty
     # investable set is a valid answer, not an error.
     if frame.shape[1] == 0 or frame.shape[0] < 2:
-        return ok([])
+        return _result([], ignored, barred)
 
     returns = prices_to_returns(frame)
     pipeline = build_preselection_pipeline(config=config, sector_mapping=sector_mapping)
     selected = pipeline.fit_transform(returns)
 
     survivors = {str(col) for col in selected.columns}
-    return ok([ticker for ticker in universe if ticker in survivors])
+    return _result(
+        [ticker for ticker in universe if ticker in survivors], ignored, barred
+    )
 
 
 __all__ = ["universe_filter"]

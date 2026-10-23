@@ -9,7 +9,10 @@ Pins the tool as a pure, deterministic function over a seeded SQLite panel:
 * a bad selection criterion (unknown ``select_k_measure`` enum) degrades to
   ``{ok: false, error}`` via ``PreSelectionConfig`` validation, never raised;
 * ``top_k`` is a real filter lever: ``top_k=1`` prunes the universe to one asset;
-* same seeded data + same criteria ⇒ identical list.
+* same seeded data + same criteria ⇒ identical list;
+* ``exclusions`` is enforced against each instrument's profile sector, failing
+  closed for an instrument whose sector is unknown; a criterion the tool cannot
+  apply is reported in ``ignored_criteria`` instead of vanishing behind ``ok``.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 
-from portopt_db.models.market_data.yfinance_data import PriceHistory
+from portopt_db.models.market_data.yfinance_data import PriceHistory, TickerProfile
 from portopt_db.models.universe.universe import Exchange, Instrument
 
 from fund.tools.universe import universe_filter
@@ -69,6 +72,15 @@ def _seed_panel(db_session, tickers: list[str] | None = None, n_days: int = _N_D
                     volume=1000,
                 )
             )
+    db_session.flush()
+
+
+_THREE = ["AAA", "BBB", "CCC"]
+
+
+def _seed_profile(db_session, ticker: str, sector: str | None) -> None:
+    inst = db_session.query(Instrument).filter_by(yfinance_ticker=ticker).one()
+    db_session.add(TickerProfile(instrument_id=inst.id, symbol=ticker, sector=sector))
     db_session.flush()
 
 
@@ -158,3 +170,94 @@ class TestUniverseFilter:
         second = universe_filter(db_session, _ASOF, _UNIVERSE)
 
         assert first == second
+
+
+class TestCriteriaEnforcement:
+    def test_esg_exclusion_drops_instruments_in_the_excluded_sector(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session, tickers=_THREE)
+        _seed_profile(db_session, "AAA", "Energy")
+        _seed_profile(db_session, "BBB", "Technology")
+        _seed_profile(db_session, "CCC", "Healthcare")
+
+        result = universe_filter(
+            db_session, _ASOF, _THREE, criteria={"exclusions": ["energy"]}
+        )
+
+        assert result["ok"] is True
+        assert "AAA" not in result["data"]
+        assert set(result["data"]) == {"BBB", "CCC"}
+        assert result["excluded_by_esg"] == {"AAA": "energy"}
+
+    def test_esg_exclusion_maps_yahoo_sector_labels_onto_gics(self, db_session) -> None:
+        _seed_panel(db_session)
+        _seed_profile(db_session, "AAA", "Consumer Cyclical")
+        _seed_profile(db_session, "BBB", "Financial Services")
+        _seed_profile(db_session, "CCC", "Healthcare")
+        _seed_profile(db_session, "DUP", "Technology")
+
+        result = universe_filter(
+            db_session,
+            _ASOF,
+            _UNIVERSE,
+            criteria={"exclusions": ["consumer_discretionary", "financials"]},
+        )
+
+        assert result["data"] == ["CCC", "DUP"]
+        assert result["excluded_by_esg"] == {
+            "AAA": "consumer_discretionary",
+            "BBB": "financials",
+        }
+
+    def test_esg_exclusion_fails_closed_when_sector_is_unknown(
+        self, db_session
+    ) -> None:
+        # No profile row (AAA) and a profile without a sector (BBB) cannot be shown
+        # to sit outside the excluded sector, so neither is allowed through.
+        _seed_panel(db_session)
+        _seed_profile(db_session, "BBB", None)
+        _seed_profile(db_session, "CCC", "Healthcare")
+        _seed_profile(db_session, "DUP", "Technology")
+
+        result = universe_filter(
+            db_session, _ASOF, _UNIVERSE, criteria={"exclusions": ["energy"]}
+        )
+
+        assert result["data"] == ["CCC", "DUP"]
+        assert result["excluded_by_esg"] == {
+            "AAA": "unclassified",
+            "BBB": "unclassified",
+        }
+
+    def test_unknown_exclusion_sector_is_error(self, db_session) -> None:
+        _seed_panel(db_session, tickers=_THREE)
+
+        result = universe_filter(
+            db_session, _ASOF, _THREE, criteria={"exclusions": ["tobacco"]}
+        )
+
+        assert result["ok"] is False
+        assert "tobacco" in result["error"]
+
+    def test_unapplied_criteria_are_reported_not_silently_dropped(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session, tickers=_THREE)
+
+        result = universe_filter(
+            db_session,
+            _ASOF,
+            _THREE,
+            criteria={"max_position_cap": 0.05, "no_complex": True},
+        )
+
+        assert result["ok"] is True
+        assert result["ignored_criteria"] == ["max_position_cap", "no_complex"]
+
+    def test_clean_result_carries_no_extra_keys(self, db_session) -> None:
+        _seed_panel(db_session, tickers=_THREE)
+
+        result = universe_filter(db_session, _ASOF, _THREE)
+
+        assert set(result) == {"ok", "data"}
