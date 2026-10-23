@@ -30,6 +30,7 @@ from app.services.market_data.yfinance.news.macro_news import (
     MACRO_TICKERS,
     TRUSTED_PUBLISHERS,
     MacroNewsFetcher,
+    MacroNewsUnavailableError,
     MacroTheme,
     _classify_themes,
     _make_news_id,
@@ -241,6 +242,83 @@ class TestMacroNewsFetcherFetchAll:
             scraper=MagicMock(),
         )
         fetcher._news_client = MagicMock()
-        fetcher._news_client.fetch.return_value = []
+        fetcher._news_client.fetch.return_value = [_trusted_article()]
         fetcher.fetch_all(max_articles=5)
         assert search_client.search.call_count == len(MACRO_SEARCH_QUERIES)
+
+
+class TestMacroNewsFetcherTotalOutage:
+    """A run where no source delivered anything must not look like a quiet day."""
+
+    def test_when_every_source_raises_then_outage_error_is_raised(self) -> None:
+        search_client = MagicMock()
+        search_client.search.side_effect = RuntimeError("search down")
+        fetcher = MacroNewsFetcher(
+            yf_client=MagicMock(),
+            search_client=search_client,
+            scraper=MagicMock(),
+        )
+        fetcher._news_client = MagicMock()
+        fetcher._news_client.fetch.side_effect = RuntimeError("feed down")
+
+        with pytest.raises(MacroNewsUnavailableError):
+            fetcher.fetch_all(max_articles=5)
+
+    def test_when_every_source_returns_nothing_then_outage_error_is_raised(
+        self,
+    ) -> None:
+        search_client = MagicMock()
+        search_client.search.return_value = None
+        fetcher = MacroNewsFetcher(
+            yf_client=MagicMock(),
+            search_client=search_client,
+            scraper=MagicMock(),
+        )
+        fetcher._news_client = MagicMock()
+        fetcher._news_client.fetch.return_value = []
+
+        with pytest.raises(MacroNewsUnavailableError):
+            fetcher.fetch_all(max_articles=5)
+
+    def test_when_outage_then_message_reports_failed_and_empty_source_counts(
+        self,
+    ) -> None:
+        search_client = MagicMock()
+        search_client.search.return_value = {"news": []}
+        fetcher = MacroNewsFetcher(
+            yf_client=MagicMock(),
+            search_client=search_client,
+            scraper=MagicMock(),
+        )
+        fetcher._news_client = MagicMock()
+        fetcher._news_client.fetch.side_effect = RuntimeError("feed down")
+
+        with pytest.raises(MacroNewsUnavailableError) as excinfo:
+            fetcher.fetch_all(max_articles=5)
+
+        message = str(excinfo.value)
+        assert f"{len(MACRO_TICKERS)} failed" in message
+        assert f"{len(MACRO_SEARCH_QUERIES)} empty" in message
+
+    def test_when_one_source_delivers_then_no_error_even_if_rest_fail(self) -> None:
+        search_client = MagicMock()
+        search_client.search.side_effect = RuntimeError("search down")
+        fetcher = MacroNewsFetcher(
+            yf_client=MagicMock(),
+            search_client=search_client,
+            scraper=MagicMock(),
+        )
+        fetcher._news_client = MagicMock()
+        fetcher._news_client.fetch.side_effect = [
+            [_trusted_article("Fed holds rates")],
+            *[RuntimeError("feed down")] * (len(MACRO_TICKERS) - 1),
+        ]
+
+        result = fetcher.fetch_all(max_articles=5)
+
+        assert [a["title"] for a in result] == ["Fed holds rates"]
+
+    def test_when_sources_deliver_only_filtered_articles_then_no_error(self) -> None:
+        fetcher = _build_macro_fetcher(news_articles=[_untrusted_article()])
+
+        assert fetcher.fetch_all(max_articles=5) == []

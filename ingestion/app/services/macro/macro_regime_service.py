@@ -546,6 +546,10 @@ def run_macro_news_fetch(
 
     Returns:
         Result dict with ``articles_stored`` and ``errors``.
+
+    Raises:
+        RuntimeError: When the fetch reported errors (upstream outage or a
+            failed upsert), so the scheduler records the job as failed.
     """
     from app.database import database_manager
 
@@ -558,11 +562,19 @@ def run_macro_news_fetch(
         )
         session.commit()
 
+        errors = result.get("errors", [])
         result_dict = {"articles_stored": result.get("count", 0)}
+        if errors:
+            # Raise rather than report status="failed": the step runner flips
+            # any non-"completed" status to "completed", so only an exception
+            # makes a swallowed outage visible in the job history.
+            on_progress(errors=errors, result=result_dict)
+            raise RuntimeError("Macro news fetch failed: " + "; ".join(errors))
+
         on_progress(
             status="completed",
             finished_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            errors=result.get("errors", []),
+            errors=errors,
             result=result_dict,
         )
         logger.info("Macro news fetch completed: %d articles", result.get("count", 0))

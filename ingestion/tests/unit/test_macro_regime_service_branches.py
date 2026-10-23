@@ -593,6 +593,27 @@ class TestFetchMacroNews:
         assert result["count"] == 0
         assert len(result["errors"]) == 1
 
+    def test_when_every_news_source_fails_then_outage_reported_in_errors(
+        self,
+    ) -> None:
+        mock_repo = MagicMock()
+        service, _ = _build_service(repo=mock_repo)
+
+        yf_client = self._mock_yf_client()
+        yf_client.get_ticker.side_effect = RuntimeError("feed down")
+        yf_client.search.search.return_value = None
+
+        with (
+            patch(self._YF_CLIENT_PATCH, return_value=yf_client),
+            patch("app.services.infrastructure.retry.time"),
+        ):
+            result = service.fetch_macro_news()
+
+        assert result["count"] == 0
+        assert len(result["errors"]) == 1
+        assert "no article" in result["errors"][0].lower()
+        mock_repo.upsert_macro_news.assert_not_called()
+
     def test_when_fetch_full_content_true_then_fetch_all_called_correctly(
         self,
     ) -> None:
@@ -849,3 +870,39 @@ class TestRunMacroNewsFetch:
 
         final_kwargs = on_progress.call_args_list[-1].kwargs
         assert final_kwargs.get("status") == "completed"
+
+    def test_when_service_reports_errors_then_step_fails_instead_of_completing(
+        self,
+    ) -> None:
+        from app.services.macro.macro_regime_service import run_macro_news_fetch
+
+        request = SimpleNamespace(max_articles=5, fetch_full_content=False)
+        mock_svc = MagicMock()
+        mock_svc.fetch_macro_news.return_value = {
+            "count": 0,
+            "errors": ["no article from any macro news source"],
+        }
+        on_progress = MagicMock()
+
+        with (
+            patch("app.database.database_manager") as mock_db,
+            patch("app.services.macro.macro_regime_service.MacroRegimeRepository"),
+            patch(
+                "app.services.macro.macro_regime_service.MacroRegimeService",
+                return_value=mock_svc,
+            ),
+        ):
+            mock_db.get_session.return_value.__enter__.return_value = MagicMock()
+            mock_db.get_session.return_value.__exit__.return_value = False
+
+            with pytest.raises(RuntimeError, match="no article"):
+                run_macro_news_fetch(request, on_progress=on_progress)
+
+        statuses = [c.kwargs.get("status") for c in on_progress.call_args_list]
+        assert "completed" not in statuses
+        errors_recorded = [
+            c.kwargs["errors"]
+            for c in on_progress.call_args_list
+            if "errors" in c.kwargs
+        ]
+        assert errors_recorded == [["no article from any macro news source"]]

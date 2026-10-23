@@ -274,6 +274,15 @@ def _make_news_id(title: str, link: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+class MacroNewsUnavailableError(RuntimeError):
+    """Raised when a ``fetch_all`` run obtained no article from any source.
+
+    An empty result is normal when every article is filtered out, but zero
+    raw articles across all tickers and searches means the upstream feed is
+    down, which callers must not record as a successful empty run.
+    """
+
+
 @dataclass
 class MacroNewsFetcher:
     """Fetches macro-themed news from yfinance tickers and search queries.
@@ -324,17 +333,30 @@ class MacroNewsFetcher:
         Returns:
             List of article dicts sorted by publish time (newest first),
             deduplicated by title and classified by macro theme.
+
+        Raises:
+            MacroNewsUnavailableError: When no ticker feed and no search query
+                returned a single raw article (every source failed or was
+                empty), as opposed to articles that were merely filtered out.
         """
         self._seen_titles.clear()
         ticker_buckets: dict[str, list[dict[str, Any]]] = {}
         search_articles: list[dict[str, Any]] = []
+        sources_delivering = 0
+        sources_failed = 0
+        sources_empty = 0
 
         # 1. Ticker-based news (collected per-ticker for capping)
         for ticker, seed_themes in MACRO_TICKERS.items():
             try:
                 news = self._news_client.fetch(ticker)
-                if not news:
+                if news is None:
+                    sources_failed += 1
                     continue
+                if not news:
+                    sources_empty += 1
+                    continue
+                sources_delivering += 1
                 bucket: list[dict[str, Any]] = []
                 for raw_article in news:
                     article = self._process_article(
@@ -353,6 +375,7 @@ class MacroNewsFetcher:
                     )
                     ticker_buckets[ticker] = bucket[:max_per_ticker]
             except Exception:
+                sources_failed += 1
                 logger.warning(
                     "Failed to fetch ticker news for %s",
                     ticker,
@@ -364,8 +387,14 @@ class MacroNewsFetcher:
             try:
                 result = self.search_client.search(query, max_results=8)
                 if result is None:
+                    sources_failed += 1
                     continue
-                for raw_article in result.get("news", []):
+                raw_news = result.get("news", [])
+                if not raw_news:
+                    sources_empty += 1
+                    continue
+                sources_delivering += 1
+                for raw_article in raw_news:
                     article = self._process_article(
                         raw_article,
                         seed_themes=seed_themes,
@@ -376,7 +405,15 @@ class MacroNewsFetcher:
                     if article is not None:
                         search_articles.append(article)
             except Exception:
+                sources_failed += 1
                 logger.warning("Failed search news for '%s'", query, exc_info=True)
+
+        if sources_delivering == 0:
+            raise MacroNewsUnavailableError(
+                "No article from any macro news source: "
+                f"{sources_failed} failed, {sources_empty} empty "
+                f"of {len(MACRO_TICKERS) + len(MACRO_SEARCH_QUERIES)} sources"
+            )
 
         # 3. Merge: search-first, then capped ticker articles
         search_articles.sort(
