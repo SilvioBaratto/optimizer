@@ -908,7 +908,8 @@ class FactorIntegrationConfig:
     """Configuration for bridging factor scores to optimization.
 
     Attributes:
-        risk_free_rate: Annual risk-free rate for expected return mapping.
+        risk_free_rate: Annual risk-free rate. BL views are excess returns, so
+            it is added back to the posterior mean as ``risk_free_rate / 252``.
         market_risk_premium: Annual equity risk premium.
         score_premium: Annualized premium per unit of composite z-score.
         use_black_litterman: Whether to generate Black-Litterman views from

@@ -82,25 +82,25 @@ class TestBuildFactorBLViews:
         assert len(views) == 2
 
 
+def _bl_posterior_mu(
+    scores: pd.Series, config: FactorIntegrationConfig | None = None
+) -> np.ndarray:
+    """Fit the factor BL prior on synthetic daily returns, return posterior mu."""
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame(rng.normal(0.0004, 0.01, (500, len(scores))), columns=scores.index)
+    prior, _ = build_factor_integration(
+        config=config or FactorIntegrationConfig.for_black_litterman(),
+        composite_scores=scores,
+        standardized_factors=pd.DataFrame(),
+        selected_tickers=scores.index,
+    )
+    assert prior is not None
+    prior.fit(X)
+    return np.asarray(prior.return_distribution_.mu)
+
+
 class TestBlackLittermanScoreOrdering:
     """The view level carries the score; confidence must not undo its ordering."""
-
-    @staticmethod
-    def _posterior_mu(scores: pd.Series) -> np.ndarray:
-        rng = np.random.default_rng(0)
-        X = pd.DataFrame(
-            rng.normal(0.0004, 0.01, (500, len(scores))), columns=scores.index
-        )
-        config = FactorIntegrationConfig.for_black_litterman()
-        prior, _ = build_factor_integration(
-            config=config,
-            composite_scores=scores,
-            standardized_factors=pd.DataFrame(),
-            selected_tickers=scores.index,
-        )
-        assert prior is not None
-        prior.fit(X)
-        return np.asarray(prior.return_distribution_.mu)
 
     def test_neutral_score_view_keeps_positive_confidence(self) -> None:
         config = FactorIntegrationConfig.for_black_litterman()
@@ -112,8 +112,32 @@ class TestBlackLittermanScoreOrdering:
         scores = pd.Series(
             [-2.0, -1.0, 0.0, 0.3, 1.0, 2.0], index=list("ABCDEF"), name="composite"
         )
-        mu = self._posterior_mu(scores)
+        mu = _bl_posterior_mu(scores)
         assert np.all(np.diff(mu) > 0.0), f"mu not increasing in score: {mu}"
+
+
+class TestBlackLittermanRiskFreeConvention:
+    """Views are excess returns; the risk-free rate is added back uniformly."""
+
+    def test_view_is_excess_return_over_risk_free_rate(self) -> None:
+        config = FactorIntegrationConfig.for_black_litterman()
+        scores = pd.Series([0.0], index=["A"])
+        views, _ = build_factor_bl_views(scores, scores.index, config)
+        expected = config.market_risk_premium / 252.0
+        assert views == (f"A == {expected:.8f}",)
+
+    def test_risk_free_rate_shifts_every_posterior_mu_equally(self) -> None:
+        scores = pd.Series(
+            [-2.0, -1.0, 0.0, 0.3, 1.0, 2.0], index=list("ABCDEF"), name="composite"
+        )
+        with_rf = _bl_posterior_mu(
+            scores, FactorIntegrationConfig(use_black_litterman=True)
+        )
+        no_rf = _bl_posterior_mu(
+            scores,
+            FactorIntegrationConfig(use_black_litterman=True, risk_free_rate=0.0),
+        )
+        np.testing.assert_allclose(with_rf - no_rf, 0.04 / 252.0, rtol=1e-6)
 
 
 class TestBuildFactorIntegration:

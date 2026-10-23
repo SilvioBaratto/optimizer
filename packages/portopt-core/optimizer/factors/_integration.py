@@ -51,9 +51,16 @@ def build_factor_bl_views(
 ) -> tuple[tuple[str, ...], tuple[float, ...]]:
     """Generate Black-Litterman absolute views from composite factor scores.
 
-    For each selected ticker with composite score ``z_i``, generates a view::
+    For each selected ticker with composite score ``z_i``, generates a view
+    on the *excess* return over the risk-free rate::
 
-        E[r_i] = (rf + market_premium + z_i * score_premium) / 252
+        E[r_i] - rf = (market_premium + z_i * score_premium) / 252
+
+    The default Black-Litterman prior (``EquilibriumMu``) is an excess-return
+    quantity, so the risk-free rate is not part of the views.  It is added back
+    uniformly to the posterior by ``BlackLittermanConfig.risk_free_rate``
+    (``config.risk_free_rate / 252``), which `build_factor_integration` sets.
+    Callers wiring these views into their own prior must do the same.
 
     Every view carries the same Idzorek confidence,
     ``config.view_confidence_cap``: the signed score already sets the view
@@ -62,7 +69,7 @@ def build_factor_bl_views(
     Args:
         composite_scores: Composite factor scores indexed by ticker.
         selected_tickers: Tickers in the portfolio.
-        config: Integration configuration with rf, market premium, and score
+        config: Integration configuration with the market premium and score
             premium.
 
     Returns:
@@ -76,12 +83,10 @@ def build_factor_bl_views(
     views: list[str] = []
 
     for ticker, z_i in scores.items():
-        daily_er = (
-            config.risk_free_rate
-            + config.market_risk_premium
-            + float(z_i) * config.score_premium
+        daily_excess_er = (
+            config.market_risk_premium + float(z_i) * config.score_premium
         ) / 252.0
-        views.append(f"{ticker} == {daily_er:.8f}")
+        views.append(f"{ticker} == {daily_excess_er:.8f}")
 
     # Each view is an absolute return level that already encodes the score, so
     # confidence is constant.  Scaling it by |z| would zero out the neutral
@@ -254,6 +259,7 @@ def build_factor_integration(
             views=views,
             view_confidences=confidences,
             uncertainty_method=ViewUncertaintyMethod.IDZOREK,
+            risk_free_rate=config.risk_free_rate / 252.0,
         )
         prior = build_black_litterman(bl_config)
         return prior, None
