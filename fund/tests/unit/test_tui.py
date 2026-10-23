@@ -7511,6 +7511,33 @@ async def test_performance_other_portfolio_starts_its_holdings_at_the_top(
 
 
 @pytest.mark.asyncio
+async def test_performance_strip_shows_drawdown_as_a_loss(shell_env) -> None:
+    """A 50% peak-to-trough fall reads ``max-dd -50.00%``, never a ``+`` gain."""
+    from fund.audit.nav_history_repository import NavHistoryRepository
+
+    navs = [100000, 200000, 150000, 100000]
+    with shell_env.get_session() as session:
+        NavHistoryRepository(session).upsert_navs(
+            [
+                {
+                    "portfolio_id": _PID_A,
+                    "date": date(2026, 10, 1 + i),
+                    "nav": Decimal(nav),
+                    "benchmark": None,
+                }
+                for i, nav in enumerate(navs)
+            ]
+        )
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        assert "max-dd -50.00%" in view.summary_text
+        assert "max-dd +" not in view.summary_text
+
+
+@pytest.mark.asyncio
 async def test_performance_holding_drilldown(shell_env) -> None:
     """Selecting a holdings row opens its drill-down detail."""
     with shell_env.get_session() as session:
