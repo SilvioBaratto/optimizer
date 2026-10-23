@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+import warnings
+
+import numpy as np
+import pandas as pd
 import pytest
 
 from optimizer.exceptions import ConfigurationError
@@ -12,6 +17,7 @@ from optimizer.factors._sector_bands import (
     _matrix_to_bands_tuple,
     resolve_sector_bands,
 )
+from optimizer.optimization import MeanRiskConfig, build_mean_risk
 
 # ---------------------------------------------------------------------------
 # ALL_11_SECTORS completeness
@@ -250,3 +256,98 @@ def test_resolve_default_path_falls_back_to_unknown_when_regime_absent(
     result = resolve_sector_bands(MacroRegime.RECOVERY)
     for sector in ALL_11_SECTORS:
         assert result[sector] == (0.03, 0.16)
+
+
+# ---------------------------------------------------------------------------
+# resolve_sector_bands: universe-aware resolution
+# ---------------------------------------------------------------------------
+
+NARROW_UNIVERSE = (
+    "Technology",
+    "Financial Services",
+    "Healthcare",
+    "Energy",
+    "Industrials",
+    "Communication Services",
+    "Real Estate",
+)
+
+
+def test_resolve_with_sectors_drops_absent_sectors() -> None:
+    result = resolve_sector_bands(MacroRegime.RECESSION, sectors=NARROW_UNIVERSE)
+    assert set(result) == set(NARROW_UNIVERSE)
+    assert result["Healthcare"][0] == 0.10  # floors of kept sectors untouched
+
+
+@pytest.mark.parametrize("regime", list(MacroRegime))
+@pytest.mark.parametrize(
+    "universe",
+    [NARROW_UNIVERSE, NARROW_UNIVERSE[:5], NARROW_UNIVERSE[:2], NARROW_UNIVERSE[:1]],
+)
+def test_resolve_with_sectors_keeps_caps_feasible(
+    regime: MacroRegime, universe: tuple[str, ...]
+) -> None:
+    result = resolve_sector_bands(regime, sectors=universe)
+    assert sum(cap for _, cap in result.values()) >= 1.0
+    for floor, cap in result.values():
+        assert 0.0 <= floor <= cap <= 1.0
+
+
+def test_resolve_with_sectors_widens_caps_without_reordering_them() -> None:
+    base = resolve_sector_bands(MacroRegime.RECESSION)
+    result = resolve_sector_bands(MacroRegime.RECESSION, sectors=NARROW_UNIVERSE)
+    scales = {s: result[s][1] / base[s][1] for s in NARROW_UNIVERSE}
+    assert all(scale >= 1.0 for scale in scales.values())
+    assert max(scales.values()) == pytest.approx(min(scales.values()))
+
+
+def test_resolve_with_sectors_leaves_already_feasible_bands_unchanged() -> None:
+    base = resolve_sector_bands(MacroRegime.EXPANSION)
+    result = resolve_sector_bands(MacroRegime.EXPANSION, sectors=ALL_11_SECTORS[:9])
+    for sector, band in result.items():
+        assert band == base[sector]
+
+
+def test_resolve_with_sectors_warns_about_dropped_floors(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="optimizer.factors._sector_bands"):
+        resolve_sector_bands(MacroRegime.RECESSION, sectors=NARROW_UNIVERSE)
+    assert "Consumer Defensive" in caplog.text
+    assert "Utilities" in caplog.text
+
+
+def test_resolve_with_unbanded_sector_in_universe_does_not_widen() -> None:
+    """A universe sector with no band is unconstrained and absorbs the residual."""
+    base = resolve_sector_bands(MacroRegime.RECESSION)
+    universe = (*NARROW_UNIVERSE, "Crypto")
+    result = resolve_sector_bands(MacroRegime.RECESSION, sectors=universe)
+    for sector in NARROW_UNIVERSE:
+        assert result[sector] == base[sector]
+
+
+def test_resolve_with_sectors_survives_all_zero_caps() -> None:
+    bands = tuple(("recession", sector, 0.0, 0.0) for sector in ALL_11_SECTORS)
+    cfg = SectorRegimeBandsConfig(enable=True, bands=bands)
+    result = resolve_sector_bands(MacroRegime.RECESSION, cfg, sectors=NARROW_UNIVERSE)
+    assert sum(cap for _, cap in result.values()) >= 1.0
+
+
+@pytest.mark.parametrize("regime", list(MacroRegime))
+def test_bands_for_narrow_universe_do_not_make_optimisation_infeasible(
+    regime: MacroRegime,
+) -> None:
+    tickers = [f"T{i}" for i in range(len(NARROW_UNIVERSE))]
+    mapping = dict(zip(tickers, NARROW_UNIVERSE, strict=True))
+    rng = np.random.default_rng(0)
+    returns = pd.DataFrame(
+        rng.normal(0.0005, 0.01, (250, len(tickers))), columns=tickers
+    )
+    bands = resolve_sector_bands(regime, sectors=set(mapping.values()))
+    model = build_mean_risk(
+        MeanRiskConfig(), sector_mapping=mapping, sector_bands=bands
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model.fit(returns)
+    assert np.asarray(model.weights_).sum() == pytest.approx(1.0)
