@@ -9598,3 +9598,21 @@ async def test_mandate_save_keeps_extra_gate_when_only_drift_changes(
         reloaded = observe.get_mandate(session, PORTFOLIO_ID)
         assert reloaded.drift_l1_threshold == 0.2
         assert reloaded.hitl_gates == ("place_orders", "optimize_portfolio")
+
+
+@pytest.mark.asyncio
+async def test_mandate_directives_render_verbatim_not_as_markup(shell_env) -> None:
+    # Free text typed by the adviser: ``[/s]`` is an unmatched closing tag (crashes a
+    # markup-parsing Label) and ``[urgent]`` would be swallowed as a style tag.
+    directives = ("Cap tech at 20% [/s]", "Trim AAA [urgent]", "Keep cash [5%]")
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"remembered_directives": directives}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        labels = view.query("#mandate-directives ListItem Label")
+        assert [str(label.visual) for label in labels] == list(directives)

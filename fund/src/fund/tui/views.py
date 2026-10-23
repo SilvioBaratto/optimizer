@@ -935,6 +935,8 @@ class MandateView(ShellView):
         listview = self.query_one("#mandate-directives", ListView)
         listview.clear()
         for directive in self._directives:
+            # Adviser free text: parsed as markup it would hide `[bracketed]` words or
+            # raise MarkupError on a stray `[/x]` on every repaint.
             listview.append(ListItem(Label(directive, markup=False)))
 
 
