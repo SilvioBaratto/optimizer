@@ -21,6 +21,7 @@ from app.services.jobs.scheduler import create_scheduler
 
 _DM = "app.services.jobs.scheduler.database_manager"
 _JOBSTORE = "app.services.jobs.scheduler.SQLAlchemyJobStore"
+_BOUND_SCHEDULER = "app.services.jobs.scheduler._scheduler"
 
 _CRON_JOBS = {
     "daily_pipeline",
@@ -35,10 +36,15 @@ _ALL_JOBS = _CRON_JOBS | _INTERVAL_JOBS
 
 
 def _build_scheduler():
-    """Create a scheduler with a mocked engine + in-memory jobstore."""
+    """Create a scheduler with a mocked engine + in-memory jobstore.
+
+    The module-level scheduler binding is patched so a scheduler these tests
+    start and stop does not leak into later tests as a draining one.
+    """
     dm = MagicMock()
     dm.engine = MagicMock()  # non-None
     with (
+        patch(_BOUND_SCHEDULER, None),
         patch(_DM, dm),
         patch(_JOBSTORE, lambda **_kwargs: MemoryJobStore()),
     ):

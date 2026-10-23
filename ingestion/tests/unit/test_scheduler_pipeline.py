@@ -112,6 +112,136 @@ class TestRunStep:
 
 
 # ---------------------------------------------------------------------------
+# TestShutdownDrain
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _running_scheduler():
+    """Bind a started ``SupervisedScheduler`` as the module's live scheduler."""
+    from app.services.jobs.scheduler import SupervisedScheduler
+
+    sched = SupervisedScheduler()
+    sched.start()
+    try:
+        with patch(f"{M}._scheduler", sched):
+            yield sched
+    finally:
+        if sched.running:
+            sched.shutdown(wait=False)
+
+
+class TestShutdownDrain:
+    """After SIGTERM pauses the scheduler, a composite pipeline must finish its
+    in-flight step but not claim a slot for the next one: the forced exit at the
+    drain deadline would leave that fresh row 'running' and block the step on the
+    restarted daemon until the heartbeat lease expires."""
+
+    def _call(self, job_svc, fn):
+        from app.services.jobs.scheduler import _run_step
+
+        return _run_step("test_label", job_svc, fn)
+
+    def test_when_scheduler_paused_then_step_claims_no_slot(self):
+        job_svc = _make_job_svc()
+        fn = MagicMock()
+
+        with _running_scheduler() as sched:
+            sched.pause()
+            result = self._call(job_svc, fn)
+
+        assert result is False
+        job_svc.create_job.assert_not_called()
+        fn.assert_not_called()
+
+    def test_when_scheduler_shut_down_then_step_claims_no_slot(self):
+        # The drain calls pause() and then shutdown(wait=True) straight away, so
+        # most of the drain window is spent in the STOPPED state, not PAUSED.
+        job_svc = _make_job_svc()
+        fn = MagicMock()
+
+        with _running_scheduler() as sched:
+            sched.pause()
+            sched.shutdown(wait=False)
+            result = self._call(job_svc, fn)
+
+        assert result is False
+        job_svc.create_job.assert_not_called()
+        fn.assert_not_called()
+
+    def test_when_scheduler_never_started_then_step_claims_a_slot(self):
+        # create_scheduler() binds the module scheduler before start() is called.
+        from app.services.jobs.scheduler import SupervisedScheduler
+
+        job_svc = _make_job_svc()
+
+        with patch(f"{M}._scheduler", SupervisedScheduler()):
+            result = self._call(job_svc, MagicMock())
+
+        assert result is True
+        job_svc.create_job.assert_called_once()
+
+    def test_when_no_scheduler_bound_then_step_claims_a_slot(self):
+        # The CLI composes the same steps without ever creating a scheduler.
+        job_svc = _make_job_svc()
+
+        with patch(f"{M}._scheduler", None):
+            result = self._call(job_svc, MagicMock())
+
+        assert result is True
+        job_svc.create_job.assert_called_once()
+
+    def test_when_scheduler_running_then_step_still_claims_a_slot(self):
+        job_svc = _make_job_svc()
+        fn = MagicMock()
+
+        with _running_scheduler():
+            result = self._call(job_svc, fn)
+
+        assert result is True
+        job_svc.create_job.assert_called_once()
+
+    def test_when_resumed_then_steps_claim_slots_again(self):
+        job_svc = _make_job_svc()
+
+        with _running_scheduler() as sched:
+            sched.pause()
+            sched.resume()
+            result = self._call(job_svc, MagicMock())
+
+        assert result is True
+
+    def test_when_paused_mid_pipeline_then_later_steps_claim_no_slot(self):
+        from app.services.jobs import scheduler as scheduler_module
+
+        labels = ["market_structure", "calendars", "market_summary", "options"]
+        svcs = {label: _make_job_svc() for label in labels}
+        fns = {label: MagicMock() for label in labels}
+
+        with _running_scheduler() as sched:
+            # SIGTERM lands while the first step is still running.
+            fns["market_structure"].side_effect = lambda **_kw: sched.pause()
+
+            def _step(label):
+                return lambda **_kw: scheduler_module._run_step(
+                    label, svcs[label], fns[label]
+                )
+
+            with ExitStack() as stack:
+                for label in labels:
+                    stack.enter_context(
+                        patch(f"{M}.run_{label}_step", side_effect=_step(label))
+                    )
+                scheduler_module.run_weekly_market_wide()
+
+        svcs["market_structure"].create_job.assert_called_once()
+        fns["market_structure"].assert_called_once()
+        for label in labels[1:]:
+            svcs[label].create_job.assert_not_called()
+            fns[label].assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # TestRunDailyPipeline
 # ---------------------------------------------------------------------------
 

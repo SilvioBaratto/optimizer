@@ -45,6 +45,7 @@ from typing import Any, Literal
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.base import STATE_PAUSED, STATE_STOPPED
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -140,6 +141,23 @@ class SupervisedScheduler(BackgroundScheduler):
     ``running``.
     """
 
+    _started = False
+
+    def start(self, paused: bool = False) -> None:
+        super().start(paused=paused)
+        self._started = True
+
+    @property
+    def draining(self) -> bool:
+        """Whether a shutdown drain has begun (paused, or stopped after a start).
+
+        The drain pauses the scheduler and immediately shuts it down, so work that
+        is still running sees PAUSED and then STOPPED. A scheduler that was never
+        started is also STOPPED but is not draining.
+        """
+        state = self.state
+        return state == STATE_PAUSED or (state == STATE_STOPPED and self._started)
+
     def _main_loop(self) -> None:
         try:
             super()._main_loop()
@@ -215,8 +233,17 @@ def _run_step(
     ``attempt`` records the reclaim generation (R3/§5.3); it is 0 on the normal
     cron/CLI path and ``prev + 1`` when the orphan reaper re-dispatches.
 
+    A step reached while the scheduler is draining for shutdown claims no slot:
+    the forced exit at the drain deadline would leave the fresh row 'running'
+    with a live heartbeat, blocking the step on the restarted daemon until the
+    lease expires.
+
     Returns ``True`` if the step completed, ``False`` on skip or failure.
     """
+    if _scheduler is not None and _scheduler.draining:
+        logger.warning("%s: skipped — scheduler is shutting down", label)
+        return False
+
     try:
         job_id = job_svc.create_job(attempt=attempt)
     except JobAlreadyRunningError as exc:
