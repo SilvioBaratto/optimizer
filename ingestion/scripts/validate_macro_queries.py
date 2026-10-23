@@ -22,6 +22,7 @@ live yfinance search endpoint, so it is safe to run ad hoc.
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import sys
 from datetime import datetime, timedelta
@@ -36,10 +37,18 @@ sys.path.insert(0, str(_REPO_ROOT / "ingestion"))
 import yfinance as yf
 from dateutil import parser as dateutil_parser
 
+from app.services.market_data.yfinance.market.search import SearchClient
 from app.services.market_data.yfinance.news.macro_news import MACRO_SEARCH_QUERIES
 
 _MAX_AGE_DAYS = 60
 _DEFAULT_MAX_RESULTS = 8
+
+# Production calls ``SearchClient.search`` with its default news window. Reading
+# it from the signature keeps the validator from seeing articles (yfinance's own
+# default is wider) that the fetcher never receives.
+_NEWS_COUNT: int = (
+    inspect.signature(SearchClient.search).parameters["news_count"].default
+)
 
 
 # Mirrors logic in app.services.market_data.yfinance.news aggregator/_process.
@@ -92,7 +101,9 @@ def evaluate_query(query: str, cutoff: datetime) -> dict[str, Any]:
         (set[str]), and ``error`` (str or None if the query succeeded).
     """
     try:
-        result = yf.Search(query, max_results=_DEFAULT_MAX_RESULTS)
+        result = yf.Search(
+            query, max_results=_DEFAULT_MAX_RESULTS, news_count=_NEWS_COUNT
+        )
         news = result.news or []
     except Exception as exc:
         return {
