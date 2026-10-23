@@ -8,6 +8,7 @@ a reformat cannot hide a regression.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -101,3 +102,32 @@ def test_fund_pyproject_does_not_claim_a_removed_branch_coverage_gate() -> None:
     text = (_REPO_ROOT / "fund" / "pyproject.toml").read_text(encoding="utf-8")
 
     assert "independent branch-rate" not in text
+
+
+_FULL_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+@pytest.mark.parametrize("name", ["ci.yml", "release.yml"])
+def test_every_action_is_pinned_to_a_full_commit_sha(name: str) -> None:
+    """A moved tag must not be able to swap code into a job holding the token."""
+    unpinned = [
+        step["uses"]
+        for job in _jobs(name).values()
+        for step in job["steps"]
+        if "uses" in step and not _FULL_SHA.fullmatch(step["uses"].partition("@")[2])
+    ]
+
+    assert unpinned == []
+
+
+def test_release_build_tool_is_version_pinned() -> None:
+    """The ``build`` backend produces the artifacts published to PyPI."""
+    installs = [
+        cmd
+        for job in _jobs("release.yml").values()
+        for cmd in _run_commands(job)
+        if "pip install" in cmd
+    ]
+
+    assert installs
+    assert all(re.search(r"\w==\d", cmd) for cmd in installs)
