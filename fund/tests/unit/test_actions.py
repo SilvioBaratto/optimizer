@@ -21,7 +21,9 @@ from unittest import mock
 import pytest
 from _fund_fakes import (
     ASOF,
+    N_DAYS,
     PORTFOLIO_ID,
+    START,
     UNIVERSE,
     ScriptedFundModel,
     classify_instruments,
@@ -39,6 +41,8 @@ from _profiler_fakes import make_model as make_profiler_model
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import Base, FundAutonomyState, PaperOrder
+from portopt_db.models.market_data.yfinance_data import PriceHistory
+from portopt_db.models.universe.universe import Exchange, Instrument
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -58,7 +62,7 @@ from fund.audit import (
 )
 from fund.audit.orders_repository import weights_hash
 from fund.config import settings
-from fund.schemas.constraint_set import UniverseFilters
+from fund.schemas.constraint_set import Bounds, UniverseFilters
 from fund.schemas.enums import GicsSector, LossReaction
 
 
@@ -178,13 +182,23 @@ def fill_bar_vanishes_after_the_check(monkeypatch):
     run as ``incomplete`` rather than claim a rebalance.
     """
     from fund.agents import graph as graph_mod
+    from fund.tools import orders
 
     monkeypatch.setattr(graph_mod, "_require_fill_bars", lambda *_a, **_k: None)
+    # ``edit`` runs the same dry run before it records anything.
+    monkeypatch.setattr(orders, "fill_shortfalls", lambda *_a, **_k: [])
 
 
-@pytest.mark.parametrize("action", ["approve", "edit"])
+@pytest.mark.parametrize(
+    ("action", "error", "message"),
+    [
+        ("approve", RuntimeError, "paper ticket"),
+        # An edit is refused even earlier, before it appends its allocator row.
+        ("edit", ValueError, "cannot be ticketed"),
+    ],
+)
 def test_approve_without_a_fill_bar_is_refused_and_leaves_the_gate_open(
-    paused_env, action
+    paused_env, action, error, message
 ) -> None:
     """No close after ``asof`` yet: the approve is refused before the graph resumes,
     so the run stays at its live gate and the same action can be retried."""
@@ -195,7 +209,7 @@ def test_approve_without_a_fill_bar_is_refused_and_leaves_the_gate_open(
 
     with (
         env.get_session() as session,
-        pytest.raises(RuntimeError, match="paper ticket"),
+        pytest.raises(error, match=message),
     ):
         apply_action(
             action,
@@ -1474,3 +1488,125 @@ def test_approve_refuses_a_run_whose_scope_is_frozen(paused_env, scope) -> None:
     with env.get_session() as session:
         assert AgentRunRepository(session).get_run(env.run_id).status == "paused"
         assert session.query(PaperOrder).count() == 0
+
+
+# --- edit must only commit weights that resolve to a placeable, in-universe book ---
+
+
+def _edit(env, session, new_value) -> ActionResult:
+    return apply_action(
+        "edit",
+        session=session,
+        run_id=env.run_id,
+        portfolio_id=PORTFOLIO_ID,
+        checkpointer=env.saver,
+        store=env.store,
+        model=env.model_factory(),
+        new_value=new_value,
+    )
+
+
+def _seed_off_universe_instrument(session, ticker: str) -> None:
+    """A priced instrument the allocator never proposed (fillable, but off-universe)."""
+    exchange = Exchange(name=f"EX-{ticker}")
+    session.add(exchange)
+    session.flush()
+    instrument = Instrument(
+        ticker=ticker,
+        short_name=ticker,
+        exchange_id=exchange.id,
+        instrument_type="EQUITY",
+        asset_class="equity",
+        yfinance_ticker=ticker,
+    )
+    session.add(instrument)
+    session.flush()
+    for day in range(N_DAYS):
+        session.add(
+            PriceHistory(
+                instrument_id=instrument.id,
+                date=START + dt.timedelta(days=day),
+                close=10.0 + day,
+                volume=1000,
+            )
+        )
+    session.commit()
+
+
+def test_edit_rejects_an_unknown_ticker_before_writing_anything(paused_env) -> None:
+    """A typo'd ticker sums to 1 and passes the bounds check, so the edit has to be
+    refused up front — before it is logged as the run's newest allocation."""
+    env = paused_env
+    with env.get_session() as session:
+        with pytest.raises(ValueError, match="ZZZZ"):
+            _edit(env, session, {"AAA": 0.5, "BBB": 0.3, "ZZZZ": 0.2})
+        # No rollback: the rejected edit must not have touched the open transaction.
+        assert AgentRunRepository(session).latest_optimizer_weights(
+            env.run_id
+        ) == pytest.approx(env.expected)
+        assert HumanAuditLogRepository(session).list_recent(action="edit") == []
+
+
+def test_edit_rejects_a_real_instrument_outside_the_runs_universe(paused_env) -> None:
+    """An instrument the allocator never considered bypasses the run's universe
+    screen, so it is refused even though it is priced and would fill."""
+    env = paused_env
+    with env.get_session() as session:
+        _seed_off_universe_instrument(session, "DDD")
+        with pytest.raises(ValueError, match="DDD"):
+            _edit(env, session, {"AAA": 0.5, "BBB": 0.3, "DDD": 0.2})
+        session.rollback()
+
+    with env.get_session() as session:
+        assert session.query(PaperOrder).count() == 0
+        run = AgentRunRepository(session).get_run(env.run_id)
+        assert run.status == "paused"
+
+
+def test_edit_normalises_ticker_case_and_whitespace(paused_env) -> None:
+    """``' aaa '`` is the run's ``AAA``: the ticket, the snapshot and the audit row all
+    carry the canonical ticker rather than a phantom ``aaa`` position."""
+    env = paused_env
+    edited = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
+    with env.get_session() as session:
+        _edit(env, session, {" aaa ": 0.5, "bbb": 0.3, "CCC": 0.2})
+        session.commit()
+
+    with env.get_session() as session:
+        order = session.query(PaperOrder).one()
+        assert order.weights == edited
+        positions = {
+            p.ticker: p.weight
+            for p in PositionRepository(session).get_holdings(PORTFOLIO_ID)
+        }
+        assert positions == edited
+        row = HumanAuditLogRepository(session).list_recent(action="edit")[0]
+        assert row.new_value == edited
+
+
+def test_edit_rejects_two_spellings_of_one_ticker(paused_env) -> None:
+    """``aaa`` and ``AAA`` normalise to one name; the later must not silently win."""
+    env = paused_env
+    with env.get_session() as session:
+        with pytest.raises(ValueError, match="twice"):
+            _edit(env, session, {"aaa": 0.2, "AAA": 0.3, "BBB": 0.5})
+        session.rollback()
+
+
+def test_edit_applies_the_portfolio_constraint_set_bounds(paused_env) -> None:
+    """The edit is checked against the portfolio's own ConstraintSet, as the pipeline's
+    risk gate is — not just the default 0..1 long-only box."""
+    env = paused_env
+    capped = make_constraint_set().model_copy(
+        update={"bounds": Bounds(max_weights=0.4)}
+    )
+    put_constraint_set(env.store, capped, store_key=settings.constraint_set_store_key)
+
+    with env.get_session() as session:
+        with pytest.raises(ValueError, match="max_weight"):
+            _edit(env, session, {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})
+        session.rollback()
+
+    with env.get_session() as session:
+        assert session.query(PaperOrder).count() == 0
+        assert HumanAuditLogRepository(session).list_recent(action="edit") == []

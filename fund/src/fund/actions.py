@@ -444,10 +444,12 @@ def _apply_edit(
 ) -> ActionResult:
     """Commit adviser-edited weights, then resume the paused run via ``approve``.
 
-    The edit never touches the gated tool's args. It validates ``new_value`` (the
-    ``{ticker: weight}`` the adviser typed) against the same gate the risk agent's
-    ``risk_check`` applies (long-only / fully-invested bounds, the K&E position cap,
-    the ESG and instrument screen), then appends a fresh **allocator /
+    The edit never touches the gated tool's args. It resolves ``new_value`` (the
+    ``{ticker: weight}`` the adviser typed) onto the tickers the run's allocator
+    proposed (case/whitespace-insensitive; anything else is refused), validates it
+    against the same gate the risk agent's ``risk_check`` applies (long-only /
+    fully-invested bounds, the K&E position cap, the ESG and instrument screen),
+    confirms every line can fill, then appends a fresh **allocator /
     optimize_portfolio** decision carrying the edited weights and resumes through the
     existing approve path. ``_place_orders_impl`` re-reads ``latest_optimizer_weights``
     on resume, so that appended row is the single source every downstream record (the
@@ -456,26 +458,38 @@ def _apply_edit(
     ⚑ ``override_flag`` since the human overrode the optimizer's allocation.
 
     Raises:
-        ValueError: ``run_id`` or ``new_value`` is missing, or the edited weights
-            fail the risk invariants (the structured ``violations`` are reported).
+        ValueError: ``run_id`` or ``new_value`` is missing, a ticker is outside the
+            run's allocator universe (or listed twice), the edited weights fail the
+            risk invariants (the structured ``violations`` are reported), or a line
+            has no fill bar.
         LookupError: ``run_id`` names no run.
     """
     from fund.agents.graph import resume_run
     from fund.agents.toolsets import RunContext, check_weights_against_mandate
     from fund.audit.repository import AgentRunRepository
+    from fund.tools.orders import fill_shortfalls
 
     if run_id is None:
         raise ValueError("'edit' requires a run_id")
     if not new_value:
         raise ValueError("'edit' requires new_value (the edited weights)")
     rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
-    edited = {str(k): float(v) for k, v in dict(new_value).items()}
 
-    run = AgentRunRepository(session).get_run(rid)
+    run_repo = AgentRunRepository(session)
+    run = run_repo.get_run(rid)
     if run is None:
         raise LookupError(f"no agent_run {rid}")
     if run.portfolio_id is None:
         raise ValueError(f"agent_run {rid} has no portfolio_id")
+    # Every allocator row, not just the latest: a prior edit may have dropped a name
+    # the adviser now wants back.
+    universe = {
+        ticker
+        for decision in run.decisions
+        if decision.agent == "allocator" and decision.step == "optimize_portfolio"
+        for ticker in run_repo.decode_weights(decision)
+    }
+    edited = _canonical_weights(new_value, universe)
     ctx = RunContext(
         session=session,
         asof=run.asof,
@@ -490,8 +504,10 @@ def _apply_edit(
     report = check["data"]
     if not report["passed"]:
         raise ValueError(f"'edit' violates risk invariants: {report['violations']}")
+    shortfalls = fill_shortfalls(session, run.asof, edited)
+    if shortfalls:
+        raise ValueError(f"'edit' cannot be ticketed: {'; '.join(shortfalls)}")
 
-    run_repo = AgentRunRepository(session)
     run_repo.append_decision(
         rid,
         agent="allocator",
@@ -537,6 +553,36 @@ def _apply_edit(
         message=resume_message(session, rid, "edit", result),
         detail=result,
     )
+
+
+def _canonical_weights(new_value: Any, universe: set[str]) -> dict[str, float]:
+    """Map the adviser's typed ``{ticker: weight}`` onto the allocator's own tickers.
+
+    Matching ignores case and surrounding whitespace so ``" aaa "`` lands on ``AAA``
+    instead of becoming a phantom position. Tickers outside ``universe`` bypass the
+    run's universe screen and are refused, as is one name spelled two ways (the later
+    weight would silently win).
+
+    Raises:
+        ValueError: A ticker is outside ``universe`` or appears twice.
+    """
+    canonical = {ticker.strip().upper(): ticker for ticker in universe}
+    edited: dict[str, float] = {}
+    unknown: list[str] = []
+    for raw, weight in dict(new_value).items():
+        ticker = canonical.get(str(raw).strip().upper())
+        if ticker is None:
+            unknown.append(str(raw))
+        elif ticker in edited:
+            raise ValueError(f"'edit' lists {ticker!r} twice")
+        else:
+            edited[ticker] = float(weight)
+    if unknown:
+        raise ValueError(
+            f"'edit' rejected: {sorted(unknown)} not in the run's allocator universe "
+            f"{sorted(universe)}"
+        )
+    return edited
 
 
 _FREEZE_SCOPES = ("run", "portfolio", "fund")
