@@ -12,8 +12,11 @@ services:
       POSTGRES_PASSWORD: postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Host ports bind loopback only: the superuser password is the well-known
+    # `postgres`, so an unqualified mapping would publish the database to every
+    # host on the network. The containers reach each other over optimizer_network.
     ports:
-      - "54320:5432"
+      - "127.0.0.1:54320:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d optimizer_db"]
       interval: 10s
@@ -30,7 +33,7 @@ services:
     environment:
       ADMINER_DEFAULT_SERVER: db
     ports:
-      - "18081:8080"
+      - "127.0.0.1:18081:8080"
     depends_on:
       db:
         condition: service_healthy
@@ -71,7 +74,7 @@ services:
       - fred_api_key
     ports:
       # Prometheus metrics only — no API is served
-      - "9000:9000"
+      - "127.0.0.1:9000:9000"
     depends_on:
       db:
         condition: service_healthy
