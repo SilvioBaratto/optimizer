@@ -41,12 +41,26 @@ class _EmpiricalOmegaBlackLitterman(BlackLitterman):
     empirical omega in place of the He-Litterman or Idzorek-derived one.
     """
 
+    # sklearn derives get_params()/clone() from the explicit __init__ signature and
+    # skips **kwargs, so every parent parameter must be spelled out here.
     def __init__(
         self,
+        views: npt.ArrayLike,
         empirical_omega: npt.NDArray[np.float64],
-        **kwargs: Any,
+        groups: dict[str, list[str]] | npt.ArrayLike | None = None,
+        prior_estimator: BasePrior | None = None,
+        tau: float = 0.05,
+        view_confidences: npt.ArrayLike | None = None,
+        risk_free_rate: float = 0,
     ) -> None:
-        super().__init__(**kwargs)
+        super().__init__(
+            views=views,
+            groups=groups,
+            prior_estimator=prior_estimator,
+            tau=tau,
+            view_confidences=view_confidences,
+            risk_free_rate=risk_free_rate,
+        )
         self.empirical_omega = empirical_omega
 
     def fit(
