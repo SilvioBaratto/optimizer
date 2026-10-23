@@ -871,6 +871,10 @@ class FactorValidationConfig:
             date for per-factor IC computation in ``run_factor_validation``.
             Default 24, matching ``composite_min_observations`` so both paths
             apply consistent minimum-data guards.
+        periods_per_year: Forward-return periods per year, used to annualise
+            the mean per-date quantile spread before it is compared with
+            ``FACTOR_SPREAD_BENCHMARKS``.  Default 12 (one-month forward
+            returns); use 4 for quarterly horizons.
     """
 
     newey_west_lags: int = 6
@@ -881,6 +885,12 @@ class FactorValidationConfig:
     fmp_bottom_pct: float = 0.2
     composite_min_observations: int = 24
     min_ic_observations: int = 24
+    periods_per_year: int = 12
+
+    def __post_init__(self) -> None:
+        if self.periods_per_year <= 0:
+            msg = f"periods_per_year must be > 0, got {self.periods_per_year}"
+            raise ConfigurationError(msg)
 
     @classmethod
     def for_strict(cls) -> FactorValidationConfig:

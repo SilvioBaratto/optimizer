@@ -903,6 +903,74 @@ class TestFactorSpreadBenchmarks:
         for qs in report.quantile_spreads:
             assert isinstance(qs.within_benchmark, bool)
 
+    @staticmethod
+    def _linear_panel(
+        per_period_spreads: list[float], n_tickers: int = 30
+    ) -> tuple[dict[str, pd.DataFrame], pd.DataFrame]:
+        """Panel whose date-t quintile spread equals ``per_period_spreads[t]``."""
+        n_dates = len(per_period_spreads)
+        dates = pd.date_range("2021-01-31", periods=n_dates, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(n_tickers)]
+        ranks = np.arange(n_tickers, dtype=float)
+        scores = pd.DataFrame(
+            np.tile(ranks, (n_dates, 1)), index=dates, columns=tickers
+        )
+        unit = compute_quantile_spread(scores.iloc[0], scores.iloc[0], n_quantiles=5)
+        returns = pd.DataFrame(
+            np.outer(np.asarray(per_period_spreads) / unit, ranks),
+            index=dates,
+            columns=tickers,
+        )
+        return {"momentum": scores}, returns
+
+    def test_when_monthly_spread_annualises_into_band_then_within_benchmark(
+        self,
+    ) -> None:
+        """0.5%/month is ~6% a year: inside the 4%-10% momentum band."""
+        factors, returns = self._linear_panel([0.005] * 36)
+        report = run_factor_validation(factors, returns)
+        (qs,) = report.quantile_spreads
+        assert qs.spread == pytest.approx(0.005)
+        assert qs.within_benchmark is True
+
+    def test_when_monthly_spread_matches_annual_band_numerically_then_not_within(
+        self,
+    ) -> None:
+        """A 6% monthly spread is ~72% a year, far above the momentum band."""
+        factors, returns = self._linear_panel([0.06] * 36)
+        report = run_factor_validation(factors, returns)
+        (qs,) = report.quantile_spreads
+        assert qs.within_benchmark is False
+
+    def test_when_spread_negative_then_not_within_benchmark(self) -> None:
+        """A reversed factor (loser-minus-winner) is not inside the benchmark."""
+        factors, returns = self._linear_panel([-0.06] * 36)
+        report = run_factor_validation(
+            factors, returns, FactorValidationConfig(periods_per_year=1)
+        )
+        (qs,) = report.quantile_spreads
+        assert qs.spread == pytest.approx(-0.06)
+        assert qs.within_benchmark is False
+
+    @pytest.mark.filterwarnings("ignore:An input array is constant")
+    def test_when_latest_date_is_noise_then_spread_averaged_over_dates(self) -> None:
+        """One bad final month must not decide the benchmark flag."""
+        factors, returns = self._linear_panel([0.0055] * 35 + [0.0])
+        report = run_factor_validation(factors, returns)
+        (qs,) = report.quantile_spreads
+        assert qs.spread == pytest.approx(0.0055 * 35 / 36)
+        assert qs.within_benchmark is True
+
+    def test_when_periods_per_year_set_then_annualisation_follows_it(self) -> None:
+        """Quarterly forward returns: 1.5%/quarter is 6% a year."""
+        factors, returns = self._linear_panel([0.015] * 36)
+        monthly = run_factor_validation(factors, returns)
+        quarterly = run_factor_validation(
+            factors, returns, FactorValidationConfig(periods_per_year=4)
+        )
+        assert monthly.quantile_spreads[0].within_benchmark is False
+        assert quarterly.quantile_spreads[0].within_benchmark is True
+
     def test_significant_factors_holm_populated(self) -> None:
         rng = np.random.default_rng(42)
         dates = pd.date_range("2023-01-01", periods=60, freq="ME")

@@ -91,7 +91,18 @@ class GroupICResult:
 
 @dataclass
 class QuantileSpreadResult:
-    """Quantile spread analysis results for a single factor."""
+    """Quantile spread analysis results for a single factor.
+
+    Attributes:
+        factor_name: Factor the spread belongs to.
+        spread: Mean per-period top-minus-bottom quantile return over all
+            dates with a valid cross-section (not annualised).
+        quantile_returns: Per-quantile mean returns; not populated by
+            ``run_factor_validation``.
+        within_benchmark: True when the spread, annualised by
+            ``FactorValidationConfig.periods_per_year``, lies inside the
+            factor group's ``FACTOR_SPREAD_BENCHMARKS`` range.
+    """
 
     factor_name: str
     spread: float
@@ -772,27 +783,34 @@ def run_factor_validation(
         common_dates = scores_df.index.intersection(
             returns_history.index,
         )
-        if len(common_dates) > 0:
-            latest = common_dates[-1]
-            spread = compute_quantile_spread(
-                scores_df.loc[latest],
-                returns_history.loc[latest],
+        per_date_spreads = [
+            compute_quantile_spread(
+                scores_df.loc[date],
+                returns_history.loc[date],
                 n_quantiles=config.n_quantiles,
             )
-            if not np.isnan(spread):
-                group_name = _factor_to_group_name(factor_name)
-                bench = FACTOR_SPREAD_BENCHMARKS.get(group_name)
-                in_bench = (
-                    bench[0] <= abs(spread) <= bench[1] if bench is not None else False
+            for date in common_dates
+        ]
+        valid_spreads = [x for x in per_date_spreads if not np.isnan(x)]
+        if valid_spreads:
+            spread = float(np.mean(valid_spreads))
+            group_name = _factor_to_group_name(factor_name)
+            bench = FACTOR_SPREAD_BENCHMARKS.get(group_name)
+            # The benchmarks are annual, long-short and signed: scale the
+            # per-period mean to a year and keep the sign so a reversed factor
+            # is not reported as matching the literature.
+            annualised = spread * config.periods_per_year
+            in_bench = (
+                bench[0] <= annualised <= bench[1] if bench is not None else False
+            )
+            report.quantile_spreads.append(
+                QuantileSpreadResult(
+                    factor_name=factor_name,
+                    spread=spread,
+                    quantile_returns=[],
+                    within_benchmark=in_bench,
                 )
-                report.quantile_spreads.append(
-                    QuantileSpreadResult(
-                        factor_name=factor_name,
-                        spread=spread,
-                        quantile_returns=[],
-                        within_benchmark=in_bench,
-                    )
-                )
+            )
 
     if p_values:
         factor_names = list(p_values.keys())

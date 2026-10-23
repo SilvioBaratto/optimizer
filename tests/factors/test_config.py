@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.factors import (
     FACTOR_DIRECTION,
     FACTOR_GROUP_MAPPING,
@@ -488,6 +489,14 @@ class TestFactorValidationConfig:
         cfg = FactorValidationConfig.for_strict()
         assert cfg.t_stat_threshold == 3.0
         assert cfg.fdr_alpha == 0.01
+
+    def test_periods_per_year_defaults_to_monthly(self) -> None:
+        assert FactorValidationConfig().periods_per_year == 12
+
+    @pytest.mark.parametrize("bad", [0, -1])
+    def test_non_positive_periods_per_year_raises(self, bad: int) -> None:
+        with pytest.raises(ConfigurationError, match="periods_per_year"):
+            FactorValidationConfig(periods_per_year=bad)
 
 
 class TestFactorIntegrationConfig:
