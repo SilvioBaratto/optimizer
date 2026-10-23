@@ -752,3 +752,28 @@ class TestFxPriceConverterTransformColumns:
         assert reordered["B"].iloc[0] == pytest.approx(1000.0 / 100.0 * 1.15)
         assert reordered["A"].iloc[0] == pytest.approx(10.0 * 1.15)
         assert only_b["B"].iloc[0] == pytest.approx(1000.0 / 100.0 * 1.15)
+
+
+class TestFxPriceConverterInvalidRates:
+    """A zero or non-finite FX print is missing data, not a 0 or inf rate."""
+
+    @pytest.mark.parametrize("bad_rate", [0.0, np.inf, -1.2])
+    def test_bad_rate_yields_nan_price_and_warning(
+        self, bad_rate: float, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        dates = pd.bdate_range("2024-01-02", periods=3)
+        prices = pd.DataFrame({"LLOY.L": [50.0, 51.0, 52.0]}, index=dates)
+        fx = pd.DataFrame({"GBP": [bad_rate, 1.2, 1.2]}, index=dates)
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map={"LLOY.L": "GBP"}, fx_rates=fx
+        )
+        converter.fit(prices)
+
+        with caplog.at_level(logging.WARNING, logger="optimizer.fx._converter"):
+            result = converter.transform(prices)
+
+        assert np.isnan(result["LLOY.L"].iloc[0])
+        assert result["LLOY.L"].iloc[1:].tolist() == pytest.approx([61.2, 62.4])
+        assert any("NaN prices" in r.message for r in caplog.records)

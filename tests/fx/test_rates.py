@@ -79,6 +79,32 @@ class TestComputeCrossRate:
         assert len(cross) == 4
 
 
+class TestComputeCrossRateInvalidLegs:
+    """A zero, negative or non-finite leg is missing data, never an inf rate."""
+
+    @pytest.mark.parametrize("bad", [0.0, -1.1, np.inf, np.nan])
+    def test_bad_to_leg_gives_nan_not_inf(self, bad: float) -> None:
+        dates = pd.bdate_range("2024-01-01", periods=2)
+        gbp_usd = pd.Series([1.3, 1.3], index=dates)
+        eur_usd = pd.Series([bad, 1.1], index=dates)
+
+        cross = compute_cross_rate(gbp_usd, eur_usd)
+
+        assert np.isnan(cross.iloc[0])
+        assert cross.iloc[1] == pytest.approx(1.3 / 1.1)
+
+    @pytest.mark.parametrize("bad", [0.0, -1.3, np.inf])
+    def test_bad_from_leg_gives_nan(self, bad: float) -> None:
+        dates = pd.bdate_range("2024-01-01", periods=2)
+        gbp_usd = pd.Series([bad, 1.3], index=dates)
+        eur_usd = pd.Series([1.1, 1.1], index=dates)
+
+        cross = compute_cross_rate(gbp_usd, eur_usd)
+
+        assert np.isnan(cross.iloc[0])
+        assert np.isfinite(cross.iloc[1])
+
+
 class TestAlignFxRates:
     """Tests for align_fx_rates()."""
 
@@ -111,6 +137,28 @@ class TestAlignFxRates:
 
         # First 4 should be filled (original + 3 forward), rest NaN
         assert result["GBP"].notna().sum() == 4
+
+    def test_non_positive_and_non_finite_rates_are_missing(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=2)
+        fx = pd.DataFrame(
+            {"ZERO": [0.0, 1.15], "NEG": [-1.0, 1.15], "INF": [np.inf, 1.15]},
+            index=dates,
+        )
+
+        result = align_fx_rates(fx, dates)
+
+        # A bad first print has nothing to fill from, so it is NaN rather than
+        # a 0, negative or inf rate that would silently price assets at 0/inf.
+        assert result.iloc[0].isna().all()
+        assert result.iloc[1].tolist() == [1.15, 1.15, 1.15]
+
+    def test_bad_rate_is_filled_from_last_valid_rate(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=3)
+        fx = pd.DataFrame({"GBP": [1.15, 0.0, 1.17]}, index=dates)
+
+        result = align_fx_rates(fx, dates, fill_limit=5)
+
+        assert result["GBP"].tolist() == [1.15, 1.15, 1.17]
 
     def test_empty_raises(self) -> None:
         from optimizer.exceptions import DataError

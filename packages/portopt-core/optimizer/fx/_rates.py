@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TypeVar
 
 import numpy as np
 import pandas as pd
@@ -11,6 +12,18 @@ from optimizer.exceptions import DataError
 from optimizer.fx._minor_units import normalize_currency_code
 
 logger = logging.getLogger(__name__)
+
+_RatesT = TypeVar("_RatesT", pd.Series, pd.DataFrame)
+
+
+def _mask_invalid_rates(rates: _RatesT) -> _RatesT:
+    """Replace non-positive and non-finite FX quotes with ``NaN``.
+
+    An exchange rate is a price ratio, so a zero, negative or infinite print is
+    bad data.  Left in place it prices assets at zero or inf without tripping
+    the converter's NaN warning.
+    """
+    return rates.where((rates > 0) & (rates < np.inf))
 
 
 def build_fx_pair_ticker(
@@ -71,12 +84,11 @@ def compute_cross_rate(
 
     Returns:
         Cross rate series (FROM per 1 unit of TO is the reciprocal;
-        this returns units-of-TO per 1 unit of FROM).
+        this returns units-of-TO per 1 unit of FROM).  Dates where either leg
+        is zero, negative or non-finite are ``NaN``.
     """
     aligned_from, aligned_to = fx_from_usd.align(fx_to_usd, join="inner")
-    with np.errstate(divide="ignore", invalid="ignore"):
-        cross = aligned_from / aligned_to
-    return cross
+    return _mask_invalid_rates(aligned_from) / _mask_invalid_rates(aligned_to)
 
 
 def align_fx_rates(
@@ -97,7 +109,8 @@ def align_fx_rates(
         fill_limit: Maximum consecutive NaN days to forward-fill.
 
     Returns:
-        Aligned FX rates on the ``price_index``.
+        Aligned FX rates on the ``price_index``.  Zero, negative and
+        non-finite rates are treated as missing (``NaN``) before filling.
 
     Raises:
         DataError: If ``fx_rates`` is empty.
@@ -105,7 +118,7 @@ def align_fx_rates(
     if fx_rates.empty:
         raise DataError("fx_rates DataFrame is empty.")
 
-    aligned = fx_rates.reindex(price_index)
+    aligned = _mask_invalid_rates(fx_rates).reindex(price_index)
     aligned = aligned.ffill(limit=fill_limit)
     return aligned
 
