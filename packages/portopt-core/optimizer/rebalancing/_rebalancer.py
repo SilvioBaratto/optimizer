@@ -13,8 +13,10 @@ from skfolio.model_selection import WalkForward
 from skfolio.typing import IntArray
 
 from optimizer.rebalancing._config import (
+    PANDAS_FREQ,
     CalendarRebalancingConfig,
     HybridRebalancingConfig,
+    RebalancingFrequency,
     ThresholdRebalancingConfig,
     ThresholdType,
 )
@@ -28,6 +30,9 @@ logger = logging.getLogger(__name__)
 # a relative band must neither measure it against itself nor treat it as a
 # position that needs exiting.
 _WEIGHT_DUST = 1e-4
+
+_SEMIANNUAL_FREQ = PANDAS_FREQ[RebalancingFrequency.SEMIANNUAL]
+_SEMIANNUAL_MONTHS = (1, 7)
 
 
 def _as_1d(name: str, arr: npt.ArrayLike) -> npt.NDArray[np.float64]:
@@ -308,15 +313,19 @@ def should_rebalance_hybrid(
 
 
 class _CalendarWalkForward(WalkForward):
-    """`WalkForward` that never walks a period boundary it cannot resolve.
+    """`WalkForward` with the calendar semantics skfolio's period grid lacks.
 
-    A period boundary that has no observation to land on (a positive
-    ``freq_offset`` past the final row with ``previous=False``, or a negative
-    one before the first row with ``previous=True``) is resolved by skfolio to
-    index -1. That index then starts a fold that spans the whole sample or ends
-    a zero-length test window, which crashes ``cross_val_predict`` and is still
-    counted by ``get_n_splits``. Such boundaries are dropped from the grid,
-    whatever the cadence and ``reduce_test`` setting.
+    * A period boundary that has no observation to land on (a positive
+      ``freq_offset`` past the final row with ``previous=False``, or a negative
+      one before the first row with ``previous=True``) is resolved by skfolio
+      to index -1. That index then starts a fold that spans the whole sample or
+      ends a zero-length test window, which crashes ``cross_val_predict`` and
+      is still counted by ``get_n_splits``. Such boundaries are dropped from
+      the grid, whatever the cadence and ``reduce_test`` setting.
+    * A multiple-period alias such as ``"2QS"`` steps from the quarter of the
+      first observation, so one semiannual cadence would land on Jan/Jul or
+      Apr/Oct depending on where the history starts. The semiannual grid is
+      built from the January and July period starts instead.
 
     Only integer ``train_size`` windows are walked here; a date-offset
     ``train_size`` or an observation-count walk (``freq=None``) is delegated to
@@ -349,7 +358,7 @@ class _CalendarWalkForward(WalkForward):
     ) -> int:
         """Return the number of folds `split` yields for *X*."""
         n_splits = super().get_n_splits(X, y, groups)
-        if X is None or self.freq is None or self.freq_offset is None:
+        if X is None or self.freq is None:
             return n_splits
         return sum(1 for _ in self.split(X))
 
@@ -358,7 +367,11 @@ class _CalendarWalkForward(WalkForward):
         start = ts_index[0]
         if self.freq_offset is not None:
             start = min(start, start - self.freq_offset)
-        boundaries = pd.date_range(start=start, end=ts_index[-1], freq=self.freq)
+        if self.freq == _SEMIANNUAL_FREQ:
+            boundaries = pd.date_range(start=start, end=ts_index[-1], freq="QS")
+            boundaries = boundaries[boundaries.month.isin(_SEMIANNUAL_MONTHS)]
+        else:
+            boundaries = pd.date_range(start=start, end=ts_index[-1], freq=self.freq)
         if self.freq_offset is not None:
             boundaries = boundaries + self.freq_offset
         positions = ts_index.get_indexer(

@@ -41,6 +41,10 @@ TRADING_DAYS: dict[RebalancingFrequency, int] = {
 #   * ``"QS"``  — quarter start
 #   * ``"2QS"`` — every two quarters (semi-annual) start
 #   * ``"YS"``  — year start
+# Pandas phases a multiple-period alias from the first observation, so passing
+# ``"2QS"`` to a bare ``WalkForward`` rebalances in Jan/Jul or Apr/Oct depending
+# on where the history starts. ``build_rebalancing_walk_forward`` pins the
+# semi-annual cadence to January and July period starts.
 PANDAS_FREQ: dict[RebalancingFrequency, str] = {
     RebalancingFrequency.MONTHLY: "MS",
     RebalancingFrequency.QUARTERLY: "QS",
@@ -74,7 +78,9 @@ class CalendarRebalancingConfig:
         Suitable for ``skfolio.model_selection.WalkForward(freq=...)`` so a
         walk-forward backtest rebalances on real calendar period-starts
         (e.g. ``"MS"`` for monthly, ``"QS"`` for quarterly) instead of a raw
-        observation count.
+        observation count. The semi-annual alias (``"2QS"``) is only
+        calendar-fixed (January/July) through
+        `optimizer.rebalancing.build_rebalancing_walk_forward`.
         """
         return PANDAS_FREQ[self.frequency]
 

@@ -485,6 +485,96 @@ class TestBuildRebalancingWalkForward:
         # The 2024-12-03 boundary is now observable, so it closes a fold.
         assert X.index[folds[-1][1][-1] + 1] == pd.Timestamp("2024-12-03")
 
+    @staticmethod
+    def _daily_returns(start: str, years: int = 4) -> pd.DataFrame:
+        idx = pd.bdate_range(start, periods=years * 261)
+        rng = np.random.default_rng(2)
+        return pd.DataFrame(
+            rng.normal(0.0, 0.01, size=(len(idx), 2)),
+            index=idx,
+            columns=["A", "B"],
+        )
+
+    @pytest.mark.parametrize(
+        "start", ["2015-01-05", "2015-03-10", "2015-06-10", "2020-12-10"]
+    )
+    def test_semiannual_test_windows_start_in_january_and_july(
+        self, start: str
+    ) -> None:
+        X = self._daily_returns(start)
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_semiannual(), train_size=1
+        )
+        folds = list(cv.split(X))
+        assert len(folds) >= 3
+        for _, test_idx in folds:
+            first = X.index[test_idx[0]]
+            # First trading day on or after Jan 1 / Jul 1.
+            assert first.month in (1, 7)
+            assert first.day <= 4
+
+    @pytest.mark.parametrize("start", ["2015-01-05", "2015-03-10", "2015-06-10"])
+    def test_semiannual_test_windows_are_six_months_apart(self, start: str) -> None:
+        X = self._daily_returns(start)
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_semiannual(), train_size=2
+        )
+        months = [
+            X.index[test_idx[0]].year * 12 + X.index[test_idx[0]].month
+            for _, test_idx in cv.split(X)
+        ]
+        assert len(months) >= 2
+        assert np.diff(months).tolist() == [6] * (len(months) - 1)
+
+    def test_semiannual_get_n_splits_matches_split(self) -> None:
+        X = self._daily_returns("2015-03-10")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_semiannual(), train_size=2
+        )
+        assert cv.get_n_splits(X) == len(list(cv.split(X)))
+
+    def test_semiannual_freq_offset_shifts_the_january_july_boundaries(self) -> None:
+        X = self._daily_returns("2015-03-10")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_semiannual(), train_size=1, freq_offset="2D"
+        )
+        folds = list(cv.split(X))
+        assert folds
+        for _, test_idx in folds:
+            first = X.index[test_idx[0]]
+            assert first.month in (1, 7)
+            assert 3 <= first.day <= 6
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {},
+            {"expand_train": True, "purged_size": 2},
+            {"reduce_test": True},
+            {"test_size": 2, "previous": True},
+        ],
+    )
+    def test_semiannual_matches_skfolio_when_first_boundary_is_january_or_july(
+        self, kwargs: dict[str, object]
+    ) -> None:
+        from skfolio.model_selection import WalkForward
+
+        # First observation in June: skfolio's own 2QS grid already starts in July.
+        X = self._daily_returns("2015-06-10")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_semiannual(), train_size=2, **kwargs
+        )
+        reference = WalkForward(
+            freq="2QS",
+            **{"test_size": 1, "train_size": 2, **kwargs},  # type: ignore[arg-type]
+        )
+        got = list(cv.split(X))
+        want = list(reference.split(X))
+        assert len(got) == len(want) > 0
+        for (g_train, g_test), (w_train, w_test) in zip(got, want, strict=True):
+            np.testing.assert_array_equal(g_train, w_train)
+            np.testing.assert_array_equal(g_test, w_test)
+
     def test_splits_are_time_ordered(self) -> None:
         cv = build_rebalancing_walk_forward(
             CalendarRebalancingConfig.for_monthly(), train_size=6
