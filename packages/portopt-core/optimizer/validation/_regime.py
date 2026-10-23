@@ -40,6 +40,12 @@ class RegimeValidationConfig:
         include_unknown_regime: Whether to include ``MacroRegime.UNKNOWN``
             periods in the per-regime breakdown. ``False`` by default
             since UNKNOWN days are typically data gaps.
+        max_macro_staleness_days: Longest gap in calendar days over which the
+            last macro observation is carried forward onto an OOS day. Days
+            further past the latest macro row are ``MacroRegime.UNKNOWN``
+            rather than inheriting a regime nobody observed. The default
+            covers quarterly releases; ``None`` carries forward without
+            limit.
     """
 
     min_regime_obs: int = 21
@@ -47,6 +53,7 @@ class RegimeValidationConfig:
     trading_days_per_year: int = 252
     risk_free_rate: float = 0.0
     include_unknown_regime: bool = False
+    max_macro_staleness_days: int | None = 120
 
     def __post_init__(self) -> None:
         if self.min_regime_obs < 1:
@@ -63,6 +70,13 @@ class RegimeValidationConfig:
         if self.risk_free_rate < 0.0:
             raise ValueError(
                 f"risk_free_rate must be >= 0.0, got {self.risk_free_rate}"
+            )
+        if self.max_macro_staleness_days is not None and (
+            self.max_macro_staleness_days < 0
+        ):
+            raise ValueError(
+                f"max_macro_staleness_days must be >= 0 or None, "
+                f"got {self.max_macro_staleness_days}"
             )
 
     @classmethod
@@ -420,8 +434,24 @@ def run_regime_validation(
 
     regime_series = _build_regime_series(macro_data, thresholds)
 
-    regime_timeline = regime_series.reindex(oos_returns.index, method="ffill")
-    # Days before macro data starts → UNKNOWN
+    tolerance = (
+        None
+        if config.max_macro_staleness_days is None
+        else pd.Timedelta(days=config.max_macro_staleness_days)
+    )
+    regime_timeline = regime_series.reindex(
+        oos_returns.index, method="ffill", tolerance=tolerance
+    )
+    stale = (oos_returns.index >= regime_series.index[0]) & regime_timeline.isna()
+    if stale.any():
+        logger.warning(
+            "run_regime_validation: %d OOS observations are more than %s days "
+            "past the latest macro observation (stale macro data); classified "
+            "as UNKNOWN.",
+            int(stale.sum()),
+            config.max_macro_staleness_days,
+        )
+    # Days before macro data starts, or too far past its latest row → UNKNOWN
     regime_timeline = regime_timeline.fillna(MacroRegime.UNKNOWN.value)
 
     if not config.include_unknown_regime:

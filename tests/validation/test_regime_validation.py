@@ -76,6 +76,7 @@ class TestRegimeValidationConfig:
         assert cfg.trading_days_per_year == 252
         assert cfg.risk_free_rate == 0.0
         assert cfg.include_unknown_regime is False
+        assert cfg.max_macro_staleness_days == 120
 
     def test_frozen(self) -> None:
         cfg = RegimeValidationConfig()
@@ -114,6 +115,18 @@ class TestRegimeValidationConfig:
     def test_invalid_risk_free_rate(self) -> None:
         with pytest.raises(ValueError, match="risk_free_rate"):
             RegimeValidationConfig(risk_free_rate=-0.01)
+
+    def test_invalid_max_macro_staleness_days(self) -> None:
+        with pytest.raises(ValueError, match="max_macro_staleness_days"):
+            RegimeValidationConfig(max_macro_staleness_days=-1)
+
+    def test_unbounded_macro_staleness_is_allowed(self) -> None:
+        assert (
+            RegimeValidationConfig(
+                max_macro_staleness_days=None
+            ).max_macro_staleness_days
+            is None
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -708,3 +721,67 @@ class TestMacroDataOrdering:
         result = run_regime_validation(returns, with_duplicate)
 
         pd.testing.assert_series_equal(result.regime_timeline, expected.regime_timeline)
+
+
+class TestMacroDataStaleness:
+    @staticmethod
+    def _expansion_macro_ending_early() -> tuple[pd.DataFrame, pd.Series]:
+        macro_dates = pd.bdate_range("2024-01-02", periods=60)
+        macro = pd.DataFrame(
+            {"pmi": 55.0, "spread_2s10s": 1.5, "hy_oas": 300.0}, index=macro_dates
+        )
+        oos_dates = pd.bdate_range("2024-01-02", periods=250)
+        rng = np.random.default_rng(3)
+        returns = pd.Series(rng.normal(0.0005, 0.01, size=250), index=oos_dates)
+        return macro, returns
+
+    def test_regime_is_not_carried_past_the_staleness_limit(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Macro data that stops early must not label the rest of the sample."""
+        macro, returns = self._expansion_macro_ending_early()
+        last_macro = macro.index[-1]
+        limit = pd.Timedelta(days=120)
+        expected_obs = int((returns.index <= last_macro + limit).sum())
+        assert expected_obs < len(returns)
+
+        with caplog.at_level("WARNING"):
+            result = run_regime_validation(returns, macro)
+
+        assert result.per_regime_metrics.loc["expansion", "obs"] == expected_obs
+        assert result.per_regime_metrics.loc["expansion", "coverage_pct"] < 1.0
+        assert len(result.regime_timeline) == expected_obs
+        assert result.total_obs == len(returns)
+        assert "stale" in caplog.text
+
+    def test_include_unknown_marks_stale_days_unknown(self) -> None:
+        macro, returns = self._expansion_macro_ending_early()
+        config = RegimeValidationConfig(include_unknown_regime=True)
+
+        result = run_regime_validation(returns, macro, config=config)
+
+        assert result.regime_timeline.iloc[-1] == "unknown"
+        assert result.regime_timeline.iloc[0] == "expansion"
+
+    def test_unbounded_staleness_restores_open_ended_carry_forward(self) -> None:
+        macro, returns = self._expansion_macro_ending_early()
+        config = RegimeValidationConfig(max_macro_staleness_days=None)
+
+        result = run_regime_validation(returns, macro, config=config)
+
+        assert result.per_regime_metrics.loc["expansion", "coverage_pct"] == 1.0
+
+    def test_quarterly_cadence_stays_within_the_default_limit(self) -> None:
+        """Quarter-start stamps leave gaps of about 90 days between releases."""
+        oos_dates = pd.bdate_range("2024-01-02", periods=250)
+        macro = pd.DataFrame(
+            {"pmi": 55.0, "spread_2s10s": 1.5, "hy_oas": 300.0},
+            index=pd.DatetimeIndex(
+                ["2024-01-01", "2024-04-01", "2024-07-01", "2024-10-01"]
+            ),
+        )
+        returns = pd.Series(0.001, index=oos_dates)
+
+        result = run_regime_validation(returns, macro)
+
+        assert result.per_regime_metrics.loc["expansion", "coverage_pct"] == 1.0
