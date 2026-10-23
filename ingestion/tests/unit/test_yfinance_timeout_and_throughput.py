@@ -173,6 +173,31 @@ class TestCallWithTimeout:
         with pytest.raises(ValueError, match="bad ticker"):
             call_with_timeout(_boom, timeout=5.0)
 
+    def test_when_function_hangs_then_caller_returns_at_the_deadline(self):
+        release = threading.Event()
+        started = time.monotonic()
+
+        with pytest.raises(TimeoutError):
+            call_with_timeout(lambda: release.wait(3), timeout=0.2)
+
+        elapsed = time.monotonic() - started
+        release.set()
+        assert elapsed < 1.5, f"caller blocked {elapsed:.1f}s on a 0.2s deadline"
+
+    def test_abandoned_worker_runs_in_a_daemon_thread(self):
+        release = threading.Event()
+        seen: dict[str, bool] = {}
+
+        def _hang():
+            seen["daemon"] = threading.current_thread().daemon
+            release.wait(3)
+
+        with pytest.raises(TimeoutError):
+            call_with_timeout(_hang, timeout=0.2)
+
+        release.set()
+        assert seen["daemon"] is True
+
 
 # ---------------------------------------------------------------------------
 # circuit-breaker back-off is not a hang
