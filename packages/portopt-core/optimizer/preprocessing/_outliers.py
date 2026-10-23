@@ -9,7 +9,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
-from optimizer.exceptions import DataError
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.preprocessing._alignment import (
     _align_to_fit_columns,
     _fit_feature_names_out,
@@ -101,9 +101,24 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
             The fitted estimator.
 
         Raises:
+            ConfigurationError: If ``winsorize_threshold`` is not positive or
+                not strictly below ``remove_threshold``.
             DataError: If X is not a DataFrame, or ``protected_mask`` is
                 non-empty but shares no index or column label with X.
         """
+        # Checked at fit rather than in __init__ so set_params / grid-search
+        # sweeps, which bypass the config, are validated too (sklearn convention).
+        # With winsorize >= remove the clipping band is empty and every outlier is
+        # deleted instead of clipped.
+        if not self.winsorize_threshold > 0:
+            raise ConfigurationError(
+                f"winsorize_threshold must be positive, got {self.winsorize_threshold}"
+            )
+        if not self.winsorize_threshold < self.remove_threshold:
+            raise ConfigurationError(
+                f"winsorize_threshold ({self.winsorize_threshold}) must be "
+                f"less than remove_threshold ({self.remove_threshold})"
+            )
         X = self._validate_input(X)
         self._check_mask_labels_overlap(X)
         self.n_features_in_: int = X.shape[1]

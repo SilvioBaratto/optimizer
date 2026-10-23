@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 from sklearn.utils.validation import check_is_fitted
 
-from optimizer.exceptions import DataError
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.preprocessing import OutlierTreater
 from optimizer.preprocessing._delisting import (
     apply_delisting_returns,
@@ -493,3 +493,17 @@ class TestProtectedMaskLabelMismatch:
         df, _ = self._panel()
         empty = pd.DataFrame(dtype=bool)
         OutlierTreater(protected_mask=empty).fit(df)
+
+
+class TestThresholdValidation:
+    @pytest.mark.parametrize(
+        ("winsorize", "remove"), [(5.0, 3.0), (3.0, 3.0), (0.0, 3.0), (-1.0, 3.0)]
+    )
+    def test_invalid_thresholds_raise_on_fit(
+        self, normal_returns: pd.DataFrame, winsorize: float, remove: float
+    ) -> None:
+        # With winsorize >= remove the clipping band is unreachable and every
+        # beyond-remove observation is deleted instead of clipped.
+        ot = OutlierTreater(winsorize_threshold=winsorize, remove_threshold=remove)
+        with pytest.raises(ConfigurationError, match="winsorize_threshold"):
+            ot.fit(normal_returns)

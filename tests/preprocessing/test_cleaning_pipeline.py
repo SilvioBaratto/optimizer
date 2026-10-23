@@ -54,6 +54,46 @@ class TestConfig:
         assert cfg.imputer is ImputerStrategy.NONE
 
 
+class TestConfigValidation:
+    @pytest.mark.parametrize("max_abs_return", [0.0, -1.0, float("nan")])
+    def test_non_positive_max_abs_return_raises(self, max_abs_return: float) -> None:
+        with pytest.raises(ValueError, match="max_abs_return"):
+            CleaningConfig(max_abs_return=max_abs_return)
+
+    @pytest.mark.parametrize(("winsorize", "remove"), [(5.0, 3.0), (3.0, 3.0)])
+    def test_winsorize_not_below_remove_raises(
+        self, winsorize: float, remove: float
+    ) -> None:
+        with pytest.raises(ValueError, match="winsorize_threshold"):
+            CleaningConfig(winsorize_threshold=winsorize, remove_threshold=remove)
+
+    @pytest.mark.parametrize("winsorize", [0.0, -1.0])
+    def test_non_positive_winsorize_threshold_raises(self, winsorize: float) -> None:
+        with pytest.raises(ValueError, match="winsorize_threshold"):
+            CleaningConfig(winsorize_threshold=winsorize)
+
+    def test_negative_n_neighbors_raises(self) -> None:
+        with pytest.raises(ValueError, match="n_neighbors"):
+            CleaningConfig(n_neighbors=-1)
+
+    @pytest.mark.parametrize(("n_neighbors", "min_train"), [(5, 6), (5, 3), (0, 1)])
+    def test_min_train_periods_must_exceed_regression_parameters(
+        self, n_neighbors: int, min_train: int
+    ) -> None:
+        with pytest.raises(ValueError, match="min_train_periods"):
+            CleaningConfig(n_neighbors=n_neighbors, min_train_periods=min_train)
+
+    def test_boundary_values_accepted(self) -> None:
+        cfg = CleaningConfig(n_neighbors=5, min_train_periods=7)
+        assert cfg.min_train_periods == 7
+
+    def test_inverted_thresholds_are_not_silently_accepted_by_factory(self) -> None:
+        with pytest.raises(ValueError, match="winsorize_threshold"):
+            make_cleaning_pipeline(
+                CleaningConfig(winsorize_threshold=5.0, remove_threshold=3.0)
+            )
+
+
 class TestFactory:
     def test_default_pipeline_steps(self) -> None:
         pipe = make_cleaning_pipeline()

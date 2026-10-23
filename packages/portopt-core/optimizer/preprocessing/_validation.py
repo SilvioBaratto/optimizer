@@ -9,7 +9,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
-from optimizer.exceptions import DataError
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.preprocessing._alignment import (
     _align_to_fit_columns,
     _fit_feature_names_out,
@@ -47,7 +47,16 @@ class DataValidator(BaseEstimator, TransformerMixin):
 
         Returns:
             The fitted transformer.
+
+        Raises:
+            ConfigurationError: If ``max_abs_return`` is not positive.
         """
+        # Checked at fit rather than in __init__ so set_params / grid-search
+        # sweeps, which bypass the config, are validated too (sklearn convention).
+        if not self.max_abs_return > 0:
+            raise ConfigurationError(
+                f"max_abs_return must be positive, got {self.max_abs_return}"
+            )
         X = self._validate_input(X)
         self.n_features_in_: int = X.shape[1]
         self.feature_names_in_: np.ndarray = np.asarray(X.columns)
