@@ -1735,7 +1735,13 @@ class TestUpsertFinancialStatementsPreprocessing:
         repo = _repo(db_session)
         captured: list = []
 
-        def fake_upsert(model, rows, *, constraint_name, update_columns=None):
+        def fake_upsert(
+            model,
+            rows,
+            *,
+            constraint_name,
+            update_columns=None,
+        ):
             captured.extend(rows)
             return len(rows)
 
@@ -2530,6 +2536,64 @@ class TestUpsertFinancialStatementsCurrencyPersistence:
 # ---------------------------------------------------------------------------
 
 
+class TestUpsertNewsPersistence:
+    """Real-row behaviour of the news upsert (SQLite via the ON CONFLICT path)."""
+
+    @staticmethod
+    def _stored(db_session: Session, instrument_id: uuid.UUID) -> TickerNews:
+        db_session.expire_all()
+        return _repo(db_session).get_news(instrument_id)[0]
+
+    def test_failed_rescrape_keeps_previously_stored_full_content(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session, name="NewsPEx1")
+        inst = _instrument(db_session, ex, ticker="NP1", yfinance_ticker="NP1")
+        repo = _repo(db_session)
+        repo.upsert_news(inst.id, [{"uuid": "a", "full_content": "scraped body"}])
+
+        # Day 2: the article is still in the feed but the scrape failed, so the
+        # article dict carries no full_content key at all.
+        repo.upsert_news(inst.id, [{"uuid": "a", "title": "same story"}])
+
+        stored = self._stored(db_session, inst.id)
+        assert stored.full_content == "scraped body"
+        assert stored.title == "same story"
+
+    def test_explicit_none_full_content_also_keeps_stored_body(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session, name="NewsPEx2")
+        inst = _instrument(db_session, ex, ticker="NP2", yfinance_ticker="NP2")
+        repo = _repo(db_session)
+        repo.upsert_news(inst.id, [{"uuid": "a", "full_content": "scraped body"}])
+
+        repo.upsert_news(inst.id, [{"uuid": "a", "full_content": None}])
+
+        assert self._stored(db_session, inst.id).full_content == "scraped body"
+
+    def test_fresh_full_content_replaces_stored_body(self, db_session: Session) -> None:
+        ex = _exchange(db_session, name="NewsPEx3")
+        inst = _instrument(db_session, ex, ticker="NP3", yfinance_ticker="NP3")
+        repo = _repo(db_session)
+        repo.upsert_news(inst.id, [{"uuid": "a", "full_content": "old body"}])
+
+        repo.upsert_news(inst.id, [{"uuid": "a", "full_content": "revised body"}])
+
+        assert self._stored(db_session, inst.id).full_content == "revised body"
+
+    def test_article_never_scraped_stores_null_full_content(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session, name="NewsPEx4")
+        inst = _instrument(db_session, ex, ticker="NP4", yfinance_ticker="NP4")
+        repo = _repo(db_session)
+
+        repo.upsert_news(inst.id, [{"uuid": "a", "title": "headline only"}])
+
+        assert self._stored(db_session, inst.id).full_content is None
+
+
 class TestUpsertNewsPreprocessing:
     def _call(
         self,
@@ -2540,7 +2604,13 @@ class TestUpsertNewsPreprocessing:
         repo = _repo(db_session)
         captured: list = []
 
-        def fake_upsert(model, rows, *, constraint_name, update_columns=None):
+        def fake_upsert(
+            model,
+            rows,
+            *,
+            constraint_name,
+            update_columns=None,
+        ):
             captured.extend(rows)
             return len(rows)
 
