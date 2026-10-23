@@ -62,18 +62,55 @@ class TestBuildTrading212Client:
             ):
                 build_trading212_client()
 
-    def test_when_api_key_present_then_client_constructed_from_settings(self) -> None:
+    def test_when_secret_missing_then_raises_and_names_only_the_secret(self) -> None:
+        with (
+            patch("app.config.settings.trading_212_api_key", "key-1"),
+            patch("app.config.settings.trading_212_secret_key", ""),
+        ):
+            with pytest.raises(Trading212NotConfiguredError) as excinfo:
+                build_trading212_client()
+
+        assert "TRADING_212_SECRET_KEY" in str(excinfo.value)
+        assert "TRADING_212_API_KEY" not in str(excinfo.value)
+
+    def test_when_both_credentials_missing_then_message_names_both(self) -> None:
+        with (
+            patch("app.config.settings.trading_212_api_key", ""),
+            patch("app.config.settings.trading_212_secret_key", ""),
+        ):
+            with pytest.raises(Trading212NotConfiguredError) as excinfo:
+                build_trading212_client()
+
+        assert "TRADING_212_API_KEY" in str(excinfo.value)
+        assert "TRADING_212_SECRET_KEY" in str(excinfo.value)
+
+    def test_when_not_configured_then_message_does_not_claim_a_universe_build(
+        self,
+    ) -> None:
+        # The universe is sourced from yfinance; only the T212 ticker mapping
+        # needs these credentials, so the skip log must not say otherwise.
+        with (
+            patch("app.config.settings.trading_212_api_key", ""),
+            patch("app.config.settings.trading_212_secret_key", ""),
+        ):
+            with pytest.raises(Trading212NotConfiguredError) as excinfo:
+                build_trading212_client()
+
+        assert "universe" not in str(excinfo.value).lower()
+
+    def test_when_both_credentials_present_then_client_built_from_settings(
+        self,
+    ) -> None:
         with (
             patch("app.config.settings.trading_212_api_key", "key-1"),
             patch("app.config.settings.trading_212_secret_key", "secret-1"),
             patch("app.config.settings.trading_212_mode", "demo"),
-            patch(f"{M}.Trading212Client") as client_cls,
         ):
-            build_trading212_client()
+            client = build_trading212_client()
 
-        client_cls.assert_called_once_with(
-            api_key="key-1", api_secret="secret-1", mode="demo"
-        )
+        assert client.api_key == "key-1"
+        assert client.api_secret == "secret-1"  # noqa: S105 - test value, not a secret
+        assert client.base_url == "https://demo.trading212.com"
 
 
 class TestRunUniverseBuild:

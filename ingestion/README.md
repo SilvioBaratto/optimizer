@@ -107,9 +107,11 @@ Set `NOTIFICATION_WEBHOOK_URL` for a Discord/Slack POST on job failure.
   container `stop_grace_period` / `terminationGracePeriodSeconds` above that (compose ships
   `60s`; the compose default is only 10s) so the drain is not SIGKILLed mid-write. Raise both
   together to drain long fetches cleanly.
-- **`TRADING_212_API_KEY` absent** ⇒ the `t212_annotate` step skips without claiming a job
-  slot. That is a configuration state, not a failure: `universe_build` still refreshes
-  `instruments` from the yfinance Screener, the instruments just carry no Trading 212 ticker.
+- **`TRADING_212_API_KEY` or `TRADING_212_SECRET_KEY` absent** ⇒ the `t212_annotate` step
+  (the follow-on to `universe_build`) skips without claiming a job slot; Basic auth needs
+  both. That is a configuration state, not a failure: `universe_build` itself needs neither
+  and keeps refreshing `instruments` from the yfinance Screener, only the T212 ticker
+  mapping goes stale.
 - **Migration `d1e2f3a4b5c6` is one-way.** It drops the 17 non-ingestion tables and its
   `downgrade()` raises. Restore from a dump taken before the upgrade.
 

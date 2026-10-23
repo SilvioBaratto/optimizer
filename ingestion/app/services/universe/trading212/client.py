@@ -202,6 +202,24 @@ class Trading212Client:
         if captured:
             self.rate_limit = captured
 
+    @staticmethod
+    def missing_credentials() -> list[str]:
+        """Names of the Trading 212 env vars that are unset in settings.
+
+        Basic auth is ``Base64(API_KEY:SECRET_KEY)``, so a key without its
+        secret authenticates as ``key:`` and every request 401s. This is the
+        single definition of "configured" shared by :meth:`from_settings` and
+        the scheduler's skip gate.
+        """
+        return [
+            name
+            for name, value in (
+                ("TRADING_212_API_KEY", settings.trading_212_api_key),
+                ("TRADING_212_SECRET_KEY", settings.trading_212_secret_key),
+            )
+            if not value
+        ]
+
     @classmethod
     def from_settings(cls, mode: str | None = None) -> Optional["Trading212Client"]:
         """Construct a client from ``app.config.settings``, or return ``None``.
@@ -215,10 +233,10 @@ class Trading212Client:
             absent from settings (the ``t212_annotate`` step skips without
             claiming a slot; the universe build does not need this client).
         """
+        if cls.missing_credentials():
+            return None
         api_key = settings.trading_212_api_key
         api_secret = settings.trading_212_secret_key
-        if not api_key or not api_secret:
-            return None
         return cls(
             api_key=api_key,
             api_secret=api_secret,

@@ -425,6 +425,12 @@ class TestFromSettings:
         assert Trading212Client.from_settings() is None
 
     @patch("app.services.universe.trading212.client.settings")
+    def test_returns_none_when_no_secret_key(self, mock_settings):
+        mock_settings.trading_212_api_key = "key123"
+        mock_settings.trading_212_secret_key = ""
+        assert Trading212Client.from_settings() is None
+
+    @patch("app.services.universe.trading212.client.settings")
     def test_returns_client_when_key_set(self, mock_settings):
         mock_settings.trading_212_api_key = "key123"
         mock_settings.trading_212_mode = "live"
@@ -447,3 +453,27 @@ class TestFromSettings:
         client = Trading212Client.from_settings(mode="demo")
         assert client is not None
         assert client.base_url == "https://demo.trading212.com"
+
+
+class TestMissingCredentials:
+    @patch("app.services.universe.trading212.client.settings")
+    def test_empty_when_both_set(self, mock_settings):
+        mock_settings.trading_212_api_key = "key123"
+        mock_settings.trading_212_secret_key = "secret123"  # noqa: S105 - test value, not a secret
+        assert Trading212Client.missing_credentials() == []
+
+    @patch("app.services.universe.trading212.client.settings")
+    def test_names_the_unset_variables(self, mock_settings):
+        mock_settings.trading_212_api_key = ""
+        mock_settings.trading_212_secret_key = "secret123"  # noqa: S105 - test value, not a secret
+        assert Trading212Client.missing_credentials() == ["TRADING_212_API_KEY"]
+
+        mock_settings.trading_212_api_key = "key123"
+        mock_settings.trading_212_secret_key = ""
+        assert Trading212Client.missing_credentials() == ["TRADING_212_SECRET_KEY"]
+
+        mock_settings.trading_212_api_key = ""
+        assert Trading212Client.missing_credentials() == [
+            "TRADING_212_API_KEY",
+            "TRADING_212_SECRET_KEY",
+        ]
