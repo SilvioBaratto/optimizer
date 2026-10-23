@@ -61,7 +61,9 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     # scheduler daemon): the scheduler must stay up for the daily/macro/news jobs,
     # so a `portopt start` must never leave the data pipeline down. Images build on
     # first run; `up --wait` blocks on each service's healthcheck.
-    docker_bootstrap.build_and_up(profiles=("fund", "ingestion"), force_build=rebuild)
+    docker_bootstrap.build_and_up(
+        profiles=("fund", "ingestion"), force_build=rebuild, repo=repo
+    )
 
 
 def run_stop(*, all_services: bool = False) -> None:
@@ -81,10 +83,11 @@ def run_stop(*, all_services: bool = False) -> None:
     """
     # `compose stop db` leaves its dependents running, so adminer (a db client that
     # `portopt start` also launches) is named explicitly, and db goes last.
-    docker_bootstrap.stop_services(
-        ["fund", "scheduler", "adminer", "db"] if all_services else ["fund"]
-    )
     repo = docker_bootstrap.compose_dir()
+    docker_bootstrap.stop_services(
+        ["fund", "scheduler", "adminer", "db"] if all_services else ["fund"],
+        repo=repo,
+    )
     compose_secrets.cleanup(
         secrets_dir=repo / compose_secrets.DEFAULT_SECRETS_DIR,
         names=None if all_services else compose_secrets.FUND_ONLY_SECRET_NAMES,
@@ -108,7 +111,11 @@ def cleanup_rendered() -> None:
 def run_status() -> dict[str, bool]:
     """Report Docker + service health as a name -> ok mapping."""
     docker_ok = docker_bootstrap.docker_available()
-    running = docker_bootstrap.running_services() if docker_ok else set()
+    running = (
+        docker_bootstrap.running_services(repo=path_install.locate_repo())
+        if docker_ok
+        else set()
+    )
     return {
         "docker": docker_ok,
         "db": "db" in running,

@@ -85,10 +85,23 @@ def _compose_env(repo: Path) -> dict[str, str] | None:
     return {**os.environ, _CA_BUNDLE_ENV: str(bundle)}
 
 
-def _compose(*args: str) -> subprocess.CompletedProcess[str]:
-    """Run ``docker compose <args>`` with the checkout as the project directory."""
-    repo = compose_dir()
-    return _run(["docker", "compose", *args], cwd=str(repo), env=_compose_env(repo))
+def _compose(*args: str, repo: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """Run ``docker compose <args>`` with the checkout as the project directory.
+
+    Args:
+        *args: Arguments for ``docker compose``.
+        repo: A checkout the caller already resolved (``portopt start`` rendered the
+            secrets under it). It is also passed as ``--project-directory`` so
+            compose cannot fall back to another directory; without it the checkout
+            is located here.
+    """
+    project = repo if repo is not None else compose_dir()
+    pin = [] if repo is None else ["--project-directory", str(repo)]
+    return _run(
+        ["docker", "compose", *pin, *args],
+        cwd=str(project),
+        env=_compose_env(project),
+    )
 
 
 def check_docker() -> None:
@@ -173,10 +186,14 @@ def migrate() -> None:
         )
 
 
-def running_services() -> set[str]:
-    """Return the set of compose services currently running (empty on error)."""
+def running_services(*, repo: Path | None = None) -> set[str]:
+    """Return the set of compose services currently running (empty on error).
+
+    Args:
+        repo: The checkout whose compose project to query; located when omitted.
+    """
     try:
-        result = _compose("ps", "--services", "--filter", "status=running")
+        result = _compose("ps", "--services", "--filter", "status=running", repo=repo)
     except DockerError:
         return set()
     if result.returncode != 0:
@@ -279,14 +296,18 @@ def _image_exists(ref: str) -> bool:
     return _run(["docker", "image", "inspect", ref]).returncode == 0
 
 
-def stop_services(services: Sequence[str]) -> None:
+def stop_services(services: Sequence[str], *, repo: Path | None = None) -> None:
     """Stop the named compose services, leaving the rest of the stack running.
 
     Unlike ``docker compose down`` (which removes every project container), this
     targets services by name so ``portopt stop`` can halt the fund decision engine
     without taking down the persistent ingestion daemon or the shared db.
+
+    Args:
+        services: Compose service names to stop.
+        repo: The checkout whose compose project to act on; located when omitted.
     """
-    result = _compose("stop", *services)
+    result = _compose("stop", *services, repo=repo)
     if result.returncode != 0:
         raise DockerError(f"`docker compose stop` failed:\n{result.stderr}")
 
@@ -296,6 +317,7 @@ def build_and_up(
     profiles: Sequence[str] = ("fund",),
     wait_timeout: int = 300,
     force_build: bool = False,
+    repo: Path | None = None,
 ) -> list[str]:
     """Build each profile's images when absent, then bring the stack up and wait.
 
@@ -312,6 +334,9 @@ def build_and_up(
         force_build: Rebuild the images even when they already exist. Compose only
             rebuilds a missing image, so after a code or migration change the images
             go stale and a start silently reuses them — this forces the rebuild.
+        repo: The checkout whose compose project to build and start; located when
+            omitted. ``portopt start`` pins it so compose mounts the ``./secrets`` it
+            just rendered, whatever directory the operator ran from.
 
     Returns:
         The advisory version warnings surfaced (empty when tooling is current).
@@ -327,12 +352,20 @@ def build_and_up(
     built = [img for profile in profiles for img in _BUILT_IMAGES.get(profile, ())]
     if force_build or any(not _image_exists(ref) for ref in built):
         print("Building images — slow the first time; later starts reuse them.")
-        build = _compose(*profile_args, "--progress", "plain", "build", "--pull")
+        build = _compose(
+            *profile_args, "--progress", "plain", "build", "--pull", repo=repo
+        )
         if build.returncode != 0:
             raise DockerError(f"`docker compose build` failed:\n{build.stderr}")
 
     up = _compose(
-        *profile_args, "up", "-d", "--wait", "--wait-timeout", str(wait_timeout)
+        *profile_args,
+        "up",
+        "-d",
+        "--wait",
+        "--wait-timeout",
+        str(wait_timeout),
+        repo=repo,
     )
     if up.returncode != 0:
         raise DockerError(f"`docker compose up --wait` failed:\n{up.stderr}")

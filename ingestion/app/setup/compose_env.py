@@ -58,6 +58,7 @@ _SCHEDULER_ENV_BY_CONFIG_KEY = {
     "trading_212_mode": "TRADING_212_MODE",
 }
 
+# Relative to the compose project directory (the repo root), like the secrets dir.
 DEFAULT_ENV_FUND_PATH = Path(".env.fund")
 DEFAULT_ENV_SCHEDULER_PATH = Path(".env.scheduler")
 

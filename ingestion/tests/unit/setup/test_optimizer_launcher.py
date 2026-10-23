@@ -156,6 +156,55 @@ def test_launcher_outside_a_repo_reports_helpful_error(tmp_path: Path) -> None:
     assert "cannot locate the repo" in result.stderr.lower()
 
 
+def test_launcher_pins_the_resolved_repo_for_portopt_start(tmp_path: Path) -> None:
+    """The launcher resolves its repo from its own location, but `portopt start` ranks
+    the persisted config `repo_path` above the cwd. With a second checkout recorded
+    there, start would otherwise render into and bring up the other stack while the
+    launcher's `exec fund` attaches here. Real bash, stubbed portopt and docker."""
+    bash = _bash()
+    if bash is None:
+        pytest.skip("bash not available")
+    repo = tmp_path / "repo"
+    (repo / "scripts").mkdir(parents=True)
+    (repo / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    launcher = repo / "scripts" / "optimizer"
+    launcher.write_text(_launcher_text(), encoding="utf-8")
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    home = tmp_path / "home"
+    (home / ".portopt").mkdir(parents=True)
+    (home / ".portopt" / "config.toml").write_text(
+        f'repo_path = "{other}"\n', encoding="utf-8"
+    )
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    seen = tmp_path / "seen"
+    portopt = stubs / "portopt"
+    portopt.write_text(
+        f'#!/bin/sh\nprintf "%s\\n%s\\n" "${{OPTIMIZER_REPO:-unset}}" "$PWD" > "{seen}"\n',
+        encoding="utf-8",
+    )
+    docker = stubs / "docker"
+    docker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    portopt.chmod(0o755)
+    docker.chmod(0o755)
+    env = {**os.environ, "HOME": str(home), "PATH": f"{stubs}:{os.environ['PATH']}"}
+    env.pop("OPTIMIZER_REPO", None)
+    env.pop("MSYSTEM", None)
+    result = subprocess.run(  # noqa: S603 - fixed bash path + our own launcher copy
+        [bash, str(launcher), "some-portfolio-id"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    seen_repo, seen_cwd = seen.read_text(encoding="utf-8").splitlines()
+    assert Path(seen_repo).resolve() == repo.resolve()
+    assert Path(seen_cwd).resolve() == repo.resolve()
+
+
 def test_cmd_wrapper_exists() -> None:
     """The Windows launcher is present at scripts/optimizer.cmd."""
     assert _LAUNCHER_CMD.is_file()

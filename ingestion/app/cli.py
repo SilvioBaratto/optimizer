@@ -530,7 +530,7 @@ def stop(
 
     try:
         lifecycle.run_stop(all_services=all_services)
-    except DockerError as exc:
+    except (lifecycle.LifecycleError, DockerError) as exc:
         typer.echo(f"Stop failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     if all_services:
@@ -544,7 +544,11 @@ def status() -> None:
     """Report Docker + service health (exit non-zero if anything is down)."""
     from app.setup import lifecycle
 
-    report = lifecycle.run_status()
+    try:
+        report = lifecycle.run_status()
+    except lifecycle.LifecycleError as exc:
+        typer.echo(f"Status failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     for name, ok in report.items():
         typer.echo(f"{name}: {'ok' if ok else 'down'}")
     _exit(all(report.values()))

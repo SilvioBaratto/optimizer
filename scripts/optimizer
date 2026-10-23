@@ -59,6 +59,10 @@ resolve_repo() {
 
 repo="$(resolve_repo)"
 cd "$repo"
+# `portopt start` ranks the repo_path in config.toml above the cwd, so with a second
+# checkout recorded there it would bring up that stack while the exec below attaches to
+# this one. Pin the checkout this launcher resolved.
+export OPTIMIZER_REPO="$repo"
 
 # Decrypt secrets, render the compose secret files, and bring db + fund up (gated on
 # the fund alembic-at-head healthcheck). This MUST go through `portopt start` — the

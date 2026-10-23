@@ -330,6 +330,26 @@ class TestLifecycleCommands:
         assert result.exit_code == 0
         mock_run.assert_called_once_with(all_services=True)
 
+    def test_stop_without_a_checkout_exits_nonzero(self) -> None:
+        from app.setup.lifecycle import LifecycleError
+
+        with patch(
+            "app.setup.lifecycle.run_stop", side_effect=LifecycleError("no checkout")
+        ):
+            result = runner.invoke(app, ["stop"])
+        assert result.exit_code == 1
+        assert "no checkout" in result.output
+
+    def test_status_without_a_checkout_exits_nonzero(self) -> None:
+        from app.setup.lifecycle import LifecycleError
+
+        with patch(
+            "app.setup.lifecycle.run_status", side_effect=LifecycleError("no checkout")
+        ):
+            result = runner.invoke(app, ["status"])
+        assert result.exit_code == 1
+        assert "no checkout" in result.output
+
     def test_status_all_ok_exits_zero(self) -> None:
         with patch(
             "app.setup.lifecycle.run_status",

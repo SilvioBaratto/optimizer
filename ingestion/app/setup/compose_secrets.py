@@ -1,7 +1,7 @@
 """Render decrypted secrets into Docker-compose secret files (SPEC D6).
 
 `portopt start` decrypts `~/.portopt/secrets.enc` and calls `render` to write
-each value to `./secrets/<name>` (owner-only 0600), which docker-compose mounts
+each value to `<repo>/secrets/<name>` (owner-only 0600), which docker-compose mounts
 at `/run/secrets/<name>`. Every declared secret is written — empty when
 unconfigured — so `docker compose up` never fails on a missing file. `portopt
 stop` calls `cleanup` for the secrets no still-running service mounts (the fund's
@@ -51,6 +51,8 @@ FUND_ONLY_SECRET_NAMES = tuple(
     name for name in SECRET_NAMES if name not in DAEMON_SECRET_NAMES
 )
 
+# Relative to the compose project directory (the repo root), never the cwd: callers
+# join it onto the checkout so compose mounts exactly what was rendered.
 DEFAULT_SECRETS_DIR = Path("secrets")
 
 

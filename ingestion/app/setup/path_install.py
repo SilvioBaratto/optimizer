@@ -42,7 +42,8 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def _is_repo(path: Path) -> bool:
+def is_repo(path: Path) -> bool:
+    """Whether ``path`` is an optimizer checkout (it owns ``docker-compose.yml``)."""
     return (path / "docker-compose.yml").is_file()
 
 
@@ -52,11 +53,12 @@ def resolve_repo(repo: Path | None = None) -> Path:
     ``uv tool install --from .`` installs ``portopt`` into an out-of-repo tool venv,
     so ``_repo_root()`` (derived from ``__file__``) no longer points at the checkout.
     Resolution therefore prefers, in order: an explicit ``repo`` argument, the
-    ``OPTIMIZER_REPO`` env the front doors export, the ``repo_path`` persisted to
-    ``~/.portopt/config.toml`` (the moved-repo self-heal), the current directory or
-    one of its parents (a direct ``portopt setup`` run from inside the checkout, with
-    no env set), then the ``__file__`` root (correct only for an in-repo editable
-    install).
+    ``OPTIMIZER_REPO`` env the front doors export, the current directory or one of
+    its parents (a direct ``portopt`` run from inside a checkout, so a worktree is
+    never overridden by the other checkout recorded in config), the ``repo_path``
+    persisted to ``~/.portopt/config.toml`` (the moved-repo self-heal, for a run from
+    outside any checkout), then the ``__file__`` root (correct only for an in-repo
+    editable install).
 
     Args:
         repo: An explicit checkout path that short-circuits resolution.
@@ -67,15 +69,15 @@ def resolve_repo(repo: Path | None = None) -> Path:
     if repo is not None:
         return repo
     env = os.environ.get(_REPO_ENV)
-    if env and _is_repo(Path(env)):
+    if env and is_repo(Path(env)):
         return Path(env)
-    configured = config_file.load_config().get("repo_path")
-    if configured and _is_repo(Path(str(configured))):
-        return Path(str(configured))
     cwd = Path.cwd()
     for base in (cwd, *cwd.parents):
-        if _is_repo(base):
+        if is_repo(base):
             return base
+    configured = config_file.load_config().get("repo_path")
+    if configured and is_repo(Path(str(configured))):
+        return Path(str(configured))
     return _repo_root()
 
 
@@ -87,7 +89,7 @@ def locate_repo() -> Path | None:
     with no clone, where compose can only fail with "no configuration file provided".
     """
     repo = resolve_repo()
-    return repo if _is_repo(repo) else None
+    return repo if is_repo(repo) else None
 
 
 def install_launcher(*, repo: Path | None = None, bin_dir: Path | None = None) -> Path:

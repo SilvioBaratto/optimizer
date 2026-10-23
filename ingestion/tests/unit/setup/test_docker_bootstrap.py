@@ -364,6 +364,46 @@ class TestBuildAndUp:
         assert {"fund", "ingestion"} <= set(up)
 
 
+class TestComposeRunsFromTheRepo:
+    """With a checkout given, every compose call is anchored to it, so the files
+    `portopt start` rendered there are the ones compose mounts."""
+
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap._image_exists", return_value=False)
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_build_and_up_pins_build_and_up_to_the_repo(
+        self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock, tmp_path
+    ) -> None:
+        mock_run.return_value = _cp(0)
+        db.build_and_up(profiles=("fund",), repo=tmp_path)
+        assert len(mock_run.call_args_list) == 2  # build, then up
+        for call in mock_run.call_args_list:
+            argv = call[0][0]
+            assert argv[argv.index("--project-directory") + 1] == str(tmp_path)
+            assert call.kwargs["cwd"] == str(tmp_path)
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_stop_services_runs_from_the_repo(
+        self, mock_run: MagicMock, tmp_path
+    ) -> None:
+        mock_run.return_value = _cp(0)
+        db.stop_services(["fund"], repo=tmp_path)
+        argv = mock_run.call_args[0][0]
+        assert argv[argv.index("--project-directory") + 1] == str(tmp_path)
+        assert argv[-2:] == ["stop", "fund"]
+        assert mock_run.call_args.kwargs["cwd"] == str(tmp_path)
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_running_services_runs_from_the_repo(
+        self, mock_run: MagicMock, tmp_path
+    ) -> None:
+        mock_run.return_value = _cp(0)
+        db.running_services(repo=tmp_path)
+        argv = mock_run.call_args[0][0]
+        assert argv[argv.index("--project-directory") + 1] == str(tmp_path)
+        assert mock_run.call_args.kwargs["cwd"] == str(tmp_path)
+
+
 class TestImageExists:
     """`_image_exists` reports whether a local image is present."""
 

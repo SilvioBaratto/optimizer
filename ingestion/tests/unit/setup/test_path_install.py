@@ -254,8 +254,10 @@ def test_resolve_repo_ignores_env_without_compose_file(
 def test_resolve_repo_falls_back_to_config_repo_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """With no env, a valid config ``repo_path`` self-heals a moved/relocated repo."""
+    """With no env and a cwd outside any checkout, a valid config ``repo_path``
+    self-heals a moved/relocated repo."""
     monkeypatch.delenv("OPTIMIZER_REPO", raising=False)
+    monkeypatch.chdir(tmp_path)
     repo = tmp_path / "clone"
     repo.mkdir()
     (repo / "docker-compose.yml").write_text("x", encoding="utf-8")
@@ -283,6 +285,41 @@ def test_resolve_repo_walks_up_from_cwd(
     (repo / "docker-compose.yml").write_text("x", encoding="utf-8")
     monkeypatch.chdir(repo / "sub")
     assert path_install.resolve_repo() == repo
+
+
+def test_resolve_repo_prefers_the_cwd_checkout_over_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _no_repo_env: None
+) -> None:
+    """Two valid checkouts: the one the operator is standing in wins over the persisted
+    ``repo_path``, so a worktree run does not silently drive the other checkout."""
+    configured = tmp_path / "configured"
+    configured.mkdir()
+    (configured / "docker-compose.yml").write_text("x", encoding="utf-8")
+    here = tmp_path / "worktree"
+    (here / "sub").mkdir(parents=True)
+    (here / "docker-compose.yml").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(
+        path_install.config_file,
+        "load_config",
+        lambda **kw: {"repo_path": str(configured)},
+    )
+    monkeypatch.chdir(here / "sub")
+    assert path_install.resolve_repo() == here
+
+
+def test_resolve_repo_prefers_env_over_the_cwd_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _no_repo_env: None
+) -> None:
+    """An explicit OPTIMIZER_REPO still outranks wherever the operator happens to be."""
+    pinned = tmp_path / "pinned"
+    pinned.mkdir()
+    (pinned / "docker-compose.yml").write_text("x", encoding="utf-8")
+    here = tmp_path / "worktree"
+    here.mkdir()
+    (here / "docker-compose.yml").write_text("x", encoding="utf-8")
+    monkeypatch.setenv("OPTIMIZER_REPO", str(pinned))
+    monkeypatch.chdir(here)
+    assert path_install.resolve_repo() == pinned
 
 
 def test_install_launcher_persists_repo_path(

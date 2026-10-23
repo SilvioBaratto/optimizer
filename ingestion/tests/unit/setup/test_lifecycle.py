@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from app.setup import lifecycle
+from app.setup import lifecycle, path_install
 
 # unit -> setup -> tests -> ingestion -> repo root (docker-compose.yml owner).
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -17,16 +17,29 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 
 @pytest.fixture
 def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
-    env_fund = tmp_path / ".env.fund"
-    env_scheduler = tmp_path / ".env.scheduler"
+    # The checkout and the operator's cwd are different directories, so a file that
+    # lands next to the cwd instead of under the repo is visible to every test.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    monkeypatch.setenv("OPTIMIZER_REPO", str(repo))
+    env_fund = repo / ".env.fund"
+    env_scheduler = repo / ".env.scheduler"
     calls: dict = {
         "rendered": None,
+        "secrets_dir": None,
         "compose": [],
         "cleaned": False,
+        "repo": repo,
         "env_fund_path": env_fund,
         "env_scheduler_path": env_scheduler,
         "build_profiles": None,
         "force_build": None,
+        "build_repo": None,
+        "stop_repo": None,
     }
     monkeypatch.setattr(
         lifecycle.secret_store,
@@ -36,34 +49,35 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
     monkeypatch.setattr(
         lifecycle.compose_secrets,
         "render",
-        lambda secrets, **kw: calls.update(rendered=dict(secrets)),
+        lambda secrets, **kw: calls.update(
+            rendered=dict(secrets), secrets_dir=kw.get("secrets_dir")
+        ),
     )
     monkeypatch.setattr(
         lifecycle.compose_secrets,
         "cleanup",
         lambda **kw: calls.update(cleaned=True, cleaned_names=kw.get("names")),
     )
-    # Default to no persisted LLM config; real compose_env.render/cleanup run, but
-    # against tmp env files so they never touch the repo root.
+    # Default to no persisted LLM config; the real compose_env.render/cleanup run
+    # against the tmp repo's env files.
     monkeypatch.setattr(lifecycle.config_file, "load_config", lambda **kw: {})
-    monkeypatch.setattr(lifecycle.compose_env, "DEFAULT_ENV_FUND_PATH", env_fund)
-    monkeypatch.setattr(
-        lifecycle.compose_env, "DEFAULT_ENV_SCHEDULER_PATH", env_scheduler
-    )
     monkeypatch.setattr(lifecycle.docker_bootstrap, "check_docker", lambda: None)
-    monkeypatch.setattr(lifecycle.docker_bootstrap, "compose_dir", lambda: tmp_path)
 
     def _fake_build_and_up(**kw: object) -> list[str]:
         calls["build_profiles"] = kw.get("profiles")
         calls["force_build"] = kw.get("force_build")
+        calls["build_repo"] = kw.get("repo")
         calls["compose"].append("up")
         return []
 
     monkeypatch.setattr(lifecycle.docker_bootstrap, "build_and_up", _fake_build_and_up)
+
+    def _fake_stop_services(services: list[str], **kw: object) -> None:
+        calls["compose"].append(f"stop:{','.join(services)}")
+        calls["stop_repo"] = kw.get("repo")
+
     monkeypatch.setattr(
-        lifecycle.docker_bootstrap,
-        "stop_services",
-        lambda services: calls["compose"].append(f"stop:{','.join(services)}"),
+        lifecycle.docker_bootstrap, "stop_services", _fake_stop_services
     )
     return calls
 
@@ -238,12 +252,97 @@ def test_wizard_selection_surfaces_correct_fund_env(
     assert f"FUND_PRIMARY_MODEL={model}" in text
 
 
+def test_run_start_renders_secrets_under_the_repo_not_the_cwd(patched: dict) -> None:
+    """The plaintext secret files belong in the repo's git-ignored `secrets/`, the
+    directory compose mounts from, regardless of where `portopt start` was typed."""
+    lifecycle.run_start("pw")
+    assert patched["secrets_dir"] == patched["repo"] / "secrets"
+
+
+def test_run_start_writes_env_fund_under_the_repo_not_the_cwd(patched: dict) -> None:
+    lifecycle.run_start("pw")
+    assert patched["env_fund_path"].is_file()
+    assert not Path(".env.fund").exists()
+
+
+def test_run_start_runs_compose_from_the_repo(patched: dict) -> None:
+    lifecycle.run_start("pw")
+    assert patched["build_repo"] == patched["repo"]
+
+
+def test_run_start_from_a_repo_subdirectory_renders_nothing_there(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A start from `ingestion/` must not plant a second, ungitignored `secrets/`
+    that a later image build would COPY."""
+    sub = patched["repo"] / "ingestion"
+    sub.mkdir()
+    monkeypatch.chdir(sub)
+    lifecycle.run_start("pw")
+    assert patched["secrets_dir"] == patched["repo"] / "secrets"
+    assert sorted(p.name for p in sub.iterdir()) == []
+
+
+def test_run_start_in_a_checkout_ignores_the_persisted_repo_path(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """A second checkout recorded in config must not capture a start typed inside this
+    one: secrets and the compose project would land in a stack the operator is not
+    looking at."""
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    monkeypatch.delenv("OPTIMIZER_REPO")
+    monkeypatch.setattr(
+        lifecycle.config_file, "load_config", lambda **kw: {"repo_path": str(other)}
+    )
+    monkeypatch.chdir(patched["repo"])
+    lifecycle.run_start("pw")
+    assert patched["secrets_dir"] == patched["repo"] / "secrets"
+    assert patched["build_repo"] == patched["repo"]
+
+
+def test_run_start_refuses_before_rendering_when_the_checkout_is_unknown(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """With no checkout to anchor to, nothing may be written anywhere."""
+    monkeypatch.delenv("OPTIMIZER_REPO")
+    monkeypatch.setattr(path_install, "_repo_root", lambda: tmp_path / "gone")
+    with pytest.raises(lifecycle.docker_bootstrap.DockerError, match="OPTIMIZER_REPO"):
+        lifecycle.run_start("pw")
+    assert patched["rendered"] is None
+    assert patched["compose"] == []
+    assert not Path(".env.fund").exists()
+
+
+def test_run_stop_targets_the_repo_stack_from_any_directory(patched: dict) -> None:
+    patched["env_fund_path"].write_text("LLM_PROVIDER=openai\n", encoding="utf-8")
+    lifecycle.run_stop()
+    assert patched["stop_repo"] == patched["repo"]
+    assert not patched["env_fund_path"].exists()
+
+
+def test_run_status_queries_the_repo_stack_from_any_directory(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[object] = []
+
+    def _running(**kw: object) -> set[str]:
+        seen.append(kw.get("repo"))
+        return {"db"}
+
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "docker_available", lambda: True)
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "running_services", _running)
+    lifecycle.run_status()
+    assert seen == [patched["repo"]]
+
+
 def test_run_status_all_up(patched: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(lifecycle.docker_bootstrap, "docker_available", lambda: True)
     monkeypatch.setattr(
         lifecycle.docker_bootstrap,
         "running_services",
-        lambda: {"db", "scheduler", "fund"},
+        lambda **kw: {"db", "scheduler", "fund"},
     )
     assert lifecycle.run_status() == {
         "docker": True,
@@ -258,7 +357,7 @@ def test_run_status_reports_fund_independently(
 ) -> None:
     monkeypatch.setattr(lifecycle.docker_bootstrap, "docker_available", lambda: True)
     monkeypatch.setattr(
-        lifecycle.docker_bootstrap, "running_services", lambda: {"db", "fund"}
+        lifecycle.docker_bootstrap, "running_services", lambda **kw: {"db", "fund"}
     )
     status = lifecycle.run_status()
     assert status["fund"] is True
@@ -292,7 +391,9 @@ def real_render(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
     monkeypatch.setattr(lifecycle.config_file, "load_config", lambda **kw: {})
     monkeypatch.setattr(lifecycle.docker_bootstrap, "check_docker", lambda: None)
     monkeypatch.setattr(lifecycle.docker_bootstrap, "build_and_up", lambda **kw: [])
-    monkeypatch.setattr(lifecycle.docker_bootstrap, "stop_services", lambda s: None)
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap, "stop_services", lambda s, **kw: None
+    )
     return {"repo": repo, "elsewhere": elsewhere}
 
 
@@ -405,7 +506,9 @@ def test_run_stop_all_stops_every_service_and_wipes_every_rendered_secret(
 ) -> None:
     stopped: list[list[str]] = []
     monkeypatch.setattr(
-        lifecycle.docker_bootstrap, "stop_services", lambda s: stopped.append(list(s))
+        lifecycle.docker_bootstrap,
+        "stop_services",
+        lambda s, **kw: stopped.append(list(s)),
     )
     _render_with_every_key(real_render, monkeypatch)
     repo = real_render["repo"]
