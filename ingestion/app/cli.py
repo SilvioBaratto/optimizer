@@ -93,7 +93,7 @@ def _exit(ok: bool) -> NoReturn:
 
 @app.command()
 def daily() -> None:
-    """Run the full daily pipeline: ref-indices, yfinance, macro, news."""
+    """Run the full daily pipeline: yfinance, fx, macro, fred, news, digest."""
     _boot()
     from app.services.jobs.scheduler import run_daily_pipeline
 

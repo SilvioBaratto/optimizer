@@ -628,6 +628,52 @@ class TestDailyPipelineFxOrdering:
         assert order.index("fx") < order.index("yfinance")
 
 
+class TestDailyPipelineRefreshesFred:
+    """FRED holds daily series (VIXCLS, DGS10, BAA10Y, DTWEXBGS), so the daily
+    pipeline must refresh it rather than leaving it to the monthly job."""
+
+    def _run_pipeline(self, *, yf_ok: bool) -> list[tuple]:
+        calls: list[tuple] = []
+
+        def _fake_run_step(label, job_svc, fn, *args, **kwargs):
+            calls.append((label, args))
+            return yf_ok if label == "yfinance" else True
+
+        with (
+            patch(f"{M}._run_step", side_effect=_fake_run_step),
+            patch(
+                "app.services.market_data.yfinance.get_yfinance_client",
+                return_value=MagicMock(),
+            ),
+        ):
+            from app.services.jobs.scheduler import run_daily_pipeline
+
+            run_daily_pipeline()
+        return calls
+
+    def test_when_daily_pipeline_runs_then_fred_is_fetched_incrementally(self):
+        calls = self._run_pipeline(yf_ok=True)
+
+        fred_calls = [args for label, args in calls if label == "fred"]
+        assert len(fred_calls) == 1
+        assert fred_calls[0][0].incremental is True
+
+    def test_when_yfinance_fails_then_fred_still_runs(self):
+        calls = self._run_pipeline(yf_ok=False)
+
+        assert "fred" in [label for label, _ in calls]
+
+    def test_when_daily_pipeline_runs_then_fred_lands_before_the_digest(self):
+        labels = [label for label, _ in self._run_pipeline(yf_ok=True)]
+
+        assert labels.index("fred") < labels.index("daily_events")
+
+    def test_macro_fetch_request_declares_no_unused_fred_flag(self):
+        from app.schemas.macro.macro_regime import MacroFetchRequest
+
+        assert "include_fred" not in MacroFetchRequest.model_fields
+
+
 # ---------------------------------------------------------------------------
 # TestRunMiddayNewsRefresh
 # ---------------------------------------------------------------------------
