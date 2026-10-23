@@ -235,7 +235,9 @@ def build_factor_integration(
         config: Integration configuration.
         composite_scores: Composite factor scores indexed by ticker.
         standardized_factors: Standardized factor scores (tickers x factors).
-        selected_tickers: Tickers selected for the portfolio.
+        selected_tickers: Tickers selected for the portfolio.  The constraint
+            matrices have one column per ticker, in this order; tickers with
+            missing scores contribute neutral (zero) exposure.
 
     Returns:
         ``(prior, constraints)`` — one of the two will be set, the other
@@ -265,12 +267,22 @@ def build_factor_integration(
         prior = build_black_litterman(bl_config)
         return prior, None
     else:
-        selected_factors = standardized_factors.reindex(selected_tickers).dropna(
-            how="all"
-        )
-        if selected_factors.empty:
+        # Every selected ticker keeps its column: the matrices are applied to
+        # the optimizer's full asset set, so dropping an unscored name would
+        # shift the shape (or, if the caller slices X, the column alignment).
+        selected_factors = standardized_factors.reindex(selected_tickers)
+        if selected_factors.dropna(how="all").empty:
             logger.warning("No factor data for selected tickers")
             return None, None
+
+        unscored = selected_factors.index[selected_factors.isna().all(axis=1)]
+        if len(unscored) > 0:
+            logger.warning(
+                "No factor scores for %d selected ticker(s); treated as neutral "
+                "exposure: %s",
+                len(unscored),
+                list(unscored),
+            )
 
         constraints = build_factor_exposure_constraints(
             selected_factors,

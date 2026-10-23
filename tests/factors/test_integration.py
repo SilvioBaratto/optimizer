@@ -168,6 +168,85 @@ class TestBuildFactorIntegration:
         assert isinstance(constraints, FactorExposureConstraints)
 
 
+class TestConstraintColumnsMatchSelectedTickers:
+    """left_inequality columns must line up with the optimizer's asset set."""
+
+    TICKERS = ("AAA", "BBB", "CCC", "DDD", "EEE")
+
+    def _panel(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "v": [1.0, 0.5, -0.5, -1.0, 0.2],
+                "m": [0.3, -0.8, 0.7, -0.4, -0.6],
+            },
+            index=list(self.TICKERS),
+        )
+
+    def _integrate(
+        self, panel: pd.DataFrame, selected: tuple[str, ...] | None = None
+    ) -> FactorExposureConstraints | None:
+        _, cons = build_factor_integration(
+            FactorIntegrationConfig(),
+            panel.mean(axis=1),
+            panel,
+            pd.Index(self.TICKERS if selected is None else selected),
+        )
+        return cons
+
+    def test_ticker_with_all_nan_scores_keeps_its_column(self) -> None:
+        panel = self._panel()
+        panel.loc["BBB"] = np.nan
+        cons = self._integrate(panel)
+        assert cons is not None
+        assert cons.left_inequality.shape == (4, len(self.TICKERS))
+        assert np.all(cons.left_inequality[:, 1] == 0.0)
+
+    def test_ticker_absent_from_factor_panel_keeps_its_column(self) -> None:
+        panel = self._panel().drop(index="EEE")
+        cons = self._integrate(panel)
+        assert cons is not None
+        assert cons.left_inequality.shape == (4, len(self.TICKERS))
+        assert np.all(cons.left_inequality[:, 4] == 0.0)
+
+    def test_columns_follow_selected_ticker_order(self) -> None:
+        # Neither the panel's own order nor alphabetical order, so a reindex to
+        # either would pass a check against the wrong column layout.
+        panel = self._panel()
+        selected = ("DDD", "BBB", "EEE", "AAA", "CCC")
+        cons = self._integrate(panel, selected)
+        assert cons is not None
+        np.testing.assert_allclose(
+            cons.left_inequality[1], panel["v"].loc[list(selected)].to_numpy()
+        )
+        np.testing.assert_allclose(
+            cons.left_inequality[3], panel["m"].loc[list(selected)].to_numpy()
+        )
+
+    def test_constraints_fit_mean_risk_on_full_asset_set(self) -> None:
+        panel = self._panel()
+        panel.loc["BBB"] = np.nan
+        cons = self._integrate(panel)
+        assert cons is not None
+        rng = np.random.default_rng(11)
+        X = pd.DataFrame(
+            rng.normal(0, 0.01, (120, len(self.TICKERS))), columns=list(self.TICKERS)
+        )
+        optimizer = build_mean_risk(factor_exposure_constraints=cons)
+        optimizer.fit(X)
+        assert optimizer.weights_.shape == (len(self.TICKERS),)
+
+    def test_no_factor_data_at_all_returns_nothing(self) -> None:
+        panel = self._panel() * np.nan
+        prior, cons = build_factor_integration(
+            FactorIntegrationConfig(),
+            pd.Series(dtype=float),
+            panel,
+            pd.Index(self.TICKERS),
+        )
+        assert prior is None
+        assert cons is None
+
+
 class TestBuildFactorExposureConstraints:
     def test_returns_dataclass(self, factor_scores: pd.DataFrame) -> None:
         result = build_factor_exposure_constraints(factor_scores, bounds=(-0.5, 0.5))
