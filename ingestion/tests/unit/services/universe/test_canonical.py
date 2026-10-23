@@ -372,6 +372,18 @@ class TestDedupCanonical:
         out = dedup_canonical(listings, _FX, incumbents={"FOO"})
         assert [x.symbol for x in out] == ["FOO.DE"]
 
+    def test_home_listing_tiebreak_treats_pence_quote_as_home_currency(self) -> None:
+        # BP.L quotes in GBp but reports in GBP: that is still its home line. With
+        # ADDV unknown on both, home must beat the shorter-symbol NYSE line.
+        listings = [
+            _mk("BP", "NYQ", "BP p.l.c.", "USD", 40.0, 0, fin_ccy="GBP", shares=None),
+            _mk(
+                "BP.L", "LSE", "BP p.l.c.", "GBp", 450.0, 0, fin_ccy="GBP", shares=None
+            ),
+        ]
+        out = dedup_canonical(listings, _FX)
+        assert [x.symbol for x in out] == ["BP.L"]
+
     def test_dual_class_both_kept_when_liquid_same_exchange(self) -> None:
         listings = [
             _mk("GOOGL", "NMS", "Alphabet Inc.", "USD", 165.0, 30e6),

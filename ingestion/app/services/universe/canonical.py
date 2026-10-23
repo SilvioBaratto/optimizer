@@ -240,15 +240,17 @@ def _rank_key(
 
     Primary: USD ADDV (dollar liquidity — collapses by orders of magnitude off the
     primary listing and is robust to the GBp mis-scaling). Tiebreaks: home listing
-    (currency == financial_currency), USD market cap, shorter symbol (the common
-    beats warrants/units/rights, which carry longer symbols), then a deterministic
-    exchange preference order.
+    (quote currency in major units == financial_currency), USD market cap, shorter
+    symbol (the common beats warrants/units/rights, which carry longer symbols),
+    then a deterministic exchange preference order.
     """
     # Unknown ADDV means no traded volume (a missing FX rate aborts earlier in
     # dedup_canonical), so a dead line must rank below every liquid one.
     addv = metrics.addv_usd if metrics.addv_usd is not None else -1.0
+    # Compare major units: an LSE line quotes in GBp/GBX but reports in GBP.
     home = int(
-        listing.currency is not None and listing.currency == listing.financial_currency
+        listing.currency is not None
+        and split_currency(listing.currency)[0] == listing.financial_currency
     )
     mcap = metrics.mcap_usd if metrics.mcap_usd is not None else -1.0
     pref = (
