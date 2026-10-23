@@ -154,6 +154,51 @@ class TestBuildFromSeededData:
         assert row is not None
         assert row.market_moves["US"]["^GSPC"]["price"] == 5000.0
 
+    def test_market_moves_never_fall_back_to_a_later_snapshot(
+        self, committing_session: Session
+    ) -> None:
+        """A backfilled digest must not embed a summary dated after its ``as_of``."""
+        _seed_digest_sources(committing_session)
+        committing_session.add(
+            MarketSummary(
+                market="US",
+                symbol="^GSPC",
+                as_of=datetime.date(2024, 6, 1),
+                price=9999.0,
+                change=1.0,
+                change_percent=0.1,
+            )
+        )
+        committing_session.flush()
+        backfill_day = datetime.date(2024, 1, 4)
+
+        run_build_market_journal(_request(as_of=backfill_day))
+
+        row = MarketJournalRepository(committing_session).get_for_date(backfill_day)
+        assert row is not None
+        assert row.market_moves["US"]["^GSPC"]["price"] == 5000.0
+
+    def test_market_moves_are_empty_when_only_later_snapshots_exist(
+        self, committing_session: Session
+    ) -> None:
+        """With no snapshot on or before ``as_of`` the section stays empty."""
+        committing_session.add(
+            MarketSummary(
+                market="US",
+                symbol="^GSPC",
+                as_of=datetime.date(2024, 6, 1),
+                price=9999.0,
+            )
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.market_moves == {}
+        assert row.source_counts["market_rows"] == 0
+
     def test_news_themes_aggregate_by_volume(self, committing_session: Session) -> None:
         """``news_themes`` counts each theme across the recent article window."""
         _seed_digest_sources(committing_session)
