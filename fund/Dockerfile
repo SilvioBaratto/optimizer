@@ -55,6 +55,10 @@ RUN test -d /app/optimizerwiki/docs \
 # Editable install into an isolated venv. --frozen: respect the committed lock.
 # --no-dev: no test deps. NO --no-editable (see header): members stay editable and
 # resolve to /app/... , which the runtime stage reproduces at the same path.
+# --extra all-llm: the setup wizard lets the user pick any of ten providers at
+# runtime, yet only ollama/anthropic/google arrive as hard deps. The runtime stage
+# has no uv, so an SDK missing here can never be installed later and the first
+# model build would fail with an ImportError inside the container.
 RUN uv venv /venv
 ENV VIRTUAL_ENV=/venv PATH=/venv/bin:$PATH
 # uv sync reaches PyPI over TLS; behind a TLS-inspecting proxy the slim image has
