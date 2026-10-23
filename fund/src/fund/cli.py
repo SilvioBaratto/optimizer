@@ -162,6 +162,9 @@ def _build_mandate(
         else (existing.hitl_gates if existing else ("place_orders",))
     )
     triggers = existing.triggers if existing else RunTriggers(cron=True, drift=True)
+    # The adviser saves these from the TUI and no CLI flag can express them, so a
+    # rebuild that omitted them would silently erase the persisted source of truth.
+    directives = existing.remembered_directives if existing else ()
     return PortfolioMandate(
         portfolio_id=str(portfolio_id),
         capital=capital_val,
@@ -170,6 +173,7 @@ def _build_mandate(
         hitl_gates=gates,
         triggers=triggers,
         benchmark=benchmark_val,
+        remembered_directives=directives,
     )
 
 
@@ -179,27 +183,37 @@ def _build_mandate(
 @mandate_app.command("set")
 def mandate_set(
     portfolio_id: str = typer.Argument(..., help="Portfolio UUID."),
-    capital: float = typer.Option(..., "--capital", help="Positive notional."),
-    base_currency: str = typer.Option("EUR", "--base-currency", help="ISO-4217 code."),
-    drift: float = typer.Option(0.1, "--drift", help="L1 drift threshold (>0)."),
+    capital: float | None = typer.Option(
+        None, "--capital", help="Positive notional; required for a new mandate."
+    ),
+    base_currency: str | None = typer.Option(
+        None, "--base-currency", help="ISO-4217 code; default EUR for a new mandate."
+    ),
+    drift: float | None = typer.Option(
+        None, "--drift", help="L1 drift threshold (>0); default 0.1 for a new mandate."
+    ),
     benchmark: str | None = typer.Option(
         None, "--benchmark", help="Tracking benchmark."
     ),
     interrupt_on: list[str] | None = _INTERRUPT_ON,
 ) -> None:
-    """Upsert the per-portfolio mandate (one row per portfolio)."""
+    """Upsert the per-portfolio mandate (one row per portfolio).
+
+    Only the flags given are changed on an existing mandate; everything else
+    (triggers, gates, benchmark, remembered directives) is carried over.
+    """
     _boot()
     pid = _uuid(portfolio_id, label="portfolio id")
-    mandate = _build_mandate(
-        pid,
-        None,
-        capital=capital,
-        base_currency=base_currency,
-        drift=drift,
-        benchmark=benchmark,
-        interrupt_on=interrupt_on,
-    )
     with get_session() as session:
+        mandate = _build_mandate(
+            pid,
+            observe.get_mandate(session, pid),
+            capital=capital,
+            base_currency=base_currency,
+            drift=drift,
+            benchmark=benchmark,
+            interrupt_on=interrupt_on,
+        )
         MandateRepository(session).upsert(mandate)
         session.commit()
     typer.echo(f"mandate saved for portfolio {pid}")

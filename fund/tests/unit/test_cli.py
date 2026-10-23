@@ -23,6 +23,7 @@ from __future__ import annotations
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
@@ -50,8 +51,10 @@ from sqlalchemy.pool import StaticPool
 from typer.testing import CliRunner
 
 import fund.cli as cli
-from fund.audit import AgentRunRepository, put_constraint_set
+from fund import observe
+from fund.audit import AgentRunRepository, MandateRepository, put_constraint_set
 from fund.config import FundConfig, settings
+from fund.schemas.mandate import PortfolioMandate, RunTriggers
 
 _ASOF_STR = ASOF.isoformat()
 
@@ -168,6 +171,34 @@ def _seed_and_run(harness, monkeypatch) -> tuple[Any, dict[str, float], Any]:
     return run_id, expected, res
 
 
+def _rich_mandate(base_currency: str = "USD") -> PortfolioMandate:
+    """A mandate whose every field differs from what a bare CLI rebuild would write."""
+    return PortfolioMandate(
+        portfolio_id=str(PORTFOLIO_ID),
+        capital=Decimal("100000"),
+        base_currency=base_currency,
+        drift_l1_threshold=0.05,
+        hitl_gates=("place_orders", "save_profile"),
+        triggers=RunTriggers(cron=True, drift=False),
+        benchmark="SPY",
+        remembered_directives=("no EM", "cap tech 20%"),
+    )
+
+
+def _persist_mandate(harness, mandate: PortfolioMandate) -> None:
+    with harness.read() as session:
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+
+
+def _stored_mandate(harness) -> PortfolioMandate:
+    with harness.read() as session:
+        mandate = observe.get_mandate(session, PORTFOLIO_ID)
+        session.rollback()
+    assert mandate is not None
+    return mandate
+
+
 # --- surface ----------------------------------------------------------------
 
 
@@ -189,6 +220,36 @@ def test_mandate_set_then_show_round_trips(harness) -> None:
     assert "EUR" in res.output
 
 
+def test_mandate_set_overrides_only_the_flags_given(harness) -> None:
+    seeded = _rich_mandate()
+    _persist_mandate(harness, seeded)
+    res = harness.runner.invoke(
+        cli.app, ["mandate", "set", str(PORTFOLIO_ID), "--capital", "250000"]
+    )
+    assert res.exit_code == 0, res.output
+    assert _stored_mandate(harness) == seeded.model_copy(
+        update={"capital": Decimal("250000")}
+    )
+
+
+def test_mandate_set_can_change_a_single_non_capital_field(harness) -> None:
+    seeded = _rich_mandate()
+    _persist_mandate(harness, seeded)
+    res = harness.runner.invoke(
+        cli.app, ["mandate", "set", str(PORTFOLIO_ID), "--drift", "0.2"]
+    )
+    assert res.exit_code == 0, res.output
+    assert _stored_mandate(harness) == seeded.model_copy(
+        update={"drift_l1_threshold": 0.2}
+    )
+
+
+def test_mandate_set_without_capital_needs_an_existing_mandate(harness) -> None:
+    res = harness.runner.invoke(cli.app, ["mandate", "set", str(PORTFOLIO_ID)])
+    assert res.exit_code != 0
+    assert "--capital is required" in res.output
+
+
 def test_mandate_show_missing_errors(harness) -> None:
     res = harness.runner.invoke(cli.app, ["mandate", "show", str(PORTFOLIO_ID)])
     assert res.exit_code != 0
@@ -205,6 +266,26 @@ def test_run_prints_run_id_and_detaches(harness, monkeypatch) -> None:
         row = AgentRunRepository(session).get_run(run_id)
         assert row.status == "paused"
     assert harness.pool.closed >= 1  # pool released after the run detaches
+
+
+def test_run_with_override_flags_keeps_remembered_directives(
+    harness, monkeypatch
+) -> None:
+    expected = _seed(harness)
+    monkeypatch.setattr(
+        cli,
+        "build_primary",
+        lambda *a, **k: ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+    seeded = _rich_mandate(base_currency="EUR")
+    _persist_mandate(harness, seeded)
+    res = harness.runner.invoke(
+        cli.app, ["run", str(PORTFOLIO_ID), "--asof", _ASOF_STR, "--drift", "0.07"]
+    )
+    assert res.exit_code == 0, res.output
+    assert _stored_mandate(harness) == seeded.model_copy(
+        update={"drift_l1_threshold": 0.07}
+    )
 
 
 def test_run_without_mandate_errors(harness, monkeypatch) -> None:
