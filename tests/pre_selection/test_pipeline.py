@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 from sklearn.pipeline import Pipeline
 
+from optimizer.exceptions import DataError
 from optimizer.pre_selection import (
     PreSelectionConfig,
     SelectKMeasure,
@@ -331,6 +332,42 @@ class TestDegenerateUniverses:
         pipe = build_preselection_pipeline().fit(df)
 
         assert pipe.transform(df).shape == (200, 0)
+
+
+class TestUnfillableRows:
+    """A date on which no asset has an observation cannot be imputed.
+
+    The imputer fills a gap from the other assets on the same date, so a row
+    that is missing for every asset stays ``NaN`` and the next selector would
+    reject it with an error that names neither the date nor the imputer.
+    """
+
+    @staticmethod
+    def _frame() -> pd.DataFrame:
+        rng = np.random.default_rng(11)
+        return pd.DataFrame(
+            rng.normal(0.0, 0.01, (200, 5)),
+            columns=list("ABCDE"),
+            index=pd.date_range("2023-01-02", periods=200, freq="B"),
+        )
+
+    @pytest.mark.parametrize("fill", [np.nan, 15.0])
+    def test_row_missing_for_every_asset_names_the_date(self, fill: float) -> None:
+        df = self._frame()
+        df.iloc[100, :] = fill  # 15.0 is NaN-ed by the validator, not the caller
+
+        with pytest.raises(DataError, match=str(df.index[100].date())):
+            build_preselection_pipeline().fit_transform(df)
+
+    def test_row_with_a_single_observation_is_still_imputed(self) -> None:
+        df = self._frame()
+        df.iloc[100, 1:] = np.nan
+
+        out = build_preselection_pipeline(
+            PreSelectionConfig(correlation_threshold=1.0)
+        ).fit_transform(df)
+
+        assert np.isfinite(out.to_numpy()).all()
 
 
 class TestPreSelectionConfigValidation:

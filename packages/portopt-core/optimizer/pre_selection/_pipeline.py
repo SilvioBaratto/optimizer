@@ -24,7 +24,7 @@ from optimizer.pre_selection._guarded import (
     GuardedSelectNonExpiring,
 )
 from optimizer.pre_selection._select_complete import RawSelectComplete
-from optimizer.preprocessing._imputation import SectorImputer
+from optimizer.pre_selection._strict_imputer import StrictSectorImputer
 from optimizer.preprocessing._outliers import OutlierTreater
 from optimizer.preprocessing._validation import DataValidator
 
@@ -105,7 +105,9 @@ def build_preselection_pipeline(
         Assembled sklearn Pipeline with output set to pandas.  Fitting on a
         universe that shrinks to one asset, or to none, is valid: the lone
         survivor is returned, and an empty selection yields a frame with no
-        columns rather than an error.
+        columns rather than an error.  Fitting raises `DataError` naming the
+        dates on which no asset has an observation once cleaning has run,
+        because the imputer has no peer to fill them from.
     """
     steps = _build_steps(
         config,
@@ -145,7 +147,7 @@ def _build_steps(
 
     validator_cls = FitOnlyDataValidator if fit_only_cleaning else DataValidator
     treater_cls = FitOnlyOutlierTreater if fit_only_cleaning else OutlierTreater
-    imputer_cls = FitOnlySectorImputer if fit_only_cleaning else SectorImputer
+    imputer_cls = FitOnlySectorImputer if fit_only_cleaning else StrictSectorImputer
 
     steps: list[tuple[str, object]] = [
         (

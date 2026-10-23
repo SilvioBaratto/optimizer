@@ -10,6 +10,7 @@ from skfolio.pre_selection import SelectComplete
 
 from optimizer.exceptions import DataError
 from optimizer.pre_selection._guarded import _SmallUniverseGuard
+from optimizer.preprocessing._alignment import _align_to_fit_columns
 
 
 class RawSelectComplete(_SmallUniverseGuard, SelectComplete):
@@ -52,15 +53,21 @@ class RawSelectComplete(_SmallUniverseGuard, SelectComplete):
         """Select the kept assets; a frame with no assets is returned unchanged.
 
         Args:
-            X: Returns of the assets with the columns seen in fit.
+            X: Returns of the assets with the columns seen in fit, in any order.
 
         Returns:
             ``X`` restricted to the selected assets.
 
         Raises:
-            DataError: If X is not a DataFrame.
+            DataError: If X is not a DataFrame, lacks a fit column or has one
+                unseen in fit.
         """
         self._require_frame(X)
+        # First pipeline step, so it is where a reordered held-out frame enters;
+        # sklearn's own check would reject any order but the fitted one.
+        fitted = getattr(self, "feature_names_in_", None)
+        if fitted is not None and X.shape[1]:
+            X = _align_to_fit_columns(X, fitted, "RawSelectComplete")
         return super().transform(X)
 
     @staticmethod

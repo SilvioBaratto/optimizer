@@ -16,8 +16,8 @@ import numpy as np
 import pandas as pd
 from sklearn.utils.validation import check_is_fitted
 
+from optimizer.pre_selection._strict_imputer import StrictSectorImputer
 from optimizer.preprocessing._alignment import _align_to_fit_columns
-from optimizer.preprocessing._imputation import SectorImputer
 from optimizer.preprocessing._outliers import OutlierTreater
 from optimizer.preprocessing._validation import DataValidator
 
@@ -102,8 +102,8 @@ class FitOnlyOutlierTreater(OutlierTreater):
         )
 
 
-class FitOnlySectorImputer(SectorImputer):
-    """`SectorImputer` that fabricates peer returns in ``fit_transform`` only.
+class FitOnlySectorImputer(StrictSectorImputer):
+    """`StrictSectorImputer` that fabricates peer returns in ``fit_transform`` only.
 
     At ``transform`` time a missing observation cannot be scored, so it is
     valued at zero (no P&L attributed) rather than at a peer average that was
@@ -125,7 +125,7 @@ class FitOnlySectorImputer(SectorImputer):
             ``X`` with missing values filled by leave-one-out sector averages.
         """
         self.fit(X, y)
-        return SectorImputer.transform(self, X)
+        return StrictSectorImputer.transform(self, X)
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         """Value missing or non-finite observations at zero.

@@ -13,6 +13,7 @@ from skfolio.optimization import (
 )
 from sklearn.pipeline import Pipeline
 
+from optimizer.exceptions import DataError
 from optimizer.optimization import MeanRiskConfig, build_mean_risk
 from optimizer.pre_selection import PreSelectionConfig, build_portfolio_pipeline
 
@@ -193,3 +194,25 @@ class TestPredictScoresRealisedReturns:
         cleaned = pipe[:-1].fit_transform(train)
 
         assert cleaned.iloc[10, 0] > -0.30
+
+
+class TestRowWithNoObservation:
+    """A date on which every asset is missing cannot be filled from peers."""
+
+    def test_fit_names_the_unfillable_date(self) -> None:
+        train, _ = TestPredictScoresRealisedReturns._train_test()
+        train.iloc[30, :] = np.nan
+
+        with pytest.raises(DataError, match=str(train.index[30].date())):
+            build_portfolio_pipeline(EqualWeighted()).fit(train)
+
+    def test_predict_scores_such_a_held_out_date_at_zero(self) -> None:
+        train, test = TestPredictScoresRealisedReturns._train_test()
+        test.iloc[20, :] = np.nan
+
+        pipe = build_portfolio_pipeline(EqualWeighted())
+        pipe.fit(train)
+        portfolio = pipe.predict(test)
+
+        expected = test.fillna(0.0).mean(axis=1).to_numpy()
+        np.testing.assert_allclose(np.asarray(portfolio.returns), expected, atol=1e-12)

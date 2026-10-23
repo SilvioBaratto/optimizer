@@ -222,6 +222,16 @@ class TestTransform:
         out = imp.transform(df)
         assert not out.isna().any().any()
 
+    def test_row_missing_for_every_asset_is_left_missing(self) -> None:
+        """A row with no observation at all has no peer to impute from."""
+        df = _make_correlated_df(n_periods=120)
+        df.iloc[60, :] = np.nan
+
+        out = RegressionImputer(n_neighbors=2, min_train_periods=20).fit_transform(df)
+
+        assert out.iloc[60].isna().all()
+        assert out.drop(out.index[60]).notna().all().all()
+
     def test_sector_mapping_passed_to_fallback(self) -> None:
         """sector_mapping flows through to the internal SectorImputer."""
         df = _make_correlated_df(n_periods=30)  # forces fallback

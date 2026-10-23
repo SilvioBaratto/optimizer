@@ -82,7 +82,9 @@ class SectorImputer(BaseEstimator, TransformerMixin):
                 in any order.
 
         Returns:
-            DataFrame with missing values filled, columns in fit order.
+            DataFrame with missing values filled, columns in fit order. A row in
+            which every asset is missing has no peer observation to impute from
+            and is returned as ``NaN``.
 
         Raises:
             DataError: If X lacks a fit column or has one unseen in fit.

@@ -91,6 +91,22 @@ class TestFactory:
         assert not np.isinf(out.to_numpy()).any()
         assert not out.isna().any().any()
 
+    @pytest.mark.parametrize(
+        "imputer", [ImputerStrategy.SECTOR, ImputerStrategy.REGRESSION]
+    )
+    def test_row_missing_for_every_asset_is_left_missing(
+        self, returns: pd.DataFrame, imputer: ImputerStrategy
+    ) -> None:
+        # The standalone cleaning pipeline keeps a no-observation row as NaN;
+        # only the pre-selection pipeline insists on a fillable frame.
+        returns.iloc[60, :] = np.nan
+        cfg = CleaningConfig(imputer=imputer, n_neighbors=2, min_train_periods=20)
+
+        out = make_cleaning_pipeline(cfg).fit_transform(returns)
+
+        assert out.iloc[60].isna().all()
+        assert out.drop(out.index[60]).notna().all().all()
+
     def test_thresholds_forwarded(self) -> None:
         cfg = CleaningConfig(
             max_abs_return=5.0, winsorize_threshold=2.5, remove_threshold=8.0

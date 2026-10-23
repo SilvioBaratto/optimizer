@@ -149,3 +149,20 @@ class TestSectorImputer:
         # Global mean of row 0 = 0.06 (only C has data)
         assert out.loc[out.index[0], "A"] == pytest.approx(0.06)
         assert out.loc[out.index[0], "B"] == pytest.approx(0.06)
+
+    def test_row_missing_for_every_asset_is_left_missing(self) -> None:
+        # Standalone contract: a row with no peer observation has nothing to
+        # impute from, so it stays NaN rather than failing the transform.
+        df = pd.DataFrame(
+            {"A": [0.01, np.nan, 0.02], "B": [0.02, np.nan, np.nan]},
+            index=pd.date_range("2024-01-01", periods=3),
+        )
+        out = SectorImputer().fit_transform(df)
+
+        assert out.iloc[1].isna().all()
+        assert out.iloc[2, 1] == pytest.approx(0.02)
+
+    def test_frame_without_columns_is_returned_unchanged(self) -> None:
+        df = pd.DataFrame(index=pd.date_range("2024-01-01", periods=3))
+        out = SectorImputer().fit_transform(df)
+        assert out.shape == (3, 0)
