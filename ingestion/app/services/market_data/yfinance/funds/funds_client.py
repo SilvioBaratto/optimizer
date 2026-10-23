@@ -128,12 +128,18 @@ def _expense_ratio_fraction(info: dict[str, Any]) -> float | None:
     ``netExpenseRatio`` is the key Yahoo actually populates for ETFs, but it is
     quoted in percent points (SPY 0.0945 = 0.0945%), whereas the legacy
     mutual-fund keys ``annualReportExpenseRatio`` / ``expenseRatio`` are already
-    fractions. Normalising here keeps the stored column in a single unit.
+    fractions. Normalising here keeps the stored column in a single unit. Keys
+    are tried in order on ``is not None`` so a genuine 0.0 (zero-fee fund) is
+    kept rather than read as missing.
     """
     net = info.get("netExpenseRatio")
-    if net:
+    if net is not None:
         return float(net) / 100.0
-    return info.get("annualReportExpenseRatio") or info.get("expenseRatio")
+    for key in ("annualReportExpenseRatio", "expenseRatio"):
+        value = info.get(key)
+        if value is not None:
+            return float(value)
+    return None
 
 
 def _as_dict(value: Any) -> dict[str, Any]:

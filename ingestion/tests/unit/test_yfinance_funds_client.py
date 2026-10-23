@@ -261,6 +261,34 @@ class TestFetchFundProfile:
             from_fraction["expense_ratio"]
         )
 
+    @pytest.mark.parametrize(
+        "info",
+        [
+            {"navPrice": 50.3, "netExpenseRatio": 0.0},
+            {"navPrice": 1.0, "netExpenseRatio": 0.0, "annualReportExpenseRatio": 0.0},
+            {"navPrice": 1.0, "annualReportExpenseRatio": 0.0},
+            {
+                "navPrice": 1.0,
+                "netExpenseRatio": 0.0,
+                "annualReportExpenseRatio": 0.0025,
+            },
+        ],
+        ids=["net-only", "net-and-annual", "annual-only", "zero-net-beats-gross"],
+    )
+    def test_zero_expense_ratio_is_stored_as_zero_not_unknown(
+        self, client: FundsClient, info: dict[str, float]
+    ) -> None:
+        """A zero-fee fund is a real 0.0, not NULL ('unknown'): a truthiness
+        chain would drop it and exclude the cheapest funds from cost screens."""
+        ticker = MagicMock()
+        ticker.info = info
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("FZROX")
+
+        assert out is not None
+        assert out["expense_ratio"] == 0.0
+
     def test_listing_currency_is_not_reported_as_the_fund_base_currency(
         self, client: FundsClient
     ) -> None:
