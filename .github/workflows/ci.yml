@@ -32,6 +32,9 @@ jobs:
       - run: uv sync --locked --all-packages --all-extras
       - run: uv run ruff check packages/portopt-core/optimizer/ tests/
       - run: uv run ruff format --check packages/portopt-core/optimizer/ tests/
+      # The other members carry their own ruff.toml; lint them under the same gate.
+      - run: uv run ruff check packages/portopt-db/ ingestion/ fund/
+      - run: uv run ruff format --check packages/portopt-db/ ingestion/ fund/
       # pip-audit the resolved third-party set. The three editable workspace
       # members (portopt-core/-db/-fund) aren't on PyPI, so auditing the live env
       # trips --strict on "not found on PyPI". Export the locked deps WITHOUT the

@@ -3768,14 +3768,10 @@ def _wcag_contrast(fg, bg) -> float:
 
         red, green, blue = color.rgb
         return (
-            0.2126 * _channel(red)
-            + 0.7152 * _channel(green)
-            + 0.0722 * _channel(blue)
+            0.2126 * _channel(red) + 0.7152 * _channel(green) + 0.0722 * _channel(blue)
         )
 
-    hi, lo = sorted(
-        (_relative_luminance(fg), _relative_luminance(bg)), reverse=True
-    )
+    hi, lo = sorted((_relative_luminance(fg), _relative_luminance(bg)), reverse=True)
     return (hi + 0.05) / (lo + 0.05)
 
 
