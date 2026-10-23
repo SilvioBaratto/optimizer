@@ -194,6 +194,63 @@ class TestRunDailyPipeline:
             )
 
 
+class TestRunDailyPipelineFredRefresh:
+    """Daily-frequency FRED series must not wait for the monthly job.
+
+    ``fund.attribution`` forward-fills DGS10 / BAA10Y / DTWEXBGS onto the NAV
+    grid, so a month-old tail becomes a run of exactly-zero factor returns.
+    """
+
+    _DAILY = {
+        "DGS10",
+        "DGS2",
+        "DGS3MO",
+        "BAA10Y",
+        "T10Y2Y",
+        "VIXCLS",
+        "DTWEXBGS",
+    }
+    _SLOW = {
+        "USALOLITOAASTSAM",
+        "RECPROUSM156N",
+        "JHGDPBRINDX",
+        "USREC",
+        "A191RL1Q225SBEA",
+    }
+
+    def _run(self, returns: dict[str, bool]):
+        with patch(f"{M}._run_step") as mock_step:
+            mock_step.side_effect = _make_step_side_effect(returns)
+
+            from app.services.jobs.scheduler import run_daily_pipeline
+
+            run_daily_pipeline()
+        return mock_step
+
+    def test_daily_pipeline_incrementally_refreshes_only_daily_fred_series(self):
+        mock_step = self._run({"yfinance": True, "daily_events": True})
+
+        fred_calls = [c for c in mock_step.call_args_list if c.args[0] == "fred"]
+        assert len(fred_calls) == 1, "daily pipeline never refreshes FRED"
+        request = fred_calls[0].args[3]
+        assert request.incremental is True
+        assert request.series_ids is not None
+        assert set(request.series_ids) >= self._DAILY
+        assert not (self._SLOW & set(request.series_ids))
+
+    def test_fred_refresh_precedes_the_digest_that_reads_it(self):
+        mock_step = self._run({"yfinance": True})
+
+        labels = [c.args[0] for c in mock_step.call_args_list]
+        assert labels.index("fred") < labels.index("daily_events")
+
+    def test_failed_fred_refresh_does_not_skip_news_or_digest(self):
+        mock_step = self._run({"yfinance": True, "fred": False})
+
+        labels = {c.args[0] for c in mock_step.call_args_list}
+        assert {"fred", "news", "daily_events"} <= labels
+
+
 # ---------------------------------------------------------------------------
 # TestRunMiddayNewsRefresh
 # ---------------------------------------------------------------------------

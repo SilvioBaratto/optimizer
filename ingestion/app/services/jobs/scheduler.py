@@ -2,8 +2,9 @@
 
 Scheduled jobs:
   1. **daily_pipeline** (CronTrigger, default 07:00 UTC) — sequential data
-     pipeline: yfinance → fx → macro → news → daily-events digest (the digest
-     summarises the day's ingested data into ``market_journal``).
+     pipeline: yfinance → fx → macro → daily FRED series → news → daily-events
+     digest (the digest summarises the day's ingested data into
+     ``market_journal``).
   2. **midday_news** (CronTrigger, default 14:00 UTC) — macro news fetch
      (catch afternoon market news).
   3. **universe_build** (CronTrigger, default Sunday 02:00 UTC) — Trading 212
@@ -11,8 +12,9 @@ Scheduled jobs:
      yfinance rebuild sees the fresh instrument set.
   4. **weekly_refetch** (CronTrigger, default Sunday 03:00 UTC) — full yfinance
      + macro rebuild.
-  5. **fred_monthly** (CronTrigger, default 1st of month 08:00 UTC) — FRED
-     economic data.
+  5. **fred_monthly** (CronTrigger, default 1st of month 08:00 UTC) — every
+     FRED series (the daily-frequency ones are also refreshed by the daily
+     pipeline).
   6. **weekly_market_wide** (CronTrigger, default Sunday 04:00 UTC) — market-wide
      sweep: sector/industry structure, calendars, market summaries, full option
      chains. Runs *after* ``weekly_refetch`` so option chains see the fresh
@@ -58,6 +60,7 @@ from app.services.macro.macro_regime_service import (
     run_bulk_macro_fetch,
     run_macro_news_fetch,
 )
+from app.services.macro.scrapers.fred_scraper import FRED_DAILY_SERIES
 from app.services.market_data.yfinance_data_service import run_bulk_yfinance_fetch
 
 logger = logging.getLogger(__name__)
@@ -377,15 +380,20 @@ def run_macro_step(*, attempt: int = 0) -> bool:
     )
 
 
-def run_fred_step(*, incremental: bool = True, attempt: int = 0) -> bool:
-    """Fetch FRED economic series."""
+def run_fred_step(
+    *,
+    incremental: bool = True,
+    series_ids: list[str] | None = None,
+    attempt: int = 0,
+) -> bool:
+    """Fetch FRED economic series (``series_ids=None`` means every series)."""
     from app.schemas.macro.macro_regime import FredFetchRequest
 
     return _run_step(
         "fred",
         _fred_jobs,
         run_bulk_fred_fetch,
-        FredFetchRequest(incremental=incremental),
+        FredFetchRequest(incremental=incremental, series_ids=series_ids),
         attempt=attempt,
     )
 
@@ -476,15 +484,17 @@ def run_t212_annotate_step(*, attempt: int = 0) -> bool:
 
 
 def run_daily_pipeline() -> None:
-    """Sequential pipeline: yfinance → fx → macro → news → daily-events digest.
+    """Sequential pipeline: yfinance → fx → macro → fred → news → digest.
 
     News depends on yfinance (it fetches article content for the fetched
     tickers), so a failed yfinance step skips news rather than scraping against
     a stale universe. The FX fetch is independent and always runs — it feeds the
     downstream fund NAV-mark step fresh rates. Macro is independent of yfinance
-    and always runs. The daily-events digest runs last and unconditionally — it
-    only reads whatever the earlier steps landed, tolerating partial or empty
-    sources.
+    and always runs. The FRED refresh covers only the daily-frequency series:
+    the fund attribution engine forward-fills them onto the NAV grid, so a stale
+    tail would turn into zero factor returns. The daily-events digest runs last
+    and unconditionally — it only reads whatever the earlier steps landed,
+    tolerating partial or empty sources.
     """
     logger.info("daily_pipeline: starting")
 
@@ -493,6 +503,8 @@ def run_daily_pipeline() -> None:
     run_fx_step()
 
     run_macro_step()
+
+    run_fred_step(series_ids=list(FRED_DAILY_SERIES))
 
     if not yf_ok:
         logger.warning("daily_pipeline: news skipped — yfinance did not complete")

@@ -330,6 +330,53 @@ class TestNarrativePurity:
         assert with_macro != without_macro
 
 
+class TestNarrativeObservationDates:
+    """Each FRED value in the narrative carries the date it was observed on."""
+
+    def test_stale_series_shows_its_own_observation_date(self) -> None:
+        """A value older than ``as_of`` is dated, so staleness is readable."""
+        macro = {
+            "DGS10": {"latest": 4.1, "date": "2023-12-29", "delta": -0.05},
+            "T10Y2Y": {"latest": 0.45, "date": "2024-01-02", "delta": None},
+        }
+
+        narrative = _build_narrative(_AS_OF, "US", macro, {}, {})
+
+        assert "DGS10 4.1 as of 2023-12-29 (delta -0.05)" in narrative
+        assert "T10Y2Y 0.45 as of 2024-01-02" in narrative
+
+    def test_entry_without_a_date_still_renders(self) -> None:
+        """Sections persisted before the date was recorded do not break the line."""
+        narrative = _build_narrative(
+            _AS_OF, "US", {"DGS10": {"latest": 4.1, "delta": None}}, {}, {}
+        )
+
+        assert "DGS10 4.1" in narrative
+        assert "as of" not in narrative
+
+    def test_built_row_dates_the_stored_latest_observation(
+        self, committing_session: Session
+    ) -> None:
+        """The persisted narrative dates the latest stored observation."""
+        committing_session.add_all(
+            [
+                FredObservation(
+                    series_id="DGS10", date=datetime.date(2023, 12, 28), value=4.15
+                ),
+                FredObservation(
+                    series_id="DGS10", date=datetime.date(2023, 12, 29), value=4.10
+                ),
+            ]
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request(fred_series=("DGS10",)))
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert "DGS10 4.1 as of 2023-12-29" in row.narrative
+
+
 class TestThemeSanitization:
     """Scraped theme names are length-bounded and stripped of control characters.
 

@@ -189,11 +189,16 @@ def _build_narrative(
         for sid in sorted(macro_deltas):
             entry = macro_deltas[sid]
             delta = entry.get("delta")
-            latest = entry.get("latest")
+            # FRED publishes each value some time after its reference date, so the
+            # reader must see which day a value belongs to rather than assume it
+            # is current.
+            observed = entry.get("date")
+            text = f"{sid} {entry.get('latest')}"
+            if observed:
+                text += f" as of {observed}"
             if delta is not None:
-                parts.append(f"{sid} {latest} (delta {delta})")
-            else:
-                parts.append(f"{sid} {latest}")
+                text += f" (delta {delta})"
+            parts.append(text)
         lines.append(f"Macro: {len(macro_deltas)} series — {', '.join(parts)}.")
     else:
         lines.append("Macro: no series available.")

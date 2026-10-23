@@ -71,6 +71,16 @@ FRED_FX_SERIES: dict[str, str] = {
     "DTWEXBGS": "Trade Weighted US Dollar Index: Broad, Goods and Services",
 }
 
+# Daily-frequency subset, refreshed by the daily pipeline. The monthly and
+# quarterly groups stay on the slow cadence; ``USRECDM`` is excluded because it
+# only moves when the NBER announces a turning point.
+FRED_DAILY_SERIES: dict[str, str] = {
+    **FRED_SPREAD_SERIES,
+    **FRED_VOLATILITY_SERIES,
+    **FRED_RATE_SERIES,
+    **FRED_FX_SERIES,
+}
+
 # Combined registry used by default fetch operations.
 FRED_SERIES: dict[str, str] = {
     **FRED_SPREAD_SERIES,
