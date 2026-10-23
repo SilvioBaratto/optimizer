@@ -54,7 +54,11 @@ class PreSelectionConfig:
         drop_internal_nan: Forwarded to
             ``SelectComplete.drop_assets_with_internal_nan``. When ``True``,
             assets carrying NaNs inside their history (not just leading/trailing
-            gaps) are also removed.
+            gaps) are also removed. Completeness is judged on the frame as
+            supplied, before cleaning, so only a NaN the caller passed in
+            counts: a value that validation or outlier treatment blanks later is
+            imputed like any other cleaning gap, because it is a bad observation
+            of a live asset rather than a missing history.
         correlation_threshold: Pairwise correlation above which an asset is
             dropped (``DropCorrelated``).
         correlation_absolute: If ``True``, use absolute correlation values.

@@ -63,9 +63,9 @@ class TestBuildPreselectionPipeline:
         pipe = build_preselection_pipeline()
         step_names = [name for name, _ in pipe.steps]
         assert step_names == [
+            "select_complete",
             "validate",
             "outliers",
-            "select_complete",
             "impute",
             "drop_zero_variance",
             "drop_correlated",
@@ -194,6 +194,66 @@ class TestImputeAfterSelectOrdering:
         assert "GAP" in out.columns
         # ...and its interior gap is filled by the imputer that runs after.
         assert not out.isna().to_numpy().any()
+
+
+class TestCleaningNaNDoesNotDropAssets:
+    """A cleaning-created NaN on the first/last row is not an inception/expiry gap.
+
+    ``SelectComplete`` reads a boundary NaN as late listing or early delisting.
+    Data cleaning writes NaN into flagged cells, so a genuine jump that lands on
+    a window edge must not remove an asset that is still trading.
+    """
+
+    @staticmethod
+    def _frame() -> pd.DataFrame:
+        rng = np.random.default_rng(3)
+        return pd.DataFrame(
+            rng.normal(0.0, 0.01, (300, 8)),
+            columns=list("ABCDEFGH"),
+            index=pd.date_range("2023-01-02", periods=300, freq="B"),
+        )
+
+    @pytest.mark.parametrize(
+        ("row", "value"),
+        [
+            (-1, 15.0),  # DataValidator: |r| > max_abs_return
+            (-1, 0.45),  # OutlierTreater: |z| >= remove_threshold
+            (0, 0.45),
+            (0, 15.0),
+            (150, 0.45),
+            (-1, np.inf),
+        ],
+    )
+    def test_flagged_edge_observation_keeps_the_asset(
+        self, row: int, value: float
+    ) -> None:
+        df = self._frame()
+        df.iloc[row, 0] = value
+        cfg = PreSelectionConfig(correlation_threshold=1.0)
+
+        out = build_preselection_pipeline(cfg).fit_transform(df)
+
+        assert list(out.columns) == list("ABCDEFGH")
+        assert not out.isna().to_numpy().any()
+
+    def test_genuine_trailing_gap_still_drops_the_asset(self) -> None:
+        df = self._frame()
+        df.iloc[-1, 0] = np.nan
+        cfg = PreSelectionConfig(correlation_threshold=1.0)
+
+        out = build_preselection_pipeline(cfg).fit_transform(df)
+
+        assert "A" not in out.columns
+
+    def test_infinity_inside_history_is_imputed_not_fatal(self) -> None:
+        df = self._frame()
+        df.iloc[100, 3] = np.inf
+        cfg = PreSelectionConfig(correlation_threshold=1.0)
+
+        out = build_preselection_pipeline(cfg).fit_transform(df)
+
+        assert "D" in out.columns
+        assert np.isfinite(out.to_numpy()).all()
 
 
 class TestPreSelectionConfigValidation:

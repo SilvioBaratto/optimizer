@@ -11,7 +11,6 @@ from skfolio.measures import PerfMeasure, RatioMeasure, RiskMeasure
 from skfolio.pre_selection import (
     DropCorrelated,
     DropZeroVariance,
-    SelectComplete,
     SelectKExtremes,
     SelectNonDominated,
     SelectNonExpiring,
@@ -24,6 +23,7 @@ from optimizer.pre_selection._fit_only import (
     FitOnlyOutlierTreater,
     FitOnlySectorImputer,
 )
+from optimizer.pre_selection._select_complete import RawSelectComplete
 from optimizer.preprocessing._imputation import SectorImputer
 from optimizer.preprocessing._outliers import OutlierTreater
 from optimizer.preprocessing._validation import DataValidator
@@ -57,20 +57,25 @@ def build_preselection_pipeline(
 
     The pipeline is assembled from `config` and follows this order::
 
-        validate → outliers → SelectComplete → impute → DropZeroVariance
+        SelectComplete → validate → outliers → impute → DropZeroVariance
         → DropCorrelated → [SelectKExtremes] → [SelectNonDominated]
         → [SelectNonExpiring]
 
     Optional steps (in brackets) are only included when the corresponding
     config flag or parameter is set.
 
-    ``SelectComplete`` runs *before* ``impute`` on purpose: it drops assets
-    whose history is too short (leading/trailing inception ``NaN``) so the
-    imputer never fabricates a full price history for a late-listed asset and
-    lets it survive selection.  With ``drop_assets_with_internal_nan=False``
-    (default) interior gaps are *kept* by ``SelectComplete`` and filled by the
-    imputer afterwards, so genuine full-history assets with a missing day are
-    not over-dropped.
+    ``SelectComplete`` runs first, on the raw frame, and before ``impute``, on
+    purpose: it drops assets whose history is too short (leading/trailing
+    inception ``NaN``) so the imputer never fabricates a full price history for
+    a late-listed asset and lets it survive selection.  Running before
+    ``validate`` / ``outliers`` matters too: those steps write ``NaN`` into
+    flagged cells, and a flagged first or last observation (a genuine jump on
+    the window edge) must not be mistaken for a late listing or an early expiry.
+    With ``drop_assets_with_internal_nan=False`` (default) interior gaps are
+    *kept* by ``SelectComplete`` and filled by the imputer afterwards, so genuine
+    full-history assets with a missing day are not over-dropped.  With ``True``
+    an asset is dropped for an interior gap present in the input, but not for a
+    cell that ``validate`` / ``outliers`` blank afterwards: those are imputed.
 
     All transformer hyper-parameters are accessible via
     ``pipeline.get_params()`` for cross-validation tuning (e.g.
@@ -141,6 +146,12 @@ def _build_steps(
 
     steps: list[tuple[str, object]] = [
         (
+            "select_complete",
+            RawSelectComplete(
+                drop_assets_with_internal_nan=config.drop_internal_nan,
+            ),
+        ),
+        (
             "validate",
             validator_cls(max_abs_return=config.max_abs_return),
         ),
@@ -150,12 +161,6 @@ def _build_steps(
                 winsorize_threshold=config.winsorize_threshold,
                 remove_threshold=config.remove_threshold,
                 protected_mask=outlier_protection_mask,
-            ),
-        ),
-        (
-            "select_complete",
-            SelectComplete(
-                drop_assets_with_internal_nan=config.drop_internal_nan,
             ),
         ),
         (
