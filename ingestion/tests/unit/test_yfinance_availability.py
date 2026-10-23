@@ -16,6 +16,7 @@ import json
 import logging
 import threading
 from collections.abc import Callable, Iterator
+from typing import Any
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pandas as pd
@@ -31,6 +32,10 @@ from yfinance.exceptions import (
 )
 
 from app.services.infrastructure.cache import LRUCache
+from app.services.infrastructure.circuit_breaker import (
+    CircuitBreaker,
+    CircuitOpenError,
+)
 from app.services.market_data.yfinance import configure_yfinance
 from app.services.market_data.yfinance._facade import YFinanceClient
 from app.services.market_data.yfinance.infrastructure import (
@@ -39,6 +44,8 @@ from app.services.market_data.yfinance.infrastructure import (
     install_fault_witness,
     is_no_data_error,
     is_symbol_not_found,
+    is_transport_error,
+    track_request_outcomes,
     watch_for_faults,
 )
 from app.services.market_data.yfinance.ticker import (
@@ -121,6 +128,145 @@ class TestClassification:
     def test_transient_failures_are_not_no_data(self, error: Exception) -> None:
         """These may succeed on a later attempt, so they stay retryable."""
         assert not is_no_data_error(error)
+
+
+class TestTransportClassification:
+    """Failures to reach Yahoo, as opposed to what Yahoo says once reached."""
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ConnectionError("reset"),
+            TimeoutError(),
+            YFRateLimitError(),
+            requests.exceptions.ConnectionError("network down"),
+            requests.exceptions.ReadTimeout("slow"),
+            _http_error(429),
+            _http_error(503),
+            CircuitOpenError("Yahoo rate limit persists after 10 attempts"),
+        ],
+    )
+    def test_unreachable_or_refusing_yahoo_is_a_transport_error(
+        self, error: Exception
+    ) -> None:
+        assert is_transport_error(error)
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            _http_error(404),
+            YFPricesMissingError("ZZZZ", ""),
+            YFDataException("No upgrade/downgrade history found for ZZZZ"),
+            KeyError("quoteSummary"),
+            ValueError("unexpected payload"),
+            requests.exceptions.JSONDecodeError("bad json", "<html>", 0),
+        ],
+    )
+    def test_what_yahoo_answers_is_not_a_transport_error(
+        self, error: Exception
+    ) -> None:
+        assert not is_transport_error(error)
+
+    def test_a_curl_cffi_failure_is_a_transport_error(self) -> None:
+        """yfinance 1.x talks through curl_cffi, whose errors share no base with
+        ``requests``; it is recognised by origin since the package may not load."""
+        error_type = type(
+            "ConnectionError", (Exception,), {"__module__": "curl_cffi.requests"}
+        )
+
+        assert is_transport_error(error_type("Failed to perform"))
+
+
+class TestRequestOutcomes:
+    """Every yfinance request leaves a trace in the active tracking scope, so a
+    caller can tell an unreachable Yahoo from one that has nothing to say."""
+
+    def test_exhausted_network_retries_are_recorded_as_a_failure(
+        self, client: YFinanceClient
+    ) -> None:
+        info = PropertyMock(side_effect=ConnectionError("network down"))
+        with patch.object(client, "get_ticker", return_value=_ticker_with(info=info)):
+            with track_request_outcomes() as outcomes:
+                assert client.fetch_info("AAPL") is None
+
+        assert info.call_count == 3
+        assert outcomes.answered == 0
+        assert outcomes.failures == ["ConnectionError: network down"]
+
+    def test_a_retry_that_succeeds_is_an_answer_not_a_failure(
+        self, client: YFinanceClient
+    ) -> None:
+        prop = PropertyMock(
+            side_effect=[ConnectionError("reset"), pd.DataFrame({"holder": ["x"]})]
+        )
+        holders = _sub_client(HoldersClient, _ticker_with(major_holders=prop))
+
+        with track_request_outcomes() as outcomes:
+            assert holders.fetch_major_holders("AAPL") is not None
+
+        assert outcomes.answered == 1
+        assert outcomes.failures == []
+
+    @pytest.mark.parametrize(
+        "side_effect",
+        [
+            _http_error(404),
+            YFDataException("No upgrade/downgrade history found for AAPL"),
+            [pd.DataFrame()],
+        ],
+    )
+    def test_yahoos_no_data_answers_count_as_answered(self, side_effect: Any) -> None:
+        prop = PropertyMock(side_effect=side_effect)
+        holders = _sub_client(HoldersClient, _ticker_with(major_holders=prop))
+
+        with track_request_outcomes() as outcomes:
+            assert holders.fetch_major_holders("AAPL") is None
+
+        assert outcomes.answered == 1
+        assert outcomes.failures == []
+
+    def test_an_unparseable_payload_is_an_answer_not_a_transport_failure(
+        self,
+    ) -> None:
+        prop = PropertyMock(side_effect=KeyError("quoteSummary"))
+        holders = _sub_client(HoldersClient, _ticker_with(major_holders=prop))
+
+        with track_request_outcomes() as outcomes:
+            assert holders.fetch_major_holders("AAPL") is None
+
+        assert outcomes.answered == 1
+        assert outcomes.failures == []
+
+    def test_an_open_circuit_breaker_is_recorded_as_a_failure(self) -> None:
+        """Once rate limits latch the breaker no request reaches Yahoo at all."""
+        breaker = CircuitBreaker(service_name="Yahoo", max_attempts=0)
+        cache = MagicMock()
+        cache.get.return_value = None
+        yf_client = YFinanceClient(
+            cache=cache,
+            rate_limiter=MagicMock(),
+            circuit_breaker=breaker,
+            default_max_retries=2,
+        )
+
+        with track_request_outcomes() as outcomes:
+            assert yf_client.fetch_info("AAPL") is None
+
+        assert outcomes.answered == 0
+        assert len(outcomes.failures) == 1
+        assert "rate limit persists" in outcomes.failures[0]
+
+    def test_requests_outside_a_tracking_scope_are_not_recorded(
+        self, client: YFinanceClient
+    ) -> None:
+        info = PropertyMock(side_effect=ConnectionError("network down"))
+        with patch.object(client, "get_ticker", return_value=_ticker_with(info=info)):
+            assert client.fetch_info("AAPL") is None
+
+        with track_request_outcomes() as outcomes:
+            pass
+        assert outcomes.answered == 0
+        assert outcomes.failures == []
 
 
 @pytest.fixture

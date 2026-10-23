@@ -5,6 +5,15 @@ import time
 from dataclasses import dataclass, field
 
 
+class CircuitOpenError(RuntimeError):
+    """The breaker refused a call because the service keeps rate-limiting us.
+
+    A ``RuntimeError`` subclass so callers that already catch the generic error
+    keep working, while resilience wrappers can tell a refused call from any
+    other failure.
+    """
+
+
 @dataclass
 class CircuitBreaker:
     """Exponential-backoff circuit breaker for rate-limited services.
@@ -52,14 +61,14 @@ class CircuitBreaker:
         """Block until the back-off window elapses, then return.
 
         Raises:
-            RuntimeError: If *max_attempts* has been reached.
+            CircuitOpenError: If *max_attempts* has been reached.
         """
         should_wait = False
         wait_time = 0.0
 
         with self._lock:
             if self._attempt >= self.max_attempts:
-                raise RuntimeError(
+                raise CircuitOpenError(
                     f"{self.service_name} rate limit persists after "
                     f"{self._attempt} attempts. Backing off until cooldown "
                     "elapses, then retrying."

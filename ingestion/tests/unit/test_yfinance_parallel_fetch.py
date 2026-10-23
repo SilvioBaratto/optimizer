@@ -260,3 +260,72 @@ class TestParallelCancellation:
         assert len(fetched) < len(instruments) // 2, (
             f"{len(fetched)} of {len(instruments)} queued tickers still ran"
         )
+
+
+class TestParallelOutageDetection:
+    """A pool of workers that Yahoo never answered must not report a clean job."""
+
+    @staticmethod
+    def _sweep(
+        results: dict[str, dict[str, Any]],
+    ) -> tuple[Any, list[dict[str, Any]]]:
+        instruments = [_make_instrument(t) for t in results]
+        tracker = _SessionTracker()
+        progress: list[dict[str, Any]] = []
+        progress_lock = threading.Lock()
+
+        def on_progress(**kwargs: Any) -> None:
+            with progress_lock:
+                progress.append(kwargs)
+
+        request = SimpleNamespace(workers=3, period="5y", mode="incremental")
+        repo_p, service_p, db_p = _patch_module(
+            instruments,
+            tracker,
+            lambda **kw: results[kw["yfinance_ticker"]],
+        )
+        with repo_p, service_p, db_p:
+            try:
+                outcome: Any = svc._run_bulk_yfinance_fetch_parallel(
+                    request, MagicMock(), on_progress=on_progress, workers=3
+                )
+            except Exception as exc:
+                outcome = exc
+        return outcome, progress
+
+    @staticmethod
+    def _counted(failed: int, answered: int) -> dict[str, Any]:
+        return {
+            "counts": {},
+            "errors": [],
+            "skipped": [],
+            "transport_failures": failed,
+            "requests_answered": answered,
+        }
+
+    def test_a_sweep_yahoo_never_answered_raises_instead_of_completing(self) -> None:
+        outcome, progress = self._sweep(
+            {f"T{i}": self._counted(20, 0) for i in range(6)}
+        )
+
+        assert isinstance(outcome, svc.YahooUnreachableError)
+        assert "120 of 120" in str(outcome)
+        assert not any(
+            call.get("status") in ("completed", "failed") for call in progress
+        )
+        assert progress[-1]["result"]["transport_failures"] == 120
+
+    def test_a_few_failed_requests_leave_the_job_completed(self) -> None:
+        outcome, progress = self._sweep(
+            {f"T{i}": self._counted(1, 19) for i in range(6)}
+        )
+
+        assert outcome["transport_failures"] == 6
+        assert outcome["requests_answered"] == 114
+        assert progress[-1]["status"] == "completed"
+
+    def test_results_without_request_tallies_are_not_an_outage(self) -> None:
+        outcome, progress = self._sweep({"T0": _ok_result(), "T1": _ok_result()})
+
+        assert outcome["tickers_processed"] == 2
+        assert progress[-1]["status"] == "completed"

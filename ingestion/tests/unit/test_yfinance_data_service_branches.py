@@ -30,6 +30,10 @@ Branches covered:
   fetch_and_store() — per-category SAVEPOINT isolation
     - a failed category rolls back alone; earlier and later writes survive
 
+  fetch_and_store() / run_bulk_yfinance_fetch() — unreachable Yahoo
+    - transport faults are reported apart from "no data"
+    - a sweep in which most requests went unanswered ends as a failed job
+
   fetch_and_store() — news scraper branches
     - news list non-empty, link from canonicalUrl dict
     - news list non-empty, link from previewUrl fallback
@@ -2250,3 +2254,288 @@ class TestRunBulkYfinanceFetchMissingTicker:
 
         assert result["tickers_processed"] == 2
         assert result["error_count"] >= 1
+
+
+# ===========================================================================
+# fetch_and_store() — an unreachable Yahoo must not look like "no data"
+# ===========================================================================
+
+
+class _DownTicker:
+    """A ``yf.Ticker`` stand-in for which every request fails with *error*."""
+
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+        self.news = []
+
+    def history(self, **kwargs: Any) -> Any:
+        raise self._error
+
+    def __getattr__(self, name: str) -> Any:
+        raise self._error
+
+
+def _real_yf_client(ticker: Any) -> Any:
+    """The real client and sub-clients over *ticker*, with inert infrastructure."""
+    from app.services.market_data.yfinance import YFinanceClient
+
+    cache = MagicMock()
+    cache.get.return_value = ticker
+    return YFinanceClient(
+        cache=cache,
+        rate_limiter=MagicMock(),
+        circuit_breaker=MagicMock(),
+        default_max_retries=2,
+    )
+
+
+def _fetch_through_real_client(
+    ticker: Any,
+    *,
+    mode: str = "full",
+    staleness: Any = None,
+    request_timeout: float | None = None,
+) -> dict[str, Any]:
+    repo = _make_repo(staleness=staleness)
+    repo.get_price_history.return_value = []
+    service = YFinanceDataService(
+        repo=repo,
+        yf_client=_real_yf_client(ticker),
+        request_timeout=request_timeout,
+    )
+    with patch("app.services.infrastructure.retry._full_jitter", return_value=0.0):
+        return service.fetch_and_store(
+            instrument_id=uuid4(),
+            yfinance_ticker="AAPL",
+            mode=mode,
+            staleness=staleness if mode == "incremental" else None,
+        )
+
+
+class TestUnreachableYahooIsNotNoData:
+    """Exhausted retries on network faults used to collapse into the same ``None``
+    as Yahoo's "no data" answer, so a whole outage stored nothing, raised nothing
+    and left the ticker's result indistinguishable from a quiet weekend."""
+
+    def test_network_faults_are_reported_as_transport_failures(self) -> None:
+        result = _fetch_through_real_client(
+            _DownTicker(ConnectionError("network down"))
+        )
+
+        assert result["transport_failures"] > 0
+        assert any(e.startswith("transport:") for e in result["errors"])
+
+    def test_yahoo_no_data_answers_are_not_transport_failures(self) -> None:
+        from yfinance.exceptions import YFDataException
+
+        result = _fetch_through_real_client(
+            _DownTicker(YFDataException("No data found"))
+        )
+
+        assert result["transport_failures"] == 0
+        assert not any(e.startswith("transport:") for e in result["errors"])
+
+    def test_requests_under_the_timeout_watchdog_are_tracked(self) -> None:
+        """The watchdog runs each call in its own thread; a failure there must
+        still reach the ticker's tally."""
+        down = ConnectionError("network down")
+
+        watched = _fetch_through_real_client(_DownTicker(down), request_timeout=5.0)
+        unwatched = _fetch_through_real_client(_DownTicker(down))
+
+        assert unwatched["transport_failures"] > 1
+        assert watched["transport_failures"] == unwatched["transport_failures"]
+
+    def test_a_watchdog_timeout_is_a_transport_failure(self) -> None:
+        import time
+
+        from app.services.market_data.yfinance import track_request_outcomes
+        from app.services.market_data.yfinance_data_service import call_with_timeout
+
+        with track_request_outcomes() as outcomes:
+            with pytest.raises(TimeoutError):
+                call_with_timeout(lambda: time.sleep(0.5), 0.05)
+
+        assert len(outcomes.failures) == 1
+        assert "within" in outcomes.failures[0]
+
+    def test_answered_requests_are_counted_beside_the_failures(self) -> None:
+        from yfinance.exceptions import YFDataException
+
+        result = _fetch_through_real_client(
+            _DownTicker(YFDataException("No data found"))
+        )
+
+        assert result["requests_answered"] > 0
+        assert result["transport_failures"] == 0
+
+    def test_unparseable_payloads_are_not_transport_failures(self) -> None:
+        """A parse error is Yahoo's content, not the connection."""
+        result = _fetch_through_real_client(_DownTicker(KeyError("quoteSummary")))
+
+        assert result["transport_failures"] == 0
+
+    def test_a_fresh_ticker_makes_no_request_and_reports_no_failure(self) -> None:
+        now = datetime.now(timezone.utc)
+        result = _fetch_through_real_client(
+            _DownTicker(ConnectionError("network down")),
+            mode="incremental",
+            staleness=_fully_fresh(now),
+        )
+
+        assert result["skipped"] == ["all:fresh"]
+        assert result["transport_failures"] == 0
+
+    def test_empty_price_answer_for_a_stored_series_is_flagged(self) -> None:
+        """yfinance swallows network faults inside ``history()`` and returns an
+        empty frame, so an empty answer for a ticker whose series is stored is
+        the only trace such an outage leaves."""
+        staleness = _incremental_staleness()
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.return_value = None
+        repo = _make_repo(staleness=staleness)
+
+        result = _run_with_staleness(repo, yf_client, staleness)
+
+        assert "prices:unavailable" in result["skipped"]
+
+    def test_empty_price_answer_for_an_unstored_series_is_not_flagged(self) -> None:
+        staleness = {**_incremental_staleness(), "price_max_date": None}
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.return_value = None
+        repo = _make_repo(staleness=staleness)
+
+        result = _run_with_staleness(repo, yf_client, staleness)
+
+        assert "prices:unavailable" not in result["skipped"]
+
+
+def _run_with_staleness(
+    repo: MagicMock, yf_client: MagicMock, staleness: dict[str, Any]
+) -> dict[str, Any]:
+    service = YFinanceDataService(repo=repo, yf_client=yf_client)
+    return service.fetch_and_store(
+        instrument_id=uuid4(),
+        yfinance_ticker="AAPL",
+        mode="incremental",
+        staleness=staleness,
+    )
+
+
+# ===========================================================================
+# run_bulk_yfinance_fetch() — a sweep Yahoo never answered is a failed job
+# ===========================================================================
+
+
+def _sweep_result(*, failed: int, answered: int) -> dict[str, Any]:
+    return {
+        "counts": {},
+        "errors": [f"transport: {failed} request(s) failed"] if failed else [],
+        "skipped": [],
+        "transport_failures": failed,
+        "requests_answered": answered,
+    }
+
+
+def _run_serial_sweep(
+    per_ticker: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, BaseException | None, list[dict[str, Any]]]:
+    """Run the serial sweep over tickers whose fetches return *per_ticker*."""
+    from types import SimpleNamespace
+
+    import app.services.market_data.yfinance_data_service as svc_module
+
+    instruments = [
+        SimpleNamespace(
+            id=uuid4(),
+            yfinance_ticker=f"T{i}",
+            exchange_name="NASDAQ",
+            currency_code="USD",
+        )
+        for i in range(len(per_ticker))
+    ]
+    repo_mock = MagicMock()
+    repo_mock.get_instruments_with_yfinance_ticker.return_value = instruments
+    service_mock = MagicMock()
+    service_mock.fetch_and_store.side_effect = per_ticker
+
+    @contextmanager
+    def _get_session():
+        yield MagicMock()
+
+    db_mgr = MagicMock()
+    db_mgr.get_session = _get_session
+    progress: list[dict[str, Any]] = []
+    request = SimpleNamespace(workers=1, period="5y", mode="full")
+
+    result: dict[str, Any] | None = None
+    raised: BaseException | None = None
+    with (
+        patch.object(svc_module, "YFinanceRepository", return_value=repo_mock),
+        patch.object(svc_module, "YFinanceDataService", return_value=service_mock),
+        patch.object(svc_module, "_backfill_instrument_isin_from_profiles"),
+        patch("app.database.database_manager", db_mgr),
+        patch("app.config.settings") as mock_settings,
+    ):
+        mock_settings.yfinance_request_timeout_seconds = 30
+        try:
+            result = svc_module.run_bulk_yfinance_fetch(
+                request, MagicMock(), on_progress=lambda **kw: progress.append(kw)
+            )
+        except Exception as exc:
+            raised = exc
+    return result, raised, progress
+
+
+class TestSerialSweepOutageDetection:
+    """An outage used to end as a "completed" job with zero counts, so the daily
+    pipeline carried on as if prices had updated."""
+
+    def test_a_sweep_yahoo_never_answered_raises_instead_of_completing(self) -> None:
+        """The raise lets the step runner mark the job failed exactly once, so no
+        terminal status is written here; the evidence stays on the job row."""
+        from app.services.market_data.yfinance_data_service import (
+            YahooUnreachableError,
+        )
+
+        _, raised, progress = _run_serial_sweep(
+            [_sweep_result(failed=20, answered=0)] * 5
+        )
+
+        assert isinstance(raised, YahooUnreachableError)
+        assert "100 of 100" in str(raised)
+        assert not any(
+            call.get("status") in ("completed", "failed") for call in progress
+        )
+        assert progress[-1]["result"]["transport_failures"] == 100
+        assert progress[-1]["errors"]
+
+    def test_a_few_failed_requests_leave_the_job_completed(self) -> None:
+        result, raised, progress = _run_serial_sweep(
+            [_sweep_result(failed=1, answered=19)] * 5
+        )
+
+        assert raised is None
+        assert result is not None
+        assert result["transport_failures"] == 5
+        assert result["requests_answered"] == 95
+        assert progress[-1]["status"] == "completed"
+
+    def test_half_the_requests_unanswered_is_an_outage(self) -> None:
+        _, raised, _ = _run_serial_sweep([_sweep_result(failed=10, answered=10)])
+
+        assert raised is not None
+
+    def test_just_under_half_unanswered_is_not_an_outage(self) -> None:
+        _, raised, _ = _run_serial_sweep([_sweep_result(failed=9, answered=11)])
+
+        assert raised is None
+
+    def test_a_sweep_that_made_no_request_completes(self) -> None:
+        """Every ticker fresh: nothing was asked, so nothing can have failed."""
+        result, raised, progress = _run_serial_sweep(
+            [_sweep_result(failed=0, answered=0)] * 3
+        )
+
+        assert raised is None
+        assert progress[-1]["status"] == "completed"

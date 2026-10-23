@@ -7,10 +7,14 @@ from .infrastructure import (
     CircuitBreaker,
     LRUCache,
     RateLimiter,
+    RequestOutcomes,
     is_no_data_error,
     is_rate_limit_error,
     is_symbol_not_found,
+    is_transport_error,
+    record_failure,
     retry_with_backoff,
+    track_request_outcomes,
 )
 from .market import SearchClient
 from .news import (
@@ -69,6 +73,7 @@ __all__ = [
     "NewsClient",
     "RateLimiter",
     "RateLimiterProtocol",
+    "RequestOutcomes",
     "ScreenerClient",
     "ScreenerClientProtocol",
     "SearchClient",
@@ -80,5 +85,8 @@ __all__ = [
     "is_no_data_error",
     "is_rate_limit_error",
     "is_symbol_not_found",
+    "is_transport_error",
+    "record_failure",
     "retry_with_backoff",
+    "track_request_outcomes",
 ]

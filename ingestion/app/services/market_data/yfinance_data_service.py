@@ -9,8 +9,14 @@ lists are surfaced to the caller in the fetch result, so the drops are
 intentional per-item resilience, not silent swallows. Every repository write
 runs in its own SAVEPOINT (``YFinanceDataService._write``) so a failed category
 cannot abort the shared transaction and take the ticker's other writes with it.
+
+A request that Yahoo never answered (unreachable, rate limited, timed out) is
+not "no data": ``fetch_and_store`` reports it as ``transport_failures`` and a
+``transport:`` error, and a sweep in which most requests went unanswered ends
+as a failed job (``YahooUnreachableError``) instead of a quiet "completed".
 """
 
+import contextvars
 import logging
 import math
 import threading
@@ -41,7 +47,11 @@ from app.services._shared import (
     parse_period_years,
 )
 from app.services.market_data.empty_fetch_memory import EmptyFetchMemory
-from app.services.market_data.yfinance import YFinanceClient
+from app.services.market_data.yfinance import (
+    YFinanceClient,
+    record_failure,
+    track_request_outcomes,
+)
 from app.utils.currency import to_major_currency
 
 logger = logging.getLogger(__name__)
@@ -82,15 +92,17 @@ def call_with_timeout(fn: "Any", timeout: float) -> "Any":
         Exception: Any exception raised by *fn* is re-raised in the caller.
     """
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="yf-timeout") as _pool:
-        future: Future[Any] = _pool.submit(fn)
+        # A copy of the caller's context carries its request-outcome scope into
+        # the worker thread, which would otherwise start with an empty one.
+        future: Future[Any] = _pool.submit(contextvars.copy_context().run, fn)
         try:
             return future.result(timeout=timeout)
         except TimeoutError as err:
+            message = f"yfinance call did not complete within {timeout:.0f}s"
+            record_failure(f"TimeoutError: {message}")
             # The worker thread is a daemon — it will be abandoned but won't
             # block process shutdown.
-            raise TimeoutError(
-                f"yfinance call did not complete within {timeout:.0f}s"
-            ) from err
+            raise TimeoutError(message) from err
 
 
 @dataclass
@@ -464,8 +476,46 @@ class YFinanceDataService:
             asset_class: Instrument asset class. When "fixed_income" or
                 "multi_asset" (i.e. an ETF), the ETF fund-metadata branch runs.
 
-        Returns dict with counts per category, list of errors, and skipped categories.
+        Returns:
+            Dict with ``counts`` per category, ``errors``, ``skipped``
+            categories, ``transport_failures`` (requests Yahoo never answered,
+            each also summarised as one ``transport:`` error) and
+            ``requests_answered`` (requests Yahoo answered, with or without
+            data), so an unreachable Yahoo cannot pass for an empty answer.
         """
+        with track_request_outcomes() as outcomes:
+            result = self._fetch_and_store(
+                instrument_id,
+                yfinance_ticker,
+                period=period,
+                mode=mode,
+                thresholds=thresholds,
+                exchange_name=exchange_name,
+                currency_code=currency_code,
+                asset_class=asset_class,
+                staleness=staleness,
+            )
+        result["transport_failures"] = len(outcomes.failures)
+        result["requests_answered"] = outcomes.answered
+        if outcomes.failures:
+            result["errors"].append(
+                f"transport: {len(outcomes.failures)} request(s) got no answer "
+                f"from Yahoo (first: {outcomes.failures[0]})"
+            )
+        return result
+
+    def _fetch_and_store(
+        self,
+        instrument_id: UUID,
+        yfinance_ticker: str,
+        period: str,
+        mode: str,
+        thresholds: StalenessThresholds | None,
+        exchange_name: str | None,
+        currency_code: str | None,
+        asset_class: str | None,
+        staleness: Any,
+    ) -> dict[str, Any]:
         counts: dict[str, int] = {}
         errors: list[str] = []
         skipped: list[str] = []
@@ -779,6 +829,12 @@ class YFinanceDataService:
                 )
             else:
                 counts["prices"] = counts.get("prices", 0)
+                if incremental_window:
+                    # yfinance swallows network faults inside history() and
+                    # returns an empty frame. The overlap window always spans
+                    # stored bars, so an empty answer for a ticker that has a
+                    # series is the only trace of a Yahoo that did not answer.
+                    skipped.append("prices:unavailable")
         except Exception as e:
             errors.append(f"prices: {e}")
             logger.warning("Failed to fetch prices for %s: %s", yfinance_ticker, e)
@@ -1580,6 +1636,75 @@ def _backfill_instrument_isin_from_profiles() -> None:
         logger.exception("ISIN backfill from ticker_profiles failed (non-fatal)")
 
 
+# Share of a sweep's yfinance requests that may go unanswered before the sweep
+# counts as an outage. Below it the affected categories simply refill on the
+# next run; at or above it the run says nothing about prices being current, so
+# it must not report success or let the pipeline carry on as if they were.
+_OUTAGE_FAILURE_RATIO = 0.5
+
+
+class YahooUnreachableError(RuntimeError):
+    """A yfinance sweep got no answer from Yahoo for most of its requests."""
+
+
+@dataclass
+class _SweepRequests:
+    """Yahoo's responsiveness across a sweep, summed from each ticker's result."""
+
+    failed: int = 0
+    answered: int = 0
+
+    def add(self, result: dict[str, Any]) -> None:
+        self.failed += result.get("transport_failures", 0)
+        self.answered += result.get("requests_answered", 0)
+
+    @property
+    def total(self) -> int:
+        return self.failed + self.answered
+
+    @property
+    def is_outage(self) -> bool:
+        return self.failed > 0 and self.failed >= _OUTAGE_FAILURE_RATIO * self.total
+
+
+def _conclude_sweep(
+    result_dict: dict[str, Any],
+    errors: list[str],
+    requests: _SweepRequests,
+    on_progress: ProgressCallback,
+) -> None:
+    """Report the sweep as completed, or raise when Yahoo was unreachable.
+
+    The outage path leaves the job's terminal status to the caller that catches
+    the exception: writing "failed" here as well would count the transition
+    (metrics, webhook) twice.
+
+    Args:
+        result_dict: Sweep summary; gains the request tallies.
+        errors: Per-ticker error lines to store on the job.
+        requests: Request outcomes summed over the sweep.
+        on_progress: Job progress callback.
+
+    Raises:
+        YahooUnreachableError: When the share of unanswered requests reaches
+            ``_OUTAGE_FAILURE_RATIO``.
+    """
+    result_dict["transport_failures"] = requests.failed
+    result_dict["requests_answered"] = requests.answered
+    if requests.is_outage:
+        on_progress(errors=errors, result=result_dict)
+        raise YahooUnreachableError(
+            f"{requests.failed} of {requests.total} yfinance requests got no "
+            "answer from Yahoo"
+        )
+    on_progress(
+        status="completed",
+        finished_at=datetime.now(timezone.utc).isoformat(),
+        errors=errors,
+        result=result_dict,
+    )
+
+
 def run_bulk_yfinance_fetch(
     request: Any,
     yf_client: YFinanceClient,
@@ -1598,7 +1723,13 @@ def run_bulk_yfinance_fetch(
 
     Returns:
         Result dict with ``tickers_processed``, ``counts``, ``error_count``,
-        and ``skipped_category_count``.
+        ``skipped_category_count``, ``transport_failures`` and
+        ``requests_answered``.
+
+    Raises:
+        YahooUnreachableError: When most requests got no answer from Yahoo. The
+            job row keeps the result and errors; the ISIN backfill is skipped
+            and the next sweep fills it.
     """
     if request.workers > 1:
         result_dict = _run_bulk_yfinance_fetch_parallel(
@@ -1619,6 +1750,7 @@ def run_bulk_yfinance_fetch(
         all_errors: list[str] = []
         total_counts: dict[str, int] = {}
         total_skipped: int = 0
+        sweep_requests = _SweepRequests()
 
         from app.config import settings as _settings
 
@@ -1662,6 +1794,7 @@ def run_bulk_yfinance_fetch(
                 for k, v in result["counts"].items():
                     total_counts[k] = total_counts.get(k, 0) + v
                 total_skipped += len(result.get("skipped", []))
+                sweep_requests.add(result)
                 for err in result["errors"]:
                     all_errors.append(f"{ticker}: {err}")
 
@@ -1678,12 +1811,7 @@ def run_bulk_yfinance_fetch(
             "error_count": len(all_errors),
             "skipped_category_count": total_skipped,
         }
-        on_progress(
-            status="completed",
-            finished_at=datetime.now(timezone.utc).isoformat(),
-            errors=all_errors,
-            result=result_dict,
-        )
+        _conclude_sweep(result_dict, all_errors, sweep_requests, on_progress)
         logger.info("Bulk yfinance fetch completed: %d tickers", total)
 
     _backfill_instrument_isin_from_profiles()
@@ -1817,6 +1945,7 @@ def _run_bulk_yfinance_fetch_parallel(
     counts: dict[str, int] = {}
     errors: list[str] = []
     skipped = 0
+    sweep_requests = _SweepRequests()
 
     def _worker(
         spec: _InstrumentSpec,
@@ -1848,6 +1977,8 @@ def _run_bulk_yfinance_fetch_parallel(
             on_progress(current=idx, current_ticker=spec.yfinance_ticker)
             with aggregate_lock:
                 skipped += _aggregate_outcome(spec, outcome, counts, errors)
+                if not isinstance(outcome, Exception):
+                    sweep_requests.add(outcome)
     finally:
         # on_progress raises CancelledError once the job's row was reaped. A
         # plain ``with`` block would still drain every queued ticker on exit,
@@ -1860,12 +1991,7 @@ def _run_bulk_yfinance_fetch_parallel(
         "error_count": len(errors),
         "skipped_category_count": skipped,
     }
-    on_progress(
-        status="completed",
-        finished_at=datetime.now(timezone.utc).isoformat(),
-        errors=errors,
-        result=result_dict,
-    )
+    _conclude_sweep(result_dict, errors, sweep_requests, on_progress)
     logger.info(
         "Parallel yfinance fetch completed: %d tickers (%d workers)", total, workers
     )

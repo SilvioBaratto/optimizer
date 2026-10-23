@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TypeVar
 
 import yfinance as yf
@@ -18,7 +19,10 @@ from .infrastructure import (
     install_fault_witness,
     is_no_data_error,
     is_rate_limit_error,
+    is_transport_error,
     note_ticker,
+    record_answer,
+    record_failure,
     retry_with_backoff,
     watch_for_faults,
 )
@@ -27,6 +31,14 @@ from .protocols import CacheProtocol, CircuitBreakerProtocol, RateLimiterProtoco
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+@dataclass
+class _Attempts:
+    """What the attempts of one request left behind, filled in by its callbacks."""
+
+    last_error: Exception | None = None
+    answered: bool = False
 
 
 def fetch_with_resilience(
@@ -47,6 +59,12 @@ def fetch_with_resilience(
     sub-clients make yfinance's swallowed ones raise again (see
     :meth:`BaseClient._fetch_with_resilience`).
 
+    ``None`` is also what a request returns when every attempt failed, so the
+    outcome is additionally recorded in the active
+    :func:`~.infrastructure.track_request_outcomes` scope: a request that got
+    no answer because Yahoo was unreachable or refused service is a failure
+    there, every other ending counts as answered.
+
     Args:
         action: Zero-argument callable performing one yfinance request.
         retries: Attempt budget, including the first attempt.
@@ -61,10 +79,19 @@ def fetch_with_resilience(
         The result of *action*, or ``None`` when Yahoo has no usable data or
         every attempt failed.
     """
+    attempts = _Attempts()
 
     def _guarded() -> T:
-        circuit_breaker.check()
-        return action()
+        try:
+            circuit_breaker.check()
+            return action()
+        except Exception as exc:
+            attempts.last_error = exc
+            raise
+
+    def _on_success(_: T) -> None:
+        attempts.answered = True
+        circuit_breaker.reset()
 
     try:
         result = retry_with_backoff(
@@ -72,12 +99,23 @@ def fetch_with_resilience(
             retries,
             is_rate_limit_error=rate_limit_predicate,
             on_rate_limit=circuit_breaker.trigger,
-            on_success=lambda _: circuit_breaker.reset(),
+            on_success=_on_success,
             is_permanent_error=is_no_data_error,
         )
     except Exception as exc:
         logger.debug("Yahoo has no data for this request: %s", exc)
+        record_answer()
         return None
+
+    error = attempts.last_error
+    if (
+        not attempts.answered
+        and error is not None
+        and (is_transport_error(error) or rate_limit_predicate(error))
+    ):
+        record_failure(f"{type(error).__name__}: {error}")
+    else:
+        record_answer()
 
     if result is not None and is_valid is not None and not is_valid(result):
         return None
