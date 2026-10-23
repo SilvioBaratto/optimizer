@@ -120,9 +120,36 @@ class TestBlackLittermanConfig:
     def test_view_confidences_matching_length_accepted(self) -> None:
         cfg = BlackLittermanConfig(
             views=("AAPL == 0.05", "MSFT == 0.03"),
+            uncertainty_method=ViewUncertaintyMethod.IDZOREK,
             view_confidences=(0.8, 0.6),
         )
         assert cfg.view_confidences == (0.8, 0.6)
+
+    @pytest.mark.parametrize(
+        "method",
+        [
+            ViewUncertaintyMethod.HE_LITTERMAN,
+            ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
+        ],
+    )
+    def test_view_confidences_rejected_unless_idzorek(
+        self, method: ViewUncertaintyMethod
+    ) -> None:
+        """Confidences would be silently dropped by every non-Idzorek method."""
+        with pytest.raises(ValueError, match="IDZOREK"):
+            BlackLittermanConfig(
+                views=("AAPL == 0.05",),
+                uncertainty_method=method,
+                view_confidences=(0.1,),
+            )
+
+    def test_idzorek_without_view_confidences_raises(self) -> None:
+        """IDZOREK with no confidences would silently run He-Litterman."""
+        with pytest.raises(ValueError, match="view_confidences"):
+            BlackLittermanConfig(
+                views=("AAPL == 0.05",),
+                uncertainty_method=ViewUncertaintyMethod.IDZOREK,
+            )
 
 
 class TestEntropyPoolingConfig:
