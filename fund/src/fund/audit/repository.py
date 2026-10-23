@@ -279,7 +279,8 @@ class AgentRunRepository(RepositoryBase):
             limit: Maximum rows to return.
 
         Returns:
-            ``(decision, portfolio_id)`` pairs ordered by ``created_at`` descending.
+            ``(decision, portfolio_id)`` pairs ordered by ``created_at`` descending,
+            ties broken per run by ``decision_index`` descending.
         """
         stmt = select(AgentDecision, AgentRun.portfolio_id).join(
             AgentRun, AgentDecision.run_id == AgentRun.id
@@ -292,7 +293,14 @@ class AgentRunRepository(RepositoryBase):
             stmt = stmt.where(AgentDecision.created_at >= start)
         if end is not None:
             stmt = stmt.where(AgentDecision.created_at <= end)
-        stmt = stmt.order_by(AgentDecision.created_at.desc()).limit(limit)
+        # Rows stamped inside one transaction before per-statement clocks (and
+        # any same-microsecond pair) tie on created_at; keep a run's steps
+        # grouped and newest-first rather than leaving the tie to the planner.
+        stmt = stmt.order_by(
+            AgentDecision.created_at.desc(),
+            AgentDecision.run_id,
+            AgentDecision.decision_index.desc(),
+        ).limit(limit)
         return [(dec, pid) for dec, pid in self.session.execute(stmt).all()]
 
 

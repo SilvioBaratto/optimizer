@@ -197,6 +197,33 @@ def test_list_decisions_joins_portfolio_and_filters(db_session):
     assert all(dec.step == "optimize_portfolio" for dec, _ in optimize)
 
 
+def test_list_decisions_orders_tied_timestamps_by_run_then_newest_step(db_session):
+    # Rows written before timestamps were stamped per statement share one
+    # created_at per transaction; the step sequence must still read newest-first.
+    import uuid
+    from datetime import datetime
+
+    repo = AgentRunRepository(db_session)
+    pid = uuid.UUID("aaaa0001-0000-4000-8000-000000000001")
+    run = repo.create_run(
+        portfolio_id=pid,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={},
+    )
+    steps = ["derive", "optimize", "review", "approve"]
+    tied = datetime(2026, 1, 2, 10, 0, 0)
+    for step in steps:
+        decision = repo.append_decision(run.id, agent="allocator", step=step)
+        decision.created_at = tied
+    db_session.flush()
+
+    rows = repo.list_decisions(portfolio_id=pid)
+
+    assert [dec.step for dec, _ in rows] == list(reversed(steps))
+
+
 # --- mark_responded + the pending-HITL query (barge-in keeps a run alive) -----
 
 
