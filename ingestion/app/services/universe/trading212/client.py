@@ -1,4 +1,5 @@
 import base64
+import math
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -15,6 +16,13 @@ _BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
+
+# T212 reports the end of a rate-limit window in ``x-ratelimit-reset`` (epoch
+# seconds) and sends no Retry-After. The window on /metadata/instruments is
+# about 50 s, so a fixed 2+4+8+16 s backoff gives up before it reopens; waiting
+# for the reported reset is capped so a bogus header cannot stall the daemon.
+_MAX_RATE_LIMIT_WAIT_SECONDS = 120
+_RESET_MARGIN_SECONDS = 1
 
 
 @dataclass
@@ -118,18 +126,19 @@ class Trading212Client:
 
             except requests.exceptions.HTTPError as e:
                 last_error = e
-                if e.response is not None and e.response.status_code == 429:
+                response = e.response
+                if response is None:
+                    raise
+                if response.status_code == 429:
                     if attempt >= self.max_retries - 1:
                         raise
-                    retry_after = e.response.headers.get("Retry-After")
-                    if retry_after:
-                        try:
-                            wait_time = int(retry_after)
-                        except ValueError:
-                            wait_time = (2**attempt) * 2
-                    else:
-                        wait_time = (2**attempt) * 2
-                    time.sleep(wait_time)
+                    time.sleep(self._rate_limit_wait(response.headers, attempt))
+                    continue
+                if response.status_code == 408 or response.status_code >= 500:
+                    # Cloudflare in front of T212 answers 502/503/504 under load.
+                    if attempt >= self.max_retries - 1:
+                        raise
+                    time.sleep((2**attempt) * 2)
                     continue
                 raise
 
@@ -143,6 +152,34 @@ class Trading212Client:
         raise Exception(
             f"Failed to fetch {path} after {self.max_retries} attempts"
         ) from last_error
+
+    @staticmethod
+    def _rate_limit_wait(headers: Any, attempt: int) -> float:
+        """Seconds to sleep after a 429.
+
+        Precedence: ``Retry-After`` (seconds), then the time left until
+        ``x-ratelimit-reset`` (capped), then exponential backoff when neither
+        header is usable.
+        """
+        backoff = (2**attempt) * 2
+        if not isinstance(headers, Mapping):
+            return backoff
+        lowered = {str(key).lower(): value for key, value in headers.items()}
+
+        retry_after = lowered.get("retry-after")
+        if retry_after:
+            try:
+                return int(retry_after)
+            except ValueError:
+                return backoff
+
+        try:
+            until_reset = float(lowered["x-ratelimit-reset"]) - time.time()
+        except (KeyError, TypeError, ValueError):
+            return backoff
+        if not math.isfinite(until_reset) or until_reset <= 0:
+            return backoff
+        return min(until_reset + _RESET_MARGIN_SECONDS, _MAX_RATE_LIMIT_WAIT_SECONDS)
 
     def _fetch_json(self, path: str) -> list[dict[str, Any]]:
         return self._get(path)

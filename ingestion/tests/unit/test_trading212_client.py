@@ -49,6 +49,15 @@ def _mock_429_error(retry_after: str | None = None) -> requests.HTTPError:
     return err
 
 
+def _mock_429_with_reset(reset_epoch: float) -> requests.HTTPError:
+    response = MagicMock()
+    response.status_code = 429
+    response.headers = {"x-ratelimit-reset": str(int(reset_epoch))}
+    err = requests.HTTPError("429 Too Many Requests")
+    err.response = response
+    return err
+
+
 def _mock_http_error(status_code: int) -> requests.HTTPError:
     response = MagicMock()
     response.status_code = status_code
@@ -226,6 +235,104 @@ def _raise(err):
     resp = MagicMock()
     resp.raise_for_status.side_effect = err
     return resp
+
+
+_NOW = 1_700_000_000.0
+
+
+@patch("app.services.universe.trading212.client.time.time", return_value=_NOW)
+@patch("app.services.universe.trading212.client.time.sleep")
+@patch("app.services.universe.trading212.client.requests.get")
+class TestRateLimitWindowBackoff:
+    """T212 allows about one /instruments call per 50 s and reports the window
+    end in ``x-ratelimit-reset`` (epoch seconds), not ``Retry-After``."""
+
+    def test_429_waits_until_the_reset_header_instead_of_a_short_backoff(
+        self, mock_get, mock_sleep, _time
+    ):
+        mock_get.side_effect = [
+            _raise(_mock_429_with_reset(_NOW + 45)),
+            _mock_response({"ok": True}),
+        ]
+        c = _make_client()
+
+        assert c._get("/p") == {"ok": True}
+
+        waited = mock_sleep.call_args.args[0]
+        assert 45 <= waited <= 50
+
+    def test_wait_for_the_reset_is_capped(self, mock_get, mock_sleep, _time):
+        mock_get.side_effect = [
+            _raise(_mock_429_with_reset(_NOW + 100_000)),
+            _mock_response({"ok": True}),
+        ]
+        c = _make_client()
+
+        c._get("/p")
+
+        assert mock_sleep.call_args.args[0] <= 120
+
+    def test_reset_already_in_the_past_falls_back_to_exponential_backoff(
+        self, mock_get, mock_sleep, _time
+    ):
+        mock_get.side_effect = [
+            _raise(_mock_429_with_reset(_NOW - 30)),
+            _mock_response({"ok": True}),
+        ]
+        c = _make_client()
+
+        c._get("/p")
+
+        mock_sleep.assert_called_once_with(2)
+
+    def test_retry_after_still_wins_over_the_reset_header(
+        self, mock_get, mock_sleep, _time
+    ):
+        err = _mock_429_with_reset(_NOW + 45)
+        err.response.headers["Retry-After"] = "3"
+        mock_get.side_effect = [_raise(err), _mock_response({"ok": True})]
+        c = _make_client()
+
+        c._get("/p")
+
+        mock_sleep.assert_called_once_with(3)
+
+
+@patch("app.services.universe.trading212.client.time.sleep")
+@patch("app.services.universe.trading212.client.requests.get")
+class TestTransientServerErrorsAreRetried:
+    @pytest.mark.parametrize("status", [408, 500, 502, 503, 504])
+    def test_transient_status_is_retried_with_backoff(
+        self, mock_get, mock_sleep, status
+    ):
+        mock_get.side_effect = [
+            _raise(_mock_http_error(status)),
+            _mock_response({"ok": True}),
+        ]
+        c = _make_client()
+
+        assert c._get("/p") == {"ok": True}
+        assert mock_get.call_count == 2
+        mock_sleep.assert_called_once_with(2)
+
+    def test_persistent_server_error_is_raised_after_max_retries(
+        self, mock_get, _sleep
+    ):
+        mock_get.side_effect = [_raise(_mock_http_error(503)) for _ in range(2)]
+        c = _make_client(max_retries=2)
+
+        with pytest.raises(requests.HTTPError):
+            c._get("/p")
+        assert mock_get.call_count == 2
+
+    @pytest.mark.parametrize("status", [400, 401, 403, 404])
+    def test_client_errors_are_not_retried(self, mock_get, _sleep, status):
+        mock_get.side_effect = [_raise(_mock_http_error(status))]
+        c = _make_client()
+
+        with pytest.raises(requests.HTTPError):
+            c._get("/p")
+        assert mock_get.call_count == 1
 
 
 # ---------------------------------------------------------------------------
