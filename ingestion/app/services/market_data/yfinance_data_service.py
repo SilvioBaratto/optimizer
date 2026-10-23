@@ -178,6 +178,23 @@ DEFAULT_THRESHOLDS = StalenessThresholds()
 # forgotten before the next daily run could use it.
 SHARED_EMPTY_FETCHES = EmptyFetchMemory()
 
+# etf_asset_classes has four buckets, but Yahoo splits the residual three ways.
+# Preferred and convertible positions dominate preferred/convertible-bond funds
+# (PFF ~93% preferred, CWB ~80% convertible), so they are folded into "other"
+# rather than dropped, which keeps the four buckets summing to the fund's NAV.
+_OTHER_POSITIONS = ("otherPosition", "preferredPosition", "convertiblePosition")
+
+
+def _other_position_pct(asset_classes: dict[str, Any]) -> float | None:
+    """Sum the residual asset-class positions, or None when none is reported."""
+    parts = [
+        asset_classes[key]
+        for key in _OTHER_POSITIONS
+        if asset_classes.get(key) is not None
+    ]
+    return sum(parts) if parts else None
+
+
 # Sentinel: distinguishes "caller did not supply staleness" (query it) from
 # "caller supplied None" (no data yet → treat as stale) on fetch_and_store.
 _UNSET: Any = object()
@@ -1675,7 +1692,7 @@ class YFinanceDataService:
                         "stock_pct": ac.get("stockPosition"),
                         "bond_pct": ac.get("bondPosition"),
                         "cash_pct": ac.get("cashPosition"),
-                        "other_pct": ac.get("otherPosition"),
+                        "other_pct": _other_position_pct(ac),
                     }
                     # An all-NULL row would become the newest as_of snapshot and
                     # shadow the last real allocation.

@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as dt
 from unittest.mock import MagicMock
 
+import pytest
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repositories.market_data.etf_metadata_repository import (
     ETFMetadataRepository,
@@ -316,7 +317,9 @@ def test_allocation_without_any_mapped_bucket_is_not_stored(db_session) -> None:
     yf = MagicMock()
     yf.funds.fetch_fund_profile.return_value = None
     yf.funds.fetch_funds_data.return_value = {
-        "asset_classes": {"preferredPosition": 0.1, "convertiblePosition": 0.0},
+        # Preferred and convertible positions fold into ``other``; a key the source
+        # does not map at all is what leaves nothing to store.
+        "asset_classes": {"unmappedPosition": 0.1},
         "top_holdings": [{"symbol": "UST", "name": "US Treasury", "weight": 0.05}],
         "sector_weightings": {},
     }
@@ -367,3 +370,71 @@ def test_partial_profile_keeps_previously_stored_aum_and_nav(db_session) -> None
     assert float(meta.nav) == 100.0
     assert meta.fund_family == "JPMorgan"
     assert float(meta.expense_ratio) == 0.001
+
+
+def _store_asset_classes(db_session, positions: dict[str, float | None]):
+    inst = _fi_instrument(db_session)
+    yf = MagicMock()
+    yf.funds.fetch_fund_profile.return_value = None
+    yf.funds.fetch_funds_data.return_value = {
+        "asset_classes": positions,
+        "top_holdings": [],
+        "sector_weightings": {},
+    }
+    svc = _service(db_session, yf)
+    errors: list[str] = []
+    svc._fetch_etf_metadata(
+        inst.id, "CWB", "full", DEFAULT_THRESHOLDS, _NOW, {}, errors, []
+    )
+    db_session.flush()
+    assert not errors
+    ac = ETFMetadataRepository(db_session).get_asset_classes(inst.id)
+    assert ac is not None
+    return ac
+
+
+def test_convertible_and_preferred_positions_are_folded_into_other(
+    db_session,
+) -> None:
+    """A convertible-bond ETF is mostly convertiblePosition/preferredPosition;
+    dropping them stored a split that summed to about 6% instead of 100%."""
+    ac = _store_asset_classes(
+        db_session,
+        {
+            "stockPosition": 0.024,
+            "bondPosition": 0.032,
+            "cashPosition": 0.004,
+            "preferredPosition": 0.148,
+            "convertiblePosition": 0.792,
+            "otherPosition": 0.0,
+        },
+    )
+
+    assert float(ac.other_pct) == pytest.approx(0.94)
+    total = sum(
+        float(v) for v in (ac.stock_pct, ac.bond_pct, ac.cash_pct, ac.other_pct)
+    )
+    assert total == pytest.approx(1.0)
+
+
+def test_other_is_built_from_the_extra_positions_when_other_is_missing(
+    db_session,
+) -> None:
+    ac = _store_asset_classes(
+        db_session,
+        {
+            "stockPosition": 0.051,
+            "bondPosition": 0.0,
+            "cashPosition": 0.011,
+            "preferredPosition": 0.932,
+            "otherPosition": None,
+        },
+    )
+
+    assert float(ac.other_pct) == pytest.approx(0.932)
+
+
+def test_other_stays_null_when_no_residual_position_is_reported(db_session) -> None:
+    ac = _store_asset_classes(db_session, {"stockPosition": 0.6, "bondPosition": 0.4})
+
+    assert ac.other_pct is None
