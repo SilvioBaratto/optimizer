@@ -21,6 +21,7 @@ from yfinance.data import YfData
 from yfinance.exceptions import YFDataException, YFRateLimitError
 
 from app.services.market_data.market_structure_service import (
+    DEFAULT_REGIONS,
     run_market_structure_fetch,
 )
 from app.services.market_data.yfinance import is_no_data_error
@@ -214,13 +215,14 @@ class TestBulkFetch:
         repo.upsert_industries.return_value = 2
         repo.upsert_top_companies.return_value = 3
         yf = MagicMock()
-        yf.sectors.fetch_sector.return_value = {
-            "key": "technology",
+        top = {"US": "AAPL", "GB": "SHEL.L"}
+        yf.sectors.fetch_sector.side_effect = lambda key, region: {
+            "key": key,
             "name": "Technology",
             "symbol": "^YH311",
             "overview": {"market_cap": 1.0, "companies_count": 10},
             "industries": [{"key": "semiconductors", "name": "Semis"}],
-            "top_companies": [{"symbol": "AAPL", "name": "Apple", "weight": 0.07}],
+            "top_companies": [{"symbol": top[region], "name": "X", "weight": 0.07}],
         }
         with (
             patch(
@@ -275,6 +277,53 @@ class TestBulkFetch:
         assert result["sectors_written"] == 0
         assert result["error_count"] == len(SECTOR_KEYS)
         repo.upsert_sector_snapshot.assert_not_called()
+
+    def test_region_mirroring_the_us_list_is_not_persisted(self) -> None:
+        # Yahoo answers regions it does not scope (NL, CH) with the US rollup;
+        # storing it under that region would label US names as Dutch.
+        def sector(symbols: list[str]) -> dict:
+            return {
+                "key": "technology",
+                "name": "Technology",
+                "symbol": "^YH311",
+                "overview": {"companies_count": 10},
+                "industries": [],
+                "top_companies": [{"symbol": sym, "name": sym} for sym in symbols],
+            }
+
+        by_region = {
+            "US": sector(["NVDA", "AAPL", "MSFT"]),
+            "NL": sector(["NVDA", "AAPL", "MSFT"]),
+            "GB": sector(["SHEL.L", "AZN.L"]),
+        }
+        repo = MagicMock(name="repo")
+        repo.upsert_industries.return_value = 0
+        repo.upsert_top_companies.return_value = 3
+        yf = MagicMock()
+        yf.sectors.fetch_sector.side_effect = lambda key, region: by_region[region]
+        with (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        ):
+            result = run_market_structure_fetch(yf, regions=("US", "NL", "GB"))
+
+        written_regions = {c.args[1] for c in repo.upsert_top_companies.call_args_list}
+        assert written_regions == {"US", "GB"}
+        snapshot_regions = {
+            c.args[1] for c in repo.upsert_sector_snapshot.call_args_list
+        }
+        assert snapshot_regions == {"US", "GB"}
+        assert result["sectors_written"] == 2 * len(SECTOR_KEYS)
+        assert result["skipped_unscoped"] == [f"{k}/NL" for k in SECTOR_KEYS]
+        assert result["error_count"] == 0
+
+    def test_default_regions_exclude_regions_yahoo_does_not_scope(self) -> None:
+        assert "US" in DEFAULT_REGIONS
+        assert {"NL", "CH"}.isdisjoint(DEFAULT_REGIONS)
 
 
 class TestFailedFetchAccounting:
