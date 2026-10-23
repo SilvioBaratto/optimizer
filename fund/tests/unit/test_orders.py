@@ -21,6 +21,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
+import pytest
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.orders.paper_order import PaperOrder
 from portopt_db.models.universe.universe import Exchange, Instrument
@@ -307,3 +308,173 @@ class TestPlaceOrders:
 
         assert result["ok"] is False
         assert "error" in result
+
+
+_NEXT_ASOF = _ASOF + dt.timedelta(days=1)  # second decision bar; fills a bar later
+
+
+class TestTurnoverCosts:
+    """Costs are charged on traded notional (|target - held|), not the full book."""
+
+    def test_first_ticket_trades_the_whole_book(self, db_session) -> None:
+        _seed_panel(db_session)
+
+        ticket = place_orders(db_session, _ASOF, _WEIGHTS, _PORTFOLIO_ID)["data"]
+
+        assert ticket["total_commission"] == pytest.approx(100_000.0 * 1.0 / 1e4)
+        assert ticket["total_slippage_cost"] == pytest.approx(100_000.0 * 5.0 / 1e4)
+
+    def test_small_rebalance_costs_only_the_turnover(self, db_session) -> None:
+        _seed_panel(db_session)
+        place_orders(db_session, _ASOF, {"AAA": 0.5, "BBB": 0.5}, _PORTFOLIO_ID)
+
+        ticket = place_orders(
+            db_session, _NEXT_ASOF, {"AAA": 0.51, "BBB": 0.49}, _PORTFOLIO_ID
+        )["data"]
+
+        # 2% of the 100k book changes hands (1% bought + 1% sold).
+        traded = 0.02 * 100_000.0
+        assert ticket["total_commission"] == pytest.approx(traded * 1.0 / 1e4)
+        assert ticket["total_slippage_cost"] == pytest.approx(traded * 5.0 / 1e4)
+        by_ticker = {line["ticker"]: line for line in ticket["lines"]}
+        assert by_ticker["AAA"]["commission"] == pytest.approx(1_000.0 * 1.0 / 1e4)
+        assert by_ticker["BBB"]["commission"] == pytest.approx(1_000.0 * 1.0 / 1e4)
+
+    def test_exited_name_is_charged_for_the_sell(self, db_session) -> None:
+        _seed_panel(db_session)
+        place_orders(db_session, _ASOF, {"AAA": 0.6, "BBB": 0.4}, _PORTFOLIO_ID)
+
+        ticket = place_orders(db_session, _NEXT_ASOF, {"AAA": 1.0}, _PORTFOLIO_ID)[
+            "data"
+        ]
+
+        # Buy 40% AAA, sell out 40% BBB: 80k traded, though BBB has no ticket line.
+        traded = 0.8 * 100_000.0
+        assert ticket["total_commission"] == pytest.approx(traded * 1.0 / 1e4)
+        assert ticket["total_slippage_cost"] == pytest.approx(traded * 5.0 / 1e4)
+        assert {line["ticker"] for line in ticket["lines"]} == {"AAA"}
+
+    def test_unchanged_target_costs_nothing(self, db_session) -> None:
+        _seed_panel(db_session)
+        place_orders(db_session, _ASOF, {"AAA": 0.5, "BBB": 0.5}, _PORTFOLIO_ID)
+
+        # Same weights at a later bar is a distinct key (asof is part of it).
+        ticket = place_orders(
+            db_session, _NEXT_ASOF, {"AAA": 0.5, "BBB": 0.5}, _PORTFOLIO_ID
+        )["data"]
+
+        assert ticket["total_commission"] == pytest.approx(0.0)
+        assert ticket["total_slippage_cost"] == pytest.approx(0.0)
+
+    def test_other_portfolios_holdings_are_not_netted(self, db_session) -> None:
+        _seed_panel(db_session)
+        other = uuid.UUID("33333333-3333-3333-3333-333333333333")
+        place_orders(db_session, _ASOF, {"AAA": 0.5, "BBB": 0.5}, other)
+
+        ticket = place_orders(
+            db_session, _NEXT_ASOF, {"AAA": 0.5, "BBB": 0.5}, _PORTFOLIO_ID
+        )["data"]
+
+        assert ticket["total_commission"] == pytest.approx(100_000.0 * 1.0 / 1e4)
+
+    def test_rerun_of_a_turnover_priced_ticket_is_idempotent(self, db_session) -> None:
+        _seed_panel(db_session)
+        place_orders(db_session, _ASOF, {"AAA": 0.5, "BBB": 0.5}, _PORTFOLIO_ID)
+        weights = {"AAA": 0.51, "BBB": 0.49}
+        first = place_orders(db_session, _NEXT_ASOF, weights, _PORTFOLIO_ID)
+
+        # The HITL resume re-runs the tool with identical params: the stored
+        # (turnover-priced) ticket must still be recognised, not reported as a
+        # cost-param mismatch.
+        second = place_orders(db_session, _NEXT_ASOF, weights, _PORTFOLIO_ID)
+
+        assert second["ok"] is True
+        assert second["data"]["idempotent"] is True
+        assert second["data"]["order_id"] == first["data"]["order_id"]
+
+
+class TestRebalanceLineExecution:
+    """Per-line fill fields follow the trade direction, not the target weight's sign."""
+
+    _SLIP = 5.0 / 1e4
+
+    def _second_ticket(self, db_session, first, second) -> dict[str, dict]:
+        _seed_panel(db_session)
+        place_orders(db_session, _ASOF, first, _PORTFOLIO_ID)
+        ticket = place_orders(db_session, _NEXT_ASOF, second, _PORTFOLIO_ID)["data"]
+        return {line["ticker"]: line for line in ticket["lines"]}
+
+    def test_unchanged_name_fills_at_the_raw_close(self, db_session) -> None:
+        lines = self._second_ticket(
+            db_session,
+            {"AAA": 0.5, "BBB": 0.5},
+            {"AAA": 0.5, "BBB": 0.5},
+        )
+
+        for line in lines.values():
+            assert line["slippage_cost"] == pytest.approx(0.0)
+            assert line["effective_price"] == pytest.approx(line["fill_price"])
+            assert line["shares"] == pytest.approx(
+                line["notional"] / line["fill_price"]
+            )
+
+    def test_trimmed_name_is_a_sell_that_receives_less(self, db_session) -> None:
+        lines = self._second_ticket(
+            db_session,
+            {"AAA": 0.5, "BBB": 0.5},
+            {"AAA": 0.51, "BBB": 0.49},
+        )
+
+        bbb = lines["BBB"]
+        assert bbb["traded_notional"] < 0
+        assert bbb["effective_price"] == pytest.approx(
+            bbb["fill_price"] * (1.0 - self._SLIP)
+        )
+
+    def test_added_name_is_a_buy_that_pays_up(self, db_session) -> None:
+        lines = self._second_ticket(
+            db_session,
+            {"AAA": 0.5, "BBB": 0.5},
+            {"AAA": 0.51, "BBB": 0.49},
+        )
+
+        aaa = lines["AAA"]
+        assert aaa["traded_notional"] > 0
+        assert aaa["effective_price"] == pytest.approx(
+            aaa["fill_price"] * (1.0 + self._SLIP)
+        )
+
+    def test_slippage_applies_only_to_the_traded_part_of_the_shares(
+        self, db_session
+    ) -> None:
+        lines = self._second_ticket(
+            db_session,
+            {"AAA": 0.5, "BBB": 0.5},
+            {"AAA": 0.51, "BBB": 0.49},
+        )
+
+        for line in lines.values():
+            carried = line["notional"] - line["traded_notional"]
+            expected = (
+                carried / line["fill_price"]
+                + line["traded_notional"] / line["effective_price"]
+            )
+            assert line["shares"] == pytest.approx(expected)
+        # A trim of 2% of the book must not shave slippage off the other 98%.
+        aaa = lines["AAA"]
+        assert aaa["shares"] > aaa["notional"] / (
+            aaa["fill_price"] * (1.0 + self._SLIP)
+        )
+
+    def test_first_ticket_lines_are_all_buys_at_the_slipped_price(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+
+        ticket = place_orders(db_session, _ASOF, _WEIGHTS, _PORTFOLIO_ID)["data"]
+
+        for line in ticket["lines"]:
+            assert line["traded_notional"] == pytest.approx(line["notional"])
+            assert line["shares"] == pytest.approx(
+                line["notional"] / line["effective_price"]
+            )

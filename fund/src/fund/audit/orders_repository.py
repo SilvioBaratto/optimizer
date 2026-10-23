@@ -95,6 +95,30 @@ class OrderRepository(RepositoryBase):
         )
         return list(self.session.execute(stmt).scalars().all())
 
+    def latest_on_or_before(
+        self, portfolio_id: uuid.UUID, asof: date
+    ) -> PaperOrder | None:
+        """Return the newest ticket decided at or before ``asof``, or ``None``.
+
+        The book a new ticket rebalances *from*: ordered by decision bar, then fill
+        bar, then insertion time so a same-bar re-proposal with different weights
+        still resolves deterministically.
+
+        Args:
+            portfolio_id: Portfolio to query.
+            asof: Inclusive upper bound on the ticket's decision bar.
+        """
+        stmt = (
+            select(PaperOrder)
+            .where(PaperOrder.portfolio_id == portfolio_id, PaperOrder.asof <= asof)
+            .order_by(
+                PaperOrder.asof.desc(),
+                PaperOrder.fill_date.desc(),
+                PaperOrder.created_at.desc(),
+            )
+        )
+        return self.session.execute(stmt).scalars().first()
+
     def latest_for_portfolio(self, portfolio_id: uuid.UUID) -> PaperOrder | None:
         """Return the most recent ticket for a portfolio, or ``None`` when it has none.
 

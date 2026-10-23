@@ -3,7 +3,9 @@
 Turns a target-weight vector into a **simulated** order ticket (SPEC D5): each
 line fills at the **next close strictly after** the decision bar ``asof`` (D30 —
 no look-ahead), adjusted by a simple slippage + commission model, and the ticket
-is persisted to ``paper_orders``.
+is persisted to ``paper_orders``. Costs are charged on the **traded** notional —
+the move from the previous ticket's target weights to this one (exits included) —
+not on the whole target book.
 
 The write must be **idempotent**: ``place_orders`` sits behind ``interrupt_on``
 (HITL), and on ``Command(resume=…)`` the interrupting node re-runs from the top
@@ -96,7 +98,9 @@ def _cost_params_match(
     the per-call cost params are NOT in the key. This guards against silently
     returning a ticket priced with *different* params than requested: it
     reconstructs the stored slippage/commission from the persisted lines and
-    compares them (with a float tolerance) against the request.
+    compares them (with a float tolerance) against the request. Commission is a
+    fraction of the line's *traded* notional; tickets stored before turnover
+    pricing carry no ``traded_notional`` and were charged on the full line notional.
     """
     if not math.isclose(order.notional, notional, rel_tol=1e-9, abs_tol=1e-9):
         return False
@@ -105,7 +109,7 @@ def _cost_params_match(
             line.get("slippage_bps", 0.0), slippage_bps, rel_tol=1e-9, abs_tol=1e-9
         ):
             return False
-        ln = line.get("notional", 0.0)
+        ln = line.get("traded_notional", line.get("notional", 0.0))
         if ln:
             stored_comm_bps = line["commission"] / abs(ln) * 1e4
             if not math.isclose(
@@ -152,11 +156,13 @@ def place_orders(
             (no look-ahead). Accepts a ``date`` or an ISO ``YYYY-MM-DD`` string.
         weights: Target ``{ticker: weight}`` vector (from the optimizer).
         portfolio_id: Owning portfolio; part of the idempotency key.
-        notional: Gross book the weights scale (paper cost model). Not part of
-            the idempotency key — overrides apply only to a fresh key.
-        slippage_bps: Per-fill slippage in basis points (buys pay up). Not part
-            of the idempotency key — overrides apply only to a fresh key.
-        commission_bps: Per-fill commission in basis points of line notional.
+        notional: Gross book the weights scale (paper cost model). Costs apply to
+            the part of it that trades against the portfolio's previous ticket.
+            Not part of the idempotency key — overrides apply only to a fresh key.
+        slippage_bps: Per-fill slippage in basis points of traded notional (buys
+            pay up, sells receive less; unchanged names fill at the close). Not
+            part of the idempotency key — overrides apply only to a fresh key.
+        commission_bps: Per-fill commission in basis points of traded notional.
             Not part of the idempotency key — overrides apply only to a fresh key.
 
     Returns:
@@ -192,6 +198,11 @@ def place_orders(
             "notional/slippage/commission"
         )
 
+    prior = repo.latest_on_or_before(pid, end_date)
+    prior_weights = (
+        {ticker: float(w) for ticker, w in prior.weights.items()} if prior else {}
+    )
+
     prices = YFinanceRepository(session)
     lines: list[dict[str, Any]] = []
     total_commission = 0.0
@@ -202,12 +213,24 @@ def place_orders(
         fill_date, fill_price = _next_close(prices, ticker, end_date)
         fill_dates.append(fill_date)
 
-        side = 1.0 if weight >= 0 else -1.0  # buys pay up, sells receive less
-        effective_price = fill_price * (1.0 + side * slippage_bps / 1e4)
         line_notional = weight * notional
-        commission = abs(line_notional) * commission_bps / 1e4
-        slippage_cost = abs(line_notional) * slippage_bps / 1e4
-        shares = line_notional / effective_price if effective_price else 0.0
+        # Only the move away from what is already held trades; holding a name at
+        # an unchanged weight costs nothing.
+        traded_notional = (weight - prior_weights.get(ticker, 0.0)) * notional
+        commission = abs(traded_notional) * commission_bps / 1e4
+        slippage_cost = abs(traded_notional) * slippage_bps / 1e4
+        # Direction comes from the trade, not the target's sign: a trim of a long is
+        # a sell, and an unchanged name fills at the raw close.
+        direction = (traded_notional > 0) - (traded_notional < 0)
+        effective_price = fill_price * (1.0 + direction * slippage_bps / 1e4)
+        # The carried part of the book is valued at the close; only the traded part
+        # pays (buys) or gives up (sells) the slippage.
+        shares = (
+            (line_notional - traded_notional) / fill_price
+            + traded_notional / effective_price
+            if fill_price and effective_price
+            else 0.0
+        )
 
         total_commission += commission
         total_slippage_cost += slippage_cost
@@ -220,11 +243,20 @@ def place_orders(
                 "effective_price": effective_price,
                 "slippage_bps": slippage_bps,
                 "notional": line_notional,
+                "traded_notional": traded_notional,
                 "shares": shares,
                 "commission": commission,
                 "slippage_cost": slippage_cost,
             }
         )
+
+    # A name dropped from the target is sold out, but gets no ticket line: lines
+    # become the held book (positions, NAV), so a zero-weight line would resurrect it.
+    for ticker, prior_weight in prior_weights.items():
+        if ticker not in weights:
+            exit_notional = abs(prior_weight * notional)
+            total_commission += exit_notional * commission_bps / 1e4
+            total_slippage_cost += exit_notional * slippage_bps / 1e4
 
     order = repo.create(
         portfolio_id=pid,
