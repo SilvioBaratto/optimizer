@@ -109,7 +109,10 @@ def _build_ir_scorer(
 
     Returns:
         A scorer accepting a skfolio ``Portfolio`` and returning the
-        annualised IR as a float.
+        annualised IR as a float. The score is ``0.0`` for an exactly zero
+        tracking error and ``NaN`` when it is undefined (fewer than two
+        observations or non-finite active returns, as for a skfolio
+        ``FailedPortfolio``).
     """
     if not isinstance(benchmark_returns, pd.Series):
         msg = (
@@ -123,8 +126,13 @@ def _build_ir_scorer(
     def _ir(portfolio: Any) -> float:
         bm = _aligned_benchmark(benchmark_returns, portfolio.observations)
         active = np.asarray(portfolio.returns, dtype=float) - bm
+        # An undefined IR must be NaN so sklearn ranks the candidate last; a
+        # finite 0.0 would let a failed fit (all-NaN returns) outrank candidates
+        # whose IR is genuinely negative.
+        if active.size < 2 or not np.all(np.isfinite(active)):
+            return float("nan")
         std_active = float(np.std(active, ddof=1))
-        if std_active == 0.0 or math.isnan(std_active):
+        if std_active == 0.0:
             return 0.0
         mean_active = float(np.mean(active))
         return (mean_active * annualization_factor) / (std_active * sqrt_factor)
