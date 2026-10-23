@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -39,6 +40,8 @@ if TYPE_CHECKING:
     from fund.attribution import AttributionResult
     from fund.performance import HoldingMark, PerformanceSummary
     from fund.schemas.mandate import PortfolioMandate
+
+logger = logging.getLogger(__name__)
 
 # LangGraph writes a pending dynamic interrupt to this reserved checkpoint channel
 # (``langgraph.constants.INTERRUPT``, now private). Kept as a literal so importing
@@ -411,7 +414,11 @@ def _marked_current_weights(
     ``None`` — rather than a partial map — when there is no paper ticket, any
     holding is unpriced, or the mandate's base currency has no FX coverage: weights
     renormalised over only the priced holdings would misstate the drift, so the
-    caller falls back to the stored snapshot instead.
+    caller falls back to the stored snapshot instead. Best-effort by design: this sits
+    on the always-on poll path, so a failure of any kind (a bad stored mandate, a
+    database error) also yields ``None`` rather than aborting :func:`portfolio_state`,
+    and the read runs in a SAVEPOINT so a failed statement cannot poison the caller's
+    transaction for that snapshot fallback.
 
     Reads through :func:`fund.performance.marked_weights`, which loads only the bars
     since the book's fill: this sits on the TUI's 2-second poll path (once per
@@ -421,13 +428,21 @@ def _marked_current_weights(
     from fund.performance import FxCoverageError, marked_weights
 
     try:
-        return marked_weights(
-            portfolio_id,
-            session=session,
-            base_currency=_base_currency(session, portfolio_id),
-        )
+        with session.begin_nested():
+            return marked_weights(
+                portfolio_id,
+                session=session,
+                base_currency=_base_currency(session, portfolio_id),
+            )
     except FxCoverageError:
-        return None
+        logger.debug("observe: no FX coverage to mark %s", portfolio_id)
+    except Exception:
+        logger.warning(
+            "observe: marking %s failed; using the positions snapshot",
+            portfolio_id,
+            exc_info=True,
+        )
+    return None
 
 
 def _base_currency(session: Any, portfolio_id: uuid.UUID) -> str:

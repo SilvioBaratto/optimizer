@@ -1199,7 +1199,11 @@ def marked_weights(
         asof: Mark date upper bound; ``None`` uses the latest available prices.
 
     Returns:
-        ``{ticker: weight}`` summing to 1, or ``None`` when the book cannot be marked.
+        ``{ticker: weight}`` as shares of NAV including the cash residual the ticket
+        left undeployed (``notional`` minus the line notionals), so a book approved with
+        ``Bounds.budget < 1`` marks on the same basis as its target instead of being
+        renormalised to 1 and reading as permanently drifted; the weights therefore sum
+        to 1 for a fully invested book. ``None`` when the book cannot be marked.
 
     Raises:
         FxCoverageError: Foreign holdings exist but no FX rate covers their currency
@@ -1209,7 +1213,7 @@ def marked_weights(
     if ticket is None:
         return None
 
-    order, _ = _ticket_lines(ticket)
+    order, line_by_ticker = _ticket_lines(ticket)
     fills = [
         _as_date(line.get("fill_date")) or ticket.fill_date
         for line in ticket.lines
@@ -1232,8 +1236,14 @@ def marked_weights(
         if marked is None:
             return None
         values[ticker] = marked[1]
-    total = sum(values.values())
-    if not total:
+    deployed = sum(
+        float(line["notional"])
+        for line in line_by_ticker.values()
+        if line.get("notional") is not None
+    )
+    cash = max(0.0, float(ticket.notional or 0.0) - deployed)
+    total = sum(values.values()) + cash
+    if total <= 0:
         return None
     return {ticker: value / total for ticker, value in values.items()}
 

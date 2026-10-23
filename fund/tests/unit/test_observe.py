@@ -1231,6 +1231,256 @@ def test_portfolio_state_empty_portfolio(db_session):
     assert state.metrics == {}
 
 
+def _seed_marked_book(
+    db_session,
+    *,
+    last_aaa: str,
+    fx_rate: float | None = 1.0,
+    weight: float = 0.5,
+    stale_rows: int = 0,
+):
+    """Seed an approved AAA/BBB book (positions == run target) + its prices.
+
+    Both lines hold ``weight`` of a 10 000 book and fill at 100 on 10-02; on 10-03 AAA
+    closes at ``last_aaa`` and BBB is unchanged, so the market weights drift away from
+    the stored target snapshot. ``weight`` below 0.5 leaves a cash residual (a
+    ``Bounds.budget`` below 1). ``stale_rows`` adds that many closes per ticker (and
+    FX rows) a year *before* the fill, i.e. history the mark never needs.
+    """
+    from portopt_db.models.market_data.yfinance_data import PriceHistory
+    from portopt_db.models.orders.paper_order import PaperOrder
+    from portopt_db.models.universe.universe import Exchange, Instrument
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    d1, d2 = date(2026, 10, 2), date(2026, 10, 3)
+    stale_days = [d1 - timedelta(days=365 + i) for i in range(stale_rows)]
+    closes = {"AAA": ("100", last_aaa), "BBB": ("100", "100")}
+    for ticker, (first, last) in closes.items():
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        db_session.add_all(
+            [
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=d1,
+                    close=Decimal(first),
+                    price_unit="USD",
+                ),
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=d2,
+                    close=Decimal(last),
+                    price_unit="USD",
+                ),
+                *(
+                    PriceHistory(
+                        instrument_id=inst.id,
+                        date=d,
+                        close=Decimal("1"),
+                        price_unit="USD",
+                    )
+                    for d in stale_days
+                ),
+            ]
+        )
+    if fx_rate is not None:
+        FxRatesRepository(db_session).upsert_rates(
+            [
+                {
+                    "base_currency": "EUR",
+                    "quote_currency": "USD",
+                    "date": d,
+                    "rate": fx_rate,
+                }
+                for d in (d1, d2, *stale_days)
+            ]
+        )
+    weights = {"AAA": weight, "BBB": weight}
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=date(2026, 10, 1),
+            weights_hash="h1",
+            weights=weights,
+            fill_date=d1,
+            lines=[
+                {
+                    "ticker": t,
+                    "weight": weight,
+                    "notional": 10000.0 * weight,
+                    "fill_price": 100.0,
+                }
+                for t in weights
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    PositionRepository(db_session).set_holdings(
+        _PID,
+        [{"ticker": t, "weight": w} for t, w in weights.items()],
+        asof=d1,
+    )
+    _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights=weights,
+        created_at=datetime(2026, 10, 1, tzinfo=UTC),
+    )
+    db_session.flush()
+
+
+def test_portfolio_state_drift_reflects_market_moves_after_approval(db_session):
+    # After an approval the stored snapshot equals the target by construction, so
+    # drift must come from the marked book: AAA +40% -> 0.5833 / 0.4167 vs 0.5 / 0.5.
+    _seed_marked_book(db_session, last_aaa="140")
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.target == {"AAA": 0.5, "BBB": 0.5}
+    assert state.current["AAA"] == pytest.approx(7000 / 12000)
+    assert state.current["BBB"] == pytest.approx(5000 / 12000)
+    assert state.drift_l1 == pytest.approx(2 * (7000 / 12000 - 0.5))
+
+
+def test_portfolio_state_drift_is_zero_when_market_has_not_moved(db_session):
+    _seed_marked_book(db_session, last_aaa="100")
+
+    assert observe.portfolio_state(db_session, _PID).drift_l1 == pytest.approx(0.0)
+
+
+def test_portfolio_state_falls_back_to_snapshot_when_book_is_unpriceable(db_session):
+    # Foreign holdings with zero FX coverage cannot be marked; the stored snapshot is
+    # the honest fallback rather than a fabricated or crashing figure.
+    _seed_marked_book(db_session, last_aaa="140", fx_rate=None)
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.current == {"AAA": 0.5, "BBB": 0.5}
+    assert state.drift_l1 == pytest.approx(0.0)
+
+
+def test_portfolio_state_marks_only_the_window_since_the_ticket_fill(
+    db_session, monkeypatch
+):
+    # portfolio_state runs on the TUI's synchronous poll tick, so marking must not
+    # read each holding's whole price/FX history: a year of pre-fill rows exists, but
+    # only the fill-to-now window may be loaded.
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+    from portopt_db.repositories.market_data.yfinance_repository import (
+        YFinanceRepository,
+    )
+
+    _seed_marked_book(db_session, last_aaa="140", stale_rows=40)
+    price_reads: list[tuple[date | None, list[date]]] = []
+    fx_starts: list[date | None] = []
+    real_prices = YFinanceRepository.get_price_history
+    real_rates = FxRatesRepository.get_rates
+
+    def spy_prices(self, instrument_id, **kwargs):
+        rows = real_prices(self, instrument_id, **kwargs)
+        price_reads.append((kwargs.get("start_date"), [r.date for r in rows]))
+        return rows
+
+    def spy_rates(self, base, quotes=None, start=None, end=None):
+        fx_starts.append(start)
+        return real_rates(self, base, quotes, start, end)
+
+    monkeypatch.setattr(YFinanceRepository, "get_price_history", spy_prices)
+    monkeypatch.setattr(FxRatesRepository, "get_rates", spy_rates)
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.current["AAA"] == pytest.approx(7000 / 12000)
+    window_floor = date(2026, 9, 1)
+    assert price_reads
+    assert all(start is not None and start >= window_floor for start, _ in price_reads)
+    assert all(d >= window_floor for _, dates in price_reads for d in dates)
+    assert fx_starts
+    assert all(start is not None and start >= window_floor for start in fx_starts)
+
+
+def test_portfolio_state_survives_a_marking_failure(db_session, monkeypatch):
+    # The mark is best-effort: any failure inside it must degrade to the snapshot
+    # rather than abort portfolio_state (which would blind the attention bus).
+    _seed_marked_book(db_session, last_aaa="140")
+
+    def exploding_mark(*args, **kwargs):
+        raise RuntimeError("price feed exploded")
+
+    monkeypatch.setattr("fund.performance.marked_weights", exploding_mark)
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.current == {"AAA": 0.5, "BBB": 0.5}
+    assert state.drift_l1 == pytest.approx(0.0)
+
+
+def test_portfolio_state_rolls_a_failed_mark_back_to_its_own_savepoint(
+    db_session, monkeypatch
+):
+    # On Postgres a failed statement poisons the whole transaction; the mark must run
+    # in a SAVEPOINT so the snapshot fallback read can still use the session.
+    from sqlalchemy import event
+
+    _seed_marked_book(db_session, last_aaa="140")
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, *args):
+        statements.append(statement)
+
+    def exploding_mark(*args, **kwargs):
+        raise RuntimeError("price feed exploded")
+
+    monkeypatch.setattr("fund.performance.marked_weights", exploding_mark)
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", record)
+    try:
+        observe.portfolio_state(db_session, _PID)
+    finally:
+        event.remove(bind, "before_cursor_execute", record)
+
+    assert any("ROLLBACK TO SAVEPOINT" in statement for statement in statements)
+
+
+def test_portfolio_state_budget_below_one_has_no_phantom_drift(db_session):
+    # Bounds.budget < 1 leaves a cash residual, so the approved weights sum to 0.8.
+    # Marking against NAV *including* that cash keeps ``current`` on the target's
+    # basis; normalising by the invested total alone would read 0.5/0.5 vs 0.4/0.4
+    # and report a permanent L1 drift of 0.2 with no market move.
+    _seed_marked_book(db_session, last_aaa="100", weight=0.4)
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.target == {"AAA": 0.4, "BBB": 0.4}
+    assert state.current["AAA"] == pytest.approx(0.4)
+    assert state.current["BBB"] == pytest.approx(0.4)
+    assert state.drift_l1 == pytest.approx(0.0)
+
+
+def test_portfolio_state_budget_below_one_still_shows_market_drift(db_session):
+    # AAA +40%: lines 5600 / 4000 plus 2000 cash = 11600 NAV against a 0.4 / 0.4 target.
+    _seed_marked_book(db_session, last_aaa="140", weight=0.4)
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.current["AAA"] == pytest.approx(5600 / 11600)
+    assert state.current["BBB"] == pytest.approx(4000 / 11600)
+    assert state.drift_l1 == pytest.approx(1600 / 11600)
+
+
 # --- get_mandate (JSON → pydantic rehydration) ------------------------------
 
 
