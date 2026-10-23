@@ -12,7 +12,7 @@ delegates to.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -189,3 +189,37 @@ class TestHasSufficientHistory:
         assert sufficient is False
         assert expected is not None
         assert minimum is not None and minimum > 1
+
+    def test_when_young_listing_has_every_session_since_its_start_then_sufficient(
+        self,
+    ) -> None:
+        listed = date.today() - timedelta(days=730)
+        rows = len(iter_trading_days(listed, date.today(), "NYSE"))
+
+        sufficient, expected, minimum = has_sufficient_history(
+            rows, "NYSE", "5y", since=listed
+        )
+
+        assert sufficient is True
+        assert expected is not None and expected < 600
+        assert minimum == int(expected * 0.95)
+
+    def test_when_young_listing_is_missing_most_sessions_then_insufficient(
+        self,
+    ) -> None:
+        listed = date.today() - timedelta(days=730)
+        rows = len(iter_trading_days(listed, date.today(), "NYSE")) // 5
+
+        sufficient, _, _ = has_sufficient_history(rows, "NYSE", "5y", since=listed)
+
+        assert sufficient is False
+
+    def test_when_since_predates_period_then_window_stays_full_period(
+        self,
+    ) -> None:
+        full = has_sufficient_history(1, "NYSE", "5y")
+        bounded = has_sufficient_history(
+            1, "NYSE", "5y", since=date.today() - timedelta(days=3650)
+        )
+
+        assert bounded == full

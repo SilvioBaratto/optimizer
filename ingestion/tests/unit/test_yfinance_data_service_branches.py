@@ -1190,6 +1190,95 @@ class TestInsufficientHistoryBranches:
         assert "prices:insufficient_history" not in result["skipped"]
         repo.upsert_price_history.assert_called_once()
 
+    def test_when_young_listing_returns_complete_short_history_then_rewritten(
+        self,
+    ) -> None:
+        """A listing younger than the period that already has stored prices must
+        still have its full refetch stored: Yahoo re-bases every adjusted close
+        after a split/dividend and only this rewrite heals the older rows."""
+        idx = pd.bdate_range(end=date.today(), periods=503)
+        repo = _make_repo(staleness=None)
+        repo.get_staleness_info.return_value = {
+            "price_max_date": date.today() - timedelta(days=3),
+            "price_min_date": idx[0].date(),
+        }
+        yf_client = _make_yf_client_silent()
+        # ~2 years of consecutive weekday bars: every session since the IPO.
+        yf_client.fetch_history.return_value = pd.DataFrame(
+            {"Close": [50.0] * len(idx)}, index=idx
+        )
+
+        result = _run(repo, yf_client, mode="full", exchange_name="NYSE", period="5y")
+
+        assert "prices:insufficient_history" not in result["skipped"]
+        repo.upsert_price_history.assert_called_once()
+
+    def test_when_gappy_history_and_existing_prices_then_still_protected(
+        self,
+    ) -> None:
+        """Dropping most sessions inside the stored window is still a glitchy
+        refetch, so the protective skip must keep firing for it."""
+        idx = pd.bdate_range(end=date.today(), periods=503)
+        repo = _make_repo(staleness=None)
+        repo.get_staleness_info.return_value = {
+            "price_max_date": date.today() - timedelta(days=3),
+            "price_min_date": idx[0].date(),
+        }
+        yf_client = _make_yf_client_silent()
+        gappy = idx[::5]
+        yf_client.fetch_history.return_value = pd.DataFrame(
+            {"Close": [50.0] * len(gappy)}, index=gappy
+        )
+
+        result = _run(repo, yf_client, mode="full", exchange_name="NYSE", period="5y")
+
+        assert "prices:insufficient_history" in result["skipped"]
+        repo.upsert_price_history.assert_not_called()
+
+    def test_when_refetch_covers_only_recent_tail_of_stored_series_then_protected(
+        self,
+    ) -> None:
+        """A head-truncated refetch returns a contiguous run of recent bars, so
+        measured from its own first bar it looks complete. The window must be
+        anchored at the earliest stored bar instead, otherwise the truncated
+        rows overwrite the tail while older rows keep their old adjustment."""
+        stored = pd.bdate_range(end=date.today(), periods=503)
+        repo = _make_repo(staleness=None)
+        repo.get_staleness_info.return_value = {
+            "price_max_date": date.today() - timedelta(days=3),
+            "price_min_date": stored[0].date(),
+        }
+        yf_client = _make_yf_client_silent()
+        tail = stored[-22:]
+        yf_client.fetch_history.return_value = pd.DataFrame(
+            {"Close": [50.0] * len(tail)}, index=tail
+        )
+
+        result = _run(repo, yf_client, mode="full", exchange_name="NYSE", period="5y")
+
+        assert "prices:insufficient_history" in result["skipped"]
+        repo.upsert_price_history.assert_not_called()
+
+    def test_when_earliest_stored_bar_unknown_then_short_refetch_stays_protected(
+        self,
+    ) -> None:
+        """Without the earliest stored date there is no safe way to tell a young
+        listing from a truncated refetch, so the full-period window applies."""
+        idx = pd.bdate_range(end=date.today(), periods=503)
+        repo = _make_repo(staleness=None)
+        repo.get_staleness_info.return_value = {
+            "price_max_date": date.today() - timedelta(days=3)
+        }
+        yf_client = _make_yf_client_silent()
+        yf_client.fetch_history.return_value = pd.DataFrame(
+            {"Close": [50.0] * len(idx)}, index=idx
+        )
+
+        result = _run(repo, yf_client, mode="full", exchange_name="NYSE", period="5y")
+
+        assert "prices:insufficient_history" in result["skipped"]
+        repo.upsert_price_history.assert_not_called()
+
     def test_when_staleness_already_set_and_insufficient_history_uses_cached_price_max_date(
         self,
     ) -> None:

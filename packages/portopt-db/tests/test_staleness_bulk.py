@@ -34,6 +34,7 @@ def test_bulk_matches_single_and_covers_empty(db_session) -> None:
     b = _instrument(db_session, "BBB")
 
     db_session.add(PriceHistory(instrument_id=a.id, date=dt.date(2024, 6, 1), close=10))
+    db_session.add(PriceHistory(instrument_id=a.id, date=dt.date(2024, 1, 2), close=9))
     db_session.add(TickerProfile(instrument_id=a.id, symbol="AAA"))
     db_session.flush()
 
@@ -47,9 +48,15 @@ def test_bulk_matches_single_and_covers_empty(db_session) -> None:
         == dt.date(2024, 6, 1)
         == single_a["price_max_date"]
     )
+    assert (
+        bulk[a.id]["price_min_date"]
+        == dt.date(2024, 1, 2)
+        == single_a["price_min_date"]
+    )
     assert bulk[a.id]["profile_updated_at"] is not None
 
     assert bulk[b.id]["price_max_date"] is None
+    assert bulk[b.id]["price_min_date"] is None
     assert all(v is None for v in bulk[b.id].values())
 
 

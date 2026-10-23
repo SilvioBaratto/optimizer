@@ -30,6 +30,7 @@ def get_expected_trading_sessions(
     exchange_name: str,
     period: str,
     reference_date: date | None = None,
+    since: date | None = None,
 ) -> int | None:
     """Compute expected trading sessions for an exchange over a period.
 
@@ -38,6 +39,9 @@ def get_expected_trading_sessions(
             ``EXCHANGE_NAME_TO_MIC`` to resolve a calendar).
         period: yfinance period string (e.g. ``"5y"``).
         reference_date: End of the period window; defaults to today.
+        since: Earliest date the window may start, so an instrument listed
+            after the period start is measured only over its own lifetime.
+            ``None`` keeps the full period.
 
     Returns:
         Number of scheduled trading sessions in the window, or ``None``
@@ -60,6 +64,9 @@ def get_expected_trading_sessions(
     except ValueError:
         # Feb 29 in a leap year → fall back to Feb 28
         start = reference_date.replace(year=reference_date.year - years, day=28)
+
+    if since is not None:
+        start = max(start, since)
 
     try:
         cal = xcals.get_calendar(mic)
@@ -166,6 +173,7 @@ def has_sufficient_history(
     exchange_name: str | None,
     period: str,
     tolerance: float = 0.95,
+    since: date | None = None,
 ) -> tuple[bool, int | None, int | None]:
     """Check whether fetched row count meets expected trading sessions.
 
@@ -176,6 +184,13 @@ def has_sufficient_history(
         period: yfinance period string (e.g. ``"5y"``).
         tolerance: Fraction of expected sessions required to pass
             (default 0.95 allows for minor calendar gaps).
+        since: Earliest date the expected window may start, typically the
+            earliest bar already stored for the instrument. When it falls
+            inside the period, sessions are counted from that date instead of
+            the period start, so a young listing's complete history is not
+            judged against sessions that predate its IPO. Anchor it on stored
+            data, never on the fetched frame: a fetch that lost its head would
+            otherwise be measured only against its own surviving bars.
 
     Returns:
         ``(sufficient, expected, minimum)`` where *sufficient* is ``True``
@@ -186,7 +201,7 @@ def has_sufficient_history(
     if exchange_name is None:
         return (True, None, None)
 
-    expected = get_expected_trading_sessions(exchange_name, period)
+    expected = get_expected_trading_sessions(exchange_name, period, since=since)
     if expected is None:
         return (True, None, None)
 

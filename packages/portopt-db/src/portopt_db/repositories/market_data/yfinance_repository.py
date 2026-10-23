@@ -1392,6 +1392,7 @@ class YFinanceRepository(RepositoryBase):
 
         Returns a dict with:
           - price_max_date: MAX(date) from price_history (date or None)
+          - price_min_date: MIN(date) from price_history (date or None)
           - {category}_updated_at: MAX(updated_at) from each non-price table (datetime or None)
           - {statement_type}_{period_type}_updated_at: MAX(updated_at) of each of
             the six financial statement groups
@@ -1402,12 +1403,13 @@ class YFinanceRepository(RepositoryBase):
         """
         result: dict[str, Any] = {}
 
-        price_row = self.session.execute(
-            select(func.max(PriceHistory.date)).where(
+        price_max, price_min = self.session.execute(
+            select(func.max(PriceHistory.date), func.min(PriceHistory.date)).where(
                 PriceHistory.instrument_id == instrument_id
             )
-        ).scalar_one_or_none()
-        result["price_max_date"] = price_row
+        ).one()
+        result["price_max_date"] = price_max
+        result["price_min_date"] = price_min
 
         for category, model in _STALENESS_CATEGORY_MODELS:
             val = self.session.execute(
@@ -1449,6 +1451,7 @@ class YFinanceRepository(RepositoryBase):
         result: dict[UUID, dict[str, Any]] = {
             iid: {
                 "price_max_date": None,
+                "price_min_date": None,
                 **{f"{cat}_updated_at": None for cat, _ in _STALENESS_CATEGORY_MODELS},
                 **_statement_staleness({}),
             }
@@ -1457,12 +1460,17 @@ class YFinanceRepository(RepositoryBase):
         if not ids:
             return result
 
-        for iid, mx in self.session.execute(
-            select(PriceHistory.instrument_id, func.max(PriceHistory.date))
+        for iid, mx, mn in self.session.execute(
+            select(
+                PriceHistory.instrument_id,
+                func.max(PriceHistory.date),
+                func.min(PriceHistory.date),
+            )
             .where(PriceHistory.instrument_id.in_(ids))
             .group_by(PriceHistory.instrument_id)
         ).all():
             result[iid]["price_max_date"] = mx
+            result[iid]["price_min_date"] = mn
 
         for category, model in _STALENESS_CATEGORY_MODELS:
             m = cast(Any, model)

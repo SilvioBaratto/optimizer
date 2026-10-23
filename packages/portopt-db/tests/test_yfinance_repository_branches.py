@@ -840,6 +840,7 @@ class TestGetStalenessInfo:
         info = repo.get_staleness_info(uuid.uuid4())
 
         assert info["price_max_date"] is None
+        assert info["price_min_date"] is None
         assert info["profile_updated_at"] is None
         assert info["financials_updated_at"] is None
         assert info["dividends_updated_at"] is None
@@ -870,6 +871,7 @@ class TestGetStalenessInfo:
         info = repo.get_staleness_info(inst.id)
 
         assert info["price_max_date"] == date(2024, 6, 15)
+        assert info["price_min_date"] == date(2023, 12, 31)
 
     def test_when_profile_exists_updated_at_set(self, db_session: Session) -> None:
         ex = _exchange(db_session)
@@ -890,6 +892,7 @@ class TestGetStalenessInfo:
 
         expected_keys = {
             "price_max_date",
+            "price_min_date",
             "profile_updated_at",
             "financials_updated_at",
             "income_statement_annual_updated_at",
