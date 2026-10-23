@@ -179,10 +179,14 @@ class YFinanceClient:
             circuit_breaker=self.circuit_breaker,
             rate_limit_predicate=self._is_rate_limit_error,
             is_valid=lambda info: info is not None and len(info) >= min_fields,
+            on_attempt_failed=lambda: self.cache.delete(symbol),
         )
 
         if result is None:
             logger.debug("Failed to fetch info for '%s'", symbol)
+            # yfinance keeps an empty answer, such as the {} it leaves when it
+            # swallows an HTTP error, on the Ticker for the cache's lifetime.
+            self.cache.delete(symbol)
 
         return result
 
@@ -261,6 +265,7 @@ class YFinanceClient:
             is_valid=lambda hist: (
                 hist is not None and not hist.empty and len(hist) >= min_rows
             ),
+            on_attempt_failed=lambda: self.cache.delete(symbol),
         )
 
         if result is None:

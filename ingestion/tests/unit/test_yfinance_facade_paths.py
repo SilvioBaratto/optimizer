@@ -12,11 +12,13 @@ whole batch.
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
 
+from app.services.infrastructure.cache import LRUCache
 from app.services.market_data.yfinance._facade import YFinanceClient
 
 M = "app.services.market_data.yfinance._facade"
@@ -92,6 +94,104 @@ class TestFetchInfo:
             assert client.fetch_info("AAPL") is None
 
         client.circuit_breaker.trigger.assert_called()
+
+
+class _MemoizingTicker:
+    """Mimics yfinance's ``Ticker.info``: the fetched flag is set before the request.
+
+    A request that dies leaves the object answering ``None`` (or ``{}`` when
+    the error was swallowed) without another request until it is discarded.
+    """
+
+    requests = 0
+    built = 0
+    outcomes: list[Any] = []
+
+    def __init__(self, symbol: str) -> None:
+        type(self).built += 1
+        self._fetched = False
+        self._info: Any = None
+
+    @property
+    def info(self) -> Any:
+        if not self._fetched:
+            self._fetched = True
+            outcome = type(self).outcomes[type(self).requests]
+            type(self).requests += 1
+            if isinstance(outcome, Exception):
+                raise outcome
+            self._info = outcome
+        return self._info
+
+
+@pytest.fixture
+def memoizing_yahoo():
+    """Patch ``yf.Ticker`` with a ticker that memoizes its first answer."""
+
+    class _Ticker(_MemoizingTicker):
+        requests = 0
+        built = 0
+        outcomes: list[Any] = []
+
+    with patch(f"{M}.yf.Ticker", _Ticker):
+        yield _Ticker
+
+
+_FULL_INFO = {f"k{i}": i for i in range(12)}
+
+
+class TestCachedTickerMemoization:
+    """yfinance memoizes a failed ``.info``; the cache must not keep that Ticker."""
+
+    @staticmethod
+    def _real_cache_client(retries: int) -> YFinanceClient:
+        return YFinanceClient(
+            cache=LRUCache(capacity=10, default_ttl=3600.0),
+            rate_limiter=MagicMock(),
+            circuit_breaker=MagicMock(),
+            default_max_retries=retries,
+        )
+
+    def test_a_retry_after_a_transient_error_makes_a_real_request(
+        self, memoizing_yahoo: type[_MemoizingTicker]
+    ) -> None:
+        memoizing_yahoo.outcomes = [ConnectionError("reset"), _FULL_INFO]
+        client = self._real_cache_client(retries=3)
+
+        assert client.fetch_info("TEST", min_fields=10) == _FULL_INFO
+        assert memoizing_yahoo.requests == 2
+
+    def test_a_symbol_is_fetchable_again_after_its_retries_were_exhausted(
+        self, memoizing_yahoo: type[_MemoizingTicker]
+    ) -> None:
+        """One transient fault must not hide the profile for the cache TTL."""
+        memoizing_yahoo.outcomes = [ConnectionError("reset"), _FULL_INFO]
+        client = self._real_cache_client(retries=1)
+
+        assert client.fetch_info("TEST", min_fields=10) is None
+
+        assert client.fetch_info("TEST", min_fields=10) == _FULL_INFO
+
+    def test_an_empty_info_from_a_swallowed_error_is_not_kept(
+        self, memoizing_yahoo: type[_MemoizingTicker]
+    ) -> None:
+        """yfinance leaves ``{}`` behind when it swallows an HTTP error."""
+        memoizing_yahoo.outcomes = [{}, _FULL_INFO]
+        client = self._real_cache_client(retries=1)
+
+        assert client.fetch_info("TEST", min_fields=10) is None
+        assert client.fetch_info("TEST", min_fields=10) == _FULL_INFO
+
+    def test_a_good_profile_stays_cached_between_calls(
+        self, memoizing_yahoo: type[_MemoizingTicker]
+    ) -> None:
+        memoizing_yahoo.outcomes = [_FULL_INFO]
+        client = self._real_cache_client(retries=3)
+
+        client.fetch_info("TEST", min_fields=10)
+        client.fetch_info("TEST", min_fields=10)
+
+        assert memoizing_yahoo.built == 1
 
 
 class TestFetchHistory:

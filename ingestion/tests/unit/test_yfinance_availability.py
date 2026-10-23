@@ -363,6 +363,70 @@ class TestSubClientCalls:
         assert prop.call_count == 2
 
 
+class TestSubClientTickerCache:
+    """A sub-client retry must reach Yahoo again, not a Ticker that kept its fault."""
+
+    def test_a_retry_after_a_transient_error_gets_a_fresh_ticker(self) -> None:
+        built: list[MagicMock] = []
+
+        def _ticker(symbol: str) -> MagicMock:
+            ticker = MagicMock(name=f"ticker-{len(built)}")
+            # yfinance leaves a Ticker that failed once answering None.
+            outcome = (
+                PropertyMock(side_effect=ConnectionError("reset"))
+                if not built
+                else PropertyMock(return_value=pd.DataFrame({"holder": ["x"]}))
+            )
+            type(ticker).major_holders = outcome
+            built.append(ticker)
+            return ticker
+
+        client = HoldersClient(
+            cache=LRUCache(capacity=10, default_ttl=3600.0),
+            rate_limiter=MagicMock(),
+            circuit_breaker=MagicMock(),
+            default_max_retries=3,
+        )
+        with patch("app.services.market_data.yfinance._base.yf.Ticker", _ticker):
+            result = client.fetch_major_holders("AAPL")
+
+        assert result is not None
+        assert len(built) == 2
+
+    def test_a_symbol_whose_attempt_failed_is_not_cached(self) -> None:
+        cache = LRUCache(capacity=10, default_ttl=3600.0)
+        client = HoldersClient(
+            cache=cache,
+            rate_limiter=MagicMock(),
+            circuit_breaker=MagicMock(),
+            default_max_retries=1,
+        )
+        ticker = _ticker_with(major_holders=PropertyMock(side_effect=OSError("down")))
+        with patch(
+            "app.services.market_data.yfinance._base.yf.Ticker", lambda s: ticker
+        ):
+            assert client.fetch_major_holders("AAPL") is None
+
+        assert cache.get("AAPL") is None
+
+    def test_a_no_data_answer_keeps_the_ticker_cached(self) -> None:
+        """A 404 is final and costs nothing to remember; only faults evict."""
+        cache = LRUCache(capacity=10, default_ttl=3600.0)
+        client = HoldersClient(
+            cache=cache,
+            rate_limiter=MagicMock(),
+            circuit_breaker=MagicMock(),
+            default_max_retries=3,
+        )
+        ticker = _ticker_with(major_holders=PropertyMock(side_effect=_http_error(404)))
+        with patch(
+            "app.services.market_data.yfinance._base.yf.Ticker", lambda s: ticker
+        ):
+            assert client.fetch_major_holders("0NMK.IL") is None
+
+        assert cache.get("0NMK.IL") is ticker
+
+
 class TestBreakerHealing:
     """Only a usable answer proves Yahoo is serving again."""
 

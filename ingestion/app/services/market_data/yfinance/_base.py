@@ -57,6 +57,7 @@ def fetch_with_resilience(
     rate_limit_predicate: Callable[[Exception], bool] = is_rate_limit_error,
     is_valid: Callable[[T], bool] | None = None,
     raise_on_lost: bool = False,
+    on_attempt_failed: Callable[[], None] | None = None,
 ) -> T | None:
     """Run one yfinance request, retrying transient failures only.
 
@@ -86,6 +87,10 @@ def fetch_with_resilience(
         raise_on_lost: Raise :class:`RequestLostError` when every attempt failed
             (DNS, TLS, a garbled body, throttling, an open breaker) instead of
             returning ``None``, so the caller can tell an outage from an answer.
+        on_attempt_failed: Called after each failed attempt except Yahoo's
+            final no-data answers. yfinance memoizes a failed request on the
+            ``Ticker`` it ran on, so callers use this to discard that object
+            and let the next attempt issue a real request.
 
     Returns:
         The result of *action*, or ``None`` when Yahoo has no usable data or
@@ -102,6 +107,8 @@ def fetch_with_resilience(
             result = action()
         except Exception as exc:
             attempts.last_error = exc
+            if on_attempt_failed is not None and not is_no_data_error(exc):
+                on_attempt_failed()
             raise
         # Only the final attempt decides: an earlier failure followed by a real
         # answer (even an empty one) is not a lost request.
@@ -229,11 +236,13 @@ class BaseClient:
             with watch_for_faults() as watch:
                 try:
                     result = action()
-                except Exception:
+                except Exception as exc:
                     # yfinance flags a scraper as fetched before it requests, so
-                    # a ticker reused after a fault escaped would answer the
-                    # retry from empty state without asking Yahoo again.
-                    if watch.fault is not None:
+                    # a ticker reused after a failed attempt would answer the
+                    # retry from empty state without asking Yahoo again. A no-data
+                    # answer is final and costs nothing to remember, so only
+                    # failures evict.
+                    if watch.fault is not None or not is_no_data_error(exc):
                         self._drop_tainted(watch)
                     raise
             usable = result is not None and (is_valid is None or is_valid(result))

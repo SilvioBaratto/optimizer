@@ -64,7 +64,7 @@ class LRUCache:
                 self._cache.popitem(last=False)
 
     def delete(self, key: str) -> None:
-        """Evict *key*; a missing key is ignored."""
+        """Evict *key* if present; an absent key is ignored."""
         with self._lock:
             self._cache.pop(key, None)
 

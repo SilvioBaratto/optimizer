@@ -179,6 +179,27 @@ class TestContainsAndKeys:
 
 
 # ---------------------------------------------------------------------------
+# delete
+# ---------------------------------------------------------------------------
+
+
+class TestDelete:
+    def test_delete_removes_only_that_key(self) -> None:
+        cache = LRUCache()
+        cache.put("a", 1)
+        cache.put("b", 2)
+        cache.delete("a")
+        assert cache.get("a") is None
+        assert cache.get("b") == 2
+        assert cache.size() == 1
+
+    def test_delete_of_absent_key_is_a_no_op(self) -> None:
+        cache = LRUCache()
+        cache.delete("nope")
+        assert cache.size() == 0
+
+
+# ---------------------------------------------------------------------------
 # Thread safety
 # ---------------------------------------------------------------------------
 
