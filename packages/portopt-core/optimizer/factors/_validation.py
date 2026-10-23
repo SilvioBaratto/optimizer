@@ -202,8 +202,10 @@ def compute_ic_series(
             original Spearman-rank IC exactly.
         cs_config: Configuration forwarded to
             `build_cs_linear_regression` when ``use_cs_regression`` is
-            ``True``.  ``None`` defers to `CSLinearRegressionConfig`
-            defaults.
+            ``True``.  Its ``min_observations`` raises the per-date floor
+            above the ``min_observations`` argument when larger.  ``None``
+            defers to `CSLinearRegressionConfig` estimator defaults and
+            applies the ``min_observations`` argument alone.
 
     Returns:
         IC values indexed by date, in chronological order regardless of the

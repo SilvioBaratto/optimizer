@@ -1,9 +1,11 @@
 """Configuration for cross-sectional linear regression.
 
 Wraps `CSLinearRegression` and `CSLinearRegressorWrapper` (skfolio 1.0.6).
-``weighted`` and ``min_observations`` are caller-side hints (consumed by
-downstream IC computation); they are not constructor arguments of the
-underlying skfolio classes.
+``weighted`` and ``min_observations`` are not constructor arguments of the
+underlying skfolio classes. ``CSLinearRegressionConfig.min_observations`` is
+enforced by ``compute_ic_series(use_cs_regression=True)``; ``weighted`` and the
+wrapper config's two hint fields are informational for callers that fit the
+estimator themselves.
 """
 
 from __future__ import annotations
@@ -20,11 +22,14 @@ class CSLinearRegressionConfig:
     Args:
         fit_intercept: Whether to fit a per-period intercept. Default ``True``.
             Forwarded to `CSLinearRegression`.
-        weighted: Caller hint signalling that ``cs_weights`` will be supplied at
-            ``fit`` time. Not forwarded to skfolio (no constructor arg).
-        min_observations: Minimum non-NaN cross-sectional observations per period
-            required before downstream consumers (e.g. factor IC) accept the period.
-            Not forwarded to skfolio.
+        weighted: Informational flag signalling that the caller will supply
+            ``cs_weights`` at ``fit`` time. Not forwarded to skfolio (no
+            constructor arg) and not read by ``compute_ic_series``, which always
+            passes its own 0/1 validity mask.
+        min_observations: Minimum non-NaN cross-sectional observations per period.
+            ``compute_ic_series(use_cs_regression=True)`` drops periods below
+            ``max(its min_observations argument, this value)``. Not forwarded to
+            skfolio.
     """
 
     fit_intercept: bool = True
@@ -42,7 +47,7 @@ class CSLinearRegressionConfig:
 
     @classmethod
     def for_weighted(cls) -> CSLinearRegressionConfig:
-        """Weighted-fit preset for downstream IC weighting."""
+        """Preset that sets only the informational ``weighted`` flag."""
         return cls(weighted=True)
 
 
@@ -62,11 +67,12 @@ class CSLinearRegressorWrapperConfig:
         n_jobs: Number of parallel jobs for the per-period fits. Forwarded to
             `CSLinearRegressorWrapper`. ``-1`` uses
             all processors. Default ``1``.
-        weighted: Caller hint signalling that ``cs_weights`` will be supplied at
-            ``fit`` time. Not forwarded to skfolio.
+        weighted: Informational flag signalling that the caller will supply
+            ``cs_weights`` at ``fit`` time. Not forwarded to skfolio and not read
+            by any library routine.
         min_observations: Minimum non-NaN cross-sectional observations per period
-            required before downstream consumers accept the period. Not forwarded
-            to skfolio.
+            the caller intends to require. Not forwarded to skfolio and not
+            enforced by any library routine.
     """
 
     n_jobs: int = 1
@@ -88,5 +94,5 @@ class CSLinearRegressorWrapperConfig:
 
     @classmethod
     def for_weighted(cls) -> CSLinearRegressorWrapperConfig:
-        """Weighted-fit preset for downstream IC weighting."""
+        """Preset that sets only the informational ``weighted`` flag."""
         return cls(weighted=True)

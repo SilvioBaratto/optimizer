@@ -324,6 +324,58 @@ class TestComputeICSeriesCSRegression:
         )
         assert scores_sparse.index[0] not in result.index
 
+    def test_when_cs_config_min_observations_exceeds_valid_pairs_then_dates_dropped(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        """The config's own floor must be enforced, not only the argument's."""
+        from optimizer.linear_model import CSLinearRegressionConfig
+
+        scores, returns = panel
+        cfg = CSLinearRegressionConfig(min_observations=30)
+        result = compute_ic_series(
+            scores, returns, "f", use_cs_regression=True, cs_config=cfg
+        )
+        assert len(result) == 0
+
+    def test_when_cs_config_default_floor_then_sparse_period_dropped(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        from optimizer.linear_model import CSLinearRegressionConfig
+
+        scores, returns = panel
+        sparse = scores.copy()
+        sparse.iloc[0, :15] = np.nan  # 5 valid pairs: above 3, below config's 10
+        result = compute_ic_series(
+            sparse,
+            returns,
+            "f",
+            use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(),
+        )
+        assert sparse.index[0] not in result.index
+        assert len(result) == len(sparse) - 1
+
+    def test_when_cs_config_floor_below_argument_then_argument_still_applies(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        from optimizer.linear_model import CSLinearRegressionConfig
+
+        scores, returns = panel
+        sparse = scores.copy()
+        sparse.iloc[0, :18] = np.nan  # 2 valid pairs
+        result = compute_ic_series(
+            sparse,
+            returns,
+            "f",
+            min_observations=5,
+            use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(min_observations=0),
+        )
+        assert sparse.index[0] not in result.index
+
     def test_when_regression_all_dates_filtered_then_empty_series(self) -> None:
         rng = np.random.default_rng(0)
         dates = pd.date_range("2023-01-01", periods=4, freq="ME")
