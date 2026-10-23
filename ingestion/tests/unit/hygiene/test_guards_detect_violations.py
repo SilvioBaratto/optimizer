@@ -4,7 +4,8 @@ Each guard is an absence assertion over a tree that is already clean, so it
 passes trivially on day one — indistinguishable from a broken pattern, wrong
 anchoring, or too-broad exclusion that would let it pass forever while
 catching nothing. This module drives each guard's scanner against a
-synthetic tree seeded with known violations (in-process, six guards' worth)
+synthetic tree seeded with known violations (in-process, one scanner per
+guard named in ``test_guards_detect_violations_covers_every_guard.py``)
 and, for the two guards whose contract spans working directories, against the
 real repository from two different process working directories.
 """
@@ -139,6 +140,23 @@ def test_when_synthetic_tree_carries_an_optimizer_import_then_it_is_reported(tmp
     violations = find_optimizer_import_violations(tmp_path)
 
     assert violations == ["offender.py"]
+
+
+@pytest.mark.criterion("scope-7")
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from langchain_core.messages import BaseMessage\n",
+        "import langchain_ollama as lo\n",
+        "import os, langgraph\n",
+    ],
+)
+def test_when_synthetic_tree_carries_a_non_canonical_agent_import_then_it_is_reported(
+    tmp_path, source
+):
+    (tmp_path / "offender.py").write_text(source, encoding="utf-8")
+
+    assert find_agent_import_violations(tmp_path) == ["offender.py"]
 
 
 @pytest.mark.criterion("scope-7")
