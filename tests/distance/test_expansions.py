@@ -173,6 +173,27 @@ class TestMutualInformationKnobs:
         assert est.n_bins_method == SkNBinsMethod.KNUTH
         assert est.n_bins is None
 
+    def test_when_only_n_bins_method_given_then_rule_is_applied(
+        self, returns: pd.DataFrame
+    ) -> None:
+        # The preset must not inject a fixed bin count that silently masks the
+        # requested rule: skfolio consults n_bins_method only when n_bins is None.
+        cfg = DistanceConfig.for_mutual_information(n_bins_method=NBinsMethod.KNUTH)
+        assert cfg.n_bins is None
+        est = build_distance(cfg)
+        assert isinstance(est, MutualInformation)
+        assert est.n_bins is None
+        assert est.n_bins_method == SkNBinsMethod.KNUTH
+        reference = MutualInformation(n_bins=None, n_bins_method=SkNBinsMethod.KNUTH)
+        np.testing.assert_allclose(
+            est.fit(returns).distance_, reference.fit(returns).distance_
+        )
+
+    def test_when_preset_defaults_then_matches_constructor_default(self) -> None:
+        assert DistanceConfig.for_mutual_information() == DistanceConfig(
+            estimator=DistanceEstimatorType.MUTUAL_INFORMATION
+        )
+
     def test_when_normalize_set_then_forwarded(self) -> None:
         cfg = DistanceConfig.for_mutual_information(normalize=False)
         est = build_distance(cfg)

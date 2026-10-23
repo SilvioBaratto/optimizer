@@ -216,15 +216,17 @@ class DistanceConfig:
     @classmethod
     def for_mutual_information(
         cls,
-        n_bins: int | None = 10,
+        n_bins: int | None = None,
         *,
         n_bins_method: NBinsMethod | None = None,
         normalize: bool | None = None,
     ) -> DistanceConfig:
         """Mutual-information distance preset.
 
-        Pass ``n_bins=None`` together with ``n_bins_method`` to let skfolio
-        choose the bin count via the Freedman-Diaconis or Knuth rule.
+        By default the bin count is chosen per asset by ``n_bins_method``
+        (skfolio default: Freedman-Diaconis). An explicit ``n_bins`` takes
+        precedence and disables the rule, so ``n_bins`` and ``n_bins_method``
+        should not both be given.
         """
         return cls(
             estimator=DistanceEstimatorType.MUTUAL_INFORMATION,
