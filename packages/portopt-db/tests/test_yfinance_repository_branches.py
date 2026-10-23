@@ -2653,6 +2653,27 @@ class TestUpsertNewsPreprocessing:
             2024, 5, 10, 0, 0, tzinfo=timezone.utc
         )
 
+    def test_pub_date_zulu_string_stays_aware_utc(self, db_session: Session) -> None:
+        ex = _exchange(db_session, name="NewsEx6z")
+        inst = _instrument(db_session, ex, ticker="N6Z", yfinance_ticker="N6Z")
+        article = {
+            "id": "zulu-uuid",
+            "content": {"pubDate": "2026-10-22T15:00:00Z"},
+        }
+        rows = self._call(db_session, inst.id, [article])
+        assert rows[0]["publish_time"] == datetime(
+            2026, 10, 22, 15, 0, tzinfo=timezone.utc
+        )
+
+    def test_pub_date_without_offset_is_taken_as_utc(self, db_session: Session) -> None:
+        ex = _exchange(db_session, name="NewsEx6c")
+        inst = _instrument(db_session, ex, ticker="N6C", yfinance_ticker="N6C")
+        article = {"id": "naive-uuid", "content": {"pubDate": "2024-06-15T09:00:00"}}
+        rows = self._call(db_session, inst.id, [article])
+        assert rows[0]["publish_time"] == datetime(
+            2024, 6, 15, 9, 0, tzinfo=timezone.utc
+        )
+
     def test_pub_date_invalid_string_falls_through_to_provider_publish_time(
         self, db_session: Session
     ) -> None:
