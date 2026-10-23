@@ -231,3 +231,60 @@ class TestBulkFetch:
         assert result["error_count"] == 0
         assert result["instruments_processed"] == 1
         assert result["contract_rows"] == 2
+
+    def test_failed_expiry_chain_rolls_back_instrument_and_records_error(
+        self,
+    ) -> None:
+        iid = uuid4()
+        repo = self._repo(iid=iid, as_of=None)
+        yf = _yf_with_options()
+        yf.metadata.fetch_options_expirations.return_value = (
+            "2026-09-18",
+            "2026-10-16",
+        )
+        # Second expiry exhausts its retries: the client signals that with None.
+        yf.metadata.fetch_option_chain.side_effect = [_chain(), None]
+        session = MagicMock(name="session")
+
+        @contextmanager
+        def _cm():
+            yield session
+
+        dbm = MagicMock()
+        dbm.get_session = _cm
+        progress = MagicMock()
+        with (
+            patch(f"{M}.YFinanceRepository", return_value=repo),
+            patch(f"{M}.call_with_timeout", lambda fn, _t, **_: fn()),
+            patch("app.database.database_manager", dbm),
+        ):
+            result = run_bulk_options_fetch(yf, on_progress=progress)
+
+        # A partial chain must not be committed: its as_of=today rows would make
+        # the freshness gate skip the instrument and hide the missing expiry.
+        session.commit.assert_not_called()
+        session.rollback.assert_called_once()
+        assert result["instruments_processed"] == 0
+        assert result["contract_rows"] == 0
+        assert result["error_count"] == 1
+        errors = progress.call_args_list[-1].kwargs["errors"]
+        assert len(errors) == 1
+        assert "AAPL" in errors[0]
+        assert "2026-10-16" in errors[0]
+
+    def test_ticker_without_listed_expiries_is_a_clean_no_op(self) -> None:
+        iid = uuid4()
+        repo = self._repo(iid=iid, as_of=None)
+        yf = _yf_with_options()
+        # "No options listed" is Yahoo's answer, not a failed request.
+        yf.metadata.fetch_options_expirations.return_value = None
+        with (
+            patch(f"{M}.YFinanceRepository", return_value=repo),
+            patch(f"{M}.call_with_timeout", lambda fn, _t, **_: fn()),
+            patch("app.database.database_manager", _session_ctx()),
+        ):
+            result = run_bulk_options_fetch(yf)
+
+        yf.metadata.fetch_option_chain.assert_not_called()
+        assert result["instruments_processed"] == 1
+        assert result["error_count"] == 0

@@ -98,8 +98,10 @@ def run_bulk_options_fetch(
 
     Skips instruments whose snapshot is younger than ``staleness_hours``.
     Best-effort per instrument — a ticker with no options simply contributes
-    nothing. Every yfinance call is bounded by ``request_timeout`` via a
-    daemon-thread watchdog, preventing a hung socket from stalling the sweep.
+    nothing, while an instrument whose expiry chain fails to fetch is rolled
+    back as a whole and reported in ``errors`` so it is retried next run.
+    Every yfinance call is bounded by ``request_timeout`` via a daemon-thread
+    watchdog, preventing a hung socket from stalling the sweep.
 
     Args:
         yf_client: Configured yfinance client.
@@ -162,7 +164,12 @@ def run_bulk_options_fetch(
                         circuit_breaker=yf_client.circuit_breaker,
                     )
                     if chain is None:
-                        continue
+                        # The client turns an exhausted retry budget into None.
+                        # Committing the other expiries would stamp a partial
+                        # chain with today's as_of, which the staleness gate
+                        # then reads as a complete snapshot and skips; failing
+                        # the instrument leaves it eligible for the next run.
+                        raise RuntimeError(f"option chain {expiry} fetch failed")
                     expiry_date = cast("date", pd.Timestamp(expiry).date())
                     rows = _flatten_chain(chain, as_of, expiry_date)
                     if rows:
