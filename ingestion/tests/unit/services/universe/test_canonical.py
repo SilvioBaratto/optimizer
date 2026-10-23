@@ -235,6 +235,37 @@ class TestDedupCanonical:
         out = dedup_canonical(listings, _FX)
         assert {x.symbol for x in out} == {"ACME", "ACM.PA"}
 
+    def test_missing_financial_currency_does_not_split_a_cross_listing(self) -> None:
+        # Yahoo omits financialCurrency on many thin lines; None must act as a
+        # wildcard, else the IOB line is persisted next to its Paris primary.
+        listings = [
+            _mk("VK.PA", "PAR", "Vallourec S.A.", "EUR", 20.0, 1.5e6, fin_ccy="EUR"),
+            _mk("0NR2.IL", "IOB", "Vallourec S.A.", "EUR", 20.0, 5e4, fin_ccy=None),
+        ]
+        out = dedup_canonical(listings, _FX)
+        assert [x.symbol for x in out] == ["VK.PA"]
+
+    def test_missing_financial_currency_on_primary_still_wins(self) -> None:
+        listings = [
+            _mk("FISV", "NMS", "Fiserv, Inc.", "USD", 150.0, 5e6, fin_ccy=None),
+            _mk("0IP9.L", "IOB", "Fiserv, Inc.", "USD", 150.0, 1e3, fin_ccy="USD"),
+        ]
+        out = dedup_canonical(listings, _FX)
+        assert [x.symbol for x in out] == ["FISV"]
+
+    def test_missing_financial_currency_stays_apart_when_currencies_conflict(
+        self,
+    ) -> None:
+        # Two different reporting currencies already prove distinct companies; a
+        # None line cannot be attributed to either, so it is not merged into one.
+        listings = [
+            _mk("ACME", "NMS", "ACME Corp", "USD", 100.0, 1e6, fin_ccy="USD"),
+            _mk("ACM.PA", "PAR", "ACME Corp", "EUR", 90.0, 5e5, fin_ccy="EUR"),
+            _mk("ACM.IL", "IOB", "ACME Corp", "EUR", 90.0, 5e4, fin_ccy=None),
+        ]
+        out = dedup_canonical(listings, _FX)
+        assert {x.symbol for x in out} == {"ACME", "ACM.PA", "ACM.IL"}
+
     def test_dual_class_both_kept_when_liquid_same_exchange(self) -> None:
         listings = [
             _mk("GOOGL", "NMS", "Alphabet Inc.", "USD", 165.0, 30e6),

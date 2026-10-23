@@ -265,6 +265,30 @@ def _fx_blocked_currency(
     return major
 
 
+def _split_by_currency(
+    members: list[tuple[Listing, Metrics]],
+) -> list[list[tuple[Listing, Metrics]]]:
+    """Partition one same-name cluster by reporting currency.
+
+    Yahoo omits ``financialCurrency`` on many thin cross-listings, so ``None`` is a
+    wildcard: it joins the cluster whenever at most one distinct non-``None``
+    currency is present. Two or more distinct currencies already prove the name is
+    shared by different companies, and a ``None`` line cannot be attributed to
+    either, so each value (including ``None``) then stays its own group.
+    """
+    currencies = {
+        lst.financial_currency
+        for lst, _ in members
+        if lst.financial_currency is not None
+    }
+    if len(currencies) <= 1:
+        return [members]
+    by_currency: dict[str | None, list[tuple[Listing, Metrics]]] = defaultdict(list)
+    for lst, metrics in members:
+        by_currency[lst.financial_currency].append((lst, metrics))
+    return list(by_currency.values())
+
+
 def dedup_canonical(
     listings: list[Listing],
     usd_per_major: dict[str, float],
@@ -275,10 +299,12 @@ def dedup_canonical(
 ) -> list[Listing]:
     """Collapse cross-listings to one canonical listing per entity.
 
-    Grouping key: ``(normalize_name(longName|shortName), financial_currency)`` — the
-    ``financial_currency`` guard prevents merging two genuinely different companies
-    that share a normalized name (0/348 real clusters violated it in validation).
-    A name-less listing falls back to its own symbol so it is never merged away.
+    Grouping key: ``normalize_name(longName|shortName)``, split by
+    ``financial_currency`` — the guard prevents merging two genuinely different
+    companies that share a normalized name (0/348 real clusters violated it in
+    validation). A missing ``financial_currency`` is compatible with any single
+    one (see :func:`_split_by_currency`). A name-less listing falls back to its own
+    symbol so it is never merged away.
     Within a group the max-``_rank_key`` line is canonical; when ``keep_dual_class``
     is set, same-exchange siblings clearing ``dual_class_min_addv_usd`` are also kept
     (recovers GOOG beside GOOGL). Order of survivors is deterministic.
@@ -292,18 +318,20 @@ def dedup_canonical(
     cfg = config or IngestionFloorConfig()
     enriched = [(lst, derive_metrics(lst, usd_per_major)) for lst in listings]
 
-    groups: dict[tuple[str, str | None], list[tuple[Listing, Metrics]]] = defaultdict(
-        list
-    )
+    by_name: dict[str, list[tuple[Listing, Metrics]]] = defaultdict(list)
     for lst, metrics in enriched:
         name_key = normalize_name(lst.long_name or lst.short_name)
         if not name_key:
             name_key = f"\x00sym\x00{lst.symbol}"  # never merge an unnamed listing
-        groups[(name_key, lst.financial_currency)].append((lst, metrics))
+        by_name[name_key].append((lst, metrics))
+
+    groups = [
+        group for members in by_name.values() for group in _split_by_currency(members)
+    ]
 
     unresolved = {
         major
-        for members in groups.values()
+        for members in groups
         if len(members) > 1
         for lst, _ in members
         if (major := _fx_blocked_currency(lst, usd_per_major)) is not None
@@ -316,7 +344,7 @@ def dedup_canonical(
         raise ValueError(msg)
 
     survivors: list[Listing] = []
-    for members in groups.values():
+    for members in groups:
         members.sort(
             key=lambda lm: _rank_key(lm[0], lm[1], exchange_pref), reverse=True
         )
