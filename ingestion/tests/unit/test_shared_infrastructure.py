@@ -1,6 +1,7 @@
 """Tests for shared resilience infrastructure (circuit breaker, retry, rate limiter)."""
 
 import time
+import urllib.error
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -327,6 +328,66 @@ class TestTransientErrorDetection:
     )
     def test_rejects_non_transient_errors(self, error):
         assert is_transient_network_error(error) is False
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ValueError("could not convert string to float: '1,429.50'"),
+            KeyError("4290"),
+            KeyError(429),
+            Exception("Expecting value: line 1 column 429 (char 428)"),
+            RuntimeError("request took 429ms"),
+            Exception("bad symbol 042900.KS"),
+        ],
+    )
+    def test_digits_429_outside_an_http_status_are_not_rate_limits(self, error):
+        assert is_transient_network_error(error) is False
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "HTTP Error 429: ",
+            "HTTP 429",
+            "Error code: 429",
+            "status code 429",
+            "status_code=429",
+            "429 Client Error for url: https://example.test/x",
+        ],
+    )
+    def test_detects_a_429_status_stated_in_the_message(self, message):
+        assert is_transient_network_error(Exception(message)) is True
+
+    def test_detects_a_429_status_carried_on_the_response(self):
+        error = requests.exceptions.HTTPError("boom")
+        error.response = MagicMock(status_code=429)
+
+        assert is_transient_network_error(error) is True
+
+    def test_detects_a_429_status_carried_as_urllib_code(self):
+        error = urllib.error.HTTPError("https://example.test/x", 429, "", {}, None)
+
+        assert is_transient_network_error(error) is True
+
+    def test_other_response_status_is_not_a_rate_limit(self):
+        error = requests.exceptions.HTTPError("boom")
+        error.response = MagicMock(status_code=500)
+
+        assert is_transient_network_error(error) is False
+
+    @patch("app.services.infrastructure.retry._full_jitter", return_value=0.0)
+    def test_unrelated_error_with_429_digits_does_not_trip_the_breaker(
+        self, _mock_jitter
+    ):
+        on_rate_limit = MagicMock()
+
+        retry_with_backoff(
+            MagicMock(side_effect=KeyError("4290")),
+            max_retries=2,
+            is_rate_limit_error=is_transient_network_error,
+            on_rate_limit=on_rate_limit,
+        )
+
+        on_rate_limit.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

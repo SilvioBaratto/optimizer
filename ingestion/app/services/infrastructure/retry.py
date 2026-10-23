@@ -7,6 +7,7 @@ full-jitter exponential backoff and transient-error detection.
 from __future__ import annotations
 
 import random
+import re
 import time
 from collections.abc import Callable
 from typing import TypeVar
@@ -18,7 +19,6 @@ T = TypeVar("T")
 TRANSIENT_NETWORK_INDICATORS = [
     "Too Many Requests",
     "Rate limited",
-    "429",
     # TCP-level throttling — servers RST the connection when overloaded
     "Connection reset by peer",
     "[Errno 104]",
@@ -30,10 +30,40 @@ TRANSIENT_NETWORK_INDICATORS = [
     "ConnectTimeout",
 ]
 
+# A bare "429" substring also matches payload values, column offsets and
+# durations ("1,429.50", "column 429", "429ms") and would trip the shared
+# breaker for every worker, so the digits only count next to an HTTP-status
+# keyword or the standard "429 Client Error" reason phrase.
+_HTTP_429_IN_TEXT = re.compile(
+    r"(?<![A-Za-z])(?:http(?:\s?error)?|status(?:[ _]code)?|error(?: code)?)"
+    r"[\s:=]*429\b(?![.,]\d)"
+    r"|(?<![\w.,])429(?=\s+(?:client error|too many))",
+    re.IGNORECASE,
+)
+
+
+def _carries_429_status(error: Exception) -> bool:
+    # ``status_code`` is requests/curl_cffi, ``status`` aiohttp, ``code`` urllib.
+    holders = (getattr(error, "response", None), error)
+    return any(
+        getattr(holder, attr, None) == 429
+        for holder in holders
+        for attr in ("status_code", "status", "code")
+    )
+
 
 def is_transient_network_error(error: Exception) -> bool:
-    """Detect transient network errors: HTTP rate limits and TCP resets."""
+    """Detect transient network errors: HTTP rate limits and TCP resets.
+
+    A rate limit is recognised by an HTTP 429 status on the exception or its
+    response, by a 429 stated as a status in the message, or by the textual
+    markers in ``TRANSIENT_NETWORK_INDICATORS``.
+    """
+    if _carries_429_status(error):
+        return True
     combined = f"{type(error).__name__}: {error}"
+    if _HTTP_429_IN_TEXT.search(combined):
+        return True
     return any(indicator in combined for indicator in TRANSIENT_NETWORK_INDICATORS)
 
 
