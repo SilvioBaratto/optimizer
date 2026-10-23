@@ -622,11 +622,11 @@ class TestStepOrdering:
         )
         pipe = build_preselection_pipeline(cfg, expiration_dates={})
         step_names = [name for name, _ in pipe.steps]
+        assert step_names.index("select_non_expiring") < step_names.index(
+            "drop_correlated"
+        )
         assert step_names.index("drop_correlated") < step_names.index("select_k")
         assert step_names.index("select_k") < step_names.index("select_pareto")
-        assert step_names.index("select_pareto") < step_names.index(
-            "select_non_expiring"
-        )
 
 
 class TestSkfolioIntegration:
@@ -758,6 +758,57 @@ class TestNonExpiringWithDates:
         assert "EXPIRES" not in out.columns
         assert "LIVE" in out.columns
         assert "OTHER" in out.columns
+
+    def test_top_k_is_filled_from_non_expiring_assets_only(self) -> None:
+        """Expiring assets are ineligible, so they must not consume top-k slots."""
+        rng = np.random.default_rng(11)
+        n_obs, n_assets = 250, 20
+        idx = pd.date_range("2023-01-02", periods=n_obs, freq="B")
+        df = pd.DataFrame(
+            np.column_stack(
+                [rng.normal(0.0005 * i, 0.005, n_obs) for i in range(n_assets)]
+            ),
+            columns=[f"S{i}" for i in range(n_assets)],
+            index=idx,
+        )
+        # The five best-ranked assets are the ones about to expire.
+        expiring = {f"S{i}": idx[-1] + pd.Timedelta(days=5) for i in range(15, 20)}
+        cfg = PreSelectionConfig(
+            top_k=10,
+            correlation_threshold=1.0,
+            use_non_expiring=True,
+            expiration_lookahead=30,
+        )
+
+        out = build_preselection_pipeline(cfg, expiration_dates=expiring).fit_transform(
+            df
+        )
+
+        assert out.shape[1] == 10
+        assert not set(out.columns) & set(expiring)
+
+    def test_live_twin_survives_correlation_filter_over_expiring_asset(self) -> None:
+        """A live asset must not be dropped as a duplicate of one that expires."""
+        rng = np.random.default_rng(3)
+        n_obs = 250
+        idx = pd.date_range("2023-01-02", periods=n_obs, freq="B")
+        base = rng.normal(0.001, 0.01, n_obs)
+        df = pd.DataFrame(
+            {
+                "EXPIRES": base,
+                "TWIN": base + rng.normal(0.0, 1e-4, n_obs),
+                "OTHER": rng.normal(0.001, 0.01, n_obs),
+            },
+            index=idx,
+        )
+        cfg = PreSelectionConfig(use_non_expiring=True, expiration_lookahead=30)
+        expiring = {"EXPIRES": idx[-1] + pd.Timedelta(days=5)}
+
+        out = build_preselection_pipeline(cfg, expiration_dates=expiring).fit_transform(
+            df
+        )
+
+        assert set(out.columns) == {"TWIN", "OTHER"}
 
     def test_empty_dates_retain_every_asset(self) -> None:
         """An explicit empty mapping means no asset expires, so nothing is dropped."""

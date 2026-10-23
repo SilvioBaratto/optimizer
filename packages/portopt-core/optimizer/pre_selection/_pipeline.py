@@ -58,11 +58,16 @@ def build_preselection_pipeline(
     The pipeline is assembled from `config` and follows this order::
 
         SelectComplete → validate → outliers → impute → DropZeroVariance
-        → DropCorrelated → [SelectKExtremes] → [SelectNonDominated]
-        → [SelectNonExpiring]
+        → [SelectNonExpiring] → DropCorrelated → [SelectKExtremes]
+        → [SelectNonDominated]
 
     Optional steps (in brackets) are only included when the corresponding
     config flag or parameter is set.
+
+    ``SelectNonExpiring`` is a hard eligibility filter, so it runs before every
+    step that ranks or de-duplicates assets: otherwise an expiring asset could
+    take a ``top_k`` slot, or survive ``DropCorrelated`` in place of a live twin,
+    and then be removed, leaving the universe smaller than requested.
 
     ``SelectComplete`` runs first, on the raw frame, and before ``impute``, on
     purpose: it drops assets whose history is too short (leading/trailing
@@ -184,38 +189,11 @@ def _build_steps(
             "drop_zero_variance",
             GuardedDropZeroVariance(threshold=config.zero_variance_threshold),
         ),
-        (
-            "drop_correlated",
-            GuardedDropCorrelated(
-                threshold=config.correlation_threshold,
-                absolute=config.correlation_absolute,
-            ),
-        ),
     ]
 
-    if config.top_k is not None:
-        steps.append(
-            (
-                "select_k",
-                GuardedSelectKExtremes(
-                    k=config.top_k,
-                    measure=_SELECT_K_MEASURE_MAP[config.select_k_measure],
-                    highest=config.top_k_highest,
-                ),
-            )
-        )
-
-    if config.use_pareto:
-        steps.append(
-            (
-                "select_pareto",
-                GuardedSelectNonDominated(
-                    min_n_assets=config.pareto_min_assets,
-                    threshold=config.pareto_threshold,
-                ),
-            )
-        )
-
+    # Eligibility is decided before any relative step: an asset that is about to
+    # expire must not win a correlation tie-break or a top-k slot and then be
+    # removed, taking a live substitute's place in the universe with it.
     if config.use_non_expiring:
         # Fail at build rather than skip the step: an expiry filter the caller
         # asked for but that cannot run would let expiring contracts through
@@ -238,6 +216,39 @@ def _build_steps(
                     expiration_lookahead=dt.timedelta(
                         days=config.expiration_lookahead,
                     ),
+                ),
+            )
+        )
+
+    steps.append(
+        (
+            "drop_correlated",
+            GuardedDropCorrelated(
+                threshold=config.correlation_threshold,
+                absolute=config.correlation_absolute,
+            ),
+        )
+    )
+
+    if config.top_k is not None:
+        steps.append(
+            (
+                "select_k",
+                GuardedSelectKExtremes(
+                    k=config.top_k,
+                    measure=_SELECT_K_MEASURE_MAP[config.select_k_measure],
+                    highest=config.top_k_highest,
+                ),
+            )
+        )
+
+    if config.use_pareto:
+        steps.append(
+            (
+                "select_pareto",
+                GuardedSelectNonDominated(
+                    min_n_assets=config.pareto_min_assets,
+                    threshold=config.pareto_threshold,
                 ),
             )
         )
