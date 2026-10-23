@@ -135,16 +135,20 @@ powershell -c "irm https://raw.githubusercontent.com/SilvioBaratto/optimizer/dev
 ```
 
 Both scripts pull from the `development` branch by default; set `PORTOPT_REF`
-(or `PORTOPT_REPO`) before running to install a different ref or fork.
+(a branch, tag or commit SHA) or `PORTOPT_REPO` before running to install a
+different ref or fork.
 
 `portopt` runs `docker compose` and renders its plaintext secrets inside a **checkout**
 of this repo (it owns `docker-compose.yml`), and installing the CLI into a `uv` tool
 venv does not provide one. The scripts therefore clone into `~/optimizer`
-(`%USERPROFILE%\optimizer` on Windows; set `PORTOPT_HOME` to choose elsewhere), reuse
-that directory if it already holds a checkout, and export `OPTIMIZER_REPO` for the
-wizard, which then remembers the location in `~/.portopt/config.toml`. Without a
-checkout, `portopt setup` stops with "Cannot locate the optimizer checkout" before it
-persists anything.
+(`%USERPROFILE%\optimizer` on Windows; set `PORTOPT_HOME` to choose elsewhere, which
+`install.sh` also accepts as `PORTOPT_DIR`), reuse that directory if it already holds a
+checkout, and export `OPTIMIZER_REPO` for the wizard, which then remembers the location
+in `~/.portopt/config.toml`. `install.sh` also launches the wizard from inside the
+checkout and, on a re-run, updates an existing git checkout to `PORTOPT_REF`; it refuses
+to touch a directory that is a checkout of some other repo. Without a checkout,
+`portopt setup` stops with "Cannot locate the optimizer checkout" before it persists
+anything.
 
 Equivalently, by hand — clone first, then run the from-clone front door:
 

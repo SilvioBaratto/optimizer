@@ -23,6 +23,8 @@ _RECORD = (
 )
 
 # `git clone` materialises the minimum a checkout needs for the installer to carry on.
+# `git remote get-url` answers from STUB_GIT_ORIGIN and fails like a missing remote
+# when it is unset, so a test chooses which repo an existing checkout "belongs" to.
 _GIT = f"""#!/usr/bin/env bash
 {_RECORD.format(name="git")}
 if [ "$1" = clone ]; then
@@ -30,6 +32,12 @@ if [ "$1" = clone ]; then
   mkdir -p "$dest/.git" "$dest/ingestion"
   : > "$dest/docker-compose.yml"
 fi
+case " $* " in
+  *" remote get-url "*)
+    [ -n "${{STUB_GIT_ORIGIN-}}" ] || exit 2
+    printf '%s\\n' "$STUB_GIT_ORIGIN"
+    ;;
+esac
 """
 
 # `uv tool install` drops the CLI shim into ~/.local/bin, exactly where real uv puts it.
@@ -83,6 +91,7 @@ def run_front_door(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
     path_extra: tuple[str, ...] = (),
+    real_git: bool = False,
 ) -> StubRun:
     """Execute ``script`` (relative to the repo root) headless against the stubs.
 
@@ -97,6 +106,9 @@ def run_front_door(
         env: Extra environment variables for the script.
         path_extra: Directories appended after the stub dir on ``PATH``, standing in
             for tools the user already had installed.
+        real_git: Leave ``git`` unstubbed so the script clones and checks out for
+            real, against a local repository the test built. ``uv`` and ``portopt``
+            stay stubbed, and ``git`` calls are then not recorded.
 
     Returns:
         The process result plus every stub invocation it made.
@@ -112,12 +124,20 @@ def run_front_door(
     log.touch()
     _write_executable(stubs / "portopt-shim", _PORTOPT)
     _write_executable(stubs / "uv", _UV)
-    _write_executable(stubs / "git", _GIT)
     _write_executable(stubs / "curl", _CURL)
+    git_dirs: tuple[str, ...] = ()
+    if real_git:
+        git = shutil.which("git")
+        assert git is not None
+        git_dirs = (str(Path(git).parent),)
+    else:
+        _write_executable(stubs / "git", _GIT)
 
     child_env = {
         "HOME": str(home),
-        "PATH": os.pathsep.join([str(stubs), *path_extra, "/usr/bin", "/bin"]),
+        "PATH": os.pathsep.join(
+            [str(stubs), *path_extra, *git_dirs, "/usr/bin", "/bin"]
+        ),
         "STUB_LOG": str(log),
         "STUB_DIR": str(stubs),
         **(env or {}),

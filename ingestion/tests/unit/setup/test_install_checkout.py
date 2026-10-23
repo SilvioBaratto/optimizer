@@ -32,7 +32,7 @@ class TestInstallShCheckout:
     def test_clones_the_repo(self) -> None:
         """It clones PORTOPT_REPO and pins the requested ref."""
         text = _read("install.sh")
-        assert 'git clone "${PORTOPT_REPO}"' in text
+        assert re.search(r'git clone\b[^\n]*"\$\{?PORTOPT_REPO\}?"', text)
         assert "checkout" in text
         assert "${PORTOPT_REF}" in text
 
