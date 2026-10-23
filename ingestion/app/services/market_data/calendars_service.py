@@ -38,8 +38,6 @@ def run_calendars_fetch(
 
     from app.database import database_manager
 
-    now = datetime.now(timezone.utc)
-
     with database_manager.get_session() as session:
         repo = CalendarsRepository(session)
         counts: dict[str, int] = {}
@@ -79,7 +77,7 @@ def run_calendars_fetch(
         logger.info("Calendars fetch done: %s", counts)
         on_progress(
             status="completed",
-            finished_at=now.isoformat(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
             errors=errors,
             result=result,
         )

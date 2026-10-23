@@ -9,6 +9,7 @@ history); the bulk fetch is driven with a mocked yfinance client over the real
 from __future__ import annotations
 
 import datetime as dt
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -22,6 +23,7 @@ from app.services.market_data.fx_service import (
     _to_major,
     run_fx_fetch,
 )
+from tests._fixtures.clock import FakeClock
 
 
 def _close_frame(dates, closes):
@@ -241,6 +243,58 @@ class TestRunFxFetch:
         assert rows[("GBP", self._D2)] == pytest.approx(1.28)
         assert fx_session.query(FxRate).filter_by(quote_currency="USD").count() == 0
         assert result["error_count"] == 0
+
+
+class TestFinishedAt:
+    """Every completion path stamps finished_at when the run ends, not starts."""
+
+    @staticmethod
+    def _run(yf, clock, on_progress):
+        patched_dt = SimpleNamespace(**{**vars(dt), "datetime": clock.datetime_cls})
+        with patch("app.services.market_data.fx_service.dt", patched_dt):
+            run_fx_fetch(yf, base="EUR", on_progress=on_progress)
+
+    def test_full_run(self, fx_session) -> None:
+        _seed_eur_usd_gbp(fx_session)
+        clock = FakeClock()
+        yf = MagicMock()
+        yf.fetch_history.side_effect = clock.advancing(
+            _close_frame([dt.date(2026, 10, 1)], [1.10])
+        )
+        on_progress = MagicMock()
+
+        self._run(yf, clock, on_progress)
+
+        clock.assert_finished_at_marks_run_end(on_progress)
+
+    def test_empty_universe(self, fx_session) -> None:
+        clock = FakeClock()
+        on_progress = MagicMock()
+
+        with patch(
+            "app.services.market_data.fx_service._distinct_currencies",
+            side_effect=clock.advancing(set()),
+        ):
+            self._run(MagicMock(), clock, on_progress)
+
+        clock.assert_finished_at_marks_run_end(on_progress)
+
+    def test_missing_base_leg(self, fx_session) -> None:
+        _seed_eur_usd_gbp(fx_session)
+        clock = FakeClock()
+        yf = MagicMock()
+        yf.fetch_history.side_effect = clock.advancing(
+            lambda symbol, **kw: (
+                None
+                if symbol == "EURUSD=X"
+                else _close_frame([dt.date(2026, 10, 1)], [1.30])
+            )
+        )
+        on_progress = MagicMock()
+
+        self._run(yf, clock, on_progress)
+
+        clock.assert_finished_at_marks_run_end(on_progress)
 
 
 class TestSchedulerStep:

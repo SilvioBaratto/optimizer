@@ -197,7 +197,7 @@ def run_bulk_options_fetch(
         )
         on_progress(
             status="completed",
-            finished_at=now.isoformat(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
             errors=errors,
             result=result,
         )

@@ -29,6 +29,7 @@ from app.services.market_data.yfinance.market.sectors import (
     SECTOR_KEYS,
     SectorsClient,
 )
+from tests._fixtures.clock import FakeClock
 
 _AS_OF = dt.date(2026, 8, 27)
 
@@ -545,6 +546,30 @@ class TestSectorOverviewScope:
         kwargs = repo.upsert_sector_snapshot.call_args.kwargs
         assert kwargs["market_cap"] == 2.8e13
         assert kwargs["companies_count"] == 866
+
+
+class TestFinishedAt:
+    def test_finished_at_is_stamped_at_completion_not_at_start(self) -> None:
+        repo = MagicMock(name="repo")
+        yf = MagicMock()
+        clock = FakeClock()
+        yf.sectors.fetch_sector.side_effect = clock.advancing(None)
+        on_progress = MagicMock()
+        with (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch(
+                "app.services.market_data.market_structure_service.datetime",
+                clock.datetime_cls,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        ):
+            run_market_structure_fetch(yf, regions=("US",), on_progress=on_progress)
+
+        clock.assert_finished_at_marks_run_end(on_progress)
 
 
 class TestSchedulerStep:

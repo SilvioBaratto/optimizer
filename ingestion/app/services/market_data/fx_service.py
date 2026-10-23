@@ -114,6 +114,12 @@ def _close_by_date(hist: pd.DataFrame | None) -> dict[dt.date, float]:
     return out
 
 
+def _utc_now_iso() -> str:
+    # A fresh reading per call: finished_at must mark when the run ended, not
+    # when it started.
+    return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
 def run_fx_fetch(
     yf_client: Any,
     *,
@@ -146,7 +152,6 @@ def run_fx_fetch(
     from app.database import database_manager
 
     base = base.upper()
-    now = dt.datetime.now(dt.timezone.utc)
     errors: list[str] = []
 
     with database_manager.get_session() as session:
@@ -154,7 +159,7 @@ def run_fx_fetch(
         if not quotes:
             result = {"rows_total": 0, "error_count": 0}
             logger.info("fx_fetch: no quote currencies in the universe; nothing to do")
-            on_progress(status="completed", finished_at=now.isoformat(), result=result)
+            on_progress(status="completed", finished_at=_utc_now_iso(), result=result)
             return result
 
         # Every currency needs its USD leg except USD itself (leg == 1).
@@ -183,7 +188,7 @@ def run_fx_fetch(
             logger.warning(
                 "fx_fetch: base USD leg (%sUSD=X) unavailable; wrote no rows", base
             )
-            on_progress(status="completed", finished_at=now.isoformat(), result=result)
+            on_progress(status="completed", finished_at=_utc_now_iso(), result=result)
             return result
 
         rows = _build_rows(base, quotes, usd_legs, base_leg, base_dates)
@@ -195,7 +200,7 @@ def run_fx_fetch(
     logger.info("fx_fetch: upserted %d rate(s) for base %s", written, base)
     on_progress(
         status="completed",
-        finished_at=now.isoformat(),
+        finished_at=_utc_now_iso(),
         errors=errors,
         result=result,
     )

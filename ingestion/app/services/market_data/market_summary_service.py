@@ -78,7 +78,7 @@ def run_market_summary_fetch(
         logger.info("Market-summary fetch done: %s", counts)
         on_progress(
             status="completed",
-            finished_at=now.isoformat(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
             errors=errors,
             result=result,
         )

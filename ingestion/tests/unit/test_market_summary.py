@@ -24,6 +24,7 @@ from app.services.market_data.yfinance.market.market_summary import (
     MARKET_IDENTIFIERS,
     MarketClient,
 )
+from tests._fixtures.clock import FakeClock
 
 _AS_OF = dt.date(2026, 8, 27)
 
@@ -300,6 +301,31 @@ class TestBulkFetch:
 
         assert result["error_count"] == 0
         assert result["counts"] == {"US": 0}
+
+
+class TestFinishedAt:
+    def test_finished_at_is_stamped_at_completion_not_at_start(self) -> None:
+        repo = MagicMock(name="repo")
+        repo.upsert_summaries.return_value = 1
+        yf = MagicMock()
+        clock = FakeClock()
+        yf.market.fetch_summary.side_effect = clock.advancing([{"symbol": "^GSPC"}])
+        on_progress = MagicMock()
+        with (
+            patch(
+                "portopt_db.repositories.market_data.market_summary_repository."
+                "MarketSummaryRepository",
+                return_value=repo,
+            ),
+            patch(
+                "app.services.market_data.market_summary_service.datetime",
+                clock.datetime_cls,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        ):
+            run_market_summary_fetch(yf, markets=("US",), on_progress=on_progress)
+
+        clock.assert_finished_at_marks_run_end(on_progress)
 
 
 class TestSchedulerStep:

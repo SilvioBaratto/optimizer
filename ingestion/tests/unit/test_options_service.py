@@ -20,6 +20,7 @@ from app.services.market_data.options_service import (
     _is_fresh,
     run_bulk_options_fetch,
 )
+from tests._fixtures.clock import FakeClock
 
 M = "app.services.market_data.options_service"
 
@@ -288,3 +289,20 @@ class TestBulkFetch:
         yf.metadata.fetch_option_chain.assert_not_called()
         assert result["instruments_processed"] == 1
         assert result["error_count"] == 0
+
+    def test_finished_at_is_stamped_at_completion_not_at_start(self) -> None:
+        iid = uuid4()
+        repo = self._repo(iid=iid, as_of=None)
+        yf = _yf_with_options()
+        clock = FakeClock()
+        yf.metadata.fetch_option_chain.side_effect = clock.advancing(_chain())
+        progress = MagicMock()
+        with (
+            patch(f"{M}.YFinanceRepository", return_value=repo),
+            patch(f"{M}.call_with_timeout", lambda fn, _t: fn()),
+            patch(f"{M}.datetime", clock.datetime_cls),
+            patch("app.database.database_manager", _session_ctx()),
+        ):
+            run_bulk_options_fetch(yf, on_progress=progress)
+
+        clock.assert_finished_at_marks_run_end(progress)

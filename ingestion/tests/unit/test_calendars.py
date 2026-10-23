@@ -15,6 +15,7 @@ from portopt_db.repositories.market_data.calendars_repository import CalendarsRe
 
 from app.services.market_data.calendars_service import run_calendars_fetch
 from app.services.market_data.yfinance.market.calendars import CalendarsClient
+from tests._fixtures.clock import FakeClock
 
 
 def _client() -> CalendarsClient:
@@ -376,6 +377,36 @@ class TestBulkFetch:
         repo.upsert_splits.assert_not_called()
         final = on_progress.call_args_list[-1].kwargs
         assert final["errors"] == ["earnings: fetch failed", "splits: fetch failed"]
+
+
+class TestFinishedAt:
+    def test_finished_at_is_stamped_at_completion_not_at_start(self) -> None:
+        repo = MagicMock(name="repo")
+        yf = MagicMock()
+        clock = FakeClock()
+        for fetch in (
+            yf.calendars.fetch_earnings,
+            yf.calendars.fetch_ipos,
+            yf.calendars.fetch_splits,
+            yf.calendars.fetch_economic_events,
+        ):
+            fetch.side_effect = clock.advancing([])
+        on_progress = MagicMock()
+
+        with (
+            patch(
+                "portopt_db.repositories.market_data.calendars_repository.CalendarsRepository",
+                return_value=repo,
+            ),
+            patch(
+                "app.services.market_data.calendars_service.datetime",
+                clock.datetime_cls,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        ):
+            run_calendars_fetch(yf, on_progress=on_progress)
+
+        clock.assert_finished_at_marks_run_end(on_progress)
 
 
 class TestSchedulerStep:
