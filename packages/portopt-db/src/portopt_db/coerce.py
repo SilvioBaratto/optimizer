@@ -53,7 +53,6 @@ def parse_reference_date(value: Any) -> date | None:
     Accepts date objects, month-year strings ("Dec 2024"), IlSole compact
     dates ("12/25" or "12/ 25"), abbreviated month-day ("Mon/DD"), ISO dates
     ("2024-12-01"), and US/EU slash formats ("M/D/YYYY", "D/M/YYYY").
-
     "Mon/DD" carries no year, so it resolves to the latest occurrence that is
     not after today (allowing a couple of days of source-timezone skew):
     "Dec/31" read in early January is last year's, not a date eleven months

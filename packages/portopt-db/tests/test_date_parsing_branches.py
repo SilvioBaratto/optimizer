@@ -19,6 +19,7 @@ Covers every format and edge-case branch in parse_reference_date:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 
 import pytest
@@ -34,6 +35,12 @@ def _freeze_today(monkeypatch: pytest.MonkeyPatch, today: date) -> None:
             return today
 
     monkeypatch.setattr(coerce, "date", _FrozenDate)
+
+
+@pytest.fixture
+def freeze_today(monkeypatch: pytest.MonkeyPatch) -> Callable[[date], None]:
+    """Pin ``date.today()`` as seen by ``portopt_db.coerce``."""
+    return lambda day: _freeze_today(monkeypatch, day)
 
 
 class TestNoneAndNonStringInputs:
@@ -186,6 +193,57 @@ class TestMonDdSlashFormat:
     ) -> None:
         _freeze_today(monkeypatch, date(2027, 3, 1))
         assert parse_reference_date("Feb/29") == date(2024, 2, 29)
+
+    def test_when_dec_slash_31_on_dec_31_then_same_year(
+        self, freeze_today: Callable[[date], None]
+    ) -> None:
+        freeze_today(date(2026, 12, 31))
+        assert parse_reference_date("Dec/31") == date(2026, 12, 31)
+
+    @pytest.mark.parametrize(
+        ("text", "today", "expected"),
+        [
+            ("Dec/31", date(2027, 1, 2), date(2026, 12, 31)),
+            ("Dec/30", date(2027, 1, 2), date(2026, 12, 30)),
+            ("Oct/23", date(2026, 10, 24), date(2026, 10, 23)),
+            ("Apr/10", date(2026, 10, 24), date(2026, 4, 10)),
+            ("Nov/02", date(2026, 10, 24), date(2025, 11, 2)),
+        ],
+    )
+    def test_when_quote_day_not_reached_this_year_then_previous_year(
+        self,
+        freeze_today: Callable[[date], None],
+        text: str,
+        today: date,
+        expected: date,
+    ) -> None:
+        freeze_today(today)
+        assert parse_reference_date(text) == expected
+
+    @pytest.mark.parametrize(
+        ("text", "today", "expected"),
+        [
+            ("Oct/24", date(2026, 10, 23), date(2026, 10, 24)),
+            ("Jan/01", date(2026, 12, 31), date(2027, 1, 1)),
+        ],
+    )
+    def test_when_quote_is_a_day_ahead_of_today_then_not_rolled_back(
+        self,
+        freeze_today: Callable[[date], None],
+        text: str,
+        today: date,
+        expected: date,
+    ) -> None:
+        """A market already past midnight shows tomorrow's date; that is a
+        timezone skew, not a quote from a year ago."""
+        freeze_today(today)
+        assert parse_reference_date(text) == expected
+
+    def test_when_feb_29_and_most_recent_leap_day_is_last_year_then_that_day(
+        self, freeze_today: Callable[[date], None]
+    ) -> None:
+        freeze_today(date(2029, 1, 2))
+        assert parse_reference_date("Feb/29") == date(2028, 2, 29)
 
     def test_when_mon_slash_invalid_day_then_returns_none(self) -> None:
         # "Feb/99" → day=99 invalid
