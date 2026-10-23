@@ -3,9 +3,9 @@
 The complete headless human driver, mirroring ``ingestion/app/cli.py``. Every
 command is a thin wrapper over :mod:`fund.observe` (the model-free read model),
 :func:`fund.actions.apply_action` (the audited path for every human mutation, shared
-with the TUI: it drives ``run_fund`` / ``resume_run`` and appends the
-``human_audit_log`` row), ``run_profiler``, and the ``fund.audit`` repositories. The
-seven commands span one cycle::
+with the TUI: it drives ``run_fund`` / ``run_profiler`` / ``resume_run`` and appends
+the ``human_audit_log`` row), and the ``fund.audit`` repositories. The seven commands
+span one cycle::
 
     mandate set|show   persist / display the per-portfolio mandate (no model)
     profile            drive the MiFID profiler to its approval gate
@@ -49,7 +49,6 @@ import typer
 from fund import observe
 from fund.actions import apply_action
 from fund.agents.model import build_primary
-from fund.agents.profiler import run_profiler
 from fund.audit import (
     AgentRunRepository,
     OrderRepository,
@@ -298,22 +297,26 @@ def profile(
     persistence = setup_langgraph(settings)
     try:
         with get_session() as session:
-            run = run_profiler(
-                model,
-                answers,
-                portfolio_id=pid,
+            result = apply_action(
+                "profile",
                 session=session,
+                portfolio_id=pid,
+                questionnaire=answers,
+                model=model,
                 checkpointer=persistence.saver,
                 store=persistence.store,
                 base_currency=base_currency,
                 asof=run_asof,
+                actor=_actor(),
+                source=_SOURCE,
+                config=settings,
             )
             session.commit()
     except (RuntimeError, ValueError, LookupError) as exc:
         _fail(str(exc))
     finally:
         persistence.pool.close()
-    typer.echo(f"profiler run {run.run_id} status=paused (awaiting approval)")
+    typer.echo(result.message)
     _exit(True)
 
 

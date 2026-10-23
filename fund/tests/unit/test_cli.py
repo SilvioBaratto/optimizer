@@ -531,3 +531,25 @@ def test_profile_reaches_gate_and_detaches(harness, monkeypatch) -> None:
         assert len(paused) == 1
         assert str(paused[0].id) in res.output
     assert harness.pool.closed >= 1
+
+
+def test_profile_appends_a_cli_audit_row(harness, monkeypatch, cli_actor) -> None:
+    answers = make_answers()
+    monkeypatch.setattr(
+        cli,
+        "build_primary",
+        lambda *a, **k: make_profiler_model(answers, portfolio_id=str(PORTFOLIO_ID)),
+    )
+    res = harness.runner.invoke(
+        cli.app,
+        ["profile", str(PORTFOLIO_ID), "--answers", "Growth over ten years, EUR."],
+    )
+    assert res.exit_code == 0, res.output
+    with harness.read() as session:
+        (paused,) = AgentRunRepository(session).list_paused_runs(PORTFOLIO_ID)
+        run_id = paused.id
+    (row,) = _audit_rows(harness, "profile")
+    assert row["run_id"] == run_id
+    assert row["portfolio_id"] == PORTFOLIO_ID
+    assert row["actor"] == cli_actor
+    assert row["source"] == "cli"
