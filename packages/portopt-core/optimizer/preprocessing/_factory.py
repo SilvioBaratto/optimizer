@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pandas as pd
 from sklearn.pipeline import Pipeline
 
 from optimizer.preprocessing._config import CleaningConfig, ImputerStrategy
@@ -17,6 +18,7 @@ def make_cleaning_pipeline(
     config: CleaningConfig | None = None,
     *,
     sector_mapping: dict[str, str] | None = None,
+    outlier_protection_mask: pd.DataFrame | None = None,
 ) -> Pipeline:
     """Build a return-cleaning sklearn Pipeline from a config.
 
@@ -32,6 +34,14 @@ def make_cleaning_pipeline(
             sector/regression imputer. Non-serialisable, so passed here
             rather than stored on the config. None degrades sector
             imputation to a global cross-sectional mean.
+        outlier_protection_mask: Boolean matrix (dates x tickers) forwarded to
+            `OutlierTreater` as ``protected_mask``. Flags cells that are real
+            economic events (e.g. a delisted asset's terminal return) so the
+            outlier step neither removes nor winsorises them (a removed
+            terminal return would be refilled by the imputer with a peer mean,
+            turning a loss into a gain). Data-dependent, hence a factory
+            keyword rather than a config field. None (default) protects
+            nothing. Produced by `delisting_protection_mask`.
 
     Returns:
         Pipeline with at least one step.
@@ -53,6 +63,7 @@ def make_cleaning_pipeline(
                 OutlierTreater(
                     winsorize_threshold=cfg.winsorize_threshold,
                     remove_threshold=cfg.remove_threshold,
+                    protected_mask=outlier_protection_mask,
                 ),
             )
         )

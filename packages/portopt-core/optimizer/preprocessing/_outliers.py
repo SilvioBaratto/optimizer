@@ -67,7 +67,7 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
             CV folds and any column subset; ``fit`` raises ``DataError`` when a
             non-empty mask shares no index or column label with ``X``. The
             canonical producer is ``delisting_protection_mask`` in
-            ``optimizer.preprocessing._delisting``, which flags each delisted
+            ``optimizer.preprocessing``, which flags each delisted
             asset's terminal-return cell. Pass ``None`` (default) to protect
             nothing. The run of exact ``0.0`` (or ``NaN``) cells that follows a
             column's protected cell through the end of ``X`` is the synthetic

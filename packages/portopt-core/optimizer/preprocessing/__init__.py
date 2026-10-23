@@ -26,7 +26,10 @@ from optimizer.preprocessing._cs_transformers import (
     CSWinsorizer,
     make_cs_transformer,
 )
-from optimizer.preprocessing._delisting import apply_delisting_returns
+from optimizer.preprocessing._delisting import (
+    apply_delisting_returns,
+    delisting_protection_mask,
+)
 from optimizer.preprocessing._factory import make_cleaning_pipeline
 from optimizer.preprocessing._imputation import SectorImputer
 from optimizer.preprocessing._outliers import OutlierTreater
@@ -52,6 +55,7 @@ __all__ = [
     "ReturnsConfig",
     "SectorImputer",
     "apply_delisting_returns",
+    "delisting_protection_mask",
     "make_cleaning_pipeline",
     "make_cs_transformer",
     "prices_to_returns",

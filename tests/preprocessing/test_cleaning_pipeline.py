@@ -18,6 +18,8 @@ from optimizer.preprocessing import (
     OutlierTreater,
     RegressionImputer,
     SectorImputer,
+    apply_delisting_returns,
+    delisting_protection_mask,
     make_cleaning_pipeline,
 )
 
@@ -224,3 +226,42 @@ class TestTransformTimeColumns:
             fitted.get_feature_names_out(["D", "C", "B", "A"])
         with pytest.raises(ValueError, match="input_features"):
             fitted.get_feature_names_out(["A", "B", "C"])
+
+
+class TestOutlierProtection:
+    @staticmethod
+    def _delisted_panel() -> pd.DataFrame:
+        rng = np.random.default_rng(11)
+        df = pd.DataFrame(
+            rng.normal(0.0, 0.015, size=(500, 4)),
+            columns=["A", "B", "C", "D"],
+            index=pd.date_range("2020-01-01", periods=500, freq="B"),
+        )
+        df.iloc[300:, df.columns.get_loc("D")] = np.nan
+        return df
+
+    @pytest.mark.parametrize("imputer", [ImputerStrategy.NONE, ImputerStrategy.SECTOR])
+    def test_delisting_terminal_return_survives_cleaning(
+        self, imputer: ImputerStrategy
+    ) -> None:
+        raw = self._delisted_panel()
+        delisting = {"D": -0.30}
+        mask = delisting_protection_mask(raw, delisting)
+        applied = apply_delisting_returns(raw, delisting)
+
+        pipe = make_cleaning_pipeline(
+            CleaningConfig(imputer=imputer), outlier_protection_mask=mask
+        )
+        out = pipe.fit_transform(applied)
+
+        terminal = raw["D"].last_valid_index()
+        assert out.at[terminal, "D"] == pytest.approx(-0.30)
+
+    def test_mask_is_forwarded_to_outlier_treater(self) -> None:
+        mask = pd.DataFrame(False, index=pd.RangeIndex(3), columns=["A"], dtype=bool)
+        pipe = make_cleaning_pipeline(outlier_protection_mask=mask)
+        assert pipe.named_steps["outliers"].protected_mask is mask
+
+    def test_no_mask_protects_nothing_by_default(self) -> None:
+        pipe = make_cleaning_pipeline()
+        assert pipe.named_steps["outliers"].protected_mask is None
