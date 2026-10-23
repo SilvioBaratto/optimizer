@@ -430,6 +430,46 @@ class TestCompositeScoringConfig:
         assert hash(cfg) is not None
 
 
+class TestCompositeScoringConfigValidation:
+    @pytest.mark.parametrize("ic_lookback", [0, -1, -6])
+    def test_non_positive_ic_lookback_raises(self, ic_lookback: int) -> None:
+        with pytest.raises(ConfigurationError, match="ic_lookback"):
+            CompositeScoringConfig(
+                method=CompositeMethod.IC_WEIGHTED, ic_lookback=ic_lookback
+            )
+
+    def test_ic_lookback_of_one_is_accepted(self) -> None:
+        assert CompositeScoringConfig(ic_lookback=1).ic_lookback == 1
+
+    @pytest.mark.parametrize(
+        ("core_weight", "supplementary_weight", "match"),
+        [
+            (-1.0, 0.5, "core_weight"),
+            (1.0, -0.5, "supplementary_weight"),
+            (float("nan"), 0.5, "core_weight"),
+            (0.0, 0.0, "tier weights"),
+        ],
+    )
+    def test_invalid_tier_weights_raise(
+        self, core_weight: float, supplementary_weight: float, match: str
+    ) -> None:
+        with pytest.raises(ConfigurationError, match=match):
+            CompositeScoringConfig(
+                core_weight=core_weight, supplementary_weight=supplementary_weight
+            )
+
+    @pytest.mark.parametrize(
+        ("core_weight", "supplementary_weight"), [(1.0, 0.0), (0.0, 1.0), (2.0, 0.5)]
+    )
+    def test_single_tier_weight_may_be_zero(
+        self, core_weight: float, supplementary_weight: float
+    ) -> None:
+        cfg = CompositeScoringConfig(
+            core_weight=core_weight, supplementary_weight=supplementary_weight
+        )
+        assert cfg.core_weight == core_weight
+
+
 class TestSelectionConfigMaxPerSector:
     def test_default_max_per_sector_is_zero(self) -> None:
         cfg = SelectionConfig()

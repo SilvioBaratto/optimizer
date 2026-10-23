@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
 
@@ -445,8 +446,27 @@ class CompositeScoringConfig:
     ic_decay_halflife: int = 0
 
     def __post_init__(self) -> None:
+        if self.ic_lookback < 1:
+            # A non-positive value would reach ``ic_history.iloc[-lookback:]``
+            # and silently select the whole history (0) or drop leading rows.
+            msg = f"ic_lookback must be >= 1, got {self.ic_lookback}"
+            raise ConfigurationError(msg)
         if self.ic_decay_halflife < 0:
             msg = f"ic_decay_halflife must be >= 0, got {self.ic_decay_halflife}"
+            raise ConfigurationError(msg)
+        for name in ("core_weight", "supplementary_weight"):
+            value = getattr(self, name)
+            if not (math.isfinite(value) and value >= 0.0):
+                msg = f"{name} must be finite and >= 0, got {value}"
+                raise ConfigurationError(msg)
+        if self.core_weight + self.supplementary_weight <= 0.0:
+            # Both tiers at zero leave every row with a zero weight sum, which
+            # the renormalised composite turns into all-NaN scores.
+            msg = (
+                "tier weights must have a positive sum, got "
+                f"core_weight={self.core_weight} and "
+                f"supplementary_weight={self.supplementary_weight}"
+            )
             raise ConfigurationError(msg)
 
     @classmethod
