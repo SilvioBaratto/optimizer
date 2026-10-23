@@ -903,6 +903,24 @@ class TestResilienceIntegration:
         model.fit(returns_df, benchmark_returns)
         assert model.weights_.shape == (returns_df.shape[1],)
 
+    def test_tracking_error_preset_binds_annualised_cap_on_daily_returns(
+        self, returns_df: pd.DataFrame, benchmark_returns: pd.Series
+    ) -> None:
+        cap = 0.05
+        n_obs = len(returns_df)
+
+        def annualised_te(weights: np.ndarray) -> float:
+            active = returns_df.to_numpy() @ weights - benchmark_returns.to_numpy()
+            return float(np.linalg.norm(active) / np.sqrt(n_obs - 1) * np.sqrt(252))
+
+        free = build_mean_risk(MeanRiskConfig.for_max_sharpe())
+        free.fit(returns_df)
+        assert annualised_te(free.weights_) > cap
+
+        capped = build_mean_risk(MeanRiskConfig.for_tracking_error(cap))
+        capped.fit(returns_df, benchmark_returns)
+        assert annualised_te(capped.weights_) <= cap + 1e-4
+
     def test_tracking_error_without_benchmark_raises(
         self, returns_df: pd.DataFrame
     ) -> None:

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.moments._config import MomentEstimationConfig
 
 
@@ -119,7 +121,10 @@ class MeanRiskConfig:
             to ``previous_weights``.
         management_fees: Linear management fees proportional to position size.
         max_tracking_error: Maximum tracking error relative to benchmark returns
-            (passed as ``y`` in ``fit(X, y)``).
+            (passed as ``y`` in ``fit(X, y)``).  Forwarded unchanged to
+            skfolio, which measures it as the RMSE of active returns in the
+            same frequency as ``X`` (per period, NOT annualised); use
+            ``for_tracking_error`` to state the cap in annualised terms.
         l1_coef: L1 regularisation coefficient.
         l2_coef: L2 regularisation coefficient.
         risk_free_rate: Risk-free rate for ratio objectives.
@@ -286,6 +291,7 @@ class MeanRiskConfig:
     def for_tracking_error(
         cls,
         max_tracking_error: float = 0.05,
+        periods_per_year: int = 252,
     ) -> MeanRiskConfig:
         """Max-Sharpe portfolio with a hard tracking-error cap.
 
@@ -295,12 +301,24 @@ class MeanRiskConfig:
 
         Args:
             max_tracking_error: Upper bound on annualised tracking error vs.
-                the benchmark.
+                the benchmark.  Stored on the config as the per-period
+                equivalent ``max_tracking_error / sqrt(periods_per_year)``
+                because skfolio reads the cap in the frequency of ``X``.
+            periods_per_year: Observations per year of the return frames the
+                optimiser will be fitted on (252 daily, 52 weekly,
+                12 monthly).
+
+        Raises:
+            ConfigurationError: If ``periods_per_year`` is not positive.
         """
+        if periods_per_year <= 0:
+            raise ConfigurationError(
+                f"periods_per_year must be > 0 (got {periods_per_year})"
+            )
         return cls(
             objective=ObjectiveFunctionType.MAXIMIZE_RATIO,
             risk_measure=RiskMeasureType.VARIANCE,
-            max_tracking_error=max_tracking_error,
+            max_tracking_error=max_tracking_error / math.sqrt(periods_per_year),
         )
 
     @classmethod

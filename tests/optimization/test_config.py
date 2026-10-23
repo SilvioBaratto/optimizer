@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.optimization import (
     FallbackPolicy,
     MeanRiskConfig,
@@ -178,11 +181,24 @@ class TestMeanRiskConfig:
         cfg = MeanRiskConfig.for_tracking_error()
         assert cfg.objective == ObjectiveFunctionType.MAXIMIZE_RATIO
         assert cfg.risk_measure == RiskMeasureType.VARIANCE
-        assert cfg.max_tracking_error == 0.05
+        assert cfg.max_tracking_error == pytest.approx(0.05 / math.sqrt(252))
 
     def test_for_tracking_error_custom(self) -> None:
         cfg = MeanRiskConfig.for_tracking_error(max_tracking_error=0.12)
-        assert cfg.max_tracking_error == 0.12
+        assert cfg.max_tracking_error == pytest.approx(0.12 / math.sqrt(252))
+
+    def test_for_tracking_error_converts_with_periods_per_year(self) -> None:
+        cfg = MeanRiskConfig.for_tracking_error(
+            max_tracking_error=0.06, periods_per_year=12
+        )
+        assert cfg.max_tracking_error == pytest.approx(0.06 / math.sqrt(12))
+
+    @pytest.mark.parametrize("periods", [0, -252])
+    def test_for_tracking_error_rejects_non_positive_periods(
+        self, periods: int
+    ) -> None:
+        with pytest.raises(ConfigurationError, match="periods_per_year"):
+            MeanRiskConfig.for_tracking_error(periods_per_year=periods)
 
     def test_for_resilient_walk_forward(self) -> None:
         cfg = MeanRiskConfig.for_resilient_walk_forward()
