@@ -295,6 +295,28 @@ class TestEdgeCases:
         result = compute_quintile_spread(sc, rt, n_quantiles=5)
         assert result.quintile_returns.isna().all(axis=None)
 
+    def test_disjoint_dates_yield_empty_frame_with_nan_statistics(
+        self, scores: pd.DataFrame, returns: pd.DataFrame
+    ) -> None:
+        shifted = returns.copy()
+        shifted.index = shifted.index + pd.DateOffset(years=10)
+        result = compute_quintile_spread(scores, shifted)
+        assert list(result.quintile_returns.columns) == [
+            f"Q{i}" for i in range(1, N_QUANTILES + 1)
+        ]
+        assert result.quintile_returns.empty
+        assert result.spread_returns.empty
+        assert np.isnan(result.annualised_mean)
+        assert np.isnan(result.t_stat)
+        assert np.isnan(result.sharpe)
+
+    def test_empty_scores_slice_yields_empty_frame(
+        self, scores: pd.DataFrame, returns: pd.DataFrame
+    ) -> None:
+        result = compute_quintile_spread(scores.iloc[:0], returns)
+        assert result.quintile_returns.shape == (0, N_QUANTILES)
+        assert np.isnan(result.sharpe)
+
     def test_decile_output_shape(
         self, scores: pd.DataFrame, returns: pd.DataFrame
     ) -> None:

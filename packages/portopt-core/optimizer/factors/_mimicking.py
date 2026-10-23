@@ -362,7 +362,9 @@ def compute_quintile_spread(
             Must be ≥ 2.
 
     Returns:
-        See `QuintileSpreadResult` for field descriptions.
+        See `QuintileSpreadResult` for field descriptions.  When `scores` and
+        `returns` share no dates, ``quintile_returns`` is an empty frame with
+        the Q1..Qn columns and every statistic is NaN.
 
     Raises:
         ConfigurationError: If `n_quantiles` < 2.
@@ -401,9 +403,11 @@ def compute_quintile_spread(
             row[lbl] = float(returns_c.loc[bucket_assets].mean())
         rows[date] = row
 
-    quintile_returns = pd.DataFrame(rows, dtype=float).T
+    # reindex (not label selection) so an empty ``rows`` still yields the Q1..Qn
+    # columns instead of a KeyError on a column-less frame.
+    quintile_returns = pd.DataFrame(rows, dtype=float).T.reindex(columns=labels)
     quintile_returns.index = pd.Index(list(rows.keys()))
-    quintile_returns = cast(pd.DataFrame, quintile_returns[labels])
+    quintile_returns = cast(pd.DataFrame, quintile_returns.astype(float))
 
     top_label = labels[-1]
     bot_label = labels[0]
