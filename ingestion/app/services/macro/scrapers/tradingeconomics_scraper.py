@@ -237,6 +237,13 @@ _COUNTRY_SPECIFIC_INDICATORS: dict[str, frozenset[str]] = {
     "continuing_jobless_claims": frozenset({"USA"}),
 }
 
+# The US page quotes quarterly GDP growth as an annualised rate (SAAR); the other
+# pages quote the plain quarter-on-quarter rate under the same row label and the
+# same unit, so a US row is filed under its own key instead of sharing one.
+_COUNTRY_KEY_OVERRIDES: dict[tuple[str, str], str] = {
+    ("gdp_growth_rate", "USA"): "gdp_growth_qoq_annualized",
+}
+
 
 def _is_comparable_measure(key: str, unit: str, country: str | None) -> bool:
     """Whether a matched row holds the measure its canonical key stands for.
@@ -438,6 +445,9 @@ class TradingEconomicsIndicatorsScraper:
                                     matched_key,
                                 )
                             elif matched_key:
+                                matched_key = _COUNTRY_KEY_OVERRIDES.get(
+                                    (matched_key, country or ""), matched_key
+                                )
                                 indicators[matched_key] = {
                                     "value": last_value,
                                     "previous": previous_value,
@@ -996,6 +1006,7 @@ class TradingEconomicsIndicatorsScraper:
 
         key_indicators = [
             ("gdp_growth_rate", "GDP Growth Rate (QoQ)"),
+            ("gdp_growth_qoq_annualized", "GDP Growth Rate (QoQ, annualised)"),
             ("gdp_growth_yoy", "GDP Annual Growth Rate"),
             ("unemployment_rate", "Unemployment Rate"),
             ("inflation_rate", "Inflation Rate"),

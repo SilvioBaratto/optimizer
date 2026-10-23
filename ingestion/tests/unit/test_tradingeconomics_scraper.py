@@ -565,3 +565,64 @@ class TestIndicatorKeyComparability:
         soup = _indicators_soup(*_FILLER_ROWS, _unit_row(name, "-32", unit))
 
         assert key not in _make_scraper()._parse_indicators_table(soup)
+
+
+class TestGdpQuarterlyConvention:
+    """The US page reports QoQ growth annualised; the other pages do not."""
+
+    @staticmethod
+    def _gdp_page(value: str) -> bytes:
+        return (
+            '<table class="table table-hover"><tbody>'
+            + _unit_row("GDP Growth Rate", value, "percent")
+            + "".join(_FILLER_ROWS[1:])
+            + _unit_row("Unemployment Rate", "4.1", "percent")
+            + "</tbody></table>"
+        ).encode()
+
+    def _indicators(self, country: str, value: str) -> dict:
+        with (
+            patch(
+                f"{_MOD}.retry_with_backoff",
+                return_value=_fake_response(self._gdp_page(value)),
+            ),
+            patch(f"{_MOD}._te_circuit_breaker"),
+        ):
+            result = _make_scraper().get_country_indicators(
+                country, include_bonds=False
+            )
+        return result["indicators"]
+
+    def test_us_annualised_rate_does_not_share_the_quarterly_key(self) -> None:
+        indicators = self._indicators("USA", "2.2")
+
+        assert "gdp_growth_rate" not in indicators
+        assert indicators["gdp_growth_qoq_annualized"]["value"] == pytest.approx(2.2)
+        assert indicators["gdp_growth_qoq_annualized"]["unit"] == "percent"
+
+    def test_non_annualised_countries_keep_the_quarterly_key(self) -> None:
+        for country in ("Germany", "Japan", "UK"):
+            indicators = self._indicators(country, "0.3")
+
+            assert indicators["gdp_growth_rate"]["value"] == pytest.approx(0.3)
+            assert "gdp_growth_qoq_annualized" not in indicators
+
+    def test_summary_labels_the_annualised_us_rate(self) -> None:
+        scraper = _make_scraper()
+        summary = scraper.get_indicator_summary(
+            {
+                "country": "USA",
+                "status": "success",
+                "indicators": {
+                    "gdp_growth_qoq_annualized": {
+                        "value": 2.2,
+                        "previous": 2.5,
+                        "unit": "percent",
+                        "reference": "Jun/26",
+                    }
+                },
+            }
+        )
+
+        assert "annualised" in summary
+        assert "2.20" in summary
