@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import tracemalloc
 
+import numpy as np
 import pandas as pd
 
 from optimizer.factors import (
@@ -17,6 +19,7 @@ from optimizer.factors import (
     classify_regime_composite,
     get_regime_tilts,
 )
+from optimizer.factors import _regime as regime_module
 
 
 class TestClassifyRegime:
@@ -617,3 +620,119 @@ class TestRegimeTiltBranchCoverage:
         # group is preserved and stays at 0.0 (no division-by-zero).
         assert set(result) == set(weights)
         assert all(value == 0.0 for value in result.values())
+
+
+class TestCompositeUsesLastValidObservation:
+    """A NaN in the newest row must not erase an indicator's latest print."""
+
+    def _monthly_pmi_frame(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "pmi": [45.0, float("nan")],
+                "spread_2s10s": [1.5, 1.5],
+                "hy_oas": [420.0, 420.0],
+            },
+            index=pd.date_range("2024-03-01", periods=2),
+        )
+
+    def test_missing_monthly_pmi_on_latest_row_carries_last_print(self) -> None:
+        """PMI=45 (-1), spread=1.5 (+1), HY=420 (0) → S_t=0 → SLOWDOWN."""
+        macro = self._monthly_pmi_frame()
+        assert classify_regime_composite(macro.iloc[:1]) == MacroRegime.SLOWDOWN
+        assert classify_regime_composite(macro) == MacroRegime.SLOWDOWN
+        assert classify_regime(macro) == MacroRegime.SLOWDOWN
+
+    def test_regime_does_not_flip_between_release_and_non_release_days(
+        self,
+    ) -> None:
+        """Expanding windows over a daily frame with one monthly print agree."""
+        macro = pd.DataFrame(
+            {
+                "pmi": [45.0] + [float("nan")] * 4,
+                "spread_2s10s": [1.5] * 5,
+                "hy_oas": [420.0] * 5,
+            },
+            index=pd.date_range("2024-03-01", periods=5),
+        )
+        regimes = {classify_regime(macro.iloc[: i + 1]) for i in range(len(macro))}
+        assert regimes == {MacroRegime.SLOWDOWN}
+
+    def test_sentiment_gap_on_latest_row_carries_last_reading(self) -> None:
+        """Sentiment follows the same last-valid rule as the macro indicators."""
+        macro = pd.DataFrame(
+            {
+                "pmi": [50.0, 50.0],
+                "spread_2s10s": [0.5, 0.5],
+                "hy_oas": [420.0, 420.0],
+                "sentiment": [-0.5, float("nan")],
+            },
+            index=pd.date_range("2024-03-01", periods=2),
+        )
+        # S_t=0, s_sent=-1 carried → S_aug=-1 → RECOVERY (not SLOWDOWN).
+        assert classify_regime_composite(macro) == MacroRegime.RECOVERY
+
+
+class TestLastValidLookupCost:
+    """Point-in-time validation classifies every expanding window, so finding
+    the latest print must not cost a pass over the whole history."""
+
+    @staticmethod
+    def _long_macro(rows: int) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "pmi": [55.0] * rows,
+                "spread_2s10s": [1.5] * rows,
+                "hy_oas": [300.0] * rows,
+                "sentiment": [0.5] * rows,
+            },
+            index=pd.date_range("2000-01-03", periods=rows, freq="B"),
+        )
+
+    @staticmethod
+    def _peak_allocation(macro: pd.DataFrame) -> int:
+        tracemalloc.start()
+        try:
+            tracemalloc.reset_peak()
+            classify_regime(macro)
+            return tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+    def test_classification_cost_does_not_grow_with_history_length(self) -> None:
+        short = self._long_macro(1_000)
+        long = self._long_macro(500_000)
+        # Warm pandas' internal caches so they are not billed to either call.
+        classify_regime(short)
+        classify_regime(long)
+        extra = self._peak_allocation(long) - self._peak_allocation(short)
+        # One boolean mask over the long column alone would take ~500 kB.
+        assert extra < 50_000
+
+    def test_latest_print_is_found_at_any_distance_from_the_end(self) -> None:
+        rows = 300
+        for gap in (0, 1, 15, 16, 17, 47, 48, 49, 150, 299):
+            values = np.full(rows, np.nan)
+            values[0] = 40.0
+            values[rows - 1 - gap] = 51.5
+            macro = pd.DataFrame(
+                {"pmi": values},
+                index=pd.date_range("2000-01-03", periods=rows, freq="B"),
+            )
+            assert regime_module._last_valid(macro, "pmi") == 51.5, gap
+
+    def test_column_without_any_print_has_no_latest_value(self) -> None:
+        macro = pd.DataFrame(
+            {"pmi": [np.nan] * 300},
+            index=pd.date_range("2000-01-03", periods=300, freq="B"),
+        )
+        assert regime_module._last_valid(macro, "pmi") is None
+        assert regime_module._last_valid(macro, "not_a_column") is None
+
+    def test_nullable_and_object_columns_are_read_as_floats(self) -> None:
+        index = pd.date_range("2024-01-01", periods=3)
+        nullable = pd.DataFrame(
+            {"pmi": pd.array([47.0, pd.NA, pd.NA], dtype="Float64")}, index=index
+        )
+        mixed = pd.DataFrame({"pmi": [47.0, None, None]}, index=index, dtype=object)
+        assert regime_module._last_valid(nullable, "pmi") == 47.0
+        assert regime_module._last_valid(mixed, "pmi") == 47.0

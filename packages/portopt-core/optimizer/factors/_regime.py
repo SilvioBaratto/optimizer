@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
 import pandas as pd
 
 from optimizer.factors._config import (
@@ -26,6 +27,42 @@ from optimizer.factors._config import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ``_last_valid`` looks at the newest ``_LAST_VALID_CHUNK`` rows first and
+# widens the window by ``_LAST_VALID_GROWTH`` on every miss, so a series that
+# was never observed costs a handful of passes rather than one per row.
+_LAST_VALID_CHUNK = 16
+_LAST_VALID_GROWTH = 4
+
+
+def _last_valid(macro_data: pd.DataFrame, column: str) -> float | None:
+    """Return the most recent non-NaN value of ``column``, or ``None``.
+
+    Macro series publish at different cadences (a monthly PMI beside a daily
+    credit spread), so the newest row routinely has gaps.  Reading only the
+    last row would drop a slow indicator on every non-release day and flip
+    the regime without any change in the macro state.
+
+    The search walks back from the end in growing windows over the column's
+    underlying array, so its cost follows the distance to the latest print,
+    not the length of the history: ``run_regime_validation`` classifies every
+    expanding window, and a full-column pass per call would make that loop
+    quadratic.
+    """
+    if column not in macro_data.columns:
+        return None
+    values = macro_data[column].array
+    stop = len(values)
+    chunk = _LAST_VALID_CHUNK
+    while stop > 0:
+        start = max(stop - chunk, 0)
+        window = values[start:stop]
+        observed = np.flatnonzero(~np.asarray(pd.isna(window)))
+        if observed.size:
+            return float(window[int(observed[-1])])
+        stop = start
+        chunk *= _LAST_VALID_GROWTH
+    return None
 
 
 def classify_regime_composite(
@@ -42,8 +79,11 @@ def classify_regime_composite(
     ``pmi`` (Manufacturing PMI), ``spread_2s10s`` (10Y-2Y spread in %),
     ``hy_oas`` (HY OAS in basis points), ``sentiment`` (news score).
 
+    Each indicator is read as its last non-NaN observation, so a monthly
+    series carries forward between releases.
+
     Args:
-        macro_data: Macro indicators indexed by date.
+        macro_data: Macro indicators indexed by date in ascending order.
         thresholds: Scoring thresholds. Defaults to the empirical calibration.
 
     Returns:
@@ -58,12 +98,10 @@ def classify_regime_composite(
         )
         return MacroRegime.UNKNOWN
 
-    latest = macro_data.iloc[-1]
-
     # Default to 0 so missing indicators are neutral, not penalizing.
     s_pmi = 0
-    if "pmi" in macro_data.columns and pd.notna(latest.get("pmi")):
-        pmi = float(latest["pmi"])
+    pmi = _last_valid(macro_data, "pmi")
+    if pmi is not None:
         s_pmi = (
             1
             if pmi > thresholds.pmi_expansion
@@ -71,8 +109,8 @@ def classify_regime_composite(
         )
 
     s_2s10s = 0
-    if "spread_2s10s" in macro_data.columns and pd.notna(latest.get("spread_2s10s")):
-        spread = float(latest["spread_2s10s"])
+    spread = _last_valid(macro_data, "spread_2s10s")
+    if spread is not None:
         s_2s10s = (
             1
             if spread > thresholds.spread_2s10s_steep
@@ -80,8 +118,8 @@ def classify_regime_composite(
         )
 
     s_hy = 0
-    if "hy_oas" in macro_data.columns and pd.notna(latest.get("hy_oas")):
-        hy = float(latest["hy_oas"])
+    hy = _last_valid(macro_data, "hy_oas")
+    if hy is not None:
         s_hy = (
             1
             if hy < thresholds.hy_oas_risk_on
@@ -89,8 +127,8 @@ def classify_regime_composite(
         )
 
     s_sent = 0
-    if "sentiment" in macro_data.columns and pd.notna(latest.get("sentiment")):
-        sent = float(latest["sentiment"])
+    sent = _last_valid(macro_data, "sentiment")
+    if sent is not None:
         s_sent = (
             1
             if sent > thresholds.sentiment_positive
@@ -138,7 +176,7 @@ def classify_regime(
     Args:
         macro_data: Macro indicators with columns that may include
             ``gdp_growth``, ``leading_indicator``, ``yield_spread``,
-            ``unemployment_rate``.  Index is date.
+            ``unemployment_rate``.  Index is date in ascending order.
         thresholds: Scoring thresholds forwarded to the composite classifier.
 
     Returns:
