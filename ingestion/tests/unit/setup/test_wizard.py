@@ -22,6 +22,7 @@ _REAL_LOAD_CONFIG = config_file.load_config
 _REAL_SAVE_CONFIG = config_file.save_config
 _REAL_SAVE_SECRETS = secret_store.save_secrets
 _REAL_IS_FIRST_RUN = wizard._is_first_run
+_REAL_VALIDATE_LLM = wizard.validators.validate_llm
 
 
 @pytest.fixture
@@ -975,7 +976,7 @@ def test_existing_store_is_opened_with_a_short_legacy_passphrase(
     monkeypatch.setattr(
         wizard.secret_store, "load_secrets", lambda pw, **k: {"fred_api_key": "fk"}
     )
-    wizard.run_setup_noninteractive(passphrase="pw")
+    wizard.run_setup_noninteractive(passphrase=_PW)
     assert patched["saved_secrets"] == {"fred_api_key": "fk"}
 
 
@@ -1494,7 +1495,7 @@ def test_bootstrap_failure_persists_nothing(
 
     monkeypatch.setattr(wizard.docker_bootstrap, "bring_up_db", _down)
     with pytest.raises(wizard.docker_bootstrap.DockerError):
-        wizard.run_setup_noninteractive(passphrase="pw", fred_key="fk")
+        wizard.run_setup_noninteractive(passphrase=_PW, fred_key="fk")
     assert patched["saved_secrets"] is None
     assert patched["saved_config"] is None
 
@@ -1519,7 +1520,7 @@ def test_secrets_and_config_are_written_after_the_bootstrap(
         "update_config",
         lambda config, **kw: events.append("config"),
     )
-    wizard.run_setup_noninteractive(passphrase="pw")
+    wizard.run_setup_noninteractive(passphrase=_PW)
     assert events == ["db", "migrate", "secrets", "config"]
 
 
@@ -1554,6 +1555,135 @@ def test_failed_first_setup_is_still_a_first_run_on_retry(
 
     monkeypatch.setattr(wizard.docker_bootstrap, "bring_up_db", _down)
     with pytest.raises(wizard.docker_bootstrap.DockerError):
-        wizard.run_setup_noninteractive(passphrase="pw", fred_key="fk")
+        wizard.run_setup_noninteractive(passphrase=_PW, fred_key="fk")
 
     assert wizard._is_first_run() is True
+
+
+class _ScriptedPrompter(NonInteractivePrompter):
+    """Answers a repeated prompt from a list, in order; records error messages."""
+
+    def __init__(self, answers: dict) -> None:
+        super().__init__(answers)
+        self.errors: list[str] = []
+
+    def text(self, message: str, *, default: str | None = None) -> str:
+        return self._next(message)
+
+    def password(self, message: str) -> str:
+        return self._next(message)
+
+    def _next(self, message: str) -> str:
+        answer = self._get(message)
+        if isinstance(answer, list):
+            return answer.pop(0)
+        return str(answer)
+
+    def error(self, message: str) -> None:
+        self.errors.append(message)
+
+
+def _first_setup_answers(**extra: object) -> dict:
+    return {
+        wizard._MSG_PASSPHRASE: _PW,
+        wizard._MSG_PASSPHRASE_CONFIRM: _PW,
+        wizard._MSG_T212_KEY: "",
+        wizard._MSG_FRED_KEY: "",
+        wizard._MSG_CONFIGURE_LLM: False,
+        **extra,
+    }
+
+
+# --- required provider fields are re-asked, not reported as a bad key --------
+
+
+def _use_real_llm_validation(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Run the real validators with a stub transport; return the probed URLs."""
+    urls: list[str] = []
+
+    def _ok(url: str, **kwargs: object):
+        urls.append(url)
+        return type("Resp", (), {"status_code": 200})()
+
+    monkeypatch.setattr(wizard.validators, "validate_llm", _REAL_VALIDATE_LLM)
+    monkeypatch.setattr(wizard.validators, "_llm_get", _ok)
+    return urls
+
+
+def _azure_answers(**extra: object) -> dict:
+    return _first_setup_answers(
+        **{
+            wizard._MSG_CONFIGURE_LLM: True,
+            wizard._MSG_LLM_PROVIDER: "microsoft",
+            wizard._MSG_LLM_MODEL: "gpt-4o",
+            wizard._MSG_LLM_BASE_URL: "",
+            wizard._MSG_AZURE_ENDPOINT: "https://az.openai.azure.com",
+            wizard._MSG_AZURE_API_VERSION: "2024-06-01",
+            wizard._MSG_AZURE_DEPLOYMENT: "gpt4o-deploy",
+            wizard._MSG_LLM_KEY: "az-key",
+            **extra,
+        }
+    )
+
+
+def test_blank_azure_fields_are_reasked_instead_of_rejecting_the_key(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A blank API version/deployment is a missing field, not a bad key.
+
+    The validator returns False for it, which the key loop used to read as a
+    rejected key: the user retyped a valid key three times and then got a failure
+    that never named the empty field.
+    """
+    _use_real_llm_validation(monkeypatch)
+    prompter = _ScriptedPrompter(
+        _azure_answers(
+            **{
+                wizard._MSG_AZURE_API_VERSION: ["", "2024-06-01"],
+                wizard._MSG_AZURE_DEPLOYMENT: ["", "gpt4o-deploy"],
+            }
+        )
+    )
+
+    wizard.run_setup_interactive(prompter)
+
+    assert not any("key" in message.lower() for message in prompter.errors)
+    assert len(prompter.errors) == 2
+    assert patched["saved_config"]["azure_openai_api_version"] == "2024-06-01"
+    assert patched["saved_config"]["azure_openai_deployment_name"] == "gpt4o-deploy"
+    assert patched["saved_secrets"]["azure_openai_api_key"] == "az-key"
+
+
+def test_azure_field_left_blank_fails_naming_the_field_without_asking_for_the_key(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _use_real_llm_validation(monkeypatch)
+    # No answer for the key prompt: asking for it would raise PromptUnavailableError.
+    answers = _azure_answers(**{wizard._MSG_AZURE_API_VERSION: ""})
+    del answers[wizard._MSG_LLM_KEY]
+
+    with pytest.raises(wizard.SetupError, match="API version"):
+        wizard.run_setup_interactive(_ScriptedPrompter(answers))
+    assert patched["saved_secrets"] is None
+
+
+def test_blank_aws_region_is_reasked(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _use_real_llm_validation(monkeypatch)
+    prompter = _ScriptedPrompter(
+        _first_setup_answers(
+            **{
+                wizard._MSG_CONFIGURE_LLM: True,
+                wizard._MSG_LLM_PROVIDER: "aws",
+                wizard._MSG_LLM_MODEL: "amazon.titan-text",
+                wizard._MSG_LLM_BASE_URL: "",
+                wizard._MSG_AWS_REGION: ["", "eu-west-1"],
+            }
+        )
+    )
+
+    wizard.run_setup_interactive(prompter)
+
+    assert len(prompter.errors) == 1
+    assert patched["saved_config"]["aws_region"] == "eu-west-1"

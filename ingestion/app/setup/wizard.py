@@ -411,18 +411,39 @@ def _llm_fields_from_env(provider: str, base_url: str | None) -> dict[str, str |
     return {}
 
 
+def _prompt_required(prompter: Prompter, message: str) -> str:
+    """Prompt until the answer is non-blank (bounded, like the key retry).
+
+    The validators reject a blank required field the same way as a bad key, so
+    leaving it empty here would surface later as a misleading "key rejected" loop.
+
+    Raises:
+        SetupError: If the answer is still blank after ``_LLM_KEY_ATTEMPTS`` tries.
+    """
+    label = message.rstrip(":")
+    for _ in range(_LLM_KEY_ATTEMPTS):
+        answer = prompter.text(message).strip()
+        if answer:
+            return answer
+        prompter.error(f"{label} is required.")
+    raise SetupError(f"{label} is required.")
+
+
 def _prompt_llm_fields(prompter: Prompter, provider: str) -> dict[str, str | None]:
-    """Prompt provider-specific non-secret fields (env auto-detected first)."""
+    """Prompt provider-specific required fields (env auto-detected first)."""
     if provider == "aws":
-        return {"region": os.getenv("AWS_REGION") or prompter.text(_MSG_AWS_REGION)}
+        return {
+            "region": os.getenv("AWS_REGION")
+            or _prompt_required(prompter, _MSG_AWS_REGION)
+        }
     if provider == "microsoft":
         return {
             "endpoint": os.getenv("AZURE_OPENAI_ENDPOINT")
-            or prompter.text(_MSG_AZURE_ENDPOINT),
+            or _prompt_required(prompter, _MSG_AZURE_ENDPOINT),
             "api_version": os.getenv("OPENAI_API_VERSION")
-            or prompter.text(_MSG_AZURE_API_VERSION),
+            or _prompt_required(prompter, _MSG_AZURE_API_VERSION),
             "deployment_name": os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
-            or prompter.text(_MSG_AZURE_DEPLOYMENT),
+            or _prompt_required(prompter, _MSG_AZURE_DEPLOYMENT),
         }
     return {}
 
