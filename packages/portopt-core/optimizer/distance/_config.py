@@ -20,10 +20,11 @@ transform via ``absolute`` and ``power``:
   distance).
 
 These apply to the correlation / covariance family (Pearson, Kendall, Spearman,
-Covariance). ``DistanceCorrelation`` instead exposes a ``threshold`` and
-``MutualInformation`` exposes ``n_bins`` / ``n_bins_method`` / ``normalize``.
-Setting a knob that does not belong to the selected estimator raises a
-``ConfigurationError`` to surface configuration mistakes early.
+Covariance). ``DistanceCorrelation`` has no tunable knob (its ``threshold`` is
+stored by skfolio but never read) and ``MutualInformation`` exposes ``n_bins`` /
+``n_bins_method`` / ``normalize``. Setting a knob that does not belong to the
+selected estimator, or one that skfolio ignores, raises a ``ConfigurationError``
+to surface configuration mistakes early.
 """
 
 from __future__ import annotations
@@ -82,9 +83,10 @@ class DistanceConfig:
             Must be finite and strictly positive, and must be a whole number unless
             ``absolute`` is ``True`` (a fractional power of a negative codependence
             is NaN). Only valid for the correlation / covariance family.
-        threshold: Codependence threshold for ``skfolio.distance.DistanceCorrelation``.
-            Only valid when ``estimator`` is ``DISTANCE_CORRELATION``. ``None`` keeps
-            the skfolio default (0.5).
+        threshold: Reserved for ``skfolio.distance.DistanceCorrelation``. skfolio
+            stores it but never reads it when fitting, so any value would be a
+            silent no-op — it must be ``None``. Retained for backward
+            compatibility only.
         n_bins: Explicit histogram bin count for ``skfolio.distance.MutualInformation``.
             Only valid when ``estimator`` is ``MUTUAL_INFORMATION``. ``None`` defers to
             ``n_bins_method``.
@@ -110,7 +112,6 @@ class DistanceConfig:
 
     def __post_init__(self) -> None:
         is_mi = self.estimator == DistanceEstimatorType.MUTUAL_INFORMATION
-        is_dcorr = self.estimator == DistanceEstimatorType.DISTANCE_CORRELATION
         in_corr_family = self.estimator in _CORR_FAMILY
 
         # absolute / power belong to the correlation / covariance family only.
@@ -128,13 +129,13 @@ class DistanceConfig:
                 "signed codependence and is NaN for negative correlations"
             )
 
-        # threshold belongs to DISTANCE_CORRELATION only.
-        if not is_dcorr and self.threshold is not None:
+        # skfolio's DistanceCorrelation never reads ``threshold``; accepting a
+        # value would let callers tune a knob that changes nothing.
+        if self.threshold is not None:
             raise ConfigurationError(
-                "threshold is only valid for DistanceEstimatorType.DISTANCE_CORRELATION"
+                "threshold has no effect: skfolio DistanceCorrelation stores it "
+                "but never reads it; leave it as None"
             )
-        if self.threshold is not None and not 0.0 <= self.threshold <= 1.0:
-            raise ConfigurationError("threshold must lie in [0, 1]")
 
         mi_only_set = (
             self.n_bins is not None
@@ -207,7 +208,11 @@ class DistanceConfig:
     def for_distance_correlation(
         cls, *, threshold: float | None = None
     ) -> DistanceConfig:
-        """Szekely-Rizzo distance correlation preset."""
+        """Szekely-Rizzo distance correlation preset.
+
+        ``threshold`` is accepted only so a stale value fails with a clear
+        ``ConfigurationError`` instead of a ``TypeError``; skfolio ignores it.
+        """
         return cls(
             estimator=DistanceEstimatorType.DISTANCE_CORRELATION,
             threshold=threshold,

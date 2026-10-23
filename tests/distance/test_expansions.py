@@ -143,24 +143,31 @@ class TestCovarianceEstimatorKwarg:
 
 
 class TestDistanceCorrelationThreshold:
-    def test_when_threshold_set_then_forwarded(self) -> None:
-        cfg = DistanceConfig.for_distance_correlation(threshold=0.3)
-        est = build_distance(cfg)
-        assert isinstance(est, DistanceCorrelation)
-        assert est.threshold == 0.3
+    @pytest.mark.parametrize("threshold", [0.0, 0.3, 0.5, 1.0, 1.5])
+    def test_when_threshold_set_then_raises_because_skfolio_ignores_it(
+        self, threshold: float
+    ) -> None:
+        # skfolio's DistanceCorrelation stores ``threshold`` but never reads it,
+        # so accepting a value would be a silent no-op knob.
+        with pytest.raises(ConfigurationError, match=r"threshold.*no effect"):
+            DistanceConfig.for_distance_correlation(threshold=threshold)
 
     def test_when_threshold_none_then_skfolio_default(self) -> None:
         est = build_distance(DistanceConfig.for_distance_correlation())
         assert isinstance(est, DistanceCorrelation)
         assert est.threshold == DistanceCorrelation().threshold
 
-    def test_when_threshold_out_of_range_then_raises(self) -> None:
-        with pytest.raises(ConfigurationError, match=r"\[0, 1\]"):
-            DistanceConfig.for_distance_correlation(threshold=1.5)
-
-    def test_when_threshold_on_non_dcorr_then_raises(self) -> None:
-        with pytest.raises(ConfigurationError, match="DISTANCE_CORRELATION"):
-            DistanceConfig(estimator=DistanceEstimatorType.PEARSON, threshold=0.5)
+    @pytest.mark.parametrize("estimator", list(DistanceEstimatorType))
+    def test_when_threshold_on_any_estimator_then_message_does_not_redirect(
+        self, estimator: DistanceEstimatorType
+    ) -> None:
+        # Pointing a PEARSON user at DISTANCE_CORRELATION would just trade one
+        # error for the "no effect" one, so the message must be the same everywhere.
+        with pytest.raises(ConfigurationError) as exc_info:
+            DistanceConfig(estimator=estimator, threshold=0.5)
+        message = str(exc_info.value)
+        assert "no effect" in message
+        assert "only valid" not in message
 
 
 class TestMutualInformationKnobs:
