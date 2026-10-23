@@ -227,6 +227,74 @@ def test_resume_fund_approve_sizes_ticket_at_the_stored_mandate_capital(
     assert order.notional == 250_000.0
 
 
+def test_resume_fund_sizes_the_ticket_from_the_capital_the_run_opened_with(
+    db_session,
+) -> None:
+    """The rebuild-to-resume path prices the ticket at the capital the PM saw."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    mandate = make_mandate().model_copy(update={"capital": Decimal("40000")})
+    run = run_fund(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        mandate,
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+    )
+
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    (order,) = _paper_orders(db_session)
+    assert order.notional == pytest.approx(40_000.0)
+
+
+def test_resume_fund_prices_the_ticket_at_the_run_capital_after_a_mandate_edit(
+    db_session,
+) -> None:
+    """A mandate edited while the gate is pending must not re-price the ticket."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    opened = make_mandate().model_copy(update={"capital": Decimal("40000")})
+    MandateRepository(db_session).upsert(opened)
+    run = run_fund(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        opened,
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+    )
+    MandateRepository(db_session).upsert(
+        opened.model_copy(update={"capital": Decimal("900000")})
+    )
+
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    (order,) = _paper_orders(db_session)
+    assert order.notional == pytest.approx(40_000.0)
+
+
 # --- resume_fund reject: no order, no positions, rejected --------------------
 
 

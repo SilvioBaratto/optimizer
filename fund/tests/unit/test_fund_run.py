@@ -808,6 +808,34 @@ def test_round_cap_finalizes_incomplete(db_session) -> None:
     )
 
 
+# --- the mandate's capital sizes the paper ticket ----------------------------
+
+
+def test_approve_sizes_the_ticket_from_the_mandate_capital(db_session) -> None:
+    from decimal import Decimal
+
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=expected)
+    mandate = _mandate().model_copy(update={"capital": Decimal("250000")})
+
+    run = run_fund(
+        model,
+        mandate,
+        portfolio_id=_PORTFOLIO_ID,
+        asof=_ASOF,
+        session=db_session,
+        checkpointer=MemorySaver(),
+        store=_store_with_cs(),
+    )
+    run.resume("approve")
+
+    (order,) = _paper_orders(db_session)
+    assert order.notional == pytest.approx(250_000.0)
+    for line in order.lines:
+        assert line["notional"] == pytest.approx(line["weight"] * 250_000.0)
+
+
 # --- summarization override compiles into the real agent graph ---------------
 
 

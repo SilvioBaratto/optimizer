@@ -969,8 +969,9 @@ def _prepare_fund_run(
     other: a FROZEN fund or portfolio raises ``RuntimeError`` (re-arm first — Q3, fund
     scope wins); a missing active ``ConstraintSet`` raises ``RuntimeError`` (profile
     first); a pending ``agent_run`` is opened recording the seed + ``temperature`` + 3y
-    lookback (D31); its checkpointer thread is pinned to ``str(run_id)`` so the
-    rebuild-to-resume path recovers it; and the PM agent is built against this run's
+    lookback (D31) + the mandate's ``capital`` (the ticket's gross book); its
+    checkpointer thread is pinned to ``str(run_id)`` so the rebuild-to-resume path
+    recovers it; and the PM agent is built against this run's
     ``RunContext`` with the effective gate set — the portfolio's **first** round forces
     every PM gate (``_ALL_ORCHESTRATOR_GATES``), later rounds use config baseline ∪
     ``mandate.hitl_gates``. The caller drives the agent (invoke or stream). Every write
@@ -1020,6 +1021,9 @@ def _prepare_fund_run(
             "step": "fund",
             "temperature": config.model_temperature,
             "lookback_days": _LOOKBACK_DAYS,
+            # Recorded so the rebuild-to-resume path sizes the ticket at the capital
+            # the PM was told, even if the mandate is edited before approval.
+            "capital": float(mandate.capital),
         },
     )
     resolved_thread_id = thread_id or str(run.id)
@@ -1376,6 +1380,27 @@ def stream_fund(
     )
 
 
+def _ticket_capital(run: Any, mandate: PortfolioMandate | None) -> float | None:
+    """Capital the paper ticket is priced at when a gate resumes.
+
+    The capital recorded when the run opened wins: it is the book the PM was told
+    to allocate, so a mandate edited while the gate was pending must not silently
+    re-price the ticket. Runs opened before capital was recorded fall back to the
+    current mandate, and ``None`` leaves the paper-cost model's default notional.
+
+    Args:
+        run: The persisted ``agent_run`` row being resumed.
+        mandate: The portfolio's current mandate, or ``None`` if it vanished.
+
+    Returns:
+        The notional to size the ticket with, or ``None`` for the default book.
+    """
+    recorded = (run.optimizer_config or {}).get("capital")
+    if recorded is not None:
+        return float(recorded)
+    return float(mandate.capital) if mandate is not None else None
+
+
 def resume_fund(
     run_id: uuid.UUID | str,
     decision: str,
@@ -1495,7 +1520,7 @@ def resume_fund(
         run_id=rid,
         portfolio_id=portfolio_id,
         base_currency=mandate.base_currency if mandate is not None else None,
-        notional=float(mandate.capital) if mandate is not None else None,
+        notional=_ticket_capital(run, mandate),
     )
     agent = build_fund_agent(
         model,
