@@ -121,8 +121,9 @@ class ICStats:
         mean: Mean IC over the evaluation period.
         variance_nw: Newey-West HAC variance of the IC series.
         t_stat_nw: Newey-West adjusted t-statistic:
-            ``IC_mean / sqrt(Var_NW / T)``.
-        p_value: Two-tailed p-value derived from the Newey-West t-statistic.
+            ``IC_mean / sqrt(Var_NW / T)``; ``0.0`` when no test is run.
+        p_value: Two-tailed p-value derived from the Newey-West t-statistic;
+            ``1.0`` when no test is run.
         icir: Information Coefficient Information Ratio:
             ``mean(IC) / std(IC)``.
     """
@@ -403,7 +404,9 @@ def compute_ic_stats(
 
     Returns:
         Dataclass containing ``mean``, ``variance_nw``, ``t_stat_nw``,
-        ``p_value``, and ``icir``.
+        ``p_value``, and ``icir``.  With fewer than ``2 * lags + 1`` periods,
+        or a constant series, no t-test is run: ``t_stat_nw`` is ``0.0`` and
+        ``p_value`` is ``1.0`` while the descriptive fields are still filled.
     """
     from scipy import stats as sp_stats
 
@@ -421,25 +424,12 @@ def compute_ic_stats(
     ic_std = float(cast(float, ic_series.std(ddof=1)))
     icir = mean_ic / ic_std if ic_std > 0.0 else 0.0
 
-    demeaned = ic_series - mean_ic
-    gamma_0 = float((demeaned**2).mean())
-    nw_var = gamma_0
-
-    for lag in range(1, min(lags, n - 1) + 1):
-        weight = 1.0 - lag / (lags + 1)
-        lag_vals: npt.NDArray[np.float64] = np.asarray(
-            demeaned.iloc[lag:], dtype=np.float64
-        )
-        lead_vals: npt.NDArray[np.float64] = np.asarray(
-            demeaned.iloc[:-lag], dtype=np.float64
-        )
-        gamma_j = float((lag_vals * lead_vals).mean())
-        nw_var += 2 * weight * gamma_j
-
-    nw_var = max(nw_var, 1e-12)
-    se = float(np.sqrt(nw_var / n))
-    t_stat_nw = mean_ic / se if se > 0.0 else 0.0
-    p_value = float(2.0 * (1.0 - sp_stats.t.cdf(abs(t_stat_nw), df=n - 1)))
+    nw_var = _newey_west_variance(ic_series, lags)
+    if n < _min_newey_west_periods(lags) or not nw_var > 0.0:
+        t_stat_nw, p_value = 0.0, 1.0
+    else:
+        t_stat_nw = mean_ic / float(np.sqrt(nw_var / n))
+        p_value = float(2.0 * (1.0 - sp_stats.t.cdf(abs(t_stat_nw), df=n - 1)))
 
     return ICStats(
         mean=mean_ic,

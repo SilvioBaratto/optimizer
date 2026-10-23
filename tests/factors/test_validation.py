@@ -606,6 +606,81 @@ class TestComputeICStats:
         result = compute_ic_stats(ic)
         assert result.variance_nw > 0.0
 
+    @pytest.mark.parametrize("n", [3, 4, 6, 9, 12, 30])
+    def test_when_series_short_then_matches_textbook_newey_west(self, n: int) -> None:
+        """Autocovariances are normalised by n so the HAC variance stays >= 0."""
+        n_lags = min(5, (n - 1) // 2)
+        rng = np.random.default_rng(100 + n)
+        for _ in range(25):
+            values = rng.normal(0.0, 0.1, n)
+            result = compute_ic_stats(pd.Series(values), lags=n_lags)
+            ref_t, ref_p = _reference_newey_west(values, n_lags)
+            assert result.t_stat_nw == pytest.approx(ref_t, rel=1e-9)
+            assert result.p_value == pytest.approx(ref_p, rel=1e-9, abs=1e-15)
+            assert result.variance_nw > 0.0
+
+    def test_when_short_series_then_t_stat_not_inflated(self) -> None:
+        result = compute_ic_stats(pd.Series([0.1, 0.0, 0.1]), lags=1)
+        assert abs(result.t_stat_nw) < 100.0
+        assert result.p_value > 1e-6
+
+    @pytest.mark.parametrize(("lags", "n"), [(5, 10), (5, 4), (2, 4), (4, 8)])
+    def test_when_series_shorter_than_two_lags_plus_one_then_no_inference(
+        self, lags: int, n: int
+    ) -> None:
+        """Below 2 * lags + 1 periods no t-test is run; descriptives still are."""
+        rng = np.random.default_rng(n)
+        ic = pd.Series(0.05 + rng.normal(0.0, 1e-3, n))
+
+        result = compute_ic_stats(ic, lags=lags)
+
+        assert result.t_stat_nw == 0.0
+        assert result.p_value == 1.0
+        assert result.mean == pytest.approx(float(ic.mean()), rel=1e-12)
+        assert result.icir == pytest.approx(
+            float(ic.mean()) / float(ic.std(ddof=1)), rel=1e-9
+        )
+
+    @pytest.mark.parametrize("lags", [1, 2, 5])
+    def test_when_series_has_two_lags_plus_one_periods_then_inference_runs(
+        self, lags: int
+    ) -> None:
+        n = 2 * lags + 1
+        rng = np.random.default_rng(n)
+        values = 0.05 + rng.normal(0.0, 1e-2, n)
+
+        result = compute_ic_stats(pd.Series(values), lags=lags)
+        ref_t, ref_p = _reference_newey_west(values, lags)
+
+        assert result.t_stat_nw == pytest.approx(ref_t, rel=1e-9)
+        assert result.p_value == pytest.approx(ref_p, rel=1e-9, abs=1e-15)
+        assert abs(result.t_stat_nw) > 2.0
+
+    @pytest.mark.parametrize("n", [10, 20])
+    def test_when_ic_series_constant_then_no_evidence(self, n: int) -> None:
+        result = compute_ic_stats(pd.Series([0.05] * n), lags=5)
+        assert result.t_stat_nw == 0.0
+        assert result.p_value == 1.0
+        assert result.variance_nw == 0.0
+
+    def test_when_universe_ic_history_short_then_noise_not_flagged(self) -> None:
+        """Spurious p ~ 0 on short histories must not survive the corrections."""
+        rng = np.random.default_rng(1)
+        ic_matrix = pd.DataFrame(rng.normal(0.0, 0.1, (6, 20)))
+        result = validate_factor_universe(ic_matrix, lags=5)
+        assert result["p_value_raw"].min() > 1e-6
+        assert result["significant_holm"].sum() == 0
+
+    def test_when_universe_history_below_floor_then_no_factor_flagged(self) -> None:
+        """A 10-period history with 5 lags is under the 2 * lags + 1 floor."""
+        rng = np.random.default_rng(5)
+        ic_matrix = pd.DataFrame(rng.normal(0.0, 0.1, (10, 200)))
+
+        result = validate_factor_universe(ic_matrix, lags=5)
+
+        assert (result["p_value_raw"] == 1.0).all()
+        assert result["significant_bh"].sum() == 0
+
 
 class TestCorrectPValues:
     def test_returns_corrected_pvalues(self) -> None:
