@@ -411,9 +411,10 @@ class TestBoundedTilts:
         )
         weights = self._weights()
         result = apply_regime_tilts(weights, MacroRegime.RECESSION, config)
-        # momentum raw = 0.40 * 0.01 = 0.004, floored to 0.10 * 1.0 = 0.10
-        # Pre-renorm: 0.30, 0.10, 0.30 → 0.70, scale = 1.0/0.70
-        assert result[FactorGroupType.MOMENTUM] > 0.0
+        # momentum raw = 0.40 * 0.01 = 0.004, held at 0.10 * 1.0 = 0.10; the
+        # other two groups share the remaining 0.90 equally.
+        assert abs(result[FactorGroupType.MOMENTUM] - 0.10) < 1e-10
+        assert abs(result[FactorGroupType.VALUE] - 0.45) < 1e-10
         assert abs(sum(result.values()) - sum(weights.values())) < 1e-10
 
     def test_floor_zero_allows_full_suppression(self) -> None:
@@ -860,6 +861,24 @@ class TestTiltFloorScope:
         assert abs(result[FactorGroupType.MOMENTUM] - 0.03) < 1e-12
         assert abs(result[FactorGroupType.VALUE] - 0.97) < 1e-12
 
+    def test_strict_bounds_does_not_raise_small_or_empty_groups_to_the_floor(
+        self,
+    ) -> None:
+        weights = {
+            FactorGroupType.VALUE: 0.50,
+            FactorGroupType.LOW_RISK: 0.40,
+            FactorGroupType.DIVIDEND: 0.06,
+            FactorGroupType.SENTIMENT: 0.04,
+            FactorGroupType.LIQUIDITY: 0.0,
+        }
+        result = apply_regime_tilts(
+            weights, MacroRegime.RECESSION, RegimeTiltConfig.for_strict_bounds()
+        )
+        assert result[FactorGroupType.DIVIDEND] < 0.10
+        assert result[FactorGroupType.SENTIMENT] < 0.10
+        assert result[FactorGroupType.LIQUIDITY] == 0.0
+        assert abs(sum(result.values()) - 1.0) < 1e-12
+
 
 class TestGdpHeuristicTiesAndSign:
     """The GDP fallback must not read steady growth as a recession or a
@@ -936,3 +955,93 @@ class TestGdpHeuristicTiesAndSign:
         assert classify_regime(self._gdp([4.0, 4.0, 2.5, 2.5])) == (
             MacroRegime.SLOWDOWN
         )
+
+
+class TestTiltFloorSurvivesRenormalisation:
+    """``min_post_tilt_weight`` bounds the weight a group ends with, not the
+    weight it had before the total was restored."""
+
+    @staticmethod
+    def _protected_floor(
+        base: dict[FactorGroupType, float],
+        config: RegimeTiltConfig,
+        regime: MacroRegime,
+    ) -> dict[FactorGroupType, float]:
+        tilts = get_regime_tilts(regime, config)
+        total = sum(base.values())
+        floor = config.min_post_tilt_weight * total
+        out: dict[FactorGroupType, float] = {}
+        for group, weight in base.items():
+            tilt = min(tilts.get(group, 1.0), config.max_tilt_multiplier)
+            if tilt < 1.0 or weight >= floor:
+                out[group] = min(weight, floor)
+        return out
+
+    def test_strict_bounds_recession_keeps_momentum_at_ten_percent(self) -> None:
+        weights = {
+            FactorGroupType.VALUE: 0.25,
+            FactorGroupType.MOMENTUM: 0.10,
+            FactorGroupType.LOW_RISK: 0.25,
+            FactorGroupType.PROFITABILITY: 0.25,
+            FactorGroupType.DIVIDEND: 0.15,
+        }
+        result = apply_regime_tilts(
+            weights, MacroRegime.RECESSION, RegimeTiltConfig.for_strict_bounds()
+        )
+        assert result[FactorGroupType.MOMENTUM] >= 0.10 - 1e-12
+        assert abs(sum(result.values()) - 1.0) < 1e-12
+
+    def test_compressed_groups_hold_the_floor_across_nine_equal_groups(self) -> None:
+        weights = dict.fromkeys(FactorGroupType, 1.0 / 9.0)
+        result = apply_regime_tilts(
+            weights, MacroRegime.RECESSION, RegimeTiltConfig.for_strict_bounds()
+        )
+        assert result[FactorGroupType.VALUE] >= 0.10 - 1e-12
+        assert result[FactorGroupType.MOMENTUM] >= 0.10 - 1e-12
+        assert abs(sum(result.values()) - 1.0) < 1e-12
+
+    def test_untilted_group_above_floor_is_not_pushed_under_it_by_boosts(
+        self,
+    ) -> None:
+        weights = {
+            FactorGroupType.VALUE: 0.12,
+            FactorGroupType.MOMENTUM: 0.44,
+            FactorGroupType.LOW_RISK: 0.44,
+        }
+        config = RegimeTiltConfig(
+            enable=True,
+            min_post_tilt_weight=0.10,
+            expansion_tilts=(("momentum", 2.0), ("low_risk", 2.0)),
+        )
+        result = apply_regime_tilts(weights, MacroRegime.EXPANSION, config)
+        assert result[FactorGroupType.VALUE] >= 0.10 - 1e-12
+        assert abs(sum(result.values()) - 1.0) < 1e-12
+        # The remainder keeps its tilted proportions.
+        assert (
+            abs(result[FactorGroupType.MOMENTUM] - result[FactorGroupType.LOW_RISK])
+            < 1e-12
+        )
+
+    def test_floor_holds_for_random_weights_and_tilts(self) -> None:
+        import numpy as np
+
+        rng = np.random.default_rng(11)
+        groups = list(FactorGroupType)
+        for _ in range(300):
+            raw = rng.dirichlet(np.ones(len(groups)))
+            weights = {g: float(w) for g, w in zip(groups, raw, strict=True)}
+            tilts = tuple(
+                (g.value, float(rng.uniform(0.0, 2.5)))
+                for g in groups
+                if rng.random() < 0.7
+            )
+            config = RegimeTiltConfig(
+                enable=True,
+                min_post_tilt_weight=float(rng.choice([0.0, 0.03, 0.05, 0.10])),
+                recession_tilts=tilts,
+            )
+            result = apply_regime_tilts(weights, MacroRegime.RECESSION, config)
+            assert abs(sum(result.values()) - 1.0) < 1e-9
+            protected = self._protected_floor(weights, config, MacroRegime.RECESSION)
+            for group, minimum in protected.items():
+                assert result[group] >= minimum - 1e-9, (group, weights, tilts)

@@ -344,6 +344,49 @@ def get_regime_tilts(
     return tilts
 
 
+def _floor_and_renormalize(
+    base: dict[FactorGroupType, float],
+    tilted: dict[FactorGroupType, float],
+    floor: float,
+) -> dict[FactorGroupType, float]:
+    """Rescale ``tilted`` to the total of ``base`` without breaking the floor.
+
+    A group is protected when its tilt compressed it or when it started at or
+    above the floor; its protected minimum is ``min(base weight, floor)``.
+    Flooring before a single rescale would let the rescale push a floored
+    group back under the floor, so protected groups that fall below their
+    minimum are pinned to it and the remaining groups share what is left in
+    their tilted proportions, repeating until no further group binds.  The
+    minimums never exceed the base weights, so they always fit in the total.
+    """
+    total = sum(base.values())
+    minimums = {
+        g: min(base[g], floor) if tilted[g] < base[g] or base[g] >= floor else 0.0
+        for g in base
+    }
+
+    pinned: dict[FactorGroupType, float] = {}
+    while True:
+        free = [g for g in tilted if g not in pinned]
+        free_mass = sum(tilted[g] for g in free)
+        scale = (total - sum(pinned.values())) / free_mass if free_mass > 0 else 0.0
+        binding = [
+            g for g in free if minimums[g] > 0 and scale * tilted[g] < minimums[g]
+        ]
+        if not binding:
+            break
+        pinned.update({g: minimums[g] for g in binding})
+
+    result = {g: pinned[g] if g in pinned else scale * tilted[g] for g in tilted}
+    result_total = sum(result.values())
+    if free_mass <= 0 and result_total > 0:
+        # Every unpinned group was tilted to zero, so the pinned minimums are
+        # all that is left to carry the total.
+        uplift = total / result_total
+        result = {g: w * uplift for g, w in result.items()}
+    return result
+
+
 def apply_regime_tilts(
     group_weights: dict[FactorGroupType, float],
     regime: MacroRegime,
@@ -356,11 +399,12 @@ def apply_regime_tilts(
     1. Look up raw tilts from ``get_regime_tilts``.
     2. Clamp each multiplier to ``[0, config.max_tilt_multiplier]``.
     3. Apply clamped multiplier to each group weight.
-    4. Floor each result to ``config.min_post_tilt_weight * total`` so no
-       group is compressed to near-zero.  The floor is capped at the group's
-       own base weight, so it only undoes compression: untilted groups,
-       boosted groups and zero-weight (excluded) groups are never raised.
-    5. Re-normalize to preserve the original total weight.
+    4. Re-normalize to preserve the original total weight while holding every
+       protected group at or above ``config.min_post_tilt_weight * total``.
+       A group is protected when its tilt compressed it or when its base
+       weight was already at or above the floor; the floor is capped at the
+       group's own base weight.  Untilted small groups and zero-weight
+       (excluded) groups are never raised.
 
     Args:
         group_weights: Base group weights.
@@ -386,16 +430,12 @@ def apply_regime_tilts(
         capped_tilt = max(min(raw_tilt, config.max_tilt_multiplier), 0.0)
         tilted[group] = weight * capped_tilt
 
-    if original_total > 0:
-        floor = config.min_post_tilt_weight * original_total
-        tilted = {g: max(w, min(group_weights[g], floor)) for g, w in tilted.items()}
+    if original_total <= 0:
+        return tilted
 
-    tilted_total = sum(tilted.values())
-    if tilted_total > 0 and original_total > 0:
-        scale = original_total / tilted_total
-        tilted = {g: w * scale for g, w in tilted.items()}
-
-    return tilted
+    return _floor_and_renormalize(
+        group_weights, tilted, config.min_post_tilt_weight * original_total
+    )
 
 
 def check_regime_disagreement(

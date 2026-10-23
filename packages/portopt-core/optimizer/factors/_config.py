@@ -593,12 +593,13 @@ class RegimeTiltConfig:
         max_tilt_multiplier: Upper bound on any single raw tilt multiplier
             (default 2.0). Multipliers exceeding this value are clamped before
             application. Must be >= 1.0.
-        min_post_tilt_weight: Minimum weight any group may hold after tilting,
-            expressed as a fraction of the original total weight (default 0.05).
-            Groups compressed below this floor by a tilt are raised to it
-            (never above their own base weight) before renormalization;
-            untilted and zero-weight groups are left alone. Must be in
-            [0.0, 1.0).
+        min_post_tilt_weight: Minimum weight a protected group may hold after
+            tilting and renormalization, expressed as a fraction of the
+            original total weight (default 0.05). A group is protected when
+            its tilt compressed it or its base weight was already at or above
+            the floor; its minimum is the floor, never above its own base
+            weight. Untilted groups below the floor and zero-weight groups are
+            left alone. Must be in [0.0, 1.0).
     """
 
     enable: bool = False
@@ -657,9 +658,13 @@ class RegimeTiltConfig:
     def for_strict_bounds(cls) -> RegimeTiltConfig:
         """Enable tilts with tight multiplier cap and weight floor.
 
-        Caps each raw tilt multiplier at 1.5x and prevents any group
-        from falling below 10% of the total weight.  Suitable for
-        mandates requiring diversification guarantees.
+        Caps each raw tilt multiplier at 1.5x and stops a tilt from eroding
+        a group below 10% of the total weight: a group that started at or
+        above 10%, or that a tilt compressed, never ends under it (a
+        compressed group that started lower is held at its base weight).
+        Zero-weight groups and untilted groups that start below 10% are not
+        raised to the floor, so the preset bounds how far tilts can cut a
+        group; it does not guarantee every group a 10% share.
         """
         return cls(
             enable=True,
