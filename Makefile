@@ -1,4 +1,4 @@
-.PHONY: setup sync lint format typecheck test coverage coverage-report all clean
+.PHONY: setup sync lint format typecheck pyright test test-db test-ingestion test-fund coverage coverage-report all clean
 
 # One-command onboarding: delegate to the thin POSIX front door (no logic here).
 setup:
@@ -22,8 +22,22 @@ typecheck:
 	cd packages/portopt-db && uv run mypy src/portopt_db
 	cd ingestion && uv run mypy app
 
+pyright:
+	uv run pyright
+
 test:
 	uv run pytest tests/ -v --cov=optimizer --cov-report=term-missing --cov-fail-under=90
+
+# The member suites run from their own directory so their pytest config applies;
+# ingestion's pytest.ini keeps the docker-compose deployment tests out of this run.
+test-db:
+	cd packages/portopt-db && uv run pytest -v --tb=short --cov=portopt_db --cov-report=term-missing --cov-fail-under=90
+
+test-ingestion:
+	cd ingestion && uv run pytest tests/ -v --tb=short --cov=app --cov-report=term-missing --cov-fail-under=80
+
+test-fund:
+	cd fund && uv run pytest tests/ -v --tb=short --cov=fund --cov-report=term-missing --cov-fail-under=80
 
 coverage:
 	uv run pytest tests/ --cov=optimizer --cov-report=html --cov-fail-under=90
@@ -32,7 +46,9 @@ coverage:
 coverage-report:
 	uv run pytest tests/ --cov=optimizer --cov-branch --cov-report=xml --cov-fail-under=90
 
-all: lint typecheck test
+# Local mirror of the CI jobs (minus pip-audit and the Python version matrix), so a
+# green `make all` means every workspace member passed, not just portopt-core.
+all: lint typecheck pyright test test-db test-ingestion test-fund
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

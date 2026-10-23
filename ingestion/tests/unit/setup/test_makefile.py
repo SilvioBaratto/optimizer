@@ -1,4 +1,4 @@
-"""Makefile contract: every target is real and runs scripts that exist.
+"""Makefile contract: no dead targets, and ``make all`` gates every workspace member.
 
 Targets are exercised with ``make -n`` (print, never run), so nothing here starts
 uv, Docker or a test suite.
@@ -57,3 +57,42 @@ class TestMakefileTargets:
         """A recipe pointing at a deleted script fails with "can't open file"."""
         for script in re.findall(r"[\w./-]+\.py\b", _dry_run(target)):
             assert (_REPO_ROOT / script).is_file(), f"{target} runs missing {script}"
+
+
+class TestMakeAll:
+    """``make all`` is the local mirror of CI, not just the portopt-core slice."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "--cov=optimizer",
+            "--cov=portopt_db",
+            "--cov=app",
+            "--cov=fund",
+            "mypy src/portopt_db",
+            "pyright",
+        ],
+    )
+    def test_all_runs_the_ci_gate_for_every_member(self, command: str) -> None:
+        """Lint, types and tests for db, ingestion and fund are part of ``all``."""
+        assert command in _dry_run("all")
+
+    def test_contributing_lists_every_target_that_all_runs(self) -> None:
+        """The contributor guide names each ``make`` step behind ``make all``.
+
+        ``make all`` grew from lint + typecheck + test into a CI mirror; a guide that
+        still says "lint + typecheck + test" hides a much longer run from whoever
+        follows "ensure all checks pass: make all".
+        """
+        makefile = _MAKEFILE.read_text(encoding="utf-8")
+        match = re.search(r"^all:\s*(.+)$", makefile, re.MULTILINE)
+        assert match is not None
+        guide = (_REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+        missing = [
+            target
+            for target in match.group(1).split()
+            if not re.search(rf"^make {re.escape(target)}\s", guide, re.MULTILINE)
+        ]
+
+        assert not missing, f"CONTRIBUTING.md does not document: {missing}"
