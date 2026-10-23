@@ -98,6 +98,35 @@ class TestBuildMuEstimator:
         assert estimator.min_observations == 25
 
 
+class TestEwDefaultHalfLife:
+    """Unconfigured EW estimators must use a multi-week half-life, matching
+    skfolio's own default and ``variance_half_life``."""
+
+    def test_default_ew_mu_matches_skfolio_default(self) -> None:
+        cfg = MomentEstimationConfig(mu_estimator=MuEstimatorType.EW)
+        estimator = build_mu_estimator(cfg)
+        assert isinstance(estimator, EWMu)
+        assert estimator.half_life == EWMu().half_life
+
+    def test_default_ew_cov_matches_skfolio_default(self) -> None:
+        cfg = MomentEstimationConfig(cov_estimator=CovEstimatorType.EW)
+        estimator = build_cov_estimator(cfg)
+        assert isinstance(estimator, EWCovariance)
+        assert estimator.half_life == EWCovariance().half_life
+
+    def test_adaptive_preset_is_not_dominated_by_last_few_days(self) -> None:
+        rng = np.random.default_rng(7)
+        cols = [f"A{i}" for i in range(30)]
+        returns = pd.DataFrame(rng.normal(0.0, 0.01, (1250, 30)), columns=cols)
+        prior = build_prior(MomentEstimationConfig.for_adaptive())
+        prior.fit(returns)
+        cov = prior.return_distribution_.covariance
+        cond = np.linalg.cond(cov)
+        # True covariance is 1e-4 * I (cond 1); a ~9-observation effective
+        # sample on 30 assets is near-singular (cond > 1e3).
+        assert cond < 1e3
+
+
 class TestEquilibriumMuWiring:
     """EquilibriumMu is reverse-optimised against the configured covariance and
     (optionally) DB market-cap weights, not skfolio's silent defaults."""

@@ -101,12 +101,14 @@ class MomentEstimationConfig:
         mu_estimator: Which expected return estimator to use.
         shrinkage_method: Shrinkage flavour when ``mu_estimator`` is ``SHRUNK``.
         ew_mu_half_life: Exponential-weighting half-life (in observations) for
-            ``EWMu``. skfolio 1.0 replaced the former ``alpha`` argument with
+            ``EWMu``. Defaults to skfolio's 40 (about two months of daily data).
+            skfolio 1.0 replaced the former ``alpha`` argument with
             ``half_life``; convert via ``half_life = -1 / log2(1 - alpha)``.
         risk_aversion: Risk-aversion coefficient for ``EquilibriumMu``.
         cov_estimator: Which covariance estimator to use.
         ew_cov_half_life: Exponential-weighting half-life (in observations) for
-            ``EWCovariance``. Replaces the former ``alpha`` (skfolio 1.0).
+            ``EWCovariance``. Replaces the former ``alpha`` (skfolio 1.0);
+            defaults to skfolio's 40.
         shrunk_cov_shrinkage: Shrinkage intensity for ``ShrunkCovariance``.
         gerber_threshold: Threshold for ``GerberCovariance``.
         implied_annualization_factor: Number of periods per year forwarded to
@@ -155,13 +157,14 @@ class MomentEstimationConfig:
     # -- Expected return estimator --
     mu_estimator: MuEstimatorType = MuEstimatorType.EMPIRICAL
     shrinkage_method: ShrinkageMethod = ShrinkageMethod.JAMES_STEIN
-    # 3.11 ≈ former alpha=0.2 (skfolio 1.0 dropped alpha; half_life = -1/log2(1-alpha))
-    ew_mu_half_life: float = 3.11
+    # 40 observations matches skfolio's own default; a ~3-observation half-life
+    # leaves an effective sample of ~9 days, so mu and covariance track noise.
+    ew_mu_half_life: float = 40.0
     risk_aversion: float = 1.0
 
     # -- Covariance estimator --
     cov_estimator: CovEstimatorType = CovEstimatorType.LEDOIT_WOLF
-    ew_cov_half_life: float = 3.11
+    ew_cov_half_life: float = 40.0
     shrunk_cov_shrinkage: float = 0.1
     gerber_threshold: float = 0.5
     implied_annualization_factor: float | None = None

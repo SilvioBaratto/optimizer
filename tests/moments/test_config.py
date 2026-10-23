@@ -64,9 +64,9 @@ class TestMomentEstimationConfig:
         assert cfg.mu_estimator == MuEstimatorType.EMPIRICAL
         assert cfg.cov_estimator == CovEstimatorType.LEDOIT_WOLF
         assert cfg.shrinkage_method == ShrinkageMethod.JAMES_STEIN
-        assert cfg.ew_mu_half_life == 3.11
+        assert cfg.ew_mu_half_life == 40.0
         assert cfg.risk_aversion == 1.0
-        assert cfg.ew_cov_half_life == 3.11
+        assert cfg.ew_cov_half_life == 40.0
         assert cfg.shrunk_cov_shrinkage == 0.1
         assert cfg.gerber_threshold == 0.5
         assert cfg.is_log_normal is False
