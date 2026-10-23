@@ -20,6 +20,7 @@ a keyless ``settings`` makes that raise cleanly and the command exits non-zero.
 
 from __future__ import annotations
 
+import getpass
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -53,6 +54,7 @@ from typer.testing import CliRunner
 import fund.cli as cli
 from fund import observe
 from fund.audit import AgentRunRepository, MandateRepository, put_constraint_set
+from fund.audit.human_audit_repository import HumanAuditLogRepository
 from fund.config import FundConfig, settings
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
 
@@ -199,6 +201,31 @@ def _stored_mandate(harness) -> PortfolioMandate:
     return mandate
 
 
+def _audit_rows(harness, action: str) -> list[dict[str, Any]]:
+    """The ``human_audit_log`` rows of one ``action`` as plain dicts, oldest first."""
+    with harness.read() as session:
+        rows = HumanAuditLogRepository(session).list_recent(action=action)
+        return [
+            {
+                "run_id": r.run_id,
+                "portfolio_id": r.portfolio_id,
+                "actor": r.actor,
+                "source": r.source,
+                "idempotency_key": r.idempotency_key,
+                "prev_value": r.prev_value,
+                "new_value": r.new_value,
+            }
+            for r in reversed(rows)
+        ]
+
+
+@pytest.fixture
+def cli_actor(monkeypatch) -> str:
+    """Pin the OS user the CLI records as the audit actor."""
+    monkeypatch.setattr(getpass, "getuser", lambda: "adviser-1")
+    return "adviser-1"
+
+
 # --- surface ----------------------------------------------------------------
 
 
@@ -250,6 +277,26 @@ def test_mandate_set_without_capital_needs_an_existing_mandate(harness) -> None:
     assert "--capital is required" in res.output
 
 
+def test_mandate_set_audits_creation_then_edit(harness, cli_actor) -> None:
+    _set_mandate(harness)
+    (created,) = _audit_rows(harness, "new_portfolio")
+    assert created["portfolio_id"] == PORTFOLIO_ID
+    assert created["actor"] == cli_actor
+    assert created["source"] == "cli"
+    assert created["new_value"]["base_currency"] == "EUR"
+
+    res = harness.runner.invoke(
+        cli.app, ["mandate", "set", str(PORTFOLIO_ID), "--capital", "250000"]
+    )
+    assert res.exit_code == 0, res.output
+    (edit,) = _audit_rows(harness, "mandate_edit")
+    assert edit["portfolio_id"] == PORTFOLIO_ID
+    assert edit["actor"] == cli_actor
+    assert edit["source"] == "cli"
+    assert Decimal(edit["prev_value"]["capital"]) == Decimal("100000")
+    assert Decimal(edit["new_value"]["capital"]) == Decimal("250000")
+
+
 def test_mandate_show_missing_errors(harness) -> None:
     res = harness.runner.invoke(cli.app, ["mandate", "show", str(PORTFOLIO_ID)])
     assert res.exit_code != 0
@@ -286,6 +333,27 @@ def test_run_with_override_flags_keeps_remembered_directives(
     assert _stored_mandate(harness) == seeded.model_copy(
         update={"drift_l1_threshold": 0.07}
     )
+
+
+def test_run_audits_the_run_and_any_mandate_override(
+    harness, monkeypatch, cli_actor
+) -> None:
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+    (run_row,) = _audit_rows(harness, "run")
+    assert run_row["run_id"] == run_id
+    assert run_row["portfolio_id"] == PORTFOLIO_ID
+    assert run_row["actor"] == cli_actor
+    assert run_row["source"] == "cli"
+    assert _audit_rows(harness, "mandate_edit") == []  # no flags, no mandate change
+
+    res = harness.runner.invoke(
+        cli.app, ["run", str(PORTFOLIO_ID), "--asof", _ASOF_STR, "--drift", "0.07"]
+    )
+    assert res.exit_code == 0, res.output
+    (edit,) = _audit_rows(harness, "mandate_edit")
+    assert edit["prev_value"]["drift_l1_threshold"] == 0.1
+    assert edit["new_value"]["drift_l1_threshold"] == 0.07
+    assert len(_audit_rows(harness, "run")) == 2
 
 
 def test_run_without_mandate_errors(harness, monkeypatch) -> None:
@@ -348,6 +416,33 @@ def test_approve_surfaces_a_failed_pm_follow_up(harness, monkeypatch) -> None:
     assert "PM follow-up failed" in res.output
     with harness.read() as session:
         assert AgentRunRepository(session).get_run(run_id).status == "completed"
+
+
+@pytest.mark.parametrize("verb", ["approve", "reject"])
+def test_resolving_a_run_appends_a_cli_audit_row(
+    harness, monkeypatch, cli_actor, verb
+) -> None:
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+    res = harness.runner.invoke(cli.app, [verb, str(run_id)])
+    assert res.exit_code == 0, res.output
+    (row,) = _audit_rows(harness, verb)
+    assert row["run_id"] == run_id
+    assert row["portfolio_id"] == PORTFOLIO_ID
+    assert row["actor"] == cli_actor
+    assert row["source"] == "cli"
+    assert row["idempotency_key"] == f"{run_id}:{verb}"
+
+
+def test_repeated_approve_replays_instead_of_resuming_again(
+    harness, monkeypatch
+) -> None:
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+    first = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+    again = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+    assert first.exit_code == 0, first.output
+    assert again.exit_code == 0, again.output
+    assert "already applied" in again.output
+    assert len(_audit_rows(harness, "approve")) == 1
 
 
 def test_reject_finalizes_run(harness, monkeypatch) -> None:

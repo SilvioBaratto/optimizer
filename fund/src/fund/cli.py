@@ -2,9 +2,10 @@
 
 The complete headless human driver, mirroring ``ingestion/app/cli.py``. Every
 command is a thin wrapper over :mod:`fund.observe` (the model-free read model),
-``run_fund`` / ``run_profiler`` / ``resume_run`` (the orchestration; ``resume_run``
-dispatches a paused run to the profiler or rebalance resumer by its gate), and the
-``fund.audit`` repositories. The seven commands span one cycle::
+:func:`fund.actions.apply_action` (the audited path for every human mutation, shared
+with the TUI: it drives ``run_fund`` / ``resume_run`` and appends the
+``human_audit_log`` row), ``run_profiler``, and the ``fund.audit`` repositories. The
+seven commands span one cycle::
 
     mandate set|show   persist / display the per-portfolio mandate (no model)
     profile            drive the MiFID profiler to its approval gate
@@ -15,10 +16,11 @@ dispatches a paused run to the profiler or rebalance resumer by its gate), and t
     report             tabular audit of one run (no model)
 
 **Transactions:** each command owns its session — ``with get_session() as
-session:`` — and commits (writes) or rolls back (reads); the repositories never
-``commit``. ``run`` / ``profile`` / ``approve`` / ``reject`` also open the
-LangGraph persistence via :func:`setup_langgraph` and **close its pool** in a
-``finally`` (the caller owns the pool's lifetime).
+session:`` — and commits (writes) or rolls back (reads); the repositories and
+``apply_action`` never ``commit``, so an action and its audit row land together.
+``run`` / ``profile`` / ``approve`` / ``reject`` also open the LangGraph persistence
+via :func:`setup_langgraph` and **close its pool** in a ``finally`` (the caller owns
+the pool's lifetime).
 
 **Model:** ``profile`` / ``run`` / ``approve`` / ``reject`` build the chat model
 lazily via :func:`build_primary`; a missing ``OLLAMA_API_KEY`` raises a clear
@@ -36,6 +38,7 @@ from fund.config import load_project_env
 load_project_env()
 
 import datetime as dt
+import getpass
 import logging
 import uuid
 from decimal import Decimal, InvalidOperation
@@ -44,13 +47,11 @@ from typing import Any, NoReturn
 import typer
 
 from fund import observe
-from fund.actions import resume_message
-from fund.agents.graph import resume_run, run_fund
+from fund.actions import apply_action
 from fund.agents.model import build_primary
 from fund.agents.profiler import run_profiler
 from fund.audit import (
     AgentRunRepository,
-    MandateRepository,
     OrderRepository,
     setup_langgraph,
 )
@@ -68,6 +69,10 @@ mandate_app = typer.Typer(
     add_completion=False, help="Per-portfolio mandate management."
 )
 app.add_typer(mandate_app, name="mandate")
+
+# Provenance stamped on every audit row the CLI writes, so the Audit view tells a
+# headless action from a TUI one.
+_SOURCE = "cli"
 
 # Module-level typer option (B008: a list-typed default must be a shared singleton,
 # not an inline call); the gated-tool flag is identical for `mandate set` and `run`.
@@ -116,6 +121,14 @@ def _build_model() -> Any:
         return build_primary(settings)
     except RuntimeError as exc:
         _fail(str(exc))
+
+
+def _actor() -> str:
+    """The OS user driving the CLI, recorded as the audit actor."""
+    try:
+        return getpass.getuser()
+    except (OSError, KeyError, ImportError):
+        return "human"
 
 
 def _to_decimal(capital: float) -> Decimal:
@@ -177,6 +190,24 @@ def _build_mandate(
     )
 
 
+def _save_mandate(
+    session: Any,
+    portfolio_id: uuid.UUID,
+    existing: PortfolioMandate | None,
+    mandate: PortfolioMandate,
+) -> None:
+    """Persist ``mandate`` through the audited action path (no commit)."""
+    apply_action(
+        "mandate_edit" if existing is not None else "new_portfolio",
+        session=session,
+        portfolio_id=portfolio_id,
+        mandate=mandate,
+        prev_value=existing.model_dump(mode="json") if existing is not None else None,
+        actor=_actor(),
+        source=_SOURCE,
+    )
+
+
 # --- mandate set|show -------------------------------------------------------
 
 
@@ -205,16 +236,17 @@ def mandate_set(
     _boot()
     pid = _uuid(portfolio_id, label="portfolio id")
     with get_session() as session:
+        existing = observe.get_mandate(session, pid)
         mandate = _build_mandate(
             pid,
-            observe.get_mandate(session, pid),
+            existing,
             capital=capital,
             base_currency=base_currency,
             drift=drift,
             benchmark=benchmark,
             interrupt_on=interrupt_on,
         )
-        MandateRepository(session).upsert(mandate)
+        _save_mandate(session, pid, existing, mandate)
         session.commit()
     typer.echo(f"mandate saved for portfolio {pid}")
     _exit(True)
@@ -332,22 +364,26 @@ def run(
                     benchmark=benchmark,
                     interrupt_on=interrupt_on,
                 )
-                MandateRepository(session).upsert(mandate)
-            fund_run = run_fund(
-                model,
-                mandate,
-                portfolio_id=pid,
-                asof=run_asof,
+                _save_mandate(session, pid, existing, mandate)
+            result = apply_action(
+                "run",
                 session=session,
+                portfolio_id=pid,
+                mandate=mandate,
+                asof=run_asof,
+                model=model,
                 checkpointer=persistence.saver,
                 store=persistence.store,
+                actor=_actor(),
+                source=_SOURCE,
+                config=settings,
             )
             session.commit()
     except (RuntimeError, ValueError, LookupError) as exc:
         _fail(str(exc))
     finally:
         persistence.pool.close()
-    typer.echo(f"run {fund_run.run_id} status={fund_run.status} (HITL gate)")
+    typer.echo(f"{result.message} (HITL gate)")
     _exit(True)
 
 
@@ -367,16 +403,21 @@ def _resume(run_id: str, decision: str) -> None:
     persistence = setup_langgraph(settings)
     try:
         with get_session() as session:
-            result = resume_run(
-                rid,
+            result = apply_action(
                 decision,
                 session=session,
+                run_id=rid,
                 checkpointer=persistence.saver,
                 store=persistence.store,
                 model=model,
+                actor=_actor(),
+                source=_SOURCE,
+                # Resolving a run is terminal: keying on (run, decision), as the TUI
+                # does, makes a repeat replay the first outcome instead of re-resuming.
+                idempotency_key=f"{rid}:{decision}",
+                config=settings,
             )
             session.commit()
-            message = resume_message(session, rid, decision, result)
             run = AgentRunRepository(session).get_run(rid)
             ticketed = decision != "approve" or (
                 run is not None and run.status == "completed"
@@ -385,7 +426,7 @@ def _resume(run_id: str, decision: str) -> None:
         _fail(str(exc))
     finally:
         persistence.pool.close()
-    typer.echo(message)
+    typer.echo(result.message)
     # An approve that placed no ticket is a failed approve for a script driving this.
     _exit(ticketed)
 
