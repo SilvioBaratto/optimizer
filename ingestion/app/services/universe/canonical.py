@@ -27,12 +27,15 @@ import logging
 import re
 import unicodedata
 from collections import defaultdict
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
+from typing import TypeVar
 
 from app.utils.currency import minor_unit_major
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 _NON_ALNUM = re.compile(r"[^A-Z0-9]+")
 
@@ -270,9 +273,17 @@ def _fx_blocked_currency(
     return major
 
 
+def _name_key(listing: Listing) -> str:
+    """Dedup grouping key; a name-less listing keys on its own symbol so it is
+    never merged with another."""
+    return normalize_name(listing.long_name or listing.short_name) or (
+        f"\x00sym\x00{listing.symbol}"
+    )
+
+
 def _split_by_currency(
-    members: list[tuple[Listing, Metrics]],
-) -> list[list[tuple[Listing, Metrics]]]:
+    members: list[tuple[Listing, _T]],
+) -> list[list[tuple[Listing, _T]]]:
     """Partition one same-name cluster by reporting currency.
 
     Yahoo omits ``financialCurrency`` on many thin cross-listings, so ``None`` is a
@@ -288,7 +299,7 @@ def _split_by_currency(
     }
     if len(currencies) <= 1:
         return [members]
-    by_currency: dict[str | None, list[tuple[Listing, Metrics]]] = defaultdict(list)
+    by_currency: dict[str | None, list[tuple[Listing, _T]]] = defaultdict(list)
     for lst, metrics in members:
         by_currency[lst.financial_currency].append((lst, metrics))
     return list(by_currency.values())
@@ -360,10 +371,7 @@ def dedup_canonical(
 
     by_name: dict[str, list[tuple[Listing, Metrics]]] = defaultdict(list)
     for lst, metrics in enriched:
-        name_key = normalize_name(lst.long_name or lst.short_name)
-        if not name_key:
-            name_key = f"\x00sym\x00{lst.symbol}"  # never merge an unnamed listing
-        by_name[name_key].append((lst, metrics))
+        by_name[_name_key(lst)].append((lst, metrics))
 
     groups = [
         group for members in by_name.values() for group in _split_by_currency(members)
@@ -405,6 +413,44 @@ def dedup_canonical(
     return survivors
 
 
+def carried_by_sibling(
+    carriers: Sequence[Listing], lines: Sequence[Listing]
+) -> frozenset[str]:
+    """Symbols of ``lines`` whose entity is carried by a line in ``carriers``.
+
+    Groups exactly as :func:`dedup_canonical` does (normalized name, split by
+    reporting currency), so a line that a data gap kept out of the dedup is still
+    recognised as a sibling of the line that carries its entity. Such a line is
+    still trading and its position rolls into the carrier, like a dedup loser.
+    A line whose group has no carrier is the whole entity vanishing, not a
+    sibling, and is not returned.
+    """
+    by_name: dict[str, list[tuple[Listing, bool]]] = defaultdict(list)
+    for lst in carriers:
+        by_name[_name_key(lst)].append((lst, True))
+    for lst in lines:
+        by_name[_name_key(lst)].append((lst, False))
+    carried: set[str] = set()
+    for members in by_name.values():
+        for group in _split_by_currency(members):
+            if any(is_carrier for _, is_carrier in group):
+                carried.update(
+                    lst.symbol for lst, is_carrier in group if not is_carrier
+                )
+    return frozenset(carried)
+
+
+def is_real_security_line(metrics: Metrics) -> bool:
+    """Per-line existence gate: a quote that is priced and carries a fundamentals
+    signal. Missing data here is a gap in ONE venue's quote, not a property of the
+    entity, so it must be applied before canonical selection — otherwise the most
+    liquid line's gap deletes the whole entity even when a sibling is complete.
+    """
+    if metrics.price_major is None:  # unpriced / non-existent line
+        return False
+    return metrics.has_fundamentals  # False: certificate / structured product / bond
+
+
 def passes_floor(
     metrics: Metrics, config: IngestionFloorConfig, *, is_member: bool = False
 ) -> bool:
@@ -413,9 +459,7 @@ def passes_floor(
     does. ``is_member`` selects the (lower) exit thresholds for existing members
     so a name doesn't churn out on a noisy month.
     """
-    if metrics.price_major is None:  # unpriced / non-existent line
-        return False
-    if not metrics.has_fundamentals:  # certificate / structured product / bond
+    if not is_real_security_line(metrics):
         return False
     mcap_below = (
         metrics.mcap_usd is not None

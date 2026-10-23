@@ -13,8 +13,10 @@ from app.services.universe.canonical import (
     IngestionFloorConfig,
     Listing,
     Metrics,
+    carried_by_sibling,
     dedup_canonical,
     derive_metrics,
+    is_real_security_line,
     normalize_name,
     passes_floor,
     split_currency,
@@ -444,6 +446,87 @@ class TestPassesFloor:
             has_fundamentals=False,
         )
         assert passes_floor(m, self._CFG) is False
+
+
+# --------------------------------------------------------------------------- #
+# is_real_security_line
+# --------------------------------------------------------------------------- #
+class TestIsRealSecurityLine:
+    @pytest.mark.parametrize(
+        ("price", "has_fundamentals", "expected"),
+        [(10.0, True, True), (None, True, False), (10.0, False, False)],
+    )
+    def test_requires_price_and_fundamentals(
+        self, price, has_fundamentals, expected
+    ) -> None:
+        m = Metrics(
+            major_ccy="USD",
+            price_major=price,
+            mcap_usd=None,
+            addv_usd=None,
+            has_fundamentals=has_fundamentals,
+        )
+        assert is_real_security_line(m) is expected
+
+
+# --------------------------------------------------------------------------- #
+# carried_by_sibling
+# --------------------------------------------------------------------------- #
+class TestCarriedBySibling:
+    def test_rejected_line_with_a_carrying_sibling_is_carried(self) -> None:
+        carriers = [_mk("AGGG.L", "LSE", "Global Agg", "GBp", 500.0, 1e5, fin_ccy=None)]
+        rejected = [_mk("EUNA.DE", "GER", "Global Agg", "EUR", 5.0, 3e6, fin_ccy=None)]
+        assert carried_by_sibling(carriers, rejected) == {"EUNA.DE"}
+
+    def test_lone_rejected_line_has_no_carrier(self) -> None:
+        carriers = [_mk("OTHER", "NMS", "Other Corp", "USD", 10.0, 1e6)]
+        rejected = [_mk("EUNA.DE", "GER", "Global Agg", "EUR", 5.0, 3e6, fin_ccy=None)]
+        assert carried_by_sibling(carriers, rejected) == frozenset()
+
+    def test_name_match_is_normalized_like_dedup(self) -> None:
+        carriers = [
+            _mk("NESN.SW", "EBS", "Nestlé S.A.", "CHF", 100.0, 1e6, fin_ccy="CHF")
+        ]
+        rejected = [
+            _mk(
+                "NSRGF.DE",
+                "GER",
+                "NESTLE SA",
+                "EUR",
+                90.0,
+                1e3,
+                fin_ccy="CHF",
+                shares=None,
+            )
+        ]
+        assert carried_by_sibling(carriers, rejected) == {"NSRGF.DE"}
+
+    def test_same_name_in_another_reporting_currency_is_another_company(self) -> None:
+        carriers = [_mk("ACME", "NMS", "ACME Corp", "USD", 100.0, 1e6, fin_ccy="USD")]
+        rejected = [_mk("ACM.PA", "PAR", "ACME Corp", "EUR", 90.0, 5e5, fin_ccy="EUR")]
+        assert carried_by_sibling(carriers, rejected) == frozenset()
+
+    def test_line_without_reporting_currency_joins_a_single_currency_group(
+        self,
+    ) -> None:
+        carriers = [_mk("ACME", "NMS", "ACME Corp", "USD", 100.0, 1e6, fin_ccy="USD")]
+        rejected = [_mk("ACM.IL", "IOB", "ACME Corp", "EUR", 90.0, 5e4, fin_ccy=None)]
+        assert carried_by_sibling(carriers, rejected) == {"ACM.IL"}
+
+    def test_line_without_reporting_currency_is_unattributable_when_currencies_conflict(
+        self,
+    ) -> None:
+        carriers = [
+            _mk("ACME", "NMS", "ACME Corp", "USD", 100.0, 1e6, fin_ccy="USD"),
+            _mk("ACM.PA", "PAR", "ACME Corp", "EUR", 90.0, 5e5, fin_ccy="EUR"),
+        ]
+        rejected = [_mk("ACM.IL", "IOB", "ACME Corp", "EUR", 90.0, 5e4, fin_ccy=None)]
+        assert carried_by_sibling(carriers, rejected) == frozenset()
+
+    def test_unnamed_line_is_never_matched(self) -> None:
+        carriers = [_mk("ACME", "NMS", None, "USD", 100.0, 1e6)]
+        rejected = [_mk("ACM.DE", "GER", None, "EUR", 90.0, 5e4)]
+        assert carried_by_sibling(carriers, rejected) == frozenset()
 
 
 # --------------------------------------------------------------------------- #

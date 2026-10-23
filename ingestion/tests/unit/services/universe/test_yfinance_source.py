@@ -815,3 +815,51 @@ def test_challenger_carries_the_entity_when_the_incumbent_fails_the_floor(
     )
     src.member_lookup = lambda: {("FOO", "NASDAQ")}
     assert [i["ticker"] for i in src.get_instruments()] == ["FOO.DE"]
+
+
+def _etf_quote(symbol: str, exchange: str, **kw: object) -> dict:
+    quote = _quote(symbol, exchange, financialCurrency=None, sharesOutstanding=None)
+    quote.update(
+        {
+            "longName": "iShares Core Global Aggregate Bond",
+            "currency": kw["currency"],
+            "regularMarketPrice": kw["price"],
+            "averageDailyVolume3Month": kw["volume"],
+        }
+    )
+    if "netAssets" in kw:
+        quote["netAssets"] = kw["netAssets"]
+    return quote
+
+
+def test_sibling_with_fundamentals_survives_a_more_liquid_line_without_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # EUNA.DE wins on ADDV but has no netAssets, so the existence gate would reject
+    # the whole fund even though AGGG.L (same fund) clears it.
+    euna = _etf_quote("EUNA.DE", "GER", currency="EUR", price=5.0, volume=3_000_000)
+    aggg = _etf_quote(
+        "AGGG.L", "LSE", currency="GBp", price=500.0, volume=100_000, netAssets=4e9
+    )
+    src, _ = _source(
+        [{"quotes": [euna, aggg]}, {"quotes": []}],
+        monkeypatch,
+        queries=[("Q", "ETF", _ETF_SORT_FIELD, _BIG_CAP)],
+    )
+    assert [i["ticker"] for i in src.get_instruments()] == ["AGGG.L"]
+    # EUNA.DE is still trading, so the builder must not book a -30% delisting for
+    # a one-off netAssets gap.
+    assert "EUNA.DE" in src.get_live_symbols()
+
+
+def test_existence_failing_line_without_a_sibling_is_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    euna = _etf_quote("EUNA.DE", "GER", currency="EUR", price=5.0, volume=3_000_000)
+    other = _quote("OTHER", "NMS", longName="Other Corp")
+    src, _ = _source(
+        [{"quotes": [euna, other]}, {"quotes": []}],
+        monkeypatch,
+        queries=[("Q", "ETF", _ETF_SORT_FIELD, _BIG_CAP)],
+    )
+    assert [i["ticker"] for i in src.get_instruments()] == ["OTHER"]

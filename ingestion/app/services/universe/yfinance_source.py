@@ -45,6 +45,7 @@ from app.services.universe.canonical import (
     Listing,
     dedup_canonical,
     derive_metrics,
+    is_real_security_line,
     passes_floor,
     split_currency,
 )
@@ -447,21 +448,28 @@ class YFinanceUniverseSource:
         # The previous build's symbols hold their canonical place through a near-tie
         # between venues, so the stored ticker does not flip on 3-month-ADDV noise.
         incumbents = frozenset(symbol for symbol, _ in members)
+        # Existence is checked per line BEFORE canonical selection: a data gap on
+        # the most liquid venue must not delete an entity a sibling line can carry.
+        candidates: list[Listing] = []
+        gapped: list[Listing] = []
+        for lst in parsed:
+            real = is_real_security_line(derive_metrics(lst, fx))
+            (candidates if real else gapped).append(lst)
         survivors = (
             dedup_canonical(
-                parsed,
+                candidates,
                 fx,
                 config=self.floor_config,
                 exchange_pref=_EXCHANGE_PREF,
                 incumbents=incumbents,
             )
             if self.dedup
-            else parsed
+            else candidates
         )
 
         schedule_ids: dict[str, int] = {}
         by_exchange: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        floored = 0
+        floored = len(gapped)
         for lst in survivors:
             name = _CODE_TO_CONFIG_NAME.get(lst.exchange or "")
             if name is None:
