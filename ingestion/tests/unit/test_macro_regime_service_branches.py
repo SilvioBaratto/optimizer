@@ -788,8 +788,37 @@ class TestRunBulkFredFetch:
 
             result = run_bulk_fred_fetch(request)
 
-        assert result["series_fetched"] == 5
+        assert result["series_fetched"] == 1
+        assert result["observations_upserted"] == 5
         assert result["error_count"] == 0
+
+    def test_when_some_series_return_nothing_then_only_series_with_rows_counted(
+        self,
+    ) -> None:
+        from app.services.macro.macro_regime_service import run_bulk_fred_fetch
+
+        request = SimpleNamespace(series_ids=["A", "B", "C"], incremental=True)
+        mock_svc = MagicMock()
+        mock_svc.fetch_fred_series.return_value = {
+            "counts": {"A": 100, "B": 0, "C": 40},
+            "errors": ["B: fetch failed"],
+        }
+
+        with (
+            patch("app.database.database_manager") as mock_db,
+            patch("app.services.macro.macro_regime_service.MacroRegimeRepository"),
+            patch(
+                "app.services.macro.macro_regime_service.MacroRegimeService",
+                return_value=mock_svc,
+            ),
+        ):
+            mock_db.get_session.return_value.__enter__.return_value = MagicMock()
+            mock_db.get_session.return_value.__exit__.return_value = False
+
+            result = run_bulk_fred_fetch(request)
+
+        assert result["series_fetched"] == 2
+        assert result["observations_upserted"] == 140
 
     def test_when_fetch_errors_then_final_status_is_failed(self) -> None:
         from app.services.macro.macro_regime_service import run_bulk_fred_fetch

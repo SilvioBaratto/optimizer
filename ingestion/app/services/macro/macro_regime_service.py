@@ -570,7 +570,8 @@ def run_bulk_fred_fetch(
         on_progress: Optional callback for progress updates.
 
     Returns:
-        Result dict with ``series_fetched`` and ``error_count``.
+        Result dict with ``series_fetched`` (series that returned rows),
+        ``observations_upserted`` and ``error_count``.
     """
     from app.database import database_manager
 
@@ -587,14 +588,16 @@ def run_bulk_fred_fetch(
 
         counts = result.get("counts", {})
         errors = result.get("errors", [])
+        observations_upserted = sum(counts.values())
         result_dict = {
-            "series_fetched": sum(counts.values()),
+            "series_fetched": sum(1 for n in counts.values() if n),
+            "observations_upserted": observations_upserted,
             "error_count": len(errors),
         }
         on_progress(**_final_progress(errors, result_dict))
         logger.info(
             "Bulk FRED fetch finished: %d observations across %d series",
-            result_dict["series_fetched"],
+            observations_upserted,
             len(counts),
         )
 
@@ -607,6 +610,8 @@ def run_macro_news_fetch(
     on_progress: ProgressCallback = _noop,
 ) -> dict[str, Any]:
     """Execute macro news fetch in the service layer.
+
+    The job ends ``failed`` when the fetch or the upsert reported an error.
 
     Args:
         request: ``MacroNewsFetchRequest`` with ``max_articles`` and ``fetch_full_content``.
@@ -633,9 +638,9 @@ def run_macro_news_fetch(
         errors = result.get("errors", [])
         result_dict = {"articles_stored": result.get("count", 0)}
         if errors:
-            # Raise rather than report status="failed": the step runner flips
-            # any non-"completed" status to "completed", so only an exception
-            # makes a swallowed outage visible in the job history.
+            # Raise rather than only report status="failed": an exception reaches
+            # every caller of this function and the step runner stores its text on
+            # the job row, so a swallowed outage is visible in the job history.
             on_progress(errors=errors, result=result_dict)
             raise RuntimeError("Macro news fetch failed: " + "; ".join(errors))
 
