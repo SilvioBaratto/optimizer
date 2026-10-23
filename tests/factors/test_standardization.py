@@ -260,6 +260,58 @@ class TestStandardizeFactor:
         assert abs(result.mean()) < 0.1
 
 
+class TestCountryOnlyNeutralization:
+    @pytest.fixture()
+    def country_labels(self) -> pd.Series:
+        countries = ["US", "DE", "FR"]
+        return pd.Series(
+            [countries[i % 3] for i in range(100)],
+            index=[f"T{i:03d}" for i in range(100)],
+        )
+
+    def test_country_flag_alone_demeans_within_each_country(
+        self, raw_scores: pd.Series, country_labels: pd.Series
+    ) -> None:
+        biased = raw_scores + country_labels.map({"US": 5.0, "DE": 0.0, "FR": -5.0})
+        config = StandardizationConfig(neutralize_sector=False, neutralize_country=True)
+        result = standardize_factor(
+            biased, config, sector_labels=None, country_labels=country_labels
+        )
+        for country in country_labels.unique():
+            mask = country_labels == country
+            assert abs(result[mask].mean()) < 1e-10
+
+    def test_country_flag_alone_differs_from_no_neutralization(
+        self, raw_scores: pd.Series, country_labels: pd.Series
+    ) -> None:
+        biased = raw_scores + country_labels.map({"US": 5.0, "DE": 0.0, "FR": -5.0})
+        neutral = standardize_factor(
+            biased,
+            StandardizationConfig(neutralize_sector=False, neutralize_country=True),
+            sector_labels=None,
+            country_labels=country_labels,
+        )
+        plain = standardize_factor(
+            biased,
+            StandardizationConfig(neutralize_sector=False),
+            sector_labels=None,
+            country_labels=country_labels,
+        )
+        assert not np.allclose(neutral, plain)
+
+    def test_country_flag_with_sector_labels_ignores_sectors(
+        self,
+        raw_scores: pd.Series,
+        sector_labels: pd.Series,
+        country_labels: pd.Series,
+    ) -> None:
+        config = StandardizationConfig(neutralize_sector=False, neutralize_country=True)
+        result = standardize_factor(raw_scores, config, sector_labels, country_labels)
+        for country in country_labels.unique():
+            mask = country_labels == country
+            assert abs(result[mask].mean()) < 1e-10
+
+
 class TestStandardizeAllFactors:
     def test_returns_scores_and_coverage(self) -> None:
         rng = np.random.default_rng(42)

@@ -304,6 +304,11 @@ def _standardize_scores(
         country = country_labels if config.neutralize_country else None
         scores = neutralize_sector(scores, sector_labels, country)
         neutralized = True
+    elif config.neutralize_country and country_labels is not None:
+        # neutralize_sector only needs one group key; with no sector axis the
+        # country labels are that key.
+        scores = neutralize_sector(scores, country_labels)
+        neutralized = True
 
     if config.re_standardize_after_neutralization and neutralized:
         scores = z_score_standardize(scores)

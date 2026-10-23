@@ -326,7 +326,10 @@ class StandardizationConfig:
         winsorize_upper: Upper percentile for winsorization (0-1, used with
             PERCENTILE).
         neutralize_sector: Whether to sector-neutralize scores.
-        neutralize_country: Whether to country-neutralize scores.
+        neutralize_country: Whether to country-neutralize scores. Combined
+            with ``neutralize_sector`` scores are demeaned within each
+            (sector, country) cell; on its own they are demeaned within each
+            country.
         factor_method_overrides: Per-factor standardization method overrides as
             ``(factor_name, method_value)`` pairs. When non-empty, each factor
             is standardized with its assigned method; factors not in the map
