@@ -186,15 +186,22 @@ class BaseClient:
         install_fault_witness()
 
     def _get_ticker(self, symbol: str) -> yf.Ticker:
-        """Return a cached ``yf.Ticker``, creating one on cache miss."""
+        """Return a cached ``yf.Ticker``, creating one on cache miss.
+
+        Fetch attempts call this just before they send their request, so the
+        per-symbol delay is enforced here on cache hits and misses alike.
+        """
         note_ticker(symbol)
+
+        # Constructing a Ticker sends nothing, so pacing only the cache misses
+        # would never space the requests that reuse a cached Ticker.
+        self.rate_limiter.acquire(symbol)
         ticker = self.cache.get(symbol)
         if ticker is not None:
             logger.debug("Cache hit for ticker '%s'", symbol)
             return ticker
 
         logger.debug("Cache miss for ticker '%s', fetching from yfinance", symbol)
-        self.rate_limiter.acquire(symbol)
         ticker = yf.Ticker(symbol)
         self.cache.put(symbol, ticker)
         return ticker

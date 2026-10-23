@@ -24,6 +24,8 @@ from yfinance.scrapers.history import PriceHistory
 
 from app.services.infrastructure.cache import LRUCache
 from app.services.market_data.yfinance._facade import YFinanceClient
+from app.services.market_data.yfinance.infrastructure import RateLimiter
+from app.services.market_data.yfinance.ticker import HoldersClient
 
 M = "app.services.market_data.yfinance._facade"
 
@@ -47,13 +49,13 @@ def _hist(rows: int) -> pd.DataFrame:
 
 
 class TestGetTicker:
-    def test_cache_hit_skips_the_rate_limiter(self, client: YFinanceClient) -> None:
-        """A cached Ticker must not pay the per-symbol delay again."""
+    def test_cache_hit_still_acquires_the_limiter(self, client: YFinanceClient) -> None:
+        """Every request starts here, and a cached Ticker still sends requests."""
         cached = MagicMock()
         client.cache.get.return_value = cached
 
         assert client.get_ticker("AAPL") is cached
-        client.rate_limiter.acquire.assert_not_called()
+        client.rate_limiter.acquire.assert_called_once_with("AAPL")
 
     def test_cache_miss_acquires_the_limiter_and_caches(
         self, client: YFinanceClient
@@ -64,6 +66,69 @@ class TestGetTicker:
         client.rate_limiter.acquire.assert_called_once_with("AAPL")
         client.cache.put.assert_called_once_with("AAPL", tk.return_value)
         assert result is tk.return_value
+
+
+class TestRequestPacing:
+    """The per-symbol delay applies to every request, not once per cached Ticker."""
+
+    @staticmethod
+    def _real_limiter_client() -> YFinanceClient:
+        return YFinanceClient(
+            cache=LRUCache(capacity=10, default_ttl=3600.0),
+            rate_limiter=RateLimiter(delay=0.1),
+            circuit_breaker=MagicMock(),
+            default_max_retries=1,
+        )
+
+    def test_back_to_back_history_requests_for_one_symbol_are_spaced(self) -> None:
+        client = self._real_limiter_client()
+        ticker = MagicMock()
+        ticker.history.return_value = _hist(20)
+
+        with (
+            patch(f"{M}.yf.Ticker", return_value=ticker),
+            patch("app.services.infrastructure.rate_limiter.time.sleep") as nap,
+        ):
+            client.fetch_history("AAPL")
+            client.fetch_history("AAPL")
+
+        nap.assert_called_once()
+
+    def test_back_to_back_sub_client_requests_for_one_symbol_are_spaced(self) -> None:
+        client = HoldersClient(
+            cache=LRUCache(capacity=10, default_ttl=3600.0),
+            rate_limiter=RateLimiter(delay=0.1),
+            circuit_breaker=MagicMock(),
+            default_max_retries=1,
+        )
+        ticker = MagicMock()
+        ticker.major_holders = pd.DataFrame({"holder": ["x"]})
+        ticker.institutional_holders = pd.DataFrame({"holder": ["y"]})
+
+        with (
+            patch(
+                "app.services.market_data.yfinance._base.yf.Ticker", lambda s: ticker
+            ),
+            patch("app.services.infrastructure.rate_limiter.time.sleep") as nap,
+        ):
+            client.fetch_major_holders("AAPL")
+            client.fetch_institutional_holders("AAPL")
+
+        nap.assert_called_once()
+
+    def test_requests_for_different_symbols_are_not_delayed(self) -> None:
+        client = self._real_limiter_client()
+        ticker = MagicMock()
+        ticker.history.return_value = _hist(20)
+
+        with (
+            patch(f"{M}.yf.Ticker", return_value=ticker),
+            patch("app.services.infrastructure.rate_limiter.time.sleep") as nap,
+        ):
+            client.fetch_history("AAPL")
+            client.fetch_history("MSFT")
+
+        nap.assert_not_called()
 
 
 class TestFetchInfo:
