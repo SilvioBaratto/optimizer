@@ -7,6 +7,8 @@ typed error when the store is missing.
 """
 
 import base64
+import errno
+import io
 import json
 import os
 import sys
@@ -209,3 +211,63 @@ def test_store_exists_reports_whether_a_store_was_written(tmp_path: Path) -> Non
     assert secret_store.store_exists(path=path) is False
     secret_store.save_secrets({"A": "1"}, "pw", path=path)
     assert secret_store.store_exists(path=path) is True
+
+
+class _FullDiskFile:
+    """Wraps a real binary file so every ``write`` fails like a full disk."""
+
+    def __init__(self, real: io.IOBase) -> None:
+        self._real = real
+
+    def write(self, data: bytes) -> int:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    def __enter__(self) -> "_FullDiskFile":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._real.close()
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._real, name)
+
+
+def test_interrupted_save_never_corrupts_the_previous_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _store(tmp_path)
+    secret_store.save_secrets({"A": "old"}, "pw", path=path)
+
+    real_open = io.open
+
+    def _open_with_full_disk(file: object, mode: str = "r", *a: object, **k: object):
+        handle = real_open(file, mode, *a, **k)
+        return _FullDiskFile(handle) if "w" in mode and "b" in mode else handle
+
+    monkeypatch.setattr(io, "open", _open_with_full_disk)
+    with pytest.raises(OSError, match="No space left"):
+        secret_store.save_secrets({"A": "new"}, "pw", path=path)
+    monkeypatch.undo()
+
+    # An interrupted save may lose the update but must never destroy the old keys.
+    assert secret_store.load_secrets("pw", path=path) == {"A": "old"}
+    assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX file mode not enforced on Windows"
+)
+def test_store_is_never_created_with_loose_permissions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Creating at the umask default and tightening afterwards leaves a window in
+    # which the file is group/world readable; with chmod disabled that window is
+    # the final state.
+    monkeypatch.setattr(os, "chmod", lambda *a, **k: None)
+    old_umask = os.umask(0o022)
+    try:
+        path = _store(tmp_path)
+        secret_store.save_secrets({"A": "1"}, "pw", path=path)
+    finally:
+        os.umask(old_umask)
+    assert (path.stat().st_mode & 0o777) == 0o600
