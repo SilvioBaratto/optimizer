@@ -200,6 +200,22 @@ class TestGetInstruments:
         result = _repo(db_session).get_instruments(skip=1, limit=10)
         assert len(result) == 2
 
+    def test_pages_walk_the_universe_in_ticker_order_without_gaps_or_repeats(
+        self, db_session
+    ):
+        """OFFSET/LIMIT without ORDER BY lets pages overlap or skip rows."""
+        ex = _make_exchange(db_session, "Ordered Exchange")
+        for ticker in ("MMM", "ZZZ", "AAA", "QQQ", "CCC"):
+            _make_instrument(db_session, ex, ticker)
+        repo = _repo(db_session)
+
+        pages = [
+            [i.ticker for i in repo.get_instruments(skip=skip, limit=2)]
+            for skip in (0, 2, 4)
+        ]
+
+        assert pages == [["AAA", "CCC"], ["MMM", "QQQ"], ["ZZZ"]]
+
     def test_limit_caps_result_count(self, db_session):
         ex = _make_exchange(db_session, "Limit Exchange")
         for i in range(5):

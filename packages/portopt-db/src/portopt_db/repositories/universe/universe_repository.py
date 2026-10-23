@@ -351,7 +351,8 @@ class UniverseRepository(RepositoryBase):
             limit: Maximum number of rows to return.
 
         Returns:
-            Instruments eager-loaded with their exchange, deduplicated.
+            Instruments eager-loaded with their exchange, deduplicated and
+            ordered by ticker (then id) so offset pages are stable.
         """
         stmt = select(Instrument).options(joinedload(Instrument.exchange))
         if exchange_name:
@@ -361,7 +362,9 @@ class UniverseRepository(RepositoryBase):
             stmt = stmt.where(
                 (Instrument.ticker.ilike(term)) | (Instrument.name.ilike(term))
             )
-        stmt = stmt.offset(skip).limit(limit)
+        # ticker alone repeats across exchanges, so id breaks ties; without a
+        # total order OFFSET pages can overlap or skip rows.
+        stmt = stmt.order_by(Instrument.ticker, Instrument.id).offset(skip).limit(limit)
         return self.session.execute(stmt).scalars().unique().all()
 
     def get_exchanges(self) -> Sequence[Exchange]:
