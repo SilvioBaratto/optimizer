@@ -274,6 +274,32 @@ class TestRetryWithBackoff:
         assert result == "good"
         assert action.call_count == 2
 
+    @patch("app.services.infrastructure.retry._full_jitter", return_value=0.0)
+    def test_permanent_error_is_raised_without_retry(self, _mock_jitter):
+        """A final answer must reach the caller instead of burning the retry budget."""
+        action = MagicMock(side_effect=LookupError("no such symbol"))
+        with pytest.raises(LookupError):
+            retry_with_backoff(
+                action,
+                max_retries=3,
+                is_permanent_error=lambda e: isinstance(e, LookupError),
+            )
+        assert action.call_count == 1
+
+    @patch("app.services.infrastructure.retry._full_jitter", return_value=0.0)
+    def test_errors_the_permanent_predicate_rejects_are_still_retried(
+        self, _mock_jitter
+    ):
+        """The predicate narrows what stops early; everything else keeps retrying."""
+        action = MagicMock(side_effect=[ConnectionError("reset"), "ok"])
+        result = retry_with_backoff(
+            action,
+            max_retries=3,
+            is_permanent_error=lambda e: isinstance(e, LookupError),
+        )
+        assert result == "ok"
+        assert action.call_count == 2
+
     # ------------------------------------------------------------------
     # Uncovered branch: line 106 False path — on_rate_limit is None
     # ------------------------------------------------------------------

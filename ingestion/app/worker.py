@@ -38,6 +38,8 @@ _shutdown = threading.Event()
 
 
 def _configure_logging() -> None:
+    from app.services.market_data.yfinance import configure_yfinance
+
     logging.basicConfig(
         level=getattr(logging, settings.log_level.upper()),
         format=(
@@ -47,6 +49,7 @@ def _configure_logging() -> None:
             ' "level": "%(levelname)s", "message": "%(message)s"}'
         ),
     )
+    configure_yfinance(log_level=settings.yfinance_log_level)
 
 
 def _serve_metrics() -> None:

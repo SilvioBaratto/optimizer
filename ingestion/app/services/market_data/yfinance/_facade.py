@@ -10,6 +10,7 @@ import pandas as pd
 import yfinance as yf
 from dotenv import load_dotenv
 
+from ._base import fetch_with_resilience
 from .funds import FundsClient
 from .infrastructure import (
     CircuitBreaker,
@@ -163,23 +164,21 @@ class YFinanceClient:
                 response as valid; guards against Yahoo returning a stub dict.
 
         Returns:
-            The raw ``yf.Ticker.info`` dict, or ``None`` on failure.
+            The raw ``yf.Ticker.info`` dict, or ``None`` when Yahoo has no
+            usable profile or every attempt failed.
         """
         max_retries = max_retries or self.default_max_retries
         logger.debug("Fetching info for '%s' (max_retries=%d)", symbol, max_retries)
 
         def _action() -> dict[str, Any] | None:
-            self.circuit_breaker.check()
-            ticker = self.get_ticker(symbol)
-            return ticker.info
+            return self.get_ticker(symbol).info
 
-        result = retry_with_backoff(
+        result = fetch_with_resilience(
             _action,
             max_retries,
+            circuit_breaker=self.circuit_breaker,
+            rate_limit_predicate=self._is_rate_limit_error,
             is_valid=lambda info: info is not None and len(info) >= min_fields,
-            is_rate_limit_error=self._is_rate_limit_error,
-            on_rate_limit=self.circuit_breaker.trigger,
-            on_success=lambda _: self.circuit_breaker.reset(),
         )
 
         if result is None:
@@ -248,22 +247,20 @@ class YFinanceClient:
         }
 
         def _action() -> pd.DataFrame | None:
-            self.circuit_breaker.check()
             ticker = self.get_ticker(symbol)
 
             if start is not None:
                 return ticker.history(start=start, end=end, **history_kwargs)
             return ticker.history(period=period, **history_kwargs)
 
-        result = retry_with_backoff(
+        result = fetch_with_resilience(
             _action,
             max_retries,
+            circuit_breaker=self.circuit_breaker,
+            rate_limit_predicate=self._is_rate_limit_error,
             is_valid=lambda hist: (
                 hist is not None and not hist.empty and len(hist) >= min_rows
             ),
-            is_rate_limit_error=self._is_rate_limit_error,
-            on_rate_limit=self.circuit_breaker.trigger,
-            on_success=lambda _: self.circuit_breaker.reset(),
         )
 
         if result is None:

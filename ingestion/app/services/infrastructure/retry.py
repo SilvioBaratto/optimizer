@@ -56,6 +56,7 @@ def retry_with_backoff(
     is_rate_limit_error: Callable[[Exception], bool] | None = None,
     on_rate_limit: Callable[[], None] | None = None,
     on_success: Callable[[T], None] | None = None,
+    is_permanent_error: Callable[[Exception], bool] | None = None,
 ) -> T | None:
     """Execute *action* up to *max_retries* times with exponential-jitter backoff.
 
@@ -75,10 +76,16 @@ def retry_with_backoff(
             ``circuit_breaker.trigger``). The circuit breaker's own exponential
             sleep handles the long wait on the next ``check()``.
         on_success: Callback invoked with the valid result before returning.
+        is_permanent_error: Optional predicate on caught exceptions. When it
+            returns ``True`` the exception is re-raised at once, because
+            repeating the request cannot change the answer.
 
     Returns:
         The value returned by *action* on success, or ``None`` after all
         retries are exhausted.
+
+    Raises:
+        Exception: Whatever *action* raised, when *is_permanent_error* accepts it.
     """
     for attempt in range(max_retries):
         try:
@@ -95,6 +102,9 @@ def retry_with_backoff(
             return result
 
         except Exception as exc:
+            if is_permanent_error is not None and is_permanent_error(exc):
+                raise
+
             if is_rate_limit_error is not None and is_rate_limit_error(exc):
                 if on_rate_limit is not None:
                     on_rate_limit()

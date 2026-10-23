@@ -12,12 +12,65 @@ from typing import TypeVar
 
 import yfinance as yf
 
-from .infrastructure import is_rate_limit_error, retry_with_backoff
+from .infrastructure import is_no_data_error, is_rate_limit_error, retry_with_backoff
 from .protocols import CacheProtocol, CircuitBreakerProtocol, RateLimiterProtocol
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+def fetch_with_resilience(
+    action: Callable[[], T],
+    retries: int,
+    *,
+    circuit_breaker: CircuitBreakerProtocol,
+    rate_limit_predicate: Callable[[Exception], bool] = is_rate_limit_error,
+    is_valid: Callable[[T], bool] | None = None,
+) -> T | None:
+    """Run one yfinance request, retrying transient failures only.
+
+    Yahoo's final answers end the call at once: a no-data exception, or a
+    response that *is_valid* rejects, returns ``None`` without another
+    request. yfinance already turns a 404 for a data module the symbol lacks
+    into an empty result, and network faults surface as exceptions that are
+    retried, so an empty result is Yahoo's answer rather than a lost request.
+
+    Args:
+        action: Zero-argument callable performing one yfinance request.
+        retries: Attempt budget, including the first attempt.
+        circuit_breaker: Breaker checked before each attempt and tripped by
+            rate limits.
+        rate_limit_predicate: Recognises rate-limit errors that should trip
+            the breaker.
+        is_valid: Predicate a usable result must satisfy; a result it rejects
+            (typically an empty frame) is returned as ``None``.
+
+    Returns:
+        The result of *action*, or ``None`` when Yahoo has no usable data or
+        every attempt failed.
+    """
+
+    def _guarded() -> T:
+        circuit_breaker.check()
+        return action()
+
+    try:
+        result = retry_with_backoff(
+            _guarded,
+            retries,
+            is_rate_limit_error=rate_limit_predicate,
+            on_rate_limit=circuit_breaker.trigger,
+            on_success=lambda _: circuit_breaker.reset(),
+            is_permanent_error=is_no_data_error,
+        )
+    except Exception as exc:
+        logger.debug("Yahoo has no data for this request: %s", exc)
+        return None
+
+    if result is not None and is_valid is not None and not is_valid(result):
+        return None
+    return result
 
 
 class BaseClient:
@@ -64,20 +117,24 @@ class BaseClient:
         *,
         is_valid: Callable[[T], bool] | None = None,
     ) -> T | None:
-        """Execute *action* with retry, circuit-breaker, and rate-limit handling."""
-        retries = max_retries if max_retries is not None else self.default_max_retries
+        """Execute *action* through :func:`fetch_with_resilience`.
 
-        def _guarded() -> T:
-            self.circuit_breaker.check()
-            return action()
+        Args:
+            action: Zero-argument callable performing one yfinance request.
+            max_retries: Attempt budget; ``None`` uses the client default.
+            is_valid: Predicate a usable result must satisfy; a result it
+                rejects (typically an empty frame) is returned as ``None``.
 
-        return retry_with_backoff(
-            _guarded,
-            retries,
+        Returns:
+            The result of *action*, or ``None`` when Yahoo has no usable data
+            or every attempt failed.
+        """
+        return fetch_with_resilience(
+            action,
+            max_retries if max_retries is not None else self.default_max_retries,
+            circuit_breaker=self.circuit_breaker,
+            rate_limit_predicate=self._is_rate_limit_error,
             is_valid=is_valid,
-            is_rate_limit_error=self._is_rate_limit_error,
-            on_rate_limit=self.circuit_breaker.trigger,
-            on_success=lambda _: self.circuit_breaker.reset(),
         )
 
     @staticmethod

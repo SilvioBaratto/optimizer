@@ -181,6 +181,16 @@ class Settings(BaseSettings):
             "step. Must be in [1, 16]. Setting 1 uses the serial path."
         ),
     )
+    yfinance_log_level: str = Field(
+        default="CRITICAL",
+        alias="YFINANCE_LOG_LEVEL",
+        description=(
+            "Level for yfinance's own logger. yfinance logs Yahoo's routine "
+            "'no data' answers (e.g. 404 'No fundamentals data found' for most "
+            "non-US listings) at ERROR, so its output is hidden by default. "
+            "Set DEBUG to troubleshoot yfinance itself."
+        ),
+    )
 
     notification_webhook_url: str | None = Field(
         default=None,

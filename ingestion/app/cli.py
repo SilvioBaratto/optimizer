@@ -59,11 +59,14 @@ class FetchMode(str, Enum):
 
 
 def _boot() -> None:
-    """Configure logging and the DB engine — every command needs both."""
+    """Configure logging, yfinance and the DB engine — every command needs them."""
+    from app.services.market_data.yfinance import configure_yfinance
+
     logging.basicConfig(
         level=getattr(logging, settings.log_level.upper()),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+    configure_yfinance(log_level=settings.yfinance_log_level)
     init_db()
 
 
