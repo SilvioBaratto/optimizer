@@ -342,13 +342,29 @@ def setup(
     non_interactive: bool = typer.Option(
         False,
         "--non-interactive",
-        help="Run without prompts (CI); requires the flags below + PORTOPT_PASSPHRASE.",
+        help=(
+            "Run without prompts (CI); credentials come from the flags below or, "
+            "preferably, their env vars. Also requires PORTOPT_PASSPHRASE."
+        ),
     ),
-    t212_key: str | None = typer.Option(None, "--t212-key", help="Trading212 API key."),
+    t212_key: str | None = typer.Option(
+        None,
+        "--t212-key",
+        envvar="TRADING_212_API_KEY",
+        help="Trading212 API key. Prefer the env var: a flag shows up in `ps`.",
+    ),
     t212_secret: str | None = typer.Option(
-        None, "--t212-secret", help="Trading212 secret key."
+        None,
+        "--t212-secret",
+        envvar="TRADING_212_SECRET_KEY",
+        help="Trading212 secret key. Prefer the env var: a flag shows up in `ps`.",
     ),
-    fred_key: str | None = typer.Option(None, "--fred-key", help="FRED API key."),
+    fred_key: str | None = typer.Option(
+        None,
+        "--fred-key",
+        envvar="FRED_API_KEY",
+        help="FRED API key. Prefer the env var: a flag shows up in `ps`.",
+    ),
     llm_provider: str | None = typer.Option(
         None,
         "--llm-provider",
@@ -365,7 +381,10 @@ def setup(
     llm_key: str | None = typer.Option(
         None,
         "--llm-key",
-        help="LLM provider API key (or the provider's own env var, e.g. OPENAI_API_KEY).",
+        help=(
+            "LLM provider API key. Prefer the provider's own env var (e.g. "
+            "OPENAI_API_KEY): a flag shows up in `ps`."
+        ),
     ),
     corp_ca: bool = typer.Option(
         False,

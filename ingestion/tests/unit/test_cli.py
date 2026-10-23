@@ -58,6 +58,37 @@ class TestSetupCommand:
         assert kwargs["t212_secret"] == "ts"  # noqa: S105 - test value, not a secret
         assert kwargs["fred_key"] == "fk"
 
+    def test_non_interactive_reads_credentials_from_env(self) -> None:
+        """Env vars are a first-class channel so CI keeps keys out of argv.
+
+        A flag value is visible in ``ps``, ``/proc/<pid>/cmdline`` and shell history,
+        so the same names the interactive wizard auto-detects must also feed the
+        non-interactive path.
+        """
+        env = {
+            "TRADING_212_API_KEY": "env-tk",
+            "TRADING_212_SECRET_KEY": "env-ts",
+            "FRED_API_KEY": "env-fk",
+        }
+        with patch("app.setup.wizard.run_setup_noninteractive") as mock_run:
+            result = runner.invoke(app, ["setup", "--non-interactive"], env=env)
+        assert result.exit_code == 0
+        kwargs = mock_run.call_args.kwargs
+        assert kwargs["t212_key"] == "env-tk"
+        assert kwargs["t212_secret"] == "env-ts"  # noqa: S105 - test value, not a secret
+        assert kwargs["fred_key"] == "env-fk"
+
+    def test_non_interactive_flag_takes_precedence_over_env(self) -> None:
+        """An explicit flag wins over an exported env var."""
+        with patch("app.setup.wizard.run_setup_noninteractive") as mock_run:
+            result = runner.invoke(
+                app,
+                ["setup", "--non-interactive", "--fred-key", "flag-fk"],
+                env={"FRED_API_KEY": "env-fk"},
+            )
+        assert result.exit_code == 0
+        assert mock_run.call_args.kwargs["fred_key"] == "flag-fk"
+
     def test_non_interactive_wires_llm_flags(self) -> None:
         with patch("app.setup.wizard.run_setup_noninteractive") as mock_run:
             result = runner.invoke(
