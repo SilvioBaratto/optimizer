@@ -454,6 +454,28 @@ class TestYfinanceOptions:
         assert result.exit_code != 0
         fn.assert_not_called()
 
+    @pytest.mark.parametrize("period", ["5yrs", "5", "0y", "MAX"])
+    def test_malformed_period_is_a_usage_error_not_an_empty_sweep(
+        self, period: str
+    ) -> None:
+        """yfinance returns an empty frame for a bad period, which would otherwise
+        complete as a zero-row success and exit 0."""
+        with patch(f"{SCHED}.run_yfinance_step", return_value=True) as fn:
+            result = runner.invoke(
+                app, ["yfinance", "--mode", "full", "--period", period]
+            )
+
+        assert result.exit_code == 2
+        fn.assert_not_called()
+
+    @pytest.mark.parametrize("period", ["max", "ytd", "6mo", "60d"])
+    def test_named_and_unit_periods_are_forwarded(self, period: str) -> None:
+        with patch(f"{SCHED}.run_yfinance_step", return_value=True) as fn:
+            result = runner.invoke(app, ["yfinance", "--period", period])
+
+        assert result.exit_code == 0
+        assert fn.call_args.kwargs["period"] == period
+
 
 class TestFlagOptions:
     def test_fred_incremental_default_true(self) -> None:

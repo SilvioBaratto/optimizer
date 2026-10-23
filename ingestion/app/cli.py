@@ -72,6 +72,21 @@ def _boot() -> None:
     init_db()
 
 
+def _check_period(value: str) -> str:
+    """Reject a period yfinance would answer with an empty frame, before booting."""
+    from pydantic import ValidationError
+
+    from app.schemas.market_data.yfinance_data import YFinanceFetchRequest
+
+    try:
+        YFinanceFetchRequest(period=value)
+    except ValidationError as exc:
+        raise typer.BadParameter(
+            f"{value!r} is not a yfinance period (use e.g. 60d, 6mo, 5y, ytd, max)"
+        ) from exc
+    return value
+
+
 def _exit(ok: bool) -> NoReturn:
     raise typer.Exit(code=0 if ok else 1)
 
@@ -117,6 +132,7 @@ def yfinance(
     ),
     period: str = typer.Option(
         "5y",
+        callback=_check_period,
         help=(
             "Minimum lookback window for mode=full; stored bars older than it "
             "are refetched too."

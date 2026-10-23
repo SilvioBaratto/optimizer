@@ -8,6 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas._shared import AsyncJobCreateResponse, AsyncJobProgress
 
+# Mirrors what yfinance accepts: a positive count in days/weeks/months/years, or
+# one of Yahoo's named ranges. Anything else makes it return an empty frame
+# instead of raising, which a sweep would record as a zero-row success.
+PERIOD_PATTERN = r"^([1-9]\d*(d|wk|mo|y)|ytd|max)$"
+
 
 class YFinanceFetchRequest(BaseModel):
     """Request body for bulk yfinance data fetch."""
@@ -17,6 +22,7 @@ class YFinanceFetchRequest(BaseModel):
     )
     period: str = Field(
         default="5y",
+        pattern=PERIOD_PATTERN,
         description=(
             "Minimum price history window; a full fetch reaches further back "
             "when older bars are stored"
@@ -36,6 +42,7 @@ class YFinanceSingleFetchRequest(BaseModel):
 
     period: str = Field(
         default="5y",
+        pattern=PERIOD_PATTERN,
         description=(
             "Minimum price history window; a full fetch reaches further back "
             "when older bars are stored"
