@@ -414,6 +414,17 @@ class TestPreSelectionConfigValidation:
         with pytest.raises(ValueError, match="max_abs_return"):
             PreSelectionConfig(max_abs_return=-1.0)
 
+    @pytest.mark.parametrize("fallback", ["zero", "bogus", ""])
+    def test_unsupported_imputation_fallback_raises(self, fallback: str) -> None:
+        # The imputer only ever falls back to the global mean, so any other
+        # request would be silently ignored rather than honoured.
+        with pytest.raises(ValueError, match="imputation_fallback"):
+            PreSelectionConfig(imputation_fallback=fallback)
+
+    def test_global_mean_imputation_fallback_ok(self) -> None:
+        cfg = PreSelectionConfig(imputation_fallback="global_mean")
+        assert cfg.imputation_fallback == "global_mean"
+
     def test_existing_presets_pass_validation(self) -> None:
         PreSelectionConfig.for_daily_annual()
         PreSelectionConfig.for_conservative()

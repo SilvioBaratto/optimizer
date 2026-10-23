@@ -50,7 +50,9 @@ class PreSelectionConfig:
         outlier_method: Outlier detection approach. Currently only
             ``"time_series"`` is supported (per-column z-scores).
         imputation_fallback: Fallback when sector data is unavailable.
-            ``"global_mean"`` uses the cross-sectional mean across all assets.
+            Only ``"global_mean"`` (the cross-sectional mean across all assets)
+            is supported; any other value is rejected rather than silently
+            ignored by the imputer.
         zero_variance_threshold: Variance below which an asset is treated as
             constant and dropped (``DropZeroVariance``). Must be non-negative.
         drop_internal_nan: Forwarded to
@@ -105,6 +107,11 @@ class PreSelectionConfig:
     is_log_normal: bool = True
 
     def __post_init__(self) -> None:
+        if self.imputation_fallback != "global_mean":
+            raise ValueError(
+                f"Unsupported imputation_fallback {self.imputation_fallback!r}. "
+                "Only 'global_mean' is currently supported."
+            )
         if not self.winsorize_threshold > 0:
             raise ValueError(
                 f"winsorize_threshold must be positive, got {self.winsorize_threshold}"
