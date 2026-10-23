@@ -456,3 +456,161 @@ class TestMacroNewsFetcherTitleDedup:
         result = fetcher.fetch_all(max_articles=30)
 
         assert [a["title"] for a in result] == [title]
+
+
+class _FakeScraper:
+    """Scraper stub: links containing ``paywalled`` fail, ``stub`` is too short."""
+
+    def __init__(self) -> None:
+        self.fetched: list[str] = []
+
+    def fetch(self, url: str) -> dict[str, Any]:
+        self.fetched.append(url)
+        lowered = url.lower()
+        if "paywalled" in lowered:
+            return {"success": False, "content": None, "content_length": None}
+        text = "short" if "stub" in lowered else "body " * 60
+        return {"success": True, "content": text, "content_length": len(text)}
+
+
+class TestMacroNewsFetcherFullContentSelection:
+    """With full content requested, only scrapable articles use up the caps."""
+
+    def test_when_newest_articles_fail_to_scrape_then_scrapable_ones_fill_cap(
+        self,
+    ) -> None:
+        ticker = next(iter(MACRO_TICKERS))
+        feed = [
+            _article("Paywalled one", age=timedelta(hours=1)),
+            _article("Stub page", age=timedelta(hours=2)),
+            _article("Paywalled two", age=timedelta(hours=3)),
+            *(_article(f"Readable {i}", age=timedelta(hours=4 + i)) for i in range(3)),
+        ]
+        fetcher = _build_feed_fetcher({ticker: feed}, {}, scraper=_FakeScraper())
+
+        result = fetcher.fetch_all(
+            max_articles=30, fetch_full_content=True, max_per_ticker=3
+        )
+
+        assert sorted(a["title"] for a in result) == [f"Readable {i}" for i in range(3)]
+        assert all(a["full_content"] for a in result)
+
+    def test_when_ticker_cap_is_full_then_remaining_articles_are_not_scraped(
+        self,
+    ) -> None:
+        ticker = next(iter(MACRO_TICKERS))
+        feed = [_article(f"Story {i}", age=timedelta(hours=i)) for i in range(1, 9)]
+        scraper = _FakeScraper()
+        fetcher = _build_feed_fetcher({ticker: feed}, {}, scraper=scraper)
+
+        fetcher.fetch_all(max_articles=30, fetch_full_content=True, max_per_ticker=3)
+
+        assert len(scraper.fetched) == 3
+
+    def test_when_full_content_not_requested_then_unscraped_articles_are_kept(
+        self,
+    ) -> None:
+        ticker = next(iter(MACRO_TICKERS))
+        feed = [_article("Paywalled one", age=timedelta(hours=1))]
+        scraper = _FakeScraper()
+        fetcher = _build_feed_fetcher({ticker: feed}, {}, scraper=scraper)
+
+        result = fetcher.fetch_all(max_articles=30, fetch_full_content=False)
+
+        assert [a["title"] for a in result] == ["Paywalled one"]
+        assert scraper.fetched == []
+
+    def test_when_search_article_fails_to_scrape_then_it_is_dropped(self) -> None:
+        query = next(iter(MACRO_SEARCH_QUERIES))
+        search_feeds = {
+            query: [
+                _article("Paywalled search", age=timedelta(hours=1)),
+                _article("Readable search", age=timedelta(hours=2)),
+            ]
+        }
+        fetcher = _build_feed_fetcher({}, search_feeds, scraper=_FakeScraper())
+
+        result = fetcher.fetch_all(max_articles=30, fetch_full_content=True)
+
+        assert [a["title"] for a in result] == ["Readable search"]
+
+    def test_when_scraper_raises_then_that_article_is_skipped(self) -> None:
+        ticker = next(iter(MACRO_TICKERS))
+        feed = [
+            _article("Exploding page", age=timedelta(hours=1)),
+            _article("Readable one", age=timedelta(hours=2)),
+        ]
+        scraper = _FakeScraper()
+        original_fetch = scraper.fetch
+
+        def flaky_fetch(url: str) -> dict[str, Any]:
+            if "exploding" in url.lower():
+                raise RuntimeError("connection reset")
+            return original_fetch(url)
+
+        scraper.fetch = flaky_fetch  # type: ignore[method-assign]
+        fetcher = _build_feed_fetcher({ticker: feed}, {}, scraper=scraper)
+
+        result = fetcher.fetch_all(max_articles=30, fetch_full_content=True)
+
+        assert [a["title"] for a in result] == ["Readable one"]
+
+    @pytest.mark.parametrize(
+        ("max_articles", "expected_scrapes"), [(100, 40), (20, 10), (5, 5)]
+    )
+    def test_when_search_candidates_exceed_budget_then_only_budgeted_are_scraped(
+        self, max_articles: int, expected_scrapes: int
+    ) -> None:
+        """Search articles beyond what the budget can take are never fetched."""
+        query = next(iter(MACRO_SEARCH_QUERIES))
+        search_feeds = {
+            query: [
+                _article(f"Search story {i}", age=timedelta(hours=i + 1))
+                for i in range(60)
+            ]
+        }
+        scraper = _FakeScraper()
+        fetcher = _build_feed_fetcher({}, search_feeds, scraper=scraper)
+
+        result = fetcher.fetch_all(max_articles=max_articles, fetch_full_content=True)
+
+        assert len(scraper.fetched) == expected_scrapes
+        assert len(result) == expected_scrapes
+
+    def test_when_newest_search_candidates_fail_to_scrape_then_cap_still_fills(
+        self,
+    ) -> None:
+        """Failed scrapes do not count against the search budget."""
+        query = next(iter(MACRO_SEARCH_QUERIES))
+        feed = [
+            *(_article(f"Paywalled {i}", age=timedelta(hours=i + 1)) for i in range(3)),
+            *(
+                _article(f"Readable {i}", age=timedelta(hours=10 + i))
+                for i in range(10)
+            ),
+        ]
+        scraper = _FakeScraper()
+        fetcher = _build_feed_fetcher({}, {query: feed}, scraper=scraper)
+
+        result = fetcher.fetch_all(max_articles=5, fetch_full_content=True)
+
+        assert sorted(a["title"] for a in result) == [f"Readable {i}" for i in range(5)]
+        assert len(scraper.fetched) == 3 + 5
+
+    def test_when_full_content_not_requested_then_search_overflow_feeds_theme_pass(
+        self,
+    ) -> None:
+        """Unscraped search candidates cost nothing, so the budget never cuts them."""
+        fed, ism = list(MACRO_SEARCH_QUERIES)[:2]
+        search_feeds = {
+            fed: [
+                _article(f"Fed story {i}", age=timedelta(hours=i + 1))
+                for i in range(45)
+            ],
+            ism: [_article("Factory orders slip", age=timedelta(days=3))],
+        }
+        fetcher = _build_feed_fetcher({}, search_feeds, scraper=_FakeScraper())
+
+        result = fetcher.fetch_all(max_articles=100, fetch_full_content=False)
+
+        assert "Factory orders slip" in {a["title"] for a in result}
