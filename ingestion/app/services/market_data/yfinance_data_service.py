@@ -669,9 +669,18 @@ class YFinanceDataService:
                     profile_info = info
                     # yfinance's .info does not carry ISIN — fetch it separately
                     # (Ticker.isin) and inject so ticker_profiles.isin populates.
-                    isin = self._timed(
-                        lambda: self.yf_client.metadata.fetch_isin(yfinance_ticker)
-                    )
+                    # The lookup is a separate third-party call: its failure must
+                    # not cost the profile that was just fetched.
+                    isin = None
+                    try:
+                        isin = self._timed(
+                            lambda: self.yf_client.metadata.fetch_isin(yfinance_ticker)
+                        )
+                    except Exception as e:
+                        errors.append(f"isin: {e}")
+                        logger.warning(
+                            "Failed to fetch ISIN for %s: %s", yfinance_ticker, e
+                        )
                     if isin:
                         info["isin"] = isin
                     counts["profile"] = self._write(

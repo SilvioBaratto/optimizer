@@ -232,7 +232,11 @@ class YFinanceRepository(RepositoryBase):
 
         Args:
             instrument_id: The instrument this profile belongs to.
-            info: The raw dict from ``yf.Ticker.info``.
+            info: The raw dict from ``yf.Ticker.info``. ``isin`` is not part of
+                that payload; the caller injects it from a separate lookup. An
+                ``info`` without a usable ``isin`` keeps the ISIN already stored
+                for the instrument (a first load stores NULL) instead of
+                overwriting it with NULL; every other column is refreshed.
 
         Returns:
             Number of rows written (0 or 1).
@@ -342,10 +346,22 @@ class YFinanceRepository(RepositoryBase):
             "full_time_employees": _safe_int(info.get("fullTimeEmployees")),
         }
 
+        # The ISIN comes from a separate, flaky lookup that the caller injects
+        # into ``info``; a refresh whose lookup failed carries none, and writing
+        # that NULL would erase an ISIN already stored.
+        refreshed = None
+        if row["isin"] is None:
+            refreshed = [
+                col.name
+                for col in TickerProfile.__table__.columns
+                if col.name not in {"id", "created_at", "isin"}
+            ]
+
         return self._upsert(
             TickerProfile,
             [row],
             constraint_name="uq_ticker_profile_instrument",
+            update_columns=refreshed,
         )
 
     def get_profile(self, instrument_id: UUID) -> TickerProfile | None:

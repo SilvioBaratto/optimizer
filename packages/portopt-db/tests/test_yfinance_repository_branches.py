@@ -1364,6 +1364,46 @@ class TestUpsertEmptyInputGuards:
 # ---------------------------------------------------------------------------
 
 
+class TestUpsertProfileKeepsKnownIsin:
+    """The ISIN comes from a separate, flaky lookup that the caller injects into
+    ``info``; a refresh whose lookup failed carries none and must not erase the
+    ISIN already stored (the universe backfill copies it onto ``instruments``)."""
+
+    def _profile(self, session: Session, instrument_id: uuid.UUID) -> TickerProfile:
+        return session.query(TickerProfile).filter_by(instrument_id=instrument_id).one()
+
+    def test_refresh_without_an_isin_keeps_the_stored_one(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        repo = _repo(db_session)
+        repo.upsert_profile(inst.id, {"symbol": "AAPL", "isin": "US0378331005"})
+
+        repo.upsert_profile(inst.id, {"symbol": "AAPL", "shortName": "Apple"})
+
+        profile = self._profile(db_session, inst.id)
+        assert profile.isin == "US0378331005"
+        assert profile.short_name == "Apple"
+
+    def test_refresh_with_a_different_isin_replaces_the_stored_one(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        repo = _repo(db_session)
+        repo.upsert_profile(inst.id, {"symbol": "AAPL", "isin": "US0378331005"})
+
+        repo.upsert_profile(inst.id, {"symbol": "AAPL", "isin": "US5949181045"})
+
+        assert self._profile(db_session, inst.id).isin == "US5949181045"
+
+    def test_first_load_without_an_isin_stores_none(self, db_session: Session) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+
+        _repo(db_session).upsert_profile(inst.id, {"symbol": "AAPL"})
+
+        assert self._profile(db_session, inst.id).isin is None
+
+
 class TestUpsertProfilePreprocessing:
     """Cover the exDividendDate int/float vs other branch in upsert_profile."""
 

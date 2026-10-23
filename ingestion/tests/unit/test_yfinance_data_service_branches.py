@@ -611,6 +611,24 @@ class TestIsinBackfill:
         info_arg = repo.upsert_profile.call_args.args[1]
         assert info_arg.get("isin") is None
 
+    def test_isin_lookup_failure_does_not_discard_the_fetched_profile(self) -> None:
+        """The ISIN comes from a separate third-party lookup; its timeout must not
+        cost the profile that was already fetched."""
+        repo = _make_repo(staleness=None)
+        yf = _make_yf_client_silent()
+        yf.fetch_info.return_value = {"symbol": "AAPL", "shortName": "Apple"}
+        yf.metadata.fetch_isin.side_effect = TimeoutError("lookup stalled")
+        repo.upsert_profile.return_value = 1
+
+        result = _run(repo, yf, mode="full")
+
+        repo.upsert_profile.assert_called_once()
+        assert "isin" not in repo.upsert_profile.call_args.args[1]
+        repo.upsert_profile_extras.assert_called_once()
+        assert result["counts"]["profile"] == 1
+        assert any(e.startswith("isin:") for e in result["errors"])
+        assert not any(e.startswith("profile:") for e in result["errors"])
+
     def test_isin_not_fetched_when_no_profile_info(self) -> None:
         repo = _make_repo(staleness=None)
         yf = _make_yf_client_silent()  # fetch_info returns None -> profile skipped
