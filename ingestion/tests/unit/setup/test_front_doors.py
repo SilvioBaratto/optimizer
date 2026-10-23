@@ -94,6 +94,21 @@ class TestSetupSh:
         assert setup[3] == "setup --non-interactive"
         assert Path(setup[2]).resolve() == _REPO_ROOT
 
+    def test_reinstalls_the_cli_so_a_rerun_picks_up_the_updated_checkout(
+        self, tmp_path: Path
+    ) -> None:
+        """A re-run after ``git pull`` must rebuild the tool-venv copy of the CLI.
+
+        uv keys a directory source on pyproject.toml only and the version is a
+        constant, so a plain ``uv tool install`` audits the stale snapshot and the
+        wizard/lifecycle fixes in the pulled source never take effect.
+        """
+        run = run_front_door("setup.sh", tmp_path)
+
+        assert run.result.returncode == 0, run.result.stderr
+        (install,) = [c for c in run.calls_to("uv") if c[3].startswith("tool install")]
+        assert "--reinstall" in install[3].split()
+
 
 class TestSetupPs1:
     """The Windows PowerShell front door funnels into ``portopt setup``."""
@@ -121,6 +136,15 @@ class TestSetupPs1:
         text = _read("setup.ps1")
         assert "portopt setup" in text
         assert "@args" in text
+
+    def test_reinstalls_the_cli_so_a_rerun_picks_up_the_updated_checkout(self) -> None:
+        """A plain ``uv tool install`` keeps the stale non-editable snapshot."""
+        install = next(
+            line
+            for line in _read("setup.ps1").splitlines()
+            if "uv tool install" in line
+        )
+        assert "--reinstall" in install.split()
 
     def test_puts_uv_tool_bin_on_path_before_installing_the_cli(self) -> None:
         """The session sees ~/.local/bin before ``uv`` and the shim are needed.
@@ -159,6 +183,15 @@ class TestSetupCmd:
         text = _read("setup.cmd")
         assert "portopt setup" in text
         assert "%*" in text
+
+    def test_reinstalls_the_cli_so_a_rerun_picks_up_the_updated_checkout(self) -> None:
+        """A plain ``uv tool install`` keeps the stale non-editable snapshot."""
+        install = next(
+            line
+            for line in _read("setup.cmd").splitlines()
+            if "uv tool install" in line
+        )
+        assert "--reinstall" in install.split()
 
     def test_puts_uv_tool_bin_on_path_before_installing_the_cli(self) -> None:
         """The session sees ~/.local/bin before ``uv`` and the shim are needed.

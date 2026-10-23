@@ -24,6 +24,6 @@ $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
 
 Set-Location $here
 Write-Host "Installing the portopt CLI from this checkout..."
-uv tool install --from ./ingestion portopt
+uv tool install --reinstall --from ./ingestion portopt
 
 portopt setup @args

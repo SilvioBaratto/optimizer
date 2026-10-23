@@ -27,6 +27,6 @@ export PATH="$HOME/.local/bin:$PATH"
 
 cd "$here"
 echo "Installing the portopt CLI from this checkout..."
-uv tool install --from ./ingestion portopt
+uv tool install --reinstall --from ./ingestion portopt
 
 exec portopt setup "$@"

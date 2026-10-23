@@ -20,6 +20,6 @@ set "PATH=%USERPROFILE%\.local\bin;%PATH%"
 
 cd /d "%~dp0"
 echo Installing the portopt CLI from this checkout...
-uv tool install --from ./ingestion portopt || exit /b 1
+uv tool install --reinstall --from ./ingestion portopt || exit /b 1
 
 portopt setup %*
