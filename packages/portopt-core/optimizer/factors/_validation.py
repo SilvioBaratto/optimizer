@@ -252,7 +252,7 @@ def _compute_ic_series_cs_regression(
     """Per-period CS regression slope as IC.
 
     Drops periods with fewer than ``max(min_observations,
-    cs_config.min_observations)`` non-NaN pairs.
+    cs_config.min_observations)`` finite pairs.
     """
     from optimizer.linear_model import (
         CSLinearRegressionConfig,
@@ -276,20 +276,21 @@ def _compute_ic_series_cs_regression(
     for date in common_dates:
         scores = factor_scores_history.loc[date, tickers]
         rets = returns_history.loc[date, tickers]
-        valid = (scores.notna() & rets.notna()).to_numpy()
+        score_vals = scores.to_numpy(dtype=float)
+        ret_vals = rets.to_numpy(dtype=float)
+        valid = np.isfinite(score_vals) & np.isfinite(ret_vals)
         if int(valid.sum()) < required:
             continue
         kept_dates.append(date)
         # skfolio CSLinearRegression rejects any (period, asset) pair with a
         # positive cs_weight whose feature/target is non-finite.  Real panels
-        # have ragged per-period coverage (assets enter/exit, missing scores),
-        # so we exclude invalid pairs via a 0/1 weight mask and replace their
-        # NaN placeholders with a finite 0.0 (ignored because their weight is
-        # 0).  Fitting without the mask crashes on any partial-coverage period.
-        x_row = np.where(valid, scores.to_numpy(dtype=float), 0.0)
-        y_row = np.where(valid, rets.to_numpy(dtype=float), 0.0)
-        rows_x.append(np.nan_to_num(x_row, nan=0.0))
-        rows_y.append(np.nan_to_num(y_row, nan=0.0))
+        # have ragged per-period coverage (assets enter/exit, missing scores)
+        # and ratio factors can emit +/-inf, so we exclude every non-finite
+        # pair via a 0/1 weight mask and replace its placeholder with a finite
+        # 0.0 (ignored because its weight is 0).  Clamping inf to float max
+        # instead would overflow X'WX into a garbage slope.
+        rows_x.append(np.where(valid, score_vals, 0.0))
+        rows_y.append(np.where(valid, ret_vals, 0.0))
         rows_w.append(valid.astype(np.float64))
 
     if not kept_dates:

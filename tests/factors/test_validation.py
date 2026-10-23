@@ -361,6 +361,72 @@ class TestComputeICSeriesCSRegression:
         assert len(result) == 6
         np.testing.assert_allclose(result.to_numpy(), 0.01, atol=1e-9)
 
+    @pytest.mark.parametrize("bad", [np.inf, -np.inf])
+    def test_when_score_is_infinite_then_pair_excluded_like_nan(
+        self, bad: float
+    ) -> None:
+        """A non-finite score is masked out, not clamped to float max."""
+        dates = pd.date_range("2023-01-01", periods=2, freq="ME")
+        tickers = [f"T{i}" for i in range(6)]
+        x_vals = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        scores = pd.DataFrame([x_vals, x_vals], index=dates, columns=tickers)
+        returns = 2.0 * scores
+        scores.iloc[0, 5] = bad
+
+        result = compute_ic_series(
+            scores,
+            returns,
+            "f",
+            min_observations=3,
+            use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(min_observations=3),
+        )
+
+        assert len(result) == 2
+        np.testing.assert_allclose(result.to_numpy(), 2.0, atol=1e-6)
+
+    def test_when_return_is_infinite_then_pair_excluded_like_nan(self) -> None:
+        dates = pd.date_range("2023-01-01", periods=1, freq="ME")
+        tickers = [f"T{i}" for i in range(6)]
+        scores = pd.DataFrame(
+            [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], index=dates, columns=tickers
+        )
+        returns = 2.0 * scores
+        returns.iloc[0, 0] = np.inf
+
+        result = compute_ic_series(
+            scores,
+            returns,
+            "f",
+            min_observations=3,
+            use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(min_observations=3),
+        )
+
+        assert len(result) == 1
+        assert result.iloc[0] == pytest.approx(2.0, abs=1e-6)
+
+    def test_when_infinite_pairs_leave_too_few_names_then_period_dropped(
+        self,
+    ) -> None:
+        dates = pd.date_range("2023-01-01", periods=1, freq="ME")
+        tickers = [f"T{i}" for i in range(4)]
+        scores = pd.DataFrame(
+            [[1.0, 2.0, np.inf, -np.inf]], index=dates, columns=tickers
+        )
+        returns = pd.DataFrame([[1.0, 2.0, 3.0, 4.0]], index=dates, columns=tickers)
+
+        result = compute_ic_series(
+            scores,
+            returns,
+            "f",
+            min_observations=3,
+            use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(min_observations=3),
+        )
+
+        assert len(result) == 0
+
 
 class TestNeweyWestTStat:
     def test_significant_ic(self) -> None:
