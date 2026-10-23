@@ -4,6 +4,7 @@
 import logging
 import re
 from datetime import datetime
+from decimal import Decimal
 
 import requests
 from bs4 import BeautifulSoup
@@ -249,6 +250,58 @@ _COUNTRY_KEY_OVERRIDES: dict[tuple[str, str], str] = {
 }
 
 
+# Money rows are quoted in whatever scale each country page prefers ("USD Million",
+# "EUR Billion", "USD Hundred Million"), and the observation tables keep no unit,
+# so the bare numbers of one key differ by 10^3 or more between countries and
+# whenever TE re-labels a page. They are rescaled to billions of the stated
+# currency; converting between currencies needs an FX rate and is left to callers.
+_MONETARY_INDICATORS = frozenset({"current_account", "trade_balance"})
+_MONEY_UNIT = re.compile(
+    r"^(?P<currency>[A-Za-z]{3})\s+(?P<scale>thousand|million|hundred million"
+    r"|billion|trillion)$",
+    re.IGNORECASE,
+)
+_SCALE_MULTIPLIERS = {
+    "thousand": 10**3,
+    "million": 10**6,
+    "hundred million": 10**8,
+    "billion": 10**9,
+    "trillion": 10**12,
+}
+_BILLION = 10**9
+
+
+def _to_billions(value: float, multiplier: int) -> float:
+    # Decimal keeps 19.47 * 10**6 / 10**9 free of binary-float noise.
+    return float(Decimal(repr(value)) * multiplier / _BILLION)
+
+
+def _normalize_monetary_row(
+    value: float, previous: float | None, unit: str
+) -> tuple[float, float | None, str] | None:
+    """Rescale a money row to billions of the currency its unit names.
+
+    Args:
+        value: Latest value as printed on the page.
+        previous: Previous value as printed, if any.
+        unit: Unit cell text, e.g. ``"EUR Million"``.
+
+    Returns:
+        ``(value, previous, unit)`` in billions with the unit relabelled
+        ``"<CCY> Billion"``, or ``None`` when the unit names no recognisable
+        currency and scale, so the magnitude cannot be known.
+    """
+    match = _MONEY_UNIT.match(unit.strip())
+    if match is None:
+        return None
+    multiplier = _SCALE_MULTIPLIERS[match.group("scale").lower()]
+    return (
+        _to_billions(value, multiplier),
+        None if previous is None else _to_billions(previous, multiplier),
+        f"{match.group('currency').upper()} Billion",
+    )
+
+
 def _is_comparable_measure(key: str, unit: str, country: str | None) -> bool:
     """Whether a matched row holds the measure its canonical key stands for.
 
@@ -464,6 +517,20 @@ class TradingEconomicsIndicatorsScraper:
                                 matched_key = _COUNTRY_KEY_OVERRIDES.get(
                                     (matched_key, country or ""), matched_key
                                 )
+                                if matched_key in _MONETARY_INDICATORS:
+                                    scaled = _normalize_monetary_row(
+                                        last_value, previous_value, unit
+                                    )
+                                    if scaled is None:
+                                        logger.debug(
+                                            "Skipping %r (%s, unit=%r): no readable "
+                                            "currency and scale",
+                                            indicator_name,
+                                            country,
+                                            unit,
+                                        )
+                                        continue
+                                    last_value, previous_value, unit = scaled
                                 indicators[matched_key] = {
                                     "value": last_value,
                                     "previous": previous_value,

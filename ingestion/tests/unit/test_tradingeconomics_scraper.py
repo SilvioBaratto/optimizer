@@ -567,6 +567,76 @@ class TestIndicatorKeyComparability:
         assert key not in _make_scraper()._parse_indicators_table(soup)
 
 
+class TestMonetaryIndicatorScale:
+    """Money rows arrive in the scale each page prefers; one key, one scale."""
+
+    @pytest.mark.parametrize(
+        ("name", "key", "raw", "unit", "value", "unit_out"),
+        [
+            ("Balance of Trade", "trade_balance", "-106", "USD Billion", -106, "USD Billion"),
+            ("Balance of Trade", "trade_balance", "-6122", "EUR Million", -6.122, "EUR Billion"),
+            ("Balance of Trade", "trade_balance", "-537", "JPY Billion", -537, "JPY Billion"),
+            ("Current Account", "current_account", "1937", "USD Hundred Million", 193.7, "USD Billion"),
+            ("Current Account", "current_account", "8927", "USD Million", 8.927, "USD Billion"),
+            ("Current Account", "current_account", "0.5", "USD Trillion", 500, "USD Billion"),
+        ],
+    )  # fmt: skip
+    def test_money_rows_are_rescaled_to_billions_of_their_currency(
+        self, name: str, key: str, raw: str, unit: str, value: float, unit_out: str
+    ) -> None:
+        soup = _indicators_soup(*_FILLER_ROWS, _unit_row(name, raw, unit))
+
+        row = _make_scraper()._parse_indicators_table(soup)[key]
+
+        assert row["value"] == pytest.approx(value)
+        assert row["unit"] == unit_out
+
+    def test_current_account_surpluses_rank_by_size_after_rescaling(self) -> None:
+        """China's 1937 'Hundred Million' is far larger than Mexico's 8927
+        'Million', although the bare numbers say the opposite."""
+        scraper = _make_scraper()
+        china = scraper._parse_indicators_table(
+            _indicators_soup(
+                *_FILLER_ROWS,
+                _unit_row("Current Account", "1937", "USD Hundred Million"),
+            )
+        )
+        mexico = scraper._parse_indicators_table(
+            _indicators_soup(
+                *_FILLER_ROWS, _unit_row("Current Account", "8927", "USD Million")
+            )
+        )
+
+        assert china["current_account"]["value"] > mexico["current_account"]["value"]
+
+    def test_previous_value_is_rescaled_with_the_value(self) -> None:
+        soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Balance of Trade", "-920", "GBP Million")
+        )
+
+        row = _make_scraper()._parse_indicators_table(soup)["trade_balance"]
+
+        assert row["previous"] == pytest.approx(1.0 / 1000)
+
+    @pytest.mark.parametrize("unit", ["", "percent", "USD", "Million"])
+    def test_money_row_with_unreadable_scale_is_not_stored(self, unit: str) -> None:
+        soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Balance of Trade", "-920", unit)
+        )
+
+        assert "trade_balance" not in _make_scraper()._parse_indicators_table(soup)
+
+    def test_non_money_rows_keep_their_page_scale(self) -> None:
+        soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Current Account to GDP", "3.5", "percent of GDP")
+        )
+
+        row = _make_scraper()._parse_indicators_table(soup)["current_account_gdp"]
+
+        assert row["value"] == pytest.approx(3.5)
+        assert row["unit"] == "percent of GDP"
+
+
 class TestGdpQuarterlyConvention:
     """The US page reports QoQ growth annualised; the other pages do not."""
 
