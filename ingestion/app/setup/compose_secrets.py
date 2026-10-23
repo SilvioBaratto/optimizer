@@ -13,6 +13,7 @@ remove every plaintext file.
 from __future__ import annotations
 
 import contextlib
+import os
 import shutil
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -71,6 +72,22 @@ def _restrict_dir(target: Path) -> bool:
     return target.stat().st_mode & 0o077 == 0
 
 
+def _write_secret(path: Path, value: str, mode: int) -> None:
+    """Write ``value`` to ``path``, created with ``mode`` rather than tightened later.
+
+    A symlink at ``path`` is replaced, never followed, and ``O_NOFOLLOW`` turns a
+    link swapped in after that check into an error instead of a write through it.
+    The trailing chmod only matters for a pre-existing file, whose mode ``open``
+    keeps, and for a umask that narrowed the creation mode.
+    """
+    if path.is_symlink():
+        path.unlink()
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    with os.fdopen(os.open(path, flags, mode), "w", encoding="utf-8") as handle:
+        handle.write(value)
+    path.chmod(mode)
+
+
 def render(secrets: Mapping[str, str], *, secrets_dir: Path) -> list[Path]:
     """Write every declared secret to `<secrets_dir>/<name>`. Returns the paths.
 
@@ -92,8 +109,7 @@ def render(secrets: Mapping[str, str], *, secrets_dir: Path) -> list[Path]:
         # directory error. Clear any such placeholder so the value lands as a file.
         if path.is_dir():
             shutil.rmtree(path)
-        path.write_text(secrets.get(name, ""), encoding="utf-8")
-        path.chmod(file_mode)
+        _write_secret(path, secrets.get(name, ""), file_mode)
         written.append(path)
     return written
 

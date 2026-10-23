@@ -3,7 +3,8 @@
 Secrets are serialised to JSON, encrypted with Fernet under a key derived from
 the user's master passphrase (scrypt), and written to ``~/.portopt/secrets.enc``
 as ``salt || token``. The passphrase is never persisted — only the random salt
-and the ciphertext are stored. Files are created owner-only (0600).
+and the ciphertext are stored. Files are created owner-only (0600) and replaced
+atomically, so an interrupted save leaves the previous store intact.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import base64
 import contextlib
 import json
 import os
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -44,10 +46,35 @@ def _derive_key(passphrase: str, salt: bytes) -> bytes:
     return base64.urlsafe_b64encode(kdf.derive(passphrase.encode("utf-8")))
 
 
+def _replace_atomically(path: Path, data: bytes) -> None:
+    """Swap ``data`` into ``path`` through a sibling temp file, never in place.
+
+    The store holds every key behind one passphrase: truncating it first and
+    crashing mid-write would lose them all. ``mkstemp`` creates the temp file 0600,
+    so the data is never readable by other users, and the rename is atomic on the
+    same filesystem.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def save_secrets(
     secrets: Mapping[str, str], passphrase: str, *, path: Path | None = None
 ) -> Path:
-    """Encrypt ``secrets`` under ``passphrase`` and write to ``path`` (0600)."""
+    """Encrypt ``secrets`` under ``passphrase`` and atomically write to ``path`` (0600).
+
+    Raises:
+        OSError: If the store cannot be written; any previous store is left intact.
+    """
     path = path or DEFAULT_SECRETS_PATH
     salt = os.urandom(_SALT_BYTES)
     token = Fernet(_derive_key(passphrase, salt)).encrypt(
@@ -56,8 +83,7 @@ def save_secrets(
     path.parent.mkdir(parents=True, exist_ok=True)
     with contextlib.suppress(OSError):  # best effort — POSIX only
         path.parent.chmod(0o700)
-    path.write_bytes(salt + token)
-    path.chmod(0o600)
+    _replace_atomically(path, salt + token)
     return path
 
 

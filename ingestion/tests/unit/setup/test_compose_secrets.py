@@ -160,6 +160,42 @@ def test_render_requires_an_explicit_directory_and_never_uses_the_cwd(
     assert list(tmp_path.iterdir()) == []
 
 
+@_POSIX_ONLY
+def test_render_replaces_a_symlinked_secret_instead_of_writing_through_it(
+    tmp_path: Path,
+) -> None:
+    # A planted symlink in a group-writable secrets/ must not redirect the write onto
+    # whatever it points at.
+    victim = tmp_path / "victim"
+    victim.write_text("precious", encoding="utf-8")
+    target = tmp_path / "secrets"
+    target.mkdir()
+    (target / "fred_api_key").symlink_to(victim)
+    cs.render({"fred_api_key": "x"}, secrets_dir=target)
+    assert victim.read_text(encoding="utf-8") == "precious"
+    assert not (target / "fred_api_key").is_symlink()
+    assert (target / "fred_api_key").read_text(encoding="utf-8") == "x"
+
+
+@_POSIX_ONLY
+def test_files_are_created_with_their_final_mode_not_tightened_afterwards(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # With chmod disabled the final mode is the creation mode, so a file that is only
+    # tightened after the write is readable by other users in between. The directory
+    # cannot be locked down here, so the files must come out owner-only.
+    target = tmp_path / "secrets"
+    target.mkdir()
+    target.chmod(0o755)
+    monkeypatch.setattr(os, "chmod", lambda *_a, **_kw: None)
+    previous = os.umask(0)
+    try:
+        cs.render({"fred_api_key": "x"}, secrets_dir=target)
+    finally:
+        os.umask(previous)
+    assert (target / "fred_api_key").stat().st_mode & 0o777 == 0o600
+
+
 def test_dockerignore_keeps_plaintext_secrets_out_of_the_build_context() -> None:
     """The compose build context is the repo root, so an unignored `secrets/` or
     `.certs/` is uploaded to the daemon on every `docker compose build`."""

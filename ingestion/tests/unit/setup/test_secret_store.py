@@ -6,6 +6,7 @@ pin the security guarantees: round-trip, wrong-passphrase rejection, no plaintex
 typed error when the store is missing.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -66,3 +67,53 @@ def test_secret_file_is_owner_only(tmp_path: Path) -> None:
     path = _store(tmp_path)
     secret_store.save_secrets({"A": "1"}, "pw", path=path)
     assert (path.stat().st_mode & 0o777) == 0o600
+
+
+def test_save_never_rewrites_the_existing_store_in_place(tmp_path: Path) -> None:
+    # A hard link shares the inode: truncate-then-write would change both names, so
+    # an interrupted save could leave a partial store with the old keys already gone.
+    path = _store(tmp_path)
+    secret_store.save_secrets({"A": "1"}, "pw", path=path)
+    snapshot = tmp_path / "snapshot.enc"
+    try:
+        os.link(path, snapshot)
+    except OSError:
+        pytest.skip("hard links unsupported on this filesystem")
+    secret_store.save_secrets({"A": "2"}, "pw", path=path)
+    assert secret_store.load_secrets("pw", path=snapshot) == {"A": "1"}
+    assert secret_store.load_secrets("pw", path=path) == {"A": "2"}
+
+
+def test_a_failed_save_keeps_the_previous_store_and_leaves_no_litter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _store(tmp_path)
+    secret_store.save_secrets({"A": "1"}, "pw", path=path)
+
+    def _crash(*_args: object, **_kwargs: object) -> None:
+        raise OSError("disk went away")
+
+    monkeypatch.setattr(os, "replace", _crash)
+    with pytest.raises(OSError, match="disk went away"):
+        secret_store.save_secrets({"A": "2"}, "pw", path=path)
+    monkeypatch.undo()
+
+    assert secret_store.load_secrets("pw", path=path) == {"A": "1"}
+    assert [p.name for p in tmp_path.iterdir()] == ["secrets.enc"]
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX file mode not enforced on Windows"
+)
+def test_store_is_created_owner_only_not_tightened_afterwards(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # With chmod disabled the final mode is the creation mode, so a file that is only
+    # tightened after the write would be readable by other users in between.
+    monkeypatch.setattr(os, "chmod", lambda *_a, **_kw: None)
+    previous = os.umask(0)
+    try:
+        path = secret_store.save_secrets({"A": "1"}, "pw", path=_store(tmp_path))
+    finally:
+        os.umask(previous)
+    assert path.stat().st_mode & 0o777 == 0o600
