@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Hashable
 from typing import cast
 
 import pandas as pd
@@ -10,8 +11,6 @@ import pandas as pd
 from optimizer.factors._config import SelectionConfig, SelectionMethod
 
 logger = logging.getLogger(__name__)
-
-_MAX_BALANCE_ITERATIONS: int = 10
 
 
 def select_fixed_count(
@@ -49,7 +48,7 @@ def select_fixed_count(
 
     buffer_size = max(1, int(target_count * buffer_fraction))
     extended_idx = min(target_count + buffer_size, len(ranked))
-    buffer_zone = ranked.index[target_count:extended_idx]
+    buffer_zone = cast(pd.Index, ranked.index[target_count:extended_idx])
 
     held = set(current_members)
     retained = [t for t in buffer_zone if t in held]
@@ -126,6 +125,69 @@ def _cap_per_sector(
     return capped
 
 
+def _restore_count(
+    selected_set: set[str],
+    target_count: int,
+    scores: pd.Series,
+    sector_labels: pd.Series,
+    bands: dict[Hashable, tuple[int, int]],
+    max_per_sector: int,
+) -> set[str]:
+    """Refill or trim a balanced selection back to ``target_count`` names.
+
+    Refilling adds the best-scoring unselected names from sectors still below
+    their upper band (and below ``max_per_sector``); trimming drops the
+    lowest-scoring labeled names from sectors still above their lower band.
+    Neither direction can push a sector out of its band, so a count that
+    cannot be reached (no eligible candidates) is left short or long rather
+    than traded against the bands.
+    """
+    result = set(selected_set)
+    sector_of = cast("dict[str, Hashable]", sector_labels.dropna().to_dict())
+    counts: dict[Hashable, int] = {}
+    for ticker in result:
+        if ticker in sector_of:
+            counts[sector_of[ticker]] = counts.get(sector_of[ticker], 0) + 1
+
+    if len(result) < target_count:
+        banded = [t for t, sector in sector_of.items() if sector in bands]
+        candidates = scores.reindex(banded).dropna().sort_values(ascending=False)
+        for ticker in cast("list[str]", candidates.index.tolist()):
+            if len(result) >= target_count:
+                break
+            if ticker in result:
+                continue
+            sector = sector_of[ticker]
+            limit = bands[sector][1]
+            if max_per_sector > 0:
+                limit = min(limit, max_per_sector)
+            if counts.get(sector, 0) >= limit:
+                continue
+            result.add(ticker)
+            counts[sector] = counts.get(sector, 0) + 1
+    elif len(result) > target_count:
+        labeled = [t for t in sorted(result) if t in sector_of]
+        members = scores.reindex(labeled).dropna().sort_values()
+        for ticker in cast("list[str]", members.index.tolist()):
+            if len(result) <= target_count:
+                break
+            sector = sector_of[ticker]
+            floor = bands[sector][0] if sector in bands else 0
+            if counts[sector] <= floor:
+                continue
+            result.discard(ticker)
+            counts[sector] -= 1
+
+    if len(result) != target_count:
+        logger.warning(
+            "apply_sector_balance could not reach the requested %d names "
+            "within the sector bands; returning %d.",
+            target_count,
+            len(result),
+        )
+    return result
+
+
 def apply_sector_balance(
     selected: pd.Index,
     scores: pd.Series,
@@ -136,9 +198,12 @@ def apply_sector_balance(
 ) -> pd.Index:
     """Adjust selection for sector-proportional representation.
 
-    Iterates the balance pass until convergence (no further adds or
-    removes are needed) or until ``_MAX_BALANCE_ITERATIONS`` is reached.
-    A warning is logged if the cap is hit before convergence.
+    The per-sector band limits are sized once on the incoming selection and
+    stay fixed, so trading names between sectors never changes how many are
+    held: after bringing every sector into its band and applying
+    ``max_per_sector``, the selection is refilled with the best-scoring names
+    from sectors that still have room (or trimmed of the weakest names from
+    sectors above their lower band) to return to the incoming size.
 
     Args:
         selected: Initially selected tickers.
@@ -149,68 +214,46 @@ def apply_sector_balance(
         max_per_sector: Hard cap on members per sector; 0 means no cap.
 
     Returns:
-        Sector-balanced selection.
+        Sector-balanced selection of the same size as *selected*, or smaller
+        when the bands and ``max_per_sector`` leave too few eligible names.
     """
     parent_sectors = sector_labels.reindex(parent_universe).dropna()
     target_weights = parent_sectors.value_counts(normalize=True)
 
     result_set: set[str] = set(selected)
-
-    for iteration in range(_MAX_BALANCE_ITERATIONS):
-        current_index = pd.Index(list(result_set))
-        selected_sectors = sector_labels.reindex(current_index).dropna()
-        n_target = len(result_set)  # snapshot — do not mutate during inner loop
-
-        changed = False
-
-        for sector, target_w in target_weights.items():
-            min_n = max(0, round((target_w - tolerance) * n_target))
-            max_n = round((target_w + tolerance) * n_target)
-
-            current_n = int((selected_sectors == sector).sum())
-
-            if current_n < min_n:
-                candidates = sector_labels.index[
-                    (sector_labels == sector) & (~sector_labels.index.isin(result_set))
-                ]
-                candidate_scores = (
-                    scores.reindex(candidates).dropna().sort_values(ascending=False)
-                )
-                to_add = cast(pd.Index, candidate_scores.index[: min_n - current_n])
-                if len(to_add) > 0:
-                    result_set.update(to_add)
-                    selected_sectors = sector_labels.reindex(
-                        pd.Index(list(result_set))
-                    ).dropna()
-                    changed = True
-
-            elif current_n > max_n:
-                sector_members = selected_sectors[selected_sectors == sector].index
-                sector_scores = scores.reindex(sector_members).dropna().sort_values()
-                to_remove = set(
-                    cast(pd.Index, sector_scores.index[: current_n - max_n])
-                )
-                if to_remove:
-                    result_set -= to_remove
-                    selected_sectors = sector_labels.reindex(
-                        pd.Index(list(result_set))
-                    ).dropna()
-                    changed = True
-
-        if not changed:
-            logger.debug(
-                "apply_sector_balance converged after %d iteration(s).",
-                iteration + 1,
-            )
-            break
-    else:
-        logger.warning(
-            "apply_sector_balance did not converge within %d iterations. "
-            "Returning best-effort result.",
-            _MAX_BALANCE_ITERATIONS,
+    n_target = len(result_set)
+    bands = {
+        sector: (
+            max(0, round((target_w - tolerance) * n_target)),
+            round((target_w + tolerance) * n_target),
         )
+        for sector, target_w in target_weights.items()
+    }
+
+    selected_sectors = sector_labels.reindex(pd.Index(list(result_set))).dropna()
+    for sector, (min_n, max_n) in bands.items():
+        current_n = int((selected_sectors == sector).sum())
+
+        if current_n < min_n:
+            candidates = sector_labels.index[
+                (sector_labels == sector) & (~sector_labels.index.isin(result_set))
+            ]
+            candidate_scores = (
+                scores.reindex(candidates).dropna().sort_values(ascending=False)
+            )
+            result_set.update(
+                cast(pd.Index, candidate_scores.index[: min_n - current_n])
+            )
+
+        elif current_n > max_n:
+            sector_members = selected_sectors[selected_sectors == sector].index
+            sector_scores = scores.reindex(sector_members).dropna().sort_values()
+            result_set -= set(cast(pd.Index, sector_scores.index[: current_n - max_n]))
 
     result_set = _cap_per_sector(result_set, scores, sector_labels, max_per_sector)
+    result_set = _restore_count(
+        result_set, n_target, scores, sector_labels, bands, max_per_sector
+    )
     return pd.Index(sorted(result_set))
 
 

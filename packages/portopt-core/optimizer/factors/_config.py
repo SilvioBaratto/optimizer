@@ -511,8 +511,10 @@ class SelectionConfig:
             institutional low-active-risk mandates.
         max_per_sector: Hard ceiling on the number of stocks selected from any
             single sector. ``0`` (default) disables the cap; positive values
-            evict the lowest-scoring excess members from any sector after the
-            tolerance-based balance loop.
+            evict the lowest-scoring excess members from any sector once the
+            sector bands are applied, then refill to the pre-balance holding
+            count with the best-scoring names from sectors that are still
+            below both their band and the cap.
     """
 
     method: SelectionMethod = SelectionMethod.FIXED_COUNT
