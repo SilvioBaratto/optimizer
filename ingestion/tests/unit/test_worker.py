@@ -13,6 +13,8 @@ minutes and must not delay the first scheduled run).
 
 from __future__ import annotations
 
+import json
+import logging
 import threading
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
@@ -97,6 +99,73 @@ class TestStartup:
             worker_module.main()
 
         m.scheduler.start.assert_called_once()
+
+
+class TestConfigureLogging:
+    """``LOG_FORMAT=json`` (the default) must emit one valid JSON object per record."""
+
+    @staticmethod
+    @contextmanager
+    def _configured(log_format: str):
+        """Run ``_configure_logging`` against a bare root logger, then restore it.
+
+        pytest attaches its capture handlers to the root during each phase and
+        ``basicConfig`` is a no-op while the root has handlers, so the swap has to
+        happen inside the test body.
+        """
+        root = logging.getLogger()
+        handlers, level = root.handlers[:], root.level
+        root.handlers = []
+        try:
+            with (
+                patch.object(worker_module.settings, "log_format", log_format),
+                patch.object(worker_module.settings, "log_level", "INFO"),
+                patch("app.services.market_data.yfinance.configure_yfinance"),
+            ):
+                worker_module._configure_logging()
+            yield
+        finally:
+            root.handlers = handlers
+            root.setLevel(level)
+
+    def test_json_lines_survive_quotes_and_newlines_in_the_message(
+        self, capsys
+    ) -> None:
+        message = (
+            'Orphan reconciliation failed: relation "background_jobs" does not exist'
+            "\nsecond line"
+        )
+        with self._configured("json"):
+            logging.getLogger("app.probe").warning(message)
+
+        (line,) = capsys.readouterr().err.splitlines()
+        record = json.loads(line)
+        assert record["level"] == "WARNING"
+        assert record["name"] == "app.probe"
+        assert record["message"] == message
+        assert record["timestamp"]
+
+    def test_json_traceback_stays_inside_the_record(self, capsys) -> None:
+        with self._configured("json"):
+            probe = logging.getLogger("app.probe")
+            try:
+                raise ValueError('bad "value"')
+            except ValueError:
+                probe.exception("step failed")
+            probe.info("after")
+
+        lines = capsys.readouterr().err.splitlines()
+        failed, after = (json.loads(line) for line in lines)
+        assert failed["message"] == "step failed"
+        assert "Traceback" in failed["exception"]
+        assert "ValueError" in failed["exception"]
+        assert after["message"] == "after"
+
+    def test_text_format_is_unchanged(self, capsys) -> None:
+        with self._configured("text"):
+            logging.getLogger("app.probe").warning("plain")
+
+        assert capsys.readouterr().err.rstrip().endswith("app.probe - WARNING - plain")
 
 
 class TestSchedulerSupervision:

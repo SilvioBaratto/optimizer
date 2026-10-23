@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import json
 import logging
 import os
 import signal
@@ -41,17 +42,41 @@ _shutdown = threading.Event()
 _SUPERVISION_INTERVAL_SECONDS = 30
 
 
+class _JsonFormatter(logging.Formatter):
+    """Render each record as a single-line JSON object.
+
+    The message and any traceback go through ``json.dumps`` so quotes, newlines
+    and multi-line tracebacks cannot break the line for a JSON log shipper.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "timestamp": self.formatTime(record),
+            "name": record.name,
+            "level": record.levelname,
+            "message": record.getMessage(),
+        }
+        if record.exc_info and not record.exc_text:
+            record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            payload["exception"] = record.exc_text
+        if record.stack_info:
+            payload["stack"] = self.formatStack(record.stack_info)
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
+
 def _configure_logging() -> None:
     from app.services.market_data.yfinance import configure_yfinance
 
+    formatter: logging.Formatter = (
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        if settings.log_format == "text"
+        else _JsonFormatter()
+    )
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
     logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper()),
-        format=(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-            if settings.log_format == "text"
-            else '{"timestamp": "%(asctime)s", "name": "%(name)s",'
-            ' "level": "%(levelname)s", "message": "%(message)s"}'
-        ),
+        level=getattr(logging, settings.log_level.upper()), handlers=[handler]
     )
     configure_yfinance(log_level=settings.yfinance_log_level)
 
