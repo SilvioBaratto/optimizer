@@ -125,7 +125,7 @@ class UniverseRepository(RepositoryBase):
         ticker: str,
         exchange_id: Any,
         delisted_at: date,
-        delisting_return: float = -0.30,
+        delisting_return: float | None = -0.30,
     ) -> bool:
         """Mark an instrument as delisted.
 
@@ -135,7 +135,9 @@ class UniverseRepository(RepositoryBase):
             delisted_at: Date the instrument was last seen in the T212 universe.
             delisting_return: Final return to assign. Defaults to the CRSP
                 convention (-30%). Pass -1.0 for bankruptcy or the actual
-                acquisition premium when known.
+                acquisition premium when known, or ``None`` when the instrument
+                left the universe but is still trading, so no terminal return
+                is invented for it.
 
         Returns:
             True if the row was updated, False if no matching active instrument

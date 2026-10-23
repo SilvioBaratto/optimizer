@@ -84,6 +84,14 @@ class TestApplyDelistingReturns:
         assert np.isnan(result["LATE"].iloc[0])  # leading gap preserved
         assert np.isnan(result["LATE"].iloc[1])
 
+    def test_ticker_left_out_of_mapping_keeps_its_history(
+        self, sample_returns: pd.DataFrame
+    ) -> None:
+        # A line that left the universe but still trades has no terminal return,
+        # so the caller omits it; its trailing NaN must not be cash-filled.
+        result = apply_delisting_returns(sample_returns, {"MSFT": -0.30})
+        pd.testing.assert_series_equal(result["AAPL"], sample_returns["AAPL"])
+
     def test_none_delisting_return_raises(self, sample_returns: pd.DataFrame) -> None:
         # Unresolved DB NULL must not be silently written as NaN.
         with pytest.raises(DataError, match="AAPL"):
@@ -120,6 +128,12 @@ class TestDelistingProtectionMask:
     def test_skips_all_nan_column(self, sample_returns: pd.DataFrame) -> None:
         mask = delisting_protection_mask(sample_returns, {"GOOG": -1.0})
         assert not mask.to_numpy().any()
+
+    def test_ticker_left_out_of_mapping_is_not_marked(
+        self, sample_returns: pd.DataFrame
+    ) -> None:
+        mask = delisting_protection_mask(sample_returns, {"MSFT": -0.30})
+        assert not mask["AAPL"].any()
 
     def test_skips_unknown_ticker(self, sample_returns: pd.DataFrame) -> None:
         # No raise here (apply_delisting_returns is the validator); no mark.

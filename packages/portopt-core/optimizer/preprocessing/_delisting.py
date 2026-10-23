@@ -31,13 +31,25 @@ def apply_delisting_returns(
     - ``-1.0`` — bankruptcy / total loss.
     - Any other realised terminal return.
 
-    The DB column is nullable and (on a fresh universe) currently all-``NULL``.
-    ``NULL`` means "not delisted / terminal return unknown" and **must be
-    resolved by the caller** (e.g. to the ``-0.30`` default) before calling —
-    this DB-agnostic function cannot query the column or invent a policy, so a
+    The DB column is nullable and ``NULL`` is ambiguous on its own; read it
+    together with ``instruments.delisted_at``:
+
+    - ``delisted_at`` NULL — still in the universe, no terminal return exists.
+      Leave the ticker out of *delisting_returns*.
+    - ``delisted_at`` set, ``delisting_return`` set — a delisting. The universe
+      builder stores the ``-0.30`` default when the source stopped returning the
+      symbol, so a genuinely unknown terminal return is never left ``NULL``.
+      Pass the value.
+    - ``delisted_at`` set, ``delisting_return`` NULL — the line left the
+      universe (dedup, floor, venue allowlist) but is **still trading**. It has
+      no terminal return. Leave it out of *delisting_returns* so its history
+      stays untouched; do **not** resolve it to the ``-0.30`` default, which
+      would impose a loss nobody realised.
+
+    This DB-agnostic function cannot query the columns or invent a policy, so a
     ``None`` / non-finite value is rejected rather than silently written as
     ``NaN`` (which would corrupt a real observation and quietly *reintroduce*
-    survivorship bias).
+    survivorship bias). Filtering out the still-trading rows is the caller's job.
 
     Because the module receives no ``delisted_at`` date, the terminal return is
     written at each ticker's last valid (non-``NaN``) return, overwriting it.

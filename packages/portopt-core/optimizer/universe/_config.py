@@ -32,7 +32,9 @@ class DelistingPolicy(str, Enum):
             *survivorship-bias free*.  Pair this with as-of-date-windowed
             price / volume history (which naturally caps a name at its
             delisting) and use ``instruments.delisting_return`` in the
-            downstream return assembly.
+            downstream return assembly.  A delisted row whose
+            ``delisting_return`` is ``NULL`` left the universe but is still
+            trading; it has no terminal return, so do not substitute a default.
     """
 
     EXCLUDE = "exclude"

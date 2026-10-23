@@ -305,6 +305,7 @@ class _RecordingRepo:
         self._names: dict[str, str] = {}
         self.saved: list[str] = []
         self.delisted: list[tuple[str, float]] = []
+        self.delisting_returns: dict[str, float | None] = {}
 
     def save_exchange(self, exchange_data: dict[str, Any]) -> Any:
         exchange = MagicMock()
@@ -323,8 +324,15 @@ class _RecordingRepo:
     ) -> set[str]:
         return set(self._active.get(exchange_id, set()))
 
-    def mark_delisted(self, ticker: str, exchange_id: Any, delisted_at: Any) -> bool:
+    def mark_delisted(
+        self,
+        ticker: str,
+        exchange_id: Any,
+        delisted_at: Any,
+        delisting_return: float | None = -0.30,
+    ) -> bool:
         self.delisted.append((ticker, exchange_id))
+        self.delisting_returns[ticker] = delisting_return
         return True
 
 
@@ -385,6 +393,72 @@ def test_failed_code_inside_a_merged_exchange_never_delists_its_listings(
         _build(src, repo)
 
     assert repo.delisted == []
+
+
+def test_live_line_dropped_by_the_floor_gets_no_fabricated_delisting_return(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # TINY still trades (the screener returned it) but sits below the floor, so it
+    # leaves the universe. That is not a delisting: the CRSP -30% terminal return
+    # would be fabricated. GONE is absent from the screener altogether.
+    tiny = _quote(
+        "TINY",
+        "NMS",
+        regularMarketPrice=0.1,
+        averageDailyVolume3Month=100,
+        sharesOutstanding=100_000,
+    )
+    repo = _RecordingRepo({"NASDAQ": {"AAA", "TINY", "GONE"}})
+    src, _ = _source(
+        [{"quotes": [_quote("AAA", "NMS"), tiny]}, {"quotes": []}], monkeypatch
+    )
+
+    _build(src, repo)
+
+    assert repo.delisting_returns == {"TINY": None, "GONE": -0.30}
+
+
+def test_live_line_dropped_by_dedup_gets_no_fabricated_delisting_return(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    nvda = _quote(
+        "NVDA",
+        "NMS",
+        longName="NVIDIA Corporation",
+        regularMarketPrice=220.0,
+        averageDailyVolume3Month=138_000_000,
+    )
+    nvd_de = _quote(
+        "NVD.DE",
+        "GER",
+        longName="NVIDIA Corporation",
+        currency="EUR",
+        regularMarketPrice=187.0,
+        averageDailyVolume3Month=100_000,
+    )
+    sap = _quote("SAP.DE", "GER", longName="SAP SE", currency="EUR")
+    repo = _RecordingRepo({"Deutsche Börse Xetra": {"NVD.DE", "SAP.DE"}})
+    src, _ = _source([{"quotes": [nvda, nvd_de, sap]}, {"quotes": []}], monkeypatch)
+
+    _build(src, repo)
+
+    assert repo.delisting_returns == {"NVD.DE": None}
+
+
+def test_live_line_moved_to_an_out_of_scope_venue_gets_no_fabricated_return(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # NYSE Arca -> Cboe BZX ("BTS" is not a mapped code): the symbol is still
+    # trading, it just left the covered venues.
+    moved = _quote("MOVED", "BTS")
+    repo = _RecordingRepo({"NYSE": {"MOVED", "KEEP"}})
+    src, _ = _source(
+        [{"quotes": [_quote("KEEP", "NYQ"), moved]}, {"quotes": []}], monkeypatch
+    )
+
+    _build(src, repo)
+
+    assert repo.delisting_returns == {"MOVED": None}
 
 
 class _FxTicker:

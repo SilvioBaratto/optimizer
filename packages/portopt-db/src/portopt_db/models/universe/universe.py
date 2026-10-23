@@ -76,7 +76,10 @@ class Instrument(BaseModel):
         fi_subclass: Fixed-income sub-category; None for non-fixed-income instruments.
         duration_bucket: Duration bracket for fixed-income; None for all other asset classes.
         delisted_at: Date the instrument left the active T212 universe; None while active.
-        delisting_return: Final price return on the delisting date; None while active.
+        delisting_return: Final price return on the delisting date; None while active,
+            and None for an instrument that left the universe but is still trading.
+            A consumer must treat ``delisted_at`` set with a None return as "no
+            terminal return" and never substitute a default such as -0.30.
         exchange_id: Foreign key to the hosting exchange row.
     """
 

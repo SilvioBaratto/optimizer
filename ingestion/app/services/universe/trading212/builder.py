@@ -9,6 +9,7 @@ from app.services.universe.trading212.classification import classify_instrument
 from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.trading212.filters.etf_screen import dedup_etfs_by_isin
 from app.services.universe.trading212.protocols import (
+    LiveSymbolReporter,
     TickerMapper,
     Trading212ApiClient,
     UniverseRepository,
@@ -66,6 +67,7 @@ class UniverseBuilder:
         default_factory=lambda: defaultdict(list), init=False
     )
     _errors: list[str] = field(default_factory=list, init=False)
+    _live_symbols: frozenset[str] = field(default_factory=frozenset, init=False)
 
     def build(self) -> BuildResult:
         """Run a full universe build from the Trading 212 API.
@@ -77,6 +79,11 @@ class UniverseBuilder:
 
         exchanges = self.api_client.get_exchanges()
         instruments = self.api_client.get_instruments()
+        self._live_symbols = (
+            frozenset(self.api_client.get_live_symbols())
+            if isinstance(self.api_client, LiveSymbolReporter)
+            else frozenset()
+        )
 
         self._build_schedule_mappings(exchanges, instruments)
 
@@ -262,7 +269,12 @@ class UniverseBuilder:
         tickers_seen: set[str],
         exchange_id: Any,
     ) -> None:
-        """Mark instruments that were active but absent from the latest T212 response."""
+        """Mark instruments that were active but absent from the latest build.
+
+        A ticker the source still reports as trading left the universe through
+        dedup, the floor or the venue allowlist, so it is stamped without a
+        terminal return; the default -30% is reserved for tickers that vanished.
+        """
         if not hasattr(self.repository, "mark_delisted"):
             return
 
@@ -272,10 +284,14 @@ class UniverseBuilder:
 
         today = date.today()
         for ticker in dropped:
+            still_trading: dict[str, Any] = (
+                {"delisting_return": None} if ticker in self._live_symbols else {}
+            )
             marked = self.repository.mark_delisted(
                 ticker=ticker,
                 exchange_id=exchange_id,
                 delisted_at=today,
+                **still_trading,
             )
             if marked:
                 import logging as _logging

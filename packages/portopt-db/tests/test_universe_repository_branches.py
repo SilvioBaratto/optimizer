@@ -215,6 +215,21 @@ class TestMarkDelisted:
         assert seed.instrument.delisted_at == date(2024, 6, 1)
         assert seed.instrument.delisting_return == pytest.approx(-0.30)
 
+    def test_when_no_terminal_return_given_stores_null_not_the_default(
+        self, db_session
+    ):
+        seed = seed_universe(db_session, ticker="STILLLIVE")
+        repo = _repo(db_session)
+
+        result = repo.mark_delisted(
+            "STILLLIVE", seed.exchange.id, date(2024, 6, 1), delisting_return=None
+        )
+
+        assert result is True
+        db_session.refresh(seed.instrument)
+        assert seed.instrument.delisted_at == date(2024, 6, 1)
+        assert seed.instrument.delisting_return is None
+
     def test_when_instrument_not_found_returns_false(self, db_session):
         ex = _make_exchange(db_session, "Delist Exchange")
         repo = _repo(db_session)

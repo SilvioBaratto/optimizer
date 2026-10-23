@@ -34,6 +34,15 @@ class Trading212ApiClient(Protocol):
 
 
 @runtime_checkable
+class LiveSymbolReporter(Protocol):
+    """Optional ``Trading212ApiClient`` extension for sources that can vouch for liveness."""
+
+    def get_live_symbols(self) -> set[str]:
+        """Symbols the source saw trading, whether or not they were admitted."""
+        ...
+
+
+@runtime_checkable
 class UniverseRepository(Protocol):
     """Persist and query universe state (exchanges, instruments, delistings)."""
 

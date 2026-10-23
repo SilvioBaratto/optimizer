@@ -269,6 +269,7 @@ class YFinanceUniverseSource:
     _loaded: bool = field(default=False, init=False)
     _exchanges: list[dict[str, Any]] = field(default_factory=list, init=False)
     _instruments: list[dict[str, Any]] = field(default_factory=list, init=False)
+    _live_symbols: set[str] = field(default_factory=set, init=False)
 
     def get_exchanges(self) -> list[dict[str, Any]]:
         self._ensure_loaded()
@@ -277,6 +278,17 @@ class YFinanceUniverseSource:
     def get_instruments(self) -> list[dict[str, Any]]:
         self._ensure_loaded()
         return self._instruments
+
+    def get_live_symbols(self) -> set[str]:
+        """Symbols the screener reported as trading, admitted or not.
+
+        Dedup, the floor and the venue allowlist all drop listings that are still
+        live. The builder uses this set to tell those apart from tickers Yahoo no
+        longer returns at all, so it does not stamp a delisting return on a line
+        that merely left the universe.
+        """
+        self._ensure_loaded()
+        return self._live_symbols
 
     def _build_queries(self) -> list[tuple[Any, str, str, int]]:
         """``(query, instrument_type, sort_field, cap)`` tuples.
@@ -400,6 +412,7 @@ class YFinanceUniverseSource:
     def _build_shape(self, quotes: list[dict[str, Any]]) -> None:
         # Same ticker can appear in both stock and ETF queries; deduplicate by
         # (symbol, exchange code) before the canonical pass.
+        self._live_symbols = {sym for q in quotes if (sym := q.get("symbol"))}
         parsed: list[Listing] = []
         kind_by_key: dict[tuple[str, str | None], str] = {}
         seen_raw: set[tuple[str, str | None]] = set()
