@@ -128,3 +128,68 @@ class TestPredictColumnOrder:
         reordered = pipe.predict(X[["D", "C", "B", "A"]])
 
         np.testing.assert_allclose(reordered.returns, reference.returns)
+
+
+class TestPredictScoresRealisedReturns:
+    """Held-out P&L must come from realised returns, not from cleaned ones.
+
+    Cleaning (winsorise / remove / impute) belongs to fitting.  Applying it to
+    the test window would clip real crashes and fabricate peer returns, which
+    understates tails and overstates Sharpe for any out-of-sample evaluation.
+    """
+
+    @staticmethod
+    def _train_test() -> tuple[pd.DataFrame, pd.DataFrame]:
+        rng = np.random.default_rng(11)
+        n_train, n_test, n_assets = 400, 200, 5
+        cols = [f"S{i}" for i in range(n_assets)]
+        idx = pd.date_range("2022-01-03", periods=n_train + n_test, freq="B")
+        data = rng.normal(0.0005, 0.01, size=(n_train + n_test, n_assets))
+        frame = pd.DataFrame(data, columns=cols, index=idx)
+        return frame.iloc[:n_train].copy(), frame.iloc[n_train:].copy()
+
+    def test_predict_keeps_extreme_held_out_returns(self) -> None:
+        train, test = self._train_test()
+        test.iloc[50, 0] = -0.30
+        test.iloc[100, 1] = -0.12
+
+        pipe = build_portfolio_pipeline(EqualWeighted())
+        pipe.fit(train)
+        portfolio = pipe.predict(test)
+
+        np.testing.assert_allclose(
+            np.asarray(portfolio.returns), test.mean(axis=1).to_numpy(), atol=1e-12
+        )
+
+    def test_predict_does_not_fabricate_missing_held_out_returns(self) -> None:
+        train, test = self._train_test()
+        test.iloc[20, 2] = np.nan
+
+        pipe = build_portfolio_pipeline(EqualWeighted())
+        pipe.fit(train)
+        portfolio = pipe.predict(test)
+
+        # A missing observation contributes no P&L; it is not a peer average.
+        expected = test.fillna(0.0).mean(axis=1).to_numpy()
+        np.testing.assert_allclose(np.asarray(portfolio.returns), expected, atol=1e-12)
+
+    def test_predict_applies_column_selection_learned_at_fit(self) -> None:
+        train, test = self._train_test()
+        train["DEAD"] = np.nan
+        test["DEAD"] = 0.0
+
+        pipe = build_portfolio_pipeline(EqualWeighted())
+        pipe.fit(train)
+        portfolio = pipe.predict(test)
+
+        assert "DEAD" not in list(portfolio.assets)
+        assert len(portfolio.weights) == 5
+
+    def test_fit_still_cleans_training_returns(self) -> None:
+        train, _ = self._train_test()
+        train.iloc[10, 0] = -0.30
+
+        pipe = build_portfolio_pipeline(EqualWeighted())
+        cleaned = pipe[:-1].fit_transform(train)
+
+        assert cleaned.iloc[10, 0] > -0.30

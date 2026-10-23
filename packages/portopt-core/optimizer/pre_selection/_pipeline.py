@@ -19,6 +19,11 @@ from skfolio.pre_selection import (
 from sklearn.pipeline import Pipeline
 
 from optimizer.pre_selection._config import PreSelectionConfig, SelectKMeasure
+from optimizer.pre_selection._fit_only import (
+    FitOnlyDataValidator,
+    FitOnlyOutlierTreater,
+    FitOnlySectorImputer,
+)
 from optimizer.preprocessing._imputation import SectorImputer
 from optimizer.preprocessing._outliers import OutlierTreater
 from optimizer.preprocessing._validation import DataValidator
@@ -94,6 +99,33 @@ def build_preselection_pipeline(
     Returns:
         Assembled sklearn Pipeline with output set to pandas.
     """
+    steps = _build_steps(
+        config,
+        sector_mapping,
+        expiration_dates,
+        outlier_protection_mask,
+        fit_only_cleaning=False,
+    )
+    pipe = Pipeline(steps)
+    pipe.set_output(transform="pandas")
+    return pipe
+
+
+def _build_steps(
+    config: PreSelectionConfig | None,
+    sector_mapping: dict[str, str] | None,
+    expiration_dates: dict[str, dt.datetime] | None,
+    outlier_protection_mask: pd.DataFrame | None,
+    *,
+    fit_only_cleaning: bool,
+) -> list[tuple[str, object]]:
+    """Assemble the ordered pre-selection steps.
+
+    ``fit_only_cleaning`` swaps the value-rewriting steps (validate, outliers,
+    impute) for variants that clean during ``fit_transform`` only.  A pipeline
+    that ends in an optimiser needs this so ``predict`` scores the held-out
+    window on realised returns rather than on cleaned ones.
+    """
     if config is None:
         config = PreSelectionConfig()
 
@@ -103,14 +135,18 @@ def build_preselection_pipeline(
             "Only 'time_series' is currently supported."
         )
 
+    validator_cls = FitOnlyDataValidator if fit_only_cleaning else DataValidator
+    treater_cls = FitOnlyOutlierTreater if fit_only_cleaning else OutlierTreater
+    imputer_cls = FitOnlySectorImputer if fit_only_cleaning else SectorImputer
+
     steps: list[tuple[str, object]] = [
         (
             "validate",
-            DataValidator(max_abs_return=config.max_abs_return),
+            validator_cls(max_abs_return=config.max_abs_return),
         ),
         (
             "outliers",
-            OutlierTreater(
+            treater_cls(
                 winsorize_threshold=config.winsorize_threshold,
                 remove_threshold=config.remove_threshold,
                 protected_mask=outlier_protection_mask,
@@ -124,7 +160,7 @@ def build_preselection_pipeline(
         ),
         (
             "impute",
-            SectorImputer(
+            imputer_cls(
                 sector_mapping=sector_mapping,
                 fallback_strategy=config.imputation_fallback,
             ),
@@ -178,9 +214,7 @@ def build_preselection_pipeline(
             )
         )
 
-    pipe = Pipeline(steps)
-    pipe.set_output(transform="pandas")
-    return pipe
+    return steps
 
 
 def build_portfolio_pipeline(
@@ -195,6 +229,13 @@ def build_portfolio_pipeline(
     The resulting pipeline is a single estimator for cross-validation
     and hyperparameter tuning.  Pre-selection is performed *within*
     each CV fold, preventing data leakage.
+
+    Data cleaning (invalid-value removal, outlier winsorising, imputation)
+    applies to the data the optimiser is *fitted* on.  ``predict`` / ``score``
+    leave the held-out returns untouched apart from the column selection
+    learned at fit, so the resulting ``Portfolio`` reports realised
+    performance.  A missing or non-finite held-out observation cannot be scored
+    and is valued at zero return.
 
     Args:
         optimizer: A skfolio optimiser (e.g. from ``build_mean_risk()``)
@@ -227,16 +268,17 @@ def build_portfolio_pipeline(
         >>> portfolio = pipeline.predict(X)
         >>> print(portfolio.sharpe_ratio)
     """
-    preselection = build_preselection_pipeline(
-        config=pre_selection_config,
-        sector_mapping=sector_mapping,
-        expiration_dates=expiration_dates,
-        outlier_protection_mask=outlier_protection_mask,
+    preselection_steps = _build_steps(
+        pre_selection_config,
+        sector_mapping,
+        expiration_dates,
+        outlier_protection_mask,
+        fit_only_cleaning=True,
     )
 
     # Flatten pre-selection steps + final optimiser into one pipeline
     # so that get_params() exposes all nested parameters for tuning.
-    steps = [*preselection.steps, ("optimizer", optimizer)]
+    steps = [*preselection_steps, ("optimizer", optimizer)]
     pipe = Pipeline(steps)
     pipe.set_output(transform="pandas")
     return pipe
