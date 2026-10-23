@@ -320,14 +320,58 @@ def _gate_text(session: Any, saver: Any, run_id: uuid.UUID) -> str | None:
     """
     from fund.audit.repository import AgentRunRepository
 
-    run = AgentRunRepository(session).get_run(run_id)
+    repo = AgentRunRepository(session)
+    run = repo.get_run(run_id)
     if run is None:
         return None
-    return _format_decision_gate(observe.interrupt_for(saver, run), run)
+    return _format_decision_gate(
+        observe.interrupt_for(saver, run), run, repo.latest_optimizer_weights(run_id)
+    )
 
 
-def _format_decision_gate(interrupt: dict[str, Any] | None, run: Any) -> str:
-    """Render ``run``'s pending gate: header, the "why", and the proposed orders."""
+# The orders block prints weights to four decimals; a PM/audit gap below half a unit
+# in the last place is invisible to the adviser and not worth a warning.
+_WEIGHT_DISPLAY_TOLERANCE = 5e-5
+
+
+def _pm_weights_differ(pm_weights: Any, audited: dict[str, float]) -> bool:
+    """Whether the PM's ``place_orders`` weights disagree with the audited vector.
+
+    A missing ticker counts as weight 0 and anything non-numeric counts as a
+    disagreement, since the PM's tool-call args are unvalidated until after the gate.
+    """
+    if pm_weights is None:
+        return False
+    if not isinstance(pm_weights, dict):
+        return True
+    try:
+        return any(
+            not abs(
+                float(pm_weights.get(ticker, 0.0)) - float(audited.get(ticker, 0.0))
+            )
+            <= _WEIGHT_DISPLAY_TOLERANCE
+            for ticker in pm_weights.keys() | audited.keys()
+        )
+    except (TypeError, ValueError):
+        return True
+
+
+def _format_decision_gate(
+    interrupt: dict[str, Any] | None, run: Any, audited: dict[str, float]
+) -> str:
+    """Render ``run``'s pending gate: header, the "why", and the orders it executes.
+
+    The orders block shows ``audited`` — the allocator's logged optimizer weights,
+    which ``place_orders`` places on approval — not the PM's tool-call args, which
+    that tool ignores. A PM vector that disagrees is flagged instead of shown, so the
+    adviser never approves a vector other than the one that executes.
+
+    Args:
+        interrupt: The run's pending HITL payload (``action_requests``), or ``None``.
+        run: The ORM run row (``id`` / ``portfolio_id``) for the header.
+        audited: The run's latest audited optimizer weights (``{}`` when the allocator
+            never produced a proposal).
+    """
     pf = _short(run.portfolio_id) if run.portfolio_id else "fund-wide"
     requests = (interrupt or {}).get("action_requests") or []
     request = requests[0] if requests else {}
@@ -337,12 +381,22 @@ def _format_decision_gate(interrupt: dict[str, Any] | None, run: Any) -> str:
     lines.append(f"why: {why}" if why else "why: review before it executes")
     args = request.get("args") or {}
     lines.extend(_format_risk_gate(args.get("risk_gate")))
-    weights = args.get("weights")
-    if isinstance(weights, dict) and weights:
-        lines.append("orders (target weights):")
-        lines.extend(
-            f"  {ticker}: {weight:.4f}" for ticker, weight in sorted(weights.items())
-        )
+    if name == "place_orders" or "weights" in args:
+        if audited:
+            lines.append("orders (audited optimizer weights, executed on approval):")
+            lines.extend(
+                f"  {ticker}: {weight:.4f}"
+                for ticker, weight in sorted(audited.items())
+            )
+        else:
+            lines.append(
+                "orders: no audited optimizer weights, approval places no ticket"
+            )
+        if _pm_weights_differ(args.get("weights"), audited):
+            lines.append(
+                "⚠ PM-proposed weights differ from the audited vector; "
+                "approval executes the audited one"
+            )
     return "\n".join(lines)
 
 

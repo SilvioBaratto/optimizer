@@ -836,6 +836,35 @@ async def _open_decisions(app, pilot) -> DecisionsView:
     return app.query_one("#view-decisions", DecisionsView)
 
 
+def _seed_gate(env, portfolio_id: uuid.UUID, pm_weights: dict[str, float]) -> uuid.UUID:
+    """Pause one more ``place_orders`` gate for ``portfolio_id`` and return its run id.
+
+    The scripted PM commits ``pm_weights`` to ``place_orders`` while the allocator's
+    audited optimizer output stays whatever the real optimizer computed — so passing
+    a vector that differs from ``env.expected`` models a PM that mistyped or was
+    steered into proposing different weights than will actually execute.
+    """
+    from fund.agents.graph import run_fund
+
+    put_constraint_set(
+        env.store,
+        make_constraint_set(portfolio_id),
+        store_key=settings.constraint_set_store_key,
+    )
+    with env.get_session() as session:
+        run = run_fund(
+            ScriptedFundModel(universe=UNIVERSE, weights=pm_weights),
+            make_mandate(portfolio_id),
+            portfolio_id=portfolio_id,
+            asof=ASOF,
+            session=session,
+            checkpointer=env.saver,
+            store=env.store,
+        )
+        session.commit()
+        return run.run_id
+
+
 @pytest.mark.asyncio
 async def test_decisions_queue_is_cross_portfolio_and_gate_shows_why(tui_env) -> None:
     # Fund-wide landing (portfolio_id=None): the queue still lists the paused gate,
@@ -1424,13 +1453,14 @@ def test_format_decision_gate_renders_why_from_description_else_fallback() -> No
             ]
         },
         run,
+        {"AAA": 0.5},
     )
     assert "place_orders" in with_desc
     assert "why: trimmed energy on macro risk-off" in with_desc
     assert "AAA: 0.5000" in with_desc
 
     no_desc = _format_decision_gate(
-        {"action_requests": [{"name": "place_orders", "args": {}}]}, run
+        {"action_requests": [{"name": "place_orders", "args": {}}]}, run, {}
     )
     assert "why: review before it executes" in no_desc
 
@@ -1442,7 +1472,7 @@ def test_format_decision_gate_shows_the_risk_verdict() -> None:
 
     def gate(risk_gate: dict) -> str:
         request = {"name": "place_orders", "args": {"risk_gate": risk_gate}}
-        return _format_decision_gate({"action_requests": [request]}, run)
+        return _format_decision_gate({"action_requests": [request]}, run, {})
 
     assert "risk gate: passed" in gate({"status": "passed", "violations": []})
     failed = gate(
@@ -1460,9 +1490,94 @@ def test_format_decision_gate_shows_the_risk_verdict() -> None:
     assert "risk gate: STALE" in stale
     assert "max_weight" not in stale  # the breach belongs to a superseded vector
     no_gate = _format_decision_gate(
-        {"action_requests": [{"name": "place_orders", "args": {}}]}, run
+        {"action_requests": [{"name": "place_orders", "args": {}}]}, run, {}
     )
     assert "risk gate" not in no_gate
+
+
+def test_format_decision_gate_renders_audited_weights_and_flags_pm_mismatch() -> None:
+    from fund.tui.views import _format_decision_gate
+
+    run = SimpleNamespace(id=_PID_A, portfolio_id=_PID_B)
+    interrupt = {
+        "action_requests": [
+            {"name": "place_orders", "args": {"weights": {"SPY": 1.0}}},
+        ]
+    }
+    audited = {"AAA": 0.6, "BBB": 0.4}
+
+    text = _format_decision_gate(interrupt, run, audited)
+
+    # The gate shows what executes (the audited optimizer vector), never the PM's
+    # unverified args, and says so when the two disagree.
+    assert "AAA: 0.6000" in text
+    assert "BBB: 0.4000" in text
+    assert "SPY" not in text
+    assert "differ" in text
+
+    agreeing = _format_decision_gate(
+        {"action_requests": [{"name": "place_orders", "args": {"weights": audited}}]},
+        run,
+        audited,
+    )
+    assert "differ" not in agreeing
+
+    no_audit = _format_decision_gate(interrupt, run, {})
+    assert "SPY" not in no_audit
+    assert "no audited" in no_audit
+
+
+def test_format_decision_gate_tolerates_non_numeric_pm_weights() -> None:
+    from fund.tui.views import _format_decision_gate
+
+    run = SimpleNamespace(id=_PID_A, portfolio_id=_PID_B)
+    interrupt = {
+        "action_requests": [
+            {"name": "place_orders", "args": {"weights": {"AAA": "0.5", "BBB": None}}}
+        ]
+    }
+
+    text = _format_decision_gate(interrupt, run, {"AAA": 0.5, "BBB": 0.5})
+
+    assert "AAA: 0.5000" in text
+    assert "differ" in text
+
+
+@pytest.mark.asyncio
+async def test_decisions_gate_shows_audited_weights_when_pm_args_diverge(
+    tui_env,
+) -> None:
+    # The PM proposes {CCC: 1.0}; the allocator's audited vector (what place_orders
+    # actually executes) is tui_env.expected. The adviser must approve the latter. The
+    # gate middleware already pins the interrupt's args to it, so no mismatch remains
+    # to flag (the flag itself is covered on the formatter).
+    run_id = _seed_gate(tui_env, _PID_B, {"CCC": 1.0})
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        gate = view.gate_text
+    assert "CCC: 1.0000" not in gate
+    assert f"AAA: {tui_env.expected['AAA']:.4f}" in gate
+    assert "differ" not in gate
+
+
+@pytest.mark.asyncio
+async def test_decisions_edit_modal_is_seeded_from_audited_weights(tui_env) -> None:
+    run_id = _seed_gate(tui_env, _PID_B, {"CCC": 1.0})
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        app.action_edit_decision()
+        await pilot.pause()
+        assert isinstance(app.screen, OrderEditScreen)
+        seeded = app.screen.query_one("#edit-weights", Input).value
+    entries = dict(item.split(":") for item in seeded.split(", "))
+    assert float(entries["AAA"]) == pytest.approx(tui_env.expected["AAA"])
+    assert float(entries["CCC"]) == pytest.approx(tui_env.expected["CCC"], abs=1e-6)
 
 
 # --- Mandate view: run-policy editor + guardrail override (T5) ----------------

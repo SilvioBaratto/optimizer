@@ -1235,11 +1235,11 @@ class ShellApp(App[None]):
         """The weights to seed the editor with, or ``{}`` on any read error.
 
         Needs a pending gate (its ``place_orders`` interrupt). The seed is the run's
-        audited optimizer output at full precision when there is one — that is what
-        approving actually places — and only otherwise the model's own, possibly
-        rounded, ``place_orders`` args. The run repo is imported from its submodule
-        (never the ``fund.audit`` root, which pulls the langgraph bootstrap) so this
-        stays agent-stack-light.
+        audited optimizer output at full precision — the vector approving actually
+        places — never the PM's own ``place_orders`` args, which that tool ignores, so
+        the editor starts from what approval would place. The run repo is imported from
+        its submodule (never the ``fund.audit`` root, which pulls the langgraph
+        bootstrap) so this stays agent-stack-light.
         """
         from fund.audit.repository import AgentRunRepository
 
@@ -1250,16 +1250,9 @@ class ShellApp(App[None]):
                 interrupt = (
                     observe.interrupt_for(self._persistence.saver, run) if run else None
                 )
-                audited = repo.latest_optimizer_weights(run_id) if interrupt else {}
+                weights = repo.latest_optimizer_weights(run_id) if interrupt else {}
                 session.rollback()
         except Exception:  # keep the shell alive on a read error
-            return {}
-        if audited:
-            return audited
-        requests = (interrupt or {}).get("action_requests") or []
-        args = (requests[0].get("args") if requests else {}) or {}
-        weights = args.get("weights")
-        if not isinstance(weights, dict):
             return {}
         return {str(ticker): float(weight) for ticker, weight in weights.items()}
 
