@@ -24,10 +24,11 @@ import pytest
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
 
+from fund.tools._base import MIN_RETURN_OBSERVATIONS
 from fund.tools.risk import backtest, risk_check
 
 _START = dt.date(2024, 1, 1)
-_N_DAYS = 60
+_N_DAYS = 80
 _ASOF = _START + dt.timedelta(days=_N_DAYS - 1)
 # Each ticker maps to a start level, a drift and a wave amplitude. There is no RNG,
 # so the whole path is reproducible and determinism is trivially testable.
@@ -113,6 +114,39 @@ def _seed_consecutive_closes(db_session, ticker: str, closes: list[float]) -> No
                 instrument_id=inst.id,
                 date=_ASOF - dt.timedelta(days=len(closes) - 1 - i),
                 close=close,
+                volume=1000,
+            )
+        )
+    db_session.flush()
+
+
+_RAGGED_LONG_DAYS = 120
+_RAGGED_YOUNG_DAYS = 6
+_RAGGED_ASOF = _START + dt.timedelta(days=_RAGGED_LONG_DAYS - 1)
+
+
+def _seed_ragged_panel(db_session, young_days: int = _RAGGED_YOUNG_DAYS) -> None:
+    """Seed AAA/BBB/CCC with a long history plus NEW, listed only for the last bars."""
+    for ticker, (start, drift, wave) in _SERIES.items():
+        inst = _seed_instrument(db_session, ticker)
+        for i in range(_RAGGED_LONG_DAYS):
+            close = start * (1.0 + drift * i + wave * math.sin(i / 5.0))
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=_START + dt.timedelta(days=i),
+                    close=round(close, 6),
+                    volume=1000,
+                )
+            )
+    young = _seed_instrument(db_session, "NEW")
+    for i in range(_RAGGED_LONG_DAYS - young_days, _RAGGED_LONG_DAYS):
+        close = 40.0 * (1.0 + 0.001 * i + 0.025 * math.sin(i / 3.0))
+        db_session.add(
+            PriceHistory(
+                instrument_id=young.id,
+                date=_START + dt.timedelta(days=i),
+                close=round(close, 6),
                 volume=1000,
             )
         )
@@ -443,7 +477,10 @@ class TestBacktest:
     ) -> None:
         # 100 -> 200 -> 150 -> 100 is a 50% peak-to-trough loss. skfolio's default
         # arithmetic drawdown sums the simple returns instead and reads 58.3%.
-        _seed_consecutive_closes(db_session, "AAA", [100.0, 200.0, 150.0, 100.0])
+        # A flat lead-in clears the common-sample floor without touching the drawdown.
+        _seed_consecutive_closes(
+            db_session, "AAA", [100.0] * 25 + [100.0, 200.0, 150.0, 100.0]
+        )
 
         result = backtest(db_session, _ASOF, {"AAA": 1.0})
 
@@ -455,7 +492,9 @@ class TestBacktest:
     ) -> None:
         # The fold's test block holds the whole 100 -> 200 -> 100 slide; the drawdown
         # is read on the compounded curve of the concatenated test returns.
-        closes = [100.0, 100.0, 100.0, 200.0, 150.0, 100.0, 100.0, 100.0]
+        # The flat lead-in (20 bars) clears the common-sample floor and keeps the slide
+        # whole inside one test block.
+        closes = [100.0] * 20 + [100.0, 100.0, 100.0, 200.0, 150.0, 100.0, 100.0, 100.0]
         _seed_consecutive_closes(db_session, "AAA", closes)
 
         result = backtest(
@@ -470,7 +509,9 @@ class TestBacktest:
         assert result["data"]["metrics"]["max_drawdown"] == pytest.approx(0.5)
 
     def test_rising_book_reports_positive_zero_drawdown(self, db_session) -> None:
-        _seed_consecutive_closes(db_session, "AAA", [100.0, 101.0, 103.0, 104.0])
+        _seed_consecutive_closes(
+            db_session, "AAA", [100.0 + 0.5 * i for i in range(30)]
+        )
 
         result = backtest(db_session, _ASOF, {"AAA": 1.0})
 
@@ -563,6 +604,34 @@ class TestBacktest:
 
         assert result["ok"] is False
         assert "finite" in result["error"]
+
+    def test_young_listing_collapsing_the_sample_is_error(self, db_session) -> None:
+        # The youngest listing truncates every asset's returns to its own few bars;
+        # a "backtest" over 5 rows is an in-sample artefact, not evidence.
+        _seed_ragged_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _RAGGED_ASOF,
+            {"AAA": 0.3, "BBB": 0.3, "CCC": 0.2, "NEW": 0.2},
+        )
+
+        assert result["ok"] is False
+        assert "NEW" in result["error"]
+
+    def test_listing_below_the_common_sample_floor_still_collapses_the_sample(
+        self, db_session
+    ) -> None:
+        _seed_ragged_panel(db_session, young_days=MIN_RETURN_OBSERVATIONS)
+
+        result = backtest(
+            db_session,
+            _RAGGED_ASOF,
+            {"AAA": 0.3, "BBB": 0.3, "CCC": 0.2, "NEW": 0.2},
+        )
+
+        assert result["ok"] is False
+        assert "NEW" in result["error"]
 
     def test_unknown_window_key_is_ignored(self, db_session) -> None:
         # Unrecognized window keys are filtered out, so the tool falls back to the

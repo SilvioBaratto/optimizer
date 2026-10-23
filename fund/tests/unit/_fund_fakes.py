@@ -312,9 +312,11 @@ def _task_call(subagent: str, index: int) -> AIMessage:
 # column round-trips through ``refresh`` (see fund-test-uuid-sqlite-affinity).
 # ---------------------------------------------------------------------------
 
-START = dt.date(2024, 1, 1)
-N_DAYS = 40
-ASOF = dt.date(2024, 1, 30)  # decision bar (index 29); bars 30..39 are future
+START = dt.date(2023, 11, 1)
+N_DAYS = 101
+# Decision bar (index 90): 90 return rows behind it, clear of the tools' common-sample
+# floor; bars 91..100 are future.
+ASOF = dt.date(2024, 1, 30)
 UNIVERSE = ["AAA", "BBB", "CCC"]
 PORTFOLIO_ID = uuid.UUID("f47ac10b-58cc-4372-a567-0e02b2c3d479")
 _SERIES = {"AAA": (100.0, 0.0), "BBB": (50.0, 1.3), "CCC": (25.0, 2.6)}

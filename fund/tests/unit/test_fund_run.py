@@ -70,9 +70,11 @@ from fund.schemas.enums import (
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
 from fund.tools.optimize import optimize_portfolio
 
-_START = dt.date(2024, 1, 1)
-_N_DAYS = 40
-_ASOF = dt.date(2024, 1, 30)  # decision bar (index 29); bars 30..39 are future
+_START = dt.date(2023, 11, 1)
+_N_DAYS = 101
+# Decision bar (index 90): 90 return rows behind it, clear of the tools' common-sample
+# floor; bars 91..100 are future.
+_ASOF = dt.date(2024, 1, 30)
 _UNIVERSE = ["AAA", "BBB", "CCC"]
 # A UUID with hex letters: an all-digit UUID gets coerced to a float by SQLite's
 # numeric affinity when a UUID column round-trips through ``refresh``.

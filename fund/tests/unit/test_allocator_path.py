@@ -26,12 +26,13 @@ from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
 
 from fund.audit.repository import AgentRunRepository
+from fund.tools._base import MIN_RETURN_OBSERVATIONS
 from fund.tools.moments import estimate_moments
 from fund.tools.optimize import optimize_portfolio
 from fund.tools.prices import get_prices
 
 _START = dt.date(2024, 1, 1)
-_N_DAYS = 60
+_N_DAYS = 80
 _ASOF = _START + dt.timedelta(days=_N_DAYS - 1)
 _UNIVERSE = ["AAA", "BBB", "CCC"]
 # Deterministic per-ticker starting prices and drift/wave params — no RNG, so the
@@ -105,6 +106,43 @@ def _seed_single_day(db_session) -> None:
         db_session.add(
             PriceHistory(
                 instrument_id=inst.id, date=_START, close=params[0], volume=1000
+            )
+        )
+    db_session.flush()
+
+
+_RAGGED_LONG_DAYS = 120
+_RAGGED_YOUNG_DAYS = 6
+_RAGGED_ASOF = _START + dt.timedelta(days=_RAGGED_LONG_DAYS - 1)
+
+
+def _seed_ragged_panel(db_session, young_days: int = _RAGGED_YOUNG_DAYS) -> None:
+    """Seed AAA/BBB/CCC with a long history plus NEW, listed only for the last bars.
+
+    The common return sample of the four is bounded by NEW's ``young_days`` bars,
+    however much history the other three carry.
+    """
+    for ticker, (start, drift, wave) in _SERIES.items():
+        inst = _seed_instrument(db_session, ticker)
+        for i in range(_RAGGED_LONG_DAYS):
+            close = start * (1.0 + drift * i + wave * math.sin(i / 5.0))
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=_START + dt.timedelta(days=i),
+                    close=round(close, 6),
+                    volume=1000,
+                )
+            )
+    young = _seed_instrument(db_session, "NEW")
+    for i in range(_RAGGED_LONG_DAYS - young_days, _RAGGED_LONG_DAYS):
+        close = 40.0 * (1.0 + 0.001 * i + 0.025 * math.sin(i / 3.0))
+        db_session.add(
+            PriceHistory(
+                instrument_id=young.id,
+                date=_START + dt.timedelta(days=i),
+                close=round(close, 6),
+                volume=1000,
             )
         )
     db_session.flush()
@@ -222,10 +260,10 @@ class TestEstimateMoments:
         assert data["n_observations"] == deep_days - 1
 
     def test_modestly_younger_listing_is_kept(self, db_session) -> None:
-        # 40 of 60 bars costs the panel a third of its sample, not most of it, so
+        # 60 of 80 bars costs the panel a quarter of its sample, not most of it, so
         # the asset stays in.
         _seed_panel(db_session)
-        _seed_listing(db_session, "NEW", first_day=_N_DAYS - 40, n_bars=40)
+        _seed_listing(db_session, "NEW", first_day=_N_DAYS - 60, n_bars=60)
 
         result = estimate_moments(db_session, _ASOF, [*_UNIVERSE, "NEW"])
 
@@ -233,7 +271,7 @@ class TestEstimateMoments:
         data = result["data"]
         assert data["assets"] == [*_UNIVERSE, "NEW"]
         assert data["dropped"] == []
-        assert data["n_observations"] == 39
+        assert data["n_observations"] == 59
 
     def test_universe_wider_than_the_sample_supports_is_error(self, db_session) -> None:
         # 14 assets with 25 bars each: no asset is young next to the others, but 24
@@ -287,6 +325,44 @@ class TestEstimateMoments:
         second = estimate_moments(db_session, _ASOF, _UNIVERSE)
 
         assert first == second
+
+    @pytest.mark.parametrize("young_days", [_RAGGED_YOUNG_DAYS, 30])
+    def test_young_listing_is_dropped_not_allowed_to_collapse_the_sample(
+        self, db_session, young_days
+    ) -> None:
+        # One recent listing would truncate every asset's returns to its own few
+        # bars, so a covariance fit on them is noise. It is dropped and reported
+        # instead of cutting the panel, and the long-history assets keep their sample.
+        _seed_ragged_panel(db_session, young_days=young_days)
+
+        result = estimate_moments(db_session, _RAGGED_ASOF, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is True
+        assert result["data"]["dropped"] == ["NEW"]
+        assert result["data"]["n_observations"] == _RAGGED_LONG_DAYS - 1
+
+    def test_listing_with_enough_depth_is_kept_and_sets_the_common_sample(
+        self, db_session
+    ) -> None:
+        # 61 bars is 60 return rows: at half the panel's median depth, so NEW stays
+        # in and the shared sample is bounded by its history.
+        _seed_ragged_panel(db_session, young_days=61)
+
+        result = estimate_moments(db_session, _RAGGED_ASOF, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is True
+        assert result["data"]["assets"] == [*_UNIVERSE, "NEW"]
+        assert result["data"]["n_observations"] == 60
+
+    def test_long_history_subset_of_a_ragged_panel_is_unaffected(
+        self, db_session
+    ) -> None:
+        _seed_ragged_panel(db_session)
+
+        result = estimate_moments(db_session, _RAGGED_ASOF, _UNIVERSE)
+
+        assert result["ok"] is True
+        assert result["data"]["n_observations"] == _RAGGED_LONG_DAYS - 1
 
 
 class TestOptimizePortfolio:
@@ -419,6 +495,24 @@ class TestOptimizePortfolio:
         second = optimize_portfolio(db_session, _ASOF, _UNIVERSE)["data"]["weights"]
 
         assert first == second
+
+    def test_young_listing_collapsing_the_sample_is_error(self, db_session) -> None:
+        _seed_ragged_panel(db_session)
+
+        result = optimize_portfolio(db_session, _RAGGED_ASOF, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is False
+        assert "NEW" in result["error"]
+
+    def test_listing_below_the_common_sample_floor_still_collapses_the_sample(
+        self, db_session
+    ) -> None:
+        _seed_ragged_panel(db_session, young_days=MIN_RETURN_OBSERVATIONS)
+
+        result = optimize_portfolio(db_session, _RAGGED_ASOF, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is False
+        assert "NEW" in result["error"]
 
 
 class TestWalkingSkeleton:

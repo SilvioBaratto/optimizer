@@ -22,7 +22,8 @@ through:
   :func:`backtest`), flagged ``drawdown_basis="compounded"``.
 
 Contract (via ``tool_envelope``): every failure — empty weights, no priced
-assets, a bad constraint value, an invalid walk-forward window — is returned as
+assets, too few common return observations (see ``MIN_RETURN_OBSERVATIONS``), a
+bad constraint value, an invalid walk-forward window — is returned as
 ``{ok: false, error}``, never raised.
 """
 
@@ -39,7 +40,14 @@ from optimizer.preprocessing import prices_to_returns
 from optimizer.validation import WalkForwardConfig, build_walk_forward
 from skfolio import Portfolio
 
-from fund.tools._base import ToolResult, coerce_date, err, ok, tool_envelope
+from fund.tools._base import (
+    ToolResult,
+    coerce_date,
+    err,
+    ok,
+    thin_sample_error,
+    tool_envelope,
+)
 from fund.tools.prices import load_price_frame
 
 if TYPE_CHECKING:
@@ -221,6 +229,8 @@ def backtest(
     # single row even when ``frame`` is long.
     if returns.shape[0] < 2:
         return err("insufficient price history to backtest")
+    if (reason := thin_sample_error(frame, returns, action="backtest")) is not None:
+        return err(reason)
     weight_vector = np.array([float(weights[col]) for col in returns.columns])
 
     # Fall back to the full IN-SAMPLE series when the panel cannot supply even one

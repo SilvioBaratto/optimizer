@@ -34,6 +34,14 @@ logger = logging.getLogger("fund.tools")
 # JSON-serialisable envelope handed back to the agent runtime.
 ToolResult = dict[str, Any]
 
+# Floor on the number of return rows shared by every asset in a fit (about one
+# trading month of daily bars, the same floor ``estimate_moments`` holds each asset
+# to). The common sample starts at the youngest listing's first quote, so a single
+# recent ticker can shrink a multi-year panel to a handful of rows; a covariance
+# estimated on that is noise that would still come back as ``ok``. Wide universes are
+# held to ``2 * n_assets`` instead, see ``thin_sample_error``.
+MIN_RETURN_OBSERVATIONS = 20
+
 P = ParamSpec("P")
 
 
@@ -55,6 +63,37 @@ def coerce_date(asof: dt.date | str) -> dt.date:
     if isinstance(asof, dt.date):
         return asof
     return dt.date.fromisoformat(asof)
+
+
+def thin_sample_error(prices: Any, returns: Any, *, action: str) -> str | None:
+    """Explain why the common return sample is too thin to ``action``, if it is.
+
+    The required depth is ``max(MIN_RETURN_OBSERVATIONS, 2 * n_assets)`` return
+    rows, so a wide universe also needs proportionally more history to keep the
+    sample covariance well conditioned. The message names the shortest-history
+    asset because dropping it is the usual remedy.
+
+    Args:
+        prices: The wide price frame the returns were derived from.
+        returns: The linear-returns frame after ``prices_to_returns`` (rows before
+            the youngest asset's first quote already dropped).
+        action: Verb phrase for the message, e.g. ``"optimize"``.
+
+    Returns:
+        An error message, or ``None`` when the sample is deep enough.
+    """
+    n_obs, n_assets = returns.shape
+    required = max(MIN_RETURN_OBSERVATIONS, 2 * n_assets)
+    if n_obs >= required:
+        return None
+    priced_days = prices.count()
+    shortest = priced_days.idxmin()
+    return (
+        f"insufficient common history to {action}: {n_obs} return observations "
+        f"shared by all {n_assets} assets, need at least {required}; "
+        f"{shortest} has only {int(priced_days.min())} priced days, so drop it "
+        "from the universe or wait for more history"
+    )
 
 
 def ok(data: Any) -> ToolResult:
@@ -170,11 +209,13 @@ def summarize_frame(frame: Any, *, name: str = "frame") -> dict[str, Any]:
 
 
 __all__ = [
+    "MIN_RETURN_OBSERVATIONS",
     "ToolResult",
     "coerce_date",
     "err",
     "ok",
     "session_scope",
     "summarize_frame",
+    "thin_sample_error",
     "tool_envelope",
 ]

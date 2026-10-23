@@ -14,7 +14,8 @@ identical weights. Returns are computed **outside** any pipeline via
 Contract (via ``tool_envelope``):
 
 * empty ``universe`` ⇒ ``{ok: false, error}``;
-* no priced assets, or fewer than two observations, ⇒ ``{ok: false, error}``;
+* no priced assets, or too few common return observations (see
+  ``MIN_RETURN_OBSERVATIONS``), ⇒ ``{ok: false, error}``;
 * a ``max_weights`` cap too tight for the number of priced assets to reach the
   budget ⇒ ``{ok: false, error}`` naming the minimum asset count;
 * a bad ``constraints`` value is caught by the envelope and returned as
@@ -39,7 +40,7 @@ from optimizer.optimization import (
 from optimizer.preprocessing import prices_to_returns
 from skfolio import Portfolio
 
-from fund.tools._base import ToolResult, err, ok, tool_envelope
+from fund.tools._base import ToolResult, err, ok, thin_sample_error, tool_envelope
 from fund.tools.prices import load_price_frame
 
 if TYPE_CHECKING:
@@ -215,6 +216,8 @@ def optimize_portfolio(
         return err(infeasible)
 
     returns = cast("pd.DataFrame", prices_to_returns(frame))
+    if (reason := thin_sample_error(frame, returns, action="optimize")) is not None:
+        return err(reason)
     config = _calibrate_risk_aversion(config, returns)
     model = build_mean_risk(config)
     model.fit(returns)

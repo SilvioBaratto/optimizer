@@ -59,9 +59,11 @@ from fund.schemas.enums import GicsSector, Horizon, ObjectiveChoice, RiskMeasure
 from fund.tools import moments as fund_moments
 from fund.tools import optimize as fund_optimize
 
-_START = dt.date(2024, 1, 1)
-_N_DAYS = 40
-_ASOF = dt.date(2024, 1, 30)  # decision bar (index 29); bars 30..39 are future
+_START = dt.date(2023, 11, 1)
+_N_DAYS = 101
+# Decision bar (index 90): 90 return rows behind it, clear of the tools' common-sample
+# floor; bars 91..100 are future.
+_ASOF = dt.date(2024, 1, 30)
 _UNIVERSE = ["AAA", "BBB", "CCC"]
 _WEIGHTS = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
 # A UUID with hex letters: an all-digit UUID gets coerced to a float by SQLite's
@@ -367,8 +369,11 @@ def test_bound_regime_stats_runs_over_the_run_date_panel(db_session) -> None:
 
 
 def test_bound_regime_stats_degrades_via_envelope_on_thin_history(db_session) -> None:
-    _seed_panel(db_session)  # 29 priced bars before the run date: too few
-    ctx = _make_context(db_session)
+    _seed_panel(db_session)
+    # Run date at bar 29: only 29 priced bars behind it, too few for a regime read.
+    ctx = dataclasses.replace(
+        _make_context(db_session), asof=_START + dt.timedelta(days=29)
+    )
     regime = _find(bind_toolset("economist", ctx), "get_regime_stats")
 
     result = regime.invoke({"tickers": _UNIVERSE})
