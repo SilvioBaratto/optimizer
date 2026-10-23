@@ -137,6 +137,23 @@ class TestRunStep:
         ]
         assert failed_calls
 
+    def test_when_fn_raises_then_failure_reason_is_recorded_on_the_row(self):
+        job_svc = _make_job_svc()
+        fn = MagicMock(side_effect=ValueError("yahoo schema drifted"))
+
+        with patch(f"{M}.threading.Thread") as mock_thread:
+            mock_thread.return_value = MagicMock()
+            self._call(job_svc, fn)
+
+        failed_calls = [
+            c
+            for c in job_svc.update_job.call_args_list
+            if c.kwargs.get("status") == "failed"
+        ]
+        assert len(failed_calls) == 1
+        error = failed_calls[0].kwargs.get("error")
+        assert error == "ValueError: yahoo schema drifted"
+
     @staticmethod
     def _failed_writes(job_svc):
         return [

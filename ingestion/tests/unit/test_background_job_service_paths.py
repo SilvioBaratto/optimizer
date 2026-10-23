@@ -466,6 +466,49 @@ class TestFailureWebhook:
             "https://hooks.example/x", "hook_domain", JOB_ID, "fred timed out"
         )
 
+    def test_failure_reported_only_via_errors_list_still_names_the_reason(
+        self, session: MagicMock
+    ) -> None:
+        svc = self._svc(session)
+
+        with (
+            _repo() as repo,
+            patch(f"{M}.settings") as st,
+            patch("app.services._shared.notify_failure") as notify,
+        ):
+            repo.update.return_value = 1
+            st.enable_metrics = False
+            st.notification_webhook_url = "https://hooks.example/x"
+
+            svc.update_job(
+                JOB_ID, status="failed", errors=["IT: 503 upstream", "FR: timeout"]
+            )
+
+        notify.assert_called_once_with(
+            "https://hooks.example/x",
+            "hook_domain",
+            JOB_ID,
+            "IT: 503 upstream\nFR: timeout",
+        )
+
+    def test_explicit_error_wins_over_errors_list(self, session: MagicMock) -> None:
+        svc = self._svc(session)
+
+        with (
+            _repo() as repo,
+            patch(f"{M}.settings") as st,
+            patch("app.services._shared.notify_failure") as notify,
+        ):
+            repo.update.return_value = 1
+            st.enable_metrics = False
+            st.notification_webhook_url = "https://hooks.example/x"
+
+            svc.update_job(JOB_ID, status="failed", error="boom", errors=["detail"])
+
+        notify.assert_called_once_with(
+            "https://hooks.example/x", "hook_domain", JOB_ID, "boom"
+        )
+
     def test_no_webhook_configured_then_no_post(self, session: MagicMock) -> None:
         svc = self._svc(session)
 

@@ -381,7 +381,15 @@ class BackgroundJobService:
             if webhook_url:
                 from app.services._shared import notify_failure
 
-                error_text = str(kwargs.get("error") or "")
+                # Services report failures through ``errors`` (a list) as often
+                # as through ``error``; without the fallback the alert reads
+                # "(no error message)" for every service-reported failure.
+                errors = kwargs.get("errors")
+                error_text = str(kwargs.get("error") or "") or (
+                    "\n".join(str(e) for e in errors)
+                    if isinstance(errors, list)
+                    else ""
+                )
                 notify_failure(webhook_url, self._job_type, job_id, error_text)
 
     @staticmethod
