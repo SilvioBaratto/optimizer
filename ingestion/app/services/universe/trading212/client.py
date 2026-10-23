@@ -26,8 +26,8 @@ class Trading212Client:
     (the daemon ingests market data, it does not trade).
     """
 
-    api_key: str
-    api_secret: str
+    api_key: str = field(repr=False)
+    api_secret: str = field(repr=False)
     mode: str = "live"
     max_retries: int = 5
     base_url: str = field(init=False)

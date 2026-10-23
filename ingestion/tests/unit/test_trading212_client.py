@@ -59,6 +59,35 @@ def _mock_http_error(status_code: int) -> requests.HTTPError:
 
 
 # ---------------------------------------------------------------------------
+# Credentials never reach logs
+# ---------------------------------------------------------------------------
+
+
+class TestCredentialsAreNotRendered:
+    def test_repr_hides_api_key_and_secret(self):
+        text = repr(_make_client())
+
+        assert "test-key-abc" not in text
+        assert "test-secret-xyz" not in text
+
+    def test_repr_still_identifies_the_client(self):
+        assert "mode='live'" in repr(_make_client())
+
+    def test_enclosing_dataclass_repr_hides_credentials(self):
+        from app.services.universe.trading212.builder import UniverseBuilder
+        from app.services.universe.trading212.config import UniverseBuilderConfig
+
+        builder = UniverseBuilder(
+            config=UniverseBuilderConfig(),
+            api_client=_make_client(),
+            ticker_mapper=MagicMock(),
+            repository=MagicMock(),
+        )
+
+        assert "test-secret-xyz" not in repr(builder)
+
+
+# ---------------------------------------------------------------------------
 # Init
 # ---------------------------------------------------------------------------
 
