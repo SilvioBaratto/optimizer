@@ -36,6 +36,13 @@ def screen_universe(
 
     Returns:
         Tickers passing all investability screens.
+
+    Raises:
+        DataError: If ``fundamentals`` lacks ``market_cap`` or ``current_price``,
+            or if ``price_history`` or ``volume_history`` is empty.  An empty
+            ``price_history`` used to yield an empty universe; the liquidity and
+            listing-history screens cannot run without data, so it now fails
+            loudly rather than skipping them.
     """
     if config is None:
         config = InvestabilityScreenConfig()
@@ -76,6 +83,12 @@ def build_investability_screen(
 
     Returns:
         Unfitted selector; call ``fit(X)`` with a linear-return DataFrame.
+
+    Raises:
+        DataError: Not at build time.  ``fit`` raises it if ``fundamentals``
+            lacks ``market_cap`` or ``current_price``, if ``price_history`` or
+            ``volume_history`` is empty (including after the fit window cuts
+            away all of it), or if ``X`` has no ticker column names.
     """
     return InvestabilityScreenSelector(
         fundamentals=fundamentals,

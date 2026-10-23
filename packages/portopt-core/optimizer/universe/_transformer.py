@@ -202,6 +202,13 @@ class InvestabilityScreenSelector(SelectorMixin, BaseEstimator):
 
         Returns:
             Fitted selector.
+
+        Raises:
+            DataError: If ``fundamentals``, ``price_history`` or
+                ``volume_history`` was not set, if ``X`` has no ticker column
+                names, if ``fundamentals`` lacks ``market_cap`` or
+                ``current_price``, or if ``price_history`` or ``volume_history``
+                is empty, including when the fit window cuts away all of it.
         """
         if (
             self.fundamentals is None

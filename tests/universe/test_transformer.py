@@ -125,6 +125,25 @@ class TestInvestabilityScreenSelector:
         with pytest.raises(DataError, match="requires fundamentals"):
             selector.fit(X)
 
+    def test_empty_volume_history_raises_instead_of_skipping_screens(
+        self, screening_data: dict[str, pd.DataFrame]
+    ) -> None:
+        X = _returns_from(screening_data["price_history"])
+        selector = build_investability_screen(
+            **{**screening_data, "volume_history": pd.DataFrame()}
+        )
+        with pytest.raises(DataError, match="volume_history"):
+            selector.fit(X)
+
+    def test_fit_window_before_all_history_raises(
+        self, long_history: dict[str, pd.DataFrame]
+    ) -> None:
+        X = _returns_from(long_history["price_history"]).iloc[:400]
+        X.index = X.index - pd.DateOffset(years=5)
+        selector = build_investability_screen(**long_history)
+        with pytest.raises(DataError, match="price_history is empty"):
+            selector.fit(X)
+
     def test_array_input_without_feature_names_raises(
         self, screening_data: dict[str, pd.DataFrame]
     ) -> None:

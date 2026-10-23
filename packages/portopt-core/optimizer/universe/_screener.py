@@ -8,6 +8,7 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
+from optimizer.exceptions import DataError
 from optimizer.universe._config import (
     DelistingPolicy,
     ExchangeRegion,
@@ -234,6 +235,40 @@ def _apply_mcap_percentile_screen(
     return surviving.union(new_entrants)
 
 
+def _require_screen_inputs(
+    fundamentals: pd.DataFrame,
+    price_history: pd.DataFrame,
+    volume_history: pd.DataFrame,
+) -> None:
+    """Fail loudly when an input a mandatory screen depends on is missing.
+
+    A failed or empty upstream query would otherwise skip the liquidity and
+    size gates and silently admit untradeable names.
+
+    Raises:
+        DataError: If a required ``fundamentals`` column is absent or the
+            price / volume history is empty.
+    """
+    missing = [
+        column
+        for column in ("market_cap", "current_price")
+        if column not in fundamentals.columns
+    ]
+    if missing:
+        msg = f"fundamentals is missing required column(s): {', '.join(missing)}"
+        raise DataError(msg)
+    for name, frame in (
+        ("price_history", price_history),
+        ("volume_history", volume_history),
+    ):
+        if frame.empty:
+            msg = (
+                f"{name} is empty; the liquidity and listing-history screens "
+                "cannot run without it"
+            )
+            raise DataError(msg)
+
+
 def apply_investability_screens(
     fundamentals: pd.DataFrame,
     price_history: pd.DataFrame,
@@ -270,9 +305,15 @@ def apply_investability_screens(
 
     Returns:
         Tickers passing all investability screens.
+
+    Raises:
+        DataError: If ``fundamentals`` lacks ``market_cap`` or ``current_price``,
+            or if ``price_history`` or ``volume_history`` is empty.
     """
     if config is None:
         config = InvestabilityScreenConfig()
+
+    _require_screen_inputs(fundamentals, price_history, volume_history)
 
     candidates = fundamentals.index
 
@@ -288,46 +329,41 @@ def apply_investability_screens(
         active = fundamentals.index[fundamentals["delisted_at"].isna()]
         candidates = candidates.intersection(active)
 
-    if "market_cap" in fundamentals.columns:
-        mcap = fundamentals["market_cap"].dropna()
-        passed = apply_screen(mcap, config.market_cap, current_members)
+    mcap = fundamentals["market_cap"].dropna()
+    passed = apply_screen(mcap, config.market_cap, current_members)
 
-        if "exchange" in fundamentals.columns:
-            exchange_mapping = fundamentals["exchange"].dropna()
-            pct_passed = _apply_mcap_percentile_screen(
-                mcap, exchange_mapping, config, current_members
-            )
-            passed = passed.intersection(pct_passed)
-
-        candidates = candidates.intersection(passed)
-
-    if len(price_history) > 0 and len(volume_history) > 0:
-        addv_12 = compute_addv(price_history, volume_history, window=252)
-        addv_12 = addv_12.reindex(candidates).dropna()
-        passed = apply_screen(addv_12, config.addv_12m, current_members)
-        candidates = candidates.intersection(passed)
-
-    if len(price_history) > 0 and len(volume_history) > 0:
-        addv_3 = compute_addv(price_history, volume_history, window=63)
-        addv_3 = addv_3.reindex(candidates).dropna()
-        passed = apply_screen(addv_3, config.addv_3m, current_members)
-        candidates = candidates.intersection(passed)
-
-    if len(volume_history) > 0:
-        freq = compute_trading_frequency(volume_history, window=252)
-        freq = freq.reindex(candidates).dropna()
-        passed = apply_screen(freq, config.trading_frequency, current_members)
-        candidates = candidates.intersection(passed)
-
-    if "current_price" in fundamentals.columns:
-        prices = fundamentals["current_price"].reindex(candidates).dropna()
-        price_thresh = (
-            config.price_us
-            if config.exchange_region == ExchangeRegion.US
-            else config.price_europe
+    if "exchange" in fundamentals.columns:
+        exchange_mapping = fundamentals["exchange"].dropna()
+        pct_passed = _apply_mcap_percentile_screen(
+            mcap, exchange_mapping, config, current_members
         )
-        passed = apply_screen(prices, price_thresh, current_members)
-        candidates = candidates.intersection(passed)
+        passed = passed.intersection(pct_passed)
+
+    candidates = candidates.intersection(passed)
+
+    addv_12 = compute_addv(price_history, volume_history, window=252)
+    addv_12 = addv_12.reindex(candidates).dropna()
+    passed = apply_screen(addv_12, config.addv_12m, current_members)
+    candidates = candidates.intersection(passed)
+
+    addv_3 = compute_addv(price_history, volume_history, window=63)
+    addv_3 = addv_3.reindex(candidates).dropna()
+    passed = apply_screen(addv_3, config.addv_3m, current_members)
+    candidates = candidates.intersection(passed)
+
+    freq = compute_trading_frequency(volume_history, window=252)
+    freq = freq.reindex(candidates).dropna()
+    passed = apply_screen(freq, config.trading_frequency, current_members)
+    candidates = candidates.intersection(passed)
+
+    prices = fundamentals["current_price"].reindex(candidates).dropna()
+    price_thresh = (
+        config.price_us
+        if config.exchange_region == ExchangeRegion.US
+        else config.price_europe
+    )
+    passed = apply_screen(prices, price_thresh, current_members)
+    candidates = candidates.intersection(passed)
 
     listing_age = compute_listing_age(price_history)
     listing_age = listing_age.reindex(candidates).dropna()

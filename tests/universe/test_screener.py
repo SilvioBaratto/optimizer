@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from optimizer.exceptions import DataError
 from optimizer.universe import (
     DelistingPolicy,
     ExchangeRegion,
@@ -893,21 +894,55 @@ class TestMcapPercentileScreenHysteresis:
         assert "T9" in result  # largest stock is a new entrant
 
 
-class TestApplyInvestabilityScreensSkipPaths:
-    """Absent columns / empty history skip their respective screens."""
+class TestRequiredInputs:
+    """Missing liquidity / size inputs must fail loudly, never skip the screen."""
 
-    def test_all_screens_skipped_when_data_absent(self) -> None:
-        fundamentals = pd.DataFrame(index=pd.Index(["A", "B"], name="ticker"))
-        empty = pd.DataFrame()
-        result = apply_investability_screens(
-            fundamentals=fundamentals,
-            price_history=empty,
-            volume_history=empty,
-            financial_statements=None,
+    @staticmethod
+    def _illiquid_inputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        dates = pd.bdate_range("2023-01-01", periods=300)
+        prices = pd.DataFrame({"ILLIQ": np.full(300, 10.0)}, index=dates)
+        # About $1,000 of turnover a day: untradeable for any institutional gate.
+        volume = pd.DataFrame({"ILLIQ": np.full(300, 100.0)}, index=dates)
+        fundamentals = pd.DataFrame(
+            {"market_cap": [5e8], "current_price": [10.0]},
+            index=pd.Index(["ILLIQ"], name="ticker"),
         )
-        assert isinstance(result, pd.Index)
-        # No price history → listing-age screen removes every candidate.
+        return fundamentals, prices, volume
+
+    def test_illiquid_stock_is_rejected_with_volume_data(self) -> None:
+        fundamentals, prices, volume = self._illiquid_inputs()
+        result = apply_investability_screens(
+            fundamentals=fundamentals, price_history=prices, volume_history=volume
+        )
         assert len(result) == 0
+
+    def test_empty_volume_history_raises(self) -> None:
+        fundamentals, prices, _ = self._illiquid_inputs()
+        with pytest.raises(DataError, match="volume_history"):
+            apply_investability_screens(
+                fundamentals=fundamentals,
+                price_history=prices,
+                volume_history=pd.DataFrame(),
+            )
+
+    def test_empty_price_history_raises(self) -> None:
+        fundamentals, _, volume = self._illiquid_inputs()
+        with pytest.raises(DataError, match="price_history"):
+            apply_investability_screens(
+                fundamentals=fundamentals,
+                price_history=pd.DataFrame(),
+                volume_history=volume,
+            )
+
+    @pytest.mark.parametrize("column", ["market_cap", "current_price"])
+    def test_missing_fundamentals_column_raises(self, column: str) -> None:
+        fundamentals, prices, volume = self._illiquid_inputs()
+        with pytest.raises(DataError, match=column):
+            apply_investability_screens(
+                fundamentals=fundamentals.drop(columns=column),
+                price_history=prices,
+                volume_history=volume,
+            )
 
 
 # ---------------------------------------------------------------------------
