@@ -35,6 +35,16 @@ for _etf, _sector in _ETF_TO_SECTOR.items():
     _SECTOR_TO_ETFS.setdefault(_sector, set()).add(_etf)
 
 
+# A symbol that moved venues has one instruments row per venue, the old one
+# delisted. Ordering by this puts the active listing first and, among delisted
+# rows only, the most recently delisted.
+_ACTIVE_LISTING_FIRST = (
+    Instrument.delisted_at.is_(None).desc(),
+    Instrument.delisted_at.desc(),
+    Instrument.id,
+)
+
+
 class SentimentRepository(RepositoryBase):
     """Sync repository for instrument lookups and news retrieval."""
 
@@ -42,10 +52,22 @@ class SentimentRepository(RepositoryBase):
         super().__init__(session)
 
     def get_instrument_id_by_ticker(self, ticker: str) -> UUID | None:
-        """Return the instrument UUID for *ticker*, or ``None``."""
-        return self.session.execute(
-            select(Instrument.id).where(Instrument.ticker == ticker)
-        ).scalar_one_or_none()
+        """Return the instrument UUID for *ticker*, or ``None``.
+
+        A symbol that moved venues has one row per venue, the old one delisted.
+        The active listing wins; among delisted rows only, the most recently
+        delisted does.
+        """
+        return (
+            self.session.execute(
+                select(Instrument.id)
+                .where(Instrument.ticker == ticker)
+                .order_by(*_ACTIVE_LISTING_FIRST)
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
 
     def get_recent_news(
         self,
@@ -115,11 +137,17 @@ class SentimentRepository(RepositoryBase):
         if rows:
             return rows
 
-        sector = self.session.execute(
-            select(TickerProfile.sector)
-            .join(Instrument, TickerProfile.instrument_id == Instrument.id)
-            .where(Instrument.ticker == ticker)
-        ).scalar_one_or_none()
+        sector = (
+            self.session.execute(
+                select(TickerProfile.sector)
+                .join(Instrument, TickerProfile.instrument_id == Instrument.id)
+                .where(Instrument.ticker == ticker)
+                .order_by(*_ACTIVE_LISTING_FIRST)
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
 
         if sector:
             etf_tickers = _SECTOR_TO_ETFS.get(sector, set())

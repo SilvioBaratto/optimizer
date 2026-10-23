@@ -87,6 +87,14 @@ def _repo(session: Session) -> YFinanceRepository:
     return YFinanceRepository(session)
 
 
+def _transferred_listing(session: Session, symbol: str) -> Instrument:
+    """The retained, delisted row a venue transfer leaves behind (NYSE side)."""
+    inst = _instrument(session, _exchange(session, f"{symbol}-NYSE"), symbol, symbol)
+    inst.delisted_at = date(2024, 6, 1)
+    session.flush()
+    return inst
+
+
 # ---------------------------------------------------------------------------
 # _safe_val — all branches
 # ---------------------------------------------------------------------------
@@ -1134,6 +1142,28 @@ class TestGetInstrumentsWithYfinanceTicker:
         assert null_inst.id not in ids
         assert empty_inst.id not in ids
 
+    def test_listing_superseded_by_a_venue_transfer_is_skipped(
+        self, db_session: Session
+    ) -> None:
+        old = _transferred_listing(db_session, "XFER")
+        new = _instrument(
+            db_session, _exchange(db_session, "XFER-NASDAQ"), "XFER", "XFER"
+        )
+
+        ids = [r.id for r in _repo(db_session).get_instruments_with_yfinance_ticker()]
+
+        assert ids.count(new.id) == 1
+        assert old.id not in ids
+
+    def test_delisted_symbol_without_an_active_listing_is_still_returned(
+        self, db_session: Session
+    ) -> None:
+        gone = _transferred_listing(db_session, "GONE")
+
+        ids = [r.id for r in _repo(db_session).get_instruments_with_yfinance_ticker()]
+
+        assert gone.id in ids
+
     def test_mix_returns_only_valid(self, db_session: Session) -> None:
         ex = _exchange(db_session, name="MixExchange")
         valid = _instrument(db_session, ex, ticker="GOOG", yfinance_ticker="GOOGL")
@@ -1181,6 +1211,30 @@ class TestGetInstrumentByYfinanceTicker:
         assert result is not None
         # Access exchange without a second DB hit (eager loaded)
         assert result.exchange.name == "EagerEx"
+
+    def test_venue_transfer_resolves_to_the_active_listing(
+        self, db_session: Session
+    ) -> None:
+        _transferred_listing(db_session, "XFER")
+        new = _instrument(
+            db_session, _exchange(db_session, "XFER-NASDAQ"), "XFER", "XFER"
+        )
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("XFER")
+
+        assert result is not None
+        assert result.id == new.id
+        assert result.exchange.name == "XFER-NASDAQ"
+
+    def test_delisted_symbol_without_an_active_listing_is_still_found(
+        self, db_session: Session
+    ) -> None:
+        gone = _transferred_listing(db_session, "GONE")
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("GONE")
+
+        assert result is not None
+        assert result.id == gone.id
 
     def test_ticker_mismatch_returns_none(self, db_session: Session) -> None:
         ex = _exchange(db_session, name="MismatchEx")

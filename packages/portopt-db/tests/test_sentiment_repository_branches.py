@@ -10,7 +10,7 @@ Uses real db_session (SAVEPOINT) only — no mocks.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from _fixtures import add_and_flush, seed_universe
 from sqlalchemy.orm import Session
@@ -91,6 +91,82 @@ class TestGetInstrumentIdByTicker:
         repo = SentimentRepository(db_session)
         result = repo.get_instrument_id_by_ticker("AAPL")
         assert result == inst.id
+
+
+class TestGetInstrumentIdByTickerAfterVenueTransfer:
+    def test_when_symbol_moved_venues_resolves_to_the_active_listing(
+        self, db_session: Session
+    ) -> None:
+        old = seed_universe(db_session, ticker="XFER", exchange_name="XFER-NYSE")
+        old.instrument.delisted_at = date(2024, 6, 1)
+        new = seed_universe(db_session, ticker="XFER", exchange_name="XFER-NASDAQ")
+
+        result = SentimentRepository(db_session).get_instrument_id_by_ticker("XFER")
+
+        assert result == new.instrument.id
+
+    def test_when_only_a_delisted_listing_exists_still_resolves_it(
+        self, db_session: Session
+    ) -> None:
+        gone = seed_universe(db_session, ticker="GONE", exchange_name="GONE-NYSE")
+        gone.instrument.delisted_at = date(2024, 6, 1)
+        db_session.flush()
+
+        result = SentimentRepository(db_session).get_instrument_id_by_ticker("GONE")
+
+        assert result == gone.instrument.id
+
+
+class TestMacroNewsFallbackAfterVenueTransfer:
+    def test_when_both_listings_have_profiles_sector_comes_from_the_active_one(
+        self, db_session: Session
+    ) -> None:
+        old = seed_universe(db_session, ticker="XFER", exchange_name="XFER-NYSE")
+        old.instrument.delisted_at = date(2024, 6, 1)
+        _seed_profile(db_session, old.instrument, sector="Utilities")
+        new = seed_universe(db_session, ticker="XFER", exchange_name="XFER-NASDAQ")
+        _seed_profile(db_session, new.instrument, sector="Technology")
+        xlk_news = _seed_macro_news(
+            db_session,
+            news_id="macro-xlk-xfer",
+            title="Tech ETF news",
+            publish_time=_NOW,
+            source_ticker="XLK",
+        )
+        _seed_macro_news(
+            db_session,
+            news_id="macro-xlu-xfer",
+            title="Utilities ETF news",
+            publish_time=_NOW,
+            source_ticker="XLU",
+        )
+
+        result = list(
+            SentimentRepository(db_session).get_macro_news_fallback("XFER", _CUTOFF)
+        )
+
+        assert [r.id for r in result] == [xlk_news.id]
+
+    def test_when_only_a_delisted_listing_has_a_profile_its_sector_is_used(
+        self, db_session: Session
+    ) -> None:
+        old = seed_universe(db_session, ticker="XFER", exchange_name="XFER-NYSE")
+        old.instrument.delisted_at = date(2024, 6, 1)
+        _seed_profile(db_session, old.instrument, sector="Utilities")
+        seed_universe(db_session, ticker="XFER", exchange_name="XFER-NASDAQ")
+        xlu_news = _seed_macro_news(
+            db_session,
+            news_id="macro-xlu-only",
+            title="Utilities ETF news",
+            publish_time=_NOW,
+            source_ticker="XLU",
+        )
+
+        result = list(
+            SentimentRepository(db_session).get_macro_news_fallback("XFER", _CUTOFF)
+        )
+
+        assert [r.id for r in result] == [xlu_news.id]
 
 
 class TestGetRecentNews:

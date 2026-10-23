@@ -9,8 +9,8 @@ from typing import Any, cast
 from uuid import UUID
 
 import pandas as pd
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import and_, exists, func, select
+from sqlalchemy.orm import Session, aliased, joinedload
 
 from portopt_db.models.market_data.yfinance_data import (
     AnalystAction,
@@ -1499,13 +1499,28 @@ class YFinanceRepository(RepositoryBase):
     # ------------------------------------------------------------------
 
     def get_instruments_with_yfinance_ticker(self) -> Sequence[Instrument]:
-        """Return all instruments that have a non-empty yfinance_ticker, with exchange eager-loaded."""
+        """Return the instruments to ingest: those with a non-empty yfinance_ticker.
+
+        A delisted row whose symbol is now carried by an active row (the old side
+        of a venue transfer) is left out, so one symbol is never fetched and
+        stored under two instrument ids. Delisted rows with no active successor
+        are kept. The exchange is eager-loaded.
+        """
+        successor = aliased(Instrument)
+        superseded = and_(
+            Instrument.delisted_at.is_not(None),
+            exists().where(
+                successor.yfinance_ticker == Instrument.yfinance_ticker,
+                successor.delisted_at.is_(None),
+            ),
+        )
         return (
             self.session.execute(
                 select(Instrument)
                 .options(joinedload(Instrument.exchange))
                 .where(Instrument.yfinance_ticker.isnot(None))
                 .where(Instrument.yfinance_ticker != "")
+                .where(~superseded)
             )
             .scalars()
             .unique()
@@ -1515,12 +1530,27 @@ class YFinanceRepository(RepositoryBase):
     def get_instrument_by_yfinance_ticker(
         self, yfinance_ticker: str
     ) -> Instrument | None:
-        """Return an instrument by its yfinance_ticker, with exchange eager-loaded."""
-        return self.session.execute(
-            select(Instrument)
-            .options(joinedload(Instrument.exchange))
-            .where(Instrument.yfinance_ticker == yfinance_ticker)
-        ).scalar_one_or_none()
+        """Return the instrument for a yfinance_ticker, with exchange eager-loaded.
+
+        ``instruments`` is unique on ``(ticker, exchange)``, so a symbol that moved
+        venues leaves a delisted row beside its active one. The active listing wins;
+        among delisted rows only, the most recently delisted does.
+        """
+        return (
+            self.session.execute(
+                select(Instrument)
+                .options(joinedload(Instrument.exchange))
+                .where(Instrument.yfinance_ticker == yfinance_ticker)
+                .order_by(
+                    Instrument.delisted_at.is_(None).desc(),
+                    Instrument.delisted_at.desc(),
+                    Instrument.id,
+                )
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
 
     def get_benchmark_coverage(
         self,
