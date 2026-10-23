@@ -20,10 +20,6 @@ class MacroFetchRequest(BaseModel):
         default=True,
         description="Whether to include bond yield data from Trading Economics.",
     )
-    include_fred: bool = Field(
-        default=True,
-        description="Whether to fetch FRED time-series data during bulk fetch.",
-    )
 
 
 class FredFetchRequest(BaseModel):
