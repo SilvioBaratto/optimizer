@@ -104,6 +104,68 @@ class TestSectorsClient:
         assert fetch.call_count == 2
         client.circuit_breaker.reset.assert_not_called()
 
+    def test_unrated_constituents_come_back_as_none_not_nan(self) -> None:
+        # yfinance leaves NaN in the frame for a constituent without an analyst
+        # rating; NaN is truthy, so it used to flow on as if it were a rating.
+        nan = float("nan")
+        sec = SimpleNamespace(
+            key="healthcare",
+            name="Healthcare",
+            symbol="^YH206",
+            overview={"companies_count": 3},
+            industries=None,
+            top_companies=pd.DataFrame(
+                {
+                    "name": ["Eli Lilly", nan, "Medline"],
+                    "rating": ["Strong Buy", "Buy", nan],
+                    "market weight": [0.12, nan, 0.0],
+                },
+                index=["LLY", "XYZ", "MDLN"],
+            ),
+        )
+        with patch(
+            "app.services.market_data.yfinance.market.sectors.yf.Sector",
+            return_value=sec,
+        ):
+            out = _sector_client().fetch_sector("healthcare", region="US")
+
+        assert out is not None
+        by_symbol = {c["symbol"]: c for c in out["top_companies"]}
+        assert by_symbol["LLY"]["rating"] == "Strong Buy"
+        assert by_symbol["MDLN"]["rating"] is None
+        assert by_symbol["XYZ"]["name"] is None
+        assert by_symbol["XYZ"]["weight"] is None
+        # A genuine zero is data, not a missing value.
+        assert by_symbol["MDLN"]["weight"] == 0.0
+
+    def test_unrated_constituent_is_stored_with_a_null_rating(self, db_session) -> None:
+        sec = SimpleNamespace(
+            key="healthcare",
+            name="Healthcare",
+            symbol="^YH206",
+            overview={"companies_count": 2},
+            industries=None,
+            top_companies=pd.DataFrame(
+                {"name": ["Eli Lilly", "Medline"], "rating": ["Buy", float("nan")]},
+                index=["LLY", "MDLN"],
+            ),
+        )
+        with patch(
+            "app.services.market_data.yfinance.market.sectors.yf.Sector",
+            return_value=sec,
+        ):
+            out = _sector_client().fetch_sector("healthcare", region="US")
+        assert out is not None
+
+        repo = MarketStructureRepository(db_session)
+        repo.upsert_top_companies("healthcare", "US", _AS_OF, out["top_companies"])
+        db_session.flush()
+
+        from portopt_db.models.market_data.market_structure import SectorTopCompany
+
+        stored = {r.symbol: r.rating for r in db_session.query(SectorTopCompany).all()}
+        assert stored == {"LLY": "Buy", "MDLN": None}
+
 
 def _empty_sector() -> SimpleNamespace:
     """What ``yf.Sector`` exposes once yfinance has swallowed a failed fetch."""

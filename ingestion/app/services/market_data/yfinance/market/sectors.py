@@ -47,8 +47,21 @@ def _industries_to_list(value: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _present(value: Any) -> Any:
+    """Return *value*, or ``None`` when pandas marks it missing (NaN, NaT, None).
+
+    NaN is truthy, so ``value or fallback`` keeps it and a later ``str()``
+    stores the text ``"nan"`` as if it were real data.
+    """
+    return None if pd.api.types.is_scalar(value) and pd.isna(value) else value
+
+
 def _top_companies_to_list(value: Any) -> list[dict[str, Any]]:
-    """``sector.top_companies`` → ``[{"symbol","name","weight","rating"}]``."""
+    """``sector.top_companies`` → ``[{"symbol","name","weight","rating"}]``.
+
+    Fields yfinance leaves NaN (an unrated constituent, an unnamed row) come
+    back as ``None``; a genuine ``0.0`` weight is kept.
+    """
     if not isinstance(value, pd.DataFrame) or value.empty:
         return []
     out: list[dict[str, Any]] = []
@@ -56,11 +69,13 @@ def _top_companies_to_list(value: Any) -> list[dict[str, Any]]:
         out.append(
             {
                 "symbol": str(symbol),
-                "name": row.get("name") or row.get("Name"),
-                "weight": row.get("market weight")
-                if "market weight" in row
-                else row.get("market_weight"),
-                "rating": row.get("rating") or row.get("Rating"),
+                "name": _present(row.get("name")) or _present(row.get("Name")),
+                "weight": _present(
+                    row.get("market weight")
+                    if "market weight" in row
+                    else row.get("market_weight")
+                ),
+                "rating": _present(row.get("rating")) or _present(row.get("Rating")),
             }
         )
     return out
