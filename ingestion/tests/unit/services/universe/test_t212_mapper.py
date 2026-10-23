@@ -17,6 +17,15 @@ from app.services.universe.trading212.ticker_mapper import YFinanceTickerMapper
 
 CFG = UniverseBuilderConfig()
 
+_LIVE_INFO: dict[str, Any] = {
+    "currentPrice": 150.0,
+    "marketCap": 2e12,
+    "sector": "Tech",
+    "industry": "Software",
+    "exchange": "NMS",
+    "currency": "USD",
+}
+
 
 # ---------------------------------------------------------------------------
 # _build_ticker_attempts (pure, no network)
@@ -36,10 +45,11 @@ class TestYFinanceTickerMapperBuildTickerAttempts:
         attempts = mapper._build_ticker_attempts("VOD", "London Stock Exchange")
         assert attempts[0] == "VOD.L"
 
-    def test_london_stock_exchange_also_includes_bare_symbol(self) -> None:
+    def test_suffixed_exchange_never_falls_back_to_bare_symbol(self) -> None:
+        """A bare symbol on a suffixed venue names a different listing."""
         mapper = self._mapper()
         attempts = mapper._build_ticker_attempts("VOD", "London Stock Exchange")
-        assert "VOD" in attempts
+        assert attempts == ["VOD.L"]
 
     def test_nyse_empty_suffix_produces_single_attempt(self) -> None:
         mapper = self._mapper()
@@ -131,6 +141,23 @@ class TestYFinanceTickerMapperDiscover:
 
         assert result is None
 
+    def test_suffixed_exchange_does_not_accept_another_security_on_bare_symbol(
+        self,
+    ) -> None:
+        """'BA.L' unknown to Yahoo must not resolve to Boeing's bare 'BA' (USD)."""
+        cache = TickerMappingCache()
+        yf = MagicMock()
+        yf.circuit_breaker.is_active = False
+        yf.fetch_info.side_effect = lambda ticker, **_: (
+            {**_LIVE_INFO, "currency": "USD"} if ticker == "BA" else None
+        )
+        mapper = YFinanceTickerMapper(config=CFG, cache=cache, _yf_client=yf)
+
+        result = mapper.discover("BA", "London Stock Exchange")
+
+        assert result is None
+        assert cache.get_mapping("BA", "London Stock Exchange") is None
+
     def test_when_verify_ticker_raises_then_discover_swallows_and_returns_none(
         self,
     ) -> None:
@@ -152,6 +179,7 @@ class TestYFinanceTickerMapperDiscover:
 def _mapper_with_info(info: Any) -> YFinanceTickerMapper:
     mock_yf = MagicMock()
     mock_yf.fetch_info.return_value = info
+    mock_yf.circuit_breaker.is_active = False
     return YFinanceTickerMapper(
         config=CFG, cache=TickerMappingCache(), _yf_client=mock_yf
     )

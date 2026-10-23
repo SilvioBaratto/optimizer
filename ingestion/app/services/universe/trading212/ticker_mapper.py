@@ -10,9 +10,10 @@ from app.services.universe.trading212.config import UniverseBuilderConfig
 class YFinanceTickerMapper:
     """Maps Trading 212 symbols to verified yfinance tickers.
 
-    Attempts the exchange-suffixed form first (e.g. ``AAPL.L``), then
-    the bare symbol. Uses the in-memory ``TickerMappingCache`` to avoid
-    redundant yfinance round-trips within a single universe build job.
+    Resolves the exchange-suffixed form (e.g. ``AAPL.L``); only venues whose
+    Yahoo suffix is empty, or that have no suffix mapping, use the bare
+    symbol. Uses the in-memory ``TickerMappingCache`` to avoid redundant
+    yfinance round-trips within a single universe build job.
     """
 
     config: UniverseBuilderConfig
@@ -34,8 +35,9 @@ class YFinanceTickerMapper:
         """Return the verified yfinance ticker for a T212 symbol, or ``None``.
 
         Checks the cache before issuing any yfinance request. On a miss,
-        tries the exchange-suffixed form then the bare symbol. A verified
-        ticker is written back to the cache for the remainder of the build.
+        verifies the ticker built from the symbol and the exchange's Yahoo
+        suffix. A verified ticker is written back to the cache for the
+        remainder of the build.
 
         Args:
             symbol: The T212 ``shortName`` (e.g. ``AAPL_US_EQ``).
@@ -74,18 +76,15 @@ class YFinanceTickerMapper:
     def _build_ticker_attempts(
         self, clean_symbol: str, exchange_name: str | None
     ) -> list[str]:
-        attempts = []
+        suffix = self.config.get_yahoo_suffix(exchange_name) if exchange_name else None
 
-        if exchange_name:
-            suffix = self.config.get_yahoo_suffix(exchange_name)
-            if suffix is not None:
-                preferred_ticker = clean_symbol + suffix
-                attempts.append(preferred_ticker)
+        # Verification only checks that Yahoo returns a price, so a bare-symbol
+        # fallback on a suffixed venue would accept an unrelated security that
+        # shares the short symbol (BA.L is BAE Systems, bare BA is Boeing in USD).
+        if suffix:
+            return [clean_symbol + suffix]
 
-        if clean_symbol not in attempts:
-            attempts.append(clean_symbol)
-
-        return attempts
+        return [clean_symbol]
 
     def _verify_ticker(self, ticker: str) -> bool:
         for retry in range(self.max_retries):
