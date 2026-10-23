@@ -139,28 +139,12 @@ class BackgroundJobService:
             else {}
         )
 
-        # Test conftest may return a nested CM instead of a plain Session.
-        session_or_cm = self._session_factory()
-
-        if hasattr(session_or_cm, "__enter__") and not hasattr(
-            session_or_cm, "execute"
-        ):
-            with session_or_cm as potential_session:
-                if hasattr(potential_session, "__enter__") and not hasattr(
-                    potential_session, "execute"
-                ):
-                    with potential_session as session:
-                        return self._resolve(
-                            *self._execute_create_job(session, extra, attempt)
-                        )
-                else:
-                    session = potential_session
-                    return self._resolve(
-                        *self._execute_create_job(session, extra, attempt)
-                    )
-        else:
-            session = session_or_cm
-            return self._resolve(*self._execute_create_job(session, extra, attempt))
+        with self._get_session_context_manager() as session:
+            outcome = self._execute_create_job(session, extra, attempt)
+        # Resolved after the session scope exits: ``get_session`` logs every
+        # exception crossing it as a database ERROR, and a skipped run is
+        # expected control flow rather than a database failure.
+        return self._resolve(*outcome)
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:
         """Return a dict representation of the job, or ``None``.
