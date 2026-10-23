@@ -10,6 +10,7 @@ import pytest
 from sklearn.pipeline import Pipeline
 
 from optimizer.exceptions import DataError
+from optimizer.pre_selection import build_preselection_pipeline
 from optimizer.universe import (
     InvestabilityScreenConfig,
     InvestabilityScreenSelector,
@@ -158,6 +159,30 @@ class TestInvestabilityScreenSelector:
         assert X["NEW"].isna().any()
         selector = build_investability_screen(**screening_data).fit(X)
         assert "NEW" not in set(selector.investable_universe_)
+
+    def test_infinite_returns_do_not_abort_fit(
+        self, screening_data: dict[str, pd.DataFrame]
+    ) -> None:
+        X = _returns_from(screening_data["price_history"])
+        X.iloc[5, 0] = np.inf  # pct_change() of a zero price
+        X.iloc[9, 1] = -np.inf
+        selector = build_investability_screen(**screening_data).fit(X)
+        assert list(selector.investable_universe_) == ["AAPL", "MSFT", "GOOG"]
+
+    def test_infinite_returns_reach_the_data_validator_in_a_pipeline(
+        self, screening_data: dict[str, pd.DataFrame]
+    ) -> None:
+        X = _returns_from(screening_data["price_history"])
+        X.iloc[5, 0] = np.inf
+        pipe = Pipeline(
+            [
+                ("screen", build_investability_screen(**screening_data)),
+                *build_preselection_pipeline().steps,
+            ]
+        )
+        pipe.set_output(transform="pandas")
+        out = pipe.fit_transform(X)
+        assert not np.isinf(out.to_numpy(dtype=float)).any()
 
     def test_current_members_hysteresis(
         self, screening_data: dict[str, pd.DataFrame]

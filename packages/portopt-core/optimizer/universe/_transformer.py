@@ -223,9 +223,11 @@ class InvestabilityScreenSelector(SelectorMixin, BaseEstimator):
             )
             raise DataError(msg)
 
-        # Returns legitimately contain gaps, so NaN must be permitted. sklearn's
+        # fit only needs the column names, so values are not inspected: returns
+        # legitimately contain gaps, and +/-inf (a zero price) is left for the
+        # DataValidator that follows in a pre-selection pipeline.  sklearn's
         # validate_data stub mistypes X as str; it accepts array-like at runtime.
-        validate_data(self, X, ensure_all_finite="allow-nan")  # pyright: ignore
+        validate_data(self, X, ensure_all_finite=False)  # pyright: ignore
         if not hasattr(self, "feature_names_in_"):
             msg = (
                 "InvestabilityScreenSelector requires X to be a DataFrame with "
