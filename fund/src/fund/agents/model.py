@@ -31,6 +31,7 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from fund.config import FundConfig, settings
 
@@ -85,6 +86,15 @@ _ANTHROPIC_FIXED_SAMPLING_PREFIX = "claude-fable-5"
 # cut off mid-JSON and surfaces as an invalid tool call that loops until the
 # recursion limit. Reasoning models also spend this budget on thinking tokens.
 _MAX_COMPLETION_TOKENS = 4096
+
+# ChatNVIDIA treats a falsy `api_key` as unset and falls back to NVIDIA_API_KEY in
+# the process env, which would put an operator's hosted key on the wire to a keyless
+# NIM. Any truthy value keeps the env var out of the client; the placeholder is
+# stripped again before the model is returned, so no Authorization header is sent.
+_KEYLESS_API_KEY_PLACEHOLDER = "unused"
+
+# ChatNVIDIA's own definition of the hosted endpoint (`is_hosted` in its client).
+_NVIDIA_HOSTED_HOSTS = frozenset({"integrate.api.nvidia.com", "ai.api.nvidia.com"})
 
 
 def _require(value: str | None, env_name: str) -> str:
@@ -349,16 +359,40 @@ def _build_microsoft(config: FundConfig, model_name: str) -> BaseChatModel:
     return AzureChatOpenAI(**kwargs)
 
 
+def _is_nvidia_hosted(base_url: str) -> bool:
+    """Return whether ``base_url`` is NVIDIA's own hosted API, reached over TLS."""
+    parsed = urlparse(base_url)
+    return parsed.scheme == "https" and parsed.hostname in _NVIDIA_HOSTED_HOSTS
+
+
+def _nvidia_api_key(config: FundConfig) -> str | None:
+    """Return the key to send to NVIDIA, or ``None`` for an endpoint that gets none.
+
+    ``NVIDIA_API_KEY`` authenticates to NVIDIA's hosted API. ``load_config`` fills
+    it from the same variable an operator keeps their hosted key in, so a custom
+    ``NVIDIA_BASE_URL`` (a self-hosted NIM, often plain HTTP) only receives it when
+    the operator opts in with ``NVIDIA_BASE_URL_SEND_KEY`` for a keyed gateway.
+
+    Raises:
+        RuntimeError: A key is called for (hosted API, or opted in) but unset.
+    """
+    base_url = config.nvidia_base_url
+    if not base_url or _is_nvidia_hosted(base_url) or config.nvidia_base_url_send_key:
+        return _require(config.nvidia_api_key, "NVIDIA_API_KEY")
+    return None
+
+
 def _build_nvidia(config: FundConfig, model_name: str) -> BaseChatModel:
     """Build a ``ChatNVIDIA`` (NVIDIA NIM), hosted or self-hosted.
 
-    Two paths, branched on ``nvidia_base_url``:
+    Branches on ``nvidia_base_url``:
 
-    * **hosted** (``build.nvidia.com`` — no base_url) *requires* ``NVIDIA_API_KEY``;
-    * **self-hosted NIM** (``NVIDIA_BASE_URL`` set, e.g. ``http://host:8000/v1``)
-      routes by ``base_url`` and needs **no** key — but a key that *is* configured
-      is still sent, so a keyed gateway (or the explicit hosted URL) authenticates.
-      Leave ``NVIDIA_API_KEY`` unset for a keyless NIM.
+    * **hosted** (``build.nvidia.com``, whether ``NVIDIA_BASE_URL`` is unset or spells
+      out NVIDIA's own https URL) *requires* ``NVIDIA_API_KEY``;
+    * **custom endpoint** (``NVIDIA_BASE_URL`` set, e.g. ``http://host:8000/v1``)
+      routes by ``base_url`` and is sent **no** credential, not even an
+      ``NVIDIA_API_KEY`` present in the process env. A keyed gateway opts in with
+      ``NVIDIA_BASE_URL_SEND_KEY=true`` (see :func:`_nvidia_api_key`).
 
     ``temperature=0`` threads the D4 contract and ``max_completion_tokens`` is set
     explicitly because ``ChatNVIDIA`` otherwise caps every completion at 1024 tokens;
@@ -371,14 +405,20 @@ def _build_nvidia(config: FundConfig, model_name: str) -> BaseChatModel:
         "temperature": config.model_temperature,
         "max_completion_tokens": _MAX_COMPLETION_TOKENS,
     }
-    api_key = config.nvidia_api_key
     if config.nvidia_base_url:
         kwargs["base_url"] = config.nvidia_base_url
-    else:
-        api_key = _require(api_key, "NVIDIA_API_KEY")
+    api_key = _nvidia_api_key(config)
     if api_key:
-        kwargs["api_key"] = api_key
-    return ChatNVIDIA(**kwargs)
+        return ChatNVIDIA(api_key=api_key, **kwargs)
+
+    llm = ChatNVIDIA(api_key=_KEYLESS_API_KEY_PLACEHOLDER, **kwargs)
+    # Both clients keep their own copy. A renamed attribute in a future SDK leaves
+    # the placeholder in place, which is harmless, rather than leaking a real key.
+    for client_attr in ("_client", "_async_client"):
+        client = getattr(llm, client_attr, None)
+        if client is not None:
+            client.api_key = None
+    return llm
 
 
 def _build_huggingface(config: FundConfig, model_name: str) -> BaseChatModel:

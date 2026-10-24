@@ -316,6 +316,16 @@ def test_azure_fallback_deployment_is_env_sourced_and_optional():
     assert cfg.azure_openai_fallback_deployment_name == "gpt4o-mini-dep"
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("true", True), ("1", True), ("YES", True), ("false", False), ("", False)],
+)
+def test_nvidia_base_url_send_key_is_an_opt_in_flag(raw, expected):
+    assert load_config(env={}).nvidia_base_url_send_key is False
+    cfg = load_config(env={"NVIDIA_BASE_URL_SEND_KEY": raw})
+    assert cfg.nvidia_base_url_send_key is expected
+
+
 def test_provider_fields_default_safe_so_bare_import_never_fails():
     # Every provider key/endpoint stays None with no env; hf_mode defaults to
     # "cloud". A bare load must not require any secret.

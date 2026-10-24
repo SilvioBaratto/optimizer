@@ -95,9 +95,13 @@ class FundConfig:
     anthropic_api_key: str | None = None
     google_api_key: str | None = None
     groq_api_key: str | None = None
-    # nvidia — hosted (NVIDIA_API_KEY) vs self-hosted NIM (NVIDIA_BASE_URL set)
+    # nvidia — NVIDIA_API_KEY authenticates to NVIDIA's hosted API. A custom
+    # NVIDIA_BASE_URL (self-hosted NIM or gateway) receives it only when
+    # `nvidia_base_url_send_key` is set: that variable usually holds a hosted key,
+    # and the config cannot tell it apart from a key meant for the gateway.
     nvidia_api_key: str | None = None
     nvidia_base_url: str | None = None
+    nvidia_base_url_send_key: bool = False
     # huggingface — cloud only in this delivery; `hf_mode == "local"` is deferred
     hf_api_token: str | None = None
     hf_mode: str = "cloud"
@@ -258,6 +262,11 @@ def load_project_env() -> None:
             os.environ[key] = value
 
 
+def _env_flag(env: Mapping[str, str], name: str) -> bool:
+    """Return whether ``name`` holds a truthy word (``1``/``true``/``yes``/``on``)."""
+    return env.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def load_config(
     *,
     env: Mapping[str, str] | None = None,
@@ -308,6 +317,7 @@ def load_config(
         groq_api_key=_read_secret(env, "GROQ_API_KEY"),
         nvidia_api_key=_read_secret(env, "NVIDIA_API_KEY"),
         nvidia_base_url=env.get("NVIDIA_BASE_URL"),
+        nvidia_base_url_send_key=_env_flag(env, "NVIDIA_BASE_URL_SEND_KEY"),
         hf_api_token=_read_secret(env, "HUGGINGFACEHUB_API_TOKEN"),
         hf_mode=env.get("FUND_HF_MODE", defaults.hf_mode),
         aws_region=env.get("AWS_REGION"),

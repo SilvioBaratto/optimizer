@@ -12,7 +12,9 @@ missing key raises at *build* time (never at import, so a bare
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import re
 import sys
 import threading
@@ -874,23 +876,168 @@ def test_nvidia_self_host_base_url_builds_without_a_key(monkeypatch):
 
     assert isinstance(llm, fake_cls)
     assert llm.kwargs["base_url"] == "http://localhost:8000/v1"
-    assert "api_key" not in llm.kwargs  # self-hosted NIM needs no key
     assert llm.kwargs["temperature"] == cfg.model_temperature
 
 
-def test_nvidia_configured_key_is_sent_to_an_explicit_base_url(fake_nvidia):
-    # A key supplied for a keyed gateway or the explicit hosted URL must not be
-    # dropped just because NVIDIA_BASE_URL is set.
+# NVIDIA_API_KEY authenticates to NVIDIA's hosted API. The same variable usually
+# holds a hosted key, so a custom NVIDIA_BASE_URL (a self-hosted NIM, often plain
+# HTTP) never receives it unless the operator opts in with NVIDIA_BASE_URL_SEND_KEY
+# for a keyed gateway. These tests read the Authorization header off the wire.
+
+
+def _ambient_nvidia_env(monkeypatch, base_url: str, **extra: str) -> FundConfig:
+    """``load_config`` over a process env holding a hosted key and a NIM base URL."""
+    monkeypatch.setenv("LLM_PROVIDER", "nvidia")
+    monkeypatch.setenv("FUND_PRIMARY_MODEL", "meta/llama-3.1-8b-instruct")
+    monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-HOSTED-SECRET")
+    monkeypatch.setenv("NVIDIA_BASE_URL", base_url)
+    for name, value in extra.items():
+        monkeypatch.setenv(name, value)
+    return load_config(env=os.environ, load_dotenv_file=False)
+
+
+def _assert_no_credential_sent(auth_headers: list[str | None]) -> None:
+    """Assert a request reached the server carrying neither key nor placeholder.
+
+    ChatNVIDIA always sends an ``Authorization`` header (a masked literal when it
+    has no key), so the check is on what the header carries, not on its presence.
+    """
+    assert auth_headers
+    for header in auth_headers:
+        assert "nvapi-HOSTED-SECRET" not in (header or "")
+        assert model._KEYLESS_API_KEY_PLACEHOLDER not in (header or "")
+
+
+def test_nvidia_self_hosted_nim_never_receives_the_ambient_hosted_key(
+    fake_nvidia, monkeypatch
+):
+    # The production path: load_config fills nvidia_api_key from the very env var
+    # holding the operator's hosted key, so the config alone cannot tell it apart
+    # from a key meant for the NIM.
     base_url, auth_headers = fake_nvidia
+    cfg = _ambient_nvidia_env(monkeypatch, base_url)
+
+    model.build_primary(cfg).invoke("hi")
+
+    _assert_no_credential_sent(auth_headers)
+
+
+def test_nvidia_self_hosted_nim_async_client_sends_no_key_either(
+    fake_nvidia, monkeypatch
+):
+    base_url, auth_headers = fake_nvidia
+    cfg = _ambient_nvidia_env(monkeypatch, base_url)
+
+    asyncio.run(model.build_primary(cfg).ainvoke("hi"))
+
+    _assert_no_credential_sent(auth_headers)
+
+
+def test_nvidia_custom_base_url_receives_the_key_only_on_opt_in(
+    fake_nvidia, monkeypatch
+):
+    # A keyed gateway: the operator ties NVIDIA_API_KEY to NVIDIA_BASE_URL.
+    base_url, auth_headers = fake_nvidia
+    cfg = _ambient_nvidia_env(monkeypatch, base_url, NVIDIA_BASE_URL_SEND_KEY="true")
+
+    model.build_primary(cfg).invoke("hi")
+
+    assert auth_headers == ["Bearer nvapi-HOSTED-SECRET"]
+
+
+def test_nvidia_opting_in_to_send_the_key_without_one_fails_at_build(monkeypatch):
+    _install_fake_chat_class(
+        monkeypatch, _nvidia_module_name(), class_name="ChatNVIDIA"
+    )
     cfg = FundConfig(
         llm_provider="nvidia",
-        nvidia_api_key="nvapi-configured",
-        nvidia_base_url=base_url,
+        nvidia_api_key=None,
+        nvidia_base_url="http://localhost:8000/v1",
+        nvidia_base_url_send_key=True,
     )
 
-    model.build_chat_model(cfg, model_name="meta/llama-3.1-8b-instruct").invoke("hi")
+    with pytest.raises(RuntimeError, match="NVIDIA_API_KEY"):
+        model.build_chat_model(cfg, model_name="meta/llama-3.1-8b-instruct")
 
-    assert auth_headers == ["Bearer nvapi-configured"]
+
+@pytest.mark.parametrize(
+    "hosted_url",
+    ["https://integrate.api.nvidia.com/v1", "https://ai.api.nvidia.com/v1"],
+)
+def test_nvidia_explicit_hosted_url_is_the_hosted_path(monkeypatch, hosted_url):
+    # Spelling out NVIDIA's own URL must not turn the key off.
+    fake_cls = _install_fake_chat_class(
+        monkeypatch, _nvidia_module_name(), class_name="ChatNVIDIA"
+    )
+    cfg = FundConfig(
+        llm_provider="nvidia", nvidia_api_key="nvapi-test", nvidia_base_url=hosted_url
+    )
+
+    llm = model.build_chat_model(cfg, model_name="meta/llama-3.1-70b-instruct")
+
+    assert isinstance(llm, fake_cls)
+    assert llm.kwargs["api_key"] == "nvapi-test"
+    assert llm.kwargs["base_url"] == hosted_url
+
+
+def test_nvidia_explicit_hosted_url_without_a_key_fails_at_build(monkeypatch):
+    _install_fake_chat_class(
+        monkeypatch, _nvidia_module_name(), class_name="ChatNVIDIA"
+    )
+    cfg = FundConfig(
+        llm_provider="nvidia",
+        nvidia_base_url="https://integrate.api.nvidia.com/v1",
+    )
+
+    with pytest.raises(RuntimeError, match="NVIDIA_API_KEY"):
+        model.build_chat_model(cfg, model_name="meta/llama-3.1-70b-instruct")
+
+
+@pytest.mark.parametrize(
+    "lookalike_url",
+    [
+        "http://integrate.api.nvidia.com/v1",
+        "https://integrate.api.nvidia.com.evil.example/v1",
+        "https://integrate.api.nvidia.com@evil.example/v1",
+    ],
+    ids=["cleartext", "suffix-lookalike", "userinfo-lookalike"],
+)
+def test_nvidia_lookalike_hosted_url_is_a_custom_endpoint(monkeypatch, lookalike_url):
+    # Only an https URL on NVIDIA's own hosts may receive the key by default.
+    fake_cls = _install_fake_chat_class(
+        monkeypatch, _nvidia_module_name(), class_name="ChatNVIDIA"
+    )
+    cfg = FundConfig(
+        llm_provider="nvidia",
+        nvidia_api_key="nvapi-HOSTED-SECRET",
+        nvidia_base_url=lookalike_url,
+    )
+
+    llm = model.build_chat_model(cfg, model_name="meta/llama-3.1-70b-instruct")
+
+    assert isinstance(llm, fake_cls)
+    assert llm.kwargs["api_key"] != "nvapi-HOSTED-SECRET"
+
+
+def test_nvidia_building_a_keyless_nim_does_not_edit_the_process_env(monkeypatch):
+    # The ambient key is kept out of the client without touching os.environ, which
+    # other threads read without any lock.
+    seen_at_construction: list[str | None] = []
+
+    class _Spy:
+        def __init__(self, **kwargs: object) -> None:
+            seen_at_construction.append(os.environ.get("NVIDIA_API_KEY"))
+
+    fake = types.ModuleType(_nvidia_module_name())
+    fake.ChatNVIDIA = _Spy  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, _nvidia_module_name(), fake)
+    monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-HOSTED-SECRET")
+    cfg = FundConfig(llm_provider="nvidia", nvidia_base_url="http://localhost:8000/v1")
+
+    model.build_chat_model(cfg, model_name="meta/llama-3.1-8b-instruct")
+
+    assert seen_at_construction == ["nvapi-HOSTED-SECRET"]
+    assert os.environ["NVIDIA_API_KEY"] == "nvapi-HOSTED-SECRET"
 
 
 def test_nvidia_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):
