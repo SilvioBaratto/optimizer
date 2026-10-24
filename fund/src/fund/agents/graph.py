@@ -382,8 +382,9 @@ def build_fund_agent(
 
 
 # The full set of PM-level gates round-0 forces (every shipped orchestrator gate).
-# A brand-new portfolio's first round pauses at all of them regardless of the
-# mandate; ``first_round_gated`` then flips so later rounds respect the mandate.
+# A brand-new portfolio's first round pauses at all of them whatever the config or
+# mandate say, on top of whatever those gate; ``first_round_gated`` then flips so
+# later rounds use the config and mandate gates alone.
 # before_risk is deferred (needs a synthetic checkpoint tool), so place_orders is
 # the only real PM gate today — grow this tuple as gates ship.
 _ALL_ORCHESTRATOR_GATES: tuple[str, ...] = ("place_orders",)
@@ -1486,15 +1487,15 @@ def _prepare_fund_run(
     The setup :func:`run_fund` and :func:`stream_fund` share so neither drifts from the
     other: a FROZEN fund or portfolio raises ``RuntimeError`` (re-arm first — Q3, fund
     scope wins); a missing active ``ConstraintSet`` raises ``RuntimeError`` (profile
-    first); a pending ``agent_run`` is opened recording the seed + ``temperature`` + 3y
-    lookback (D31) + the mandate's ``capital`` (the ticket's gross book) + the active
-    MiFID ``profile_version`` (``None`` when unprofiled); its
+    first); a pending ``agent_run`` is opened recording the seed + ``temperature`` + the
+    3y backtest training window (D31) + the mandate's ``capital`` (the ticket's gross
+    book) + the active MiFID ``profile_version`` (``None`` when unprofiled); its
     checkpointer thread is pinned to ``str(run_id)`` so the rebuild-to-resume path
-    recovers it; and the PM agent is built against this run's
-    ``RunContext`` with the effective gate set — the portfolio's **first** round forces
-    every PM gate (``_ALL_ORCHESTRATOR_GATES``), later rounds use config baseline ∪
-    ``mandate.hitl_gates``. The caller drives the agent (invoke or stream). Every write
-    goes through ``session`` (caller owns the transaction).
+    recovers it; and the PM agent is built against this run's ``RunContext`` with the
+    effective gate set — config baseline ∪ ``mandate.hitl_gates``, which the
+    portfolio's **first** round widens with every PM gate
+    (``_ALL_ORCHESTRATOR_GATES``). The caller drives the agent (invoke or stream).
+    Every write goes through ``session`` (caller owns the transaction).
     """
     import secrets
 
@@ -1577,10 +1578,13 @@ def _prepare_fund_run(
     effective_gates = _effective_gates(config, mandate)
     first_round = autonomy.consume_first_round(pid_uuid)
     if first_round:
-        # A portfolio's first round forces every PM gate for maximum oversight,
-        # overriding the mandate; the flag is now consumed, so later rounds respect
-        # the mandate's gate set.
-        effective_gates = dict.fromkeys(_ALL_ORCHESTRATOR_GATES, True)
+        # A portfolio's first round adds every PM gate for maximum oversight. It
+        # widens the effective set rather than replacing it: a gate the mandate adds
+        # must not be dropped for round one and only reinstated from round two.
+        effective_gates = {
+            **effective_gates,
+            **dict.fromkeys(_ALL_ORCHESTRATOR_GATES, True),
+        }
     agent = build_fund_agent(
         model,
         checkpointer=checkpointer,

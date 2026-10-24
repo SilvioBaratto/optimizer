@@ -803,8 +803,8 @@ def test_prepare_fund_run_seeds_the_pm_with_the_mandates_remembered_directives(
 
 
 def test_first_round_forces_all_orchestrator_gates(db_session, monkeypatch):
-    """A portfolio's first round forces the full ``_ALL_ORCHESTRATOR_GATES`` set,
-    overriding the mandate, and flips ``first_round_gated`` off."""
+    """A portfolio's first round forces the full ``_ALL_ORCHESTRATOR_GATES`` set on top
+    of the config and mandate gates, and flips ``first_round_gated`` off."""
     from _fund_fakes import PORTFOLIO_ID, make_mandate
 
     from fund.audit import AutonomyRepository
@@ -814,13 +814,54 @@ def test_first_round_forces_all_orchestrator_gates(db_session, monkeypatch):
     )
     captured = _prepare(db_session, mandate, monkeypatch)
 
-    assert captured["interrupt_on"] == dict.fromkeys(
-        graph._ALL_ORCHESTRATOR_GATES, True
-    )
+    assert set(graph._ALL_ORCHESTRATOR_GATES) <= set(captured["interrupt_on"])
     assert (
         AutonomyRepository(db_session).portfolio_state(PORTFOLIO_ID).first_round_gated
         is False
     )
+
+
+def test_first_round_is_never_less_gated_than_a_later_round(db_session, monkeypatch):
+    """The maximum-oversight first round unions the forced gates with the mandate's
+    extra gates instead of replacing them, so a gate the mandate adds is not dropped
+    for round one and only reinstated from round two."""
+    from _fund_fakes import make_mandate
+
+    mandate = make_mandate().model_copy(
+        update={"hitl_gates": ("place_orders", "optimize_portfolio")}
+    )
+
+    first = _prepare(db_session, mandate, monkeypatch)
+    later = _prepare(db_session, mandate, monkeypatch)
+
+    assert first["interrupt_on"] == {"place_orders": True, "optimize_portfolio": True}
+    assert set(later["interrupt_on"]) <= set(first["interrupt_on"])
+
+
+def test_first_round_forces_the_order_gate_when_the_config_omits_it(
+    db_session, monkeypatch
+):
+    """The forced set still guarantees ``place_orders`` is gated on round one even when
+    the run config's gated-tool tuple lacks it."""
+    from _fund_fakes import ASOF, PORTFOLIO_ID, make_mandate
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(graph, "build_fund_agent", lambda *a, **k: captured.update(k))
+    graph._prepare_fund_run(
+        object(),
+        make_mandate(),
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        session=db_session,
+        checkpointer="CKPT",
+        store=_store_with_cs(),
+        config=dataclasses.replace(settings, interrupt_on=()),
+        fallback=None,
+        thread_id=None,
+        seed=1,
+    )
+
+    assert captured["interrupt_on"] == {"place_orders": True}
 
 
 def test_first_round_gate_flips_so_later_rounds_respect_the_mandate(
