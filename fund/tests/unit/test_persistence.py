@@ -101,7 +101,7 @@ def test_setup_langgraph_orchestrates_schema_then_saver_then_store(monkeypatch):
         return sentinel_pool
 
     class _FakeSaver:
-        def __init__(self, pool: object) -> None:
+        def __init__(self, pool: object, **_kwargs: object) -> None:
             self.pool = pool
 
         def setup(self) -> None:
@@ -148,7 +148,7 @@ def test_setup_langgraph_closes_the_pool_when_setup_raises(monkeypatch, failing)
 
     def _make(name: str):
         class _Handle:
-            def __init__(self, _pool: object) -> None:
+            def __init__(self, _pool: object, **_kwargs: object) -> None:
                 pass
 
             def setup(self) -> None:
@@ -167,3 +167,51 @@ def test_setup_langgraph_closes_the_pool_when_setup_raises(monkeypatch, failing)
         persistence.setup_langgraph(cfg)
 
     assert pool.closed
+
+
+_tripwire_calls: list[object] = []
+
+
+def _tripwire(arg: object) -> None:
+    """Stands in for a code-execution gadget a forged checkpoint blob would name."""
+    _tripwire_calls.append(arg)
+
+
+def _forged_constructor_blob() -> tuple[str, bytes]:
+    """A checkpoint blob whose msgpack ext asks the loader to call ``_tripwire``."""
+    ormsgpack = pytest.importorskip("ormsgpack")
+    payload = ormsgpack.packb((__name__, "_tripwire", "forged"))
+    return "msgpack", ormsgpack.packb(ormsgpack.Ext(0, payload))
+
+
+def test_the_checkpointer_does_not_execute_constructors_named_by_a_stored_blob(
+    monkeypatch,
+):
+    # Anyone able to write the langgraph schema can plant a blob; the permissive
+    # default serializer would import and call whatever it names when the TUI polls.
+    monkeypatch.setattr(persistence, "create_schema", lambda *_a: None)
+    monkeypatch.setattr(persistence, "build_pool", lambda _config: object())
+    monkeypatch.setattr(persistence.PostgresSaver, "setup", lambda _self: None)
+    monkeypatch.setattr(persistence.PostgresStore, "setup", lambda _self: None)
+    _tripwire_calls.clear()
+
+    cfg = FundConfig(database_url="postgresql+psycopg2://u:p@h:54320/db")
+    saver = persistence.setup_langgraph(cfg).saver
+    saver.serde.loads_typed(_forged_constructor_blob())
+
+    assert _tripwire_calls == []
+
+
+def test_the_checkpointer_still_round_trips_graph_state_messages(monkeypatch):
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    monkeypatch.setattr(persistence, "create_schema", lambda *_a: None)
+    monkeypatch.setattr(persistence, "build_pool", lambda _config: object())
+    monkeypatch.setattr(persistence.PostgresSaver, "setup", lambda _self: None)
+    monkeypatch.setattr(persistence.PostgresStore, "setup", lambda _self: None)
+
+    cfg = FundConfig(database_url="postgresql+psycopg2://u:p@h:54320/db")
+    serde = persistence.setup_langgraph(cfg).saver.serde
+    state = {"messages": [HumanMessage("hi"), AIMessage("ok")]}
+
+    assert serde.loads_typed(serde.dumps_typed(state)) == state

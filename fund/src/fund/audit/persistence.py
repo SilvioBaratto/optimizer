@@ -27,6 +27,7 @@ from typing import cast
 
 import psycopg
 from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.store.postgres import PostgresStore
 from psycopg import Connection
 from psycopg.rows import DictRow
@@ -128,6 +129,24 @@ def build_pool(config: FundConfig) -> ConnectionPool[Connection[DictRow]]:
     return cast("ConnectionPool[Connection[DictRow]]", pool)
 
 
+def build_checkpoint_serde() -> JsonPlusSerializer:
+    """Serializer for checkpoint blobs that refuses to construct arbitrary types.
+
+    The library default imports and calls whatever module and name a stored msgpack
+    blob carries, so anyone able to write the ``langgraph`` schema could run code in
+    every process that loads a checkpoint (the TUI does so on a timer). Passing
+    ``None`` restricts loading to the library's built-in safe types — messages,
+    ``Command``/``Interrupt``, dates and the like — and langgraph widens that with
+    the types of the compiled graph's own state. Any other type comes back as its
+    raw payload instead of being constructed.
+
+    Returns:
+        A serializer with a closed allowlist, independent of the
+        ``LANGGRAPH_STRICT_MSGPACK`` environment variable.
+    """
+    return JsonPlusSerializer(allowed_msgpack_modules=None)
+
+
 def setup_langgraph(config: FundConfig | None = None) -> LangGraphPersistence:
     """Create the schema, open the pool, and ``.setup()`` the saver + store.
 
@@ -149,7 +168,7 @@ def setup_langgraph(config: FundConfig | None = None) -> LangGraphPersistence:
     # The pool is already open (worker threads + connections); if setup fails no
     # caller ever receives it, so it must be closed here or it leaks.
     try:
-        saver = PostgresSaver(pool)
+        saver = PostgresSaver(pool, serde=build_checkpoint_serde())
         store = PostgresStore(pool)
         saver.setup()
         store.setup()
@@ -162,6 +181,7 @@ def setup_langgraph(config: FundConfig | None = None) -> LangGraphPersistence:
 __all__ = [
     "LANGGRAPH_TABLES",
     "LangGraphPersistence",
+    "build_checkpoint_serde",
     "build_pool",
     "create_schema",
     "normalize_conninfo",
