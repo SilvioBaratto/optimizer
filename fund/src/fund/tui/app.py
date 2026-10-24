@@ -717,7 +717,9 @@ class ShellApp(App[None]):
                 initial="view-posture", id="content", classes="content"
             ):
                 yield from build_views()
-        yield Static("", id="status-bar", classes="status-bar")
+        # Status text embeds exception messages (pydantic's "[type=..., input_..]") that
+        # Textual would otherwise parse as markup and raise on.
+        yield Static("", id="status-bar", classes="status-bar", markup=False)
         yield Footer()
 
     def on_mount(self) -> None:

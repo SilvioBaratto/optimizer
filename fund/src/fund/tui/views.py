@@ -221,7 +221,10 @@ class DecisionsView(ShellView):
                 id="decisions-table", cursor_type="row", classes="decisions-queue"
             )
             yield Static(
-                "(select a paused gate)", id="decisions-gate", classes="decisions-gate"
+                "(select a paused gate)",
+                id="decisions-gate",
+                classes="decisions-gate",
+                markup=False,
             )
         yield Static(
             "a approve · r reject · k killswitch · e edit weights · s steer PM",
@@ -980,7 +983,10 @@ class AuditView(ShellView):
         with Horizontal(classes="audit-body"):
             yield DataTable(id="audit-table", cursor_type="row", classes="audit-table")
             yield Static(
-                "(select a decision)", id="audit-detail", classes="audit-detail"
+                "(select a decision)",
+                id="audit-detail",
+                classes="audit-detail",
+                markup=False,
             )
         yield Static(
             "↑↓ select · t actor · f ⚑ overrides · g this-pf · e export",
@@ -1251,7 +1257,14 @@ class DeliberationView(ShellView):
                 yield DataTable(
                     id="delib-live", cursor_type="row", classes="delib-live"
                 )
-            yield Static("(select a step)", id="delib-detail", classes="delib-detail")
+            # Agent prose routinely carries "[k=v, k=v]" runs, which Textual would parse
+            # as markup and raise on; every free-text pane below renders literally.
+            yield Static(
+                "(select a step)",
+                id="delib-detail",
+                classes="delib-detail",
+                markup=False,
+            )
         yield Static(
             "↑↓ select · ↵ run then step · f follow live",
             id="delib-hint",
@@ -1685,7 +1698,9 @@ class DailyBriefView(ShellView):
     def compose(self) -> ComposeResult:
         """Yield the title, the five-section detail pane, and the key hint."""
         yield Label(self.view_title, classes="view-title")
-        yield Static("(loading…)", id="brief-detail", classes="brief-detail")
+        yield Static(
+            "(loading…)", id="brief-detail", classes="brief-detail", markup=False
+        )
         yield Static(
             "← prev day · → next · ↵ open deliberation · e export · esc",
             id="brief-hint",
@@ -2154,6 +2169,7 @@ class AskView(ShellView):
                 "ask about the fund — e.g. “how are we doing?” or “approve the gate”",
                 id="ask-log",
                 classes="ask-log",
+                markup=False,
             )
         yield Input(placeholder="ask…", id="ask-input")
         yield Static("↵ ask · e export", id="ask-hint", classes="ask-hint")

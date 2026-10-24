@@ -5833,6 +5833,149 @@ async def test_ask_action_two_gates_disambiguate_to_named(tui_env) -> None:
         assert AgentRunRepository(session).get_run(tui_env.run_id).status == "completed"
 
 
+# --- Agent-originated text is data, never Textual markup ---------------------
+
+# Bracketed key=value runs and a stray closing tag all raise ``MarkupError`` when a
+# ``Static`` parses them as markup — realistic in finance prose from a model.
+_BRACKETED = "drift [a=1, b=2] vs [ECB=hawkish, BoE=dovish] and a stray [/]"
+
+
+def _rendered(widget) -> str:
+    return str(widget.render())
+
+
+@pytest.mark.asyncio
+async def test_ask_answer_with_bracket_sequences_renders_literally(shell_env) -> None:
+    """A model answer holding ``[k=v, k=v]`` reaches the log verbatim, not as markup."""
+    app = _make_shell(
+        shell_env,
+        portfolio_id=_PID_A,
+        model_factory=lambda: _CannedAskModel(answer=_BRACKETED),
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("how are we doing?")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert view.last_answer == _BRACKETED
+        assert _BRACKETED in _rendered(view.query_one("#ask-log", Static))
+        # A later repaint re-renders every logged line, so it must stay healthy too.
+        view.append_log("you", "and now?")
+        assert _BRACKETED in _rendered(view.query_one("#ask-log", Static))
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_detail_renders_bracketed_text_literally(
+    shell_env,
+) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        view.ingest_event(
+            StreamEvent(
+                kind="step",
+                run_id=rid,
+                index=0,
+                agent="economist",
+                step="report",
+                status=StepStatus.LIVE,
+                text=_BRACKETED,
+            )
+        )
+        await pilot.pause()
+        assert _BRACKETED in _rendered(view.query_one("#delib-detail", Static))
+
+
+@pytest.mark.asyncio
+async def test_deliberation_replay_detail_renders_bracketed_text_literally(
+    shell_env,
+) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view._entries = [
+            SimpleNamespace(
+                agent="economist",
+                step="report",
+                source="message",
+                index=0,
+                text=_BRACKETED,
+                payload=None,
+            )
+        ]
+        view.selected_step = 0
+        view._paint_detail()
+        await pilot.pause()
+        assert _BRACKETED in _rendered(view.query_one("#delib-detail", Static))
+
+
+@pytest.mark.asyncio
+async def test_decisions_gate_renders_bracketed_text_literally(tui_env) -> None:
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view._paint_gate(f"place_orders — {_BRACKETED}")
+        await pilot.pause()
+        assert _BRACKETED in _rendered(view.query_one("#decisions-gate", Static))
+
+
+@pytest.mark.asyncio
+async def test_audit_detail_renders_bracketed_text_literally(shell_env) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        view._entries = [
+            SimpleNamespace(
+                kind="agent",
+                actor="allocator",
+                action="optimize_portfolio",
+                portfolio_id=None,
+                run_id=None,
+                prev_value=None,
+                new_value=_BRACKETED,
+                source=None,
+                idempotency_key=None,
+                override_flag=False,
+                suitability_flag=False,
+            )
+        ]
+        view.selected_index = 0
+        view._paint_detail()
+        await pilot.pause()
+        assert _BRACKETED in _rendered(view.query_one("#audit-detail", Static))
+
+
+@pytest.mark.asyncio
+async def test_status_bar_renders_bracketed_error_text_literally(shell_env) -> None:
+    """Exception text (pydantic's ``[type=..., input_value=...]``) is not markup."""
+    app = _make_shell(shell_env)
+    message = "invalid mandate: [type=greater_than, input_value=-1, input_type=int]"
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        app._set_status(message)
+        await pilot.pause()
+        assert message in _rendered(app.query_one("#status-bar", Static))
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_renders_bracketed_economist_read_literally(
+    shell_env, monkeypatch
+) -> None:
+    import dataclasses
+
+    brief = dataclasses.replace(_full_brief(_PID_A), economist_read=_BRACKETED)
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert _BRACKETED in _rendered(view.query_one("#brief-detail", Static))
+
+
 # --- Ask markdown export (Phase 08 T8) --------------------------------------
 
 
