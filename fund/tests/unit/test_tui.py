@@ -13,6 +13,7 @@ fund.tui.app`` is checked (in a stripped subprocess env) to need no
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -2674,6 +2675,53 @@ def test_parse_weights_resolves_tickers_against_the_proposed_tickers() -> None:
     # The same name twice would let the second weight silently replace the first.
     with pytest.raises(ValueError, match="duplicate ticker 'AAA'"):
         _parse_weights("AAA:0.5, aaa:0.5", allowed=allowed)
+
+
+@pytest.mark.asyncio
+async def test_order_edit_prefill_committed_unchanged_stays_within_budget(
+    shell_env,
+) -> None:
+    # Thirds are the worst case for a rounded pre-fill: 3 x 0.3333 sums to 0.9999,
+    # outside risk_check's 1e-6 budget tolerance.
+    weights = {"AAA": 1 / 3, "BBB": 1 / 3, "CCC": 1 / 3}
+    committed: list[dict[str, float] | None] = []
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        app.push_screen(OrderEditScreen(weights), committed.append)
+        await pilot.pause()
+        app.screen._submit()
+        await pilot.pause()
+    assert committed and committed[0] is not None
+    assert abs(sum(committed[0].values()) - 1.0) <= 1e-6
+
+
+@pytest.mark.asyncio
+async def test_decisions_edit_prefills_the_audited_optimizer_weights(tui_env) -> None:
+    # The gate shows the model's own place_orders args, which may be rounded; the
+    # ticket is placed from the audited optimizer output, so that is what to edit.
+    from fund.tui.app import _parse_weights
+
+    audited = {"AAA": 1 / 3, "BBB": 1 / 3, "CCC": 1 / 3}
+    with tui_env.get_session() as session:
+        AgentRunRepository(session).append_decision(
+            tui_env.run_id,
+            agent="allocator",
+            step="optimize_portfolio",
+            llm_response=json.dumps({"weights": audited}),
+        )
+        session.commit()
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_edit_decision()
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, OrderEditScreen)
+        seeded = _parse_weights(screen.query_one("#edit-weights", Input).value)
+    assert seeded.keys() == audited.keys()
+    assert all(abs(seeded[k] - audited[k]) <= 1e-9 for k in audited)
 
 
 @pytest.mark.asyncio

@@ -211,7 +211,7 @@ class OrderEditScreen(ModalScreen["dict[str, float] | None"]):
             )
             yield Input(
                 value=", ".join(
-                    f"{ticker}:{weight:.4f}"
+                    f"{ticker}:{weight:.10g}"
                     for ticker, weight in sorted(self._weights.items())
                 ),
                 id="edit-weights",
@@ -1026,23 +1026,30 @@ class ShellApp(App[None]):
         self.push_screen(BargeInScreen("the selected gate"), _resolved)
 
     def _proposed_weights(self, run_id: uuid.UUID) -> dict[str, float]:
-        """The gate's proposed ``{ticker: weight}``, or ``{}`` on any read error.
+        """The weights to seed the editor with, or ``{}`` on any read error.
 
-        Reads the pending interrupt's ``place_orders`` args through a short read-only
-        session; the run repo is imported from its submodule (never the ``fund.audit``
-        root, which pulls the langgraph bootstrap) so this stays agent-stack-light.
+        Needs a pending gate (its ``place_orders`` interrupt). The seed is the run's
+        audited optimizer output at full precision when there is one — that is what
+        approving actually places — and only otherwise the model's own, possibly
+        rounded, ``place_orders`` args. The run repo is imported from its submodule
+        (never the ``fund.audit`` root, which pulls the langgraph bootstrap) so this
+        stays agent-stack-light.
         """
         from fund.audit.repository import AgentRunRepository
 
         try:
             with self._session_factory() as session:
-                run = AgentRunRepository(session).get_run(run_id)
+                repo = AgentRunRepository(session)
+                run = repo.get_run(run_id)
                 interrupt = (
                     observe.interrupt_for(self._persistence.saver, run) if run else None
                 )
+                audited = repo.latest_optimizer_weights(run_id) if interrupt else {}
                 session.rollback()
         except Exception:  # keep the shell alive on a read error
             return {}
+        if audited:
+            return audited
         requests = (interrupt or {}).get("action_requests") or []
         args = (requests[0].get("args") if requests else {}) or {}
         weights = args.get("weights")
