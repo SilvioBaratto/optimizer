@@ -372,9 +372,30 @@ def _apply_resume(
         run_id=rid,
         portfolio_id=pid,
         audit_id=row.id,
-        message=f"run {rid} {_PAST.get(action, action)}",
+        message=_resume_message(session, rid, action),
         detail=result,
     )
+
+
+def _resume_message(session: Session, run_id: uuid.UUID, action: str) -> str:
+    """The status line for a resumed run, honest about an approve that ticketed nothing.
+
+    ``place_orders`` reports a missing fill bar or unknown ticker as a soft failure, so
+    the resume itself succeeds. An approve/edit whose run did not end ``completed``
+    (finalised ``incomplete``, or re-gated and still ``paused``) placed no paper ticket;
+    claiming plain success would hide that from the adviser.
+    """
+    from fund.audit.repository import AgentRunRepository
+
+    past = _PAST.get(action, action)
+    if action in ("approve", "edit"):
+        run = AgentRunRepository(session).get_run(run_id)
+        if run is not None and run.status in ("incomplete", "paused"):
+            return (
+                f"run {run_id} {past}, but no paper ticket was placed "
+                f"(run is {run.status})"
+            )
+    return f"run {run_id} {past}"
 
 
 def _apply_edit(
@@ -462,7 +483,7 @@ def _apply_edit(
         run_id=rid,
         portfolio_id=pid,
         audit_id=row.id,
-        message=f"run {rid} {_PAST['edit']}",
+        message=_resume_message(session, rid, "edit"),
         detail=result,
     )
 

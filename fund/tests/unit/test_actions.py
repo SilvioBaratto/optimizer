@@ -142,6 +142,50 @@ def test_approve_resumes_run_and_logs_audit(paused_env) -> None:
         assert rows[0].suitability_flag is False
 
 
+def _drop_bars_after_asof(env) -> None:
+    """Delete every priced bar past the run's decision bar: no fill bar remains."""
+    from _fund_fakes import ASOF
+    from portopt_db.models.market_data.yfinance_data import PriceHistory
+
+    with env.get_session() as session:
+        session.query(PriceHistory).filter(PriceHistory.date > ASOF).delete()
+        session.commit()
+
+
+@pytest.mark.parametrize("action", ["approve", "edit"])
+def test_approve_without_a_ticket_does_not_report_plain_success(
+    paused_env, action
+) -> None:
+    """A gate resumed while ``place_orders`` finds no fill bar leaves the run
+    incomplete with no ticket; the status line must say so instead of claiming the
+    run was approved, while the human's action is still audited."""
+    env = paused_env
+    _drop_bars_after_asof(env)
+    edited = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
+    extra = {"new_value": edited} if action == "edit" else {}
+
+    with env.get_session() as session:
+        result = apply_action(
+            action,
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+            **extra,
+        )
+        session.commit()
+
+    assert "no paper ticket" in result.message
+    assert "incomplete" in result.message
+    with env.get_session() as session:
+        assert AgentRunRepository(session).get_run(env.run_id).status == "incomplete"
+        assert session.query(PaperOrder).count() == 0
+        assert PositionRepository(session).get_holdings(PORTFOLIO_ID) == []
+        assert len(HumanAuditLogRepository(session).list_recent(action=action)) == 1
+
+
 def test_reject_resumes_run_and_logs_audit(paused_env) -> None:
     """Reject finalises the run rejected (no weights) and logs a reject row."""
     env = paused_env

@@ -521,6 +521,62 @@ def _finalize_hitl(
         audit.finalize_run(run_id, weights={}, status="rejected")
 
 
+def _ticket_placed(
+    session: Any, *, portfolio_id: uuid.UUID, asof: dt.date, weights: dict[str, float]
+) -> bool:
+    """Whether a paper ticket exists for this bar's audited ``weights``.
+
+    Uses the same ``(portfolio_id, asof, weights_hash)`` key ``place_orders`` writes
+    under, so an idempotent re-run that returned the stored ticket counts as placed.
+    """
+    from fund.audit import OrderRepository
+    from fund.tools.orders import _weights_hash
+
+    ticket = OrderRepository(session).get_by_key(
+        portfolio_id=portfolio_id, asof=asof, weights_hash=_weights_hash(weights)
+    )
+    return ticket is not None
+
+
+def _settle_hitl(
+    session: Any,
+    *,
+    run_id: uuid.UUID,
+    portfolio_id: uuid.UUID,
+    asof: dt.date,
+    weights: dict[str, float],
+    decision: str,
+    result: Any,
+) -> None:
+    """Finalise an approve/reject resume, verifying an approve actually ticketed.
+
+    ``place_orders`` reports a missing fill bar or unknown ticker as an ``{ok: false}``
+    envelope instead of raising, so resuming the gate succeeds even when no ticket was
+    written. An approve with no ticket must not stamp the run ``completed`` nor replace
+    the ``positions`` snapshot with weights no order backs: it finalises ``incomplete``
+    (``"place_orders_failed"``), or, when the resumed PM re-gated, is left awaiting the
+    adviser. Reject and a ticketed approve go through :func:`_finalize_hitl`. No commit.
+    """
+    from fund.audit import AgentRunRepository
+
+    if decision == "approve" and not _ticket_placed(
+        session, portfolio_id=portfolio_id, asof=asof, weights=weights
+    ):
+        if _extract_interrupt(result) is None:
+            _finalize_incomplete(
+                AgentRunRepository(session), run_id, "place_orders_failed"
+            )
+        return
+    _finalize_hitl(
+        session,
+        run_id=run_id,
+        portfolio_id=portfolio_id,
+        asof=asof,
+        weights=weights,
+        decision=decision,
+    )
+
+
 _HISTORY_SUMMARY_BUDGET = 800
 _HISTORY_DIGEST_WINDOW_DAYS = 14
 
@@ -667,24 +723,26 @@ class FundRun:
             raise LookupError(f"no agent_run {self.run_id}")
         if run.portfolio_id is None:
             raise ValueError(f"agent_run {self.run_id} has no portfolio_id")
-        _finalize_hitl(
+        _settle_hitl(
             self.session,
             run_id=self.run_id,
             portfolio_id=run.portfolio_id,
             asof=run.asof,
             weights=self.weights,
             decision=decision,
+            result=result,
         )
         return result
 
 
 def _finalize_incomplete(audit: Any, run_id: uuid.UUID, reason: str) -> None:
-    """Finalise a run that never reached the gate — the shared no-ticket end.
+    """Finalise a run that ended without a ticket — the shared no-ticket end.
 
     Records the orchestrator's incomplete decision with ``reason`` (``"round_cap"`` /
-    ``"pm_round_cap"`` / ``"no_order"``) and finalises the run ``incomplete`` with no
-    weights. Shared by the blocking :func:`run_fund` and the streaming
-    :func:`stream_fund` so the two cannot diverge on the no-ticket path. No commit.
+    ``"pm_round_cap"`` / ``"no_order"`` / ``"place_orders_failed"``) and finalises the
+    run ``incomplete`` with no weights. Shared by the blocking :func:`run_fund`, the
+    streaming :func:`stream_fund` and the approve resume so they cannot diverge on the
+    no-ticket path. No commit.
     """
     audit.append_decision(
         run_id,
@@ -1283,13 +1341,14 @@ def resume_fund(
     if decision == "respond":
         _finalize_respond(session, run_id=rid, result=result, pm_directive=pm_directive)
         return result
-    _finalize_hitl(
+    _settle_hitl(
         session,
         run_id=rid,
         portfolio_id=portfolio_id,
         asof=run.asof,
         weights=_optimizer_weights(session, rid),
         decision=decision,
+        result=result,
     )
     return result
 

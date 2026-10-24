@@ -317,6 +317,66 @@ def test_resume_fund_matches_fundrun_resume(db_session) -> None:
     assert order_a[0].weights == order_b[0].weights == expected
 
 
+# --- approve with no fill bar: a failed place_orders is never "completed" -----
+
+
+def _drop_bars_after_asof(db_session) -> None:
+    """Remove every priced bar past ``ASOF`` so ``place_orders`` has no fill bar."""
+    from portopt_db.models.market_data.yfinance_data import PriceHistory
+
+    db_session.query(PriceHistory).filter(PriceHistory.date > ASOF).delete()
+    db_session.flush()
+
+
+def test_resume_fund_approve_without_fill_bar_finalises_incomplete(db_session) -> None:
+    """``place_orders`` reports a missing fill bar as an ``{ok: false}`` envelope
+    (it never raises), so an approve that placed no ticket must not stamp the run
+    ``completed`` nor overwrite ``positions`` with weights no order backs."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    _drop_bars_after_asof(db_session)
+
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    assert _paper_orders(db_session) == []
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "incomplete"
+    assert _positions_map(db_session) == {}
+
+
+def test_fundrun_resume_approve_without_fill_bar_finalises_incomplete(
+    db_session,
+) -> None:
+    """The in-process handle shares the same settle step as the rebuild path."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        db_session,
+        MemorySaver(),
+        _store_with_cs(),
+    )
+    _drop_bars_after_asof(db_session)
+
+    run.resume("approve")
+
+    assert _paper_orders(db_session) == []
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "incomplete"
+    assert _positions_map(db_session) == {}
+
+
 # --- _finalize_hitl unit surface: order_lines enrich the snapshot ------------
 
 
