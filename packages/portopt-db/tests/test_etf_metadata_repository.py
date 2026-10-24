@@ -9,6 +9,8 @@ from __future__ import annotations
 import datetime as dt
 
 import pytest
+from sqlalchemy import event
+from sqlalchemy.exc import IntegrityError
 
 from portopt_db.models.market_data.etf_metadata import (
     ETFAssetClass,
@@ -286,3 +288,51 @@ def test_depth_upserts_accept_camelcase_fallback(db_session) -> None:
     bh = db_session.query(ETFBondHoldings).filter_by(instrument_id=inst.id).one()
     assert float(bh.duration) == 4.0
     assert float(bh.credit_quality) == 2.5
+
+
+def test_failed_upsert_rolls_back_to_a_savepoint_and_spares_the_transaction(
+    db_session,
+) -> None:
+    # The ingestion caller swallows a failed ETF write and still commits the
+    # instrument's other writes from the same transaction. PostgreSQL aborts the
+    # whole transaction on a failed statement, which turns that commit into a
+    # silent rollback unless the write ran inside a SAVEPOINT.
+    repo = ETFMetadataRepository(db_session)
+    inst = _instrument(db_session)
+    repo.upsert_metadata(
+        inst.id,
+        aum=1_000_000_000.0,
+        nav=100.0,
+        fund_family="JPMorgan",
+        legal_type="ETF",
+        expense_ratio=0.001,
+        base_currency="EUR",
+        as_of=_AS_OF,
+    )
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany) -> None:
+        statements.append(statement)
+
+    connection = db_session.get_bind()
+    event.listen(connection, "before_cursor_execute", record)
+    try:
+        with pytest.raises(IntegrityError):
+            repo.upsert_sector_weights(inst.id, _AS_OF, {None: 0.5})  # type: ignore[dict-item]
+    finally:
+        event.remove(connection, "before_cursor_execute", record)
+
+    insert_at = next(
+        i for i, s in enumerate(statements) if s.startswith("INSERT INTO etf_sector")
+    )
+    assert any(s.startswith("SAVEPOINT") for s in statements[:insert_at])
+    assert any(s.startswith("ROLLBACK TO SAVEPOINT") for s in statements[insert_at:])
+
+    repo.upsert_asset_classes(
+        inst.id, _AS_OF, stock_pct=0.0, bond_pct=1.0, cash_pct=0.0, other_pct=0.0
+    )
+    db_session.flush()
+    meta = repo.get_metadata(inst.id)
+    assert meta is not None
+    assert float(meta.aum) == 1_000_000_000.0
+    assert repo.get_asset_classes(inst.id) is not None
