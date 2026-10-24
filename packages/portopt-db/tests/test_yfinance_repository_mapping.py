@@ -289,6 +289,36 @@ class TestEarningsTimeline:
         assert len(rows) == 1
         assert rows[0]["eps_estimate"] == 1.5  # last-wins
 
+    def test_surprise_percent_uses_one_unit_across_history_and_dates(
+        self, repo
+    ) -> None:
+        # Yahoo's earnings_history carries the surprise as a fraction (0.0674)
+        # while the earnings-dates calendar carries percent (6.74) for the same
+        # quarter; both land in a column named surprise_percent.
+        history = pd.DataFrame(
+            {"epsActual": [2.37], "surprisePercent": [0.0674]},
+            index=pd.to_datetime(["2026-06-30"]),
+        )
+        repo.upsert_earnings_history(_IID, history)
+        from_history = _rows(repo)[0]["surprise_percent"]
+
+        dates = pd.DataFrame(
+            {"Reported EPS": [2.37], "Surprise(%)": [6.74]},
+            index=pd.to_datetime(["2026-06-30"]),
+        )
+        repo.upsert_earnings_dates(_IID, dates)
+        from_dates = _rows(repo)[0]["surprise_percent"]
+
+        assert from_history == pytest.approx(6.74)
+        assert from_dates == pytest.approx(6.74)
+
+    def test_earnings_history_missing_surprise_stays_none(self, repo) -> None:
+        history = pd.DataFrame(
+            {"epsActual": [2.37]}, index=pd.to_datetime(["2026-06-30"])
+        )
+        repo.upsert_earnings_history(_IID, history)
+        assert _rows(repo)[0]["surprise_percent"] is None
+
     def test_earnings_dates_dedups_on_calendar_date(self, repo) -> None:
         # Distinct tz datetimes on the same calendar date collapse to one key.
         df = pd.DataFrame(

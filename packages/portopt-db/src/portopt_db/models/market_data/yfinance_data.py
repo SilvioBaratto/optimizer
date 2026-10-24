@@ -432,6 +432,8 @@ class EarningsHistory(BaseModel):
     eps_estimate: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     eps_actual: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     eps_difference: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # Percent (6.74 = 6.74%), the same unit as earnings_dates.surprise_percent;
+    # Yahoo quotes this feed as a fraction and the writer rescales.
     surprise_percent: Mapped[float | None] = mapped_column(
         Numeric(20, 6), nullable=True
     )
@@ -459,6 +461,7 @@ class EarningsDate(BaseModel):
     earnings_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     eps_estimate: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     eps_actual: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # Percent (6.74 = 6.74%), as the earnings-dates calendar quotes it.
     surprise_percent: Mapped[float | None] = mapped_column(
         Numeric(20, 6), nullable=True
     )
