@@ -44,16 +44,20 @@ uv run --package portopt-core ruff check packages/portopt-core/optimizer/ tests/
 uv run --package portopt-core mypy packages/portopt-core/optimizer/
 uv run pyright                                       # scoped via [tool.pyright] include
 
+# Member suites run FROM THE MEMBER DIRECTORY (as CI does). `--package` only picks the
+# dependency set, never the cwd: from the repo root every `pytest` run collects the
+# root `testpaths = ["tests"]`, i.e. the optimizer library suite, whatever `--package` says.
+
 # Shared DB layer (package portopt-db)
-uv run --package portopt-db pytest
+cd packages/portopt-db && uv run pytest
 cd packages/portopt-db && alembic upgrade head      # single migration owner; head: a6f1c8d3e2b7
 
 # Ingestion daemon (package portopt)
-uv run --package portopt pytest
+cd ingestion && uv run pytest tests/
 uv run --package portopt python -m app.worker       # Run the daemon (blocks; SIGTERM to stop)
 
 # Fund bridge (package portopt-fund)
-uv run --package portopt-fund pytest
+cd fund && uv run pytest tests/
 uv run --package portopt-fund python -m fund.worker # Drift-monitor daemon (fund-worker)
 
 # Manual ingestion runs (same job-slot / heartbeat path as scheduler)

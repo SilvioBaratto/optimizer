@@ -336,16 +336,21 @@ uv run --package portopt-core ruff check packages/portopt-core/optimizer/ tests/
 uv run --package portopt-core mypy packages/portopt-core/optimizer/
 uv run pyright                              # scoped to the library via [tool.pyright]
 
-# Ingestion daemon (portopt)
-uv run --package portopt pytest
+# Ingestion daemon (portopt) — member suites run from the member directory
+cd ingestion && uv run pytest tests/
 
 # Shared DB layer (portopt-db)
-uv run --package portopt-db pytest
+cd packages/portopt-db && uv run pytest
 cd packages/portopt-db && alembic upgrade head     # head: c4d5e6f7a8b9
 
 # Fund bridge (portopt-fund)
-uv run --package portopt-fund pytest
+cd fund && uv run pytest tests/
 ```
+
+`--package` only selects the dependency set; it does not change the working
+directory. Run from the repo root, `pytest` always collects the root
+`testpaths = ["tests"]` (the library suite), so a member suite must be started
+from its own directory, exactly as CI does.
 
 The root `Makefile` (`make lint | format | typecheck | test | all`) runs the same
 ruff and mypy gates as the CI `lint`/`typecheck` jobs: ruff over the library,
