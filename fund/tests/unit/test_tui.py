@@ -4793,6 +4793,46 @@ async def test_run_refuses_a_second_stream_while_one_is_in_flight(shell_env) -> 
         assert len(launched) == 2
 
 
+@pytest.mark.asyncio
+async def test_deliberation_live_detail_shows_bracketed_text_verbatim(
+    shell_env,
+) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        detail = view.query_one("#delib-detail", Static)
+        report = "Overweight [NVDA] and [AAPL]; flags [true]"
+        view.ingest_event(_step_event(rid, 0, report))
+        assert report in detail.visual.plain  # tickers must not be eaten as markup
+        stray = "scraped text with [/INST] and [/quote] tokens"
+        view.ingest_event(_step_event(rid, 1, stray))  # must not raise MarkupError
+        assert stray in detail.visual.plain
+
+
+@pytest.mark.asyncio
+async def test_deliberation_replay_detail_shows_bracketed_text_verbatim(
+    shell_env,
+) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        report = "Report: hold [NVDA], see [/quote] and [link=http://x] [null]"
+        entry = observe.TranscriptEntry(
+            source="message",
+            agent="economist",
+            step=None,
+            index=0,
+            text=report,
+            payload=None,
+        )
+        view._read = lambda: ([], [entry])  # type: ignore[method-assign]
+        view.select_step(0)  # repainted on every poll tick, so it must never raise
+        await pilot.pause()
+        assert report in view.query_one("#delib-detail", Static).visual.plain
+
+
 def test_deliberation_binds_follow_live() -> None:
     """``f`` is view-scoped to Deliberation (follow-live), not the global filter."""
     actions = {binding[1] for binding in DeliberationView.BINDINGS}
