@@ -8,7 +8,9 @@ interleaving.  The monotonic clock is mocked for deterministic TTL assertions
 
 from __future__ import annotations
 
+import gc
 import threading
+import weakref
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
@@ -111,6 +113,34 @@ class TestTTL:
         cache.put("k", "v")
         clock.advance(1_000_000.0)
         assert cache.get("k") == "v"
+
+    def test_when_put_after_expiry_then_expired_values_are_released(
+        self, clock: _Clock
+    ) -> None:
+        class Payload:
+            """Weak-referenceable stand-in for a heavyweight cached object."""
+
+        cache = LRUCache(default_ttl=10.0)
+        payload = Payload()
+        released = weakref.ref(payload)
+        cache.put("stale", payload)
+        del payload
+        clock.advance(11.0)
+
+        cache.put("fresh", object())
+        gc.collect()
+
+        assert released() is None
+
+    def test_when_entries_expired_then_size_counts_only_live_entries(
+        self, clock: _Clock
+    ) -> None:
+        cache = LRUCache(default_ttl=10.0)
+        cache.put("a", 1)
+        cache.put("b", 2)
+        clock.advance(11.0)
+
+        assert cache.size() == 0
 
 
 # ---------------------------------------------------------------------------

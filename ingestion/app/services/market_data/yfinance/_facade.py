@@ -40,6 +40,13 @@ if _env_path.exists():
     load_dotenv(_env_path)
 
 
+# Every cached ``yf.Ticker`` memoises what it fetched (profile, statements,
+# holders, scraped article bodies), so the cache size is resident memory. A
+# sweep runs at most 16 workers (``YFINANCE_FETCH_WORKERS``), each on one symbol
+# at a time, so a few hundred entries keep every in-flight symbol warm. Sizing
+# it to the universe instead would pin on the order of a GiB until exit.
+DEFAULT_TICKER_CACHE_SIZE = 256
+
 # Outlasts the longest scheduled exchange closure (Lunar New Year, Golden Week)
 # while another exchange keeps trading; a ticker silent for longer has stopped
 # trading. Calendar time rather than a bar count, so hourly and daily panels
@@ -110,7 +117,7 @@ class YFinanceClient:
     @classmethod
     def get_instance(
         cls,
-        cache_size: int = 3000,
+        cache_size: int = DEFAULT_TICKER_CACHE_SIZE,
         cache_ttl: float = 3600.0,
         rate_limit_delay: float = 0.1,
         default_max_retries: int = 3,
@@ -709,7 +716,7 @@ class YFinanceClient:
 
 
 def get_yfinance_client(
-    cache_size: int = 3000,
+    cache_size: int = DEFAULT_TICKER_CACHE_SIZE,
     cache_ttl: float = 3600.0,
     rate_limit_delay: float = 0.1,
     default_max_retries: int = 3,

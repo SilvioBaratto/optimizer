@@ -68,6 +68,20 @@ class TestGetTicker:
         client.cache.put.assert_called_once_with("AAPL", tk.return_value)
         assert result is tk.return_value
 
+    def test_default_cache_keeps_only_a_sweeps_working_set_resident(self) -> None:
+        """Every cached Ticker memoises what it fetched, so the cache size is RAM."""
+        YFinanceClient.reset_instance()
+        try:
+            client = YFinanceClient.get_instance(rate_limit_delay=0.0)
+            with patch(f"{M}.yf.Ticker"):
+                for n in range(1000):
+                    client.get_ticker(f"SYM{n}")
+
+            # A sweep runs at most 16 workers, each on one symbol at a time.
+            assert client.cache.size() <= 512
+        finally:
+            YFinanceClient.reset_instance()
+
 
 class TestRequestPacing:
     """The per-symbol delay applies to every request, not once per cached Ticker."""
