@@ -58,7 +58,13 @@ def downgrade() -> None:
         type_="unique",
     )
 
-    # Re-add dropped columns
+    # Re-add dropped columns. g7b8c9d0e1f2 re-adds st_rate_forecast too and runs
+    # first on a full step-down, so this one must tolerate the column existing.
+    op.add_column(
+        "economic_indicators",
+        sa.Column("st_rate_forecast", sa.Float(), nullable=True),
+        if_not_exists=True,
+    )
     op.add_column(
         "economic_indicators",
         sa.Column("lt_rate", sa.Float(), nullable=True),

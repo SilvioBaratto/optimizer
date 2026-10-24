@@ -194,60 +194,62 @@ def downgrade() -> None:
         nullable=True,
     )
 
+    # 9-11. The upgrade only touched the macro tables that already existed, and a
+    # database built by the chain has none of them at this revision. An offline
+    # render cannot inspect, so it emits every macro section and a script applied
+    # to a chain-built database fails loudly on the missing table; skipping them
+    # instead would leave a legacy database silently half reverted.
+    macro_tables_present = (
+        {"bond_yields", "economic_indicators", "trading_economics_indicators"}
+        if op.get_context().as_sql
+        else set(sa.inspect(op.get_bind()).get_table_names())
+    )
+
     # 11. Revert reference_date back to VARCHAR(100)
-    op.execute(
-        "ALTER TABLE bond_yields "
-        "ALTER COLUMN reference_date TYPE varchar(100) "
-        "USING CASE "
-        "  WHEN reference_date IS NULL THEN NULL "
-        "  ELSE to_char(reference_date, 'Mon YYYY') "
-        "END"
-    )
-    op.execute(
-        "ALTER TABLE economic_indicators "
-        "ALTER COLUMN reference_date TYPE varchar(100) "
-        "USING CASE "
-        "  WHEN reference_date IS NULL THEN NULL "
-        "  ELSE to_char(reference_date, 'Mon YYYY') "
-        "END"
-    )
+    if "bond_yields" in macro_tables_present:
+        op.execute(
+            "ALTER TABLE bond_yields "
+            "ALTER COLUMN reference_date TYPE varchar(100) "
+            "USING CASE "
+            "  WHEN reference_date IS NULL THEN NULL "
+            "  ELSE to_char(reference_date, 'Mon YYYY') "
+            "END"
+        )
+    if "economic_indicators" in macro_tables_present:
+        op.execute(
+            "ALTER TABLE economic_indicators "
+            "ALTER COLUMN reference_date TYPE varchar(100) "
+            "USING CASE "
+            "  WHEN reference_date IS NULL THEN NULL "
+            "  ELSE to_char(reference_date, 'Mon YYYY') "
+            "END"
+        )
 
     # 10. Restore scraped_at on all 3 macro tables
-    op.add_column(
+    for table in (
         "bond_yields",
-        sa.Column(
-            "scraped_at",
-            postgresql.TIMESTAMP(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-    )
-    op.add_column(
         "trading_economics_indicators",
-        sa.Column(
-            "scraped_at",
-            postgresql.TIMESTAMP(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-    )
-    op.add_column(
         "economic_indicators",
-        sa.Column(
-            "scraped_at",
-            postgresql.TIMESTAMP(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-    )
+    ):
+        if table in macro_tables_present:
+            op.add_column(
+                table,
+                sa.Column(
+                    "scraped_at",
+                    postgresql.TIMESTAMP(timezone=True),
+                    server_default=sa.text("now()"),
+                    nullable=False,
+                ),
+            )
 
     # 9. Drop country indexes on macro tables
-    op.drop_index("ix_bond_yields_country", table_name="bond_yields")
-    op.drop_index(
-        "ix_trading_economics_indicators_country",
-        table_name="trading_economics_indicators",
-    )
-    op.drop_index("ix_economic_indicators_country", table_name="economic_indicators")
+    for table in (
+        "bond_yields",
+        "trading_economics_indicators",
+        "economic_indicators",
+    ):
+        if table in macro_tables_present:
+            op.drop_index(f"ix_{table}_country", table_name=table)
 
     # 8. Revert financial_statements.value to Numeric(30,6)
     op.alter_column(

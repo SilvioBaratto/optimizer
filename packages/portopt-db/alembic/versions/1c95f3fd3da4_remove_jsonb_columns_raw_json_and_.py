@@ -52,5 +52,8 @@ def downgrade() -> None:
         existing_type=sa.Text(),
         type_=postgresql.JSONB(astext_type=sa.Text()),
         existing_nullable=True,
+        # PostgreSQL has no implicit text-to-jsonb cast, and an empty string is
+        # not valid JSON, so map it to NULL instead of aborting the conversion.
+        postgresql_using="NULLIF(related_tickers, '')::jsonb",
     )
     # ### end Alembic commands ###

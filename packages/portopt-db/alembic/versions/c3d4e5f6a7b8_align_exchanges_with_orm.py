@@ -87,6 +87,21 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # The upgrade returns early on a table that already has the ORM shape, as the
+    # initial revision creates it, and that table's unique key on name is the
+    # unnamed one from that revision. Only a legacy conversion creates
+    # uq_exchanges_name, so without it there is nothing to reverse. An offline
+    # render cannot inspect, so it emits the whole legacy reversal and a script
+    # applied to a chain-built database fails loudly on the missing constraint;
+    # skipping it instead would leave a legacy database silently half reverted.
+    if not op.get_context().as_sql:
+        unique_names = {
+            c["name"]
+            for c in sa.inspect(op.get_bind()).get_unique_constraints("exchanges")
+        }
+        if "uq_exchanges_name" not in unique_names:
+            return
+
     # Reverse: restore old column names, constraints, and columns
     op.drop_constraint("uq_exchanges_name", "exchanges", type_="unique")
 
