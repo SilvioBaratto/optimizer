@@ -114,7 +114,7 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
             yield SelectionList[str](
                 *((sector.value, sector.value) for sector in GicsSector), id="q-esg"
             )
-            yield Static("", id="q-error", classes="q-error")
+            yield Static("", id="q-error", classes="q-error", markup=False)
             with Horizontal(classes="q-actions"):
                 yield Button("Submit", variant="primary", id="q-submit")
                 yield Button("Cancel", id="q-cancel")

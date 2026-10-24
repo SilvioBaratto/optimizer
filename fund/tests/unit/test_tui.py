@@ -1555,6 +1555,25 @@ async def test_mandate_remove_directive_drops_it_on_save(shell_env) -> None:
 
 
 @pytest.mark.asyncio
+async def test_mandate_directive_with_bracket_sequences_renders_literally(
+    shell_env,
+) -> None:
+    """A remembered steer typed by the adviser is data, never Textual markup."""
+    directive = "cap energy [max=5%, hard] and never [/] trim"
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"remembered_directives": (directive,)}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        label = view.query_one("#mandate-directives", ListView).query_one(Label)
+        assert str(label.render()) == directive
+
+
+@pytest.mark.asyncio
 async def test_poll_tick_keeps_unsaved_mandate_edits(shell_env) -> None:
     with shell_env.get_session() as session:
         mandate = make_mandate().model_copy(
@@ -6021,6 +6040,48 @@ async def test_status_bar_renders_bracketed_error_text_literally(shell_env) -> N
         app._set_status(message)
         await pilot.pause()
         assert message in _rendered(app.query_one("#status-bar", Static))
+
+
+@pytest.mark.asyncio
+async def test_weights_editor_error_renders_typed_brackets_literally(tui_env) -> None:
+    """A typo echoed back inline (``[/]``) must not be parsed as a closing tag."""
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_edit_decision()
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, OrderEditScreen)
+        screen.query_one("#edit-weights", Input).value = "[/]"
+        screen._submit()
+        await pilot.pause()
+        assert isinstance(app.screen, OrderEditScreen)
+        assert "bad entry '[/]'" in _rendered(screen.query_one("#edit-error", Static))
+
+
+@pytest.mark.asyncio
+async def test_questionnaire_validation_error_renders_literally(shell_env) -> None:
+    """Pydantic's ``[type=..., input_value=...]`` suffix must not reach the markup
+    parser: an out-of-range answer keeps the form open instead of killing the app."""
+    from _profiler_fakes import make_answers
+
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        screen = QuestionnaireScreen(ask_capital=True)
+        app.push_screen(screen)
+        await pilot.pause()
+        _fill_questionnaire(screen, make_answers(), capital="100000")
+        screen.query_one("#q-max-loss", Input).value = "150"
+        screen.query_one("#q-submit", Button).press()
+        await pilot.pause()
+        assert app.is_running
+        assert isinstance(app.screen, QuestionnaireScreen)
+        error = _rendered(screen.query_one("#q-error", Static))
+        assert error.startswith("invalid:")
+        assert "input_value=150" in error
 
 
 @pytest.mark.asyncio

@@ -236,7 +236,7 @@ class OrderEditScreen(ModalScreen["dict[str, float] | None"]):
                 ),
                 id="edit-weights",
             )
-            yield Static("", id="edit-error", classes="edit-error")
+            yield Static("", id="edit-error", classes="edit-error", markup=False)
             with Horizontal(classes="edit-actions"):
                 yield Button("Commit", variant="primary", id="edit-commit")
                 yield Button("Cancel", id="edit-cancel")

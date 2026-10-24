@@ -691,7 +691,7 @@ class MandateView(ShellView):
         listview = self.query_one("#mandate-directives", ListView)
         listview.clear()
         for directive in self._directives:
-            listview.append(ListItem(Label(directive)))
+            listview.append(ListItem(Label(directive, markup=False)))
 
 
 # Latest-run status buckets the roster glyph + the fund strip aggregate by.
