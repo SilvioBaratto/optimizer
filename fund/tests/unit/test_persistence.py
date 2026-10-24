@@ -76,6 +76,8 @@ def test_build_pool_forces_search_path_kwargs(monkeypatch):
     captured: dict = {}
 
     class _FakePool:
+        check_connection = staticmethod(lambda _conn: None)
+
         def __init__(self, **kwargs: object) -> None:
             captured.update(kwargs)
 
@@ -215,3 +217,23 @@ def test_the_checkpointer_still_round_trips_graph_state_messages(monkeypatch):
     state = {"messages": [HumanMessage("hi"), AIMessage("ok")]}
 
     assert serde.loads_typed(serde.dumps_typed(state)) == state
+
+
+def test_build_pool_health_checks_a_connection_before_handing_it_out(monkeypatch):
+    # Without a check the pool returns a socket that died with a Postgres restart,
+    # and the first checkpoint read or write after it raises OperationalError.
+    from psycopg_pool import ConnectionPool
+
+    captured: dict = {}
+
+    class _FakePool:
+        check_connection = staticmethod(ConnectionPool.check_connection)
+
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(persistence, "ConnectionPool", _FakePool)
+
+    persistence.build_pool(FundConfig(database_url="postgresql://u:p@h:54320/db"))
+
+    assert captured["check"] is ConnectionPool.check_connection

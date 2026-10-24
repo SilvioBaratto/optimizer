@@ -125,6 +125,9 @@ def build_pool(config: FundConfig) -> ConnectionPool[Connection[DictRow]]:
         max_size=4,
         open=True,
         kwargs=config.langgraph_pool_kwargs(),
+        # Long-lived daemons outlive Postgres restarts and VM suspends; without a
+        # check the pool hands out the dead socket and the next checkpoint op fails.
+        check=ConnectionPool.check_connection,
     )
     return cast("ConnectionPool[Connection[DictRow]]", pool)
 
