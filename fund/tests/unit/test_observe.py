@@ -993,6 +993,37 @@ def test_metrics_uses_newest_allocator_decision_within_a_run(db_session):
     assert state.metrics == {"sharpe": 1.5}
 
 
+def test_metrics_are_not_carried_over_from_a_superseded_proposal(db_session):
+    # An adviser edit appends an allocator decision with no metrics (the optimizer's
+    # in-sample figures describe the weights it solved, not the edited vector). The
+    # state panel must not show the earlier proposal's metrics beside the edit.
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    audit = AgentRunRepository(db_session)
+    audit.append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"AAA": 0.5}, "metrics": {"sharpe": 0.8}}),
+    )
+    audit.append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"AAA": 1.0}}),
+        hitl_decision={"decision": "edit", "human_override": True},
+    )
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.metrics == {}
+
+
 def test_message_text_stringifies_non_str_non_list_content():
     # Defensive fallback for a message whose content is neither str nor block-list.
     assert observe._message_text(SimpleNamespace(content=None)) == "None"

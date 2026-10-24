@@ -1123,12 +1123,13 @@ def _latest_optimizer_metrics(
     Walks proposals newest run first and newest decision first within a run, aligning
     the metrics source with :meth:`AgentRunRepository.latest_optimizer_weights` (which
     feeds ``target``) so the state panel never shows fresh weights beside a stale
-    run's metrics.
+    run's metrics. That newest proposal is authoritative even when it carries no
+    metrics (an adviser edit does not: the optimizer's in-sample figures describe the
+    weights it solved, not the edited vector), so an older proposal's are never
+    substituted.
     """
     for decision in run_repo.iter_optimizer_decisions(portfolio_id):
-        metrics = _metrics_from_response(decision.llm_response)
-        if metrics:
-            return metrics
+        return _metrics_from_response(decision.llm_response)
     return {}
 
 

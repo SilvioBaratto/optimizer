@@ -40,6 +40,7 @@ from portopt_db.repositories.market_data.market_journal_repository import (
 )
 from sqlalchemy import select
 
+from fund import observe
 from fund import tools as fund_tools
 from fund.agents.skills import SKILLS_BY_AGENT, SKILLS_DIR
 from fund.agents.toolsets import TOOLS_BY_AGENT, RunContext, bind_toolset
@@ -627,6 +628,19 @@ def test_bound_optimize_appends_allocator_decision(db_session) -> None:
     assert "weights" in decision.llm_response
     assert "optimizer_config" in decision.llm_response
     assert decision.llm_response_hash is not None
+
+
+def test_optimize_audit_persists_the_metrics_fund_status_reads(db_session) -> None:
+    _seed_panel(db_session)
+    ctx = _make_context(db_session, store=_store_with_cs(_constraint_set()))
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+
+    result = optimize.invoke({"universe": _UNIVERSE})
+
+    assert result["ok"] is True
+    state = observe.portfolio_state(db_session, _PORTFOLIO_ID)
+    assert state.metrics == pytest.approx(result["data"]["metrics"])
+    assert set(state.metrics) == {"mean", "standard_deviation", "sharpe_ratio"}
 
 
 def test_optimize_applies_and_logs_the_mapped_mifid_config(db_session) -> None:

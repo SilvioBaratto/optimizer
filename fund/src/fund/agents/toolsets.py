@@ -214,13 +214,15 @@ def _append_allocator_decision(
     cs: ConstraintSet | None,
     optimizer_config: dict[str, Any],
     weights: dict[str, float],
+    metrics: dict[str, float],
 ) -> None:
     """Append the allocator's optimize decision: constraint set + the effective
-    (applied) optimizer config + the optimizer's weights (never model-emitted)."""
+    (applied) optimizer config + the optimizer's weights (never model-emitted) and
+    their in-sample metrics."""
     from fund.audit import AgentRunRepository
 
     payload = json.dumps(
-        {"optimizer_config": optimizer_config, "weights": weights},
+        {"optimizer_config": optimizer_config, "weights": weights, "metrics": metrics},
         sort_keys=True,
         default=str,
     )
@@ -362,6 +364,7 @@ def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
             cs,
             _effective_optimizer_config(constraints),
             result["data"]["weights"],
+            result["data"]["metrics"],
         )
     return result
 
