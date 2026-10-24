@@ -84,3 +84,45 @@ def test_when_upgrade_head_is_rendered_offline_then_st_rate_forecast_is_dropped(
         r"ALTER TABLE economic_indicators DROP COLUMN (IF EXISTS )?st_rate_forecast",
         _render_offline(),
     )
+
+
+def _revision_block(sql: str, down: str, up: str) -> str:
+    """Return the statements rendered for the ``down -> up`` revision step."""
+    start = sql.index(f"-- Running upgrade {down} -> {up}")
+    end = sql.find("-- Running upgrade", start + 1)
+    return sql[start : end if end != -1 else len(sql)]
+
+
+def test_when_normalize_models_is_rendered_then_financial_value_is_not_narrowed() -> (
+    None
+):
+    """``financial_statements.value`` must never drop below the width it ends with.
+
+    The next revision widens the column to ``NUMERIC(38, 6)``; narrowing it to
+    ``NUMERIC(20, 6)`` first overflows on any populated table holding a value
+    of 1e14 or more, so the chain stalls on the very first upgrade.
+    """
+    block = _revision_block(_render_offline(), "ecf0a9a2bfdc", "b0b30daa80c5")
+
+    widened = re.search(
+        r"ALTER TABLE financial_statements ALTER COLUMN value TYPE (NUMERIC\(\d+, \d+\))",
+        block,
+    )
+    assert widened is not None
+    assert widened.group(1) == "NUMERIC(38, 6)"
+
+
+def test_when_normalize_models_is_rendered_then_null_start_date_rows_are_deduped_first() -> (
+    None
+):
+    """Duplicate NULL-date rows are removed before they share one sentinel date.
+
+    ``uq_insider_tx_row`` treats NULLs as distinct, so a populated table may
+    hold several NULL-date rows of one insider and type; the sentinel backfill
+    would put them all on the same key.
+    """
+    block = _revision_block(_render_offline(), "ecf0a9a2bfdc", "b0b30daa80c5")
+
+    delete_at = block.index("DELETE FROM insider_transactions")
+    backfill_at = block.index("UPDATE insider_transactions SET start_date")
+    assert delete_at < backfill_at

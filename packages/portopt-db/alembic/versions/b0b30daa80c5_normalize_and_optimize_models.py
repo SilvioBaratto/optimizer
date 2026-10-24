@@ -20,6 +20,30 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _backfill_insider_start_dates() -> None:
+    """Give every NULL ``start_date`` the sentinel date without breaking the key.
+
+    ``uq_insider_tx_row`` treats NULLs as distinct, so a populated table can
+    hold several NULL-date rows of one insider and transaction type; moving them
+    all onto one sentinel date violates the constraint and aborts the upgrade.
+    Only the lowest-id row of each such group survives, and a NULL-date row is
+    dropped when its key already has a row on the sentinel date.
+    """
+    op.execute(
+        "DELETE FROM insider_transactions WHERE start_date IS NULL AND EXISTS ("
+        "SELECT 1 FROM insider_transactions AS kept "
+        "WHERE kept.instrument_id = insider_transactions.instrument_id "
+        "AND kept.insider_name = insider_transactions.insider_name "
+        "AND kept.transaction_type = insider_transactions.transaction_type "
+        "AND (kept.start_date = '1970-01-01' "
+        "OR (kept.start_date IS NULL AND kept.id < insider_transactions.id)))"
+    )
+    op.execute(
+        "UPDATE insider_transactions SET start_date = '1970-01-01' "
+        "WHERE start_date IS NULL"
+    )
+
+
 def upgrade() -> None:
     """Upgrade schema."""
 
@@ -99,13 +123,16 @@ def upgrade() -> None:
         )
 
     # ----------------------------------------------------------------
-    # 8. Change Numeric(30,6) → Numeric(20,6) on financial_statements.value
+    # 8. Change Numeric(30,6) → Numeric(38,6) on financial_statements.value
+    #    6b106e82ce20 widens the column to 38,6 right after this revision, so
+    #    narrowing it to 20,6 here only breaks a populated table holding a
+    #    value of 1e14 or more (numeric field overflow) for no lasting change.
     # ----------------------------------------------------------------
     op.alter_column(
         "financial_statements",
         "value",
         existing_type=sa.NUMERIC(precision=30, scale=6),
-        type_=sa.Numeric(precision=20, scale=6),
+        type_=sa.Numeric(precision=38, scale=6),
         existing_nullable=True,
     )
 
@@ -172,9 +199,7 @@ def upgrade() -> None:
     # 12. Make insider_transactions.start_date NOT NULL
     #     First backfill NULLs with sentinel date 1970-01-01.
     # ----------------------------------------------------------------
-    op.execute(
-        "UPDATE insider_transactions SET start_date = '1970-01-01' WHERE start_date IS NULL"
-    )
+    _backfill_insider_start_dates()
     op.alter_column(
         "insider_transactions",
         "start_date",

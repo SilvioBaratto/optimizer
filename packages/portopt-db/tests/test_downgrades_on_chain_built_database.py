@@ -164,6 +164,70 @@ def test_related_tickers_downgrade_casts_text_back_to_jsonb_explicitly() -> None
 _NORMALIZE_MIGRATION = "b0b30daa80c5_normalize_and_optimize_models.py"
 
 
+def _insider_table(conn: Connection, rows: list[tuple[str, str, str | None]]) -> None:
+    """Create ``insider_transactions`` as it was before the NOT NULL step.
+
+    Each row is ``(id, insider_name, start_date)``; the instrument and the
+    transaction type are fixed so every row shares the rest of the unique key.
+    """
+    conn.execute(
+        text(
+            "CREATE TABLE insider_transactions ("
+            "id TEXT PRIMARY KEY, instrument_id TEXT NOT NULL, "
+            "insider_name TEXT NOT NULL, transaction_type TEXT NOT NULL, "
+            "start_date DATE)"
+        )
+    )
+    for row_id, name, start in rows:
+        conn.execute(
+            text(
+                "INSERT INTO insider_transactions VALUES (:id, 'inst', :n, 'Sale', :d)"
+            ),
+            {"id": row_id, "n": name, "d": start},
+        )
+
+
+def _backfill_start_dates(conn: Connection) -> dict[str, str]:
+    mod = _load(_NORMALIZE_MIGRATION)
+    with Operations.context(MigrationContext.configure(conn)):
+        mod._backfill_insider_start_dates()
+    return dict(
+        conn.execute(text("SELECT id, start_date FROM insider_transactions"))
+        .tuples()
+        .all()
+    )
+
+
+def test_normalize_backfill_keeps_one_of_several_null_date_rows_of_one_key(
+    conn: Connection,
+) -> None:
+    """Rows that would collide on the sentinel date collapse to the lowest id."""
+    _insider_table(conn, [("b", "A", None), ("a", "A", None), ("c", "B", None)])
+
+    assert _backfill_start_dates(conn) == {"a": "1970-01-01", "c": "1970-01-01"}
+
+
+def test_normalize_backfill_leaves_dated_rows_alone_and_drops_a_sentinel_clash(
+    conn: Connection,
+) -> None:
+    """A NULL-date row loses to a row already on the sentinel; dated rows stay."""
+    _insider_table(
+        conn,
+        [
+            ("a", "A", "2024-05-01"),
+            ("b", "A", None),
+            ("c", "B", "1970-01-01"),
+            ("d", "B", None),
+        ],
+    )
+
+    assert _backfill_start_dates(conn) == {
+        "a": "2024-05-01",
+        "b": "1970-01-01",
+        "c": "1970-01-01",
+    }
+
+
 def test_normalize_downgrade_skips_macro_tables_a_chain_built_database_lacks(
     conn: Connection,
 ) -> None:
