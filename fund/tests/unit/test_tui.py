@@ -7625,6 +7625,77 @@ async def test_performance_risk_strip_shows_drawdown_as_loss_and_risk_unsigned(
         assert "max-dd 0.00%" in view.summary_text
 
 
+@pytest.mark.asyncio
+async def test_performance_poll_repaint_keeps_holdings_cursor_and_scroll(
+    shell_env, monkeypatch
+) -> None:
+    """A poll tick must not snap the holdings cursor/viewport back to the first row."""
+    from fund.performance import HoldingMark
+
+    book = [
+        HoldingMark(
+            ticker=f"T{i:02d}",
+            shares=1.0,
+            value=100.0 + i,
+            weight=0.02,
+            return_1d=0.001,
+            return_1m=None,
+            return_1y=None,
+            contribution=0.00002,
+            unrealized_pnl=1.0,
+        )
+        for i in range(60)
+    ]
+    monkeypatch.setattr(observe, "holdings_summary", lambda *_a, **_k: list(book))
+    with shell_env.get_session() as session:
+        _seed_perf(session, _PID_A)
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        table = view.query_one("#perf-holdings", DataTable)
+        assert table.row_count == 60
+        table.focus()
+        # Overshoot and come back so the cursor sits mid-viewport. A cursor parked on
+        # the viewport edge lands on the same offset after clear() + move_cursor()
+        # alone, which would let a lost scroll restore go unnoticed.
+        table.move_cursor(row=55)
+        await pilot.pause()
+        table.move_cursor(row=50)
+        await pilot.pause()
+        scroll_before = table.scroll_y
+        assert scroll_before > 0  # row 50 sits below the fold
+        assert scroll_before + table.size.height > 51  # ...and off the bottom edge
+
+        app._refresh()  # what every poll tick does
+        await pilot.pause()
+        await pilot.pause()
+
+        assert table.row_count == 60
+        assert table.cursor_row == 50
+        assert table.scroll_y == scroll_before
+        await pilot.press("enter")
+        await pilot.pause()
+        assert view.selected_ticker == "T50"
+
+        # A reordered book keeps the cursor on the same holding, in view.
+        book.reverse()
+        app._refresh()
+        await pilot.pause()
+        await pilot.pause()
+        assert table.cursor_row == 9
+        assert table.ordered_rows[table.cursor_row].key.value == "T50"
+        assert table.scroll_y <= table.cursor_row <= table.scroll_y + table.size.height
+
+        # A holding that left the book falls back to the nearest surviving row.
+        del book[9]
+        app._refresh()
+        await pilot.pause()
+        assert table.row_count == 59
+        assert table.cursor_row == 9
+
+
 # --- Posture NAV tile (Phase 08 T3) -----------------------------------------
 
 

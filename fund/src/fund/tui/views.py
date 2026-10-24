@@ -135,7 +135,8 @@ def _keep_cursor(table: DataTable, scope: Hashable = None) -> Generator[None]:
     the top and a following Enter would act on the wrong row. The cursor is re-seated on
     the same row key when that row survives the refill, else on the same index clamped
     to the new row count (rows added without a key get a fresh random key each paint and
-    so take that fallback).
+    so take that fallback). The old viewport is re-applied only while the cursor stays
+    on the same row index; a cursor that moved is scrolled into view instead.
 
     Only a repaint of the *same* dataset is held. ``scope`` identifies the dataset the
     table shows (a filter set, the focused portfolio, the picked run); when it differs
@@ -146,6 +147,7 @@ def _keep_cursor(table: DataTable, scope: Hashable = None) -> Generator[None]:
     held = _PAINTED_SCOPE.get(table, scope) == scope
     _PAINTED_SCOPE[table] = scope
     index = table.cursor_row
+    previous_index = index
     scroll_y = table.scroll_y
     key = (
         table.coordinate_to_cell_key(table.cursor_coordinate).row_key
@@ -157,7 +159,12 @@ def _keep_cursor(table: DataTable, scope: Hashable = None) -> Generator[None]:
         return
     if key is not None and key in table.rows:
         index = table.get_row_index(key)
-    table.move_cursor(row=min(index, table.row_count - 1))
+    index = min(index, table.row_count - 1)
+    table.move_cursor(row=index)
+    if index != previous_index:
+        # The row moved (a reordered book, a row that left): the table scrolls the
+        # cursor into view, and restoring the old viewport would strand it off-screen.
+        return
     # Queued after the cursor move's own scroll-into-view so the previous viewport
     # wins; the virtual height is only settled after the next refresh.
     table.call_after_refresh(table.scroll_to, y=scroll_y, animate=False, force=True)
