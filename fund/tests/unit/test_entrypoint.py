@@ -95,6 +95,18 @@ def test_sigterm_during_the_db_wait_exits_promptly(stubs: Path) -> None:
 
 def test_sigterm_during_the_migrations_stops_them_and_exits(stubs: Path) -> None:
     _executable(stubs / "bin" / "pg_isready", "exit 0")
+    # Alembic answers SIGTERM by rolling back, which takes a moment. The entrypoint
+    # must outlast that: once PID 1 exits, the kernel SIGKILLs the rest of the
+    # namespace mid-rollback. Off stdout so ``communicate`` cannot wait on it instead.
+    _executable(
+        stubs / "bin" / "alembic",
+        "exec >/dev/null 2>&1\n"
+        "trap 'kill $sleeper; sleep 0.5; exit 0' TERM\n"
+        "sleep 30 & sleeper=$!\n"
+        f'echo $$ > "{stubs}/alembic.tmp" && mv "{stubs}/alembic.tmp" '
+        f'"{stubs}/alembic.pid"\n'
+        "wait",
+    )
     proc = _start(stubs)
     _await_output(proc, "Running Alembic")
     pid_file = stubs / "alembic.pid"
