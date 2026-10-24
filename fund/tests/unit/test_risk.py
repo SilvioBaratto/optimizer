@@ -233,6 +233,103 @@ class TestRiskCheck:
 
         assert risk_check(weights) == risk_check(weights)
 
+    def test_drawdown_past_the_hard_ceiling_is_a_violation(self) -> None:
+        result = risk_check(
+            {"AAA": 0.6, "BBB": 0.4},
+            constraints={
+                "nu1": 0.05,
+                "nu2": 0.10,
+                "nu3": 0.20,
+                "observed_drawdown": 0.12,
+            },
+        )
+
+        data = result["data"]
+        assert data["passed"] is False
+        assert any(
+            v["type"] == "drawdown_nu2" and v["limit"] == 0.10
+            for v in data["violations"]
+        )
+
+    def test_drawdown_past_the_absolute_stop_names_the_nu3_tier(self) -> None:
+        result = risk_check(
+            {"AAA": 0.6, "BBB": 0.4},
+            constraints={
+                "nu1": 0.05,
+                "nu2": 0.10,
+                "nu3": 0.20,
+                "observed_drawdown": 0.25,
+            },
+        )
+
+        data = result["data"]
+        assert data["passed"] is False
+        assert any(v["type"] == "drawdown_nu3" for v in data["violations"])
+
+    def test_drawdown_between_soft_and_hard_tier_warns_without_blocking(self) -> None:
+        result = risk_check(
+            {"AAA": 0.6, "BBB": 0.4},
+            constraints={
+                "nu1": 0.05,
+                "nu2": 0.10,
+                "nu3": 0.20,
+                "observed_drawdown": 0.07,
+            },
+        )
+
+        data = result["data"]
+        assert data["passed"] is True
+        assert [w["type"] for w in data["warnings"]] == ["drawdown_nu1"]
+
+    def test_drawdown_inside_every_tier_is_clean(self) -> None:
+        result = risk_check(
+            {"AAA": 0.6, "BBB": 0.4},
+            constraints={
+                "nu1": 0.05,
+                "nu2": 0.10,
+                "nu3": 0.20,
+                "observed_drawdown": 0.02,
+            },
+        )
+
+        data = result["data"]
+        assert data["passed"] is True
+        assert data["warnings"] == []
+
+    def test_non_finite_drawdown_is_blocked_not_silently_passed(self) -> None:
+        result = risk_check(
+            {"AAA": 0.6, "BBB": 0.4},
+            constraints={
+                "nu1": 0.05,
+                "nu2": 0.10,
+                "nu3": 0.20,
+                "observed_drawdown": float("nan"),
+            },
+        )
+
+        data = result["data"]
+        assert data["passed"] is False
+        assert any(v["type"] == "drawdown_unverified" for v in data["violations"])
+
+    def test_weight_on_an_esg_excluded_asset_is_a_violation(self) -> None:
+        result = risk_check(
+            {"AAA": 0.6, "BBB": 0.4}, constraints={"excluded_assets": ["BBB"]}
+        )
+
+        data = result["data"]
+        assert data["passed"] is False
+        assert any(
+            v["type"] == "esg_exclusion" and v["asset"] == "BBB"
+            for v in data["violations"]
+        )
+
+    def test_zero_weight_on_an_esg_excluded_asset_is_allowed(self) -> None:
+        result = risk_check(
+            {"AAA": 1.0, "BBB": 0.0}, constraints={"excluded_assets": ["BBB"]}
+        )
+
+        assert result["data"]["passed"] is True
+
 
 class TestBacktest:
     def test_reports_metrics_full_sample_default(self, db_session) -> None:

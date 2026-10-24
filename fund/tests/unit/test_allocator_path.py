@@ -485,6 +485,30 @@ class TestOptimizePortfolio:
         assert result["ok"] is False
         assert "at least 5 assets" in result["error"]
 
+    def test_cap_exactly_filling_the_budget_is_feasible(self, db_session) -> None:
+        _seed_panel(db_session)
+
+        result = optimize_portfolio(
+            db_session, _ASOF, _UNIVERSE, constraints={"max_weights": 1 / 3}
+        )
+
+        assert result["ok"] is True
+
+    def test_floor_too_high_for_the_universe_is_an_actionable_error(
+        self, db_session
+    ) -> None:
+        # 3 names at a 50% floor need 150% of the budget: infeasible, which the
+        # solver reports only as an opaque failure.
+        _seed_panel(db_session)
+
+        result = optimize_portfolio(
+            db_session, _ASOF, _UNIVERSE, constraints={"min_weights": 0.5}
+        )
+
+        assert result["ok"] is False
+        assert "floor" in result["error"]
+        assert "Solver" not in result["error"]
+
     def test_unknown_constraint_keys_are_ignored(self, db_session) -> None:
         # Unrecognized keys are filtered out, so the result matches the default.
         _seed_panel(db_session)

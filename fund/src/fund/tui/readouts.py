@@ -249,6 +249,11 @@ _HARD = frozenset(
         "unclassified_sector",
         "leveraged_instrument",
         "complex_instrument",
+        # Gate violations from ``risk_check``: a drawdown past the hard ceiling or
+        # absolute stop, or one that could not be measured, blocks the allocation.
+        "drawdown_nu2",
+        "drawdown_nu3",
+        "drawdown_unverified",
     }
 )
 
@@ -277,10 +282,29 @@ def _violation_line(violation: Mapping[str, Any]) -> str:
     if kind == "budget":
         value = _pct2(violation.get("value"))
         return f"budget · {value} vs {_pct2(violation.get('target'))}"
-    asset = str(violation.get("asset", "?"))
+    asset = violation.get("asset")
+    # Drawdown tiers concern the whole portfolio, so there is no asset to name.
+    subject = f"{asset} " if asset is not None else ""
     limit = violation.get("limit")
     tail = f" (limit {_pct2(limit)})" if limit is not None else ""
-    return f"{kind} · {asset} {_pct2(violation.get('value'))}{tail}"
+    return f"{kind} · {subject}{_pct2(violation.get('value'))}{tail}"
+
+
+def _effective_max_weight(constraint_set: Mapping[str, Any]) -> tuple[Any, bool]:
+    """The per-name ceiling the optimizer and gate enforce, and whether the cap set it.
+
+    The tighter of the recorded ``bounds.max_weights`` and the K&E
+    ``max_position_cap``, read off the recorded dump so this stdlib-only module needs
+    no schema import.
+    """
+    recorded = (constraint_set.get("bounds") or {}).get("max_weights")
+    cap = _as_float(
+        (constraint_set.get("universe_filters") or {}).get("max_position_cap")
+    )
+    ceiling = _as_float(recorded)
+    if cap is None or (ceiling is not None and cap >= ceiling):
+        return recorded, False
+    return cap, True
 
 
 def _weights_lines(payload: Mapping[str, Any]) -> list[str]:
@@ -358,6 +382,7 @@ def _constraints_lines(
         return ["objective · unavailable (not recorded)", *applied]
     cs = constraint_set
     bounds = cs.get("bounds") or {}
+    max_weight, capped = _effective_max_weight(cs)
     cardinality = cs.get("cardinality")
     esg = cs.get("esg") or {}
     return [
@@ -370,7 +395,7 @@ def _constraints_lines(
         f" · cardinality {'none' if cardinality is None else cardinality}",
         *applied,
         f"bounds · min {_pct2(bounds.get('min_weights'))}"
-        f" · max {_pct2(bounds.get('max_weights'))}"
+        f" · max {_pct2(max_weight)}{' (K&E cap)' if capped else ''}"
         f" · budget {_pct2(bounds.get('budget'))}",
         f"esg · {len(esg.get('exclusions') or [])} exclusions",
     ]

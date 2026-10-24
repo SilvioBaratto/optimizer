@@ -606,6 +606,89 @@ def test_risk_check_errs_when_no_proposal_was_audited(db_session) -> None:
     assert "optimize_portfolio" in result["error"]
 
 
+def test_risk_check_blocks_a_drawdown_past_the_hard_ceiling(db_session) -> None:
+    _seed_panel(db_session)
+    cs = _constraint_set(nu1=0.0001, nu2=0.0002, nu3=1.0)
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    _audit_proposal(ctx, _WEIGHTS)
+    risk = _find(bind_toolset("risk", ctx), "risk_check")
+
+    result = risk.invoke({})
+
+    assert result["ok"] is True
+    assert result["data"]["passed"] is False
+    assert [v["type"] for v in result["data"]["violations"]] == ["drawdown_nu2"]
+    assert AgentRunRepository(db_session).risk_passed(ctx.run_id, _WEIGHTS) is False
+
+
+def test_risk_check_blocks_a_drawdown_past_the_absolute_stop(db_session) -> None:
+    _seed_panel(db_session)
+    cs = _constraint_set(nu1=0.0001, nu2=0.0002, nu3=0.0003)
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    _audit_proposal(ctx, _WEIGHTS)
+    risk = _find(bind_toolset("risk", ctx), "risk_check")
+
+    result = risk.invoke({})
+
+    assert result["data"]["passed"] is False
+    assert [v["type"] for v in result["data"]["violations"]] == ["drawdown_nu3"]
+
+
+def test_risk_check_only_warns_past_the_soft_drawdown_tier(db_session) -> None:
+    _seed_panel(db_session)
+    cs = _constraint_set(nu1=0.0001, nu2=0.9, nu3=1.0)
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    _audit_proposal(ctx, _WEIGHTS)
+    risk = _find(bind_toolset("risk", ctx), "risk_check")
+
+    result = risk.invoke({})
+
+    assert result["data"]["passed"] is True
+    assert [w["type"] for w in result["data"]["warnings"]] == ["drawdown_nu1"]
+
+
+def test_risk_check_passes_a_drawdown_inside_every_tier(db_session) -> None:
+    _seed_panel(db_session)
+    cs = _constraint_set(nu1=0.5, nu2=0.6, nu3=0.9)
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    _audit_proposal(ctx, _WEIGHTS)
+    risk = _find(bind_toolset("risk", ctx), "risk_check")
+
+    result = risk.invoke({})
+
+    assert result["data"]["passed"] is True
+    assert result["data"]["warnings"] == []
+
+
+def test_risk_check_flags_an_unverifiable_drawdown_without_blocking(
+    db_session,
+) -> None:
+    # No prices seeded: the backtest cannot run, so the tier comparison is skipped
+    # and the report says so instead of implying the drawdown was checked.
+    ctx = _make_context(db_session, store=_store_with_cs(_constraint_set()))
+    _audit_proposal(ctx, _WEIGHTS)
+    risk = _find(bind_toolset("risk", ctx), "risk_check")
+
+    result = risk.invoke({})
+
+    assert result["data"]["passed"] is True
+    assert [w["type"] for w in result["data"]["warnings"]] == ["drawdown_unverified"]
+
+
+def test_check_weights_against_mandate_applies_the_drawdown_tiers(db_session) -> None:
+    """The adviser's edit is held to the same ceilings as the optimizer's proposal."""
+    from fund.agents.toolsets import check_weights_against_mandate
+
+    _seed_panel(db_session)
+    cs = _constraint_set(nu1=0.0001, nu2=0.0002, nu3=1.0)
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+
+    result = check_weights_against_mandate(ctx, _WEIGHTS)
+
+    assert result["data"]["passed"] is False
+    assert [v["type"] for v in result["data"]["violations"]] == ["drawdown_nu2"]
+
+
 def test_bound_backtest_returns_metrics(db_session) -> None:
     _seed_panel(db_session)
     ctx = _make_context(db_session)

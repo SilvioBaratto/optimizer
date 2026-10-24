@@ -17,7 +17,8 @@ Contract (via ``tool_envelope``):
 * no priced assets, or too few common return observations (see
   ``MIN_RETURN_OBSERVATIONS``), ⇒ ``{ok: false, error}``;
 * a ``max_weights`` cap too tight for the number of priced assets to reach the
-  budget ⇒ ``{ok: false, error}`` naming the minimum asset count;
+  budget, or a ``min_weights`` floor too high for them to fit in it,
+  ⇒ ``{ok: false, error}`` naming the shortfall;
 * a bad ``constraints`` value is caught by the envelope and returned as
   ``{ok: false}``, never raised.
 """
@@ -161,18 +162,29 @@ def _clean_weights(weights: np.ndarray, config: MeanRiskConfig) -> np.ndarray:
     return cleaned
 
 
-def _infeasible_cap_error(config: MeanRiskConfig, n_assets: int) -> str | None:
-    """Explain a per-asset cap that cannot sum to the budget, else ``None``."""
-    cap, budget = config.max_weights, config.budget
-    if cap is None or budget is None or cap <= 0.0:
+def _infeasible_bounds_error(config: MeanRiskConfig, n_assets: int) -> str | None:
+    """Explain scalar weight bounds the priced assets cannot satisfy, else ``None``.
+
+    A per-asset cap below ``budget / n_assets`` or a floor above it leaves the QP
+    with no feasible point, which the solver reports only as an opaque failure the
+    allocator cannot act on.
+    """
+    cap, floor, budget = config.max_weights, config.min_weights, config.budget
+    if budget is None:
         return None
-    if cap * n_assets >= budget - _BUDGET_TOL:
-        return None
-    needed = math.ceil(budget / cap - _BUDGET_TOL)
-    return (
-        f"max_weights {cap:g} cannot reach budget {budget:g} with {n_assets} priced "
-        f"assets; widen the universe to at least {needed} assets"
-    )
+    if cap is not None and cap > 0.0 and cap * n_assets < budget - _BUDGET_TOL:
+        needed = math.ceil(budget / cap - _BUDGET_TOL)
+        return (
+            f"max_weights {cap:g} cannot reach budget {budget:g} with {n_assets} "
+            f"priced assets; widen the universe to at least {needed} assets"
+        )
+    if isinstance(floor, int | float) and floor * n_assets > budget + _BUDGET_TOL:
+        return (
+            f"min_weights {floor:g} floor needs {floor * n_assets:g} of budget "
+            f"{budget:g} across {n_assets} priced assets; narrow the universe or "
+            "lower the floor"
+        )
+    return None
 
 
 @tool_envelope
@@ -205,7 +217,7 @@ def optimize_portfolio(
         ``assets``, ``n_observations``, ``missing`` and ``risk_aversion`` (the
         coefficient the solver ran with, after rescaling to the risk measure).
         ``err`` on an empty universe, no priced assets, too little history, or a
-        weight cap too tight for the priced assets to reach the budget.
+        weight cap or floor the priced assets cannot satisfy.
     """
     if not universe:
         return err("empty universe")
@@ -219,7 +231,7 @@ def optimize_portfolio(
         return err("insufficient price history to optimize")
 
     config = _resolve_config(constraints)
-    infeasible = _infeasible_cap_error(config, frame.shape[1])
+    infeasible = _infeasible_bounds_error(config, frame.shape[1])
     if infeasible is not None:
         return err(infeasible)
 

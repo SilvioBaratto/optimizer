@@ -21,9 +21,9 @@ The bound fund toolsets enforce the first three in code instead: ``esg`` exclusi
 and the ``universe_filters`` instrument restrictions are screened
 (``fund.tools.mandate``), ``universe_filters.max_position_cap`` tightens
 ``bounds.max_weights``, and ``backtest`` compares its drawdown with the ``nu``
-ceilings. ``risk_check`` does not evaluate ``nu``. ``beta`` **is** mapped onto
-``cvar_beta`` / ``cdar_beta`` so a CVaR/CDaR profile honours the client's chosen
-tail confidence (D34).
+ceilings, and ``risk_check`` blocks past ``nu2`` / ``nu3`` (``nu1`` only warns).
+``beta`` **is** mapped onto ``cvar_beta`` / ``cdar_beta`` so a CVaR/CDaR profile
+honours the client's chosen tail confidence (D34).
 """
 
 from __future__ import annotations
@@ -99,7 +99,8 @@ class ConstraintSet(BaseModel):
     one (CVaR, CDaR, max drawdown). ``beta`` is the tail-measure confidence used
     by CVaR/CDaR. ``nu1/nu2/nu3`` are escalating drawdown-ceiling tiers as fractions
     of capital (soft warning / hard ceiling / absolute stop); ``backtest`` compares
-    its ``max_drawdown`` with all three and reports the breached tiers.
+    its ``max_drawdown`` with all three and reports the breached tiers, and
+    ``risk_check`` blocks on the same comparison past ``nu2`` / ``nu3``.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -112,7 +113,7 @@ class ConstraintSet(BaseModel):
     beta: float = Field(default=0.95, gt=0.0, lt=1.0)  # tail confidence (CVaR/CDaR)
     nu1: float = Field(ge=0.0, le=1.0)  # drawdown ceiling tiers (fractions of
     nu2: float = Field(ge=0.0, le=1.0)  # capital) — mapped to nothing here;
-    nu3: float = Field(ge=0.0, le=1.0)  # compared by the ``backtest`` tool
+    nu3: float = Field(ge=0.0, le=1.0)  # compared by ``backtest``/``risk_check``
     horizon: Horizon
     esg: EsgPolicy = EsgPolicy()
     universe_filters: UniverseFilters = UniverseFilters()
@@ -123,6 +124,25 @@ class ConstraintSet(BaseModel):
     l1_coef: float = Field(default=0.0, ge=0.0)
     l2_coef: float = Field(default=0.0, ge=0.0)
     risk_free_rate: float | None = None  # None → 0.0 at map time
+
+    def effective_bounds(self) -> Bounds:
+        """Weight bounds with the K&E per-position cap folded in.
+
+        A low-knowledge client carries a hard ``universe_filters.max_position_cap``
+        that must bind the optimizer and the risk gate like any other weight
+        ceiling. The tighter of the explicit ``bounds.max_weights`` and the cap
+        wins, so a cap can never loosen an explicit bound. Derived on read rather
+        than baked into ``bounds`` so profiles already persisted without the cap
+        are enforced too.
+
+        Returns:
+            ``bounds`` itself when no cap tightens it, else a copy whose
+            ``max_weights`` is the cap.
+        """
+        cap = self.universe_filters.max_position_cap
+        if cap is None or cap >= self.bounds.max_weights:
+            return self.bounds
+        return self.bounds.model_copy(update={"max_weights": cap})
 
     def to_mean_risk_config(self) -> MeanRiskConfig:
         """Map this constraint set onto a ``MeanRiskConfig``.
@@ -143,13 +163,14 @@ class ConstraintSet(BaseModel):
             RiskMeasureType,
         )
 
+        bounds = self.effective_bounds()
         return MeanRiskConfig(
             objective=ObjectiveFunctionType(_OBJECTIVE_MAP[self.objective]),
             risk_measure=RiskMeasureType(_RISK_MEASURE_MAP[self.risk_measure]),
             risk_aversion=self.a_gamma,
-            min_weights=self.bounds.min_weights,
-            max_weights=self.bounds.max_weights,
-            budget=self.bounds.budget,
+            min_weights=bounds.min_weights,
+            max_weights=bounds.max_weights,
+            budget=bounds.budget,
             cardinality=self.cardinality,
             cvar_beta=self.beta,
             cdar_beta=self.beta,

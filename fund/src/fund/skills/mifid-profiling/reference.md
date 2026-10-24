@@ -16,7 +16,7 @@ are `todo/deep_agent.md` line refs (`file:line`), preserved from the roadmap.
 | Horizon | `objectives.horizon` | `horizon` (passthrough) | `11:175`, `30:24` |
 | Objective | `objectives.goal` | `objective` (passthrough) | `15:80`, `17:89` |
 | Knowledge & experience (low) | `knowledge.level` | `universe_filters` (no_complex, no_leverage, cap) | `06:41`, `06:274` |
-| ESG | `esg.exclusions` | `esg` (**hard gate**, exclusions-only, D16) | fund-scope |
+| ESG | `esg.exclusions` | `esg` (**hard gate**, exclusions-only, D16): `universe_filter` drops the sectors' names and `risk_check` blocks any weight on them | fund-scope |
 
 ## Appetite → aversion (correctness-critical inversion)
 
@@ -61,11 +61,19 @@ The more protective the reaction, the deeper the downside the profile controls.
 | `informed` | false | false | — |
 | `advanced` | false | false | — |
 
-## Drawdown tiers (`nu1/nu2/nu3`, emitted here — compared by `backtest`)
+The cap is not advisory: it tightens `bounds.max_weights` (the tighter of the two
+wins), so it binds the optimizer and the `risk_check` ceiling alike. A cap of `c`
+needs at least `ceil(1 / c)` priced names; a smaller universe is reported as
+infeasible by `optimize_portfolio` rather than as an opaque solver failure.
+
+## Drawdown tiers (`nu1/nu2/nu3`, emitted here, gated by `risk_check`)
 
 Anchored on the stated one-year loss tolerance `L = capacity.max_1yr_loss_pct`:
 `nu1 = 0.5·L` (soft warning), `nu2 = L` (hard ceiling), `nu3 = min(1.5·L, 1.0)`
-(absolute stop). See `20:75`.
+(absolute stop). See `20:75`. `risk_check` compares them with the max drawdown of
+a backtest of the proposed weights: past `nu3` or `nu2` blocks, past `nu1` only
+adds a warning. When the backtest cannot run (too little history) the tiers are
+skipped and the report carries a `drawdown_unverified` warning.
 
 ## Hard rules the mapping enforces (never the LLM)
 

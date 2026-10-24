@@ -151,6 +151,26 @@ def test_none_knowledge_is_at_least_as_strict_as_basic() -> None:
     assert none_cap <= basic_cap
 
 
+@pytest.mark.parametrize(
+    ("level", "cap"), [(KnowledgeLevel.NONE, 0.05), (KnowledgeLevel.BASIC, 0.10)]
+)
+def test_low_knowledge_position_cap_binds_the_optimizer_weight_bound(
+    level: KnowledgeLevel, cap: float
+) -> None:
+    cs = build_constraint_set(_answers(knowledge=level), portfolio_id="pf-1")
+
+    assert cs.to_mean_risk_config().max_weights == pytest.approx(cap)
+    assert cs.effective_bounds().max_weights == pytest.approx(cap)
+
+
+@pytest.mark.parametrize("level", [KnowledgeLevel.INFORMED, KnowledgeLevel.ADVANCED])
+def test_high_knowledge_keeps_the_default_weight_bound(level: KnowledgeLevel) -> None:
+    cs = build_constraint_set(_answers(knowledge=level), portfolio_id="pf-1")
+
+    assert cs.to_mean_risk_config().max_weights == 1.0
+    assert cs.effective_bounds() == cs.bounds
+
+
 def test_ke_filters_total_over_every_knowledge_level() -> None:
     # Every KnowledgeLevel is a key — no member falls through to a KeyError.
     for level in KnowledgeLevel:

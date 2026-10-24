@@ -5,9 +5,13 @@ through:
 
 * ``risk_check`` validates a weight vector against a ConstraintSet placeholder
   (``min_weights`` / ``max_weights`` / ``budget`` — the same keys ``optimize``
-  honours, SPEC D17). It is pure arithmetic on the weights: no DB, no RNG. In-norm
-  weights return ``passed=True`` with an empty ``violations`` list; every breach
-  adds a structured entry and flips ``passed`` to ``False``.
+  honours, SPEC D17) plus the MiFID guardrails a profile carries: the ESG
+  ``excluded_assets`` hard block and the ``nu1``/``nu2``/``nu3`` drawdown tiers
+  compared with an ``observed_drawdown`` the caller measured. It is pure
+  arithmetic on its inputs: no DB, no RNG. In-norm weights return ``passed=True``
+  with an empty ``violations`` list; every breach adds a structured entry and
+  flips ``passed`` to ``False`` (the ``nu1`` soft tier only adds a ``warnings``
+  entry).
 * ``backtest`` holds the given weights fixed and scores them on the walk-forward
   test blocks from ``optimizer.validation`` (``shuffle=False`` — each test block
   strictly follows its training block). The weights are never re-estimated per
@@ -81,13 +85,20 @@ def risk_check(
     Args:
         weights: ``{ticker: weight}`` to validate.
         constraints: Optional overrides for ``min_weights`` / ``max_weights`` /
-            ``budget``; defaults to long-only, fully invested (D17).
+            ``budget``; defaults to long-only, fully invested (D17). Also honours
+            ``excluded_assets`` (tickers barred by the client's ESG block) and the
+            drawdown tiers ``nu1`` / ``nu2`` / ``nu3`` with the
+            ``observed_drawdown`` (a positive fraction of capital) to compare
+            against them; the drawdown check runs only when ``observed_drawdown``
+            is supplied.
 
     Returns:
-        ``ok`` with ``passed`` (``True`` iff no breach) and ``violations`` (a list
-        of structured breach records — ``min_weight`` / ``max_weight`` per asset,
-        or a single ``budget`` entry). ``err`` on empty ``weights``; a
-        non-numeric bound is caught by the envelope and returned as ``{ok: false}``.
+        ``ok`` with ``passed`` (``True`` iff no breach), ``violations`` (a list
+        of structured breach records — ``min_weight`` / ``max_weight`` /
+        ``esg_exclusion`` per asset, a ``drawdown_nu2`` / ``drawdown_nu3`` tier
+        breach, or a single ``budget`` entry) and ``warnings`` (the non-blocking
+        ``drawdown_nu1`` soft tier). ``err`` on empty ``weights``; a non-numeric
+        bound is caught by the envelope and returned as ``{ok: false}``.
     """
     if not weights:
         return err("empty weights")
@@ -118,7 +129,46 @@ def risk_check(
     if abs(total - budget) > _BUDGET_TOL:
         violations.append({"type": "budget", "value": total, "target": budget})
 
-    return ok({"passed": not violations, "violations": violations})
+    for asset in bounds.get("excluded_assets") or ():
+        held = weights.get(asset)
+        if held is not None and float(held) > _WEIGHT_TOL:
+            violations.append(
+                {"type": "esg_exclusion", "asset": asset, "value": float(held)}
+            )
+
+    warnings: list[dict[str, Any]] = []
+    observed = bounds.get("observed_drawdown")
+    if observed is not None:
+        _check_drawdown(float(observed), bounds, violations, warnings)
+
+    return ok(
+        {"passed": not violations, "violations": violations, "warnings": warnings}
+    )
+
+
+def _check_drawdown(
+    observed: float,
+    bounds: dict[str, Any],
+    violations: list[dict[str, Any]],
+    warnings: list[dict[str, Any]],
+) -> None:
+    """Compare an observed drawdown with the ``nu1/nu2/nu3`` tiers, in place.
+
+    The most severe breached tier is the one reported: past ``nu3`` the absolute
+    stop, past ``nu2`` the hard ceiling (both block), past ``nu1`` only a soft
+    warning. A non-finite measurement blocks, since every comparison against NaN
+    is ``False`` and would otherwise wave the allocation through.
+    """
+    if not math.isfinite(observed):
+        violations.append({"type": "drawdown_unverified", "value": observed})
+        return
+    for tier, blocking in (("nu3", True), ("nu2", True), ("nu1", False)):
+        limit = bounds.get(tier)
+        if limit is None or observed <= float(limit):
+            continue
+        record = {"type": f"drawdown_{tier}", "value": observed, "limit": float(limit)}
+        (violations if blocking else warnings).append(record)
+        return
 
 
 def _resolve_window(window: dict[str, Any] | None) -> WalkForwardConfig:

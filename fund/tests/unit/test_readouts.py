@@ -159,3 +159,45 @@ def test_violation_lines_do_not_print_value_and_limit_identically():
         "max_weight · AAA 10.04% (limit 10.00%)",
         "budget · 99.96% vs 100.00%",
     )
+
+
+@pytest.mark.parametrize(
+    "kind", ["drawdown_nu2", "drawdown_nu3", "drawdown_unverified"]
+)
+def test_risk_verdict_reads_a_blocking_drawdown_violation_as_a_breach(kind):
+    """A drawdown the gate blocks on must never render as a green ``ok``."""
+    verdict = risk_verdict([{"type": kind, "value": 0.3}])
+
+    assert verdict.tier == "breach"
+    assert verdict.label == "breach"
+
+
+def test_violation_line_for_a_portfolio_wide_violation_names_no_asset():
+    """Drawdown tiers concern the whole portfolio, so no ``?`` replaces an asset."""
+    verdict = risk_verdict([{"type": "drawdown_nu2", "value": 0.35, "limit": 0.2}])
+
+    assert verdict.lines == ("drawdown_nu2 · 35.00% (limit 20.00%)",)
+
+
+def test_constraints_readout_shows_the_cap_bound_the_optimizer_enforces():
+    """The recorded raw ``max_weights`` of 100% is not what binds a 5%-cap client."""
+    constraint_set = _bounds_constraint_set(universe_filters={"max_position_cap": 0.05})
+    text = render_readout(
+        "allocator",
+        "optimize_portfolio",
+        {"constraint_set": constraint_set, "weights": {"AAA": 1.0}},
+    )
+    assert text is not None
+    assert "max 5.00% (K&E cap)" in text
+    assert "max 100.00%" not in text
+
+
+def test_constraints_readout_without_a_cap_keeps_the_recorded_max():
+    text = render_readout(
+        "allocator",
+        "optimize_portfolio",
+        {"constraint_set": _bounds_constraint_set(), "weights": {"AAA": 1.0}},
+    )
+    assert text is not None
+    assert "max 100.00%" in text
+    assert "K&E cap" not in text

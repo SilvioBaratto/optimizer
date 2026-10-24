@@ -25,7 +25,9 @@ The bound closures also carry the load-bearing invariant into the audit trail:
   ``risk_check`` fails a held one, and ``place_orders`` re-checks the audited
   weights against the *current* mandate before a ticket exists. Screening fails
   closed on an instrument it cannot classify. ``backtest`` compares its drawdown
-  to the client's ``nu1/nu2/nu3`` ceilings and reports the breached tiers;
+  to the client's ``nu1/nu2/nu3`` ceilings and reports the breached tiers, and
+  ``risk_check`` blocks on the same comparison past ``nu2`` / ``nu3`` (``nu1`` only
+  warns);
 * ``optimize_portfolio`` appends an ``agent_decision`` (allocator: the constraint
   set + the *effective* optimizer config actually applied + the optimizer's
   weights); ``risk_check`` appends the risk verdict on those weights; the PM-level
@@ -174,18 +176,13 @@ def _resolve_constraint_set(ctx: RunContext) -> ConstraintSet | None:
     return resolve_constraint_set(ctx.store, ref)
 
 
-def _effective_max_weight(cs: ConstraintSet) -> float:
-    """Per-asset weight ceiling: the bound, tightened by the K&E position cap."""
-    cap = cs.universe_filters.max_position_cap
-    return cs.bounds.max_weights if cap is None else min(cs.bounds.max_weights, cap)
-
-
 def _bounds_args(cs: ConstraintSet) -> dict[str, Any]:
     """Long-only bounds enforced by ``risk_check`` (position cap included)."""
+    bounds = cs.effective_bounds()
     return {
-        "min_weights": cs.bounds.min_weights,
-        "max_weights": _effective_max_weight(cs),
-        "budget": cs.bounds.budget,
+        "min_weights": bounds.min_weights,
+        "max_weights": bounds.max_weights,
+        "budget": bounds.budget,
     }
 
 
@@ -198,9 +195,7 @@ def _optimizer_constraints(cs: ConstraintSet) -> dict[str, Any]:
     from fund.tools._base import PERIODS_PER_YEAR
     from fund.tools.optimize import _CONSTRAINT_FIELDS
 
-    config = dataclasses.replace(
-        cs.to_mean_risk_config(), max_weights=_effective_max_weight(cs)
-    )
+    config = cs.to_mean_risk_config()
     if config.risk_free_rate:
         daily = (1.0 + config.risk_free_rate) ** (1.0 / PERIODS_PER_YEAR) - 1.0
         config = dataclasses.replace(config, risk_free_rate=daily)
@@ -460,16 +455,37 @@ def _risk_gate_summary(ctx: RunContext, weights: dict[str, float]) -> dict[str, 
 @_serialised
 def _check_weights_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
     cs = _resolve_constraint_set(ctx)
-    constraints = _bounds_args(cs) if cs is not None else None
+    if cs is None:
+        return _tools.risk_check(weights)
+    constraints = _bounds_args(cs)
+    # The drawdown tiers are judged on the backtest of exactly these weights, so a
+    # human edit is held to the same ceilings as the optimizer's proposal.
+    backtested = _backtest_weights(ctx, cs, weights)
+    if backtested.get("ok"):
+        constraints.update(
+            nu1=cs.nu1,
+            nu2=cs.nu2,
+            nu3=cs.nu3,
+            observed_drawdown=backtested["data"]["full_sample_max_drawdown"],
+        )
     result = _tools.risk_check(weights, constraints=constraints)
-    if cs is None or not result.get("ok"):
+    if not result.get("ok"):
         return result
+    data = result["data"]
+    if not backtested.get("ok"):
+        # Too little history to measure a drawdown: say so rather than implying the
+        # tiers were checked and found clean.
+        data["warnings"].append(
+            {"type": "drawdown_unverified", "reason": backtested.get("error")}
+        )
     breaches = _instrument_breaches(ctx, cs, held_tickers(weights))
-    if not breaches:
-        return result
-    return ok(
-        {"passed": False, "violations": [*result["data"]["violations"], *breaches]}
-    )
+    if breaches:
+        data = {
+            **data,
+            "passed": False,
+            "violations": [*data["violations"], *breaches],
+        }
+    return ok(data)
 
 
 @tool_envelope
@@ -522,12 +538,10 @@ def check_weights_against_mandate(
     return _check_weights_impl(ctx, weights)
 
 
-@tool_envelope
-@_serialised
-def _backtest_impl(ctx: RunContext) -> ToolResult:
-    weights = _audited_weights(ctx)
-    if not weights:
-        return err(_NO_PROPOSAL)
+def _backtest_weights(
+    ctx: RunContext, cs: ConstraintSet | None, weights: dict[str, float]
+) -> ToolResult:
+    """Backtest ``weights`` and, given a mandate, annotate the ``nu`` drawdown tiers."""
     # Bound the walk-forward training block to the run's 3y rolling lookback
     # (the one frozen tool that accepts a window). A panel shorter than the window
     # falls back to the full sample inside ``backtest``. The weights come from
@@ -535,7 +549,6 @@ def _backtest_impl(ctx: RunContext) -> ToolResult:
     # block is inside their estimation sample: ``fit_end`` makes the result report
     # in-sample instead of passing the optimizer's own fit off as validation.
     # Without a stored constraint set the gate's own default applies: fully invested.
-    cs = _resolve_constraint_set(ctx)
     budget = cs.bounds.budget if cs is not None else 1.0
     result = _tools.backtest(
         ctx.session,
@@ -567,6 +580,15 @@ def _backtest_impl(ctx: RunContext) -> ToolResult:
 
 @tool_envelope
 @_serialised
+def _backtest_impl(ctx: RunContext) -> ToolResult:
+    weights = _audited_weights(ctx)
+    if not weights:
+        return err(_NO_PROPOSAL)
+    return _backtest_weights(ctx, _resolve_constraint_set(ctx), weights)
+
+
+@tool_envelope
+@_serialised
 def _place_orders_impl(ctx: RunContext) -> ToolResult:
     # Load-bearing invariant: skfolio computes the weights, never the LLM. The paper
     # ticket is placed from the allocator's audited ``optimize_portfolio`` output,
@@ -589,7 +611,7 @@ def _place_orders_impl(ctx: RunContext) -> ToolResult:
     if cs is not None and audited:
         # The mandate can change between the audited proposal and the order (a
         # re-profile), so the weights are re-checked against the current one.
-        cap = _effective_max_weight(cs)
+        cap = cs.effective_bounds().max_weights
         violations = _instrument_breaches(ctx, cs, held_tickers(audited)) + [
             {"type": "max_weight", "asset": ticker, "value": weight, "limit": cap}
             for ticker, weight in audited.items()
