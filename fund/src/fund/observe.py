@@ -49,8 +49,9 @@ logger = logging.getLogger(__name__)
 _INTERRUPT_CHANNEL = "__interrupt__"
 
 # ``agent_runs.status`` values at a live HITL gate — the same pair
-# ``AgentRunRepository.list_paused_runs`` selects, so the drift monitor's
-# already-awaiting-a-human guard covers exactly the runs a proposal may come from.
+# ``AgentRunRepository.list_paused_runs`` selects (a barge-in that re-gated the PM
+# leaves the run "responded", still in the Approve queue). Shared by the drift
+# monitor's already-awaiting-a-human guard and the history panel's awaiting flag.
 _LIVE_GATE_STATUSES = ("paused", "responded")
 
 
@@ -264,9 +265,11 @@ def list_portfolio_runs(
 ) -> list[RunSummary]:
     """Runs for a portfolio, newest first, as :class:`RunSummary` rows.
 
-    ``awaiting_hitl`` here is the plain ``status == "paused"`` flag (the history
-    panel); the HITL queue uses :func:`pending_hitl`, which additionally checks the
-    checkpoint for a live interrupt.
+    ``awaiting_hitl`` here is the plain status flag (the history panel): ``True`` for
+    ``"paused"`` and ``"responded"`` rows, the same gate statuses
+    ``AgentRunRepository.list_paused_runs`` returns. The HITL queue uses
+    :func:`pending_hitl`, which additionally checks the checkpoint for a live
+    interrupt.
 
     ``limit`` caps the rows read; callers that only need the latest run (the poll
     path's status badges) pass ``1`` so a long history is not loaded every tick.
@@ -277,7 +280,10 @@ def list_portfolio_runs(
     runs = AgentRunRepository(session).list_runs_for_portfolio(
         portfolio_id, limit=limit
     )
-    return [_run_summary(run, awaiting_hitl=run.status == "paused") for run in runs]
+    return [
+        _run_summary(run, awaiting_hitl=run.status in _LIVE_GATE_STATUSES)
+        for run in runs
+    ]
 
 
 def pending_hitl(

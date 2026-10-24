@@ -341,6 +341,32 @@ def test_list_portfolio_runs_limit_keeps_only_the_newest(db_session):
     assert [s.run_id for s in summaries] == [newest.id]
 
 
+def test_list_portfolio_runs_flags_responded_run_as_awaiting_hitl(db_session):
+    # A barge-in ``respond`` that re-gated the PM leaves the run "responded": it is
+    # still in the Approve queue (``list_paused_runs``), so the history flag agrees.
+    responded = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="responded",
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="rejected",
+        created_at=datetime(2026, 1, 10, tzinfo=UTC),
+    )
+
+    summaries = observe.list_portfolio_runs(db_session, _PID)
+
+    by_id = {s.run_id: s for s in summaries}
+    assert by_id[responded.id].awaiting_hitl is True
+    assert [r.id for r in AgentRunRepository(db_session).list_paused_runs(_PID)] == [
+        responded.id
+    ]
+    assert [s.awaiting_hitl for s in summaries] == [True, False]
+
+
 def test_list_portfolio_runs_empty_for_unknown_portfolio(db_session):
     assert observe.list_portfolio_runs(db_session, uuid.uuid4()) == []
 
