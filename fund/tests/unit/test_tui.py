@@ -17,6 +17,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 import uuid
 from contextlib import contextmanager, suppress
 from datetime import date, timedelta
@@ -889,6 +891,263 @@ async def test_decisions_killswitch_without_selection_shows_no_confirm(tui_env) 
         assert not isinstance(app.screen, ScopePickScreen)
         assert app.last_worker is None
         assert "select a paused" in app.last_status
+
+
+async def _wait_until(pilot, predicate, *, timeout: float = 5.0) -> None:
+    """Pump the app until ``predicate()`` holds (a worker thread's side effect)."""
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        assert time.monotonic() < deadline, "condition not reached in time"
+        await pilot.pause(0.02)
+
+
+# Every worker that mutates a gate or re-arms autonomy, keyed by a readable id, each
+# dispatched exactly as the app's keybindings, pickers and Ask routing do. ``freeze`` is
+# deliberately absent: the emergency stop is never refused (see the freeze tests below).
+_GATE_ACTIONS = {
+    "approve": lambda app, env: app._action_worker(env.run_id, PORTFOLIO_ID, "approve"),
+    "reject": lambda app, env: app._action_worker(env.run_id, PORTFOLIO_ID, "reject"),
+    "killswitch": lambda app, env: app._action_worker(
+        env.run_id, PORTFOLIO_ID, "killswitch"
+    ),
+    "edit": lambda app, env: app._edit_worker(env.run_id, PORTFOLIO_ID, {"AAA": 1.0}),
+    "steer": lambda app, env: app._barge_in_worker(
+        env.run_id, PORTFOLIO_ID, "trim AAA", False
+    ),
+    "rearm": lambda app, env: app._rearm_worker("portfolio", PORTFOLIO_ID, None),
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("second", sorted(_GATE_ACTIONS))
+async def test_gate_action_is_refused_while_an_approve_is_in_flight(
+    tui_env, monkeypatch, second
+) -> None:
+    # Resuming a gate takes seconds (graph resume + an LLM turn). A repeat or
+    # conflicting keypress in that window used to start a second thread on the same
+    # run, because Textual's ``exclusive`` only flags the older Worker cancelled.
+    import fund.actions as actions_mod
+
+    entered, release = threading.Event(), threading.Event()
+    calls: list[str] = []
+
+    def _slow_apply(decision, **_kwargs):
+        calls.append(decision)
+        entered.set()
+        release.wait(timeout=1.5)  # bounded so a regression fails instead of hanging
+        return SimpleNamespace(message=f"{decision} done")
+
+    monkeypatch.setattr(actions_mod, "apply_action", _slow_apply)
+
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        first = app.last_worker
+        await _wait_until(pilot, entered.is_set)
+
+        _GATE_ACTIONS[second](app, tui_env)
+        await pilot.pause(0.5)  # long enough for a second thread to start if allowed
+
+        assert calls == ["approve"]
+        assert "in progress" in app.last_status
+
+        release.set()
+        await first.wait()
+        await pilot.pause()
+        assert app.last_status == "approve done"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["portfolio", "fund"])
+async def test_freeze_is_not_refused_while_a_gate_action_is_stuck_in_flight(
+    tui_env, monkeypatch, scope
+) -> None:
+    # The freeze is the adviser's emergency stop. A hung graph resume (an LLM turn that
+    # never returns) must not leave every freeze refused until the TUI restarts.
+    import fund.actions as actions_mod
+
+    entered, release = threading.Event(), threading.Event()
+    calls: list[tuple[str, str | None]] = []
+
+    def _apply(decision, **kwargs):
+        calls.append((decision, kwargs.get("scope")))
+        if decision == "approve":
+            entered.set()
+            release.wait(timeout=5)  # bounded so a regression fails instead of hanging
+        return SimpleNamespace(message=f"{decision} done")
+
+    monkeypatch.setattr(actions_mod, "apply_action", _apply)
+
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        stuck = app.last_worker
+        await _wait_until(pilot, entered.is_set)
+
+        freeze = app._freeze_worker(scope, PORTFOLIO_ID)
+        await freeze.wait()  # lands while the approve is still blocked
+        await pilot.pause()
+
+        assert ("freeze", scope) in calls
+        assert not release.is_set()
+        assert app.last_status == "freeze done"
+
+        release.set()
+        await stuck.wait()
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_a_stuck_freeze_does_not_strand_later_gate_actions(
+    tui_env, monkeypatch
+) -> None:
+    # The exemption is one-way: a freeze never takes the single-flight lock, so a
+    # freeze stuck on a slow DB cannot refuse the approve/reject gate either.
+    import fund.actions as actions_mod
+
+    entered, release = threading.Event(), threading.Event()
+    calls: list[str] = []
+
+    def _apply(decision, **_kwargs):
+        calls.append(decision)
+        if decision == "freeze":
+            entered.set()
+            release.wait(timeout=5)
+        return SimpleNamespace(message=f"{decision} done")
+
+    monkeypatch.setattr(actions_mod, "apply_action", _apply)
+
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        stuck = app._freeze_worker("fund", None)
+        await _wait_until(pilot, entered.is_set)
+
+        app.action_decide_approve()
+        approve = app.last_worker
+        await approve.wait()
+        await pilot.pause()
+
+        assert calls == ["freeze", "approve"]
+        assert "in progress" not in app.last_status
+
+        release.set()
+        await stuck.wait()
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_gate_action_shows_a_working_status_while_it_runs(
+    tui_env, monkeypatch
+) -> None:
+    import fund.actions as actions_mod
+
+    entered, release = threading.Event(), threading.Event()
+
+    def _slow_apply(decision, **_kwargs):
+        entered.set()
+        release.wait(timeout=1.5)
+        return SimpleNamespace(message=f"{decision} done")
+
+    monkeypatch.setattr(actions_mod, "apply_action", _slow_apply)
+
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        first = app.last_worker
+        await _wait_until(pilot, entered.is_set)
+
+        assert "resolving" in app.last_status  # no silent seconds-long wait
+
+        release.set()
+        await first.wait()
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_gate_action_runs_once_the_previous_one_has_finished(
+    tui_env, monkeypatch
+) -> None:
+    import fund.actions as actions_mod
+
+    calls: list[str] = []
+
+    def _apply(decision, **_kwargs):
+        calls.append(decision)
+        if len(calls) == 1:
+            raise RuntimeError("resume exploded")  # a failure must free the latch too
+        return SimpleNamespace(message=f"{decision} done")
+
+    monkeypatch.setattr(actions_mod, "apply_action", _apply)
+
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert "action failed" in app.last_status
+
+        app.action_decide_reject()
+        await app.last_worker.wait()
+        await pilot.pause()
+
+        assert calls == ["approve", "reject"]
+        assert app.last_status == "reject done"
+
+
+@pytest.mark.asyncio
+async def test_reject_pressed_mid_approve_does_not_resume_the_run_twice(
+    tui_env, monkeypatch
+) -> None:
+    # End to end through the real action path: approve then reject on one gate must
+    # leave a completed run and a single audit row, never a filled ticket on a run
+    # recorded as rejected.
+    import fund.agents.graph as graph_mod
+
+    real_resume = graph_mod.resume_run
+    entered = threading.Event()
+    resumed: list[str] = []
+
+    def _slow_resume(run_id, decision, **kwargs):
+        resumed.append(decision)
+        entered.set()
+        time.sleep(0.6)  # stands in for the PM's post-approval LLM turn
+        return real_resume(run_id, decision, **kwargs)
+
+    monkeypatch.setattr(graph_mod, "resume_run", _slow_resume)
+
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        await _wait_until(pilot, entered.is_set)
+
+        app.action_decide_reject()
+        await _wait_until(pilot, lambda: "approved" in app.last_status, timeout=15)
+        await pilot.pause(0.3)
+
+        assert resumed == ["approve"]
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "completed"
+        log = HumanAuditLogRepository(session)
+        assert len(log.list_recent(action="approve")) == 1
+        assert log.list_recent(action="reject") == []
 
 
 def test_format_decision_gate_renders_why_from_description_else_fallback() -> None:

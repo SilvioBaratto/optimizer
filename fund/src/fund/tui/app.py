@@ -27,10 +27,11 @@ over SQLite + ``MemorySaver`` + a scripted model with zero network.
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import threading
 import uuid
 from contextlib import suppress
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Concatenate, ParamSpec
 
 from textual import work
 from textual.app import App, ComposeResult
@@ -434,6 +435,54 @@ class HelpScreen(ModalScreen[None]):
 
 _NARROW_WIDTH = 80  # below this terminal width the sidebar collapses to a rail
 
+_P = ParamSpec("_P")
+
+
+def _single_flight(
+    label: str,
+) -> Callable[
+    [Callable[Concatenate[ShellApp, _P], None]],
+    Callable[Concatenate[ShellApp, _P], None],
+]:
+    """Run a gate-mutating thread worker only while no other one is in flight.
+
+    Textual's ``exclusive=True`` merely flags the *older* ``Worker`` cancelled; its
+    thread keeps running. Without this guard a repeat or conflicting keypress during
+    the seconds a graph resume takes starts a second thread on the same paused run, so
+    approve + reject both execute and whichever commits last decides the run's final
+    state. A non-blocking lock refuses the late action with a status line rather than
+    queueing a decision made against a stale screen, and it is released on every exit
+    path, failures included. The portfolio / fund freeze is deliberately not guarded:
+    see :meth:`ShellApp._freeze_worker`.
+
+    Args:
+        label: Present-tense phrase shown on the status line while the action runs.
+
+    Returns:
+        A decorator for a ``ShellApp`` worker body, applied beneath ``@work``.
+    """
+
+    def decorate(
+        body: Callable[Concatenate[ShellApp, _P], None],
+    ) -> Callable[Concatenate[ShellApp, _P], None]:
+        @functools.wraps(body)
+        def guarded(self: ShellApp, *args: _P.args, **kwargs: _P.kwargs) -> None:
+            if not self._action_lock.acquire(blocking=False):
+                self.call_from_thread(
+                    self._set_status,
+                    "another action is still in progress — wait for it to finish",
+                )
+                return
+            try:
+                self.call_from_thread(self._set_status, f"{label}…")
+                body(self, *args, **kwargs)
+            finally:
+                self._action_lock.release()
+
+        return guarded
+
+    return decorate
+
 
 class ShellApp(App[None]):
     """Mission-control shell: a sidebar of six views over one ContentSwitcher.
@@ -570,6 +619,8 @@ class ShellApp(App[None]):
         # is never left cleared (which would hang the worker).
         self._stream_resume = threading.Event()
         self._stream_resume.set()
+        # Serialises the gate-mutating workers (see ``_single_flight``).
+        self._action_lock = threading.Lock()
         # Notification bus (poll-diff): attention keys already alerted, so a
         # still-pending gate/breach never re-toasts on the next tick.
         self._seen_attention: set[tuple[str, uuid.UUID]] = set()
@@ -1087,7 +1138,8 @@ class ShellApp(App[None]):
             return {}
         return {str(ticker): float(weight) for ticker, weight in weights.items()}
 
-    @work(thread=True, exclusive=True, group="action")
+    @work(thread=True, group="action")
+    @_single_flight("resolving gate")
     def _action_worker(
         self, run_id: uuid.UUID, portfolio_id: uuid.UUID | None, decision: str
     ) -> None:
@@ -1124,7 +1176,8 @@ class ShellApp(App[None]):
             return
         self.call_from_thread(self._after_action, result.message)
 
-    @work(thread=True, exclusive=True, group="action")
+    @work(thread=True, group="action")
+    @_single_flight("committing edit")
     def _edit_worker(
         self,
         run_id: uuid.UUID,
@@ -1164,16 +1217,27 @@ class ShellApp(App[None]):
             return
         self.call_from_thread(self._after_action, result.message)
 
-    @work(thread=True, exclusive=True, group="action")
+    @work(thread=True, group="action")
     def _freeze_worker(self, scope: str, portfolio_id: uuid.UUID | None) -> None:
         """Freeze autonomy at ``portfolio`` / ``fund`` scope — off the event loop.
 
         Dispatches ``apply_action("freeze", scope=…)``: the autonomy row flips FROZEN
         and every live run in scope is rejected (DB-level). A ``fund`` freeze ignores
         ``portfolio_id`` (the single fund row). Any failure surfaces as a status line.
+
+        Deliberately outside :func:`_single_flight`: the freeze is the adviser's
+        emergency stop, so it is never refused behind an in-flight approve / edit /
+        steer — a graph resume that hangs would otherwise leave every freeze refused
+        until the TUI restarts. It is safe to run alongside one because a freeze never
+        resumes the graph, the hazard the lock exists for (the run-scope killswitch does
+        resume it, via :meth:`_action_worker`, and stays guarded). It cannot cancel a
+        resume that is already running, and an approve in flight may still finalise a
+        run the freeze just rejected; the FROZEN autonomy row is what keeps further
+        runs halted.
         """
         from fund.actions import apply_action
 
+        self.call_from_thread(self._set_status, "freezing autonomy…")
         try:
             with self._session_factory() as session:
                 result = apply_action(
@@ -1190,7 +1254,8 @@ class ShellApp(App[None]):
             return
         self.call_from_thread(self._after_action, result.message)
 
-    @work(thread=True, exclusive=True, group="action")
+    @work(thread=True, group="action")
+    @_single_flight("re-arming autonomy")
     def _rearm_worker(
         self, scope: str, portfolio_id: uuid.UUID | None, rationale: str | None
     ) -> None:
@@ -1716,7 +1781,8 @@ class ShellApp(App[None]):
             self.call_from_thread(view.end_live)
         self.call_from_thread(self._exit_live_runstate)
 
-    @work(thread=True, exclusive=True, group="action")
+    @work(thread=True, group="action")
+    @_single_flight("steering the PM")
     def _barge_in_worker(
         self,
         run_id: uuid.UUID,
