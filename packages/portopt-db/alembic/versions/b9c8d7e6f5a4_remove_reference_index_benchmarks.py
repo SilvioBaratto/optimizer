@@ -54,6 +54,9 @@ _MIGRATION_SEEDED = (
     ("EFA", "US4642874659"),
     ("EEM", "US4642872349"),
     ("AGG", "US4642872265"),
+    ("VGK", "US9220428745"),
+    # Mistyped code the expanded seed carried before c8d0bb63d826 corrected it;
+    # a database that ran that seed still holds rows under it.
     ("VGK", "US9220427671"),
     ("VWO", "US9220428588"),
     ("TLT", "US4642874329"),

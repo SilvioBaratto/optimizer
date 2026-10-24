@@ -60,7 +60,7 @@ INDICES: tuple[tuple[str, str, str, str, str, str], ...] = (
         "NYSE",
         "AGG",
     ),
-    ("VGK", "VGK", "Vanguard FTSE Europe ETF", "US9220427671", "NYSE", "VGK"),
+    ("VGK", "VGK", "Vanguard FTSE Europe ETF", "US9220428745", "NYSE", "VGK"),
     ("VWO", "VWO", "Vanguard FTSE Emerging Markets ETF", "US9220428588", "NYSE", "VWO"),
     ("TLT", "TLT", "iShares 20+ Year Treasury Bond ETF", "US4642874329", "NYSE", "TLT"),
     ("GLD", "GLD", "SPDR Gold Shares", "US78463V1070", "NYSE", "GLD"),

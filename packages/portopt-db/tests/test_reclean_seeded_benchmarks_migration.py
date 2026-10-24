@@ -122,9 +122,12 @@ def test_catalogue_is_exactly_what_the_seed_revisions_insert() -> None:
         (ticker, isin) for ticker, _s, _n, isin, _e, _y in expanded.INDICES
     }
     original = _load("b9c8d7e6f5a4_remove_reference_index_benchmarks.py", "original")
+    # The VGK code the seed carried before it was corrected stays matched, for
+    # databases that ran the earlier seed.
+    legacy = {("VGK", "US9220427671")}
 
-    assert set(_migration()._MIGRATION_SEEDED) == seeded
-    assert set(original._MIGRATION_SEEDED) == seeded
+    assert set(_migration()._MIGRATION_SEEDED) == seeded | legacy
+    assert set(original._MIGRATION_SEEDED) == seeded | legacy
 
 
 def test_upgrade_removes_seed_rows_left_by_installs_that_ran_the_old_cleanup(
