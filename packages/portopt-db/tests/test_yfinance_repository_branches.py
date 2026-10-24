@@ -2672,6 +2672,106 @@ class TestUpsertEstimateCurrencyPersistence:
         assert self._stored(db_session, inst.id).currency == "USD"
 
 
+class TestUpsertEarningsDatesDropsMovedProjection:
+    """Yahoo lists an upcoming report as an estimate-only row and moves the date
+    when the company confirms it. The old projected date must not linger beside
+    the new one, or "next earnings date" resolves to a day that never happens."""
+
+    @staticmethod
+    def _today() -> date:
+        return datetime.now(timezone.utc).date()
+
+    @staticmethod
+    def _frame(*rows: tuple[date, float | None]) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "EPS Estimate": [2.97 for _ in rows],
+                "Reported EPS": [actual for _, actual in rows],
+                "Surprise(%)": [float("nan") for _ in rows],
+            },
+            index=pd.to_datetime([d.isoformat() for d, _ in rows]),
+        )
+
+    @staticmethod
+    def _stored_dates(db_session: Session, instrument_id: uuid.UUID) -> set[date]:
+        db_session.expire_all()
+        return {
+            r.earnings_date
+            for r in db_session.query(EarningsDate).filter_by(
+                instrument_id=instrument_id
+            )
+        }
+
+    def _seed(self, db_session: Session, name: str) -> Instrument:
+        ex = _exchange(db_session, name=name)
+        return _instrument(db_session, ex, ticker=name, yfinance_ticker=name)
+
+    def test_rescheduled_report_replaces_the_old_projected_date(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed(db_session, "EDMove1")
+        repo = _repo(db_session)
+        projected = self._today() + timedelta(days=7)
+        confirmed = self._today() + timedelta(days=12)
+        repo.upsert_earnings_dates(inst.id, self._frame((projected, None)))
+
+        repo.upsert_earnings_dates(inst.id, self._frame((confirmed, None)))
+
+        assert self._stored_dates(db_session, inst.id) == {confirmed}
+
+    def test_reported_history_absent_from_a_later_frame_is_kept(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed(db_session, "EDMove2")
+        repo = _repo(db_session)
+        reported = self._today() - timedelta(days=90)
+        upcoming = self._today() + timedelta(days=10)
+        repo.upsert_earnings_dates(
+            inst.id, self._frame((reported, 2.5), (upcoming, None))
+        )
+
+        repo.upsert_earnings_dates(inst.id, self._frame((upcoming, None)))
+
+        assert self._stored_dates(db_session, inst.id) == {reported, upcoming}
+
+    def test_projected_date_still_listed_is_kept(self, db_session: Session) -> None:
+        inst = self._seed(db_session, "EDMove3")
+        repo = _repo(db_session)
+        upcoming = self._today() + timedelta(days=10)
+        repo.upsert_earnings_dates(inst.id, self._frame((upcoming, None)))
+
+        repo.upsert_earnings_dates(inst.id, self._frame((upcoming, None)))
+
+        assert self._stored_dates(db_session, inst.id) == {upcoming}
+
+    def test_empty_frame_leaves_stored_projection_alone(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed(db_session, "EDMove4")
+        repo = _repo(db_session)
+        upcoming = self._today() + timedelta(days=10)
+        repo.upsert_earnings_dates(inst.id, self._frame((upcoming, None)))
+
+        repo.upsert_earnings_dates(inst.id, self._frame())
+
+        assert self._stored_dates(db_session, inst.id) == {upcoming}
+
+    def test_other_instruments_projections_are_untouched(
+        self, db_session: Session
+    ) -> None:
+        mine = self._seed(db_session, "EDMove5")
+        other = self._seed(db_session, "EDMove6")
+        repo = _repo(db_session)
+        upcoming = self._today() + timedelta(days=10)
+        repo.upsert_earnings_dates(other.id, self._frame((upcoming, None)))
+
+        repo.upsert_earnings_dates(
+            mine.id, self._frame((self._today() + timedelta(days=20), None))
+        )
+
+        assert self._stored_dates(db_session, other.id) == {upcoming}
+
+
 # ---------------------------------------------------------------------------
 # upsert_news — all format/branch variants (mocked _upsert)
 # ---------------------------------------------------------------------------

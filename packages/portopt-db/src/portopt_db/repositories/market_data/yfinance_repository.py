@@ -9,7 +9,7 @@ from typing import Any, cast
 from uuid import UUID
 
 import pandas as pd
-from sqlalchemy import and_, exists, func, select
+from sqlalchemy import and_, delete, exists, func, select
 from sqlalchemy.orm import Session, aliased, joinedload
 
 from portopt_db.models.market_data.yfinance_data import (
@@ -798,7 +798,10 @@ class YFinanceRepository(RepositoryBase):
     def upsert_earnings_dates(self, instrument_id: UUID, df: pd.DataFrame) -> int:
         """Upsert past/upcoming earnings dates (index = tz-aware datetimes).
 
-        Column labels vary across yfinance versions; read defensively.
+        Column labels vary across yfinance versions; read defensively. A stored
+        upcoming date with no reported EPS that the frame no longer lists is
+        deleted: Yahoo moved the report, and keeping both dates would make the
+        stale one read as the next earnings date.
         """
 
         def _col(row: Any, *names: str) -> Any:
@@ -822,11 +825,25 @@ class YFinanceRepository(RepositoryBase):
                 ),
             }
         rows = list(by_date.values())
-        return self._upsert(
+        written = self._upsert(
             EarningsDate,
             rows,
             constraint_name="uq_earnings_date_instrument_date",
         )
+        if rows:
+            # An empty frame says nothing about the upcoming date, so only a
+            # populated one may retire a stored projection, and only after the
+            # new dates are in.
+            with self.session.begin_nested():
+                self.session.execute(
+                    delete(EarningsDate).where(
+                        EarningsDate.instrument_id == instrument_id,
+                        EarningsDate.eps_actual.is_(None),
+                        EarningsDate.earnings_date >= datetime.now(timezone.utc).date(),
+                        EarningsDate.earnings_date.not_in(list(by_date)),
+                    )
+                )
+        return written
 
     def upsert_analyst_actions(self, instrument_id: UUID, df: pd.DataFrame) -> int:
         """Upsert analyst upgrade/downgrade actions (index = grade dates)."""
