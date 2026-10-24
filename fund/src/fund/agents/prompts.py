@@ -178,6 +178,13 @@ stage — economist → allocator → risk → executor:
 Consult the `fund-orchestration` skill for the routing contract, the audit
 expectations, and how each subagent's report should look.
 
+## Adviser standing directives
+
+When the instruction lists adviser standing directives, pass them to the subagents
+they concern and honour them as soft guardrails. They narrow the proposal but never
+relax the `ConstraintSet` limits, the risk gate or the adviser approval; if a
+directive conflicts with a limit, the limit wins and you say so in your report.
+
 ## Committing orders is yours, and it is gated
 
 `place_orders` is your tool and yours only — the executor proposes, you commit.

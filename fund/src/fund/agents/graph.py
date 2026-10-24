@@ -703,6 +703,23 @@ def _history_summary(
     return summary
 
 
+def _directives_block(mandate: PortfolioMandate) -> str:
+    """Render the adviser's remembered directives, or ``""`` when there are none.
+
+    Each directive is collapsed onto a single bullet line so free text cannot pose
+    as a separate instruction to the PM.
+    """
+    if not mandate.remembered_directives:
+        return ""
+    one_line = (" ".join(d.split()) for d in mandate.remembered_directives)
+    bullets = "\n".join(f"- {directive}" for directive in one_line)
+    return (
+        "Adviser standing directives (soft guardrails from earlier rounds; they "
+        "never relax the ConstraintSet limits, the risk gate or the adviser "
+        f"approval):\n{bullets}\n\n"
+    )
+
+
 def _run_instruction(
     mandate: PortfolioMandate,
     portfolio_id: str,
@@ -714,22 +731,14 @@ def _run_instruction(
     When ``history_summary`` is non-empty it is prepended as a context block so
     the PM sees the portfolio's recent allocation/trades and the latest market
     digest before deciding; an empty summary (first run) yields the bare seed.
-    The mandate's ``remembered_directives`` follow as a bulleted block, so a steer the
-    adviser persisted reaches every later round as a soft guardrail.
+    The mandate's ``remembered_directives`` follow as one bullet each: the adviser
+    saved them to steer every later round, including unattended scheduled ones.
     """
     benchmark = f", benchmark {mandate.benchmark}" if mandate.benchmark else ""
     history = f"{history_summary}\n\n" if history_summary else ""
-    directives = ""
-    if mandate.remembered_directives:
-        listed = "\n".join(f"- {text}" for text in mandate.remembered_directives)
-        directives = (
-            "Standing adviser directives (remembered from earlier rounds; they steer "
-            "the allocation but never override the hard constraints or the risk "
-            f"gate):\n{listed}\n\n"
-        )
     return (
-        f"{history}{directives}Produce an allocation for portfolio {portfolio_id} "
-        f"as of {asof.isoformat()}. Mandate: capital {mandate.capital} "
+        f"{history}{_directives_block(mandate)}Produce an allocation for portfolio "
+        f"{portfolio_id} as of {asof.isoformat()}. Mandate: capital {mandate.capital} "
         f"{mandate.base_currency}{benchmark}. No-trade band (L1 drift threshold): "
         f"{mandate.drift_l1_threshold}. Delegate in order economist -> "
         f"allocator -> risk -> executor, then commit the risk-approved trades "

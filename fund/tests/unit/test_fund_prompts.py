@@ -78,6 +78,12 @@ def test_pm_prompt_marks_risk_as_a_blocking_gate():
     assert "gate" in lower
 
 
+def test_pm_prompt_explains_how_to_treat_standing_directives():
+    lower = " ".join(PM_SYSTEM_PROMPT.lower().split())
+    assert "standing directives" in lower
+    assert "never relax" in lower
+
+
 def test_pm_prompt_respects_the_round_cap():
     lower = PM_SYSTEM_PROMPT.lower()
     assert "round" in lower

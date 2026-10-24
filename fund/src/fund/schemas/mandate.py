@@ -38,8 +38,8 @@ class PortfolioMandate(BaseModel):
     ``base_currency`` is an ISO-4217 alpha code. ``hitl_gates`` lists the tool names
     gated behind a human approval and defaults to the single ``place_orders`` gate.
     ``remembered_directives`` carries free-text co-pilot steers the adviser chose to
-    persist across rounds; the mandate JSON is their source of truth (no scalar
-    mirror, no migration).
+    persist across rounds; every run renders them into the PM's instruction, and the
+    mandate JSON is their source of truth (no scalar mirror, no migration).
     """
 
     model_config = ConfigDict(frozen=True)
