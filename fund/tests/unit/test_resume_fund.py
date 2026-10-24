@@ -772,6 +772,183 @@ def test_fundrun_resume_refuses_a_run_that_is_not_at_a_gate(db_session) -> None:
     assert _paper_orders(db_session) == []
 
 
+# --- a run that already left its gate cannot be resumed again ---------------------
+
+# Every terminal status a run reaches without an adviser resuming it: the checkpoint
+# of such a run is left standing at (or just past) the gate.
+_FINALISED_STATUSES = ("completed", "rejected", "incomplete", "blocked", "failed")
+
+
+@pytest.mark.parametrize("decision", ["approve", "reject", "respond"])
+@pytest.mark.parametrize("status", _FINALISED_STATUSES)
+def test_resume_fund_refuses_a_run_that_is_already_finalised(
+    db_session, status, decision
+) -> None:
+    """A freeze rejects live gates at the DB without resolving their checkpoints, and a
+    stale observer can race a concurrent approve. A blind ``Command(resume=...)`` on
+    such a run would re-drive ``place_orders`` against a halted run."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    row.status = status
+    db_session.flush()
+    model = ScriptedFundModel(universe=UNIVERSE, weights=expected)
+
+    with pytest.raises(ValueError, match="already finalised"):
+        resume_fund(
+            run.run_id,
+            decision,
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=model,
+            pm_directive="rebalance more slowly",
+        )
+
+    assert model.generate_calls == 0
+    assert _paper_orders(db_session) == []
+    assert _positions_map(db_session) == {}
+    assert row.status == status
+
+
+@pytest.mark.parametrize("status", _FINALISED_STATUSES)
+def test_fundrun_resume_refuses_a_run_that_is_already_finalised(
+    db_session, status
+) -> None:
+    """The in-process handle has no status guard of its own: it is the claim on the run
+    that keeps a stale handle from re-driving the checkpointed ``place_orders``."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        db_session,
+        MemorySaver(),
+        _store_with_cs(),
+    )
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    row.status = status
+    db_session.flush()
+
+    with pytest.raises(ValueError, match="already finalised"):
+        run.resume("approve")
+
+    assert _paper_orders(db_session) == []
+    assert _positions_map(db_session) == {}
+    assert row.status == status
+
+
+def test_a_second_approve_of_a_completed_run_is_refused(db_session) -> None:
+    """Without an idempotency key nothing but the run's status stops a second approve
+    (a double click, a second observer) from placing a second ticket."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+    tickets = [o.id for o in _paper_orders(db_session)]
+    holdings = _positions_map(db_session)
+    assert len(tickets) == 1
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
+    model = ScriptedFundModel(universe=UNIVERSE, weights=expected)
+
+    with pytest.raises(ValueError, match="already finalised"):
+        resume_fund(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=model,
+        )
+
+    assert model.generate_calls == 0
+    assert [o.id for o in _paper_orders(db_session)] == tickets
+    assert _positions_map(db_session) == holdings
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
+
+
+def test_fundrun_resume_refuses_a_second_approve(db_session) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        db_session,
+        MemorySaver(),
+        _store_with_cs(),
+    )
+    run.resume("approve")
+    tickets = [o.id for o in _paper_orders(db_session)]
+    assert len(tickets) == 1
+
+    with pytest.raises(ValueError, match="already finalised"):
+        run.resume("approve")
+
+    assert [o.id for o in _paper_orders(db_session)] == tickets
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
+
+
+def test_approve_stays_refused_after_a_freeze_is_rearmed(db_session) -> None:
+    """A freeze rejects the live gate but leaves its checkpoint standing; once the
+    adviser re-arms, only the run's rejected status keeps a stale approve from placing
+    the order the freeze halted."""
+    from fund.actions import apply_action
+    from fund.audit.autonomy_repository import (
+        AutonomyRepository,
+        AutonomyScope,
+        AutonomyState,
+    )
+
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    apply_action(
+        "freeze",
+        session=db_session,
+        scope="portfolio",
+        portfolio_id=PORTFOLIO_ID,
+        rationale="halt",
+    )
+    AutonomyRepository(db_session).set_state(
+        AutonomyScope.PORTFOLIO, PORTFOLIO_ID, AutonomyState.ARMED
+    )
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
+    model = ScriptedFundModel(universe=UNIVERSE, weights=expected)
+
+    with pytest.raises(ValueError, match="already finalised"):
+        resume_fund(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=model,
+        )
+
+    assert model.generate_calls == 0
+    assert _paper_orders(db_session) == []
+    assert _positions_map(db_session) == {}
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
+
+
 # --- two resolvers racing for the same gate ----------------------------------
 
 

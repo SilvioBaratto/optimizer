@@ -995,7 +995,7 @@ def _run_instruction(
     )
 
 
-_FINALISED_STATUSES = ("completed", "rejected", "incomplete", "blocked")
+_FINALISED_STATUSES = ("completed", "rejected", "incomplete", "blocked", "failed")
 
 
 def _require_resumable(run: Any) -> None:
@@ -1021,8 +1021,8 @@ def _require_resumable(run: Any) -> None:
     if run.status in _FINALISED_STATUSES:
         raise ValueError(
             f"agent_run {run.id} is {run.status!r}, already finalised and not "
-            "resumable (it completed, or was rejected/frozen/blocked since the gate "
-            "opened)"
+            "resumable (it completed, failed, or was rejected/frozen/blocked since "
+            "the gate opened)"
         )
     raise ValueError(
         f"agent_run {run.id} is {run.status!r}, not at a live gate and not resumable "
