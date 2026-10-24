@@ -2002,6 +2002,29 @@ async def test_mandate_renders_run_policy_and_guardrails(shell_env) -> None:
         assert "ESG exclude" in caps
 
 
+def test_format_caps_labels_each_drawdown_tier_and_keeps_precision() -> None:
+    from fund.tui.views import _format_caps
+
+    # nu2 is the client's stated loss tolerance (the hard ceiling); nu3 is the 1.5x
+    # absolute stop. Showing nu3 alone as "drawdown" overstated the ceiling by 50%.
+    caps = _format_caps({"nu1": 0.075, "nu2": 0.15, "nu3": 0.225})
+
+    assert "warn ≤7.5%" in caps
+    assert "ceiling ≤15.0%" in caps
+    assert "stop ≤22.5%" in caps
+    assert "drawdown ≤" not in caps
+
+
+def test_format_caps_skips_a_drawdown_tier_the_profile_lacks() -> None:
+    from fund.tui.views import _format_caps
+
+    caps = _format_caps({"nu2": 0.2})
+
+    assert "ceiling ≤20.0%" in caps
+    assert "warn" not in caps
+    assert "stop" not in caps
+
+
 @pytest.mark.asyncio
 async def test_mandate_save_run_policy_persists_and_logs(shell_env) -> None:
     _seed_mandate_and_profile(shell_env)

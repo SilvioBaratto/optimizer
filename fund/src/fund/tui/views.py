@@ -556,9 +556,16 @@ def _format_caps(constraint_set: dict[str, Any]) -> str:
     key degrades gracefully rather than raising inside the poll loop.
     """
     parts: list[str] = []
-    nu3 = constraint_set.get("nu3")
-    if isinstance(nu3, int | float):
-        parts.append(f"drawdown ≤{nu3:.0%}")
+    # Labelled because the tiers differ in kind: nu2 is the client's stated loss
+    # tolerance (the hard ceiling), nu1 a soft warning below it and nu3 the 1.5x
+    # absolute stop; one bare "drawdown" figure would read as the ceiling.
+    tiers = [
+        f"{label} ≤{value:.1%}"
+        for label, key in (("warn", "nu1"), ("ceiling", "nu2"), ("stop", "nu3"))
+        if isinstance(value := constraint_set.get(key), int | float)
+    ]
+    if tiers:
+        parts.append("drawdown " + ", ".join(tiers))
     name_cap = (constraint_set.get("universe_filters") or {}).get("max_position_cap")
     if isinstance(name_cap, int | float):
         parts.append(f"name ≤{name_cap:.0%}")
