@@ -1531,8 +1531,10 @@ def _prepare_fund_run(
     recovers it; and the PM agent is built against this run's ``RunContext`` with the
     effective gate set — config baseline ∪ ``mandate.hitl_gates``, which the
     portfolio's **first** round widens with every PM gate
-    (``_ALL_ORCHESTRATOR_GATES``). The caller drives the agent (invoke or stream).
-    Every write goes through ``session`` (caller owns the transaction).
+    (``_ALL_ORCHESTRATOR_GATES``). The caller drives the agent (invoke or stream). An
+    error once the run is open (agent build, seed) finalises it ``failed`` and hands
+    back a first-round gate it spent, then propagates. Every write goes through
+    ``session`` (caller owns the transaction).
     """
     import secrets
 
@@ -1601,56 +1603,73 @@ def _prepare_fund_run(
             ),
         },
     )
-    resolved_thread_id = thread_id or str(run.id)
-    audit.set_thread_id(run.id, resolved_thread_id)
+    # The run row now exists, and the portfolio's first-round gate is spent below. An
+    # error before the caller owns a setup to finalise (the agent build, the seed's DB
+    # reads) would leave a ``pending`` orphan the roster shows as running, with the
+    # one-time gate gone, once the scheduler sweep commits the session.
+    first_round = False
+    try:
+        resolved_thread_id = thread_id or str(run.id)
+        audit.set_thread_id(run.id, resolved_thread_id)
 
-    ctx = RunContext(
-        session=session,
-        asof=asof,
-        store=store,
-        config=config,
-        run_id=run.id,
-        portfolio_id=pid_uuid,
-        base_currency=mandate.base_currency,
-        notional=float(mandate.capital),
-    )
-    effective_gates = _effective_gates(config, mandate)
-    first_round = autonomy.consume_first_round(pid_uuid)
-    if first_round:
-        # A portfolio's first round adds every PM gate for maximum oversight. It
-        # widens the effective set rather than replacing it: a gate the mandate adds
-        # must not be dropped for round one and only reinstated from round two.
-        effective_gates = {
-            **effective_gates,
-            **dict.fromkeys(_ALL_ORCHESTRATOR_GATES, True),
-        }
-    agent = build_fund_agent(
-        model,
-        checkpointer=checkpointer,
-        store=store,
-        ctx=ctx,
-        config=config,
-        fallback=fallback,
-        interrupt_on=effective_gates,
-    )
-    thread_config = {
-        "configurable": {"thread_id": resolved_thread_id},
-        "recursion_limit": config.recursion_limit,
-    }
-    seed_input = {
-        "messages": [
-            {
-                "role": "user",
-                "content": _run_instruction(
-                    mandate,
-                    pid_str,
-                    asof,
-                    _history_summary(session, pid_uuid, asof),
-                    constraint_set=constraint_set,
-                ),
+        ctx = RunContext(
+            session=session,
+            asof=asof,
+            store=store,
+            config=config,
+            run_id=run.id,
+            portfolio_id=pid_uuid,
+            base_currency=mandate.base_currency,
+            notional=float(mandate.capital),
+        )
+        effective_gates = _effective_gates(config, mandate)
+        first_round = autonomy.consume_first_round(pid_uuid)
+        if first_round:
+            # A portfolio's first round adds every PM gate for maximum oversight. It
+            # widens the effective set rather than replacing it: a gate the mandate
+            # adds must not be dropped for round one and only reinstated from round
+            # two.
+            effective_gates = {
+                **effective_gates,
+                **dict.fromkeys(_ALL_ORCHESTRATOR_GATES, True),
             }
-        ]
-    }
+        agent = build_fund_agent(
+            model,
+            checkpointer=checkpointer,
+            store=store,
+            ctx=ctx,
+            config=config,
+            fallback=fallback,
+            interrupt_on=effective_gates,
+        )
+        thread_config = {
+            "configurable": {"thread_id": resolved_thread_id},
+            "recursion_limit": config.recursion_limit,
+        }
+        seed_input = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": _run_instruction(
+                        mandate,
+                        pid_str,
+                        asof,
+                        _history_summary(session, pid_uuid, asof),
+                        constraint_set=constraint_set,
+                    ),
+                }
+            ]
+        }
+    except Exception as exc:
+        _finalize_failed(
+            audit,
+            run.id,
+            exc,
+            session=session,
+            portfolio_id=pid_uuid,
+            first_round=first_round,
+        )
+        raise
     return _FundRunSetup(
         agent=agent,
         thread_config=thread_config,
@@ -1663,32 +1682,38 @@ def _prepare_fund_run(
     )
 
 
-def _finalize_failed(setup: _FundRunSetup, exc: Exception) -> None:
+def _finalize_failed(
+    audit: Any,
+    run_id: uuid.UUID,
+    exc: Exception,
+    *,
+    session: Any,
+    portfolio_id: uuid.UUID,
+    first_round: bool,
+) -> None:
     """Finalise a round that errored before reaching the gate as ``failed``.
 
     Without it the run row stays ``pending`` for good: nothing else ever closes it, and
     the scheduler sweep commits that half-written state after logging the error. The
-    error text lands in ``agent_runs.error``. A first-round gate the round consumed is
-    handed back, since no adviser reviewed anything. Best effort: a broken session (a
-    failed flush awaits a rollback) must not mask the error being propagated, and the
-    caller's rollback discards the half-written round in that case anyway. No commit.
+    error text lands in ``agent_runs.error``. A first-round gate the round consumed
+    (``first_round``) is handed back, since no adviser reviewed anything. Best effort:
+    a broken session (a failed flush awaits a rollback) must not mask the error being
+    propagated, and the caller's rollback discards the half-written round in that case
+    anyway. No commit.
     """
-    run_id = setup.run.id
     reason = f"{type(exc).__name__}: {exc}"[:_RUN_ERROR_MAX_CHARS]
     try:
-        setup.audit.append_decision(
+        audit.append_decision(
             run_id,
             agent="orchestrator",
             step="place_orders",
             hitl_decision={"decision": "failed", "reason": type(exc).__name__},
         )
-        setup.audit.finalize_run(run_id, weights={}, status="failed", error=reason)
-        if setup.first_round:
+        audit.finalize_run(run_id, weights={}, status="failed", error=reason)
+        if first_round:
             from fund.audit.autonomy_repository import AutonomyRepository
 
-            AutonomyRepository(setup.ctx.session).restore_first_round(
-                setup.ctx.portfolio_id
-            )
+            AutonomyRepository(session).restore_first_round(portfolio_id)
     except Exception:
         _log.exception("could not finalise failed fund run %s", run_id)
 
@@ -1769,7 +1794,14 @@ def run_fund(
             ctx=setup.ctx,
         )
     except Exception as exc:
-        _finalize_failed(setup, exc)
+        _finalize_failed(
+            audit,
+            run.id,
+            exc,
+            session=session,
+            portfolio_id=setup.ctx.portfolio_id,
+            first_round=setup.first_round,
+        )
         raise
 
     interrupt = _extract_interrupt(result)
@@ -1976,7 +2008,14 @@ def stream_fund(
         )
         return
     except Exception as exc:
-        _finalize_failed(setup, exc)
+        _finalize_failed(
+            audit,
+            run_id,
+            exc,
+            session=session,
+            portfolio_id=setup.ctx.portfolio_id,
+            first_round=setup.first_round,
+        )
         raise
 
     if interrupt_value is None:

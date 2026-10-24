@@ -1173,6 +1173,41 @@ def test_a_round_that_errors_does_not_rearm_an_already_spent_first_round_gate(
     assert state.first_round_gated is False
 
 
+def _run_whose_agent_cannot_be_built(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import fund.agents.graph as graph_mod
+
+    def _broken_build(*args, **kwargs):
+        raise ValueError("model does not support tool calling")
+
+    monkeypatch.setattr(graph_mod, "build_fund_agent", _broken_build)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights={"AAA": 1.0})
+    with pytest.raises(ValueError, match="tool calling"):
+        _run(model, db_session, store=_store_with_cs())
+
+
+def test_a_round_whose_agent_cannot_be_built_is_finalised_failed(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The run row is opened before the agent is built; a build error must not leave
+    it ``pending``, which the roster renders as a round still running."""
+    _run_whose_agent_cannot_be_built(db_session, monkeypatch)
+
+    (row,) = db_session.query(AgentRun).all()
+    assert row.status == "failed"
+    assert "tool calling" in row.error
+
+
+def test_a_round_whose_agent_cannot_be_built_leaves_the_first_round_gate_armed(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _run_whose_agent_cannot_be_built(db_session, monkeypatch)
+
+    state = AutonomyRepository(db_session).portfolio_state(_PORTFOLIO_ID)
+    assert state.first_round_gated is True
+
+
 # --- reproducibility: seed + temperature=0 + 3y backtest window -----------
 
 
