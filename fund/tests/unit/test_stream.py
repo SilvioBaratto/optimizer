@@ -26,11 +26,14 @@ from _fund_fakes import (
     BrokenPlaceOrdersFundModel,
     FreezeMidRunModel,
     ScriptedFundModel,
+    _count_tool_calls,
+    _task_call,
     expected_weights,
     make_constraint_set,
     make_mandate,
     seed_panel,
 )
+from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision, AgentRun, Base
@@ -135,6 +138,49 @@ def test_stream_fund_yields_ordered_tagged_events_then_pauses(stream_env) -> Non
         run = AgentRunRepository(session).get_run(terminal.run_id)
         assert run is not None
         assert run.status == "paused"
+
+
+class _ParallelDelegationFundModel(ScriptedFundModel):
+    """A PM that delegates economist and allocator together in one model turn."""
+
+    def _pm_turn(self, messages):
+        if _count_tool_calls(messages, "task") == 0:
+            first, second = _task_call("economist", 0), _task_call("allocator", 1)
+            return AIMessage(
+                content="", tool_calls=[*first.tool_calls, *second.tool_calls]
+            )
+        return super()._pm_turn(messages)
+
+
+def test_stream_fund_attributes_parallel_delegations_to_their_own_subagent(
+    stream_env,
+) -> None:
+    """Two ``task`` calls in one PM turn each report under their own subagent.
+
+    The result of a delegation is matched to its call by ``tool_call_id``; a single
+    "last delegated subagent" slot would label both reports with the second call's
+    subagent and show the economist's text as an allocator report.
+    """
+    model = _ParallelDelegationFundModel(
+        universe=UNIVERSE, weights=stream_env.model_factory().weights
+    )
+
+    with stream_env.get_session() as session:
+        events = list(
+            stream_fund(
+                model,
+                make_mandate(),
+                portfolio_id=PORTFOLIO_ID,
+                asof=ASOF,
+                session=session,
+                checkpointer=stream_env.saver,
+                store=stream_env.store,
+            )
+        )
+
+    reports = [(e.agent, e.text) for e in events if e.step == "report"]
+    assert ("economist", "economist report: analysis complete.") in reports
+    assert ("allocator", "allocator report: candidate weights ready.") in reports
 
 
 def test_stream_fund_pm_round_cap_end_records_distinct_reason(stream_env) -> None:

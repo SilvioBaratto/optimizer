@@ -1940,7 +1940,9 @@ def stream_fund(
     audit = setup.audit
 
     index = 0
-    pending_sub: str | None = None
+    # A PM turn may batch several delegations, and each result streams back as its own
+    # tools update, so the subagent is matched to its call by id, not by recency.
+    delegated: dict[str, str | None] = {}
     interrupt_value: dict[str, Any] | None = None
     pm_round_cap_reached = False
     last_pm_message: Any = None
@@ -1970,9 +1972,9 @@ def stream_fund(
                     for call in _tool_calls(message):
                         name = call.get("name")
                         if name == "task":
-                            # A delegation names its subagent; attribute the result that
-                            # follows (the tools node) to it.
-                            pending_sub = (call.get("args") or {}).get("subagent_type")
+                            delegated[call.get("id") or ""] = (
+                                call.get("args") or {}
+                            ).get("subagent_type")
                         elif name == "place_orders":
                             yield StreamEvent(
                                 kind="step",
@@ -1985,11 +1987,12 @@ def stream_fund(
                             )
                             index += 1
                 elif node == "tools" and getattr(message, "name", None) == "task":
+                    call_id = getattr(message, "tool_call_id", None) or ""
                     yield StreamEvent(
                         kind="step",
                         run_id=run_id,
                         index=index,
-                        agent=pending_sub or "subagent",
+                        agent=delegated.get(call_id) or "subagent",
                         step="report",
                         status=StepStatus.LIVE,
                         text=_message_text(message),
