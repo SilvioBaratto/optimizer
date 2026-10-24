@@ -3,13 +3,17 @@
 For each ``skills/<dir>/`` it asserts the ``SKILL.md`` frontmatter shape, the
 load-bearing rule, a non-empty ``reference.md``, that theory citations resolve to
 real ``optimizer-theory/docs`` chapters, and that the skill routes to its expected
-real ``@tool``s. No model, no DB, no optimizer import (``__all__`` is read via AST).
+real ``@tool``s. No model, no DB, and no optimizer import at module scope
+(``__all__`` is read via AST); the few tests that check a skill against the real
+bound tool or optimizer API import them inside the test body.
 """
 
 from __future__ import annotations
 
 import ast
+import datetime as dt
 import re
+import uuid
 from pathlib import Path
 
 import pytest
@@ -175,6 +179,70 @@ def test_skills_do_not_claim_the_optimizer_prices_views(name: str):
     flat = " ".join(text.lower().split())
     for pattern in _PHANTOM_VIEW_PRICING:
         assert not re.search(pattern, flat), f"{name}: stale claim /{pattern}/"
+
+
+# --- optimization-objective-map vs the code it documents ---------------------
+
+_OBJECTIVE_MAP_SKILL = "optimization-objective-map"
+
+
+def _section(text: str, heading: str) -> str:
+    """Body of the ``## <heading>`` section, up to the next ``## `` heading."""
+    match = re.search(
+        rf"^## {re.escape(heading)}\s*\n(.*?)(?=^## |\Z)", text, re.DOTALL | re.M
+    )
+    assert match, f"no `## {heading}` section"
+    return match.group(1)
+
+
+def _bound_optimize_tool_args() -> set[str]:
+    """Model-facing arg names of the allocator's real bound ``optimize_portfolio``."""
+    from fund.agents.toolsets import RunContext, bind_toolset
+    from fund.config import settings
+
+    ctx = RunContext(
+        session=None,  # type: ignore[arg-type]  # closure only inspected, never run
+        asof=dt.date(2024, 1, 2),
+        store=None,
+        config=settings,
+        run_id=uuid.uuid4(),
+        portfolio_id=uuid.uuid4(),
+    )
+    tools = {t.name: t for t in bind_toolset("allocator", ctx)}
+    return set(tools["optimize_portfolio"].args)
+
+
+def test_objective_map_skill_documents_the_real_optimize_call():
+    body = _read(_OBJECTIVE_MAP_SKILL, "SKILL.md")
+    real_args = _bound_optimize_tool_args()
+    calls = re.findall(r"optimize_portfolio\(([^)]*)\)", body)
+    assert calls, "SKILL.md must show the optimize_portfolio call"
+    for raw in calls:
+        documented = {a.split("=")[0].strip() for a in raw.split(",") if a.strip()}
+        assert documented == real_args, (
+            f"SKILL.md calls optimize_portfolio({raw}) but the bound tool takes "
+            f"{sorted(real_args)}"
+        )
+
+
+def test_objective_map_skill_states_what_the_tool_actually_applies():
+    from fund.tools.optimize import _CONSTRAINT_FIELDS, _resolve_config
+
+    body = _read(_OBJECTIVE_MAP_SKILL, "SKILL.md")
+    applied = _resolve_config(None)
+    assert applied.objective.name in body
+    assert applied.risk_measure.name in body
+    for field in _CONSTRAINT_FIELDS:
+        assert field in body, f"SKILL.md must name the honoured bound `{field}`"
+
+
+def test_objective_map_procedure_does_not_instruct_knobs_the_tool_ignores():
+    procedure = _section(_read(_OBJECTIVE_MAP_SKILL, "SKILL.md"), "Procedure").lower()
+    for knob in ("robust", "turnover"):
+        assert knob not in procedure, (
+            f"Procedure tells the allocator to apply `{knob}`, which "
+            "optimize_portfolio never receives"
+        )
 
 
 def test_optimization_objective_map_has_factories():

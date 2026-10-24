@@ -9,24 +9,40 @@ description: |
 
 # Optimization objective → cone map
 
-The allocator's core step: pick the optimizer FAMILY and risk measure that match the
-profile's objective, emit the factory config, and let the optimizer solve.
+The allocator's mapping step: work out which optimizer FAMILY and risk measure the
+profile's objective implies, run the optimizer, and report truthfully what it applied.
 
 ## When to use
 After universe + moments + views are ready and a ConstraintSet exists.
 
 ## Load-bearing rule
-The LLM emits ONLY a structured optimizer config. NEVER weights, mu, or covariance.
-`optimize_portfolio` computes the weights from this config.
+The LLM emits ONLY structured inputs. NEVER weights, mu, or covariance.
+`optimize_portfolio` computes the weights, and its only model-facing input is the
+universe.
 
 ## Procedure
-1. Read the objective + risk measure + bounds from the ConstraintSet.
-2. Map objective → cone / risk measure (table in reference.md; call skeletons in
-   factories.py). Long-only, sum-to-one, no leverage by default.
-3. Apply the cardinality cap + min-weight, a robust uncertainty set if the profile is
-   prudent, and any turnover penalty tied to the mandate's drift band (L1).
-4. Call `optimize_portfolio(returns_asof, universe, constraints)`; hand weights +
-   metrics to `risk-limits-check` BEFORE any execution.
+1. Read the objective + risk measure + bounds from the ConstraintSet; reference.md
+   gives the optimizer family each objective implies.
+2. Call `optimize_portfolio(universe)`. The run date, the portfolio, the base currency
+   and the ConstraintSet are bound by the tool; any extra argument is silently
+   dropped.
+3. Describe the result as what was applied (next section) and cite the
+   `risk_aversion` the tool reports having run with.
+4. Hand weights + metrics to `risk-limits-check` BEFORE any execution.
+
+## What the tool applies
+The tool solves a long-only, fully invested MeanRisk problem from the ConstraintSet's
+mapped config: `objective`, `risk_measure`, `risk_aversion` (rescaled to the risk
+measure when it is a first-order one such as CVaR), `min_weights`, `max_weights`
+(tightened by the K&E position cap), `budget`, `cardinality`, `cvar_beta`,
+`cdar_beta`, `l1_coef`, `l2_coef` and `risk_free_rate`. With no resolved profile it
+falls back to MINIMIZE_RISK over VARIANCE (minimum variance).
+
+## Intent the tool does not apply today
+A robust uncertainty set, a turnover penalty tied to the mandate's drift band (L1),
+and the moments or views from `estimate_moments` have no input on the tool. They stay
+recorded in the decision as the client's intent; reference.md shows what they map to.
+Do not present any of them as applied in your rationale.
 
 ## Boundaries
 - Never emit weights/mu/cov; never invent a knob the ConstraintSet already fixes.
