@@ -41,6 +41,7 @@ def estimate_moments(
     universe: Sequence[str],
     *,
     config: MomentEstimationConfig | None = None,
+    base_currency: str | None = None,
 ) -> ToolResult:
     """Estimate ``(mu, cov)`` for ``universe`` from prices as of ``asof``.
 
@@ -50,6 +51,9 @@ def estimate_moments(
         universe: yfinance tickers to estimate moments for.
         config: Moment-estimation config. Defaults to Ledoit-Wolf covariance +
             empirical mean (a covariance estimator, D23).
+        base_currency: Mandate base currency prices are FX-converted to before
+            returns are derived (``None`` keeps listing currency; see
+            :func:`fund.tools.prices.load_price_frame`).
 
     Returns:
         ``ok`` with ``assets`` (priced tickers, in order), ``mu`` (``{ticker:
@@ -61,7 +65,9 @@ def estimate_moments(
         return err("empty universe")
 
     cfg: MomentEstimationConfig = MomentEstimationConfig() if config is None else config
-    frame, missing = load_price_frame(session, asof, universe)
+    frame, missing = load_price_frame(
+        session, asof, universe, base_currency=base_currency
+    )
     if frame.shape[1] == 0:
         return err("no priced assets in universe")
     if frame.shape[0] < 2:

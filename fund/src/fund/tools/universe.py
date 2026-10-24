@@ -69,6 +69,7 @@ def universe_filter(
     *,
     criteria: dict[str, Any] | None = None,
     sector_mapping: dict[str, str] | None = None,
+    base_currency: str | None = None,
 ) -> ToolResult:
     """Filter ``universe`` down to the assets that survive pre-selection.
 
@@ -83,6 +84,9 @@ def universe_filter(
             unknown keys are ignored. ``None`` uses the default pipeline.
         sector_mapping: Optional ticker → sector ``dict`` forwarded to the
             pipeline's ``SectorImputer`` (injected, not DB-queried).
+        base_currency: Mandate base currency prices are FX-converted to before
+            returns are derived (``None`` keeps listing currency; see
+            :func:`fund.tools.prices.load_price_frame`).
 
     Returns:
         ``ok`` with a ``list[str]`` of surviving tickers (subset of ``universe``,
@@ -93,7 +97,7 @@ def universe_filter(
     if not universe:
         return ok([])
 
-    frame, _ = load_price_frame(session, asof, universe)
+    frame, _ = load_price_frame(session, asof, universe, base_currency=base_currency)
     # No priced assets, or too little history to derive returns: an empty
     # investable set is a valid answer, not an error.
     if frame.shape[1] == 0 or frame.shape[0] < 2:

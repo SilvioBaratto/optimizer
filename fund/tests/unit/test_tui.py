@@ -1942,7 +1942,9 @@ async def test_deliberation_expand_scopes_to_selected_allocator_step(
 
     captured = {}
 
-    def _capture(_session, _asof, _universe, constraint_set, weights):
+    def _capture(
+        _session, _asof, _universe, constraint_set, weights, base_currency=None
+    ):
         captured["constraint_set"] = constraint_set
         captured["weights"] = dict(weights)
         return readouts_compute.ResultsCompute(
@@ -2005,6 +2007,47 @@ async def test_deliberation_expand_scopes_to_selected_allocator_step(
         await pilot.pause()
     assert captured["constraint_set"] == second_cs  # step 1's own bounds
     assert captured["weights"] == {"AAA": 0.7, "CCC": 0.3}  # step 1's own weights
+
+
+@pytest.mark.asyncio
+async def test_deliberation_expand_recomputes_in_the_mandate_base_currency(
+    shell_env, monkeypatch
+) -> None:
+    """The replay converts prices to the portfolio mandate's base currency, as the
+    agent's allocator tools did, so the drill-down matches the decided numbers."""
+    from fund import readouts_compute
+
+    captured = {}
+
+    def _capture(
+        _session, _asof, _universe, _constraint_set, _weights, base_currency=None
+    ):
+        captured["base_currency"] = base_currency
+        return readouts_compute.ResultsCompute(
+            frontier=None, frontier_error="stub", backtest=None, backtest_error="stub"
+        )
+
+    monkeypatch.setattr(readouts_compute, "compute_results", _capture)
+    with shell_env.get_session() as session:
+        MandateRepository(session).upsert(
+            make_mandate(_PID_A).model_copy(update={"base_currency": "CHF"})
+        )
+        run_id = _seed_allocator_run(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(0)
+        await pilot.pause()
+        app.action_expand_readout()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+    assert captured["base_currency"] == "CHF"
 
 
 @pytest.mark.asyncio

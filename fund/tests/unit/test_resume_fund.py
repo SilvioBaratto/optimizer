@@ -33,6 +33,7 @@ from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision, PaperOrder
 
 from fund import observe
+from fund.agents import graph as graph_mod
 from fund.agents.graph import (
     FundRun,
     _finalize_hitl,
@@ -40,7 +41,12 @@ from fund.agents.graph import (
     resume_run,
     run_fund,
 )
-from fund.audit import AgentRunRepository, PositionRepository, put_constraint_set
+from fund.audit import (
+    AgentRunRepository,
+    MandateRepository,
+    PositionRepository,
+    put_constraint_set,
+)
 from fund.config import settings
 
 # A second letter-bearing portfolio id for the parity test (a distinct
@@ -538,3 +544,66 @@ def test_fundrun_resume_respond_marks_responded(db_session) -> None:
     assert observe._has_pending_interrupt(saver, str(run.run_id))
     responded = _respond_decisions(db_session, run.run_id)
     assert responded and responded[0].hitl_decision["message"] == directive
+
+
+# --- the allocator tools are bound to the mandate's base currency --------------
+
+
+def _spy_run_contexts(monkeypatch: pytest.MonkeyPatch) -> list:
+    """Record every ``RunContext`` the graph hands to ``build_fund_agent``."""
+    seen: list = []
+    original = graph_mod.build_fund_agent
+
+    def _spy(*args, **kwargs):
+        seen.append(kwargs["ctx"])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(graph_mod, "build_fund_agent", _spy)
+    return seen
+
+
+def test_run_fund_binds_the_mandate_base_currency_to_the_run_context(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_panel(db_session)
+    contexts = _spy_run_contexts(monkeypatch)
+    mandate = make_mandate().model_copy(update={"base_currency": "CHF"})
+
+    run_fund(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected_weights(db_session)),
+        mandate,
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        session=db_session,
+        checkpointer=MemorySaver(),
+        store=_store_with_cs(),
+    )
+
+    assert [c.base_currency for c in contexts] == ["CHF"]
+
+
+def test_resume_fund_binds_the_persisted_mandate_base_currency(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    MandateRepository(db_session).upsert(
+        make_mandate().model_copy(update={"base_currency": "CHF"})
+    )
+    contexts = _spy_run_contexts(monkeypatch)
+
+    resume_fund(
+        run.run_id,
+        "reject",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    assert [c.base_currency for c in contexts] == ["CHF"]

@@ -57,6 +57,7 @@ def optimize_portfolio(
     universe: Sequence[str],
     *,
     constraints: dict[str, Any] | None = None,
+    base_currency: str | None = None,
 ) -> ToolResult:
     """Optimise weights for ``universe`` from prices as of ``asof``.
 
@@ -66,6 +67,9 @@ def optimize_portfolio(
         universe: yfinance tickers to allocate across.
         constraints: Optional overrides for ``min_weights`` / ``max_weights`` /
             ``budget``; defaults to long-only, fully invested.
+        base_currency: Mandate base currency prices are FX-converted to before
+            returns are derived (``None`` keeps listing currency; see
+            :func:`fund.tools.prices.load_price_frame`).
 
     Returns:
         ``ok`` with ``weights`` (``{ticker: float}`` from skfolio), ``metrics``
@@ -76,7 +80,9 @@ def optimize_portfolio(
     if not universe:
         return err("empty universe")
 
-    frame, missing = load_price_frame(session, asof, universe)
+    frame, missing = load_price_frame(
+        session, asof, universe, base_currency=base_currency
+    )
     if frame.shape[1] == 0:
         return err("no priced assets in universe")
     if frame.shape[0] < 2:

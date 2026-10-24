@@ -128,6 +128,7 @@ def backtest(
     weights: dict[str, float],
     *,
     window: dict[str, Any] | None = None,
+    base_currency: str | None = None,
 ) -> ToolResult:
     """Backtest fixed ``weights`` out-of-sample over prices up to ``asof``.
 
@@ -143,6 +144,9 @@ def backtest(
         window: Optional overrides mapped onto ``WalkForwardConfig`` fields
             (``train_size`` / ``test_size`` / ``purged_size`` / ...); unknown keys
             are ignored. ``None`` uses the default walk-forward window.
+        base_currency: Mandate base currency prices are FX-converted to before
+            returns are derived (``None`` keeps listing currency; see
+            :func:`fund.tools.prices.load_price_frame`).
 
     Returns:
         ``ok`` with ``metrics`` (``mean`` / ``standard_deviation`` /
@@ -158,7 +162,9 @@ def backtest(
         return err("empty weights")
 
     config = _resolve_window(window)
-    frame, missing = load_price_frame(session, asof, list(weights))
+    frame, missing = load_price_frame(
+        session, asof, list(weights), base_currency=base_currency
+    )
     if frame.shape[1] == 0:
         return err("no priced assets for weights")
     if frame.shape[0] < 2:

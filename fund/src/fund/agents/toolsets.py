@@ -83,7 +83,10 @@ class RunContext:
     injected sync ``session``, the ``asof`` decision bar that bounds every
     price read (no look-ahead), the LangGraph ``store`` the active
     ``ConstraintSet`` is resolved from, the run ``config`` (store key, etc.), the
-    audit ``run_id``, and the owning ``portfolio_id``.
+    audit ``run_id``, and the owning ``portfolio_id``. ``base_currency`` is the
+    mandate's reporting currency: the allocator tools FX-convert prices to it before
+    deriving returns, so they optimise over the series the NAV tracker marks
+    (``None`` keeps listing currency — only sound for a single-currency universe).
     """
 
     session: Session
@@ -99,6 +102,7 @@ class RunContext:
     # run but inert there (the ESG-exclusions precedent). Additive default keeps
     # existing callers unchanged.
     lookback_days: int = 756
+    base_currency: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +231,13 @@ def _get_macro_impl(ctx: RunContext, names: list[str]) -> ToolResult:
 def _universe_filter_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
     cs = _resolve_constraint_set(ctx)
     criteria = _universe_criteria(cs) if cs is not None else None
-    return _tools.universe_filter(ctx.session, ctx.asof, universe, criteria=criteria)
+    return _tools.universe_filter(
+        ctx.session,
+        ctx.asof,
+        universe,
+        criteria=criteria,
+        base_currency=ctx.base_currency,
+    )
 
 
 @tool_envelope
@@ -235,7 +245,9 @@ def _estimate_moments_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
     # ``ctx.lookback_days`` is recorded on the run but inert here — the frozen
     # ``estimate_moments`` takes no start bound, so moments use full history up to
     # ``asof`` (the ESG-exclusion precedent; structural enforcement is ask-first).
-    return _tools.estimate_moments(ctx.session, ctx.asof, universe)
+    return _tools.estimate_moments(
+        ctx.session, ctx.asof, universe, base_currency=ctx.base_currency
+    )
 
 
 @tool_envelope
@@ -243,7 +255,11 @@ def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
     cs = _resolve_constraint_set(ctx)
     constraints = _bounds_args(cs) if cs is not None else None
     result = _tools.optimize_portfolio(
-        ctx.session, ctx.asof, universe, constraints=constraints
+        ctx.session,
+        ctx.asof,
+        universe,
+        constraints=constraints,
+        base_currency=ctx.base_currency,
     )
     if result.get("ok"):
         # Log the config the frozen tool ACTUALLY applied (min-variance defaults +
@@ -271,7 +287,11 @@ def _backtest_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
     # (the one frozen tool that accepts a window). A panel shorter than the window
     # falls back to the full sample inside ``backtest`` (no leakage either way).
     return _tools.backtest(
-        ctx.session, ctx.asof, weights, window={"train_size": ctx.lookback_days}
+        ctx.session,
+        ctx.asof,
+        weights,
+        window={"train_size": ctx.lookback_days},
+        base_currency=ctx.base_currency,
     )
 
 

@@ -1469,8 +1469,20 @@ class ShellApp(App[None]):
                     constraint_set: Any = (
                         decision.constraint_set if decision is not None else None
                     )
+                    mandate = (
+                        observe.get_mandate(session, run.portfolio_id)
+                        if run.portfolio_id is not None
+                        else None
+                    )
                     result: Any = readouts_compute.compute_results(
-                        session, run.asof, list(weights), constraint_set, weights
+                        session,
+                        run.asof,
+                        list(weights),
+                        constraint_set,
+                        weights,
+                        base_currency=(
+                            mandate.base_currency if mandate is not None else None
+                        ),
                     )
                 else:
                     weights = repo.latest_optimizer_weights(run_id)

@@ -117,6 +117,7 @@ def compute_results(
     universe: Sequence[str],
     constraint_set: Mapping[str, Any] | None,
     weights: Mapping[str, float],
+    base_currency: str | None = None,
 ) -> ResultsCompute:
     """Recompute the results read-out by replaying the compute tools at ``asof``.
 
@@ -128,6 +129,9 @@ def compute_results(
         constraint_set: The recorded ``ConstraintSet.model_dump``; only its ``bounds``
             (min/max weights, budget) reach ``optimize_portfolio``.
         weights: The held allocation whose forward performance the backtest evaluates.
+        base_currency: The mandate's reporting currency. Prices are FX-converted to it
+            exactly as the agent's allocator tools did, so the replay reproduces the
+            numbers the run was decided on; ``None`` keeps listing currency.
 
     Returns:
         A :class:`ResultsCompute`. A failing tool yields a ``None`` slot plus its
@@ -135,9 +139,13 @@ def compute_results(
     """
     bounds = _bounds(constraint_set)
     frontier, frontier_error = _frontier(
-        optimize_portfolio(session, asof, universe, constraints=bounds)
+        optimize_portfolio(
+            session, asof, universe, constraints=bounds, base_currency=base_currency
+        )
     )
-    result, backtest_error = _backtest(backtest(session, asof, dict(weights)))
+    result, backtest_error = _backtest(
+        backtest(session, asof, dict(weights), base_currency=base_currency)
+    )
     return ResultsCompute(
         frontier=frontier,
         frontier_error=frontier_error,

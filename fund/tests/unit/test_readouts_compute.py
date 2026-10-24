@@ -104,3 +104,46 @@ def test_compute_risk_missing_sector_mapping_degrades() -> None:
     constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
     result = compute_risk({"AAA": 1.0}, constraint_set, None)
     assert result.sector_exposures is None
+
+
+def test_compute_results_replays_the_allocator_in_the_base_currency(
+    priced_session: Session,
+) -> None:
+    """The TUI recompute converts prices exactly as the agent's allocator did."""
+    from portopt_db.models.market_data.yfinance_data import PriceHistory
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    priced_session.query(PriceHistory).update({"price_unit": "USD"})
+    days = sorted({row.date for row in priced_session.query(PriceHistory).all()})
+    FxRatesRepository(priced_session).upsert_rates(
+        [
+            {
+                "base_currency": "EUR",
+                "quote_currency": "USD",
+                "date": day,
+                "rate": 0.90 * 1.01**i,
+            }
+            for i, day in enumerate(days)
+        ]
+    )
+    priced_session.flush()
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    weights = {"AAA": 0.4, "BBB": 0.3, "CCC": 0.3}
+
+    local = compute_results(
+        priced_session, ASOF, list(UNIVERSE), constraint_set, weights
+    )
+    in_eur = compute_results(
+        priced_session,
+        ASOF,
+        list(UNIVERSE),
+        constraint_set,
+        weights,
+        base_currency="EUR",
+    )
+
+    assert local.backtest is not None
+    assert in_eur.backtest is not None
+    assert in_eur.backtest.mean - local.backtest.mean == pytest.approx(0.01, abs=2e-3)

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 
+from fund.performance import convert_prices_to_base
 from fund.tools._base import (
     ToolResult,
     coerce_date,
@@ -52,12 +53,18 @@ _PRICE_FIELDS: frozenset[str] = frozenset(
 )
 
 
+# Columns quoted in the listing currency. Only these are FX-converted: volume and
+# split ratios are unit-free, and an FX rate would corrupt them.
+_PRICE_LEVEL_FIELDS: frozenset[str] = frozenset({"open", "high", "low", "close"})
+
+
 def load_price_frame(
     session: Session,
     asof: dt.date | str,
     tickers: Sequence[str],
     *,
     field: str = "close",
+    base_currency: str | None = None,
 ) -> tuple[pd.DataFrame, list[str]]:
     """Build a wide price frame for ``tickers`` as of ``asof``, plus the missing.
 
@@ -72,14 +79,26 @@ def load_price_frame(
         asof: Inclusive upper bound; rows strictly after it are excluded.
         tickers: yfinance tickers, in the order the panel columns should follow.
         field: Which ``PriceHistory`` column to pull (default ``"close"``).
+        base_currency: ISO-4217 code to express price-level columns in.
+            ``price_history`` stores each listing in its own currency
+            (``GBp``/``USD``/...), so an allocator that derives returns from the raw
+            panel optimises over a different series than the NAV tracker marks;
+            passing the mandate's base currency FX-converts (and rescales minor
+            units) first. ``None`` leaves the panel in listing currency, which is
+            only sound for a single-currency universe.
 
     Returns:
         ``(frame, missing)`` — the wide price frame and the absent tickers.
+
+    Raises:
+        FxCoverageError: ``base_currency`` is set, the panel holds foreign tickers
+            and none of their currencies has an FX rate under that base.
     """
     end_date = coerce_date(asof)
     repo = YFinanceRepository(session)
 
     series_by_ticker: dict[str, pd.Series] = {}
+    currency_map: dict[str, str] = {}
     for ticker in tickers:
         instrument = repo.get_instrument_by_yfinance_ticker(ticker)
         if instrument is None:
@@ -92,12 +111,20 @@ def load_price_frame(
         }
         if values:
             series_by_ticker[ticker] = pd.Series(values)
+            unit = next((r.price_unit for r in rows if r.price_unit), None)
+            unit = unit or instrument.currency_code
+            if unit:
+                currency_map[ticker] = unit
 
     frame = pd.DataFrame(series_by_ticker)
     if not frame.empty:
         # A DatetimeIndex lets ``summarize_frame`` report the panel's date span.
         frame.index = pd.to_datetime(frame.index)
         frame = frame.sort_index()
+        if base_currency is not None and field in _PRICE_LEVEL_FIELDS:
+            frame = convert_prices_to_base(
+                session, frame, currency_map, base_currency=base_currency
+            )
     priced = set(frame.columns)
     missing = [ticker for ticker in tickers if ticker not in priced]
     return frame, missing

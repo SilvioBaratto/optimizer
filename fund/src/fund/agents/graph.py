@@ -848,6 +848,7 @@ def _prepare_fund_run(
         config=config,
         run_id=run.id,
         portfolio_id=pid_uuid,
+        base_currency=mandate.base_currency,
     )
     effective_gates = _effective_gates(config, mandate)
     if autonomy.consume_first_round(pid_uuid):
@@ -1247,6 +1248,12 @@ def resume_fund(
             f"first to establish a risk profile."
         )
 
+    # Re-read the mandate so a gate set edited since the run opened takes effect on
+    # resume too (mirrors the ConstraintSet re-guard above); a vanished mandate falls
+    # back to the config default gate.
+    from fund import observe
+
+    mandate = observe.get_mandate(session, portfolio_id)
     ctx = RunContext(
         session=session,
         asof=run.asof,
@@ -1254,13 +1261,8 @@ def resume_fund(
         config=config,
         run_id=rid,
         portfolio_id=portfolio_id,
+        base_currency=mandate.base_currency if mandate is not None else None,
     )
-    # Re-read the mandate so a gate set edited since the run opened takes effect on
-    # resume too (mirrors the ConstraintSet re-guard above); a vanished mandate falls
-    # back to the config default gate.
-    from fund import observe
-
-    mandate = observe.get_mandate(session, portfolio_id)
     agent = build_fund_agent(
         model,
         checkpointer=checkpointer,

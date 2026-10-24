@@ -263,6 +263,56 @@ def _load_fx_rates_frame(
     return frame
 
 
+def convert_prices_to_base(
+    session: Any,
+    prices: pd.DataFrame,
+    currency_map: dict[str, str],
+    *,
+    base_currency: str,
+) -> pd.DataFrame:
+    """FX-convert a listing-currency price frame to ``base_currency`` from the DB.
+
+    Loads the ``fx_rates`` the frame's date span needs and applies the same
+    conversion the NAV tracker uses, so an allocator reading prices through this
+    helper optimises over the base-currency series NAV is later marked on.
+
+    Args:
+        session: Open SQLAlchemy session the FX rates are read from.
+        prices: Wide price frame (``DatetimeIndex`` rows, ticker columns), in
+            listing currency.
+        currency_map: ``{ticker: raw price_unit}`` — raw sub-unit codes (``GBp``),
+            never pre-normalized to the major (``GBP``).
+        base_currency: ISO-4217 code to express every price in.
+
+    Returns:
+        The base-currency frame; ``prices`` unchanged when it is empty or no ticker
+        carries a currency. Tickers whose currency has a rate column are converted;
+        a currency missing among several present is left unconverted (logged).
+
+    Raises:
+        FxCoverageError: Foreign tickers exist but none of their currencies has a
+            rate under ``base_currency`` — converting would silently mix currencies.
+    """
+    if prices.empty or not currency_map:
+        return prices
+    quotes = sorted({_major_currency(code) for code in currency_map.values()})
+    days = pd.DatetimeIndex(prices.index)
+    fx_rates = _load_fx_rates_frame(
+        session,
+        base_currency,
+        quotes,
+        start=min(days).date(),
+        end=max(days).date(),
+    )
+    _require_fx_coverage(base_currency, currency_map, fx_rates)
+    return _to_base_prices(
+        prices,
+        base_currency=base_currency,
+        currency_map=currency_map,
+        fx_rates=fx_rates,
+    )
+
+
 def _finite(value: float) -> float | None:
     """The value as a float, or ``None`` when NaN/inf — never a fabricated metric."""
     return float(value) if np.isfinite(value) else None
@@ -1102,6 +1152,7 @@ __all__ = [
     "NavPoint",
     "PerformanceSummary",
     "build_nav_series",
+    "convert_prices_to_base",
     "holding_marks",
     "marked_weights",
     "nav_return_series",

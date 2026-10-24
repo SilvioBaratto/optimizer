@@ -17,6 +17,7 @@ LangGraph store:
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import json
 import math
@@ -466,3 +467,69 @@ def test_place_orders_idempotent_rerun_appends_once(db_session) -> None:
         .all()
     )
     assert len(rows) == 1  # the idempotent re-run does not double-log
+
+
+# --- the allocator tools run in the mandate's base currency -------------------
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "role", "args"),
+    [
+        ("universe_filter", "allocator", {"universe": _UNIVERSE}),
+        ("estimate_moments", "allocator", {"universe": _UNIVERSE}),
+        ("optimize_portfolio", "allocator", {"universe": _UNIVERSE}),
+        ("backtest", "risk", {"weights": _WEIGHTS}),
+    ],
+)
+def test_bound_allocator_tools_forward_the_run_base_currency(
+    db_session, monkeypatch: pytest.MonkeyPatch, tool_name: str, role: str, args: dict
+) -> None:
+    seen: dict[str, object] = {}
+
+    def _spy(*_args: object, **kwargs: object) -> dict[str, object]:
+        seen.update(kwargs)
+        return {"ok": False, "error": "spy"}
+
+    monkeypatch.setattr(fund_tools, tool_name, _spy)
+    ctx = dataclasses.replace(_make_context(db_session), base_currency="EUR")
+
+    _find(bind_toolset(role, ctx), tool_name).invoke(args)
+
+    assert seen["base_currency"] == "EUR"
+
+
+def test_bound_estimate_moments_sees_fx_returns_in_the_base_currency(
+    db_session,
+) -> None:
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    _seed_panel(db_session)
+    db_session.query(PriceHistory).update({"price_unit": "USD"})
+    # EUR per USD compounds +1% a day, so every USD asset gains ~1% a day in EUR
+    # on top of its own USD return.
+    FxRatesRepository(db_session).upsert_rates(
+        [
+            {
+                "base_currency": "EUR",
+                "quote_currency": "USD",
+                "date": _START + dt.timedelta(days=i),
+                "rate": 0.90 * 1.01**i,
+            }
+            for i in range(_N_DAYS)
+        ]
+    )
+    db_session.flush()
+    local = _make_context(db_session)
+    in_eur = dataclasses.replace(local, base_currency="EUR")
+
+    mu_local = _find(bind_toolset("allocator", local), "estimate_moments").invoke(
+        {"universe": _UNIVERSE}
+    )["data"]["mu"]
+    mu_eur = _find(bind_toolset("allocator", in_eur), "estimate_moments").invoke(
+        {"universe": _UNIVERSE}
+    )["data"]["mu"]
+
+    for ticker in _UNIVERSE:
+        assert mu_eur[ticker] - mu_local[ticker] == pytest.approx(0.01, abs=1e-3)
