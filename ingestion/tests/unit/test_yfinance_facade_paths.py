@@ -526,6 +526,45 @@ class TestFetchPricesDataframe:
         assert out is not None
         assert list(out.columns) == ["AAPL", "MSFT"]
 
+    def test_individual_fallback_puts_daily_bars_of_every_exchange_on_one_row(
+        self, client: YFinanceClient
+    ) -> None:
+        """History is stamped at each exchange's local midnight, which are
+        different instants; unaligned they interleave into stale-paired rows."""
+        days = pd.bdate_range("2024-01-02", periods=10)
+        new_york = pd.DataFrame(
+            {"Close": [100.0 + i for i in range(10)]},
+            index=days.tz_localize("America/New_York"),
+        )
+        tokyo = pd.DataFrame(
+            {"Close": [50.0 + i for i in range(10)]},
+            index=days.tz_localize("Asia/Tokyo"),
+        )
+
+        with patch.object(client, "bulk_download", return_value=None):
+            with patch.object(client, "fetch_history", side_effect=[new_york, tokyo]):
+                out = client.fetch_prices_dataframe(["AAPL", "7203.T"])
+
+        assert out is not None
+        assert len(out) == 10
+        assert out.index.tz is None
+        assert out["AAPL"].iloc[3] == 103.0
+        assert out["7203.T"].iloc[3] == 53.0
+
+    def test_individual_fallback_keeps_intraday_bars_timezone_aware(
+        self, client: YFinanceClient
+    ) -> None:
+        idx = pd.date_range("2024-01-02 14:00", periods=6, freq="h", tz="UTC")
+        hourly = pd.DataFrame({"Close": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}, index=idx)
+
+        with patch.object(client, "bulk_download", return_value=None):
+            with patch.object(client, "fetch_history", return_value=hourly):
+                out = client.fetch_prices_dataframe(["AAPL"], interval="1h")
+
+        assert out is not None
+        assert len(out) == 6
+        assert out.index.tz is not None
+
     def test_bulk_path_repairs_like_the_individual_path(
         self, client: YFinanceClient
     ) -> None:

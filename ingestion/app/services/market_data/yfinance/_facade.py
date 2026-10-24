@@ -57,6 +57,33 @@ _MAX_TRAILING_GAP = pd.Timedelta(days=10)
 _MAX_TRAILING_GAP_BARS = 5
 
 
+def _drop_exchange_timezone(close: pd.Series, interval: str) -> pd.Series:
+    """Strip the exchange timezone from daily-or-coarser bars, keeping local dates.
+
+    ``Ticker.history`` stamps a daily bar at its exchange's local midnight, an
+    instant that differs per exchange; combining such series would interleave
+    them into rows that pair one ticker's price with another's stale one.
+    ``yf.download`` drops the timezone the same way for these intervals.
+    Intraday bars are real instants and stay timezone-aware.
+
+    Args:
+        close: Close prices of one ticker.
+        interval: yfinance bar interval the prices were fetched at.
+
+    Returns:
+        *close* with a naive index of local bar dates, or *close* unchanged
+        for intraday intervals and already-naive indexes.
+    """
+    index = close.index
+    if (
+        interval.endswith(("m", "h"))
+        or not isinstance(index, pd.DatetimeIndex)
+        or index.tz is None
+    ):
+        return close
+    return close.tz_localize(None)
+
+
 def _align_close_prices(prices: pd.DataFrame) -> pd.DataFrame:
     """Align per-ticker Close series into one gap-free panel.
 
@@ -616,7 +643,7 @@ class YFinanceClient:
                 interval=interval,
             )
             if hist is not None and not hist.empty and "Close" in hist.columns:
-                frames[sym] = hist["Close"]
+                frames[sym] = _drop_exchange_timezone(hist["Close"], interval)
             else:
                 logger.warning("No price data for '%s', skipping", sym)
 
