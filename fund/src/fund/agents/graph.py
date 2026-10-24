@@ -36,6 +36,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING, Any, NotRequired, cast
 
 from fund.agents.backend import build_backend, read_only_permissions
@@ -54,7 +55,7 @@ _log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     import datetime as dt
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
     # ``fund.agents.toolsets`` reaches ``fund.tools`` (the agent stack) at import;
     # keep it type-only here and import ``bind_toolset`` lazily inside the builders
@@ -689,6 +690,46 @@ def _settle_hitl(
 
 _HISTORY_SUMMARY_BUDGET = 800
 _HISTORY_DIGEST_WINDOW_DAYS = 14
+_HISTORY_SUMMARY_PREFIX = "Since last rebalance — "
+_UNBOUNDED = 10**9
+
+
+def _fit_entries(head: str, entries: list[str], limit: int) -> str:
+    """``head`` plus as many whole ``entries`` as fit in ``limit`` characters.
+
+    ``entries`` are in priority order, so the tail is what gets dropped, and the
+    dropped count is stated rather than clipping the last entry mid-value.
+    Returns ``""`` when not even one entry fits.
+    """
+    for keep in range(len(entries), 0, -1):
+        hidden = len(entries) - keep
+        more = f", +{hidden} more" if hidden else ""
+        text = f"{head}{', '.join(entries[:keep])}{more}."
+        if len(text) <= limit:
+            return text
+    return ""
+
+
+def _fit_prose(text: str, limit: int) -> str:
+    """``text`` cut back to a word boundary so it fits in ``limit`` characters."""
+    if len(text) <= limit:
+        return text
+    if limit <= 3:
+        return ""
+    cut = text[: limit - 3]
+    words = cut.rsplit(None, 1)
+    return (words[0] if len(words) == 2 else cut).rstrip() + "..."
+
+
+def _fair_shares(sizes: list[int], total: int) -> list[int]:
+    """Split ``total`` so small sections keep their size and big ones share the rest."""
+    shares = [0] * len(sizes)
+    remaining = total
+    order = sorted(range(len(sizes)), key=sizes.__getitem__)
+    for rank, index in enumerate(order):
+        shares[index] = min(sizes[index], remaining // (len(order) - rank))
+        remaining -= shares[index]
+    return shares
 
 
 def _history_summary(
@@ -705,7 +746,10 @@ def _history_summary(
     (no look-ahead), and folds them into one short string. Repos are imported
     lazily so a bare ``import fund.agents.graph`` stays agent-stack-free, and the
     result is capped to ``budget`` chars so it never crowds the model context or
-    the PM round cap.
+    the PM round cap. Weights print at four decimals; when the recap overflows,
+    each section is trimmed on its own — whole smallest positions are dropped
+    (and counted), the digest is cut at a word boundary — so the digest survives
+    and no weight is clipped mid-number.
 
     Args:
         session: A sync ``portopt_db`` session; not owned here.
@@ -726,29 +770,39 @@ def _history_summary(
         PortfolioJournalRepository,
     )
 
-    parts: list[str] = []
+    sections: list[Callable[[int], str]] = []
 
     overlays = PortfolioJournalRepository(session).list_for_portfolio(portfolio_id)
     prior = next((o for o in overlays if o.as_of < asof), None)
     if prior is not None:
         allocation = prior.allocation or {}
-        alloc_str = ", ".join(f"{t} {w}" for t, w in sorted(allocation.items()))
-        parts.append(f"Prior rebalance {prior.as_of.isoformat()}: {alloc_str}.")
+        # Largest weights first: when the book overflows the budget it is the small
+        # tail that is dropped.
+        ranked = sorted(allocation.items(), key=lambda item: (-float(item[1]), item[0]))
+        entries = [f"{ticker} {float(weight):.4f}" for ticker, weight in ranked]
+        head = f"Prior rebalance {prior.as_of.isoformat()}: "
+        sections.append(partial(_fit_entries, head, entries))
         if prior.trades:
-            parts.append(f"Traded: {', '.join(sorted(prior.trades))}.")
+            sections.append(partial(_fit_entries, "Traded: ", sorted(prior.trades)))
 
     start = asof - dt.timedelta(days=_HISTORY_DIGEST_WINDOW_DAYS)
     digests = MarketJournalRepository(session).get_range(start, asof)
     if digests:
         latest = digests[-1]  # get_range is ascending → the freshest at/before asof
-        parts.append(f"Latest digest {latest.as_of.isoformat()}: {latest.narrative}")
+        digest = f"Latest digest {latest.as_of.isoformat()}: {latest.narrative}"
+        sections.append(partial(_fit_prose, digest))
 
+    if not sections:
+        return ""
+    # Each section is bounded on its own so one long list cannot push the others out
+    # of the recap, and a cut never lands inside a number.
+    room = budget - len(_HISTORY_SUMMARY_PREFIX) - (len(sections) - 1)
+    shares = _fair_shares([len(render(_UNBOUNDED)) for render in sections], room)
+    parts = [render(share) for render, share in zip(sections, shares, strict=True)]
+    parts = [part for part in parts if part]
     if not parts:
         return ""
-    summary = "Since last rebalance — " + " ".join(parts)
-    if len(summary) > budget:
-        summary = summary[: budget - 3].rstrip() + "..."
-    return summary
+    return _HISTORY_SUMMARY_PREFIX + " ".join(parts)
 
 
 _DIRECTIVES_BUDGET = 1200

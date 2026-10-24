@@ -19,6 +19,7 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import math
+import re
 import uuid
 from decimal import Decimal
 
@@ -530,6 +531,75 @@ class TestHistorySummary:
         summary = _history_summary(db_session, _PORTFOLIO_ID, _ASOF, budget=40)
 
         assert len(summary) <= 40
+
+    def test_large_book_keeps_digest_and_prints_whole_rounded_weights(
+        self, db_session
+    ) -> None:
+        """Full-precision optimizer weights must not crowd the digest out or get
+        clipped mid-number by the budget."""
+        tickers = [f"T{i:02d}" for i in range(30)]
+        PortfolioJournalRepository(db_session).upsert(
+            _PORTFOLIO_ID,
+            dt.date(2024, 1, 10),
+            run_id=None,
+            trades={"T00": {"weight": 0.002}},
+            allocation={t: (i + 1) / 465 for i, t in enumerate(tickers)},
+            drift={},
+            narrative="prior rebalance",
+        )
+        MarketJournalRepository(db_session).upsert_journal(
+            dt.date(2024, 1, 29),
+            macro_deltas={},
+            market_moves={},
+            news_themes={},
+            narrative="VIX spiked; risk-off",
+            source_counts={},
+        )
+
+        summary = _history_summary(db_session, _PORTFOLIO_ID, _ASOF)
+
+        assert len(summary) <= 800
+        assert "Traded: T00" in summary
+        assert "VIX spiked; risk-off" in summary
+        decimals = re.findall(r"T\d{2} (\d\.\d+)", summary)
+        assert len(decimals) == 30
+        assert {len(d.split(".")[1]) for d in decimals} == {4}
+
+    def test_oversized_book_drops_whole_entries_and_keeps_digest(
+        self, db_session
+    ) -> None:
+        """When even rounded weights overflow, whole smallest entries are dropped
+        (and counted) rather than cutting a number or the digest."""
+        tickers = [f"T{i:03d}" for i in range(150)]
+        PortfolioJournalRepository(db_session).upsert(
+            _PORTFOLIO_ID,
+            dt.date(2024, 1, 10),
+            run_id=None,
+            trades={"T000": {"weight": 0.002}},
+            allocation={t: (i + 1) / 11325 for i, t in enumerate(tickers)},
+            drift={},
+            narrative="prior rebalance",
+        )
+        MarketJournalRepository(db_session).upsert_journal(
+            dt.date(2024, 1, 29),
+            macro_deltas={},
+            market_moves={},
+            news_themes={},
+            narrative="VIX spiked; risk-off",
+            source_counts={},
+        )
+
+        summary = _history_summary(db_session, _PORTFOLIO_ID, _ASOF)
+
+        assert len(summary) <= 800
+        assert "VIX spiked; risk-off" in summary
+        assert "Traded: T000" in summary
+        shown = re.findall(r"T\d{3} (\d\.\d+)", summary)
+        assert 0 < len(shown) < 150
+        assert {len(d.split(".")[1]) for d in shown} == {4}
+        # The largest weight survives; the dropped tail is announced, not clipped.
+        assert "T149" in summary
+        assert f"+{150 - len(shown)} more" in summary
 
     def test_ignores_overlay_dated_on_or_after_asof(self, db_session) -> None:
         """Only a strictly-prior rebalance counts (no look-ahead / self-reference)."""
