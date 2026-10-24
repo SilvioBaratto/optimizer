@@ -1909,7 +1909,7 @@ class ShellApp(App[None]):
                         base_currency=(
                             mandate.base_currency if mandate is not None else None
                         ),
-                        lookback_days=(run.optimizer_config or {}).get("lookback_days"),
+                        lookback_days=_recorded_train_size(run.optimizer_config),
                     )
                 else:
                     weights = repo.latest_optimizer_weights(run_id)
@@ -2709,6 +2709,15 @@ _ASK_SYSTEM = (
     "grounded FUND STATE context below. Be concise and specific; if the context does "
     "not contain the answer, say so plainly rather than speculating."
 )
+
+
+def _recorded_train_size(optimizer_config: dict[str, Any] | None) -> int | None:
+    """The backtest training window a run recorded, or ``None`` if it recorded none.
+
+    Runs opened before the key was renamed carry it as ``lookback_days``.
+    """
+    config = optimizer_config or {}
+    return config.get("backtest_train_size", config.get("lookback_days"))
 
 
 def _answer_text(message: Any) -> str:

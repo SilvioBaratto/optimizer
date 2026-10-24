@@ -83,8 +83,10 @@ __all__ = [
 # response bodies.
 _RUN_ERROR_MAX_CHARS = 2000
 
-# The moments/backtest lookback recorded on every run (the ``RunContext.lookback_days``
-# default — 3y rolling, ~756 trading days).
+# The backtest's rolling training window recorded on every run (the
+# ``RunContext.lookback_days`` default — 3y, ~756 trading days). Moments and the
+# optimiser fit on the full history up to ``asof``, so the record names only the
+# backtest as applying it.
 _LOOKBACK_DAYS = DEFAULT_LOOKBACK_DAYS
 
 # One-line descriptions the PM reads (via the built-in ``task`` tool) to decide
@@ -1548,7 +1550,7 @@ def _prepare_fund_run(
         optimizer_config={
             "step": "fund",
             "temperature": config.model_temperature,
-            "lookback_days": _LOOKBACK_DAYS,
+            "backtest_train_size": _LOOKBACK_DAYS,
             # Recorded so the rebuild-to-resume path sizes the ticket at the capital
             # the PM was told, even if the mandate is edited before approval.
             "capital": float(mandate.capital),

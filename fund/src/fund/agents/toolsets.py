@@ -246,11 +246,13 @@ def _append_allocator_decision(
     *,
     universe: list[str],
     missing: list[str],
+    n_observations: int,
 ) -> None:
     """Append the allocator's optimize decision: constraint set + the effective
     (applied) optimizer config + the optimizer's weights (never model-emitted) and
-    their in-sample metrics + the universe it was given and the tickers it had to drop
-    for lack of prices."""
+    their in-sample metrics + the universe it was given, the tickers it had to drop
+    for lack of prices and the number of return observations it fitted on (the window
+    actually applied)."""
     from fund.audit import AgentRunRepository
 
     payload = json.dumps(
@@ -260,6 +262,7 @@ def _append_allocator_decision(
             "metrics": metrics,
             "universe": universe,
             "missing": missing,
+            "n_observations": n_observations,
         },
         sort_keys=True,
         default=str,
@@ -407,6 +410,7 @@ def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
             result["data"]["metrics"],
             universe=list(universe),
             missing=list(result["data"]["missing"]),
+            n_observations=int(result["data"]["n_observations"]),
         )
         # ``assets`` is what the optimiser fitted over; the requested ``universe`` also
         # holds the tickers it dropped for lack of prices.

@@ -11,13 +11,15 @@ LLM, zero network — a ``MemorySaver`` + ``InMemoryStore`` + the in-memory
 
 Covers: pause at the gate, approve/reject outcomes, the missing-ConstraintSet guard,
 the blocking risk gate (executor un-invoked, no ticket), the delegation round cap
-(incomplete), and the reproducibility record (seed + temperature=0 + 3y lookback).
+(incomplete), and the reproducibility record (seed + temperature=0 + 3y backtest
+window).
 """
 
 from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import json
 import math
 import re
 import uuid
@@ -1088,10 +1090,10 @@ def test_a_round_that_errors_does_not_rearm_an_already_spent_first_round_gate(
     assert state.first_round_gated is False
 
 
-# --- reproducibility: seed + temperature=0 + 3y lookback -----------
+# --- reproducibility: seed + temperature=0 + 3y backtest window -----------
 
 
-def test_records_seed_temperature_and_lookback(db_session) -> None:
+def test_records_seed_temperature_and_backtest_window(db_session) -> None:
     _seed_panel(db_session)
     expected = _expected_weights(db_session)
     model = ScriptedFundModel(universe=_UNIVERSE, weights=expected)
@@ -1101,8 +1103,8 @@ def test_records_seed_temperature_and_lookback(db_session) -> None:
     created = AgentRunRepository(db_session).get_run(run.run_id)
     assert created.seed is not None
     assert created.optimizer_config["temperature"] == 0.0
-    assert created.optimizer_config["lookback_days"] == 756
-    # The run-config lookback matches the RunContext default it is threaded through.
+    assert created.optimizer_config["backtest_train_size"] == 756
+    # The recorded window matches the RunContext default it is threaded through.
     ctx = RunContext(
         session=db_session,
         asof=_ASOF,
@@ -1111,7 +1113,31 @@ def test_records_seed_temperature_and_lookback(db_session) -> None:
         run_id=run.run_id,
         portfolio_id=_PORTFOLIO_ID,
     )
-    assert ctx.lookback_days == created.optimizer_config["lookback_days"]
+    assert ctx.lookback_days == created.optimizer_config["backtest_train_size"]
+
+
+def test_run_record_states_only_the_window_the_tools_apply(db_session) -> None:
+    """``estimate_moments`` and ``optimize_portfolio`` use the full stored history up to
+    ``asof``; only the backtest takes the run's rolling window. The run record must not
+    claim a ``lookback_days`` the optimiser never applied, and the observations the
+    allocator really fitted on are audited."""
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=expected)
+
+    run = _run(model, db_session, store=_store_with_cs())
+
+    config = AgentRunRepository(db_session).get_run(run.run_id).optimizer_config
+    assert "lookback_days" not in config
+    default_window = next(
+        f.default for f in dataclasses.fields(RunContext) if f.name == "lookback_days"
+    )
+    assert config["backtest_train_size"] == default_window
+    (allocator,) = [
+        d for d in _decisions(db_session, run.run_id) if d.agent == "allocator"
+    ]
+    fitted = optimize_portfolio(db_session, _ASOF, _UNIVERSE)["data"]["n_observations"]
+    assert json.loads(allocator.llm_response)["n_observations"] == fitted
 
 
 def test_default_run_seed_fits_postgres_signed_integer(
