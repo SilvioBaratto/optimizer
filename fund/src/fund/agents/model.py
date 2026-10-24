@@ -434,7 +434,9 @@ def _build_huggingface(config: FundConfig, model_name: str) -> BaseChatModel:
     ``max_tokens`` is set explicitly, both on the wrapper itself: ``ChatHuggingFace``
     inherits endpoint properties only when truthy, so a ``0.0`` temperature would be
     dropped and the endpoint's 512-token default would cap every completion.
-    ``reasoning=`` is Ollama-only and is never passed here.
+    The token is cleared from the endpoint's own field once its clients are built, so
+    it never shows up in ``repr`` or the serialized form. ``reasoning=`` is
+    Ollama-only and is never passed here.
     """
     if config.hf_mode != "cloud":
         raise RuntimeError(
@@ -453,6 +455,10 @@ def _build_huggingface(config: FundConfig, model_name: str) -> BaseChatModel:
         "max_new_tokens": _MAX_COMPLETION_TOKENS,
     }
     endpoint = HuggingFaceEndpoint(**endpoint_kwargs)
+    # The endpoint hands the token to its HTTP clients while it validates, and never
+    # reads the field again. Left in place it appears in repr(model), which LangChain
+    # uses as the serialized form it passes every callback and tracer.
+    endpoint.huggingfacehub_api_token = None
     return ChatHuggingFace(
         llm=endpoint,
         model_id=model_name,

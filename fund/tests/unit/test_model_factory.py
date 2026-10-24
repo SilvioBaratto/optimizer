@@ -1137,6 +1137,28 @@ def test_huggingface_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):
     assert "reasoning" not in llm.llm.kwargs
 
 
+def test_huggingface_token_is_absent_from_repr_and_serialized_form():
+    # HuggingFaceEndpoint keeps the token in a plain `str` field, and LangChain
+    # falls back to repr() as the serialized form it hands every tracer and log.
+    token = "hf-secret-token-value"  # noqa: S105 (test fixture, not a secret)
+    cfg = FundConfig(llm_provider="huggingface", hf_api_token=token)
+
+    llm = model.build_chat_model(cfg, model_name="meta-llama/Meta-Llama-3-8B-Instruct")
+
+    assert token not in repr(llm)
+    assert token not in json.dumps(dumpd(llm), default=str)
+
+
+def test_huggingface_clients_stay_authenticated_after_the_token_is_hidden():
+    token = "hf-secret-token-value"  # noqa: S105 (test fixture, not a secret)
+    cfg = FundConfig(llm_provider="huggingface", hf_api_token=token)
+
+    llm = model.build_chat_model(cfg, model_name="meta-llama/Meta-Llama-3-8B-Instruct")
+
+    assert llm.llm.client.token == token
+    assert llm.llm.async_client.token == token
+
+
 # --- temperature is sent only to models that accept it -----------------------
 #
 # Anthropic's Fable family and OpenAI's o-series reject a non-default sampling
