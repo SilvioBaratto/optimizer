@@ -6,6 +6,11 @@ On-demand support for `rebalancing-execution`. Points to the theory; never copie
 - Portfolio instability → revise only when worthwhile: `07:70`, `07:82`, `07:197`.
 - Turnover from signal decay; trade PARTIALLY toward the aim portfolio: `11:14`,
   `11:133`, `11:135`, `11:155`.
+- Implementation status: the optimizer is plain long-only minimum-variance — no
+  `transaction_costs`, no `previous_weights`, and `l1_coef` is constant under
+  long-only budget 1 (the L1 norm equals the budget) — so no turnover term shapes the
+  weights. The band only decides whether a run is proposed; the committed ticket is
+  always the full target book.
 
 ## How to trade: cost-aware execution
 - Implementation shortfall & market impact: `22:14`.

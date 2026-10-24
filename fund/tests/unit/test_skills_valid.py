@@ -627,3 +627,17 @@ def test_rebalancing_execution_reference_documents_the_no_fill_bar_outcome():
     assert "no fill bar" in text
     assert "incomplete" in text
     assert "holdings" in text
+
+
+def test_rebalancing_execution_does_not_claim_a_turnover_penalty():
+    # ``optimize_portfolio`` is a plain long-only solve: no ``previous_weights``, no
+    # ``transaction_costs``, and ``l1_coef`` is constant under long-only budget 1. A
+    # skill that says the optimizer penalised turnover gives the adviser a false
+    # rationale for a full-book ticket.
+    for fname in ("SKILL.md", "reference.md"):
+        assert "turnover penalty" not in _read("rebalancing-execution", fname).lower()
+    skill = re.sub(r"\s+", " ", _read("rebalancing-execution", "SKILL.md")).lower()
+    assert "no turnover control" in skill
+    assert "full target book" in skill
+    reference = re.sub(r"\s+", " ", _read("rebalancing-execution", "reference.md"))
+    assert "no turnover term" in reference.lower()

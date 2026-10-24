@@ -1277,6 +1277,33 @@ def test_optimize_resolves_the_profile_when_the_store_entry_is_lost(
     assert decision.constraint_set["a_gamma"] == 7.0
 
 
+def test_optimize_applies_no_turnover_term_even_when_the_mandate_maps_one(
+    db_session,
+) -> None:
+    """The rebalancing-execution skill says no turnover control is applied. Pin it:
+    a mapped ``l1_coef`` never reaches the optimizer and no transaction cost is set,
+    so nothing in the optimize step trades off turnover against the book."""
+    _seed_panel(db_session)
+    cs = _constraint_set(l1_coef=0.5)
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+
+    result = _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
+        {"universe": _UNIVERSE}
+    )
+
+    assert result["ok"] is True
+    (decision,) = (
+        db_session.execute(
+            select(AgentDecision).where(AgentDecision.agent == "allocator")
+        )
+        .scalars()
+        .all()
+    )
+    logged = json.loads(decision.llm_response)["optimizer_config"]
+    assert logged["l1_coef"] == 0.0
+    assert logged["transaction_costs"] == 0.0
+
+
 def test_optimize_without_store_uses_default_constraints(db_session) -> None:
     _seed_panel(db_session)
     ctx = _make_context(db_session, store=None)  # no CS to resolve

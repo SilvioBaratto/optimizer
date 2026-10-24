@@ -2,10 +2,10 @@
 name: rebalancing-execution
 description: |
   Translate approved target weights into a paper rebalance proposal under the
-  mandate's drift band (L1) and an L1 turnover penalty, for the PM to commit behind
-  human approval. Use when the executor must rebalance from current to target
-  holdings. Emits a proposal only; it never re-optimizes or invents weights, and
-  never places live (real-money) trades.
+  mandate's drift band (L1), for the PM to commit behind human approval. Use when
+  the executor must rebalance from current to target holdings. Emits a proposal
+  only; it never re-optimizes or invents weights, and never places live
+  (real-money) trades.
 ---
 
 # Rebalancing & execution (paper, HITL)
@@ -19,7 +19,7 @@ After `risk-limits-check` passes, at the end of a run.
 
 ## Load-bearing rule
 The target weights come from the optimizer, not the LLM. The executor only turns the
-current→target delta into orders under the band + turnover penalty. Never re-weight.
+current→target delta into a proposal under the drift band. Never re-weight.
 
 ## Procedure
 1. Take the target weights, the portfolio's `current_holdings` (the PM reads them with
@@ -29,8 +29,10 @@ current→target delta into orders under the band + turnover penalty. Never re-w
 2. Compute drift = L1 sum of |current - target|. If below the drift band you were
    handed, recommend SKIP — churn is not free. With no holdings (a first rebalance)
    there is nothing to drift from: skip the band test and propose the full target.
-3. If over the band, size the trade toward target with the L1 turnover penalty (a
-   partial move; the optimizer already applied the penalty in the objective).
+3. If over the band, present the per-name current→target deltas as the proposal. The
+   PM commits the optimizer's full target book, not a netted or partial move:
+   `place_orders` takes no holdings or band input and books the audited weights as
+   they are.
 4. Report the proposal for the PM: the per-name deltas, the drift, and the band
    verdict. The PM commits it with its own `place_orders` — an idempotent paper
    ticket, gated by HITL (`interrupt_on`) that writes only on approval. You never
@@ -41,7 +43,10 @@ current→target delta into orders under the band + turnover penalty. Never re-w
 - Never re-optimize or emit new target weights; never place live trades (paper only).
 - Never trade inside the drift band; never bypass the HITL gate on the PM's
   `place_orders`.
+- No turnover control is applied: the optimizer is a plain long-only MeanRisk solve
+  with no previous weights or transaction costs, so never describe a proposal as
+  turnover-penalised or as a staged step toward the target.
 
 ## Deeper detail
-The drift band, turnover math, and the fill model live in `reference.md`
+The drift band and turnover theory, and the fill model, live in `reference.md`
 (theory `22`, `11`, `07`, `30`).
