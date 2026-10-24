@@ -148,8 +148,9 @@ def apply_action(
         model: Chat model the resumed or driven run uses.
         mandate: The ``fund.schemas.mandate.PortfolioMandate`` to upsert
             (``mandate_edit`` / ``new_portfolio``) or run (``run``).
-        questionnaire: Free-text/typed MiFID answers the profiler normalises
-            (``profile`` only).
+        questionnaire: MiFID answers for the profiler (``profile`` only): free text it
+            normalises via the LLM, or a ``MiFIDAnswers`` (instance or JSON) it uses
+            verbatim.
         asof: Decision bar for a ``profile`` / ``run`` drive; a ``run`` defaults to
             the newest bar with a stored close after it (``default_decision_bar``).
         base_currency: Reporting currency override for the ``profile`` drive.

@@ -309,7 +309,12 @@ def mandate_show(
 def profile(
     portfolio_id: str = typer.Argument(..., help="Portfolio UUID."),
     answers: str = typer.Option(
-        ..., "--answers", help="Free-text MiFID questionnaire answers."
+        ...,
+        "--answers",
+        help=(
+            "Free-text MiFID questionnaire answers (read by the LLM), or a "
+            "MiFIDAnswers JSON used verbatim with no LLM extraction."
+        ),
     ),
     base_currency: str | None = typer.Option(None, "--base-currency"),
     asof: str | None = typer.Option(None, "--asof", help="ISO date; default today."),

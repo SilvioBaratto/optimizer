@@ -34,6 +34,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
+from pydantic import ValidationError
+
 from fund.agents.backend import build_backend
 from fund.agents.prompts import PROFILER_SYSTEM_PROMPT
 from fund.agents.skills import skill_sources
@@ -483,6 +485,41 @@ def _extraction_messages(questionnaire: Any) -> Any:
     ]
 
 
+def _typed_answers(questionnaire: Any) -> MiFIDAnswers | None:
+    """The questionnaire as typed answers when it already is a ``MiFIDAnswers``.
+
+    A validated form (the TUI hands over ``MiFIDAnswers.model_dump_json()``) must
+    not be re-read by an LLM: a schema-valid but drifted copy (a dropped ESG
+    exclusion, a different loss capacity) would be accepted and persisted in place
+    of what the client declared. Anything that is not a complete ``MiFIDAnswers``
+    is free text and still goes through extraction.
+    """
+    if isinstance(questionnaire, MiFIDAnswers):
+        return questionnaire
+    if isinstance(questionnaire, str):
+        try:
+            return MiFIDAnswers.model_validate_json(questionnaire)
+        except ValidationError:
+            return None
+    return None
+
+
+def _answers_summary(answers: MiFIDAnswers) -> str:
+    """One-line rendering of all four pillars for the adviser at the HITL gate."""
+    exclusions = ", ".join(s.value for s in answers.esg.exclusions) or "none"
+    likert = ", ".join(str(item) for item in answers.objectives.likert_items)
+    return (
+        f"Answers: knowledge {answers.knowledge.level.value}; "
+        f"goal {answers.objectives.goal.value}, "
+        f"horizon {answers.objectives.horizon.value}, "
+        f"loss reaction {answers.objectives.loss_reaction.value}, "
+        f"likert {likert}; "
+        f"max 1y loss {answers.capacity.max_1yr_loss_pct * 100:g}%, "
+        f"buffer {answers.capacity.buffer_months:g} months; "
+        f"ESG exclusions: {exclusions}."
+    )
+
+
 def _prompt_text(questionnaire: Any) -> str:
     """A stable string rendering of the questionnaire input for the audit trail."""
     if isinstance(questionnaire, str):
@@ -502,15 +539,34 @@ def _persist_instruction(portfolio_id: str) -> str:
     )
 
 
+def _currency_summary(base_currency: str, answers: MiFIDAnswers) -> str:
+    """The reporting currency the profile will be written with.
+
+    It is the effective ``ConstraintSet`` currency, which an adviser override can
+    make differ from the extracted answer; the gate names both so neither is
+    approved unseen.
+    """
+    if base_currency == answers.base_currency:
+        return f"base currency {base_currency}"
+    return f"base currency {base_currency} (answers say {answers.base_currency})"
+
+
 def _interrupt_description(
-    portfolio_id: str, suitability: SuitabilityAssessment
+    portfolio_id: str, suitability: SuitabilityAssessment, base_currency: str
 ) -> str:
-    """The HITL pause message — surfaces the band + any inconsistency flags."""
+    """The HITL pause message — the band, the flags and the answers behind them.
+
+    The adviser approves what is written to the regulated suitability record, so
+    the interpreted answers and the currency the set is written in (not just the
+    derived band) must be on the gate.
+    """
     flags = ", ".join(suitability.inconsistency_flags) or "none"
     return (
         f"Persist MiFID suitability profile for portfolio {portfolio_id}. "
         f"Risk band {suitability.band.value}; a_gamma {suitability.a_gamma:g}; "
         f"inconsistency flags: {flags}. "
+        f"{_answers_summary(suitability.answers)} "
+        f"{_currency_summary(base_currency, suitability.answers)}. "
         f"Approve to write the profile, or reject to discard."
     )
 
@@ -717,8 +773,10 @@ def run_profiler(
 ) -> ProfilerRun:
     """Run the MiFID profiler to the adviser-confirmation gate (runtime step 0).
 
-    Orchestrates: (1) normalise free-text ``questionnaire`` answers into a typed
-    ``MiFIDAnswers`` via ``structured_call`` (retry once, then ``fallback``);
+    Orchestrates: (1) obtain a typed ``MiFIDAnswers`` — a ``questionnaire`` that
+    already is one (an instance, or its JSON as the TUI form hands it over) is used
+    verbatim with no LLM call, while free text is normalised via ``structured_call``
+    (retry once, then ``fallback``);
     (2) run the deterministic mapping (``run_mapping`` → ``ConstraintSet`` +
     ``SuitabilityAssessment``; an ESG/legal breach raises ``SuitabilityBreachError``
     and blocks before any write); (3) build the ``deepagents`` agent and invoke it
@@ -750,20 +808,23 @@ def run_profiler(
     resolved_thread_id = thread_id or str(run.id)
     audit.set_thread_id(run.id, resolved_thread_id)
 
-    answers = structured_call(
-        model,
-        MiFIDAnswers,
-        _extraction_messages(questionnaire),
-        method=config.structured_output_method,
-        retries=1,
-        fallback=fallback,
-    )
+    answers = _typed_answers(questionnaire)
+    typed = answers is not None
+    if answers is None:
+        answers = structured_call(
+            model,
+            MiFIDAnswers,
+            _extraction_messages(questionnaire),
+            method=config.structured_output_method,
+            retries=1,
+            fallback=fallback,
+        )
     answers_json = answers.model_dump_json()
     audit.append_decision(
         run.id,
         agent="profiler",
         step="normalize_answers",
-        llm_prompt=_prompt_text(questionnaire),
+        llm_prompt=None if typed else _prompt_text(questionnaire),
         llm_response=answers_json,
         llm_response_hash=_hash(answers_json),
     )
@@ -799,7 +860,9 @@ def run_profiler(
     )
     interrupt_config = {
         "allowed_decisions": ["approve", "reject"],
-        "description": _interrupt_description(pid_str, suitability),
+        "description": _interrupt_description(
+            pid_str, suitability, constraint_set.base_currency
+        ),
     }
     agent = build_profiler_agent(
         model,
@@ -926,7 +989,9 @@ def resume_profiler(
     )
     interrupt_config = {
         "allowed_decisions": ["approve", "reject"],
-        "description": _interrupt_description(pid_str, suitability),
+        "description": _interrupt_description(
+            pid_str, suitability, constraint_set.base_currency
+        ),
     }
     agent = build_profiler_agent(
         model,

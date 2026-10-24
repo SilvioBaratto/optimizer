@@ -111,6 +111,120 @@ def test_falls_back_when_primary_normalisation_is_exhausted(db_session):
     assert fallback.structured_invoke_calls == 1
 
 
+# --- typed questionnaire input is never re-interpreted by the LLM ------------
+
+
+def _declared_answers():
+    # What the adviser typed into the form: an ESG hard-block, a tight loss
+    # capacity and a cautious Likert profile.
+    return make_answers(likert=(2, 3), max_loss=0.10, exclusions=(GicsSector.ENERGY,))
+
+
+def _drifted_answers():
+    # A schema-valid but wrong re-extraction: the exclusion is dropped, the loss
+    # capacity quadruples and the attitude inflates.
+    return make_answers(likert=(5, 6), max_loss=0.40)
+
+
+def test_typed_answers_json_skips_the_llm_and_is_used_verbatim(db_session):
+    pid = uuid.uuid4()
+    declared = _declared_answers()
+    model = make_model(_drifted_answers(), portfolio_id=str(pid))
+
+    run = run_profiler(
+        model,
+        declared.model_dump_json(),
+        portfolio_id=pid,
+        session=db_session,
+        checkpointer=MemorySaver(),
+    )
+
+    assert run.answers == declared
+    assert model.structured_invoke_calls == 0
+    assert run.constraint_set.esg.exclusions == (GicsSector.ENERGY,)
+
+
+def test_typed_answers_are_what_the_approved_profile_persists(db_session):
+    pid = uuid.uuid4()
+    declared = _declared_answers()
+    model = make_model(_drifted_answers(), portfolio_id=str(pid))
+
+    run = run_profiler(
+        model,
+        declared.model_dump_json(),
+        portfolio_id=pid,
+        session=db_session,
+        checkpointer=MemorySaver(),
+        store=InMemoryStore(),
+    )
+    run.resume("approve")
+
+    profile = MifidProfileRepository(db_session).get_active(pid)
+    assert profile.questionnaire == declared.model_dump(mode="json")
+
+
+def test_non_answer_text_still_goes_through_the_llm(db_session):
+    pid = uuid.uuid4()
+    answers = make_answers()
+    model = make_model(answers, portfolio_id=str(pid))
+
+    run = run_profiler(
+        model,
+        "I am fairly relaxed about risk, my horizon is ten years.",
+        portfolio_id=pid,
+        session=db_session,
+        checkpointer=MemorySaver(),
+    )
+
+    assert run.answers == answers
+    assert model.structured_invoke_calls == 1
+
+
+def test_gate_description_shows_all_four_pillars_of_the_answers(db_session):
+    pid = uuid.uuid4()
+    answers = _declared_answers()
+    model = make_model(answers, portfolio_id=str(pid))
+
+    run = _run(model, db_session, portfolio_id=pid)
+
+    description = run.interrupt["action_requests"][0]["description"]
+    assert "ESG exclusions: energy" in description
+    assert "max 1y loss 10%" in description
+    assert "knowledge informed" in description
+    assert "goal growth" in description
+    assert "horizon long" in description
+    assert "likert 2, 3" in description
+
+
+def test_gate_description_shows_the_base_currency_that_will_be_written(db_session):
+    pid = uuid.uuid4()
+    model = make_model(make_answers(currency="EUR"), portfolio_id=str(pid))
+
+    run = _run(model, db_session, portfolio_id=pid)
+
+    description = run.interrupt["action_requests"][0]["description"]
+    assert "base currency EUR" in description
+
+
+def test_gate_description_flags_an_overridden_base_currency(db_session):
+    pid = uuid.uuid4()
+    model = make_model(make_answers(currency="EUR"), portfolio_id=str(pid))
+
+    run = run_profiler(
+        model,
+        _MESSAGES,
+        portfolio_id=pid,
+        session=db_session,
+        checkpointer=MemorySaver(),
+        base_currency="USD",
+    )
+
+    description = run.interrupt["action_requests"][0]["description"]
+    assert "base currency USD" in description
+    assert "answers say EUR" in description
+    assert run.constraint_set.base_currency == "USD"
+
+
 # --- per-provider structured-output method ----------------------------------
 
 
