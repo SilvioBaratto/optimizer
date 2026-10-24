@@ -1468,6 +1468,36 @@ async def test_mandate_save_run_policy_persists_and_logs(shell_env) -> None:
 
 
 @pytest.mark.asyncio
+async def test_mandate_invalid_capital_reports_on_status_line_without_crashing(
+    shell_env,
+) -> None:
+    # pydantic's error text carries "[type=..., input_value=..., input_type=...]",
+    # which a markup-parsing status line rejects (MarkupError) and kills the cockpit.
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-capital", Input).value = "-5"
+        app.action_save_mandate()
+        await pilot.pause()
+        assert app.last_status.startswith("invalid mandate")
+        shown = str(app.query_one("#status-bar", Static).render())
+        assert shown == app.last_status  # bracketed pydantic detail survives verbatim
+        assert "[type=" in shown
+
+
+@pytest.mark.asyncio
+async def test_status_bar_renders_bracketed_text_verbatim(shell_env) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        message = "cash [5%] left; missing key [OLLAMA_API_KEY]; bad [/INST] tag"
+        app._set_status(message)
+        await pilot.pause()
+        assert str(app.query_one("#status-bar", Static).render()) == message
+
+
+@pytest.mark.asyncio
 async def test_mandate_guardrail_override_out_of_band_flags_and_logs(shell_env) -> None:
     # Suitability ceiling is balanced; proposing aggressive sits out of band (flag it).
     _seed_mandate_and_profile(shell_env, band="balanced")
@@ -4315,6 +4345,28 @@ async def test_decisions_edit_steer_inert_without_selection(tui_env) -> None:
         app.action_steer_decision()
         await pilot.pause()
         assert not isinstance(app.screen, BargeInScreen)
+
+
+@pytest.mark.asyncio
+async def test_decisions_edit_error_shows_typed_brackets_verbatim(tui_env) -> None:
+    # _parse_weights echoes the adviser's text via !r; a markup-parsing error line
+    # rejects "[/x]" (MarkupError) and drops "[AAPL]", killing the weight editor.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_edit_decision()
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, OrderEditScreen)
+        for typed in ("[/x]", "[AAPL]"):
+            screen.query_one("#edit-weights", Input).value = typed
+            screen._submit()
+            await pilot.pause()
+            assert isinstance(app.screen, OrderEditScreen)  # editor stays open
+            shown = str(screen.query_one("#edit-error", Static).render())
+            assert typed in shown
 
 
 def test_parse_weights_rejects_garbage_and_parses_pairs() -> None:
