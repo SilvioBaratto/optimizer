@@ -198,7 +198,19 @@ class RiskVerdict:
 
 # breach ⊐ warn ⊐ ok: one hard-bound violation outranks any number of budget ones,
 # because a name/exposure breach is actionable where an off-target budget is advisory.
-_HARD = frozenset({"min_weight", "max_weight", "non_finite"})
+_HARD = frozenset(
+    {
+        "min_weight",
+        "max_weight",
+        "non_finite",
+        # Mandate-screen breaches (``fund.tools.mandate``): a forbidden holding is a
+        # hard stop, never an advisory budget gap.
+        "esg_exclusion",
+        "unclassified_sector",
+        "leveraged_instrument",
+        "complex_instrument",
+    }
+)
 
 
 def risk_verdict(violations: list[dict[str, Any]]) -> RiskVerdict:

@@ -1,8 +1,10 @@
-"""Unit tests for the stdlib-only daily-brief attribution bar-meter."""
+"""Unit tests for the stdlib-only readout helpers (bar-meter, risk verdict)."""
 
 from __future__ import annotations
 
-from fund.tui.readouts import attribution_bar
+import pytest
+
+from fund.tui.readouts import attribution_bar, risk_verdict
 
 
 def test_bar_meter_largest_magnitude_fills_the_width():
@@ -40,3 +42,19 @@ def test_bar_meter_clamps_to_the_requested_width():
 def test_bar_meter_nonpositive_scale_is_empty():
     """A non-positive scale yields an empty meter rather than dividing by zero."""
     assert attribution_bar(0.31, 0.0, width=10) == ""
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "esg_exclusion",
+        "unclassified_sector",
+        "leveraged_instrument",
+        "complex_instrument",
+    ],
+)
+def test_risk_verdict_reads_a_mandate_screen_violation_as_a_breach(kind):
+    """A forbidden holding must never render as an ok or advisory verdict."""
+    verdict = risk_verdict([{"type": kind, "asset": "AAA"}])
+
+    assert verdict.label == "breach"
