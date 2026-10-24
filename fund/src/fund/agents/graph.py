@@ -945,6 +945,7 @@ class FundRun:
     agent: Any = field(repr=False, compare=False)
     thread_config: dict[str, Any] = field(repr=False, compare=False)
     session: Any = field(repr=False, compare=False)
+    ctx: Any = field(default=None, repr=False, compare=False)
 
     def resume(
         self, decision: str, *, pm_directive: str | None = None
@@ -984,7 +985,14 @@ class FundRun:
         if run.portfolio_id is None:
             raise ValueError(f"agent_run {self.run_id} has no portfolio_id")
         approved_weights = _optimizer_weights(self.session, self.run_id)
-        result = _resume_agent(self.agent, self.thread_config, decision, pm_directive)
+        result = _resume_gate(
+            self.agent,
+            self.ctx,
+            self.thread_config,
+            decision=decision,
+            pm_directive=pm_directive,
+            approved_weights=approved_weights,
+        )
         if decision == "respond":
             _finalize_respond(
                 self.session,
@@ -1093,6 +1101,82 @@ def _resume_agent(
         config=thread_config,
     )
     return result
+
+
+def _gate_consumed(agent: Any, thread_config: dict[str, Any]) -> bool:
+    """Whether the thread already ran its ``place_orders`` call and moved past the gate.
+
+    A gate decision is one-shot: once the checkpoint has advanced past the interrupt, a
+    second ``Command(resume=...)`` replays nothing. A failed approve leaves exactly
+    that behind when a later step of the same resume (the finalisation, the caller's
+    commit) raises after ``place_orders`` ran. The caller then rolls the SQL session
+    back and the ticket is gone, but the LangGraph saver commits each superstep on its
+    own connection, so the checkpoint keeps the call.
+    """
+    state = agent.get_state(thread_config)
+    if state.interrupts:
+        return False
+    messages = (state.values or {}).get("messages") or []
+    return any(
+        getattr(m, "type", None) == "tool"
+        and getattr(m, "name", None) == "place_orders"
+        for m in messages
+    )
+
+
+def _replace_consumed_ticket(ctx: Any, weights: dict[str, float]) -> None:
+    """Place the approved ticket directly for a gate an earlier attempt consumed.
+
+    Resuming a consumed gate cannot reach ``place_orders`` again, so a retried approve
+    would otherwise dead-end on a missing ticket. The placement is the one the gate
+    would have run (audited weights, mandate capital, risk-gate and mandate checks,
+    executor decision) and is idempotent: an existing ticket is left alone.
+
+    Raises:
+        RuntimeError: The placement was refused (e.g. still no fill bar after the
+            decision date); nothing was written.
+    """
+    from fund.agents.toolsets import place_audited_orders
+
+    if _ticket_placed(
+        ctx.session,
+        run_id=ctx.run_id,
+        portfolio_id=ctx.portfolio_id,
+        asof=ctx.asof,
+        weights=weights,
+    ):
+        return
+    outcome = place_audited_orders(ctx)
+    if not outcome.get("ok"):
+        raise RuntimeError(
+            f"approve could not place the paper ticket: {outcome.get('error')}"
+        )
+
+
+def _resume_gate(
+    agent: Any,
+    ctx: Any,
+    thread_config: dict[str, Any],
+    *,
+    decision: str,
+    pm_directive: str | None,
+    approved_weights: dict[str, float],
+) -> dict[str, Any]:
+    """Resume the paused PM for a gate decision, shared by both resume routes.
+
+    An approve whose gate was already consumed by an earlier attempt that did not
+    survive (:func:`_gate_consumed`) has its ticket placed directly first, since the
+    resume can no longer reach ``place_orders``; every other decision is the plain
+    :func:`_resume_agent`. ``ctx`` is ``None`` for a handle built without one, which
+    skips the consumed-gate recovery.
+    """
+    if (
+        ctx is not None
+        and decision == "approve"
+        and _gate_consumed(agent, thread_config)
+    ):
+        _replace_consumed_ticket(ctx, approved_weights)
+    return _resume_agent(agent, thread_config, decision, pm_directive)
 
 
 def _finalize_respond(
@@ -1224,6 +1308,7 @@ class _FundRunSetup:
     constraint_set: ConstraintSet = field(repr=False, compare=False)
     seed_input: dict[str, Any] = field(repr=False, compare=False)
     audit: Any = field(repr=False, compare=False)
+    ctx: Any = field(repr=False, compare=False)
 
 
 def _prepare_fund_run(
@@ -1369,6 +1454,7 @@ def _prepare_fund_run(
         constraint_set=constraint_set,
         seed_input=seed_input,
         audit=audit,
+        ctx=ctx,
     )
 
 
@@ -1442,6 +1528,7 @@ def run_fund(
             agent=agent,
             thread_config=thread_config,
             session=session,
+            ctx=setup.ctx,
         )
 
     interrupt = _extract_interrupt(result)
@@ -1461,6 +1548,7 @@ def run_fund(
             agent=agent,
             thread_config=thread_config,
             session=session,
+            ctx=setup.ctx,
         )
 
     if _halt_if_frozen(session, audit, run.id, _coerce_uuid(portfolio_id)):
@@ -1473,6 +1561,7 @@ def run_fund(
             agent=agent,
             thread_config=thread_config,
             session=session,
+            ctx=setup.ctx,
         )
 
     # Flip the row to "paused" so observers (CLI/TUI) can find awaiting-approval
@@ -1487,6 +1576,7 @@ def run_fund(
         agent=agent,
         thread_config=thread_config,
         session=session,
+        ctx=setup.ctx,
     )
 
 
@@ -1827,7 +1917,14 @@ def resume_fund(
     # optimizer decision off the weights the ticket was placed with.
     approved_weights = _optimizer_weights(session, rid)
     try:
-        result = _resume_agent(agent, thread_config, decision, pm_directive)
+        result = _resume_gate(
+            agent,
+            ctx,
+            thread_config,
+            decision=decision,
+            pm_directive=pm_directive,
+            approved_weights=approved_weights,
+        )
     except Exception as exc:
         # The checkpointer commits on its own connection while the ticket and
         # positions live in the caller's uncommitted session. If the PM's follow-up

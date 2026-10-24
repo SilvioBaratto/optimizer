@@ -564,6 +564,18 @@ def _place_orders_impl(ctx: RunContext) -> ToolResult:
     return result
 
 
+def place_audited_orders(ctx: RunContext) -> ToolResult:
+    """Place the run's paper ticket from its audited weights, outside the graph.
+
+    The same placement the gated ``place_orders`` tool performs (risk-gate and mandate
+    checks included), for an approve whose gate call was already consumed by an
+    earlier attempt that did not survive (see ``fund.agents.graph``): idempotent on the
+    ``(portfolio, asof, weights)`` key, so an existing ticket is returned rather than
+    re-placed.
+    """
+    return _place_orders_impl(ctx)
+
+
 @tool_envelope
 @_serialised
 def _get_regime_stats_impl(ctx: RunContext, tickers: list[str]) -> ToolResult:
@@ -870,4 +882,5 @@ __all__ = [
     "RunContext",
     "bind_toolset",
     "build_gate_weights_middleware",
+    "place_audited_orders",
 ]

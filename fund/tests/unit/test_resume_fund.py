@@ -15,6 +15,7 @@ Zero live LLM, zero network: ``ScriptedFundModel`` + ``MemorySaver`` +
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -904,7 +905,7 @@ def test_resume_fund_reraises_when_the_gate_was_not_consumed(
 
     class _DeadAgent:
         def get_state(self, *_args, **_kwargs):
-            return SimpleNamespace(interrupts=())
+            return SimpleNamespace(interrupts=(), values={})
 
         def invoke(self, *_args, **_kwargs):
             raise ConnectionError("checkpointer unreachable")
@@ -1035,6 +1036,98 @@ def test_fundrun_resume_approve_finalises_with_the_placed_ticket_weights(
     run.resume("approve")
 
     _assert_finalised_with_ticket_weights(db_session, run.run_id, expected)
+
+
+# --- a retried approve after the checkpoint already moved past the gate ------
+
+
+@contextlib.contextmanager
+def _rolled_back(db_session):
+    """Run the block as the caller's open transaction, then roll it back — what the CLI
+    and TUI do when an approve raises. A savepoint stands in for that transaction
+    because ``db_session`` shares one outer transaction across the whole test."""
+    savepoint = db_session.begin_nested()
+    try:
+        yield
+    finally:
+        savepoint.rollback()
+
+
+def _assert_retry_completed_with_ticket(db_session, run_id, expected) -> None:
+    (order,) = _paper_orders(db_session)
+    assert order.weights == expected
+    row = AgentRunRepository(db_session).get_run(run_id)
+    assert row.status == "completed"
+    assert row.weights == expected
+    assert _positions_map(db_session) == expected
+    executor = [
+        d
+        for d in _decisions(db_session, run_id)
+        if d.agent == "executor" and d.step == "place_orders"
+    ]
+    assert len(executor) == 1
+
+
+def test_resume_fund_retry_replaces_a_ticket_lost_with_the_rolled_back_session(
+    db_session,
+) -> None:
+    """``place_orders`` writes on the caller's session while the LangGraph saver commits
+    the checkpoint on its own connection. When the caller's transaction is lost after
+    the approve (a failed finalisation or commit) the ticket is gone but the checkpoint
+    has moved past the gate, so the retried approve replays nothing. It must place the
+    ticket again instead of dead-ending on "no paper ticket"."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+
+    with _rolled_back(db_session):
+        resume_fund(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        )
+    assert _paper_orders(db_session) == []
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
+    assert not observe._has_pending_interrupt(saver, str(run.run_id))
+
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    _assert_retry_completed_with_ticket(db_session, run.run_id, expected)
+
+
+def test_fundrun_resume_retry_replaces_a_ticket_lost_with_the_rolled_back_session(
+    db_session,
+) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        db_session,
+        MemorySaver(),
+        _store_with_cs(),
+    )
+
+    with _rolled_back(db_session):
+        run.resume("approve")
+    assert _paper_orders(db_session) == []
+
+    run.resume("approve")
+
+    _assert_retry_completed_with_ticket(db_session, run.run_id, expected)
 
 
 # --- _finalize_hitl unit surface: order_lines enrich the snapshot ------------
