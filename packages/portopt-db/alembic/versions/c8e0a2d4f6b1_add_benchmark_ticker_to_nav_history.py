@@ -7,7 +7,7 @@ return. ``benchmark_ticker`` tags each row with its benchmark so readers and the
 NAV-mark step can detect the mismatch. Nullable: rows written before this revision
 stay NULL (identity unknown) and are re-tagged by the next full re-mark.
 
-Revision ID: e9a1c3d5f7b2
+Revision ID: c8e0a2d4f6b1
 Revises: d8f0b2c4e6a1
 Create Date: 2026-10-24
 """
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "e9a1c3d5f7b2"
+revision: str = "c8e0a2d4f6b1"
 down_revision: str | Sequence[str] | None = "d8f0b2c4e6a1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None

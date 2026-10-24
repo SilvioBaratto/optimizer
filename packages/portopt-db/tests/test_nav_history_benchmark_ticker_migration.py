@@ -18,9 +18,9 @@ from sqlalchemy.pool import StaticPool
 
 MIGRATION_DIR = Path(__file__).parent / ".." / "alembic" / "versions"
 BASE_FILENAME = "d8f0b2c4e6a1_add_nav_history.py"
-MIGRATION_FILENAME = "e9a1c3d5f7b2_add_benchmark_ticker_to_nav_history.py"
+MIGRATION_FILENAME = "c8e0a2d4f6b1_add_benchmark_ticker_to_nav_history.py"
 
-EXPECTED_REVISION = "e9a1c3d5f7b2"
+EXPECTED_REVISION = "c8e0a2d4f6b1"
 EXPECTED_DOWN_REVISION = "d8f0b2c4e6a1"
 
 TABLE = "nav_history"
