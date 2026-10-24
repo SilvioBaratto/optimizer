@@ -21,10 +21,11 @@ a keyless ``settings`` makes that raise cleanly and the command exits non-zero.
 from __future__ import annotations
 
 import getpass
+import json
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
@@ -54,7 +55,12 @@ from typer.testing import CliRunner
 
 import fund.cli as cli
 from fund import observe
-from fund.audit import AgentRunRepository, MandateRepository, put_constraint_set
+from fund.audit import (
+    AgentRunRepository,
+    MandateRepository,
+    OrderRepository,
+    put_constraint_set,
+)
 from fund.audit.human_audit_repository import HumanAuditLogRepository
 from fund.config import FundConfig, settings
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
@@ -623,6 +629,106 @@ def test_report_renders_after_approve(harness, monkeypatch) -> None:
     assert str(run_id) in res.output
     assert "completed" in res.output
     assert any(ticker in res.output for ticker in expected)
+
+
+def _ticket_lines(output: str) -> list[str]:
+    return [ln for ln in output.splitlines() if ln.startswith("ticket ")]
+
+
+def _placed_ticket_id(harness):
+    with harness.read() as session:
+        (order,) = OrderRepository(session).list_for_portfolio(PORTFOLIO_ID)
+        session.rollback()
+        return order.id
+
+
+def test_report_shows_the_ticket_the_run_placed_not_the_portfolios_newest(
+    harness, monkeypatch
+) -> None:
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+    assert harness.runner.invoke(cli.app, ["approve", str(run_id)]).exit_code == 0
+    placed = _placed_ticket_id(harness)
+    with harness.read() as session:
+        # A later, unrelated ticket for the same portfolio (another run's approval).
+        later = OrderRepository(session).create(
+            portfolio_id=PORTFOLIO_ID,
+            asof=ASOF + timedelta(days=30),
+            weights_hash="later-run",
+            weights={"AAA": 1.0},
+            fill_date=ASOF + timedelta(days=31),
+            lines=[],
+            notional=777777.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+        # SQLite's CURRENT_TIMESTAMP has one-second resolution, so pin "newest".
+        later.created_at = datetime(2099, 1, 1)
+        session.commit()
+
+    res = harness.runner.invoke(cli.app, ["report", str(run_id)])
+
+    assert res.exit_code == 0, res.output
+    (line,) = _ticket_lines(res.output)
+    assert str(placed) in line
+    assert "777777" not in res.output
+
+
+def test_report_of_a_rejected_run_shows_no_ticket(harness, monkeypatch) -> None:
+    first, _expected, _res = _seed_and_run(harness, monkeypatch)
+    assert harness.runner.invoke(cli.app, ["approve", str(first)]).exit_code == 0
+    assert _placed_ticket_id(harness)  # the portfolio now has a filled ticket
+    again = harness.runner.invoke(
+        cli.app, ["run", str(PORTFOLIO_ID), "--asof", _ASOF_STR]
+    )
+    assert again.exit_code == 0, again.output
+    with harness.read() as session:
+        (second,) = AgentRunRepository(session).list_paused_runs(PORTFOLIO_ID)
+        second_id = second.id
+    assert harness.runner.invoke(cli.app, ["reject", str(second_id)]).exit_code == 0
+
+    res = harness.runner.invoke(cli.app, ["report", str(second_id)])
+
+    assert res.exit_code == 0, res.output
+    assert "rejected" in res.output
+    assert _ticket_lines(res.output) == []
+    assert "no ticket for this run" in res.output
+
+
+def test_report_metrics_come_from_the_requested_run(harness, monkeypatch) -> None:
+    first, expected, _res = _seed_and_run(harness, monkeypatch)
+    with harness.read() as session:
+        AgentRunRepository(session).append_decision(
+            first,
+            agent="allocator",
+            step="optimize_portfolio",
+            llm_response=json.dumps({"weights": expected, "metrics": {"sharpe": 1.5}}),
+        )
+        session.commit()
+    assert harness.runner.invoke(cli.app, ["approve", str(first)]).exit_code == 0
+    again = harness.runner.invoke(
+        cli.app, ["run", str(PORTFOLIO_ID), "--asof", _ASOF_STR]
+    )
+    assert again.exit_code == 0, again.output
+    with harness.read() as session:
+        (second,) = AgentRunRepository(session).list_paused_runs(PORTFOLIO_ID)
+        second_id = second.id
+
+    own = harness.runner.invoke(cli.app, ["report", str(first)])
+    other = harness.runner.invoke(cli.app, ["report", str(second_id)])
+
+    assert "sharpe=1.5000" in own.output
+    # The newest run reports the optimizer figures it logged itself, never the first
+    # run's.
+    assert "metrics:" in other.output
+    assert "sharpe=1.5000" not in other.output
+
+
+def test_report_labels_the_mandate_as_the_current_one(harness, monkeypatch) -> None:
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+
+    res = harness.runner.invoke(cli.app, ["report", str(run_id)])
+
+    assert "current mandate:" in res.output
 
 
 def test_report_unknown_run_errors(harness) -> None:

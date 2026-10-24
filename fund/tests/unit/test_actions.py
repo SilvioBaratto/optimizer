@@ -47,9 +47,9 @@ from fund.audit import (
     PositionRepository,
     put_constraint_set,
 )
+from fund.audit.orders_repository import weights_hash
 from fund.config import settings
 from fund.schemas.constraint_set import UniverseFilters
-from fund.tools.orders import _weights_hash
 
 
 class _StopRunError(Exception):
@@ -478,7 +478,7 @@ def test_edit_commits_edited_weights_through_the_approve_path(paused_env) -> Non
         )
         assert len(orders) == 1
         assert orders[0].weights == edited
-        assert orders[0].weights_hash == _weights_hash(edited)  # +weights_hash
+        assert orders[0].weights_hash == weights_hash(edited)  # +weights_hash
 
         positions = {
             p.ticker: p.weight

@@ -20,6 +20,8 @@ from portopt_db.models import AgentDecision, AgentRun
 from portopt_db.repository import RepositoryBase
 from sqlalchemy import Select, func, select
 
+from fund.audit.orders_repository import weights_hash
+
 _T = TypeVar("_T")
 
 # Rows fetched per round trip when a caller streams a history and usually stops
@@ -160,13 +162,11 @@ class AgentRunRepository(RepositoryBase):
     def weights_digest(weights: dict[str, float]) -> str:
         """sha256 of the canonical weights JSON, order-free.
 
-        Deliberately the same canonical form as a paper ticket's ``weights_hash``
-        (``fund.tools.orders``), so a risk verdict and the ticket it cleared
-        cross-reference. Duplicated rather than imported: ``fund.tools`` pulls the
-        optimizer, which this agent-stack-free layer must not.
+        The same canonical form as a paper ticket's ``weights_hash`` (shared through
+        :func:`fund.audit.orders_repository.weights_hash`), so a risk verdict and the
+        ticket it cleared cross-reference.
         """
-        canonical = json.dumps(weights, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        return weights_hash(weights)
 
     def append_risk_verdict(
         self,

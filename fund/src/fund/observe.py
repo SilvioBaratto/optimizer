@@ -1115,6 +1115,30 @@ def _target_weights(
     return {}, False
 
 
+def run_metrics(run: Any) -> dict[str, float]:
+    """Best-effort metrics from ``run``'s own newest allocator proposal.
+
+    Unlike :attr:`PortfolioState.metrics`, which falls back across the portfolio's
+    runs, this never borrows another run's numbers; a run with no metrics block
+    yields ``{}`` (metrics are never fabricated). The newest proposal is
+    authoritative even when it carries no metrics (an adviser edit does not), so an
+    older proposal's figures never describe the edited weights.
+
+    Args:
+        run: An ``AgentRun`` row with its ``decisions`` loaded; read-only, no session
+            is touched here.
+
+    Returns:
+        Metric name to value from the run's newest ``allocator`` /
+        ``optimize_portfolio`` decision; ``{}`` when the run has no such decision or
+        its payload is unparseable.
+    """
+    for decision in reversed(run.decisions):
+        if decision.agent == "allocator" and decision.step == "optimize_portfolio":
+            return _metrics_from_response(decision.llm_response)
+    return {}
+
+
 def _latest_optimizer_metrics(
     run_repo: Any, portfolio_id: uuid.UUID
 ) -> dict[str, float]:
@@ -1189,4 +1213,5 @@ __all__ = [
     "portfolio_state",
     "recent_events",
     "reprofile_status",
+    "run_metrics",
 ]

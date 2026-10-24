@@ -45,6 +45,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, NoReturn
 
 import typer
+from portopt_db.models import AgentRun, PaperOrder
 
 from fund import observe
 from fund.actions import apply_action
@@ -54,6 +55,7 @@ from fund.audit import (
     OrderRepository,
     setup_langgraph,
 )
+from fund.audit.orders_repository import weights_hash
 from fund.config import settings
 from fund.database import get_session
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
@@ -516,6 +518,23 @@ def status(
     _exit(True)
 
 
+def _run_ticket(session: Any, run: AgentRun) -> PaperOrder | None:
+    """The paper ticket ``run``'s approval placed or reused, else ``None``.
+
+    ``paper_orders`` carries no run id, so the ticket is found by the same
+    ``(portfolio, asof, weights_hash)`` key ``place_orders`` writes. Only a completed
+    run has one: a paused, rejected or incomplete run placed nothing, whatever the
+    portfolio's newest ticket is.
+    """
+    if run.status != "completed" or not run.weights or run.portfolio_id is None:
+        return None
+    return OrderRepository(session).get_by_key(
+        portfolio_id=run.portfolio_id,
+        asof=run.asof,
+        weights_hash=weights_hash(run.weights),
+    )
+
+
 @app.command()
 def report(run_id: str = typer.Argument(..., help="Run UUID.")) -> None:
     """Tabular audit of one run: mandate, weights, metrics, ticket, decisions."""
@@ -537,24 +556,25 @@ def report(run_id: str = typer.Argument(..., help="Run UUID.")) -> None:
         if pid is not None:
             mandate = observe.get_mandate(session, pid)
             if mandate is not None:
+                # Runs do not snapshot their mandate, so only the live one can be shown.
                 lines.append(
-                    f"mandate: capital={mandate.capital} {mandate.base_currency} "
-                    f"drift={mandate.drift_l1_threshold}"
+                    f"current mandate: capital={mandate.capital} "
+                    f"{mandate.base_currency} drift={mandate.drift_l1_threshold}"
                 )
-            state = observe.portfolio_state(session, pid)
-            if state.metrics:
+            metrics = observe.run_metrics(run)
+            if metrics:
                 lines.append(
                     "metrics: "
-                    + ", ".join(
-                        f"{k}={v:.4f}" for k, v in sorted(state.metrics.items())
-                    )
+                    + ", ".join(f"{k}={v:.4f}" for k, v in sorted(metrics.items()))
                 )
-            ticket = OrderRepository(session).latest_for_portfolio(pid)
+            ticket = _run_ticket(session, run)
             if ticket is not None:
                 lines.append(
                     f"ticket {ticket.id}  status={ticket.status}  "
                     f"notional={ticket.notional}"
                 )
+            else:
+                lines.append("no ticket for this run")
         lines.append("decisions:")
         for d in run.decisions:
             hitl = f"  hitl={d.hitl_decision}" if d.hitl_decision else ""

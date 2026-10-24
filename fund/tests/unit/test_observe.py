@@ -1024,6 +1024,48 @@ def test_metrics_are_not_carried_over_from_a_superseded_proposal(db_session):
     assert state.metrics == {}
 
 
+def test_run_metrics_never_borrows_another_runs_numbers(db_session):
+    # `portfolio_state.metrics` falls back across the portfolio's runs; `run_metrics`
+    # is for per-run readers and must report only the run's own allocator proposal.
+    older = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 1, tzinfo=UTC),
+    )
+    newer = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    AgentRunRepository(db_session).append_decision(
+        older.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"AAA": 1.0}, "metrics": {"sharpe": 0.8}}),
+    )
+    db_session.refresh(older)
+    db_session.refresh(newer)
+
+    assert observe.run_metrics(older) == {"sharpe": 0.8}
+    assert observe.run_metrics(newer) == {}  # not the older run's 0.8
+
+
+def test_every_public_observe_function_is_exported():
+    public = {
+        name
+        for name, value in vars(observe).items()
+        if not name.startswith("_")
+        and callable(value)
+        and getattr(value, "__module__", None) == observe.__name__
+    }
+
+    assert public <= set(observe.__all__)
+
+
 def test_message_text_stringifies_non_str_non_list_content():
     # Defensive fallback for a message whose content is neither str nor block-list.
     assert observe._message_text(SimpleNamespace(content=None)) == "None"

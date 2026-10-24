@@ -580,12 +580,12 @@ def _ticket_placed(
     placed.
     """
     from fund.audit import AgentRunRepository, OrderRepository
-    from fund.tools.orders import _weights_hash
+    from fund.audit.orders_repository import weights_hash
 
     if not weights or not AgentRunRepository(session).risk_passed(run_id, weights):
         return False
     ticket = OrderRepository(session).get_by_key(
-        portfolio_id=portfolio_id, asof=asof, weights_hash=_weights_hash(weights)
+        portfolio_id=portfolio_id, asof=asof, weights_hash=weights_hash(weights)
     )
     return ticket is not None
 

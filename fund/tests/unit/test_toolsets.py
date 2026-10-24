@@ -45,11 +45,11 @@ from fund import tools as fund_tools
 from fund.agents.skills import SKILLS_BY_AGENT, SKILLS_DIR
 from fund.agents.toolsets import TOOLS_BY_AGENT, RunContext, bind_toolset
 from fund.audit import AgentRunRepository, put_constraint_set
+from fund.audit.orders_repository import weights_hash
 from fund.config import settings
 from fund.schemas import ConstraintSet
 from fund.schemas.constraint_set import EsgPolicy, UniverseFilters
 from fund.schemas.enums import GicsSector, Horizon, ObjectiveChoice, RiskMeasureChoice
-from fund.tools import orders as fund_orders
 
 _START = dt.date(2024, 1, 1)
 _N_DAYS = 40
@@ -1329,9 +1329,7 @@ def test_risk_check_records_its_verdict_against_the_audited_weights(
     assert verdict["passed"] is True
     assert verdict["violations"] == []
     # Same canonical hash as the paper ticket, so verdict and ticket cross-reference.
-    assert verdict["weights_hash"] == fund_orders._weights_hash(
-        optimized["data"]["weights"]
-    )
+    assert verdict["weights_hash"] == weights_hash(optimized["data"]["weights"])
     assert row.llm_response_hash is not None
 
 

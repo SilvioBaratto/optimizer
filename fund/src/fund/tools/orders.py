@@ -25,15 +25,13 @@ Contract (via ``tool_envelope``):
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
-import json
 import math
 import uuid
 from typing import TYPE_CHECKING, Any
 
 from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 
-from fund.audit.orders_repository import OrderRepository
+from fund.audit.orders_repository import OrderRepository, weights_hash
 from fund.tools._base import ToolResult, coerce_date, err, ok, tool_envelope
 
 if TYPE_CHECKING:
@@ -56,12 +54,6 @@ def _coerce_uuid(portfolio_id: uuid.UUID | str) -> uuid.UUID:
     if isinstance(portfolio_id, uuid.UUID):
         return portfolio_id
     return uuid.UUID(portfolio_id)
-
-
-def _weights_hash(weights: dict[str, float]) -> str:
-    """sha256 of the canonical weights JSON — stable across calls, order-free."""
-    canonical = json.dumps(weights, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _next_close(
@@ -175,7 +167,7 @@ def place_orders(
 
     end_date = coerce_date(asof)
     pid = _coerce_uuid(portfolio_id)
-    whash = _weights_hash(weights)
+    whash = weights_hash(weights)
 
     repo = OrderRepository(session)
     existing = repo.get_by_key(portfolio_id=pid, asof=end_date, weights_hash=whash)
