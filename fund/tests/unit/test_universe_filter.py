@@ -172,6 +172,46 @@ class TestUniverseFilter:
         assert first == second
 
 
+class TestDegenerateUniverse:
+    def _seed_constant(self, db_session, ticker: str) -> None:
+        inst = _seed_instrument(db_session, ticker)
+        for i in range(_N_DAYS):
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=_START + dt.timedelta(days=i),
+                    close=10.0,
+                    volume=1000,
+                )
+            )
+        db_session.flush()
+
+    def test_single_asset_universe_survives(self, db_session) -> None:
+        _seed_panel(db_session, tickers=["AAA"])
+
+        result = universe_filter(db_session, _ASOF, ["AAA"])
+
+        assert result == {"ok": True, "data": ["AAA"]}
+
+    def test_pipeline_reduction_to_one_asset_is_a_valid_result(
+        self, db_session
+    ) -> None:
+        # The constant-price asset is dropped as zero variance, leaving one name.
+        _seed_panel(db_session, tickers=["AAA"])
+        self._seed_constant(db_session, "FLAT")
+
+        result = universe_filter(db_session, _ASOF, ["AAA", "FLAT"])
+
+        assert result == {"ok": True, "data": ["AAA"]}
+
+    def test_every_asset_dropped_is_an_empty_result_not_error(self, db_session) -> None:
+        self._seed_constant(db_session, "FLAT")
+
+        result = universe_filter(db_session, _ASOF, ["FLAT"])
+
+        assert result == {"ok": True, "data": []}
+
+
 class TestCriteriaEnforcement:
     def test_esg_exclusion_drops_instruments_in_the_excluded_sector(
         self, db_session

@@ -16,8 +16,9 @@ data + identical criteria ⇒ identical list.
 
 Contract (via ``tool_envelope``):
 
-* an empty ``universe``, a universe with nothing priced, or too little history ⇒
-  ``{ok: true, data: []}`` — an empty result is a valid outcome, not an error;
+* an empty ``universe``, a universe with nothing priced, too little history, or
+  one the screens leave with a single name or none ⇒ ``{ok: true, data: [...]}``
+  (``[]`` when nothing survives) — a thin result is a valid outcome, not an error;
 * a bad selection criterion (e.g. an unknown ``select_k_measure`` enum) is caught
   by ``PreSelectionConfig`` validation and returned as ``{ok: false, error}``,
   never raised;
@@ -47,6 +48,8 @@ from fund.tools._base import ToolResult, ok, tool_envelope
 from fund.tools.prices import load_price_frame
 
 if TYPE_CHECKING:
+    import pandas as pd
+    from sklearn.pipeline import Pipeline
     from sqlalchemy.orm import Session
 
 # ``PreSelectionConfig`` field names; the other criterion the tool applies is
@@ -64,6 +67,10 @@ _UNCLASSIFIED = "unclassified"
 # mistaken for a delisted one; a longer silence leaves trailing NaNs for
 # ``SelectComplete`` to screen out.
 _MAX_STALE_BARS = 5
+
+# The one pre-selection step that compares assets pairwise: skfolio's
+# ``DropCorrelated`` raises on fewer than two, where there is nothing to compare.
+_PAIRWISE_STEP = "drop_correlated"
 
 # ``TickerProfile.sector`` carries Yahoo's sector labels (normalised to snake case);
 # the ones that differ from GICS are mapped here. GICS-named labels pass through.
@@ -137,6 +144,24 @@ def _esg_barred(
         elif sector in exclusions:
             barred[ticker] = sector.value
     return barred
+
+
+def _preselect(pipeline: Pipeline, returns: Any) -> pd.DataFrame:
+    """Run ``pipeline`` step by step, tolerating fewer than two assets left.
+
+    ``Pipeline.fit_transform`` raises once the cleaning steps leave one asset (in
+    the pairwise correlation screen) or none (in whichever step comes next), though
+    a one-name or empty survivor set is a valid answer for this tool.
+    """
+    selected = returns
+    for name, step in pipeline.steps:
+        n_assets = selected.shape[1]
+        if n_assets == 0:
+            break
+        if name == _PAIRWISE_STEP and n_assets < 2:
+            continue
+        selected = step.fit_transform(selected)
+    return selected
 
 
 def _result(
@@ -216,7 +241,7 @@ def universe_filter(
         fill_nan=False,
     )
     pipeline = build_preselection_pipeline(config=config, sector_mapping=sector_mapping)
-    selected = pipeline.fit_transform(returns)
+    selected = _preselect(pipeline, returns)
 
     survivors = {str(col) for col in selected.columns}
     return _result(
