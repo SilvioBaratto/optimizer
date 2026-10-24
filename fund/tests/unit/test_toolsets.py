@@ -893,6 +893,34 @@ def test_bound_place_orders_appends_executor_decision(db_session) -> None:
     assert decision.hitl_decision == {"decision": "approve"}
 
 
+def test_place_orders_description_says_the_call_itself_awaits_approval(
+    db_session,
+) -> None:
+    """The HITL gate pauses at the ``place_orders`` call, so the model-facing text
+    must not tell the model to wait for approval before calling it (a model that
+    does ends the run with no ticket)."""
+    place = _find(
+        bind_toolset("orchestrator", _make_context(db_session)), "place_orders"
+    )
+    description = " ".join(place.description.split())
+
+    assert "after adviser approval" not in description
+    assert "pauses" in description
+    assert "adviser" in description
+
+
+def test_place_orders_description_discloses_the_ticket_is_the_audited_proposal(
+    db_session,
+) -> None:
+    place = _find(
+        bind_toolset("orchestrator", _make_context(db_session)), "place_orders"
+    )
+    description = " ".join(place.description.split())
+
+    assert "no weights" in description
+    assert "audited" in description
+
+
 def test_place_orders_idempotent_rerun_appends_once(db_session) -> None:
     _seed_panel(db_session)
     ctx = _make_context(db_session)

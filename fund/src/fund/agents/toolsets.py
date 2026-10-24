@@ -702,10 +702,11 @@ def _bind_place_orders(ctx: RunContext) -> BaseTool:
     @tool
     def place_orders() -> ToolResult:
         """Commit the idempotent **paper** ticket for the allocator's latest audited
-        proposal, filled at the next close after the run date. Takes no weights. The
-        call itself pauses for adviser approval, and is refused unless the risk gate
-        has passed that proposal. Call once. Returns the ``{ok, data}`` envelope with
-        the order ticket."""
+        proposal, filled at the next close after the run date. Takes no weights. This
+        call is what pauses the run for the human adviser's approval, so call it once
+        and do not wait for approval or ask for it in text first; it is refused unless
+        the risk gate has passed that proposal. Returns the ``{ok, data}`` envelope
+        with the order ticket."""
         return _place_orders_impl(ctx)
 
     return place_orders
