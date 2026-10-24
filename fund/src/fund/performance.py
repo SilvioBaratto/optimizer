@@ -229,7 +229,8 @@ def _load_price_frame(
     Joins each yfinance ticker to its instrument (``instruments.yfinance_ticker``)
     and reads ``price_history`` closes into a ``DatetimeIndex`` × ticker frame. The
     currency map keys each ticker to its **raw** ``price_unit`` (e.g. ``GBp``),
-    falling back to ``instruments.currency_code``.
+    falling back to ``instruments.currency_code``; a ticker with neither is in the
+    frame but absent from the map.
 
     Args:
         session: Open SQLAlchemy session.
@@ -435,6 +436,46 @@ def _expressed_in_base(
         return True
     available = {str(col).upper() for col in fx_rates.columns}
     return major in available
+
+
+def _require_known_currencies(
+    prices: pd.DataFrame, currency_map: dict[str, str], *, holdings: set[str]
+) -> pd.DataFrame:
+    """Keep the series whose price currency is known; fail on a held one that isn't.
+
+    A ticker with neither a ``price_unit`` nor an instrument ``currency_code`` has no
+    entry in ``currency_map``, and the FX converter reads a missing entry as "already
+    in base currency" — so it would be valued unconverted with nothing to flag it. A
+    holding in that state cannot be valued correctly and fails loud; any other series
+    (the benchmark, a reference line outside NAV) is dropped with a warning instead.
+
+    Args:
+        prices: Wide price frame as loaded.
+        currency_map: ``{ticker: raw price_unit}`` for the tickers whose currency
+            resolved.
+        holdings: The tickers that are part of the book.
+
+    Returns:
+        ``prices`` without the columns whose currency is unknown.
+
+    Raises:
+        FxCoverageError: A held ticker has no resolvable price currency.
+    """
+    unknown = [ticker for ticker in prices.columns if ticker not in currency_map]
+    if not unknown:
+        return prices
+    held = sorted(ticker for ticker in unknown if ticker in holdings)
+    if held:
+        raise FxCoverageError(
+            f"no price currency for {held}: both price_history.price_unit and "
+            "instruments.currency_code are empty, so their prices cannot be converted "
+            "to the base currency. Backfill the instruments' currency."
+        )
+    logger.warning(
+        "performance: no price currency for %s; left out of the series",
+        sorted(unknown),
+    )
+    return prices.drop(columns=unknown)
 
 
 def _price_asof(prices: pd.DataFrame, ticker: str, ts: Any) -> float | None:
@@ -728,7 +769,8 @@ def build_nav_series(
     Raises:
         FxCoverageError: The mandate holds foreign-currency instruments but no FX
             rate for their currencies exists under ``base_currency`` (e.g. a
-            non-EUR mandate against the EUR-only feed) — marking would silently mix
+            non-EUR mandate against the EUR-only feed), or a holding has no
+            resolvable price currency at all — marking would silently mix
             currencies, so it fails loud instead.
     """
     from portopt_db.models.orders.paper_order import PaperOrder
@@ -754,6 +796,9 @@ def build_nav_series(
     first_fill = min(t.fill_date for t in tickets)
     raw_prices, currency_map = _load_price_frame(
         session, load_tickers, start=first_fill, end=asof
+    )
+    raw_prices = _require_known_currencies(
+        raw_prices, currency_map, holdings=holding_tickers
     )
     if raw_prices.empty:
         return []
@@ -1160,6 +1205,9 @@ def _book_base_prices(
         FxCoverageError: See :func:`_require_fx_coverage`.
     """
     raw_prices, currency_map = _load_price_frame(session, order, start=start, end=end)
+    raw_prices = _require_known_currencies(
+        raw_prices, currency_map, holdings=set(order)
+    )
     if raw_prices.empty:
         return None
     quotes = sorted({_major_currency(code) for code in currency_map.values()})
@@ -1242,7 +1290,8 @@ def holding_marks(
 
     Raises:
         FxCoverageError: Foreign holdings exist but no FX rate covers their currency
-            under ``base_currency`` (see :func:`build_nav_series`).
+            under ``base_currency``, or a holding has no resolvable price currency
+            (see :func:`build_nav_series`).
     """
     tickets = _tickets_through(session, portfolio_id, asof)
     if not tickets:

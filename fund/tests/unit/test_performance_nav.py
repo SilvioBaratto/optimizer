@@ -1123,6 +1123,52 @@ def test_nav_series_skips_a_bar_where_a_held_line_has_no_fresh_rate(db_session):
             assert by_day[day].benchmark == pytest.approx(100.0 * 1.01**i * 0.90)
 
 
+def test_nav_series_raises_for_a_holding_with_no_resolvable_currency(db_session):
+    """A holding whose currency is unknown fails loud instead of passing as base.
+
+    With neither ``price_unit`` nor ``currency_code`` the converter had no entry for
+    the ticker and treated it as base currency, so a USD line in a EUR mandate was
+    marked unconverted with nothing to flag it.
+    """
+    _seed_usd_floats(
+        db_session,
+        {"EU1": dict.fromkeys(_DAYS, 100.0), "MYS": dict.fromkeys(_DAYS, 50.0)},
+        units={"EU1": "EUR", "MYS": None},
+    )
+    _add_flat_ticket(
+        db_session,
+        fill=_DAYS[0],
+        notionals={"EU1": 50_000.0, "MYS": 50_000.0},
+    )
+
+    with pytest.raises(performance.FxCoverageError, match="MYS"):
+        build_nav_series(_PID, session=db_session, base_currency="EUR")
+
+
+def test_nav_series_drops_a_benchmark_with_no_resolvable_currency(db_session, caplog):
+    """A benchmark of unknown currency is left out, not compared at face value.
+
+    It is a reference line rather than part of NAV, so it must not block marking —
+    but a level in an unknown currency would feed excess return, tracking error and
+    beta against a EUR NAV.
+    """
+    _seed_usd_floats(
+        db_session,
+        {"EU1": dict.fromkeys(_DAYS, 100.0), "IDX": dict.fromkeys(_DAYS, 4_000.0)},
+        units={"EU1": "EUR", "IDX": None},
+    )
+    _add_flat_ticket(db_session, fill=_DAYS[0], notionals={"EU1": 100_000.0})
+
+    with caplog.at_level("WARNING", logger="fund.performance"):
+        points = build_nav_series(
+            _PID, session=db_session, base_currency="EUR", benchmark="IDX"
+        )
+
+    assert points
+    assert all(p.benchmark is None for p in points)
+    assert any("IDX" in record.getMessage() for record in caplog.records)
+
+
 def test_nav_series_warns_when_a_ticket_line_cannot_be_priced(db_session, caplog):
     """A line with no usable price is reported, not silently dropped from the book."""
     _seed_usd_floats(db_session, {"A": dict.fromkeys(_DAYS, 100.0)})

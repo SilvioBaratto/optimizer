@@ -654,3 +654,15 @@ def test_holding_marks_price_the_latest_bar_of_a_history_past_the_row_cap(db_ses
     assert mark.unrealized_pnl == pytest.approx(
         10_000.0 * (latest_price / fill_price - 1.0)
     )
+
+
+def test_holding_marks_raise_for_a_holding_with_no_resolvable_currency(db_session):
+    """A holding priced in an unknown currency is not marked as if it were base."""
+    _seed(db_session)
+    db_session.query(PriceHistory).filter(PriceHistory.price_unit == "USD").update(
+        {"price_unit": None}
+    )
+    db_session.flush()
+
+    with pytest.raises(FxCoverageError, match="US1"):
+        holding_marks(_PID, session=db_session, base_currency="EUR")
