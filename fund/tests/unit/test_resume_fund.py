@@ -34,6 +34,7 @@ from _fund_fakes import (
     _task_call,
     classify_instruments,
     expected_weights,
+    held_weights,
     make_constraint_set,
     make_energy_exclusion_constraint_set,
     make_mandate,
@@ -193,7 +194,7 @@ def test_resume_fund_approve_commits_ticket_positions_and_completes(db_session) 
     row = AgentRunRepository(db_session).get_run(run.run_id)
     assert row.status == "completed"
     assert row.weights == expected
-    assert _positions_map(db_session) == expected
+    assert _positions_map(db_session) == held_weights(expected)
     executor = [
         d
         for d in _decisions(db_session, run.run_id)
@@ -1350,7 +1351,7 @@ def test_resume_fund_approve_of_an_extra_gate_keeps_the_run_at_the_next_gate(
     row = AgentRunRepository(db_session).get_run(run.run_id)
     assert row.status == "completed"
     assert row.weights == expected
-    assert _positions_map(db_session) == expected
+    assert _positions_map(db_session) == held_weights(expected)
 
 
 def test_fundrun_resume_approve_of_an_extra_gate_keeps_the_run_at_the_next_gate(
@@ -1370,7 +1371,7 @@ def test_fundrun_resume_approve_of_an_extra_gate_keeps_the_run_at_the_next_gate(
     assert order.weights == expected
     row = AgentRunRepository(db_session).get_run(run.run_id)
     assert row.status == "completed"
-    assert _positions_map(db_session) == expected
+    assert _positions_map(db_session) == held_weights(expected)
 
 
 def test_resume_fund_reject_of_an_extra_gate_still_closes_the_run(db_session) -> None:
@@ -1442,7 +1443,7 @@ def test_resume_fund_matches_fundrun_resume(db_session) -> None:
     assert (
         _positions_map(db_session, PORTFOLIO_ID)
         == _positions_map(db_session, _PID_B)
-        == expected
+        == held_weights(expected)
     )
     order_a = _paper_orders(db_session, PORTFOLIO_ID)
     order_b = _paper_orders(db_session, _PID_B)
@@ -1558,7 +1559,7 @@ def test_resume_fund_approve_survives_pm_failure_after_the_ticket(db_session) ->
     assert len(_paper_orders(db_session)) == 1
     row = AgentRunRepository(db_session).get_run(run.run_id)
     assert row.status == "completed"
-    assert _positions_map(db_session) == expected
+    assert _positions_map(db_session) == held_weights(expected)
 
 
 def test_fundrun_resume_approve_survives_pm_failure_after_the_ticket(
@@ -1581,7 +1582,7 @@ def test_fundrun_resume_approve_survives_pm_failure_after_the_ticket(
     assert len(_paper_orders(db_session)) == 1
     row = AgentRunRepository(db_session).get_run(run.run_id)
     assert row.status == "completed"
-    assert _positions_map(db_session) == expected
+    assert _positions_map(db_session) == held_weights(expected)
 
 
 def test_resume_fund_reject_survives_pm_failure_after_the_gate(db_session) -> None:
@@ -1715,7 +1716,7 @@ def _assert_finalised_with_ticket_weights(db_session, run_id, expected) -> None:
     row = AgentRunRepository(db_session).get_run(run_id)
     assert row.status == "completed"
     assert row.weights == expected
-    assert _positions_map(db_session) == expected
+    assert _positions_map(db_session) == held_weights(expected)
 
 
 def test_resume_fund_approve_finalises_with_the_placed_ticket_weights(
@@ -1782,7 +1783,7 @@ def _assert_retry_completed_with_ticket(db_session, run_id, expected) -> None:
     row = AgentRunRepository(db_session).get_run(run_id)
     assert row.status == "completed"
     assert row.weights == expected
-    assert _positions_map(db_session) == expected
+    assert _positions_map(db_session) == held_weights(expected)
     executor = [
         d
         for d in _decisions(db_session, run_id)
@@ -2553,7 +2554,7 @@ def test_a_placed_ticket_still_completes_the_run_after_the_refusal_guard(
 
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
     assert len(_paper_orders(db_session)) == 1
-    assert _positions_map(db_session) == expected
+    assert _positions_map(db_session) == held_weights(expected)
 
 
 class _ReoptimizingModel(ScriptedFundModel):
@@ -2641,7 +2642,7 @@ def test_fundrun_resume_approve_finalises_with_weights_reoptimised_after_respond
     assert set(orders[0].weights) == {"AAA", "BBB"}
     assert row.status == "completed"
     assert row.weights == orders[0].weights
-    assert _positions_map(db_session) == orders[0].weights
+    assert _positions_map(db_session) == held_weights(orders[0].weights)
 
 
 def test_fundrun_resume_refuses_a_run_finalised_since_the_gate_opened(

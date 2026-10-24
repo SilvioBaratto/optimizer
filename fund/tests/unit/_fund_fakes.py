@@ -401,6 +401,12 @@ def make_mandate(portfolio_id: uuid.UUID = PORTFOLIO_ID) -> PortfolioMandate:
     )
 
 
+def held_weights(weights: dict[str, float]) -> dict[str, float]:
+    """The weights a paper ticket actually carries: zero and solver-dust names get no
+    order line, so they are absent from the positions snapshot built from the lines."""
+    return {t: w for t, w in weights.items() if not abs(w) <= 1e-6}
+
+
 def expected_weights(
     session: Any, constraint_set: ConstraintSet | None = None
 ) -> dict[str, float]:

@@ -354,6 +354,20 @@ class TestTurnoverCosts:
         assert ticket["total_slippage_cost"] == pytest.approx(traded * 5.0 / 1e4)
         assert {line["ticker"] for line in ticket["lines"]} == {"AAA"}
 
+    def test_name_zeroed_by_the_optimiser_is_still_charged_for_the_sell(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+        place_orders(db_session, _ASOF, {"AAA": 0.6, "BBB": 0.4}, _PORTFOLIO_ID)
+
+        ticket = place_orders(
+            db_session, _NEXT_ASOF, {"AAA": 1.0, "BBB": 0.0}, _PORTFOLIO_ID
+        )["data"]
+
+        traded = 0.8 * 100_000.0
+        assert ticket["total_commission"] == pytest.approx(traded * 1.0 / 1e4)
+        assert {line["ticker"] for line in ticket["lines"]} == {"AAA"}
+
     def test_unchanged_target_costs_nothing(self, db_session) -> None:
         _seed_panel(db_session)
         place_orders(db_session, _ASOF, {"AAA": 0.5, "BBB": 0.5}, _PORTFOLIO_ID)
@@ -518,8 +532,10 @@ _EUR_PER_GBP = 1.17
 _EUR_PER_USD = 0.9
 
 
-def _seed_listing(db_session, ticker: str, *, unit: str, close: float) -> None:
-    """Seed one instrument whose bars after ``_ASOF`` are quoted in ``unit``."""
+def _seed_listing(
+    db_session, ticker: str, *, unit: str, close: float, days: int = _N_DAYS
+) -> None:
+    """Seed one instrument with ``days`` daily bars quoted in ``unit``."""
     ex = Exchange(name=f"EX-{ticker}")
     db_session.add(ex)
     db_session.flush()
@@ -533,7 +549,7 @@ def _seed_listing(db_session, ticker: str, *, unit: str, close: float) -> None:
     )
     db_session.add(inst)
     db_session.flush()
-    for i in range(_N_DAYS):
+    for i in range(days):
         db_session.add(
             PriceHistory(
                 instrument_id=inst.id,
@@ -622,3 +638,100 @@ class TestShareCurrency:
         assert ticket["lines"][0]["shares"] == pytest.approx(
             100_000.0 / (80.0 * (1 + 5e-4)), rel=1e-9
         )
+
+
+class TestZeroWeightLines:
+    """A name the book does not hold needs no fill bar, so it cannot block a ticket."""
+
+    @staticmethod
+    def _seed_with_stale_name(db_session) -> None:
+        _seed_panel(db_session)
+        # Last bar is well before the decision bar: no fill bar exists after it.
+        _seed_listing(db_session, "STALE", unit="EUR", close=10.0, days=20)
+
+    @pytest.mark.parametrize("dust", [0.0, 1e-12, -1e-12])
+    def test_zero_weight_name_without_a_fill_bar_does_not_block_the_ticket(
+        self, db_session, dust
+    ) -> None:
+        self._seed_with_stale_name(db_session)
+        weights = {"AAA": 0.6, "BBB": 0.4, "STALE": dust}
+
+        result = place_orders(
+            db_session, _ASOF, weights, _PORTFOLIO_ID, base_currency="EUR"
+        )
+
+        assert result["ok"] is True, result
+        ticket = result["data"]
+        assert {line["ticker"] for line in ticket["lines"]} == {"AAA", "BBB"}
+        assert ticket["fill_date"] == _FILL_DATE.isoformat()
+        assert sum(line["notional"] for line in ticket["lines"]) == pytest.approx(
+            100_000.0
+        )
+        # The target vector is the audit record: the skipped name stays visible.
+        assert ticket["weights"]["STALE"] == dust
+
+    def test_zero_weight_foreign_listing_without_an_fx_rate_is_not_priced(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+        _seed_listing(db_session, "NYS", unit="USD", close=200.0)
+
+        result = place_orders(
+            db_session,
+            _ASOF,
+            {"AAA": 1.0, "NYS": 0.0},
+            _PORTFOLIO_ID,
+            base_currency="EUR",
+        )
+
+        assert result["ok"] is True, result
+        assert [line["ticker"] for line in result["data"]["lines"]] == ["AAA"]
+
+    def test_unknown_zero_weight_ticker_does_not_block_the_ticket(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+
+        result = place_orders(
+            db_session,
+            _ASOF,
+            {"AAA": 1.0, "ZZZ": 0.0},
+            _PORTFOLIO_ID,
+            base_currency="EUR",
+        )
+
+        assert result["ok"] is True, result
+
+    def test_held_name_without_a_fill_bar_still_rejects_the_ticket(
+        self, db_session
+    ) -> None:
+        self._seed_with_stale_name(db_session)
+
+        result = place_orders(
+            db_session,
+            _ASOF,
+            {"AAA": 0.9, "STALE": 0.1},
+            _PORTFOLIO_ID,
+            base_currency="EUR",
+        )
+
+        assert result["ok"] is False
+        assert "STALE" in result["error"]
+        count = db_session.execute(
+            select(func.count()).select_from(PaperOrder)
+        ).scalar_one()
+        assert count == 0
+
+    def test_all_zero_weights_have_nothing_to_place(self, db_session) -> None:
+        _seed_panel(db_session)
+
+        result = place_orders(
+            db_session,
+            _ASOF,
+            {"AAA": 0.0, "BBB": 0.0},
+            _PORTFOLIO_ID,
+            base_currency="EUR",
+        )
+
+        assert result["ok"] is False
+        assert "non-zero" in result["error"]

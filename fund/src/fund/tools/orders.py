@@ -17,8 +17,11 @@ stored one (``idempotent: true``) instead of writing again; the DB-level
 Contract (via ``tool_envelope``):
 
 * empty ``weights`` ⇒ ``{ok: false, error}``;
-* a ticker with no instrument row, or no close strictly after ``asof`` (no fill
-  bar), ⇒ ``{ok: false, error}`` — a paper ticket must fill every line;
+* a held ticker (weight above ``_DUST_WEIGHT``) with no instrument row, or no close
+  strictly after ``asof`` (no fill bar), ⇒ ``{ok: false, error}`` — a paper ticket
+  must fill every line it carries. A zero or dust weight is no order: it gets no
+  line and needs no fill bar or FX rate, though it stays in the stored ``weights``;
+* weights that are all zero or dust ⇒ ``{ok: false, error}`` — nothing to place;
 * a listing quoted in a foreign currency with no FX rate on or just before its fill
   bar ⇒ ``{ok: false, error}`` — ``shares`` must be a base-currency notional over a
   base-currency price, never a unit-mixed ratio;
@@ -30,6 +33,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -52,6 +56,9 @@ if TYPE_CHECKING:
 # e.g. a distinct portfolio_id) rather than silently re-priced from the stored
 # ticket.
 _DEFAULT_NOTIONAL = 100_000.0
+# The optimiser returns exact zeros and solver residue for names it does not hold; a
+# weight this small is no order and must not need a fill bar of its own.
+_DUST_WEIGHT = 1e-6
 _DEFAULT_SLIPPAGE_BPS = 5.0
 _DEFAULT_COMMISSION_BPS = 1.0
 
@@ -67,6 +74,15 @@ class _Fill:
     date: dt.date
     close: float
     unit: str | None
+
+
+def _held(weights: dict[str, float]) -> dict[str, float]:
+    """The weights that carry an order: everything above ``_DUST_WEIGHT``.
+
+    Written as ``not <=`` rather than ``>`` so a NaN weight stays held and fails
+    loudly downstream instead of being dropped as dust.
+    """
+    return {t: w for t, w in weights.items() if not abs(w) <= _DUST_WEIGHT}
 
 
 def _coerce_uuid(portfolio_id: uuid.UUID | str) -> uuid.UUID:
@@ -148,14 +164,16 @@ def fill_shortfalls(
     A read-only dry run of the fill lookup, so a caller can tell before the gated
     ``place_orders`` runs (and consumes its interrupt) that the ticket would fail: an
     unknown ticker, no close strictly after ``asof`` yet, or (given ``base_currency``)
-    a foreign listing with no FX rate for its fill bar.
+    a foreign listing with no FX rate for its fill bar. Given a weight mapping, names
+    at zero or dust weight are skipped, as ``place_orders`` places no order for them.
 
     Returns:
         One message per ticker that cannot fill; ``[]`` when every line could.
     """
     repo = YFinanceRepository(session)
     shortfalls: list[str] = []
-    for ticker in tickers:
+    names = _held(tickers) if isinstance(tickers, Mapping) else tickers
+    for ticker in names:
         try:
             fill = _next_close(repo, ticker, asof)
             if base_currency is not None:
@@ -251,9 +269,9 @@ def place_orders(
 
     Returns:
         ``ok`` with the order ticket (``order_id``, ``fill_date``, per-``lines``
-        fills, cost totals, ``idempotent`` flag). ``err`` on empty ``weights``,
-        an unknown ticker, a ticker with no fill bar after ``asof``, or a foreign
-        listing with no FX rate for its fill bar.
+        fills for the held names, cost totals, ``idempotent`` flag). ``err`` on empty
+        or all-zero ``weights``, an unknown held ticker, a held ticker with no fill bar
+        after ``asof``, or a held foreign listing with no FX rate for its fill bar.
     """
     if not weights:
         return err("no weights to place")
@@ -283,6 +301,10 @@ def place_orders(
             "notional/slippage/commission"
         )
 
+    held = _held(weights)
+    if not held:
+        return err("no non-zero weights to place")
+
     prior = repo.latest_on_or_before(pid, end_date)
     prior_weights = (
         {ticker: float(w) for ticker, w in prior.weights.items()} if prior else {}
@@ -294,7 +316,7 @@ def place_orders(
     total_slippage_cost = 0.0
     fill_dates: list[dt.date] = []
 
-    for ticker, weight in weights.items():
+    for ticker, weight in held.items():
         fill = _next_close(prices, ticker, end_date)
         fill_date, fill_price = fill.date, fill.close
         fill_dates.append(fill_date)
@@ -350,7 +372,7 @@ def place_orders(
     # A name dropped from the target is sold out, but gets no ticket line: lines
     # become the held book (positions, NAV), so a zero-weight line would resurrect it.
     for ticker, prior_weight in prior_weights.items():
-        if ticker not in weights:
+        if ticker not in held:
             exit_notional = abs(prior_weight * notional)
             total_commission += exit_notional * commission_bps / 1e4
             total_slippage_cost += exit_notional * slippage_bps / 1e4

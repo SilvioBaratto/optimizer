@@ -30,6 +30,7 @@ from _fund_fakes import (
     ScriptedFundModel,
     _count_tool_calls,
     classify_instruments,
+    held_weights,
     make_constraint_set,
     make_energy_exclusion_constraint_set,
     make_mandate,
@@ -1835,7 +1836,7 @@ def test_retry_after_a_rolled_back_approve_places_the_lost_ticket(paused_env) ->
         assert {
             p.ticker: p.weight
             for p in PositionRepository(session).get_holdings(PORTFOLIO_ID)
-        } == env.expected
+        } == held_weights(env.expected)
         rows = HumanAuditLogRepository(session).list_recent(action="approve")
         assert [r.idempotency_key for r in rows] == [key]
 
@@ -1881,7 +1882,7 @@ def test_approve_is_finalised_from_the_ticket_when_the_post_ticket_pm_turn_fails
             p.ticker: p.weight
             for p in PositionRepository(session).get_holdings(PORTFOLIO_ID)
         }
-        assert positions == env.expected
+        assert positions == held_weights(env.expected)
         assert len(HumanAuditLogRepository(session).list_recent(action="approve")) == 1
 
 
