@@ -61,6 +61,44 @@ def _seed_history(db_session) -> None:
     )
 
 
+def _seed_activity_on(db_session, day: dt.date, weights: dict[str, float]) -> None:
+    """Seed one overlay, run, order and a replacing holdings snapshot on ``day``."""
+    PortfolioJournalRepository(db_session).upsert(
+        _PID,
+        day,
+        run_id=None,
+        trades={},
+        allocation=weights,
+        drift={},
+        narrative=f"rebalance {day.isoformat()}",
+    )
+    runs = AgentRunRepository(db_session)
+    run = runs.create_run(
+        portfolio_id=_PID,
+        asof=day,
+        seed=1,
+        universe=list(weights),
+        optimizer_config={},
+    )
+    runs.finalize_run(run.id, weights=weights)
+    OrderRepository(db_session).create(
+        portfolio_id=_PID,
+        asof=day,
+        weights_hash=f"h-{day.isoformat()}",
+        weights=weights,
+        fill_date=day + dt.timedelta(days=2),
+        lines=[{"ticker": t, "weight": w} for t, w in weights.items()],
+        notional=100_000.0,
+        total_commission=10.0,
+        total_slippage_cost=5.0,
+    )
+    PositionRepository(db_session).set_holdings(
+        _PID,
+        [{"ticker": t, "weight": w} for t, w in weights.items()],
+        asof=day,
+    )
+
+
 class TestGetPortfolioHistory:
     """The tool rolls up a portfolio's recent rebalances, runs, orders, holdings."""
 
@@ -134,3 +172,62 @@ class TestGetPortfolioHistory:
         run_selects = [s for s in statements if "FROM agent_runs" in s]
         assert run_selects
         assert all("agent_runs.asof >=" in s for s in run_selects)
+
+
+class TestNoLookAhead:
+    """Activity and holdings dated after ``asof`` never reach a back-dated round."""
+
+    def test_activity_after_asof_is_excluded(self, db_session) -> None:
+        """Overlays, runs and orders dated after ``asof`` are dropped."""
+        _seed_history(db_session)
+        _seed_activity_on(db_session, dt.date(2024, 3, 1), {"CCC": 1.0})
+
+        data = get_portfolio_history(db_session, _PID, _ASOF, lookback=90)["data"]
+
+        assert [r["as_of"] for r in data["rebalances"]] == ["2024-01-20"]
+        assert [r["asof"] for r in data["runs"]] == ["2024-01-20"]
+        assert [o["asof"] for o in data["orders"]] == ["2024-01-20"]
+
+    def test_activity_on_asof_is_included(self, db_session) -> None:
+        """The upper bound is inclusive: a bar dated exactly ``asof`` is kept."""
+        _seed_activity_on(db_session, _ASOF, {"AAA": 1.0})
+
+        data = get_portfolio_history(db_session, _PID, _ASOF, lookback=90)["data"]
+
+        assert [r["as_of"] for r in data["rebalances"]] == ["2024-02-01"]
+        assert [r["asof"] for r in data["runs"]] == ["2024-02-01"]
+        assert [o["asof"] for o in data["orders"]] == ["2024-02-01"]
+        assert data["current_holdings"] == {"AAA": 1.0}
+
+    def test_holdings_are_reconstructed_as_of_asof(self, db_session) -> None:
+        """A snapshot written after ``asof`` is replaced by the then-current overlay."""
+        _seed_history(db_session)
+        _seed_activity_on(db_session, dt.date(2024, 3, 1), {"CCC": 1.0})
+
+        data = get_portfolio_history(db_session, _PID, _ASOF, lookback=90)["data"]
+
+        assert data["current_holdings"] == {"AAA": 0.6, "BBB": 0.4}
+
+    def test_reconstructed_holdings_ignore_the_lookback_window(
+        self, db_session
+    ) -> None:
+        """The last rebalance before ``asof`` still defines holdings when it is older
+        than the lookback span."""
+        _seed_history(db_session)
+        _seed_activity_on(db_session, dt.date(2024, 3, 1), {"CCC": 1.0})
+
+        data = get_portfolio_history(db_session, _PID, _ASOF, lookback=1)["data"]
+
+        assert data["rebalances"] == []
+        assert data["current_holdings"] == {"AAA": 0.6, "BBB": 0.4}
+
+    def test_no_holdings_before_the_first_rebalance(self, db_session) -> None:
+        """When every rebalance postdates ``asof`` there is nothing held yet."""
+        _seed_activity_on(db_session, dt.date(2024, 3, 1), {"CCC": 1.0})
+
+        data = get_portfolio_history(db_session, _PID, _ASOF, lookback=90)["data"]
+
+        assert data["current_holdings"] == {}
+        assert data["rebalances"] == []
+        assert data["runs"] == []
+        assert data["orders"] == []
