@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import warnings
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import pandas as pd
@@ -12,6 +13,9 @@ import pandas as pd
 from optimizer.exceptions import ConfigurationError
 from optimizer.factors._config import FactorIntegrationConfig
 from optimizer.rebalancing._rebalancer import compute_turnover
+
+if TYPE_CHECKING:
+    from skfolio.prior import BlackLitterman
 
 logger = logging.getLogger(__name__)
 
@@ -239,7 +243,10 @@ def build_factor_integration(
         standardized_factors: Standardized factor scores (tickers x factors).
         selected_tickers: Tickers selected for the portfolio.  The constraint
             matrices have one column per ticker, in this order; tickers with
-            missing scores contribute neutral (zero) exposure.
+            missing scores contribute neutral (zero) exposure.  The matrices
+            are fixed to these tickers, so they only fit an optimiser fitted on
+            exactly this asset set; a Black-Litterman prior instead ignores the
+            views on tickers absent from the fitted returns.
 
     Returns:
         ``(prior, constraints)`` — one of the two will be set, the other
@@ -258,7 +265,10 @@ def build_factor_integration(
             BlackLittermanConfig,
             ViewUncertaintyMethod,
         )
-        from optimizer.views._factory import build_black_litterman
+        from optimizer.views._factory import (
+            AvailableAssetViewsPrior,
+            build_black_litterman,
+        )
 
         bl_config = BlackLittermanConfig(
             views=views,
@@ -267,7 +277,11 @@ def build_factor_integration(
             risk_free_rate=config.risk_free_rate / 252.0,
         )
         prior = build_black_litterman(bl_config)
-        return prior, None
+        view_assets = tuple(view.rsplit(" == ", 1)[0] for view in views)
+        return (
+            AvailableAssetViewsPrior(cast("BlackLitterman", prior), view_assets),
+            None,
+        )
     else:
         # Every selected ticker keeps its column: the matrices are applied to
         # the optimizer's full asset set, so dropping an unscored name would

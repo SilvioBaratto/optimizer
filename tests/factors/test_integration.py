@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import warnings
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.base import clone
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.factors import (
@@ -138,6 +140,96 @@ class TestBlackLittermanRiskFreeConvention:
             FactorIntegrationConfig(use_black_litterman=True, risk_free_rate=0.0),
         )
         np.testing.assert_allclose(with_rf - no_rf, 0.04 / 252.0, rtol=1e-6)
+
+
+class TestBlackLittermanViewsOnDroppedAssets:
+    """A view on an asset that pre-selection removed must not abort the fit.
+
+    The views are built once for the selected tickers, but the pipeline drops
+    assets (near-duplicates, short histories) at every fit, so some views name
+    an asset that is not in the fitted frame.  An asset that is not held cannot
+    carry a view; the remaining views still apply.
+    """
+
+    @staticmethod
+    def _panel() -> pd.DataFrame:
+        rng = np.random.default_rng(3)
+        X = pd.DataFrame(
+            rng.normal(0.0004, 0.01, (400, 8)),
+            columns=[f"S{i}" for i in range(8)],
+            index=pd.bdate_range("2022-01-03", periods=400),
+        )
+        # A near-duplicate that DropCorrelated removes at the default threshold.
+        X["S8"] = X["S0"] + rng.normal(0.0, 1e-5, 400)
+        return X
+
+    @staticmethod
+    def _prior(tickers: pd.Index, scores: pd.Series) -> Any:
+        prior, _ = build_factor_integration(
+            config=FactorIntegrationConfig.for_black_litterman(),
+            composite_scores=scores,
+            standardized_factors=pd.DataFrame(),
+            selected_tickers=tickers,
+        )
+        assert prior is not None
+        return prior
+
+    def test_pipeline_fit_survives_a_view_on_an_asset_it_dropped(self) -> None:
+        from optimizer.pre_selection import build_portfolio_pipeline
+
+        X = self._panel()
+        scores = pd.Series(np.linspace(-1.0, 1.0, X.shape[1]), index=X.columns)
+        optimizer = build_mean_risk(prior_estimator=self._prior(X.columns, scores))
+
+        pipe = build_portfolio_pipeline(optimizer)
+        pipe.fit(X)
+
+        assert pipe[-1].weights_.shape == (X.shape[1] - 1,)
+
+    def test_views_on_absent_assets_are_ignored_and_the_rest_still_apply(
+        self,
+    ) -> None:
+        X = self._panel()
+        scores = pd.Series(np.linspace(-1.0, 1.0, X.shape[1]), index=X.columns)
+        kept = X.drop(columns=["S3", "S5"])
+
+        wide = self._prior(X.columns, scores)
+        wide.fit(kept)
+        narrow = self._prior(kept.columns, scores)
+        narrow.fit(kept)
+
+        np.testing.assert_allclose(
+            wide.return_distribution_.mu,
+            narrow.return_distribution_.mu,
+        )
+        np.testing.assert_allclose(
+            wide.return_distribution_.covariance,
+            narrow.return_distribution_.covariance,
+        )
+
+    def test_no_surviving_view_leaves_the_unviewed_prior(self) -> None:
+        X = self._panel()
+        scores = pd.Series(np.linspace(-1.0, 1.0, X.shape[1]), index=X.columns)
+        prior = self._prior(X.columns, scores)
+        other = X.set_axis([f"Z{i}" for i in range(X.shape[1])], axis=1)
+
+        prior.fit(other)
+
+        inner = clone(prior.black_litterman.prior_estimator).fit(other)
+        np.testing.assert_allclose(
+            prior.return_distribution_.mu,
+            inner.return_distribution_.mu + 0.04 / 252.0,
+        )
+
+    def test_prior_can_be_cloned(self) -> None:
+        X = self._panel()
+        scores = pd.Series(np.linspace(-1.0, 1.0, X.shape[1]), index=X.columns)
+        prior = self._prior(X.columns, scores)
+
+        copy = clone(prior)
+
+        copy.fit(X)
+        assert copy.return_distribution_.mu.shape == (X.shape[1],)
 
 
 class TestBuildFactorIntegration:

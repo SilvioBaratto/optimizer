@@ -4,18 +4,20 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from skfolio.prior import (
     BlackLitterman,
+    EmpiricalPrior,
     EntropyPooling,
     OpinionPooling,
     TimeSeriesFactorModel,
 )
 from skfolio.prior._base import BasePrior, ReturnDistribution
+from sklearn.base import clone
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.moments._config import MomentEstimationConfig
@@ -101,6 +103,79 @@ class _EmpiricalOmegaBlackLitterman(BlackLitterman):
             returns=prior_returns,
             sample_weight=self.prior_estimator_.return_distribution_.sample_weight,
         )
+        return self
+
+
+class AvailableAssetViewsPrior(BasePrior):
+    """Black-Litterman prior that applies only the views on assets it is fitted on.
+
+    The views are built once for a fixed set of assets, but a pipeline's
+    pre-selection drops assets at every fit, and skfolio rejects a view naming
+    an asset that is absent from ``X``. An asset that is not held cannot carry a
+    view, so at fit the views on absent assets are set aside and the rest are
+    applied unchanged. With none left the result is the unviewed posterior.
+
+    Args:
+        black_litterman: Template prior holding every view.
+        view_assets: Asset named by each view of ``black_litterman``, in the
+            same order.
+    """
+
+    def __init__(
+        self, black_litterman: BlackLitterman, view_assets: tuple[str, ...]
+    ) -> None:
+        self.black_litterman = black_litterman
+        self.view_assets = view_assets
+
+    def get_metadata_routing(self) -> Any:
+        """Route fit metadata exactly as the wrapped prior would."""
+        return self.black_litterman.get_metadata_routing()
+
+    def fit(
+        self, X: Any, y: None = None, **fit_params: Any
+    ) -> AvailableAssetViewsPrior:
+        """Fit the prior on the views whose asset is a column of ``X``.
+
+        Args:
+            X: Asset returns with the asset names as columns.
+            y: Ignored; present for sklearn API compatibility.
+            **fit_params: Forwarded to the underlying estimators.
+
+        Returns:
+            The fitted prior.
+        """
+        template = self.black_litterman
+        present = set(getattr(X, "columns", ()))
+        keep = [i for i, asset in enumerate(self.view_assets) if asset in present]
+
+        fitted: BasePrior
+        if keep:
+            params: dict[str, Any] = {"views": [template.views[i] for i in keep]}
+            if template.view_confidences is not None:
+                params["view_confidences"] = [
+                    template.view_confidences[i] for i in keep
+                ]
+            fitted = clone(template).set_params(**params)
+            fitted.fit(X, y, **fit_params)
+            self.return_distribution_ = fitted.return_distribution_
+        else:
+            inner = template.prior_estimator
+            fitted = (
+                cast("BasePrior", clone(inner))
+                if inner is not None
+                else EmpiricalPrior()
+            )
+            fitted.fit(X, y, **fit_params)
+            base = fitted.return_distribution_
+            # What BlackLitterman computes when no view constrains the posterior.
+            self.return_distribution_ = ReturnDistribution(
+                mu=base.mu + template.risk_free_rate,
+                covariance=(1.0 + template.tau) * base.covariance,
+                returns=base.returns,
+            )
+        self.n_features_in_ = int(np.shape(X)[1])
+        if hasattr(fitted, "feature_names_in_"):
+            self.feature_names_in_ = fitted.feature_names_in_
         return self
 
 
