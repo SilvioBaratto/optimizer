@@ -445,6 +445,11 @@ class ShellApp(App[None]):
     CSS = """
     .shell-header { height: 1; background: $panel; color: $text; }
     .shell-header Static { width: auto; padding: 0 2; }
+    /* A bordered Select is 3 rows tall; in the 1-row header its label row would sit
+       under the body, so strip the border (focus included) to keep it on one row. */
+    .hdr-picker { height: 1; }
+    .hdr-picker > SelectCurrent,
+    .hdr-picker:focus > SelectCurrent { height: 1; border: none; padding: 0 1; }
     .shell-body { height: 1fr; }
     .sidebar { width: 22; border-right: solid $accent; }
     .sidebar.narrow { width: 5; }
@@ -568,7 +573,13 @@ class ShellApp(App[None]):
         """Yield the header, the sidebar | content split, the status bar, and footer."""
         yield Header()
         with Horizontal(id="shell-header", classes="shell-header"):
-            yield Select([], prompt="⟨fund-wide⟩", id="hdr-portfolio", allow_blank=True)
+            yield Select(
+                [],
+                prompt="⟨fund-wide⟩",
+                id="hdr-portfolio",
+                classes="hdr-picker",
+                allow_blank=True,
+            )
             yield Static("● ARMED", id="hdr-mode")
             yield Static(self._runstate, id="hdr-runstate")
             yield Static("⏸0 awaiting", id="hdr-attention")

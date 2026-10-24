@@ -532,6 +532,21 @@ async def test_status_message_is_painted_above_the_footer(shell_env, size) -> No
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("size", [(120, 30), (80, 24)])
+async def test_header_portfolio_picker_label_is_painted(shell_env, size) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=size) as pilot:
+        await pilot.pause()
+        picker = app.query_one("#hdr-portfolio", Select)
+        header = app.query_one("#shell-header")
+        assert picker.region.height == header.region.height == 1
+        # The prompt must sit on the header row itself, not on a row the body covers.
+        assert "fund-wide" in _screen_lines(app)[header.region.y]
+        # The run-state glyphs share that row and must not be pushed off it.
+        assert "ARMED" in _screen_lines(app)[header.region.y]
+
+
+@pytest.mark.asyncio
 async def test_shell_collapses_sidebar_to_rail_when_narrow(shell_env) -> None:
     app = _make_shell(shell_env)
     async with app.run_test(size=(60, 40)) as pilot:  # below the rail threshold
