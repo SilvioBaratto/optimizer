@@ -245,9 +245,101 @@ def test_objective_map_procedure_does_not_instruct_knobs_the_tool_ignores():
         )
 
 
-def test_optimization_objective_map_has_factories():
-    factories = _SKILLS_DIR / "optimization-objective-map" / "factories.py"
-    assert factories.read_text(encoding="utf-8").strip(), "empty factories.py"
+_PYTHON_BLOCK_RE = re.compile(r"```python\n(.*?)```", re.DOTALL)
+
+
+def _skeleton_resource() -> Path:
+    """The factory-skeleton file that SKILL.md tells the allocator to open."""
+    body = _read(_OBJECTIVE_MAP_SKILL, "SKILL.md")
+    names = [
+        span
+        for span in _inline_code_spans(body)
+        if re.fullmatch(r"factories\.\w+", span)
+    ]
+    assert len(names) == 1, f"SKILL.md should name exactly one skeleton file: {names}"
+    return _SKILLS_DIR / _OBJECTIVE_MAP_SKILL / names[0]
+
+
+def _skeleton_sections() -> list[tuple[str, list[str]]]:
+    """``(heading, python blocks)`` for each ``## `` section holding code."""
+    text = _skeleton_resource().read_text(encoding="utf-8")
+    sections = re.findall(r"^## ([^\n]+)\n(.*?)(?=^## |\Z)", text, re.DOTALL | re.M)
+    return [
+        (heading, _PYTHON_BLOCK_RE.findall(body))
+        for heading, body in sections
+        if _PYTHON_BLOCK_RE.search(body)
+    ]
+
+
+def test_objective_map_factory_skeletons_equal_the_constraint_set_mapping():
+    from fund.schemas.constraint_set import _OBJECTIVE_MAP, Bounds, ConstraintSet
+    from fund.schemas.enums import Horizon, RiskMeasureChoice
+
+    sections = [
+        (heading, blocks) for heading, blocks in _skeleton_sections() if "→" in heading
+    ]
+    for objective, target in _OBJECTIVE_MAP.items():
+        owners = [
+            (heading, blocks)
+            for heading, blocks in sections
+            if objective.value in re.findall(r"[a-z_]+", heading.split("→")[0])
+        ]
+        assert len(owners) == 1, f"`{objective.value}` needs exactly one skeleton"
+        heading, blocks = owners[0]
+        assert target.upper() in heading
+        assert len(blocks) == 1
+        namespace: dict[str, object] = {
+            "a_gamma": 3.0,
+            "beta": 0.9,  # distinct from MeanRiskConfig's 0.95 default
+            "cap": 0.25,
+            "cardinality": None,
+        }
+        exec(compile(blocks[0], heading, "exec"), namespace)  # noqa: S102
+        config = namespace["config"]
+        expected = ConstraintSet(
+            portfolio_id="p",
+            base_currency="EUR",
+            a_gamma=3.0,
+            objective=objective,
+            risk_measure=RiskMeasureChoice(config.risk_measure.value),
+            beta=0.9,
+            nu1=0.1,
+            nu2=0.2,
+            nu3=0.3,
+            horizon=Horizon.MEDIUM,
+            bounds=Bounds(max_weights=0.25),
+            cardinality=None,
+        ).to_mean_risk_config()
+        assert config == expected, f"`{heading}` drifted from to_mean_risk_config()"
+
+
+def test_objective_map_factory_skeletons_run_against_the_real_optimizer():
+    import numpy as np
+
+    skeletons = _skeleton_resource()
+    blocks = _PYTHON_BLOCK_RE.findall(skeletons.read_text(encoding="utf-8"))
+    assert len(blocks) >= 4, f"{skeletons.name} holds no runnable skeletons"
+    for block in blocks:
+        namespace: dict[str, object] = {
+            "a_gamma": 3.0,
+            "beta": 0.95,
+            "cap": 0.25,
+            # A cardinality cap needs a mixed-integer solver, which the default
+            # config does not carry; the profiler leaves the cap unset too.
+            "cardinality": None,
+            "previous_weights": np.full(3, 1 / 3),
+        }
+        exec(compile(block, skeletons.name, "exec"), namespace)  # noqa: S102
+
+
+def test_skill_local_file_references_resolve():
+    for name in _SKILL_DIRS:
+        text = _read(name, "SKILL.md")
+        for span in _inline_code_spans(text):
+            if re.fullmatch(r"[\w-]+\.(?:md|py)", span):
+                assert (_SKILLS_DIR / name / span).is_file(), (
+                    f"{name}: SKILL.md points at `{span}` which does not exist"
+                )
 
 
 # --- fund-orchestration: only promise what the PM can actually see -----------

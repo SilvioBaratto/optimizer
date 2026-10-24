@@ -50,8 +50,9 @@ Do not present any of them as applied in your rationale.
   swap them into a prior that needs a matrix.
 
 ## Deeper detail
-The objective→cone table (with chapter refs) is in `reference.md`; exact factory-call
-skeletons per objective are in `factories.py`. Theory: start at the curated map
+The objective→cone table (with chapter refs) is in `reference.md`; runnable
+optimizer-config skeletons per objective are in `factories.md` (illustrative — the
+tool builds its own config from the ConstraintSet and does not accept them). Theory: start at the curated map
 `optimizer-theory/openwiki/optimization/index.md`, then
 `optimizer-theory/openwiki/optimization/convex-optimization.md` for the cone /
 duality / KKT derivation; the full chapters are `14` (cones) + `02`, `16`, `17`,
