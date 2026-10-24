@@ -133,26 +133,35 @@ def _heartbeat(
     300s) is falsely reaped mid-run and its slot flips to ``failed`` while the
     work is still going.
 
-    The thread opens its **own** session (never sharing the step's working
+    The thread opens its **own** session per pulse (never sharing the step's working
     ``Session`` across threads), fires one immediate pulse (so a slot is renewed
     the instant it starts running, and a heartbeat is observable even for a fast
     step), then re-pulses every ``cadence`` seconds until the block exits. A pulse
-    failure is logged and swallowed — a heartbeat hiccup must never crash the step.
+    failure is logged and swallowed and the next tick retries on a fresh session —
+    a heartbeat hiccup must neither crash the step nor stop renewing the lease.
     """
     from fund.audit.fund_job_repository import FundJobRepository
 
     factory = _resolve_factory(session_factory)
     stop = threading.Event()
 
-    def _pulse() -> None:
+    def _pulse_once() -> None:
         try:
             with factory() as hb_session:
-                repo = FundJobRepository(hb_session)
-                repo.update_heartbeat(job_id)  # immediate pulse
-                while not stop.wait(cadence):
-                    repo.update_heartbeat(job_id)
-        except Exception:  # pragma: no cover - defensive; a hiccup must not crash
-            logger.exception("heartbeat[%s]: pulse thread failed", job_id)
+                FundJobRepository(hb_session).update_heartbeat(job_id)
+        except Exception:
+            # A session that failed mid-commit is unusable, so each tick opens a
+            # new one rather than reusing it.
+            logger.warning(
+                "heartbeat[%s]: pulse failed; retrying next tick",
+                job_id,
+                exc_info=True,
+            )
+
+    def _pulse() -> None:
+        _pulse_once()  # immediate pulse
+        while not stop.wait(cadence):
+            _pulse_once()
 
     thread = threading.Thread(
         target=_pulse, daemon=True, name=f"hb:fund:{str(job_id)[:8]}"

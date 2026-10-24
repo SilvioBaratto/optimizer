@@ -649,3 +649,28 @@ def test_heartbeat_thread_pulses_repeatedly(session_factory):
         FundJobRepository.update_heartbeat = original  # type: ignore[method-assign]
 
     assert pulses >= 2  # immediate pulse plus at least one loop iteration
+
+
+def test_heartbeat_keeps_pulsing_after_a_failed_pulse(session_factory, monkeypatch):
+    with session_factory() as session:
+        repo = FundJobRepository(session)
+        job_id = repo.claim_or_create("fund_rebalance_sweep")
+        repo.mark_running(job_id)
+
+    calls: list[uuid.UUID] = []
+    original = FundJobRepository.update_heartbeat
+
+    def _flaky(self, jid):
+        calls.append(jid)
+        if len(calls) == 2:
+            raise RuntimeError("connection reset")  # one transient DB blip
+        return original(self, jid)
+
+    monkeypatch.setattr(FundJobRepository, "update_heartbeat", _flaky)
+
+    with _heartbeat(job_id, cadence=0.02, session_factory=session_factory):
+        time.sleep(0.4)
+
+    # A dead pulse thread would leave the lease unrenewed past the blip and let the
+    # reaper fail a step that is still running.
+    assert len(calls) >= 5
