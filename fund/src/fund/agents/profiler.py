@@ -225,6 +225,19 @@ def _with_conservative_placeholders(answers: MiFIDAnswers) -> MiFIDAnswers:
 # ---------------------------------------------------------------------------
 
 
+# The band edges (0.2/0.4/0.6/0.8) and the soft-flag thresholds are exact ratios, but
+# the scores are float: ``(3.4 - 1) / 6`` is ``0.39999999999999997``, which a strict
+# ``< 0.4`` lookup would file one band too conservative. Genuine scores are ratios of
+# small integers and one-decimal inputs, so none sits within 1e-9 of an edge without
+# being on it; snapping to this many decimals restores the documented half-open bands.
+_SCORE_DECIMALS = 9
+
+
+def _snap(x: float) -> float:
+    """Round away float noise so an exact band edge compares as that edge."""
+    return round(x, _SCORE_DECIMALS)
+
+
 def _clip01(x: float) -> float:
     """Clamp to the unit interval ``[0, 1]``."""
     return min(max(x, 0.0), 1.0)
@@ -237,12 +250,12 @@ def _appetite_from_tolerance(objectives: ObjectivesAnswers) -> float:
     financial capacity score.
     """
     mean_likert = sum(objectives.likert_items) / len(objectives.likert_items)
-    return (mean_likert - 1.0) / 6.0
+    return _snap((mean_likert - 1.0) / 6.0)
 
 
 def _loss_capacity_appetite(capacity: CapacityAnswers) -> float:
     """Stated loss-capacity sub-score ∈ [0, 1]: ``clip(max_1yr_loss_pct / 0.50)``."""
-    return _clip01(capacity.max_1yr_loss_pct / 0.50)
+    return _snap(_clip01(capacity.max_1yr_loss_pct / 0.50))
 
 
 def _appetite_from_capacity(capacity: CapacityAnswers) -> float:
@@ -252,8 +265,8 @@ def _appetite_from_capacity(capacity: CapacityAnswers) -> float:
     ``buffer_sub = clip(buffer_months / 12)`` — reads **only** the financial
     fields, never the attitudinal Likert.
     """
-    buffer_sub = _clip01(capacity.buffer_months / 12.0)
-    return (_loss_capacity_appetite(capacity) + buffer_sub) / 2.0
+    buffer_sub = _snap(_clip01(capacity.buffer_months / 12.0))
+    return _snap((_loss_capacity_appetite(capacity) + buffer_sub) / 2.0)
 
 
 def _appetite_to_aversion(appetite: float) -> float:
