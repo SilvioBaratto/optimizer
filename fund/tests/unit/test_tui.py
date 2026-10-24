@@ -10187,3 +10187,93 @@ async def test_deliberation_switching_runs_resets_the_step_cursor(shell_env) -> 
         await pilot.pause()
         assert steps.row_count == 5
         assert steps.cursor_row == 0
+
+
+def _row_key_at(table: DataTable, row: int) -> str | None:
+    return table.coordinate_to_cell_key(Coordinate(row, 0)).row_key.value
+
+
+@pytest.mark.asyncio
+async def test_deliberation_cursor_follows_its_run_when_a_newer_run_appears(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        for day in (1, 2, 3):
+            _seed_run_on_day(session, day)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        runs_table = view.query_one("#delib-runs", DataTable)
+        runs_table.move_cursor(row=2)  # the oldest run
+        await pilot.pause()
+        highlighted = _row_key_at(runs_table, 2)
+
+        with shell_env.get_session() as session:  # a newer run lands at the top
+            _seed_run_on_day(session, 9)
+            session.commit()
+        app._refresh()
+        await pilot.pause()
+
+        assert runs_table.row_count == 4
+        assert runs_table.cursor_row == 3
+        assert _row_key_at(runs_table, runs_table.cursor_row) == highlighted
+
+
+@pytest.mark.asyncio
+async def test_deliberation_long_transcript_keeps_cursor_and_scroll_on_growth(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        run_id = _seed_run_on_day(session, 1, decisions=40)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        steps = view.query_one("#delib-steps", DataTable)
+        assert steps.row_count == 40
+        steps.focus()
+        steps.move_cursor(row=30)
+        await pilot.pause()
+        scrolled_to = steps.scroll_y
+        assert scrolled_to > 0  # the transcript is taller than the pane
+
+        with shell_env.get_session() as session:  # the run grows by one step
+            AgentRunRepository(session).append_decision(
+                run_id, agent="executor", step="place_orders"
+            )
+            session.commit()
+        app._refresh()
+        await pilot.pause()
+        await pilot.pause()
+
+        assert steps.row_count == 41
+        assert steps.cursor_row == 30
+        assert steps.scroll_y == scrolled_to
+
+
+@pytest.mark.asyncio
+async def test_deliberation_enter_on_a_step_leaves_the_cursor_on_that_step(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        run_id = _seed_run_on_day(session, 1, decisions=30)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        steps = view.query_one("#delib-steps", DataTable)
+        steps.focus()
+        steps.move_cursor(row=12)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert view.selected_step == 12
+        assert steps.cursor_row == 12  # a second Enter must not select step 0
+        await pilot.press("enter")
+        await pilot.pause()
+        assert view.selected_step == 12
