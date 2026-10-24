@@ -333,10 +333,13 @@ def _serialised(
                     savepoint.rollback()
                 else:
                     savepoint.commit()
-            except BaseException:
+            except BaseException as exc:
                 # A failed flush leaves the savepoint inactive but still current;
                 # only an explicit rollback hands the session back usable.
                 savepoint.rollback()
+                # Tells the envelope the session is already recovered, so it does not
+                # roll the whole run transaction (and the run's own rows) back too.
+                exc.session_recovered = True  # type: ignore[attr-defined]
                 raise
             return result
 

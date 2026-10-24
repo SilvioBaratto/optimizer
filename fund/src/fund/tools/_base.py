@@ -5,7 +5,9 @@ Two hard rules shape this module:
 
 * A tool NEVER raises across its own boundary — a caught exception becomes
   ``{"ok": False, "error": <msg>}`` so a mis-called tool degrades the agent's
-  turn instead of crashing the LangGraph run.
+  turn instead of crashing the LangGraph run. A database failure also rolls the
+  tool's session back (every bound tool shares one) and reaches the model without
+  its SQL text or bound parameters.
 * A tool never hands a raw DataFrame back to the model — big frames are collapsed
   to a JSON-serialisable shape/coverage summary in-environment
   (``summarize_frame``).
@@ -22,7 +24,7 @@ import datetime as dt
 import functools
 import logging
 import math
-from collections.abc import Callable, Generator, Mapping
+from collections.abc import Callable, Generator, Iterable, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, ParamSpec
 
@@ -151,10 +153,59 @@ def err(error: str) -> ToolResult:
     return {"ok": False, "error": error}
 
 
+def _database_failure_message(exc: Exception) -> str | None:
+    """A model-safe message for a SQLAlchemy ``exc``, or ``None`` for any other error.
+
+    A SQLAlchemy message embeds the statement and its bound parameters, which would
+    hand schema and stored values to the model; the full text stays in the log.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+
+    if isinstance(exc, SQLAlchemyError):
+        return f"{type(exc).__name__}: database error (details are in the server log)"
+    return None
+
+
+def _recover_sessions(exc: Exception, arguments: Iterable[Any]) -> None:
+    """Roll back every session reachable from a failed tool's ``arguments``.
+
+    A session is an argument itself (the frozen ``fund.tools`` functions) or the
+    ``session`` attribute of one (the bound agent closures take a run context).
+
+    The tools of one run share a single session. A failed flush leaves it inactive
+    ("rollback required") and a failed statement aborts a PostgreSQL transaction
+    while the session still reports itself active; either way every later tool call
+    and audit write would fail until someone rolls back. Other errors leave the
+    transaction intact, so the work already flushed in it is kept.
+    """
+    from sqlalchemy.exc import DBAPIError
+    from sqlalchemy.orm import Session
+
+    # A tool that ran inside its own SAVEPOINT already handed the session back usable;
+    # a full rollback would also discard the run's own uncommitted rows.
+    if getattr(exc, "session_recovered", False):
+        return
+    sessions: dict[int, Session] = {}
+    for argument in arguments:
+        candidate = getattr(argument, "session", argument)
+        if isinstance(candidate, Session):
+            sessions[id(candidate)] = candidate
+
+    for session in sessions.values():
+        if isinstance(exc, DBAPIError) or not session.is_active:
+            try:
+                session.rollback()
+            except Exception:  # recovery must not break the envelope either
+                logger.exception("rollback after a failed tool did not complete")
+
+
 def tool_envelope(fn: Callable[P, Any]) -> Callable[P, ToolResult]:
     """Wrap ``fn`` so it always returns a ToolResult, never raises.
 
-    * A raised exception is logged and converted to ``err("<Type>: <msg>")``.
+    * A raised exception is logged and converted to ``err("<Type>: <msg>")``. A
+      SQLAlchemy error is reported without its SQL text, and a session it left
+      unusable is rolled back, whether passed as an argument or held in the
+      ``session`` attribute of one (a run context).
     * A return value that is already an envelope (a mapping with an ``"ok"`` key)
       passes through as a plain ``dict``.
     * Any other return value is wrapped with ``ok``.
@@ -173,7 +224,8 @@ def tool_envelope(fn: Callable[P, Any]) -> Callable[P, ToolResult]:
             result = fn(*args, **kwargs)
         except Exception as exc:  # the envelope must never raise across its boundary
             logger.exception("tool %s failed", fn.__name__)
-            return err(f"{type(exc).__name__}: {exc}")
+            _recover_sessions(exc, (*args, *kwargs.values()))
+            return err(_database_failure_message(exc) or f"{type(exc).__name__}: {exc}")
         if isinstance(result, Mapping) and "ok" in result:
             return dict(result)
         return ok(result)

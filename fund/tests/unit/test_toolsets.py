@@ -35,19 +35,22 @@ from langchain_core.tools import BaseTool
 from langgraph.store.memory import InMemoryStore
 from optimizer.moments import MomentEstimationConfig
 from optimizer.optimization import MeanRiskConfig
-from portopt_db.models import AgentDecision
+from portopt_db.models import AgentDecision, Base
 from portopt_db.models.macro.macro_regime import FredObservation
 from portopt_db.models.market_data.yfinance_data import PriceHistory, TickerProfile
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repositories.market_data.market_journal_repository import (
     MarketJournalRepository,
 )
-from sqlalchemy import select
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 from fund import observe
 from fund import tools as fund_tools
 from fund.agents import graph as fund_graph
 from fund.agents import prompts as fund_prompts
+from fund.agents import toolsets as toolsets_module
 from fund.agents.skills import SKILLS_BY_AGENT, SKILLS_DIR
 from fund.agents.toolsets import TOOLS_BY_AGENT, RunContext, bind_toolset
 from fund.audit import AgentRunRepository, put_constraint_set
@@ -1170,6 +1173,86 @@ def test_place_orders_description_discloses_the_ticket_is_the_audited_proposal(
 
     assert "no weights" in description
     assert "audited" in description
+
+
+@pytest.fixture
+def private_session():
+    """A function-scoped engine and session, so a real ``rollback()`` stays contained.
+
+    The shared SAVEPOINT ``db_session`` rides on an outer transaction that a real
+    rollback would tear down mid-test.
+    """
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    with Session(bind=engine, autoflush=False) as session:
+        yield session
+    engine.dispose()
+
+
+def _flush_a_duplicate_price_row(session) -> None:
+    """Raise the unique-key ``IntegrityError`` a failing audit write would."""
+    existing = session.execute(select(PriceHistory)).scalars().first()
+    session.add(
+        PriceHistory(
+            instrument_id=existing.instrument_id,
+            date=existing.date,
+            close=1.0,
+            volume=1,
+        )
+    )
+    session.flush()
+
+
+def _assert_shared_session_usable(session, ctx: RunContext) -> None:
+    # A session left in "rollback required" raises PendingRollbackError on any use.
+    assert session.execute(text("SELECT 1")).scalar_one() == 1
+    prices = _find(bind_toolset("economist", ctx), "get_prices")
+    assert prices.invoke({"tickers": ["AAA"]})["ok"] is True
+
+
+def test_failed_audit_write_in_optimize_leaves_the_shared_session_usable(
+    private_session, monkeypatch
+) -> None:
+    _seed_panel(private_session)
+    ctx = _make_context(private_session)
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+    monkeypatch.setattr(
+        toolsets_module,
+        "_append_allocator_decision",
+        lambda *_a, **_k: _flush_a_duplicate_price_row(private_session),
+    )
+
+    result = optimize.invoke({"universe": _UNIVERSE})
+
+    assert result["ok"] is False
+    assert "INSERT" not in result["error"]
+    _assert_shared_session_usable(private_session, ctx)
+
+
+def test_failed_audit_write_in_place_orders_leaves_the_shared_session_usable(
+    private_session, monkeypatch
+) -> None:
+    _seed_panel(private_session)
+    ctx = _make_context(private_session)
+    _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
+        {"universe": _UNIVERSE}
+    )
+    place = _find(bind_toolset("orchestrator", ctx), "place_orders")
+    monkeypatch.setattr(
+        toolsets_module,
+        "_append_executor_decision",
+        lambda *_a, **_k: _flush_a_duplicate_price_row(private_session),
+    )
+
+    result = place.invoke({"weights": _WEIGHTS})
+
+    assert result["ok"] is False
+    assert "INSERT" not in result["error"]
+    _assert_shared_session_usable(private_session, ctx)
 
 
 def test_place_orders_idempotent_rerun_appends_once(db_session) -> None:

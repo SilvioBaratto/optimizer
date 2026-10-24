@@ -7,10 +7,66 @@ and never hands a raw DataFrame back. These tests pin both, plus the small
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
+import pytest
+from sqlalchemy import String, create_engine, text
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from fund.tools._base import err, ok, session_scope, summarize_frame, tool_envelope
+
+
+class _Base(DeclarativeBase):
+    pass
+
+
+class _Ticket(_Base):
+    __tablename__ = "envelope_tickets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String, unique=True)
+
+
+@pytest.fixture
+def shared_session():
+    engine = create_engine("sqlite://")
+    _Base.metadata.create_all(engine)
+    with Session(engine, autoflush=False) as session:
+        yield session
+    engine.dispose()
+
+
+@tool_envelope
+def _place(session: Session, key: str) -> str:
+    session.add(_Ticket(key=key))
+    session.flush()
+    return key
+
+
+@dataclass(frozen=True)
+class _RunContext:
+    """Stands in for the per-run context that carries the shared session."""
+
+    session: Session
+
+
+@tool_envelope
+def _place_in_context(ctx: _RunContext, key: str) -> str:
+    ctx.session.add(_Ticket(key=key))
+    ctx.session.flush()
+    return key
+
+
+@tool_envelope
+def _bad_read(session: Session) -> object:
+    return session.execute(text("SELECT * FROM no_such_table")).all()
+
+
+@tool_envelope
+def _bad_argument(session: Session) -> None:
+    raise ValueError("bad argument")
 
 
 class TestResultConstructors:
@@ -76,6 +132,76 @@ class TestToolEnvelope:
 
         assert named_tool.__name__ == "named_tool"
         assert named_tool.__doc__ == "A docstring worth keeping."
+
+
+class TestDatabaseFailure:
+    def test_failed_flush_leaves_the_shared_session_usable(
+        self, shared_session
+    ) -> None:
+        assert _place(shared_session, "k")["ok"] is True
+
+        duplicate = _place(shared_session, "k")
+
+        assert duplicate["ok"] is False
+        # Without a rollback every later tool call and audit write on the shared
+        # session raises PendingRollbackError.
+        assert shared_session.execute(text("SELECT 1")).scalar_one() == 1
+        assert _place(shared_session, "other")["ok"] is True
+
+    def test_session_passed_by_keyword_is_recovered_too(self, shared_session) -> None:
+        _place(shared_session, "k")
+
+        assert _place(session=shared_session, key="k")["ok"] is False
+
+        assert shared_session.execute(text("SELECT 1")).scalar_one() == 1
+
+    def test_session_held_by_a_context_argument_is_recovered_too(
+        self, shared_session
+    ) -> None:
+        # The bound agent closures take a run context, not the session itself.
+        ctx = _RunContext(shared_session)
+        _place_in_context(ctx, "k")
+
+        assert _place_in_context(ctx, "k")["ok"] is False
+
+        assert shared_session.execute(text("SELECT 1")).scalar_one() == 1
+        assert _place_in_context(ctx, "other")["ok"] is True
+
+    def test_error_message_carries_no_sql_text_or_parameters(
+        self, shared_session
+    ) -> None:
+        _place(shared_session, "secret-key")
+
+        message = _place(shared_session, "secret-key")["error"]
+
+        assert message.startswith("IntegrityError")
+        assert "INSERT" not in message
+        assert "secret-key" not in message
+
+    def test_failed_statement_rolls_back_even_when_the_session_stays_active(
+        self, shared_session
+    ) -> None:
+        # PostgreSQL aborts the whole transaction on a failed read although the
+        # Session still reports itself active, so only a rollback unblocks it.
+        _place(shared_session, "k")
+
+        result = _bad_read(shared_session)
+
+        assert result["ok"] is False
+        assert "no_such_table" not in result["error"]
+        assert shared_session.in_transaction() is False
+
+    def test_non_database_error_keeps_the_work_already_flushed(
+        self, shared_session
+    ) -> None:
+        _place(shared_session, "k")
+
+        result = _bad_argument(shared_session)
+
+        assert result["ok"] is False
+        assert "bad argument" in result["error"]
+        count = shared_session.execute(text("SELECT count(*) FROM envelope_tickets"))
+        assert count.scalar_one() == 1
 
 
 class TestSummarizeFrame:
