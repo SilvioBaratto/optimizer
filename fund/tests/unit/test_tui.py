@@ -865,6 +865,22 @@ def _seed_gate(env, portfolio_id: uuid.UUID, pm_weights: dict[str, float]) -> uu
         return run.run_id
 
 
+def _order_gates(env, *run_ids_newest_first: uuid.UUID) -> None:
+    """Pin the queue order: SQLite's ``created_at`` has one-second resolution.
+
+    ``pending_hitl`` sorts newest first, so gates seeded within the same second would
+    otherwise tie and come back in an arbitrary order.
+    """
+    from datetime import datetime, timedelta
+
+    base = datetime(2030, 1, 1, 12, 0, 0)
+    with env.get_session() as session:
+        repo = AgentRunRepository(session)
+        for rank, run_id in enumerate(run_ids_newest_first):
+            repo.get_run(run_id).created_at = base - timedelta(hours=rank)
+        session.commit()
+
+
 @pytest.mark.asyncio
 async def test_decisions_queue_is_cross_portfolio_and_gate_shows_why(tui_env) -> None:
     # Fund-wide landing (portfolio_id=None): the queue still lists the paused gate,
@@ -1717,7 +1733,8 @@ async def test_decisions_repaint_follows_the_highlighted_gate_by_key(tui_env) ->
         table = view.query_one("#decisions-table", DataTable)
         assert _cursor_key(table) == str(tui_env.run_id)
 
-        newer = _seed_gate(tui_env, _PID_B, tui_env.expected)  # newest first => row 0
+        newer = _seed_gate(tui_env, _PID_B, tui_env.expected)
+        _order_gates(tui_env, newer, tui_env.run_id)  # newest first => row 0
         view.refresh_view()
         await pilot.pause()
 
@@ -1726,6 +1743,92 @@ async def test_decisions_repaint_follows_the_highlighted_gate_by_key(tui_env) ->
             newer
         )
         assert _cursor_key(table) == str(tui_env.run_id)
+
+
+@pytest.mark.asyncio
+async def test_decisions_select_run_moves_the_highlight_to_the_selection(
+    tui_env,
+) -> None:
+    newest = _seed_gate(tui_env, _PID_B, tui_env.expected)
+    middle = _seed_gate(tui_env, _PID_A, tui_env.expected)
+    _order_gates(tui_env, newest, middle, tui_env.run_id)
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        table = view.query_one("#decisions-table", DataTable)
+        assert _cursor_key(table) == str(newest)
+
+        view.select_run(tui_env.run_id)  # the oldest gate => last row
+        await pilot.pause()
+
+        assert _cursor_key(table) == str(tui_env.run_id)
+        assert table.cursor_row == 2
+
+
+@pytest.mark.asyncio
+async def test_decisions_enter_then_approve_acts_on_the_highlighted_gate(
+    tui_env,
+) -> None:
+    other_b = _seed_gate(tui_env, _PID_B, tui_env.expected)
+    _seed_gate(tui_env, _PID_A, tui_env.expected)
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        table = view.query_one("#decisions-table", DataTable)
+        table.focus()
+        table.move_cursor(row=table.get_row_index(str(other_b)))
+        highlighted = _cursor_key(table)
+        assert highlighted == str(other_b)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert view.selected_run_id == other_b
+        assert _cursor_key(table) == highlighted  # Enter must not reset the cursor
+
+        app.action_decide_approve()
+        await pilot.pause()
+        assert app.last_worker is not None
+        await app.last_worker.wait()
+        await pilot.pause()
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(other_b).status == "completed"
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
+
+
+@pytest.mark.asyncio
+async def test_decisions_actions_refuse_when_highlight_is_not_the_selected_gate(
+    tui_env,
+) -> None:
+    # Enter on one gate, then arrow to another: a/r/k/e/s would act on the gate that is
+    # selected but no longer highlighted. They must refuse until Enter re-selects.
+    newer = _seed_gate(tui_env, _PID_B, tui_env.expected)
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        table = view.query_one("#decisions-table", DataTable)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        table.move_cursor(row=table.get_row_index(str(newer)))  # off the selection
+        await pilot.pause()
+        assert _cursor_key(table) == str(newer)
+        assert view.selected_run_id == tui_env.run_id
+
+        for action, hint_screen in (
+            (app.action_decide_approve, None),
+            (app.action_decide_reject, None),
+            (app.action_decide_killswitch, ScopePickScreen),
+            (app.action_edit_decision, OrderEditScreen),
+            (app.action_steer_decision, BargeInScreen),
+        ):
+            app.last_worker = None
+            action()
+            await pilot.pause()
+            assert app.last_worker is None, action.__name__
+            assert "press enter" in app.last_status.lower(), action.__name__
+            if hint_screen is not None:
+                assert not isinstance(app.screen, hint_screen), action.__name__
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
 
 
 @pytest.mark.asyncio

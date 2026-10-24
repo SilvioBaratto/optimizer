@@ -21,7 +21,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, cast
 from weakref import WeakKeyDictionary
@@ -39,6 +39,7 @@ from textual.widgets import (
     Select,
     Static,
 )
+from textual.widgets.data_table import RowDoesNotExist
 
 from fund import observe
 from fund.observe import DailyBrief, RunSummary
@@ -233,7 +234,9 @@ class DecisionsView(ShellView):
     :func:`fund.actions.apply_action` on a worker thread (dispatched by the App), and
     ``k`` killswitches it (finalise rejected, no undo) behind an explicit-consequence
     confirm; ``e`` edits the proposed weights (``apply_action("edit")``) and ``s``
-    steers the PM with a directive (``respond``), both dispatched by the App.
+    steers the PM with a directive (``respond``), both dispatched by the App. Every one
+    of these acts on the selected gate and is refused while the cursor rests on a
+    different row, so the highlighted gate is always the one that gets resolved.
 
     Attributes:
         selected_run_id: The focused queued run, or ``None`` when nothing is selected.
@@ -275,7 +278,8 @@ class DecisionsView(ShellView):
                 markup=False,
             )
         yield Static(
-            "a approve · r reject · k killswitch · e edit weights · s steer PM",
+            "↵ select · a approve · r reject · k killswitch · e edit weights · "
+            "s steer PM",
             id="decisions-hint",
             classes="decisions-hint",
         )
@@ -305,12 +309,24 @@ class DecisionsView(ShellView):
         """Focus a queued run by id, then repaint the gate detail.
 
         A driver/test hook mirroring the DataTable row selection: the portfolio is
-        taken from the last-painted queue so no extra read is needed.
+        taken from the last-painted queue so no extra read is needed. The table cursor
+        moves onto the selected row, so the highlight and the selection never diverge.
         """
         summary = next((row for row in self._queue if row.run_id == run_id), None)
         self.selected_run_id = run_id
         self.selected_portfolio_id = summary.portfolio_id if summary else None
         self.refresh_view()
+        table = self.query_one("#decisions-table", DataTable)
+        with suppress(RowDoesNotExist):
+            table.move_cursor(row=table.get_row_index(str(run_id)))
+
+    def highlighted_run_id(self) -> uuid.UUID | None:
+        """The queued run under the table cursor, or ``None`` for an empty queue."""
+        table = self.query_one("#decisions-table", DataTable)
+        if not table.row_count:
+            return None
+        key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+        return uuid.UUID(key) if key is not None else None
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """A queue-row selection focuses that gate and reveals its detail."""

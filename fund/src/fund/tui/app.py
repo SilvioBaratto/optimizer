@@ -1073,9 +1073,8 @@ class ShellApp(App[None]):
         run is selected, and that gate's detail rendered — the same guard the cockpit
         uses for a blind approve.
         """
-        view = self._active_decisions_view()
+        view = self._selected_gate_view("select a paused run first")
         if view is None or view.selected_run_id is None:
-            self._set_status("select a paused run first")
             return
         # Approve/reject act at once with no confirm, so the adviser must have the
         # orders on screen: a failed gate render fails closed rather than releasing a
@@ -1099,9 +1098,8 @@ class ShellApp(App[None]):
         until an explicit re-arm. Cancelling is a no-op. Inert — with a status hint —
         unless Decisions is active and a run is selected (approve/reject's guard).
         """
-        view = self._active_decisions_view()
+        view = self._selected_gate_view("select a paused run first")
         if view is None or view.selected_run_id is None:
-            self._set_status("select a paused run first")
             return
         run_id = view.selected_run_id
         portfolio_id = view.selected_portfolio_id
@@ -1190,6 +1188,28 @@ class ShellApp(App[None]):
             return None
         return view if isinstance(view, DecisionsView) else None
 
+    def _selected_gate_view(self, no_selection_hint: str) -> DecisionsView | None:
+        """The Decisions view when its selected gate is also the highlighted row.
+
+        Returns ``None`` with a status message when Decisions is not active, nothing is
+        selected (``no_selection_hint``), or the cursor has moved off the selected gate.
+        Selection only follows Enter or a click, so acting then would resolve a gate
+        other than the one the adviser is looking at — they must press Enter on it
+        first. These actions release orders or kill a run, hence the explicit guard.
+        """
+        view = self._active_decisions_view()
+        if view is None or view.selected_run_id is None:
+            self._set_status(no_selection_hint)
+            return None
+        highlighted = view.highlighted_run_id()
+        if highlighted is not None and highlighted != view.selected_run_id:
+            self._set_status(
+                f"highlighted gate #{str(highlighted)[:8]} is not the selected gate "
+                f"#{str(view.selected_run_id)[:8]} - press Enter on it first"
+            )
+            return None
+        return view
+
     def action_edit_decision(self) -> None:
         """Edit the selected gate's proposed weights before committing (``e`` binding).
 
@@ -1198,9 +1218,8 @@ class ShellApp(App[None]):
         editor, and on Commit threads the edit through ``apply_action("edit")``. A no-op
         with a hint off Decisions or without a selected paused gate.
         """
-        view = self._active_decisions_view()
+        view = self._selected_gate_view("select a paused gate to edit")
         if view is None or view.selected_run_id is None:
-            self._set_status("select a paused gate to edit")
             return
         run_id = view.selected_run_id
         portfolio_id = view.selected_portfolio_id
@@ -1224,9 +1243,8 @@ class ShellApp(App[None]):
         through ``apply_action("respond")`` so the run re-gates ``responded``. A no-op
         with a hint off Decisions or without a selected paused gate.
         """
-        view = self._active_decisions_view()
+        view = self._selected_gate_view("select a paused gate to steer")
         if view is None or view.selected_run_id is None:
-            self._set_status("select a paused gate to steer")
             return
         run_id = view.selected_run_id
         portfolio_id = view.selected_portfolio_id  # the gate's own portfolio
