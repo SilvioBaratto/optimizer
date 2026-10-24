@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import datetime as dt
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+import pytest
 
 from portopt_db.models.market_data.calendars import (
     EarningsCalendar,
     EconomicEventCalendar,
     IpoCalendar,
     SplitCalendar,
+)
+from portopt_db.repositories.market_data._calendar_timezones import (
+    REGION_TIMEZONES,
+    region_timezone,
 )
 from portopt_db.repositories.market_data.calendars_repository import CalendarsRepository
 
@@ -107,3 +115,185 @@ def test_splits_real_labels(db_session) -> None:
     assert got.split_date == dt.date(2026, 8, 15)
     assert got.company_name == "Split Co"
     assert got.ratio == "5:1"
+
+
+@pytest.mark.parametrize(
+    ("region", "instant_utc", "local_date"),
+    [
+        # Japan CPI is released 08:30 JST, which Yahoo reports as 23:30Z the day before.
+        ("JP", "2026-11-19 23:30", dt.date(2026, 11, 20)),
+        ("KR", "2026-11-04 23:00", dt.date(2026, 11, 5)),
+        ("AU", "2026-02-18 22:00", dt.date(2026, 2, 19)),
+        ("NZ", "2026-09-16 21:45", dt.date(2026, 9, 17)),
+        # Same-day releases stay on their UTC date.
+        ("US", "2026-09-11 12:30", dt.date(2026, 9, 11)),
+        ("GB", "2026-09-11 06:00", dt.date(2026, 9, 11)),
+    ],
+)
+def test_economic_event_date_is_the_local_release_date(
+    db_session, region: str, instant_utc: str, local_date: dt.date
+) -> None:
+    repo = CalendarsRepository(db_session)
+    repo.upsert_economic_events(
+        [
+            {
+                "Event": "CPI",
+                "Region": region,
+                "Event Time": pd.Timestamp(instant_utc, tz="UTC"),
+            }
+        ]
+    )
+    db_session.flush()
+
+    assert db_session.query(EconomicEventCalendar).one().event_date == local_date
+
+
+def test_economic_event_at_utc_midnight_is_a_date_only_placeholder(
+    db_session,
+) -> None:
+    # Yahoo stamps events with no release time at 00:00Z; converting that to a
+    # western zone would shift the event to the previous day.
+    repo = CalendarsRepository(db_session)
+    repo.upsert_economic_events(
+        [
+            {
+                "Event": "Bank Holiday",
+                "Region": "AR",
+                "Event Time": pd.Timestamp("2026-09-11 00:00", tz="UTC"),
+            }
+        ]
+    )
+    db_session.flush()
+
+    got = db_session.query(EconomicEventCalendar).one()
+    assert got.event_date == dt.date(2026, 9, 11)
+
+
+def test_economic_event_with_unknown_region_keeps_the_utc_date(db_session) -> None:
+    repo = CalendarsRepository(db_session)
+    repo.upsert_economic_events(
+        [{"Event": "CPI", "Event Time": pd.Timestamp("2026-11-19 23:30", tz="UTC")}]
+    )
+    db_session.flush()
+
+    got = db_session.query(EconomicEventCalendar).one()
+    assert got.country == "?"
+    assert got.event_date == dt.date(2026, 11, 19)
+
+
+def test_region_timezones_all_resolve_to_known_zones() -> None:
+    for region, name in REGION_TIMEZONES.items():
+        assert ZoneInfo(name) is not None, region
+        assert region_timezone(region) == ZoneInfo(name)
+    assert region_timezone(" jp ") == ZoneInfo("Asia/Tokyo")
+    assert region_timezone("?") is None
+    assert region_timezone(None) is None
+
+
+def _economic_payload(event: str, region: str, instant_utc: str) -> dict[str, object]:
+    return {
+        "Event": event,
+        "Region": region,
+        "Event Time": pd.Timestamp(instant_utc, tz="UTC"),
+    }
+
+
+def _stored_economic_events(db_session) -> list[tuple[str, str, dt.date]]:
+    return sorted(
+        (row.event, row.country, row.event_date)
+        for row in db_session.query(EconomicEventCalendar).all()
+    )
+
+
+@pytest.mark.parametrize(
+    ("region", "instant_utc", "legacy_date", "local_date"),
+    [
+        # East of UTC: the old UTC-date key sits one day before the local date.
+        ("JP", "2026-11-19 23:30", dt.date(2026, 11, 19), dt.date(2026, 11, 20)),
+        # West of UTC: a late-evening release was keyed one day after its local date.
+        ("US", "2026-11-20 02:00", dt.date(2026, 11, 20), dt.date(2026, 11, 19)),
+    ],
+)
+def test_economic_event_keyed_on_its_utc_date_is_replaced_not_duplicated(
+    db_session,
+    region: str,
+    instant_utc: str,
+    legacy_date: dt.date,
+    local_date: dt.date,
+) -> None:
+    # Rows ingested before events were keyed on the local release date sit under
+    # the UTC date; the refetch window re-sends the same events, which must
+    # replace those rows instead of living next to them forever.
+    db_session.add(
+        EconomicEventCalendar(
+            event="CPI", country=region, event_date=legacy_date, forecast="old"
+        )
+    )
+    db_session.flush()
+
+    repo = CalendarsRepository(db_session)
+    payload = {**_economic_payload("CPI", region, instant_utc), "Expected": "new"}
+    repo.upsert_economic_events([payload])
+    repo.upsert_economic_events([payload])  # a second refetch changes nothing
+    db_session.flush()
+
+    assert _stored_economic_events(db_session) == [("CPI", region, local_date)]
+    assert db_session.query(EconomicEventCalendar).one().forecast == "new"
+
+
+def test_economic_event_legacy_cleanup_leaves_other_events_alone(db_session) -> None:
+    legacy_date = dt.date(2026, 11, 19)
+    for event, country in [("CPI", "JP"), ("GDP", "JP"), ("CPI", "KR")]:
+        db_session.add(
+            EconomicEventCalendar(event=event, country=country, event_date=legacy_date)
+        )
+    db_session.flush()
+
+    CalendarsRepository(db_session).upsert_economic_events(
+        [_economic_payload("CPI", "JP", "2026-11-19 23:30")]
+    )
+    db_session.flush()
+
+    assert _stored_economic_events(db_session) == [
+        ("CPI", "JP", dt.date(2026, 11, 20)),
+        ("CPI", "KR", legacy_date),
+        ("GDP", "JP", legacy_date),
+    ]
+
+
+def test_economic_event_legacy_cleanup_keeps_a_genuine_occurrence_in_the_payload(
+    db_session,
+) -> None:
+    # A daily event: the 11-19 occurrence (12:00 JST) legitimately owns the key
+    # that the 11-20 occurrence (08:30 JST = 23:30Z) used to be stored under.
+    CalendarsRepository(db_session).upsert_economic_events(
+        [
+            _economic_payload("Bond Auction", "JP", "2026-11-19 03:00"),
+            _economic_payload("Bond Auction", "JP", "2026-11-19 23:30"),
+        ]
+    )
+    db_session.flush()
+
+    assert _stored_economic_events(db_session) == [
+        ("Bond Auction", "JP", dt.date(2026, 11, 19)),
+        ("Bond Auction", "JP", dt.date(2026, 11, 20)),
+    ]
+
+
+def test_economic_event_legacy_cleanup_spans_delete_chunks(db_session) -> None:
+    legacy_date = dt.date(2026, 11, 19)
+    names = [f"Indicator {i}" for i in range(400)]
+    for name in names:
+        db_session.add(
+            EconomicEventCalendar(event=name, country="JP", event_date=legacy_date)
+        )
+    db_session.flush()
+
+    CalendarsRepository(db_session).upsert_economic_events(
+        [_economic_payload(name, "JP", "2026-11-19 23:30") for name in names]
+    )
+    db_session.flush()
+
+    assert _stored_economic_events(db_session) == sorted(
+        (name, "JP", dt.date(2026, 11, 20)) for name in names
+    )
