@@ -6265,10 +6265,11 @@ def test_ask_confirm_prompt_keys_the_target_on_the_verb() -> None:
     from fund.tui.ask import ResolvedAction
 
     run_id = uuid.UUID("dddd0004-0000-4000-8000-000000000004")
-    # A resume verb names its gate; a run verb never does, even if run_id is populated.
+    # A resume verb names its gate and the gate's portfolio; a run verb never names a
+    # gate, even if run_id is populated.
     assert (
         tui_app._ask_confirm_prompt(ResolvedAction("approve", run_id, _PID_A, None))
-        == "Approve and execute gate #dddd0004?"
+        == "Approve and execute gate #dddd0004 (portfolio aaaa0001)?"
     )
     assert (
         tui_app._ask_confirm_prompt(ResolvedAction("run", _PID_A, _PID_A, None))
@@ -6299,6 +6300,23 @@ async def test_ask_killswitch_the_fund_confirms_then_freezes_the_fund(
         from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
 
         assert AutonomyRepository(session).fund_posture() == AutonomyState.FROZEN.value
+
+
+@pytest.mark.asyncio
+async def test_ask_gate_confirm_names_the_gates_portfolio(tui_env) -> None:
+    """An approve confirm names the gate's portfolio, so a fund-wide 'approve' never
+    offers orders of an unnamed portfolio."""
+    app = _make_shell(tui_env)  # fund-wide, nothing focused
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        prompt = str(app.screen.query_one(".confirm-prompt", Static).render())
+        assert f"gate #{str(tui_env.run_id)[:8]}" in prompt
+        assert f"portfolio {str(PORTFOLIO_ID)[:8]}" in prompt
+        await pilot.press("escape")
+        await pilot.pause()
 
 
 @pytest.mark.asyncio

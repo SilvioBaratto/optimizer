@@ -296,6 +296,101 @@ def test_resolve_target_no_gate_is_unresolved(db_session):
     assert res.action is None
 
 
+def test_resolve_target_gate_verbs_prefer_the_focused_portfolios_gate(db_session):
+    """With a portfolio focused, an unnamed 'approve' means its gate, not an ambiguity
+    across the whole fund."""
+    saver = MemorySaver()
+    run_a = _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
+    _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b")
+
+    res = ask.resolve_target("approve the gate", db_session, saver, _PID_A)
+
+    assert res.status == "resolved"
+    assert res.action is not None
+    assert res.action.run_id == run_a and res.action.portfolio_id == _PID_A
+
+
+def test_resolve_target_sole_gate_of_another_portfolio_is_not_offered_under_focus(
+    db_session,
+):
+    """Focused on A with nothing paused there, a lone gate of B is not 'the' gate: the
+    adviser is asked, and naming it by id then resolves it."""
+    saver = MemorySaver()
+    run_b = _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b")
+    short = str(run_b).split("-", 1)[0]
+
+    res = ask.resolve_target("approve", db_session, saver, _PID_A)
+
+    assert res.status == "ambiguous"
+    assert res.action is None
+    assert "bbbb0002" in res.prompt
+    pending = ask.pending_action("approve", res)
+    named = ask.resolve_pending(pending, f"#{short}", db_session, saver, _PID_A)
+    assert named.action is not None and named.action.run_id == run_b
+
+
+def test_resolve_target_named_gate_beats_the_focused_portfolio(db_session):
+    """Naming another portfolio's gate by id is explicit; the focus never blocks it."""
+    saver = MemorySaver()
+    _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
+    run_b = _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b")
+    short = str(run_b).split("-", 1)[0]
+
+    res = ask.resolve_target(f"approve #{short}", db_session, saver, _PID_A)
+
+    assert res.status == "resolved"
+    assert res.action is not None and res.action.run_id == run_b
+
+
+def test_resolve_target_two_named_gates_are_not_narrowed_to_the_focus(db_session):
+    """Naming both gates is still ambiguous under a focus: the focus only fills in a
+    turn that names no gate, so it can't pick one of the two the adviser typed."""
+    saver = MemorySaver()
+    run_a = _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
+    run_b = _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b")
+    short_a, short_b = (str(run).split("-", 1)[0] for run in (run_a, run_b))
+
+    for focus in (None, _PID_A, _PID_B):
+        res = ask.resolve_target(
+            f"reject #{short_a} and #{short_b}", db_session, saver, focus
+        )
+
+        assert res.status == "ambiguous", focus
+        assert res.action is None, focus
+        assert {gate.run_id for gate in res.candidates} == {run_a, run_b}, focus
+
+
+def test_resolve_target_ambiguity_lists_only_the_gates_the_turn_named(db_session):
+    """With three gates, 'B1 and A' offers exactly those two — not the unnamed B2 the
+    focused portfolio also has."""
+    saver = MemorySaver()
+    run_a = _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
+    run_b1 = _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b1")
+    _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b2")
+    short_a, short_b1 = (str(run).split("-", 1)[0] for run in (run_a, run_b1))
+
+    res = ask.resolve_target(
+        f"approve #{short_b1} and #{short_a}", db_session, saver, _PID_B
+    )
+
+    assert res.status == "ambiguous"
+    assert {gate.run_id for gate in res.candidates} == {run_a, run_b1}
+
+
+def test_resolve_target_blanket_gate_turn_is_not_narrowed_to_the_focus(db_session):
+    """'approve all' under a focus must not quietly approve only the focused gate."""
+    saver = MemorySaver()
+    run_a = _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
+    run_b = _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b")
+
+    for turn in ("approve all", "reject everything", "approve both gates"):
+        res = ask.resolve_target(turn, db_session, saver, _PID_A)
+
+        assert res.status == "ambiguous", turn
+        assert res.action is None, turn
+        assert {gate.run_id for gate in res.candidates} == {run_a, run_b}, turn
+
+
 # --- resolve_target: killswitch scope ---------------------------------------
 
 

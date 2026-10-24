@@ -234,9 +234,13 @@ def resolve_target(
       gates: a single gate (or one named by its short id in the turn) is ``resolved``,
       two or more unnamed are ``ambiguous`` (the candidates), none is ``unresolved`` —
       as is a turn naming an id that matches no live gate (already decided, or a
-      typo), which is never swapped for another gate. A negation ("approve not #id")
-      is ``ambiguous`` over every live gate: the excluded gate is never the one acted
-      on;
+      typo), which is never swapped for another gate. With a portfolio focused, an
+      unnamed turn means that portfolio's gate; when none is paused there, the other
+      portfolios' gates are ``ambiguous`` rather than offered as "the" gate. The focus
+      only fills in a turn that names no gate and uses no blanket word: two typed ids
+      stay ``ambiguous`` between exactly those gates. A negation ("approve not #id")
+      is ``ambiguous`` over every live gate, whatever the verb or focus: the excluded
+      gate is never the one acted on;
     * ``killswitch`` resolves the same way at run level, but a turn that names a scope
       ("the fund", "the portfolio") or a blanket target ("everything") without naming a
       live gate is the emergency stop at that scope: it resolves like ``freeze``, so the
@@ -267,7 +271,7 @@ def resolve_target(
     if verb == "killswitch":
         return _resolve_killswitch(turn, session, saver, focus)
     if verb in _RESUME_VERBS:
-        return _resolve_gate(verb, turn, session, saver)
+        return _resolve_gate(verb, turn, session, saver, focus)
     if verb in _SCOPE_VERBS:
         return _resolve_scope(verb, turn, session, focus)
     return _resolve_rebalance(turn, session, focus)  # verb == "run"
@@ -290,7 +294,7 @@ def _resolve_killswitch(
     )
     if names_scope and not _names_gate_run(turn, session, saver):
         return _resolve_scope("freeze", turn, session, focus)
-    return _resolve_gate("killswitch", turn, session, saver)
+    return _resolve_gate("killswitch", turn, session, saver, focus)
 
 
 def _names_gate_run(turn: str, session: Any, saver: Any) -> bool:
@@ -305,7 +309,9 @@ def _names_gate_run(turn: str, session: Any, saver: Any) -> bool:
     )
 
 
-def _resolve_gate(verb: str, turn: str, session: Any, saver: Any) -> TargetResolution:
+def _resolve_gate(
+    verb: str, turn: str, session: Any, saver: Any, focus: uuid.UUID | None
+) -> TargetResolution:
     """Resolve a resume verb against the pending-HITL gates (never on a guess)."""
     gates = observe.pending_hitl(session, saver, None)
     if not gates:
@@ -330,9 +336,23 @@ def _resolve_gate(verb: str, turn: str, session: Any, saver: Any) -> TargetResol
             (),
             f"no gate awaiting a decision matches {typed} — it may already be decided",
         )
-    named = _match_gate(turn, gates)
-    if named is not None:
-        return _resolved_gate(verb, named)
+    named = _named_gates(turn, gates)
+    if len(named) == 1:
+        return _resolved_gate(verb, named[0])
+    if named:
+        # The turn typed several gates; the focus must not pick one of them for it.
+        return TargetResolution(
+            "ambiguous", None, tuple(named), _gate_prompt(verb, named)
+        )
+    if focus is not None and _BLANKET_WORD.search(turn.lower()) is None:
+        focused = [gate for gate in gates if gate.portfolio_id == focus]
+        if not focused:
+            prompt = (
+                f"no gate is paused for portfolio {_short(focus)}; "
+                + _gate_prompt(verb, gates)
+            )
+            return TargetResolution("ambiguous", None, tuple(gates), prompt)
+        gates = focused
     if len(gates) == 1:
         return _resolved_gate(verb, gates[0])
     return TargetResolution("ambiguous", None, tuple(gates), _gate_prompt(verb, gates))
@@ -351,18 +371,23 @@ def _gate_ids(gate: RunSummary) -> list[str]:
     return ids
 
 
+def _named_gates(turn: str, gates: list[RunSummary]) -> list[RunSummary]:
+    """The gates whose short run/portfolio id ``turn`` types (empty for a bare turn)."""
+    tokens = _id_tokens(turn)
+    return [
+        gate
+        for gate in gates
+        if any(gid.startswith(token) for token in tokens for gid in _gate_ids(gate))
+    ]
+
+
 def _match_gate(turn: str, gates: list[RunSummary]) -> RunSummary | None:
     """The single gate named by its short run/portfolio id in ``turn``, else ``None``.
 
     Returns ``None`` when zero or more than one gate matches, so a bare "approve the
     gate" (no id) and an ambiguous "approve both" both fall through to the gate count.
     """
-    tokens = _id_tokens(turn)
-    matched = [
-        gate
-        for gate in gates
-        if any(gid.startswith(token) for token in tokens for gid in _gate_ids(gate))
-    ]
+    matched = _named_gates(turn, gates)
     return matched[0] if len(matched) == 1 else None
 
 

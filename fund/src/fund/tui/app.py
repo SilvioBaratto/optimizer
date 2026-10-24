@@ -2660,6 +2660,8 @@ def _ask_confirm_prompt(action: Any) -> str:
         target = "the whole fund"
     elif verb in _ASK_GATE_VERBS and action.run_id is not None:
         target = f"gate #{str(action.run_id)[:8]}"
+        if action.portfolio_id is not None:
+            target += f" (portfolio {str(action.portfolio_id)[:8]})"
     elif action.portfolio_id is not None:
         target = f"portfolio {str(action.portfolio_id)[:8]}"
     else:
