@@ -5413,6 +5413,49 @@ async def test_daily_brief_degrades_missing_sections(shell_env, monkeypatch) -> 
         assert view.detail_text.count("no data") >= 4
 
 
+def _short_history_brief(pid):
+    """A brief whose attribution is populated but flagged as a short-window OLS fit."""
+    import dataclasses
+
+    brief = _full_brief(pid)
+    return dataclasses.replace(
+        brief,
+        attribution=dataclasses.replace(brief.attribution, insufficient_history=True),
+    )
+
+
+def test_daily_brief_flags_short_history_attribution_in_detail() -> None:
+    """A populated but short-window fit carries a caveat, not a normal-looking read."""
+    from fund.tui.views import _render_brief_detail
+
+    flagged = _render_brief_detail(_short_history_brief(_PID_A))
+    normal = _render_brief_detail(_full_brief(_PID_A))
+
+    assert "short history" in flagged
+    assert "short history" not in normal
+    # The bars still render: the caveat qualifies the fit, it does not hide it.
+    assert "equity" in flagged and "total" in flagged
+
+
+def test_daily_brief_flags_short_history_attribution_in_markdown() -> None:
+    """The exported markdown recap keeps the short-history caveat with the table."""
+    from fund.tui.views import _render_brief_markdown
+
+    flagged = _render_brief_markdown(_short_history_brief(_PID_A))
+    normal = _render_brief_markdown(_full_brief(_PID_A))
+
+    assert "short history" in flagged
+    assert "short history" not in normal
+    assert "| equity |" in flagged
+
+
+def test_daily_brief_empty_attribution_shows_no_short_history_caveat() -> None:
+    """A fully degraded estimate keeps its plain no-data line, with no extra caveat."""
+    from fund.tui.views import _render_brief_detail
+
+    assert "short history" not in _render_brief_detail(_empty_brief(_PID_A))
+
+
 def _nav_grid(pid):
     """A three-day NAV grid keyed by the asof the assembler is asked for."""
     latest = _full_brief(

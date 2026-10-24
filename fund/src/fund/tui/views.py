@@ -1698,6 +1698,9 @@ _BRIEF_FLAT: tuple[str, str] = ("◐", "flat")
 _BRIEF_DOWN: tuple[str, str] = ("●", "down")
 
 _NO_DATA = "  no data"
+# Worded rather than coloured so the caveat survives monochrome terminals; a fit this
+# close to saturation shows an R2 and betas that look more precise than they are.
+_SHORT_HISTORY_NOTE = "short history: thin window, OLS fallback; read with caution"
 
 
 class DailyBriefView(ShellView):
@@ -1867,6 +1870,8 @@ def _brief_attribution_lines(attribution: Any) -> list[str]:
         for name, value in items
     ]
     lines.append(f"  {'total':<6} {attribution.total_return:+.2%}")
+    if attribution.insufficient_history:
+        lines.append(f"  ({_SHORT_HISTORY_NOTE})")
     return lines
 
 
@@ -1919,6 +1924,8 @@ def _brief_attribution_table(attribution: Any) -> list[str]:
     table = ["| factor | contribution |", "| --- | --- |"]
     table += [f"| {name} | {value:+.2%} |" for name, value in rows]
     table.append(f"| **total** | **{attribution.total_return:+.2%}** |")
+    if attribution.insufficient_history:
+        table += ["", f"_{_SHORT_HISTORY_NOTE}_"]
     return table
 
 
