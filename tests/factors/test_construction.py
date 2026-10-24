@@ -1033,6 +1033,34 @@ class TestRaggedPriceHistory:
         joint = _compute_volatility(gappy)
         pd.testing.assert_series_equal(joint[["A", "B"]], alone, check_names=False)
 
+    @pytest.mark.parametrize("gap_row", [-22, -252])
+    def test_momentum_uses_last_valid_price_on_reference_date_gap(
+        self, gap_row: int
+    ) -> None:
+        from optimizer.factors._construction import _compute_momentum
+
+        prices = _ragged_panel()[["A", "B", "C"]]
+        clean = _compute_momentum(prices)
+        gappy = prices.copy()
+        gappy.iloc[gap_row, gappy.columns.get_loc("B")] = np.nan
+        result = _compute_momentum(gappy)
+
+        filled = gappy.ffill()
+        expected = filled.iloc[-22] / filled.iloc[-252] - 1.0
+        assert result["B"] == pytest.approx(expected["B"], rel=1e-12)
+        assert result["B"] != pytest.approx(clean["B"], rel=1e-6)
+        pd.testing.assert_series_equal(result[["A", "C"]], clean[["A", "C"]])
+
+    def test_momentum_does_not_revive_a_long_dead_ticker(self) -> None:
+        from optimizer.factors._construction import _compute_momentum
+
+        prices = _ragged_panel()[["A", "B", "C"]]
+        dead = prices.copy()
+        dead.iloc[-60:, dead.columns.get_loc("C")] = np.nan
+        result = _compute_momentum(dead)
+        assert np.isnan(result["C"])
+        assert result[["A", "B"]].notna().all()
+
     def test_beta_survives_all_nan_ticker(self) -> None:
         from optimizer.factors._construction import _compute_beta
 

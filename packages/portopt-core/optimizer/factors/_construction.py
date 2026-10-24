@@ -17,6 +17,10 @@ from optimizer.factors._config import (
 
 logger = logging.getLogger(__name__)
 
+# Longest run of missing rows bridged when reading a momentum reference price;
+# covers multi-day exchange closures (Golden Week, Lunar New Year).
+_MAX_STALE_PRICE_ROWS = 10
+
 
 def align_to_pit(
     data: pd.DataFrame,
@@ -240,11 +244,18 @@ def _compute_momentum(
     lookback: int = 252,
     skip: int = 21,
 ) -> pd.Series:
-    """12-minus-1-month momentum (skip most recent month)."""
+    """12-minus-1-month momentum (skip most recent month).
+
+    A reference date on which a ticker has no print (exchange holiday on a
+    union trading calendar, missing bar) falls back to its last valid price,
+    for at most ``_MAX_STALE_PRICE_ROWS`` rows so that a ticker that stopped
+    trading long ago is not revived from a stale quote.
+    """
     if len(price_history) < lookback:
         return pd.Series(dtype=float, index=price_history.columns)
-    end_prices: pd.Series = price_history.iloc[-skip - 1]
-    start_prices: pd.Series = price_history.iloc[-lookback]
+    filled = price_history.ffill(limit=_MAX_STALE_PRICE_ROWS)
+    end_prices: pd.Series = filled.iloc[-skip - 1]
+    start_prices: pd.Series = filled.iloc[-lookback]
     momentum = (end_prices / start_prices) - 1.0
     return momentum.replace([np.inf, -np.inf], np.nan)
 
