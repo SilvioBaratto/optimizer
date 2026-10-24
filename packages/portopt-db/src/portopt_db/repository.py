@@ -158,7 +158,9 @@ class BaseRepository(
         """Fetch a paginated slice of records.
 
         Falls back to ``created_at`` ordering when ``order_by`` is ``None`` or
-        names an attribute that does not exist on the model.
+        names an attribute that does not exist on the model. The primary key is
+        always appended as a tiebreaker, in the same direction, so rows that
+        share a sort value (e.g. one bulk insert) page without overlap or gaps.
 
         Args:
             skip: Number of rows to skip before returning results.
@@ -171,13 +173,14 @@ class BaseRepository(
         """
         stmt = select(self.model)
 
+        sort_columns: list[Any] = []
         if order_by and hasattr(self.model, order_by):
-            column = getattr(self.model, order_by)
-            stmt = stmt.order_by(column.desc() if desc else column.asc())
+            sort_columns.append(getattr(self.model, order_by))
         elif hasattr(self.model, "created_at"):
-            column = cast(Any, self.model).created_at
-            stmt = stmt.order_by(column.desc() if desc else column.asc())
+            sort_columns.append(cast(Any, self.model).created_at)
+        sort_columns.extend(_get_table(self.model).primary_key.columns)
 
+        stmt = stmt.order_by(*(c.desc() if desc else c.asc() for c in sort_columns))
         stmt = stmt.offset(skip).limit(limit)
         result = self.session.execute(stmt)
         return result.scalars().all()

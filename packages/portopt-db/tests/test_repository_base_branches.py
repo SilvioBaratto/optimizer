@@ -14,7 +14,7 @@ import uuid
 
 import pytest
 from pydantic import BaseModel as PydanticBase
-from sqlalchemy import event, select
+from sqlalchemy import event, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -221,6 +221,57 @@ class TestGetMulti:
         repo = _make_repo(db_session)
         rows = repo.get_multi(order_by="status", desc=False)
         assert len(rows) >= 2
+
+
+class TestGetMultiPaginationStability:
+    """Rows inserted in one transaction share created_at; pages must still tile."""
+
+    def _tie_created_at(self, db_session: Session) -> None:
+        db_session.execute(
+            text("UPDATE background_jobs SET created_at = :ts"),
+            {"ts": datetime.datetime(2026, 1, 1, 12, 0, 0)},
+        )
+        db_session.flush()
+
+    def test_ties_on_created_at_are_broken_by_primary_key(
+        self, db_session: Session
+    ) -> None:
+        for i in range(5):
+            _seed_job(db_session, f"gm_tie_{i}")
+        self._tie_created_at(db_session)
+        repo = _make_repo(db_session)
+
+        desc_ids = [r.id for r in repo.get_multi(limit=100)]
+        asc_ids = [r.id for r in repo.get_multi(limit=100, desc=False)]
+
+        assert desc_ids == sorted(desc_ids, reverse=True)
+        assert asc_ids == sorted(asc_ids)
+
+    def test_ties_on_explicit_non_unique_order_by_are_broken_by_primary_key(
+        self, db_session: Session
+    ) -> None:
+        for i in range(5):
+            _seed_job(db_session, f"gm_status_tie_{i}")
+        repo = _make_repo(db_session)
+
+        ids = [r.id for r in repo.get_multi(limit=100, order_by="status")]
+
+        assert ids == sorted(ids, reverse=True)
+
+    def test_consecutive_pages_neither_repeat_nor_skip_rows(
+        self, db_session: Session
+    ) -> None:
+        for i in range(7):
+            _seed_job(db_session, f"gm_page_{i}")
+        self._tie_created_at(db_session)
+        repo = _make_repo(db_session)
+
+        paged: list[uuid.UUID] = []
+        for skip in range(0, 8, 2):
+            paged.extend(r.id for r in repo.get_multi(skip=skip, limit=2))
+
+        assert sorted(paged) == sorted(r.id for r in repo.get_all())
+        assert len(paged) == len(set(paged))
 
 
 class TestGetAll:
