@@ -4,8 +4,9 @@ Each Phase-3 tool (``fund.tools.*``) is a frozen ``@tool_envelope`` function who
 **first positional arg is a ``Session``**. A deep agent must never see that
 session — nor pick the decision date, the owning portfolio, or the risk profile.
 So for one run we bind those from a :class:`RunContext` and expose to the model
-**only** the structured inputs it is allowed to choose (a universe, a weight
-vector, a set of series names). This mirrors the profiler's ``_make_save_profile``:
+**only** the structured inputs it is allowed to choose (a universe, a set of series
+names, a look-back window) — never a weight vector: the weights every tool reads are
+the optimizer's audited output. This mirrors the profiler's ``_make_save_profile``:
 a langchain ``@tool`` closure captures the run context; its args schema carries no
 ``Session``.
 
@@ -27,8 +28,9 @@ The bound closures also carry the load-bearing invariant into the audit trail:
   to the client's ``nu1/nu2/nu3`` ceilings and reports the breached tiers;
 * ``optimize_portfolio`` appends an ``agent_decision`` (allocator: the constraint
   set + the *effective* optimizer config actually applied + the optimizer's
-  weights); the PM-level ``place_orders`` appends the executor's execution decision
-  + HITL outcome.
+  weights); ``risk_check`` appends the risk verdict on those weights; the PM-level
+  ``place_orders`` is refused unless that verdict passed them, and appends the
+  executor's execution decision + HITL outcome.
 
 The whole closure body degrades through :func:`~fund.tools._base.tool_envelope`,
 so a mis-resolved profile or a failed audit write returns ``{ok: false, error}``
@@ -382,6 +384,13 @@ _NO_PROPOSAL = (
 )
 
 
+def _risk_gate_summary(ctx: RunContext, weights: dict[str, float]) -> dict[str, Any]:
+    """The risk verdict on ``weights`` in the form the approval gate displays."""
+    from fund.audit import AgentRunRepository
+
+    return AgentRunRepository(ctx.session).risk_gate(ctx.run_id, weights)
+
+
 @tool_envelope
 @_serialised
 def _check_weights_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
@@ -409,7 +418,8 @@ def _risk_check_impl(ctx: RunContext) -> ToolResult:
     result = _check_weights_impl(ctx, weights)
     if result.get("ok"):
         data = result["data"]
-        # Persisted so the adviser sees the verdict and ``place_orders`` can require it.
+        # Persisted so the approval gate can show the adviser the verdict and
+        # ``place_orders`` can require it.
         AgentRunRepository(ctx.session).append_risk_verdict(
             ctx.run_id,
             weights=weights,
@@ -468,13 +478,13 @@ def _backtest_impl(ctx: RunContext) -> ToolResult:
 
 @tool_envelope
 @_serialised
-def _place_orders_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
-    # Load-bearing invariant: skfolio computes the weights, never the LLM. The
-    # ``weights`` arg is the model's *proposal* only — the paper ticket is placed
-    # from the allocator's audited ``optimize_portfolio`` output, read back from the
-    # run's audit trail (the single source of weights). No audited proposal ⇒ empty
-    # weights ⇒ the frozen tool returns ``err("no weights to place")`` (safe
-    # no-ticket outcome).
+def _place_orders_impl(ctx: RunContext) -> ToolResult:
+    # Load-bearing invariant: skfolio computes the weights, never the LLM. The paper
+    # ticket is placed from the allocator's audited ``optimize_portfolio`` output,
+    # read back from the run's audit trail (the single source of weights), and the
+    # tool takes no weights so the model has none to disagree with it. No audited
+    # proposal ⇒ empty weights ⇒ the frozen tool returns ``err("no weights to
+    # place")`` (safe no-ticket outcome).
     from fund.audit import AgentRunRepository
 
     audited = _audited_weights(ctx)
@@ -651,11 +661,13 @@ def _bind_place_orders(ctx: RunContext) -> BaseTool:
     from langchain_core.tools import tool
 
     @tool
-    def place_orders(weights: dict[str, float]) -> ToolResult:
-        """Place the idempotent **paper** ticket for the optimizer's ``weights``,
-        filled at the next close after the run date. Call once, after adviser
-        approval. Returns the ``{ok, data}`` envelope with the order ticket."""
-        return _place_orders_impl(ctx, weights)
+    def place_orders() -> ToolResult:
+        """Commit the idempotent **paper** ticket for the allocator's latest audited
+        proposal, filled at the next close after the run date. Takes no weights. The
+        call itself pauses for adviser approval, and is refused unless the risk gate
+        has passed that proposal. Call once. Returns the ``{ok, data}`` envelope with
+        the order ticket."""
+        return _place_orders_impl(ctx)
 
     return place_orders
 
@@ -702,6 +714,66 @@ def _bind_get_portfolio_history(ctx: RunContext) -> BaseTool:
     return get_portfolio_history
 
 
+def build_gate_weights_middleware(ctx: RunContext) -> Any:
+    """Build the PM middleware that pins the ``place_orders`` gate to audited weights.
+
+    The human-approval interrupt shows the tool call's args. ``place_orders`` places
+    the audited optimizer vector whatever the model typed, so left alone the adviser
+    would approve one set of numbers and execute another. This rewrites the call's
+    args as the model's reply is produced — before the interrupt reads them — to the
+    audited ``weights`` plus the ``risk_gate`` verdict recorded on them, so the adviser
+    sees what will be placed and whether the risk officer cleared it (``place_orders``
+    refuses a proposal that is not cleared, whatever the adviser approves). With no
+    audited proposal the call is left as-is; ``place_orders`` then refuses it.
+
+    The langchain import is lazy so a bare ``import fund.agents.toolsets`` stays
+    agent-stack-free.
+
+    Args:
+        ctx: The immutable per-run binding context.
+
+    Returns:
+        An ``AgentMiddleware`` to add to the PM agent.
+    """
+    from langchain.agents.middleware import AgentMiddleware, ModelResponse
+    from langchain_core.messages import AIMessage
+
+    def pin(response: ModelResponse) -> ModelResponse:
+        pinned = []
+        for message in response.result:
+            if isinstance(message, AIMessage) and any(
+                call["name"] == "place_orders" for call in message.tool_calls
+            ):
+                with ctx.lock:
+                    audited = _audited_weights(ctx)
+                    gate = _risk_gate_summary(ctx, audited) if audited else None
+                if audited:
+                    args = {"weights": audited, "risk_gate": gate}
+                    calls = [
+                        {**call, "args": args}
+                        if call["name"] == "place_orders"
+                        else call
+                        for call in message.tool_calls
+                    ]
+                    message = message.model_copy(update={"tool_calls": calls})
+            pinned.append(message)
+        return ModelResponse(
+            result=pinned, structured_response=response.structured_response
+        )
+
+    class GateWeightsMiddleware(AgentMiddleware):
+        """Shows the adviser the weights ``place_orders`` will place and their risk
+        verdict."""
+
+        def wrap_model_call(self, request: Any, handler: Any) -> Any:
+            return pin(handler(request))
+
+        async def awrap_model_call(self, request: Any, handler: Any) -> Any:
+            return pin(await handler(request))
+
+    return GateWeightsMiddleware()
+
+
 _BUILDERS: dict[str, Any] = {
     "get_prices": _bind_get_prices,
     "get_macro_series": _bind_get_macro,
@@ -735,4 +807,9 @@ def bind_toolset(role: str, ctx: RunContext) -> list[BaseTool]:
     return [_BUILDERS[name](ctx) for name in TOOLS_BY_AGENT[role]]
 
 
-__all__ = ["TOOLS_BY_AGENT", "RunContext", "bind_toolset"]
+__all__ = [
+    "TOOLS_BY_AGENT",
+    "RunContext",
+    "bind_toolset",
+    "build_gate_weights_middleware",
+]

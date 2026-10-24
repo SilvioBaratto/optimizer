@@ -335,13 +335,42 @@ def _format_decision_gate(interrupt: dict[str, Any] | None, run: Any) -> str:
     lines = [f"GATE · {name} · #{_short(run.id)} · {pf}"]
     why = request.get("description")
     lines.append(f"why: {why}" if why else "why: review before it executes")
-    weights = (request.get("args") or {}).get("weights")
+    args = request.get("args") or {}
+    lines.extend(_format_risk_gate(args.get("risk_gate")))
+    weights = args.get("weights")
     if isinstance(weights, dict) and weights:
         lines.append("orders (target weights):")
         lines.extend(
             f"  {ticker}: {weight:.4f}" for ticker, weight in sorted(weights.items())
         )
     return "\n".join(lines)
+
+
+_RISK_GATE_LABELS: dict[str, str] = {
+    "passed": "passed",
+    "failed": "FAILED",
+    "stale": "STALE (the proposal changed after risk checked it)",
+    "not_run": "NOT CHECKED",
+}
+
+
+def _format_risk_gate(gate: Any) -> list[str]:
+    """Render the risk verdict pinned on a ``place_orders`` gate (empty when absent).
+
+    A gate that is not ``passed`` is one ``place_orders`` will refuse, so it is
+    spelled out in words rather than left to a colour or glyph.
+    """
+    if not isinstance(gate, dict) or gate.get("status") not in _RISK_GATE_LABELS:
+        return []
+    lines = [f"risk gate: {_RISK_GATE_LABELS[gate['status']]}"]
+    # A stale verdict's breaches belong to a superseded vector, so they are not shown.
+    violations = gate.get("violations") if gate["status"] == "failed" else None
+    for violation in violations or []:
+        if isinstance(violation, dict):
+            keys = ("type", "asset", "sector")
+            detail = " ".join(str(violation[k]) for k in keys if k in violation)
+            lines.append(f"  - {detail or 'violation'}")
+    return lines
 
 
 def _short(value: Any) -> str:

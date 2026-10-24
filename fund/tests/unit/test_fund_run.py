@@ -187,6 +187,57 @@ def test_interrupt_surfaces_the_place_orders_action(db_session) -> None:
     assert action["name"] == "place_orders"
 
 
+def test_gate_shows_the_audited_weights_not_the_ones_the_pm_typed(db_session) -> None:
+    """The adviser approves what the gate displays, so it must display what will be
+    placed: the optimizer's audited vector, not a divergent one the PM re-typed."""
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    llm_weights = {"AAA": 0.1, "BBB": 0.1, "CCC": 0.8}
+    assert llm_weights != expected
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=llm_weights)
+
+    run = _run(model, db_session, store=_store_with_cs())
+
+    shown = run.interrupt["action_requests"][0]["args"]["weights"]
+    assert shown == expected
+    run.resume("approve")
+    assert _paper_orders(db_session)[0].weights == shown
+
+
+def test_gate_shows_the_audited_weights_when_the_pm_typed_none(db_session) -> None:
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights={})
+
+    run = _run(model, db_session, store=_store_with_cs())
+
+    assert run.interrupt["action_requests"][0]["args"]["weights"] == expected
+
+
+def test_gate_shows_the_risk_verdict_the_adviser_is_approving(db_session) -> None:
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=expected)
+
+    run = _run(model, db_session, store=_store_with_cs())
+
+    gate = run.interrupt["action_requests"][0]["args"]["risk_gate"]
+    assert gate["status"] == "passed"
+    assert gate["violations"] == []
+
+
+def test_gate_flags_a_proposal_the_risk_officer_never_checked(db_session) -> None:
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=expected, risk_checks=False)
+
+    run = _run(model, db_session, store=_store_with_cs())
+
+    assert run.interrupt["action_requests"][0]["args"]["risk_gate"]["status"] == (
+        "not_run"
+    )
+
+
 # --- approve → paper ticket + completed --------------------------------------
 
 

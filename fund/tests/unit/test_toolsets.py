@@ -482,8 +482,8 @@ def test_risk_check_and_backtest_take_no_model_supplied_weights(db_session) -> N
 
 
 def test_risk_check_ignores_a_retyped_weight_vector(db_session) -> None:
-    """The risk officer only sees weights as prose and re-types them; a rounded
-    copy misses the budget tolerance and used to fail a sound proposal."""
+    """The risk officer only sees weights as prose and re-types them; judging that
+    rounded copy would miss the budget tolerance, so the audited vector is judged."""
     ctx = _make_context(db_session)
     third = 1.0 / 3.0
     _audit_proposal(ctx, {"AAA": third, "BBB": third, "CCC": 1.0 - 2.0 * third})
@@ -765,12 +765,12 @@ def test_bound_place_orders_appends_executor_decision(db_session) -> None:
     _find(bind_toolset("risk", ctx), "risk_check").invoke({})
     place = _find(bind_toolset("orchestrator", ctx), "place_orders")
 
-    result = place.invoke({"weights": _WEIGHTS})
+    result = place.invoke({})
 
     assert result["ok"] is True
     ticket = result["data"]
     assert ticket["idempotent"] is False
-    # The ticket carries the optimizer's audited weights, not the model's _WEIGHTS.
+    # The ticket carries the optimizer's audited weights.
     assert result["data"]["weights"] == optimized["data"]["weights"]
 
     rows = (
@@ -796,8 +796,8 @@ def test_place_orders_idempotent_rerun_appends_once(db_session) -> None:
     _find(bind_toolset("risk", ctx), "risk_check").invoke({})
     place = _find(bind_toolset("orchestrator", ctx), "place_orders")
 
-    first = place.invoke({"weights": _WEIGHTS})
-    second = place.invoke({"weights": _WEIGHTS})
+    first = place.invoke({})
+    second = place.invoke({})
 
     assert first["data"]["idempotent"] is False
     assert second["data"]["idempotent"] is True  # HITL re-run
@@ -1020,7 +1020,7 @@ def test_place_orders_refuses_weights_that_breach_the_current_mandate(
     )
     place = _find(bind_toolset("orchestrator", ctx), "place_orders")
 
-    result = place.invoke({"weights": _WEIGHTS})
+    result = place.invoke({})
 
     assert result["ok"] is False
     assert "esg_exclusion" in result["error"]
@@ -1142,6 +1142,15 @@ def test_parallel_optimize_calls_each_append_one_distinct_decision(
     assert sorted(indexes) == [0, 1]
 
 
+def test_place_orders_takes_no_model_supplied_weights(db_session) -> None:
+    ctx = _make_context(db_session)
+    place = _find(bind_toolset("orchestrator", ctx), "place_orders")
+
+    assert "weights" not in place.args
+    # Approval is requested BY calling it, so the text must not say "after approval".
+    assert "after adviser approval" not in place.description
+
+
 # --- the blocking risk gate is recorded and enforced -------------------------
 
 
@@ -1212,7 +1221,7 @@ def test_place_orders_refuses_when_risk_never_checked_the_proposal(db_session) -
     )
     place = _find(bind_toolset("orchestrator", ctx), "place_orders")
 
-    result = place.invoke({"weights": _WEIGHTS})
+    result = place.invoke({})
 
     assert result["ok"] is False
     assert "risk" in result["error"]
@@ -1230,7 +1239,7 @@ def test_place_orders_refuses_after_a_failed_risk_verdict(db_session) -> None:
     )
     place = _find(bind_toolset("orchestrator", ctx), "place_orders")
 
-    result = place.invoke({"weights": _WEIGHTS})
+    result = place.invoke({})
 
     assert result["ok"] is False
     assert _executor_rows(db_session) == []
@@ -1246,7 +1255,7 @@ def test_place_orders_refuses_a_proposal_risk_did_not_check(db_session) -> None:
     _audit_proposal(ctx, {"AAA": 0.2, "BBB": 0.3, "CCC": 0.5})
     place = _find(bind_toolset("orchestrator", ctx), "place_orders")
 
-    result = place.invoke({"weights": _WEIGHTS})
+    result = place.invoke({})
 
     assert result["ok"] is False
     assert _executor_rows(db_session) == []

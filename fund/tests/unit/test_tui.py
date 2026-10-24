@@ -1374,6 +1374,36 @@ def test_format_decision_gate_renders_why_from_description_else_fallback() -> No
     assert "why: review before it executes" in no_desc
 
 
+def test_format_decision_gate_shows_the_risk_verdict() -> None:
+    from fund.tui.views import _format_decision_gate
+
+    run = SimpleNamespace(id=_PID_A, portfolio_id=_PID_B)
+
+    def gate(risk_gate: dict) -> str:
+        request = {"name": "place_orders", "args": {"risk_gate": risk_gate}}
+        return _format_decision_gate({"action_requests": [request]}, run)
+
+    assert "risk gate: passed" in gate({"status": "passed", "violations": []})
+    failed = gate(
+        {
+            "status": "failed",
+            "violations": [{"type": "max_weight", "asset": "AAA"}],
+        }
+    )
+    assert "risk gate: FAILED" in failed
+    assert "max_weight AAA" in failed
+    assert "risk gate: NOT CHECKED" in gate({"status": "not_run"})
+    stale = gate(
+        {"status": "stale", "violations": [{"type": "max_weight", "asset": "AAA"}]}
+    )
+    assert "risk gate: STALE" in stale
+    assert "max_weight" not in stale  # the breach belongs to a superseded vector
+    no_gate = _format_decision_gate(
+        {"action_requests": [{"name": "place_orders", "args": {}}]}, run
+    )
+    assert "risk gate" not in no_gate
+
+
 # --- Mandate view: run-policy editor + guardrail override (T5) ----------------
 
 

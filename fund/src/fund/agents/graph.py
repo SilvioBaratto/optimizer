@@ -270,7 +270,7 @@ def build_fund_agent(
     """
     from deepagents import create_deep_agent
 
-    from fund.agents.toolsets import bind_toolset
+    from fund.agents.toolsets import bind_toolset, build_gate_weights_middleware
 
     gates = interrupt_on if interrupt_on is not None else config.interrupt_on_map()
     subagents = [
@@ -287,7 +287,10 @@ def build_fund_agent(
         skills=skill_sources("orchestrator"),
         backend=build_backend(config),
         interrupt_on=cast("dict[str, Any]", gates),
-        middleware=[_pm_round_cap_middleware(config.max_pm_rounds)],
+        middleware=[
+            _pm_round_cap_middleware(config.max_pm_rounds),
+            build_gate_weights_middleware(ctx),
+        ],
         checkpointer=checkpointer,
         store=store,
     )
