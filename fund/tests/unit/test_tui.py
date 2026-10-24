@@ -14,6 +14,7 @@ fund.tui.app`` is checked (in a stripped subprocess env) to need no
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 import os
@@ -72,6 +73,7 @@ from fund.audit import (
 )
 from fund.config import settings
 from fund.tui import app as tui_app
+from fund.tui import views as tui_views
 from fund.tui.app import (
     ConfirmScreen,
     HelpScreen,
@@ -7930,3 +7932,190 @@ def test_contrast_destructive_colour_legible_on_light_and_dark():
         surface = Color.parse(palette["surface"])
         error = Color.parse(palette["error"])
         assert _wcag_contrast(error, surface) >= 3.0, theme_name
+
+
+_BRACKETED_RATIONALE = "per IC memo [/policy] approved [urgent] [type=int_parsing]"
+
+
+@pytest.mark.asyncio
+async def test_audit_detail_shows_bracketed_free_text_verbatim(shell_env) -> None:
+    # Audit values carry adviser-typed text (a freeze rationale, a directive). Textual
+    # parses a string as markup, so a stray closing tag crashed the repaint and a
+    # style-looking tag was silently dropped from an "immutable" record.
+    with shell_env.get_session() as session:
+        HumanAuditLogRepository(session).append(
+            action="freeze",
+            portfolio_id=_PID_A,
+            new_value={"state": "frozen", "reason": _BRACKETED_RATIONALE},
+        )
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        view.select_index(0)
+        await pilot.pause()
+        shown = view.query_one("#audit-detail", Static).visual.plain
+        assert _BRACKETED_RATIONALE in shown
+
+
+@pytest.mark.asyncio
+async def test_audit_table_cells_render_bracketed_text_literally(shell_env) -> None:
+    with shell_env.get_session() as session:
+        HumanAuditLogRepository(session).append(
+            action="note [/policy] [urgent]", portfolio_id=_PID_A
+        )
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        table = view.query_one("#audit-table", DataTable)
+        cell = table.get_cell_at(Coordinate(0, 3))
+        assert getattr(cell, "plain", cell) == "note [/policy] [urgent]"
+
+
+@pytest.mark.asyncio
+async def test_decisions_gate_shows_bracketed_description_verbatim(shell_env) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        run = SimpleNamespace(id=uuid.uuid4(), portfolio_id=_PID_A)
+        gate = tui_views._format_decision_gate(
+            {
+                "action_requests": [
+                    {"name": "place_orders", "description": _BRACKETED_RATIONALE}
+                ]
+            },
+            run,
+            {},
+        )
+        view._paint_gate(gate)
+        await pilot.pause()
+        shown = view.query_one("#decisions-gate", Static).visual.plain
+        assert _BRACKETED_RATIONALE in shown
+
+
+@pytest.mark.asyncio
+async def test_mandate_directives_render_bracketed_text_literally(shell_env) -> None:
+    # Remembered directives are adviser-typed; a stray closing tag raised MarkupError
+    # from the poll-tick repaint of the directives list and killed the TUI.
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"remembered_directives": (_BRACKETED_RATIONALE,)}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        labels = view.query_one("#mandate-directives", ListView).query(Label)
+        assert [label.visual.plain for label in labels] == [_BRACKETED_RATIONALE]
+
+
+@pytest.mark.asyncio
+async def test_deliberation_detail_shows_bracketed_free_text_verbatim(
+    shell_env,
+) -> None:
+    # The step detail carries LLM narrative and raw payload dumps.
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view._paint_live_detail(
+            StreamEvent(
+                kind="step",
+                run_id=uuid.uuid4(),
+                index=0,
+                agent="economist",
+                step="report",
+                status=StepStatus.LIVE,
+                text=_BRACKETED_RATIONALE,
+            )
+        )
+        await pilot.pause()
+        shown = view.query_one("#delib-detail", Static).visual.plain
+        assert _BRACKETED_RATIONALE in shown
+
+
+@pytest.mark.asyncio
+async def test_ask_log_shows_bracketed_turns_verbatim(shell_env) -> None:
+    # The Ask log holds what the adviser typed and what the model answered.
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.append_log("you", "why [/policy]?")
+        view.set_answer(_BRACKETED_RATIONALE)
+        await pilot.pause()
+        shown = view.query_one("#ask-log", Static).visual.plain
+        assert "you: why [/policy]?" in shown
+        assert f"ask: {_BRACKETED_RATIONALE}" in shown
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_shows_bracketed_journal_text_verbatim(
+    shell_env, monkeypatch
+) -> None:
+    # Journal narratives and the economist read are free text.
+    brief = _full_brief(_PID_A)
+    brief = dataclasses.replace(
+        brief,
+        market_events=({"as_of": "2026-10-06", "narrative": _BRACKETED_RATIONALE},),
+    )
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        await pilot.pause()
+        shown = view.query_one("#brief-detail", Static).visual.plain
+        assert _BRACKETED_RATIONALE in shown
+
+
+@pytest.mark.asyncio
+async def test_status_bar_shows_a_validation_error_verbatim(shell_env) -> None:
+    # A bad mandate edit surfaces pydantic's message, which embeds
+    # "[type=greater_than, input_value=..., input_type=...]" — not valid markup.
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-capital", Input).value = "-5"
+        app.action_save_mandate()
+        await pilot.pause()
+        assert app.last_status.startswith("invalid mandate:")
+        assert "[type=" in app.last_status
+        shown = app.query_one("#status-bar", Static).visual.plain
+        assert shown == app.last_status
+
+
+@pytest.mark.asyncio
+async def test_order_edit_error_echoes_typed_text_verbatim(shell_env) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        screen = OrderEditScreen({"AAA": 1.0})
+        app.push_screen(screen)
+        await pilot.pause()
+        screen.query_one("#edit-weights", Input).value = "AAA[/x]"
+        screen._submit()
+        await pilot.pause()
+        shown = screen.query_one("#edit-error", Static).visual.plain
+        assert "AAA[/x]" in shown
+
+
+@pytest.mark.asyncio
+async def test_questionnaire_error_shows_validation_text_verbatim(
+    shell_env, monkeypatch
+) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        screen = QuestionnaireScreen(ask_capital=True)
+        app.push_screen(screen)
+        await pilot.pause()
+
+        def _reject() -> None:
+            raise ValueError(_BRACKETED_RATIONALE)
+
+        monkeypatch.setattr(screen, "build_submission", _reject)
+        screen._submit()
+        await pilot.pause()
+        shown = screen.query_one("#q-error", Static).visual.plain
+        assert _BRACKETED_RATIONALE in shown

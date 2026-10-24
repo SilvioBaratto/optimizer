@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, cast
 from weakref import WeakKeyDictionary
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.coordinate import Coordinate
@@ -1313,8 +1314,8 @@ class AuditView(ShellView):
                 table.add_row(
                     entry.when.strftime("%m-%d %H:%M"),
                     _short(entry.portfolio_id) if entry.portfolio_id else "fund",
-                    entry.actor,
-                    _audit_label(entry),
+                    Text(entry.actor),
+                    Text(_audit_label(entry)),
                     key=entry.entry_id,
                 )
         if self._selected_entry() is None:
