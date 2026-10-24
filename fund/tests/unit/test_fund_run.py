@@ -459,6 +459,49 @@ def test_approve_writes_portfolio_journal(db_session) -> None:
     assert row.narrative.strip() != ""
 
 
+def test_journal_drift_is_this_bars_change_from_prior_holdings(db_session) -> None:
+    """The overlay drift is prior-holdings -> target, per ticker, exits included.
+
+    Prior holdings must be read before ``set_holdings`` replaces the snapshot;
+    reading them afterwards would make every delta zero.
+    """
+    from portopt_db.models import PortfolioJournal
+
+    from fund.audit import PositionRepository
+
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    prior = {"AAA": 0.25, "ZZZ": 0.75}
+    PositionRepository(db_session).set_holdings(
+        _PORTFOLIO_ID,
+        [{"ticker": t, "weight": w} for t, w in prior.items()],
+        asof=dt.date(2024, 1, 10),
+    )
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=expected)
+
+    run = _run(model, db_session, store=_store_with_cs())
+    run.resume("approve")
+
+    row = (
+        db_session.query(PortfolioJournal)
+        .filter(
+            PortfolioJournal.portfolio_id == _PORTFOLIO_ID,
+            PortfolioJournal.as_of == _ASOF,
+        )
+        .one()
+    )
+    assert set(row.drift) == set(expected) | set(prior)
+    for ticker in row.drift:
+        before = prior.get(ticker, 0.0)
+        after = expected.get(ticker, 0.0)
+        assert row.drift[ticker]["prior"] == pytest.approx(before)
+        assert row.drift[ticker]["target"] == pytest.approx(after)
+        assert row.drift[ticker]["delta"] == pytest.approx(after - before, abs=1e-6)
+    assert row.drift["ZZZ"]["target"] == 0.0
+    assert row.drift["ZZZ"]["delta"] == pytest.approx(-0.75)
+    assert "ZZZ" in row.narrative
+
+
 def test_re_finalizing_upserts_a_single_journal_row(db_session) -> None:
     """Re-running the finalize path for the same bar overwrites, not duplicates."""
     from portopt_db.models import PortfolioJournal
