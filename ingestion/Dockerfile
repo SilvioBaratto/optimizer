@@ -16,19 +16,37 @@ ENV UV_PYTHON_DOWNLOADS=0
 # Workspace metadata + only the members the daemon needs. optimizer/ (portopt-core,
 # the skfolio stack) is deliberately NOT copied — `--package portopt` installs the
 # ingestion daemon + its workspace dep portopt-db, and nothing from the optimizer lib.
+#
+# Two steps so a source edit does not re-download the wheels (scipy, pandas,
+# scikit-learn, numpy, lxml are 100+ MB): the third-party dependencies are
+# installed from the manifests alone, and only then is the source copied and the
+# workspace members built. The uv cache mount also survives a changed lock, so
+# that rebuild fetches only the wheels that changed.
 COPY pyproject.toml uv.lock ./
-COPY packages/portopt-db/ packages/portopt-db/
-COPY ingestion/ ingestion/
+COPY packages/portopt-db/pyproject.toml packages/portopt-db/pyproject.toml
+COPY ingestion/pyproject.toml ingestion/pyproject.toml
 
 # Real (non-editable) install into an isolated venv so the runtime stage needs no
 # build-tree source paths. --frozen: respect the committed lock. --no-dev: no test deps.
 RUN uv venv /venv
-ENV VIRTUAL_ENV=/venv PATH=/venv/bin:$PATH
+ENV VIRTUAL_ENV=/venv PATH=/venv/bin:$PATH UV_LINK_MODE=copy
 # uv sync reaches PyPI over TLS; behind a TLS-inspecting proxy the slim image has
 # no corporate root. Honour an OPTIONAL BuildKit secret (absent by default —
 # required=false — so an off-network build still resolves on plain certifi) and
 # point Python's TLS at it only when the mount is non-empty. Mirrors fund/Dockerfile.
 RUN --mount=type=secret,id=ca_bundle \
+    --mount=type=cache,target=/root/.cache/uv \
+    if [ -s /run/secrets/ca_bundle ]; then \
+        export SSL_CERT_FILE=/run/secrets/ca_bundle \
+               REQUESTS_CA_BUNDLE=/run/secrets/ca_bundle; \
+    fi; \
+    uv sync --frozen --no-dev --no-install-workspace --package portopt --active
+
+COPY packages/portopt-db/ packages/portopt-db/
+COPY ingestion/ ingestion/
+
+RUN --mount=type=secret,id=ca_bundle \
+    --mount=type=cache,target=/root/.cache/uv \
     if [ -s /run/secrets/ca_bundle ]; then \
         export SSL_CERT_FILE=/run/secrets/ca_bundle \
                REQUESTS_CA_BUNDLE=/run/secrets/ca_bundle; \
