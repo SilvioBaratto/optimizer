@@ -1,10 +1,11 @@
 ---
 name: optimization-objective-map
 description: |
-  Map a chosen ConstraintSet.objective to the correct optimizer cone / risk-measure
-  and factory config. Use when the allocator must turn an objective (min-risk,
-  max-utility, max-ratio, risk-budget) into a concrete optimizer configuration before
-  optimize_portfolio. Does NOT emit weights — the optimizer computes the weights.
+  Map a ConstraintSet.objective (protection, income, growth, max) to the optimizer
+  family and risk measure it implies, then run optimize_portfolio and report truthfully
+  what the tool applied. Use when the allocator is about to call optimize_portfolio and
+  must state how the profile's objective relates to it. Does NOT emit weights — the
+  optimizer computes the weights.
 ---
 
 # Optimization objective → cone map

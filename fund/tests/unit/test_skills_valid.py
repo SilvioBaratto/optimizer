@@ -245,6 +245,59 @@ def test_objective_map_procedure_does_not_instruct_knobs_the_tool_ignores():
         )
 
 
+def _objective_table_rows() -> list[tuple[set[str], str]]:
+    """Rows of reference.md's objective table as ``(first-cell words, row text)``."""
+    lines = _read(_OBJECTIVE_MAP_SKILL, "reference.md").splitlines()
+    header = next(
+        (
+            i
+            for i, line in enumerate(lines)
+            if line.startswith("|") and "ConstraintSet.objective" in line
+        ),
+        None,
+    )
+    assert header is not None, "reference.md has no `ConstraintSet.objective` table"
+    rows: list[tuple[set[str], str]] = []
+    for line in lines[header + 2 :]:  # skip the header and its divider row
+        if not line.startswith("|"):
+            break
+        first_cell = line.split("|")[1]
+        rows.append((set(re.findall(r"[a-z_]+", first_cell)), line))
+    return rows
+
+
+def test_objective_map_reference_table_is_keyed_on_the_profile_objectives():
+    from fund.schemas.enums import ObjectiveChoice
+
+    keyed = set().union(*(words for words, _ in _objective_table_rows()))
+    assert keyed == {o.value for o in ObjectiveChoice}
+
+
+def test_objective_map_reference_table_matches_the_constraint_set_mapping():
+    from fund.schemas.constraint_set import _OBJECTIVE_MAP
+
+    rows = _objective_table_rows()
+    for objective, target in _OBJECTIVE_MAP.items():
+        matching = [text for words, text in rows if objective.value in words]
+        assert len(matching) == 1, f"`{objective.value}` needs exactly one table row"
+        assert target.upper() in matching[0], (
+            f"`{objective.value}` row lacks {target.upper()}"
+        )
+
+
+def test_objective_map_skill_description_uses_the_profile_objective_names():
+    from fund.schemas.enums import ObjectiveChoice
+
+    description = str(
+        _frontmatter(_read(_OBJECTIVE_MAP_SKILL, "SKILL.md"))["description"]
+    )
+    words = set(re.findall(r"[a-z_]+", description))
+    for objective in ObjectiveChoice:
+        assert objective.value in words
+    for stale in ("min-risk", "max-utility", "max-ratio", "risk-budget"):
+        assert stale not in description
+
+
 _PYTHON_BLOCK_RE = re.compile(r"```python\n(.*?)```", re.DOTALL)
 
 
