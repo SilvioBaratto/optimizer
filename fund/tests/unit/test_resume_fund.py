@@ -717,6 +717,59 @@ def test_resume_fund_approves_paused_runs_oldest_first(db_session) -> None:
     assert audit.get_run(newer).status == "completed"
 
 
+@pytest.mark.parametrize("decision", ["approve", "reject", "respond"])
+def test_resume_fund_refuses_a_run_that_is_not_at_a_gate(db_session, decision) -> None:
+    """A ``pending`` row is a run that is still being driven or crashed before reaching
+    the gate. Resuming it would re-drive the PM headlessly from the failed checkpoint
+    (or race the live driver on the same thread) and then finalise it as if an adviser
+    had approved a gate that never opened."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    row.status = "pending"
+    db_session.flush()
+    model = ScriptedFundModel(universe=UNIVERSE, weights=expected)
+
+    with pytest.raises(ValueError, match="pending"):
+        resume_fund(
+            run.run_id,
+            decision,
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=model,
+            pm_directive="rebalance more slowly",
+        )
+
+    assert model.generate_calls == 0
+    assert _paper_orders(db_session) == []
+    assert _positions_map(db_session) == {}
+    assert row.status == "pending"
+
+
+def test_fundrun_resume_refuses_a_run_that_is_not_at_a_gate(db_session) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        db_session,
+        MemorySaver(),
+        _store_with_cs(),
+    )
+    AgentRunRepository(db_session).get_run(run.run_id).status = "pending"
+    db_session.flush()
+
+    with pytest.raises(ValueError, match="pending"):
+        run.resume("approve")
+
+    assert _paper_orders(db_session) == []
+
+
 # --- parity: FundRun.resume and resume_fund leave identical state ------------
 
 

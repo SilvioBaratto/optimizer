@@ -903,25 +903,35 @@ _FINALISED_STATUSES = ("completed", "rejected", "incomplete", "blocked")
 
 
 def _require_resumable(run: Any) -> None:
-    """Refuse to resume a run that is already finalised.
+    """Refuse to resume a run that is not at a live gate.
 
     An external freeze marks live gates "rejected" at the DB without resolving the
     checkpoint (a completed / incomplete / blocked run, or a stale observer racing a
     concurrent approve, is the same shape): the LangGraph checkpoint is left standing,
     so without this guard a blind ``Command(resume=…)`` would re-drive
-    ``place_orders`` and ship live orders against a halted run. Pre-gate states
-    (pending/paused/responded) stay resumable. Shared by :meth:`FundRun.resume` and
-    :func:`resume_fund`.
+    ``place_orders`` and ship live orders against a halted run. A ``pending`` row is no
+    gate either: the run is still being driven, or crashed before reaching one, and
+    resuming it would re-run the PM headlessly and finalise it as approved with no
+    gate and no ticket. Only ``paused`` / ``responded`` runs are resumable. Shared by
+    :meth:`FundRun.resume` and :func:`resume_fund`.
 
     Raises:
-        ValueError: ``run`` carries a terminal status.
+        ValueError: ``run`` is finalised, or has not reached a live gate.
     """
+    from fund.audit.repository import RESUMABLE_RUN_STATUSES
+
+    if run.status in RESUMABLE_RUN_STATUSES:
+        return
     if run.status in _FINALISED_STATUSES:
         raise ValueError(
             f"agent_run {run.id} is {run.status!r}, already finalised and not "
             "resumable (it completed, or was rejected/frozen/blocked since the gate "
             "opened)"
         )
+    raise ValueError(
+        f"agent_run {run.id} is {run.status!r}, not at a live gate and not resumable "
+        "(it is still being driven, or crashed before reaching its gate)"
+    )
 
 
 @dataclass(frozen=True)
@@ -1811,11 +1821,12 @@ def resume_fund(
     stands and the failure is returned as ``{"resume_error": ...}``.
 
     Loads the ``agent_run`` to recover its ``thread_id`` / ``portfolio_id`` / ``asof``
-    (an unknown ``run_id`` raises ``LookupError``), re-guards the portfolio's active
-    ``ConstraintSet`` from the Store (missing raises ``RuntimeError`` — a run whose
-    profile vanished cannot be committed), re-reads the mandate so a gate set edited
-    since the run opened applies on resume too (a vanished mandate falls back to the
-    config default gate), rebuilds the ``RunContext`` + PM agent, resumes, and
+    (an unknown ``run_id`` raises ``LookupError``; a run that is not at a live gate —
+    ``paused`` / ``responded`` — raises ``ValueError``), re-guards the portfolio's
+    active ``ConstraintSet`` from the Store (missing raises ``RuntimeError`` — a run
+    whose profile vanished cannot be committed), re-reads the mandate so a gate set
+    edited since the run opened applies on resume too (a vanished mandate falls back to
+    the config default gate), rebuilds the ``RunContext`` + PM agent, resumes, and
     finalises. ``decision`` is ``approve``, ``reject``, or ``respond``.
     Any other value raises ``ValueError``; ``approve`` / ``respond`` raise
     ``RuntimeError`` while the fund or portfolio is FROZEN, or when the portfolio was

@@ -28,6 +28,11 @@ _T = TypeVar("_T")
 # after the first few.
 _STREAM_BATCH = 20
 
+# Statuses at a live HITL gate: the only runs an adviser decision may resolve. A
+# "pending" row is a run still being driven (or one that crashed before the gate), so
+# it is deliberately absent.
+RESUMABLE_RUN_STATUSES: tuple[str, ...] = ("paused", "responded")
+
 
 class AgentRunRepository(RepositoryBase):
     """Create/append/read the allocator audit trail on an injected sync session."""
@@ -345,7 +350,7 @@ class AgentRunRepository(RepositoryBase):
         pause. Optionally scoped to one ``portfolio_id``. This is the pending-HITL query
         the observers and the resume driver read.
         """
-        stmt = select(AgentRun).where(AgentRun.status.in_(("paused", "responded")))
+        stmt = select(AgentRun).where(AgentRun.status.in_(RESUMABLE_RUN_STATUSES))
         if portfolio_id is not None:
             stmt = stmt.where(AgentRun.portfolio_id == portfolio_id)
         stmt = stmt.order_by(AgentRun.created_at.desc())
@@ -530,4 +535,4 @@ class AgentRunRepository(RepositoryBase):
         return [(dec, pid) for dec, pid in self.session.execute(stmt).all()]
 
 
-__all__ = ["AgentRunRepository"]
+__all__ = ["RESUMABLE_RUN_STATUSES", "AgentRunRepository"]

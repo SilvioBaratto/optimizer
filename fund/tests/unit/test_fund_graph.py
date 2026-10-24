@@ -721,6 +721,7 @@ def test_resume_fund_rereads_mandate_gates_into_interrupt_on(db_session, monkeyp
         universe=[],
         optimizer_config={"step": "fund"},
     )
+    AgentRunRepository(db_session).mark_paused(run.id)
 
     captured: dict[str, Any] = {}
 
