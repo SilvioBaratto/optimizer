@@ -66,12 +66,14 @@ class RepositoryBase:
                 if col.name not in exclude
             }
 
-        # Always stamp updated_at with the server's current time on conflict.
-        # excluded.updated_at is the proposed row's own insert stamp, never the
-        # conflict time, and ON CONFLICT DO UPDATE does not fire ``onupdate``.
-        # The statement clock (not now()) keeps the stamp current when the
-        # caller's transaction has been open for a long time.
-        if "updated_at" in update_dict:
+        # Always stamp updated_at with the server's current time on conflict, even
+        # when the caller's explicit update_columns omits it. excluded.updated_at
+        # is the proposed row's own insert stamp (or NULL for a server default),
+        # never the conflict time, and ON CONFLICT DO UPDATE does not fire
+        # ``onupdate``, so a revised row would otherwise keep its first-insert
+        # timestamp. The statement clock (not now()) keeps the stamp current when
+        # the caller's transaction has been open for a long time.
+        if "updated_at" in tbl.c:
             update_dict["updated_at"] = ClockTimestamp()
 
         if constraint_name is not None:
