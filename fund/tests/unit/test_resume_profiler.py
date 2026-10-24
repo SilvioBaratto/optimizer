@@ -17,6 +17,7 @@ recorded ``optimizer_config["step"]``. Zero live LLM, zero network:
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 
 import pytest
@@ -499,6 +500,71 @@ def test_resume_profiler_refuses_to_reject_an_already_approved_run(db_session) -
 
     assert MifidProfileRepository(db_session).get_active(pid) is not None
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
+
+
+# --- a run that is no longer at a live gate cannot be resumed ----------------
+
+
+def test_resume_profiler_refuses_a_run_halted_by_a_freeze(db_session) -> None:
+    from fund.actions import apply_action
+
+    pid = uuid.uuid4()
+    saver, store = MemorySaver(), InMemoryStore()
+    run = _run_to_gate(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        saver,
+        store,
+        portfolio_id=pid,
+    )
+    db_session.commit()
+    # A portfolio freeze rejects the live gate at the DB and leaves the checkpoint's
+    # interrupt standing.
+    apply_action(
+        "freeze",
+        session=db_session,
+        scope="portfolio",
+        portfolio_id=pid,
+        rationale="halt",
+    )
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
+
+    with pytest.raises(ValueError, match="rejected"):
+        resume_profiler(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=_resume_model(),
+        )
+
+    assert MifidProfileRepository(db_session).get_active(pid) is None
+    assert store.get((str(pid),), settings.constraint_set_store_key) is None
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
+
+
+def test_resume_profiler_refuses_a_run_that_never_reached_its_gate(db_session) -> None:
+    pid = uuid.uuid4()
+    pending = AgentRunRepository(db_session).create_run(
+        portfolio_id=pid,
+        asof=dt.date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={"step": "profile"},
+    )
+
+    with pytest.raises(ValueError, match="not awaiting a decision"):
+        resume_profiler(
+            pending.id,
+            "approve",
+            session=db_session,
+            checkpointer=MemorySaver(),
+            store=InMemoryStore(),
+            model=_resume_model(),
+        )
+
+    assert MifidProfileRepository(db_session).get_active(pid) is None
 
 
 # --- resume_run dispatches by the run's step --------------------------------

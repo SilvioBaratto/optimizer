@@ -81,6 +81,9 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+# Run statuses at a live HITL gate — what ``AgentRunRepository.list_paused_runs`` reads.
+_LIVE_GATE_STATUSES = ("paused", "responded")
+
 # The single HITL-gated persistence tool the profiler agent exposes (SPEC §8.5).
 _SAVE_PROFILE_TOOL = "save_profile"
 
@@ -745,6 +748,22 @@ def _make_save_profile(
     return save_profile
 
 
+def _require_live_gate(run: Any, run_id: uuid.UUID) -> None:
+    """Refuse to resume a profiler run that is not awaiting an adviser decision.
+
+    A freeze rejects live gates at the DB without resolving the checkpoint, so the
+    graph's interrupt still stands for a run the adviser halted; a blind
+    ``Command(resume=...)`` would write the profile for it (or, on a finished
+    thread, silently do nothing yet report success). Only a run flipped to
+    ``paused``/``responded`` at its gate is resumable.
+    """
+    if run.status not in _LIVE_GATE_STATUSES:
+        raise ValueError(
+            f"profiler run {run_id} is {run.status!r}, not awaiting a decision "
+            "(it completed, was rejected/frozen/blocked, or never reached its gate)"
+        )
+
+
 def _resume_at_gate(
     agent: Any,
     thread_config: dict[str, Any],
@@ -1003,8 +1022,8 @@ def resume_profiler(
     row, caching the active ``ConstraintSet`` in the Store, and finalising the run
     ``completed``; on reject nothing is written and the run is finalised ``rejected``
     (symmetric with :meth:`ProfilerRun.resume`). ``decision`` must be ``"approve"``
-    or ``"reject"``; an unknown ``run_id`` raises ``LookupError`` and an already
-    finalised run (completed / rejected / incomplete / blocked) raises ``ValueError``.
+    or ``"reject"``; an unknown ``run_id`` raises ``LookupError``, and a run that is
+    not awaiting a decision (finalised, frozen, or never gated) raises ``ValueError``.
     Every write goes through the injected ``session`` (caller owns the transaction).
     Mirrors
     :func:`~fund.agents.graph.resume_fund` for the ``place_orders`` gate; the CLI /
@@ -1031,6 +1050,7 @@ def resume_profiler(
         )
     if run.portfolio_id is None:
         raise RuntimeError(f"profiler run {rid} has no portfolio to resume")
+    _require_live_gate(run, rid)
     resolved_thread_id = run.thread_id or str(rid)
 
     # Recover the typed answers logged at ``normalize_answers`` and re-derive the
