@@ -51,8 +51,8 @@ split is load-bearing:
 - **Never** emit a knob/weight/number the mapping should compute.
 - **Never** fuse risk tolerance (attitude) with loss capacity (finance).
 - **Never** admit an ESG-excluded sector back into the universe.
-- The profiler only *emits* `nu1/nu2/nu3` / `esg` / `universe_filters`;
-  enforcement is Fase 7.
+- The profiler only *emits* `nu1/nu2/nu3` / `esg` / `universe_filters`; the
+  allocator and risk tools enforce them in code.
 
 ## Deeper detail
 

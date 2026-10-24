@@ -366,7 +366,7 @@ def _tick(flag: bool) -> str:
 
 
 def _format_caps(constraint_set: dict[str, Any]) -> str:
-    """One-line summary of the numeric ConstraintSet caps (display-only this phase).
+    """One-line summary of the numeric ConstraintSet caps, for display.
 
     Reads the raw ``constraint_set`` JSON (no schema rehydration) so a missing nested
     key degrades gracefully rather than raising inside the poll loop.

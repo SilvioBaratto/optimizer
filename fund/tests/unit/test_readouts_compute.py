@@ -13,9 +13,17 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from _fund_fakes import ASOF, UNIVERSE, make_constraint_set, seed_panel
+from _fund_fakes import (
+    ASOF,
+    UNIVERSE,
+    classify_instruments,
+    make_constraint_set,
+    make_energy_exclusion_constraint_set,
+    seed_panel,
+)
 from portopt_db.models import Base
-from sqlalchemy import create_engine
+from portopt_db.models.universe.universe import Instrument
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -73,14 +81,16 @@ def test_compute_results_degrades_on_empty_inputs(priced_session: Session) -> No
     assert result.backtest_error is not None
 
 
-def test_compute_risk_returns_verdict_and_sector_breakdown() -> None:
+def test_compute_risk_returns_verdict_and_sector_breakdown(
+    priced_session: Session,
+) -> None:
     """A clean allocation passes risk_check and its weights roll up per sector."""
     from fund.readouts_compute import compute_risk
 
     constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
     weights = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
     sectors = {"AAA": "Tech", "BBB": "Tech", "CCC": "Energy"}
-    result = compute_risk(weights, constraint_set, sectors)
+    result = compute_risk(weights, constraint_set, sectors, session=priced_session)
     assert result.error is None
     assert result.passed is True
     assert result.violations == ()
@@ -89,23 +99,25 @@ def test_compute_risk_returns_verdict_and_sector_breakdown() -> None:
     assert exposures["Energy"] == pytest.approx(0.2)
 
 
-def test_compute_risk_flags_bound_breach() -> None:
+def test_compute_risk_flags_bound_breach(priced_session: Session) -> None:
     """A weight over the max bound surfaces a max_weight violation (passed False)."""
     from fund.readouts_compute import compute_risk
 
     constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
     constraint_set["bounds"] = {"min_weights": 0.0, "max_weights": 0.4, "budget": 1.0}
-    result = compute_risk({"AAA": 0.7, "BBB": 0.3}, constraint_set, None)
+    result = compute_risk(
+        {"AAA": 0.7, "BBB": 0.3}, constraint_set, None, session=priced_session
+    )
     assert result.passed is False
     assert any(v.get("type") == "max_weight" for v in result.violations)
 
 
-def test_compute_risk_missing_sector_mapping_degrades() -> None:
+def test_compute_risk_missing_sector_mapping_degrades(priced_session: Session) -> None:
     """A missing sector mapping degrades to unavailable (None), never a crash."""
     from fund.readouts_compute import compute_risk
 
     constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
-    result = compute_risk({"AAA": 1.0}, constraint_set, None)
+    result = compute_risk({"AAA": 1.0}, constraint_set, None, session=priced_session)
     assert result.sector_exposures is None
 
 
@@ -159,11 +171,18 @@ def _capped(cap: float) -> dict[str, Any]:
     return constraint_set
 
 
-def test_compute_risk_flags_a_weight_above_the_position_cap() -> None:
+def test_compute_risk_flags_a_weight_above_the_position_cap(
+    priced_session: Session,
+) -> None:
     """The live gate tightens max_weights to the K&E cap; the read-out must agree."""
     from fund.readouts_compute import compute_risk
 
-    result = compute_risk({"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}, _capped(0.25), None)
+    result = compute_risk(
+        {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+        _capped(0.25),
+        None,
+        session=priced_session,
+    )
 
     assert result.passed is False
     over_cap = {v["asset"] for v in result.violations if v.get("type") == "max_weight"}
@@ -217,7 +236,7 @@ def test_unreadable_recorded_constraint_set_degrades_to_an_error(
     broken: dict[str, Any] = {"bounds": "not-a-mapping"}
     weights = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
 
-    risk = compute_risk(weights, broken, {"AAA": "Tech"})
+    risk = compute_risk(weights, broken, {"AAA": "Tech"}, session=priced_session)
     results = compute_results(priced_session, ASOF, list(UNIVERSE), broken, weights)
 
     assert risk.passed is None
@@ -226,3 +245,91 @@ def test_unreadable_recorded_constraint_set_degrades_to_an_error(
     assert results.frontier is None
     assert results.frontier_error is not None
     assert results.backtest is not None
+
+
+def _energy_exclusion() -> dict[str, Any]:
+    return make_energy_exclusion_constraint_set().model_dump(mode="json")
+
+
+def test_compute_risk_fails_a_held_esg_excluded_name(priced_session: Session) -> None:
+    """The live gate screens held names against the client's ESG exclusions; the
+    read-out of an Energy-excluded client holding Energy must not show ok."""
+    from fund.readouts_compute import compute_risk
+
+    classify_instruments(
+        priced_session, {"AAA": "Energy", "BBB": "Technology", "CCC": "Technology"}
+    )
+
+    result = compute_risk(
+        {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+        _energy_exclusion(),
+        None,
+        session=priced_session,
+    )
+
+    assert result.passed is False
+    assert [(v["type"], v["asset"]) for v in result.violations] == [
+        ("esg_exclusion", "AAA")
+    ]
+
+
+def test_compute_risk_ignores_an_excluded_name_held_at_zero(
+    priced_session: Session,
+) -> None:
+    from fund.readouts_compute import compute_risk
+
+    classify_instruments(
+        priced_session, {"AAA": "Energy", "BBB": "Technology", "CCC": "Technology"}
+    )
+
+    result = compute_risk(
+        {"AAA": 0.0, "BBB": 0.6, "CCC": 0.4},
+        _energy_exclusion(),
+        None,
+        session=priced_session,
+    )
+
+    assert result.passed is True
+    assert result.violations == ()
+
+
+def test_compute_risk_fails_closed_when_a_sector_cannot_be_classified(
+    priced_session: Session,
+) -> None:
+    from fund.readouts_compute import compute_risk
+
+    result = compute_risk(
+        {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+        _energy_exclusion(),
+        None,
+        session=priced_session,
+    )
+
+    assert result.passed is False
+    assert {v["type"] for v in result.violations} == {"unclassified_sector"}
+
+
+def test_compute_risk_flags_a_complex_instrument_for_a_no_complex_client(
+    priced_session: Session,
+) -> None:
+    from fund.readouts_compute import compute_risk
+
+    instrument = priced_session.execute(
+        select(Instrument).where(Instrument.yfinance_ticker == "AAA")
+    ).scalar_one()
+    instrument.instrument_type = "ETN"
+    priced_session.flush()
+    constraint_set = make_constraint_set().model_dump(mode="json")
+    constraint_set["universe_filters"] = {"no_complex": True}
+
+    result = compute_risk(
+        {"AAA": 0.4, "BBB": 0.3, "CCC": 0.3},
+        constraint_set,
+        None,
+        session=priced_session,
+    )
+
+    assert result.passed is False
+    assert [(v["type"], v["asset"]) for v in result.violations] == [
+        ("complex_instrument", "AAA")
+    ]

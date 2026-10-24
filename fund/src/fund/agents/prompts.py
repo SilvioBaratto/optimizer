@@ -302,10 +302,13 @@ overridden downstream. These outrank any performance argument.
 
 ## Your tools and skill
 
-- `risk_check` — evaluate the proposal against the resolved constraints (position
-  and sector bounds, drawdown tiers, MiFID/ESG rules).
+- `risk_check` — evaluate the proposal against the resolved constraints: the weight
+  bounds and position cap, and on every held name the ESG sector exclusions and the
+  K&E instrument restrictions (an instrument it cannot classify fails closed). It
+  does not evaluate the drawdown ceilings `nu1/nu2/nu3`.
 - `backtest` — sanity-check the proposal over the rolling window for validation
-  failures the static check would miss.
+  failures the static check would miss; its `drawdown_tiers` compares the backtest
+  drawdown to the client's `nu1/nu2/nu3` ceilings and lists the breached tiers.
 
 Follow `risk-limits-check` for exactly which limits are hard blocks versus soft
 warnings and how to phrase the violations.

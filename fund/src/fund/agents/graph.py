@@ -528,14 +528,20 @@ def _finalize_hitl(
 def _ticket_placed(
     session: Any, *, portfolio_id: uuid.UUID, asof: dt.date, weights: dict[str, float]
 ) -> bool:
-    """Whether a paper ticket exists for this bar's audited ``weights``.
+    """Whether a paper ticket exists for exactly this bar's audited ``weights``.
 
-    Uses the same ``(portfolio_id, asof, weights_hash)`` key ``place_orders`` writes
-    under, so an idempotent re-run that returned the stored ticket counts as placed.
+    ``place_orders`` can decline an approved gate (a missing fill bar, or the current
+    mandate no longer admits the audited weights) and still return normally to the
+    graph, so a resume that completed without raising proves nothing about the ticket.
+    The ticket row, keyed ``(portfolio_id, asof, weights_hash)`` like the tool's own
+    idempotency lookup, is the only evidence that the book moved; an idempotent re-run
+    that returned the stored ticket counts as placed.
     """
     from fund.audit import OrderRepository
     from fund.tools.orders import _weights_hash
 
+    if not weights:
+        return False
     ticket = OrderRepository(session).get_by_key(
         portfolio_id=portfolio_id, asof=asof, weights_hash=_weights_hash(weights)
     )
@@ -554,31 +560,41 @@ def _settle_hitl(
 ) -> None:
     """Finalise an approve/reject resume, verifying an approve actually ticketed.
 
-    ``place_orders`` reports a missing fill bar or unknown ticker as an ``{ok: false}``
-    envelope instead of raising, so resuming the gate succeeds even when no ticket was
-    written. An approve with no ticket must not stamp the run ``completed`` nor replace
-    the ``positions`` snapshot with weights no order backs: it finalises ``incomplete``
-    (``"place_orders_failed"``), or, when the resumed PM re-gated, is left awaiting the
-    adviser. Reject and a ticketed approve go through :func:`_finalize_hitl`. No commit.
+    ``place_orders`` reports a missing fill bar, an unknown ticker or a mandate breach
+    as an ``{ok: false}`` envelope instead of raising, so resuming the gate succeeds
+    even when no ticket was written. An approve with no ticket must not stamp the run
+    ``completed`` nor replace the ``positions`` snapshot with weights no order backs:
+    it finalises ``incomplete`` (``"place_orders_failed"``). When the resumed PM
+    answered by re-gating (``result`` carries a fresh interrupt) the run stays alive as
+    ``"responded"`` instead, with the declined approve on the audit trail. Reject and
+    a ticketed approve go through :func:`_finalize_hitl`. No commit.
     """
-    from fund.audit import AgentRunRepository
-
-    if decision == "approve" and not _ticket_placed(
+    if decision != "approve" or _ticket_placed(
         session, portfolio_id=portfolio_id, asof=asof, weights=weights
     ):
-        if _extract_interrupt(result) is None:
-            _finalize_incomplete(
-                AgentRunRepository(session), run_id, "place_orders_failed"
-            )
+        _finalize_hitl(
+            session,
+            run_id=run_id,
+            portfolio_id=portfolio_id,
+            asof=asof,
+            weights=weights,
+            decision=decision,
+        )
         return
-    _finalize_hitl(
-        session,
-        run_id=run_id,
-        portfolio_id=portfolio_id,
-        asof=asof,
-        weights=weights,
-        decision=decision,
+
+    from fund.audit import AgentRunRepository
+
+    audit = AgentRunRepository(session)
+    if _extract_interrupt(result) is None:
+        _finalize_incomplete(audit, run_id, "place_orders_failed")
+        return
+    audit.append_decision(
+        run_id,
+        agent="orchestrator",
+        step="place_orders",
+        hitl_decision={"decision": "approve", "reason": "place_orders_failed"},
     )
+    audit.mark_responded(run_id)
 
 
 _HISTORY_SUMMARY_BUDGET = 800
@@ -707,12 +723,14 @@ class FundRun:
 
         ``approve`` runs the gated ``place_orders`` tool (the paper ticket is written
         and the executor decision logged inside the closure), then finalises the run
-        as completed with the optimizer's weights, or incomplete when no ticket was
-        written (or leaves it awaiting the adviser if the PM re-gated). ``reject``
-        writes no order, records the HITL choice, and finalises rejected. ``respond``
-        threads ``pm_directive`` back to the PM and lets it continue: if it re-gates
-        the run stays alive as ``"responded"`` (still awaiting approval), else it
-        finalises ``incomplete`` — delegated to :func:`_finalize_respond`.
+        as completed with the optimizer's weights — unless ``place_orders`` placed no
+        ticket (a missing fill bar, or the audited weights breach the current mandate),
+        in which case nothing is booked and the run ends ``incomplete`` (or stays
+        ``responded`` if the PM re-gated). ``reject`` writes no order, records the HITL
+        choice, and finalises rejected. ``respond`` threads ``pm_directive`` back to the
+        PM and lets it continue: if it re-gates the run stays alive as ``"responded"``
+        (still awaiting approval), else it finalises ``incomplete`` — delegated to
+        :func:`_finalize_respond`.
 
         Approve/reject finalisation is delegated to the shared :func:`_settle_hitl`,
         and respond to :func:`_finalize_respond`, so this in-process path and the
@@ -1261,10 +1279,10 @@ def resume_fund(
     agent against the *same* ``checkpointer`` + ``thread_id`` and issuing
     ``Command(resume=…)`` itself. Approving executes the interrupted commit inside
     the graph (so a ``model`` is required to resume); the shared :func:`_settle_hitl`
-    then stamps the terminal audit state and, on a ticketed approve, the positions
-    snapshot — leaving DB state identical to :meth:`FundRun.resume`. A PM follow-up
-    turn that fails after the gate was consumed does not raise: the decision stands
-    and the failure is returned as ``{"resume_error": ...}``.
+    then stamps the terminal audit state and, on an approve whose ticket was placed, the
+    positions snapshot — leaving DB state identical to :meth:`FundRun.resume`. A PM
+    follow-up turn that fails after the gate was consumed does not raise: the decision
+    stands and the failure is returned as ``{"resume_error": ...}``.
 
     Loads the ``agent_run`` to recover its ``thread_id`` / ``portfolio_id`` / ``asof``
     (an unknown ``run_id`` raises ``LookupError``), re-guards the portfolio's active

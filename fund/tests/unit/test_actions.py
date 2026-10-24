@@ -24,6 +24,9 @@ from _fund_fakes import (
     PORTFOLIO_ID,
     UNIVERSE,
     ScriptedFundModel,
+    classify_instruments,
+    make_constraint_set,
+    make_energy_exclusion_constraint_set,
     make_mandate,
     seed_paused_fund_run,
 )
@@ -42,7 +45,10 @@ from fund.audit import (
     HumanAuditLogRepository,
     MandateRepository,
     PositionRepository,
+    put_constraint_set,
 )
+from fund.config import settings
+from fund.schemas.constraint_set import UniverseFilters
 from fund.tools.orders import _weights_hash
 
 
@@ -229,6 +235,44 @@ def test_approve_that_regates_on_a_responded_run_is_not_reported_as_plain_succes
         assert session.query(PaperOrder).count() == 0
     assert "no paper ticket" in result.message
     assert "responded" in result.message
+
+
+def test_approve_refused_by_the_mandate_reports_that_nothing_was_booked(
+    paused_env,
+) -> None:
+    """An approve the gated tool refuses (re-profiled mandate) is logged as the human's
+    decision, but the status line and the run must not claim a booked allocation."""
+    env = paused_env
+    with env.get_session() as session:
+        classify_instruments(
+            session, {"AAA": "Energy", "BBB": "Technology", "CCC": "Utilities"}
+        )
+        session.commit()
+    put_constraint_set(
+        env.store,
+        make_energy_exclusion_constraint_set(),
+        store_key=settings.constraint_set_store_key,
+    )
+
+    with env.get_session() as session:
+        result = apply_action(
+            "approve",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+        )
+        session.commit()
+
+    assert "no paper ticket" in result.message
+    assert "incomplete" in result.message
+    with env.get_session() as session:
+        assert AgentRunRepository(session).get_run(env.run_id).status == "incomplete"
+        assert session.query(PaperOrder).count() == 0
+        assert PositionRepository(session).get_holdings(PORTFOLIO_ID) == []
+        assert len(HumanAuditLogRepository(session).list_recent(action="approve")) == 1
 
 
 def test_reject_resumes_run_and_logs_audit(paused_env) -> None:
@@ -474,6 +518,61 @@ def test_edit_rejects_math_invalid_weights_and_commits_nothing(paused_env) -> No
         run = AgentRunRepository(session).get_run(env.run_id)
         assert run.status == "paused"  # still at the gate, untouched
         assert session.query(PaperOrder).count() == 0
+
+
+def _assert_edit_refused_and_run_still_paused(env, edited) -> None:
+    """The edit is rejected up front: nothing audited or booked, the gate still live."""
+    with env.get_session() as session:
+        with pytest.raises(ValueError, match="violat"):
+            apply_action(
+                "edit",
+                session=session,
+                run_id=env.run_id,
+                portfolio_id=PORTFOLIO_ID,
+                checkpointer=env.saver,
+                store=env.store,
+                model=env.model_factory(),
+                new_value=edited,
+            )
+        session.rollback()
+
+    with env.get_session() as session:
+        assert HumanAuditLogRepository(session).list_recent(action="edit") == []
+        assert AgentRunRepository(session).get_run(env.run_id).status == "paused"
+        assert session.query(PaperOrder).count() == 0
+        assert PositionRepository(session).get_holdings(PORTFOLIO_ID) == []
+
+
+def test_edit_over_the_position_cap_is_rejected_and_commits_nothing(paused_env) -> None:
+    """The adviser's edit is held to the same K&E position cap the live gate applies;
+    weights that pass the default bounds but exceed the cap never reach the gate."""
+    env = paused_env
+    capped = make_constraint_set().model_copy(
+        update={"universe_filters": UniverseFilters(max_position_cap=0.4)}
+    )
+    put_constraint_set(env.store, capped, store_key=settings.constraint_set_store_key)
+
+    _assert_edit_refused_and_run_still_paused(env, {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})
+
+
+def test_edit_into_an_esg_excluded_name_is_rejected_and_commits_nothing(
+    paused_env,
+) -> None:
+    """An edit that holds a name in an ESG-excluded sector is refused before the
+    resume, exactly as the live ``risk_check`` would fail it."""
+    env = paused_env
+    with env.get_session() as session:
+        classify_instruments(
+            session, {"AAA": "Energy", "BBB": "Technology", "CCC": "Utilities"}
+        )
+        session.commit()
+    put_constraint_set(
+        env.store,
+        make_energy_exclusion_constraint_set(),
+        store_key=settings.constraint_set_store_key,
+    )
+
+    _assert_edit_refused_and_run_still_paused(env, {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})
 
 
 def test_edit_requires_a_run_id(db_session) -> None:

@@ -429,8 +429,9 @@ def _apply_edit(
     """Commit adviser-edited weights, then resume the paused run via ``approve``.
 
     The edit never touches the gated tool's args. It validates ``new_value`` (the
-    ``{ticker: weight}`` the adviser typed) against the long-only / fully-invested
-    invariants with ``risk_check``, then appends a fresh **allocator /
+    ``{ticker: weight}`` the adviser typed) against the same gate the risk agent's
+    ``risk_check`` applies (long-only / fully-invested bounds, the K&E position cap,
+    the ESG and instrument screen), then appends a fresh **allocator /
     optimize_portfolio** decision carrying the edited weights and resumes through the
     existing approve path. ``_place_orders_impl`` re-reads ``latest_optimizer_weights``
     on resume, so that appended row is the single source every downstream record (the
@@ -441,10 +442,11 @@ def _apply_edit(
     Raises:
         ValueError: ``run_id`` or ``new_value`` is missing, or the edited weights
             fail the risk invariants (the structured ``violations`` are reported).
+        LookupError: ``run_id`` names no run.
     """
     from fund.agents.graph import resume_run
+    from fund.agents.toolsets import RunContext, check_weights_against_mandate
     from fund.audit.repository import AgentRunRepository
-    from fund.tools.risk import risk_check
 
     if run_id is None:
         raise ValueError("'edit' requires a run_id")
@@ -453,7 +455,20 @@ def _apply_edit(
     rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
     edited = {str(k): float(v) for k, v in dict(new_value).items()}
 
-    check = risk_check(edited)
+    run = AgentRunRepository(session).get_run(rid)
+    if run is None:
+        raise LookupError(f"no agent_run {rid}")
+    if run.portfolio_id is None:
+        raise ValueError(f"agent_run {rid} has no portfolio_id")
+    ctx = RunContext(
+        session=session,
+        asof=run.asof,
+        store=store,
+        config=config,
+        run_id=rid,
+        portfolio_id=run.portfolio_id,
+    )
+    check = check_weights_against_mandate(ctx, edited)
     if not check.get("ok"):
         raise ValueError(f"'edit' rejected: {check.get('error')}")
     report = check["data"]

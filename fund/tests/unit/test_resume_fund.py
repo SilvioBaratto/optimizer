@@ -24,8 +24,10 @@ from _fund_fakes import (
     UNIVERSE,
     PmFailsAfterOrderModel,
     ScriptedFundModel,
+    classify_instruments,
     expected_weights,
     make_constraint_set,
+    make_energy_exclusion_constraint_set,
     make_mandate,
     seed_panel,
 )
@@ -762,3 +764,143 @@ def test_resume_fund_binds_the_persisted_mandate_base_currency(
     )
 
     assert [c.base_currency for c in contexts] == ["CHF"]
+
+
+# --- a mandate refusal inside place_orders must not finalise the run completed ----
+
+
+_SECTORS = {"AAA": "Energy", "BBB": "Technology", "CCC": "Utilities"}
+
+
+def _reprofile_with_energy_exclusion(db_session, store: InMemoryStore) -> None:
+    """The client is re-profiled between the proposal and the adviser's approval."""
+    classify_instruments(db_session, _SECTORS)
+    put_constraint_set(
+        store,
+        make_energy_exclusion_constraint_set(),
+        store_key=settings.constraint_set_store_key,
+    )
+
+
+def _assert_nothing_booked(db_session, run_id) -> None:
+    """No ticket, no held book, no journal row: the refusal left the books untouched."""
+    from portopt_db.models import PortfolioJournal
+
+    assert _paper_orders(db_session) == []
+    assert _positions_map(db_session) == {}
+    assert db_session.query(PortfolioJournal).count() == 0
+    assert AgentRunRepository(db_session).get_run(run_id).weights in (
+        None,
+        {},
+    )  # the refused proposal is not recorded as the run's allocation
+
+
+def test_resume_fund_approve_refused_by_the_mandate_does_not_complete_the_run(
+    db_session,
+) -> None:
+    """``place_orders`` refuses weights that breach the re-profiled mandate; the run
+    must end ``incomplete``, not record the refused weights as the held book."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    _reprofile_with_energy_exclusion(db_session, store)
+
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "incomplete"
+    _assert_nothing_booked(db_session, run.run_id)
+    reasons = [
+        d.hitl_decision.get("reason")
+        for d in _decisions(db_session, run.run_id)
+        if d.hitl_decision and d.hitl_decision.get("decision") == "incomplete"
+    ]
+    assert reasons == ["place_orders_failed"]
+
+
+def test_fundrun_resume_approve_refused_by_the_mandate_does_not_complete_the_run(
+    db_session,
+) -> None:
+    """The live in-process handle settles a refused approve exactly like the rebuild
+    path, so the two cannot diverge."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    _reprofile_with_energy_exclusion(db_session, store)
+
+    run.resume("approve")
+
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "incomplete"
+    _assert_nothing_booked(db_session, run.run_id)
+
+
+def test_refused_approve_that_the_pm_re_gates_keeps_the_run_alive(db_session) -> None:
+    """If the PM answers the refusal by re-gating, the run stays awaiting approval
+    (``responded``) rather than being finalised under a live checkpoint."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected, max_orders=2),
+        db_session,
+        saver,
+        store,
+    )
+    _reprofile_with_energy_exclusion(db_session, store)
+
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected, max_orders=2),
+    )
+
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "responded"
+    assert observe._has_pending_interrupt(saver, str(run.run_id))
+    assert _paper_orders(db_session) == []
+    assert _positions_map(db_session) == {}
+
+
+def test_a_placed_ticket_still_completes_the_run_after_the_refusal_guard(
+    db_session,
+) -> None:
+    """Regression guard: an approve whose ticket landed finalises ``completed``."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
+    assert len(_paper_orders(db_session)) == 1
+    assert _positions_map(db_session) == expected

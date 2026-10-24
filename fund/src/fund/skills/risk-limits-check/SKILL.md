@@ -20,12 +20,17 @@ The optimizer / validation computes the risk numbers; the LLM only compares them
 the ConstraintSet limits and decides pass/block. It never edits weights itself.
 
 ## Procedure
-1. Call `risk_check(weights, constraints)` → passed + violations (drawdown ceilings
-   nu1/nu2/nu3, sector caps, ESG exclusions, bounds).
-2. Call `backtest(weights, window)` walk-forward (`shuffle=False`) and check drawdown
-   / tail metrics against the ceilings. Check `out_of_sample`: when it is `False` the
-   panel was too short for a walk-forward fold and the metrics are in-sample — do NOT
-   count them as walk-forward validation of robustness.
+1. Call `risk_check(weights)` → passed + violations (weight bounds and position
+   cap, ESG sector exclusions, complex/leveraged-instrument restrictions; an
+   instrument it cannot classify is a violation, not a pass). It does not evaluate the
+   drawdown ceilings nu1/nu2/nu3 — `backtest` in step 2 does.
+2. Call `backtest(weights, window)` walk-forward (`shuffle=False`). It returns
+   `drawdown_tiers`: the client's ceilings nu1 (soft warning), nu2 (hard ceiling) and
+   nu3 (absolute stop), the backtest `max_drawdown`, and the `breached` tiers — a
+   breach of nu2 or nu3 is a BLOCK, nu1 is a warning to report. Check
+   `out_of_sample`: when it is `False` the panel was too short for a walk-forward fold
+   and the metrics are in-sample — do NOT count them as walk-forward validation of
+   robustness.
 3. Confirm the ESG hard gate: any excluded GICS name present → immediate BLOCK.
 4. For prudent profiles, confirm the robust uncertainty set was applied.
 5. Emit pass, or block with the specific violations for the allocator to fix.

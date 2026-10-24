@@ -36,12 +36,14 @@ from typing import Any
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
-from portopt_db.models.market_data.yfinance_data import PriceHistory
+from portopt_db.models.market_data.yfinance_data import PriceHistory, TickerProfile
 from portopt_db.models.universe.universe import Exchange, Instrument
 from pydantic import Field
+from sqlalchemy import select
 
 from fund.schemas import ConstraintSet
-from fund.schemas.enums import Horizon, ObjectiveChoice, RiskMeasureChoice
+from fund.schemas.constraint_set import EsgPolicy
+from fund.schemas.enums import GicsSector, Horizon, ObjectiveChoice, RiskMeasureChoice
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
 from fund.tools.optimize import optimize_portfolio
 
@@ -283,6 +285,25 @@ def make_constraint_set(portfolio_id: uuid.UUID = PORTFOLIO_ID) -> ConstraintSet
         nu3=0.20,
         horizon=Horizon.LONG,
     )
+
+
+def make_energy_exclusion_constraint_set(
+    portfolio_id: uuid.UUID = PORTFOLIO_ID,
+) -> ConstraintSet:
+    """``make_constraint_set`` re-profiled with an Energy ESG exclusion."""
+    return make_constraint_set(portfolio_id).model_copy(
+        update={"esg": EsgPolicy(exclusions=(GicsSector.ENERGY,))}
+    )
+
+
+def classify_instruments(session: Any, sectors: dict[str, str]) -> None:
+    """Give each seeded instrument its profile sector (the mandate screen reads it)."""
+    for ticker, sector in sectors.items():
+        instrument = session.execute(
+            select(Instrument).where(Instrument.yfinance_ticker == ticker)
+        ).scalar_one()
+        session.add(TickerProfile(instrument_id=instrument.id, sector=sector))
+    session.flush()
 
 
 def make_mandate(portfolio_id: uuid.UUID = PORTFOLIO_ID) -> PortfolioMandate:

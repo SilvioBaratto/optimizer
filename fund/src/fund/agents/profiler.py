@@ -210,7 +210,8 @@ def _nu_tiers(capacity: CapacityAnswers) -> tuple[float, float, float]:
 
     Anchored on the stated one-year loss tolerance: a soft warning at half the
     tolerance, the hard ceiling at the tolerance itself, and an absolute stop at
-    1.5x (clamped to 1.0). Emitted here, enforced by the ``risk_check`` step.
+    1.5x (clamped to 1.0). Emitted here; the bound ``backtest`` tool compares the
+    backtest drawdown with them.
     """
     ceiling = capacity.max_1yr_loss_pct
     nu1 = ceiling * 0.5

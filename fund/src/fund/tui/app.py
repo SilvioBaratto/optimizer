@@ -1847,7 +1847,7 @@ class ShellApp(App[None]):
                         None,
                     )
                     result = readouts_compute.compute_risk(
-                        weights, constraint_set, None
+                        weights, constraint_set, None, session=session
                     )
                 session.rollback()
         except Exception as exc:  # surface a clean message, never crash the App

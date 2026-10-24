@@ -61,7 +61,7 @@ The more protective the reaction, the deeper the downside the profile controls.
 | `informed` | false | false | — |
 | `advanced` | false | false | — |
 
-## Drawdown tiers (`nu1/nu2/nu3`, emitted only — enforced in Fase 7)
+## Drawdown tiers (`nu1/nu2/nu3`, emitted here — compared by `backtest`)
 
 Anchored on the stated one-year loss tolerance `L = capacity.max_1yr_loss_pct`:
 `nu1 = 0.5·L` (soft warning), `nu2 = L` (hard ceiling), `nu3 = min(1.5·L, 1.0)`

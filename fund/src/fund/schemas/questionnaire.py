@@ -77,7 +77,7 @@ class MiFIDQuestion(BaseModel):
 
 class KnowledgeAnswers(BaseModel):
     """Pillar 1 — knowledge & experience. Low ``level`` (``none`` / ``basic``)
-    drives the ``UniverseFilters`` restrictions in Fase 7."""
+    drives the ``UniverseFilters`` restrictions the fund toolsets enforce."""
 
     model_config = ConfigDict(frozen=True)
 

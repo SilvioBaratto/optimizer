@@ -18,9 +18,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
+from sqlalchemy.exc import SQLAlchemyError
 
 from fund.agents.toolsets import _bounds_args, _optimizer_constraints
 from fund.schemas import ConstraintSet
+from fund.tools.mandate import constraint_set_breaches, held_tickers
 from fund.tools.optimize import optimize_portfolio
 from fund.tools.risk import backtest, risk_check
 
@@ -178,19 +180,27 @@ def compute_risk(
     weights: Mapping[str, float],
     constraint_set: Mapping[str, Any] | None,
     sector_mapping: Mapping[str, str] | None = None,
+    *,
+    session: Session,
 ) -> RiskCompute:
     """Recompute the risk read-out: the live ``risk_check`` verdict + sector exposures.
 
+    Applies what the live gate applies: the bounds tightened to the K&E position cap
+    and, on every held name, the ESG sector exclusions and K&E instrument restrictions
+    (an instrument it cannot classify fails closed).
+
     Args:
         weights: The held allocation to check and roll up.
-        constraint_set: The recorded ``ConstraintSet.model_dump``; its bounds, tightened
-            to the K&E position cap, reach ``risk_check`` as in the live gate.
+        constraint_set: The recorded ``ConstraintSet.model_dump``.
         sector_mapping: ``ticker -> sector``; ``None``/empty yields ``unavailable``.
+        session: An open read-only DB session for the instrument screen; untouched
+            when the constraint set carries no ESG or K&E restriction.
 
     Returns:
-        A :class:`RiskCompute`. When ``risk_check`` returns ``ok=False``, or the
-        recorded constraint set no longer validates, the verdict is ``None`` with an
-        ``error`` string, but the sector roll-up is still attempted.
+        A :class:`RiskCompute`. When ``risk_check`` returns ``ok=False``, the recorded
+        constraint set no longer validates, or the instrument screen cannot read the
+        database, the verdict is ``None`` with an ``error`` string (never a pass),
+        but the sector roll-up is still attempted.
     """
     exposures = _sector_exposures(weights, sector_mapping)
     cs, cs_error = _rehydrate(constraint_set)
@@ -208,9 +218,24 @@ def compute_risk(
             error=str(envelope.get("error") or "risk check failed"),
         )
     data = envelope.get("data") or {}
+    passed = bool(data.get("passed", False))
+    violations: list[dict[str, Any]] = list(data.get("violations") or ())
+    if cs is not None:
+        try:
+            breaches = constraint_set_breaches(session, cs, held_tickers(weights))
+        except SQLAlchemyError as exc:
+            return RiskCompute(
+                passed=None,
+                violations=(),
+                sector_exposures=exposures,
+                error=f"mandate screen failed: {exc.__class__.__name__}",
+            )
+        if breaches:
+            passed = False
+            violations.extend(breaches)
     return RiskCompute(
-        passed=bool(data.get("passed", False)),
-        violations=tuple(data.get("violations") or ()),
+        passed=passed,
+        violations=tuple(violations),
         sector_exposures=exposures,
         error=None,
     )

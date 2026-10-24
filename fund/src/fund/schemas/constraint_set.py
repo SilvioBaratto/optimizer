@@ -14,11 +14,16 @@ the method** so schema construction stays cheap and optimizer-free. The
 optimizer enum objects) for the same reason — they must be total (every fund enum
 member maps; an unmapped member is a hard ``KeyError``, never a silent default).
 
-Deliberately **not** mapped (stored/validated only, enforced in Fase 7): the
-``nu1/nu2/nu3`` drawdown ceilings (``MeanRiskConfig`` has no drawdown-ceiling
-field), ``horizon``, ``esg``, ``universe_filters``, ``moments_estimator`` and
-``uncertainty_level``. ``beta`` **is** mapped onto ``cvar_beta`` / ``cdar_beta``
-so a CVaR/CDaR profile honours the client's chosen tail confidence (D34).
+Deliberately **not** mapped (``MeanRiskConfig`` has no field for them): the
+``nu1/nu2/nu3`` drawdown ceilings, ``esg`` and ``universe_filters``, plus the
+stored/validated-only ``horizon``, ``moments_estimator`` and ``uncertainty_level``.
+The bound fund toolsets enforce the first three in code instead: ``esg`` exclusions
+and the ``universe_filters`` instrument restrictions are screened
+(``fund.tools.mandate``), ``universe_filters.max_position_cap`` tightens
+``bounds.max_weights``, and ``backtest`` compares its drawdown with the ``nu``
+ceilings. ``risk_check`` does not evaluate ``nu``. ``beta`` **is** mapped onto
+``cvar_beta`` / ``cdar_beta`` so a CVaR/CDaR profile honours the client's chosen
+tail confidence (D34).
 """
 
 from __future__ import annotations
@@ -71,8 +76,11 @@ class UniverseFilters(BaseModel):
     """Knowledge-&-experience universe restrictions (D32).
 
     Low K&E → exclude complex/leveraged instruments and cap per-position weight.
-    Stored/validated only here; the ``pre_selection`` pipeline consumes them in
-    Fase 7 (not mapped into ``MeanRiskConfig``).
+    Not mapped into ``MeanRiskConfig``: the fund toolsets enforce them in code —
+    ``universe_filter`` drops, ``optimize_portfolio`` refuses and ``risk_check`` /
+    ``place_orders`` fail a held complex or leveraged instrument, and
+    ``max_position_cap`` tightens the optimizer's per-asset ceiling and the
+    ``risk_check`` bound.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -87,8 +95,9 @@ class ConstraintSet(BaseModel):
 
     ``a_gamma`` is the regulatory double-binding ``min(risk_tolerance,
     loss_capacity)`` risk-aversion. ``beta`` is the tail-measure confidence used
-    by CVaR/CDaR. ``nu1/nu2/nu3`` are drawdown-ceiling tiers as fractions of
-    capital (validated here, enforced by the Fase-7 ``risk_check`` gate).
+    by CVaR/CDaR. ``nu1/nu2/nu3`` are escalating drawdown-ceiling tiers as fractions
+    of capital (soft warning / hard ceiling / absolute stop); ``backtest`` compares
+    its ``max_drawdown`` with all three and reports the breached tiers.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -100,8 +109,8 @@ class ConstraintSet(BaseModel):
     risk_measure: RiskMeasureChoice
     beta: float = Field(default=0.95, gt=0.0, lt=1.0)  # tail confidence (CVaR/CDaR)
     nu1: float = Field(ge=0.0, le=1.0)  # drawdown ceiling tiers (fractions of
-    nu2: float = Field(ge=0.0, le=1.0)  # capital) — stored/validated only, mapped
-    nu3: float = Field(ge=0.0, le=1.0)  # to nothing here (Fase-7 risk_check)
+    nu2: float = Field(ge=0.0, le=1.0)  # capital) — mapped to nothing here;
+    nu3: float = Field(ge=0.0, le=1.0)  # compared by the ``backtest`` tool
     horizon: Horizon
     esg: EsgPolicy = EsgPolicy()
     universe_filters: UniverseFilters = UniverseFilters()

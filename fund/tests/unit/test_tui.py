@@ -2958,13 +2958,13 @@ async def test_deliberation_paint_readout_does_not_clobber_live_detail(
         assert view._readout is not None  # stored for when replay resumes
 
 
-def test_compute_risk_empty_weights_with_mapping_degrades_to_none() -> None:
+def test_compute_risk_empty_weights_with_mapping_degrades_to_none(db_session) -> None:
     """An empty roll-up (mapping present, no usable weights) is None, not an empty
     tuple — so the renderer shows 'unavailable', never a bare header with no rows."""
     from fund.readouts_compute import compute_risk
 
     constraint_set = make_constraint_set().model_dump(mode="json")
-    result = compute_risk({}, constraint_set, {"AAA": "Tech"})
+    result = compute_risk({}, constraint_set, {"AAA": "Tech"}, session=db_session)
     assert result.sector_exposures is None
 
 

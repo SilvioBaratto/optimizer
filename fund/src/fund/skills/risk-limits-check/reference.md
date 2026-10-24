@@ -3,9 +3,15 @@
 On-demand support for `risk-limits-check`. Points to the theory; never copies it.
 
 ## Drawdown ceilings (from loss capacity)
-`M <= nu1*C`, `A <= nu2*C`, `Delta_alpha <= nu3*C` — max / average / CDaR drawdown
-capped by the capacity multipliers in the ConstraintSet. Theory: `20:31`, `20:42`,
-`20:66`, and the ceiling framing at `20:109`. Roadmap anchor: `20:75`.
+The profiler emits escalating tiers on the client's one-year loss tolerance `L`:
+`nu1 = 0.5*L` (soft warning), `nu2 = L` (hard ceiling), `nu3 = min(1.5*L, 1.0)`
+(absolute stop). `backtest` compares its single `max_drawdown` with all three and
+returns the breached tiers in `drawdown_tiers`; nu2 / nu3 block, nu1 is reported.
+The theory states the three ceilings as separate constraints on max, average and CDaR
+drawdown (`M <= nu1*C`, `A <= nu2*C`, `Delta_alpha <= nu3*C`: `20:31`, `20:42`,
+`20:66`, ceiling framing at `20:109`) — background for the measures, not what the
+tool evaluates; do not read nu2 / nu3 as average-drawdown or CDaR limits. Roadmap
+anchor: `20:75`.
 
 ## Coherent risk & tail
 - Coherent risk axioms (monotonicity, subadditivity, ...): `04:18`.

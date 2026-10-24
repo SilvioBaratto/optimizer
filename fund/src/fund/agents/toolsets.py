@@ -18,6 +18,13 @@ The bound closures also carry the load-bearing invariant into the audit trail:
   ``risk_check`` receives the same effective bounds. The decision logs the config
   that was actually applied, and the client's mapped intent stays auditable in the
   decision's ``constraint_set``;
+* the mandate's ESG sector exclusions and low-K&E instrument restrictions are
+  screened in code (:func:`fund.tools.mandate.mandate_breaches`): ``universe_filter``
+  drops offending names, ``optimize_portfolio`` refuses a universe holding one,
+  ``risk_check`` fails a held one, and ``place_orders`` re-checks the audited
+  weights against the *current* mandate before a ticket exists. Screening fails
+  closed on an instrument it cannot classify. ``backtest`` compares its drawdown
+  to the client's ``nu1/nu2/nu3`` ceilings and reports the breached tiers;
 * ``optimize_portfolio`` appends an ``agent_decision`` (allocator: the constraint
   set + the *effective* optimizer config actually applied + the optimizer's
   weights); the PM-level ``place_orders`` appends the executor's execution decision
@@ -41,7 +48,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from fund import tools as _tools
-from fund.tools._base import ToolResult, tool_envelope
+from fund.tools._base import ToolResult, err, ok, tool_envelope
+from fund.tools.mandate import HELD_TOL, constraint_set_breaches, held_tickers
 
 if TYPE_CHECKING:
     import datetime as dt
@@ -147,18 +155,22 @@ def _optimizer_constraints(cs: ConstraintSet) -> dict[str, Any]:
     return {name: getattr(config, name) for name in _CONSTRAINT_FIELDS}
 
 
-def _universe_criteria(cs: ConstraintSet) -> dict[str, Any] | None:
-    """ESG exclusions as ``universe_filter`` criteria (``None`` when empty).
+def _instrument_breaches(
+    ctx: RunContext, cs: ConstraintSet, tickers: list[str]
+) -> list[dict[str, Any]]:
+    """ESG-sector and K&E instrument breaches among ``tickers`` (empty if none)."""
+    return constraint_set_breaches(ctx.session, cs, tickers)
 
-    The frozen ``universe_filter`` only honours ``PreSelectionConfig`` fields, so
-    ``exclusions`` is passed but ignored today (structural ESG enforcement is
-    ask-first). Translating it here keeps the intent auditable and wires the arg
-    for the day the tool models it, without touching the frozen backbone.
-    """
-    exclusions = [sector.value for sector in cs.esg.exclusions]
-    if not exclusions:
-        return None
-    return {"exclusions": exclusions}
+
+def _describe_breaches(breaches: list[dict[str, Any]]) -> str:
+    """A one-line, model-readable summary of structured mandate breaches."""
+    parts = []
+    for breach in breaches:
+        detail = breach.get("sector") or breach.get("instrument_type") or ""
+        parts.append(
+            f"{breach['asset']} ({breach['type']}{': ' + detail if detail else ''})"
+        )
+    return "; ".join(parts)
 
 
 def _effective_optimizer_config(constraints: dict[str, Any] | None) -> dict[str, Any]:
@@ -239,14 +251,22 @@ def _get_macro_impl(ctx: RunContext, names: list[str]) -> ToolResult:
 @tool_envelope
 def _universe_filter_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
     cs = _resolve_constraint_set(ctx)
-    criteria = _universe_criteria(cs) if cs is not None else None
-    return _tools.universe_filter(
+    excluded: dict[str, list[str]] = {}
+    if cs is not None:
+        for breach in _instrument_breaches(ctx, cs, universe):
+            kinds = excluded.setdefault(breach["asset"], [])
+            if breach["type"] not in kinds:
+                kinds.append(breach["type"])
+    allowed = [ticker for ticker in universe if ticker not in excluded]
+    result = _tools.universe_filter(
         ctx.session,
         ctx.asof,
-        universe,
-        criteria=criteria,
+        allowed,
         base_currency=ctx.base_currency,
     )
+    if excluded and result.get("ok"):
+        result["mandate_excluded"] = excluded
+    return result
 
 
 @tool_envelope
@@ -262,6 +282,13 @@ def _estimate_moments_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
 @tool_envelope
 def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
     cs = _resolve_constraint_set(ctx)
+    if cs is not None:
+        breaches = _instrument_breaches(ctx, cs, universe)
+        if breaches:
+            return err(
+                "universe breaches the client's mandate: "
+                f"{_describe_breaches(breaches)}; remove these names and retry"
+            )
     constraints = _optimizer_constraints(cs) if cs is not None else None
     result = _tools.optimize_portfolio(
         ctx.session,
@@ -284,7 +311,27 @@ def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
 def _risk_check_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
     cs = _resolve_constraint_set(ctx)
     constraints = _bounds_args(cs) if cs is not None else None
-    return _tools.risk_check(weights, constraints=constraints)
+    result = _tools.risk_check(weights, constraints=constraints)
+    if cs is None or not result.get("ok"):
+        return result
+    breaches = _instrument_breaches(ctx, cs, held_tickers(weights))
+    if not breaches:
+        return result
+    return ok(
+        {"passed": False, "violations": [*result["data"]["violations"], *breaches]}
+    )
+
+
+def check_weights_against_mandate(
+    ctx: RunContext, weights: dict[str, float]
+) -> ToolResult:
+    """The live ``risk_check`` verdict on ``weights``, for callers outside the agent.
+
+    The adviser ``edit`` action validates typed weights with this so a human override
+    is held to the same bounds, position cap and ESG / K&E screen the risk agent's
+    tool applies, not to the bare long-only defaults.
+    """
+    return _risk_check_impl(ctx, weights)
 
 
 @tool_envelope
@@ -292,13 +339,29 @@ def _backtest_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
     # Bound the walk-forward training block to the run's 3y rolling lookback
     # (the one frozen tool that accepts a window). A panel shorter than the window
     # falls back to the full sample inside ``backtest`` (no leakage either way).
-    return _tools.backtest(
+    result = _tools.backtest(
         ctx.session,
         ctx.asof,
         weights,
         window={"train_size": ctx.lookback_days},
         base_currency=ctx.base_currency,
     )
+    cs = _resolve_constraint_set(ctx)
+    if cs is None or not result.get("ok"):
+        return result
+    # The drawdown ceilings are compared to the optimizer's number here, in code,
+    # so the risk agent reads a verdict instead of recalling the client's limits.
+    # A non-finite drawdown compares False against every ceiling, i.e. breaches all.
+    max_drawdown = result["data"]["metrics"]["max_drawdown"]
+    ceilings = {"nu1": cs.nu1, "nu2": cs.nu2, "nu3": cs.nu3}
+    result["data"]["drawdown_tiers"] = {
+        **ceilings,
+        "max_drawdown": max_drawdown,
+        "breached": [
+            tier for tier, ceiling in ceilings.items() if not max_drawdown <= ceiling
+        ],
+    }
+    return result
 
 
 @tool_envelope
@@ -312,6 +375,22 @@ def _place_orders_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult
     from fund.audit import AgentRunRepository
 
     audited = AgentRunRepository(ctx.session).latest_optimizer_weights(ctx.run_id)
+    cs = _resolve_constraint_set(ctx)
+    if cs is not None and audited:
+        # The mandate can change between the audited proposal and the order (a
+        # re-profile), so the weights are re-checked against the current one.
+        cap = _effective_max_weight(cs)
+        violations = _instrument_breaches(ctx, cs, held_tickers(audited)) + [
+            {"type": "max_weight", "asset": ticker, "value": weight, "limit": cap}
+            for ticker, weight in audited.items()
+            if weight > cap + HELD_TOL
+        ]
+        if violations:
+            return err(
+                "audited weights breach the client's mandate: "
+                f"{_describe_breaches(violations)}; send the proposal back to the "
+                "allocator"
+            )
     result = _tools.place_orders(ctx.session, ctx.asof, audited, ctx.portfolio_id)
     data = result.get("data") if result.get("ok") else None
     # Log once, on the real placement; the idempotent HITL re-run does not
@@ -378,9 +457,11 @@ def _bind_universe_filter(ctx: RunContext) -> BaseTool:
 
     @tool
     def universe_filter(universe: list[str]) -> ToolResult:
-        """Prune ``universe`` with the pre-selection stack (the run's risk profile
-        supplies the criteria). Returns the ``{ok, data}`` envelope with the
-        surviving tickers, in requested order."""
+        """Prune ``universe`` with the pre-selection stack, dropping any name the
+        client's mandate forbids (ESG-excluded sector, complex or leveraged product
+        for a restricted client, or an unclassifiable instrument). Returns the
+        ``{ok, data}`` envelope with the surviving tickers, in requested order, and
+        ``mandate_excluded`` naming each dropped ticker and why."""
         return _universe_filter_impl(ctx, universe)
 
     return universe_filter
@@ -405,8 +486,9 @@ def _bind_optimize(ctx: RunContext) -> BaseTool:
     def optimize_portfolio(universe: list[str]) -> ToolResult:
         """Compute long-only portfolio weights for ``universe`` as of the run date.
         skfolio computes the weights from the run's risk profile — you never emit a
-        weight. Returns the ``{ok, data}`` envelope with ``weights`` and in-sample
-        ``metrics``."""
+        weight. Fails, naming the offenders, if ``universe`` holds a name the
+        client's mandate forbids or is too small for the position cap. Returns the
+        ``{ok, data}`` envelope with ``weights`` and in-sample ``metrics``."""
         return _optimize_impl(ctx, universe)
 
     return optimize_portfolio
@@ -417,8 +499,10 @@ def _bind_risk_check(ctx: RunContext) -> BaseTool:
 
     @tool
     def risk_check(weights: dict[str, float]) -> ToolResult:
-        """Validate ``weights`` against the run's risk profile bounds. Returns the
-        ``{ok, data}`` envelope with ``passed`` and structured ``violations``."""
+        """Validate ``weights`` against the run's risk profile: weight bounds and
+        position cap, ESG sector exclusions and low-K&E instrument restrictions on
+        every held name. Returns the ``{ok, data}`` envelope with ``passed`` and
+        structured ``violations``."""
         return _risk_check_impl(ctx, weights)
 
     return risk_check
@@ -431,7 +515,9 @@ def _bind_backtest(ctx: RunContext) -> BaseTool:
     def backtest(weights: dict[str, float]) -> ToolResult:
         """Backtest fixed ``weights`` out-of-sample over prices up to the run date
         (walk-forward, no leakage). Returns the ``{ok, data}`` envelope with
-        ``metrics``."""
+        ``metrics`` and ``drawdown_tiers``: the client's ``nu1`` (soft warning),
+        ``nu2`` (hard ceiling) and ``nu3`` (absolute stop) drawdown ceilings, the
+        backtest ``max_drawdown``, and the ``breached`` tiers."""
         return _backtest_impl(ctx, weights)
 
     return backtest

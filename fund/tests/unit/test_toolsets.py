@@ -27,7 +27,7 @@ import pytest
 from langchain_core.tools import BaseTool
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision
-from portopt_db.models.market_data.yfinance_data import PriceHistory
+from portopt_db.models.market_data.yfinance_data import PriceHistory, TickerProfile
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repositories.market_data.market_journal_repository import (
     MarketJournalRepository,
@@ -130,6 +130,27 @@ def _store_with_cs(cs: ConstraintSet) -> InMemoryStore:
     store = InMemoryStore()
     put_constraint_set(store, cs, store_key=settings.constraint_set_store_key)
     return store
+
+
+def _classify(
+    db_session,
+    ticker: str,
+    *,
+    sector: str | None = None,
+    instrument_type: str | None = None,
+    name: str | None = None,
+) -> None:
+    """Give a seeded instrument a profile sector and/or a type and name."""
+    instrument = db_session.execute(
+        select(Instrument).where(Instrument.yfinance_ticker == ticker)
+    ).scalar_one()
+    if instrument_type is not None:
+        instrument.instrument_type = instrument_type
+    if name is not None:
+        instrument.name = name
+    if sector is not None:
+        db_session.add(TickerProfile(instrument_id=instrument.id, sector=sector))
+    db_session.flush()
 
 
 def _find(tools: list[BaseTool], name: str) -> BaseTool:
@@ -272,18 +293,21 @@ def test_bound_estimate_moments_returns_full_covariance(db_session) -> None:
     assert len(result["data"]["cov"]) == len(_UNIVERSE)
 
 
-def test_bound_universe_filter_runs_with_esg_translation(db_session) -> None:
+def test_universe_filter_drops_esg_excluded_sectors(db_session) -> None:
     _seed_panel(db_session)
+    _classify(db_session, "AAA", sector="Energy")
+    _classify(db_session, "BBB", sector="Technology")
+    _classify(db_session, "CCC", sector="Technology")
     cs = _constraint_set(esg=EsgPolicy(exclusions=(GicsSector.ENERGY,)))
     ctx = _make_context(db_session, store=_store_with_cs(cs))
     ufilter = _find(bind_toolset("allocator", ctx), "universe_filter")
 
     result = ufilter.invoke({"universe": _UNIVERSE})
 
-    # ESG exclusions are translated into the tool's `criteria` arg; the frozen
-    # backbone ignores keys it does not model, so the call still succeeds.
     assert result["ok"] is True
-    assert set(result["data"]).issubset(set(_UNIVERSE))
+    assert "AAA" not in result["data"]
+    assert set(result["data"]).issubset({"BBB", "CCC"})
+    assert result["mandate_excluded"] == {"AAA": ["esg_exclusion"]}
 
 
 def test_universe_filter_without_exclusions(db_session) -> None:
@@ -319,6 +343,45 @@ def test_bound_backtest_returns_metrics(db_session) -> None:
 
     assert result["ok"] is True
     assert "sharpe_ratio" in result["data"]["metrics"]
+
+
+def test_bound_backtest_reports_which_drawdown_tiers_are_breached(db_session) -> None:
+    _seed_panel(db_session)
+    cs = _constraint_set(nu1=0.0001, nu2=0.0002, nu3=0.0003)  # any drawdown breaches
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    backtest = _find(bind_toolset("risk", ctx), "backtest")
+
+    result = backtest.invoke({"weights": _WEIGHTS})
+
+    assert result["ok"] is True
+    tiers = result["data"]["drawdown_tiers"]
+    assert tiers["breached"] == ["nu1", "nu2", "nu3"]
+    assert tiers["max_drawdown"] == result["data"]["metrics"]["max_drawdown"]
+    assert (tiers["nu1"], tiers["nu2"], tiers["nu3"]) == (0.0001, 0.0002, 0.0003)
+
+
+def test_bound_backtest_reports_no_breach_inside_every_ceiling(db_session) -> None:
+    _seed_panel(db_session)
+    cs = _constraint_set(nu1=0.9, nu2=0.95, nu3=1.0)
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    backtest = _find(bind_toolset("risk", ctx), "backtest")
+
+    result = backtest.invoke({"weights": _WEIGHTS})
+
+    assert result["data"]["drawdown_tiers"]["breached"] == []
+
+
+def test_bound_backtest_without_a_constraint_set_has_no_tier_verdict(
+    db_session,
+) -> None:
+    _seed_panel(db_session)
+    ctx = _make_context(db_session, store=None)
+    backtest = _find(bind_toolset("risk", ctx), "backtest")
+
+    result = backtest.invoke({"weights": _WEIGHTS})
+
+    assert result["ok"] is True
+    assert "drawdown_tiers" not in result["data"]
 
 
 def test_bound_tool_degrades_via_envelope_never_raises(db_session) -> None:
@@ -608,3 +671,156 @@ def test_bound_estimate_moments_sees_fx_returns_in_the_base_currency(
 
     for ticker in _UNIVERSE:
         assert mu_eur[ticker] - mu_local[ticker] == pytest.approx(0.01, abs=1e-3)
+
+
+# --- mandate enforcement: ESG exclusions + K&E instrument restrictions ------
+
+
+def _classify_all(db_session, sectors: dict[str, str]) -> None:
+    """Seed the panel and give each ticker its profile sector."""
+    _seed_panel(db_session)
+    for ticker, sector in sectors.items():
+        _classify(db_session, ticker, sector=sector)
+
+
+def _risk_check(db_session, cs: ConstraintSet, weights: dict[str, float]) -> dict:
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    return _find(bind_toolset("risk", ctx), "risk_check").invoke({"weights": weights})
+
+
+def _energy_exclusion() -> ConstraintSet:
+    return _constraint_set(esg=EsgPolicy(exclusions=(GicsSector.ENERGY,)))
+
+
+def test_optimize_refuses_a_universe_holding_an_esg_excluded_name(db_session) -> None:
+    _seed_panel(db_session)
+    _classify(db_session, "AAA", sector="Energy")
+    _classify(db_session, "BBB", sector="Technology")
+    _classify(db_session, "CCC", sector="Technology")
+    ctx = _make_context(db_session, store=_store_with_cs(_energy_exclusion()))
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+
+    result = optimize.invoke({"universe": _UNIVERSE})
+
+    assert result["ok"] is False
+    assert "AAA" in result["error"]
+    assert "esg_exclusion" in result["error"]
+    # A refused proposal leaves no audited weights behind to be placed.
+    assert (
+        db_session.execute(
+            select(AgentDecision).where(AgentDecision.agent == "allocator")
+        )
+        .scalars()
+        .all()
+        == []
+    )
+
+
+def test_risk_check_fails_a_held_esg_excluded_name(db_session) -> None:
+    _classify_all(
+        db_session, {"AAA": "Energy", "BBB": "Technology", "CCC": "Utilities"}
+    )
+
+    result = _risk_check(db_session, _energy_exclusion(), _WEIGHTS)
+
+    assert result["ok"] is True
+    assert result["data"]["passed"] is False
+    (violation,) = result["data"]["violations"]
+    assert violation["type"] == "esg_exclusion"
+    assert violation["asset"] == "AAA"
+    assert violation["sector"] == "Energy"
+
+
+def test_risk_check_ignores_an_excluded_name_held_at_zero(db_session) -> None:
+    _classify_all(
+        db_session, {"AAA": "Energy", "BBB": "Technology", "CCC": "Utilities"}
+    )
+
+    result = _risk_check(
+        db_session, _energy_exclusion(), {"AAA": 0.0, "BBB": 0.6, "CCC": 0.4}
+    )
+
+    assert result["data"]["passed"] is True
+
+
+def test_risk_check_fails_closed_when_a_sector_cannot_be_classified(db_session) -> None:
+    # No profile row for AAA: an exclusion that cannot be evaluated is a block.
+    _seed_panel(db_session)
+    _classify(db_session, "BBB", sector="Technology")
+    _classify(db_session, "CCC", sector="Utilities")
+
+    result = _risk_check(db_session, _energy_exclusion(), _WEIGHTS)
+
+    assert result["data"]["passed"] is False
+    (violation,) = result["data"]["violations"]
+    assert violation["type"] == "unclassified_sector"
+    assert violation["asset"] == "AAA"
+
+
+def test_risk_check_does_not_classify_sectors_without_exclusions(db_session) -> None:
+    _seed_panel(db_session)  # no profiles at all
+
+    result = _risk_check(db_session, _constraint_set(), _WEIGHTS)
+
+    assert result["data"]["passed"] is True
+
+
+def test_risk_check_flags_a_leveraged_etf_for_a_no_leverage_client(db_session) -> None:
+    _seed_panel(db_session)
+    _classify(db_session, "AAA", instrument_type="ETF", name="ProShares Ultra QQQ 2x")
+    # A common stock whose name merely contains "Ultra" is not a leveraged product.
+    _classify(db_session, "BBB", instrument_type="STOCK", name="Ultra Clean Holdings")
+    cs = _constraint_set(universe_filters=UniverseFilters(no_leverage=True))
+
+    result = _risk_check(db_session, cs, _WEIGHTS)
+
+    assert result["data"]["passed"] is False
+    (violation,) = result["data"]["violations"]
+    assert violation["type"] == "leveraged_instrument"
+    assert violation["asset"] == "AAA"
+
+
+def test_risk_check_flags_a_non_plain_instrument_for_a_no_complex_client(
+    db_session,
+) -> None:
+    _seed_panel(db_session)
+    _classify(db_session, "AAA", instrument_type="ETC", name="Gold Bullion Securities")
+    cs = _constraint_set(universe_filters=UniverseFilters(no_complex=True))
+
+    result = _risk_check(db_session, cs, _WEIGHTS)
+
+    assert result["data"]["passed"] is False
+    (violation,) = result["data"]["violations"]
+    assert violation["type"] == "complex_instrument"
+    assert violation["asset"] == "AAA"
+
+
+def test_place_orders_refuses_weights_that_breach_the_current_mandate(
+    db_session,
+) -> None:
+    _classify_all(
+        db_session, {"AAA": "Energy", "BBB": "Technology", "CCC": "Utilities"}
+    )
+    store = _store_with_cs(_constraint_set())
+    ctx = _make_context(db_session, store=store)
+    _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
+        {"universe": _UNIVERSE}
+    )
+    # The client is re-profiled with an Energy exclusion after the audited proposal.
+    put_constraint_set(
+        store, _energy_exclusion(), store_key=settings.constraint_set_store_key
+    )
+    place = _find(bind_toolset("orchestrator", ctx), "place_orders")
+
+    result = place.invoke({"weights": _WEIGHTS})
+
+    assert result["ok"] is False
+    assert "esg_exclusion" in result["error"]
+    assert (
+        db_session.execute(
+            select(AgentDecision).where(AgentDecision.agent == "executor")
+        )
+        .scalars()
+        .all()
+        == []
+    )
