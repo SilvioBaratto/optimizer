@@ -45,6 +45,11 @@ if TYPE_CHECKING:
 # this module never pulls in ``langgraph`` — the agent-stack-free invariant (SPEC R2).
 _INTERRUPT_CHANNEL = "__interrupt__"
 
+# ``agent_runs.status`` values at a live HITL gate — the same pair
+# ``AgentRunRepository.list_paused_runs`` selects, so the drift monitor's
+# already-awaiting-a-human guard covers exactly the runs a proposal may come from.
+_LIVE_GATE_STATUSES = ("paused", "responded")
+
 
 @dataclass(frozen=True)
 class RunSummary:
@@ -317,9 +322,10 @@ def portfolio_state(session: Any, portfolio_id: uuid.UUID) -> PortfolioState:
     it is used only when the book cannot be marked (no paper ticket, an unpriced
     holding, or a base currency without FX coverage). ``target`` is the latest
     ``completed`` run's ``weights`` (fallback: the latest allocator
-    ``optimize_portfolio`` proposal). ``metrics`` is read from the latest allocator
-    decision when it carries a ``metrics`` block, else ``{}`` — Phase 7 persists no
-    dedicated metrics column, and metrics are never fabricated.
+    ``optimize_portfolio`` proposal of a run still awaiting its HITL decision; an
+    ended-without-approval run never supplies one). ``metrics`` is read from the
+    latest allocator decision when it carries a ``metrics`` block, else ``{}`` —
+    Phase 7 persists no dedicated metrics column, and metrics are never fabricated.
     """
     from fund.audit.positions_repository import PositionRepository
     from fund.audit.repository import AgentRunRepository
@@ -1131,18 +1137,23 @@ def _decision_entry(decision: Any) -> TranscriptEntry:
 def _target_weights(
     run_repo: Any, portfolio_id: uuid.UUID
 ) -> tuple[dict[str, float], bool]:
-    """``(weights, approved)``: latest completed run's, else latest proposal, else {}.
+    """``(weights, approved)``: latest completed run's, else a pending one, else {}.
 
     ``approved`` is ``True`` only for a ``completed`` run's weights; a proposal from a
-    rejected, incomplete or still-pending run is returned for display with
-    ``approved=False``. Both reads stream newest-first and stop at the first hit, so a
+    run still at a live HITL gate is returned for display with ``approved=False``.
+    The proposal fallback only reads such runs: one that ended rejected / incomplete /
+    blocked / failed keeps its allocator row in the audit trail, but nobody adopted
+    it, and treating it as the target would make a portfolio that holds nothing read
+    as drift 1.0. Both reads stream newest-first and stop at the first hit, so a
     portfolio with a long history costs a handful of rows rather than the whole trail.
     """
     for run in run_repo.iter_runs_for_portfolio(portfolio_id, status="completed"):
         if run.weights:
             return {str(k): float(v) for k, v in run.weights.items()}, True
     seen_runs: set[uuid.UUID] = set()
-    for decision in run_repo.iter_optimizer_decisions(portfolio_id):
+    for decision in run_repo.iter_optimizer_decisions(
+        portfolio_id, run_statuses=_LIVE_GATE_STATUSES
+    ):
         # Only a run's newest proposal counts, matching latest_optimizer_weights.
         if decision.run_id in seen_runs:
             continue

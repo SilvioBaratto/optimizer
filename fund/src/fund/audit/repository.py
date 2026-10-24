@@ -427,7 +427,10 @@ class AgentRunRepository(RepositoryBase):
         yield from self._stream(stmt.order_by(AgentRun.created_at.desc()))
 
     def iter_optimizer_decisions(
-        self, portfolio_id: uuid.UUID
+        self,
+        portfolio_id: uuid.UUID,
+        *,
+        run_statuses: Sequence[str] | None = None,
     ) -> Iterator[AgentDecision]:
         """Stream the allocator ``optimize_portfolio`` decisions, newest first.
 
@@ -436,6 +439,8 @@ class AgentRunRepository(RepositoryBase):
 
         Args:
             portfolio_id: Owning portfolio.
+            run_statuses: Keep only decisions of runs in one of these statuses (e.g.
+                the live HITL gate pair); ``None`` keeps every run's.
 
         Yields:
             Decisions ordered newest run first, then ``decision_index`` descending
@@ -451,6 +456,8 @@ class AgentRunRepository(RepositoryBase):
             )
             .order_by(AgentRun.created_at.desc(), AgentDecision.decision_index.desc())
         )
+        if run_statuses is not None:
+            stmt = stmt.where(AgentRun.status.in_(run_statuses))
         yield from self._stream(stmt)
 
     def _stream(self, stmt: Select[tuple[_T]]) -> Iterator[_T]:

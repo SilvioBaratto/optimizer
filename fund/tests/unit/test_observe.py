@@ -730,6 +730,89 @@ def test_portfolio_state_target_falls_back_to_latest_allocator_proposal(db_sessi
     assert state.drift_l1 == pytest.approx(0.6)
 
 
+@pytest.mark.parametrize("status", ["rejected", "incomplete", "blocked", "failed"])
+def test_portfolio_state_ignores_proposal_of_a_run_that_ended_without_approval(
+    db_session, status
+):
+    # A run that ended rejected/incomplete/blocked/failed leaves its allocator
+    # proposal in the audit trail, but that proposal was never adopted: with nothing
+    # held, adopting it as the target reads as drift 1.0 and re-triggers a rebalance.
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status=status,
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    AgentRunRepository(db_session).append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"AAA": 0.6, "BBB": 0.4}}),
+    )
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.current == {}
+    assert state.target == {}
+    assert state.drift_l1 == 0.0
+
+
+def test_portfolio_state_target_fallback_keeps_a_responded_runs_proposal(db_session):
+    # ``responded`` is a live HITL gate like ``paused`` (a barge-in that re-gated), so
+    # its pending proposal is still the target the adviser is looking at.
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="responded",
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    AgentRunRepository(db_session).append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"AAA": 0.5, "BBB": 0.5}}),
+    )
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.target == {"AAA": 0.5, "BBB": 0.5}
+
+
+def test_portfolio_state_proposal_fallback_skips_ended_runs_for_a_live_gate(
+    db_session,
+):
+    # A newer rejected run must not shadow an older run still awaiting a decision.
+    live = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 1, 10, tzinfo=UTC),
+    )
+    ended = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="rejected",
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    audit = AgentRunRepository(db_session)
+    audit.append_decision(
+        live.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"LIVE": 1.0}}),
+    )
+    audit.append_decision(
+        ended.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"DECLINED": 1.0}}),
+    )
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.target == {"LIVE": 1.0}
+
+
 def _seed_eur_book(
     db_session,
     *,
@@ -879,7 +962,7 @@ def test_portfolio_state_marks_a_proposal_nobody_approved_as_unapproved(db_sessi
     run = _make_run(
         db_session,
         portfolio_id=_PID,
-        status="rejected",
+        status="paused",
         created_at=datetime(2026, 2, 10, tzinfo=UTC),
     )
     AgentRunRepository(db_session).append_decision(

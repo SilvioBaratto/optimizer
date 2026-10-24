@@ -814,6 +814,40 @@ def _seed_drifted_invested_portfolio(
     )
 
 
+def test_drift_monitor_does_not_rerun_a_never_approved_rejected_portfolio(
+    session_factory, monkeypatch
+):
+    # The first round of a new portfolio was rejected: nothing is held and the
+    # declined proposal must not become the drift target, or every tick would
+    # start another paid LLM round against a 1.0 "breach".
+    _seed_mandate(session_factory, PID_A, cron=False, drift=True, threshold=0.1)
+    with session_factory() as session:
+        repo = AgentRunRepository(session)
+        run = repo.create_run(
+            portfolio_id=PID_A, asof=ASOF, seed=1, universe=[], optimizer_config={}
+        )
+        repo.append_decision(
+            run.id,
+            agent="allocator",
+            step="optimize_portfolio",
+            llm_response='{"weights": {"AAA": 0.6, "BBB": 0.4}}',
+        )
+        repo.finalize_run(run.id, weights={}, status="rejected")
+        session.commit()
+    monkeypatch.setattr(observe, "reprofile_status", _not_due)
+
+    driven: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "fund.scheduler._drive_rebalance",
+        lambda pid, asof, **_kw: driven.append(pid),
+    )
+
+    ok = run_drift_monitor(session_factory=session_factory, asof=ASOF)
+
+    assert ok is True
+    assert driven == []
+
+
 def test_drift_monitor_waits_out_the_cooldown_after_a_rejected_rebalance(
     session_factory, monkeypatch
 ):
