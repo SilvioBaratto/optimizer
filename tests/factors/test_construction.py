@@ -1268,6 +1268,35 @@ class TestNonPositiveDenominators:
         assert result["x"] == pytest.approx(0.2)
 
 
+class TestNonStringTickerLabels:
+    """Price-based factors keep the caller's column labels (e.g. instrument ids)."""
+
+    @pytest.fixture()
+    def _id_prices(self) -> pd.DataFrame:
+        prices = _ragged_panel()[["A", "B", "C"]]
+        prices.columns = pd.Index([1, 2, 3])
+        return prices
+
+    def test_beta_index_keeps_original_labels(self, _id_prices: pd.DataFrame) -> None:
+        from optimizer.factors._construction import _compute_beta
+
+        result = _compute_beta(_id_prices)
+        assert list(result.index) == [1, 2, 3]
+        assert result.notna().all()
+
+    def test_compute_all_factors_aligns_beta_to_id_indexed_fundamentals(
+        self, _id_prices: pd.DataFrame
+    ) -> None:
+        fundamentals = pd.DataFrame({"market_cap": [1.0e9] * 3}, index=[1, 2, 3])
+        config = FactorConstructionConfig(
+            factors=(FactorType.MOMENTUM_12_1, FactorType.BETA)
+        )
+        result = compute_all_factors(fundamentals, _id_prices, config=config)
+        assert list(result.index) == [1, 2, 3]
+        assert result["beta"].notna().all()
+        assert result["momentum_12_1"].notna().all()
+
+
 class TestBetaDegenerateMarket:
     """A near-zero market variance produces NaN betas rather than huge values."""
 

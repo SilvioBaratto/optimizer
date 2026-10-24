@@ -318,10 +318,8 @@ def _compute_beta(
     # Covariance and market variance must come from the same sample, so each
     # ticker is regressed on the dates where both it and the market exist.
     required = _required_observations(min_obs, lookback)
-    beta_values = {
-        str(col): _pairwise_beta(tail[col], mkt, required) for col in tail.columns
-    }
-    return pd.Series(beta_values, dtype=float)
+    betas = [_pairwise_beta(tail[col], mkt, required) for col in tail.columns]
+    return pd.Series(betas, index=tail.columns, dtype=float)
 
 
 def _pairwise_beta(asset: pd.Series, market: pd.Series, min_obs: int = 2) -> float:
