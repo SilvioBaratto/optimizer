@@ -761,6 +761,46 @@ def test_report_labels_the_mandate_as_the_current_one(harness, monkeypatch) -> N
     assert "current mandate:" in res.output
 
 
+def test_report_prints_the_optimizer_metrics_of_the_run(harness, monkeypatch) -> None:
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+    harness.runner.invoke(cli.app, ["approve", str(run_id)])
+
+    res = harness.runner.invoke(cli.app, ["report", str(run_id)])
+
+    assert res.exit_code == 0, res.output
+    assert "metrics:" in res.output
+    assert "sharpe_ratio=" in res.output
+
+
+def test_report_ignores_a_newer_runs_metrics(harness, monkeypatch) -> None:
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+    harness.runner.invoke(cli.app, ["approve", str(run_id)])
+    with harness.read() as session:
+        repo = AgentRunRepository(session)
+        newer = repo.create_run(
+            portfolio_id=PORTFOLIO_ID,
+            asof=ASOF,
+            seed=2,
+            universe=UNIVERSE,
+            optimizer_config={},
+            status="paused",
+        )
+        repo.append_decision(
+            newer.id,
+            agent="allocator",
+            step="optimize_portfolio",
+            llm_response=json.dumps(
+                {"weights": {"AAA": 1.0}, "metrics": {"sharpe_ratio": 123.456}}
+            ),
+        )
+        session.commit()
+
+    res = harness.runner.invoke(cli.app, ["report", str(run_id)])
+
+    assert res.exit_code == 0, res.output
+    assert "123.4560" not in res.output
+
+
 def test_report_unknown_run_errors(harness) -> None:
     res = harness.runner.invoke(cli.app, ["report", str(uuid.uuid4())])
     assert res.exit_code != 0

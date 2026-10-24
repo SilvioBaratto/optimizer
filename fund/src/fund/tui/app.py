@@ -1837,7 +1837,7 @@ class ShellApp(App[None]):
                     # Risk evaluates the run's authoritative allocation; pair its bounds
                     # with the SAME newest allocator proposal those weights came from
                     # (decisions are decision_index ASC, so scan reversed — mirrors
-                    # ``observe._latest_optimizer_metrics``).
+                    # ``observe.run_metrics``).
                     constraint_set = next(
                         (
                             d.constraint_set

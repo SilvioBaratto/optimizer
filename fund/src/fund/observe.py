@@ -331,9 +331,11 @@ def portfolio_state(session: Any, portfolio_id: uuid.UUID) -> PortfolioState:
     holding, or a base currency without FX coverage). ``target`` is the latest
     ``completed`` run's ``weights`` (fallback: the latest allocator
     ``optimize_portfolio`` proposal of a run still awaiting its HITL decision; an
-    ended-without-approval run never supplies one). ``metrics`` is read from the
-    latest allocator decision when it carries a ``metrics`` block, else ``{}`` —
-    Phase 7 persists no dedicated metrics column, and metrics are never fabricated.
+    ended-without-approval run never supplies one). ``metrics`` is read from that
+    same run's newest allocator decision (see :func:`run_metrics`), so a newer
+    unapproved proposal's metrics never sit beside the approved target weights; it is
+    ``{}`` when that decision carries no ``metrics`` block — they are never
+    fabricated.
     """
     from fund.audit.positions_repository import PositionRepository
     from fund.audit.repository import AgentRunRepository
@@ -343,13 +345,14 @@ def portfolio_state(session: Any, portfolio_id: uuid.UUID) -> PortfolioState:
         holdings = PositionRepository(session).get_holdings(portfolio_id)
         current = {p.ticker: p.weight for p in holdings}
     run_repo = AgentRunRepository(session)
-    target, target_approved = _target_weights(run_repo, portfolio_id)
+    target_run_id, target, target_approved = _target_source(run_repo, portfolio_id)
+    target_run = run_repo.get_run(target_run_id) if target_run_id is not None else None
     return PortfolioState(
         portfolio_id=portfolio_id,
         current=current,
         target=target,
         drift_l1=drift_l1(current, target),
-        metrics=_latest_optimizer_metrics(run_repo, portfolio_id),
+        metrics=run_metrics(target_run) if target_run is not None else {},
         target_approved=target_approved,
     )
 
@@ -1181,22 +1184,24 @@ def _decision_entry(decision: Any) -> TranscriptEntry:
     )
 
 
-def _target_weights(
+def _target_source(
     run_repo: Any, portfolio_id: uuid.UUID
-) -> tuple[dict[str, float], bool]:
-    """``(weights, approved)``: latest completed run's, else a pending one, else {}.
+) -> tuple[uuid.UUID | None, dict[str, float], bool]:
+    """``(run_id, weights, approved)`` of the run supplying the target, else none.
 
-    ``approved`` is ``True`` only for a ``completed`` run's weights; a proposal from a
-    run still at a live HITL gate is returned for display with ``approved=False``.
-    The proposal fallback only reads such runs: one that ended rejected / incomplete /
-    blocked / failed keeps its allocator row in the audit trail, but nobody adopted
-    it, and treating it as the target would make a portfolio that holds nothing read
-    as drift 1.0. Both reads stream newest-first and stop at the first hit, so a
-    portfolio with a long history costs a handful of rows rather than the whole trail.
+    The target is the latest completed run's weights, else a pending one's;
+    ``approved`` is ``True`` only for a ``completed`` run's weights, while a proposal
+    from a run still at a live HITL gate is returned for display with
+    ``approved=False``. The proposal fallback only reads such runs: one that ended
+    rejected / incomplete / blocked / failed keeps its allocator row in the audit
+    trail, but nobody adopted it, and treating it as the target would make a portfolio
+    that holds nothing read as drift 1.0. Both reads stream newest-first and stop at
+    the first hit, so a portfolio with a long history costs a handful of rows rather
+    than the whole trail. ``(None, {}, False)`` when no run supplies a target.
     """
     for run in run_repo.iter_runs_for_portfolio(portfolio_id, status="completed"):
         if run.weights:
-            return {str(k): float(v) for k, v in run.weights.items()}, True
+            return run.id, {str(k): float(v) for k, v in run.weights.items()}, True
     seen_runs: set[uuid.UUID] = set()
     for decision in run_repo.iter_optimizer_decisions(
         portfolio_id, run_statuses=_LIVE_GATE_STATUSES
@@ -1207,17 +1212,17 @@ def _target_weights(
         seen_runs.add(decision.run_id)
         weights: dict[str, float] = run_repo.decode_weights(decision)
         if weights:
-            return weights, False
-    return {}, False
+            return decision.run_id, weights, False
+    return None, {}, False
 
 
 def run_metrics(run: Any) -> dict[str, float]:
     """Best-effort metrics from ``run``'s own newest allocator proposal.
 
-    Unlike :attr:`PortfolioState.metrics`, which falls back across the portfolio's
-    runs, this never borrows another run's numbers; a run with no metrics block
-    yields ``{}`` (metrics are never fabricated). The newest proposal is
-    authoritative even when it carries no metrics (an adviser edit does not), so an
+    The one reader of a run's persisted metrics: :attr:`PortfolioState.metrics` and
+    ``fund report`` both use it, so neither borrows another run's numbers. A run with
+    no metrics block yields ``{}`` (metrics are never fabricated). The newest proposal
+    is authoritative even when it carries no metrics (an adviser edit does not), so an
     older proposal's figures never describe the edited weights.
 
     Args:
@@ -1232,24 +1237,6 @@ def run_metrics(run: Any) -> dict[str, float]:
     for decision in reversed(run.decisions):
         if decision.agent == "allocator" and decision.step == "optimize_portfolio":
             return _metrics_from_response(decision.llm_response)
-    return {}
-
-
-def _latest_optimizer_metrics(
-    run_repo: Any, portfolio_id: uuid.UUID
-) -> dict[str, float]:
-    """Best-effort metrics from the newest allocator ``optimize_portfolio`` decision.
-
-    Walks proposals newest run first and newest decision first within a run, aligning
-    the metrics source with :meth:`AgentRunRepository.latest_optimizer_weights` (which
-    feeds ``target``) so the state panel never shows fresh weights beside a stale
-    run's metrics. That newest proposal is authoritative even when it carries no
-    metrics (an adviser edit does not: the optimizer's in-sample figures describe the
-    weights it solved, not the edited vector), so an older proposal's are never
-    substituted.
-    """
-    for decision in run_repo.iter_optimizer_decisions(portfolio_id):
-        return _metrics_from_response(decision.llm_response)
     return {}
 
 

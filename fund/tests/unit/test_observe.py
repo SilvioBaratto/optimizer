@@ -1111,6 +1111,118 @@ def test_portfolio_state_query_count_does_not_grow_with_run_history(db_session):
     assert many == few
 
 
+def _append_proposal(db_session, run, weights, metrics=None) -> None:
+    body: dict[str, Any] = {"weights": weights}
+    if metrics is not None:
+        body["metrics"] = metrics
+    AgentRunRepository(db_session).append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps(body),
+    )
+
+
+def test_portfolio_state_metrics_come_from_the_run_that_supplied_the_target(
+    db_session,
+):
+    completed = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    _append_proposal(db_session, completed, {"AAA": 1.0}, {"sharpe": 1.0})
+    pending = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 2, 11, tzinfo=UTC),
+    )
+    _append_proposal(db_session, pending, {"BBB": 1.0}, {"sharpe": 9.9})
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.target == {"AAA": 1.0}
+    assert state.metrics == {"sharpe": 1.0}
+
+
+def test_portfolio_state_metrics_empty_when_the_target_run_persisted_none(
+    db_session,
+):
+    completed = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    _append_proposal(db_session, completed, {"AAA": 1.0})
+    pending = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 2, 11, tzinfo=UTC),
+    )
+    _append_proposal(db_session, pending, {"BBB": 1.0}, {"sharpe": 9.9})
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.metrics == {}
+
+
+def test_portfolio_state_metrics_follow_a_pending_proposal_that_is_the_target(
+    db_session,
+):
+    pending = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 2, 11, tzinfo=UTC),
+    )
+    _append_proposal(db_session, pending, {"BBB": 1.0}, {"sharpe": 2.5})
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.target == {"BBB": 1.0}
+    assert state.metrics == {"sharpe": 2.5}
+
+
+def test_run_metrics_reads_the_requested_runs_proposal_not_the_newest_run(
+    db_session,
+):
+    older = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    _append_proposal(db_session, older, {"AAA": 1.0}, {"sharpe": 1.0})
+    newer = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 2, 11, tzinfo=UTC),
+    )
+    _append_proposal(db_session, newer, {"BBB": 1.0}, {"sharpe": 9.9})
+
+    assert observe.run_metrics(older) == {"sharpe": 1.0}
+    assert observe.run_metrics(newer) == {"sharpe": 9.9}
+
+
+def test_run_metrics_empty_when_the_run_has_no_allocator_proposal(db_session):
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+
+    assert observe.run_metrics(run) == {}
+
+
 def test_portfolio_state_empty_portfolio(db_session):
     state = observe.portfolio_state(db_session, uuid.uuid4())
     assert state.current == {}

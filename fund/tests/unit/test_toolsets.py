@@ -731,9 +731,32 @@ def test_optimize_audit_persists_the_metrics_fund_status_reads(db_session) -> No
     result = optimize.invoke({"universe": _UNIVERSE})
 
     assert result["ok"] is True
+    # Status reads the proposal of a run waiting at its gate (the run that opened the
+    # round is still pending until it pauses).
+    AgentRunRepository(db_session).mark_paused(ctx.run_id)
     state = observe.portfolio_state(db_session, _PORTFOLIO_ID)
     assert state.metrics == pytest.approx(result["data"]["metrics"])
     assert set(state.metrics) == {"mean", "standard_deviation", "sharpe_ratio"}
+
+
+def test_bound_optimize_persists_the_optimizer_metrics(db_session) -> None:
+    _seed_panel(db_session)
+    ctx = _make_context(db_session, store=_store_with_cs(_constraint_set()))
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+
+    result = optimize.invoke({"universe": _UNIVERSE})
+
+    assert result["ok"] is True
+    (decision,) = (
+        db_session.execute(
+            select(AgentDecision).where(AgentDecision.agent == "allocator")
+        )
+        .scalars()
+        .all()
+    )
+    logged = json.loads(decision.llm_response)["metrics"]
+    assert logged == pytest.approx(result["data"]["metrics"])
+    assert set(logged) == {"mean", "standard_deviation", "sharpe_ratio"}
 
 
 def test_optimize_applies_and_logs_the_mapped_mifid_config(db_session) -> None:
