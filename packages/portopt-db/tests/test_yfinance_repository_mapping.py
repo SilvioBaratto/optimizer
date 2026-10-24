@@ -258,6 +258,56 @@ class TestAnalystEstimates:
         assert _rows(repo)[0]["down_last_7days"] == 3
 
 
+class TestEstimateCurrency:
+    """Yahoo labels each forward-estimate period with the currency the figures
+    are quoted in, which can differ from the listing currency (a USD ADR with
+    TWD estimates). Without the label the numbers cannot be read as money."""
+
+    _FRAMES = [
+        ("upsert_earnings_estimate", {"avg": [1.5, 1.7]}),
+        ("upsert_revenue_estimate", {"avg": [1.0e12, 1.1e12]}),
+        ("upsert_eps_trend", {"current": [1.5, 6.1]}),
+        ("upsert_eps_revisions", {"upLast7days": [2, 3]}),
+    ]
+
+    @staticmethod
+    def _frame(columns: dict, currency: str | None) -> pd.DataFrame:
+        df = pd.DataFrame(columns, index=["0q", "+1q"])
+        if currency is not None:
+            df["currency"] = currency
+        return df
+
+    @pytest.mark.parametrize(("method", "columns"), _FRAMES)
+    def test_rows_carry_the_currency_yahoo_reports(self, repo, method, columns) -> None:
+        getattr(repo, method)(_IID, self._frame(columns, "TWD"))
+        assert [r["currency"] for r in _rows(repo)] == ["TWD", "TWD"]
+
+    @pytest.mark.parametrize(("method", "columns"), _FRAMES)
+    def test_frame_without_a_currency_column_stores_null(
+        self, repo, method, columns
+    ) -> None:
+        getattr(repo, method)(_IID, self._frame(columns, None))
+        assert [r["currency"] for r in _rows(repo)] == [None, None]
+
+    @pytest.mark.parametrize(("method", "columns"), _FRAMES)
+    def test_unknown_currency_does_not_erase_a_stored_label(
+        self, repo, method, columns
+    ) -> None:
+        getattr(repo, method)(_IID, self._frame(columns, None))
+        update_columns = repo._upsert.call_args.kwargs.get("update_columns")
+        assert update_columns is not None
+        assert "currency" not in update_columns
+        assert "updated_at" in update_columns
+
+    @pytest.mark.parametrize(("method", "columns"), _FRAMES)
+    def test_known_currency_relabels_the_stored_row(
+        self, repo, method, columns
+    ) -> None:
+        getattr(repo, method)(_IID, self._frame(columns, "USD"))
+        update_columns = repo._upsert.call_args.kwargs.get("update_columns")
+        assert update_columns is None or "currency" in update_columns
+
+
 class TestPriceHistory:
     def test_nat_index_row_dropped(self, repo) -> None:
         # A NaT in the DatetimeIndex must not become date=NaT in a NOT NULL col.

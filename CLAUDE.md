@@ -50,7 +50,7 @@ uv run pyright                                       # scoped via [tool.pyright]
 
 # Shared DB layer (package portopt-db)
 cd packages/portopt-db && uv run pytest
-cd packages/portopt-db && DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db alembic upgrade head   # single migration owner (env.py reads only DATABASE_URL); head: 70393a606218
+cd packages/portopt-db && DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db alembic upgrade head   # single migration owner (env.py reads only DATABASE_URL); head: a7c9e1b3d5f2
 
 # Ingestion daemon (package portopt)
 cd ingestion && uv run pytest tests/
@@ -118,7 +118,7 @@ Per-submodule detail (configs, presets, factories, shape contracts, exact estima
 
 Full tables and internals live in the `portopt_db` models and the ingestion service/scheduler source. Load-bearing points:
 
-- **DB layer (`portopt-db`)**: single schema + connection manager + Alembic tree (**head `70393a606218`**, runs from `packages/portopt-db`). Pure structural extraction, no sklearn/optimizer import (guarded). `background_jobs` *model* lives here but `BackgroundJobRepository` *behavior* stays in `ingestion/app/repositories/jobs/`. Coverage floor ≥ 90% (blended statement+branch)
+- **DB layer (`portopt-db`)**: single schema + connection manager + Alembic tree (**head `a7c9e1b3d5f2`**, runs from `packages/portopt-db`). Pure structural extraction, no sklearn/optimizer import (guarded). `background_jobs` *model* lives here but `BackgroundJobRepository` *behavior* stays in `ingestion/app/repositories/jobs/`. Coverage floor ≥ 90% (blended statement+branch)
 - **Daemon layering**: Scheduler/CLI → Services → Repositories → Models, `_shared/` per layer. Models + most repos live in `portopt_db`; ingestion keeps only the `jobs` repo. No HTTP API. Sync SQLAlchemy sessions — everything opens its own via `database_manager.get_session`. PostgreSQL 16 on port **54320**. **Do not reintroduce `optimizer` as an ingestion dep**
 - **Scheduler**: APScheduler in-process in `worker.py`, `SQLAlchemyJobStore`. **Seven jobs**: `daily_pipeline` (daily 07:00), `midday_news` (daily 14:00), `universe_build` (**Sat** 02:00), `weekly_refetch` (**Sat** 03:00), `weekly_market_wide` (**Sat** 04:00), `fred_monthly` (1st 08:00), `orphan_reaper` (interval). `universe_build` runs **before** `weekly_refetch` (every step iterates `instruments`, a stale universe caps yfinance). One public step function each in `scheduler.py` — **add new work as a step, not a CLI-only branch**
 - **Gotcha — sync steps need an explicit heartbeat**: only the heartbeat thread stamps `last_heartbeat_at`. A sync step outliving `SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS` (300s) gets falsely reaped and flips to `failed` mid-run. Wrap work in `scheduler._heartbeat()`

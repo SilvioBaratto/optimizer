@@ -165,6 +165,21 @@ def _refreshable_columns(row: dict[str, Any], sticky: frozenset[str]) -> list[st
     return [*columns, "updated_at"]
 
 
+def _estimate_update_columns(rows: list[dict[str, Any]]) -> list[str] | None:
+    """Conflict-update columns for a forward-estimate batch.
+
+    A fetch that carries no currency must not turn a label stored by an earlier
+    one into NULL, so ``currency`` is left out of the update in that case.
+
+    Returns:
+        ``None`` (update every column) when any row has a currency, otherwise
+        every column except ``currency``.
+    """
+    if not rows or any(r["currency"] is not None for r in rows):
+        return None
+    return _refreshable_columns(rows[0], frozenset({"currency"}))
+
+
 def _last_wins(rows: list[dict[str, Any]], *key_fields: str) -> list[dict[str, Any]]:
     """Collapse rows that share a conflict key, keeping the last occurrence.
 
@@ -626,13 +641,16 @@ class YFinanceRepository(RepositoryBase):
                 "high": _safe_float(row.get("high")),
                 "year_ago_eps": _safe_float(row.get("yearAgoEps")),
                 "growth": _safe_float(row.get("growth")),
+                "currency": _safe_str(row.get("currency"), 10),
             }
             for period, row in df.iterrows()
         ]
+        rows = _last_wins(rows, "period")
         return self._upsert(
             EarningsEstimate,
-            _last_wins(rows, "period"),
+            rows,
             constraint_name="uq_earnings_estimate_instrument_period",
+            update_columns=_estimate_update_columns(rows),
         )
 
     def upsert_revenue_estimate(self, instrument_id: UUID, df: pd.DataFrame) -> int:
@@ -647,13 +665,16 @@ class YFinanceRepository(RepositoryBase):
                 "high": _safe_float(row.get("high")),
                 "year_ago_revenue": _safe_float(row.get("yearAgoRevenue")),
                 "growth": _safe_float(row.get("growth")),
+                "currency": _safe_str(row.get("currency"), 10),
             }
             for period, row in df.iterrows()
         ]
+        rows = _last_wins(rows, "period")
         return self._upsert(
             RevenueEstimate,
-            _last_wins(rows, "period"),
+            rows,
             constraint_name="uq_revenue_estimate_instrument_period",
+            update_columns=_estimate_update_columns(rows),
         )
 
     def upsert_growth_estimates(self, instrument_id: UUID, df: pd.DataFrame) -> int:
@@ -688,8 +709,8 @@ class YFinanceRepository(RepositoryBase):
     def upsert_eps_trend(self, instrument_id: UUID, df: pd.DataFrame) -> int:
         """Upsert the EPS estimate trend (index = period labels "0q"/"+1q"/...).
 
-        Columns are snapshot ages (``current``/``7daysAgo``/``30daysAgo``/...); a
-        per-period ``currency`` column (yfinance 1.2.2+) is ignored here.
+        Columns are snapshot ages (``current``/``7daysAgo``/``30daysAgo``/...) plus
+        a per-period ``currency`` column (yfinance 1.2.2+).
         """
         rows = [
             {
@@ -700,13 +721,16 @@ class YFinanceRepository(RepositoryBase):
                 "days_ago_30": _safe_float(row.get("30daysAgo")),
                 "days_ago_60": _safe_float(row.get("60daysAgo")),
                 "days_ago_90": _safe_float(row.get("90daysAgo")),
+                "currency": _safe_str(row.get("currency"), 10),
             }
             for period, row in df.iterrows()
         ]
+        rows = _last_wins(rows, "period")
         return self._upsert(
             EpsTrend,
-            _last_wins(rows, "period"),
+            rows,
             constraint_name="uq_eps_trend_instrument_period",
+            update_columns=_estimate_update_columns(rows),
         )
 
     def upsert_eps_revisions(self, instrument_id: UUID, df: pd.DataFrame) -> int:
@@ -727,13 +751,16 @@ class YFinanceRepository(RepositoryBase):
                     row.get("downLast7Days", row.get("downLast7days"))
                 ),
                 "down_last_30days": _safe_int(row.get("downLast30days")),
+                "currency": _safe_str(row.get("currency"), 10),
             }
             for period, row in df.iterrows()
         ]
+        rows = _last_wins(rows, "period")
         return self._upsert(
             EpsRevisions,
-            _last_wins(rows, "period"),
+            rows,
             constraint_name="uq_eps_revisions_instrument_period",
+            update_columns=_estimate_update_columns(rows),
         )
 
     def upsert_earnings_history(self, instrument_id: UUID, df: pd.DataFrame) -> int:

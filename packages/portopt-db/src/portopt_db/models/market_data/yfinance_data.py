@@ -296,6 +296,8 @@ class EarningsEstimate(BaseModel):
     high: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     year_ago_eps: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     growth: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # Quote currency of the estimates; can differ from the listing currency.
+    currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class RevenueEstimate(BaseModel):
@@ -323,6 +325,8 @@ class RevenueEstimate(BaseModel):
         Numeric(38, 2), nullable=True
     )
     growth: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # Quote currency of the estimates; can differ from the listing currency.
+    currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class GrowthEstimate(BaseModel):
@@ -378,6 +382,8 @@ class EpsTrend(BaseModel):
     days_ago_30: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     days_ago_60: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     days_ago_90: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # Quote currency of the estimates; can differ from the listing currency.
+    currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class EpsRevisions(BaseModel):
@@ -406,6 +412,8 @@ class EpsRevisions(BaseModel):
     up_last_30days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     down_last_7days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     down_last_30days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Quote currency of the estimates; can differ from the listing currency.
+    currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class EarningsHistory(BaseModel):

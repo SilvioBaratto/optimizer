@@ -2617,6 +2617,61 @@ class TestUpsertFinancialStatementsKeepsStoredValues:
         assert "no column" not in caplog.text.lower()
 
 
+class TestUpsertEstimateCurrencyPersistence:
+    """Real-row behaviour of the estimate currency label across re-fetches."""
+
+    @staticmethod
+    def _frame(avg: float, currency: str | None) -> pd.DataFrame:
+        df = pd.DataFrame({"avg": [avg]}, index=["0q"])
+        if currency is not None:
+            df["currency"] = currency
+        return df
+
+    @staticmethod
+    def _stored(db_session: Session, instrument_id: uuid.UUID) -> EarningsEstimate:
+        db_session.expire_all()
+        return (
+            db_session.query(EarningsEstimate)
+            .filter_by(instrument_id=instrument_id)
+            .one()
+        )
+
+    def _seed(self, db_session: Session, name: str) -> Instrument:
+        ex = _exchange(db_session, name=name)
+        return _instrument(db_session, ex, ticker=name, yfinance_ticker=name)
+
+    def test_currency_is_stored_with_the_estimates(self, db_session: Session) -> None:
+        inst = self._seed(db_session, "EstCur1")
+
+        _repo(db_session).upsert_earnings_estimate(inst.id, self._frame(60.0, "TWD"))
+
+        assert self._stored(db_session, inst.id).currency == "TWD"
+
+    def test_refetch_without_a_currency_keeps_the_stored_label(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed(db_session, "EstCur2")
+        repo = _repo(db_session)
+        repo.upsert_earnings_estimate(inst.id, self._frame(60.0, "TWD"))
+
+        repo.upsert_earnings_estimate(inst.id, self._frame(62.0, None))
+
+        stored = self._stored(db_session, inst.id)
+        assert stored.currency == "TWD"
+        assert float(stored.avg) == pytest.approx(62.0)
+
+    def test_refetch_with_a_currency_relabels_the_row(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed(db_session, "EstCur3")
+        repo = _repo(db_session)
+        repo.upsert_earnings_estimate(inst.id, self._frame(60.0, "TWD"))
+
+        repo.upsert_earnings_estimate(inst.id, self._frame(2.0, "USD"))
+
+        assert self._stored(db_session, inst.id).currency == "USD"
+
+
 # ---------------------------------------------------------------------------
 # upsert_news — all format/branch variants (mocked _upsert)
 # ---------------------------------------------------------------------------
