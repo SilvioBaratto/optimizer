@@ -8,10 +8,12 @@ of them insert and the slot runs twice. SQLite serialises writers and cannot sho
 the race, which is why the unit suite can only assert the statement order; this
 test pins the behaviour itself.
 
-Marked ``integration`` and skipped unless ``DATABASE_URL`` is set. The test owns a
-private, uniquely named schema holding only the job tables, so a developer's real
-``public.background_jobs`` is never read or written, and the schema is dropped on
-teardown.
+Marked ``integration`` and skipped unless ``FUND_TEST_DATABASE_URL`` names a scratch
+database. The ambient ``DATABASE_URL`` is ignored on purpose: on a developer
+machine it is the live compose database (the repo-root ``.env`` or a shell export),
+and the claims take the same advisory locks the running fund worker uses. A target
+that resolves to the ambient database is refused. The test owns a private, uniquely
+named schema holding only the job tables, dropped on teardown.
 """
 
 from __future__ import annotations
@@ -24,20 +26,46 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from portopt_db.models import BackgroundJob, BackgroundJobError
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, make_url
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import text
 
 from fund.audit import FundJobRepository
+from fund.config import settings
 
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(
-        not os.environ.get("DATABASE_URL"),
-        reason="claim-race test requires a live Postgres DATABASE_URL",
+        not os.environ.get("FUND_TEST_DATABASE_URL"),
+        reason="claim-race test requires FUND_TEST_DATABASE_URL (scratch Postgres)",
     ),
 ]
+
+_LOCAL_HOSTS = {None, "", "localhost", "127.0.0.1", "::1"}
+
+
+def _endpoint(url: str) -> tuple[str, int, str]:
+    """Reduce a database URL to (host, port, database), folding local host aliases."""
+    parsed = make_url(url)
+    host = "localhost" if parsed.host in _LOCAL_HOSTS else str(parsed.host)
+    return host, parsed.port or 5432, parsed.database or ""
+
+
+def _target_url() -> str:
+    """Return the scratch database URL, refusing the ambient (live) database."""
+    target = os.environ["FUND_TEST_DATABASE_URL"]
+    ambient = {
+        url for url in (os.environ.get("DATABASE_URL"), settings.database_url) if url
+    }
+    if any(_endpoint(url) == _endpoint(target) for url in ambient):
+        pytest.fail(
+            "refusing to run: FUND_TEST_DATABASE_URL points at the same database "
+            "as DATABASE_URL; use a separate scratch database",
+            pytrace=False,
+        )
+    return target
+
 
 CLAIMANTS = 8
 # Unguarded, ~99% of rounds produced a double claim at this width, so a handful of
@@ -54,7 +82,7 @@ def race_engine() -> Generator[Engine, None, None]:
     The pool is sized to the claimant count so no thread waits on a connection
     instead of on the lock under test.
     """
-    url = os.environ["DATABASE_URL"]
+    url = _target_url()
     schema = f"fund_claim_race_{uuid.uuid4().hex[:8]}"
     admin = create_engine(url, isolation_level="AUTOCOMMIT")
     with admin.connect() as conn:

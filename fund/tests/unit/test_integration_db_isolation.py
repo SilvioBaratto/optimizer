@@ -53,7 +53,9 @@ sys.exit(pytest.main([sys.argv[1], "-q", "-rs", "-p", "no:cacheprovider"]))
 """
 
 
-def _run_integration_module(**extra_env: str) -> tuple[int, str]:
+def _run_integration_module(
+    module: Path = _INTEGRATION_FILE, **extra_env: str
+) -> tuple[int, str]:
     env = {
         k: v
         for k, v in os.environ.items()
@@ -62,7 +64,7 @@ def _run_integration_module(**extra_env: str) -> tuple[int, str]:
     env["SIMULATED_DOTENV_DATABASE_URL"] = _LIVE_URL
     env.update(extra_env)
     proc = subprocess.run(  # noqa: S603
-        [sys.executable, "-c", _RUNNER, str(_INTEGRATION_FILE)],
+        [sys.executable, "-c", _RUNNER, str(module)],
         cwd=_FUND_ROOT,
         env=env,
         capture_output=True,
@@ -123,3 +125,24 @@ def test_integration_accepts_a_scratch_database_on_the_live_server(
     )
 
     assert module._target_url() == scratch
+
+
+@pytest.mark.parametrize(
+    "module",
+    sorted((_FUND_ROOT / "tests" / "integration").glob("test_*.py")),
+    ids=lambda path: path.name,
+)
+def test_every_integration_module_skips_without_its_own_scratch_url(
+    module: Path,
+) -> None:
+    """No integration module may run on the ambient ``DATABASE_URL`` alone.
+
+    That variable is the developer's live database whenever the repo-root ``.env``
+    exists or the shell exports it for the daemon, so only an explicit
+    ``FUND_TEST_DATABASE_URL`` may enable a module.
+    """
+    code, output = _run_integration_module(module, DATABASE_URL=_LIVE_URL)
+
+    assert code == 0, output
+    assert "skipped" in output, output
+    assert "error" not in output.lower(), output
