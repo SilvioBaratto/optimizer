@@ -27,7 +27,12 @@ import uuid
 from decimal import Decimal
 
 import pytest
-from _fund_fakes import AllocatorTimesOutFundModel, FreezeMidRunModel, ScriptedFundModel
+from _fund_fakes import (
+    AllocatorTimesOutFundModel,
+    BrokenPlaceOrdersFundModel,
+    FreezeMidRunModel,
+    ScriptedFundModel,
+)
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision, AgentRun, PaperOrder
@@ -998,6 +1003,59 @@ def test_risk_violation_skips_executor_and_places_no_order(db_session) -> None:
     assert not [d for d in _decisions(db_session, run.run_id) if d.agent == "executor"]
     finalized = AgentRunRepository(db_session).get_run(run.run_id)
     assert finalized.status == "incomplete"
+
+
+# --- a broken PM tool call ends the run with its own reason -------------------
+
+_OUTPUT_CAP = {"stop_reason": "max_tokens"}
+_NORMAL_STOP = {"stop_reason": "end_turn"}
+
+
+def _ungated_end_reasons(db_session, run_id) -> list[str]:
+    return [
+        d.hitl_decision["reason"]
+        for d in _decisions(db_session, run_id)
+        if d.hitl_decision and "reason" in d.hitl_decision
+    ]
+
+
+@pytest.mark.parametrize(
+    ("stop_metadata", "reason"),
+    [
+        pytest.param(_OUTPUT_CAP, "output_truncated", id="cut-off-by-an-output-cap"),
+        pytest.param({"finish_reason": "length"}, "output_truncated", id="length"),
+        pytest.param(_NORMAL_STOP, "invalid_tool_call", id="malformed-arguments"),
+        pytest.param({}, "invalid_tool_call", id="no-stop-metadata"),
+    ],
+)
+def test_a_broken_place_orders_call_is_not_reported_as_no_order(
+    db_session, stop_metadata, reason
+) -> None:
+    """A truncated or malformed ``place_orders`` call never reaches the gate, but the
+    adviser must be able to tell it from a blocking risk verdict (``"no_order"``): the
+    cause is a provider cap or a bad call, and a re-run without a fix repeats it."""
+    _seed_panel(db_session)
+    model = BrokenPlaceOrdersFundModel(
+        universe=_UNIVERSE, weights={"AAA": 1.0}, stop_metadata=stop_metadata
+    )
+
+    run = _run(model, db_session, store=_store_with_cs())
+
+    assert run.status == "incomplete"
+    assert run.interrupt is None
+    assert _paper_orders(db_session) == []
+    assert _ungated_end_reasons(db_session, run.run_id) == [reason]
+
+
+def test_a_blocking_risk_verdict_still_ends_as_no_order(db_session) -> None:
+    _seed_panel(db_session)
+    model = ScriptedFundModel(
+        universe=_UNIVERSE, weights={"AAA": 1.0}, risk_passes=False
+    )
+
+    run = _run(model, db_session, store=_store_with_cs())
+
+    assert _ungated_end_reasons(db_session, run.run_id) == ["no_order"]
 
 
 # --- delegation round cap → incomplete + surfaced ----------------------------

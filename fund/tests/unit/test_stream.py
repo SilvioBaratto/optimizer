@@ -23,6 +23,7 @@ from _fund_fakes import (
     PORTFOLIO_ID,
     UNIVERSE,
     AllocatorTimesOutFundModel,
+    BrokenPlaceOrdersFundModel,
     FreezeMidRunModel,
     ScriptedFundModel,
     expected_weights,
@@ -247,6 +248,49 @@ def test_status_text_pairs_the_glyph_with_a_word(
     )
 
     assert event.status_text == expected
+
+
+@pytest.mark.parametrize(
+    ("stop_metadata", "reason", "text"),
+    [
+        ({"stop_reason": "max_tokens"}, "output_truncated", "cut off"),
+        ({"stop_reason": "end_turn"}, "invalid_tool_call", "malformed"),
+    ],
+)
+def test_stream_fund_broken_place_orders_call_records_its_own_reason(
+    stream_env, stop_metadata, reason, text
+) -> None:
+    """A truncated or malformed ``place_orders`` call ends the stream incomplete with
+    the same reason as ``run_fund`` and tells the adviser why, instead of the generic
+    ``"no_order"`` / "pipeline ended before the gate"."""
+    model = BrokenPlaceOrdersFundModel(
+        universe=UNIVERSE, weights={"AAA": 1.0}, stop_metadata=stop_metadata
+    )
+
+    with stream_env.get_session() as session:
+        events = list(
+            stream_fund(
+                model,
+                make_mandate(),
+                portfolio_id=PORTFOLIO_ID,
+                asof=ASOF,
+                session=session,
+                checkpointer=stream_env.saver,
+                store=stream_env.store,
+            )
+        )
+
+        terminal = events[-1]
+        assert terminal.kind == "incomplete"
+        assert text in terminal.text
+        reasons = [
+            d.hitl_decision["reason"]
+            for d in session.query(AgentDecision)
+            .filter(AgentDecision.run_id == terminal.run_id)
+            .all()
+            if d.hitl_decision and "reason" in d.hitl_decision
+        ]
+        assert reasons == [reason]
 
 
 def test_stream_fund_finalises_a_round_that_errors_as_failed(stream_env) -> None:

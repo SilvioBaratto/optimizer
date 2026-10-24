@@ -1121,12 +1121,48 @@ class FundRun:
         return result
 
 
+# Provider stop reasons (lower-cased) that say the output cap, not the model, ended a
+# turn, under the key each provider family reports them with.
+_OUTPUT_CAP_STOPS = frozenset({"max_tokens", "length"})
+_STOP_REASON_KEYS = ("stop_reason", "finish_reason", "done_reason", "stopReason")
+
+
+def _last_message(result: Any) -> Any:
+    """The final message of a compiled-graph result (``None`` when it has none)."""
+    messages = result.get("messages") if isinstance(result, dict) else None
+    return messages[-1] if messages else None
+
+
+def _ungated_end_reason(last_message: Any, *, pm_round_cap_reached: bool) -> str:
+    """Why the PM's last turn ended the run without reaching the ``place_orders`` gate.
+
+    ``create_agent`` treats any turn without a valid tool call as a final answer, and
+    langchain surfaces a truncated or unparsable tool call only as
+    ``invalid_tool_calls``. Telling those apart from a blocking risk verdict is the
+    only way the adviser can see why a round ended: ``"pm_round_cap"`` when the
+    delegation cap tripped, ``"output_truncated"`` when the provider reported an
+    output-cap stop, ``"invalid_tool_call"`` when the call was malformed, and
+    ``"no_order"`` otherwise (nothing left to commit).
+    """
+    if pm_round_cap_reached:
+        return "pm_round_cap"
+    metadata = getattr(last_message, "response_metadata", None) or {}
+    if any(
+        str(metadata.get(key, "")).lower() in _OUTPUT_CAP_STOPS
+        for key in _STOP_REASON_KEYS
+    ):
+        return "output_truncated"
+    if getattr(last_message, "invalid_tool_calls", None):
+        return "invalid_tool_call"
+    return "no_order"
+
+
 def _finalize_incomplete(audit: Any, run_id: uuid.UUID, reason: str) -> None:
     """Finalise a run that ended without a ticket — the shared no-ticket end.
 
-    Records the orchestrator's incomplete decision with ``reason`` (``"round_cap"`` /
-    ``"pm_round_cap"`` / ``"no_order"`` / ``"place_orders_failed"``) and finalises the
-    run ``incomplete`` with no weights. Shared by the blocking :func:`run_fund`, the
+    Records the orchestrator's incomplete decision with ``reason`` (``"round_cap"``,
+    ``"place_orders_failed"`` or one of :func:`_ungated_end_reason`'s) and finalises
+    the run ``incomplete`` with no weights. Shared by the blocking :func:`run_fund`, the
     streaming :func:`stream_fund` and the approve resume so they cannot diverge on the
     no-ticket path. No commit.
     """
@@ -1364,10 +1400,11 @@ def _finalize_respond(
     if _extract_interrupt(result) is not None:
         audit.mark_responded(run_id)
     else:
-        reason = (
-            "pm_round_cap"
-            if isinstance(result, dict) and result.get("pm_round_cap_reached")
-            else "no_order"
+        reason = _ungated_end_reason(
+            _last_message(result),
+            pm_round_cap_reached=bool(
+                isinstance(result, dict) and result.get("pm_round_cap_reached")
+            ),
         )
         _finalize_incomplete(audit, run_id, reason)
 
@@ -1682,8 +1719,9 @@ def run_fund(
     executor) runs and the run pauses at the ``place_orders`` HITL gate.
 
     Returns a :class:`FundRun`. When the pipeline never reaches the gate — a blocking
-    risk verdict, or the delegation round cap tripping the recursion limit — the run
-    is finalised ``incomplete`` (no ticket) and surfaced for review instead. A freeze
+    risk verdict, the delegation round cap tripping the recursion limit, or a PM order
+    call that was cut off or malformed — the run is finalised ``incomplete`` (no
+    ticket) with the cause as its reason and surfaced for review instead. A freeze
     committed while the round was running finalises it ``rejected`` rather than
     opening a gate under a FROZEN posture. Any other error (provider outage, tool or
     DB failure) finalises the run ``failed`` with the error recorded, then propagates.
@@ -1738,9 +1776,12 @@ def run_fund(
     weights = _optimizer_weights(session, run.id)
     if interrupt is None:
         # The pipeline ended before the HITL gate: the PM tripped the delegation round
-        # cap (reason "pm_round_cap") or a blocking risk verdict left nothing to commit
-        # (reason "no_order"). Keep both distinct from the recursion-limit "round_cap".
-        reason = "pm_round_cap" if result.get("pm_round_cap_reached") else "no_order"
+        # cap, its order call was cut off or malformed, or a blocking risk verdict left
+        # nothing to commit. Keep each distinct from the recursion-limit "round_cap".
+        reason = _ungated_end_reason(
+            _last_message(result),
+            pm_round_cap_reached=bool(result.get("pm_round_cap_reached")),
+        )
         _finalize_incomplete(audit, run.id, reason)
         return FundRun(
             constraint_set=constraint_set,
@@ -1793,6 +1834,13 @@ def _message_text(message: Any) -> str:
     """A streamed message's content as text (``""`` when absent or non-string)."""
     content = getattr(message, "content", "")
     return content if isinstance(content, str) else str(content)
+
+
+_UNGATED_END_TEXT = {
+    "pm_round_cap": "delegation round cap reached before a ticket",
+    "output_truncated": "the model's output limit cut off the PM's order call",
+    "invalid_tool_call": "the PM's order call was malformed",
+}
 
 
 def _gate_why(interrupt_value: dict[str, Any] | None) -> str:
@@ -1863,6 +1911,7 @@ def stream_fund(
     pending_sub: str | None = None
     interrupt_value: dict[str, Any] | None = None
     pm_round_cap_reached = False
+    last_pm_message: Any = None
     try:
         for chunk in setup.agent.stream(
             setup.seed_input, config=setup.thread_config, stream_mode="updates"
@@ -1884,6 +1933,8 @@ def stream_fund(
                 messages = update.get("messages") if isinstance(update, dict) else None
                 message = messages[-1] if messages else None
                 if node == "model":
+                    if message is not None:
+                        last_pm_message = message
                     for call in _tool_calls(message):
                         name = call.get("name")
                         if name == "task":
@@ -1929,7 +1980,9 @@ def stream_fund(
         raise
 
     if interrupt_value is None:
-        reason = "pm_round_cap" if pm_round_cap_reached else "no_order"
+        reason = _ungated_end_reason(
+            last_pm_message, pm_round_cap_reached=pm_round_cap_reached
+        )
         _finalize_incomplete(audit, run_id, reason)
         yield StreamEvent(
             kind="incomplete",
@@ -1938,11 +1991,7 @@ def stream_fund(
             agent="orchestrator",
             step="place_orders",
             status=StepStatus.PENDING,
-            text=(
-                "delegation round cap reached before a ticket"
-                if pm_round_cap_reached
-                else "pipeline ended before the gate"
-            ),
+            text=_UNGATED_END_TEXT.get(reason, "pipeline ended before the gate"),
         )
         return
 

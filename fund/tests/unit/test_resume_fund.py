@@ -27,6 +27,7 @@ from _fund_fakes import (
     ASOF,
     PORTFOLIO_ID,
     UNIVERSE,
+    BrokenPlaceOrdersFundModel,
     PmFailsAfterOrderModel,
     ScriptedFundModel,
     _count_tool_calls,
@@ -1729,6 +1730,44 @@ def test_resume_fund_respond_terminal_finalises_incomplete(db_session) -> None:
     assert _paper_orders(db_session) == []
     assert not observe._has_pending_interrupt(saver, str(run.run_id))
     assert len(_respond_decisions(db_session, run.run_id)) == 1
+
+
+def test_resume_fund_respond_with_a_broken_place_orders_call_is_not_no_order(
+    db_session,
+) -> None:
+    """A respond whose re-gating ``place_orders`` call is cut off by a provider output
+    cap never reaches a gate: the run finalises incomplete as ``"output_truncated"``,
+    not the generic ``"no_order"`` a blocking risk verdict gets."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    resume_fund(
+        run.run_id,
+        "respond",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=BrokenPlaceOrdersFundModel(
+            universe=UNIVERSE,
+            weights=expected,
+            max_orders=2,
+            stop_metadata={"stop_reason": "max_tokens"},
+        ),
+        pm_directive="Trim AAA before committing.",
+    )
+
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "incomplete"
+    reasons = [
+        d.hitl_decision["reason"]
+        for d in _decisions(db_session, run.run_id)
+        if d.hitl_decision and "reason" in d.hitl_decision
+    ]
+    assert reasons == ["output_truncated"]
 
 
 def test_resume_fund_respond_threads_directive_as_place_orders_tool_message(

@@ -252,6 +252,39 @@ class AllocatorTimesOutFundModel(ScriptedFundModel):
         raise TimeoutError("provider timed out")
 
 
+class BrokenPlaceOrdersFundModel(ScriptedFundModel):
+    """The PM's ``place_orders`` call arrives unusable.
+
+    Langchain surfaces a truncated or unparsable tool call only as
+    ``invalid_tool_calls``, so the turn carries no valid tool call and ``create_agent``
+    ends the run as if it were a final answer.
+
+    ``response_metadata`` is what the provider reported for the turn: a provider output
+    cap shows up as ``stop_reason="max_tokens"`` / ``finish_reason="length"``; a model
+    that wrote malformed JSON stops normally.
+    """
+
+    stop_metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def _pm_turn(self, messages: list[BaseMessage]) -> AIMessage:
+        message = super()._pm_turn(messages)
+        if not any(call["name"] == "place_orders" for call in message.tool_calls):
+            return message
+        return AIMessage(
+            content="",
+            invalid_tool_calls=[
+                {
+                    "name": "place_orders",
+                    "args": '{"weights": {"AAA": 0.5076, "BBB": 0.0',
+                    "id": "call_place_orders_broken",
+                    "error": "Function place_orders arguments are not valid JSON",
+                    "type": "invalid_tool_call",
+                }
+            ],
+            response_metadata=dict(self.stop_metadata),
+        )
+
+
 def _task_call(subagent: str, index: int) -> AIMessage:
     """A PM assistant turn delegating to ``subagent`` via the built-in ``task``."""
     return AIMessage(
