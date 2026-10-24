@@ -1068,3 +1068,25 @@ def test_run_refuses_to_rebase_a_marked_portfolio(harness, monkeypatch) -> None:
     assert "base currency" in res.output.lower()
     with harness.read() as session:
         assert observe.get_mandate(session, PORTFOLIO_ID).base_currency == "EUR"
+
+
+@pytest.mark.parametrize("bad", ["5", "2.5", "0", "-1"])
+def test_mandate_set_rejects_an_out_of_range_drift_cleanly(harness, bad) -> None:
+    res = harness.runner.invoke(
+        cli.app,
+        ["mandate", "set", str(PORTFOLIO_ID), "--capital", "100000", "--drift", bad],
+    )
+
+    assert res.exit_code == 1
+    assert "--drift" in res.output
+    assert "Traceback" not in res.output
+    with harness.read() as session:
+        assert observe.get_mandate(session, PORTFOLIO_ID) is None
+
+
+def test_mandate_set_drift_help_states_the_upper_bound() -> None:
+    click_app = typer.main.get_command(cli.app)
+    set_cmd = click_app.commands["mandate"].commands["set"]  # type: ignore[attr-defined]
+    drift = next(p for p in set_cmd.params if p.name == "drift")
+
+    assert "(0, 2)" in drift.help  # the bound is open: 2 can never be breached

@@ -444,7 +444,7 @@ def _active_mandates(
     for row in MandateRepository(session).list_active():
         mandate: PortfolioMandate | None
         try:
-            mandate = PortfolioMandate.model_validate(row.mandate)
+            mandate = PortfolioMandate.from_stored(row.mandate)
         except ValidationError:
             logger.exception(
                 "portfolio %s: stored mandate is invalid; skipping", row.portfolio_id

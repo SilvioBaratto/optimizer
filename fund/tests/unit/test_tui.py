@@ -9730,3 +9730,81 @@ async def test_mandate_base_currency_is_locked_by_positions_or_orders_too(
         currency.value = "USD"
         with pytest.raises(ValueError, match="base currency"):
             view.proposed_mandate()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("typed", ["5", "10", "inf"])
+async def test_mandate_rejects_a_drift_threshold_above_the_l1_bound(
+    shell_env, typed
+) -> None:
+    # A percent-style entry ("5" for a 5% band) would save and then never breach.
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = typed
+        app.action_save_mandate()
+        await pilot.pause()
+        assert app.last_worker is None
+        assert "invalid mandate" in app.last_status
+    with shell_env.get_session() as session:
+        assert observe.get_mandate(session, PORTFOLIO_ID).drift_l1_threshold == 0.1
+
+
+@pytest.mark.asyncio
+async def test_mandate_drift_input_states_its_unit(shell_env) -> None:
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        placeholder = view.query_one("#mandate-drift", Input).placeholder
+        assert "L1" in placeholder
+        assert "0-2" in placeholder
+
+
+def _store_raw_mandate(env, pid: uuid.UUID, **fields) -> None:
+    """Persist a valid mandate for ``pid``, then overwrite JSON fields raw."""
+    with env.get_session() as session:
+        row = MandateRepository(session).upsert(make_mandate(pid))
+        row.mandate = {**row.mandate, **fields}
+        session.commit()
+
+
+@pytest.mark.asyncio
+async def test_posture_roster_keeps_other_portfolios_when_one_mandate_is_unreadable(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1, status="paused")
+        _seed_run(session, _PID_B, seed=2)
+        session.commit()
+    _store_raw_mandate(shell_env, _PID_A)
+    _store_raw_mandate(shell_env, _PID_B, capital="-1")  # cannot be repaired
+
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        assert view.query_one("#posture-roster", DataTable).row_count == 2
+        labels = {row.portfolio_id: row.label for row in view._roster}
+        assert labels[_PID_A] == "ok"
+        assert labels[_PID_B] == "error"  # dot + label, never colour alone
+        assert "2 pf" in str(view.query_one("#posture-strip", Static).render())
+
+
+@pytest.mark.asyncio
+async def test_posture_and_mandate_load_a_legacy_over_bound_drift_threshold(
+    shell_env,
+) -> None:
+    # Saved before the schema capped the threshold at the L1 bound of 2.
+    _seed_mandate_and_profile(shell_env)
+    _store_raw_mandate(shell_env, PORTFOLIO_ID, drift_l1_threshold=5.0)
+
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        posture = await _open_posture(app, pilot)
+        assert [row.label for row in posture._roster] == ["ok"]
+        mandate = await _open_mandate(app, pilot)
+        assert mandate.mandate is not None
+        # Clamped to just under the open L1 bound: a trigger that can never fire.
+        drift = float(mandate.query_one("#mandate-drift", Input).value)
+        assert drift == pytest.approx(2.0)
+        assert drift < 2.0

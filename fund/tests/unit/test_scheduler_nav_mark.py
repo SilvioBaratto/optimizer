@@ -255,6 +255,30 @@ def test_nav_mark_no_mandates_completes_without_rows(session_factory):
     assert len(slots) == 1 and slots[0].status == "completed"
 
 
+def test_nav_mark_skips_an_unreadable_mandate_and_marks_the_rest(session_factory):
+    """One mandate that no longer validates must not stop every other portfolio."""
+    _seed(session_factory)
+    # Sorts before ``_PID`` in ``list_active`` order, so it is hit first.
+    bad = uuid.UUID("0000000a-0000-4000-8000-00000000000a")
+    with session_factory() as session:
+        row = MandateRepository(session).upsert(
+            PortfolioMandate(
+                portfolio_id=str(bad),
+                capital=Decimal("10000"),
+                base_currency="EUR",
+                drift_l1_threshold=0.1,
+                triggers=RunTriggers(cron=True, drift=False),
+            )
+        )
+        row.mandate = {**row.mandate, "capital": "-1"}
+        session.commit()
+
+    assert run_nav_mark(session_factory=session_factory, asof=_ASOF) is True
+
+    assert set(_navs(session_factory)) == {_FILL, _NEXT}
+    assert _slots(session_factory)[0].status == "completed"
+
+
 def test_nav_mark_skips_mandate_without_fx_coverage(session_factory):
     """A non-EUR mandate with foreign holdings is skipped loudly, not mis-marked.
 

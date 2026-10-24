@@ -129,7 +129,7 @@ class MandateRepository(RepositoryBase):
 
         The enumeration the Phase-9 sweeps walk. Trigger filtering is *not* in
         SQL — the ``portfolio_mandates`` table has no scalar trigger column — so
-        callers rehydrate ``PortfolioMandate.model_validate(row.mandate)`` and
+        callers rehydrate ``PortfolioMandate.from_stored(row.mandate)`` and
         read ``.triggers.cron`` / ``.triggers.drift``. Deterministic order keeps
         the sequential sweep repeatable.
         """

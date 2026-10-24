@@ -14,10 +14,15 @@ ethos. ``Decimal`` capital round-trips through JSON as a string.
 
 from __future__ import annotations
 
+import logging
+import math
+from collections.abc import Mapping
 from decimal import Decimal
-from typing import ClassVar
+from typing import Any, ClassVar, Self
 
 from pydantic import BaseModel, ConfigDict, Field
+
+logger = logging.getLogger(__name__)
 
 
 class RunTriggers(BaseModel):
@@ -60,6 +65,45 @@ class PortfolioMandate(BaseModel):
     # longer value at flush, so reject it here as a clean validation error instead.
     benchmark: str | None = Field(default=None, max_length=32)
     remembered_directives: tuple[str, ...] = ()
+
+    @classmethod
+    def from_stored(cls, payload: Mapping[str, Any]) -> Self:
+        """Rehydrate a persisted mandate, repairing a legacy over-bound threshold.
+
+        Rows saved before ``drift_l1_threshold`` was capped can hold a percent-style
+        value such as ``5``. Strict validation would make every reader of the stored
+        row (the daemon sweeps, the TUI) fail on it, so the threshold is clamped to
+        the largest value the schema accepts, just under :attr:`MAX_DRIFT_L1` --
+        behaviourally what the larger value always was, a trigger that can never fire
+        -- and the next save persists the repaired value. Anything else that fails
+        validation still raises.
+
+        Args:
+            payload: The mandate JSON column. Not mutated.
+
+        Returns:
+            The validated mandate.
+
+        Raises:
+            pydantic.ValidationError: ``payload`` violates the schema in a way the
+                clamp does not repair.
+        """
+        threshold = payload.get("drift_l1_threshold")
+        if (
+            isinstance(threshold, int | float)
+            and not isinstance(threshold, bool)
+            and threshold >= cls.MAX_DRIFT_L1
+        ):
+            clamped = math.nextafter(cls.MAX_DRIFT_L1, 0.0)
+            logger.warning(
+                "mandate %s: stored drift_l1_threshold %s exceeds the L1 bound; "
+                "clamped to %s",
+                payload.get("portfolio_id"),
+                threshold,
+                clamped,
+            )
+            payload = {**payload, "drift_l1_threshold": clamped}
+        return cls.model_validate(payload)
 
 
 __all__ = ["PortfolioMandate", "RunTriggers"]

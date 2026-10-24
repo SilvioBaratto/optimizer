@@ -268,7 +268,8 @@ def test_sweep_survives_one_portfolio_error(session_factory, monkeypatch):
 def test_sweep_survives_a_stored_mandate_that_no_longer_validates(
     session_factory, monkeypatch
 ):
-    _seed_pre_bound_mandate(session_factory, PID_A)
+    _seed_mandate(session_factory, PID_A, cron=True, drift=False)
+    _corrupt_mandate(session_factory, PID_A)
     _seed_mandate(session_factory, PID_B, cron=True, drift=False)
 
     driven: list[uuid.UUID] = []
@@ -1484,3 +1485,71 @@ def test_aborted_drift_monitor_does_not_commit_partial_work_with_the_failed_mark
     assert ok is False
     assert _job_rows(session_factory, "fund_drift_monitor")[0].status == "failed"
     assert _run_portfolios(session_factory) == set()
+
+
+def _corrupt_stored_mandate(factory: SessionFactory, pid: uuid.UUID, **fields) -> None:
+    """Overwrite stored mandate JSON fields, bypassing the schema (a legacy row)."""
+    with factory() as session:
+        row = MandateRepository(session).get(pid)
+        row.mandate = {**row.mandate, **fields}
+        session.commit()
+
+
+def test_sweep_skips_an_unreadable_mandate_and_drives_the_rest(
+    session_factory, monkeypatch
+):
+    _seed_mandate(session_factory, PID_A, cron=True, drift=False)
+    _seed_mandate(session_factory, PID_B, cron=True, drift=False)
+    _corrupt_stored_mandate(session_factory, PID_A, capital="-1")  # cannot be repaired
+
+    driven: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "fund.scheduler._drive_rebalance",
+        lambda pid, asof, **_kw: driven.append(pid),
+    )
+
+    ok = run_rebalance_sweep(session_factory=session_factory, asof=ASOF)
+
+    assert ok is True  # one unreadable row never aborts the sweep
+    assert driven == [PID_B]
+    assert _job_rows(session_factory, "fund_rebalance_sweep")[0].status == "completed"
+
+
+def test_sweep_still_drives_a_legacy_over_bound_threshold(session_factory, monkeypatch):
+    _seed_mandate(session_factory, PID_A, cron=True, drift=False)
+    _seed_mandate(session_factory, PID_B, cron=True, drift=False)
+    _corrupt_stored_mandate(session_factory, PID_A, drift_l1_threshold=5.0)
+
+    driven: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "fund.scheduler._drive_rebalance",
+        lambda pid, asof, **_kw: driven.append(pid),
+    )
+
+    ok = run_rebalance_sweep(session_factory=session_factory, asof=ASOF)
+
+    assert ok is True
+    assert driven == [PID_A, PID_B]
+
+
+def test_drift_monitor_skips_an_unreadable_mandate_and_checks_the_rest(
+    session_factory, monkeypatch
+):
+    _seed_mandate(session_factory, PID_A, cron=False, drift=True, threshold=0.1)
+    _seed_mandate(session_factory, PID_B, cron=False, drift=True, threshold=0.1)
+    _corrupt_stored_mandate(session_factory, PID_A, capital="-1")  # cannot be repaired
+
+    monkeypatch.setattr(
+        observe, "portfolio_state", lambda session, pid: _state(pid, 0.5)
+    )
+    monkeypatch.setattr(observe, "reprofile_status", _not_due)
+    driven: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "fund.scheduler._drive_rebalance",
+        lambda pid, asof, **_kw: driven.append(pid),
+    )
+
+    ok = run_drift_monitor(session_factory=session_factory, asof=ASOF)
+
+    assert ok is True
+    assert driven == [PID_B]  # A unreadable (skipped); B breached → enqueued

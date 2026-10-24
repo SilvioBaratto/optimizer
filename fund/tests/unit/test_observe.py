@@ -1605,6 +1605,22 @@ def test_get_mandate_rehydrates_pydantic_from_json(db_session):
     assert fetched == mandate
 
 
+def test_get_mandate_clamps_a_legacy_over_bound_drift_threshold(db_session):
+    # A row saved before the schema capped the threshold at the L1 bound of 2 must
+    # keep loading (clamped) rather than raising on every read.
+    pid = uuid.uuid4()
+    row = MandateRepository(db_session).upsert(_mandate(str(pid)))
+    row.mandate = {**row.mandate, "drift_l1_threshold": 5.0}
+    row.drift_l1_threshold = 5.0
+    db_session.flush()
+
+    fetched = observe.get_mandate(db_session, pid)
+
+    assert fetched is not None
+    assert fetched.drift_l1_threshold == pytest.approx(2.0)
+    assert fetched.drift_l1_threshold < 2.0  # the schema's open bound
+
+
 def test_get_mandate_none_for_unknown_portfolio(db_session):
     assert observe.get_mandate(db_session, uuid.uuid4()) is None
 

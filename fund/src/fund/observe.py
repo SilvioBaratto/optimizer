@@ -521,7 +521,9 @@ def get_mandate(session: Any, portfolio_id: uuid.UUID) -> PortfolioMandate | Non
 
     ``MandateRepository.get`` returns the DB row (JSON source of truth + scalar
     mirror); JSON→pydantic rehydration lives here, on the read side, so the
-    state/report panels get the typed mandate.
+    state/report panels get the typed mandate. A legacy over-bound drift threshold
+    is clamped on read (see ``PortfolioMandate.from_stored``) so one stale row never
+    blanks a panel.
     """
     from fund.audit.mandate_repository import MandateRepository
     from fund.schemas.mandate import PortfolioMandate
@@ -529,7 +531,7 @@ def get_mandate(session: Any, portfolio_id: uuid.UUID) -> PortfolioMandate | Non
     row = MandateRepository(session).get(portfolio_id)
     if row is None:
         return None
-    return PortfolioMandate.model_validate(row.mandate)
+    return PortfolioMandate.from_stored(row.mandate)
 
 
 def performance_summary(
