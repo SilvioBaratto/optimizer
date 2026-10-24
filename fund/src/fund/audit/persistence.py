@@ -137,15 +137,25 @@ def setup_langgraph(config: FundConfig | None = None) -> LangGraphPersistence:
     Returns:
         The pool and both persistence handles. The caller owns the pool's
         lifetime (call ``result.pool.close()`` when done).
+
+    Raises:
+        Exception: Whatever the schema or saver/store setup raised; the pool
+            opened for it is closed before the error propagates.
     """
     cfg = config if config is not None else settings
     conninfo = _require_conninfo(cfg)
     create_schema(conninfo, cfg.langgraph_schema)
     pool = build_pool(cfg)
-    saver = PostgresSaver(pool)
-    store = PostgresStore(pool)
-    saver.setup()
-    store.setup()
+    # The pool is already open (worker threads + connections); if setup fails no
+    # caller ever receives it, so it must be closed here or it leaks.
+    try:
+        saver = PostgresSaver(pool)
+        store = PostgresStore(pool)
+        saver.setup()
+        store.setup()
+    except BaseException:
+        pool.close()
+        raise
     return LangGraphPersistence(pool=pool, saver=saver, store=store)
 
 

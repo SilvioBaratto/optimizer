@@ -134,3 +134,36 @@ def test_setup_langgraph_orchestrates_schema_then_saver_then_store(monkeypatch):
     assert isinstance(result.store, _FakeStore)
     assert result.saver.pool is sentinel_pool
     assert result.store.pool is sentinel_pool
+
+
+@pytest.mark.parametrize("failing", ["saver", "store"])
+def test_setup_langgraph_closes_the_pool_when_setup_raises(monkeypatch, failing):
+    class _Pool:
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    pool = _Pool()
+
+    def _make(name: str):
+        class _Handle:
+            def __init__(self, _pool: object) -> None:
+                pass
+
+            def setup(self) -> None:
+                if name == failing:
+                    raise RuntimeError(f"{name} migration failed")
+
+        return _Handle
+
+    monkeypatch.setattr(persistence, "create_schema", lambda *_a: None)
+    monkeypatch.setattr(persistence, "build_pool", lambda _config: pool)
+    monkeypatch.setattr(persistence, "PostgresSaver", _make("saver"))
+    monkeypatch.setattr(persistence, "PostgresStore", _make("store"))
+
+    cfg = FundConfig(database_url="postgresql+psycopg2://u:p@h:54320/db")
+    with pytest.raises(RuntimeError, match=f"{failing} migration failed"):
+        persistence.setup_langgraph(cfg)
+
+    assert pool.closed
