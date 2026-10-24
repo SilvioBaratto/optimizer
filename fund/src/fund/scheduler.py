@@ -313,6 +313,46 @@ def _runtime_parts(
     return runtime.model, runtime.fallback, runtime.persistence
 
 
+@dataclass(frozen=True)
+class _PassOutcome:
+    """How many portfolios a sweep/monitor pass processed, and which of them errored."""
+
+    attempted: int
+    failed: tuple[uuid.UUID, ...]
+
+    @property
+    def all_failed(self) -> bool:
+        """Whether every processed portfolio errored (vacuously ``False`` if none)."""
+        return self.attempted > 0 and len(self.failed) == self.attempted
+
+    @property
+    def error(self) -> str | None:
+        """The slot's error text naming the errored portfolios, or ``None``."""
+        if not self.failed:
+            return None
+        ids = ", ".join(str(pid) for pid in self.failed)
+        return f"{len(self.failed)} of {self.attempted} portfolio(s) errored: {ids}"
+
+
+def _close_slot(
+    label: str, job_repo: Any, job_id: uuid.UUID, outcome: _PassOutcome
+) -> bool:
+    """Finalise a pass's slot: ``failed`` iff every portfolio errored, else completed.
+
+    One portfolio erroring never aborts a pass, so a partial failure completes the
+    slot but records which portfolios errored; a pass in which *nothing* succeeded is
+    ``failed`` (and returns ``False``) so operators and the manual CLI exit code do
+    not read an outage as success.
+    """
+    status = "failed" if outcome.all_failed else "completed"
+    job_repo.mark_done(job_id, status=status, error=outcome.error)
+    if outcome.error is not None:
+        logger.warning("%s: %s — %s", label, status, outcome.error)
+    else:
+        logger.info("%s: %s", label, status)
+    return status == "completed"
+
+
 def run_rebalance_sweep(
     *,
     session_factory: SessionFactory | None = None,
@@ -326,8 +366,9 @@ def run_rebalance_sweep(
     rehydrates each ``PortfolioMandate``, and for every one with ``triggers.cron``
     calls :func:`_drive_rebalance` **sequentially**. One portfolio erroring is
     logged and skipped — it never aborts the sweep. **Never approves.** Returns
-    ``True`` when the sweep completed (``False`` if the slot was busy or the sweep
-    failed at the infrastructure level).
+    ``True`` when the sweep completed, with the errored portfolios (if any) recorded
+    on its slot; ``False`` if the slot was busy, the sweep failed at the
+    infrastructure level, or every portfolio errored.
     """
     from fund.audit.fund_job_repository import FundJobRepository
 
@@ -346,7 +387,7 @@ def run_rebalance_sweep(
                 cadence=config.fund_heartbeat_cadence_seconds,
                 session_factory=factory,
             ):
-                _sweep_cron_mandates(
+                outcome = _sweep_cron_mandates(
                     session, resolved_runtime, _decision_asof(session, asof)
                 )
         except Exception as exc:
@@ -354,9 +395,7 @@ def run_rebalance_sweep(
             session.rollback()
             job_repo.mark_done(job_id, status="failed", error=str(exc))
             return False
-        job_repo.mark_done(job_id, status="completed")
-        logger.info("rebalance sweep: completed")
-        return True
+        return _close_slot("rebalance sweep", job_repo, job_id, outcome)
 
 
 def _active_mandate_rows(session: Session) -> list[tuple[uuid.UUID, dict[str, Any]]]:
@@ -376,19 +415,23 @@ def _active_mandate_rows(session: Session) -> list[tuple[uuid.UUID, dict[str, An
 
 def _sweep_cron_mandates(
     session: Session, runtime: SchedulerRuntime | None, asof: dt.date
-) -> None:
+) -> _PassOutcome:
     """Drive each active ``triggers.cron`` mandate; one error is skipped, not fatal.
 
     Each portfolio is its own transaction: committed as soon as it reaches its
     gate, rolled back if it fails. A paused run is therefore visible to the adviser
     immediately and survives a crash later in the sweep, and a failed portfolio
     can neither leave a pending orphan row nor poison the session for the rest.
+    Returns which portfolios errored so the slot can report them.
     """
     model, fallback, persistence = _runtime_parts(runtime)
+    attempted = 0
+    failed: list[uuid.UUID] = []
     for pid, payload in _active_mandate_rows(session):
         mandate = PortfolioMandate.model_validate(payload)
         if not mandate.triggers.cron:
             continue
+        attempted += 1
         try:
             _drive_rebalance(
                 pid,
@@ -402,6 +445,8 @@ def _sweep_cron_mandates(
         except Exception:
             logger.exception("rebalance sweep: portfolio %s errored; skipping", pid)
             session.rollback()
+            failed.append(pid)
+    return _PassOutcome(attempted, tuple(failed))
 
 
 def run_drift_monitor(
@@ -419,7 +464,8 @@ def run_drift_monitor(
     drives one rebalance to the HITL gate via :func:`_drive_rebalance` (Q2) —
     **never approves**. Also logs a re-profiling marker when
     ``observe.reprofile_status`` reports the portfolio due (flag-only, no gate).
-    One portfolio erroring is logged and skipped.
+    One portfolio erroring is logged, skipped and recorded on the slot; the call
+    returns ``False`` only when every processed portfolio errored.
     """
     from fund.audit.fund_job_repository import FundJobRepository
 
@@ -438,7 +484,7 @@ def run_drift_monitor(
                 cadence=config.fund_heartbeat_cadence_seconds,
                 session_factory=factory,
             ):
-                _monitor_drift_mandates(
+                outcome = _monitor_drift_mandates(
                     session, resolved_runtime, _decision_asof(session, asof), config
                 )
         except Exception as exc:
@@ -446,9 +492,7 @@ def run_drift_monitor(
             session.rollback()
             job_repo.mark_done(job_id, status="failed", error=str(exc))
             return False
-        job_repo.mark_done(job_id, status="completed")
-        logger.info("drift monitor: completed")
-        return True
+        return _close_slot("drift monitor", job_repo, job_id, outcome)
 
 
 def _monitor_drift_mandates(
@@ -456,17 +500,21 @@ def _monitor_drift_mandates(
     runtime: SchedulerRuntime | None,
     asof: dt.date,
     config: FundConfig,
-) -> None:
+) -> _PassOutcome:
     """Check drift for each active ``triggers.drift`` mandate; one error is skipped.
 
     Transaction boundaries match :func:`_sweep_cron_mandates`: one commit per
-    portfolio, a rollback for the one that errored.
+    portfolio, a rollback for the one that errored, and the errored portfolios
+    returned for the slot to report.
     """
     model, fallback, persistence = _runtime_parts(runtime)
+    attempted = 0
+    failed: list[uuid.UUID] = []
     for pid, payload in _active_mandate_rows(session):
         mandate = PortfolioMandate.model_validate(payload)
         if not mandate.triggers.drift:
             continue
+        attempted += 1
         try:
             _check_drift(
                 pid,
@@ -482,6 +530,8 @@ def _monitor_drift_mandates(
         except Exception:
             logger.exception("drift monitor: portfolio %s errored; skipping", pid)
             session.rollback()
+            failed.append(pid)
+    return _PassOutcome(attempted, tuple(failed))
 
 
 # Run outcomes that mean "a rebalance was attempted and nobody acted on it".

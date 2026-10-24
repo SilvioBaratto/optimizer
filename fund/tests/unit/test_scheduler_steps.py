@@ -404,6 +404,62 @@ def test_step_aborted_on_a_poisoned_session_still_marks_its_slot_failed(
     assert [r.status for r in rows] == ["failed"]  # not stuck 'running' for the reaper
 
 
+@pytest.mark.parametrize("step", _STEPS)
+def test_partial_failure_is_recorded_on_the_completed_slot(
+    session_factory, monkeypatch, step
+):
+    _seed_mandate(session_factory, PID_A, cron=True, drift=True, threshold=0.1)
+    _seed_mandate(session_factory, PID_B, cron=True, drift=True, threshold=0.1)
+
+    def _drive(pid, asof, *, session, **_kw):
+        if pid == PID_A:
+            raise RuntimeError("LLM 429")
+
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", _drive)
+
+    assert _run_step(step, session_factory, monkeypatch) is True
+
+    row = _job_rows(session_factory, _STEP_JOB_TYPE[step])[0]
+    assert row.status == "completed"  # B still ran, so the slot did its job
+    assert row.error is not None
+    assert "1 of 2" in row.error
+    assert str(PID_A) in row.error
+    assert str(PID_B) not in row.error
+
+
+@pytest.mark.parametrize("step", _STEPS)
+def test_step_where_every_portfolio_errors_is_reported_failed(
+    session_factory, monkeypatch, step
+):
+    _seed_mandate(session_factory, PID_A, cron=True, drift=True, threshold=0.1)
+    _seed_mandate(session_factory, PID_B, cron=True, drift=True, threshold=0.1)
+
+    def _drive(pid, asof, *, session, **_kw):
+        raise RuntimeError("LLM outage")
+
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", _drive)
+
+    ok = _run_step(step, session_factory, monkeypatch)
+
+    assert ok is False  # so ``python -m fund.scheduler`` exits non-zero
+    row = _job_rows(session_factory, _STEP_JOB_TYPE[step])[0]
+    assert row.status == "failed"
+    assert row.error is not None
+    assert "2 of 2" in row.error
+
+
+@pytest.mark.parametrize("step", _STEPS)
+def test_step_with_nothing_to_drive_is_not_reported_failed(
+    session_factory, monkeypatch, step
+):
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", lambda *a, **k: None)
+
+    assert _run_step(step, session_factory, monkeypatch) is True
+
+    row = _job_rows(session_factory, _STEP_JOB_TYPE[step])[0]
+    assert (row.status, row.error) == ("completed", None)
+
+
 def test_sweep_skips_when_slot_busy(session_factory, monkeypatch):
     _seed_mandate(session_factory, PID_A, cron=True, drift=False)
     with session_factory() as session:
