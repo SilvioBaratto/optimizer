@@ -306,6 +306,7 @@ Overridable via `.env` (`DATABASE_POOL_SIZE`, …); the running container may sh
 ## 6. Migration Conventions
 
 ```bash
+export DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db   # env.py reads only this variable
 cd packages/portopt-db && alembic upgrade head      # apply (single migration owner)
 cd packages/portopt-db && alembic current           # show version
 cd packages/portopt-db && alembic revision --autogenerate -m "add_foo_table"
@@ -357,7 +358,7 @@ select(BackgroundJob).where(BackgroundJob.job_type == "yfinance_fetch").order_by
 3. **Indexes**: `Index("ix_<table>_<col>", "<col>")` in `__table_args__`
 4. **Register**: import in `portopt_db/models/__init__.py` (Alembic autogenerate reads `Base.metadata`)
 5. **Repository**: in `portopt_db/repositories/<domain>/` extending `RepositoryBase` (jobs behavior stays in ingestion)
-6. **Migration**: `cd packages/portopt-db && alembic revision --autogenerate` → review before applying
+6. **Migration**: `cd packages/portopt-db && DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db alembic revision --autogenerate` → review before applying
 7. **SQLite compat**: if the table needs JSONB, use `JSON().with_variant(JSONB, "postgresql")` or the test suite cannot create it
 
 ---

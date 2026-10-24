@@ -23,6 +23,7 @@ Locally (from the workspace root):
 
 ```bash
 uv sync --all-packages --all-extras
+export DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db   # alembic reads only this variable, never .env
 (cd packages/portopt-db && alembic upgrade head)   # migration owner
 uv run --package portopt python -m app.worker      # blocks until SIGTERM/SIGINT
 ```

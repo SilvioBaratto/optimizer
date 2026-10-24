@@ -167,7 +167,7 @@ OPTIMIZER_REPO=/path/to/optimizer portopt setup
 **`portopt setup`** verifies Docker + the compose plugin, validates your
 Trading 212 / FRED keys live, encrypts them (Fernet + scrypt) to
 `~/.portopt/secrets.enc` (mode `0600`, passphrase never persisted), brings up
-PostgreSQL (`docker compose up -d --wait db`), and runs `alembic upgrade head`.
+PostgreSQL (`docker compose up -d --wait db`), and applies the Alembic migrations.
 It seeds no data. Re-run any time with `portopt setup`.
 
 Lifecycle:
@@ -192,6 +192,7 @@ git clone https://github.com/SilvioBaratto/optimizer
 cd optimizer
 uv sync --all-packages --all-extras     # one venv with every member + every extra
 docker compose --profile ingestion up -d # PostgreSQL (54320) + Adminer (18081) + scheduler (metrics 9000)
+export DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db   # alembic reads only this variable, never .env
 cd packages/portopt-db && alembic upgrade head   # apply migrations (single owner)
 ```
 
@@ -342,7 +343,7 @@ cd ingestion && uv run pytest tests/
 
 # Shared DB layer (portopt-db)
 cd packages/portopt-db && uv run pytest
-cd packages/portopt-db && alembic upgrade head     # head: a6f1c8d3e2b7
+cd packages/portopt-db && DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db alembic upgrade head   # head: a6f1c8d3e2b7
 
 # Fund bridge (portopt-fund)
 cd fund && uv run pytest tests/
@@ -364,7 +365,7 @@ suite.
 all four members → shellcheck → pip-audit), `typecheck` (mypy), `pyright` (pinned `1.1.398`), `test`
 (`--cov=optimizer` ≥ 90%), `ingestion-test` (`--cov=app` ≥ 80%),
 `portopt-db-test` (`--cov=portopt_db` ≥ 90%), `fund-test` (`--cov=fund` ≥
-80%), `postgres-integration` (`alembic upgrade head` on a real PostgreSQL plus
+80%), `postgres-integration` (the Alembic upgrade to head on a real PostgreSQL plus
 the `integration`-marked tests), and `docker-images` (compose config + build of
 both images). `release.yml` publishes `portopt-core` to PyPI on `v*` tags, but only
 after checking that the tagged commit is on `main`, that the tag equals
