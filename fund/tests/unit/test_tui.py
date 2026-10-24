@@ -5866,6 +5866,34 @@ async def test_ask_action_two_gates_disambiguate_to_named(tui_env) -> None:
         assert AgentRunRepository(session).get_run(tui_env.run_id).status == "completed"
 
 
+@pytest.mark.asyncio
+async def test_ask_pending_gate_answered_with_new_verb_runs_that_verb(tui_env) -> None:
+    """'approve' asks which gate; answering 'reject #id' must reject it, not approve."""
+    _seed_fake_gate(tui_env, PORTFOLIO_ID, thread_id="thread-gate2", seed=2)
+    short = str(tui_env.run_id).split("-", 1)[0]
+
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert view.pending_action is not None  # ambiguous: two gates
+
+        view.submit_turn(f"reject #{short}")
+        await pilot.pause()
+        assert view.pending_action is None
+        assert isinstance(app.screen, ConfirmScreen)
+        assert "approve" not in app.screen._prompt.lower()
+        await pilot.click("#confirm-yes")
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert "rejected" in app.last_status
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "rejected"
+        assert HumanAuditLogRepository(session).list_recent(action="approve") == []
+
+
 # --- Agent-originated text is data, never Textual markup ---------------------
 
 # Bracketed key=value runs and a stray closing tag all raise ``MarkupError`` when a

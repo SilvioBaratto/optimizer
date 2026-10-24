@@ -267,7 +267,9 @@ def resolve_pending(
     names (by short id); a scope/rebalance pending re-resolves from the next turn's
     target words (e.g. "the fund") or the now-focused portfolio. An unmatched next turn
     stays non-``resolved`` so the caller can treat it as a fresh, unrelated turn (which
-    clears the pending action).
+    clears the pending action). A follow-up that opens with a *different* decision verb
+    ("reject #44ae61f1" after an "approve" question) is a new command, not an answer, so
+    it is left unresolved rather than executed under the carried verb.
 
     Args:
         pending: The carried :class:`PendingAction` from the prior ambiguous turn.
@@ -280,6 +282,9 @@ def resolve_pending(
         A :class:`TargetResolution`; ``resolved`` only when the follow-up names the
         target unambiguously.
     """
+    follow_up_verb = _leading_verb(turn)
+    if follow_up_verb is not None and follow_up_verb != pending.verb:
+        return TargetResolution("unresolved", None, (), "a different action")
     if pending.verb in _RESUME_VERBS:
         live = [
             gate

@@ -226,6 +226,58 @@ def test_resolve_target_run_rebalance_needs_focus(db_session):
     assert res.action.portfolio_id == _PID_A
 
 
+# --- resolve_pending --------------------------------------------------------
+
+
+def _pending_approve(db_session, saver):
+    """Two gates + the pending 'approve' an unnamed approve turn carries forward."""
+    run_a = _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
+    _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b")
+    ambiguous = ask.resolve_target("approve the gate", db_session, saver, None)
+    pending = ask.pending_action("approve the gate", ambiguous)
+    return run_a, str(run_a).split("-", 1)[0], pending
+
+
+def test_resolve_pending_follow_up_naming_the_gate_keeps_the_pending_verb(db_session):
+    """A bare short id answers the question, so the carried verb still applies."""
+    saver = MemorySaver()
+    run_a, short, pending = _pending_approve(db_session, saver)
+
+    for follow_up in (f"#{short}", f"approve #{short}"):
+        res = ask.resolve_pending(pending, follow_up, db_session, saver, None)
+
+        assert res.status == "resolved", follow_up
+        assert res.action is not None
+        assert res.action.verb == "approve" and res.action.run_id == run_a
+
+
+def test_resolve_pending_follow_up_with_a_different_verb_is_not_resolved(db_session):
+    """'reject #id' answering an 'approve' question is a new command, not an approve."""
+    saver = MemorySaver()
+    _, short, pending = _pending_approve(db_session, saver)
+
+    res = ask.resolve_pending(pending, f"reject #{short}", db_session, saver, None)
+
+    assert res.status != "resolved"
+    assert res.action is None
+
+
+def test_resolve_pending_scope_follow_up_with_a_different_verb_is_not_resolved(
+    db_session,
+):
+    """A pending 'freeze' is not answered by 're-arm the fund' (it would freeze it)."""
+    pending = ask.pending_action(
+        "freeze it", ask.resolve_target("freeze it", db_session, MemorySaver(), None)
+    )
+
+    res = ask.resolve_pending(
+        pending, "re-arm the fund", db_session, MemorySaver(), None
+    )
+
+    assert res.status != "resolved"
+    assert res.action is None
+
+
 # --- build_context ----------------------------------------------------------
 
 
