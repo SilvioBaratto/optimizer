@@ -53,7 +53,7 @@ class PortfolioMandate(BaseModel):
     portfolio_id: str
     capital: Decimal = Field(gt=0)
     base_currency: str = Field(pattern=r"^[A-Z]{3}$")
-    drift_l1_threshold: float = Field(gt=0, lt=MAX_DRIFT_L1)
+    drift_l1_threshold: float = Field(gt=0, lt=MAX_DRIFT_L1, allow_inf_nan=False)
     hitl_gates: tuple[str, ...] = ("place_orders",)
     triggers: RunTriggers
     # Mirrored into portfolio_mandates.benchmark (VARCHAR(32)); PostgreSQL rejects a

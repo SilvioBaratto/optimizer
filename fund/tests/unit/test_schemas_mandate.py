@@ -164,6 +164,22 @@ def test_rejects_drift_threshold_outside_the_l1_range(bad_threshold: float):
         )
 
 
+@pytest.mark.parametrize(
+    "bad_threshold", [2.0, 2.01, 5.0, 10.0, float("inf"), float("nan")]
+)
+def test_rejects_drift_threshold_the_l1_drift_can_never_reach(bad_threshold: float):
+    # L1 drift between two long-only portfolios is at most 2, so a percent typed as a
+    # fraction (5 for 5%) would validate yet leave the drift trigger permanently inert.
+    with pytest.raises(pydantic.ValidationError):
+        PortfolioMandate(
+            portfolio_id="pf-001",
+            capital=Decimal("1000"),
+            base_currency="EUR",
+            drift_l1_threshold=bad_threshold,
+            triggers=RunTriggers(cron=True, drift=True),
+        )
+
+
 @pytest.mark.parametrize("threshold", [0.0001, 0.05, 1.99])
 def test_accepts_drift_threshold_inside_the_l1_range(threshold: float):
     m = PortfolioMandate(
