@@ -247,3 +247,60 @@ def test_build_profiler_agent_wires_the_theory_backend_and_skill(tmp_path, monke
     assert captured["interrupt_on"] == {"save_profile": True}
     assert captured["checkpointer"] == "CKPT"
     assert captured["store"] == "STORE"
+
+
+def test_build_profiler_agent_applies_the_summary_override(tmp_path, monkeypatch):
+    """``FUND_SUMMARY_*`` must bound the profiler's transcript, not just the PM's."""
+    import deepagents
+    from deepagents.backends import FilesystemBackend
+
+    from fund.agents import profiler as profiler_mod
+
+    captured: dict[str, object] = {}
+
+    def _spy(*args: object, **kwargs: object) -> str:
+        captured.update(kwargs)
+        return "PROFILER_AGENT"
+
+    monkeypatch.setattr(deepagents, "create_deep_agent", _spy)
+    fake_backend = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
+    monkeypatch.setattr(profiler_mod, "build_backend", lambda config: fake_backend)
+    config = dataclasses.replace(
+        settings, summary_token_threshold=24000, summary_messages_to_keep=4
+    )
+
+    profiler_mod.build_profiler_agent(
+        ScriptedProfilerModel(), [], checkpointer="CKPT", store=None, config=config
+    )
+
+    summarizers = [
+        m
+        for m in captured.get("middleware", [])  # type: ignore[attr-defined]
+        if m.name == "SummarizationMiddleware"
+    ]
+    assert len(summarizers) == 1
+    assert summarizers[0]._lc_helper.trigger == ("tokens", 24000)
+    assert summarizers[0]._lc_helper.keep == ("messages", 4)
+    assert summarizers[0]._lc_helper.trim_tokens_to_summarize is None
+
+
+def test_build_profiler_agent_keeps_deepagents_summarization_without_override(
+    tmp_path, monkeypatch
+):
+    import deepagents
+    from deepagents.backends import FilesystemBackend
+
+    from fund.agents import profiler as profiler_mod
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        deepagents, "create_deep_agent", lambda *a, **k: captured.update(k)
+    )
+    fake_backend = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
+    monkeypatch.setattr(profiler_mod, "build_backend", lambda config: fake_backend)
+
+    profiler_mod.build_profiler_agent(
+        ScriptedProfilerModel(), [], checkpointer="CKPT", store=None
+    )
+
+    assert not captured.get("middleware")

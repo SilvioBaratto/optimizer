@@ -762,6 +762,26 @@ def test_round_cap_finalizes_incomplete(db_session) -> None:
     )
 
 
+# --- summarization override compiles into the real agent graph ---------------
+
+
+def test_summary_override_still_pauses_at_the_gate(db_session) -> None:
+    # A real ``create_deep_agent`` build with the override wired through the PM,
+    # the four subagents and the general-purpose subagent: it must assemble (no
+    # duplicate-middleware or state-schema clash) and run to the HITL gate.
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=expected)
+    bounded = dataclasses.replace(
+        settings, summary_token_threshold=24000, summary_messages_to_keep=4
+    )
+
+    run = _run(model, db_session, store=_store_with_cs(), config=bounded)
+
+    assert run.status == "paused"
+    assert run.weights == expected
+
+
 # --- reproducibility: seed + temperature=0 + 3y lookback -----------
 
 

@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any, cast
 from fund.agents.backend import build_backend
 from fund.agents.prompts import PROFILER_SYSTEM_PROMPT
 from fund.agents.skills import skill_sources
+from fund.agents.summarization import summarization_override
 from fund.config import FundConfig, settings
 from fund.schemas.constraint_set import ConstraintSet, EsgPolicy, UniverseFilters
 from fund.schemas.enums import (
@@ -694,13 +695,15 @@ def build_profiler_agent(
     # bool | InterruptOnConfig (a langchain TypedDict) — kept Any to avoid a
     # top-level import of the agent stack (the module stays import-light).
     gate: Any = interrupt_config if interrupt_config else True
+    backend = build_backend(config)
     return create_deep_agent(
         model=model,
         tools=tools,
         system_prompt=PROFILER_SYSTEM_PROMPT,
         skills=skill_sources("profiler"),
-        backend=build_backend(config),
+        backend=backend,
         interrupt_on={_SAVE_PROFILE_TOOL: gate},
+        middleware=summarization_override(model, backend, config),
         checkpointer=checkpointer,
         store=store,
     )

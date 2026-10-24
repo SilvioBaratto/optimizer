@@ -135,10 +135,13 @@ class FundConfig:
     # fresh). Pure compute, agent-stack-free; backfills + idempotent upsert.
     fund_nav_mark_cron: str = "0 8 * * *"
 
-    # --- Phase-9 agent hardening: annual re-profiling marker + summarization pin
-    # (mirrors the deepagents built-in defaults so the daemon can override them). ---
+    # --- Phase-9 agent hardening: annual re-profiling marker + summarization
+    # override. ``summary_token_threshold=None`` keeps deepagents' model-aware
+    # default (a fraction of the model's context, else 170000 tokens); a value pins
+    # the trigger for every agent so transcripts stay inside a small-context model.
+    # ``summary_messages_to_keep`` only applies together with a threshold. ---
     reprofile_interval_days: int = 365
-    summary_token_threshold: int = 170000
+    summary_token_threshold: int | None = None
     summary_messages_to_keep: int = 6
 
     def langgraph_pool_kwargs(self) -> dict[str, Any]:
@@ -161,6 +164,14 @@ class FundConfig:
     def interrupt_on_map(self) -> dict[str, bool]:
         """deepagents ``interrupt_on={tool: True}`` map from the gated-tool tuple."""
         return dict.fromkeys(self.interrupt_on, True)
+
+
+def _optional_int(env: Mapping[str, str], name: str) -> int | None:
+    """Parse ``env[name]`` as an int, treating an absent or blank value as unset."""
+    raw = env.get(name)
+    if raw is None or not raw.strip():
+        return None
+    return int(raw)
 
 
 def _read_secret(env: Mapping[str, str], name: str) -> str | None:
@@ -314,9 +325,7 @@ def load_config(
         reprofile_interval_days=int(
             env.get("FUND_REPROFILE_INTERVAL_DAYS", defaults.reprofile_interval_days)
         ),
-        summary_token_threshold=int(
-            env.get("FUND_SUMMARY_TOKEN_THRESHOLD", defaults.summary_token_threshold)
-        ),
+        summary_token_threshold=_optional_int(env, "FUND_SUMMARY_TOKEN_THRESHOLD"),
         summary_messages_to_keep=int(
             env.get("FUND_SUMMARY_MESSAGES_TO_KEEP", defaults.summary_messages_to_keep)
         ),

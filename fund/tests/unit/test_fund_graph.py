@@ -14,12 +14,14 @@ skills (Risk R1), the ``virtual_mode`` backend, the checkpointer/store, and
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import uuid
 from typing import Any
 
 import deepagents
 import pytest
+from _fund_fakes import ScriptedFundModel
 from langchain.agents.middleware import ModelFallbackMiddleware
 from langchain_core.tools import BaseTool
 
@@ -200,6 +202,65 @@ def test_build_fund_agent_wires_four_subagents_in_pipeline_order(
     assert "middleware" not in by_name["economist"]
     for role in ("allocator", "risk", "executor"):
         assert isinstance(by_name[role]["middleware"][0], ModelFallbackMiddleware)
+
+
+# --- summarization override: FUND_SUMMARY_* bound the PM and every subagent ---
+
+
+_SUMMARIZATION = "SummarizationMiddleware"
+
+
+def _summarizers(middleware: list[Any]) -> list[Any]:
+    return [m for m in middleware if m.name == _SUMMARIZATION]
+
+
+def _summary_config() -> Any:
+    return dataclasses.replace(
+        settings, summary_token_threshold=24000, summary_messages_to_keep=4
+    )
+
+
+def test_summary_override_reaches_the_pm_and_every_subagent(tmp_path, monkeypatch):
+    # deepagents' built-in trigger (fraction of the context, else 170k tokens)
+    # overflows a small-context model; the operator's override must replace it in
+    # the PM stack and in each declarative subagent, which inherits nothing.
+    captured = _spy_create_deep_agent(monkeypatch, tmp_path)
+
+    graph.build_fund_agent(
+        ScriptedFundModel(),
+        checkpointer="CKPT",
+        store=None,
+        ctx=_ctx(),
+        config=_summary_config(),
+        fallback=_FALLBACK,
+    )
+
+    stacks = {"pm": captured["middleware"]}
+    stacks.update({s["name"]: s.get("middleware", []) for s in captured["subagents"]})
+    assert set(stacks) == {"pm", "economist", "allocator", "risk", "executor"}
+    for name, stack in stacks.items():
+        (summarizer,) = _summarizers(stack)
+        assert summarizer._lc_helper.trigger == ("tokens", 24000), name
+        assert summarizer._lc_helper.keep == ("messages", 4), name
+        assert summarizer._lc_helper.trim_tokens_to_summarize is None, name
+    for role in ("allocator", "risk", "executor"):
+        assert any(isinstance(m, ModelFallbackMiddleware) for m in stacks[role])
+
+
+def test_without_a_summary_override_deepagents_defaults_stay(tmp_path, monkeypatch):
+    captured = _spy_create_deep_agent(monkeypatch, tmp_path)
+
+    graph.build_fund_agent(
+        ScriptedFundModel(),
+        checkpointer="CKPT",
+        store=None,
+        ctx=_ctx(),
+        fallback=_FALLBACK,
+    )
+
+    assert _summarizers(captured["middleware"]) == []
+    for sub in captured["subagents"]:
+        assert _summarizers(sub.get("middleware", [])) == []
 
 
 # --- T5: effective interrupt_on = config.interrupt_on ∪ mandate.hitl_gates ------

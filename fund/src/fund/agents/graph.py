@@ -47,13 +47,14 @@ from fund.agents.prompts import (
     RISK_SYSTEM_PROMPT,
 )
 from fund.agents.skills import skill_sources
+from fund.agents.summarization import summarization_override
 from fund.config import FundConfig, settings
 
 _log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     import datetime as dt
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
     # ``fund.agents.toolsets`` reaches ``fund.tools`` (the agent stack) at import;
     # keep it type-only here and import ``bind_toolset`` lazily inside the builders
@@ -110,6 +111,7 @@ def _subagent(
     system_prompt: str,
     ctx: RunContext,
     fallback: Any | None = None,
+    summarization: Sequence[Any] = (),
 ) -> dict[str, Any]:
     """Build one ``SubAgent`` dict for ``role`` from the per-run context.
 
@@ -117,7 +119,10 @@ def _subagent(
     root-relative skills; never sets ``interrupt_on``. When ``fallback`` is given
     (critical roles only), attaches a single ``ModelFallbackMiddleware`` so a
     primary-model failure retries on the fallback (a langchain middleware, not a
-    hand-rolled ``.with_fallbacks``).
+    hand-rolled ``.with_fallbacks``). ``summarization`` carries the operator's
+    override from :func:`fund.agents.summarization.summarization_override`; a
+    declarative subagent inherits no middleware from the PM, so it is attached to
+    each spec explicitly.
     """
     from fund.agents.toolsets import bind_toolset
 
@@ -128,25 +133,35 @@ def _subagent(
         "tools": bind_toolset(role, ctx),
         "skills": skill_sources(role),
     }
+    middleware: list[Any] = []
     if fallback is not None:
         from langchain.agents.middleware import ModelFallbackMiddleware
 
-        sub["middleware"] = [ModelFallbackMiddleware(fallback)]
+        middleware.append(ModelFallbackMiddleware(fallback))
+    middleware.extend(summarization)
+    if middleware:
+        sub["middleware"] = middleware
     return sub
 
 
-def build_economist_subagent(ctx: RunContext) -> dict[str, Any]:
+def build_economist_subagent(
+    ctx: RunContext, *, summarization: Sequence[Any] = ()
+) -> dict[str, Any]:
     """The economist subagent (step 1) — narrative regime read, no fallback."""
     return _subagent(
         "economist",
         description=_ECONOMIST_DESCRIPTION,
         system_prompt=ECONOMIST_SYSTEM_PROMPT,
         ctx=ctx,
+        summarization=summarization,
     )
 
 
 def build_allocator_subagent(
-    ctx: RunContext, *, fallback: Any | None = None
+    ctx: RunContext,
+    *,
+    fallback: Any | None = None,
+    summarization: Sequence[Any] = (),
 ) -> dict[str, Any]:
     """The allocator subagent (step 2) — the optimizer path; critical role."""
     return _subagent(
@@ -155,11 +170,15 @@ def build_allocator_subagent(
         system_prompt=ALLOCATOR_SYSTEM_PROMPT,
         ctx=ctx,
         fallback=fallback,
+        summarization=summarization,
     )
 
 
 def build_risk_subagent(
-    ctx: RunContext, *, fallback: Any | None = None
+    ctx: RunContext,
+    *,
+    fallback: Any | None = None,
+    summarization: Sequence[Any] = (),
 ) -> dict[str, Any]:
     """The risk subagent (step 3) — the blocking gate; critical role."""
     return _subagent(
@@ -168,11 +187,15 @@ def build_risk_subagent(
         system_prompt=RISK_SYSTEM_PROMPT,
         ctx=ctx,
         fallback=fallback,
+        summarization=summarization,
     )
 
 
 def build_executor_subagent(
-    ctx: RunContext, *, fallback: Any | None = None
+    ctx: RunContext,
+    *,
+    fallback: Any | None = None,
+    summarization: Sequence[Any] = (),
 ) -> dict[str, Any]:
     """The executor subagent (step 4) — proposes the rebalance; critical role.
 
@@ -185,6 +208,7 @@ def build_executor_subagent(
         system_prompt=EXECUTOR_SYSTEM_PROMPT,
         ctx=ctx,
         fallback=fallback,
+        summarization=summarization,
     )
 
 
@@ -273,11 +297,16 @@ def build_fund_agent(
     from fund.agents.toolsets import bind_toolset, build_gate_weights_middleware
 
     gates = interrupt_on if interrupt_on is not None else config.interrupt_on_map()
+    backend = build_backend(config)
+
+    def summarization() -> list[Any]:
+        return summarization_override(model, backend, config)
+
     subagents = [
-        build_economist_subagent(ctx),
-        build_allocator_subagent(ctx, fallback=fallback),
-        build_risk_subagent(ctx, fallback=fallback),
-        build_executor_subagent(ctx, fallback=fallback),
+        build_economist_subagent(ctx, summarization=summarization()),
+        build_allocator_subagent(ctx, fallback=fallback, summarization=summarization()),
+        build_risk_subagent(ctx, fallback=fallback, summarization=summarization()),
+        build_executor_subagent(ctx, fallback=fallback, summarization=summarization()),
     ]
     return create_deep_agent(
         model=model,
@@ -285,11 +314,12 @@ def build_fund_agent(
         system_prompt=PM_SYSTEM_PROMPT,
         subagents=cast("list[Any]", subagents),
         skills=skill_sources("orchestrator"),
-        backend=build_backend(config),
+        backend=backend,
         interrupt_on=cast("dict[str, Any]", gates),
         middleware=[
             _pm_round_cap_middleware(config.max_pm_rounds),
             build_gate_weights_middleware(ctx),
+            *summarization(),
         ],
         checkpointer=checkpointer,
         store=store,

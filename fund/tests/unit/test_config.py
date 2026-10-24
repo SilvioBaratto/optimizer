@@ -116,8 +116,17 @@ def test_daemon_fields_default_to_the_phase9_contract():
     # Daily NAV mark at 08:00 UTC — after the 07:00 ingestion pipeline.
     assert cfg.fund_nav_mark_cron == "0 8 * * *"
     assert cfg.reprofile_interval_days == 365
-    assert cfg.summary_token_threshold == 170000
+    # No threshold = deepagents' model-aware default stays; a pinned 170000 would
+    # sit above the context window of a 128k model and never fire.
+    assert cfg.summary_token_threshold is None
     assert cfg.summary_messages_to_keep == 6
+
+
+def test_blank_summary_threshold_means_unset():
+    # Compose renders an unset passthrough variable as an empty string.
+    cfg = load_config(env={"FUND_SUMMARY_TOKEN_THRESHOLD": "  "})
+
+    assert cfg.summary_token_threshold is None
 
 
 _INGESTION_CONFIG = (
