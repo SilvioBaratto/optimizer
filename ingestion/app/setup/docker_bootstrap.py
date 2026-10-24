@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Sequence
+from itertools import pairwise
 from pathlib import Path
 
 from app.setup import ca_bundle, path_install
@@ -199,6 +200,60 @@ def running_services(*, repo: Path | None = None) -> set[str]:
     if result.returncode != 0:
         return set()
     return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+# Prints every non-init process's command line in the fund container. It reads /proc
+# through the image's own Python because the slim base image ships no `ps`.
+_LIST_CONTAINER_PROCESSES = (
+    "import os\n"
+    "for pid in os.listdir('/proc'):\n"
+    "    if not pid.isdigit() or pid == '1':\n"
+    "        continue\n"
+    "    try:\n"
+    "        with open(f'/proc/{pid}/cmdline', 'rb') as fh:\n"
+    "            raw = fh.read()\n"
+    "    except OSError:\n"
+    "        continue\n"
+    "    print(raw.replace(b'\\0', b' ').decode(errors='replace').strip())\n"
+)
+_FUND_DRIVER_SCRIPTS = frozenset({"fund", "fund-tui"})
+_FUND_DRIVER_MODULES = frozenset({"fund", "fund.cli", "fund.tui.app"})
+
+
+def _is_fund_driver(cmdline: str) -> bool:
+    argv = cmdline.split()
+    if any(Path(arg).name in _FUND_DRIVER_SCRIPTS for arg in argv[:2]):
+        return True
+    return any(
+        flag == "-m" and module in _FUND_DRIVER_MODULES
+        for flag, module in pairwise(argv)
+    )
+
+
+def fund_drivers(*, repo: Path | None = None) -> list[str]:
+    """Return the command lines of fund CLI/TUI processes in the fund container.
+
+    ``docker compose exec`` runs them inside the container, so stopping it SIGKILLs
+    them once the worker (PID 1) exits: a round driven by ``fund run``,
+    ``fund approve`` or ``fund-tui`` dies mid-flight. The worker itself is not
+    listed.
+
+    Args:
+        repo: The checkout whose compose project to query; located when omitted.
+
+    Returns:
+        One command line per running driver; empty when the fund container is not
+        running or cannot be inspected.
+    """
+    try:
+        result = _compose(
+            "exec", "-T", "fund", "python", "-c", _LIST_CONTAINER_PROCESSES, repo=repo
+        )
+    except DockerError:
+        return []
+    if result.returncode != 0:
+        return []
+    return [line for line in result.stdout.splitlines() if _is_fund_driver(line)]
 
 
 def docker_available() -> bool:

@@ -77,7 +77,7 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     )
 
 
-def run_stop(*, all_services: bool = False) -> None:
+def run_stop(*, all_services: bool = False, force: bool = False) -> None:
     """Stop the fund decision engine, leaving the ingestion daemon + db running.
 
     The scheduler is a persistent data daemon (daily pipeline, macro/news) that must
@@ -91,10 +91,25 @@ def run_stop(*, all_services: bool = False) -> None:
     Args:
         all_services: Also stop the scheduler, adminer and db, then wipe every rendered
             plaintext secret, so no key outlives the stack.
+        force: Stop even while a fund round, approval or TUI runs in the fund
+            container; it is killed mid-flight.
+
+    Raises:
+        LifecycleError: A fund CLI/TUI process is running in the fund container and
+            ``force`` is not set; nothing has been stopped or wiped.
     """
+    repo = docker_bootstrap.compose_dir()
+    if not force:
+        drivers = docker_bootstrap.fund_drivers(repo=repo)
+        if drivers:
+            running = "\n  ".join(drivers)
+            raise LifecycleError(
+                "the fund container is still running these, and stopping it would "
+                f"kill them mid-flight:\n  {running}\n"
+                "Let them finish, or rerun with --force to stop anyway."
+            )
     # `compose stop db` leaves its dependents running, so adminer (a db client that
     # `portopt start` also launches) is named explicitly, and db goes last.
-    repo = docker_bootstrap.compose_dir()
     docker_bootstrap.stop_services(
         ["fund", "scheduler", "adminer", "db"] if all_services else ["fund"],
         repo=repo,

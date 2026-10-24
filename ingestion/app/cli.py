@@ -553,13 +553,19 @@ def stop(
         "--all",
         help="Stop the whole stack (daemon + db too) and wipe every rendered secret.",
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Stop even while a fund run, approval or TUI is running in the fund "
+        "container (it is killed mid-flight).",
+    ),
 ) -> None:
     """Stop the fund decision engine (the ingestion daemon + db keep running)."""
     from app.setup import lifecycle
     from app.setup.docker_bootstrap import DockerError
 
     try:
-        lifecycle.run_stop(all_services=all_services)
+        lifecycle.run_stop(all_services=all_services, force=force)
     except (lifecycle.LifecycleError, DockerError) as exc:
         typer.echo(f"Stop failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc

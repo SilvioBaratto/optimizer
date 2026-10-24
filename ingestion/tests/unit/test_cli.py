@@ -358,13 +358,19 @@ class TestLifecycleCommands:
         with patch("app.setup.lifecycle.run_stop") as mock_run:
             result = runner.invoke(app, ["stop"])
         assert result.exit_code == 0
-        mock_run.assert_called_once_with(all_services=False)
+        mock_run.assert_called_once_with(all_services=False, force=False)
 
     def test_stop_all_flag_stops_the_whole_stack(self) -> None:
         with patch("app.setup.lifecycle.run_stop") as mock_run:
             result = runner.invoke(app, ["stop", "--all"])
         assert result.exit_code == 0
-        mock_run.assert_called_once_with(all_services=True)
+        mock_run.assert_called_once_with(all_services=True, force=False)
+
+    def test_stop_force_flag_stops_despite_a_running_round(self) -> None:
+        with patch("app.setup.lifecycle.run_stop") as mock_run:
+            result = runner.invoke(app, ["stop", "--force"])
+        assert result.exit_code == 0
+        mock_run.assert_called_once_with(all_services=False, force=True)
 
     def test_stop_without_a_checkout_exits_nonzero(self) -> None:
         from app.setup.lifecycle import LifecycleError

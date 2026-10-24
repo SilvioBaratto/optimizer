@@ -185,6 +185,9 @@ portopt status    # report Docker + service health (non-zero exit if anything is
 > mounts, but keeps the three the ingestion daemon mounts (Trading 212 key and
 > secret, FRED key): the daemon restarts on its own and needs them. Run
 > `portopt stop --all` to stop the daemon too and leave no plaintext on disk.
+> Both refuse while a `fund run`, `fund approve` or `fund-tui` is running inside
+> the fund container, because stopping it would kill that round mid-flight; add
+> `--force` to stop anyway.
 
 ### 3. Developer setup (all four packages)
 

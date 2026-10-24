@@ -78,7 +78,51 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
     monkeypatch.setattr(
         lifecycle.docker_bootstrap, "stop_services", _fake_stop_services
     )
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap,
+        "fund_drivers",
+        lambda **kw: calls.update(drivers_repo=kw.get("repo")) or [],
+    )
     return calls
+
+
+_ROUND = "/app/.venv/bin/python /app/.venv/bin/fund run f47ac10b --asof 2026-01-30"
+
+
+@pytest.mark.parametrize("all_services", [False, True])
+def test_run_stop_refuses_while_a_fund_round_is_running(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, all_services: bool
+) -> None:
+    """A round exec'd into the fund container is SIGKILLed with it, mid-flight, so
+    stop names it and leaves every service and secret as it was."""
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap, "fund_drivers", lambda **kw: [_ROUND]
+    )
+
+    with pytest.raises(lifecycle.LifecycleError, match="--force") as excinfo:
+        lifecycle.run_stop(all_services=all_services)
+
+    assert _ROUND in str(excinfo.value)
+    assert patched["compose"] == []
+    assert "cleaned" not in patched
+
+
+def test_run_stop_force_stops_despite_a_running_round(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap, "fund_drivers", lambda **kw: [_ROUND]
+    )
+
+    lifecycle.run_stop(force=True)
+
+    assert patched["compose"] == ["stop:fund"]
+
+
+def test_run_stop_checks_the_repo_stack_for_running_rounds(patched: dict) -> None:
+    lifecycle.run_stop()
+
+    assert patched["drivers_repo"] == patched["repo"]
 
 
 def test_run_start_renders_secrets_then_brings_up(patched: dict) -> None:

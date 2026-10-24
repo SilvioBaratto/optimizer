@@ -191,6 +191,40 @@ def test_running_services_empty_on_error(mock_run: MagicMock) -> None:
     assert db.running_services() == set()
 
 
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_fund_drivers_lists_only_fund_cli_and_tui_processes(
+    mock_run: MagicMock,
+) -> None:
+    """The worker, the probe itself and anything else in the container are not
+    rounds a stop would cut short; the fund CLI and TUI are."""
+    mock_run.return_value = _cp_stdout(
+        "/app/.venv/bin/python /app/.venv/bin/fund run f47ac10b --asof 2026-01-30\n"
+        "/app/.venv/bin/python /app/.venv/bin/fund-tui\n"
+        "python -m fund.cli approve 1b2c3d4e\n"
+        "/app/.venv/bin/python /app/.venv/bin/fund-worker\n"
+        "python -c import os\n"
+        "\n"
+    )
+
+    drivers = db.fund_drivers()
+
+    assert drivers == [
+        "/app/.venv/bin/python /app/.venv/bin/fund run f47ac10b --asof 2026-01-30",
+        "/app/.venv/bin/python /app/.venv/bin/fund-tui",
+        "python -m fund.cli approve 1b2c3d4e",
+    ]
+    argv = mock_run.call_args.args[0]
+    assert argv[argv.index("exec") : argv.index("exec") + 3] == ["exec", "-T", "fund"]
+
+
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_fund_drivers_is_empty_when_the_fund_container_is_down(
+    mock_run: MagicMock,
+) -> None:
+    mock_run.return_value = _cp(1, 'service "fund" is not running')
+    assert db.fund_drivers() == []
+
+
 @patch("app.setup.docker_bootstrap.shutil.which", return_value="/usr/bin/docker")
 @patch("app.setup.docker_bootstrap.subprocess.run")
 def test_docker_available_true(mock_run: MagicMock, _which: MagicMock) -> None:
