@@ -94,7 +94,9 @@ class ConstraintSet(BaseModel):
     """MiFID profile → optimizer knobs (deep_agent Fase-5 table).
 
     ``a_gamma`` is the regulatory double-binding ``min(risk_tolerance,
-    loss_capacity)`` risk-aversion. ``beta`` is the tail-measure confidence used
+    loss_capacity)`` risk-aversion, quoted on the variance-utility scale; the
+    ``optimize_portfolio`` tool rescales it when ``risk_measure`` is a first-order
+    one (CVaR, CDaR, max drawdown). ``beta`` is the tail-measure confidence used
     by CVaR/CDaR. ``nu1/nu2/nu3`` are escalating drawdown-ceiling tiers as fractions
     of capital (soft warning / hard ceiling / absolute stop); ``backtest`` compares
     its ``max_drawdown`` with all three and reports the breached tiers.

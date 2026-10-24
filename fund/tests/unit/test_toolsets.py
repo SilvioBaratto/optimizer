@@ -892,6 +892,49 @@ def test_optimize_applies_and_logs_the_mapped_mifid_config(db_session) -> None:
     assert gap > 1e-3
 
 
+def test_optimize_audits_the_risk_aversion_it_actually_ran_with(db_session) -> None:
+    """A tail-measure utility profile has its ``a_gamma`` rescaled by the tool; the
+    audit row must carry the value the solver used, not the mapped one."""
+    _seed_panel(db_session)
+    cs = _constraint_set(risk_measure=RiskMeasureChoice.CVAR, a_gamma=5.0)
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+
+    result = optimize.invoke({"universe": _UNIVERSE})
+
+    (decision,) = (
+        db_session.execute(
+            select(AgentDecision).where(AgentDecision.agent == "allocator")
+        )
+        .scalars()
+        .all()
+    )
+    logged = json.loads(decision.llm_response)["optimizer_config"]
+    assert logged["risk_aversion"] == result["data"]["risk_aversion"]
+    assert logged["risk_aversion"] < cs.a_gamma
+    assert decision.constraint_set["a_gamma"] == 5.0
+
+
+def test_defensive_and_aggressive_profiles_allocate_differently(db_session) -> None:
+    _seed_panel(db_session)
+    weights = {}
+    for name, a_gamma, objective in (
+        ("defensive", 12.0, ObjectiveChoice.PROTECTION),
+        ("aggressive", 1.0, ObjectiveChoice.GROWTH),
+    ):
+        cs = _constraint_set(a_gamma=a_gamma, objective=objective)
+        ctx = _make_context(db_session, store=_store_with_cs(cs))
+        optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+        result = optimize.invoke({"universe": _UNIVERSE})
+        assert result["ok"] is True
+        weights[name] = result["data"]["weights"]
+
+    l1_distance = sum(
+        abs(weights["defensive"][t] - weights["aggressive"][t]) for t in _UNIVERSE
+    )
+    assert l1_distance > 0.05
+
+
 def test_optimize_caps_weights_at_max_position_cap(db_session) -> None:
     """A K&E position cap is a hard weight bound, not just a display label."""
     _seed_panel(db_session)
@@ -935,6 +978,52 @@ def test_risk_check_flags_a_weight_above_the_position_cap(db_session) -> None:
     assert violation["type"] == "max_weight"
     assert violation["asset"] == "AAA"
     assert violation["limit"] == 0.4
+
+
+def _allocate(db_session, **overrides: object) -> dict[str, float]:
+    cs = _constraint_set(**overrides)
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+    result = optimize.invoke({"universe": _UNIVERSE})
+    assert result["ok"] is True
+    return result["data"]["weights"]
+
+
+def _l1(a: dict[str, float], b: dict[str, float]) -> float:
+    return sum(abs(a[t] - b[t]) for t in _UNIVERSE)
+
+
+@pytest.mark.parametrize(
+    "measure",
+    [
+        RiskMeasureChoice.CVAR,
+        RiskMeasureChoice.CDAR,
+        RiskMeasureChoice.MAX_DRAWDOWN,
+    ],
+)
+def test_growth_over_a_tail_measure_is_not_collapsed_into_minimum_risk(
+    db_session, measure: RiskMeasureChoice
+) -> None:
+    """``a_gamma`` is calibrated for variance (~1e-4 per day); a first-order tail
+    measure (~1e-2) swamps the return term unless the aversion is rescaled, which
+    made an Aggressive growth client's utility objective return the protection
+    portfolio."""
+    _seed_panel(db_session)
+
+    protection = _allocate(
+        db_session,
+        objective=ObjectiveChoice.PROTECTION,
+        risk_measure=measure,
+        a_gamma=12.0,
+    )
+    aggressive = _allocate(
+        db_session,
+        objective=ObjectiveChoice.GROWTH,
+        risk_measure=measure,
+        a_gamma=1.0,
+    )
+
+    assert _l1(aggressive, protection) > 0.05
 
 
 def test_optimize_without_store_uses_default_constraints(db_session) -> None:

@@ -671,7 +671,9 @@ def test_place_orders_ignores_llm_weights_uses_optimizer(db_session) -> None:
     both source the allocator's audited optimize_portfolio output."""
     _seed_panel(db_session)
     expected = _expected_weights(db_session)
-    llm_weights = {"AAA": 1.0, "BBB": 0.0, "CCC": 0.0}
+    # One-hot on the asset the optimizer favours least, so it differs from any solution.
+    least = min(expected, key=lambda ticker: expected[ticker])
+    llm_weights = {t: 1.0 if t == least else 0.0 for t in _UNIVERSE}
     assert llm_weights != expected
     model = ScriptedFundModel(universe=_UNIVERSE, weights=llm_weights)
 

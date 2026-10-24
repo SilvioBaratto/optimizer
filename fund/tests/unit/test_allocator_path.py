@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 
+import pytest
 from optimizer.moments import CovEstimatorType, MomentEstimationConfig
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
@@ -345,3 +346,213 @@ class TestWalkingSkeleton:
         second = optimize_portfolio(db_session, _ASOF, _UNIVERSE)["data"]["weights"]
 
         assert first == second
+
+
+def _synthetic_returns(seed: int = 0):
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(seed)
+    n = 8
+    mu = rng.uniform(2e-4, 1.2e-3, n)
+    loadings = rng.normal(size=(n, n)) * 0.004
+    cov = loadings @ loadings.T + np.diag(rng.uniform(1e-4, 3e-4, n))
+    return pd.DataFrame(
+        rng.multivariate_normal(mu, cov, size=750),
+        columns=[f"T{i}" for i in range(n)],
+    )
+
+
+def _utility_config(measure, risk_aversion):
+    from dataclasses import replace
+
+    from optimizer.optimization import MeanRiskConfig, ObjectiveFunctionType
+
+    return replace(
+        MeanRiskConfig(),
+        objective=ObjectiveFunctionType.MAXIMIZE_UTILITY,
+        risk_measure=measure,
+        risk_aversion=risk_aversion,
+    )
+
+
+class TestRiskAversionCalibration:
+    """``a_gamma`` is quoted for variance utility; other measures need rescaling."""
+
+    @pytest.mark.parametrize("measure", ["cvar", "cdar", "max_drawdown"])
+    def test_equal_weight_pays_the_same_penalty_as_under_variance(
+        self, measure: str
+    ) -> None:
+        import numpy as np
+        from optimizer.optimization import RiskMeasureType
+        from skfolio import Portfolio
+
+        from fund.tools.optimize import _calibrate_risk_aversion
+
+        returns = _synthetic_returns()
+        config = _utility_config(RiskMeasureType(measure), 5.0)
+
+        calibrated = _calibrate_risk_aversion(config, returns)
+
+        reference = Portfolio(X=returns, weights=np.full(returns.shape[1], 1 / 8))
+        assert calibrated.risk_aversion * getattr(reference, measure) == pytest.approx(
+            5.0 * reference.variance
+        )
+        assert calibrated.risk_aversion < 0.1
+
+    @pytest.mark.parametrize("measure", ["variance", "semi_variance"])
+    def test_second_moment_measures_keep_the_quoted_scale(self, measure: str) -> None:
+        from optimizer.optimization import RiskMeasureType
+
+        from fund.tools.optimize import _calibrate_risk_aversion
+
+        config = _utility_config(RiskMeasureType(measure), 5.0)
+
+        assert _calibrate_risk_aversion(config, _synthetic_returns()) == config
+
+    def test_objectives_that_ignore_risk_aversion_are_untouched(self) -> None:
+        from dataclasses import replace
+
+        from optimizer.optimization import MeanRiskConfig, RiskMeasureType
+
+        from fund.tools.optimize import _calibrate_risk_aversion
+
+        config = replace(MeanRiskConfig(), risk_measure=RiskMeasureType.CVAR)
+
+        assert _calibrate_risk_aversion(config, _synthetic_returns()) == config
+
+    @pytest.mark.parametrize("measure", ["cvar", "cdar", "max_drawdown"])
+    def test_more_aversion_stays_closer_to_the_minimum_risk_portfolio(
+        self, measure: str
+    ) -> None:
+        from dataclasses import replace
+
+        import numpy as np
+        from optimizer.optimization import (
+            MeanRiskConfig,
+            ObjectiveFunctionType,
+            RiskMeasureType,
+            build_mean_risk,
+        )
+
+        from fund.tools.optimize import _calibrate_risk_aversion
+
+        returns = _synthetic_returns()
+        risk_measure = RiskMeasureType(measure)
+
+        def weights(config: MeanRiskConfig) -> np.ndarray:
+            model = build_mean_risk(_calibrate_risk_aversion(config, returns))
+            model.fit(returns)
+            return np.asarray(model.weights_)
+
+        protection = weights(
+            replace(
+                MeanRiskConfig(),
+                objective=ObjectiveFunctionType.MINIMIZE_RISK,
+                risk_measure=risk_measure,
+            )
+        )
+        distances = [
+            float(np.abs(weights(_utility_config(risk_measure, a)) - protection).sum())
+            for a in (12.0, 5.0, 1.0)
+        ]
+
+        assert 0.05 < distances[0] < distances[1] < distances[2]
+
+
+def test_optimize_reports_the_risk_aversion_it_ran_with(db_session) -> None:
+    from optimizer.optimization import RiskMeasureType
+
+    _seed_panel(db_session)
+    config = _utility_config(RiskMeasureType.CVAR, 5.0)
+
+    result = optimize_portfolio(
+        db_session, _ASOF, _UNIVERSE, constraints=_as_constraints(config)
+    )
+
+    assert 0.0 < result["data"]["risk_aversion"] < config.risk_aversion
+
+
+def _as_constraints(config) -> dict:
+    """A ``MeanRiskConfig`` as the ``constraints`` dict the tool consumes."""
+    from fund.tools.optimize import _CONSTRAINT_FIELDS
+
+    return {name: getattr(config, name) for name in _CONSTRAINT_FIELDS}
+
+
+def _prices_from_returns(returns):
+    import pandas as pd
+
+    prices = 100 * (1 + returns).cumprod()
+    prices.index = pd.bdate_range("2020-01-01", periods=len(prices))
+    return prices
+
+
+class TestSolverNoiseIsCleaned:
+    """The optimizer's own output must clear the deterministic ``risk_check`` gate.
+
+    ``MAXIMIZE_UTILITY`` under a binding cap returns raw weights carrying ~1e-9
+    solver noise (a slightly negative weight, or a cap hit exceeded by a hair),
+    which a ``1e-9`` weight tolerance reads as a breach.
+    """
+
+    # Seeds whose raw skfolio solution breaches a 1e-9 tolerance under the 0.3 cap.
+    @pytest.mark.parametrize("seed", [0, 3, 6, 8, 9, 11])
+    def test_capped_utility_weights_pass_risk_check(
+        self, monkeypatch: pytest.MonkeyPatch, seed: int
+    ) -> None:
+        from optimizer.optimization import (
+            MeanRiskConfig,
+            ObjectiveFunctionType,
+            RiskMeasureType,
+        )
+
+        from fund.tools import optimize as optimize_mod
+        from fund.tools.risk import risk_check
+
+        frame = _prices_from_returns(_synthetic_returns(seed))
+        monkeypatch.setattr(
+            optimize_mod, "load_price_frame", lambda *_a, **_k: (frame, [])
+        )
+        config = MeanRiskConfig(
+            objective=ObjectiveFunctionType.MAXIMIZE_UTILITY,
+            risk_measure=RiskMeasureType.VARIANCE,
+            max_weights=0.3,
+            risk_aversion=1.0,
+        )
+
+        result = optimize_portfolio(
+            None, _ASOF, list(frame.columns), constraints=_as_constraints(config)
+        )
+
+        weights = result["data"]["weights"]
+        assert all(0.0 <= w <= 0.3 for w in weights.values())
+        assert math.isclose(sum(weights.values()), 1.0, abs_tol=1e-8)
+        verdict = risk_check(
+            weights, constraints={"min_weights": 0.0, "max_weights": 0.3, "budget": 1.0}
+        )
+        assert verdict["data"]["violations"] == []
+        assert verdict["data"]["passed"] is True
+
+    def test_reported_metrics_describe_the_cleaned_weights(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from skfolio import Portfolio
+
+        from fund.tools import optimize as optimize_mod
+
+        returns = _synthetic_returns(0)
+        frame = _prices_from_returns(returns)
+        monkeypatch.setattr(
+            optimize_mod, "load_price_frame", lambda *_a, **_k: (frame, [])
+        )
+
+        data = optimize_portfolio(None, _ASOF, list(frame.columns))["data"]
+
+        replayed = Portfolio(
+            X=optimize_mod.prices_to_returns(frame),
+            weights=[data["weights"][a] for a in data["assets"]],
+        )
+        assert data["metrics"]["standard_deviation"] == pytest.approx(
+            replayed.standard_deviation
+        )

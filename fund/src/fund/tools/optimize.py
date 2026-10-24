@@ -27,8 +27,9 @@ import datetime as dt
 import math
 from collections.abc import Sequence
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
+import numpy as np
 from optimizer.optimization import (
     MeanRiskConfig,
     ObjectiveFunctionType,
@@ -36,11 +37,13 @@ from optimizer.optimization import (
     build_mean_risk,
 )
 from optimizer.preprocessing import prices_to_returns
+from skfolio import Portfolio
 
 from fund.tools._base import ToolResult, err, ok, tool_envelope
 from fund.tools.prices import load_price_frame
 
 if TYPE_CHECKING:
+    import pandas as pd
     from sqlalchemy.orm import Session
 
 # Each key maps 1:1 onto a ``MeanRiskConfig`` field; anything else is silently ignored.
@@ -63,6 +66,16 @@ _CONSTRAINT_FIELDS: frozenset[str] = frozenset(
 )
 
 _BUDGET_TOL = 1e-9
+# Interior-point solvers reach the optimum only to ~1e-9, so a dropped asset can come
+# back at -1.5e-9 and one pinned at its cap a hair above it. Weights this small are
+# solver noise, and ``risk_check`` reads them as bound breaches on the optimizer's
+# own output.
+_WEIGHT_DUST = 1e-8
+
+# Measures in return-squared units: the scale ``a_gamma`` is already quoted in.
+_SECOND_MOMENT_MEASURES: frozenset[RiskMeasureType] = frozenset(
+    {RiskMeasureType.VARIANCE, RiskMeasureType.SEMI_VARIANCE}
+)
 
 
 def _resolve_config(constraints: dict[str, Any] | None) -> MeanRiskConfig:
@@ -81,6 +94,63 @@ def _resolve_config(constraints: dict[str, Any] | None) -> MeanRiskConfig:
     if "risk_measure" in overrides:
         overrides["risk_measure"] = RiskMeasureType(overrides["risk_measure"])
     return replace(base, **overrides) if overrides else base
+
+
+def _calibrate_risk_aversion(
+    config: MeanRiskConfig, returns: pd.DataFrame
+) -> MeanRiskConfig:
+    """Put ``risk_aversion`` on the scale of the config's risk measure.
+
+    The MiFID ``a_gamma`` ladder is quoted for variance utility ``mu - a * var``,
+    where per-period variance (~1e-4) and expected return are commensurate. A
+    first-order measure (CVaR, CDaR, max drawdown, ...) runs ~1e-2, so the same
+    coefficient makes the risk term swamp ``mu`` and the utility objective returns
+    the minimum-risk portfolio for every client. The coefficient is rescaled so the
+    equal-weight portfolio pays the same risk penalty as it would under variance.
+
+    Only ``MAXIMIZE_UTILITY`` reads ``risk_aversion``; other objectives, the
+    second-moment measures and a degenerate reference (no measurable risk) keep the
+    config unchanged.
+    """
+    if (
+        config.objective is not ObjectiveFunctionType.MAXIMIZE_UTILITY
+        or config.risk_measure in _SECOND_MOMENT_MEASURES
+    ):
+        return config
+    n_assets = returns.shape[1]
+    reference = Portfolio(
+        X=returns,
+        weights=np.full(n_assets, 1.0 / n_assets),
+        cvar_beta=config.cvar_beta,
+        evar_beta=config.evar_beta,
+        cdar_beta=config.cdar_beta,
+        edar_beta=config.edar_beta,
+    )
+    variance = float(reference.variance)
+    measure = float(getattr(reference, config.risk_measure.value))
+    if not (math.isfinite(variance) and math.isfinite(measure)):
+        return config
+    if variance <= 0.0 or measure <= 0.0:
+        return config
+    return replace(config, risk_aversion=config.risk_aversion * variance / measure)
+
+
+def _clean_weights(weights: np.ndarray, config: MeanRiskConfig) -> np.ndarray:
+    """Strip solver noise: zero the dust, restore the budget, respect the bounds.
+
+    Scalar bounds are re-applied after the budget rescale because that rescale can
+    push an asset pinned at its cap a relative ~1e-9 over it. Non-scalar or absent
+    bounds leave the corresponding step out.
+    """
+    cleaned = np.where(np.abs(weights) < _WEIGHT_DUST, 0.0, weights)
+    total = float(cleaned.sum())
+    if isinstance(config.budget, (int, float)) and total > 0.0:
+        cleaned = cleaned * (config.budget / total)
+    if isinstance(config.min_weights, (int, float)):
+        cleaned = np.maximum(cleaned, config.min_weights)
+    if isinstance(config.max_weights, (int, float)):
+        cleaned = np.minimum(cleaned, config.max_weights)
+    return cleaned
 
 
 def _infeasible_cap_error(config: MeanRiskConfig, n_assets: int) -> str | None:
@@ -123,9 +193,10 @@ def optimize_portfolio(
     Returns:
         ``ok`` with ``weights`` (``{ticker: float}`` from skfolio), ``metrics``
         (in-sample ``mean`` / ``standard_deviation`` / ``sharpe_ratio``),
-        ``assets``, ``n_observations`` and ``missing``. ``err`` on an empty
-        universe, no priced assets, too little history, or a weight cap too tight
-        for the priced assets to reach the budget.
+        ``assets``, ``n_observations``, ``missing`` and ``risk_aversion`` (the
+        coefficient the solver ran with, after rescaling to the risk measure).
+        ``err`` on an empty universe, no priced assets, too little history, or a
+        weight cap too tight for the priced assets to reach the budget.
     """
     if not universe:
         return err("empty universe")
@@ -143,16 +214,20 @@ def optimize_portfolio(
     if infeasible is not None:
         return err(infeasible)
 
-    returns = prices_to_returns(frame)
+    returns = cast("pd.DataFrame", prices_to_returns(frame))
+    config = _calibrate_risk_aversion(config, returns)
     model = build_mean_risk(config)
     model.fit(returns)
-    portfolio = model.predict(returns)
-
-    assets = [str(col) for col in returns.columns]
     fitted = model.weights_
     if fitted is None:  # set by the fit above; guard narrows the Optional array
         return err("optimizer produced no weights")
-    weights = {a: float(w) for a, w in zip(assets, fitted, strict=True)}
+    # ``predict`` reads ``weights_``, so cleaning it first keeps the reported metrics
+    # consistent with the weights the caller receives.
+    model.weights_ = _clean_weights(np.asarray(fitted, dtype=float), config)
+    portfolio = model.predict(returns)
+
+    assets = [str(col) for col in returns.columns]
+    weights = {a: float(w) for a, w in zip(assets, model.weights_, strict=True)}
     metrics = {
         "mean": float(portfolio.mean),
         "standard_deviation": float(portfolio.standard_deviation),
@@ -166,6 +241,7 @@ def optimize_portfolio(
             "assets": assets,
             "n_observations": int(returns.shape[0]),
             "missing": missing,
+            "risk_aversion": float(config.risk_aversion),
         }
     )
 

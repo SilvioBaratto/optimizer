@@ -20,6 +20,8 @@ On-demand support for `optimization-objective-map`. Points to the theory; never 
 
 ## Guardrails baked into the config
 - Bounds: long-only `w >= 0`, `sum(w) = 1`, no leverage (D17).
+- Risk aversion `A` is quoted for variance utility; `optimize_portfolio` rescales it
+  for CVaR / CDaR / MaxDD so max_utility does not collapse into min_risk.
 - Cardinality cap + min-weight per profile (avoid micro-weights).
 - Robust uncertainty set for prudent profiles: `15:80` (radius/geometry/norm in 1.0).
 - Objective / cone obligations: the curated map

@@ -217,13 +217,19 @@ def _describe_breaches(breaches: list[dict[str, Any]]) -> str:
     return "; ".join(parts)
 
 
-def _effective_optimizer_config(constraints: dict[str, Any] | None) -> dict[str, Any]:
+def _effective_optimizer_config(
+    constraints: dict[str, Any] | None, risk_aversion: float
+) -> dict[str, Any]:
     """The ``MeanRiskConfig`` ``optimize_portfolio`` ACTUALLY applied. Reuses the
     tool's own ``_resolve_config`` as the single source of truth, so the audit can
-    never drift from what shaped the weights."""
+    never drift from what shaped the weights. ``risk_aversion`` is the value the tool
+    reports having run with, since it rescales the mapped one to the risk measure."""
     from fund.tools.optimize import _resolve_config
 
-    return dataclasses.asdict(_resolve_config(constraints))
+    resolved = dataclasses.replace(
+        _resolve_config(constraints), risk_aversion=risk_aversion
+    )
+    return dataclasses.asdict(resolved)
 
 
 # ---------------------------------------------------------------------------
@@ -384,7 +390,7 @@ def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
         _append_allocator_decision(
             ctx,
             cs,
-            _effective_optimizer_config(constraints),
+            _effective_optimizer_config(constraints, result["data"]["risk_aversion"]),
             result["data"]["weights"],
             result["data"]["metrics"],
         )
