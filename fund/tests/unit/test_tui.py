@@ -444,6 +444,101 @@ async def test_shell_sidebar_navigates_all_views(shell_env) -> None:
             assert app.query_one(f"#view-{key}", ShellView).render_count >= 1
 
 
+async def _pick_from_sidebar(app, pilot, key: str) -> ShellView:
+    """Open ``key`` the way the adviser does: highlight it in the rail, press Enter."""
+    sidebar = app.query_one("#sidebar", ListView)
+    sidebar.focus()
+    sidebar.index = _VIEW_KEYS.index(key)
+    await pilot.pause()
+    await pilot.press("enter")
+    await pilot.pause()
+    return app.query_one(f"#view-{key}", ShellView)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "key", ["posture", "deliberation", "decisions", "mandate", "audit", "performance"]
+)
+async def test_sidebar_pick_moves_focus_into_the_view(shell_env, key) -> None:
+    # View-scoped keys (e/s on Decisions, d on Posture, x on Deliberation/Mandate)
+    # only fire while focus sits inside the view, and the views' hints advertise
+    # arrow selection - so a pick must not leave focus parked on the rail.
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        view = await _pick_from_sidebar(app, pilot, key)
+        focused = app.focused
+        assert focused is not None
+        assert focused is not app.query_one("#sidebar", ListView)
+        assert view in focused.ancestors_with_self
+
+
+@pytest.mark.asyncio
+async def test_launch_focus_is_inside_the_landing_view(shell_env) -> None:
+    # Textual's auto-focus parks on the first focusable widget - the header portfolio
+    # picker - which left the landing view's hinted keys and arrows dead until a Tab.
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        focused = app.focused
+        assert focused is not None
+        assert focused is not app.query_one("#hdr-portfolio", Select)
+        assert app.query_one("#view-posture", ShellView) in focused.ancestors_with_self
+
+
+@pytest.mark.asyncio
+async def test_posture_brief_key_works_straight_after_launch(
+    shell_env, monkeypatch
+) -> None:
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _full_brief(_PID_A))
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+        assert app.query_one(ContentSwitcher).current == "view-brief"
+
+
+@pytest.mark.asyncio
+async def test_roster_arrow_selection_works_straight_after_launch(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        _seed_run(session, _PID_B, seed=1)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        roster = app.query_one("#posture-roster", DataTable)
+        assert roster.row_count == 2
+        await pilot.press("down")
+        await pilot.pause()
+        assert roster.cursor_row == 1
+        picked = _cursor_key(roster)
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app._portfolio_id == uuid.UUID(str(picked))
+
+
+def test_help_text_says_how_to_return_focus_to_the_sidebar() -> None:
+    # A sidebar pick moves focus into the view, so the keymap must name the way back.
+    assert "shift+tab" in tui_app._HELP_TEXT
+
+
+@pytest.mark.asyncio
+async def test_decisions_edit_key_works_right_after_a_sidebar_pick(tui_env) -> None:
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        view = await _pick_from_sidebar(app, pilot, "decisions")
+        assert isinstance(view, DecisionsView)
+        await pilot.press("enter")  # the queue row the pick left highlighted
+        await pilot.pause()
+        assert view.selected_run_id == tui_env.run_id
+        await pilot.press("e")
+        await pilot.pause()
+        assert isinstance(app.screen, OrderEditScreen)
+
+
 # A letter-bearing UUID avoids SQLite's numeric-affinity coercion of all-digit ids.
 _PID_A = uuid.UUID("aaaa0001-0000-4000-8000-000000000001")
 _PID_B = uuid.UUID("bbbb0002-0000-4000-8000-000000000002")

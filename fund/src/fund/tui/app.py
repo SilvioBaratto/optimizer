@@ -398,6 +398,7 @@ GLOBAL
   ctrl+s save mandate    o override guardrail
   n new portfolio   p profile   u run now   b barge in
   t audit actor   f audit overrides   g audit this-pf   e export (Audit)
+  tab / shift+tab move focus: header, sidebar, view
   ? / F1 help   q quit
 
 VIEW-SCOPED
@@ -735,8 +736,21 @@ class ShellApp(App[None]):
         self._refresh_runstate()
         if self.size.width:
             self._apply_width(self.size.width)
-        self.call_after_refresh(self._refresh)
+        self.call_after_refresh(self._paint_landing)
         self.set_interval(self._poll_interval, self._poll)
+
+    def _paint_landing(self) -> None:
+        """First paint: repaint the landing view and move focus into it.
+
+        Textual's auto-focus parks on the first focusable widget, the header portfolio
+        picker, so without this the landing view's hinted keys (``d`` brief) and arrow
+        selection stay dead until the adviser tabs in. The header stays reachable with
+        shift+tab.
+        """
+        self._refresh()
+        current = self.query_one(ContentSwitcher).current
+        if current is not None:
+            self.query_one(f"#{current}", ShellView).focus_primary()
 
     def on_resize(self, event: Resize) -> None:
         """Collapse/restore the sidebar rail as the terminal crosses the threshold."""
@@ -785,11 +799,9 @@ class ShellApp(App[None]):
         key = item_id[len("nav-") :]
         self.query_one(ContentSwitcher).current = f"view-{key}"
         self._refresh()
-        # Focus a focusable content view so its key bindings fire. Only the brief is
-        # focusable, so other views keep focus on the sidebar until a row is picked.
-        view = self.query_one(f"#view-{key}", ShellView)
-        if view.can_focus:
-            view.focus()
+        # View-scoped keys and the arrow selection the hints advertise only reach a
+        # view once focus is inside it, so a pick must not leave focus on the rail.
+        self.query_one(f"#view-{key}", ShellView).focus_primary()
 
     def on_select_changed(self, event: Select.Changed) -> None:
         """Re-focus the shell on the picked portfolio (or fund-wide when blank).

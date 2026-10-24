@@ -171,11 +171,26 @@ class ShellView(Vertical):
             test can prove the active view was repainted without scraping the DOM.
     """
 
+    # CSS selector of the control a sidebar pick lands on. Views are not focusable
+    # themselves, so their view-scoped keys only fire once focus is inside them.
+    primary_focus: ClassVar[str | None] = None
+
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.view_key = view_key
         self.view_title = view_title
         self.render_count = 0
+
+    def focus_primary(self) -> None:
+        """Move focus into the view so its view-scoped keys and arrows act on it.
+
+        A focusable view takes focus itself; otherwise the widget named by
+        :attr:`primary_focus` does. A no-op for a view that declares neither.
+        """
+        if self.can_focus:
+            self.focus()
+        elif self.primary_focus is not None:
+            self.query_one(self.primary_focus).focus()
 
     def compose(self) -> ComposeResult:
         """Yield the view's title label and its placeholder body line."""
@@ -254,6 +269,8 @@ class DecisionsView(ShellView):
         ("e", "app.edit_decision", "Edit weights"),
         ("s", "app.steer_decision", "Steer PM"),
     ]
+
+    primary_focus: ClassVar[str | None] = "#decisions-table"
 
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)
@@ -596,6 +613,10 @@ class MandateView(ShellView):
     BINDINGS: ClassVar[list[BindingType]] = [
         ("x", "remove_directive", "Remove directive")
     ]
+
+    # The directives list, not the first input: an Input would swallow the advertised
+    # ``x``/``o`` as typed characters, while the list leaves every hinted key live.
+    primary_focus: ClassVar[str | None] = "#mandate-directives"
 
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)
@@ -944,6 +965,8 @@ class PostureView(ShellView):
         ("d", "app.open_brief", "Daily brief"),
     ]
 
+    primary_focus: ClassVar[str | None] = "#posture-roster"
+
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)
         self.detail_text: str = ""
@@ -1134,6 +1157,8 @@ class AuditView(ShellView):
         filter_portfolio: Scope to the header-focused portfolio when ``True``.
         detail_text: Mirror of the rendered detail pane — a headless-test hook.
     """
+
+    primary_focus: ClassVar[str | None] = "#audit-table"
 
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)
@@ -1402,6 +1427,8 @@ class DeliberationView(ShellView):
         ("f", "follow_live", "Follow live"),
         ("x", "app.expand_readout", "Expand read-out"),
     ]
+
+    primary_focus: ClassVar[str | None] = "#delib-runs"
 
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)
@@ -2154,6 +2181,8 @@ class PerformanceView(ShellView):
         detail_text: Mirror of the rendered holding drill-down — a headless-test hook.
         selected_ticker: The drilled-into holding's ticker, or ``None``.
     """
+
+    primary_focus: ClassVar[str | None] = "#perf-holdings"
 
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)
