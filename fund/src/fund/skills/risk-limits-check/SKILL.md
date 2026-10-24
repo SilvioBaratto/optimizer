@@ -23,9 +23,13 @@ the ConstraintSet limits and decides pass/block. It never edits weights itself.
 1. Call `risk_check()` — it takes no arguments and judges the allocator's latest audited
    proposal → passed + violations (weight bounds and position cap, ESG sector
    exclusions, complex/leveraged-instrument restrictions; an instrument it cannot
-   classify is a violation, not a pass). It does not evaluate the drawdown ceilings
-   nu1/nu2/nu3 — `backtest` in step 2 does.
-2. Call `backtest()` (also no arguments) walk-forward (`shuffle=False`). It errors,
+   classify is a violation, not a pass), and the drawdown ceilings: it backtests the
+   same weights and a drawdown past nu2 or nu3 is a violation (`drawdown_nu2` /
+   `drawdown_nu3`), past nu1 only a `warnings` entry. When the history is too short to
+   measure a drawdown the ceilings are not checked and `warnings` carries
+   `drawdown_unverified`; say so rather than reporting the ceilings as met.
+2. Call `backtest()` (also no arguments) walk-forward (`shuffle=False`) to read the
+   numbers behind that verdict. It errors,
    rather than evaluating a different portfolio, when the proposal does not sum to
    the budget or holds a ticker with no prices. It returns
    `drawdown_tiers`: the client's ceilings nu1 (soft warning), nu2 (hard ceiling) and

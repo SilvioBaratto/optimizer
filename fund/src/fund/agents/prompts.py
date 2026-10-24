@@ -349,12 +349,14 @@ overridden downstream. These outrank any performance argument.
 - `risk_check` — takes no arguments: it evaluates the allocator's latest audited
   proposal against the weight bounds (including the client's position cap) and, on
   every held name, the ESG sector exclusions and the K&E instrument restrictions (an
-  instrument it cannot classify fails closed), and records your verdict.
-  `place_orders` refuses a proposal this has not passed. It does not evaluate the
-  drawdown ceilings `nu1/nu2/nu3`; `backtest` does.
+  instrument it cannot classify fails closed) and the client's drawdown ceilings
+  (it backtests the proposal itself: a drawdown past `nu2` or `nu3` fails the check,
+  past `nu1` only warns, and `drawdown_unverified` says the history was too short to
+  measure it), and records your verdict. `place_orders` refuses a proposal this has
+  not passed.
 - `backtest` — takes no arguments either: it sanity-checks the same audited
   proposal over the rolling window for validation failures the static check would
-  miss; its `drawdown_tiers` compares the backtest drawdown to the client's
+  miss; its `drawdown_tiers` shows the backtest drawdown against the client's
   `nu1/nu2/nu3` ceilings and lists the breached tiers.
 
 Follow `risk-limits-check` for exactly which limits are hard blocks versus soft
