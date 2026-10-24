@@ -26,7 +26,11 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Create ``bond_yields`` unless ``create_all`` already built it."""
-    if sa.inspect(op.get_bind()).has_table("bond_yields"):
+    # Offline (--sql) rendering has no live connection to inspect; the script it
+    # emits targets a fresh database, where the table never exists yet.
+    if not op.get_context().as_sql and sa.inspect(op.get_bind()).has_table(
+        "bond_yields"
+    ):
         return
     op.create_table(
         "bond_yields",

@@ -76,6 +76,13 @@ def _enforced_unique_columns(
 
 def upgrade() -> None:
     """Drop each redundant plain index whose columns a unique key still covers."""
+    if op.get_context().as_sql:
+        # No connection to inspect: the rendered script targets a database built
+        # by this chain, where every listed unique key exists, so only the
+        # index's presence is uncertain.
+        for table, index_name, _columns in _REDUNDANT:
+            op.drop_index(index_name, table_name=table, if_exists=True)
+        return
     inspector = sa.inspect(op.get_bind())
     tables = set(inspector.get_table_names())
     for table, index_name, columns in _REDUNDANT:
@@ -92,6 +99,10 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Recreate the plain indexes dropped by ``upgrade``."""
+    if op.get_context().as_sql:
+        for table, index_name, columns in reversed(_REDUNDANT):
+            op.create_index(index_name, table, list(columns), if_not_exists=True)
+        return
     inspector = sa.inspect(op.get_bind())
     tables = set(inspector.get_table_names())
     for table, index_name, columns in reversed(_REDUNDANT):
