@@ -3095,6 +3095,54 @@ async def test_deliberation_paint_readout_does_not_clobber_live_detail(
         assert view._readout is not None  # stored for when replay resumes
 
 
+@pytest.mark.asyncio
+async def test_deliberation_recompute_ignores_allocator_message_with_same_index(
+    shell_env,
+) -> None:
+    """An allocator *report message* shares the numbering space of decision indices.
+
+    A recompute is keyed by the decision's ``decision_index``; a message row that
+    happens to carry the same number must not inherit that proposal's frontier and
+    backtest read-out.
+    """
+    from fund import readouts_compute
+    from fund.observe import TranscriptEntry
+
+    canned = readouts_compute.ResultsCompute(
+        frontier=readouts_compute.FrontierPoint(0.1, 0.2, 0.5, 40),
+        frontier_error=None,
+        backtest=None,
+        backtest_error="too short",
+    )
+    with shell_env.get_session() as session:
+        run_id = _seed_allocator_run(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.paint_readout(run_id, "allocator", 4, canned)
+        message = TranscriptEntry(
+            source="message",
+            agent="allocator",
+            step=None,
+            index=4,
+            text="allocator report",
+            payload=None,
+        )
+        decision = TranscriptEntry(
+            source="decision",
+            agent="allocator",
+            step="optimize_portfolio",
+            index=4,
+            text="",
+            payload={"weights": {"AAA": 1.0}},
+        )
+        assert view._compute_for(message) is None
+        assert view._compute_for(decision) is canned
+
+
 def test_compute_risk_empty_weights_with_mapping_degrades_to_none(db_session) -> None:
     """An empty roll-up (mapping present, no usable weights) is None, not an empty
     tuple — so the renderer shows 'unavailable', never a bare header with no rows."""

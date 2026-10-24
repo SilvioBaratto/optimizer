@@ -299,9 +299,10 @@ def load_run_transcript(session: Any, saver: Any, run: Any) -> list[TranscriptEn
     """
     entries: list[TranscriptEntry] = []
     messages = _messages_for(saver, getattr(run, "thread_id", None))
+    subagents = _subagent_by_call(messages)
     remaining = list(run.decisions)
     for index, message in enumerate(messages):
-        entries.append(_message_entry(message, index))
+        entries.append(_message_entry(message, index, subagents))
         tokens = _message_tokens(message)
         if not tokens:
             continue
@@ -1069,10 +1070,12 @@ def _replay_messages(saver: Any, config: Any) -> list[Any]:
     return list(add_messages(state, incoming))
 
 
-def _message_entry(message: Any, index: int) -> TranscriptEntry:
+def _message_entry(
+    message: Any, index: int, subagents: dict[str, str] | None = None
+) -> TranscriptEntry:
     return TranscriptEntry(
         source="message",
-        agent=_message_agent(message),
+        agent=_message_agent(message, subagents),
         step=None,
         index=index,
         text=_message_text(message),
@@ -1080,9 +1083,34 @@ def _message_entry(message: Any, index: int) -> TranscriptEntry:
     )
 
 
-def _message_agent(message: Any) -> str:
-    """A named subagent message reports its ``name``; else the message ``type``."""
+def _subagent_by_call(messages: list[Any]) -> dict[str, str]:
+    """Map each ``task`` delegation's ``tool_call_id`` to the subagent it targets."""
+    subagents: dict[str, str] = {}
+    for message in messages:
+        for call in getattr(message, "tool_calls", None) or []:
+            if not isinstance(call, dict) or call.get("name") != "task":
+                continue
+            args = call.get("args")
+            subagent = args.get("subagent_type") if isinstance(args, dict) else None
+            if call.get("id") and subagent:
+                subagents[str(call["id"])] = str(subagent)
+    return subagents
+
+
+def _message_agent(message: Any, subagents: dict[str, str] | None = None) -> str:
+    """The agent a message belongs to.
+
+    A subagent's report never carries its own name in the PM thread: deepagents
+    returns it as ``ToolMessage(name="task")``, tied to the delegating AI turn only
+    by ``tool_call_id``. Such a result is attributed to the ``subagent_type`` of that
+    delegation (via ``subagents``); any other message reports its ``name``, else its
+    ``type``.
+    """
     name = getattr(message, "name", None)
+    if name == "task":
+        subagent = (subagents or {}).get(str(getattr(message, "tool_call_id", "")))
+        if subagent:
+            return subagent
     if name:
         return str(name)
     return str(getattr(message, "type", None) or type(message).__name__)

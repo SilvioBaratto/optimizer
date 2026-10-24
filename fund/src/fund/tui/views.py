@@ -1527,14 +1527,16 @@ class DeliberationView(ShellView):
 
         An allocator result matches only the exact proposal it was computed for (by
         ``decision_index``), so an earlier step never shows a later re-optimize's
-        frontier; a risk result matches the run's risk step.
+        frontier; a risk result matches the run's risk step. A ``message`` row never
+        matches an allocator result: message and decision indices are separate
+        numberings that merely look alike.
         """
         if self._readout is None:
             return None
         run_id, agent, key, result = self._readout
         if run_id != self.selected_run_id or agent != entry.agent:
             return None
-        if agent == "allocator" and key != entry.index:
+        if agent == "allocator" and (entry.source != "decision" or key != entry.index):
             return None
         return result
 

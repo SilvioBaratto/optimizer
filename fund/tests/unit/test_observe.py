@@ -680,6 +680,78 @@ def test_load_run_transcript_folds_writes_onto_the_nearest_delta_snapshot(db_ses
     ]
 
 
+@pytest.mark.parametrize("subagent", ["economist", "allocator", "risk"])
+def test_load_run_transcript_attributes_a_task_report_to_its_subagent(
+    db_session, subagent
+):
+    # Production never names the subagent's report: it reaches the PM thread as a
+    # ToolMessage(name='task'), tied to its delegation only by ``tool_call_id``.
+    saver = MemorySaver()
+    _run_real_deep_agent(
+        saver, f"attr-{subagent}", narrative="the report", subagent=subagent
+    )
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id=f"attr-{subagent}",
+    )
+    db_session.expire(run, ["decisions"])
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    reports = [e for e in entries if e.text == "the report"]
+    assert [e.agent for e in reports] == [subagent]
+
+
+def test_load_run_transcript_keeps_the_tool_name_for_a_non_task_tool_message(
+    db_session,
+):
+    saver = MemorySaver()
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="attr-other-tool",
+    )
+    db_session.expire(run, ["decisions"])
+    _seed_thread(
+        saver,
+        "attr-other-tool",
+        [
+            _task_msg("economist"),
+            ToolMessage(content="ordered", name="place_orders", tool_call_id="x"),
+            ToolMessage(content="orphan", name="task", tool_call_id="unknown"),
+        ],
+    )
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    # An unmatched task result keeps the tool name rather than guessing a subagent.
+    assert [e.agent for e in entries] == ["ai", "place_orders", "task"]
+
+
+def test_daily_brief_reads_the_economist_from_a_real_deep_agent_run(db_session):
+    saver = MemorySaver()
+    _run_real_deep_agent(saver, "brief-real", narrative="risk-on, tilt to tech")
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 1, 30, tzinfo=UTC),
+        thread_id="brief-real",
+    )
+
+    brief = observe.daily_brief(db_session, saver, _PID, asof=date(2026, 2, 2))
+
+    assert brief.economist_read == "risk-on, tilt to tech"
+    assert brief.economist_read_date == _ASOF
+    assert brief.deliberation_run_id == run.id
+
+
 # --- portfolio_state --------------------------------------------------------
 
 
