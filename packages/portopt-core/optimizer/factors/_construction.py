@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from typing import cast
 
@@ -399,10 +400,27 @@ def _compute_dividend_yield(fundamentals: pd.DataFrame) -> pd.Series:
     return cast(pd.Series, dy).fillna(0.0)
 
 
+_RATING_COUNT_COLUMNS = ("strong_buy", "buy", "hold", "sell", "strong_sell")
+_SNAPSHOT_PERIOD = re.compile(r"^\s*([+-]?\d+)\s*m\s*$", re.IGNORECASE)
+
+
 def _compute_recommendation_change(
     analyst_data: pd.DataFrame | None,
 ) -> pd.Series:
-    """Net recommendation upgrades - downgrades."""
+    """Revision in analyst sentiment between the two latest snapshots.
+
+    Each snapshot is scored as its net buy-rating share,
+    ``(strong_buy + buy - sell - strong_sell) / all ratings``, so a name with
+    40 analysts is comparable to one with 4 and a steady consensus scores zero
+    however bullish it is.  The factor is the latest snapshot's share minus the
+    prior one's, with snapshots ordered by ``period`` (``0m`` is the latest,
+    ``-1m`` a month earlier, as stored by ingestion).  Tickers with fewer than
+    two snapshots are not scored, and rating counts without ``ticker`` and
+    ``period`` columns cannot form a revision and yield an empty Series.
+
+    A precomputed ``recommendation_change`` column takes precedence and is
+    averaged per ticker.
+    """
     if analyst_data is None or len(analyst_data) == 0:
         return pd.Series(dtype=float)
     if "recommendation_change" in analyst_data.columns:
@@ -410,25 +428,37 @@ def _compute_recommendation_change(
             pd.Series, analyst_data.groupby("ticker")["recommendation_change"].mean()
         )
         return result
-    if "strong_buy" in analyst_data.columns:
-        bull = analyst_data.get("strong_buy")
-        buy = analyst_data.get("buy")
-        strong_sell = analyst_data.get("strong_sell")
-        sell = analyst_data.get("sell")
-        bull_total = (cast(pd.Series, bull) if bull is not None else 0) + (
-            cast(pd.Series, buy) if buy is not None else 0
+    if not {"ticker", "period", "strong_buy"} <= set(analyst_data.columns):
+        return pd.Series(dtype=float)
+
+    counts = (
+        analyst_data.reindex(columns=list(_RATING_COUNT_COLUMNS))
+        .apply(pd.to_numeric, errors="coerce")
+        .fillna(0.0)
+    )
+    net = counts["strong_buy"] + counts["buy"] - counts["sell"] - counts["strong_sell"]
+    total = counts.sum(axis=1)
+    months = pd.to_numeric(
+        analyst_data["period"]
+        .astype("string")
+        .str.extract(_SNAPSHOT_PERIOD, expand=False),
+        errors="coerce",
+    )
+    snapshots = (
+        pd.DataFrame(
+            {
+                "ticker": analyst_data["ticker"],
+                "months": months,
+                "share": net / total.where(total > 0),
+            }
         )
-        bear_total = (
-            cast(pd.Series, strong_sell) if strong_sell is not None else 0
-        ) + (cast(pd.Series, sell) if sell is not None else 0)
-        score = pd.Series(bull_total - bear_total, dtype=float)
-        if "ticker" in analyst_data.columns:
-            grouped: pd.Series = cast(
-                pd.Series, score.groupby(analyst_data["ticker"]).mean()
-            )
-            return grouped
-        return score
-    return pd.Series(dtype=float)
+        .dropna()
+        .drop_duplicates(["ticker", "months"], keep="last")
+        .sort_values(["ticker", "months"], kind="stable")
+    )
+    snapshots["change"] = snapshots.groupby("ticker")["share"].diff()
+    latest = snapshots.groupby("ticker").tail(1).set_index("ticker")["change"]
+    return latest.dropna().astype(float)
 
 
 def _compute_net_insider_buying(

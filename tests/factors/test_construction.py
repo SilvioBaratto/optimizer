@@ -1330,9 +1330,110 @@ class TestRecommendationChangeBranches:
         assert result.loc["A"] == 0.0
         assert result.loc["B"] == 2.0
 
-    def test_raw_counts_with_ticker_compute_net_score(
+    @staticmethod
+    def _counts(rows: list[tuple[str, str, int, int, int, int, int]]) -> pd.DataFrame:
+        """Build snapshots shaped like ``analyst_recommendations`` rows."""
+        return pd.DataFrame(
+            rows,
+            columns=[
+                "ticker",
+                "period",
+                "strong_buy",
+                "buy",
+                "hold",
+                "sell",
+                "strong_sell",
+            ],
+        )
+
+    def test_revision_is_latest_net_rating_share_minus_prior_snapshot(
         self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
     ) -> None:
+        """Upgrades score positive and downgrades negative, whatever the row order."""
+        analyst = self._counts(
+            [
+                # Rows deliberately newest-first: order comes from ``period``.
+                ("UP", "0m", 8, 0, 2, 0, 0),
+                ("UP", "-1m", 5, 0, 5, 0, 0),
+                ("DOWN", "-1m", 8, 0, 2, 0, 0),
+                ("DOWN", "0m", 5, 0, 5, 0, 0),
+            ]
+        )
+        result = compute_factor(
+            FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
+        )
+        assert result.loc["UP"] == pytest.approx(0.3)
+        assert result.loc["DOWN"] == pytest.approx(-0.3)
+
+    def test_constant_consensus_is_not_a_revision(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        """A strong but unchanged consensus scores zero, not its level."""
+        analyst = self._counts(
+            [
+                ("A", "-1m", 5, 3, 1, 1, 0),
+                ("A", "0m", 5, 3, 1, 1, 0),
+            ]
+        )
+        result = compute_factor(
+            FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
+        )
+        assert result.loc["A"] == pytest.approx(0.0)
+
+    def test_score_is_independent_of_analyst_coverage(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        """A 40-analyst name and a 4-analyst name with the same shift tie."""
+        analyst = self._counts(
+            [
+                ("MEGA", "-1m", 20, 0, 20, 0, 0),
+                ("MEGA", "0m", 30, 0, 10, 0, 0),
+                ("SMALL", "-1m", 2, 0, 2, 0, 0),
+                ("SMALL", "0m", 3, 0, 1, 0, 0),
+            ]
+        )
+        result = compute_factor(
+            FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
+        )
+        assert result.loc["MEGA"] == pytest.approx(0.25)
+        assert result.loc["SMALL"] == pytest.approx(result.loc["MEGA"])
+
+    def test_uses_the_two_most_recent_available_snapshots(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        """A missing month does not break the comparison of latest vs prior."""
+        analyst = self._counts(
+            [
+                ("A", "-3m", 0, 0, 10, 0, 10),
+                ("A", "-2m", 4, 0, 6, 0, 0),
+                ("A", "0m", 6, 0, 4, 0, 0),
+            ]
+        )
+        result = compute_factor(
+            FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
+        )
+        assert result.loc["A"] == pytest.approx(0.2)
+
+    def test_single_snapshot_has_no_revision(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        """One snapshot has nothing to change from, so the ticker is not scored."""
+        analyst = self._counts(
+            [
+                ("A", "-1m", 5, 0, 5, 0, 0),
+                ("A", "0m", 8, 0, 2, 0, 0),
+                ("B", "0m", 9, 0, 1, 0, 0),
+            ]
+        )
+        result = compute_factor(
+            FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
+        )
+        assert list(result.index) == ["A"]
+
+    def test_counts_without_period_cannot_form_a_revision(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        """Without snapshot ordering the level is not passed off as a change."""
         analyst = pd.DataFrame(
             {
                 "ticker": ["A", "B"],
@@ -1345,19 +1446,25 @@ class TestRecommendationChangeBranches:
         result = compute_factor(
             FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
         )
-        assert result.loc["A"] == 7.0  # (5+3) - (0+1)
-        assert result.loc["B"] == -5.0  # (1+0) - (4+2)
+        assert result.empty
 
-    def test_raw_counts_without_ticker_returns_score(
+    def test_counts_without_ticker_cannot_form_a_revision(
         self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
     ) -> None:
+        """Snapshots that cannot be tied to a ticker are not scored."""
         analyst = pd.DataFrame(
-            {"strong_buy": [5], "buy": [3], "sell": [1], "strong_sell": [0]}
+            {
+                "period": ["0m"],
+                "strong_buy": [5],
+                "buy": [3],
+                "sell": [1],
+                "strong_sell": [0],
+            }
         )
         result = compute_factor(
             FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
         )
-        assert result.iloc[0] == 7.0
+        assert result.empty
 
     def test_unrecognized_columns_return_empty(
         self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
