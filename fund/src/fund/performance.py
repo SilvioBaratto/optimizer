@@ -369,6 +369,29 @@ def _require_fx_coverage(
         )
 
 
+def _expressed_in_base(
+    ticker: str,
+    base_currency: str,
+    currency_map: dict[str, str],
+    fx_rates: pd.DataFrame,
+) -> bool:
+    """Whether :func:`_to_base_prices` leaves ``ticker`` priced in ``base_currency``.
+
+    The converter skips a foreign ticker whose currency has no rate column rather
+    than raising, so its prices stay in listing currency; this mirrors that rule so
+    callers can tell a converted series from a raw one. A ticker with no known
+    currency is treated as base, as the converter does.
+    """
+    code = currency_map.get(ticker)
+    if code is None:
+        return True
+    major = _major_currency(code)
+    if major == _major_currency(base_currency):
+        return True
+    available = {str(col).upper() for col in fx_rates.columns}
+    return major in available
+
+
 def _price_asof(prices: pd.DataFrame, ticker: str, ts: Any) -> float | None:
     """Last valid base price for ``ticker`` at or before ``ts`` (no look-ahead)."""
     value: Any = prices[ticker].asof(ts)
@@ -584,7 +607,8 @@ def build_nav_series(
         portfolio_id: Portfolio whose paper book to reconstruct.
         session: Open SQLAlchemy session (reader; no commit).
         base_currency: Mandate base currency to express NAV in.
-        benchmark: Optional benchmark ticker; its level is FX-normalized to base.
+        benchmark: Optional benchmark ticker; its level is FX-normalized to base,
+            or left ``None`` when its currency has no FX rate to convert it.
         asof: Upper date bound for the series; ``None`` runs to the latest price.
         since: Lower date bound on the *emitted* points — shares are still derived
             from the full ticket history and prices carried forward from the first
@@ -649,6 +673,15 @@ def build_nav_series(
         fx_rates=fx_rates,
     ).ffill()
 
+    # A benchmark whose currency could not be converted is dropped, not emitted raw:
+    # a local-currency index level beside a base-currency NAV would make excess,
+    # tracking error and beta compare two currencies with no FX return between them.
+    bench_in_base = (
+        benchmark is not None
+        and benchmark in base_prices.columns
+        and _expressed_in_base(benchmark, base_currency, currency_map, fx_rates)
+    )
+
     ticket_books = [
         (ticket.fill_date, _ticket_book(ticket, base_prices)) for ticket in tickets
     ]
@@ -668,7 +701,7 @@ def build_nav_series(
         if nav is None:
             continue
         bench_level: float | None = None
-        if benchmark and benchmark in base_prices.columns:
+        if benchmark and bench_in_base:
             raw = base_prices.at[ts, benchmark]
             if pd.notna(raw):
                 bench_level = float(raw)

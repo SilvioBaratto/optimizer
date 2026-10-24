@@ -309,12 +309,10 @@ def test_nav_series_non_base_mandate_without_fx_coverage_raises(db_session):
         build_nav_series(_PID, session=db_session, base_currency="GBP")
 
 
-def test_nav_series_foreign_benchmark_without_fx_does_not_block(db_session):
-    """A foreign benchmark with no FX rate degrades; it must not block an all-base NAV.
+def _seed_eur_book_with_usd_benchmark(db_session, *, gbp_rates: bool = False):
+    """Seed an all-EUR single-stock book plus a USD-priced ``SPX`` benchmark.
 
-    The coverage guard considers holdings only — an all-EUR book with a USD
-    benchmark and an empty FX table still marks NAV (regression guard for the
-    benchmark-currency false positive).
+    ``gbp_rates`` adds an FX table that covers GBP only, so USD has no rate column.
     """
     ex = Exchange(name="X")
     db_session.add(ex)
@@ -345,6 +343,22 @@ def test_nav_series_foreign_benchmark_without_fx_does_not_block(db_session):
             ),
         ]
     )
+    if gbp_rates:
+        from portopt_db.repositories.market_data.fx_rates_repository import (
+            FxRatesRepository,
+        )
+
+        FxRatesRepository(db_session).upsert_rates(
+            [
+                {
+                    "base_currency": "EUR",
+                    "quote_currency": "GBP",
+                    "date": day,
+                    "rate": 1.17,
+                }
+                for day in (_D1, _D2)
+            ]
+        )
     db_session.add(
         PaperOrder(
             portfolio_id=_PID,
@@ -360,12 +374,39 @@ def test_nav_series_foreign_benchmark_without_fx_does_not_block(db_session):
     )
     db_session.flush()
 
+
+def test_nav_series_foreign_benchmark_without_fx_does_not_block(db_session):
+    """A foreign benchmark with no FX rate degrades; it must not block an all-base NAV.
+
+    The coverage guard considers holdings only — an all-EUR book with a USD
+    benchmark and an empty FX table still marks NAV (regression guard for the
+    benchmark-currency false positive).
+    """
+    _seed_eur_book_with_usd_benchmark(db_session)
+
     points = build_nav_series(
         _PID, session=db_session, base_currency="EUR", benchmark="SPX"
     )
     navs = {p.date: p.nav for p in points}
     assert navs[_D1] == pytest.approx(10000.0, rel=1e-6)  # pure-EUR NAV, not blocked
     assert navs[_D2] == pytest.approx(11000.0, rel=1e-6)  # 100 shares × 110
+
+
+@pytest.mark.parametrize("gbp_rates", [False, True], ids=["empty-fx", "gbp-only-fx"])
+def test_nav_series_unconverted_foreign_benchmark_is_not_emitted(db_session, gbp_rates):
+    """A benchmark whose currency has no FX column must not leak in as raw USD points.
+
+    Emitting 5000/5100 index points beside a EUR NAV would make excess return,
+    tracking error and beta compare two currencies with no FX return between them.
+    """
+    _seed_eur_book_with_usd_benchmark(db_session, gbp_rates=gbp_rates)
+
+    points = build_nav_series(
+        _PID, session=db_session, base_currency="EUR", benchmark="SPX"
+    )
+
+    assert points
+    assert all(p.benchmark is None for p in points)
 
 
 def test_nav_series_since_bounds_emitted_points(db_session):
