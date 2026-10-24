@@ -554,6 +554,24 @@ def _write_portfolio_journal(
     )
 
 
+def _holdings_from_ticket(ticket: Any) -> list[dict[str, Any]]:
+    """Snapshot rows for the holdings a paper ticket produced.
+
+    Carries each line's base-currency notional but not its ``shares``: that figure is
+    the base notional divided by the listing price, so it is currency-mixed for a
+    non-base listing (the performance marks re-derive FX-correct shares for the same
+    reason) and would be a wrong holding size.
+    """
+    return [
+        {
+            "ticker": line["ticker"],
+            "weight": line["weight"],
+            "notional": line.get("notional"),
+        }
+        for line in ticket.lines
+    ]
+
+
 def _finalize_hitl(
     session: Any,
     *,
@@ -563,6 +581,7 @@ def _finalize_hitl(
     weights: dict[str, float],
     decision: str,
     order_lines: list[dict[str, Any]] | None = None,
+    ticket: Any | None = None,
 ) -> None:
     """Finalise a HITL decision — the single write path both resume routes share.
 
@@ -572,8 +591,10 @@ def _finalize_hitl(
     ``approve`` finalises the run ``completed`` with the optimizer ``weights`` and
     replaces the portfolio's ``positions`` snapshot built from them (O1 = Option B
     per-ticker row dicts; ``order_lines``, when supplied, carries the filled
-    shares/notional). Any other ``decision`` writes no order, records the
-    orchestrator's HITL choice, and finalises the run ``rejected``.
+    shares/notional). ``ticket``, the paper order the approve placed, links every
+    snapshot row to it and supplies each row's base notional and the journal's trades.
+    Any other ``decision`` writes no order, records the orchestrator's HITL choice,
+    and finalises the run ``rejected``.
 
     The ``agent.invoke(Command(resume=…))`` that actually runs (approve) or denies
     (reject) the gated ``place_orders`` tool is the **caller's** job — inside that
@@ -592,17 +613,31 @@ def _finalize_hitl(
         prior_weights = {
             p.ticker: float(p.weight) for p in positions.get_holdings(portfolio_id)
         }
-        holdings = order_lines or [
-            {"ticker": ticker, "weight": weight} for ticker, weight in weights.items()
-        ]
-        positions.set_holdings(portfolio_id, holdings, asof=asof)
+        if order_lines:
+            holdings = order_lines
+        elif ticket is not None:
+            holdings = _holdings_from_ticket(ticket)
+        else:
+            holdings = [
+                {"ticker": ticker, "weight": weight}
+                for ticker, weight in weights.items()
+            ]
+        positions.set_holdings(
+            portfolio_id,
+            holdings,
+            asof=asof,
+            paper_order_id=ticket.id if ticket is not None else None,
+        )
+        journal_lines = order_lines
+        if journal_lines is None and ticket is not None:
+            journal_lines = ticket.lines
         _write_portfolio_journal(
             session,
             run_id=run_id,
             portfolio_id=portfolio_id,
             asof=asof,
             weights=weights,
-            order_lines=order_lines,
+            order_lines=journal_lines,
             prior_weights=prior_weights,
         )
     else:
@@ -615,15 +650,15 @@ def _finalize_hitl(
         audit.finalize_run(run_id, weights={}, status="rejected")
 
 
-def _ticket_placed(
+def _placed_ticket(
     session: Any,
     *,
     run_id: uuid.UUID,
     portfolio_id: uuid.UUID,
     asof: dt.date,
     weights: dict[str, float],
-) -> bool:
-    """Whether this run's approved ``place_orders`` call left a ticket for ``weights``.
+) -> Any | None:
+    """The ticket this run's approved ``place_orders`` left for ``weights``, if any.
 
     ``place_orders`` can decline an approved gate (a missing fill bar, the current
     mandate no longer admits the audited weights, or the risk gate had not passed
@@ -640,11 +675,31 @@ def _ticket_placed(
     from fund.audit.orders_repository import weights_hash
 
     if not weights or not AgentRunRepository(session).risk_passed(run_id, weights):
-        return False
-    ticket = OrderRepository(session).get_by_key(
+        return None
+    return OrderRepository(session).get_by_key(
         portfolio_id=portfolio_id, asof=asof, weights_hash=weights_hash(weights)
     )
-    return ticket is not None
+
+
+def _ticket_placed(
+    session: Any,
+    *,
+    run_id: uuid.UUID,
+    portfolio_id: uuid.UUID,
+    asof: dt.date,
+    weights: dict[str, float],
+) -> bool:
+    """Whether :func:`_placed_ticket` finds a ticket for ``weights``."""
+    return (
+        _placed_ticket(
+            session,
+            run_id=run_id,
+            portfolio_id=portfolio_id,
+            asof=asof,
+            weights=weights,
+        )
+        is not None
+    )
 
 
 def _settle_hitl(
@@ -688,9 +743,18 @@ def _settle_hitl(
             hitl_decision={"decision": decision, "regated": True},
         )
         return
-    if decision != "approve" or _ticket_placed(
-        session, run_id=run_id, portfolio_id=portfolio_id, asof=asof, weights=weights
-    ):
+    ticket = (
+        _placed_ticket(
+            session,
+            run_id=run_id,
+            portfolio_id=portfolio_id,
+            asof=asof,
+            weights=weights,
+        )
+        if decision == "approve"
+        else None
+    )
+    if decision != "approve" or ticket is not None:
         _finalize_hitl(
             session,
             run_id=run_id,
@@ -698,6 +762,7 @@ def _settle_hitl(
             asof=asof,
             weights=weights,
             decision=decision,
+            ticket=ticket,
         )
         return
 

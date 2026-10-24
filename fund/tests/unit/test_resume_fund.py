@@ -1508,6 +1508,65 @@ def test_fundrun_resume_retry_replaces_a_ticket_lost_with_the_rolled_back_sessio
     _assert_retry_completed_with_ticket(db_session, run.run_id, expected)
 
 
+# --- the positions snapshot traces back to the ticket that produced it ---------
+
+
+def _assert_positions_trace_the_ticket(db_session) -> None:
+    """Every holding links the paper ticket and carries its line's base notional.
+
+    ``shares`` stays unset: the ticket's per-line ``shares`` is base notional over the
+    listing price, currency-mixed for a non-base listing, so it is not a holding size.
+    """
+    (order,) = _paper_orders(db_session)
+    notionals = {line["ticker"]: line["notional"] for line in order.lines}
+    holdings = PositionRepository(db_session).get_holdings(PORTFOLIO_ID)
+    assert {p.ticker for p in holdings} == set(notionals)
+    for position in holdings:
+        assert position.paper_order_id == order.id
+        assert position.notional == notionals[position.ticker]
+        assert position.shares is None
+
+
+def test_resume_fund_approve_links_the_positions_to_the_paper_ticket(
+    db_session,
+) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    _assert_positions_trace_the_ticket(db_session)
+
+
+def test_fundrun_resume_approve_links_the_positions_to_the_paper_ticket(
+    db_session,
+) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        db_session,
+        MemorySaver(),
+        _store_with_cs(),
+    )
+
+    run.resume("approve")
+
+    _assert_positions_trace_the_ticket(db_session)
+
+
 # --- _finalize_hitl unit surface: order_lines enrich the snapshot ------------
 
 
