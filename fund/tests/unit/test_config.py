@@ -582,3 +582,36 @@ def test_entrypoint_import_keeps_an_exported_database_url(module: str, tmp_path:
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == [_EXPORTED_DB, _EXPORTED_DB]
+
+
+def test_structured_output_method_is_env_sourced():
+    cfg = load_config(env={"FUND_STRUCTURED_OUTPUT_METHOD": "json_mode"})
+
+    assert cfg.structured_output_method == "json_mode"
+
+
+def test_huggingface_does_not_default_to_function_calling_structured_output():
+    # langchain-huggingface raises NotImplementedError for a pydantic schema under
+    # function_calling, so that provider needs a different default.
+    cfg = load_config(env={"LLM_PROVIDER": "huggingface"})
+
+    assert cfg.structured_output_method == "json_schema"
+
+
+def test_explicit_structured_output_method_beats_the_provider_default():
+    cfg = load_config(
+        env={
+            "LLM_PROVIDER": "huggingface",
+            "FUND_STRUCTURED_OUTPUT_METHOD": "json_mode",
+        }
+    )
+
+    assert cfg.structured_output_method == "json_mode"
+
+
+def test_blank_structured_output_method_falls_back_to_the_provider_default():
+    cfg = load_config(
+        env={"LLM_PROVIDER": "huggingface", "FUND_STRUCTURED_OUTPUT_METHOD": " "}
+    )
+
+    assert cfg.structured_output_method == "json_schema"

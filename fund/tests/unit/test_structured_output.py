@@ -257,6 +257,17 @@ def test_auth_and_unknown_model_failures_skip_the_remaining_retries(status: int)
     assert model.invoke_calls == 1
 
 
+def test_a_binding_that_the_provider_does_not_support_is_not_retried():
+    # NotImplementedError comes from with_structured_output itself, before any
+    # request: the identical call can only raise it again.
+    unsupported = NotImplementedError("no pydantic schemas")
+    model = _MockChatModel([unsupported, _Answer(value=7)])
+    with pytest.raises(StructuredOutputError) as excinfo:
+        structured_call(model, _Answer, _MESSAGES, retries=3)
+    assert model.invoke_calls == 1
+    assert "NotImplementedError" in str(excinfo.value)
+
+
 def test_a_400_may_be_a_model_flake_and_is_retried():
     # Groq answers a malformed tool call with HTTP 400 ``tool_use_failed``: a weak
     # model's flake that the next attempt can clear.

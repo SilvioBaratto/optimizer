@@ -1460,3 +1460,16 @@ def test_huggingface_chat_wrapper_allows_a_long_completion():
 
     assert llm._default_params["max_tokens"] >= _MIN_COMPLETION_TOKENS
     assert llm.llm.max_new_tokens >= _MIN_COMPLETION_TOKENS
+
+
+def test_huggingface_default_structured_output_method_binds_a_pydantic_schema():
+    # ChatHuggingFace refuses a pydantic schema under method="function_calling", so
+    # the method load_config selects for it has to bind without raising.
+    from fund.schemas.questionnaire import MiFIDAnswers
+
+    cfg = load_config(
+        env={"LLM_PROVIDER": "huggingface", "HUGGINGFACEHUB_API_TOKEN": _FAKE_HF}
+    )
+    llm = model.build_chat_model(cfg, model_name="meta-llama/Meta-Llama-3-8B-Instruct")
+
+    llm.with_structured_output(MiFIDAnswers, method=cfg.structured_output_method)

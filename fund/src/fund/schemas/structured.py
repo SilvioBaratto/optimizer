@@ -112,11 +112,13 @@ def _http_status(exc: BaseException) -> int | None:
 def _is_non_retryable(exc: BaseException) -> bool:
     """True for a failure the same request can never recover from.
 
-    A 401/403/404 (bad key, forbidden, unknown model) or a plain
-    ``PermissionError``: repeating the call only repeats the failure, so the
-    remaining retries of that model are skipped.
+    A 401/403/404 (bad key, forbidden, unknown model), a plain
+    ``PermissionError``, or a ``NotImplementedError`` (a chat model refusing the
+    requested structured-output binding before any request is sent): repeating the
+    call only repeats the failure, so the remaining retries of that model are
+    skipped.
     """
-    if isinstance(exc, PermissionError):
+    if isinstance(exc, (PermissionError, NotImplementedError)):
         return True
     return _http_status(exc) in _UNRECOVERABLE_CLIENT_STATUSES
 

@@ -81,6 +81,8 @@ class FundConfig:
     # deepagents depends on reliable tool-calling (SPEC D4).
     model_reasoning: bool = False
     # `json_schema` fell through in probing; `function_calling` round-tripped.
+    # `load_config` swaps in a per-provider method where function calling is
+    # unavailable (see `_PROVIDER_STRUCTURED_OUTPUT_METHOD`).
     structured_output_method: str = "function_calling"
 
     # --- D4 provider registry: per-provider keys/endpoints. Each stays None (or
@@ -262,6 +264,11 @@ def load_project_env() -> None:
             os.environ[key] = value
 
 
+# langchain-huggingface raises NotImplementedError when a pydantic schema is bound
+# with method="function_calling", and every structured step here passes one.
+_PROVIDER_STRUCTURED_OUTPUT_METHOD: Mapping[str, str] = {"huggingface": "json_schema"}
+
+
 def _env_flag(env: Mapping[str, str], name: str) -> bool:
     """Return whether ``name`` holds a truthy word (``1``/``true``/``yes``/``on``)."""
     return env.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
@@ -305,6 +312,13 @@ def load_config(
         llm_provider=env.get("LLM_PROVIDER", defaults.llm_provider),
         primary_model=env.get("FUND_PRIMARY_MODEL", defaults.primary_model),
         fallback_model=env.get("FUND_FALLBACK_MODEL", defaults.fallback_model),
+        structured_output_method=(
+            env.get("FUND_STRUCTURED_OUTPUT_METHOD", "").strip()
+            or _PROVIDER_STRUCTURED_OUTPUT_METHOD.get(
+                env.get("LLM_PROVIDER", defaults.llm_provider),
+                defaults.structured_output_method,
+            )
+        ),
         ollama_base_url=env.get("OLLAMA_BASE_URL", defaults.ollama_base_url),
         ollama_num_ctx=int(env.get("FUND_OLLAMA_NUM_CTX", defaults.ollama_num_ctx)),
         # Per-provider secret keys → _read_secret (file-based docker secret wins);
