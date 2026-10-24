@@ -1479,6 +1479,14 @@ class TestRecommendationChangeBranches:
 class TestNetInsiderBuyingBranches:
     """Cover the insider-buying signed/unsigned and missing-column paths."""
 
+    @pytest.fixture()
+    def _funds(self) -> pd.DataFrame:
+        """Fundamentals whose 10k shares outstanding scale the share counts."""
+        return pd.DataFrame(
+            {"market_cap": [1.0, 1.0], "shares_outstanding": [10_000.0, 10_000.0]},
+            index=pd.Index(["A", "B"], name="ticker"),
+        )
+
     def test_missing_shares_or_ticker_returns_empty(
         self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
     ) -> None:
@@ -1489,7 +1497,7 @@ class TestNetInsiderBuyingBranches:
         assert result.empty
 
     def test_transaction_type_signs_shares(
-        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+        self, _funds: pd.DataFrame, _tiny_prices: pd.DataFrame
     ) -> None:
         insider = pd.DataFrame(
             {
@@ -1499,22 +1507,13 @@ class TestNetInsiderBuyingBranches:
             }
         )
         result = compute_factor(
-            FactorType.NET_INSIDER_BUYING, _dummy, _tiny_prices, insider_data=insider
+            FactorType.NET_INSIDER_BUYING, _funds, _tiny_prices, insider_data=insider
         )
-        assert result.loc["A"] == 50.0  # +100 purchase - 50 sale
-        assert result.loc["B"] == 200.0  # +200 buy
-
-    def test_no_transaction_type_sums_shares(
-        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
-    ) -> None:
-        insider = pd.DataFrame({"ticker": ["A", "A"], "shares": [100, 50]})
-        result = compute_factor(
-            FactorType.NET_INSIDER_BUYING, _dummy, _tiny_prices, insider_data=insider
-        )
-        assert result.loc["A"] == 150.0
+        assert result.loc["A"] == pytest.approx(0.005)  # (100 - 50) / 10_000
+        assert result.loc["B"] == pytest.approx(0.02)  # 200 / 10_000
 
     def test_compensation_grants_and_gifts_are_not_counted_as_sales(
-        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+        self, _funds: pd.DataFrame, _tiny_prices: pd.DataFrame
     ) -> None:
         insider = pd.DataFrame(
             {
@@ -1530,42 +1529,235 @@ class TestNetInsiderBuyingBranches:
             }
         )
         result = compute_factor(
-            FactorType.NET_INSIDER_BUYING, _dummy, _tiny_prices, insider_data=insider
+            FactorType.NET_INSIDER_BUYING, _funds, _tiny_prices, insider_data=insider
         )
-        assert result.loc["A"] == 800.0  # +1000 purchase - 200 sale, grant ignored
+        # +1000 purchase - 200 sale over 10_000 shares, the grant is ignored
+        assert result.loc["A"] == pytest.approx(0.08)
         assert result.loc["B"] == 0.0  # no open-market trade at all
 
     def test_blank_transaction_types_are_neutral_not_bearish(
-        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+        self, _funds: pd.DataFrame, _tiny_prices: pd.DataFrame
     ) -> None:
         insider = pd.DataFrame(
             {
-                "ticker": ["A", "A", "B"],
-                "shares": [1000, 500, 100],
-                "transaction_type": [None, "", "Purchase"],
+                "ticker": ["A", "A", "B", "B"],
+                "shares": [1000, 500, 100, 5000],
+                "transaction_type": [None, "", "Purchase", ""],
             }
         )
         result = compute_factor(
-            FactorType.NET_INSIDER_BUYING, _dummy, _tiny_prices, insider_data=insider
+            FactorType.NET_INSIDER_BUYING, _funds, _tiny_prices, insider_data=insider
         )
-        assert result.loc["A"] == 0.0
-        assert result.loc["B"] == 100.0
+        # B's blank row is not read as a sale; it adds nothing to the purchase.
+        assert result.loc["B"] == pytest.approx(0.01)
+        # A has no classifiable row at all, so its direction is unknown.
+        assert np.isnan(result.loc["A"])
 
-    def test_all_nan_float_transaction_type_column_does_not_crash(
-        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    def test_ledger_with_no_classifiable_transaction_type_is_not_scored(
+        self, _funds: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        # A blank type column (all NaN after loading, or all empty strings)
+        # carries no direction; a constant 0.0 would rank every name mid-pack.
+        for types in ([np.nan, np.nan], ["", "  "]):
+            insider = pd.DataFrame(
+                {"ticker": ["A", "B"], "shares": [1500, 100], "transaction_type": types}
+            )
+            result = compute_factor(
+                FactorType.NET_INSIDER_BUYING,
+                _funds,
+                _tiny_prices,
+                insider_data=insider,
+            )
+            assert result.empty
+
+
+class TestNetInsiderBuyingNormalisation:
+    """Net insider buying is a fraction of the company, not a raw share count."""
+
+    @pytest.fixture()
+    def _prices(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {"A": [1.0, 1.0, 1.0], "B": [1.0, 1.0, 1.0]},
+            index=pd.bdate_range("2023-01-01", periods=3),
+        )
+
+    @staticmethod
+    def _funds(**columns: list[float]) -> pd.DataFrame:
+        return pd.DataFrame(columns, index=pd.Index(["A", "B"], name="ticker"))
+
+    def test_same_share_count_scores_by_value_over_market_cap(
+        self, _prices: pd.DataFrame
+    ) -> None:
+        # A: 1M shares at 0.50 in a 5M company (10%); B: 1M shares at 500 in a
+        # 500B company (0.1%).  Both trade 1M shares, so a raw share sum ties.
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "B"],
+                "shares": [1_000_000, 1_000_000],
+                "value": [500_000, 500_000_000],
+                "transaction_type": ["Purchase", "Purchase"],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[5e6, 500e9]),
+            _prices,
+            insider_data=insider,
+        )
+        assert result.loc["A"] == pytest.approx(0.1)
+        assert result.loc["B"] == pytest.approx(0.001)
+
+    def test_sales_are_subtracted_in_value_terms(self, _prices: pd.DataFrame) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "A", "B"],
+                "shares": [100, 40, 10],
+                "value": [1_000.0, 600.0, 300.0],
+                "transaction_type": [
+                    "Purchase at price 10.00 per share.",
+                    "Sale at price 15.00 per share.",
+                    "Sale at price 30.00 per share.",
+                ],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[10_000.0, 1_000.0]),
+            _prices,
+            insider_data=insider,
+        )
+        assert result.loc["A"] == pytest.approx(0.04)  # (1000 - 600) / 10000
+        assert result.loc["B"] == pytest.approx(-0.3)  # -300 / 1000
+
+    def test_shares_are_scaled_by_shares_outstanding_without_value(
+        self, _prices: pd.DataFrame
     ) -> None:
         insider = pd.DataFrame(
             {
                 "ticker": ["A", "B"],
-                "shares": [1500, 100],
-                "transaction_type": [np.nan, np.nan],
+                "shares": [1_000, 1_000],
+                "transaction_type": ["Purchase", "Sale"],
             }
         )
         result = compute_factor(
-            FactorType.NET_INSIDER_BUYING, _dummy, _tiny_prices, insider_data=insider
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[1.0, 1.0], shares_outstanding=[10_000.0, 2_000.0]),
+            _prices,
+            insider_data=insider,
         )
-        assert result.loc["A"] == 0.0
-        assert result.loc["B"] == 0.0
+        assert result.loc["A"] == pytest.approx(0.1)
+        assert result.loc["B"] == pytest.approx(-0.5)
+
+    def test_unsigned_amounts_without_transaction_type_are_not_scored(
+        self, _prices: pd.DataFrame
+    ) -> None:
+        # The ledger stores sales as positive numbers, so without a type column
+        # the sum would be total traded volume mislabelled as net buying.
+        insider = pd.DataFrame(
+            {"ticker": ["A", "A"], "shares": [1_000, 1_000], "value": [10.0, 10.0]}
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[1e6, 1e6], shares_outstanding=[1e5, 1e5]),
+            _prices,
+            insider_data=insider,
+        )
+        assert result.empty
+
+    def test_no_normaliser_in_fundamentals_leaves_factor_uncomputed(
+        self, _prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A"],
+                "shares": [1_000],
+                "transaction_type": ["Purchase"],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[1e6, 1e6]),
+            _prices,
+            insider_data=insider,
+        )
+        assert result.empty
+
+    def test_trade_without_a_usable_amount_leaves_the_ticker_unscored(
+        self, _prices: pd.DataFrame
+    ) -> None:
+        # A's sale has no value: summing only the purchase would report +1e-4
+        # for a ticker whose net direction is unknown.
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "A", "B", "B"],
+                "value": [100.0, np.nan, 100.0, 40.0],
+                "transaction_type": ["Purchase", "Sale", "Purchase", "Sale"],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[1e6, 1_000.0]),
+            _prices,
+            insider_data=insider,
+        )
+        assert np.isnan(result.loc["A"])
+        assert result.loc["B"] == pytest.approx(0.06)
+
+    def test_ticker_whose_trades_all_lack_an_amount_is_nan_not_zero(
+        self, _prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "B"],
+                "value": [np.nan, 100.0],
+                "transaction_type": ["Purchase", "Purchase"],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[1e6, 1_000.0]),
+            _prices,
+            insider_data=insider,
+        )
+        assert np.isnan(result.loc["A"])
+        assert result.loc["B"] == pytest.approx(0.1)
+
+    def test_missing_amount_on_a_non_trade_row_does_not_hide_the_signal(
+        self, _prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "A"],
+                "value": [100.0, np.nan],
+                "transaction_type": ["Purchase", "Stock Award(Grant)"],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[1_000.0, 1_000.0]),
+            _prices,
+            insider_data=insider,
+        )
+        assert result.loc["A"] == pytest.approx(0.1)
+
+    def test_non_positive_market_cap_gives_nan_not_infinity(
+        self, _prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "B"],
+                "value": [100.0, 100.0],
+                "transaction_type": ["Purchase", "Purchase"],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[0.0, 1_000.0]),
+            _prices,
+            insider_data=insider,
+        )
+        assert np.isnan(result.loc["A"])
+        assert result.loc["B"] == pytest.approx(0.1)
 
 
 class TestComputeFactorDispatchEdges:

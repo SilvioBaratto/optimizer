@@ -461,41 +461,82 @@ def _compute_recommendation_change(
     return latest.dropna().astype(float)
 
 
+# (ledger amount column, fundamentals column that scales it), in preference
+# order: traded value over market cap, else shares over shares outstanding.
+_INSIDER_AMOUNT_SCALES: tuple[tuple[str, str], ...] = (
+    ("value", "market_cap"),
+    ("shares", "shares_outstanding"),
+)
+
+
 def _compute_net_insider_buying(
     insider_data: pd.DataFrame | None,
+    fundamentals: pd.DataFrame,
 ) -> pd.Series:
-    """Net insider buying volume (purchases - sales).
+    """Net insider buying as a fraction of the company (purchases - sales).
 
-    Only open-market purchases (+shares) and sales (-shares) carry a signal.
-    Equity awards, gifts, option exercises and rows with a blank type are not
+    Only open-market purchases (+) and sales (-) carry a signal.  Equity
+    awards, gifts, option exercises and rows with a blank type are not
     discretionary trades and contribute zero, so a company that grants stock
     regularly is not read as one whose insiders are selling.
+
+    The net amount is divided by the company's size so tickers are comparable:
+    signed ``value`` over ``market_cap`` when the ledger carries a value, else
+    signed ``shares`` over ``shares_outstanding``.  A raw share count would
+    rank a penny stock above a large cap for the same dollar conviction.
+    Direction comes only from ``transaction_type``: the ledger stores sales as
+    positive numbers, so without that column (or without a positive size in
+    ``fundamentals``) the factor is left uncomputed rather than reporting
+    traded volume as net buying.
+
+    Unknown data is left unscored rather than neutral.  A ticker with a
+    purchase or sale that has no usable amount is NaN, since dropping that
+    trade would misstate the net; a ticker none of whose rows has a transaction
+    type is NaN; and a ledger with no transaction type at all yields an empty
+    Series.  A missing amount on a non-trade row (an award, say) is harmless.
     """
     if insider_data is None or len(insider_data) == 0:
         return pd.Series(dtype=float)
-    if "shares" not in insider_data.columns or "ticker" not in insider_data.columns:
+    if not {"ticker", "transaction_type"} <= set(insider_data.columns):
         return pd.Series(dtype=float)
-    if "transaction_type" in insider_data.columns:
-        insider = insider_data.copy()
-        # astype("string") keeps the .str accessor valid for an all-NaN float
-        # column, which is what a blank source column becomes after loading.
-        tx_type = insider["transaction_type"].astype("string").str.lower()
-        is_purchase = tx_type.str.contains("purchase|buy", na=False).to_numpy(bool)
-        is_sale = tx_type.str.contains("sale|sell", na=False).to_numpy(bool)
-        direction = np.select(
-            [is_purchase & ~is_sale, is_sale & ~is_purchase], [1.0, -1.0], default=0.0
-        )
-        insider["signed_shares"] = (
-            pd.to_numeric(insider["shares"], errors="coerce") * direction
-        )
-        result: pd.Series = cast(
-            pd.Series, insider.groupby("ticker")["signed_shares"].sum()
-        )
-        return result
-    result_sum: pd.Series = cast(
-        pd.Series, insider_data.groupby("ticker")["shares"].sum()
+    for amount_col, scale_col in _INSIDER_AMOUNT_SCALES:
+        if (
+            amount_col in insider_data.columns
+            and scale_col in fundamentals.columns
+            and insider_data[amount_col].notna().any()
+        ):
+            break
+    else:
+        return pd.Series(dtype=float)
+
+    # astype("string") keeps the .str accessor valid for an all-NaN float
+    # column, which is what a blank source column becomes after loading.
+    tx_type = insider_data["transaction_type"].astype("string").str.lower()
+    classified = tx_type.str.strip().fillna("").ne("").to_numpy(bool)
+    if not classified.any():
+        return pd.Series(dtype=float)
+    is_purchase = tx_type.str.contains("purchase|buy", na=False).to_numpy(bool)
+    is_sale = tx_type.str.contains("sale|sell", na=False).to_numpy(bool)
+    direction = np.select(
+        [is_purchase & ~is_sale, is_sale & ~is_purchase], [1.0, -1.0], default=0.0
     )
-    return result_sum
+    amount = pd.to_numeric(insider_data[amount_col], errors="coerce").to_numpy(
+        "float64"
+    )
+    unusable = np.isnan(amount)
+    by_ticker = (
+        insider_data[["ticker"]]
+        .assign(
+            signed=np.where(unusable, 0.0, amount) * direction,
+            classified=classified,
+            unknown_trade=(direction != 0) & unusable,
+        )
+        .groupby("ticker")
+    )
+    scored = by_ticker["classified"].any() & ~by_ticker["unknown_trade"].any()
+    net = cast(pd.Series, by_ticker["signed"].sum().where(scored))
+    scale = pd.to_numeric(fundamentals[scale_col], errors="coerce")
+    return net / scale.where(scale > 0).reindex(net.index)
 
 
 _FUNDAMENTAL_FACTORS: dict[FactorType, Callable[[pd.DataFrame], pd.Series]] = {
@@ -534,7 +575,10 @@ def compute_factor(
         price_history: Price matrix (dates x tickers).
         volume_history: Volume matrix (dates x tickers).
         analyst_data: Analyst recommendation data.
-        insider_data: Insider transaction data.
+        insider_data: Insider transaction ledger with ``ticker``,
+            ``transaction_type`` and ``value`` (scaled by ``market_cap``) or
+            ``shares`` (scaled by ``shares_outstanding``) columns, used only
+            by ``NET_INSIDER_BUYING``.
         config: Construction parameters.
         market_returns: Pre-computed market return series for beta estimation.
             When provided, used as the benchmark instead of the equal-weight
@@ -598,7 +642,7 @@ def compute_factor(
         case FactorType.RECOMMENDATION_CHANGE:
             return _compute_recommendation_change(analyst_data)
         case FactorType.NET_INSIDER_BUYING:
-            return _compute_net_insider_buying(insider_data)
+            return _compute_net_insider_buying(insider_data, fundamentals)
         case _:
             return pd.Series(dtype=float)
 
@@ -634,7 +678,11 @@ def compute_all_factors(
         price_history: Price matrix (dates x tickers).
         volume_history: Volume matrix.
         analyst_data: Analyst recommendation data.
-        insider_data: Insider transaction data.
+        insider_data: Insider transaction ledger used only by
+            ``NET_INSIDER_BUYING``, with ``ticker``, ``transaction_type`` and
+            ``value`` (scaled by ``market_cap`` in ``fundamentals``) or
+            ``shares`` (scaled by ``shares_outstanding``) columns.  The factor
+            is dropped from the result when these columns are missing.
         config: Construction parameters.
         market_returns: Pre-computed market return series for beta estimation.
             See `compute_factor` for details.
