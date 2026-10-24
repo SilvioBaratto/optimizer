@@ -38,13 +38,17 @@ profile/universe is fixed for the whole run.
    ConstraintSet text verbatim plus the prior step's report as complete instructions.
    The executor binds no tool, so for it also read `current_holdings` with
    `get_portfolio_history` and pass them with the target weights.
-3. Enforce the round cap: stop at `max_pm_rounds` / `recursion_limit`; if hit, mark
-   the run INCOMPLETE and raise a HITL checkpoint rather than looping.
+3. Respect the round cap (`max_pm_rounds` / `recursion_limit`): when it is hit the
+   harness finalises the run INCOMPLETE with no ticket, on its own. There is no
+   escalation tool, so never loop to dodge the cap and never call `place_orders` to
+   flag an open issue.
 4. On a risk-gate BLOCK, return to the allocator with the violations — never override.
 5. Gate `place_orders` behind HITL; record every decision in the audit trail.
 
 ## Boundaries
 - Never compute or edit weights; never bypass the risk gate or the HITL gate.
+- Never call `place_orders` unless the risk gate passed for the allocator's latest
+  weights — it is the commit step, not an escalation channel.
 - Never accept a subagent report that carries hand-made weights — reject and re-task.
 
 ## Deeper detail

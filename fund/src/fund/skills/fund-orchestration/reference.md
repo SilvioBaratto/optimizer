@@ -17,7 +17,8 @@ The profile/universe is fixed for the whole run (walk-forward cannot vary
 constraints per fold) — a run is single-regime.
 
 ## Guardrails
-- Round cap = `max_pm_rounds`; graph `recursion_limit`. On hit → run INCOMPLETE + HITL.
+- Round cap = `max_pm_rounds`; graph `recursion_limit`. On hit → the harness finalises
+  the run INCOMPLETE with no ticket (no gate is raised).
 - Risk gate is blocking (MiFID / ESG). HITL default gates `place_orders`.
 - Subagents are stateless: delegate with complete instructions, collect the report.
 

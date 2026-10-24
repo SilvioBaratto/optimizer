@@ -196,6 +196,30 @@ def test_orchestration_reads_mandate_and_limits_from_the_run_instruction():
     assert "Confirm an active `ConstraintSet` exists" not in body
 
 
+def _orchestration_round_cap_texts() -> dict[str, str]:
+    skill = _read("fund-orchestration", "SKILL.md")
+    reference = _read("fund-orchestration", "reference.md")
+    step = re.search(r"3\. [^\n]*round cap.*?(?=\n4\.)", skill, re.DOTALL)
+    guard = re.search(r"- Round cap[^\n]*(?:\n {2}[^\n]*)*", reference)
+    assert step and guard
+    return {"SKILL.md step 3": step.group(0), "reference.md guardrail": guard.group(0)}
+
+
+def test_orchestration_round_cap_promises_no_hitl_checkpoint():
+    # place_orders is the PM's only gated tool, so "raise a HITL checkpoint" at the
+    # cap is only satisfiable by committing the latest (possibly risk-blocked)
+    # weights; the harness finalises the run INCOMPLETE on its own.
+    for where, text in _orchestration_round_cap_texts().items():
+        assert "hitl" not in text.lower(), where
+        assert "INCOMPLETE" in text, where
+
+
+def test_orchestration_forbids_place_orders_before_risk_passes():
+    body = _read("fund-orchestration", "SKILL.md")
+
+    assert "Never call `place_orders` unless the risk gate passed" in body
+
+
 # --- executor inputs: one name for the band, and a source for current holdings ---
 
 

@@ -13,7 +13,7 @@ These tests assert the prompt contract:
   and no agent ever emits a weight;
 * each prompt names its own tools/skills;
 * the **PM** names the fixed delegation order, the **blocking** risk gate, and the
-  **round cap** (→ incomplete + HITL when hit);
+  **round cap** (→ finalised incomplete with no ticket and no escalation tool);
 * the **risk** officer reports pass/fail with explicit violations and hard-blocks a
   MiFID/ESG/validation breach;
 * the **executor** treats ``place_orders`` as paper-only, next-close, idempotent,
@@ -88,6 +88,29 @@ def test_pm_prompt_respects_the_round_cap():
     lower = PM_SYSTEM_PROMPT.lower()
     assert "round" in lower
     assert "incomplete" in lower
+
+
+def _pm_section(heading: str) -> str:
+    """The lowercased body of one ``## heading`` section of the PM prompt."""
+    return PM_SYSTEM_PROMPT.split(f"## {heading}")[1].split("\n## ")[0].lower()
+
+
+def test_pm_round_cap_does_not_promise_a_hitl_checkpoint():
+    # The PM's only gated tool is place_orders (it commits the latest optimizer
+    # weights); telling it to "surface the open issue through the HITL gate" on the
+    # cap can only be obeyed by calling place_orders, which asks the adviser to
+    # approve a ticket for weights the risk gate may have blocked.
+    section = _pm_section("Respect the round cap")
+
+    assert "hitl" not in section
+    assert "automatically" in section
+    assert "place_orders" in section  # told not to use it as an escalation
+
+
+def test_pm_prompt_commits_only_after_risk_passed():
+    section = _pm_section("Committing orders is yours, and it is gated")
+
+    assert "only after the risk gate" in section
 
 
 def test_economist_prompt_names_its_tools_and_skills():
