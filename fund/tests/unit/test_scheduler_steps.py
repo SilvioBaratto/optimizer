@@ -1018,6 +1018,51 @@ def test_drive_rebalance_skips_already_paused(session_factory, monkeypatch):
     assert called == []  # a paused run already awaits HITL → no second run
 
 
+def test_drive_rebalance_flags_a_paused_run_too_old_to_approve(
+    session_factory, monkeypatch, caplog
+):
+    """A gate left open past the approval window can only be rejected; the skip must
+    say so, or the portfolio's rebalances stay silently blocked behind it."""
+    _seed_mandate(session_factory, PID_A, cron=True, drift=False)
+    _seed_paused_run(session_factory, PID_A)
+    with session_factory() as session:
+        (run,) = AgentRunRepository(session).list_paused_runs(PID_A)
+        stale_id = run.id
+        run.started_at = datetime.now(UTC) - timedelta(
+            days=settings.approval_max_age_days + 1
+        )
+        session.commit()
+    store = InMemoryStore()
+    put_constraint_set(
+        store, make_constraint_set(PID_A), store_key=settings.constraint_set_store_key
+    )
+    persistence = SimpleNamespace(store=store, saver=MemorySaver())
+    called: list[int] = []
+    monkeypatch.setattr("fund.agents.graph.run_fund", lambda *a, **k: called.append(1))
+
+    with (
+        caplog.at_level(logging.WARNING, logger="fund.scheduler"),
+        session_factory() as session,
+    ):
+        _drive_rebalance(
+            PID_A,
+            ASOF,
+            session=session,
+            persistence=persistence,
+            model=object(),
+            fallback=None,
+        )
+
+    assert called == []
+    flagged = [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno >= logging.WARNING and "stale" in r.getMessage()
+    ]
+    assert len(flagged) == 1
+    assert str(stale_id) in flagged[0]
+
+
 # --- run_orphan_reaper ------------------------------------------------------
 
 

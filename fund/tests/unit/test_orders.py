@@ -27,7 +27,7 @@ from portopt_db.models.orders.paper_order import PaperOrder
 from portopt_db.models.universe.universe import Exchange, Instrument
 from sqlalchemy import func, select
 
-from fund.tools.orders import place_orders
+from fund.tools.orders import fill_shortfalls, place_orders
 
 _START = dt.date(2024, 1, 1)
 _ASOF = dt.date(2024, 1, 30)  # decision bar (index 29)
@@ -478,3 +478,37 @@ class TestRebalanceLineExecution:
             assert line["shares"] == pytest.approx(
                 line["notional"] / line["effective_price"]
             )
+
+
+class TestFillShortfalls:
+    """The read-only dry run an approve uses before the gated ``place_orders`` runs."""
+
+    def test_no_shortfall_when_every_line_can_fill(self, db_session) -> None:
+        _seed_panel(db_session)
+
+        assert fill_shortfalls(db_session, _ASOF, _WEIGHTS) == []
+
+    def test_reports_each_ticker_without_a_bar_after_asof(self, db_session) -> None:
+        _seed_panel(db_session)
+        last = _START + dt.timedelta(days=_N_DAYS - 1)
+
+        shortfalls = fill_shortfalls(db_session, last, ["AAA", "BBB"])
+
+        assert len(shortfalls) == 2
+        assert "'AAA'" in shortfalls[0]
+        assert "'BBB'" in shortfalls[1]
+
+    def test_reports_an_unknown_ticker(self, db_session) -> None:
+        _seed_panel(db_session)
+
+        shortfalls = fill_shortfalls(db_session, _ASOF, ["AAA", "ZZZ"])
+
+        assert len(shortfalls) == 1
+        assert "ZZZ" in shortfalls[0]
+
+    def test_writes_no_ticket(self, db_session) -> None:
+        _seed_panel(db_session)
+
+        fill_shortfalls(db_session, _ASOF, _WEIGHTS)
+
+        assert db_session.execute(select(PaperOrder)).scalars().all() == []

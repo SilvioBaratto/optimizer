@@ -581,11 +581,32 @@ def test_approve_finalizes_run(harness, monkeypatch) -> None:
     assert harness.pool.closed >= 2  # run + approve each closed the pool
 
 
+def test_approve_without_a_fill_bar_is_refused_and_the_run_stays_paused(
+    harness, monkeypatch
+) -> None:
+    """No close after ``asof`` yet: the approve fails before the graph resumes, so the
+    run stays paused at its live gate and the operator can approve again later."""
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+    with harness.read() as session:
+        session.query(PriceHistory).filter(PriceHistory.date > ASOF).delete()
+        session.commit()
+
+    res = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+
+    assert res.exit_code != 0
+    assert "no paper ticket" in res.output
+    with harness.read() as session:
+        assert AgentRunRepository(session).get_run(run_id).status == "paused"
+
+
 def test_approve_without_a_ticket_says_so_and_exits_nonzero(
     harness, monkeypatch
 ) -> None:
     """``place_orders`` finding no fill bar finalises the run incomplete with no
     ticket: the CLI must not echo a bare "approved" nor exit 0 for it."""
+    from fund.agents import graph as graph_mod
+
+    monkeypatch.setattr(graph_mod, "_require_fill_bars", lambda *_a, **_k: None)
     run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
     with harness.read() as session:
         session.query(PriceHistory).filter(PriceHistory.date > ASOF).delete()

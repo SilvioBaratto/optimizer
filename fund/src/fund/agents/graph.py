@@ -1320,6 +1320,78 @@ class _GateResume:
     regated_from: str | None = None
 
 
+def _refuse_stale_approval(ctx: Any) -> None:
+    """Refuse an approve that would backdate the ticket or roll the holdings back.
+
+    The paper ticket fills at the first close after the run's ``asof`` whatever the
+    date of the approval, so a gate left open past the approval window would let the
+    adviser pick, with the bars since in view, which fills to keep. And a run for an
+    earlier bar than the portfolio's current holdings would replace them with weights
+    the later round already superseded. Either run can still be rejected.
+
+    Raises:
+        ValueError: The run opened more than ``approval_max_age_days`` ago, or the
+            portfolio already holds positions stamped with a later ``asof``.
+    """
+    import datetime as dt
+
+    from fund.audit import AgentRunRepository, PositionRepository
+    from fund.audit.repository import run_age
+
+    run = AgentRunRepository(ctx.session).get_run(ctx.run_id)
+    window = dt.timedelta(days=ctx.config.approval_max_age_days)
+    if run is not None and (age := run_age(run)) > window:
+        raise ValueError(
+            f"agent_run {ctx.run_id} is stale: it opened {age.days} days ago, past the "
+            f"{ctx.config.approval_max_age_days}-day approval window; reject it and "
+            "run a fresh round"
+        )
+    holdings = PositionRepository(ctx.session).get_holdings(ctx.portfolio_id)
+    held = max((p.asof for p in holdings), default=None)
+    if held is not None and held > ctx.asof:
+        raise ValueError(
+            f"agent_run {ctx.run_id} (asof {ctx.asof}) is older than the portfolio's "
+            f"current holdings (asof {held}); reject it and run a fresh round"
+        )
+
+
+def _require_fill_bars(ctx: Any, weights: dict[str, float]) -> None:
+    """Refuse an approve of the order gate that ``place_orders`` could not fill yet.
+
+    Approving resumes the graph, which runs the gated ``place_orders`` and so consumes
+    its interrupt. When that call fails for want of a fill bar the checkpoint is
+    already past the gate (the saver commits on its own connection, so no rollback
+    undoes it) while the run row stays ``paused``: the Decisions queue, which lists
+    only live interrupts, no longer shows it. The ticket fills at the first close after
+    ``asof`` and the weekly sweep sets ``asof`` to a Saturday, so an approve that lands
+    before the next close is ingested is the ordinary case, not a rare error. Looking
+    for the fills first leaves the gate untouched for the retry. A ticket that already
+    exists needs none (``place_orders`` returns it as is).
+
+    Raises:
+        RuntimeError: A line has no fill bar after ``asof``; nothing was resumed.
+    """
+    if not weights:
+        return
+    if _ticket_placed(
+        ctx.session,
+        run_id=ctx.run_id,
+        portfolio_id=ctx.portfolio_id,
+        asof=ctx.asof,
+        weights=weights,
+    ):
+        return
+    from fund.tools.orders import fill_shortfalls
+
+    shortfalls = fill_shortfalls(ctx.session, ctx.asof, weights)
+    if shortfalls:
+        raise RuntimeError(
+            f"approve would leave no paper ticket ({'; '.join(shortfalls)}); the gate "
+            f"stays open, so approve again once the next close after {ctx.asof} is "
+            "ingested"
+        )
+
+
 def _resume_gate(
     agent: Any,
     ctx: Any,
@@ -1339,10 +1411,14 @@ def _resume_gate(
     its ticket placed directly, since the resume can no longer reach ``place_orders``;
     every other decision is the plain :func:`_resume_agent`.
 
+    An approve is also refused when the run is stale or older than the portfolio's
+    holdings (:func:`_refuse_stale_approval`), and an approve of the order gate while
+    no fill bar exists leaves the gate untouched (:func:`_require_fill_bars`).
+
     Raises:
         RuntimeError: The fund or the portfolio is frozen and ``decision`` is not a
-            reject.
-        ValueError: The run is no longer at a live gate.
+            reject, or the order gate's ticket has no fill bar yet.
+        ValueError: The run is no longer at a live gate, or an approve is stale.
     """
     from fund.audit.repository import AgentRunRepository
 
@@ -1353,6 +1429,8 @@ def _resume_gate(
     # adviser can still close the gate.
     if decision != "reject":
         _raise_if_frozen(ctx.session, ctx.portfolio_id, doing=f"{decision} a run")
+    if decision == "approve":
+        _refuse_stale_approval(ctx)
     if not AgentRunRepository(ctx.session).claim_for_resume(ctx.run_id):
         raise ValueError(
             f"agent_run {ctx.run_id} is no longer at a live gate (another resolver "
@@ -1361,6 +1439,8 @@ def _resume_gate(
     gated: tuple[str, ...] = (
         _pending_gate_names(agent, thread_config) if decision == "approve" else ()
     )
+    if _ORDER_GATE in gated:
+        _require_fill_bars(ctx, approved_weights)
     if decision == "approve" and _gate_consumed(agent, thread_config):
         _replace_consumed_ticket(ctx, approved_weights)
     result = _resume_agent(agent, thread_config, decision, pm_directive)

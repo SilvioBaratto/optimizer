@@ -221,7 +221,8 @@ def _drive_rebalance(
     run id + paused status and **returns without resuming** (a human commits via
     the Phase-8 CLI/TUI). Guards that never abort the sweep, each logged + skipped:
 
-    * an existing paused run for the portfolio (avoid stacking a second run),
+    * an existing paused run for the portfolio (avoid stacking a second run; one past
+      the approval window is flagged, since only a reject can clear it),
     * a FROZEN fund or portfolio (autonomy halted — re-arm to resume; Q3),
     * no persisted mandate,
     * no active ``ConstraintSet`` (run the profiler first — ``run_fund`` would
@@ -232,12 +233,25 @@ def _drive_rebalance(
     """
     from fund.agents.graph import run_fund
     from fund.audit.mifid_repository import resolve_constraint_set
-    from fund.audit.repository import AgentRunRepository
+    from fund.audit.repository import AgentRunRepository, run_age
     from fund.schemas import ConstraintSetRef
 
     pid_str = str(portfolio_id)
 
-    if AgentRunRepository(session).list_paused_runs(portfolio_id):
+    paused = AgentRunRepository(session).list_paused_runs(portfolio_id)
+    if paused:
+        window = dt.timedelta(days=settings.approval_max_age_days)
+        for run in paused:
+            if run_age(run) > window:
+                # Approving it is refused, so it blocks every later round until an
+                # adviser rejects it; nothing else would surface that.
+                logger.warning(
+                    "drive[%s]: skipped — paused run %s is stale (past the %d-day "
+                    "approval window); reject it to unblock scheduled rebalances",
+                    pid_str,
+                    run.id,
+                    settings.approval_max_age_days,
+                )
         logger.info("drive[%s]: skipped — a paused run already awaits HITL", pid_str)
         return
 

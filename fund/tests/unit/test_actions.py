@@ -169,9 +169,55 @@ def _drop_bars_after_asof(env) -> None:
         session.commit()
 
 
+@pytest.fixture
+def fill_bar_vanishes_after_the_check(monkeypatch):
+    """Let the approve's fill-bar dry run pass although ``place_orders`` will fail.
+
+    The dry run is a read taken before the resume, so a bar that goes missing between
+    it and the placement (or any other refusal of the placement) still has to end the
+    run as ``incomplete`` rather than claim a rebalance.
+    """
+    from fund.agents import graph as graph_mod
+
+    monkeypatch.setattr(graph_mod, "_require_fill_bars", lambda *_a, **_k: None)
+
+
+@pytest.mark.parametrize("action", ["approve", "edit"])
+def test_approve_without_a_fill_bar_is_refused_and_leaves_the_gate_open(
+    paused_env, action
+) -> None:
+    """No close after ``asof`` yet: the approve is refused before the graph resumes,
+    so the run stays at its live gate and the same action can be retried."""
+    env = paused_env
+    _drop_bars_after_asof(env)
+    edited = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
+    extra = {"new_value": edited} if action == "edit" else {}
+
+    with (
+        env.get_session() as session,
+        pytest.raises(RuntimeError, match="paper ticket"),
+    ):
+        apply_action(
+            action,
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+            **extra,
+        )
+
+    with env.get_session() as session:
+        row = AgentRunRepository(session).get_run(env.run_id)
+        assert row.status == "paused"
+        assert observe.interrupt_for(env.saver, row) is not None
+        assert session.query(PaperOrder).count() == 0
+
+
 @pytest.mark.parametrize("action", ["approve", "edit"])
 def test_approve_without_a_ticket_does_not_report_plain_success(
-    paused_env, action
+    paused_env, action, fill_bar_vanishes_after_the_check
 ) -> None:
     """A gate resumed while ``place_orders`` finds no fill bar leaves the run
     incomplete with no ticket; the status line must say so instead of claiming the
@@ -204,7 +250,7 @@ def test_approve_without_a_ticket_does_not_report_plain_success(
 
 
 def test_approve_that_regates_on_a_responded_run_is_not_reported_as_plain_success(
-    paused_env,
+    paused_env, fill_bar_vanishes_after_the_check
 ) -> None:
     """A run an earlier barge-in left ``responded`` whose approve ticketed nothing
     (no fill bar) and re-gated stays ``responded``; the status line must still say no

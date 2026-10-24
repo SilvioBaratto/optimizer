@@ -863,6 +863,131 @@ def test_resume_fund_backs_off_when_another_resolver_finalised_the_run_first(
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
 
 
+# --- an approval that arrives too late or out of order ---------------------------
+
+
+def _age_run(db_session, run_id, *, days: int) -> None:
+    """Back-date when the run opened — what an unattended gate looks like later."""
+    row = AgentRunRepository(db_session).get_run(run_id)
+    row.started_at = dt.datetime.now(dt.UTC) - dt.timedelta(days=days)
+    db_session.flush()
+
+
+def test_resume_fund_refuses_an_approve_once_the_run_outlived_the_approval_window(
+    db_session,
+) -> None:
+    """The ticket fills at the first close after the run's ``asof``, so approving a gate
+    that has sat for weeks would backdate a fill the adviser chose with the benefit of
+    the bars since. Such a run can only be rejected, and re-run on a fresh bar."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    _age_run(db_session, run.run_id, days=settings.approval_max_age_days + 1)
+    model = ScriptedFundModel(universe=UNIVERSE, weights=expected)
+
+    with pytest.raises(ValueError, match="stale"):
+        resume_fund(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=model,
+        )
+
+    assert model.generate_calls == 0
+    assert _paper_orders(db_session) == []
+    assert _positions_map(db_session) == {}
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
+
+
+def test_resume_fund_still_rejects_a_run_that_outlived_the_approval_window(
+    db_session,
+) -> None:
+    """A stale gate must stay closable, or it would block the portfolio's scheduled
+    rebalances until someone edits the database."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    _age_run(db_session, run.run_id, days=settings.approval_max_age_days + 1)
+
+    resume_fund(
+        run.run_id,
+        "reject",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
+
+
+def test_fundrun_resume_refuses_an_approve_once_the_run_outlived_the_approval_window(
+    db_session,
+) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        db_session,
+        MemorySaver(),
+        _store_with_cs(),
+    )
+    _age_run(db_session, run.run_id, days=settings.approval_max_age_days + 1)
+
+    with pytest.raises(ValueError, match="stale"):
+        run.resume("approve")
+
+    assert _paper_orders(db_session) == []
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
+
+
+def test_resume_fund_refuses_an_approve_older_than_the_portfolio_holdings(
+    db_session,
+) -> None:
+    """Approving an earlier bar's run after a later one completed would replace the
+    current holdings snapshot with the older run's weights and ``asof``."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    later = ASOF + dt.timedelta(days=3)
+    PositionRepository(db_session).set_holdings(
+        PORTFOLIO_ID, [{"ticker": "AAA", "weight": 1.0}], asof=later
+    )
+    model = ScriptedFundModel(universe=UNIVERSE, weights=expected)
+
+    with pytest.raises(ValueError, match="older"):
+        resume_fund(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=model,
+        )
+
+    assert model.generate_calls == 0
+    assert _paper_orders(db_session) == []
+    assert _positions_map(db_session) == {"AAA": 1.0}
+    assert {
+        p.asof for p in PositionRepository(db_session).get_holdings(PORTFOLIO_ID)
+    } == {later}
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
+
+
 # --- a freeze that landed while the run was still being driven -----------------
 
 
@@ -1159,10 +1284,29 @@ def _drop_bars_after_asof(db_session) -> None:
     db_session.flush()
 
 
-def test_resume_fund_approve_without_fill_bar_finalises_incomplete(db_session) -> None:
-    """``place_orders`` reports a missing fill bar as an ``{ok: false}`` envelope
-    (it never raises), so an approve that placed no ticket must not stamp the run
-    ``completed`` nor overwrite ``positions`` with weights no order backs."""
+def _assert_nothing_finalised(db_session, run_id) -> None:
+    row = AgentRunRepository(db_session).get_run(run_id)
+    assert row.status == "paused"
+    assert row.finished_at is None
+    assert _paper_orders(db_session) == []
+    assert _positions_map(db_session) == {}
+    assert db_session.query(PortfolioJournal).all() == []
+
+
+def _assert_gate_still_open(db_session, saver, run_id) -> None:
+    """A refused approve must not consume the gate: the checkpoint keeps its interrupt,
+    so the TUI Decisions queue still lists the run and an approve can be retried."""
+    row = AgentRunRepository(db_session).get_run(run_id)
+    assert observe.interrupt_for(saver, row) is not None
+    queued = observe.pending_hitl(db_session, saver, PORTFOLIO_ID)
+    assert [summary.run_id for summary in queued] == [run_id]
+
+
+def test_resume_fund_approve_without_a_fill_bar_does_not_finalise(db_session) -> None:
+    """``place_orders`` fails by design when no close follows ``asof``. Approving then
+    must surface the failure and leave the run paused at its gate: no ``completed``
+    stamp, no positions snapshot, no journal row, and the checkpoint's interrupt intact
+    (the gated call never ran) so the approval stays retryable from the TUI queue."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     saver = MemorySaver()
@@ -1172,40 +1316,40 @@ def test_resume_fund_approve_without_fill_bar_finalises_incomplete(db_session) -
     )
     _drop_bars_after_asof(db_session)
 
-    resume_fund(
-        run.run_id,
-        "approve",
-        session=db_session,
-        checkpointer=saver,
-        store=store,
-        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
-    )
+    with pytest.raises(RuntimeError, match="paper ticket"):
+        resume_fund(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        )
 
-    assert _paper_orders(db_session) == []
-    row = AgentRunRepository(db_session).get_run(run.run_id)
-    assert row.status == "incomplete"
-    assert _positions_map(db_session) == {}
+    _assert_nothing_finalised(db_session, run.run_id)
+    _assert_gate_still_open(db_session, saver, run.run_id)
 
 
-def test_fundrun_resume_approve_without_fill_bar_finalises_incomplete(
+def test_fundrun_resume_approve_without_a_fill_bar_does_not_finalise(
     db_session,
 ) -> None:
-    """The in-process handle shares the same settle step as the rebuild path."""
+    """The in-process handle refuses the unfillable approve the same way."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
+    saver = MemorySaver()
     run = _run_to_gate(
         ScriptedFundModel(universe=UNIVERSE, weights=expected),
         db_session,
-        MemorySaver(),
+        saver,
         _store_with_cs(),
     )
     _drop_bars_after_asof(db_session)
 
-    run.resume("approve")
+    with pytest.raises(RuntimeError, match="paper ticket"):
+        run.resume("approve")
 
-    assert _paper_orders(db_session) == []
-    assert AgentRunRepository(db_session).get_run(run.run_id).status == "incomplete"
-    assert _positions_map(db_session) == {}
+    _assert_nothing_finalised(db_session, run.run_id)
+    _assert_gate_still_open(db_session, saver, run.run_id)
 
 
 # --- a failure after the gate is consumed must not orphan the approval --------
@@ -1488,6 +1632,44 @@ def test_resume_fund_retry_replaces_a_ticket_lost_with_the_rolled_back_session(
     _assert_retry_completed_with_ticket(db_session, run.run_id, expected)
 
 
+def test_resume_fund_retry_without_a_fill_bar_finalises_a_consumed_gate_incomplete(
+    db_session,
+) -> None:
+    """A consumed gate has left the Decisions queue, so a retry whose own placement
+    fails (the next close is not there yet) cannot be left paused: the run is closed
+    ``incomplete`` with nothing written rather than orphaned."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    with _rolled_back(db_session):
+        resume_fund(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        )
+    _drop_bars_after_asof(db_session)
+
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    assert _paper_orders(db_session) == []
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "incomplete"
+    assert _positions_map(db_session) == {}
+
+
 def test_fundrun_resume_retry_replaces_a_ticket_lost_with_the_rolled_back_session(
     db_session,
 ) -> None:
@@ -1505,6 +1687,47 @@ def test_fundrun_resume_retry_replaces_a_ticket_lost_with_the_rolled_back_sessio
     assert _paper_orders(db_session) == []
 
     run.resume("approve")
+
+    _assert_retry_completed_with_ticket(db_session, run.run_id, expected)
+
+
+def test_resume_fund_retry_places_the_ticket_once_the_fill_bar_exists(
+    db_session,
+) -> None:
+    """An approve refused for want of a fill bar leaves the gate open. Once the next
+    close is ingested the same approve must place the ticket through that gate, not
+    leave the run paused for good."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+
+    # Rolling the transaction back also restores the dropped bars: the next close has
+    # been ingested by the time the adviser retries.
+    with _rolled_back(db_session):
+        _drop_bars_after_asof(db_session)
+        with pytest.raises(RuntimeError, match="paper ticket"):
+            resume_fund(
+                run.run_id,
+                "approve",
+                session=db_session,
+                checkpointer=saver,
+                store=store,
+                model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+            )
+    _assert_gate_still_open(db_session, saver, run.run_id)
+
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
 
     _assert_retry_completed_with_ticket(db_session, run.run_id, expected)
 

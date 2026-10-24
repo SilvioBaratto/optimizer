@@ -115,6 +115,7 @@ def test_daemon_fields_default_to_the_phase9_contract():
     assert cfg.fund_misfire_grace_time_seconds == 21600
     # Daily NAV mark at 08:00 UTC — after the 07:00 ingestion pipeline.
     assert cfg.fund_nav_mark_cron == "0 8 * * *"
+    assert cfg.approval_max_age_days == 7
     assert cfg.reprofile_interval_days == 365
     # No threshold = deepagents' model-aware default stays; a pinned 170000 would
     # sit above the context window of a 128k model and never fire.
@@ -199,6 +200,7 @@ def test_daemon_fields_parse_from_fund_env_aliases():
             "FUND_SHUTDOWN_DRAIN_TIMEOUT_SECONDS": "60",
             "FUND_MISFIRE_GRACE_TIME_SECONDS": "7200",
             "FUND_NAV_MARK_CRON": "0 9 * * *",
+            "FUND_APPROVAL_MAX_AGE_DAYS": "3",
             "FUND_REPROFILE_INTERVAL_DAYS": "180",
             "FUND_SUMMARY_TOKEN_THRESHOLD": "120000",
             "FUND_SUMMARY_MESSAGES_TO_KEEP": "8",
@@ -213,6 +215,7 @@ def test_daemon_fields_parse_from_fund_env_aliases():
     assert cfg.fund_shutdown_drain_timeout_seconds == 60
     assert cfg.fund_misfire_grace_time_seconds == 7200
     assert cfg.fund_nav_mark_cron == "0 9 * * *"
+    assert cfg.approval_max_age_days == 3
     assert cfg.reprofile_interval_days == 180
     assert cfg.summary_token_threshold == 120000
     assert cfg.summary_messages_to_keep == 8

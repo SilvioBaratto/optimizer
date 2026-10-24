@@ -35,6 +35,8 @@ from fund.audit.orders_repository import OrderRepository, weights_hash
 from fund.tools._base import ToolResult, coerce_date, err, ok, tool_envelope
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from sqlalchemy.orm import Session
 
 # Simple paper-execution cost model (D30): flat notional the weights scale, and
@@ -75,6 +77,28 @@ def _next_close(
         raise LookupError(f"no fill bar after {asof.isoformat()} for {ticker!r}")
     fill_date, close = min(priced, key=lambda pair: pair[0])
     return fill_date, float(close)
+
+
+def fill_shortfalls(
+    session: Session, asof: dt.date, tickers: Iterable[str]
+) -> list[str]:
+    """Why ``place_orders`` could not fill each of ``tickers`` at ``asof``.
+
+    A read-only dry run of the fill lookup, so a caller can tell before the gated
+    ``place_orders`` runs (and consumes its interrupt) that the ticket would fail: an
+    unknown ticker, or no close strictly after ``asof`` yet.
+
+    Returns:
+        One message per ticker that cannot fill; ``[]`` when every line could.
+    """
+    repo = YFinanceRepository(session)
+    shortfalls: list[str] = []
+    for ticker in tickers:
+        try:
+            _next_close(repo, ticker, asof)
+        except LookupError as exc:
+            shortfalls.append(str(exc))
+    return shortfalls
 
 
 def _cost_params_match(
@@ -264,4 +288,4 @@ def place_orders(
     return ok(_ticket_from_row(order, idempotent=False))
 
 
-__all__ = ["place_orders"]
+__all__ = ["fill_shortfalls", "place_orders"]

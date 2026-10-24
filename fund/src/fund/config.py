@@ -144,6 +144,12 @@ class FundConfig:
     # fresh). Pure compute, agent-stack-free; backfills + idempotent upsert.
     fund_nav_mark_cron: str = "0 8 * * *"
 
+    # --- HITL staleness: how long a paused gate may wait before an approve is refused.
+    # A ticket fills at the first close after the run's ``asof``, so an approval that
+    # arrives later than the rebalance cadence would backdate the fill with hindsight.
+    # The default matches the weekly ``fund_rebalance_cron``. ---
+    approval_max_age_days: int = 7
+
     # --- Phase-9 agent hardening: annual re-profiling marker + summarization
     # override. ``summary_token_threshold=None`` keeps deepagents' model-aware
     # default (a fraction of the model's context, else 170000 tokens); a value pins
@@ -330,6 +336,9 @@ def load_config(
                 "FUND_SHUTDOWN_DRAIN_TIMEOUT_SECONDS",
                 defaults.fund_shutdown_drain_timeout_seconds,
             )
+        ),
+        approval_max_age_days=int(
+            env.get("FUND_APPROVAL_MAX_AGE_DAYS", defaults.approval_max_age_days)
         ),
         reprofile_interval_days=int(
             env.get("FUND_REPROFILE_INTERVAL_DAYS", defaults.reprofile_interval_days)

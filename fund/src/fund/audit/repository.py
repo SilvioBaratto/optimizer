@@ -13,7 +13,7 @@ import hashlib
 import json
 import uuid
 from collections.abc import Iterator, Sequence
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, TypeVar, cast
 
 from portopt_db.models import AgentDecision, AgentRun
@@ -36,6 +36,18 @@ RESUMABLE_RUN_STATUSES: tuple[str, ...] = ("paused", "responded")
 
 # Statuses a run may still be finalised from; every other status is terminal.
 _OPEN_RUN_STATUSES: tuple[str, ...] = ("pending", *RESUMABLE_RUN_STATUSES)
+
+
+def run_age(run: AgentRun, *, now: datetime | None = None) -> timedelta:
+    """How long ago ``run`` opened.
+
+    ``started_at`` is stored in UTC; SQLite returns it without a zone, so a naive
+    value is read as UTC rather than compared against an aware ``now``.
+    """
+    started = run.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    return (now or datetime.now(UTC)) - started
 
 
 class RunNotOpenError(ValueError):
@@ -618,4 +630,9 @@ class AgentRunRepository(RepositoryBase):
         return [(dec, pid) for dec, pid in self.session.execute(stmt).all()]
 
 
-__all__ = ["RESUMABLE_RUN_STATUSES", "AgentRunRepository", "RunNotOpenError"]
+__all__ = [
+    "RESUMABLE_RUN_STATUSES",
+    "AgentRunRepository",
+    "RunNotOpenError",
+    "run_age",
+]
