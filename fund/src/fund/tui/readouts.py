@@ -9,6 +9,7 @@ verdict) is the view worker's job; this module only formats data already read.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -147,9 +148,9 @@ def _frontier_lines(compute: Any) -> list[str]:
         return [f"frontier point · unavailable ({compute.frontier_error})"]
     point = compute.frontier
     return [
-        f"frontier point · mean {_pct(point.mean)}"
-        f" · vol {_pct(point.standard_deviation)}"
-        f" · sharpe {_num(point.sharpe_ratio)} {_units_label(compute)}"
+        f"frontier point · mean {_pct2(point.mean, signed=True)}"
+        f" · vol {_pct2(point.standard_deviation)}"
+        f" · sharpe {_ratio(point.sharpe_ratio)} {_units_label(compute)}"
     ]
 
 
@@ -162,8 +163,8 @@ def _backtest_lines(compute: Any) -> list[str]:
     result = compute.backtest
     mode = "out-of-sample" if result.out_of_sample else "in-sample"
     return [
-        f"backtest · sharpe {_num(result.sharpe_ratio)} {_units_label(compute)}"
-        f" · maxDD {_magnitude_pct(result.max_drawdown)}",
+        f"backtest · sharpe {_ratio(result.sharpe_ratio)} {_units_label(compute)}"
+        f" · maxDD {_pct2(result.max_drawdown)}",
         f"  {result.n_observations} obs · {result.n_folds} folds · {mode}"
         f" · {result.window_start} → {result.window_end}",
     ]
@@ -274,12 +275,12 @@ def _violation_line(violation: Mapping[str, Any]) -> str:
     """One readable line for a ``risk_check`` violation (type, asset/target, value)."""
     kind = str(violation.get("type", "?"))
     if kind == "budget":
-        value = _num(violation.get("value"))
-        return f"budget · {value} vs {_num(violation.get('target'))}"
+        value = _pct2(violation.get("value"))
+        return f"budget · {value} vs {_pct2(violation.get('target'))}"
     asset = str(violation.get("asset", "?"))
     limit = violation.get("limit")
-    tail = f" (limit {_num(limit)})" if limit is not None else ""
-    return f"{kind} · {asset} {_num(violation.get('value'))}{tail}"
+    tail = f" (limit {_pct2(limit)})" if limit is not None else ""
+    return f"{kind} · {asset} {_pct2(violation.get('value'))}{tail}"
 
 
 def _weights_lines(payload: Mapping[str, Any]) -> list[str]:
@@ -308,6 +309,20 @@ def _pct(value: Any) -> str:
     """
     numeric = _as_float(value)
     return str(value) if numeric is None else f"{numeric * 100:.1f}%"
+
+
+def _pct2(value: Any, *, signed: bool = False) -> str:
+    """Format a fraction as a two-decimal percentage (``+`` sign when ``signed``).
+
+    ``None`` renders ``—``; a non-numeric, boolean or non-finite value renders raw,
+    like :func:`_pct`, so an anomaly in the recorded JSON stays visible.
+    """
+    if value is None:
+        return "—"
+    numeric = _as_float(value)
+    if numeric is None or not math.isfinite(numeric):
+        return str(value)
+    return f"{numeric:+.2%}" if signed else f"{numeric:.2%}"
 
 
 def _universe_lines(payload: Mapping[str, Any]) -> list[str]:
@@ -348,15 +363,15 @@ def _constraints_lines(
     return [
         f"{_REQUESTED_LABEL} · objective {cs.get('objective', '—')}"
         f" · risk {cs.get('risk_measure', '—')}",
-        f"{_REQUESTED_LABEL} · risk aversion a_gamma {_num(cs.get('a_gamma'))}"
-        f" · beta {_num(cs.get('beta'))}",
-        f"{_REQUESTED_LABEL} · regularisation · l1 {_num(cs.get('l1_coef'))}"
-        f" · l2 {_num(cs.get('l2_coef'))}"
+        f"{_REQUESTED_LABEL} · risk aversion a_gamma {_sig(cs.get('a_gamma'))}"
+        f" · beta {_sig(cs.get('beta'))}",
+        f"{_REQUESTED_LABEL} · regularisation · l1 {_sig(cs.get('l1_coef'))}"
+        f" · l2 {_sig(cs.get('l2_coef'))}"
         f" · cardinality {'none' if cardinality is None else cardinality}",
         *applied,
-        f"bounds · min {_num(bounds.get('min_weights'))}"
-        f" · max {_num(bounds.get('max_weights'))}"
-        f" · budget {_num(bounds.get('budget'))}",
+        f"bounds · min {_pct2(bounds.get('min_weights'))}"
+        f" · max {_pct2(bounds.get('max_weights'))}"
+        f" · budget {_pct2(bounds.get('budget'))}",
         f"esg · {len(esg.get('exclusions') or [])} exclusions",
     ]
 
@@ -370,9 +385,9 @@ def _applied_lines(optimizer_config: Mapping[str, Any] | None) -> list[str]:
     return [
         f"applied · objective {cfg.get('objective', '—')}"
         f" · risk {cfg.get('risk_measure', '—')}"
-        f" · risk aversion {_num(cfg.get('risk_aversion'))}",
-        f"applied · regularisation · l1 {_num(cfg.get('l1_coef'))}"
-        f" · l2 {_num(cfg.get('l2_coef'))}"
+        f" · risk aversion {_sig(cfg.get('risk_aversion'))}",
+        f"applied · regularisation · l1 {_sig(cfg.get('l1_coef'))}"
+        f" · l2 {_sig(cfg.get('l2_coef'))}"
         f" · cardinality {'none' if cardinality is None else cardinality}",
     ]
 
@@ -390,24 +405,24 @@ def _indent(lines: list[str]) -> list[str]:
     return [f"  {line}" for line in lines]
 
 
-def _magnitude_pct(value: Any) -> str:
-    """Format a non-negative fraction (a drawdown) as a two-decimal percentage.
-
-    Two decimals because a drawdown of a few basis points would otherwise round to
-    zero; unsigned because it is a magnitude, not a gain.
-    """
-    if value is None:
-        return "—"
-    numeric = _as_float(value)
-    return str(value) if numeric is None else f"{numeric:.2%}"
-
-
-def _num(value: Any) -> str:
-    """Format a numeric constraint to two decimals; fall back to its string form."""
+def _ratio(value: Any) -> str:
+    """Format a ratio (Sharpe) to two decimals; a non-number renders raw."""
     if value is None:
         return "—"
     numeric = _as_float(value)
     return str(value) if numeric is None else f"{numeric:.2f}"
+
+
+def _sig(value: Any) -> str:
+    """Format a coefficient to four significant figures; raw string if not numeric.
+
+    Fixed decimals would round a regularisation of ``0.0005`` to ``0.00`` and make a
+    regularised run read as unregularised; significant figures keep its magnitude.
+    """
+    if value is None:
+        return "—"
+    numeric = _as_float(value)
+    return str(value) if numeric is None else f"{numeric:.4g}"
 
 
 def _as_float(value: Any) -> float | None:

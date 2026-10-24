@@ -93,7 +93,9 @@ def test_frontier_readout_labels_annualised_percentages():
         "allocator", "optimize_portfolio", {"weights": {"AAA": 1.0}}, _results_compute()
     )
     assert text is not None
-    assert "frontier point · mean 4.1% · vol 12.9% · sharpe 0.32 (annualised)" in text
+    assert (
+        "frontier point · mean +4.12% · vol 12.86% · sharpe 0.32 (annualised)" in text
+    )
 
 
 def test_backtest_readout_shows_drawdown_as_a_percentage():
@@ -104,3 +106,56 @@ def test_backtest_readout_shows_drawdown_as_a_percentage():
     )
     assert text is not None
     assert "backtest · sharpe 0.45 (annualised) · maxDD 1.97%" in text
+
+
+def _bounds_constraint_set(**overrides):
+    """A recorded ConstraintSet dump with small-magnitude bounds and coefficients."""
+    from _fund_fakes import make_constraint_set
+
+    dumped = make_constraint_set().model_dump(mode="json")
+    dumped.update(overrides)
+    return dumped
+
+
+def test_bounds_read_out_keeps_sub_percent_weight_limits_distinct():
+    """A 0.5% floor and a 7.5% cap must not round to 0.01 / 0.07 (or to zero)."""
+    constraint_set = _bounds_constraint_set(
+        bounds={"min_weights": 0.005, "max_weights": 0.075, "budget": 1.0}
+    )
+    text = render_readout(
+        "allocator",
+        "optimize_portfolio",
+        {"constraint_set": constraint_set, "weights": {"AAA": 1.0}},
+    )
+    assert text is not None
+    assert "bounds · min 0.50% · max 7.50% · budget 100.00%" in text
+
+
+def test_regularisation_read_out_keeps_small_coefficients_visible():
+    """l1/l2 of 0.001/0.0005 must not both print 0.00, which reads as unregularised."""
+    constraint_set = _bounds_constraint_set(l1_coef=0.001, l2_coef=0.0005)
+    text = render_readout(
+        "allocator",
+        "optimize_portfolio",
+        {
+            "constraint_set": constraint_set,
+            "weights": {"AAA": 1.0},
+            "optimizer_config": {"l1_coef": 0.001, "l2_coef": 0.0005},
+        },
+    )
+    assert text is not None
+    assert text.count("l1 0.001 · l2 0.0005") == 2  # requested and applied lines
+
+
+def test_violation_lines_do_not_print_value_and_limit_identically():
+    """A 10.04% weight over a 10% cap is a visible breach, not '0.10 (limit 0.10)'."""
+    verdict = risk_verdict(
+        [
+            {"type": "max_weight", "asset": "AAA", "value": 0.1004, "limit": 0.10},
+            {"type": "budget", "value": 0.9996, "target": 1.0},
+        ]
+    )
+    assert verdict.lines == (
+        "max_weight · AAA 10.04% (limit 10.00%)",
+        "budget · 99.96% vs 100.00%",
+    )

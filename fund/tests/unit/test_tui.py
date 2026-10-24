@@ -4490,7 +4490,7 @@ def test_readout_frontier_labels_annualised_units_with_readable_precision() -> N
             mean=0.08,
             standard_deviation=0.12,
             sharpe_ratio=0.67,
-            max_drawdown=-0.08,
+            max_drawdown=0.08,
             n_observations=300,
             n_folds=0,
             out_of_sample=False,
@@ -4501,7 +4501,7 @@ def test_readout_frontier_labels_annualised_units_with_readable_precision() -> N
     )
     text = render_readout("allocator", "optimize_portfolio", None, compute)
     assert text is not None
-    assert "mean 10.1% · vol 11.1% · sharpe 0.90 (annualised)" in text
+    assert "mean +10.08% · vol 11.11% · sharpe 0.90 (annualised)" in text
     assert "sharpe 0.67 (annualised)" in text
 
 
