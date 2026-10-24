@@ -7,7 +7,7 @@ already running that step.
 
     python -m app.cli daily                       # full daily pipeline
     python -m app.cli refetch-all                 # universe + yfinance + macro + fred
-    python -m app.cli universe                    # Trading 212 universe rebuild
+    python -m app.cli universe                    # instrument universe rebuild (yfinance)
     python -m app.cli yfinance --mode full --period 5y
     python -m app.cli macro
     python -m app.cli fx                           # daily FX rates into fx_rates

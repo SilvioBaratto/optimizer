@@ -78,6 +78,15 @@ class TestSchedulerRegistration:
             if job.id in _INTERVAL_JOBS:
                 assert isinstance(job.trigger, IntervalTrigger)
 
+    def test_when_created_then_universe_job_name_does_not_name_trading_212(
+        self,
+    ) -> None:
+        # The universe is sourced from the yfinance Screener; Trading 212 is only
+        # an optional follow-on annotation, so the job name must not claim it.
+        scheduler = _build_scheduler()
+        names = {job.id: job.name for job in scheduler.get_jobs()}
+        assert "Trading 212" not in names["universe_build"]
+
     def test_when_created_then_scheduler_not_started(self) -> None:
         scheduler = _build_scheduler()
         assert scheduler.running is False

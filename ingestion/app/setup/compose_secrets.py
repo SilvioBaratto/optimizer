@@ -30,7 +30,7 @@ _logger = logging.getLogger(__name__)
 # optimizer) is unchanged. `aws` is deliberately absent: it authenticates via
 # IAM/region, not a secret file.
 SECRET_NAMES = (
-    # ingestion daemon secrets (Trading212 universe + FRED macro)
+    # ingestion daemon secrets (optional Trading 212 annotation + FRED macro)
     "trading_212_api_key",
     "trading_212_secret_key",
     "fred_api_key",

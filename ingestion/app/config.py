@@ -80,9 +80,9 @@ class Settings(BaseSettings):
         default="0 2 * * sat",
         alias="SCHEDULER_UNIVERSE_BUILD_CRON",
         description=(
-            "Trading 212 universe rebuild. Saturday 02:00 UTC by default. Must "
-            "precede SCHEDULER_WEEKLY_REFETCH_CRON so the yfinance rebuild "
-            "fetches the fresh instrument set."
+            "Instrument universe rebuild (yfinance Screener). Saturday 02:00 UTC "
+            "by default. Must precede SCHEDULER_WEEKLY_REFETCH_CRON so the "
+            "yfinance rebuild fetches the fresh instrument set."
         ),
     )
     scheduler_weekly_refetch_cron: str = Field(

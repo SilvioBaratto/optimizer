@@ -7,15 +7,16 @@ Scheduled jobs:
      ``market_journal``).
   2. **midday_news** (CronTrigger, default 14:00 UTC) — macro news fetch
      (catch afternoon market news).
-  3. **universe_build** (CronTrigger, default Sunday 02:00 UTC) — Trading 212
-     instrument-universe rebuild. Runs *before* ``weekly_refetch`` so the
+  3. **universe_build** (CronTrigger, default Saturday 02:00 UTC) — instrument-
+     universe rebuild from the yfinance Screener, followed by the optional
+     Trading 212 ticker annotation. Runs *before* ``weekly_refetch`` so the
      yfinance rebuild sees the fresh instrument set.
-  4. **weekly_refetch** (CronTrigger, default Sunday 03:00 UTC) — full yfinance
+  4. **weekly_refetch** (CronTrigger, default Saturday 03:00 UTC) — full yfinance
      + macro rebuild.
   5. **fred_monthly** (CronTrigger, default 1st of month 08:00 UTC) — every
      FRED series (the daily-frequency ones are also refreshed by the daily
      pipeline).
-  6. **weekly_market_wide** (CronTrigger, default Sunday 04:00 UTC) — market-wide
+  6. **weekly_market_wide** (CronTrigger, default Saturday 04:00 UTC) — market-wide
      sweep: sector/industry structure, calendars, market summaries, full option
      chains. Runs *after* ``weekly_refetch`` so option chains see the fresh
      universe.
@@ -962,7 +963,7 @@ def _build_schedule_registry() -> list[ScheduleDefinition]:
         ),
         ScheduleDefinition(
             job_id="universe_build",
-            name="Weekly Trading 212 universe rebuild",
+            name="Weekly instrument universe rebuild",
             func=run_universe_build,
             trigger=CronTrigger.from_crontab(
                 settings.scheduler_universe_build_cron,
