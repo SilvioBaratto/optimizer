@@ -1988,6 +1988,25 @@ async def test_decisions_edit_modal_is_seeded_from_audited_weights(tui_env) -> N
     assert float(entries["CCC"]) == pytest.approx(tui_env.expected["CCC"], abs=1e-6)
 
 
+def test_gate_text_reads_the_run_optimizer_weights_not_the_pm_args(tui_env) -> None:
+    from fund.tui.views import _gate_text
+
+    with tui_env.get_session() as session:
+        AgentRunRepository(session).append_decision(
+            tui_env.run_id,
+            agent="allocator",
+            step="optimize_portfolio",
+            llm_response=json.dumps(
+                {"weights": {"AAA": 0.25, "BBB": 0.25, "CCC": 0.5}}
+            ),
+        )
+        text = _gate_text(session, tui_env.saver, tui_env.run_id)
+
+    assert text is not None
+    assert "CCC: 0.5000" in text
+    assert "differ" in text
+
+
 # --- Mandate view: run-policy editor + guardrail override (T5) ----------------
 
 

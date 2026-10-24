@@ -359,6 +359,7 @@ def _apply_resume(
         raise ValueError("'respond' requires a pm_directive")
     rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
     pid = portfolio_id if portfolio_id is not None else _portfolio_of(session, rid)
+    ticketed = _ticketed_weights(session, rid) if decision == "approve" else None
     # Claim the idempotency key before resuming: the checkpointer commits on its own
     # connection, so once the graph has moved nothing rolls it back, and the audit row's
     # unique key is the only thing that can turn a concurrent duplicate submit away.
@@ -368,6 +369,8 @@ def _apply_resume(
         run_id=rid,
         portfolio_id=pid,
         actor=actor,
+        target="weights" if ticketed else None,
+        new_value=ticketed,
         source=source,
         override_flag=override_flag,
         suitability_flag=suitability_flag,
@@ -441,6 +444,23 @@ def resume_message(
     if error:
         message += f" (PM follow-up failed: {error})"
     return message
+
+
+def _ticketed_weights(session: Session, run_id: uuid.UUID) -> dict[str, Any] | None:
+    """The allocation an approve will ticket, in the shape the audit row records.
+
+    The gated ``place_orders`` ignores the PM's own ``weights`` argument and trades the
+    allocator's audited optimizer weights, so those (not what the gate echoed) are what
+    the adviser's approval commits. ``None`` when the run has no allocator proposal,
+    e.g. a profiler gate.
+    """
+    from fund.audit.orders_repository import weights_hash
+    from fund.audit.repository import AgentRunRepository
+
+    weights = AgentRunRepository(session).latest_optimizer_weights(run_id)
+    if not weights:
+        return None
+    return {"weights": weights, "weights_hash": weights_hash(weights)}
 
 
 def _apply_edit(

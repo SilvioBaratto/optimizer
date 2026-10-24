@@ -1750,6 +1750,56 @@ def test_approve_is_finalised_from_the_ticket_when_the_post_ticket_pm_turn_fails
         assert len(HumanAuditLogRepository(session).list_recent(action="approve")) == 1
 
 
+# --- an approve is bound to the weights it ticketed --------------------------------
+
+
+def test_approve_audit_row_records_the_weights_that_were_ticketed(paused_env) -> None:
+    """The gate's own place_orders args are the PM's proposal; the ticket is placed
+    from the audited optimizer weights. The approve row has to name what was traded,
+    or the trail cannot show what the adviser signed off."""
+    env = paused_env
+    with env.get_session() as session:
+        apply_action(
+            "approve",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+        )
+        session.commit()
+
+    with env.get_session() as session:
+        row = HumanAuditLogRepository(session).list_recent(action="approve")[0]
+        order = session.query(PaperOrder).one()
+        assert row.target == "weights"
+        assert row.new_value == {
+            "weights": pytest.approx(env.expected),
+            "weights_hash": order.weights_hash,
+        }
+
+
+def test_reject_audit_row_carries_no_weights(paused_env) -> None:
+    """Only an approve commits a ticket, so only it records one."""
+    env = paused_env
+    with env.get_session() as session:
+        apply_action(
+            "reject",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+        )
+        session.commit()
+
+    with env.get_session() as session:
+        row = HumanAuditLogRepository(session).list_recent(action="reject")[0]
+        assert row.new_value is None
+
+
 # --- the run-scope emergency stop needs no model, store or checkpoint --------------
 
 
