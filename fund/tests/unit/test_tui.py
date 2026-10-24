@@ -4631,6 +4631,22 @@ async def test_deliberation_live_follow_then_inspect_then_resume(shell_env) -> N
 
 
 @pytest.mark.asyncio
+async def test_deliberation_follow_key_in_replay_does_not_claim_a_live_round(
+    shell_env,
+) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        assert view.live_run_id is None  # replay: nothing is streaming
+        subtitle = view.query_one("#delib-subtitle", Label)
+        before = subtitle.visual.plain
+        view.action_follow_live()  # `f` is bound whenever Deliberation has focus
+        await pilot.pause()
+        assert "LIVE" not in subtitle.visual.plain
+        assert subtitle.visual.plain == before
+
+
+@pytest.mark.asyncio
 async def test_deliberation_live_ends_back_to_replay(shell_env) -> None:
     with shell_env.get_session() as session:
         _seed_run_with_steps(session)

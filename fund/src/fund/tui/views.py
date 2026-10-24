@@ -1835,13 +1835,18 @@ class DeliberationView(ShellView):
         self.query_one("#delib-steps", DataTable).display = True
 
     def action_follow_live(self) -> None:
-        """Re-arm auto-follow and re-snap to the live tail (the view-scoped ``f``)."""
+        """Re-arm auto-follow and re-snap to the live tail (the view-scoped ``f``).
+
+        Inert in replay: the binding stays active whenever Deliberation has focus, and
+        repainting the live subtitle then would claim a round is streaming.
+        """
+        if self.live_run_id is None:
+            return
         self.following = True
-        if self.live_run_id is not None:
-            table = self.query_one("#delib-live", DataTable)
-            if table.row_count:
-                table.move_cursor(row=table.row_count - 1)
-                table.scroll_end(animate=False)
+        table = self.query_one("#delib-live", DataTable)
+        if table.row_count:
+            table.move_cursor(row=table.row_count - 1)
+            table.scroll_end(animate=False)
         self._paint_live_subtitle()
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
