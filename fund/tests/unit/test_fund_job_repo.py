@@ -38,6 +38,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from portopt_db.models import BackgroundJob, Base
 from sqlalchemy import create_engine, false
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -358,3 +359,47 @@ def test_reap_orphans_predicate_has_no_host_or_pid_clause():
     src = inspect.getsource(FundJobRepository.reap_orphans)
     assert "worker_host" not in src
     assert "worker_pid" not in src
+
+
+# --- shared work session: a failed flush must not wedge the slot -------------
+
+
+def _poison_session(session, existing_job_id: uuid.UUID) -> None:
+    """Fail a flush (duplicate primary key) so the session needs a rollback."""
+    session.add(BackgroundJob(id=existing_job_id, job_type="fund_nav_mark"))
+    with pytest.raises(IntegrityError):
+        session.flush()
+    assert session.is_active is False
+
+
+def test_mark_done_recovers_a_session_poisoned_by_a_failed_flush(job_session):
+    repo = FundJobRepository(job_session)
+    job_id = repo.claim_or_create("fund_rebalance_sweep")
+    repo.mark_running(job_id)
+    _poison_session(job_session, job_id)
+
+    assert repo.mark_done(job_id, status="failed", error="boom") is True
+
+    job_session.expire_all()
+    row = repo.get(job_id)
+    assert row.status == "failed"
+    assert row.error == "boom"
+
+
+def test_mark_running_recovers_a_session_poisoned_by_a_failed_flush(job_session):
+    repo = FundJobRepository(job_session)
+    job_id = repo.claim_or_create("fund_drift_monitor")
+    _poison_session(job_session, job_id)
+
+    assert repo.mark_running(job_id) is True
+
+    job_session.expire_all()
+    assert repo.get(job_id).status == "running"
+
+
+def test_claim_or_create_recovers_a_session_poisoned_by_a_failed_flush(job_session):
+    repo = FundJobRepository(job_session)
+    first = repo.claim_or_create("fund_rebalance_sweep")
+    _poison_session(job_session, first)
+
+    assert repo.claim_or_create("fund_drift_monitor") is not None

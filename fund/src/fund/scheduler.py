@@ -403,6 +403,7 @@ def run_rebalance_sweep(
                 )
         except Exception as exc:
             logger.exception("rebalance sweep: aborted")
+            # Discard the half-finished work: mark_done commits the shared session.
             session.rollback()
             job_repo.mark_done(job_id, status="failed", error=str(exc))
             return False
@@ -517,6 +518,7 @@ def run_drift_monitor(
                 )
         except Exception as exc:
             logger.exception("drift monitor: aborted")
+            # Discard the half-finished work: mark_done commits the shared session.
             session.rollback()
             job_repo.mark_done(job_id, status="failed", error=str(exc))
             return False

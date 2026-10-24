@@ -1251,3 +1251,191 @@ def test_heartbeat_keeps_pulsing_after_a_failed_pulse(session_factory, monkeypat
     # A dead pulse thread would leave the lease unrenewed past the blip and let the
     # reaper fail a step that is still running.
     assert len(calls) >= 5
+
+
+# --- work transaction: per-portfolio commit/rollback ------------------------
+
+
+def _run_portfolios(factory: SessionFactory) -> set[uuid.UUID]:
+    """Portfolio ids that have a *committed* ``agent_runs`` row."""
+    with factory() as session:
+        return {run.portfolio_id for run in session.query(AgentRun).all()}
+
+
+def _create_run(session: Session, pid: uuid.UUID) -> None:
+    AgentRunRepository(session).create_run(
+        portfolio_id=pid, asof=ASOF, seed=1, universe=[], optimizer_config={}
+    )
+
+
+def _fail_flush(session: Session) -> None:
+    """Duplicate-PK insert: the flush error leaves the session needing a rollback."""
+    existing = session.query(BackgroundJob.id).first()
+    assert existing is not None
+    session.add(BackgroundJob(id=existing[0], job_type="fund_nav_mark"))
+    session.flush()
+
+
+def test_sweep_rolls_back_a_failed_portfolio_and_keeps_the_others(
+    session_factory, monkeypatch
+):
+    _seed_mandate(session_factory, PID_A, cron=True, drift=False)
+    _seed_mandate(session_factory, PID_B, cron=True, drift=False)
+
+    def _drive(pid, asof, *, session, **_kw):
+        _create_run(session, pid)
+        if pid == PID_A:
+            raise RuntimeError("agent exploded after creating its run row")
+
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", _drive)
+
+    ok = run_rebalance_sweep(session_factory=session_factory, asof=ASOF)
+
+    assert ok is True
+    # A's half-finished run is discarded, never committed with the slot transition.
+    assert _run_portfolios(session_factory) == {PID_B}
+
+
+def test_sweep_commits_each_portfolio_before_the_slot_is_finalised(
+    session_factory, monkeypatch
+):
+    _seed_mandate(session_factory, PID_A, cron=True, drift=False)
+    _seed_mandate(session_factory, PID_B, cron=True, drift=False)
+
+    seen_by_b: list[set[uuid.UUID]] = []
+
+    def _drive(pid, asof, *, session, **_kw):
+        if pid == PID_B:
+            seen_by_b.append(_run_portfolios(session_factory))
+        _create_run(session, pid)
+
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", _drive)
+
+    assert run_rebalance_sweep(session_factory=session_factory, asof=ASOF) is True
+
+    # A's paused run is already visible to CLI/TUI readers while B is still running.
+    assert seen_by_b == [{PID_A}]
+
+
+def test_sweep_survives_a_portfolio_that_poisons_the_session(
+    session_factory, monkeypatch
+):
+    _seed_mandate(session_factory, PID_A, cron=True, drift=False)
+    _seed_mandate(session_factory, PID_B, cron=True, drift=False)
+
+    def _drive(pid, asof, *, session, **_kw):
+        if pid == PID_A:
+            _fail_flush(session)
+        _create_run(session, pid)
+
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", _drive)
+
+    ok = run_rebalance_sweep(session_factory=session_factory, asof=ASOF)
+
+    assert ok is True
+    assert _job_rows(session_factory, "fund_rebalance_sweep")[0].status == "completed"
+    assert _run_portfolios(session_factory) == {PID_B}
+
+
+def test_aborted_sweep_does_not_commit_partial_work_with_the_failed_mark(
+    session_factory, monkeypatch
+):
+    _seed_mandate(session_factory, PID_A, cron=True, drift=False)
+
+    def _boom(session, runtime, asof):
+        _create_run(session, PID_A)
+        raise RuntimeError("sweep aborted mid-way")
+
+    monkeypatch.setattr("fund.scheduler._sweep_cron_mandates", _boom)
+
+    ok = run_rebalance_sweep(session_factory=session_factory, asof=ASOF)
+
+    assert ok is False
+    assert _job_rows(session_factory, "fund_rebalance_sweep")[0].status == "failed"
+    assert _run_portfolios(session_factory) == set()
+
+
+def test_drift_monitor_survives_a_portfolio_that_poisons_the_session(
+    session_factory, monkeypatch
+):
+    _seed_mandate(session_factory, PID_A, cron=False, drift=True, threshold=0.1)
+    _seed_mandate(session_factory, PID_B, cron=False, drift=True, threshold=0.1)
+    monkeypatch.setattr(observe, "portfolio_state", lambda s, pid: _state(pid, 0.9))
+    monkeypatch.setattr(observe, "reprofile_status", _not_due)
+
+    def _drive(pid, asof, *, session, **_kw):
+        if pid == PID_A:
+            _fail_flush(session)
+        _create_run(session, pid)
+
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", _drive)
+
+    ok = run_drift_monitor(session_factory=session_factory, asof=ASOF)
+
+    assert ok is True
+    assert _job_rows(session_factory, "fund_drift_monitor")[0].status == "completed"
+    assert _run_portfolios(session_factory) == {PID_B}
+
+
+def _arrange_drift_breach(
+    factory: SessionFactory, monkeypatch: pytest.MonkeyPatch, *pids: uuid.UUID
+) -> None:
+    for pid in pids:
+        _seed_mandate(factory, pid, cron=False, drift=True, threshold=0.1)
+    monkeypatch.setattr(observe, "portfolio_state", lambda s, pid: _state(pid, 0.9))
+    monkeypatch.setattr(observe, "reprofile_status", _not_due)
+
+
+def test_drift_monitor_rolls_back_a_failed_portfolio_and_keeps_the_others(
+    session_factory, monkeypatch
+):
+    _arrange_drift_breach(session_factory, monkeypatch, PID_A, PID_B)
+
+    def _drive(pid, asof, *, session, **_kw):
+        _create_run(session, pid)
+        if pid == PID_A:
+            raise RuntimeError("agent exploded after creating its run row")
+
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", _drive)
+
+    ok = run_drift_monitor(session_factory=session_factory, asof=ASOF)
+
+    assert ok is True
+    assert _run_portfolios(session_factory) == {PID_B}
+
+
+def test_drift_monitor_commits_each_portfolio_before_the_slot_is_finalised(
+    session_factory, monkeypatch
+):
+    _arrange_drift_breach(session_factory, monkeypatch, PID_A, PID_B)
+
+    seen_by_b: list[set[uuid.UUID]] = []
+
+    def _drive(pid, asof, *, session, **_kw):
+        if pid == PID_B:
+            seen_by_b.append(_run_portfolios(session_factory))
+        _create_run(session, pid)
+
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", _drive)
+
+    assert run_drift_monitor(session_factory=session_factory, asof=ASOF) is True
+
+    assert seen_by_b == [{PID_A}]
+
+
+def test_aborted_drift_monitor_does_not_commit_partial_work_with_the_failed_mark(
+    session_factory, monkeypatch
+):
+    _seed_mandate(session_factory, PID_A, cron=False, drift=True, threshold=0.1)
+
+    def _boom(session, runtime, asof, config):
+        _create_run(session, PID_A)
+        raise RuntimeError("drift monitor aborted mid-way")
+
+    monkeypatch.setattr("fund.scheduler._monitor_drift_mandates", _boom)
+
+    ok = run_drift_monitor(session_factory=session_factory, asof=ASOF)
+
+    assert ok is False
+    assert _job_rows(session_factory, "fund_drift_monitor")[0].status == "failed"
+    assert _run_portfolios(session_factory) == set()

@@ -62,6 +62,19 @@ def _rows_affected(result: Result[Any]) -> int:
 class FundJobRepository(RepositoryBase):
     """Atomic per-``job_type`` slot + heartbeat-lease reaper on ``background_jobs``."""
 
+    def _recover_session(self) -> None:
+        """Roll back a session a failed flush left refusing every statement.
+
+        The slot transitions share the caller's work session, so a flush error
+        swallowed by the work leaves it in the partial-rollback state, where even
+        the terminal ``mark_done`` would raise ``PendingRollbackError`` and strand
+        the slot as ``running`` until the lease expires. The failed flush already
+        rolled the database transaction back, so this only discards state that is
+        gone anyway.
+        """
+        if not self.session.is_active:
+            self.session.rollback()
+
     def claim_or_create(self, job_type: str) -> uuid.UUID | None:
         """Atomically create a ``pending`` job iff no active row of *job_type* exists.
 
@@ -77,6 +90,7 @@ class FundJobRepository(RepositoryBase):
         lease) and commits so the slot is immediately visible to other processes.
         Dialect-agnostic (PostgreSQL + SQLite).
         """
+        self._recover_session()
         new_id = uuid.uuid4()
         now = datetime.now(UTC)
         pid = os.getpid()
@@ -132,6 +146,7 @@ class FundJobRepository(RepositoryBase):
         Status-guarded on the active statuses so a terminal row is never
         resurrected. Commits so the running state is visible to the reaper.
         """
+        self._recover_session()
         stmt = (
             update(BackgroundJob)
             .where(
@@ -176,6 +191,7 @@ class FundJobRepository(RepositoryBase):
         (a late failure can't overwrite an already-completed row). ``True`` if a
         row moved. Commits so the slot re-opens for the next scheduled run.
         """
+        self._recover_session()
         stmt = (
             update(BackgroundJob)
             .where(
