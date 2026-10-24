@@ -620,3 +620,35 @@ def test_nav_mark_remarks_history_older_than_the_window_after_a_base_currency_ed
     assert _navs(session_factory) == pytest.approx(
         _recomputed_navs(session_factory, "USD"), rel=1e-6
     )
+
+
+def test_nav_mark_skips_an_invalid_mandate_row_and_marks_the_rest(session_factory):
+    """One mandate whose stored JSON no longer validates must not starve the others.
+
+    The invalid row sorts before the valid portfolio, so a validation error escaping
+    the per-portfolio isolation would leave every later portfolio unmarked on every
+    daily run.
+    """
+    _seed(session_factory)
+    bad_pid = uuid.UUID("0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a")
+    with session_factory() as session:
+        repo = MandateRepository(session)
+        repo.upsert(
+            PortfolioMandate(
+                portfolio_id=str(bad_pid),
+                capital=Decimal("10000"),
+                base_currency="EUR",
+                drift_l1_threshold=0.1,
+                triggers=RunTriggers(cron=True, drift=False),
+            )
+        )
+        row = repo.get(bad_pid)
+        assert row is not None
+        row.mandate = {k: v for k, v in row.mandate.items() if k != "triggers"}
+        session.commit()
+
+    assert run_nav_mark(session_factory=session_factory, asof=_ASOF) is True
+
+    assert set(_navs(session_factory)) == {_FILL, _NEXT}
+    slots = _slots(session_factory)
+    assert len(slots) == 1 and slots[0].status == "completed"

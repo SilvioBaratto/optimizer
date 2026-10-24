@@ -460,6 +460,57 @@ def test_step_with_nothing_to_drive_is_not_reported_failed(
     assert (row.status, row.error) == ("completed", None)
 
 
+def _corrupt_mandate(factory: SessionFactory, pid: uuid.UUID) -> None:
+    """Strip a required field from the persisted JSON, as a schema change would."""
+    with factory() as session:
+        row = MandateRepository(session).get(pid)
+        assert row is not None
+        row.mandate = {k: v for k, v in row.mandate.items() if k != "triggers"}
+        session.commit()
+
+
+@pytest.mark.parametrize("step", _STEPS)
+def test_invalid_mandate_row_does_not_stop_the_portfolios_after_it(
+    session_factory, monkeypatch, step
+):
+    # PID_A sorts first, so a validation error that escapes the per-portfolio
+    # isolation would starve every portfolio behind it on every run.
+    _seed_mandate(session_factory, PID_A, cron=True, drift=True, threshold=0.1)
+    _seed_mandate(session_factory, PID_B, cron=True, drift=True, threshold=0.1)
+    _corrupt_mandate(session_factory, PID_A)
+
+    driven: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "fund.scheduler._drive_rebalance",
+        lambda pid, asof, **_kw: driven.append(pid),
+    )
+
+    assert _run_step(step, session_factory, monkeypatch) is True
+
+    assert driven == [PID_B]
+    row = _job_rows(session_factory, _STEP_JOB_TYPE[step])[0]
+    assert row.status == "completed"  # B still ran
+    assert row.error is not None
+    assert "1 of 2" in row.error
+    assert str(PID_A) in row.error
+
+
+@pytest.mark.parametrize("step", _STEPS)
+def test_step_where_every_mandate_is_invalid_is_reported_failed(
+    session_factory, monkeypatch, step
+):
+    _seed_mandate(session_factory, PID_A, cron=True, drift=True, threshold=0.1)
+    _corrupt_mandate(session_factory, PID_A)
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", lambda *a, **k: None)
+
+    assert _run_step(step, session_factory, monkeypatch) is False
+
+    row = _job_rows(session_factory, _STEP_JOB_TYPE[step])[0]
+    assert row.status == "failed"
+    assert row.error is not None
+    assert str(PID_A) in row.error
+
+
 def test_sweep_skips_when_slot_busy(session_factory, monkeypatch):
     _seed_mandate(session_factory, PID_A, cron=True, drift=False)
     with session_factory() as session:

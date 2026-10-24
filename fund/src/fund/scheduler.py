@@ -51,6 +51,7 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from pydantic import ValidationError
 
 from fund import observe
 from fund.config import FundConfig, settings
@@ -399,19 +400,34 @@ def run_rebalance_sweep(
         return _close_slot("rebalance sweep", job_repo, job_id, outcome)
 
 
-def _active_mandate_rows(session: Session) -> list[tuple[uuid.UUID, dict[str, Any]]]:
-    """Snapshot ``(portfolio_id, mandate JSON)`` for every active mandate.
+def _active_mandates(
+    session: Session,
+) -> list[tuple[uuid.UUID, PortfolioMandate | None]]:
+    """``(portfolio_id, mandate)`` for every active mandate, in deterministic order.
 
-    Plain values rather than ORM rows: the per-portfolio commit/rollback in the
-    sweeps expires every loaded instance, so reading a row after a rollback would
-    re-query (or fail on a row deleted meanwhile) in the middle of the loop.
+    Plain values rather than ORM rows: the per-portfolio commit/rollback expires every
+    loaded instance, so reading a row afterwards would re-query (or fail on a row
+    deleted meanwhile) in the middle of the loop.
+
+    A row whose stored JSON no longer validates (hand-edited, or a schema change
+    added a required field) yields ``None`` and is logged here, so it is one
+    portfolio's failure rather than an exception that starves every portfolio sorted
+    after it on every run.
     """
     from fund.audit.mandate_repository import MandateRepository
 
-    return [
-        (row.portfolio_id, row.mandate)
-        for row in MandateRepository(session).list_active()
-    ]
+    rows: list[tuple[uuid.UUID, PortfolioMandate | None]] = []
+    for row in MandateRepository(session).list_active():
+        mandate: PortfolioMandate | None
+        try:
+            mandate = PortfolioMandate.model_validate(row.mandate)
+        except ValidationError:
+            logger.exception(
+                "portfolio %s: stored mandate is invalid; skipping", row.portfolio_id
+            )
+            mandate = None
+        rows.append((row.portfolio_id, mandate))
+    return rows
 
 
 def _sweep_cron_mandates(
@@ -428,11 +444,13 @@ def _sweep_cron_mandates(
     model, fallback, persistence = _runtime_parts(runtime)
     attempted = 0
     failed: list[uuid.UUID] = []
-    for pid, payload in _active_mandate_rows(session):
-        mandate = PortfolioMandate.model_validate(payload)
-        if not mandate.triggers.cron:
+    for pid, mandate in _active_mandates(session):
+        if mandate is not None and not mandate.triggers.cron:
             continue
         attempted += 1
+        if mandate is None:
+            failed.append(pid)
+            continue
         try:
             _drive_rebalance(
                 pid,
@@ -511,11 +529,13 @@ def _monitor_drift_mandates(
     model, fallback, persistence = _runtime_parts(runtime)
     attempted = 0
     failed: list[uuid.UUID] = []
-    for pid, payload in _active_mandate_rows(session):
-        mandate = PortfolioMandate.model_validate(payload)
-        if not mandate.triggers.drift:
+    for pid, mandate in _active_mandates(session):
+        if mandate is not None and not mandate.triggers.drift:
             continue
         attempted += 1
+        if mandate is None:
+            failed.append(pid)
+            continue
         try:
             _check_drift(
                 pid,
@@ -815,14 +835,13 @@ def _mark_all_navs(session: Session, asof: dt.date, *, full: bool = False) -> No
     base currency has no FX coverage (e.g. a non-EUR mandate against the EUR-only
     feed) is skipped loudly, not mis-marked.
     """
-    from fund.audit.mandate_repository import MandateRepository
     from fund.audit.nav_history_repository import NavHistoryRepository
     from fund.performance import FxCoverageError
 
     nav_repo = NavHistoryRepository(session)
-    for row in MandateRepository(session).list_active():
-        mandate = PortfolioMandate.model_validate(row.mandate)
-        pid = row.portfolio_id
+    for pid, mandate in _active_mandates(session):
+        if mandate is None:
+            continue
         try:
             points = _nav_points_to_persist(
                 session, nav_repo, pid, mandate, asof, full=full
