@@ -1406,6 +1406,60 @@ class TestNetInsiderBuyingBranches:
         )
         assert result.loc["A"] == 150.0
 
+    def test_compensation_grants_and_gifts_are_not_counted_as_sales(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "A", "A", "B", "B"],
+                "shares": [1000, 500, 200, 10, 40],
+                "transaction_type": [
+                    "Purchase at price 10.00 per share.",
+                    "Stock Award(Grant) at price 0.00 per share.",
+                    "Sale at price 11.00 per share.",
+                    "Stock Gift at price 0.00 per share.",
+                    "Conversion of Exercise of derivative security",
+                ],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING, _dummy, _tiny_prices, insider_data=insider
+        )
+        assert result.loc["A"] == 800.0  # +1000 purchase - 200 sale, grant ignored
+        assert result.loc["B"] == 0.0  # no open-market trade at all
+
+    def test_blank_transaction_types_are_neutral_not_bearish(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "A", "B"],
+                "shares": [1000, 500, 100],
+                "transaction_type": [None, "", "Purchase"],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING, _dummy, _tiny_prices, insider_data=insider
+        )
+        assert result.loc["A"] == 0.0
+        assert result.loc["B"] == 100.0
+
+    def test_all_nan_float_transaction_type_column_does_not_crash(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "B"],
+                "shares": [1500, 100],
+                "transaction_type": [np.nan, np.nan],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING, _dummy, _tiny_prices, insider_data=insider
+        )
+        assert result.loc["A"] == 0.0
+        assert result.loc["B"] == 0.0
+
 
 class TestComputeFactorDispatchEdges:
     """Cover the price/volume dispatch guards."""

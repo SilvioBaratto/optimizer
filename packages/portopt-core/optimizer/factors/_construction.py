@@ -420,20 +420,29 @@ def _compute_recommendation_change(
 def _compute_net_insider_buying(
     insider_data: pd.DataFrame | None,
 ) -> pd.Series:
-    """Net insider buying volume (purchases - sales)."""
+    """Net insider buying volume (purchases - sales).
+
+    Only open-market purchases (+shares) and sales (-shares) carry a signal.
+    Equity awards, gifts, option exercises and rows with a blank type are not
+    discretionary trades and contribute zero, so a company that grants stock
+    regularly is not read as one whose insiders are selling.
+    """
     if insider_data is None or len(insider_data) == 0:
         return pd.Series(dtype=float)
     if "shares" not in insider_data.columns or "ticker" not in insider_data.columns:
         return pd.Series(dtype=float)
     if "transaction_type" in insider_data.columns:
         insider = insider_data.copy()
-        is_purchase = (
-            insider["transaction_type"]
-            .str.lower()
-            .str.contains("purchase|buy", na=False)
+        # astype("string") keeps the .str accessor valid for an all-NaN float
+        # column, which is what a blank source column becomes after loading.
+        tx_type = insider["transaction_type"].astype("string").str.lower()
+        is_purchase = tx_type.str.contains("purchase|buy", na=False).to_numpy(bool)
+        is_sale = tx_type.str.contains("sale|sell", na=False).to_numpy(bool)
+        direction = np.select(
+            [is_purchase & ~is_sale, is_sale & ~is_purchase], [1.0, -1.0], default=0.0
         )
-        insider["signed_shares"] = insider["shares"].where(
-            is_purchase, -insider["shares"]
+        insider["signed_shares"] = (
+            pd.to_numeric(insider["shares"], errors="coerce") * direction
         )
         result: pd.Series = cast(
             pd.Series, insider.groupby("ticker")["signed_shares"].sum()
