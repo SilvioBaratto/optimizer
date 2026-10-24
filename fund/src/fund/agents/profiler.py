@@ -392,7 +392,11 @@ def _inconsistency_flags(
         and min(stated_scores) < _LOW_CAPACITY_APPETITE
     ):
         flags.append(FLAG_OBJECTIVE_CAPACITY_MISMATCH)
-    if tolerance_stated and capacity_stated and a_tol - a_cap >= _OVERCONFIDENCE_GAP:
+    if (
+        tolerance_stated
+        and capacity_stated
+        and _snap(a_tol - a_cap) >= _OVERCONFIDENCE_GAP
+    ):
         flags.append(FLAG_OVERCONFIDENCE)
     if (
         tolerance_stated

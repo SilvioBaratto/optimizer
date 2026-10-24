@@ -151,6 +151,43 @@ def test_high_tolerance_low_capacity_flags_overconfidence() -> None:
     assert FLAG_OBJECTIVE_CAPACITY_MISMATCH not in sa.inconsistency_flags
 
 
+@pytest.mark.parametrize(
+    ("likert", "max_loss", "buffer"),
+    [
+        ((5,), 0.10, 4.0),  # tolerance 2/3, capacity 4/15: gap exactly 0.4
+        ((5, 5, 4, 4, 5), 0.10, 2.4),  # tolerance 0.6, capacity 0.2: gap exactly 0.4
+    ],
+)
+def test_overconfidence_gap_at_exactly_the_threshold_is_flagged(
+    likert: tuple[int, ...], max_loss: float, buffer: float
+) -> None:
+    # goal=INCOME and a HOLD reaction keep the other two rules out of it.
+    _, sa = run_mapping(
+        _answers(
+            likert=likert,
+            max_loss=max_loss,
+            buffer=buffer,
+            goal=ObjectiveChoice.INCOME,
+        ),
+        portfolio_id="pf-1",
+    )
+    assert FLAG_OVERCONFIDENCE in sa.inconsistency_flags
+
+
+def test_overconfidence_gap_just_under_the_threshold_is_not_flagged() -> None:
+    # tolerance 0.6, capacity 0.2 + 0.01: gap 0.39.
+    _, sa = run_mapping(
+        _answers(
+            likert=(5, 5, 4, 4, 5),
+            max_loss=0.10,
+            buffer=2.64,
+            goal=ObjectiveChoice.INCOME,
+        ),
+        portfolio_id="pf-1",
+    )
+    assert FLAG_OVERCONFIDENCE not in sa.inconsistency_flags
+
+
 def test_high_tolerance_but_panic_reaction_flags_mismatch() -> None:
     # High stated tolerance yet "sell everything" on a drop — a behavioural
     # contradiction. Capacity is high (a_cap = 1.0) so overconfidence stays out.
