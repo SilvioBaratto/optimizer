@@ -7792,6 +7792,41 @@ async def test_ask_registers_in_sidebar_and_opens(shell_env) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ask_sidebar_pick_focuses_the_input_so_typing_is_not_a_binding(
+    shell_env, monkeypatch, tmp_path
+) -> None:
+    """Picking Ask in the sidebar lands focus on the input: keystrokes become text.
+
+    A bare focused container would hand every printable key to the app bindings, so
+    typing 'quarterly drift?' would hit ``q`` (quit) before anything reached the box.
+    """
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        sidebar.focus()
+        sidebar.index = _VIEW_KEYS.index("ask")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        view = app.query_one("#view-ask", AskView)
+        inp = view.query_one("#ask-input", Input)
+        assert app.focused is inp
+        await pilot.press("q", "u", "a", "r", "t", "e", "r")
+        await pilot.pause()
+        assert app.is_running
+        assert inp.value == "quarter"
+
+        # The view-scoped export is still one shift+tab away, from the log.
+        monkeypatch.chdir(tmp_path)
+        view.append_log("ask", "all good")
+        await pilot.press("shift+tab")
+        await pilot.press("e")
+        await pilot.pause()
+        assert len(list(tmp_path.glob("ask-*.md"))) == 1
+
+
+@pytest.mark.asyncio
 async def test_ask_query_returns_grounded_answer(shell_env) -> None:
     """A query turn builds grounded context, invokes the lazy model, logs the answer."""
     with shell_env.get_session() as session:

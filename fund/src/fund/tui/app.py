@@ -409,7 +409,7 @@ VIEW-SCOPED
   Decisions     e edit weights   s steer PM
   Mandate       x remove directive
   Performance   ↵ drill into a holding
-  Ask           ↵ ask   e export
+  Ask           ↵ ask   shift+tab log, then e export
   Daily brief   ← / → day   ↵ deliberation   e export   esc sidebar"""
 
 

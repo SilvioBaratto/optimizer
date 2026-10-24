@@ -2693,7 +2693,21 @@ class AskView(ShellView):
                 markup=False,
             )
         yield Input(placeholder="ask…", id="ask-input")
-        yield Static("↵ ask · e export", id="ask-hint", classes="ask-hint")
+        yield Static(
+            "↵ ask · shift+tab to the log, then e export",
+            id="ask-hint",
+            classes="ask-hint",
+        )
+
+    def focus_primary(self) -> None:
+        """Focus the question box rather than the bare view container.
+
+        With the container focused, typed text is dispatched as app bindings (``q``
+        quits) instead of reaching the input. The view-scoped ``e`` export stays
+        reachable from the conversation log (shift+tab from the input), whose key
+        bindings bubble up to this view.
+        """
+        self.query_one("#ask-input", Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """A submitted turn is classified and routed, then the input is cleared."""
