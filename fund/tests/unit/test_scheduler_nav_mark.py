@@ -691,3 +691,79 @@ def test_nav_mark_denominates_nav_in_the_mandate_capital(session_factory):
     assert navs[_FILL] == pytest.approx(20000.0, rel=1e-6)
     expected_next = 2 * ((6000.0 / 90.0) * 101.2 + (4000.0 / 5.85) * 6.136)
     assert navs[_NEXT] == pytest.approx(expected_next, rel=1e-6)
+
+
+def test_nav_mark_rewrites_history_when_a_ticket_is_approved_after_the_fact(
+    session_factory,
+):
+    """A late-approved ticket re-bases the bars it fills over, not just the last week.
+
+    Ticket 2 fills on bar 2 but is approved after the daily mark has already run to
+    bar 20, so its fill predates the incremental window. The persisted bars between
+    its fill and the window still hold the old book; they must be rewritten so the
+    stored series is the one a full rebuild gives.
+    """
+    days = [date(2026, 10, 1) + timedelta(days=i) for i in range(25)]
+    with session_factory() as session:
+        ex = Exchange(name="X")
+        session.add(ex)
+        session.flush()
+        for ticker, start, step in (("A", 100.0, 1.01), ("B", 50.0, 1.02)):
+            inst = Instrument(
+                ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+            )
+            session.add(inst)
+            session.flush()
+            session.add_all(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=day,
+                    close=Decimal(str(start * step**i)),
+                    price_unit="USD",
+                )
+                for i, day in enumerate(days)
+            )
+        MandateRepository(session).upsert(
+            PortfolioMandate(
+                portfolio_id=str(_PID),
+                capital=Decimal("100000"),
+                base_currency="USD",
+                drift_l1_threshold=0.1,
+                triggers=RunTriggers(cron=True, drift=False),
+            )
+        )
+        session.commit()
+
+    def _ticket(ticker: str, fill_index: int, key: str) -> None:
+        with session_factory() as session:
+            session.add(
+                PaperOrder(
+                    portfolio_id=_PID,
+                    asof=days[fill_index] - timedelta(days=1),
+                    weights_hash=key,
+                    weights={ticker: 1.0},
+                    fill_date=days[fill_index],
+                    lines=[
+                        {
+                            "ticker": ticker,
+                            "notional": 100_000.0,
+                            "fill_date": days[fill_index].isoformat(),
+                        }
+                    ],
+                    notional=100_000.0,
+                    total_commission=0.0,
+                    total_slippage_cost=0.0,
+                )
+            )
+            session.commit()
+
+    _ticket("A", 0, "h1")
+    assert run_nav_mark(session_factory=session_factory, asof=days[20]) is True
+    _ticket("B", 2, "h2")
+    assert run_nav_mark(session_factory=session_factory, asof=days[24]) is True
+
+    navs = _navs(session_factory)
+    handover = 100_000.0 * 1.01**2
+    for i, day in enumerate(days):
+        expected = 100_000.0 * 1.01**i if i < 2 else handover * 1.02 ** (i - 2)
+        assert navs[day] == pytest.approx(expected, rel=1e-6), day
