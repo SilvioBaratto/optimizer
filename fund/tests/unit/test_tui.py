@@ -3500,6 +3500,22 @@ async def test_audit_export_writes_csv(shell_env, tmp_path) -> None:
     assert text.strip().count("\n") >= 3  # header + 3 data rows
 
 
+@pytest.mark.asyncio
+async def test_audit_export_is_readable_by_its_owner_only(shell_env, tmp_path) -> None:
+    import stat
+
+    with shell_env.get_session() as session:
+        _seed_audit_rows(session)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        out = tmp_path / "audit.csv"
+        view.export_csv(str(out))
+
+    assert stat.S_IMODE(out.stat().st_mode) == 0o600
+
+
 def _seed_rearm_with_rationale(session) -> None:
     HumanAuditLogRepository(session).append(
         action="rearm",
@@ -9480,6 +9496,28 @@ async def test_ask_export_markdown(shell_env, monkeypatch, tmp_path) -> None:
         content = files[0].read_text(encoding="utf-8")
         assert "how are we doing?" in content and "all good" in content
         assert "exported ask" in app.last_status
+
+
+@pytest.mark.asyncio
+async def test_ask_and_brief_exports_are_readable_by_their_owner_only(
+    shell_env, monkeypatch, tmp_path
+) -> None:
+    import stat
+
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _full_brief(_PID_A))
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        ask_view = await _open_ask(app, pilot)
+        ask_view.append_log("you", "client capital 1,250,000")
+        app.action_export_ask()
+        await _open_brief(app, pilot)
+        app.action_export_brief()
+        await pilot.pause()
+
+    exported = list(tmp_path.glob("ask-*.md")) + list(tmp_path.glob("daily-brief-*.md"))
+    assert len(exported) == 2
+    assert {stat.S_IMODE(path.stat().st_mode) for path in exported} == {0o600}
 
 
 @pytest.mark.asyncio

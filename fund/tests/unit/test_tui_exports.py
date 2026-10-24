@@ -56,3 +56,44 @@ def test_the_fund_container_mounts_a_host_visible_export_directory() -> None:
 
     assert fund["environment"]["FUND_EXPORT_DIR"] == "/app/exports"
     assert any(str(volume).endswith(":/app/exports") for volume in fund["volumes"])
+
+
+def test_a_private_file_is_owner_only_whatever_the_umask(tmp_path: Path) -> None:
+    import os
+
+    old = os.umask(0o022)
+    try:
+        target = tmp_path / "out.csv"
+        with exports.open_private(target, newline="") as handle:
+            handle.write("a,b\n")
+    finally:
+        os.umask(old)
+
+    assert target.read_text(encoding="utf-8") == "a,b\n"
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+def test_rewriting_an_export_tightens_a_file_that_was_world_readable(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "out.md"
+    target.write_text("old and longer than the new text", encoding="utf-8")
+    target.chmod(0o644)
+
+    with exports.open_private(target) as handle:
+        handle.write("new")
+
+    assert target.read_text(encoding="utf-8") == "new"
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+def test_a_private_file_is_never_written_through_a_symlink(tmp_path: Path) -> None:
+    secret = tmp_path / "victim.txt"
+    secret.write_text("untouched", encoding="utf-8")
+    link = tmp_path / "out.csv"
+    link.symlink_to(secret)
+
+    with pytest.raises(OSError), exports.open_private(link) as handle:
+        handle.write("planted")
+
+    assert secret.read_text(encoding="utf-8") == "untouched"

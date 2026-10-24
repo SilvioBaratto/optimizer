@@ -1470,10 +1470,11 @@ class AuditView(ShellView):
                 failed read never leaves a header-only file reported as exported.
         """
         import csv
-        from pathlib import Path
+
+        from fund.tui.exports import open_private
 
         entries = self._query(None)
-        with Path(path).open("w", newline="", encoding="utf-8") as handle:
+        with open_private(path, newline="") as handle:
             writer = csv.writer(handle)
             writer.writerow(_AUDIT_CSV_HEADER)
             for entry in entries:
@@ -2368,11 +2369,12 @@ class DailyBriefView(ShellView):
         missing brief raises ``ValueError`` rather than writing an empty file. Any
         write failure surfaces as ``OSError`` for the caller to report.
         """
-        from pathlib import Path
+        from fund.tui.exports import open_private
 
         if self.brief is None:
             raise ValueError("no brief loaded to export")
-        Path(path).write_text(_render_brief_markdown(self.brief), encoding="utf-8")
+        with open_private(path) as handle:
+            handle.write(_render_brief_markdown(self.brief))
         return path
 
 
@@ -3029,13 +3031,14 @@ class AskView(ShellView):
         over its text. Any write failure surfaces as ``OSError`` for the caller to
         report on the status line.
         """
-        from pathlib import Path
+        from fund.tui.exports import open_private
 
         lines = ["# Ask conversation", ""]
         for speaker, text in self._log:
             lines.append(f"**{speaker}:** {text}")
             lines.append("")
-        Path(path).write_text("\n".join(lines), encoding="utf-8")
+        with open_private(path) as handle:
+            handle.write("\n".join(lines))
         return path
 
 
