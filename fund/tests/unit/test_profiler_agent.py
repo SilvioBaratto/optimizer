@@ -81,6 +81,17 @@ def test_normalises_free_text_into_typed_answers(db_session):
     assert model.structured_invoke_calls == 1
 
 
+def test_extraction_prompt_keeps_non_sector_esg_preferences_out_of_the_sectors():
+    # A product-level preference ("no tobacco") has no GICS sector; forcing it onto
+    # one would block an unrelated sector and still miss the intent.
+    from fund.agents.profiler import _extraction_messages
+
+    system = _extraction_messages("EUR, growth")[0]["content"]
+
+    assert "esg.other_preferences" in system
+    assert "Never turn one into a sector" in system
+
+
 def test_maps_answers_to_a_valid_constraint_set(db_session):
     pid = uuid.uuid4()
     model = make_model(make_answers(), portfolio_id=str(pid))

@@ -35,6 +35,9 @@ split is load-bearing:
 2. **Normalise** free-text / ambiguous answers into a typed `MiFIDAnswers` via
    `structured_call` (retry once on a malformed reply, then fall back). Keep the
    attitudinal Likert (tolerance) disjoint from the financial capacity fields.
+   Never guess an answer the client did not give: list it in `unanswered` (the
+   mapping applies the most conservative value and flags it), and keep any ESG
+   preference that is not a GICS sector in `esg.other_preferences`.
 3. **Check consistency** — flag contradictions (e.g. "max growth" + "cannot lose
    anything") and overconfidence. Flag, never clamp; an ESG/legal breach
    hard-blocks.

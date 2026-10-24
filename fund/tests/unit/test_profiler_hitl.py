@@ -25,7 +25,7 @@ from portopt_db.models import AgentDecision
 
 from fund.agents.profiler import run_profiler
 from fund.audit import AgentRunRepository, MifidProfileRepository
-from fund.schemas.enums import LossReaction, ObjectiveChoice
+from fund.schemas.enums import GicsSector, KnowledgeLevel, LossReaction, ObjectiveChoice
 
 _MESSAGES = [{"role": "user", "content": "questionnaire ..."}]
 
@@ -116,6 +116,28 @@ def test_unanswered_datum_surfaces_in_interrupt_payload(db_session):
 
     description = run.interrupt["action_requests"][0]["description"]
     assert "unanswered_input:capacity.buffer_months" in description
+
+
+def test_interrupt_description_shows_the_extracted_answers(db_session):
+    pid = uuid.uuid4()
+    answers = make_answers(
+        likert=(3, 4, 5),
+        max_loss=0.30,
+        buffer=4.0,
+        knowledge=KnowledgeLevel.BASIC,
+        exclusions=(GicsSector.ENERGY,),
+        other_preferences=("no tobacco",),
+    )
+
+    run = _run(make_model(answers, portfolio_id=str(pid)), db_session, portfolio_id=pid)
+
+    description = run.interrupt["action_requests"][0]["description"]
+    assert "knowledge basic" in description
+    assert "max 1y loss 30%" in description
+    assert "buffer 4 months" in description
+    assert "likert 3, 4, 5" in description
+    assert "other ESG preferences (not enforced): no tobacco" in description
+    assert "unenforced_esg_preference" in description
 
 
 # --- audit trail records the HITL decision ----------------------------------

@@ -359,3 +359,14 @@ def test_module_imports_nothing_forbidden():
     ):
         assert f"import {forbidden}" not in src
         assert f"from {forbidden}" not in src
+
+
+def test_other_esg_preferences_default_to_empty():
+    assert _valid_answers().esg.other_preferences == ()
+
+
+def test_other_esg_preferences_round_trip():
+    a = _valid_answers(
+        esg=EsgAnswers(exclusions=(), other_preferences=("no tobacco", "no weapons"))
+    )
+    assert MiFIDAnswers.model_validate_json(a.model_dump_json()) == a

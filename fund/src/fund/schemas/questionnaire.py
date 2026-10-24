@@ -190,7 +190,8 @@ class EsgAnswers(BaseModel):
     """Pillar 4 — ESG preferences. ``exclusions`` are GICS sectors the client
     refuses to hold; the profiler turns them into a HARD ``EsgPolicy`` block.
     ``exclusions`` has no default: "no preference" is an explicit empty tuple, so an
-    omitted answer cannot pass as one."""
+    omitted answer cannot pass as one. ``other_preferences`` keeps the stated
+    preferences no sector expresses so the adviser sees them."""
 
     model_config = _ANSWERS_CONFIG
 
@@ -199,6 +200,14 @@ class EsgAnswers(BaseModel):
             "GICS sectors the client refuses to hold on ESG grounds (a subset of "
             "the 11 sectors). Always present: an empty list when the client names "
             "none."
+        ),
+    )
+    other_preferences: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "ESG preferences the client stated that are NOT a GICS sector (e.g. "
+            "'no tobacco', 'no weapons'), verbatim. Never map one onto an arbitrary "
+            "sector; they are surfaced to the adviser, not enforced."
         ),
     )
 

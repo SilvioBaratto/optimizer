@@ -70,6 +70,7 @@ __all__ = [
     "FLAG_OVERCONFIDENCE",
     "FLAG_REACTION_TOLERANCE_MISMATCH",
     "FLAG_UNANSWERED_INPUT",
+    "FLAG_UNENFORCED_ESG_PREFERENCE",
     "ProfilerRun",
     "SuitabilityBreachError",
     "assess_suitability",
@@ -95,6 +96,9 @@ FLAG_OVERCONFIDENCE = "overconfidence"
 FLAG_REACTION_TOLERANCE_MISMATCH = "reaction_tolerance_mismatch"
 # Prefix of one flag per datum the client text never stated (``<prefix>:<datum>``).
 FLAG_UNANSWERED_INPUT = "unanswered_input"
+# An ESG preference no GICS sector expresses (``no tobacco``): shown to the adviser,
+# never enforced, so the gate must not let it pass as honoured.
+FLAG_UNENFORCED_ESG_PREFERENCE = "unenforced_esg_preference"
 
 
 class SuitabilityBreachError(ValueError):
@@ -177,6 +181,43 @@ _BETA_BY_REACTION: dict[LossReaction, float] = {
     LossReaction.HOLD: 0.95,
     LossReaction.BUY_MORE: 0.90,
 }
+
+
+# The most conservative value for each answer a client may leave unanswered: lowest
+# appetite, narrowest universe, strongest tail control. An unanswered pillar must
+# never lift the risk band, whatever the extraction model put in the field. Paths
+# absent here (``base_currency``, ``esg.exclusions``) have no value that is safer
+# than the one given.
+_CONSERVATIVE_PLACEHOLDER: dict[str, Any] = {
+    "knowledge.level": KnowledgeLevel.NONE,
+    "capacity.max_1yr_loss_pct": 0.0,
+    "capacity.buffer_months": 0.0,
+    "objectives.goal": ObjectiveChoice.PROTECTION,
+    "objectives.horizon": Horizon.SHORT,
+    "objectives.likert_items": (1,),
+    "objectives.loss_reaction": LossReaction.SELL_ALL,
+}
+
+
+def _with_conservative_placeholders(answers: MiFIDAnswers) -> MiFIDAnswers:
+    """Replace every field named in ``answers.unanswered`` with its safe value.
+
+    Idempotent, and a no-op when nothing is unanswered. ``unanswered`` itself is kept
+    so the suitability record still shows which answers the client never gave.
+    """
+    updates: dict[str, dict[str, Any]] = {}
+    for path in answers.unanswered:
+        if path in _CONSERVATIVE_PLACEHOLDER:
+            pillar, name = path.split(".")
+            updates.setdefault(pillar, {})[name] = _CONSERVATIVE_PLACEHOLDER[path]
+    if not updates:
+        return answers
+    return answers.model_copy(
+        update={
+            pillar: getattr(answers, pillar).model_copy(update=fields)
+            for pillar, fields in updates.items()
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -304,23 +345,46 @@ def _inconsistency_flags(
     Pure over the already-scored appetites plus the raw objective / reaction
     answers. Each rule is independent and additive; the flags are surfaced to the
     adviser at the HITL gate — the binding ``a_gamma`` is left untouched.
+
+    ``answers`` carry conservative placeholders in the fields the client left
+    unanswered. Those placeholders drive the band but are not statements, so a rule
+    only reads a score or answer whose inputs were all stated: an unanswered pillar
+    surfaces as ``unanswered_input`` instead of as a contradiction the client never
+    made.
     """
     flags: list[str] = []
     objectives = answers.objectives
+    unanswered = set(answers.unanswered)
+    tolerance_stated = "objectives.likert_items" not in unanswered
+    loss_stated = "capacity.max_1yr_loss_pct" not in unanswered
+    capacity_stated = loss_stated and "capacity.buffer_months" not in unanswered
+    reaction_stated = "objectives.loss_reaction" not in unanswered
+
     # The blended capacity score lets a large buffer mask a stated zero loss
     # capacity, and a growth/max objective ignores ``a_gamma`` in the optimizer, so
     # this flag is the only guard: test the stated loss capacity and the attitude
     # on their own as well as the blend.
-    most_cautious = min(a_tol, a_cap, _loss_capacity_appetite(answers.capacity))
+    stated_scores = [
+        score
+        for score, stated in (
+            (a_tol, tolerance_stated),
+            (a_cap, capacity_stated),
+            (_loss_capacity_appetite(answers.capacity), loss_stated),
+        )
+        if stated
+    ]
     if (
         objectives.goal in (ObjectiveChoice.GROWTH, ObjectiveChoice.MAX)
-        and most_cautious < _LOW_CAPACITY_APPETITE
+        and stated_scores
+        and min(stated_scores) < _LOW_CAPACITY_APPETITE
     ):
         flags.append(FLAG_OBJECTIVE_CAPACITY_MISMATCH)
-    if a_tol - a_cap >= _OVERCONFIDENCE_GAP:
+    if tolerance_stated and capacity_stated and a_tol - a_cap >= _OVERCONFIDENCE_GAP:
         flags.append(FLAG_OVERCONFIDENCE)
     if (
-        a_tol >= _HIGH_TOLERANCE_APPETITE
+        tolerance_stated
+        and reaction_stated
+        and a_tol >= _HIGH_TOLERANCE_APPETITE
         and objectives.loss_reaction is LossReaction.SELL_ALL
     ):
         flags.append(FLAG_REACTION_TOLERANCE_MISMATCH)
@@ -330,6 +394,8 @@ def _inconsistency_flags(
         f"{FLAG_UNANSWERED_INPUT}:{datum}"
         for datum in dict.fromkeys(answers.unanswered)
     )
+    if answers.esg.other_preferences:
+        flags.append(FLAG_UNENFORCED_ESG_PREFERENCE)
     return tuple(flags)
 
 
@@ -359,9 +425,11 @@ def build_constraint_set(
 
     The ESG pillar becomes a HARD ``EsgPolicy`` block (declared exclusions,
     unoverridable; every-sector exclusion raises ``SuitabilityBreachError``) and
-    low K&E tightens ``UniverseFilters``. The ``SuitabilityAssessment`` record is
-    built by ``assess_suitability`` / ``run_mapping``.
+    low K&E tightens ``UniverseFilters``. Answers the client left unanswered are
+    replaced by their most conservative value first. The ``SuitabilityAssessment``
+    record is built by ``assess_suitability`` / ``run_mapping``.
     """
+    answers = _with_conservative_placeholders(answers)
     a_tol = _appetite_from_tolerance(answers.objectives)
     a_cap = _appetite_from_capacity(answers.capacity)
     appetite = min(a_tol, a_cap)  # regulatory double-binding on appetite
@@ -395,8 +463,11 @@ def assess_suitability(
     Pure and LLM-free: recomputes the two disjoint appetite scores, records the
     binding ``a_gamma`` and its named band, mirrors the ESG block, and runs the
     inconsistency check. ``rationale`` is a deterministic, human-readable trail of
-    how the profile was derived (what MiFID record-keeping retains).
+    how the profile was derived (what MiFID record-keeping retains). The record
+    holds the answers as mapped, i.e. with conservative placeholders in the fields
+    the client left unanswered.
     """
+    answers = _with_conservative_placeholders(answers)
     a_tol = _appetite_from_tolerance(answers.objectives)
     a_cap = _appetite_from_capacity(answers.capacity)
     band = _category(constraint_set.a_gamma)
@@ -485,7 +556,11 @@ _EXTRACTION_SYSTEM_PROMPT = (
     "- capacity.max_1yr_loss_pct: a fraction in [0, 1] (e.g. 40% -> 0.4)\n"
     "- capacity.buffer_months: months of expenses (>= 0)\n"
     "- esg: always include this object; esg.exclusions is a subset of the 11 GICS "
-    "sectors, or [] when the client names none\n"
+    "sectors, or [] when the client names none. Only a sector the client named, "
+    "or one that matches their wording exactly\n"
+    "- esg.other_preferences: any stated ESG preference that is not a sector "
+    "(e.g. 'no tobacco', 'no weapons'), verbatim, or []. Never turn one into a "
+    "sector\n"
     "- base_currency: an ISO-4217 alpha code (e.g. EUR)\n"
     "- unanswered: the dotted path of every datum the client did NOT state (e.g. "
     "'capacity.buffer_months', 'objectives.likert_items'); [] when everything was "
@@ -539,6 +614,7 @@ def _typed_answers(questionnaire: Any) -> MiFIDAnswers | None:
 def _answers_summary(answers: MiFIDAnswers) -> str:
     """One-line rendering of all four pillars for the adviser at the HITL gate."""
     exclusions = ", ".join(s.value for s in answers.esg.exclusions) or "none"
+    other = "; ".join(answers.esg.other_preferences) or "none"
     likert = ", ".join(str(item) for item in answers.objectives.likert_items)
     return (
         f"Answers: knowledge {answers.knowledge.level.value}; "
@@ -548,7 +624,7 @@ def _answers_summary(answers: MiFIDAnswers) -> str:
         f"likert {likert}; "
         f"max 1y loss {answers.capacity.max_1yr_loss_pct * 100:g}%, "
         f"buffer {answers.capacity.buffer_months:g} months; "
-        f"ESG exclusions: {exclusions}."
+        f"ESG exclusions: {exclusions}; other ESG preferences (not enforced): {other}."
     )
 
 

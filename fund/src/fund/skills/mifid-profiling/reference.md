@@ -94,8 +94,16 @@ appetite scale `[0, 1]` as the bands above.
 | `objective_capacity_mismatch` | `objectives.goal` is `growth` or `max` **and** the weakest of `A_tol`, `A_cap` and the stated loss-capacity sub-score `clip(max_1yr_loss_pct / 0.50)` is below 0.4 |
 | `overconfidence` | `A_tol - A_cap >= 0.4` (attitude far outstripping finances) |
 | `reaction_tolerance_mismatch` | `A_tol >= 0.6` **and** `loss_reaction` is `sell_all` |
+| `unanswered_input:<datum>` | the client left that field unanswered (`MiFIDAnswers.unanswered`); one flag per datum, and the field holds its conservative placeholder |
+| `unenforced_esg_preference` | `esg.other_preferences` is non-empty: a preference no GICS sector expresses, shown to the adviser but not enforced |
 
 A growth/max objective ignores `a_gamma` in the optimizer, so the first flag is the
 only guard against it. It tests each pillar on its own as well as the blend because
 the blended `A_cap` lets a large buffer mask a stated 0% loss capacity, and the
 attitude can be the weakest pillar even when the finances are ample.
+
+An unanswered field takes its most conservative value (lowest appetite, narrowest
+universe, strongest tail control) so the band can never be lifted by a guess. That
+placeholder is not something the client said, so the three contradiction rules only
+read scores and answers whose inputs were all stated: an unanswered pillar shows up
+as `unanswered_input`, never as a contradiction the client did not make.

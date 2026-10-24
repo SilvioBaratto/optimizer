@@ -19,6 +19,7 @@ from fund.agents.profiler import (
     FLAG_OVERCONFIDENCE,
     FLAG_REACTION_TOLERANCE_MISMATCH,
     FLAG_UNANSWERED_INPUT,
+    FLAG_UNENFORCED_ESG_PREFERENCE,
     SuitabilityBreachError,
     _category,
     assess_suitability,
@@ -51,6 +52,7 @@ def _answers(
     goal: ObjectiveChoice = ObjectiveChoice.GROWTH,
     reaction: LossReaction = LossReaction.HOLD,
     exclusions: tuple[GicsSector, ...] = (),
+    other_preferences: tuple[str, ...] = (),
     unanswered: tuple[str, ...] = (),
 ) -> MiFIDAnswers:
     return MiFIDAnswers(
@@ -63,7 +65,7 @@ def _answers(
             likert_items=likert,
             loss_reaction=reaction,
         ),
-        esg=EsgAnswers(exclusions=exclusions),
+        esg=EsgAnswers(exclusions=exclusions, other_preferences=other_preferences),
         unanswered=unanswered,  # type: ignore[arg-type]
     )
 
@@ -191,6 +193,150 @@ def test_each_unanswered_datum_gets_its_own_flag_once() -> None:
         f"{FLAG_UNANSWERED_INPUT}:capacity.buffer_months",
         f"{FLAG_UNANSWERED_INPUT}:objectives.likert_items",
     ]
+
+
+# --- placeholders for unanswered data and unenforceable ESG preferences ------
+
+
+def test_unanswered_fields_are_flagged_and_given_conservative_placeholders() -> None:
+    # The model filled bold-looking values for answers the client never gave; they
+    # must not drive the band. Placeholders are the most conservative values.
+    answers = _answers(
+        likert=(7, 7, 7),
+        max_loss=0.5,
+        buffer=12.0,
+        goal=ObjectiveChoice.PROTECTION,
+        unanswered=("objectives.likert_items", "capacity.buffer_months"),
+    )
+
+    cs, sa = run_mapping(answers, portfolio_id="pf-1")
+
+    assert any(
+        f.startswith(f"{FLAG_UNANSWERED_INPUT}:") for f in sa.inconsistency_flags
+    )
+    assert sa.answers.objectives.likert_items == (1,)
+    assert sa.answers.capacity.buffer_months == 0.0
+    assert sa.appetite_from_tolerance == 0.0
+    assert cs.a_gamma == 12.0
+    assert (
+        sa.answers.unanswered == answers.unanswered
+    )  # the record keeps what was missing
+
+
+def test_placeholders_leave_the_stated_fields_untouched() -> None:
+    answers = _answers(
+        likert=(6, 6, 6),
+        max_loss=0.4,
+        buffer=9.0,
+        unanswered=("capacity.buffer_months",),
+    )
+
+    _, sa = run_mapping(answers, portfolio_id="pf-1")
+
+    assert sa.answers.objectives.likert_items == (6, 6, 6)
+    assert sa.answers.capacity.max_1yr_loss_pct == 0.4
+    assert sa.answers.capacity.buffer_months == 0.0
+
+
+def test_unanswered_loss_reaction_does_not_fabricate_a_reaction_mismatch() -> None:
+    # The SELL_ALL placeholder is a conservative stand-in, not something the client
+    # said, so a bold stated attitude cannot be "contradicted" by it.
+    _, sa = run_mapping(
+        _answers(
+            likert=(7, 7, 7),
+            max_loss=0.50,
+            buffer=12.0,
+            goal=ObjectiveChoice.INCOME,
+            unanswered=("objectives.loss_reaction",),
+        ),
+        portfolio_id="pf-1",
+    )
+    assert any(
+        f.startswith(f"{FLAG_UNANSWERED_INPUT}:") for f in sa.inconsistency_flags
+    )
+    assert FLAG_REACTION_TOLERANCE_MISMATCH not in sa.inconsistency_flags
+
+
+def test_unanswered_likert_does_not_fabricate_an_objective_mismatch() -> None:
+    # Growth goal with ample stated capacity; the (1,) placeholder attitude is the
+    # only thing that looks cautious, and the client never said it.
+    cs, sa = run_mapping(
+        _answers(
+            goal=ObjectiveChoice.GROWTH,
+            max_loss=0.50,
+            buffer=12.0,
+            unanswered=("objectives.likert_items",),
+        ),
+        portfolio_id="pf-1",
+    )
+    assert FLAG_OBJECTIVE_CAPACITY_MISMATCH not in sa.inconsistency_flags
+    assert cs.a_gamma == 12.0  # the band itself still takes the conservative value
+
+
+def test_unanswered_likert_still_flags_a_stated_capacity_contradiction() -> None:
+    # What the client did state (a growth goal with no loss capacity) is still a
+    # contradiction, whatever the unanswered attitude pillar holds.
+    _, sa = run_mapping(
+        _answers(
+            goal=ObjectiveChoice.MAX,
+            max_loss=0.02,
+            buffer=0.0,
+            unanswered=("objectives.likert_items",),
+        ),
+        portfolio_id="pf-1",
+    )
+    assert FLAG_OBJECTIVE_CAPACITY_MISMATCH in sa.inconsistency_flags
+
+
+def test_unanswered_capacity_does_not_fabricate_overconfidence() -> None:
+    # Bold attitude against a capacity score the client only half-gave: the zero
+    # buffer is a placeholder, so no attitude/capacity gap has been shown.
+    _, sa = run_mapping(
+        _answers(
+            likert=(7, 7, 7),
+            max_loss=0.50,
+            buffer=12.0,
+            goal=ObjectiveChoice.INCOME,
+            unanswered=("capacity.buffer_months",),
+        ),
+        portfolio_id="pf-1",
+    )
+    assert any(
+        f.startswith(f"{FLAG_UNANSWERED_INPUT}:") for f in sa.inconsistency_flags
+    )
+    assert FLAG_OVERCONFIDENCE not in sa.inconsistency_flags
+
+
+def test_unanswered_loss_capacity_does_not_fabricate_an_objective_mismatch() -> None:
+    _, sa = run_mapping(
+        _answers(
+            goal=ObjectiveChoice.MAX,
+            likert=(7, 7, 7),
+            max_loss=0.0,
+            buffer=0.0,
+            unanswered=("capacity.max_1yr_loss_pct", "capacity.buffer_months"),
+        ),
+        portfolio_id="pf-1",
+    )
+    assert FLAG_OBJECTIVE_CAPACITY_MISMATCH not in sa.inconsistency_flags
+    assert FLAG_OVERCONFIDENCE not in sa.inconsistency_flags
+
+
+def test_fully_stated_answers_carry_no_unanswered_flag() -> None:
+    _, sa = run_mapping(_answers(), portfolio_id="pf-1")
+    assert not any(
+        f.startswith(f"{FLAG_UNANSWERED_INPUT}:") for f in sa.inconsistency_flags
+    )
+
+
+def test_non_sector_esg_preference_is_flagged_not_silently_dropped() -> None:
+    answers = _answers(other_preferences=("no tobacco", "no weapons"))
+
+    cs, sa = run_mapping(answers, portfolio_id="pf-1")
+
+    assert FLAG_UNENFORCED_ESG_PREFERENCE in sa.inconsistency_flags
+    assert cs.esg.exclusions == ()  # no arbitrary sector was substituted
+    assert sa.answers.esg.other_preferences == ("no tobacco", "no weapons")
 
 
 # --- no auto-clamp: flags do not move a_gamma ------------------------------
