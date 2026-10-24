@@ -324,7 +324,7 @@ transitively via skfolio. Code importing it directly must guard with
 `alembic==1.19.1`, `pandas==3.0.6`, `pydantic==2.13.4`. Owns the SQLAlchemy pin
 the whole workspace inherits.
 
-**`portopt`** (ingestion): `yfinance==1.6.0`, `scikit-learn==1.9.1` (declared,
+**`portopt`** (ingestion): `yfinance==1.7.0`, `scikit-learn==1.9.1` (declared,
 for DBSCAN price-repair), `numpy==2.5.3`, `pandas==3.0.6`, `APScheduler==3.11.3`,
 `SQLAlchemy==2.0.52`, `exchange_calendars==4.13.2`, `httpx==0.28.1`,
 `beautifulsoup4==4.15.0`, `requests==2.34.2`, `prometheus-client==0.26.0`,
