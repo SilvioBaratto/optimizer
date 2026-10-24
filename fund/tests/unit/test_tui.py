@@ -548,6 +548,138 @@ async def test_header_portfolio_picker_label_is_painted(shell_env, size) -> None
         assert "ARMED" in _screen_lines(app)[header.region.y]
 
 
+def _seed_portfolio_run(env, pid, *, seed: int = 1) -> None:
+    with env.get_session() as session:
+        AgentRunRepository(session).create_run(
+            portfolio_id=pid,
+            asof=date(2026, 1, 2),
+            seed=seed,
+            universe=[],
+            optimizer_config={},
+        )
+        session.commit()
+
+
+@pytest.mark.asyncio
+async def test_focusing_a_portfolio_created_after_launch_updates_the_header_picker(
+    shell_env,
+) -> None:
+    _seed_portfolio_run(shell_env, _PID_A)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        picker = app.query_one("#hdr-portfolio", Select)
+        assert picker.value == str(_PID_A)
+
+        _seed_portfolio_run(shell_env, _PID_B, seed=2)  # created elsewhere (CLI)
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+
+        assert app._portfolio_id == _PID_B
+        assert picker.value == str(_PID_B)  # header names the portfolio actions target
+        assert _PID_B in app._portfolio_ids
+        # The picker still works as a way back: picking A really moves the focus.
+        picker.value = str(_PID_A)
+        await pilot.pause()
+        assert app._portfolio_id == _PID_A
+
+
+@pytest.mark.asyncio
+async def test_poll_tick_adds_a_new_portfolio_to_the_picker_without_refocusing(
+    shell_env, monkeypatch
+) -> None:
+    _seed_portfolio_run(shell_env, _PID_A)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        picker = app.query_one("#hdr-portfolio", Select)
+        assert app._portfolio_ids == [_PID_A]
+
+        paints: list[object] = []
+        original = ShellApp._refresh_runstate
+
+        def _counting(self) -> None:
+            paints.append(self._portfolio_id)
+            original(self)
+
+        monkeypatch.setattr(ShellApp, "_refresh_runstate", _counting)
+
+        _seed_portfolio_run(shell_env, _PID_B, seed=2)
+        app._poll()
+        await pilot.pause()
+
+        assert set(app._portfolio_ids) == {_PID_A, _PID_B}
+        # Re-seeding the options must not echo a focus change through the picker:
+        # one paint (the poll's own), still focused on A and still showing A.
+        assert app._portfolio_id == _PID_A
+        assert picker.value == str(_PID_A)
+        assert paints == [_PID_A]
+
+        # An unchanged roster leaves the options (and an open dropdown) alone.
+        before = list(app._portfolio_ids)
+        app._poll()
+        await pilot.pause()
+        assert app._portfolio_ids == before
+
+
+@pytest.mark.asyncio
+async def test_picker_recovers_when_the_mount_time_read_failed(
+    shell_env, monkeypatch
+) -> None:
+    _seed_portfolio_run(shell_env, _PID_A)
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("db not ready")
+
+    monkeypatch.setattr(observe, "list_portfolios", _boom)
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        assert app._portfolio_ids == []
+
+        monkeypatch.undo()
+        app._poll()
+        await pilot.pause()
+        assert app._portfolio_ids == [_PID_A]
+
+
+@pytest.mark.asyncio
+async def test_picker_keeps_its_options_when_a_poll_time_read_fails(
+    shell_env, monkeypatch
+) -> None:
+    _seed_portfolio_run(shell_env, _PID_A)
+    _seed_portfolio_run(shell_env, _PID_B, seed=2)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        picker = app.query_one("#hdr-portfolio", Select)
+        assert set(app._portfolio_ids) == {_PID_A, _PID_B}
+
+        def _boom(*_a, **_k):
+            raise RuntimeError("db hiccup")
+
+        monkeypatch.setattr(observe, "list_portfolios", _boom)
+        app._poll()
+        await pilot.pause()
+
+        # A transient read error is not "the fund has no portfolios": B must stay
+        # pickable instead of vanishing until the next good tick.
+        assert set(app._portfolio_ids) == {_PID_A, _PID_B}
+        assert picker.value == str(_PID_A)
+
+
+@pytest.mark.asyncio
+async def test_launch_on_an_unlisted_portfolio_still_shows_it_in_the_picker(
+    shell_env,
+) -> None:
+    _seed_portfolio_run(shell_env, _PID_A)
+    app = _make_shell(shell_env, portfolio_id=_PID_B)  # B has no rows yet
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        assert app.query_one("#hdr-portfolio", Select).value == str(_PID_B)
+        assert app._portfolio_id == _PID_B
+
+
 @pytest.mark.asyncio
 async def test_shell_collapses_sidebar_to_rail_when_narrow(shell_env) -> None:
     app = _make_shell(shell_env)

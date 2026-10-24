@@ -664,8 +664,8 @@ class ShellApp(App[None]):
     def on_mount(self) -> None:
         """Seed the portfolio picker, paint the run-state glyph, and start polling.
 
-        The mount-time ``Select.Changed`` the seeding echoes is dropped by
-        ``on_select_changed``'s value-equality guard, not a mount-window flag.
+        The seeding runs with ``Select.Changed`` prevented (see :meth:`_apply_picker`),
+        so it never reaches ``on_select_changed`` as a phantom pick.
         """
         # Seed the picker, then paint once the views have mounted and poll on the
         # cockpit's cadence (the placeholder views' refresh is a no-op counter bump
@@ -737,14 +737,16 @@ class ShellApp(App[None]):
         the Mandate guardrail band), whose values are not portfolio ids — handling them
         here would send a non-UUID down ``uuid.UUID(...)``.
 
-        A no-op pick is dropped: seeding the picker at mount echoes a
-        ``Select.Changed`` whose value equals the current focus, and Textual
-        dispatches it *after* ``on_mount`` returns — so the guard is value equality,
-        not a mount-window flag (async dispatch would already have cleared the flag).
-        A real change updates the run-state glyph and repaints. The no-selection
-        sentinel is ``Select.NULL`` (the ``NoSelection`` singleton) — *not*
-        ``Select.BLANK``, which resolves to ``Widget.BLANK is False`` and would send a
-        blank pick down ``uuid.UUID("Select.NULL")``.
+        A no-op pick is dropped: :meth:`focus_portfolio` assigns the ``Select`` a value
+        that already equals the focus, and Textual dispatches the resulting
+        ``Select.Changed`` *after* the assigning call returns — so the guard is value
+        equality, not an "echo in progress" flag (async dispatch would already have
+        cleared it). Re-seeding the options never reaches this handler:
+        :meth:`_apply_picker` prevents the message. A real change updates the
+        run-state glyph and repaints. The no-selection sentinel is ``Select.NULL``
+        (the ``NoSelection`` singleton) — *not* ``Select.BLANK``, which resolves to
+        ``Widget.BLANK is False`` and would send a blank pick down
+        ``uuid.UUID("Select.NULL")``.
         """
         if event.select.id != "hdr-portfolio":
             return
@@ -764,6 +766,7 @@ class ShellApp(App[None]):
         every manual/test repaint also re-read the autonomy rows.
         """
         self._refresh_runstate()
+        self._sync_picker()
         self._refresh(preserve_edits=True)
 
     def _refresh(self, *, preserve_edits: bool = False) -> None:
@@ -794,13 +797,17 @@ class ShellApp(App[None]):
 
         Sets the same header context the picker does — updates ``_portfolio_id``,
         repaints the run-state glyph, and repaints the active view — and keeps the
-        header ``Select`` in sync when the portfolio is a known option (its echoed
-        ``Select.Changed`` is dropped by ``on_select_changed``'s value-equality guard,
-        since ``_portfolio_id`` already matches).
+        header ``Select`` naming the focused portfolio (assigning an existing option
+        echoes a ``Select.Changed`` that ``on_select_changed``'s value-equality guard
+        drops, since ``_portfolio_id`` already matches). A portfolio created after the
+        picker was seeded is added to its options first, so the header never shows a
+        different portfolio from the one ``u`` / ``K`` / approvals act on.
         """
         self._portfolio_id = portfolio_id
         if portfolio_id in self._portfolio_ids:
             self.query_one("#hdr-portfolio", Select).value = str(portfolio_id)
+        else:
+            self._populate_picker()
         self._refresh_runstate()
         self._refresh()
 
@@ -2169,27 +2176,61 @@ class ShellApp(App[None]):
     def _populate_picker(self) -> None:
         """Seed the header ``Select`` from the fund's known portfolios (T2 reader).
 
-        Reads ``observe.list_portfolios`` through a short read-only session and
-        records the ids on :attr:`_portfolio_ids` (a test hook). When the shell
-        launched focused on a known portfolio, that option is pre-selected.
+        The options are the ids :meth:`_picker_ids` resolves, recorded on
+        :attr:`_portfolio_ids` (a test hook). The ``Select`` always ends up showing the
+        focused portfolio (or blank, fund-wide). ``set_options`` resets the selection,
+        so the whole re-seed runs with ``Select.Changed`` prevented: otherwise the
+        reset to blank would be dispatched after this returns and, read as a pick,
+        move the shell's focus to fund-wide and back.
         """
-        self._portfolio_ids = self._list_portfolios()
-        select = self.query_one("#hdr-portfolio", Select)
-        select.set_options(
-            (self._short_label(pid), str(pid)) for pid in self._portfolio_ids
-        )
-        if self._portfolio_id in self._portfolio_ids:
-            select.value = str(self._portfolio_id)
+        self._apply_picker(self._picker_ids())
 
-    def _list_portfolios(self) -> list[uuid.UUID]:
-        """Distinct portfolio ids for the picker; ``[]`` on any read error."""
+    def _sync_picker(self) -> None:
+        """Re-seed the picker when the fund's portfolio set changed since the last seed.
+
+        Portfolios appear after launch (the ``fund`` CLI, the scheduler, another
+        session), and a mount-time read that failed leaves the picker empty. Re-seeding
+        only on a change keeps an open dropdown stable between ticks.
+        """
+        ids = self._picker_ids()
+        if ids != self._portfolio_ids:
+            self._apply_picker(ids)
+
+    def _picker_ids(self) -> list[uuid.UUID]:
+        """The portfolio ids the picker should offer, focused portfolio included.
+
+        A focused portfolio with no rows yet (a ``fund-tui <new-uuid>`` launch) is still
+        offered, so the header can name it. On a read error the current options are
+        kept rather than blanked.
+        """
+        listed = self._list_portfolios()
+        ids = list(self._portfolio_ids) if listed is None else listed
+        if self._portfolio_id is not None and self._portfolio_id not in ids:
+            ids.append(self._portfolio_id)
+        return ids
+
+    def _apply_picker(self, ids: list[uuid.UUID]) -> None:
+        """Replace the picker's options with ``ids`` and re-select the focus, silently.
+
+        ``set_options`` resets the selection to blank; with the message prevented that
+        reset (and the re-selection) is never read as an adviser pick.
+        """
+        self._portfolio_ids = ids
+        select = self.query_one("#hdr-portfolio", Select)
+        with select.prevent(Select.Changed):
+            select.set_options((self._short_label(pid), str(pid)) for pid in ids)
+            if self._portfolio_id in ids:
+                select.value = str(self._portfolio_id)
+
+    def _list_portfolios(self) -> list[uuid.UUID] | None:
+        """Distinct portfolio ids for the picker; ``None`` on any read error."""
         try:
             with self._session_factory() as session:
                 ids = observe.list_portfolios(session)
                 session.rollback()
                 return ids
         except Exception:  # keep the shell alive on a read error (mirrors the cockpit)
-            return []
+            return None
 
     def _refresh_runstate(self) -> None:
         """Repaint the header run-state + autonomy-mode glyphs for the focused scope."""
