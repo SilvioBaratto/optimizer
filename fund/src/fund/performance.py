@@ -121,8 +121,9 @@ class HoldingMark:
         return_1d: Trailing 1-day price return, or ``None`` with too little data.
         return_1m: Trailing ~1-month price return, or ``None``.
         return_1y: Trailing ~1-year price return, or ``None``.
-        contribution: ``weight × return_1d`` (contribution to 1-day return), or
-            ``None`` when either input is unavailable.
+        contribution: ``prior-bar weight × return_1d`` (contribution to the
+            portfolio's 1-day return, so the column sums to it), or ``None`` when
+            either input is unavailable.
         unrealized_pnl: Current value minus FX-correct cost basis, or ``None``.
     """
 
@@ -1346,8 +1347,8 @@ def holding_marks(
     re-derives FX-correct shares (``notional_base / price_base@fill``, ignoring the
     stored currency-mixed ``lines.shares``), and marks each holding with its latest
     base-currency close. Per holding it reports value, portfolio weight, trailing
-    1D/1M/1Y price returns, 1-day contribution (``weight × return_1d``), and
-    unrealized P&L (value minus the deployed base cost basis). A holding with no
+    1D/1M/1Y price returns, 1-day contribution (prior-bar weight × ``return_1d``),
+    and unrealized P&L (value minus the deployed base cost basis). A holding with no
     usable price degrades to ``None`` fields rather than raising.
 
     Shares, value and cost basis are rescaled by the same factor
@@ -1443,6 +1444,18 @@ def holding_marks(
 
     total = sum(value for _, value, _ in computed.values())
 
+    # Contribution weights each return by the holding's share of the book at the START
+    # of the period (the prior bar), the only weighting under which the per-holding
+    # figures sum to the portfolio return.
+    prior_values: dict[str, float] = {}
+    if len(base_prices.index) >= 2:
+        prior_row = base_prices.iloc[-2]
+        for ticker, (qty, _, _) in computed.items():
+            prior_price = prior_row[ticker]
+            if pd.notna(prior_price):
+                prior_values[ticker] = qty * float(prior_price)
+    prior_total = sum(prior_values.values())
+
     marks: list[HoldingMark] = []
     for ticker in order:
         if ticker not in computed:
@@ -1451,8 +1464,11 @@ def holding_marks(
         qty, value, series = computed[ticker]
         weight = value / total if total else None
         return_1d, return_1m, return_1y = _series_returns(series)
+        prior_value = prior_values.get(ticker)
         contribution = (
-            weight * return_1d if weight is not None and return_1d is not None else None
+            prior_value / prior_total * return_1d
+            if prior_value is not None and prior_total and return_1d is not None
+            else None
         )
         notional = line_by_ticker[ticker].get("notional")
         pnl = value - float(notional) * scale if notional is not None else None

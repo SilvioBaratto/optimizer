@@ -138,7 +138,10 @@ def test_holding_marks_fx_correct_value_and_pnl(db_session):
 
     assert us.return_1d == pytest.approx(101.2 / 90.0 - 1.0, rel=1e-6)
     assert lon.return_1d == pytest.approx(6.136 / 5.85 - 1.0, rel=1e-6)
-    assert us.contribution == pytest.approx(us.weight * us.return_1d, rel=1e-6)
+    # Contribution weights each mover by its share of the *prior* bar's value (0.6 /
+    # 0.4 at the fill bar), not by its post-move share.
+    assert us.contribution == pytest.approx(0.6 * us.return_1d, rel=1e-6)
+    assert lon.contribution == pytest.approx(0.4 * lon.return_1d, rel=1e-6)
 
     # Cost basis is the deployed base notional (shares × price_base@fill).
     assert us.unrealized_pnl == pytest.approx(us_value - 6000.0, rel=1e-6)
@@ -907,3 +910,68 @@ def test_holding_marks_chain_link_an_old_rebalance_without_loading_the_gap(
     assert marks[0].value == pytest.approx(nav[-1].nav, rel=1e-9)
     # Two tickers, each read for its newest bars plus the narrow fill lookups.
     assert marks_rows <= 2 * (_HOLDING_LOOKBACK_BARS + 60)
+
+
+def _seed_two_holdings(db_session, closes_a, closes_b, *, lines_extra=None):
+    """Seed a two-holding USD book filled at the first of three bars."""
+    d1, d2, d3 = dt.date(2026, 10, 2), dt.date(2026, 10, 3), dt.date(2026, 10, 6)
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, closes in (("AAA", closes_a), ("BBB", closes_b)):
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        for day, close in zip((d1, d2, d3), closes, strict=True):
+            if close is None:
+                continue
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=day,
+                    close=Decimal(close),
+                    price_unit="USD",
+                )
+            )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=dt.date(2026, 10, 1),
+            weights_hash="h1",
+            weights={"AAA": 0.5, "BBB": 0.5},
+            fill_date=d1,
+            lines=[
+                {"ticker": "AAA", "notional": 5000.0, "fill_price": 100.0},
+                {"ticker": "BBB", "notional": 5000.0, "fill_price": 100.0},
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+
+def test_holding_contribution_uses_beginning_of_period_weight(db_session):
+    """A +10% mover in a 50/50 book contributes 5.00%, not its 52.38% end weight."""
+    _seed_two_holdings(db_session, ("100", "100", "110"), ("100", "100", "100"))
+
+    marks = {
+        m.ticker: m
+        for m in holding_marks(_PID, session=db_session, base_currency="USD")
+    }
+
+    assert marks["AAA"].contribution == pytest.approx(0.05, rel=1e-9)
+    assert marks["BBB"].contribution == pytest.approx(0.0, abs=1e-12)
+    assert marks["AAA"].weight == pytest.approx(110.0 / 210.0, rel=1e-9)
+
+
+def test_holding_contributions_sum_to_the_portfolio_one_day_return(db_session):
+    """+10% and -10% movers in a 50/50 book net to 0, not to the end-weight +1%."""
+    _seed_two_holdings(db_session, ("100", "100", "110"), ("100", "100", "90"))
+
+    marks = holding_marks(_PID, session=db_session, base_currency="USD")
+
+    assert sum(m.contribution for m in marks) == pytest.approx(0.0, abs=1e-12)
