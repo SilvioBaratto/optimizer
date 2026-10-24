@@ -187,19 +187,22 @@ class FundJobRepository(RepositoryBase):
         return _rows_affected(result) == 1
 
     def update_heartbeat(self, job_id: uuid.UUID) -> bool:
-        """Stamp ``last_heartbeat_at = NOW()`` iff the row is still ``running``.
+        """Stamp ``last_heartbeat_at`` iff the row is still ``running``.
 
         Returns ``True`` when a running row was renewed, ``False`` otherwise
         (terminal, never started, or unknown ``job_id``). Commits so the reaper in
         another process sees the fresh lease and spares a live long-running step.
         """
+        # Application clock, like the claim stamp and the reaper cutoff: a lease
+        # renewed on the database clock but compared on this one would be reaped
+        # mid-run whenever the two hosts' clocks drift by more than the TTL.
         stmt = (
             update(BackgroundJob)
             .where(
                 BackgroundJob.id == job_id,
                 BackgroundJob.status == "running",
             )
-            .values(last_heartbeat_at=func.now())
+            .values(last_heartbeat_at=datetime.now(UTC))
         )
         result = self.session.execute(stmt)
         self.session.commit()

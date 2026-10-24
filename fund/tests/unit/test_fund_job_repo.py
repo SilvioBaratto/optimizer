@@ -458,3 +458,31 @@ def test_claim_or_create_takes_a_per_job_type_lock_before_the_guarded_insert(
     assert job_id is not None
     # Without the lock, two READ COMMITTED claimants both pass NOT EXISTS and insert.
     assert trace == [("lock", "fund_rebalance_sweep"), ("insert", "")]
+
+
+# --- one clock for the heartbeat lease --------------------------------------
+
+
+class _AppClockAheadOfDb(datetime):
+    """``datetime`` whose ``now()`` runs an hour ahead of the database clock."""
+
+    @classmethod
+    def now(cls, tz=None):
+        return datetime.now(tz) + timedelta(hours=1)
+
+
+def test_heartbeating_slot_survives_the_reaper_when_app_and_db_clocks_skew(
+    job_session, monkeypatch
+):
+    monkeypatch.setattr("fund.audit.fund_job_repository.datetime", _AppClockAheadOfDb)
+    repo = FundJobRepository(job_session)
+    job_id = repo.claim_or_create("fund_rebalance_sweep")
+    repo.mark_running(job_id)
+    assert repo.update_heartbeat(job_id) is True
+
+    reaped = repo.reap_orphans("lease expired", heartbeat_timeout_seconds=300)
+    job_session.expire_all()
+
+    # The lease is stamped and compared on one clock, so skew cannot expire it.
+    assert reaped == 0
+    assert repo.get(job_id).status == "running"
