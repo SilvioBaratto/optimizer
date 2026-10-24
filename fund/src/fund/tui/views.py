@@ -2003,6 +2003,9 @@ class DailyBriefView(ShellView):
         ("right", "next_day", "Next day"),
         ("enter", "app.open_deliberation", "Open deliberation"),
         ("e", "app.export_brief", "Export"),
+        # Arrow keys scroll the pane, so the sidebar is otherwise reachable only by
+        # shift+tab; esc is the way back a user expects from a focus-holding pane.
+        ("escape", "focus_sidebar", "Sidebar"),
         # The view keeps focus (for the keys above), so it forwards the scroll keys to
         # the recap pane rather than making the pane a second focus stop.
         Binding("up", "scroll_brief('scroll_up')", "Scroll up", show=False),
@@ -2030,7 +2033,7 @@ class DailyBriefView(ShellView):
                 "(loading…)", id="brief-detail", classes="brief-detail", markup=False
             )
         yield Static(
-            "← prev day · → next · ↵ open deliberation · e export · esc",
+            "← prev day · → next · ↵ open deliberation · e export · esc sidebar",
             id="brief-hint",
             classes="brief-hint",
         )
@@ -2075,6 +2078,10 @@ class DailyBriefView(ShellView):
         )
         self.detail_text = text
         self.query_one("#brief-detail", Static).update(text)
+
+    def action_focus_sidebar(self) -> None:
+        """Hand focus back to the sidebar (the ``esc`` binding)."""
+        self.app.query_one("#sidebar", ListView).focus()
 
     def action_scroll_brief(self, scroll_action: str) -> None:
         """Scroll the recap pane (``up`` / ``down`` / ``pageup`` / ``pagedown`` keys).

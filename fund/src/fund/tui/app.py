@@ -410,7 +410,7 @@ VIEW-SCOPED
   Mandate       x remove directive
   Performance   ↵ drill into a holding
   Ask           ↵ ask   e export
-  Daily brief   ← / → day   ↵ deliberation   e export"""
+  Daily brief   ← / → day   ↵ deliberation   e export   esc sidebar"""
 
 
 class HelpScreen(ModalScreen[None]):

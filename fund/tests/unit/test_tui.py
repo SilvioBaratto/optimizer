@@ -6866,6 +6866,24 @@ async def test_daily_brief_sidebar_pick_focuses(shell_env, monkeypatch) -> None:
         assert app.focused is view
 
 
+@pytest.mark.asyncio
+async def test_daily_brief_escape_returns_focus_to_the_sidebar(
+    shell_env, monkeypatch
+) -> None:
+    """The hint advertises ``esc``, so it must hand focus back to the sidebar."""
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _full_brief(_PID_A))
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        view.focus()
+        await pilot.pause()
+        assert "esc" in str(view.query_one("#brief-hint", Static).render())
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.focused is app.query_one("#sidebar", ListView)
+
+
 # --- Performance view (Phase 08 T2/T3) --------------------------------------
 
 _PERF_D1 = date(2026, 10, 2)
