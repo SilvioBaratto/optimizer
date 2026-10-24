@@ -88,6 +88,54 @@ def test_aggressive_objective_with_low_capacity_flags_mismatch() -> None:
     assert FLAG_OBJECTIVE_CAPACITY_MISMATCH in sa.inconsistency_flags
 
 
+def test_zero_loss_capacity_with_a_large_buffer_still_flags_mismatch() -> None:
+    # "max growth" + "can lose 0%": a big emergency buffer lifts the blended
+    # capacity score above the floor, but the stated loss capacity alone is the
+    # contradiction the adviser must see.
+    _, sa = run_mapping(
+        _answers(goal=ObjectiveChoice.MAX, likert=(6, 6, 6), max_loss=0.0, buffer=12.0),
+        portfolio_id="pf-1",
+    )
+    assert FLAG_OBJECTIVE_CAPACITY_MISMATCH in sa.inconsistency_flags
+
+
+def test_averse_attitude_with_deep_pockets_flags_aggressive_objective() -> None:
+    # Likert all 1 (strongly averse) but ample finances: the binding appetite is the
+    # attitude, and a max-growth objective ignores a_gamma, so the flag is the only
+    # guard against the contradiction.
+    _, sa = run_mapping(
+        _answers(
+            goal=ObjectiveChoice.MAX,
+            likert=(1, 1, 1),
+            max_loss=0.50,
+            buffer=12.0,
+            reaction=LossReaction.SELL_ALL,
+        ),
+        portfolio_id="pf-1",
+    )
+    assert FLAG_OBJECTIVE_CAPACITY_MISMATCH in sa.inconsistency_flags
+
+
+def test_aggressive_objective_with_matching_answers_is_not_flagged() -> None:
+    _, sa = run_mapping(
+        _answers(
+            goal=ObjectiveChoice.MAX, likert=(7, 7, 7), max_loss=0.50, buffer=12.0
+        ),
+        portfolio_id="pf-1",
+    )
+    assert sa.inconsistency_flags == ()
+
+
+def test_protection_objective_with_cautious_answers_is_not_flagged() -> None:
+    _, sa = run_mapping(
+        _answers(
+            goal=ObjectiveChoice.PROTECTION, likert=(1, 1, 1), max_loss=0.0, buffer=0.0
+        ),
+        portfolio_id="pf-1",
+    )
+    assert FLAG_OBJECTIVE_CAPACITY_MISMATCH not in sa.inconsistency_flags
+
+
 def test_high_tolerance_low_capacity_flags_overconfidence() -> None:
     # Bold attitude, thin wallet — anti-overconfidence. goal=INCOME keeps the
     # objective/capacity rule out of it so overconfidence is isolated.

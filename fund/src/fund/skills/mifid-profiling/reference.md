@@ -82,3 +82,20 @@ skipped and the report carries a `drawdown_unverified` warning.
   Excluding *every* sector raises `SuitabilityBreachError` (no investable universe).
 - Tolerance (attitude) and capacity (finance) are computed from **disjoint** answer
   fields — never fused.
+
+## Inconsistency flags (flag, never clamp)
+
+The suitability check records a named flag per contradiction and leaves `a_gamma`
+untouched; the adviser sees the flags at the HITL gate. Thresholds are on the same
+appetite scale `[0, 1]` as the bands above.
+
+| Flag | Fires when |
+|---|---|
+| `objective_capacity_mismatch` | `objectives.goal` is `growth` or `max` **and** the weakest of `A_tol`, `A_cap` and the stated loss-capacity sub-score `clip(max_1yr_loss_pct / 0.50)` is below 0.4 |
+| `overconfidence` | `A_tol - A_cap >= 0.4` (attitude far outstripping finances) |
+| `reaction_tolerance_mismatch` | `A_tol >= 0.6` **and** `loss_reaction` is `sell_all` |
+
+A growth/max objective ignores `a_gamma` in the optimizer, so the first flag is the
+only guard against it. It tests each pillar on its own as well as the blend because
+the blended `A_cap` lets a large buffer mask a stated 0% loss capacity, and the
+attitude can be the weakest pillar even when the finances are ample.

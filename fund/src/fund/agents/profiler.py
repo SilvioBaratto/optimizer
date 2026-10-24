@@ -199,6 +199,11 @@ def _appetite_from_tolerance(objectives: ObjectivesAnswers) -> float:
     return (mean_likert - 1.0) / 6.0
 
 
+def _loss_capacity_appetite(capacity: CapacityAnswers) -> float:
+    """Stated loss-capacity sub-score ∈ [0, 1]: ``clip(max_1yr_loss_pct / 0.50)``."""
+    return _clip01(capacity.max_1yr_loss_pct / 0.50)
+
+
 def _appetite_from_capacity(capacity: CapacityAnswers) -> float:
     """Financial risk appetite ∈ [0, 1]: ``mean(loss_sub, buffer_sub)``.
 
@@ -206,9 +211,8 @@ def _appetite_from_capacity(capacity: CapacityAnswers) -> float:
     ``buffer_sub = clip(buffer_months / 12)`` — reads **only** the financial
     fields, never the attitudinal Likert.
     """
-    loss_sub = _clip01(capacity.max_1yr_loss_pct / 0.50)
     buffer_sub = _clip01(capacity.buffer_months / 12.0)
-    return (loss_sub + buffer_sub) / 2.0
+    return (_loss_capacity_appetite(capacity) + buffer_sub) / 2.0
 
 
 def _appetite_to_aversion(appetite: float) -> float:
@@ -287,7 +291,7 @@ def _ke_filters(knowledge: KnowledgeAnswers) -> UniverseFilters:
 
 # Appetite thresholds for the soft contradiction rules. All expressed on the
 # appetite scale ∈ [0, 1] so they read against the same bands as ``a_gamma``.
-_LOW_CAPACITY_APPETITE = 0.4  # below the Balanced floor ⇒ conservative capacity
+_LOW_CAPACITY_APPETITE = 0.4  # below the Balanced floor ⇒ a conservative profile
 _OVERCONFIDENCE_GAP = 0.4  # attitude far outstripping financial capacity
 _HIGH_TOLERANCE_APPETITE = 0.6  # comfortable-with-loss attitudinal appetite
 
@@ -303,9 +307,14 @@ def _inconsistency_flags(
     """
     flags: list[str] = []
     objectives = answers.objectives
+    # The blended capacity score lets a large buffer mask a stated zero loss
+    # capacity, and a growth/max objective ignores ``a_gamma`` in the optimizer, so
+    # this flag is the only guard: test the stated loss capacity and the attitude
+    # on their own as well as the blend.
+    most_cautious = min(a_tol, a_cap, _loss_capacity_appetite(answers.capacity))
     if (
         objectives.goal in (ObjectiveChoice.GROWTH, ObjectiveChoice.MAX)
-        and a_cap < _LOW_CAPACITY_APPETITE
+        and most_cautious < _LOW_CAPACITY_APPETITE
     ):
         flags.append(FLAG_OBJECTIVE_CAPACITY_MISMATCH)
     if a_tol - a_cap >= _OVERCONFIDENCE_GAP:
