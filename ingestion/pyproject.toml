@@ -12,7 +12,7 @@ requires-python = ">=3.12"
 dependencies = [
     # Configuration
     "python-dotenv==1.2.3",
-    "pydantic==2.13.4",
+    "pydantic==2.14.1",
     "pydantic-settings==2.15.0",
     # Database: the engine/models/migrations live in portopt-db (inherited via
     # the workspace dep below). SQLAlchemy stays a direct dep — services type
@@ -26,7 +26,7 @@ dependencies = [
     # ModuleNotFoundError on ~22% of tickers -> empty history -> the universe
     # filter silently drops live stocks. (Pulls scipy transitively.)
     "scikit-learn==1.9.1",
-    "numpy==2.5.3",
+    "numpy==2.5.4",
     "pandas==3.0.6",
     # HTTP & Web Scraping
     "httpx==0.28.1",
@@ -140,7 +140,7 @@ module = [
     "reportlab.*",
     "apscheduler",
     "apscheduler.*",
-    "sqlalchemy_utils",
+    "sqlalchemy==2.1.6",
     "sqlalchemy_utils.*",
 ]
 ignore_missing_imports = true
