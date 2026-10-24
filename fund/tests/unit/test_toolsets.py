@@ -22,6 +22,7 @@ import dataclasses
 import datetime as dt
 import json
 import math
+import re
 import threading
 import time
 import uuid
@@ -40,7 +41,7 @@ from portopt_db.repositories.market_data.market_journal_repository import (
 from sqlalchemy import select
 
 from fund import tools as fund_tools
-from fund.agents.skills import SKILLS_BY_AGENT
+from fund.agents.skills import SKILLS_BY_AGENT, SKILLS_DIR
 from fund.agents.toolsets import TOOLS_BY_AGENT, RunContext, bind_toolset
 from fund.audit import AgentRunRepository, put_constraint_set
 from fund.config import settings
@@ -203,6 +204,33 @@ def test_tools_by_agent_is_a_bijection_over_fund_tools() -> None:
     # partition: every real tool assigned exactly once, nothing extra.
     assert sorted(assigned) == sorted(fund_tools.__all__)
     assert len(assigned) == len(set(assigned)) == len(fund_tools.__all__)
+
+
+# Skills write a tool invocation as a backticked ``name(args)`` whatever the verb
+# ("Call", "Pull ... with", "Run"), so match the invocation itself, not one phrasing.
+_CALL_INSTRUCTION = re.compile(r"`(\w+)\(")
+
+
+def test_skill_call_pattern_matches_any_phrasing_of_an_invocation() -> None:
+    body = "Pull the series with `get_macro_series(names)`, then call `risk_check(w)`."
+
+    assert _CALL_INSTRUCTION.findall(body) == ["get_macro_series", "risk_check"]
+
+
+@pytest.mark.parametrize("role", sorted(SKILLS_BY_AGENT))
+def test_skills_only_instruct_calls_to_tools_their_role_binds(role: str) -> None:
+    bound = set(TOOLS_BY_AGENT[role])
+    for skill in SKILLS_BY_AGENT[role]:
+        body = (SKILLS_DIR / skill / "SKILL.md").read_text(encoding="utf-8")
+        called = {
+            name
+            for name in _CALL_INSTRUCTION.findall(body)
+            if name in fund_tools.__all__
+        }
+        assert called <= bound, (
+            f"{skill} tells the {role} to call {sorted(called - bound)}, "
+            f"which that role does not bind"
+        )
 
 
 # --- BaseTool shape (session omitted) ---------------------------------------

@@ -170,7 +170,10 @@ stage — economist → allocator → risk → executor:
    **not** proceed to the executor: send the violations back to the allocator for
    one revision, or stop. A failed risk gate can never be overridden.
 4. **executor** — only reached once risk passes. It proposes the paper rebalance;
-   you commit it.
+   you commit it. It binds no tool, so read the portfolio's `current_holdings` with
+   `get_portfolio_history` first and pass them, with the allocator's optimizer
+   weights and the mandate's no-trade band (the L1 drift threshold stated in the run
+   instruction), in the task instructions.
 
 Consult the `fund-orchestration` skill for the routing contract, the audit
 expectations, and how each subagent's report should look.
@@ -349,6 +352,13 @@ rebalance, the PM commits it. When it is committed:
   resumed run never double-trades.
 - **HITL-gated** — the commit pauses for the human adviser to approve or reject;
   you never assume approval.
+
+## What you are handed
+
+You bind no tool. The PM's task instructions carry the optimizer's target weights,
+the portfolio's `current_holdings` and the mandate's no-trade band (the L1 drift
+threshold below which you recommend no trade). If any is missing, ask the PM to
+supply it — never infer a holding, fill in a weight or invent a band.
 
 ## Your skill
 

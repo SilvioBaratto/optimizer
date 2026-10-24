@@ -10,7 +10,7 @@ On-demand support for `fund-orchestration`. Points to the theory; never copies i
 | 1 | Regime + views | economist | regime label, ViewSet | get_macro_series, get_regime_stats |
 | 2 | Universe + optimize | allocator | filters, optimizer config, weights | universe_filter, estimate_moments, optimize_portfolio |
 | 3 | Validate | risk | passed / violations (BLOCKING) | risk_check, backtest |
-| 4 | Execute | executor | paper orders (HITL) | place_orders |
+| 4 | Execute | executor | rebalance proposal; the PM commits paper orders (HITL) | none (PM: get_portfolio_history, place_orders) |
 
 Universe build precedes selection: a stale universe caps everything downstream.
 The profile/universe is fixed for the whole run (walk-forward cannot vary

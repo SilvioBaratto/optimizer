@@ -31,7 +31,9 @@ profile/universe is fixed for the whole run.
 1. Confirm an active `ConstraintSet` exists for the portfolio (else route to the
    profiler). Read the mandate: capital, base currency, drift band, HITL, benchmark.
 2. Delegate each step with the `task` tool, passing the ConstraintSet + the prior
-   step's report as complete instructions.
+   step's report as complete instructions. The executor binds no tool: read
+   `current_holdings` with `get_portfolio_history` and pass them with the target
+   weights.
 3. Enforce the round cap: stop at `max_pm_rounds` / `recursion_limit`; if hit, mark
    the run INCOMPLETE and raise a HITL checkpoint rather than looping.
 4. On a risk-gate BLOCK, return to the allocator with the violations — never override.

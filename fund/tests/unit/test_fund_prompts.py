@@ -146,6 +146,33 @@ def test_executor_prompt_describes_paper_orders_semantics():
     assert "rebalancing-execution" in lower
 
 
+def test_pm_prompt_hands_the_executor_the_current_holdings():
+    # The executor binds no tool, so the PM is the only agent that can read the
+    # current holdings and it must pass them on with the target weights.
+    assert "get_portfolio_history" in PM_SYSTEM_PROMPT
+    assert "current_holdings" in PM_SYSTEM_PROMPT
+
+
+def test_executor_prompt_takes_the_current_holdings_from_the_pm():
+    lower = EXECUTOR_SYSTEM_PROMPT.lower()
+    assert "current_holdings" in lower
+    assert "no tool" in lower
+
+
+def test_pm_prompt_hands_the_executor_the_no_trade_band():
+    # The band is the mandate's drift threshold, stated in the run instruction; the
+    # executor has no tool to look it up, so the PM must relay it.
+    flat = " ".join(PM_SYSTEM_PROMPT.lower().split())
+    assert "no-trade band" in flat
+    assert "run instruction" in flat
+
+
+def test_executor_prompt_takes_the_no_trade_band_from_the_pm():
+    lower = EXECUTOR_SYSTEM_PROMPT.lower()
+    assert "no-trade band" in lower
+    assert "never infer" in lower or "never invent" in lower
+
+
 def test_executor_prompt_forbids_fabricating_weights():
     lower = EXECUTOR_SYSTEM_PROMPT.lower()
     assert "fabricate" in lower

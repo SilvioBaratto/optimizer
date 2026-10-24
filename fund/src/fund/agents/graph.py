@@ -688,7 +688,8 @@ def _run_instruction(
     return (
         f"{history}{directives}Produce an allocation for portfolio {portfolio_id} "
         f"as of {asof.isoformat()}. Mandate: capital {mandate.capital} "
-        f"{mandate.base_currency}{benchmark}. Delegate in order economist -> "
+        f"{mandate.base_currency}{benchmark}. No-trade band (L1 drift threshold): "
+        f"{mandate.drift_l1_threshold}. Delegate in order economist -> "
         f"allocator -> risk -> executor, then commit the risk-approved trades "
         f"through place_orders."
     )

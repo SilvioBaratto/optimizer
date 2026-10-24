@@ -363,6 +363,14 @@ class TestRunInstruction:
         assert seed.startswith("Produce an allocation")
         assert "Since last rebalance" not in seed
 
+    def test_states_the_mandates_no_trade_band(self) -> None:
+        """The executor binds no tool, so the PM can only relay the band if the run
+        instruction states it; the figure is the mandate's L1 drift threshold."""
+        seed = _run_instruction(_mandate(), str(_PORTFOLIO_ID), _ASOF)
+
+        assert "no-trade band" in seed.lower()
+        assert "0.1" in seed
+
     def test_prepends_history_block(self) -> None:
         """A non-empty history is prepended ahead of the allocation instruction."""
         seed = _run_instruction(
