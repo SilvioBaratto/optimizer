@@ -1092,6 +1092,105 @@ def test_mandate_set_drift_help_states_the_upper_bound() -> None:
     assert "(0, 2)" in drift.help  # the bound is open: 2 can never be breached
 
 
+# --- profile answers: keep client data out of argv ---------------------------
+
+
+def _profile_model(monkeypatch) -> None:
+    monkeypatch.setattr(
+        cli,
+        "build_primary",
+        lambda *a, **k: make_profiler_model(
+            make_answers(), portfolio_id=str(PORTFOLIO_ID)
+        ),
+    )
+
+
+def _spy_questionnaire(monkeypatch) -> list[Any]:
+    """Record the ``questionnaire`` each ``apply_action`` call gets, then delegate."""
+    seen: list[Any] = []
+    real = cli.apply_action
+
+    def spy(action, **kwargs):
+        seen.append(kwargs.get("questionnaire"))
+        return real(action, **kwargs)
+
+    monkeypatch.setattr(cli, "apply_action", spy)
+    return seen
+
+
+def test_profile_reads_the_answers_from_a_file(harness, monkeypatch, tmp_path) -> None:
+    _profile_model(monkeypatch)
+    seen = _spy_questionnaire(monkeypatch)
+    answers = tmp_path / "answers.txt"
+    answers.write_text("Growth over ten years, EUR.\n", encoding="utf-8")
+
+    res = harness.runner.invoke(
+        cli.app, ["profile", str(PORTFOLIO_ID), "--answers-file", str(answers)]
+    )
+
+    assert res.exit_code == 0, res.output
+    assert seen == ["Growth over ten years, EUR."]
+
+
+def test_profile_reads_the_answers_from_stdin(harness, monkeypatch) -> None:
+    _profile_model(monkeypatch)
+    seen = _spy_questionnaire(monkeypatch)
+
+    res = harness.runner.invoke(
+        cli.app,
+        ["profile", str(PORTFOLIO_ID), "--answers-file", "-"],
+        input="Growth over ten years, EUR.\n",
+    )
+
+    assert res.exit_code == 0, res.output
+    assert seen == ["Growth over ten years, EUR."]
+
+
+def test_profile_needs_exactly_one_source_for_the_answers(
+    harness, monkeypatch, tmp_path
+) -> None:
+    _profile_model(monkeypatch)
+    answers = tmp_path / "answers.txt"
+    answers.write_text("Growth.", encoding="utf-8")
+
+    neither = harness.runner.invoke(cli.app, ["profile", str(PORTFOLIO_ID)])
+    both = harness.runner.invoke(
+        cli.app,
+        [
+            "profile",
+            str(PORTFOLIO_ID),
+            "--answers",
+            "Growth.",
+            "--answers-file",
+            str(answers),
+        ],
+    )
+
+    for res in (neither, both):
+        assert res.exit_code != 0
+        assert "--answers" in res.output
+        assert "--answers-file" in res.output
+
+
+def test_profile_rejects_an_unreadable_or_empty_answers_file(
+    harness, monkeypatch, tmp_path
+) -> None:
+    _profile_model(monkeypatch)
+    empty = tmp_path / "empty.txt"
+    empty.write_text("  \n", encoding="utf-8")
+
+    missing = harness.runner.invoke(
+        cli.app,
+        ["profile", str(PORTFOLIO_ID), "--answers-file", str(tmp_path / "nope.txt")],
+    )
+    blank = harness.runner.invoke(
+        cli.app, ["profile", str(PORTFOLIO_ID), "--answers-file", str(empty)]
+    )
+
+    assert missing.exit_code != 0
+    assert blank.exit_code != 0
+
+
 # --- fallback model ---------------------------------------------------------
 
 

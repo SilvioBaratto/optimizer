@@ -43,8 +43,10 @@ load_project_env()
 import datetime as dt
 import getpass
 import logging
+import sys
 import uuid
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Any, NoReturn
 
 import typer
@@ -321,16 +323,48 @@ def mandate_show(
 # --- profile ----------------------------------------------------------------
 
 
+def _read_answers(answers: str | None, answers_file: str | None) -> str:
+    """The questionnaire text from exactly one of ``--answers`` / ``--answers-file``.
+
+    ``--answers-file -`` reads stdin. The file route exists because an argv value is
+    visible in shell history and to every local user through the process list.
+    """
+    if answers is not None:
+        if answers_file is not None:
+            _fail("pass only one of --answers or --answers-file")
+        return answers
+    if answers_file is None:
+        _fail("pass exactly one of --answers or --answers-file")
+    try:
+        text = (
+            sys.stdin.read()
+            if answers_file == "-"
+            else Path(answers_file).read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeDecodeError) as exc:
+        _fail(f"cannot read --answers-file: {exc}")
+    text = text.strip()
+    if not text:
+        _fail("--answers-file is empty")
+    return text
+
+
 @app.command()
 def profile(
     portfolio_id: str = typer.Argument(..., help="Portfolio UUID."),
-    answers: str = typer.Option(
-        ...,
+    answers: str | None = typer.Option(
+        None,
         "--answers",
         help=(
             "Free-text MiFID questionnaire answers (read by the LLM), or a "
-            "MiFIDAnswers JSON used verbatim with no LLM extraction."
+            "MiFIDAnswers JSON used verbatim with no LLM extraction. Visible in "
+            "shell history and the process list; prefer --answers-file."
         ),
+    ),
+    answers_file: str | None = typer.Option(
+        None,
+        "--answers-file",
+        help="File holding the answers, in the same forms; '-' reads stdin.",
     ),
     base_currency: str | None = typer.Option(None, "--base-currency"),
     asof: str | None = typer.Option(None, "--asof", help="ISO date; default today."),
@@ -338,6 +372,7 @@ def profile(
     """Drive the MiFID profiler to its adviser-approval gate, then detach."""
     _boot()
     pid = _uuid(portfolio_id, label="portfolio id")
+    questionnaire = _read_answers(answers, answers_file)
     run_asof = _parse_date(asof) if asof else None
     model = _build_model()
     fallback = _build_fallback()
@@ -348,7 +383,7 @@ def profile(
                 "profile",
                 session=session,
                 portfolio_id=pid,
-                questionnaire=answers,
+                questionnaire=questionnaire,
                 model=model,
                 fallback=fallback,
                 checkpointer=persistence.saver,
