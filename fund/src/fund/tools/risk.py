@@ -172,7 +172,9 @@ def backtest(
         evaluated, or when the weights were fitted on the test blocks — the metrics
         are then in-sample), ``sample_start`` / ``window_start`` / ``window_end`` (ISO
         dates), and ``missing`` (weighted tickers absent from the panel). ``err`` on
-        empty ``weights``, no priced assets, too little history, or a bad ``window``.
+        empty ``weights``, no priced assets, fewer than two return rows once the
+        assets' histories are aligned, a bad ``window``, or metrics that are not
+        finite.
 
         ``max_drawdown`` is the peak-to-trough decline of the **compounded** wealth
         path (``drawdown_basis == "compounded"``), the loss an investor holding the
@@ -198,6 +200,11 @@ def backtest(
     # branch only applies when ``y`` is passed. Narrow it so the ``.index`` chains
     # below don't resolve against ``tuple.index``.
     returns = cast("pd.DataFrame", prices_to_returns(frame))
+    # ``frame`` counts the union of price dates, but ``prices_to_returns`` trims every
+    # row before the youngest asset's first bar, so the returns can be empty or a
+    # single row even when ``frame`` is long.
+    if returns.shape[0] < 2:
+        return err("insufficient price history to backtest")
     weight_vector = np.array([float(weights[col]) for col in returns.columns])
 
     # Fall back to the full IN-SAMPLE series when the panel cannot supply even one
@@ -233,6 +240,10 @@ def backtest(
         "sharpe_ratio": float(portfolio.sharpe_ratio),
         "max_drawdown": float(portfolio.max_drawdown),
     }
+    # A degenerate series (zero variance) yields NaN/inf, which are not valid JSON
+    # for the agent and compare False against every ceiling, so nothing is flagged.
+    if not all(math.isfinite(value) for value in metrics.values()):
+        return err("backtest metrics are not finite (degenerate return series)")
 
     return ok(
         {

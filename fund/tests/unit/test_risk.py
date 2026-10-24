@@ -29,8 +29,8 @@ from fund.tools.risk import backtest, risk_check
 _START = dt.date(2024, 1, 1)
 _N_DAYS = 60
 _ASOF = _START + dt.timedelta(days=_N_DAYS - 1)
-# Deterministic per-ticker (start, drift, wave) — no RNG, so the whole path is
-# reproducible and identical-seed determinism is trivially testable.
+# Each ticker maps to a start level, a drift and a wave amplitude. There is no RNG,
+# so the whole path is reproducible and determinism is trivially testable.
 _SERIES = {
     "AAA": (100.0, 0.0008, 0.015),
     "BBB": (50.0, 0.0004, 0.030),
@@ -373,6 +373,46 @@ class TestBacktest:
 
         assert result["ok"] is False
         assert "error" in result
+
+    def test_returns_frame_emptied_by_a_young_listing_is_an_error(
+        self, db_session
+    ) -> None:
+        # ``prices_to_returns`` trims every row before the youngest asset's first
+        # bar, so a weighted ticker priced only on the last day leaves no returns.
+        # The tool must refuse rather than hand back NaN metrics inside ``ok``.
+        old = {_START + dt.timedelta(days=i): 100.0 + i for i in range(_N_DAYS)}
+        _seed_closes(db_session, "OLD", old)
+        _seed_closes(db_session, "NEW", {_ASOF: 10.0})
+
+        result = backtest(db_session, _ASOF, {"OLD": 0.5, "NEW": 0.5})
+
+        assert result["ok"] is False
+        assert "history" in result["error"]
+
+    def test_single_return_row_is_an_error(self, db_session) -> None:
+        # One return observation has no dispersion: std/sharpe are NaN.
+        old = {_START + dt.timedelta(days=i): 100.0 + i for i in range(_N_DAYS)}
+        _seed_closes(db_session, "OLD", old)
+        _seed_closes(
+            db_session,
+            "NEW",
+            {_ASOF - dt.timedelta(days=1): 10.0, _ASOF: 11.0},
+        )
+
+        result = backtest(db_session, _ASOF, {"OLD": 0.5, "NEW": 0.5})
+
+        assert result["ok"] is False
+
+    def test_non_finite_metrics_are_an_error_not_a_success(self, db_session) -> None:
+        # A flat price series has zero variance, so the Sharpe ratio is undefined;
+        # NaN/inf are not valid JSON for the risk agent's tool message.
+        flat = {_START + dt.timedelta(days=i): 100.0 for i in range(_N_DAYS)}
+        _seed_closes(db_session, "FLAT", flat)
+
+        result = backtest(db_session, _ASOF, {"FLAT": 1.0})
+
+        assert result["ok"] is False
+        assert "finite" in result["error"]
 
     def test_unknown_window_key_is_ignored(self, db_session) -> None:
         # Unrecognized window keys are filtered out, so the tool falls back to the
