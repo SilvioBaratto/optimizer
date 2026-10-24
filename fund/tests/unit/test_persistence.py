@@ -10,11 +10,19 @@ out-of-band ``CREATE SCHEMA`` DDL, the pool kwargs, and the
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 import pytest
 from psycopg.sql import SQL, Identifier
 
 from fund.audit import persistence
 from fund.config import FundConfig
+
+
+@contextmanager
+def _no_lock(_conninfo: str) -> Iterator[None]:
+    yield
 
 
 def test_normalize_conninfo_strips_sqlalchemy_driver():
@@ -116,6 +124,7 @@ def test_setup_langgraph_orchestrates_schema_then_saver_then_store(monkeypatch):
         def setup(self) -> None:
             order.append("store.setup")
 
+    monkeypatch.setattr(persistence, "_bootstrap_lock", _no_lock)
     monkeypatch.setattr(persistence, "create_schema", _fake_create_schema)
     monkeypatch.setattr(persistence, "build_pool", _fake_build_pool)
     monkeypatch.setattr(persistence, "PostgresSaver", _FakeSaver)
@@ -159,6 +168,7 @@ def test_setup_langgraph_closes_the_pool_when_setup_raises(monkeypatch, failing)
 
         return _Handle
 
+    monkeypatch.setattr(persistence, "_bootstrap_lock", _no_lock)
     monkeypatch.setattr(persistence, "create_schema", lambda *_a: None)
     monkeypatch.setattr(persistence, "build_pool", lambda _config: pool)
     monkeypatch.setattr(persistence, "PostgresSaver", _make("saver"))
@@ -191,6 +201,7 @@ def test_the_checkpointer_does_not_execute_constructors_named_by_a_stored_blob(
 ):
     # Anyone able to write the langgraph schema can plant a blob; the permissive
     # default serializer would import and call whatever it names when the TUI polls.
+    monkeypatch.setattr(persistence, "_bootstrap_lock", _no_lock)
     monkeypatch.setattr(persistence, "create_schema", lambda *_a: None)
     monkeypatch.setattr(persistence, "build_pool", lambda _config: object())
     monkeypatch.setattr(persistence.PostgresSaver, "setup", lambda _self: None)
@@ -207,6 +218,7 @@ def test_the_checkpointer_does_not_execute_constructors_named_by_a_stored_blob(
 def test_the_checkpointer_still_round_trips_graph_state_messages(monkeypatch):
     from langchain_core.messages import AIMessage, HumanMessage
 
+    monkeypatch.setattr(persistence, "_bootstrap_lock", _no_lock)
     monkeypatch.setattr(persistence, "create_schema", lambda *_a: None)
     monkeypatch.setattr(persistence, "build_pool", lambda _config: object())
     monkeypatch.setattr(persistence.PostgresSaver, "setup", lambda _self: None)
@@ -237,3 +249,46 @@ def test_build_pool_health_checks_a_connection_before_handing_it_out(monkeypatch
     persistence.build_pool(FundConfig(database_url="postgresql://u:p@h:54320/db"))
 
     assert captured["check"] is ConnectionPool.check_connection
+
+
+def test_setup_langgraph_serialises_bootstrap_across_processes(monkeypatch):
+    # saver.setup() reads the migration version and then inserts it with no lock, so
+    # two processes starting together both insert v=0 and the loser dies on a
+    # UniqueViolation.
+    events: list[str] = []
+
+    class _FakeConn:
+        def __enter__(self) -> _FakeConn:
+            events.append("connect")
+            return self
+
+        def __exit__(self, *_exc: object) -> None:
+            events.append("disconnect")
+
+        def execute(self, stmt: object, *_args: object) -> None:
+            events.append(f"execute:{stmt}")
+
+    def _make(name: str):
+        class _Handle:
+            def __init__(self, _pool: object, **_kwargs: object) -> None:
+                pass
+
+            def setup(self) -> None:
+                events.append(f"{name}.setup")
+
+        return _Handle
+
+    monkeypatch.setattr(persistence.psycopg, "connect", lambda *_a, **_k: _FakeConn())
+    monkeypatch.setattr(
+        persistence, "create_schema", lambda *_a: events.append("schema")
+    )
+    monkeypatch.setattr(persistence, "build_pool", lambda _config: object())
+    monkeypatch.setattr(persistence, "PostgresSaver", _make("saver"))
+    monkeypatch.setattr(persistence, "PostgresStore", _make("store"))
+
+    persistence.setup_langgraph(FundConfig(database_url="postgresql://u:p@h:54320/db"))
+
+    locked = next(i for i, e in enumerate(events) if "pg_advisory_lock" in e)
+    released = events.index("disconnect")
+    assert locked < events.index("schema")
+    assert events.index("store.setup") < released
