@@ -90,6 +90,31 @@ def test_ci_runs_the_postgres_integration_tests() -> None:
     )
 
 
+def test_ci_points_the_integration_tests_at_a_separate_scratch_database() -> None:
+    """The fund integration tests run only on ``FUND_TEST_DATABASE_URL``.
+
+    They ignore ``DATABASE_URL`` (the live database on a developer machine) and
+    refuse a target equal to it, so CI must create a second database and point the
+    integration run at it, or every integration case silently skips.
+    """
+    for job in _postgres_jobs().values():
+        steps = [
+            step for step in job["steps"] if "-m integration" in step.get("run", "")
+        ]
+        if not steps:
+            continue
+        env = {**job.get("env", {}), **steps[0].get("env", {})}
+        scratch = env.get("FUND_TEST_DATABASE_URL", "")
+        assert scratch.startswith("postgresql://"), env
+        assert scratch.rsplit("/", 1)[-1] != env["DATABASE_URL"].rsplit("/", 1)[-1]
+        database = scratch.rsplit("/", 1)[-1]
+        assert any(
+            f"CREATE DATABASE {database}" in cmd for cmd in _run_commands(job)
+        ), "the scratch database is never created"
+        return
+    pytest.fail("no postgres job runs the integration tests")
+
+
 def test_ci_validates_compose_and_builds_both_images() -> None:
     """A broken compose edit or Dockerfile must not ship green."""
     commands = [cmd for job in _jobs().values() for cmd in _run_commands(job)]

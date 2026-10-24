@@ -155,8 +155,9 @@ jobs:
 
   # The unit suites run on in-memory SQLite with hand-built prerequisite tables,
   # so only this job proves the whole Alembic chain applies to an empty
-  # PostgreSQL and that the live-Postgres `integration` tests (skipped without
-  # DATABASE_URL) pass.
+  # PostgreSQL and that the live-Postgres `integration` tests pass. Those tests
+  # refuse DATABASE_URL (a developer's live database) and run only against
+  # FUND_TEST_DATABASE_URL, so the job creates a separate scratch database.
   postgres-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -185,7 +186,10 @@ jobs:
           enable-cache: true
       - run: uv sync --locked --all-packages --all-extras
       - run: cd packages/portopt-db && uv run alembic upgrade head
+      - run: PGPASSWORD=postgres psql -h localhost -U postgres -d optimizer_db -c "CREATE DATABASE fund_test"
       - run: cd fund && uv run pytest tests/integration -m integration -v --tb=short
+        env:
+          FUND_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fund_test
 
   # Parses the compose file and builds both shipped images, so a broken
   # Dockerfile or compose edit fails here instead of on a user's `portopt start`.
