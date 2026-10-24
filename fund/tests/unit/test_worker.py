@@ -271,6 +271,7 @@ def _install_main_stubs(monkeypatch, *, healthy: bool):
     monkeypatch.setattr(worker, "_install_signal_handlers", lambda: None)
     monkeypatch.setattr(worker._shutdown, "wait", lambda *a, **k: True)
     monkeypatch.setattr(worker, "close_db", lambda: calls.append("close_db"))
+    monkeypatch.setattr(worker, "touch_heartbeat", lambda: None)
 
     return SimpleNamespace(
         scheduler=scheduler,
@@ -365,6 +366,68 @@ def test_main_still_closes_resources_and_returns_after_a_clean_drain(
     stubs.runtime.persistence.pool.close.assert_called_once()
     assert "close_db" in stubs.calls
     assert exit_codes == []
+
+
+# --- liveness ---------------------------------------------------------------
+
+
+def test_main_exits_nonzero_when_the_scheduler_thread_dies(monkeypatch) -> None:
+    """APScheduler's thread can die on a jobstore error while ``running`` stays True.
+
+    Nothing else notices, so the container would stay healthy and never restart while
+    every job stopped firing.
+    """
+    stubs = _install_main_stubs(monkeypatch, healthy=True)
+    stubs.scheduler._thread.is_alive.return_value = False
+    monkeypatch.setattr(worker._shutdown, "wait", lambda *a, **k: False)
+    failed: list[str] = []
+    monkeypatch.setattr(worker, "_fail_in_flight_slots", lambda: failed.append("slots"))
+    exit_codes = _capture_hard_exit(monkeypatch)
+
+    with contextlib.suppress(_ForcedExit):
+        worker.main()
+
+    assert exit_codes and exit_codes[0] != 0
+    assert failed == ["slots"]
+    stubs.runtime.persistence.pool.close.assert_not_called()
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_scheduler_alive_notices_a_loop_thread_killed_by_a_jobstore_error() -> None:
+    """Against the real library: ``running`` stays True after the thread is gone."""
+    from apscheduler.jobstores.memory import MemoryJobStore
+    from apscheduler.schedulers.background import BackgroundScheduler
+
+    class _FailingStore(MemoryJobStore):
+        def update_job(self, job) -> None:
+            raise RuntimeError("store unavailable")
+
+    scheduler = BackgroundScheduler(jobstores={"default": _FailingStore()})
+    scheduler.add_job(lambda: None, "interval", seconds=0.05)
+    scheduler.start()
+    try:
+        assert worker._scheduler_alive(scheduler) is True
+        thread = scheduler._thread
+        assert thread is not None
+        thread.join(timeout=5)
+
+        assert scheduler.running is True
+        assert worker._scheduler_alive(scheduler) is False
+    finally:
+        scheduler.shutdown(wait=False)
+
+
+def test_main_beats_the_heartbeat_while_the_scheduler_thread_lives(monkeypatch) -> None:
+    stubs = _install_main_stubs(monkeypatch, healthy=True)
+    ticks = iter([False, False, True])
+    monkeypatch.setattr(worker._shutdown, "wait", lambda *a, **k: next(ticks))
+    beats: list[str] = []
+    monkeypatch.setattr(worker, "touch_heartbeat", lambda: beats.append("beat"))
+
+    worker.main()
+
+    assert len(beats) >= 2
+    stubs.scheduler.start.assert_called_once()
 
 
 # --- import hygiene ---------------------------------------------------------

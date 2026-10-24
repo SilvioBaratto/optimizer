@@ -19,7 +19,8 @@ Boot sequence (``main``):
    a crashed predecessor does not block its type forever.
 6. ``create_scheduler()`` → ``start()``.
 7. ``_install_signal_handlers()`` (SIGTERM **and** SIGINT set a module
-   ``threading.Event``) → ``_shutdown.wait()``.
+   ``threading.Event``) → ``_wait_for_shutdown()``, which beats the heartbeat file the
+   container healthcheck reads and exits non-zero if APScheduler's thread has died.
 8. Drain: ``scheduler.pause()`` → ``scheduler.shutdown(wait=True)`` bounded by
    ``fund_shutdown_drain_timeout_seconds``. A clean drain then runs ``pool.close()``
    → ``close_db()``. A timed-out drain leaves the pool and engine open (the step
@@ -58,6 +59,7 @@ from typing import TYPE_CHECKING
 
 from fund.config import settings
 from fund.database import close_db, database_manager, init_db
+from fund.healthcheck import touch_heartbeat
 from fund.scheduler import SchedulerRuntime, configure_runtime, create_scheduler
 
 if TYPE_CHECKING:
@@ -77,6 +79,13 @@ _shutdown = threading.Event()
 # outcome. A non-zero code would misclassify a normal deploy-during-sweep to
 # exit-code alerting; the warning log and the failed slot carry the signal instead.
 _FORCED_SHUTDOWN_EXIT_CODE = 0
+
+# Non-zero, unlike a requested shutdown: a dead scheduler is a fault, and the exit
+# status is what lets the restart policy bring the daemon back.
+_SCHEDULER_DEAD_EXIT_CODE = 1
+
+# How often the main thread checks the scheduler thread and beats the heartbeat.
+_LIVENESS_POLL_SECONDS = 30.0
 
 
 def _configure_logging() -> None:
@@ -164,6 +173,33 @@ def _install_signal_handlers() -> None:
     signal.signal(signal.SIGINT, _handle)
 
 
+def _scheduler_alive(scheduler: object) -> bool:
+    """Whether APScheduler's loop thread is still running.
+
+    The loop calls the job store's ``update_job`` unguarded, so one store error
+    kills the thread while ``scheduler.running`` stays True. The thread itself is
+    the only reliable signal.
+    """
+    if not getattr(scheduler, "running", False):
+        return False
+    thread = getattr(scheduler, "_thread", None)
+    return thread is None or thread.is_alive()
+
+
+def _wait_for_shutdown(scheduler: object) -> bool:
+    """Block until a shutdown signal, beating the heartbeat while the scheduler lives.
+
+    Returns:
+        ``True`` once shutdown was requested; ``False`` if the scheduler thread died
+        first.
+    """
+    while not _shutdown.wait(_LIVENESS_POLL_SECONDS):
+        if not _scheduler_alive(scheduler):
+            return False
+        touch_heartbeat()
+    return True
+
+
 def _drain_and_shutdown(scheduler: object, drain_timeout_seconds: float) -> bool:
     """Stop claiming new work, then drain in-flight jobs within a time bound.
 
@@ -229,7 +265,11 @@ def main() -> None:
     )
 
     _install_signal_handlers()
-    _shutdown.wait()
+    touch_heartbeat()
+    if not _wait_for_shutdown(scheduler):
+        logger.critical("APScheduler thread died; exiting so the container restarts")
+        _fail_in_flight_slots()
+        os._exit(_SCHEDULER_DEAD_EXIT_CODE)
 
     logger.info("Shutting down fund daemon...")
     drained = _drain_and_shutdown(
