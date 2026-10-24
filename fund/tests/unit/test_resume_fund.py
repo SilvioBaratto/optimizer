@@ -16,6 +16,7 @@ Zero live LLM, zero network: ``ScriptedFundModel`` + ``MemorySaver`` +
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 
 import pytest
 from _fund_fakes import (
@@ -186,6 +187,40 @@ def test_resume_fund_approve_commits_ticket_positions_and_completes(db_session) 
     ]
     assert len(executor) == 1
     assert executor[0].hitl_decision == {"decision": "approve"}
+
+
+def test_resume_fund_approve_sizes_ticket_at_the_stored_mandate_capital(
+    db_session,
+) -> None:
+    """The rebuild-to-resume path re-reads the mandate, so the ticket it commits is
+    sized at the mandate's capital rather than the tool's default notional."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    mandate = make_mandate().model_copy(update={"capital": Decimal("250000")})
+    MandateRepository(db_session).upsert(mandate)
+
+    run = run_fund(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        mandate,
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+    )
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    (order,) = _paper_orders(db_session)
+    assert order.notional == 250_000.0
 
 
 # --- resume_fund reject: no order, no positions, rejected --------------------

@@ -960,6 +960,7 @@ def _prepare_fund_run(
         run_id=run.id,
         portfolio_id=pid_uuid,
         base_currency=mandate.base_currency,
+        notional=float(mandate.capital),
     )
     effective_gates = _effective_gates(config, mandate)
     if autonomy.consume_first_round(pid_uuid):
@@ -1375,7 +1376,7 @@ def resume_fund(
 
     # Re-read the mandate so a gate set edited since the run opened takes effect on
     # resume too (mirrors the ConstraintSet re-guard above); a vanished mandate falls
-    # back to the config default gate.
+    # back to the config default gate and the tool's default notional.
     from fund import observe
 
     mandate = observe.get_mandate(session, portfolio_id)
@@ -1387,6 +1388,7 @@ def resume_fund(
         run_id=rid,
         portfolio_id=portfolio_id,
         base_currency=mandate.base_currency if mandate is not None else None,
+        notional=float(mandate.capital) if mandate is not None else None,
     )
     agent = build_fund_agent(
         model,

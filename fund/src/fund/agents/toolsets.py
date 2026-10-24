@@ -109,6 +109,9 @@ class RunContext:
     mandate's reporting currency: the allocator tools FX-convert prices to it before
     deriving returns, so they optimise over the series the NAV tracker marks
     (``None`` keeps listing currency — only sound for a single-currency universe).
+    ``notional`` is the paper book the target weights scale — the mandate's capital —
+    so a ticket is sized at what the adviser configured; ``None`` leaves
+    ``place_orders`` on its own default.
     """
 
     session: Session
@@ -125,6 +128,7 @@ class RunContext:
     # default keeps existing callers unchanged.
     lookback_days: int = 756
     base_currency: str | None = None
+    notional: float | None = None
     # Held for the whole body of every bound tool: the parallel tool calls of one
     # model turn run on worker threads, but ``session`` is not thread-safe.
     lock: threading.RLock = field(
@@ -515,7 +519,10 @@ def _place_orders_impl(ctx: RunContext) -> ToolResult:
                 f"{_describe_breaches(violations)}; send the proposal back to the "
                 "allocator"
             )
-    result = _tools.place_orders(ctx.session, ctx.asof, audited, ctx.portfolio_id)
+    sizing = {} if ctx.notional is None else {"notional": ctx.notional}
+    result = _tools.place_orders(
+        ctx.session, ctx.asof, audited, ctx.portfolio_id, **sizing
+    )
     data = result.get("data") if result.get("ok") else None
     # Log once, on the real placement; the idempotent HITL re-run does not
     # double-log (mirrors the profiler's save_profile).

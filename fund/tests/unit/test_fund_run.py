@@ -20,6 +20,7 @@ import dataclasses
 import datetime as dt
 import math
 import uuid
+from decimal import Decimal
 
 import pytest
 from _fund_fakes import ScriptedFundModel
@@ -135,10 +136,10 @@ def _store_with_cs() -> InMemoryStore:
     return store
 
 
-def _run(model, db_session, *, store, config=settings) -> FundRun:
+def _run(model, db_session, *, store, config=settings, mandate=None) -> FundRun:
     return run_fund(
         model,
-        _mandate(),
+        mandate if mandate is not None else _mandate(),
         portfolio_id=_PORTFOLIO_ID,
         asof=_ASOF,
         session=db_session,
@@ -263,6 +264,23 @@ def test_approve_writes_ticket_and_completes(db_session) -> None:
     ]
     assert len(executor) == 1
     assert executor[0].hitl_decision == {"decision": "approve"}
+
+
+def test_approve_sizes_ticket_at_the_mandate_capital(db_session) -> None:
+    """The paper book is the mandate's capital, not a hard-coded default: a 250k
+    mandate yields a 250k ticket whose line notionals scale with it."""
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=expected)
+    mandate = _mandate().model_copy(update={"capital": Decimal("250000")})
+
+    run = _run(model, db_session, store=_store_with_cs(), mandate=mandate)
+    run.resume("approve")
+
+    (order,) = _paper_orders(db_session)
+    assert order.notional == 250_000.0
+    for line in order.lines:
+        assert line["notional"] == pytest.approx(line["weight"] * 250_000.0)
 
 
 # --- approve of a refused place_orders must not read as a completed rebalance -
