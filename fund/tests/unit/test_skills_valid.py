@@ -614,3 +614,16 @@ def test_fund_orchestration_skill_documents_the_adviser_directive():
     assert "adviser directive" in body
     assert "not executed" in body
     assert "place_orders again" in body
+
+
+# --- rebalancing-execution: the doc must match what the code does ------------
+
+
+def test_rebalancing_execution_reference_documents_the_no_fill_bar_outcome():
+    # The next-close fill needs a priced bar strictly after ``asof``; without one
+    # ``place_orders`` writes no ticket and the approved run ends ``incomplete``.
+    # The executor's reference must say so instead of implying the ticket always lands.
+    text = _read("rebalancing-execution", "reference.md").lower()
+    assert "no fill bar" in text
+    assert "incomplete" in text
+    assert "holdings" in text
