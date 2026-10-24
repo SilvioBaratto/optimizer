@@ -6867,6 +6867,84 @@ async def test_daily_brief_sidebar_pick_focuses(shell_env, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_daily_brief_read_failure_is_reported_not_called_no_focus(
+    shell_env, monkeypatch
+) -> None:
+    """A focused portfolio whose read raises says so, never "no portfolio focused"."""
+
+    def boom(*_a, **_k):
+        raise RuntimeError("checkpoint unreadable")
+
+    monkeypatch.setattr(observe, "daily_brief", boom)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert "no portfolio focused" not in view.detail_text
+        assert "brief unavailable" in view.detail_text
+        assert "checkpoint unreadable" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_keeps_day_navigation_through_a_failed_read(
+    shell_env, monkeypatch
+) -> None:
+    """One failed tick keeps the last good brief, so the arrows still step days."""
+    grid = _nav_grid(_PID_A)
+    failing = {"on": False}
+
+    def flaky(_session, _saver, _pid, asof=None):
+        if failing["on"]:
+            raise RuntimeError("transient OperationalError")
+        return grid[asof]
+
+    monkeypatch.setattr(observe, "daily_brief", flaky)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert view.brief is not None and view.brief.asof == date(2026, 10, 6)
+
+        failing["on"] = True
+        app._refresh()
+        await pilot.pause()
+        assert "brief unavailable: RuntimeError: transient OperationalError" in (
+            view.detail_text
+        )
+        assert view.brief is not None  # the last good brief still anchors navigation
+
+        failing["on"] = False
+        view.action_prev_day()
+        assert view.asof == date(2026, 10, 5)
+        assert view.brief is not None and view.brief.asof == date(2026, 10, 5)
+        assert "brief unavailable" not in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_poll_read_failure_is_painted_off_the_loop(
+    shell_env, monkeypatch
+) -> None:
+    """The worker-thread poll surfaces a failed read in the pane too."""
+
+    def boom(*_a, **_k):
+        raise RuntimeError("fred factor load failed")
+
+    monkeypatch.setattr(observe, "daily_brief", boom)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        view.detail_text = ""
+
+        app._poll()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert "fred factor load failed" in view.detail_text
+        assert "no portfolio focused" not in view.detail_text
+
+
+@pytest.mark.asyncio
 async def test_daily_brief_escape_returns_focus_to_the_sidebar(
     shell_env, monkeypatch
 ) -> None:

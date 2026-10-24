@@ -1988,8 +1988,9 @@ class DailyBriefView(ShellView):
 
     Attributes:
         asof: The viewed day, or ``None`` to open on the latest NAV-marked day.
-        brief: The last-assembled :class:`~fund.observe.DailyBrief`, or ``None`` — a
-            headless-test hook.
+        brief: The last-assembled :class:`~fund.observe.DailyBrief` for the focused
+            portfolio, or ``None`` — a headless-test hook. A failed read leaves it in
+            place so the day arrows keep working through a transient outage.
         detail_text: Mirror of the rendered detail pane — a headless-test hook.
     """
 
@@ -2057,25 +2058,36 @@ class DailyBriefView(ShellView):
         session_factory = self.shell._session_factory
         persistence = self.shell._persistence
 
-        def read() -> tuple[uuid.UUID, dt.date | None, DailyBrief | None]:
+        def read() -> tuple[uuid.UUID, dt.date | None, _BriefRead]:
             return pid, asof, _read_brief(session_factory, persistence, pid, asof)
 
-        def apply(result: tuple[uuid.UUID, dt.date | None, DailyBrief | None]) -> None:
-            read_pid, read_asof, brief = result
+        def apply(result: tuple[uuid.UUID, dt.date | None, _BriefRead]) -> None:
+            read_pid, read_asof, outcome = result
             if (read_pid, read_asof) != (self.shell._portfolio_id, self.asof):
                 return
             self.render_count += 1
-            self._paint(brief)
+            self._paint(outcome)
 
         return read, apply
 
-    def _paint(self, brief: DailyBrief | None) -> None:
-        self.brief = brief
-        text = (
-            _render_brief_detail(brief)
-            if brief is not None
-            else "(no portfolio focused)"
-        )
+    def _paint(self, outcome: _BriefRead) -> None:
+        if outcome.error is None:
+            self.brief = outcome.brief
+            text = (
+                _render_brief_detail(outcome.brief)
+                if outcome.brief is not None
+                else "(no portfolio focused)"
+            )
+        else:
+            # A brief that belongs to another portfolio is no use as a fallback.
+            if self.brief is not None and (
+                self.brief.portfolio_id != self.shell._portfolio_id
+            ):
+                self.brief = None
+            text = f"brief unavailable: {outcome.error}"
+            if self.brief is not None:
+                stale = _render_brief_detail(self.brief)
+                text = f"{text} — showing the last good read\n\n{stale}"
         self.detail_text = text
         self.query_one("#brief-detail", Static).update(text)
 
@@ -2093,11 +2105,11 @@ class DailyBriefView(ShellView):
         pane = self.query_one("#brief-scroll", VerticalScroll)
         getattr(pane, f"action_{scroll_action}")()
 
-    def _read(self) -> DailyBrief | None:
-        """Assemble the brief in one short session (None on no focus or any error)."""
+    def _read(self) -> _BriefRead:
+        """Assemble the brief in one short session (empty outcome on no focus)."""
         pid = self.shell._portfolio_id
         if pid is None:
-            return None
+            return _BriefRead()
         return _read_brief(
             self.shell._session_factory, self.shell._persistence, pid, self.asof
         )
@@ -2132,22 +2144,41 @@ class DailyBriefView(ShellView):
         return path
 
 
+@dataclass(frozen=True)
+class _BriefRead:
+    """One brief assembly: the brief, or why it could not be read.
+
+    Attributes:
+        brief: The assembled brief; ``None`` when no portfolio is focused or the read
+            failed.
+        error: One-line description of the failure, or ``None`` on a successful read —
+            what tells "nothing focused" apart from "the read raised".
+    """
+
+    brief: DailyBrief | None = None
+    error: str | None = None
+
+
 def _read_brief(
     session_factory: Callable[[], AbstractContextManager[Session]],
     persistence: Any,
     pid: uuid.UUID,
     asof: dt.date | None,
-) -> DailyBrief | None:
-    """Assemble the brief in one short session; ``None`` on any read error.
+) -> _BriefRead:
+    """Assemble the brief in one short session; a read error is returned, not raised.
 
     Safe to run on a worker thread: it takes its collaborators as arguments rather
     than reaching for the App.
     """
     try:
         with _short_session(session_factory) as session:
-            return observe.daily_brief(session, persistence.saver, pid, asof=asof)
-    except Exception:  # keep the poll loop alive on any read error
-        return None
+            brief = observe.daily_brief(session, persistence.saver, pid, asof=asof)
+    except Exception as exc:  # keep the poll loop alive on any read error
+        # Driver errors embed the failing SQL on later lines; the pane shows one.
+        first_line = next(iter(str(exc).splitlines()), "")
+        name = type(exc).__name__
+        return _BriefRead(error=f"{name}: {first_line}" if first_line else name)
+    return _BriefRead(brief=brief)
 
 
 def _render_brief_detail(brief: DailyBrief) -> str:
