@@ -57,6 +57,7 @@ from fund.tui import ask
 from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.views import (
+    RAIL_LABELS,
     VIEW_SPECS,
     AskView,
     AuditView,
@@ -634,11 +635,12 @@ class ShellApp(App[None]):
         self.push_screen(HelpScreen())
 
     def _apply_width(self, width: int) -> None:
-        """Collapse the sidebar to a single-letter rail below the narrow threshold.
+        """Collapse the sidebar to a short-label rail below the narrow threshold.
 
         At narrow widths the sidebar shrinks (``.narrow`` CSS) and each entry's
-        label drops to its leading letter, leaving the content pane effectively
-        single-pane; above the threshold the full titles and width return.
+        label drops to its :data:`~fund.tui.views.RAIL_LABELS` abbreviation, leaving
+        the content pane effectively single-pane; above the threshold the full
+        titles and width return.
         """
         self._narrow = width < _NARROW_WIDTH
         try:
@@ -648,7 +650,7 @@ class ShellApp(App[None]):
         sidebar.set_class(self._narrow, "narrow")
         for key, title in VIEW_SPECS:
             self.query_one(f"#nav-{key}", ListItem).query_one(Label).update(
-                title[0] if self._narrow else title
+                RAIL_LABELS[key] if self._narrow else title
             )
 
     # --- navigation + refresh ----------------------------------------------

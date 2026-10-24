@@ -99,6 +99,20 @@ VIEW_SPECS: tuple[tuple[str, str], ...] = (
     ("brief", "Daily brief"),
 )
 
+# Two-letter nav labels for the collapsed rail, keyed by view key. Leading letters
+# collide (Deliberation / Decisions / Daily brief), and the Decisions entry is the
+# approve/kill gate, so every view needs its own.
+RAIL_LABELS: dict[str, str] = {
+    "posture": "Po",
+    "deliberation": "Dl",
+    "decisions": "Dc",
+    "mandate": "Ma",
+    "audit": "Au",
+    "performance": "Pf",
+    "ask": "As",
+    "brief": "Br",
+}
+
 
 class ShellView(Vertical):
     """A dumb placeholder view: a title line, a body line, and a refresh counter.
@@ -2080,6 +2094,7 @@ def build_views() -> list[ShellView]:
 
 
 __all__ = [
+    "RAIL_LABELS",
     "VIEW_SPECS",
     "AskView",
     "AuditView",

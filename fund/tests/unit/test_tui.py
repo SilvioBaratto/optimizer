@@ -553,9 +553,31 @@ async def test_shell_collapses_sidebar_to_rail_when_narrow(shell_env) -> None:
         await pilot.pause()
         assert app._narrow is True
         assert app.query_one("#sidebar", ListView).has_class("narrow")
-        # The labels collapse to a single-letter rail.
+        # The labels collapse to a short rail abbreviation.
         label = app.query_one("#nav-posture", ListItem).query_one(Label)
-        assert str(label.render()) == "P"
+        assert str(label.render()) == "Po"
+
+
+@pytest.mark.asyncio
+async def test_narrow_rail_gives_every_view_a_distinct_painted_label(
+    shell_env,
+) -> None:
+    # Leading letters collide (Deliberation / Decisions / Daily brief, Posture /
+    # Performance, Audit / Ask), leaving the adviser to guess which rail entry is the
+    # approve/kill gate.
+    app = _make_shell(shell_env)
+    async with app.run_test(size=(60, 40)) as pilot:
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        lines = _screen_lines(app)
+        labels = []
+        for key in _VIEW_KEYS:
+            item = app.query_one(f"#nav-{key}", ListItem)
+            label = str(item.query_one(Label).render())
+            labels.append(label)
+            row = lines[item.region.y][: sidebar.region.width]
+            assert label in row, (key, label, row)
+        assert len(set(labels)) == len(labels), labels
 
 
 @pytest.mark.asyncio
