@@ -16,6 +16,7 @@ from optimizer.preprocessing._alignment import (
     _fit_feature_names_out,
 )
 from optimizer.preprocessing._coerce import _coerce_numeric
+from optimizer.preprocessing._gaps import edge_gap_mask
 
 logger = logging.getLogger(__name__)
 
@@ -39,18 +40,26 @@ class SectorImputer(BaseEstimator, TransformerMixin):
             catch-all sector.
         fallback_strategy: What to do when the sector has no data for a
             timestep. Currently only ``"global_mean"`` is supported.
+        fill_edges: Whether to fill the NaN run before an asset's first and
+            after its last observation. Set ``False`` for panels that keep
+            pre-listing and post-delisting NaN on purpose: filling them invents
+            a return history the asset never had. Interior gaps are filled
+            either way.
     """
 
     sector_mapping: dict[str, str] | None
     fallback_strategy: str
+    fill_edges: bool
 
     def __init__(
         self,
         sector_mapping: dict[str, str] | None = None,
         fallback_strategy: str = "global_mean",
+        fill_edges: bool = True,
     ) -> None:
         self.sector_mapping = sector_mapping
         self.fallback_strategy = fallback_strategy
+        self.fill_edges = fill_edges
 
     def fit(self, X: pd.DataFrame, y: object = None) -> SectorImputer:
         """Compute sector groupings from the training data.
@@ -92,7 +101,8 @@ class SectorImputer(BaseEstimator, TransformerMixin):
         Returns:
             DataFrame with missing values filled, columns in fit order. A row in
             which every asset is missing has no peer observation to impute from
-            and is returned as ``NaN``.
+            and is returned as ``NaN``, as are edge gaps when ``fill_edges`` is
+            ``False``.
 
         Raises:
             DataError: If X lacks a fit column or has one unseen in fit.
@@ -130,6 +140,8 @@ class SectorImputer(BaseEstimator, TransformerMixin):
                 fill = sector_mean.where(sector_mean.notna(), global_mean)
                 out.loc[mask, col] = fill.loc[mask]
 
+        if not self.fill_edges:
+            out = out.mask(edge_gap_mask(X))
         return out
 
     def get_feature_names_out(self, input_features: object = None) -> np.ndarray:

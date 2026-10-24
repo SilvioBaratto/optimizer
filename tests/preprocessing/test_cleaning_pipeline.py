@@ -188,6 +188,56 @@ class TestFactory:
         assert not np.isinf(out.to_numpy()).any()
 
 
+class TestStructuralGaps:
+    """A cell before an asset's first or after its last observation is not missing.
+
+    It marks the time before listing or after delisting; filling it invents a
+    return history the asset never had and defeats every later history-length
+    check.
+    """
+
+    @staticmethod
+    def _panel() -> pd.DataFrame:
+        rng = np.random.default_rng(5)
+        common = rng.normal(0.0, 0.01, 500)
+        df = pd.DataFrame(
+            {n: common + rng.normal(0.0, 0.005, 500) for n in "ABCDEF"},
+            index=pd.bdate_range("2020-01-01", periods=500),
+        )
+        df.loc[df.index[:400], "E"] = np.nan  # lists on day 400
+        df.loc[df.index[300:], "F"] = np.nan  # delisted after day 300
+        df.loc[df.index[100], "A"] = np.nan  # an ordinary missing day
+        return df
+
+    @pytest.mark.parametrize(
+        "imputer", [ImputerStrategy.SECTOR, ImputerStrategy.REGRESSION]
+    )
+    def test_pre_listing_and_post_delisting_cells_stay_missing(
+        self, imputer: ImputerStrategy
+    ) -> None:
+        cfg = CleaningConfig(imputer=imputer, n_neighbors=2, min_train_periods=20)
+        mapping = dict.fromkeys("ABCDEF", "S")
+
+        out = make_cleaning_pipeline(cfg, sector_mapping=mapping).fit_transform(
+            self._panel()
+        )
+
+        assert out["E"].iloc[:400].isna().all()
+        assert out["E"].iloc[400:].notna().all()
+        assert out["F"].iloc[300:].isna().all()
+        assert out["F"].iloc[:300].notna().all()
+
+    @pytest.mark.parametrize(
+        "imputer", [ImputerStrategy.SECTOR, ImputerStrategy.REGRESSION]
+    )
+    def test_interior_gaps_are_still_filled(self, imputer: ImputerStrategy) -> None:
+        cfg = CleaningConfig(imputer=imputer, n_neighbors=2, min_train_periods=20)
+
+        out = make_cleaning_pipeline(cfg).fit_transform(self._panel())
+
+        assert out["A"].notna().all()
+
+
 class TestTransformTimeColumns:
     """Column-aware transformers align by label and never relabel positionally."""
 

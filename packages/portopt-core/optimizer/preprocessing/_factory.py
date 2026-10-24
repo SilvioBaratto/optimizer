@@ -27,6 +27,12 @@ def make_cleaning_pipeline(
     Run prices_to_returns upstream — that step changes data semantics
     and must stay outside the pipeline.
 
+    The imputer fills interior gaps only. NaN before an asset's first or after
+    its last observation (pre-listing, post-delisting) is left in place, so the
+    pipeline never invents a return history; this includes a cell that the
+    validate or outlier step blanks at the very edge of the window. Drop such
+    assets downstream, for example with `build_preselection_pipeline`.
+
     Args:
         config: Serialisable step configuration. None uses defaults
             (validate + outlier-treat, no imputation).
@@ -68,8 +74,16 @@ def make_cleaning_pipeline(
             )
         )
 
+    # Unlike the pre-selection pipeline there is no SelectComplete in front, so
+    # the imputer must not touch the pre-listing and post-delisting NaN that a
+    # delisted-inclusive panel carries on purpose.
     if cfg.imputer == ImputerStrategy.SECTOR:
-        steps.append(("impute", SectorImputer(sector_mapping=sector_mapping)))
+        steps.append(
+            (
+                "impute",
+                SectorImputer(sector_mapping=sector_mapping, fill_edges=False),
+            )
+        )
     elif cfg.imputer == ImputerStrategy.REGRESSION:
         steps.append(
             (
@@ -78,6 +92,7 @@ def make_cleaning_pipeline(
                     n_neighbors=cfg.n_neighbors,
                     min_train_periods=cfg.min_train_periods,
                     sector_mapping=sector_mapping,
+                    fill_edges=False,
                 ),
             )
         )

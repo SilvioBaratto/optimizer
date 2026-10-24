@@ -179,3 +179,39 @@ class TestSectorImputer:
     ) -> None:
         out = SectorImputer(fallback_strategy="global_mean").fit_transform(sector_df)
         assert not out.isna().any().any()
+
+
+class TestSectorImputerEdgeGaps:
+    @staticmethod
+    def _frame() -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "LATE": [np.nan, np.nan, 0.03, np.nan, 0.05],
+                "GONE": [0.01, 0.02, np.nan, np.nan, np.nan],
+                "FULL": [0.02, 0.04, 0.06, 0.08, 0.10],
+            },
+            index=pd.date_range("2024-01-01", periods=5),
+        )
+
+    def test_edges_are_filled_by_default(self) -> None:
+        out = SectorImputer().fit_transform(self._frame())
+
+        assert not out.isna().any().any()
+
+    def test_leading_and_trailing_gaps_stay_missing_when_edges_are_not_filled(
+        self,
+    ) -> None:
+        out = SectorImputer(fill_edges=False).fit_transform(self._frame())
+
+        assert out["LATE"].isna().tolist() == [True, True, False, False, False]
+        assert out["GONE"].isna().tolist() == [False, False, True, True, True]
+        assert out.loc["2024-01-04", "LATE"] == pytest.approx(0.08)
+
+    def test_a_column_with_no_observation_stays_missing_when_edges_are_not_filled(
+        self,
+    ) -> None:
+        df = self._frame().assign(NONE=np.nan)
+
+        out = SectorImputer(fill_edges=False).fit_transform(df)
+
+        assert out["NONE"].isna().all()

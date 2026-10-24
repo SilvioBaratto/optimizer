@@ -402,3 +402,33 @@ class TestTransform:
         imp = RegressionImputer().fit(clean_df)
         with pytest.raises(DataError, match="pandas DataFrame"):
             imp.transform(np.zeros((10, 5)))
+
+
+class TestEdgeGaps:
+    @staticmethod
+    def _frame(clean_df: pd.DataFrame) -> pd.DataFrame:
+        df = clean_df.copy()
+        df.iloc[:30, 0] = np.nan  # A lists on row 30
+        df.iloc[100:, 1] = np.nan  # B stops after row 99
+        df.iloc[60, 2] = np.nan  # C misses one ordinary day
+        return df
+
+    def test_edges_are_filled_by_default(self, clean_df: pd.DataFrame) -> None:
+        out = RegressionImputer(n_neighbors=2, min_train_periods=20).fit_transform(
+            self._frame(clean_df)
+        )
+
+        assert not out.isna().any().any()
+
+    def test_leading_and_trailing_gaps_stay_missing_when_edges_are_not_filled(
+        self, clean_df: pd.DataFrame
+    ) -> None:
+        out = RegressionImputer(
+            n_neighbors=2, min_train_periods=20, fill_edges=False
+        ).fit_transform(self._frame(clean_df))
+
+        assert out["A"].iloc[:30].isna().all()
+        assert out["A"].iloc[30:].notna().all()
+        assert out["B"].iloc[100:].isna().all()
+        assert out["B"].iloc[:100].notna().all()
+        assert out["C"].notna().all()

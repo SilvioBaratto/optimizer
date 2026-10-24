@@ -35,7 +35,8 @@ class CleaningConfig:
             winsorised and NaN-removed.
         imputer: Final imputation step. ``NONE`` leaves NaN in place (the
             pipeline step is omitted), ``SECTOR`` uses `SectorImputer`,
-            ``REGRESSION`` uses `RegressionImputer`.
+            ``REGRESSION`` uses `RegressionImputer`. Either imputer fills
+            interior gaps only; pre-listing and post-delisting NaN stays.
         n_neighbors: ``RegressionImputer`` neighbour count (REGRESSION only).
         min_train_periods: ``RegressionImputer`` minimum complete rows before
             falling back (REGRESSION only).
