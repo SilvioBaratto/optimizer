@@ -796,6 +796,36 @@ def test_run_fund_halts_at_the_gate_when_frozen_while_in_flight(db_session) -> N
     assert _paper_orders(db_session) == []
 
 
+def test_gate_shows_the_audited_weights_not_the_pm_typed_ones(db_session) -> None:
+    """The adviser approves what the gate displays, so the gated call must carry the
+    optimizer's audited weights even when the PM retyped (or invented) its own."""
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    llm_weights = {"AAA": 0.10, "BBB": 0.10, "CCC": 0.80}
+    assert llm_weights != expected
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=llm_weights)
+
+    run = _run(model, db_session, store=_store_with_cs())
+
+    action = run.interrupt["action_requests"][0]
+    assert action["args"]["weights"] == expected
+    assert run.weights == expected
+
+
+def test_gate_shows_no_orders_when_the_pm_typed_weights_but_none_were_audited(
+    db_session,
+) -> None:
+    """A PM that types weights with no audited proposal behind them must not make the
+    gate look like a real allocation: nothing would be placed."""
+    _seed_panel(db_session)
+    model = ScriptedFundModel(universe=[], weights={"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})
+
+    run = _run(model, db_session, store=_store_with_cs())
+
+    action = run.interrupt["action_requests"][0]
+    assert action["args"]["weights"] == {}
+
+
 # --- reject → no order + rejected + HITL recorded ----------------------------
 
 

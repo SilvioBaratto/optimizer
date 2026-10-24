@@ -778,7 +778,8 @@ def build_gate_weights_middleware(ctx: RunContext) -> Any:
     audited ``weights`` plus the ``risk_gate`` verdict recorded on them, so the adviser
     sees what will be placed and whether the risk officer cleared it (``place_orders``
     refuses a proposal that is not cleared, whatever the adviser approves). With no
-    audited proposal the call is left as-is; ``place_orders`` then refuses it.
+    audited proposal the call carries empty ``weights``: nothing will be placed, and
+    ``place_orders`` refuses it.
 
     The langchain import is lazy so a bare ``import fund.agents.toolsets`` stays
     agent-stack-free.
@@ -801,15 +802,18 @@ def build_gate_weights_middleware(ctx: RunContext) -> Any:
                 with ctx.lock:
                     audited = _audited_weights(ctx)
                     gate = _risk_gate_summary(ctx, audited) if audited else None
-                if audited:
-                    args = {"weights": audited, "risk_gate": gate}
-                    calls = [
-                        {**call, "args": args}
-                        if call["name"] == "place_orders"
-                        else call
-                        for call in message.tool_calls
-                    ]
-                    message = message.model_copy(update={"tool_calls": calls})
+                # Nothing audited means nothing will be placed; showing the model's
+                # own numbers would present an invented allocation as the proposal.
+                args = (
+                    {"weights": audited, "risk_gate": gate}
+                    if audited
+                    else {"weights": {}}
+                )
+                calls = [
+                    {**call, "args": args} if call["name"] == "place_orders" else call
+                    for call in message.tool_calls
+                ]
+                message = message.model_copy(update={"tool_calls": calls})
             pinned.append(message)
         return ModelResponse(
             result=pinned, structured_response=response.structured_response
