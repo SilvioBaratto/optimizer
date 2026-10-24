@@ -123,6 +123,16 @@ def test_risk_prompt_says_the_gate_reads_the_audited_weights():
     assert "`place_orders` refuses" in lower
 
 
+def test_pm_prompt_explains_how_to_read_an_adviser_directive():
+    # A ``respond`` barge-in reaches the PM as the ``place_orders`` tool result; the
+    # prompt must say that is a steer, not a placed order, and what to do with it.
+    lower = " ".join(PM_SYSTEM_PROMPT.lower().replace("`", "").split())
+    assert "adviser directive" in lower
+    assert "not executed" in lower
+    assert "place_orders again" in lower
+    assert "never reply that an order was placed" in lower
+
+
 def test_economist_prompt_names_its_tools_and_skills():
     lower = ECONOMIST_SYSTEM_PROMPT.lower()
     assert "get_macro_series" in lower

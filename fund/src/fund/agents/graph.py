@@ -1019,6 +1019,16 @@ def _finalize_incomplete(audit: Any, run_id: uuid.UUID, reason: str) -> None:
     audit.finalize_run(run_id, weights={}, status="incomplete")
 
 
+# The PM prompt and the fund-orchestration skill teach the PM to recognise this
+# opening; keep the marker in sync with them.
+_RESPOND_FRAME = (
+    "ADVISER DIRECTIVE — place_orders was NOT executed and no ticket exists. "
+    "Revise the proposal per the directive below, re-run the affected pipeline "
+    "stages (the risk gate included) and call place_orders again. "
+    "Directive: {directive}"
+)
+
+
 def _resume_command(
     decision: str, pm_directive: str | None, *, actions: int = 1
 ) -> Any:
@@ -1026,16 +1036,21 @@ def _resume_command(
 
     ``approve`` / ``reject`` carry only the decision type; ``respond`` carries the
     adviser's free-text ``pm_directive`` as the gated tool's result, threading it back
-    to the PM (a successful ``place_orders`` ``ToolMessage``) so the gate continues
-    instead of terminating. The middleware demands exactly one decision per gated tool
-    call, so the same decision is repeated ``actions`` times (a PM turn that emits
-    parallel gated calls pauses with several action requests). Imports ``langgraph``
-    lazily to keep a bare ``import fund.agents.graph`` light.
+    to the PM so the gate continues instead of terminating. The middleware always
+    delivers a respond as a *successful* ``place_orders`` ``ToolMessage``, which a bare
+    sentence would make read like a placed order, so the directive is framed as a
+    non-execution (see :data:`_RESPOND_FRAME`). The middleware demands exactly one
+    decision per gated tool call, so the same decision is repeated ``actions`` times
+    (a PM turn that emits parallel gated calls pauses with several action requests).
+    Imports ``langgraph`` lazily to keep a bare ``import fund.agents.graph`` light.
     """
     from langgraph.types import Command
 
     decisions: list[dict[str, Any]] = [
-        {"type": "respond", "message": pm_directive}
+        {
+            "type": "respond",
+            "message": _RESPOND_FRAME.format(directive=pm_directive or "(none given)"),
+        }
         if decision == "respond"
         else {"type": decision}
         for _ in range(max(actions, 1))

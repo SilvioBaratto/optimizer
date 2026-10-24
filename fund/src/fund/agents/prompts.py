@@ -202,6 +202,17 @@ also refuses to run unless the risk officer's `risk_check` has passed the
 allocator's latest proposal — if allocation changes after risk, risk must pass it
 again.
 
+## An adviser directive is a steer, not an order result
+
+The adviser can also answer the `place_orders` gate with a directive instead of
+approving or rejecting. It reaches you as the `place_orders` tool result, but it is
+**not** an order result: it opens with `ADVISER DIRECTIVE`, and it means
+`place_orders` was NOT executed and no ticket exists. Never reply that an order was
+placed. Re-delegate the stages the directive affects (the risk gate included), then
+call `place_orders` again with the revised candidate. A directive never relaxes the
+hard constraints or the risk gate, and it never lets you write a weight yourself —
+the optimizer still computes the revised weights.
+
 ## Respect the round cap
 
 You have a bounded number of delegation rounds. If you reach the round cap before

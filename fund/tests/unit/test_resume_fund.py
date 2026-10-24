@@ -47,6 +47,7 @@ from fund.agents import graph as graph_mod
 from fund.agents.graph import (
     FundRun,
     _finalize_hitl,
+    _resume_command,
     _settle_hitl,
     resume_fund,
     resume_run,
@@ -1168,6 +1169,52 @@ def test_resume_fund_respond_threads_directive_as_place_orders_tool_message(
     assert tool_results
     assert any(directive in str(m.content) for m in tool_results)
     assert all(getattr(m, "status", None) == "success" for m in tool_results)
+
+
+def test_resume_command_frames_a_respond_directive_as_an_unexecuted_gate() -> None:
+    """The PM reads the respond as a ``place_orders`` tool result, so the text must
+    say nothing was placed — a bare sentence reads like a successful order."""
+    command = _resume_command("respond", "cap each name at 5%")
+
+    message = command.resume["decisions"][0]["message"]
+    assert "cap each name at 5%" in message
+    assert message.startswith("ADVISER DIRECTIVE")
+    assert "NOT executed" in message
+    assert "no ticket" in message
+    assert "place_orders again" in message
+
+
+def test_resume_fund_respond_tells_the_pm_that_no_order_was_placed(
+    db_session,
+) -> None:
+    """What the PM actually sees on its next turn: the directive, framed as a
+    non-execution, not a bare success result."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    result = resume_fund(
+        run.run_id,
+        "respond",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        pm_directive="cap each name at 5%",
+    )
+
+    content = " ".join(
+        str(m.content)
+        for m in result.get("messages", [])
+        if getattr(m, "type", None) == "tool"
+        and getattr(m, "name", None) == "place_orders"
+    )
+    assert "cap each name at 5%" in content
+    assert "NOT executed" in content
 
 
 def test_resume_run_routes_respond_with_directive_to_the_fund_gate(db_session) -> None:

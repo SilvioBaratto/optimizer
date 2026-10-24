@@ -602,3 +602,12 @@ def test_universe_preselection_missing_has_both_causes_and_is_not_dropped_by_han
     step = " ".join(next(s for s in steps if "`missing`" in s).split())
     assert "no instrument" in step and "no priced" in step, step
     assert "drop" not in step.lower(), step
+
+
+def test_fund_orchestration_skill_documents_the_adviser_directive():
+    body = " ".join(
+        _read("fund-orchestration", "SKILL.md").lower().replace("`", "").split()
+    )
+    assert "adviser directive" in body
+    assert "not executed" in body
+    assert "place_orders again" in body

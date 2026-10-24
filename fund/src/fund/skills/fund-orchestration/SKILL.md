@@ -47,6 +47,10 @@ profile/universe is fixed for the whole run.
    Every allocator run replaces the weights under review, so delegate to risk again
    before `place_orders`: a pass never carries over to a different weight vector.
 5. Gate `place_orders` behind HITL; record every decision in the audit trail.
+6. A `place_orders` result opening `ADVISER DIRECTIVE` is a steer, not an order: it
+   means `place_orders` was NOT executed and no ticket exists. Never report an order
+   as placed; re-delegate the affected stages (risk gate included), then call
+   `place_orders` again. A directive never relaxes the hard constraints or risk gate.
 
 ## Boundaries
 - Never compute or edit weights; never bypass the risk gate or the HITL gate.
