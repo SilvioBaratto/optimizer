@@ -3464,7 +3464,7 @@ async def test_audit_export_fails_visibly_when_the_read_fails(
     with shell_env.get_session() as session:
         _seed_audit_rows(session)
         session.commit()
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     app = _make_shell(shell_env)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_audit(app, pilot)
@@ -7152,7 +7152,7 @@ async def test_daily_brief_flags_low_confidence_attribution_on_short_history(
     shell_env, monkeypatch, tmp_path
 ) -> None:
     """A thin-history OLS fit is captioned, in the pane and in the export."""
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     brief = _brief_with_attribution_flag(insufficient_history=True)
     monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
 
@@ -7357,8 +7357,8 @@ async def test_daily_brief_enter_noop_when_never_run(shell_env, monkeypatch) -> 
 
 @pytest.mark.asyncio
 async def test_daily_brief_export_markdown(shell_env, monkeypatch, tmp_path) -> None:
-    """e writes daily-brief-<pid>-<asof>.md to CWD and reports the path."""
-    monkeypatch.chdir(tmp_path)
+    """e writes daily-brief-<pid>-<asof>.md to the export dir and reports the path."""
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _full_brief(_PID_A))
 
     app = _make_shell(shell_env, portfolio_id=_PID_A)
@@ -7368,7 +7368,7 @@ async def test_daily_brief_export_markdown(shell_env, monkeypatch, tmp_path) -> 
         await pilot.pause()
         expected = tmp_path / f"daily-brief-{_PID_A}-2026-10-06.md"
         assert expected.exists()
-        assert "daily-brief" in app.last_status
+        assert str(expected) in app.last_status  # the full path, not a bare name
         content = expected.read_text(encoding="utf-8")
         assert content.startswith("# Daily brief")
         assert "## Macro attribution" in content
@@ -7381,7 +7381,7 @@ async def test_daily_brief_export_markdown(shell_env, monkeypatch, tmp_path) -> 
 @pytest.mark.asyncio
 async def test_daily_brief_export_off_pane(shell_env, monkeypatch, tmp_path) -> None:
     """e off the brief pane writes nothing and sets no export status."""
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     app = _make_shell(shell_env, portfolio_id=_PID_A)
     async with app.run_test(size=_SIZE) as pilot:
         await _open_posture(app, pilot)  # the brief is not the active pane
@@ -7396,7 +7396,7 @@ async def test_daily_brief_export_degraded_markdown(
     shell_env, monkeypatch, tmp_path
 ) -> None:
     """A degraded day exports markdown with explicit no-data sections, no crash."""
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _empty_brief(_PID_A))
 
     app = _make_shell(shell_env, portfolio_id=_PID_A)
@@ -7416,7 +7416,7 @@ async def test_daily_brief_export_reports_oserror(
     shell_env, monkeypatch, tmp_path
 ) -> None:
     """A write failure surfaces on the status line, never a crash."""
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _full_brief(_PID_A))
 
     app = _make_shell(shell_env, portfolio_id=_PID_A)
@@ -8347,7 +8347,7 @@ async def test_ask_sidebar_pick_focuses_the_input_so_typing_is_not_a_binding(
         assert inp.value == "quarter"
 
         # The view-scoped export is still one shift+tab away, from the log.
-        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
         view.append_log("ask", "all good")
         await pilot.press("shift+tab")
         await pilot.press("e")
@@ -9465,7 +9465,7 @@ async def test_ask_pending_scope_request_about_the_fund_is_not_a_freeze(
 @pytest.mark.asyncio
 async def test_ask_export_markdown(shell_env, monkeypatch, tmp_path) -> None:
     """e on the focused Ask view writes the conversation to ask-<pf>-<ts>.md."""
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     app = _make_shell(shell_env, portfolio_id=_PID_A)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_ask(app, pilot)
@@ -9485,7 +9485,7 @@ async def test_ask_export_markdown(shell_env, monkeypatch, tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_ask_export_off_pane_is_noop(shell_env, monkeypatch, tmp_path) -> None:
     """e off the Ask pane writes no ask file and sets no ask-export status."""
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     app = _make_shell(shell_env, portfolio_id=_PID_A)
     async with app.run_test(size=_SIZE) as pilot:
         await _open_posture(app, pilot)  # Ask is not the active pane
@@ -9498,7 +9498,7 @@ async def test_ask_export_off_pane_is_noop(shell_env, monkeypatch, tmp_path) -> 
 @pytest.mark.asyncio
 async def test_ask_export_reports_oserror(shell_env, monkeypatch, tmp_path) -> None:
     """A write failure surfaces on the status line, never crashing the App."""
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     app = _make_shell(shell_env, portfolio_id=_PID_A)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_ask(app, pilot)

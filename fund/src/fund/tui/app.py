@@ -60,6 +60,7 @@ from fund import observe
 from fund.config import FundConfig, settings
 from fund.tui import ask
 from fund.tui.barge_in import BargeInResult, BargeInScreen
+from fund.tui.exports import export_path
 from fund.tui.questionnaire import QuestionnaireScreen, describe_error
 from fund.tui.views import (
     RAIL_LABELS,
@@ -975,7 +976,9 @@ class ShellApp(App[None]):
         self.query_one("#view-deliberation", DeliberationView).select_run(run_id)
 
     def action_export_brief(self) -> None:
-        """Export the brief to ``daily-brief-<pf>-<asof>.md`` in CWD (the ``e`` key).
+        """Export the brief to ``daily-brief-<pf>-<asof>.md`` in the export directory.
+
+        Bound to the ``e`` key.
 
         View-scoped to the brief (``DailyBriefView.BINDINGS``) so it does not collide
         with the global Audit export ``e``. Re-export overwrites (idempotent); a write
@@ -985,9 +988,9 @@ class ShellApp(App[None]):
         if view is None or view.brief is None:
             return
         brief = view.brief
-        path = f"daily-brief-{brief.portfolio_id}-{brief.asof.isoformat()}.md"
+        name = f"daily-brief-{brief.portfolio_id}-{brief.asof.isoformat()}.md"
         try:
-            written = view.export_markdown(path)
+            written = view.export_markdown(str(export_path(name)))
         except OSError as exc:  # write failure → status bar, never crash
             self._set_status(f"export failed: {exc}")
             return
@@ -2302,9 +2305,9 @@ class ShellApp(App[None]):
         view = self._active_audit_view()
         if view is None:
             return
-        path = f"audit-export-{dt.datetime.now():%Y%m%d-%H%M%S}.csv"
+        name = f"audit-export-{dt.datetime.now():%Y%m%d-%H%M%S}.csv"
         try:
-            written = view.export_csv(path)
+            written = view.export_csv(str(export_path(name)))
         except Exception as exc:  # a read or write failure surfaces, never crashes
             self._set_status(f"export failed: {exc}")
             return
@@ -2512,7 +2515,9 @@ class ShellApp(App[None]):
         return resolution
 
     def action_export_ask(self) -> None:
-        """Export the Ask conversation to ``ask-<pf>-<timestamp>.md`` in CWD (``e``).
+        """Export the Ask conversation to ``ask-<pf>-<timestamp>.md`` (``e``).
+
+        Written to the export directory (see :mod:`fund.tui.exports`).
 
         View-scoped to Ask (``AskView.BINDINGS``) so it does not collide with the global
         Audit export ``e``. Re-export overwrites (idempotent); a write failure surfaces
@@ -2522,9 +2527,9 @@ class ShellApp(App[None]):
         if view is None:
             return
         pid = self._portfolio_id or "fund"
-        path = f"ask-{pid}-{dt.datetime.now():%Y%m%d-%H%M%S}.md"
+        name = f"ask-{pid}-{dt.datetime.now():%Y%m%d-%H%M%S}.md"
         try:
-            written = view.export_markdown(path)
+            written = view.export_markdown(str(export_path(name)))
         except OSError as exc:  # write failure → status bar, never crash
             self._set_status(f"export failed: {exc}")
             return

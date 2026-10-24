@@ -188,6 +188,12 @@ services:
       HUGGINGFACEHUB_API_TOKEN_FILE: /run/secrets/huggingfacehub_api_token
       AZURE_OPENAI_API_KEY_FILE: /run/secrets/azure_openai_api_key
       FRED_API_KEY_FILE: /run/secrets/fred_api_key
+      # fund-tui exports (audit CSV, ask log, daily brief) hold client data. They go
+      # to the ./exports bind mount below, so they survive a container recreate and
+      # show up on the host instead of vanishing in the writable layer.
+      FUND_EXPORT_DIR: /app/exports
+    volumes:
+      - ./exports:/app/exports
     # Mounted read-only at /run/secrets/<name>; `portopt start` renders
     # ./secrets/<name> from the encrypted store before `docker compose up`.
     secrets:
