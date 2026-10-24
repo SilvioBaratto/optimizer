@@ -93,7 +93,14 @@ class SuitabilityBreachError(ValueError):
     HITL gate): a breach hard-blocks outright. Raised when the ESG pillar excludes
     every GICS sector, leaving no investable universe. Subclasses ``ValueError`` so
     a caller may catch it broadly or specifically.
+
+    Attributes:
+        run_id: The ``agent_run`` that :func:`run_profiler` finalised ``blocked`` for
+            this breach, so a caller can anchor an audit trail to it; ``None`` for a
+            breach raised outside a profiler run.
     """
+
+    run_id: uuid.UUID | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -777,6 +784,7 @@ def run_profiler(
             hitl_decision={"decision": "blocked", "reason": str(exc)},
         )
         audit.finalize_run(run.id, weights={}, status="blocked")
+        exc.run_id = run.id
         raise
 
     save_profile = _make_save_profile(

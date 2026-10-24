@@ -67,6 +67,7 @@ from fund.audit import (
 )
 from fund.audit.human_audit_repository import HumanAuditLogRepository
 from fund.config import FundConfig, settings
+from fund.schemas.enums import GicsSector
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
 
 _ASOF_STR = ASOF.isoformat()
@@ -918,6 +919,29 @@ def test_profile_appends_a_cli_audit_row(harness, monkeypatch, cli_actor) -> Non
     assert row["portfolio_id"] == PORTFOLIO_ID
     assert row["actor"] == cli_actor
     assert row["source"] == "cli"
+
+
+def test_profile_blocked_by_a_suitability_breach_is_recorded_and_exits_nonzero(
+    harness, monkeypatch
+) -> None:
+    model = make_profiler_model(
+        make_answers(exclusions=tuple(GicsSector)), portfolio_id=str(PORTFOLIO_ID)
+    )
+    monkeypatch.setattr(cli, "build_primary", lambda *a, **k: model)
+
+    res = harness.runner.invoke(
+        cli.app,
+        ["profile", str(PORTFOLIO_ID), "--answers", "Growth over ten years, EUR."],
+    )
+
+    assert res.exit_code == 1
+    assert "blocked" in res.output
+    assert "awaiting approval" not in res.output
+    with harness.read() as session:
+        (run,) = AgentRunRepository(session).list_runs_for_portfolio(PORTFOLIO_ID)
+        assert run.status == "blocked"
+    (row,) = _audit_rows(harness, "profile")
+    assert row["new_value"]["outcome"] == "blocked"
 
 
 def test_profile_that_never_reaches_the_gate_fails(harness, monkeypatch) -> None:

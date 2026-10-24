@@ -59,7 +59,7 @@ from fund.audit import (
 from fund.audit.orders_repository import weights_hash
 from fund.config import settings
 from fund.schemas.constraint_set import UniverseFilters
-from fund.schemas.enums import LossReaction
+from fund.schemas.enums import GicsSector, LossReaction
 
 
 class _StopRunError(Exception):
@@ -846,6 +846,46 @@ def test_profile_that_never_reaches_the_gate_fails_instead_of_awaiting_approval(
     assert HumanAuditLogRepository(clean_db).list_recent(action="profile") == []
     (run,) = AgentRunRepository(clean_db).list_runs_for_portfolio(pid)
     assert run.status == "incomplete"
+
+
+def test_profile_blocked_by_a_suitability_breach_is_committed_not_rolled_back(
+    clean_db,
+) -> None:
+    """A hard MiFID breach is a recorded outcome, so it must survive the commit.
+
+    Callers commit only when ``apply_action`` returns and roll back on any exception,
+    so a breach that propagates erases the blocked run, its breach decision and the
+    human audit row - the compliance-relevant block leaves no trace.
+    """
+    pid = uuid.UUID("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d")
+    model = make_profiler_model(
+        make_answers(exclusions=tuple(GicsSector)), portfolio_id=str(pid)
+    )
+    try:
+        result = apply_action(
+            "profile",
+            session=clean_db,
+            portfolio_id=pid,
+            questionnaire="questionnaire ...",
+            model=model,
+            checkpointer=MemorySaver(),
+            store=InMemoryStore(),
+        )
+    except ValueError:
+        clean_db.rollback()
+    else:
+        clean_db.commit()
+
+    (run,) = AgentRunRepository(clean_db).list_runs_for_portfolio(pid)
+    assert run.status == "blocked"
+    assert [d.step for d in run.decisions if d.step == "suitability_breach"]
+    (audit,) = HumanAuditLogRepository(clean_db).list_recent(action="profile")
+    assert audit.run_id == run.id
+    assert audit.suitability_flag is True
+    assert result.run_id == run.id
+    assert result.audit_id == audit.id
+    assert "blocked" in result.message
+    assert MifidProfileRepository(clean_db).get_active(pid) is None
 
 
 def test_run_requires_a_portfolio_id_and_a_mandate(db_session) -> None:

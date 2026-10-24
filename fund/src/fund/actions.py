@@ -69,7 +69,9 @@ class ActionResult:
         audit_id: Primary key of the ``human_audit_log`` row written.
         message: A one-line summary for the status bar.
         detail: The underlying driver's return value (e.g. ``resume_run``'s result;
-            ``{"status": ...}`` for ``run``), or ``None`` when the action produces none.
+            ``{"status": ...}`` for ``run``), a ``{"blocked": True, "reason": ...}``
+            marker for a ``profile`` stopped by a suitability breach, or ``None`` when
+            the action produces none.
     """
 
     action: str
@@ -987,6 +989,10 @@ def _apply_profile(
     later (through ``apply_action("approve", ...)``) persists the profile and caches
     the active set. The agent stack is imported here, never at module scope.
 
+    A hard suitability breach (ESG exclusions covering every sector) does not raise:
+    the blocked run is audited and returned as an :class:`ActionResult` whose
+    ``detail`` is ``{"blocked": True, "reason": ...}``.
+
     Raises:
         ValueError: ``portfolio_id`` is missing.
         RuntimeError: The profiler ended without pausing at the gate, so there is
@@ -994,19 +1000,46 @@ def _apply_profile(
     """
     if portfolio_id is None:
         raise ValueError("'profile' requires a portfolio_id")
-    from fund.agents.profiler import run_profiler
+    from fund.agents.profiler import SuitabilityBreachError, run_profiler
 
-    run = run_profiler(
-        model,
-        questionnaire,
-        portfolio_id=portfolio_id,
-        session=session,
-        checkpointer=checkpointer,
-        store=store,
-        base_currency=base_currency,
-        asof=asof,
-        config=config,
-    )
+    try:
+        run = run_profiler(
+            model,
+            questionnaire,
+            portfolio_id=portfolio_id,
+            session=session,
+            checkpointer=checkpointer,
+            store=store,
+            base_currency=base_currency,
+            asof=asof,
+            config=config,
+        )
+    except SuitabilityBreachError as exc:
+        # A hard breach is a terminal business outcome, not a failure: returning (not
+        # raising) lets the caller commit the blocked run and this audit row, which
+        # an exception would roll back with the rest of the transaction.
+        row = _append_audit(
+            session,
+            action="profile",
+            run_id=exc.run_id,
+            portfolio_id=portfolio_id,
+            actor=actor,
+            target="mifid_profile",
+            new_value={"outcome": "blocked", "reason": str(exc)},
+            source=source,
+            override_flag=False,
+            suitability_flag=True,
+            idempotency_key=idempotency_key,
+            rationale=rationale,
+        )
+        return ActionResult(
+            action="profile",
+            run_id=exc.run_id,
+            portfolio_id=portfolio_id,
+            audit_id=row.id,
+            message=f"profile blocked by a suitability breach: {exc}",
+            detail={"blocked": True, "reason": str(exc)},
+        )
     if run.interrupt is None:
         raise RuntimeError(
             f"profiler run {run.run_id} ended without reaching the approval gate; "
