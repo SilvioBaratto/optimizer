@@ -89,10 +89,11 @@ portopt-core = { workspace = true }
 portopt-db = { workspace = true }
 
 # fund-scoped pytest config: register the `integration` marker so the live
-# Postgres round-trip test (skipped without DATABASE_URL) doesn't warn.
+# Postgres round-trip test (skipped without FUND_TEST_DATABASE_URL) doesn't
+# warn.
 [tool.pytest.ini_options]
 markers = [
-    "integration: needs a live Postgres DATABASE_URL (skipped otherwise)",
+    "integration: needs a scratch Postgres FUND_TEST_DATABASE_URL (skipped otherwise)",
 ]
 
 # src-layout: import package `fund` lives under fund/src/fund. Distinct import
