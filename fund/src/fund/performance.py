@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 
 _HORIZONS = ("1D", "1M", "YTD", "1Y", "max")
 
+# Daily-bar periods per year: the one scale the annualised figures of the Performance
+# strip share, so a Sharpe ratio never mixes scales (the tools' annualised metrics use
+# the same 252).
+TRADING_DAYS_PER_YEAR = 252.0
+
 # Calendar days of bars read before a book's earliest fill so the fill-day price, and
 # the 5-row FX forward-fill behind it, still resolve across weekends and holidays.
 _MARK_LOOKBACK_DAYS = 30
@@ -1071,7 +1076,7 @@ def portfolio_metrics(
     portfolio_id: uuid.UUID,
     nav_points: list[NavPoint],
     *,
-    annualization_factor: float = 252.0,
+    annualization_factor: float = TRADING_DAYS_PER_YEAR,
 ) -> PerformanceSummary:
     """Compute multi-horizon returns + risk metrics over a NAV series.
 

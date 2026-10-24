@@ -4094,7 +4094,7 @@ async def test_deliberation_expand_renders_recomputed_results(
             mean=0.1,
             standard_deviation=0.18,
             sharpe_ratio=0.55,
-            max_drawdown=-0.08,
+            max_drawdown=0.08,
             n_observations=30,
             n_folds=2,
             out_of_sample=True,
