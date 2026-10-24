@@ -37,7 +37,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from portopt_db.models import BackgroundJob, Base
-from sqlalchemy import create_engine, false
+from sqlalchemy import create_engine, event, false
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -403,3 +403,58 @@ def test_claim_or_create_recovers_a_session_poisoned_by_a_failed_flush(job_sessi
     _poison_session(job_session, first)
 
     assert repo.claim_or_create("fund_drift_monitor") is not None
+
+
+# --- claim_or_create under concurrent PostgreSQL claimants ------------------
+
+
+@pytest.fixture
+def pg_claim_trace() -> Generator[tuple[Session, list[tuple[str, str]]], None, None]:
+    """A SQLite session that poses as PostgreSQL and records slot-claim SQL.
+
+    SQLite serialises writers so it cannot show the READ COMMITTED race itself;
+    what *is* observable is the statement order. ``pg_advisory_xact_lock`` and
+    ``hashtext`` are registered as recording stubs so the PostgreSQL-only guard
+    can run, and the dialect name is flipped so the repository takes that branch.
+    """
+    trace: list[tuple[str, str]] = []
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    @event.listens_for(engine, "connect")
+    def _register(dbapi_conn, _record):
+        dbapi_conn.create_function("hashtext", 1, lambda key: key)
+        dbapi_conn.create_function(
+            "pg_advisory_xact_lock",
+            2,
+            lambda ns, key: trace.append(("lock", str(key))),
+        )
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def _record(_conn, _cursor, statement, _params, _context, _many):
+        if statement.startswith("INSERT INTO background_jobs"):
+            trace.append(("insert", ""))
+
+    Base.metadata.create_all(bind=engine)
+    engine.dialect.name = "postgresql"
+    session = Session(bind=engine)
+    try:
+        yield session, trace
+    finally:
+        session.close()
+        engine.dispose()
+
+
+def test_claim_or_create_takes_a_per_job_type_lock_before_the_guarded_insert(
+    pg_claim_trace,
+):
+    session, trace = pg_claim_trace
+
+    job_id = FundJobRepository(session).claim_or_create("fund_rebalance_sweep")
+
+    assert job_id is not None
+    # Without the lock, two READ COMMITTED claimants both pass NOT EXISTS and insert.
+    assert trace == [("lock", "fund_rebalance_sweep"), ("insert", "")]

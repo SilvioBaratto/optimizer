@@ -35,6 +35,7 @@ from portopt_db.models.jobs.background_job import FUND_JOB_TYPES
 from portopt_db.repository import RepositoryBase
 from sqlalchemy import (
     CursorResult,
+    Integer,
     Result,
     exists,
     func,
@@ -47,6 +48,10 @@ from sqlalchemy import (
 from sqlalchemy.exc import IntegrityError
 
 _ACTIVE_STATUSES: tuple[str, ...] = ("pending", "running")
+
+# First key of the two-int advisory lock (ASCII "fund"), so the per-job_type lock
+# cannot collide with another subsystem hashing into the same one-int key space.
+_CLAIM_LOCK_NAMESPACE = 0x66756E64
 
 
 def _rows_affected(result: Result[Any]) -> int:
@@ -75,22 +80,44 @@ class FundJobRepository(RepositoryBase):
         if not self.session.is_active:
             self.session.rollback()
 
+    def _serialise_claims(self, job_type: str) -> None:
+        """Queue concurrent claimants of *job_type* behind one another.
+
+        ``background_jobs`` has no unique guard on active rows, and under
+        PostgreSQL's READ COMMITTED two concurrent ``INSERT … WHERE NOT EXISTS``
+        statements cannot see each other's uncommitted row, so both would insert.
+        A transaction-scoped advisory lock makes the second claimant wait for the
+        first one's commit, after which its guard sees the committed row. SQLite
+        already serialises writers, so it takes no lock.
+        """
+        if self.session.get_bind().dialect.name != "postgresql":
+            return
+        self.session.execute(
+            select(
+                func.pg_advisory_xact_lock(
+                    literal(_CLAIM_LOCK_NAMESPACE, type_=Integer),
+                    func.hashtext(job_type),
+                )
+            )
+        )
+
     def claim_or_create(self, job_type: str) -> uuid.UUID | None:
         """Atomically create a ``pending`` job iff no active row of *job_type* exists.
 
-        A single ``INSERT … FROM SELECT … WHERE NOT EXISTS(active row)`` keeps at
-        most one active row per ``job_type``: exactly one insert affects a row
-        (``rowcount == 1`` → the new UUID), the rest see the existing row and no-op
-        (``None``). Under READ COMMITTED a racing claimer cannot see the winner's
-        uncommitted row, so the partial unique index
-        ``uq_background_jobs_active_type`` is what holds the line concurrently: the
-        loser's INSERT violates it and is reported as a busy slot (``None``) too.
-        Stamps ``worker_pid`` /
-        ``worker_host`` / ``last_heartbeat_at = now`` (observability + the initial
-        lease) and commits so the slot is immediately visible to other processes.
-        Dialect-agnostic (PostgreSQL + SQLite).
+        A single ``INSERT … FROM SELECT … WHERE NOT EXISTS(active row)``, run under a
+        per-``job_type`` advisory lock (:meth:`_serialise_claims`), keeps at most one
+        active row per ``job_type``: exactly one insert affects a row (``rowcount == 1``
+        → the new UUID), the rest see the existing row and no-op (``None``). Under
+        READ COMMITTED a racing claimer that slips past the lock still cannot see the
+        winner's uncommitted row, so the partial unique index
+        ``uq_background_jobs_active_type`` holds the line too: the loser's INSERT
+        violates it and is reported as a busy slot (``None``) as well. Stamps
+        ``worker_pid`` / ``worker_host`` / ``last_heartbeat_at = now`` (observability +
+        the initial lease) and commits so the slot is immediately visible to other
+        processes. Dialect-agnostic (PostgreSQL + SQLite).
         """
         self._recover_session()
+        self._serialise_claims(job_type)
         new_id = uuid.uuid4()
         now = datetime.now(UTC)
         pid = os.getpid()
