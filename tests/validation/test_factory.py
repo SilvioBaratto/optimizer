@@ -302,6 +302,176 @@ class TestSummarizeCvFailures:
         assert report.total == 2
         assert report.n_failed == 1
 
+    def test_fallback_rescued_fold_is_reported_not_silently_clean(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        from skfolio import MultiPeriodPortfolio, Portfolio
+
+        window = returns_df.iloc[:30]
+        n = returns_df.shape[1]
+        weights = np.full(n, 1.0 / n)
+        ok = Portfolio(X=window, weights=weights, name="ok")
+        rescued = Portfolio(
+            X=window,
+            weights=weights,
+            name="fold2",
+            fallback_chain=[
+                ("MeanRisk()", "infeasible"),
+                ("previous_weights", "success"),
+            ],
+        )
+        report = summarize_cv_failures(MultiPeriodPortfolio(portfolios=[ok, rescued]))
+
+        assert report.total == 2
+        assert report.n_failed == 0
+        assert report.n_fell_back == 1
+        assert report.fallback_rate == pytest.approx(0.5)
+        assert report.fell_back == [("fold2", "infeasible")]
+        assert report.has_fallbacks is True
+        assert report.has_failures is False
+
+    def test_fallback_rescue_in_real_walk_forward_is_counted(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        from skfolio.optimization import EqualWeighted, MeanRisk
+
+        # max_weights below 1/n_assets is infeasible, so every fold's primary
+        # solve fails and EqualWeighted rescues it.
+        opt = MeanRisk(
+            max_weights=0.01,
+            fallback=EqualWeighted(),
+            raise_on_failure=False,
+        )
+        cfg = WalkForwardConfig(test_size=63, train_size=126)
+        pred = run_cross_val(opt, returns_df, cv=build_walk_forward(cfg))
+        report = summarize_cv_failures(pred)
+
+        assert report.total == len(pred.portfolios)
+        assert report.n_failed == 0
+        assert report.n_fell_back == report.total
+        assert all(error for _, error in report.fell_back)
+
+    def test_fallback_rescue_emits_warning(
+        self, returns_df: pd.DataFrame, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from skfolio import Portfolio
+
+        window = returns_df.iloc[:30]
+        n = returns_df.shape[1]
+        rescued = Portfolio(
+            X=window,
+            weights=np.full(n, 1.0 / n),
+            name="fold2",
+            fallback_chain=[("MeanRisk()", "infeasible"), ("previous_weights", "ok")],
+        )
+        with caplog.at_level("WARNING", logger="optimizer.validation._factory"):
+            summarize_cv_failures(rescued)
+
+        assert any("fallback" in r.getMessage().lower() for r in caplog.records)
+
+    def test_fold_positions_disambiguate_identically_named_folds(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        from skfolio import MultiPeriodPortfolio, Portfolio
+        from skfolio.portfolio import FailedPortfolio
+
+        window = returns_df.iloc[:30]
+        n = returns_df.shape[1]
+        weights = np.full(n, 1.0 / n)
+        chain = [("MeanRisk()", "infeasible"), ("previous_weights", "ok")]
+
+        def ok() -> Portfolio:
+            return Portfolio(X=window, weights=weights, name="MeanRisk")
+
+        def rescued() -> Portfolio:
+            return Portfolio(
+                X=window, weights=weights, name="MeanRisk", fallback_chain=chain
+            )
+
+        bad = FailedPortfolio(
+            X=window, name="MeanRisk", optimization_error="infeasible"
+        )
+        mpp = MultiPeriodPortfolio(portfolios=[ok(), rescued(), ok(), bad, rescued()])
+        report = summarize_cv_failures(mpp)
+
+        assert report.fell_back_folds == [1, 4]
+        assert report.failed_folds == [3]
+        assert len(report.fell_back) == len(report.fell_back_folds)
+        assert len(report.failures) == len(report.failed_folds)
+
+    def test_fallback_rescue_in_real_walk_forward_reports_fold_positions(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        from skfolio.optimization import EqualWeighted, MeanRisk
+
+        opt = MeanRisk(
+            max_weights=0.01,
+            fallback=EqualWeighted(),
+            raise_on_failure=False,
+        )
+        cfg = WalkForwardConfig(test_size=63, train_size=126)
+        pred = run_cross_val(opt, returns_df, cv=build_walk_forward(cfg))
+        report = summarize_cv_failures(pred)
+
+        assert report.fell_back_folds == list(range(len(pred.portfolios)))
+
+    def test_fallback_warning_names_fold_positions(
+        self, returns_df: pd.DataFrame, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from skfolio import MultiPeriodPortfolio, Portfolio
+
+        window = returns_df.iloc[:30]
+        n = returns_df.shape[1]
+        weights = np.full(n, 1.0 / n)
+        chain = [("MeanRisk()", "infeasible"), ("previous_weights", "ok")]
+        ok = Portfolio(X=window, weights=weights, name="MeanRisk")
+        rescued = Portfolio(
+            X=window, weights=weights, name="MeanRisk", fallback_chain=chain
+        )
+        mpp = MultiPeriodPortfolio(portfolios=[ok, rescued, ok, rescued])
+        with caplog.at_level("WARNING", logger="optimizer.validation._factory"):
+            summarize_cv_failures(mpp)
+
+        message = " ".join(r.getMessage() for r in caplog.records)
+        assert "[1, 3]" in message
+        assert "MeanRisk" not in message
+
+    def test_fallback_warning_truncates_long_fold_lists(
+        self, returns_df: pd.DataFrame, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from skfolio import MultiPeriodPortfolio, Portfolio
+
+        window = returns_df.iloc[:30]
+        n = returns_df.shape[1]
+        chain = [("MeanRisk()", "infeasible"), ("previous_weights", "ok")]
+        rescued = [
+            Portfolio(
+                X=window,
+                weights=np.full(n, 1.0 / n),
+                name="MeanRisk",
+                fallback_chain=chain,
+            )
+            for _ in range(40)
+        ]
+        with caplog.at_level("WARNING", logger="optimizer.validation._factory"):
+            report = summarize_cv_failures(MultiPeriodPortfolio(portfolios=rescued))
+
+        message = " ".join(r.getMessage() for r in caplog.records)
+        assert report.fell_back_folds == list(range(40))
+        assert "39" not in message
+        assert "more" in message
+
+    def test_clean_backtest_has_no_fallbacks(self, returns_df: pd.DataFrame) -> None:
+        from skfolio.optimization import EqualWeighted
+
+        cfg = WalkForwardConfig(test_size=21, train_size=100)
+        pred = run_cross_val(EqualWeighted(), returns_df, cv=build_walk_forward(cfg))
+        report = summarize_cv_failures(pred)
+        assert report.n_fell_back == 0
+        assert report.fallback_rate == 0.0
+        assert report.has_fallbacks is False
+        assert report.fell_back == []
+
     def test_report_is_frozen(self, returns_df: pd.DataFrame) -> None:
         report = CrossValFailureReport(total=3, n_failed=0, failure_rate=0.0)
         with pytest.raises(AttributeError):
