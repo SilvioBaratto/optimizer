@@ -760,6 +760,7 @@ def daily_brief(
         A :class:`DailyBrief` whose sections degrade to None/empty where a day lacks
         data — never a fabricated figure, never a raise.
     """
+    from fund.attribution import MacroAttributionConfig
     from fund.audit.nav_history_repository import NavHistoryRepository
 
     day = asof or _latest_nav_date(session, portfolio_id) or dt.date.today()
@@ -770,7 +771,14 @@ def daily_brief(
     performance = (
         performance_summary(session, portfolio_id, asof=day) if marked else None
     )
-    attribution = macro_attribution_summary(session, portfolio_id, asof=day)
+    # Betas come from the full history but only the latest bar is explained, so the
+    # block beside the 1D P&L line is that day's decomposition, not the cumulative one.
+    attribution = macro_attribution_summary(
+        session,
+        portfolio_id,
+        asof=day,
+        config=MacroAttributionConfig(attribution_bars=1),
+    )
     digest = recent_events(session, portfolio_id, asof=day, window_days=1)
     read, read_date, run_id = _economist_read_asof(session, saver, portfolio_id, day)
     return DailyBrief(

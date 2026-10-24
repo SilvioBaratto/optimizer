@@ -2147,6 +2147,24 @@ def test_daily_brief_blank_economist_read_when_never_run(db_session):
     assert brief.deliberation_run_id is None
 
 
+def test_daily_brief_attribution_covers_only_the_briefed_day(db_session):
+    """The brief's "today" attribution explains that day's NAV return only."""
+    saver = MemorySaver()
+    _seed_navs_and_fred(db_session)  # nav = 100 + i + (i % 3), one mark per day
+
+    latest = observe.daily_brief(db_session, saver, _PID, asof=date(2026, 1, 24))
+    prior = observe.daily_brief(db_session, saver, _PID, asof=date(2026, 1, 23))
+
+    assert latest.attribution is not None and prior.attribution is not None
+    assert latest.attribution.total_return == pytest.approx(120.0 / 118.0 - 1.0)
+    assert prior.attribution.total_return == pytest.approx(118.0 / 119.0 - 1.0)
+    for brief in (latest, prior):
+        recon = sum(brief.attribution.contributions.values()) + (
+            brief.attribution.residual
+        )
+        assert recon == pytest.approx(brief.attribution.total_return, abs=1e-12)
+
+
 def test_daily_brief_unmarked_day_degrades_without_crash(db_session):
     """No NAV / journal / run → None performance, flagged attribution, empty tuples."""
     saver = MemorySaver()

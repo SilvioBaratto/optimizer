@@ -192,6 +192,76 @@ def test_attribution_all_factors_missing_residual_equals_total():
     assert result.total_return == pytest.approx(float(nav.sum()), abs=1e-12)
 
 
+def test_attribute_window_bars_explains_only_the_trailing_bars():
+    """window_bars sums over the last bars with betas still fitted on the history."""
+    nav, factors = _synthetic(n=60, betas={"rates": 0.5, "usd": -0.2})
+    exposure = estimate_exposures(
+        nav, factors, config=MacroAttributionConfig.for_default()
+    )
+
+    result = attribute(nav, factors, exposure, window_bars=1)
+
+    assert result.total_return == pytest.approx(float(nav.iloc[-1]), abs=1e-12)
+    for name, beta in exposure.exposures.items():
+        assert result.contributions[name] == pytest.approx(
+            beta * float(factors[name].iloc[-1]), abs=1e-12
+        )
+    assert sum(result.contributions.values()) + result.residual == pytest.approx(
+        result.total_return, abs=1e-12
+    )
+
+
+def test_attribute_window_bars_stale_factor_contributes_nothing():
+    """A factor with no value on the window bar keeps its share in the residual."""
+    nav, factors = _synthetic(n=60, betas={"rates": 0.5, "usd": -0.2})
+    exposure = estimate_exposures(
+        nav, factors, config=MacroAttributionConfig.for_default()
+    )
+    stale = factors.copy()
+    stale.loc[stale.index[-1], "rates"] = np.nan
+
+    result = attribute(nav, stale, exposure, window_bars=1)
+
+    assert result.contributions["rates"] == 0.0
+    assert result.total_return == pytest.approx(float(nav.iloc[-1]), abs=1e-12)
+    assert sum(result.contributions.values()) + result.residual == pytest.approx(
+        result.total_return, abs=1e-12
+    )
+
+
+def test_attribute_window_bars_without_exposures_is_window_total():
+    """Degraded exposures still report the window's NAV return, all as residual."""
+    nav, _ = _synthetic(n=30, betas={"rates": 0.5})
+    empty_exposure = ExposureResult(
+        exposures={},
+        alpha=0.0,
+        n_obs=0,
+        r2=None,
+        method_used=RegressionMethod.HUBER,
+        insufficient_history=True,
+    )
+
+    result = attribute(
+        nav, pd.DataFrame(index=nav.index), empty_exposure, window_bars=2
+    )
+
+    assert result.total_return == pytest.approx(float(nav.iloc[-2:].sum()), abs=1e-12)
+    assert result.residual == pytest.approx(result.total_return, abs=1e-12)
+
+
+@pytest.mark.parametrize("bars", [0, -3])
+def test_attribution_window_bars_must_be_positive(bars):
+    """A non-positive window is a programmer error on both the config and the call."""
+    with pytest.raises(ValueError):
+        MacroAttributionConfig(attribution_bars=bars)
+    nav, factors = _synthetic(n=30, betas={"rates": 0.5})
+    exposure = estimate_exposures(
+        nav, factors, config=MacroAttributionConfig.for_default()
+    )
+    with pytest.raises(ValueError):
+        attribute(nav, factors, exposure, window_bars=bars)
+
+
 def test_nav_return_series_nav_source_simple_returns():
     """nav_return_series yields date-indexed simple returns off NavPoint.nav."""
     points = [

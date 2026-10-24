@@ -105,12 +105,17 @@ class MacroAttributionConfig:
             estimate degrades to an empty, ``insufficient_history`` result.
         lookback_days: Optional trailing-window cap (calendar days) on the NAV
             series the engine regresses; ``None`` uses the full history.
+        attribution_bars: Optional count of trailing NAV bars the contributions and
+            total are summed over; ``None`` attributes the whole regressed window.
+            The betas are still fitted on the full window, so ``1`` explains the
+            latest bar's return with exposures estimated on all of the history.
     """
 
     factors: tuple[FactorSpec, ...] = field(default_factory=lambda: _DEFAULT_FACTORS)
     method: RegressionMethod = RegressionMethod.HUBER
     min_observations: int = 12
     lookback_days: int | None = None
+    attribution_bars: int | None = None
 
     def __post_init__(self) -> None:
         if not self.factors:
@@ -119,6 +124,8 @@ class MacroAttributionConfig:
             raise ValueError("min_observations must be >= 2")
         if self.lookback_days is not None and self.lookback_days <= 0:
             raise ValueError("lookback_days must be positive when set")
+        if self.attribution_bars is not None and self.attribution_bars <= 0:
+            raise ValueError("attribution_bars must be positive when set")
 
     @classmethod
     def for_default(
@@ -163,7 +170,7 @@ class AttributionResult:
     the residual absorbs alpha and idiosyncratic noise.
 
     Attributes:
-        total_return: Additive sum of simple NAV returns over the aligned window.
+        total_return: Additive sum of simple NAV returns over the attribution window.
         contributions: ``{factor_name: β·Σf}`` contribution to the total.
         residual: ``total_return − Σ contributions`` (alpha + idiosyncratic).
         factor_names: The factors that received a contribution, in order.
@@ -336,6 +343,8 @@ def attribute(
     nav_returns: pd.Series,
     factor_returns: pd.DataFrame,
     exposure: ExposureResult,
+    *,
+    window_bars: int | None = None,
 ) -> AttributionResult:
     """Decompose the period's NAV return into per-factor contributions + residual.
 
@@ -345,28 +354,39 @@ def attribute(
     the pieces reconstruct the total exactly. With no exposures the whole return is
     residual.
 
+    With ``window_bars`` the sums narrow to the trailing NAV bars while the betas stay
+    those fitted on the full history, so a daily recap explains that day's return
+    rather than the inception-to-date one. A factor with no observation on a bar in
+    that window (a stale source) contributes nothing for it; its share stays in the
+    residual instead of being fabricated.
+
     Args:
         nav_returns: Date-indexed portfolio simple returns.
         factor_returns: Dates × factors simple-return frame.
         exposure: The exposure estimate from :func:`estimate_exposures`.
+        window_bars: Trailing NAV bars to attribute; ``None`` uses the exposure's
+            whole estimation window.
 
     Returns:
         An :class:`AttributionResult` whose contributions + residual sum to the total.
-    """
-    cols = [c for c in exposure.exposures if c in factor_returns.columns]
-    if not cols:
-        nav_ok = np.isfinite(nav_returns.to_numpy(dtype=float, na_value=np.nan))
-        total = float(nav_returns[nav_ok].sum())
-        return AttributionResult(
-            total_return=total,
-            contributions={},
-            residual=total,
-            factor_names=(),
-            insufficient_history=exposure.insufficient_history,
-        )
 
+    Raises:
+        ValueError: ``window_bars`` is not positive.
+    """
+    if window_bars is not None and window_bars < 1:
+        raise ValueError("window_bars must be positive when set")
+
+    cols = [c for c in exposure.exposures if c in factor_returns.columns]
     idx = exposure.estimation_index
-    if idx is None:
+    nav_ok = np.isfinite(nav_returns.to_numpy(dtype=float, na_value=np.nan))
+    if window_bars is not None:
+        window = nav_returns[nav_ok].index[-window_bars:]
+        nav_f = nav_returns.reindex(window)
+        fac_f = factor_returns.reindex(window)
+    elif not cols:
+        nav_f = nav_returns[nav_ok]
+        fac_f = factor_returns.loc[:, cols]
+    elif idx is None:
         nav_f, fac_f = _aligned_finite(nav_returns, factor_returns.loc[:, cols])
     else:
         # Reuse the exact estimation window so a factor dropped for degeneracy does not
@@ -547,7 +567,12 @@ def attribution_from_nav_points(
         config=cfg,
     )
     exposure = estimate_exposures(nav_returns, factor_series.returns, config=cfg)
-    return attribute(nav_returns, factor_series.returns, exposure)
+    return attribute(
+        nav_returns,
+        factor_series.returns,
+        exposure,
+        window_bars=cfg.attribution_bars,
+    )
 
 
 def macro_attribution(
