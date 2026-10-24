@@ -368,6 +368,23 @@ def test_run_without_mandate_errors(harness, monkeypatch) -> None:
     assert "mandate" in res.output.lower()
 
 
+def test_run_without_mandate_reports_the_error_exactly_once(
+    harness, monkeypatch
+) -> None:
+    _seed(harness)
+    monkeypatch.setattr(
+        cli, "build_primary", lambda *a, **k: ScriptedFundModel(universe=UNIVERSE)
+    )
+    res = harness.runner.invoke(
+        cli.app, ["run", str(PORTFOLIO_ID), "--asof", _ASOF_STR]
+    )
+    assert res.exit_code == 1
+    error_lines = [ln for ln in res.output.splitlines() if ln.startswith("error:")]
+    assert len(error_lines) == 1, res.output
+    assert error_lines[0] != "error:" and "no mandate" in error_lines[0]
+    assert harness.pool.closed >= 1  # pool still released on the early exit
+
+
 # --- approve / reject -------------------------------------------------------
 
 

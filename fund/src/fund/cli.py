@@ -96,6 +96,9 @@ def _exit(ok: bool) -> None:
 
 
 def _fail(message: str) -> NoReturn:
+    # typer.Exit subclasses RuntimeError, so a command that wraps this in
+    # `except RuntimeError` must re-raise typer.Exit first or the handler re-reports
+    # it as a second, empty "error: " line.
     typer.echo(f"error: {message}", err=True)
     raise typer.Exit(code=1)
 
@@ -312,6 +315,8 @@ def profile(
                 config=settings,
             )
             session.commit()
+    except typer.Exit:
+        raise
     except (RuntimeError, ValueError, LookupError) as exc:
         _fail(str(exc))
     finally:
@@ -382,6 +387,8 @@ def run(
                 config=settings,
             )
             session.commit()
+    except typer.Exit:
+        raise
     except (RuntimeError, ValueError, LookupError) as exc:
         _fail(str(exc))
     finally:
@@ -425,6 +432,8 @@ def _resume(run_id: str, decision: str) -> None:
             ticketed = decision != "approve" or (
                 run is not None and run.status == "completed"
             )
+    except typer.Exit:
+        raise
     except (RuntimeError, ValueError, LookupError) as exc:
         _fail(str(exc))
     finally:
