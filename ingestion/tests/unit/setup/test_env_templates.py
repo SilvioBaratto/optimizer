@@ -119,3 +119,52 @@ def test_docs_name_t212_annotate_as_the_step_the_key_gates(relpath: str) -> None
     """A copy that explains the missing-key skip must name the step that skips."""
     text = (_REPO_ROOT / relpath).read_text(encoding="utf-8")
     assert "t212_annotate" in text, relpath
+
+
+# Settings fields that are labels or developer toggles, not operator knobs.
+_NOT_KNOBS = {"project_name", "version", "debug"}
+# Read with os.getenv rather than through Settings.
+_EXTRA_KNOBS = {"PORTOPT_SECRETS_DIR": "/run/secrets"}
+
+# A `NAME=value` line, active or commented out.
+_ASSIGNMENT = re.compile(r"^#?[ \t]*([A-Z][A-Z0-9_]*)=(.*)$", re.MULTILINE)
+
+
+def _documented_knobs() -> dict[str, str]:
+    """Name -> value of every assignment in the ingestion template, comments included."""
+    text = _INGESTION_TEMPLATE.read_text(encoding="utf-8")
+    return {
+        name: value.strip().strip("\"'") for name, value in _ASSIGNMENT.findall(text)
+    }
+
+
+def _setting_knobs() -> dict[str, object]:
+    """Env name -> code default for every operator-facing Settings field."""
+    knobs: dict[str, object] = {}
+    for field_name, field in Settings.model_fields.items():
+        if field_name in _NOT_KNOBS:
+            continue
+        env_name = field.alias if isinstance(field.alias, str) else field_name.upper()
+        knobs[env_name] = field.default
+    return knobs
+
+
+def test_ingestion_template_lists_every_setting_the_daemon_reads() -> None:
+    """CLAUDE.md sends operators here for the full list, SCHEDULER_* crons included."""
+    documented = set(_documented_knobs())
+    missing = sorted((set(_setting_knobs()) | set(_EXTRA_KNOBS)) - documented)
+    assert not missing, f"ingestion/.env.example does not mention: {missing}"
+
+
+def test_ingestion_template_defaults_match_the_code() -> None:
+    """A documented default that drifted from config.py misleads whoever relies on it."""
+    documented = _documented_knobs()
+    defaults = {**_setting_knobs(), **_EXTRA_KNOBS}
+    drifted = {
+        name: (documented[name], default)
+        for name, default in defaults.items()
+        if name in documented
+        and default is not None
+        and documented[name].lower() != str(default).lower()
+    }
+    assert not drifted, f"template value vs code default: {drifted}"
