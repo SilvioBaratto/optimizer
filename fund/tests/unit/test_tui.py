@@ -3436,6 +3436,29 @@ async def test_notification_bus_toasts_new_gate_then_no_retoast(shell_env) -> No
 
 
 @pytest.mark.asyncio
+async def test_attention_toast_outlives_textuals_default_timeout(shell_env) -> None:
+    # ``notify(timeout=None)`` means "the default" (5s), not "never": a gate raised
+    # while the adviser is away would vanish and, being in the seen-set, never re-toast.
+    from _fund_fakes import seed_paused_fund_run
+
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        seed_paused_fund_run(
+            shell_env.get_session,
+            shell_env.persistence.saver,
+            shell_env.persistence.store,
+        )
+        app._refresh()
+        await pilot.pause()
+
+        toasts = list(app._notifications)
+        assert len(toasts) == 1
+        assert toasts[0].timeout > app.NOTIFICATION_TIMEOUT
+        assert toasts[0].time_left > 3600  # effectively until the adviser dismisses it
+
+
+@pytest.mark.asyncio
 async def test_notification_bus_toasts_drift_breach_once(shell_env) -> None:
     # A portfolio whose L1 drift breaches its mandate threshold raises a toast. With
     # no positions, drift = Σ target weights = 1.0 ≥ the 0.1 mandate threshold.

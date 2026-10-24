@@ -435,6 +435,11 @@ class HelpScreen(ModalScreen[None]):
 
 _NARROW_WIDTH = 80  # below this terminal width the sidebar collapses to a rail
 
+# ``App.notify`` has no "never expire" value: ``timeout=None`` falls back to the
+# default (5s). A day outlasts any unattended stretch, and the adviser can still click
+# a toast away.
+_ATTENTION_TOAST_TIMEOUT_S = 24 * 60 * 60.0
+
 _P = ParamSpec("_P")
 
 
@@ -864,7 +869,7 @@ class ShellApp(App[None]):
         """Diff fund-wide attention items against the seen-set; toast the new ones.
 
         Each tick reads the cross-portfolio awaiting gates + drift breaches, raises a
-        persistent (never auto-dismissing) toast for any **newly-appeared** item, and
+        persistent (stays until dismissed) toast for any **newly-appeared** item, and
         bumps the header ``⏸N awaiting`` counter. A still-pending item stays in the
         seen-set, so it is not re-toasted; a resolved item drops out and would re-alert
         only if it genuinely recurs.
@@ -920,9 +925,9 @@ class ShellApp(App[None]):
         return state.drift_l1 >= mandate.drift_l1_threshold
 
     def _raise_attention(self, message: str) -> None:
-        """Raise a persistent attention toast (never auto-dismisses) + record it."""
+        """Raise an attention toast that stays until dismissed + record it."""
         self.last_attention.append(message)
-        self.notify(message, timeout=None)
+        self.notify(message, timeout=_ATTENTION_TOAST_TIMEOUT_S)
 
     def _paint_attention(self) -> None:
         """Repaint the header ``⏸N awaiting`` counter from the bus's awaiting count."""
