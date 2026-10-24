@@ -8,7 +8,9 @@ all side effects:
 * **Polling, not pushing.** ``ShellApp._refresh`` runs on a ``set_interval``
   timer (``poll_interval``, ~2s), opening a *short read-only* session, extracting
   plain dataclasses, and rolling back — the UI never holds a transaction or an ORM
-  row across ticks.
+  row across ticks. A view with a heavy read (Performance, Daily brief) instead
+  splits its tick via ``ShellView.poll_task`` so the read runs on a worker thread and
+  only the paint touches the event loop.
 * **Mutations off the event loop.** Actions (approve/reject/killswitch/mandate/
   onboard/run) dispatch ``@work(thread=True)`` workers that call
   ``fund.actions.apply_action`` on a background thread, commit once, then marshal
@@ -691,6 +693,7 @@ class ShellApp(App[None]):
         # writes one line per failure episode instead of one per tick.
         self._logged_attention_failures: set[str] = set()
         self.last_attention: list[str] = []  # headless-test hook (mirrors last_status)
+        self._poll_read_inflight = False
 
     # --- layout -------------------------------------------------------------
 
@@ -837,7 +840,9 @@ class ShellApp(App[None]):
         The autonomy/run-state glyphs are re-read here (not in :meth:`_refresh`) so an
         external freeze/re-arm — from the scheduler or another session — reflects on the
         next tick instead of lingering stale until the next local action, without making
-        every manual/test repaint also re-read the autonomy rows.
+        every manual/test repaint also re-read the autonomy rows. A view that declares a
+        :meth:`~fund.tui.views.ShellView.poll_task` reads on a worker thread (see
+        :meth:`_poll_read_worker`); every other view repaints in place.
         """
         if not self.is_running:
             # The timer outlives the widgets for a moment on shutdown; Textual clears
@@ -846,7 +851,40 @@ class ShellApp(App[None]):
             return
         self._refresh_runstate()
         self._sync_picker()
-        self._refresh()
+        view = self._current_view()
+        task = view.poll_task() if view is not None else None
+        if task is None:
+            self._refresh()
+            return
+        self._poll_attention()
+        # One read in flight at a time: a read slower than the tick would otherwise
+        # pile up threads, each repainting an already-superseded snapshot.
+        if self._poll_read_inflight:
+            return
+        self._poll_read_inflight = True
+        self._poll_read_worker(*task)
+
+    @work(thread=True, group="poll")
+    def _poll_read_worker(
+        self, read: Callable[[], Any], apply: Callable[[Any], None]
+    ) -> None:
+        """Run a heavy view's read off the event loop, then paint it back on the loop.
+
+        ``read`` and ``apply`` come from :meth:`~fund.tui.views.ShellView.poll_task`;
+        this thread never queries the DOM. A failed read keeps the last paint rather
+        than crashing the App.
+        """
+        try:
+            result = read()
+        except Exception:  # keep the poll loop alive on any read error
+            result = None
+        self.call_from_thread(self._finish_poll_read, apply, result)
+
+    def _finish_poll_read(self, apply: Callable[[Any], None], result: Any) -> None:
+        """Free the poll slot and paint ``result`` (``None`` means the read failed)."""
+        self._poll_read_inflight = False
+        if result is not None:
+            apply(result)
 
     def _refresh(self) -> None:
         """Repaint the active view from the read model — synchronous, test-callable.
@@ -858,10 +896,16 @@ class ShellApp(App[None]):
         inputs is responsible for keeping an unsaved edit across this repaint.
         """
         self._poll_attention()
+        view = self._current_view()
+        if view is not None:
+            view.refresh_view()
+
+    def _current_view(self) -> ShellView | None:
+        """The visible content pane's view, or ``None`` before one is selected."""
         current = self.query_one(ContentSwitcher).current
         if current is None:
-            return
-        self.query_one(f"#{current}", ShellView).refresh_view()
+            return None
+        return self.query_one(f"#{current}", ShellView)
 
     def focus_portfolio(self, portfolio_id: uuid.UUID) -> None:
         """Focus the shell on a portfolio picked inside a content view (Posture roster).

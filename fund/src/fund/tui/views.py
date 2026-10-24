@@ -163,6 +163,22 @@ def _keep_cursor(table: DataTable, scope: Hashable = None) -> Generator[None]:
     table.call_after_refresh(table.scroll_to, y=scroll_y, animate=False, force=True)
 
 
+@contextmanager
+def _short_session(
+    session_factory: Callable[[], AbstractContextManager[Session]],
+) -> Generator[Session]:
+    """Yield a session from ``session_factory`` and roll it back on exit.
+
+    A free function (not a view method) so an off-loop read can use it from a worker
+    thread without touching ``self.app``, which is only resolvable on the event loop.
+    """
+    with session_factory() as session:
+        try:
+            yield session
+        finally:
+            session.rollback()
+
+
 class ShellView(Vertical):
     """A dumb placeholder view: a title line, a body line, and a refresh counter.
 
@@ -234,11 +250,24 @@ class ShellView(Vertical):
         Yields:
             An injected sync session, valid only inside the ``with`` block.
         """
-        with self.shell._session_factory() as session:
-            try:
-                yield session
-            finally:
-                session.rollback()
+        with _short_session(self.shell._session_factory) as session:
+            yield session
+
+    def poll_task(self) -> tuple[Callable[[], Any], Callable[[Any], None]] | None:
+        """Split a poll tick into an off-loop read and an on-loop paint, if worthwhile.
+
+        A view whose read is heavy enough to stall key presses and redraws when run on
+        the event loop (full price-history loads, a regression fit) overrides this to
+        return a ``(read, apply)`` pair. ``read`` runs on a worker thread, so it must
+        not touch the DOM or ``self.app`` (capture what it needs here, on the loop);
+        its result is handed to ``apply`` back on the loop, which drops it when the
+        view has moved on meanwhile.
+
+        Returns:
+            The ``(read, apply)`` pair, or ``None`` (the default) to keep the cheap
+            synchronous :meth:`refresh_view` path.
+        """
+        return None
 
 
 class DecisionsView(ShellView):
@@ -2009,10 +2038,39 @@ class DailyBriefView(ShellView):
     def refresh_view(self) -> None:
         """Repaint the recap for the viewed day from a fresh assembler read."""
         self.render_count += 1
-        self.brief = self._read()
+        self._paint(self._read())
+
+    def poll_task(self) -> tuple[Callable[[], Any], Callable[[Any], None]] | None:
+        """Assemble the recap off the loop: it fits a regression and reads a checkpoint.
+
+        The painted result is dropped when the portfolio or the viewed day changed
+        while the read was in flight, so a slow poll never clobbers a day the adviser
+        stepped to meanwhile.
+        """
+        pid = self.shell._portfolio_id
+        if pid is None:
+            return None
+        asof = self.asof
+        session_factory = self.shell._session_factory
+        persistence = self.shell._persistence
+
+        def read() -> tuple[uuid.UUID, dt.date | None, DailyBrief | None]:
+            return pid, asof, _read_brief(session_factory, persistence, pid, asof)
+
+        def apply(result: tuple[uuid.UUID, dt.date | None, DailyBrief | None]) -> None:
+            read_pid, read_asof, brief = result
+            if (read_pid, read_asof) != (self.shell._portfolio_id, self.asof):
+                return
+            self.render_count += 1
+            self._paint(brief)
+
+        return read, apply
+
+    def _paint(self, brief: DailyBrief | None) -> None:
+        self.brief = brief
         text = (
-            _render_brief_detail(self.brief)
-            if self.brief is not None
+            _render_brief_detail(brief)
+            if brief is not None
             else "(no portfolio focused)"
         )
         self.detail_text = text
@@ -2033,12 +2091,9 @@ class DailyBriefView(ShellView):
         pid = self.shell._portfolio_id
         if pid is None:
             return None
-        try:
-            with self.read_session() as session:
-                saver = self.shell._persistence.saver
-                return observe.daily_brief(session, saver, pid, asof=self.asof)
-        except Exception:  # keep the poll loop alive on any read error
-            return None
+        return _read_brief(
+            self.shell._session_factory, self.shell._persistence, pid, self.asof
+        )
 
     def action_prev_day(self) -> None:
         """Step to the previous NAV-marked day; a no-op at the earliest mark."""
@@ -2068,6 +2123,24 @@ class DailyBriefView(ShellView):
             raise ValueError("no brief loaded to export")
         Path(path).write_text(_render_brief_markdown(self.brief), encoding="utf-8")
         return path
+
+
+def _read_brief(
+    session_factory: Callable[[], AbstractContextManager[Session]],
+    persistence: Any,
+    pid: uuid.UUID,
+    asof: dt.date | None,
+) -> DailyBrief | None:
+    """Assemble the brief in one short session; ``None`` on any read error.
+
+    Safe to run on a worker thread: it takes its collaborators as arguments rather
+    than reaching for the App.
+    """
+    try:
+        with _short_session(session_factory) as session:
+            return observe.daily_brief(session, persistence.saver, pid, asof=asof)
+    except Exception:  # keep the poll loop alive on any read error
+        return None
 
 
 def _render_brief_detail(brief: DailyBrief) -> str:
@@ -2325,7 +2398,36 @@ class PerformanceView(ShellView):
             self._paint_holdings([])
             self._paint_detail()
             return
-        summary, marks = self._read(pid)
+        self._paint(*self._read(pid))
+
+    def poll_task(self) -> tuple[Callable[[], Any], Callable[[Any], None]] | None:
+        """Load the book off the loop: marking holdings reads every price history.
+
+        The painted result is dropped when the focused portfolio changed while the
+        read was in flight.
+        """
+        pid = self.shell._portfolio_id
+        if pid is None:
+            return None
+        session_factory = self.shell._session_factory
+
+        def read() -> tuple[uuid.UUID, PerformanceSummary | None, list[HoldingMark]]:
+            return (pid, *_read_performance(session_factory, pid))
+
+        def apply(
+            result: tuple[uuid.UUID, PerformanceSummary | None, list[HoldingMark]],
+        ) -> None:
+            read_pid, summary, marks = result
+            if read_pid != self.shell._portfolio_id:
+                return
+            self.render_count += 1
+            self._paint(summary, marks)
+
+        return read, apply
+
+    def _paint(
+        self, summary: PerformanceSummary | None, marks: list[HoldingMark]
+    ) -> None:
         self.summary = summary
         self._paint_strip(summary)
         self._paint_holdings(marks)
@@ -2349,30 +2451,8 @@ class PerformanceView(ShellView):
     def _read(
         self, pid: uuid.UUID
     ) -> tuple[PerformanceSummary | None, list[HoldingMark]]:
-        """Read the summary + the marked book, each guarded independently.
-
-        The two reads are isolated so a holdings-mark failure — e.g. an
-        ``FxCoverageError`` when the book holds a currency the FX feed never populated —
-        degrades only the holdings table, never the FX-independent returns/risk strip.
-        Either read failing returns its own empty sentinel; the poll loop stays alive on
-        any read error. The tracker is lazy-imported inside ``observe``, keeping this
-        module light.
-        """
-        summary: PerformanceSummary | None = None
-        marks: list[HoldingMark] = []
-        try:
-            with self.read_session() as session:
-                try:
-                    summary = observe.performance_summary(session, pid)
-                except Exception:  # keep the strip independent of a holdings failure
-                    summary = None
-                try:
-                    marks = observe.holdings_summary(session, pid)
-                except Exception:  # an FX gap degrades only the table, not the strip
-                    marks = []
-        except Exception:  # read_session itself failing → keep the poll loop alive
-            return None, []
-        return summary, marks
+        """Read the summary + the marked book for ``pid`` on the calling thread."""
+        return _read_performance(self.shell._session_factory, pid)
 
     def _paint_strip(self, summary: PerformanceSummary | None) -> None:
         returns_widget = self.query_one("#perf-returns", Static)
@@ -2425,6 +2505,36 @@ class PerformanceView(ShellView):
         text = _holding_detail(mark) if mark is not None else "(select a holding)"
         self.detail_text = text
         self.query_one("#perf-detail", Static).update(text)
+
+
+def _read_performance(
+    session_factory: Callable[[], AbstractContextManager[Session]], pid: uuid.UUID
+) -> tuple[PerformanceSummary | None, list[HoldingMark]]:
+    """Read the summary + the marked book, each guarded independently.
+
+    The two reads are isolated so a holdings-mark failure — e.g. an
+    ``FxCoverageError`` when the book holds a currency the FX feed never populated —
+    degrades only the holdings table, never the FX-independent returns/risk strip.
+    Either read failing returns its own empty sentinel; the poll loop stays alive on
+    any read error. The tracker is lazy-imported inside ``observe``, keeping this
+    module light. Safe to run on a worker thread: it takes the session factory as an
+    argument rather than reaching for the App.
+    """
+    summary: PerformanceSummary | None = None
+    marks: list[HoldingMark] = []
+    try:
+        with _short_session(session_factory) as session:
+            try:
+                summary = observe.performance_summary(session, pid)
+            except Exception:  # keep the strip independent of a holdings failure
+                summary = None
+            try:
+                marks = observe.holdings_summary(session, pid)
+            except Exception:  # an FX gap degrades only the table, not the strip
+                marks = []
+    except Exception:  # the session factory itself failing → keep the poll loop alive
+        return None, []
+    return summary, marks
 
 
 def _holding_detail(mark: HoldingMark) -> str:

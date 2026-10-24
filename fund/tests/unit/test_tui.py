@@ -7132,6 +7132,108 @@ async def test_performance_fx_gap_keeps_returns_strip(shell_env) -> None:
         assert view.query_one("#perf-holdings", DataTable).row_count == 0
 
 
+def _record_threads(monkeypatch, name: str) -> list[threading.Thread]:
+    """Wrap ``observe.<name>`` so each call records the thread that ran it."""
+    original = getattr(observe, name)
+    seen: list[threading.Thread] = []
+
+    def wrapper(*args, **kwargs):
+        seen.append(threading.current_thread())
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(observe, name, wrapper)
+    return seen
+
+
+@pytest.mark.asyncio
+async def test_performance_poll_tick_reads_off_the_event_loop(
+    shell_env, monkeypatch
+) -> None:
+    """The 2s poll loads price history on a worker thread, then paints the result."""
+    with shell_env.get_session() as session:
+        _seed_perf(session, _PID_A)
+        session.commit()
+    holdings_threads = _record_threads(monkeypatch, "holdings_summary")
+    summary_threads = _record_threads(monkeypatch, "performance_summary")
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        holdings_threads.clear()
+        summary_threads.clear()
+        view.summary = None
+        view.summary_text = ""
+
+        app._poll()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert holdings_threads and summary_threads
+        main = threading.main_thread()
+        assert all(t is not main for t in holdings_threads + summary_threads)
+        assert view.summary is not None and "+1.20%" in view.summary_text
+        assert view.query_one("#perf-holdings", DataTable).row_count == 1
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_poll_tick_reads_off_the_event_loop(
+    shell_env, monkeypatch
+) -> None:
+    """The brief's poll assembles the recap (incl. the regression) off the loop."""
+    brief = _full_brief(_PID_A)
+    threads: list[threading.Thread] = []
+
+    def fake_daily_brief(*_args, **_kwargs):
+        threads.append(threading.current_thread())
+        return brief
+
+    monkeypatch.setattr(observe, "daily_brief", fake_daily_brief)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        threads.clear()
+        view.brief = None
+
+        app._poll()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert threads and all(t is not threading.main_thread() for t in threads)
+        assert view.brief is brief and "MACRO ATTRIBUTION" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_poll_result_for_a_departed_day_is_dropped(
+    shell_env, monkeypatch
+) -> None:
+    """A slow poll read never overwrites the day the adviser stepped to meanwhile."""
+    grid = _nav_grid(_PID_A)
+    release = threading.Event()
+
+    def fake_daily_brief(_session, _saver, _pid, asof=None):
+        if threading.current_thread() is not threading.main_thread():
+            release.wait(timeout=10)  # an in-flight poll read, held mid-query
+        return grid[asof]
+
+    monkeypatch.setattr(observe, "daily_brief", fake_daily_brief)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert view.brief is not None and view.brief.asof == date(2026, 10, 6)
+
+        app._poll()  # reads the latest day on a worker, parked on ``release``
+        view.action_prev_day()  # the adviser steps back; repainted synchronously
+        assert view.brief is not None and view.brief.asof == date(2026, 10, 5)
+        release.set()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert view.asof == date(2026, 10, 5)
+        assert view.brief.asof == date(2026, 10, 5)  # not clobbered by the stale read
+
+
 # --- Posture NAV tile (Phase 08 T3) -----------------------------------------
 
 
