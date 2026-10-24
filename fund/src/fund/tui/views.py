@@ -1517,12 +1517,13 @@ class DeliberationView(ShellView):
                 )
             # Agent prose routinely carries "[k=v, k=v]" runs, which Textual would parse
             # as markup and raise on; every free-text pane below renders literally.
-            yield Static(
-                "(select a step)",
-                id="delib-detail",
-                classes="delib-detail",
-                markup=False,
-            )
+            with VerticalScroll(classes="delib-detail-wrap"):
+                yield Static(
+                    "(select a step)",
+                    id="delib-detail",
+                    classes="delib-detail",
+                    markup=False,
+                )
         yield Static(
             "↑↓ select · ↵ run then step · f follow live",
             id="delib-hint",

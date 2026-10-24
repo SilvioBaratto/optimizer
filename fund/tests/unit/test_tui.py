@@ -4195,6 +4195,48 @@ async def test_deliberation_live_renders_steps_and_flips_markers(shell_env) -> N
 
 
 @pytest.mark.asyncio
+async def test_deliberation_detail_scrolls_when_the_report_overflows(shell_env) -> None:
+    # A subagent report or a weights payload runs far past the pane height; the adviser
+    # reviews it before approving, so the tail must be reachable, not clipped.
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        view.ingest_event(
+            StreamEvent(
+                kind="step",
+                run_id=rid,
+                index=0,
+                agent="economist",
+                step="report",
+                status=StepStatus.LIVE,
+                text="\n".join(f"finding {n}" for n in range(120)),
+            )
+        )
+        await pilot.pause()
+        detail = view.query_one("#delib-detail", Static)
+        inside_view = []
+        for widget in detail.ancestors_with_self:
+            inside_view.append(widget)
+            if widget is view:
+                break
+        scroller = next(
+            (
+                widget
+                for widget in inside_view
+                if widget.allow_vertical_scroll and widget.max_scroll_y > 0
+            ),
+            None,
+        )
+        assert scroller is not None, "no ancestor of the detail pane can scroll"
+        scroller.scroll_end(animate=False)
+        await pilot.pause()
+        assert scroller.scroll_y == scroller.max_scroll_y > 0
+        assert detail.region.width <= scroller.region.width  # wraps, no sideways spill
+
+
+@pytest.mark.asyncio
 async def test_deliberation_live_follow_then_inspect_then_resume(shell_env) -> None:
     app = _make_shell(shell_env, portfolio_id=_PID_A)
     async with app.run_test(size=_SIZE) as pilot:
