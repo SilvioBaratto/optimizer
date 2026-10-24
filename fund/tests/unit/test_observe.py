@@ -1521,6 +1521,51 @@ def test_audit_timeline_filters_compose(db_session):
     assert len(observe.audit_timeline(db_session, portfolio_id=_AUDIT_PID_B)) == 1
 
 
+def _seed_one_transaction_run(db_session, steps: list[str]) -> None:
+    """Append ``steps`` as one run's decisions, all stamped with the same instant.
+
+    Postgres ``now()`` is the transaction start time, so every decision a run flushes
+    inside one caller-owned transaction carries an identical ``created_at``.
+    """
+    from portopt_db.models import AgentDecision
+    from sqlalchemy import update
+
+    repo = AgentRunRepository(db_session)
+    run = repo.create_run(
+        portfolio_id=_AUDIT_PID_A,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={},
+    )
+    for step in steps:
+        repo.append_decision(run.id, agent="allocator", step=step)
+    db_session.execute(
+        update(AgentDecision).values(created_at=datetime(2026, 1, 2, 9, 0, tzinfo=UTC))
+    )
+    db_session.flush()
+    db_session.expire_all()
+
+
+def test_audit_timeline_orders_same_instant_decisions_newest_step_first(db_session):
+    steps = ["optimize_portfolio", "place_orders", "report"]
+    _seed_one_transaction_run(db_session, steps)
+
+    rows = observe.audit_timeline(db_session, kind="agent")
+
+    assert [row.action for row in rows] == list(reversed(steps))
+
+
+def test_audit_timeline_limit_keeps_the_latest_step_of_a_same_instant_run(db_session):
+    _seed_one_transaction_run(
+        db_session, ["optimize_portfolio", "place_orders", "report"]
+    )
+
+    rows = observe.audit_timeline(db_session, kind="agent", limit=1)
+
+    assert [row.action for row in rows] == ["report"]
+
+
 def test_import_fund_observe_is_agent_stack_free():
     code = textwrap.dedent(
         """

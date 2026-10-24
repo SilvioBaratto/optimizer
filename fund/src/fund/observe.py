@@ -899,6 +899,8 @@ def audit_timeline(
                 limit=limit,
             )
         )
+    # Stable on purpose: same-instant rows keep the newest-step-first order the
+    # repositories return, which a ``when``-only key cannot express.
     entries.sort(key=lambda entry: entry.when, reverse=True)
     return entries[:limit]
 
