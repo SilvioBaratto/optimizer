@@ -14,6 +14,7 @@ import logging
 
 from portopt_db.config import DbConfig
 from portopt_db.engine import DatabaseManager
+from sqlalchemy import inspect
 
 from app.config import settings
 
@@ -37,15 +38,40 @@ def _build_config() -> DbConfig:
 database_manager = DatabaseManager(_build_config())
 
 
-def init_db() -> None:
-    """Initialize the connection and create tables. Safe to call repeatedly.
+def _require_migrated_schema() -> None:
+    """Raise unless Alembic has stamped this database.
 
-    In development a DB failure is logged and tolerated; in production it raises.
+    Alembic (``packages/portopt-db``) is the single schema owner. Creating tables
+    here from the models would leave them unversioned, so the next ``alembic
+    upgrade head`` would fail with DuplicateTable and the migration-only objects
+    (e.g. the ``human_audit_log`` append-only trigger) would never be installed.
+    Only the presence of ``alembic_version`` is verified, not that it is at head:
+    a database behind head fails on the missing tables with a plain SQL error and
+    stays migratable.
+    """
+    engine = database_manager.engine
+    if engine is None or not inspect(engine).has_table("alembic_version"):
+        raise RuntimeError(
+            "Database schema has not been migrated: run `alembic upgrade head` "
+            "(from packages/portopt-db) before starting the daemon or CLI."
+        )
+
+
+def init_db() -> None:
+    """Initialize the connection and verify the schema was migrated.
+
+    Never creates tables; Alembic owns the schema. Safe to call repeatedly.
+    In development a failure (unreachable or unmigrated database) is logged and
+    tolerated; in production it raises.
+
+    Raises:
+        RuntimeError: The database has no ``alembic_version`` table and the
+            environment is not development.
     """
     try:
         logger.info("Initializing database system...")
         database_manager.initialize()
-        database_manager.create_all_tables()
+        _require_migrated_schema()
         logger.info("Database system initialized successfully")
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")

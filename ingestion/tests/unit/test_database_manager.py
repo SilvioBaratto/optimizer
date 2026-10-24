@@ -10,25 +10,78 @@ dev-mode tolerance).
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from dataclasses import dataclass
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from portopt_db.config import DbConfig
+from portopt_db.engine import DatabaseManager
+from sqlalchemy import inspect, text
 
 from app.database import close_db, init_db
 
 M = "app.database"
 
 
+@dataclass(frozen=True)
+class _SqliteConfig(DbConfig):
+    """``DbConfig`` whose connect args SQLite accepts (psycopg2 keys are not)."""
+
+    def connect_args(self) -> dict[str, object]:
+        return {}
+
+
+@pytest.fixture
+def sqlite_manager(tmp_path: Path) -> Iterator[DatabaseManager]:
+    """A real ``DatabaseManager`` on an empty SQLite file, patched in as the singleton."""
+    manager = DatabaseManager(_SqliteConfig(url=f"sqlite:///{tmp_path / 'db.sqlite'}"))
+    with patch(f"{M}.database_manager", manager):
+        yield manager
+    manager.close()
+
+
+def _table_names(manager: DatabaseManager) -> list[str]:
+    assert manager.engine is not None
+    return sorted(inspect(manager.engine).get_table_names())
+
+
 class TestModuleLevelHelpers:
-    def test_init_db_initializes_and_creates_tables(self) -> None:
-        with (
-            patch(f"{M}.database_manager") as dm,
-            patch.object(type(dm), "__bool__", return_value=True, create=True),
-        ):
+    def test_init_db_refuses_unmigrated_database_and_creates_no_tables(
+        self, sqlite_manager: DatabaseManager
+    ) -> None:
+        """Alembic is the only schema owner: an unmigrated DB must stay empty."""
+        with patch(f"{M}.settings") as st:
+            st.is_development = False
+            with pytest.raises(RuntimeError, match="alembic upgrade head"):
+                init_db()
+
+        assert _table_names(sqlite_manager) == []
+
+    def test_init_db_in_development_creates_no_tables_on_unmigrated_database(
+        self, sqlite_manager: DatabaseManager
+    ) -> None:
+        with patch(f"{M}.settings") as st:
+            st.is_development = True
             init_db()
 
-        dm.initialize.assert_called_once()
-        dm.create_all_tables.assert_called_once()
+        assert _table_names(sqlite_manager) == []
+
+    def test_init_db_leaves_a_migrated_database_untouched(
+        self, sqlite_manager: DatabaseManager
+    ) -> None:
+        sqlite_manager.initialize()
+        with sqlite_manager.get_session() as session:
+            session.execute(text("CREATE TABLE alembic_version (version_num TEXT)"))
+            session.execute(text("INSERT INTO alembic_version VALUES ('abc123')"))
+            session.commit()
+
+        with patch(f"{M}.settings") as st:
+            st.is_development = False
+            init_db()
+
+        assert _table_names(sqlite_manager) == ["alembic_version"]
 
     def test_init_db_swallows_failure_in_development(self) -> None:
         """A dev box without Postgres should still boot far enough to iterate."""

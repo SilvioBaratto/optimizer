@@ -1,13 +1,10 @@
 """Repository for persistent background job operations."""
 
-import logging
 import os
 import socket
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
-
-logger = logging.getLogger(__name__)
 
 from portopt_db.models.jobs.background_job import (
     FUND_JOB_TYPES,
@@ -50,27 +47,6 @@ _CORE_COLUMNS: frozenset[str] = frozenset(
 
 class BackgroundJobRepository(RepositoryBase):
     """Database operations for the ``background_jobs`` table."""
-
-    def _ensure_tables_exist(self) -> None:
-        """Ensure background_jobs table exists (for test isolation)."""
-        from portopt_db.base import Base
-
-        try:
-            inspector = __import__(
-                "sqlalchemy.inspection", fromlist=["inspect"]
-            ).inspect(self.session.bind)
-            if "background_jobs" not in inspector.get_table_names():
-                Base.metadata.create_all(bind=self.session.bind)  # type: ignore[arg-type]
-        except Exception:
-            # Inspector unavailable (e.g. dialect quirk): not fatal — fall back
-            # to create-anyway. The terminal failure of that fallback is logged
-            # at debug below, so the drop here is justified, not silent.
-            try:
-                from portopt_db.base import Base
-
-                Base.metadata.create_all(bind=self.session.bind)  # type: ignore[arg-type]
-            except Exception as e:
-                logger.debug("Could not ensure background_jobs table exists: %s", e)
 
     def __init__(self, session: Session) -> None:
         super().__init__(session)
@@ -249,7 +225,6 @@ class BackgroundJobRepository(RepositoryBase):
         a normal job, ``prev + 1`` when the reaper re-dispatches an orphan.
         Dialect-agnostic: works on PostgreSQL and SQLite (tests).
         """
-        self._ensure_tables_exist()
         new_id = uuid.uuid4()
         now = datetime.now(timezone.utc)
         pid = os.getpid()
@@ -364,8 +339,6 @@ class BackgroundJobRepository(RepositoryBase):
         retention of its own, so this is the only thing that stops its terminal
         rows from accumulating in the shared ``background_jobs`` table.
         """
-        self._ensure_tables_exist()
-
         cutoff = datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)
         stmt = delete(BackgroundJob).where(
             BackgroundJob.status.in_(_TERMINAL_STATUSES),
