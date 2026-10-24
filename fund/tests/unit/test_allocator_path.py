@@ -231,6 +231,37 @@ class TestOptimizePortfolio:
         weights = result["data"]["weights"]
         assert all(w <= 0.4 + 1e-6 for w in weights.values())
 
+    def test_objective_and_risk_measure_strings_reach_the_optimizer(
+        self, db_session
+    ) -> None:
+        # A string value is coerced to the optimizer enum; a dropped key would
+        # leave the minimum-variance default and reproduce its weights.
+        _seed_panel(db_session)
+
+        default = optimize_portfolio(db_session, _ASOF, _UNIVERSE)["data"]["weights"]
+        result = optimize_portfolio(
+            db_session,
+            _ASOF,
+            _UNIVERSE,
+            constraints={"objective": "maximize_ratio", "risk_measure": "cvar"},
+        )
+
+        assert result["ok"] is True
+        weights = result["data"]["weights"]
+        assert max(abs(weights[t] - default[t]) for t in _UNIVERSE) > 1e-3
+
+    def test_cap_too_tight_for_the_universe_names_the_minimum_assets(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+
+        result = optimize_portfolio(
+            db_session, _ASOF, _UNIVERSE, constraints={"max_weights": 0.2}
+        )
+
+        assert result["ok"] is False
+        assert "at least 5 assets" in result["error"]
+
     def test_unknown_constraint_keys_are_ignored(self, db_session) -> None:
         # Unrecognized keys are filtered out, so the result matches the default.
         _seed_panel(db_session)

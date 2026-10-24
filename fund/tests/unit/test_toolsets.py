@@ -40,7 +40,7 @@ from fund.agents.toolsets import TOOLS_BY_AGENT, RunContext, bind_toolset
 from fund.audit import AgentRunRepository, put_constraint_set
 from fund.config import settings
 from fund.schemas import ConstraintSet
-from fund.schemas.constraint_set import EsgPolicy
+from fund.schemas.constraint_set import EsgPolicy, UniverseFilters
 from fund.schemas.enums import GicsSector, Horizon, ObjectiveChoice, RiskMeasureChoice
 
 _START = dt.date(2024, 1, 1)
@@ -364,20 +364,16 @@ def test_bound_optimize_appends_allocator_decision(db_session) -> None:
     assert decision.llm_response_hash is not None
 
 
-def test_optimize_logs_only_applied_config_not_mifid_knobs(db_session) -> None:
-    """Audit integrity: the logged optimizer_config reflects only what the frozen
-    optimize_portfolio actually applied (min-variance defaults + honoured bounds),
-    never the mapped-but-inert MiFID knobs. Full client intent stays in
-    constraint_set."""
+def test_optimize_applies_and_logs_the_mapped_mifid_config(db_session) -> None:
+    """The client's objective / risk measure / aversion / tail beta reach the
+    optimizer, and the audit logs the config that was actually applied."""
     _seed_panel(db_session)
     cs = _constraint_set(
-        objective=ObjectiveChoice.MAX,  # would map to maximize_ratio if applied
-        risk_measure=RiskMeasureChoice.CVAR,  # would map to cvar if applied
-        a_gamma=7.0,  # would map to risk_aversion if applied
-        beta=0.99,  # would map to cvar_beta/cdar_beta if applied
-        l1_coef=0.1,
+        objective=ObjectiveChoice.MAX,
+        risk_measure=RiskMeasureChoice.CVAR,
+        a_gamma=7.0,
+        beta=0.99,
         l2_coef=0.2,
-        cardinality=2,
     )
     ctx = _make_context(db_session, store=_store_with_cs(cs))
     optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
@@ -393,19 +389,84 @@ def test_optimize_logs_only_applied_config_not_mifid_knobs(db_session) -> None:
         .all()
     )
     logged = json.loads(decision.llm_response)["optimizer_config"]
-    # Only min-variance defaults + honoured bounds shaped the weights.
-    assert logged["objective"] == "minimize_risk"  # FAILS today: "maximize_ratio"
-    assert logged["risk_measure"] == "variance"  # FAILS today: "cvar"
-    assert logged["risk_aversion"] == 1.0  # FAILS today: 7.0
-    assert logged["cvar_beta"] == 0.95  # FAILS today: 0.99
-    assert logged.get("cardinality") is None  # FAILS today: 2
+    assert logged["objective"] == "maximize_ratio"
+    assert logged["risk_measure"] == "cvar"
+    assert logged["risk_aversion"] == 7.0
+    assert logged["cvar_beta"] == 0.99
+    assert logged["l2_coef"] == 0.2
     assert logged["min_weights"] == cs.bounds.min_weights
     assert logged["max_weights"] == cs.bounds.max_weights
     assert logged["budget"] == cs.bounds.budget
-    # Client's full MiFID intent remains auditable in constraint_set.
     assert decision.constraint_set["objective"] == "max"
     assert decision.constraint_set["risk_measure"] == "cvar"
-    assert decision.constraint_set["a_gamma"] == 7.0
+
+    # The logged config is not decorative: a protection/variance profile on the
+    # same panel produces a different book.
+    protection = _find(
+        bind_toolset(
+            "allocator",
+            _make_context(
+                db_session,
+                store=_store_with_cs(
+                    _constraint_set(
+                        objective=ObjectiveChoice.PROTECTION,
+                        risk_measure=RiskMeasureChoice.VARIANCE,
+                    )
+                ),
+            ),
+        ),
+        "optimize_portfolio",
+    ).invoke({"universe": _UNIVERSE})
+    assert protection["ok"] is True
+    gap = max(
+        abs(result["data"]["weights"][t] - protection["data"]["weights"][t])
+        for t in _UNIVERSE
+    )
+    assert gap > 1e-3
+
+
+def test_optimize_caps_weights_at_max_position_cap(db_session) -> None:
+    """A K&E position cap is a hard weight bound, not just a display label."""
+    _seed_panel(db_session)
+    cap = 0.4
+    cs = _constraint_set(universe_filters=UniverseFilters(max_position_cap=cap))
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+
+    result = optimize.invoke({"universe": _UNIVERSE})
+
+    # Unconstrained min-variance on this panel is ~0.51 / 0 / 0.49, so the cap binds.
+    assert result["ok"] is True
+    assert max(result["data"]["weights"].values()) <= cap + 1e-6
+
+
+def test_optimize_reports_cap_infeasible_for_a_too_small_universe(db_session) -> None:
+    _seed_panel(db_session)
+    cs = _constraint_set(universe_filters=UniverseFilters(max_position_cap=0.2))
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+
+    result = optimize.invoke({"universe": _UNIVERSE})
+
+    # 3 assets x 20% cannot reach a fully invested book; the model is told why
+    # rather than receiving an opaque solver failure.
+    assert result["ok"] is False
+    assert "at least 5" in result["error"]
+
+
+def test_risk_check_flags_a_weight_above_the_position_cap(db_session) -> None:
+    cs = _constraint_set(universe_filters=UniverseFilters(max_position_cap=0.4))
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    risk = _find(bind_toolset("risk", ctx), "risk_check")
+
+    result = risk.invoke({"weights": {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}})
+
+    assert result["ok"] is True
+    assert result["data"]["passed"] is False
+    (violation,) = result["data"]["violations"]
+    assert violation["type"] == "max_weight"
+    assert violation["asset"] == "AAA"
+    assert violation["limit"] == 0.4
 
 
 def test_optimize_without_store_uses_default_constraints(db_session) -> None:

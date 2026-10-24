@@ -36,7 +36,7 @@ from portopt_db.repositories.orders.portfolio_journal_repository import (
 )
 
 from fund.agents.graph import FundRun, _history_summary, _run_instruction, run_fund
-from fund.agents.toolsets import RunContext
+from fund.agents.toolsets import RunContext, _optimizer_constraints
 from fund.audit import AgentRunRepository, put_constraint_set
 from fund.config import settings
 from fund.schemas import ConstraintSet
@@ -115,9 +115,14 @@ def _mandate() -> PortfolioMandate:
 
 
 def _expected_weights(db_session) -> dict[str, float]:
-    """The optimizer's weights the allocator will produce — computed the same way
-    (default bounds), so the ticket / audit / finalised run must all match these."""
-    result = optimize_portfolio(db_session, _ASOF, _UNIVERSE)
+    """The optimizer's weights the allocator will produce — computed under the same
+    mapped ConstraintSet, so the ticket / audit / finalised run must all match these."""
+    result = optimize_portfolio(
+        db_session,
+        _ASOF,
+        _UNIVERSE,
+        constraints=_optimizer_constraints(_constraint_set()),
+    )
     assert result["ok"] is True
     return result["data"]["weights"]
 

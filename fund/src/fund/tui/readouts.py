@@ -105,7 +105,7 @@ def _results_block(payload: Mapping[str, Any], compute: Any = None) -> list[str]
 
 
 def _frontier_lines(compute: Any) -> list[str]:
-    """The frontier point: pending until recomputed, then the min-variance point."""
+    """The frontier point: pending until recomputed, then the solved point."""
     if compute is None:
         return [f"frontier point · {_PENDING_LABEL}"]
     if compute.frontier is None:

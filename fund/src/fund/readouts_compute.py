@@ -2,7 +2,9 @@
 
 Re-derives the read-outs that are *not* persisted — the frontier point and the
 backtest (later, the structured risk verdict) — by replaying the fund's frozen
-compute tools at the run's ``asof``. It lives **outside** ``fund.tui`` on purpose: it
+compute tools at the run's ``asof``, under the recorded ``ConstraintSet`` translated
+by the same helpers the live toolsets use (so the replay cannot drift from the run's
+own allocator and risk gate). It lives **outside** ``fund.tui`` on purpose: it
 imports ``fund.tools`` (which import ``optimizer`` at their module top), so the
 Deliberation view imports *this* module lazily, inside its worker body only — keeping
 ``import fund.tui.app`` agent-stack-light. It stays agent-stack-free itself (no
@@ -15,6 +17,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
+from fund.agents.toolsets import _bounds_args, _optimizer_constraints
+from fund.schemas import ConstraintSet
 from fund.tools.optimize import optimize_portfolio
 from fund.tools.risk import backtest, risk_check
 
@@ -27,7 +33,10 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class FrontierPoint:
-    """The allocator's min-variance QP solution as a single point (never a curve).
+    """The allocator's solve under the recorded ConstraintSet, as a single point.
+
+    Never a curve: the objective, risk measure and position cap are the ones the live
+    ``optimize_portfolio`` applied to the recorded weights.
 
     Attributes:
         mean: Expected return of the solved portfolio.
@@ -126,8 +135,9 @@ def compute_results(
         asof: The run's as-of date (the recompute point).
         universe: Names to optimise over — the caller passes the selected names (the
             recorded weights keys) so the frontier reflects what was held.
-        constraint_set: The recorded ``ConstraintSet.model_dump``; only its ``bounds``
-            (min/max weights, budget) reach ``optimize_portfolio``.
+        constraint_set: The recorded ``ConstraintSet.model_dump``; its mapped objective,
+            risk measure, beta, bounds and position cap reach ``optimize_portfolio``
+            exactly as in a live run. ``None`` solves under the tool defaults.
         weights: The held allocation whose forward performance the backtest evaluates.
         base_currency: The mandate's reporting currency. Prices are FX-converted to it
             exactly as the agent's allocator tools did, so the replay reproduces the
@@ -135,14 +145,24 @@ def compute_results(
 
     Returns:
         A :class:`ResultsCompute`. A failing tool yields a ``None`` slot plus its
-        ``*_error`` message rather than raising.
+        ``*_error`` message rather than raising; a recorded constraint set that no
+        longer validates leaves the frontier unavailable (the backtest does not use
+        it and still runs).
     """
-    bounds = _bounds(constraint_set)
-    frontier, frontier_error = _frontier(
-        optimize_portfolio(
-            session, asof, universe, constraints=bounds, base_currency=base_currency
+    cs, cs_error = _rehydrate(constraint_set)
+    if cs_error is not None:
+        frontier, frontier_error = None, cs_error
+    else:
+        constraints = _optimizer_constraints(cs) if cs is not None else None
+        frontier, frontier_error = _frontier(
+            optimize_portfolio(
+                session,
+                asof,
+                universe,
+                constraints=constraints,
+                base_currency=base_currency,
+            )
         )
-    )
     result, backtest_error = _backtest(
         backtest(session, asof, dict(weights), base_currency=base_currency)
     )
@@ -163,16 +183,22 @@ def compute_risk(
 
     Args:
         weights: The held allocation to check and roll up.
-        constraint_set: The recorded ``ConstraintSet.model_dump``; only its ``bounds``
-            reach ``risk_check``.
+        constraint_set: The recorded ``ConstraintSet.model_dump``; its bounds, tightened
+            to the K&E position cap, reach ``risk_check`` as in the live gate.
         sector_mapping: ``ticker -> sector``; ``None``/empty yields ``unavailable``.
 
     Returns:
-        A :class:`RiskCompute`. When ``risk_check`` returns ``ok=False`` the verdict is
-        ``None`` with an ``error`` string, but the sector roll-up is still attempted.
+        A :class:`RiskCompute`. When ``risk_check`` returns ``ok=False``, or the
+        recorded constraint set no longer validates, the verdict is ``None`` with an
+        ``error`` string, but the sector roll-up is still attempted.
     """
-    bounds = _bounds(constraint_set)
     exposures = _sector_exposures(weights, sector_mapping)
+    cs, cs_error = _rehydrate(constraint_set)
+    if cs_error is not None:
+        return RiskCompute(
+            passed=None, violations=(), sector_exposures=exposures, error=cs_error
+        )
+    bounds = _bounds_args(cs) if cs is not None else None
     envelope = risk_check(dict(weights), constraints=bounds)
     if not envelope.get("ok"):
         return RiskCompute(
@@ -211,12 +237,24 @@ def _sector_exposures(
     return tuple(sorted(totals.items(), key=lambda item: item[1], reverse=True)) or None
 
 
-def _bounds(constraint_set: Mapping[str, Any] | None) -> dict[str, Any] | None:
-    """Extract the solver bounds the frozen tools consume, or ``None`` for defaults."""
+def _rehydrate(
+    constraint_set: Mapping[str, Any] | None,
+) -> tuple[ConstraintSet | None, str | None]:
+    """The recorded ``ConstraintSet`` and no error, ``(None, None)`` if none was
+    recorded, or ``(None, message)`` when the dump no longer validates.
+
+    An unreadable dump must surface as an error: falling back to default bounds would
+    show a verdict for a mandate the client never had.
+    """
     if not constraint_set:
-        return None
-    bounds = constraint_set.get("bounds")
-    return dict(bounds) if isinstance(bounds, dict) else None
+        return None, None
+    try:
+        return ConstraintSet.model_validate(dict(constraint_set)), None
+    except ValidationError as exc:
+        return None, (
+            f"recorded constraint set is unreadable ({exc.error_count()} invalid "
+            f"field(s))"
+        )
 
 
 def _frontier(envelope: Mapping[str, Any]) -> tuple[FrontierPoint | None, str | None]:

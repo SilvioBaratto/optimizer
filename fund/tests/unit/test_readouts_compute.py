@@ -19,7 +19,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from fund.agents.toolsets import _optimizer_constraints
 from fund.readouts_compute import compute_results
+from fund.schemas import ConstraintSet
+from fund.tools.optimize import optimize_portfolio
 
 
 @pytest.fixture
@@ -147,3 +150,79 @@ def test_compute_results_replays_the_allocator_in_the_base_currency(
     assert local.backtest is not None
     assert in_eur.backtest is not None
     assert in_eur.backtest.mean - local.backtest.mean == pytest.approx(0.01, abs=2e-3)
+
+
+def _capped(cap: float) -> dict[str, Any]:
+    """The default constraint set re-profiled with a K&E per-position cap."""
+    constraint_set = make_constraint_set().model_dump(mode="json")
+    constraint_set["universe_filters"] = {"max_position_cap": cap}
+    return constraint_set
+
+
+def test_compute_risk_flags_a_weight_above_the_position_cap() -> None:
+    """The live gate tightens max_weights to the K&E cap; the read-out must agree."""
+    from fund.readouts_compute import compute_risk
+
+    result = compute_risk({"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}, _capped(0.25), None)
+
+    assert result.passed is False
+    over_cap = {v["asset"] for v in result.violations if v.get("type") == "max_weight"}
+    assert over_cap == {"AAA", "BBB"}
+
+
+def test_compute_results_frontier_replays_the_recorded_optimizer_config(
+    priced_session: Session,
+) -> None:
+    """The frontier point is the solve that produced the recorded weights: the mapped
+    objective, risk measure and cap, not a bounds-only min-variance book."""
+    constraint_set = _capped(0.4)
+    cs = ConstraintSet.model_validate(constraint_set)
+    expected = optimize_portfolio(
+        priced_session, ASOF, list(UNIVERSE), constraints=_optimizer_constraints(cs)
+    )
+    bounds_only = optimize_portfolio(
+        priced_session,
+        ASOF,
+        list(UNIVERSE),
+        constraints={
+            "min_weights": cs.bounds.min_weights,
+            "max_weights": cs.bounds.max_weights,
+            "budget": cs.bounds.budget,
+        },
+    )
+    assert expected["data"]["metrics"] != bounds_only["data"]["metrics"]
+
+    result = compute_results(
+        priced_session,
+        ASOF,
+        list(UNIVERSE),
+        constraint_set,
+        expected["data"]["weights"],
+    )
+
+    assert result.frontier is not None
+    assert result.frontier.sharpe_ratio == pytest.approx(
+        expected["data"]["metrics"]["sharpe_ratio"]
+    )
+    assert result.frontier.mean == pytest.approx(expected["data"]["metrics"]["mean"])
+
+
+def test_unreadable_recorded_constraint_set_degrades_to_an_error(
+    priced_session: Session,
+) -> None:
+    """A recorded dump that no longer validates is reported, never silently replaced
+    by default constraints that would show a verdict for a different mandate."""
+    from fund.readouts_compute import compute_risk
+
+    broken: dict[str, Any] = {"bounds": "not-a-mapping"}
+    weights = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
+
+    risk = compute_risk(weights, broken, {"AAA": "Tech"})
+    results = compute_results(priced_session, ASOF, list(UNIVERSE), broken, weights)
+
+    assert risk.passed is None
+    assert risk.error is not None
+    assert risk.sector_exposures is not None
+    assert results.frontier is None
+    assert results.frontier_error is not None
+    assert results.backtest is not None

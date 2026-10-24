@@ -2039,12 +2039,18 @@ def onboard_env():
             session.close()
 
     from _fund_fakes import seed_panel
+    from _profiler_fakes import make_answers
+
+    from fund.agents.profiler import build_constraint_set
 
     with get_session() as session:
         seed_panel(session)
         session.commit()
+    # The allocator optimises under the ConstraintSet the TUI's profiler step will
+    # derive from these answers, not the stock one.
+    onboarded = build_constraint_set(make_answers(), portfolio_id=str(_PID_NEW))
     with get_session() as session:
-        expected = expected_weights(session)
+        expected = expected_weights(session, onboarded)
 
     pool = _FakePool()
     yield SimpleNamespace(

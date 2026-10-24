@@ -11,15 +11,13 @@ a langchain ``@tool`` closure captures the run context; its args schema carries 
 
 The bound closures also carry the load-bearing invariant into the audit trail:
 
-* the resolved :class:`~fund.schemas.ConstraintSet` is translated **only into the
-  tools' existing arg dicts** (``optimize_portfolio`` honours the ``bounds``
-  subset; ESG exclusions → ``universe_filter`` criteria; bounds → ``risk_check``
-  constraints). The Phase-3 backbone stays frozen — no new tool business logic
-  (structural ``nu``/ESG enforcement is ask-first, out of Phase-7 exit,
-  so a criterion the frozen tool does not model is passed but ignored). The full
-  MiFID mapping (objective/risk-measure/risk-aversion/beta/l1/l2/cardinality) is
-  inert on the allocation today, so it is **not** logged as applied — the client's
-  mapped intent stays auditable in the decision's ``constraint_set``;
+* the resolved :class:`~fund.schemas.ConstraintSet` is translated into the tools'
+  arg dicts: ``optimize_portfolio`` receives the full mapped ``MeanRiskConfig``
+  (objective, risk measure, risk aversion, tail beta, regularisation, cardinality)
+  with ``max_weights`` tightened to the K&E ``max_position_cap``, and
+  ``risk_check`` receives the same effective bounds. The decision logs the config
+  that was actually applied, and the client's mapped intent stays auditable in the
+  decision's ``constraint_set``;
 * ``optimize_portfolio`` appends an ``agent_decision`` (allocator: the constraint
   set + the *effective* optimizer config actually applied + the optimizer's
   weights); the PM-level ``place_orders`` appends the executor's execution decision
@@ -99,8 +97,7 @@ class RunContext:
     # run-config value (never a ``ConstraintSet`` field). Wired into ``backtest``
     # (which accepts a ``window``); ``estimate_moments`` / ``optimize_portfolio``
     # take no start bound in the frozen Phase-3 backbone, so it is recorded on the
-    # run but inert there (the ESG-exclusions precedent). Additive default keeps
-    # existing callers unchanged.
+    # run but inert there. Additive default keeps existing callers unchanged.
     lookback_days: int = 756
     base_currency: str | None = None
 
@@ -125,13 +122,29 @@ def _resolve_constraint_set(ctx: RunContext) -> ConstraintSet | None:
     return resolve_constraint_set(ctx.store, ref)
 
 
+def _effective_max_weight(cs: ConstraintSet) -> float:
+    """Per-asset weight ceiling: the bound, tightened by the K&E position cap."""
+    cap = cs.universe_filters.max_position_cap
+    return cs.bounds.max_weights if cap is None else min(cs.bounds.max_weights, cap)
+
+
 def _bounds_args(cs: ConstraintSet) -> dict[str, Any]:
-    """Long-only bounds honoured by ``optimize_portfolio`` / ``risk_check``."""
+    """Long-only bounds enforced by ``risk_check`` (position cap included)."""
     return {
         "min_weights": cs.bounds.min_weights,
-        "max_weights": cs.bounds.max_weights,
+        "max_weights": _effective_max_weight(cs),
         "budget": cs.bounds.budget,
     }
+
+
+def _optimizer_constraints(cs: ConstraintSet) -> dict[str, Any]:
+    """The mapped ``MeanRiskConfig`` fields ``optimize_portfolio`` consumes."""
+    from fund.tools.optimize import _CONSTRAINT_FIELDS
+
+    config = dataclasses.replace(
+        cs.to_mean_risk_config(), max_weights=_effective_max_weight(cs)
+    )
+    return {name: getattr(config, name) for name in _CONSTRAINT_FIELDS}
 
 
 def _universe_criteria(cs: ConstraintSet) -> dict[str, Any] | None:
@@ -149,13 +162,9 @@ def _universe_criteria(cs: ConstraintSet) -> dict[str, Any] | None:
 
 
 def _effective_optimizer_config(constraints: dict[str, Any] | None) -> dict[str, Any]:
-    """The ``MeanRiskConfig`` ``optimize_portfolio`` ACTUALLY applied: min-variance
-    defaults + the honoured min/max/budget bounds. The mapped MiFID knobs
-    (objective/risk_measure/risk_aversion/beta/l1/l2/cardinality) are NOT consumed
-    by the frozen Phase-3 tool, so they are intentionally absent
-    here — the client's full mapped intent stays in the decision's ``constraint_set``.
-    Logging only the applied config keeps the audit honest (reuses the tool's own
-    ``_resolve_config`` as the single source of truth)."""
+    """The ``MeanRiskConfig`` ``optimize_portfolio`` ACTUALLY applied. Reuses the
+    tool's own ``_resolve_config`` as the single source of truth, so the audit can
+    never drift from what shaped the weights."""
     from fund.tools.optimize import _resolve_config
 
     return dataclasses.asdict(_resolve_config(constraints))
@@ -244,7 +253,7 @@ def _universe_filter_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
 def _estimate_moments_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
     # ``ctx.lookback_days`` is recorded on the run but inert here — the frozen
     # ``estimate_moments`` takes no start bound, so moments use full history up to
-    # ``asof`` (the ESG-exclusion precedent; structural enforcement is ask-first).
+    # ``asof``.
     return _tools.estimate_moments(
         ctx.session, ctx.asof, universe, base_currency=ctx.base_currency
     )
@@ -253,7 +262,7 @@ def _estimate_moments_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
 @tool_envelope
 def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
     cs = _resolve_constraint_set(ctx)
-    constraints = _bounds_args(cs) if cs is not None else None
+    constraints = _optimizer_constraints(cs) if cs is not None else None
     result = _tools.optimize_portfolio(
         ctx.session,
         ctx.asof,
@@ -262,9 +271,6 @@ def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
         base_currency=ctx.base_currency,
     )
     if result.get("ok"):
-        # Log the config the frozen tool ACTUALLY applied (min-variance defaults +
-        # honoured bounds), not the full mapped MiFID intent — that intent stays in
-        # the decision's ``constraint_set``. Keeps the audit honest.
         _append_allocator_decision(
             ctx,
             cs,

@@ -296,14 +296,24 @@ def make_mandate(portfolio_id: uuid.UUID = PORTFOLIO_ID) -> PortfolioMandate:
     )
 
 
-def expected_weights(session: Any) -> dict[str, float]:
+def expected_weights(
+    session: Any, constraint_set: ConstraintSet | None = None
+) -> dict[str, float]:
     """The optimizer's weights the allocator will produce over the seeded panel.
 
-    Computed the same way (default bounds) so the ticket, the audit trail, and the
-    finalised run must all match these — the load-bearing "skfolio, not the LLM,
-    computes the weights" invariant.
+    Computed under the same mapped ``ConstraintSet`` (``make_constraint_set()`` unless
+    the run resolves another) so the ticket, the audit trail, and the finalised run
+    must all match these — the load-bearing "skfolio, not the LLM, computes the
+    weights" invariant.
     """
-    result = optimize_portfolio(session, ASOF, UNIVERSE)
+    from fund.agents.toolsets import _optimizer_constraints
+
+    result = optimize_portfolio(
+        session,
+        ASOF,
+        UNIVERSE,
+        constraints=_optimizer_constraints(constraint_set or make_constraint_set()),
+    )
     assert result["ok"] is True
     return result["data"]["weights"]
 
