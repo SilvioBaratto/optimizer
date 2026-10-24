@@ -14,7 +14,8 @@ The allocator's mapping step: work out which optimizer FAMILY and risk measure t
 profile's objective implies, run the optimizer, and report truthfully what it applied.
 
 ## When to use
-After universe + moments + views are ready and a ConstraintSet exists.
+After the universe is filtered and a ConstraintSet exists. The economist's views
+are advisory and are not an input here.
 
 ## Load-bearing rule
 The LLM emits ONLY structured inputs. NEVER weights, mu, or covariance.

@@ -17,6 +17,7 @@ LangGraph store:
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import dataclasses
 import datetime as dt
@@ -27,10 +28,13 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 from langchain_core.tools import BaseTool
 from langgraph.store.memory import InMemoryStore
+from optimizer.moments import MomentEstimationConfig
+from optimizer.optimization import MeanRiskConfig
 from portopt_db.models import AgentDecision
 from portopt_db.models.macro.macro_regime import FredObservation
 from portopt_db.models.market_data.yfinance_data import PriceHistory, TickerProfile
@@ -42,6 +46,8 @@ from sqlalchemy import select
 
 from fund import observe
 from fund import tools as fund_tools
+from fund.agents import graph as fund_graph
+from fund.agents import prompts as fund_prompts
 from fund.agents.skills import SKILLS_BY_AGENT, SKILLS_DIR
 from fund.agents.toolsets import TOOLS_BY_AGENT, RunContext, bind_toolset
 from fund.audit import AgentRunRepository, put_constraint_set
@@ -50,6 +56,8 @@ from fund.config import settings
 from fund.schemas import ConstraintSet
 from fund.schemas.constraint_set import Bounds, EsgPolicy, UniverseFilters
 from fund.schemas.enums import GicsSector, Horizon, ObjectiveChoice, RiskMeasureChoice
+from fund.tools import moments as fund_moments
+from fund.tools import optimize as fund_optimize
 
 _START = dt.date(2024, 1, 1)
 _N_DAYS = 40
@@ -1576,3 +1584,185 @@ def test_place_orders_refuses_a_proposal_risk_did_not_check(db_session) -> None:
 
     assert result["ok"] is False
     assert _executor_rows(db_session) == []
+
+
+# --- views reach the optimizer? (docs must match the wiring) -----------------
+#
+# Two layers. The wiring guards fail if views, or any prior other than the
+# default, become an input to the allocator's tools by a route the model cannot
+# see as well as by one it can: a tool arg, a ``RunContext`` field, a config
+# handed to the frozen tools, or run code calling the ViewSet -> Black-Litterman
+# bridge. The docs guards fail while an agent-facing surface still presents views
+# as an optimizer input. When a wiring guard trips, rewrite the docs with it.
+
+_FUND_SRC = Path(__file__).resolve().parents[2] / "src" / "fund"
+_SKILLS_DIR = _FUND_SRC / "skills"
+_VIEWS_SKILL_DIR = _SKILLS_DIR / "views-construction"
+
+_VIEW_OR_PRIOR_NAME = re.compile(r"view|prior|black|litterman", re.IGNORECASE)
+_VIEW_BRIDGE_NAMES = frozenset({"ViewSet", "BlackLittermanConfig"})
+
+# Phrases that tell an agent the optimizer consumes the economist's views.
+_VIEW_INPUT_CLAIM = re.compile(
+    # the optimizer folds / prices the views
+    r"folds? (?:the )?views|folding in the economist|runs black-litterman"
+    r"|price into the prior|turn them into a prior"
+    # views listed beside the optimizer's real inputs: "universe, views, ..."
+    r"|\b(?:universe|moments)\s*[,+]\s*(?:(?:and\s+)?moments\s*[,+]\s*)?"
+    r"(?:and\s+)?(?:qualitative\s+)?views"
+    r"|\bviews?\s*[,+]\s*(?:and\s+)?(?:an?\s+)?(?:objective|constraints?)"
+    # a regime or view driving the Black-Litterman bridge
+    r"|\b(?:drives?|feeds?)\b[^.]*black-litterman",
+    re.IGNORECASE,
+)
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _prompt_surfaces() -> dict[str, str]:
+    surfaces = {"prompts module docstring": fund_prompts.__doc__ or ""}
+    for name in fund_prompts.__all__:
+        surfaces[name] = getattr(fund_prompts, name)
+    for name in (
+        "_ECONOMIST_DESCRIPTION",
+        "_ALLOCATOR_DESCRIPTION",
+        "_RISK_DESCRIPTION",
+        "_EXECUTOR_DESCRIPTION",
+    ):
+        surfaces[f"graph.{name}"] = getattr(fund_graph, name)
+    return surfaces
+
+
+def _skill_surfaces() -> dict[str, str]:
+    return {
+        f"skills/{path.relative_to(_SKILLS_DIR).as_posix()}": path.read_text(
+            encoding="utf-8"
+        )
+        for path in sorted(_SKILLS_DIR.rglob("*.md"))
+    }
+
+
+_ALL_SURFACES = {**_prompt_surfaces(), **_skill_surfaces()}
+
+# Surfaces a reader could take as describing how the allocator is fed: each must
+# say views are advisory rather than merely omit them.
+_MUST_LABEL_VIEWS_ADVISORY = (
+    "prompts module docstring",
+    "PM_SYSTEM_PROMPT",
+    "ECONOMIST_SYSTEM_PROMPT",
+    "ALLOCATOR_SYSTEM_PROMPT",
+    "graph._ALLOCATOR_DESCRIPTION",
+    "skills/fund-orchestration/SKILL.md",
+    "skills/optimization-objective-map/SKILL.md",
+    "skills/macro-regime-read/reference.md",
+    "skills/views-construction/SKILL.md",
+)
+
+
+def test_no_allocator_tool_accepts_views_or_a_prior(db_session) -> None:
+    # Model-visible args only; the three tests after it cover the routes the
+    # model does not see.
+    ctx = _make_context(db_session)
+    for tool in bind_toolset("allocator", ctx):
+        offending = [a for a in tool.args if _VIEW_OR_PRIOR_NAME.search(a)]
+        assert not offending, f"{tool.name} now accepts {offending}"
+
+
+def test_run_context_carries_no_view_or_prior_field() -> None:
+    offending = [
+        f.name
+        for f in dataclasses.fields(RunContext)
+        if _VIEW_OR_PRIOR_NAME.search(f.name)
+    ]
+    assert not offending, f"RunContext now binds {offending}"
+
+
+def test_allocator_tools_run_on_the_default_prior(db_session, monkeypatch) -> None:
+    # Behavioural: whatever the wiring, the configs that actually reach the
+    # moment and optimizer builders must be the defaults, so no view-derived
+    # prior can have been swapped in.
+    _seed_panel(db_session)
+    moment_cfgs: list[MomentEstimationConfig] = []
+    optimizer_cfgs: list[MeanRiskConfig] = []
+    real_build_prior = fund_moments.build_prior
+    real_build_mean_risk = fund_optimize.build_mean_risk
+
+    def spy_prior(cfg):
+        moment_cfgs.append(cfg)
+        return real_build_prior(cfg)
+
+    def spy_mean_risk(cfg):
+        optimizer_cfgs.append(cfg)
+        return real_build_mean_risk(cfg)
+
+    monkeypatch.setattr(fund_moments, "build_prior", spy_prior)
+    monkeypatch.setattr(fund_optimize, "build_mean_risk", spy_mean_risk)
+    ctx = _make_context(db_session, store=_store_with_cs(_constraint_set()))
+    tools = bind_toolset("allocator", ctx)
+
+    assert _find(tools, "estimate_moments").invoke({"universe": _UNIVERSE})["ok"]
+    assert _find(tools, "optimize_portfolio").invoke({"universe": _UNIVERSE})["ok"]
+
+    assert moment_cfgs == [MomentEstimationConfig()]
+    assert [c.prior_config for c in optimizer_cfgs] == [None]
+
+
+def test_no_run_code_reaches_the_viewset_bridge() -> None:
+    # Static: ``ViewSet.to_black_litterman_config`` is defined in ``fund.schemas``
+    # and called nowhere else, and run code never imports ``optimizer.views``; a
+    # caller anywhere (graph, toolsets, a new tool) trips this.
+    offenders: list[str] = []
+    for path in sorted(_FUND_SRC.rglob("*.py")):
+        rel = path.relative_to(_FUND_SRC)
+        if rel.parts[0] == "schemas":
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Attribute):
+                hit = node.attr == "to_black_litterman_config"
+            elif isinstance(node, ast.Name):
+                hit = node.id in _VIEW_BRIDGE_NAMES
+            elif isinstance(node, ast.ImportFrom):
+                hit = (node.module or "").startswith("optimizer.views") or any(
+                    a.name in _VIEW_BRIDGE_NAMES for a in node.names
+                )
+            elif isinstance(node, ast.Import):
+                hit = any(a.name.startswith("optimizer.views") for a in node.names)
+            else:
+                hit = False
+            if hit:
+                offenders.append(f"{rel.as_posix()}:{node.lineno}")
+    assert not offenders, f"run code now reaches the views bridge: {offenders}"
+
+
+@pytest.mark.parametrize("surface", sorted(_ALL_SURFACES))
+def test_agent_facing_surface_does_not_present_views_as_optimizer_input(
+    surface: str,
+) -> None:
+    match = _VIEW_INPUT_CLAIM.search(_flat(_ALL_SURFACES[surface]))
+    assert match is None, f"{surface} presents views as an input: {match[0]!r}"
+
+
+@pytest.mark.parametrize("surface", _MUST_LABEL_VIEWS_ADVISORY)
+def test_surface_that_mentions_views_labels_them_advisory(surface: str) -> None:
+    text = _flat(_ALL_SURFACES[surface]).lower()
+    assert re.search(r"\bviews?\b", text), f"{surface} no longer mentions views"
+    assert "advisory" in text, f"{surface} mentions views without saying advisory"
+
+
+def test_views_skill_names_the_tools_it_says_ignore_views() -> None:
+    # The skill's claim is only as good as the wiring guards above, so it must
+    # name the tools those guards actually cover.
+    body = _flat((_VIEWS_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    for name in ("estimate_moments", "optimize_portfolio"):
+        assert name in TOOLS_BY_AGENT["allocator"]
+        assert name in body, f"views-construction/SKILL.md no longer names {name}"
+
+
+def test_views_reference_documents_the_equal_weight_prior_and_factor_gap() -> None:
+    ref = _flat((_VIEWS_SKILL_DIR / "reference.md").read_text(encoding="utf-8"))
+    lower = ref.lower()
+    assert "market_weights" in lower and "equal" in lower
+    assert "not wired" in lower
+    assert "TimeSeriesFactorModel" in ref and "not built" in lower

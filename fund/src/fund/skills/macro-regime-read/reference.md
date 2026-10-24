@@ -23,7 +23,9 @@ On-demand support for `macro-regime-read`. Points to the theory; never copies it
 | Dynamic macro factors | compress many series into a few | `29:90` |
 
 ## Regime → cross-section / views
-Regimes drive momentum/value tilts and the Black-Litterman bridge:
+Regimes inform momentum/value tilts and the economist's qualitative views. Those
+views are advisory (no bound tool passes them to the optimizer), so the
+Black-Litterman references below are theory only:
 `26:20` (market states & momentum), `26:88` (shared regime engine across allocation
 and selection), `21:114` (four interpretable regimes), `21:128` (nowcasting the
 macro state), `21:152` (regime → BL view).

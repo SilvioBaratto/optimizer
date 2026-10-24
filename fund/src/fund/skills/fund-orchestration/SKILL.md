@@ -19,8 +19,9 @@ At the top of every run, and between steps to decide the next hand-off.
 
 ## Load-bearing rule
 Agents NEVER emit weights or numbers from their own knowledge — only structured
-inputs (universe, views, constraints). Weights come only from the optimizer via the
-allocator's tools. The risk step is a blocking gate.
+inputs (universe, constraints). Weights come only from the optimizer via the
+allocator's tools. The economist's views are advisory context, not an optimizer
+input. The risk step is a blocking gate.
 
 ## Pipeline order (detail in reference.md)
 profiler (step 0, once) → economist (regime + views) → allocator (universe +
@@ -60,6 +61,7 @@ profile/universe is fixed for the whole run.
 Pipeline table, round-cap rationale, and the load-bearing contract live in
 `reference.md`, which points to the staged theory workflow pages
 `optimizer-theory/openwiki/workflows/from-conditional-forecasts-to-weights.md`
-(the signal → view → optimizer → weights flow this pipeline runs) and
+(the full signal → view → optimizer → weights flow; here the view step is advisory
+and does not reach the optimizer) and
 `optimizer-theory/openwiki/workflows/portfolio-revision.md` (when and how to
 rebalance) — never copied here.

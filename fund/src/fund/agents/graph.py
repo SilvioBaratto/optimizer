@@ -90,8 +90,9 @@ _ECONOMIST_DESCRIPTION = (
 )
 _ALLOCATOR_DESCRIPTION = (
     "Pipeline step 2. Pre-selects the candidate tickers it is handed, estimates "
-    "moments folding in the economist's views, and runs the optimizer to produce "
-    "candidate weights under the resolved constraints. Delegate after the economist."
+    "moments, and runs the optimizer to produce candidate weights under the "
+    "resolved constraints; the economist's views are advisory context, not an "
+    "optimizer input. Delegate after the economist."
 )
 _RISK_DESCRIPTION = (
     "Pipeline step 3 — the blocking gate. Checks the allocator's proposal against "

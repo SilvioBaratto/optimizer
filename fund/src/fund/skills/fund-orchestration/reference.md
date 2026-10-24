@@ -26,7 +26,8 @@ constraints per fold) — a run is single-regime.
 - Subagents are stateless: delegate with complete instructions, collect the report.
 
 ## Theory
-- The end-to-end flow this pipeline runs — signal → view → optimizer → weights:
+- The full signal → view → optimizer → weights flow (in this pipeline views are
+  advisory and never reach the optimizer):
   `optimizer-theory/openwiki/workflows/from-conditional-forecasts-to-weights.md`.
 - When and how to rebalance (round/turnover discipline):
   `optimizer-theory/openwiki/workflows/portfolio-revision.md`.
