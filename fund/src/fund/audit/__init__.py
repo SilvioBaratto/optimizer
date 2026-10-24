@@ -21,6 +21,7 @@ from fund.audit.mandate_repository import MandateRepository
 from fund.audit.mifid_repository import (
     MifidProfileRepository,
     put_constraint_set,
+    put_constraint_set_after_commit,
     resolve_constraint_set,
 )
 from fund.audit.orders_repository import OrderRepository
@@ -42,6 +43,7 @@ __all__ = [
     "OrderRepository",
     "PositionRepository",
     "put_constraint_set",
+    "put_constraint_set_after_commit",
     "resolve_constraint_set",
     "setup_langgraph",
 ]

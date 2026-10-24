@@ -30,6 +30,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
@@ -77,6 +78,8 @@ __all__ = [
     "run_mapping",
     "run_profiler",
 ]
+
+logger = logging.getLogger(__name__)
 
 # The single HITL-gated persistence tool the profiler agent exposes (SPEC §8.5).
 _SAVE_PROFILE_TOOL = "save_profile"
@@ -608,16 +611,17 @@ class ProfilerRun:
         it). Any other decision writes nothing but records the HITL choice in the
         audit trail and finalises the run as rejected.
         """
-        from langgraph.types import Command
-
         from fund.audit import AgentRunRepository
 
-        result: dict[str, Any] = self.agent.invoke(
-            Command(resume={"decisions": [{"type": decision}]}),
-            config=self.thread_config,
+        audit = AgentRunRepository(self.session)
+        result = _resume_at_gate(
+            self.agent,
+            self.thread_config,
+            decision,
+            audit=audit,
+            run_id=self.run_id,
         )
         if decision != "approve":
-            audit = AgentRunRepository(self.session)
             audit.append_decision(
                 self.run_id,
                 agent="profiler",
@@ -626,6 +630,76 @@ class ProfilerRun:
             )
             audit.finalize_run(self.run_id, weights={}, status="rejected")
         return result
+
+
+def _persist_profile(
+    *,
+    session: Session,
+    store: Any | None,
+    config: FundConfig,
+    answers: MiFIDAnswers,
+    constraint_set: ConstraintSet,
+    suitability: SuitabilityAssessment,
+    run_id: uuid.UUID,
+    portfolio_id: uuid.UUID,
+) -> dict[str, Any]:
+    """Write the approved profile: row, Store cache and audit trail, then finalise.
+
+    Driven entirely by the deterministically-mapped values. Idempotent per the HITL
+    re-run contract (SPEC D3): a replay of a run that already completed is a true
+    no-op — no second version, no double-log. A fresh run for an already-profiled
+    portfolio is a re-profile: it appends the next version and re-caches the
+    ``ConstraintSet``, so the amended assessment supersedes the prior one. The Store
+    cache is queued behind the session's commit, so a lost transaction never leaves
+    a cached profile with no row behind it. Returns the tool-result payload.
+    """
+    from fund.audit import (
+        AgentRunRepository,
+        MifidProfileRepository,
+        put_constraint_set_after_commit,
+    )
+
+    store_key = config.constraint_set_store_key
+    repo = MifidProfileRepository(session)
+    audit = AgentRunRepository(session)
+    run = audit.get_run(run_id)
+    if run is not None and run.status == "completed":
+        # A replay of a run whose approval already applied (SPEC D3): writing again
+        # would append a duplicate version and double-log the decision.
+        current = repo.get_active(portfolio_id)
+        return {
+            "saved": True,
+            "idempotent": True,
+            "version": current.version if current is not None else None,
+        }
+
+    profile = repo.add_version(
+        portfolio_id=portfolio_id,
+        questionnaire=answers.model_dump(mode="json"),
+        constraint_set=constraint_set.model_dump(mode="json"),
+        suitability=suitability.model_dump(mode="json"),
+        store_key=store_key,
+    )
+    put_constraint_set_after_commit(session, store, constraint_set, store_key=store_key)
+
+    audit.append_decision(
+        run_id,
+        agent="profiler",
+        step=_SAVE_PROFILE_TOOL,
+        constraint_set=constraint_set.model_dump(mode="json"),
+        hitl_decision={
+            "decision": "approve",
+            "flags": list(suitability.inconsistency_flags),
+        },
+    )
+    audit.finalize_run(run_id, weights={}, status="completed")
+    return {
+        "saved": True,
+        "idempotent": False,
+        "profile_id": str(profile.id),
+        "version": profile.version,
+        "store_key": store_key,
+    }
 
 
 def _make_save_profile(
@@ -642,22 +716,12 @@ def _make_save_profile(
     """Build the closure ``save_profile`` tool for one run.
 
     The write is driven entirely by the captured, deterministically-mapped values
-    — the LLM-supplied ``portfolio_id`` argument is advisory only, so no knob can
-    enter through a tool argument (the load-bearing rule). Idempotent per the HITL
-    re-run contract (SPEC D3): a replay of a run that already completed is a true
-    no-op — no second version, no double-log. A fresh run for an already-profiled
-    portfolio is a re-profile: it appends the next version and re-caches the
-    ``ConstraintSet``, so the amended assessment supersedes the prior one.
+    (see :func:`_persist_profile`) — the LLM-supplied ``portfolio_id`` argument is
+    advisory only, so no knob can enter through a tool argument (the load-bearing
+    rule).
     """
     from langchain_core.tools import tool
 
-    from fund.audit import (
-        AgentRunRepository,
-        MifidProfileRepository,
-        put_constraint_set,
-    )
-
-    store_key = config.constraint_set_store_key
     portfolio_id_uuid = portfolio_id  # trusted UUID bound into the closure
 
     @tool
@@ -665,53 +729,59 @@ def _make_save_profile(
         """Persist the approved MiFID profile: append the ``mifid_profiles`` row
         and cache the active ``ConstraintSet`` in the Store. Call once, after
         adviser approval, with the portfolio id."""
-        repo = MifidProfileRepository(session)
-        audit = AgentRunRepository(session)
-        run = audit.get_run(run_id)
-        if run is not None and run.status == "completed":
-            # A replay of a run whose approval already applied (SPEC D3): writing
-            # again would append a duplicate version and double-log the decision.
-            current = repo.get_active(portfolio_id_uuid)
-            return json.dumps(
-                {
-                    "saved": True,
-                    "idempotent": True,
-                    "version": current.version if current is not None else None,
-                }
-            )
-
-        profile = repo.add_version(
-            portfolio_id=portfolio_id_uuid,
-            questionnaire=answers.model_dump(mode="json"),
-            constraint_set=constraint_set.model_dump(mode="json"),
-            suitability=suitability.model_dump(mode="json"),
-            store_key=store_key,
-        )
-        if store is not None:
-            put_constraint_set(store, constraint_set, store_key=store_key)
-
-        audit.append_decision(
-            run_id,
-            agent="profiler",
-            step=_SAVE_PROFILE_TOOL,
-            constraint_set=constraint_set.model_dump(mode="json"),
-            hitl_decision={
-                "decision": "approve",
-                "flags": list(suitability.inconsistency_flags),
-            },
-        )
-        audit.finalize_run(run_id, weights={}, status="completed")
         return json.dumps(
-            {
-                "saved": True,
-                "idempotent": False,
-                "profile_id": str(profile.id),
-                "version": profile.version,
-                "store_key": store_key,
-            }
+            _persist_profile(
+                session=session,
+                store=store,
+                config=config,
+                answers=answers,
+                constraint_set=constraint_set,
+                suitability=suitability,
+                run_id=run_id,
+                portfolio_id=portfolio_id_uuid,
+            )
         )
 
     return save_profile
+
+
+def _resume_at_gate(
+    agent: Any,
+    thread_config: dict[str, Any],
+    decision: str,
+    *,
+    audit: Any,
+    run_id: uuid.UUID,
+) -> dict[str, Any]:
+    """Resume the paused agent with the adviser's ``decision``.
+
+    ``save_profile`` writes inside the graph and the model then takes one more turn
+    to close the conversation. If that turn fails, the exception unwinds to a caller
+    that rolls its session back, while the checkpoint has already moved past the
+    tool and the Store write stands: the profile row and the run's finalisation
+    would be lost with nothing left to re-run the tool. Once the write has
+    finalised the run ``completed`` that closing turn is cosmetic, so its failure
+    is logged and the approval stands.
+    """
+    from langgraph.types import Command
+
+    try:
+        result: dict[str, Any] = agent.invoke(
+            Command(resume={"decisions": [{"type": decision}]}),
+            config=thread_config,
+        )
+    except Exception:
+        run = audit.get_run(run_id)
+        if decision != "approve" or run is None or run.status != "completed":
+            raise
+        logger.warning(
+            "profiler run %s: closing model turn failed after the approved "
+            "write; keeping the approval",
+            run_id,
+            exc_info=True,
+        )
+        return {}
+    return result
 
 
 def build_profiler_agent(
@@ -943,8 +1013,6 @@ def resume_profiler(
     if decision not in ("approve", "reject"):
         raise ValueError(f"decision must be 'approve' or 'reject', not {decision!r}")
 
-    from langgraph.types import Command
-
     from fund.audit import AgentRunRepository
 
     rid = _coerce_uuid(run_id)
@@ -1005,10 +1073,7 @@ def resume_profiler(
         "configurable": {"thread_id": resolved_thread_id},
         "recursion_limit": config.recursion_limit,
     }
-    result: dict[str, Any] = agent.invoke(
-        Command(resume={"decisions": [{"type": decision}]}),
-        config=thread_config,
-    )
+    result = _resume_at_gate(agent, thread_config, decision, audit=audit, run_id=rid)
     if decision != "approve":
         # Reject writes nothing, but records the HITL choice + finalises the run so
         # no 'paused' orphan is left behind (symmetric with ProfilerRun.resume).
@@ -1019,4 +1084,23 @@ def resume_profiler(
             hitl_decision={"decision": decision},
         )
         audit.finalize_run(rid, weights={}, status="rejected")
+    else:
+        finalised = audit.get_run(rid)
+        if finalised is None or finalised.status != "completed":
+            # The checkpoint is already past the tool — an earlier approve whose DB
+            # writes were rolled back — so the resume above was a no-op. Re-apply
+            # what the adviser approved instead of reporting a success that wrote
+            # nothing. Keyed on the run, not on a missing profile: a re-profile also
+            # starts from an existing row, so the row alone cannot say whether this
+            # run's approval landed.
+            _persist_profile(
+                session=session,
+                store=store,
+                config=config,
+                answers=answers,
+                constraint_set=constraint_set,
+                suitability=suitability,
+                run_id=rid,
+                portfolio_id=run.portfolio_id,
+            )
     return result

@@ -93,3 +93,23 @@ def db_session(test_engine: Engine) -> Generator[Session, None, None]:
         session.close()
         transaction.rollback()
         connection.close()
+
+
+@pytest.fixture(scope="function")
+def committing_session() -> Generator[Session, None, None]:
+    """A session over its own in-memory engine: commits and rollbacks are real.
+
+    ``db_session`` wraps a SAVEPOINT that SQLite's driver turns into a real commit
+    on the shared engine once app code commits, so rows leak into sibling tests.
+    Tests that exercise what happens *after* a commit (the Store cache that follows
+    it, a transaction lost to a rollback) need a session of their own.
+    """
+    engine = create_engine(
+        TEST_DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    with Session(bind=engine) as session:
+        yield session
+    engine.dispose()

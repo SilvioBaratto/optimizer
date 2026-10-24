@@ -38,6 +38,13 @@ from fund.config import settings
 _MESSAGES = [{"role": "user", "content": "questionnaire ..."}]
 
 
+@pytest.fixture
+def db_session(committing_session):
+    """Every test here commits (the Store cache follows it) or loses a transaction,
+    so the module runs on a private engine instead of the shared SAVEPOINT harness."""
+    return committing_session
+
+
 # --- helpers ----------------------------------------------------------------
 
 
@@ -108,7 +115,9 @@ def test_resume_profiler_approve_persists_and_completes(db_session) -> None:
     row = AgentRunRepository(db_session).get_run(run.run_id)
     assert row.status == "completed"
     assert row.finished_at is not None
-    # The reconstructed ConstraintSet is cached in the Store for the rebalance path.
+    # The reconstructed ConstraintSet is cached in the Store for the rebalance path,
+    # once the caller commits the row it mirrors.
+    db_session.commit()
     assert store.get((str(pid),), settings.constraint_set_store_key) is not None
     # The save step is recorded as a HITL approve (via the resumed tool).
     saves = [d for d in _decisions(db_session, run.run_id) if d.step == "save_profile"]
@@ -219,6 +228,180 @@ def test_resume_profiler_matches_profilerrun_resume(db_session) -> None:
     assert row_a.status == row_b.status == "completed"
     prof = MifidProfileRepository(db_session)
     assert prof.get_active(pid_a).version == prof.get_active(pid_b).version == 1
+
+
+# --- approve is not undone by the closing model turn ------------------------
+
+
+class _RateLimitedModel(ScriptedProfilerModel):
+    """Every chat turn fails — the closing turn after ``save_profile`` hits a 429."""
+
+    def _generate(self, *args, **kwargs):
+        raise RuntimeError("429 Too Many Requests")
+
+
+def test_approve_survives_a_failing_closing_model_turn(db_session) -> None:
+    pid = uuid.uuid4()
+    saver, store = MemorySaver(), InMemoryStore()
+    run = _run_to_gate(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        saver,
+        store,
+        portfolio_id=pid,
+    )
+    db_session.commit()
+
+    # The write happened inside the tool; the follow-up turn is only a closing
+    # remark and must not take the committed approval down with it.
+    resume_profiler(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=_RateLimitedModel(),
+    )
+
+    assert MifidProfileRepository(db_session).get_active(pid) is not None
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
+    db_session.commit()
+    assert store.get((str(pid),), settings.constraint_set_store_key) is not None
+
+
+def _approve(db_session, run, saver, store) -> None:
+    resume_profiler(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=_resume_model(),
+    )
+
+
+def _cached(store: InMemoryStore, pid: uuid.UUID) -> bool:
+    return store.get((str(pid),), settings.constraint_set_store_key) is not None
+
+
+def _status(db_session, run) -> str:
+    return AgentRunRepository(db_session).get_run(run.run_id).status
+
+
+def test_store_cache_follows_the_commit_of_the_approved_row(db_session) -> None:
+    pid = uuid.uuid4()
+    saver, store = MemorySaver(), InMemoryStore()
+    run = _run_to_gate(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        saver,
+        store,
+        portfolio_id=pid,
+    )
+
+    _approve(db_session, run, saver, store)
+
+    # ``fund run`` resolves the profile from the Store alone, so it may only see
+    # a profile whose row is durable.
+    assert MifidProfileRepository(db_session).get_active(pid) is not None
+    assert not _cached(store, pid)
+    db_session.commit()
+    assert _cached(store, pid)
+
+
+def test_approve_retry_finishes_a_write_lost_with_the_session(db_session) -> None:
+    pid = uuid.uuid4()
+    saver, store = MemorySaver(), InMemoryStore()
+    run = _run_to_gate(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        saver,
+        store,
+        portfolio_id=pid,
+    )
+    db_session.commit()
+    first_approve = db_session.begin_nested()
+    _approve(db_session, run, saver, store)
+    # The caller's commit then fails: the DB writes are lost and the checkpoint
+    # stays past the tool, but nothing was cached in the Store.
+    first_approve.rollback()
+    assert MifidProfileRepository(db_session).get_active(pid) is None
+    assert _status(db_session, run) == "paused"
+    assert not _cached(store, pid)
+
+    _approve(db_session, run, saver, store)
+    db_session.commit()
+
+    assert MifidProfileRepository(db_session).get_active(pid).version == 1
+    assert _status(db_session, run) == "completed"
+    assert _cached(store, pid)
+
+
+def test_approve_retry_finalises_a_reprofile_run_lost_with_the_session(
+    db_session,
+) -> None:
+    pid = uuid.uuid4()
+    saver, store = MemorySaver(), InMemoryStore()
+    first = _run_to_gate(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        saver,
+        store,
+        portfolio_id=pid,
+    )
+    _approve(db_session, first, saver, store)
+    db_session.commit()
+    # A manual re-profile of an already-profiled portfolio: its approve appends the
+    # next version, and a lost session must not leave that approval unapplied.
+    second = _run_to_gate(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        saver,
+        store,
+        portfolio_id=pid,
+    )
+    db_session.commit()
+    lost = db_session.begin_nested()
+    _approve(db_session, second, saver, store)
+    lost.rollback()
+    assert _status(db_session, second) == "paused"
+
+    _approve(db_session, second, saver, store)
+    db_session.commit()
+
+    assert _status(db_session, second) == "completed"
+    assert MifidProfileRepository(db_session).get_active(pid).version == 2
+
+
+def test_reject_after_a_lost_approve_leaves_no_cached_profile(db_session) -> None:
+    pid = uuid.uuid4()
+    saver, store = MemorySaver(), InMemoryStore()
+    run = _run_to_gate(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        saver,
+        store,
+        portfolio_id=pid,
+    )
+    db_session.commit()
+    lost = db_session.begin_nested()
+    _approve(db_session, run, saver, store)
+    lost.rollback()
+
+    resume_profiler(
+        run.run_id,
+        "reject",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=_resume_model(),
+    )
+    db_session.commit()
+
+    assert _status(db_session, run) == "rejected"
+    assert MifidProfileRepository(db_session).get_active(pid) is None
+    # ``fund run`` must not resolve a risk profile the adviser rejected.
+    assert not _cached(store, pid)
 
 
 # --- guards -----------------------------------------------------------------

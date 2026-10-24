@@ -258,16 +258,17 @@ def test_profiler_forwards_configured_structured_output_method(db_session):
 # --- persistence on approval ------------------------------------------------
 
 
-def test_approve_persists_profile_store_and_audit(db_session):
+def test_approve_persists_profile_store_and_audit(committing_session):
     pid = uuid.uuid4()
     store = InMemoryStore()
     model = make_model(make_answers(), portfolio_id=str(pid))
 
-    run = _run(model, db_session, portfolio_id=pid, store=store)
+    run = _run(model, committing_session, portfolio_id=pid, store=store)
     run.resume("approve")
+    committing_session.commit()  # the Store cache follows the row's commit
 
     # (1) the mifid_profiles row is the durable system of record.
-    profile = MifidProfileRepository(db_session).get_active(pid)
+    profile = MifidProfileRepository(committing_session).get_active(pid)
     assert profile is not None
     assert profile.version == 1
     assert profile.status == "active"
