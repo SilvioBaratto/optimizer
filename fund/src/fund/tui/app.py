@@ -448,6 +448,8 @@ class HelpScreen(ModalScreen[None]):
 
 
 _NARROW_WIDTH = 80  # below this terminal width the sidebar collapses to a rail
+# How often a barge-in-held stream worker re-checks whether the app is quitting.
+_HOLD_POLL_SECONDS = 0.25
 
 # ``App.notify`` has no "never expire" value: ``timeout=None`` falls back to the
 # default (5s). A day outlasts any unattended stretch, and the adviser can still click
@@ -1993,7 +1995,8 @@ class ShellApp(App[None]):
                     gate_run_id = event.run_id
                     # Suspend the graph generator at this step boundary while a barge-in
                     # is open; the overlay re-sets the flag on resolve.
-                    self._stream_resume.wait()
+                    if not self._hold_at_boundary():
+                        return  # quit / superseded: abandon the round uncommitted
                 if last_kind == "paused" and gate_run_id is not None:
                     halted = halt_run_if_frozen(session, gate_run_id, portfolio_id)
                 session.commit()
@@ -2022,6 +2025,23 @@ class ShellApp(App[None]):
             if halted
             else None,
         )
+
+    def _hold_at_boundary(self) -> bool:
+        """Block a stream worker while a barge-in holds it; ``False`` once cancelled.
+
+        Only the overlay's resolve callback re-arms the stream, and that never runs when
+        the app quits with the overlay open. A thread worker cannot be killed and
+        executor threads are joined at interpreter exit, so an unbounded wait would
+        leave the process alive after the UI is gone. Polling the worker's cancel flag
+        (Textual sets it on quit) bounds the hold and lets the round be abandoned.
+        """
+        from textual.worker import get_current_worker
+
+        worker = get_current_worker()
+        while not self._stream_resume.wait(_HOLD_POLL_SECONDS):
+            if worker.is_cancelled:
+                return False
+        return not worker.is_cancelled
 
     @work(thread=True, group="action")
     @_single_flight("steering the PM")

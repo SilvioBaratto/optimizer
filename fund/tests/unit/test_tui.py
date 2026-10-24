@@ -3610,6 +3610,66 @@ async def test_freeze_mid_stream_leaves_no_approvable_gate(
         assert repo.list_paused_runs(PORTFOLIO_ID) == []
 
 
+@pytest.mark.asyncio
+async def test_quit_with_barge_in_open_releases_the_stream_thread(
+    shell_env, monkeypatch
+) -> None:
+    """Quitting while a barge-in holds the stream must not strand its worker thread.
+
+    The overlay's resolve callback is what re-arms the stream, and it never runs when
+    the app quits with the overlay open. A thread worker cannot be killed and executor
+    threads are joined at exit, so a hold that only the overlay can release would leave
+    the process alive after the UI is gone.
+    """
+    with shell_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    resumed = threading.Event()
+    proceed = threading.Event()
+    stream_closed = threading.Event()
+
+    def _stream(model, mandate, *, portfolio_id, asof, **_kwargs):
+        run_id = uuid.uuid4()
+        try:
+            for index in range(3):
+                if index == 1:
+                    resumed.set()  # the worker cleared the first step boundary
+                    proceed.wait(timeout=10)
+                yield StreamEvent(
+                    kind="step",
+                    run_id=run_id,
+                    index=index,
+                    agent="economist",
+                    step="report",
+                    status=StepStatus.LIVE,
+                    text=f"step {index}",
+                )
+        finally:
+            stream_closed.set()
+
+    monkeypatch.setattr("fund.agents.graph.stream_fund", _stream)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    try:
+        async with app.run_test(size=_SIZE) as pilot:
+            view = await _open_deliberation(app, pilot)
+            app.action_run_portfolio(asof=ASOF)
+            assert await _wait_on_loop(resumed.is_set)
+            app.action_barge_in()  # hold the stream at its next step boundary
+            await pilot.pause()
+            assert isinstance(app.screen, BargeInScreen)
+            proceed.set()
+            live = view.query_one("#delib-live", DataTable)
+            assert await _wait_on_loop(lambda: live.row_count == 2)
+            await pilot.press("ctrl+q")  # a priority binding: fires under the overlay
+            await pilot.pause()
+        assert await asyncio.to_thread(stream_closed.wait, 5.0), (
+            "the stream worker is still blocked after the app quit"
+        )
+    finally:
+        proceed.set()
+        app._stream_resume.set()  # never leave the blocked thread to hang pytest
+
+
 # --- Barge-in: PM directive overlay + `b` hotkey (T8) -------------------------
 
 
