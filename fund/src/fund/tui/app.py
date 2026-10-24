@@ -1950,6 +1950,7 @@ class ShellApp(App[None]):
         stays agent-stack-light; one stream per worker (``stream_fund`` is not
         thread-safe). Model/stream errors surface as a status line, never a crash.
         """
+        from fund.actions import halt_run_if_frozen
         from fund.agents.graph import stream_fund
 
         self._stream_resume.set()  # clear any stale barge-in hold from a prior round
@@ -1960,6 +1961,7 @@ class ShellApp(App[None]):
             return
         last_kind: str | None = None
         gate_run_id: uuid.UUID | None = None
+        halted = False
         try:
             with self._session_factory() as session:
                 mandate = observe.get_mandate(session, portfolio_id)
@@ -1992,6 +1994,8 @@ class ShellApp(App[None]):
                     # Suspend the graph generator at this step boundary while a barge-in
                     # is open; the overlay re-sets the flag on resolve.
                     self._stream_resume.wait()
+                if last_kind == "paused" and gate_run_id is not None:
+                    halted = halt_run_if_frozen(session, gate_run_id, portfolio_id)
                 session.commit()
         except Exception as exc:  # surface a clean message, never crash the App
             failure = f"action failed: {exc}"
@@ -2000,13 +2004,23 @@ class ShellApp(App[None]):
             self.call_from_thread(self._exit_live_runstate)
             self.call_from_thread(self._deliver_queued_directive, None, failure=failure)
             return
-        if last_kind != "paused":
-            # A no-ticket / incomplete end has nothing to act on — drop to replay.
+        if halted:
+            self.call_from_thread(
+                self._set_status, "round halted — autonomy was frozen while it ran"
+            )
+        if last_kind != "paused" or halted:
+            # A no-ticket / incomplete / halted end has nothing to act on — drop to
+            # replay.
             self.call_from_thread(view.end_live)
         self.call_from_thread(self._exit_live_runstate)
+        # A halted round left no live gate, so a directive queued for it has nothing to
+        # answer; the halt reason becomes the drop notice.
         self.call_from_thread(
             self._deliver_queued_directive,
-            gate_run_id if last_kind == "paused" else None,
+            gate_run_id if last_kind == "paused" and not halted else None,
+            failure="round halted — autonomy was frozen while it ran"
+            if halted
+            else None,
         )
 
     @work(thread=True, group="action")

@@ -3529,6 +3529,87 @@ async def test_ask_run_refused_while_a_round_is_already_in_flight(
         release.set()
 
 
+@pytest.mark.asyncio
+async def test_freeze_mid_stream_leaves_no_approvable_gate(
+    shell_env, monkeypatch
+) -> None:
+    """A freeze pressed while a round streams is not outrun by the gate it reaches.
+
+    The freeze rejects committed paused gates only, and the in-flight round's run row
+    is not one of them; without a re-check at the gate the round would commit a
+    ``paused`` run the adviser can still approve on a frozen portfolio.
+    """
+    from fund.actions import apply_action
+
+    with shell_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    proceed = threading.Event()
+    run_ids: list[uuid.UUID] = []
+
+    def _stream(model, mandate, *, portfolio_id, asof, session, **_kwargs):
+        repo = AgentRunRepository(session)
+        run = repo.create_run(
+            portfolio_id=portfolio_id,
+            asof=asof,
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        run_ids.append(run.id)
+        yield StreamEvent(
+            kind="step",
+            run_id=run.id,
+            index=0,
+            agent="economist",
+            step="report",
+            status=StepStatus.LIVE,
+            text="macro read",
+        )
+        proceed.wait(timeout=10)
+        repo.mark_paused(run.id)
+        yield StreamEvent(
+            kind="paused",
+            run_id=run.id,
+            index=1,
+            agent="orchestrator",
+            step="place_orders",
+            status=StepStatus.PENDING,
+            text="awaiting the execution gate",
+            payload={"action_requests": []},
+        )
+
+    monkeypatch.setattr("fund.agents.graph.stream_fund", _stream)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    try:
+        async with app.run_test(size=_SIZE) as pilot:
+            view = await _open_deliberation(app, pilot)
+            app.action_run_portfolio(asof=ASOF)
+            assert await _wait_on_loop(lambda: view.live_run_id is not None)
+            worker = app.last_worker
+            assert worker is not None
+            with shell_env.get_session() as session:  # the adviser presses `k`
+                apply_action(
+                    "freeze",
+                    session=session,
+                    scope="portfolio",
+                    portfolio_id=PORTFOLIO_ID,
+                    rationale="drawdown breach",
+                )
+                session.commit()
+            proceed.set()
+            await worker.wait()
+            await pilot.pause()
+            assert "frozen" in app.last_status
+            assert view.live_run_id is None  # nothing left to follow at a halted gate
+    finally:
+        proceed.set()
+    with shell_env.get_session() as session:
+        repo = AgentRunRepository(session)
+        assert repo.get_run(run_ids[0]).status == "rejected"
+        assert repo.list_paused_runs(PORTFOLIO_ID) == []
+
+
 # --- Barge-in: PM directive overlay + `b` hotkey (T8) -------------------------
 
 

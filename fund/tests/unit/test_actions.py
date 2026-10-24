@@ -942,3 +942,84 @@ def test_apply_action_is_idempotent_on_repeated_key(paused_env) -> None:
     assert second.audit_id == first.audit_id
     assert "already applied" in second.message
     assert len(rows) == 1
+
+
+# --- freeze vs. a round in flight -------------------------------------------------
+
+
+def _freeze_portfolio(session, *, scope: str) -> None:
+    """Flip ``scope``'s autonomy row FROZEN without halting any run (the race)."""
+    from fund.audit.autonomy_repository import AutonomyScope, AutonomyState
+
+    AutonomyRepository(session).set_state(
+        AutonomyScope(scope),
+        PORTFOLIO_ID if scope == "portfolio" else None,
+        AutonomyState.FROZEN,
+        reason="drawdown breach",
+    )
+
+
+@pytest.mark.parametrize("scope", ["portfolio", "fund"])
+def test_run_rejects_the_gate_when_its_scope_froze_mid_round(
+    clean_db, monkeypatch, scope
+) -> None:
+    """A freeze that lands while a round runs must not be outrun by that round's gate.
+
+    The freeze rejects committed paused gates only; an in-flight round's run row is not
+    visible to it, so the round re-checks autonomy when it reaches the gate.
+    """
+
+    def _round_frozen_midway(model, mandate, *, portfolio_id, asof, session, **_kwargs):
+        repo = AgentRunRepository(session)
+        run = repo.create_run(
+            portfolio_id=portfolio_id,
+            asof=asof,
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        _freeze_portfolio(session, scope=scope)  # the adviser freezes mid-round
+        repo.mark_paused(run.id)
+        return SimpleNamespace(run_id=run.id, status="paused")
+
+    monkeypatch.setattr("fund.agents.graph.run_fund", _round_frozen_midway)
+
+    result = apply_action(
+        "run",
+        session=clean_db,
+        portfolio_id=PORTFOLIO_ID,
+        mandate=make_mandate(),
+        asof=ASOF,
+    )
+    clean_db.commit()
+
+    run = AgentRunRepository(clean_db).get_run(result.run_id)
+    assert run.status == "rejected"  # halted, not left as an approvable gate
+    assert AgentRunRepository(clean_db).list_paused_runs(PORTFOLIO_ID) == []
+    assert "frozen" in result.message
+
+
+@pytest.mark.parametrize("scope", ["portfolio", "fund"])
+def test_approve_refuses_a_run_whose_scope_is_frozen(paused_env, scope) -> None:
+    """An approve must never place orders while its fund or portfolio is FROZEN."""
+    env = paused_env
+    with env.get_session() as session:
+        _freeze_portfolio(session, scope=scope)  # a gate that outlived the freeze
+        session.commit()
+
+    with env.get_session() as session:
+        with pytest.raises(RuntimeError, match="frozen"):
+            apply_action(
+                "approve",
+                session=session,
+                run_id=env.run_id,
+                portfolio_id=PORTFOLIO_ID,
+                checkpointer=env.saver,
+                store=env.store,
+                model=env.model_factory(),
+            )
+        session.rollback()
+
+    with env.get_session() as session:
+        assert AgentRunRepository(session).get_run(env.run_id).status == "paused"
+        assert session.query(PaperOrder).count() == 0

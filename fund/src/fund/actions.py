@@ -519,6 +519,35 @@ def _reject_live_runs(session: Session, portfolio_id: uuid.UUID | None) -> None:
         repo.finalize_run(run.id, weights={}, status="rejected")
 
 
+def halt_run_if_frozen(
+    session: Session, run_id: uuid.UUID, portfolio_id: uuid.UUID | None
+) -> bool:
+    """Reject a round's just-opened gate when its scope froze while the round ran.
+
+    A freeze halts live runs by rejecting the *committed* paused gates, but a round in
+    flight holds its run row uncommitted, so the freeze cannot see it and the round
+    would go on to commit an approvable gate on a frozen scope. Call this at the point
+    a round reaches its gate, before the caller commits: it re-reads the fund and
+    portfolio posture and, when either is frozen, finalises the run ``rejected`` exactly
+    as the freeze would have. No commit (the caller owns the transaction).
+
+    Args:
+        session: The round's session, still holding its uncommitted run row.
+        run_id: The run that just reached its gate.
+        portfolio_id: The run's portfolio (fund scope is always checked).
+
+    Returns:
+        ``True`` when the run was halted (finalised ``rejected``), else ``False``.
+    """
+    from fund.audit.autonomy_repository import AutonomyRepository
+    from fund.audit.repository import AgentRunRepository
+
+    if AutonomyRepository(session).frozen_scope(portfolio_id) is None:
+        return False
+    AgentRunRepository(session).finalize_run(run_id, weights={}, status="rejected")
+    return True
+
+
 def _apply_freeze(
     *,
     session: Session,
@@ -1012,6 +1041,9 @@ def _apply_run(
         store=store,
         config=config,
     )
+    halted = run.status == "paused" and halt_run_if_frozen(
+        session, run.run_id, portfolio_id
+    )
     row = _append_audit(
         session,
         action="run",
@@ -1031,7 +1063,11 @@ def _apply_run(
         run_id=run.run_id,
         portfolio_id=portfolio_id,
         audit_id=row.id,
-        message=f"run {run.run_id} {run.status} ({outcome})",
+        message=(
+            f"run {run.run_id} rejected: autonomy was frozen while it ran"
+            if halted
+            else f"run {run.run_id} {run.status} ({outcome})"
+        ),
     )
 
 
@@ -1069,6 +1105,7 @@ def is_within_suitability_band(proposed_band: str, suitability_band: str) -> boo
 __all__ = [
     "ActionResult",
     "apply_action",
+    "halt_run_if_frozen",
     "is_within_suitability_band",
     "resume_message",
 ]

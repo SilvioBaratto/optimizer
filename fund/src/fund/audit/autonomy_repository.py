@@ -23,6 +23,8 @@ from typing import Any, cast
 from portopt_db.models import FundAutonomyState
 from portopt_db.repository import RepositoryBase
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import CursorResult
 
 
@@ -104,6 +106,26 @@ class AutonomyRepository(RepositoryBase):
         ids = self.session.execute(stmt).scalars().all()
         return [pid for pid in ids if pid is not None]  # portfolio rows carry an id
 
+    def frozen_scope(self, portfolio_id: uuid.UUID | None) -> AutonomyScope | None:
+        """The scope currently halting ``portfolio_id``, or ``None`` when it is armed.
+
+        Fund scope wins over portfolio scope. Read-only like :meth:`fund_posture`: it
+        never creates a row, so it is safe at the end of an in-flight round.
+
+        Args:
+            portfolio_id: The portfolio to check, or ``None`` to check the fund only.
+
+        Returns:
+            ``AutonomyScope.FUND`` / ``AutonomyScope.PORTFOLIO`` for the frozen scope,
+            else ``None``.
+        """
+        frozen = AutonomyState.FROZEN.value
+        if self.fund_posture() == frozen:
+            return AutonomyScope.FUND
+        if portfolio_id is not None and self.portfolio_posture(portfolio_id) == frozen:
+            return AutonomyScope.PORTFOLIO
+        return None
+
     def set_state(
         self,
         scope: AutonomyScope,
@@ -179,17 +201,37 @@ class AutonomyRepository(RepositoryBase):
             stmt = stmt.where(FundAutonomyState.portfolio_id.is_(None))
         else:
             stmt = stmt.where(FundAutonomyState.portfolio_id == portfolio_id)
-        return self.session.execute(stmt).scalar_one_or_none()
+        # A round holds one session open for minutes and loaded this row at its start;
+        # without populate_existing the identity map would hide a freeze committed by
+        # another session in the meantime.
+        return self.session.execute(
+            stmt.execution_options(populate_existing=True)
+        ).scalar_one_or_none()
 
     def _get_or_create(
         self, scope: AutonomyScope, portfolio_id: uuid.UUID | None
     ) -> FundAutonomyState:
         row = self._get(scope, portfolio_id)
-        if row is None:
-            row = FundAutonomyState(scope=scope.value, portfolio_id=portfolio_id)
-            self.session.add(row)
-            self.session.flush()
-        return row
+        if row is not None:
+            return row
+        # A row another transaction inserted but has not committed is invisible to the
+        # read above, and a plain INSERT would wait on the unique index until that
+        # transaction ends and then raise. Skipping the conflict lets the loser adopt
+        # the winner's row once it commits (a freeze racing a portfolio's first round).
+        insert = (
+            pg_insert
+            if self.session.get_bind().dialect.name == "postgresql"
+            else sqlite_insert
+        )
+        self.session.execute(
+            insert(FundAutonomyState)
+            .values(scope=scope.value, portfolio_id=portfolio_id)
+            .on_conflict_do_nothing()
+        )
+        created = self._get(scope, portfolio_id)
+        if created is None:  # pragma: no cover - the insert above guarantees a row
+            raise RuntimeError(f"autonomy row for scope {scope.value!r} not created")
+        return created
 
 
 __all__ = ["AutonomyRepository", "AutonomyScope", "AutonomyState"]

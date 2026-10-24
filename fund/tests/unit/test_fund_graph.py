@@ -429,6 +429,23 @@ def test_first_round_gate_flips_so_later_rounds_respect_the_mandate(
     assert captured["interrupt_on"] == {"place_orders": True, "before_risk": True}
 
 
+def test_prepare_fund_run_leaves_no_fund_autonomy_row_behind(db_session, monkeypatch):
+    """A round reads the fund posture but never inserts the fund row.
+
+    The round's transaction stays open for minutes: a fund row inserted inside it is
+    invisible to a concurrent fund freeze, which would INSERT its own, wait on the
+    singleton index until the round ends, and then fail with a unique violation.
+    """
+    from _fund_fakes import make_mandate
+    from portopt_db.models import FundAutonomyState
+    from sqlalchemy import select
+
+    _prepare(db_session, make_mandate(), monkeypatch)
+
+    scopes = set(db_session.execute(select(FundAutonomyState.scope)).scalars())
+    assert scopes == {"portfolio"}  # the first-round flag still needs its own row
+
+
 def test_prepare_fund_run_raises_when_portfolio_frozen(db_session, monkeypatch):
     """A FROZEN portfolio blocks a manual run before any agent is built."""
     from _fund_fakes import PORTFOLIO_ID, make_mandate

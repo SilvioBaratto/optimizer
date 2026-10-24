@@ -857,7 +857,7 @@ def _prepare_fund_run(
 
     from fund.agents.toolsets import RunContext
     from fund.audit import AgentRunRepository, resolve_constraint_set
-    from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
+    from fund.audit.autonomy_repository import AutonomyRepository, AutonomyScope
     from fund.schemas import ConstraintSetRef
 
     pid_uuid = _coerce_uuid(portfolio_id)
@@ -866,11 +866,14 @@ def _prepare_fund_run(
     # FROZEN blocks every new run — scheduled and human-triggered — until an explicit
     # re-arm (Q3). Fund scope wins over portfolio scope. The scheduler pre-checks and
     # skips cleanly; this raise is the backstop that blocks a manual run before any run
-    # row is opened.
+    # row is opened. Read-only on purpose: a row created here would sit uncommitted in
+    # the round's transaction for its whole run, and a concurrent freeze would then
+    # wait on the unique index until the round ends instead of acting at once.
     autonomy = AutonomyRepository(session)
-    if autonomy.fund_state().state == AutonomyState.FROZEN:
+    frozen = autonomy.frozen_scope(pid_uuid)
+    if frozen is AutonomyScope.FUND:
         raise RuntimeError("fund autonomy is frozen; re-arm before running a rebalance")
-    if autonomy.portfolio_state(pid_uuid).state == AutonomyState.FROZEN:
+    if frozen is AutonomyScope.PORTFOLIO:
         raise RuntimeError(
             f"portfolio {pid_str} is frozen; re-arm before running a rebalance"
         )
@@ -1298,6 +1301,18 @@ def resume_fund(
     portfolio_id = run.portfolio_id
     pid_str = str(portfolio_id)
     resolved_thread_id = run.thread_id or str(rid)
+
+    # A freeze rejects the gates it can see, but a round still in flight when it landed
+    # commits its gate afterwards; approving that gate would place orders on a frozen
+    # scope. Reject and respond stay allowed — they only ever halt or re-gate.
+    if decision == "approve":
+        from fund.audit.autonomy_repository import AutonomyRepository
+
+        frozen = AutonomyRepository(session).frozen_scope(portfolio_id)
+        if frozen is not None:
+            raise RuntimeError(
+                f"{frozen.value} autonomy is frozen; re-arm before approving run {rid}"
+            )
 
     # Re-guard the active ConstraintSet — the run's risk profile must still exist.
     constraint_set = None
