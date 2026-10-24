@@ -54,7 +54,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from pydantic import ValidationError
 
 from fund import observe
-from fund.config import FundConfig, settings
+from fund.config import FundConfig, load_project_env, settings
 from fund.database import database_manager
 from fund.schemas.mandate import PortfolioMandate
 
@@ -1004,11 +1004,7 @@ def main(
     One manual run. ``--full`` makes ``nav-mark`` re-mark every bar rather than the
     recent window.
     """
-    from dotenv import load_dotenv
-
-    # override=True so the project .env wins over ambient shell pollution (e.g. a
-    # conda env exporting SSL_CERT_FILE without the corporate CA).
-    load_dotenv(override=True)
+    load_project_env()
     logging.basicConfig(level=logging.INFO)
     raw = argv if argv is not None else sys.argv[1:]
     full = "--full" in raw

@@ -200,6 +200,29 @@ def _drop_blank_sdk_endpoint_env() -> None:
             del os.environ[name]
 
 
+# Variables where the project ``.env`` beats the ambient shell. A conda-activated
+# shell exports SSL_CERT_FILE to a stock cacert.pem lacking the corporate CA, which
+# would otherwise shadow the correct ``.env`` value and break TLS to Ollama Cloud.
+_DOTENV_OVERRIDE_KEYS = frozenset({"SSL_CERT_FILE"})
+
+
+def load_project_env() -> None:
+    """Load the project ``.env`` into ``os.environ`` without displacing exports.
+
+    The process environment keeps precedence, matching Alembic and the ingestion
+    daemon: an operator who exports ``DATABASE_URL`` to run ``alembic upgrade``
+    against a scratch database gets that same database from ``fund``. The one
+    exception is :data:`_DOTENV_OVERRIDE_KEYS`, where the ``.env`` value wins over
+    ambient shell pollution. A missing ``.env`` is a no-op.
+    """
+    from dotenv import dotenv_values, load_dotenv
+
+    load_dotenv(override=False)
+    for key, value in dotenv_values().items():
+        if key in _DOTENV_OVERRIDE_KEYS and value is not None:
+            os.environ[key] = value
+
+
 def load_config(
     *,
     env: Mapping[str, str] | None = None,
@@ -219,13 +242,7 @@ def load_config(
     """
     if env is None:
         if load_dotenv_file:
-            from dotenv import load_dotenv
-
-            # override=True: the project .env is authoritative over ambient shell
-            # pollution. Notably a conda-activated env exports SSL_CERT_FILE to a
-            # stock cacert.pem lacking the corporate CA; without override that
-            # shadows the correct .env value and breaks TLS to Ollama Cloud.
-            load_dotenv(override=True)
+            load_project_env()
         _drop_blank_sdk_endpoint_env()
         env = os.environ
 
@@ -309,4 +326,4 @@ def load_config(
 # Module-level singleton: cheap to import, secrets validated when used.
 settings: FundConfig = load_config()
 
-__all__ = ["FundConfig", "load_config", "settings"]
+__all__ = ["FundConfig", "load_config", "load_project_env", "settings"]

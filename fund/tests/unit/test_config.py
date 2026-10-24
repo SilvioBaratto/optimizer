@@ -13,6 +13,8 @@ from __future__ import annotations
 import ast
 import datetime as dt
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -448,3 +450,101 @@ def test_ssl_cert_file_is_a_path_not_routed_through_read_secret(tmp_path):
     cfg = load_config(env={"SSL_CERT_FILE": str(ca)})
 
     assert cfg.ssl_cert_file == str(ca)
+
+
+# --- .env precedence: the process environment beats the repo .env -------------
+
+_EXPORTED_DB = "postgresql://scratch-host:5432/scratch"
+_DOTENV_DB = "postgresql://dotenv-host:5432/live"
+
+
+@pytest.fixture
+def dotenv_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Aim python-dotenv's ``.env`` discovery at a temp file and fence ``os.environ``.
+
+    ``load_dotenv`` writes into ``os.environ``; the swapped-in copy keeps those writes
+    from leaking into other tests.
+    """
+    import dotenv.main
+
+    path = tmp_path / ".env"
+    monkeypatch.setattr(os, "environ", os.environ.copy())
+    monkeypatch.setattr(dotenv.main, "find_dotenv", lambda *a, **k: str(path))
+    return path
+
+
+def test_exported_database_url_beats_the_repo_dotenv(dotenv_file: Path):
+    # Alembic honours an exported DATABASE_URL and never reads .env; if fund let the
+    # .env win, `fund` would run against a different database than its migrations.
+    dotenv_file.write_text(f"DATABASE_URL={_DOTENV_DB}\n", encoding="utf-8")
+    os.environ["DATABASE_URL"] = _EXPORTED_DB
+
+    cfg = load_config()
+
+    assert cfg.database_url == _EXPORTED_DB
+    assert os.environ["DATABASE_URL"] == _EXPORTED_DB
+
+
+def test_dotenv_supplies_variables_the_environment_lacks(dotenv_file: Path):
+    dotenv_file.write_text(f"DATABASE_URL={_DOTENV_DB}\n", encoding="utf-8")
+    os.environ.pop("DATABASE_URL", None)
+
+    assert load_config().database_url == _DOTENV_DB
+
+
+def test_dotenv_still_overrides_an_ambient_ssl_cert_file(dotenv_file: Path):
+    # A conda-activated shell exports SSL_CERT_FILE to a stock bundle without the
+    # corporate CA; the project .env must keep winning for that one variable.
+    dotenv_file.write_text("SSL_CERT_FILE=/corp/ca.pem\n", encoding="utf-8")
+    os.environ["SSL_CERT_FILE"] = "/conda/cacert.pem"
+
+    assert load_config().ssl_cert_file == "/corp/ca.pem"
+
+
+def test_scheduler_entrypoint_keeps_an_exported_database_url(dotenv_file: Path):
+    from fund import scheduler
+
+    dotenv_file.write_text(f"DATABASE_URL={_DOTENV_DB}\n", encoding="utf-8")
+    os.environ["DATABASE_URL"] = _EXPORTED_DB
+
+    with pytest.raises(SystemExit):
+        scheduler.main([])
+
+    assert os.environ["DATABASE_URL"] == _EXPORTED_DB
+
+
+_ENTRYPOINT_PROBE = """
+import os, sys
+import dotenv.main
+
+dotenv.main.find_dotenv = lambda *args, **kwargs: sys.argv[1]
+import {module}
+from fund.config import settings
+
+print(os.environ["DATABASE_URL"], settings.database_url)
+"""
+
+
+@pytest.mark.parametrize("module", ["fund.worker", "fund.cli"])
+def test_entrypoint_import_keeps_an_exported_database_url(module: str, tmp_path: Path):
+    # Both entrypoints load the .env before anything reads settings; that early load
+    # must not clobber an exported DATABASE_URL either.
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(f"DATABASE_URL={_DOTENV_DB}\n", encoding="utf-8")
+
+    result = subprocess.run(  # noqa: S603 (fixed argv: this interpreter + probe)
+        [
+            sys.executable,
+            "-c",
+            _ENTRYPOINT_PROBE.format(module=module),
+            str(dotenv_path),
+        ],
+        env={**os.environ, "DATABASE_URL": _EXPORTED_DB},
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == [_EXPORTED_DB, _EXPORTED_DB]

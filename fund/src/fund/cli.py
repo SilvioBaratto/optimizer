@@ -23,18 +23,17 @@ LangGraph persistence via :func:`setup_langgraph` and **close its pool** in a
 **Model:** ``profile`` / ``run`` / ``approve`` / ``reject`` build the chat model
 lazily via :func:`build_primary`; a missing ``OLLAMA_API_KEY`` raises a clear
 ``RuntimeError`` surfaced as a non-zero exit. ``mandate`` / ``status`` / ``report``
-build no model. Importing this module reads no environment (``load_dotenv`` runs
-first, then the model/pool are built per command).
+build no model. Importing this module reads no environment (``load_project_env``
+runs first, then the model/pool are built per command).
 """
 
 from __future__ import annotations
 
-# Load .env FIRST, before importing anything that reads settings at import time.
-# override=True so the project .env wins over ambient shell pollution (e.g. a conda
-# env exporting SSL_CERT_FILE to a cacert.pem without the corporate CA).
-from dotenv import load_dotenv
+# Load .env FIRST, before importing anything that reads settings at import time. An
+# exported variable keeps precedence over the .env (see ``load_project_env``).
+from fund.config import load_project_env
 
-load_dotenv(override=True)
+load_project_env()
 
 import datetime as dt
 import logging
