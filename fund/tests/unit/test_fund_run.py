@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import inspect
 import json
 import math
 import re
@@ -39,7 +40,13 @@ from portopt_db.repositories.orders.portfolio_journal_repository import (
     PortfolioJournalRepository,
 )
 
-from fund.agents.graph import FundRun, _history_summary, _run_instruction, run_fund
+from fund.agents.graph import (
+    FundRun,
+    _history_summary,
+    _run_instruction,
+    run_fund,
+    stream_fund,
+)
 from fund.agents.toolsets import RunContext, _optimizer_constraints
 from fund.audit import AgentRunRepository, put_constraint_set
 from fund.audit.autonomy_repository import AutonomyRepository
@@ -954,6 +961,24 @@ def test_missing_store_raises(db_session) -> None:
 
     with pytest.raises(RuntimeError):
         _run(model, db_session, store=None)
+
+
+def test_missing_store_is_not_reported_as_an_unprofiled_portfolio(db_session) -> None:
+    """Without a store the ConstraintSet cannot be resolved at all; blaming a missing
+    profile sends the caller to re-run the profiler on a fully profiled portfolio."""
+    _seed_panel(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights={"AAA": 1.0})
+
+    with pytest.raises(RuntimeError, match="store is required"):
+        _run(model, db_session, store=None)
+
+
+@pytest.mark.parametrize("entrypoint", [run_fund, stream_fund])
+def test_a_round_entrypoint_cannot_be_called_without_a_store(entrypoint) -> None:
+    """A store-less call can never succeed, so the signature must not offer it."""
+    store = inspect.signature(entrypoint).parameters["store"]
+
+    assert store.default is inspect.Parameter.empty
 
 
 # --- blocking risk gate → executor un-invoked, no ticket ---------------------

@@ -1476,7 +1476,7 @@ def _prepare_fund_run(
     asof: dt.date,
     session: Any,
     checkpointer: Any,
-    store: Any | None,
+    store: Any,
     config: FundConfig,
     fallback: Any | None,
     thread_id: str | None,
@@ -1520,14 +1520,16 @@ def _prepare_fund_run(
     _raise_if_frozen(session, pid_uuid, doing="running a rebalance")
     autonomy = AutonomyRepository(session)
 
-    constraint_set = None
-    if store is not None:
-        constraint_set = resolve_constraint_set(
-            store,
-            ConstraintSetRef(
-                portfolio_id=pid_str, store_key=config.constraint_set_store_key
-            ),
+    if store is None:
+        raise RuntimeError(
+            f"A store is required to resolve the ConstraintSet of portfolio {pid_str}."
         )
+    constraint_set = resolve_constraint_set(
+        store,
+        ConstraintSetRef(
+            portfolio_id=pid_str, store_key=config.constraint_set_store_key
+        ),
+    )
     if constraint_set is None:
         raise RuntimeError(
             f"No active ConstraintSet for portfolio {pid_str}; run the profiler "
@@ -1662,7 +1664,7 @@ def run_fund(
     asof: dt.date,
     session: Any,
     checkpointer: Any,
-    store: Any | None = None,
+    store: Any,
     config: FundConfig = settings,
     fallback: Any | None = None,
     thread_id: str | None = None,
@@ -1686,8 +1688,9 @@ def run_fund(
     opening a gate under a FROZEN posture. Any other error (provider outage, tool or
     DB failure) finalises the run ``failed`` with the error recorded, then propagates.
 
-    ``model`` must be a tool-calling chat model. Every write goes through the injected
-    ``session`` (caller owns the transaction) and, when given, the ``store``.
+    ``model`` must be a tool-calling chat model. ``store`` is required: the active
+    ``ConstraintSet`` is resolved from it. Every write goes through the injected
+    ``session`` (caller owns the transaction) and the ``store``.
     """
     from langgraph.errors import GraphRecursionError
 
@@ -1807,7 +1810,7 @@ def stream_fund(
     asof: dt.date,
     session: Any,
     checkpointer: Any,
-    store: Any | None = None,
+    store: Any,
     config: FundConfig = settings,
     fallback: Any | None = None,
     thread_id: str | None = None,
@@ -1828,8 +1831,9 @@ def stream_fund(
     error finalises the run ``failed`` with the error recorded, then propagates.
 
     The agent stack and the ``StreamEvent`` DTO are imported lazily, so a bare
-    ``import fund.agents.graph`` stays agent-stack-free. Every write goes through
-    ``session`` (caller owns the transaction). Not thread-safe — one stream per thread.
+    ``import fund.agents.graph`` stays agent-stack-free. ``store`` is required: the
+    active ``ConstraintSet`` is resolved from it. Every write goes through ``session``
+    (caller owns the transaction). Not thread-safe — one stream per thread.
 
     Yields:
         :class:`~fund.tui.stream.StreamEvent` in emission order, terminated by a single
