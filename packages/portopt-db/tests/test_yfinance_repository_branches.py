@@ -38,6 +38,7 @@ from portopt_db.models.market_data.yfinance_data import (
     InsiderTransaction,
     InstitutionalHolder,
     MutualFundHolder,
+    OptionContract,
     PriceHistory,
     RevenueEstimate,
     SecFiling,
@@ -928,6 +929,72 @@ class TestGetOldestPriceDate:
         repo = _repo(db_session)
 
         assert repo.get_oldest_price_date(inst.id) == date(2022, 3, 9)
+
+
+class TestPruneOptionSnapshots:
+    @staticmethod
+    def _snapshot(
+        session: Session, instrument_id: uuid.UUID, as_of: date, n: int = 2
+    ) -> None:
+        for i in range(n):
+            session.add(
+                OptionContract(
+                    instrument_id=instrument_id,
+                    as_of=as_of,
+                    expiry=date(2026, 12, 18),
+                    option_type="call",
+                    strike=100 + i,
+                    contract_symbol=f"X{as_of:%y%m%d}C{i:08d}",
+                )
+            )
+        session.flush()
+
+    def _dates(self, session: Session, instrument_id: uuid.UUID) -> list[date]:
+        return sorted(
+            {
+                row.as_of
+                for row in session.query(OptionContract).filter_by(
+                    instrument_id=instrument_id
+                )
+            }
+        )
+
+    def test_keeps_only_the_newest_snapshot_dates_of_that_instrument(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session)
+        inst = _instrument(db_session, ex)
+        other = _instrument(db_session, ex, ticker="OTHR", yfinance_ticker="OTHR")
+        weeks = [date(2026, 8, 1) + timedelta(weeks=i) for i in range(5)]
+        for week in weeks:
+            self._snapshot(db_session, inst.id, week)
+        self._snapshot(db_session, other.id, weeks[0])
+
+        removed = _repo(db_session).prune_option_snapshots(inst.id, keep=2)
+        db_session.flush()
+
+        assert removed == 6
+        assert self._dates(db_session, inst.id) == weeks[-2:]
+        assert self._dates(db_session, other.id) == [weeks[0]]
+
+    def test_fewer_snapshots_than_the_limit_are_all_kept(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        self._snapshot(db_session, inst.id, date(2026, 8, 1))
+
+        assert _repo(db_session).prune_option_snapshots(inst.id, keep=4) == 0
+        assert self._dates(db_session, inst.id) == [date(2026, 8, 1)]
+
+    def test_a_non_positive_keep_is_rejected_instead_of_wiping_the_history(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        self._snapshot(db_session, inst.id, date(2026, 8, 1))
+
+        with pytest.raises(ValueError, match="keep"):
+            _repo(db_session).prune_option_snapshots(inst.id, keep=0)
+        assert self._dates(db_session, inst.id) == [date(2026, 8, 1)]
 
 
 class TestGetStalenessInfo:

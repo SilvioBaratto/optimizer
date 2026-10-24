@@ -157,6 +157,54 @@ class TestBulkFetch:
         assert result["instruments_processed"] == 1
         assert result["instruments_skipped_fresh"] == 0
 
+    def test_prunes_older_snapshots_in_the_same_transaction_as_the_new_one(
+        self,
+    ) -> None:
+        iid = uuid4()
+        repo = self._repo(iid=iid, as_of=None)
+        calls: list[str] = []
+
+        def _upsert(*_a, **_k) -> int:
+            calls.append("upsert")
+            return 2
+
+        repo.upsert_option_chain.side_effect = _upsert
+        repo.prune_option_snapshots.side_effect = lambda *_a, **_k: calls.append(
+            "prune"
+        )
+        session = MagicMock(name="session")
+        session.commit.side_effect = lambda: calls.append("commit")
+
+        @contextmanager
+        def _cm():
+            yield session
+
+        dbm = MagicMock()
+        dbm.get_session = _cm
+        with (
+            patch(f"{M}.YFinanceRepository", return_value=repo),
+            patch(f"{M}.call_with_timeout", lambda fn, _t, **_: fn()),
+            patch("app.database.database_manager", dbm),
+        ):
+            run_bulk_options_fetch(_yf_with_options(), retained_snapshots=3)
+
+        repo.prune_option_snapshots.assert_called_once_with(iid, keep=3)
+        assert calls == ["upsert", "prune", "commit"]
+
+    def test_failed_instrument_is_not_pruned(self) -> None:
+        iid = uuid4()
+        repo = self._repo(iid=iid, as_of=None)
+        yf = _yf_with_options()
+        yf.metadata.fetch_option_chain.return_value = None
+        with (
+            patch(f"{M}.YFinanceRepository", return_value=repo),
+            patch(f"{M}.call_with_timeout", lambda fn, _t, **_: fn()),
+            patch("app.database.database_manager", _session_ctx()),
+        ):
+            run_bulk_options_fetch(yf)
+
+        repo.prune_option_snapshots.assert_not_called()
+
     def test_skips_when_fresh(self) -> None:
         iid = uuid4()
         repo = self._repo(iid=iid, as_of=date.today())
