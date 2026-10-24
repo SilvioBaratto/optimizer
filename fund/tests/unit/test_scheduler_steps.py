@@ -253,6 +253,87 @@ def test_sweep_claims_slot_and_heartbeats(session_factory, monkeypatch):
     assert len(pulses) >= 1  # the heartbeat thread pulsed while the step ran
 
 
+# --- per-portfolio transaction boundaries -----------------------------------
+
+
+@pytest.fixture(params=["sweep", "drift"])
+def three_portfolio_step(request, session_factory, monkeypatch) -> Callable[[], bool]:
+    """A step over PID_A/B/C that reaches ``_drive_rebalance`` once per portfolio."""
+    is_sweep = request.param == "sweep"
+    for pid in (PID_A, PID_B, PID_C):
+        _seed_mandate(
+            session_factory, pid, cron=is_sweep, drift=not is_sweep, threshold=0.1
+        )
+    if not is_sweep:
+        monkeypatch.setattr(observe, "portfolio_state", lambda s, pid: _state(pid, 0.9))
+        monkeypatch.setattr(observe, "reprofile_status", _not_due)
+    step = run_rebalance_sweep if is_sweep else run_drift_monitor
+    return lambda: step(session_factory=session_factory, asof=ASOF)
+
+
+def _pause_a_run(session: Session, pid: uuid.UUID) -> None:
+    """Leave an ``agent_runs`` row paused at the gate, flushed but not committed."""
+    repo = AgentRunRepository(session)
+    run = repo.create_run(
+        portfolio_id=pid, asof=ASOF, seed=1, universe=[], optimizer_config={}
+    )
+    repo.mark_paused(run.id)
+
+
+def _paused_portfolios(factory: SessionFactory) -> set[uuid.UUID | None]:
+    """Portfolios with a paused run, as an independent (other-process) reader sees."""
+    with factory() as session:
+        return {r.portfolio_id for r in AgentRunRepository(session).list_paused_runs()}
+
+
+def test_step_commits_each_portfolio_before_driving_the_next(
+    three_portfolio_step, session_factory, monkeypatch
+):
+    seen_by_others: dict[uuid.UUID, set[uuid.UUID | None]] = {}
+
+    def _drive(pid, asof, *, session, **_kw):
+        seen_by_others[pid] = _paused_portfolios(session_factory)
+        _pause_a_run(session, pid)
+
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", _drive)
+
+    assert three_portfolio_step() is True
+
+    # A gate must be visible to the adviser (and survive a crash) the moment its
+    # portfolio is done, not only when the whole sweep ends.
+    assert seen_by_others == {
+        PID_A: set(),
+        PID_B: {PID_A},
+        PID_C: {PID_A, PID_B},
+    }
+
+
+def test_step_survives_a_database_error_in_one_portfolio(
+    three_portfolio_step, session_factory, monkeypatch
+):
+    def _drive(pid, asof, *, session, **_kw):
+        if pid == PID_B:
+            # Not JSON-serialisable: the INSERT fails inside flush, which leaves the
+            # session needing a rollback.
+            AgentRunRepository(session).create_run(
+                portfolio_id=pid,
+                asof=ASOF,
+                seed=1,
+                universe=[],
+                optimizer_config={"bad": object()},
+            )
+        _pause_a_run(session, pid)
+
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", _drive)
+
+    assert three_portfolio_step() is True
+
+    assert _paused_portfolios(session_factory) == {PID_A, PID_C}
+    with session_factory() as session:
+        statuses = {r.status for r in session.query(BackgroundJob).all()}
+    assert statuses == {"completed"}
+
+
 class _SaturdayClock(datetime):
     """``datetime`` frozen to the Saturday after the panel's last stored bar."""
 

@@ -358,18 +358,36 @@ def run_rebalance_sweep(
         return True
 
 
+def _active_mandate_rows(session: Session) -> list[tuple[uuid.UUID, dict[str, Any]]]:
+    """Snapshot ``(portfolio_id, mandate JSON)`` for every active mandate.
+
+    Plain values rather than ORM rows: the per-portfolio commit/rollback in the
+    sweeps expires every loaded instance, so reading a row after a rollback would
+    re-query (or fail on a row deleted meanwhile) in the middle of the loop.
+    """
+    from fund.audit.mandate_repository import MandateRepository
+
+    return [
+        (row.portfolio_id, row.mandate)
+        for row in MandateRepository(session).list_active()
+    ]
+
+
 def _sweep_cron_mandates(
     session: Session, runtime: SchedulerRuntime | None, asof: dt.date
 ) -> None:
-    """Drive each active ``triggers.cron`` mandate; one error is skipped, not fatal."""
-    from fund.audit.mandate_repository import MandateRepository
+    """Drive each active ``triggers.cron`` mandate; one error is skipped, not fatal.
 
+    Each portfolio is its own transaction: committed as soon as it reaches its
+    gate, rolled back if it fails. A paused run is therefore visible to the adviser
+    immediately and survives a crash later in the sweep, and a failed portfolio
+    can neither leave a pending orphan row nor poison the session for the rest.
+    """
     model, fallback, persistence = _runtime_parts(runtime)
-    for row in MandateRepository(session).list_active():
-        mandate = PortfolioMandate.model_validate(row.mandate)
+    for pid, payload in _active_mandate_rows(session):
+        mandate = PortfolioMandate.model_validate(payload)
         if not mandate.triggers.cron:
             continue
-        pid = row.portfolio_id
         try:
             _drive_rebalance(
                 pid,
@@ -379,8 +397,10 @@ def _sweep_cron_mandates(
                 model=model,
                 fallback=fallback,
             )
+            session.commit()
         except Exception:
             logger.exception("rebalance sweep: portfolio %s errored; skipping", pid)
+            session.rollback()
 
 
 def run_drift_monitor(
@@ -435,15 +455,16 @@ def _monitor_drift_mandates(
     asof: dt.date,
     config: FundConfig,
 ) -> None:
-    """Check drift for each active ``triggers.drift`` mandate; one error is skipped."""
-    from fund.audit.mandate_repository import MandateRepository
+    """Check drift for each active ``triggers.drift`` mandate; one error is skipped.
 
+    Transaction boundaries match :func:`_sweep_cron_mandates`: one commit per
+    portfolio, a rollback for the one that errored.
+    """
     model, fallback, persistence = _runtime_parts(runtime)
-    for row in MandateRepository(session).list_active():
-        mandate = PortfolioMandate.model_validate(row.mandate)
+    for pid, payload in _active_mandate_rows(session):
+        mandate = PortfolioMandate.model_validate(payload)
         if not mandate.triggers.drift:
             continue
-        pid = row.portfolio_id
         try:
             _check_drift(
                 pid,
@@ -455,8 +476,10 @@ def _monitor_drift_mandates(
                 fallback=fallback,
                 config=config,
             )
+            session.commit()
         except Exception:
             logger.exception("drift monitor: portfolio %s errored; skipping", pid)
+            session.rollback()
 
 
 def _check_drift(
