@@ -246,7 +246,8 @@ class TestGetPricesDeterminism:
 
 
 _FX_START = dt.date(2024, 1, 2)
-_FX_DAYS = 11
+# Long enough for estimate_moments' minimum of 20 return observations per asset.
+_FX_DAYS = 31
 _FX_ASOF = _FX_START + dt.timedelta(days=_FX_DAYS - 1)
 
 
