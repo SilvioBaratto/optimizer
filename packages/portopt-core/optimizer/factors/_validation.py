@@ -507,15 +507,24 @@ def correct_pvalues(
     Returns:
         ``holm`` — FWER-controlling Holm-Bonferroni adjusted p-values.
         ``bh``   — FDR-controlling Benjamini-Hochberg adjusted p-values.
-        Both arrays are returned in the **same order** as the input.
+        Both arrays are returned in the **same order** as the input.  NaN
+        p-values are excluded from the family size and stay NaN in their own
+        position; they do not affect the other adjusted values.
     """
     p = np.asarray(p_values, dtype=np.float64)
-    m = len(p)
-    if m == 0:
-        empty: npt.NDArray[np.float64] = np.empty(0, dtype=np.float64)
-        return CorrectedPValues(holm=empty, bh=empty)
+    holm_out = np.full(len(p), np.nan, dtype=np.float64)
+    bh_out = np.full(len(p), np.nan, dtype=np.float64)
 
-    sort_idx = np.argsort(p)
+    # A NaN p-value is not a test: ranking it (argsort puts it last) would
+    # inflate m and, through the right-to-left cumulative minimum, turn every
+    # Benjamini-Hochberg adjusted value into NaN.
+    finite_idx = np.flatnonzero(~np.isnan(p))
+    m = len(finite_idx)
+    if m == 0:
+        return CorrectedPValues(holm=holm_out, bh=bh_out)
+
+    order = np.argsort(p[finite_idx])
+    sort_idx = finite_idx[order]
     sorted_p = p[sort_idx]
     ranks = np.arange(1, m + 1, dtype=np.float64)
 
@@ -527,8 +536,6 @@ def correct_pvalues(
     bh_sorted = np.minimum(1.0, sorted_p * (m / ranks))
     bh_sorted = np.minimum.accumulate(bh_sorted[::-1])[::-1]
 
-    holm_out = np.empty(m, dtype=np.float64)
-    bh_out = np.empty(m, dtype=np.float64)
     holm_out[sort_idx] = holm_sorted
     bh_out[sort_idx] = bh_sorted
 

@@ -1074,6 +1074,38 @@ class TestCorrectPValues:
         assert result.holm[1] <= result.holm[0]
         assert result.bh[1] <= result.bh[0]
 
+    def test_nan_pvalue_does_not_poison_other_adjusted_pvalues(self) -> None:
+        result = correct_pvalues(np.array([0.001, np.nan, 0.03]))
+
+        # m is the count of finite p-values (2): the NaN is not a test.
+        np.testing.assert_allclose(result.holm[[0, 2]], [0.002, 0.03])
+        np.testing.assert_allclose(result.bh[[0, 2]], [0.002, 0.03])
+
+    def test_nan_pvalue_stays_nan_in_its_own_position_only(self) -> None:
+        result = correct_pvalues(np.array([0.2, np.nan, 0.01, 0.04]))
+
+        assert np.isnan(result.holm[1])
+        assert np.isnan(result.bh[1])
+        assert np.isfinite(np.delete(result.holm, 1)).all()
+        assert np.isfinite(np.delete(result.bh, 1)).all()
+
+    def test_nan_pvalues_match_correction_of_finite_subset(self) -> None:
+        finite = np.array([0.04, 0.001, 0.2, 0.01])
+        padded = np.array([0.04, np.nan, 0.001, 0.2, np.nan, 0.01])
+        mask = np.isfinite(padded)
+
+        expected = correct_pvalues(finite)
+        result = correct_pvalues(padded)
+
+        np.testing.assert_allclose(result.holm[mask], expected.holm)
+        np.testing.assert_allclose(result.bh[mask], expected.bh)
+
+    def test_all_nan_pvalues_return_all_nan(self) -> None:
+        result = correct_pvalues(np.array([np.nan, np.nan]))
+
+        assert np.isnan(result.holm).all()
+        assert np.isnan(result.bh).all()
+
 
 class TestValidateFactorUniverse:
     @pytest.fixture()
