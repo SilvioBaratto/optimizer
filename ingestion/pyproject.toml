@@ -20,7 +20,7 @@ dependencies = [
     "SQLAlchemy==2.0.52",
     # Financial Data
     "exchange_calendars==4.13.2",
-    "yfinance==1.6.0",
+    "yfinance==1.7.0",
     # Required by yfinance price-repair (repair=True): its bad-print
     # reconstruction imports sklearn.cluster.DBSCAN. Without it, repair raises
     # ModuleNotFoundError on ~22% of tickers -> empty history -> the universe
