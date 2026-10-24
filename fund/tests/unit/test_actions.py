@@ -27,6 +27,7 @@ from _fund_fakes import (
     START,
     UNIVERSE,
     ScriptedFundModel,
+    _count_tool_calls,
     classify_instruments,
     make_constraint_set,
     make_energy_exclusion_constraint_set,
@@ -1702,3 +1703,48 @@ def test_retry_after_a_rolled_back_approve_places_the_lost_ticket(paused_env) ->
         } == env.expected
         rows = HumanAuditLogRepository(session).list_recent(action="approve")
         assert [r.idempotency_key for r in rows] == [key]
+
+
+# --- a failed narration turn after the ticket landed must not lose the approval ----
+
+
+class _PostTicketOutageModel(ScriptedFundModel):
+    """Scripted PM whose provider goes down on the turn after ``place_orders`` ran."""
+
+    def _pm_turn(self, messages):
+        if _count_tool_calls(messages, "place_orders"):
+            raise RuntimeError("LLM provider 529 overloaded")
+        return super()._pm_turn(messages)
+
+
+def test_approve_is_finalised_from_the_ticket_when_the_post_ticket_pm_turn_fails(
+    paused_env,
+) -> None:
+    """The gated ``place_orders`` writes the ticket and consumes the checkpoint's
+    interrupt before the PM's follow-up model turn. If that turn raises, the approval
+    must still land from the placed ticket — not roll back and strand the run."""
+    env = paused_env
+    with env.get_session() as session:
+        result = apply_action(
+            "approve",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=_PostTicketOutageModel(universe=UNIVERSE, weights=env.expected),
+        )
+        session.commit()
+
+    assert "approved" in result.message
+    with env.get_session() as session:
+        run = AgentRunRepository(session).get_run(env.run_id)
+        assert run.status == "completed"
+        assert run.weights == env.expected
+        assert session.query(PaperOrder).count() == 1
+        positions = {
+            p.ticker: p.weight
+            for p in PositionRepository(session).get_holdings(PORTFOLIO_ID)
+        }
+        assert positions == env.expected
+        assert len(HumanAuditLogRepository(session).list_recent(action="approve")) == 1

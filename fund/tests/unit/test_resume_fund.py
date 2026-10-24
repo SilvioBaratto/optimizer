@@ -1561,6 +1561,29 @@ def test_resume_fund_approve_survives_pm_failure_after_the_ticket(db_session) ->
     assert _positions_map(db_session) == expected
 
 
+def test_fundrun_resume_approve_survives_pm_failure_after_the_ticket(
+    db_session,
+) -> None:
+    """The in-process handle follows the same rule as the rebuild path: a PM turn that
+    fails once ``place_orders`` ran must not undo an approval whose gate is spent."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    run = _run_to_gate(
+        PmFailsAfterOrderModel(universe=UNIVERSE, weights=expected),
+        db_session,
+        MemorySaver(),
+        _store_with_cs(),
+    )
+
+    result = run.resume("approve")
+
+    assert "429" in result["resume_error"]
+    assert len(_paper_orders(db_session)) == 1
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "completed"
+    assert _positions_map(db_session) == expected
+
+
 def test_resume_fund_reject_survives_pm_failure_after_the_gate(db_session) -> None:
     """A reject whose follow-up PM turn fails is still recorded, not left paused."""
     seed_panel(db_session)

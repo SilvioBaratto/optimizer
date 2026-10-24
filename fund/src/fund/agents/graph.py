@@ -1091,15 +1091,32 @@ class FundRun:
         if run.portfolio_id is None:
             raise ValueError(f"agent_run {self.run_id} has no portfolio_id")
         approved_weights = _optimizer_weights(self.session, self.run_id)
-        resumed = _resume_gate(
-            self.agent,
-            self.ctx,
-            self.thread_config,
-            decision=decision,
-            pm_directive=pm_directive,
-            approved_weights=approved_weights,
-        )
-        result = resumed.result
+        regated_from: str | None = None
+        try:
+            resumed = _resume_gate(
+                self.agent,
+                self.ctx,
+                self.thread_config,
+                decision=decision,
+                pm_directive=pm_directive,
+                approved_weights=approved_weights,
+            )
+            result = resumed.result
+            regated_from = resumed.regated_from
+        except Exception as exc:
+            # Same rule as ``resume_fund``: the checkpointer commits on its own
+            # connection, so a failure of the PM's follow-up turn after the gate was
+            # consumed would leave the checkpoint past the tool step while the caller
+            # rolls the ticket back. A gate still pending means nothing moved and the
+            # failure is safely retryable.
+            if _pending_gate_names(self.agent, self.thread_config):
+                raise
+            _log.warning(
+                "resume of run %s failed after the gate was consumed",
+                self.run_id,
+                exc_info=True,
+            )
+            result = {"resume_error": f"{type(exc).__name__}: {exc}"}
         if decision == "respond":
             _finalize_respond(
                 self.session,
@@ -1116,7 +1133,7 @@ class FundRun:
             weights=approved_weights,
             decision=decision,
             result=result,
-            regated_from=resumed.regated_from,
+            regated_from=regated_from,
         )
         return result
 
