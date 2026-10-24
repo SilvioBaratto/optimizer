@@ -351,6 +351,7 @@ def run_rebalance_sweep(
                 )
         except Exception as exc:
             logger.exception("rebalance sweep: aborted")
+            session.rollback()
             job_repo.mark_done(job_id, status="failed", error=str(exc))
             return False
         job_repo.mark_done(job_id, status="completed")
@@ -442,6 +443,7 @@ def run_drift_monitor(
                 )
         except Exception as exc:
             logger.exception("drift monitor: aborted")
+            session.rollback()
             job_repo.mark_done(job_id, status="failed", error=str(exc))
             return False
         job_repo.mark_done(job_id, status="completed")

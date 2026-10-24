@@ -38,7 +38,7 @@ import pytest
 from _fund_fakes import ASOF, make_constraint_set, seed_panel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import AgentRun, BackgroundJob, Base
+from portopt_db.models import AgentDecision, AgentRun, BackgroundJob, Base
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -253,6 +253,155 @@ def test_sweep_survives_one_portfolio_error(session_factory, monkeypatch):
     assert ok is True  # one portfolio erroring never aborts the sweep
     assert driven == [PID_B]
     assert _job_rows(session_factory, "fund_rebalance_sweep")[0].status == "completed"
+
+
+def _open_gate(session: Session, pid: uuid.UUID) -> None:
+    """What a driven round leaves behind: a paused run, flushed but not committed."""
+    repo = AgentRunRepository(session)
+    repo.mark_paused(
+        repo.create_run(
+            portfolio_id=pid, asof=ASOF, seed=1, universe=[], optimizer_config={}
+        ).id
+    )
+
+
+def test_sweep_commits_each_portfolio_so_its_gate_is_visible_mid_sweep(
+    session_factory, monkeypatch
+):
+    _seed_mandate(session_factory, PID_A, cron=True, drift=False)
+    _seed_mandate(session_factory, PID_B, cron=True, drift=False)
+    seen: dict[str, int] = {}
+
+    def _drive(pid, asof, *, session, **_kw):
+        if pid == PID_A:
+            _open_gate(session, pid)
+            return
+        with session_factory() as other:  # e.g. the TUI / a freeze, mid-sweep
+            seen["gates_of_a"] = len(AgentRunRepository(other).list_paused_runs(PID_A))
+
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", _drive)
+
+    assert run_rebalance_sweep(session_factory=session_factory, asof=ASOF) is True
+
+    assert seen["gates_of_a"] == 1  # A's gate was committed before B was driven
+
+
+def test_drift_monitor_commits_each_portfolio_so_its_gate_is_visible_mid_run(
+    session_factory, monkeypatch
+):
+    _seed_mandate(session_factory, PID_A, cron=False, drift=True, threshold=0.1)
+    _seed_mandate(session_factory, PID_B, cron=False, drift=True, threshold=0.1)
+    monkeypatch.setattr(observe, "portfolio_state", lambda s, pid: _state(pid, 0.9))
+    monkeypatch.setattr(observe, "reprofile_status", _not_due)
+    seen: dict[str, int] = {}
+
+    def _drive(pid, asof, *, session, **_kw):
+        if pid == PID_A:
+            _open_gate(session, pid)
+            return
+        with session_factory() as other:
+            seen["gates_of_a"] = len(AgentRunRepository(other).list_paused_runs(PID_A))
+
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", _drive)
+
+    assert run_drift_monitor(session_factory=session_factory, asof=ASOF) is True
+
+    assert seen["gates_of_a"] == 1
+
+
+# --- a failing portfolio must not leak into, or poison, the rest of the step ------
+
+_STEPS = ("sweep", "drift")
+_STEP_JOB_TYPE = {"sweep": "fund_rebalance_sweep", "drift": "fund_drift_monitor"}
+
+
+def _run_step(step: str, factory: SessionFactory, monkeypatch) -> bool:
+    """Run the sweep or the drift monitor over breached, cron+drift mandates."""
+    monkeypatch.setattr(observe, "portfolio_state", lambda s, pid: _state(pid, 0.9))
+    monkeypatch.setattr(observe, "reprofile_status", _not_due)
+    if step == "sweep":
+        return run_rebalance_sweep(session_factory=factory, asof=ASOF)
+    return run_drift_monitor(session_factory=factory, asof=ASOF)
+
+
+def _poison_session(session: Session, pid: uuid.UUID) -> None:
+    """Write a half-run then fail a flush, leaving the session needing a rollback."""
+    repo = AgentRunRepository(session)
+    run = repo.create_run(
+        portfolio_id=pid, asof=ASOF, seed=1, universe=[], optimizer_config={}
+    )
+    repo.append_decision(run.id, agent="allocator", step="optimize_portfolio")
+    session.add(
+        AgentDecision(run_id=run.id, decision_index=0, agent="x", step="duplicate")
+    )
+    session.flush()  # uq_agent_decision_run_index -> IntegrityError
+
+
+def _runs_of(factory: SessionFactory, pid: uuid.UUID) -> list[AgentRun]:
+    with factory() as session:
+        return list(session.query(AgentRun).filter_by(portfolio_id=pid).all())
+
+
+@pytest.mark.parametrize("step", _STEPS)
+def test_failed_portfolio_leaves_no_half_written_run_behind(
+    session_factory, monkeypatch, step
+):
+    _seed_mandate(session_factory, PID_A, cron=True, drift=True, threshold=0.1)
+    _seed_mandate(session_factory, PID_B, cron=True, drift=True, threshold=0.1)
+
+    def _drive(pid, asof, *, session, **_kw):
+        if pid == PID_A:
+            AgentRunRepository(session).create_run(  # flushed, then the LLM dies
+                portfolio_id=pid, asof=ASOF, seed=1, universe=[], optimizer_config={}
+            )
+            raise RuntimeError("LLM 429")
+        _open_gate(session, pid)
+
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", _drive)
+
+    assert _run_step(step, session_factory, monkeypatch) is True
+
+    assert _runs_of(session_factory, PID_A) == []  # no zombie 'pending' row
+    assert [r.status for r in _runs_of(session_factory, PID_B)] == ["paused"]
+
+
+@pytest.mark.parametrize("step", _STEPS)
+def test_database_error_in_one_portfolio_does_not_stop_the_rest(
+    session_factory, monkeypatch, step
+):
+    _seed_mandate(session_factory, PID_A, cron=True, drift=True, threshold=0.1)
+    _seed_mandate(session_factory, PID_B, cron=True, drift=True, threshold=0.1)
+
+    def _drive(pid, asof, *, session, **_kw):
+        if pid == PID_A:
+            _poison_session(session, pid)
+        _open_gate(session, pid)
+
+    monkeypatch.setattr("fund.scheduler._drive_rebalance", _drive)
+
+    assert _run_step(step, session_factory, monkeypatch) is True
+
+    assert _runs_of(session_factory, PID_A) == []
+    assert [r.status for r in _runs_of(session_factory, PID_B)] == ["paused"]
+    assert _job_rows(session_factory, _STEP_JOB_TYPE[step])[0].status == "completed"
+
+
+@pytest.mark.parametrize("step", _STEPS)
+def test_step_aborted_on_a_poisoned_session_still_marks_its_slot_failed(
+    session_factory, monkeypatch, step
+):
+    _seed_mandate(session_factory, PID_A, cron=True, drift=True, threshold=0.1)
+
+    def _poisoned_then_boom(session, *_a, **_k):
+        _poison_session(session, PID_A)
+
+    monkeypatch.setattr("fund.scheduler._sweep_cron_mandates", _poisoned_then_boom)
+    monkeypatch.setattr("fund.scheduler._monitor_drift_mandates", _poisoned_then_boom)
+
+    assert _run_step(step, session_factory, monkeypatch) is False
+
+    rows = _job_rows(session_factory, _STEP_JOB_TYPE[step])
+    assert [r.status for r in rows] == ["failed"]  # not stuck 'running' for the reaper
 
 
 def test_sweep_skips_when_slot_busy(session_factory, monkeypatch):
