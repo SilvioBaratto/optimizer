@@ -814,6 +814,17 @@ def run_profiler(
         # Paused at the always-confirm save_profile gate — mark the row so observers
         # can find it awaiting a decision (symmetric with run_fund's fund gate).
         audit.mark_paused(run.id)
+    else:
+        # The agent answered without calling save_profile (a model that replies in
+        # prose): there is no gate to approve, and leaving the row 'pending' would
+        # hide it from every queue forever. Mirrors run_fund's no-gate finalise.
+        audit.append_decision(
+            run.id,
+            agent="profiler",
+            step=_SAVE_PROFILE_TOOL,
+            hitl_decision={"decision": "incomplete", "reason": "no_gate"},
+        )
+        audit.finalize_run(run.id, weights={}, status="incomplete")
     return ProfilerRun(
         answers=answers,
         constraint_set=constraint_set,

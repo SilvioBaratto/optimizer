@@ -11,7 +11,12 @@ from __future__ import annotations
 
 import uuid
 
-from _profiler_fakes import make_answers, make_model
+from _profiler_fakes import (
+    ScriptedProfilerModel,
+    final_reply,
+    make_answers,
+    make_model,
+)
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision
@@ -131,6 +136,24 @@ def test_reject_records_hitl_decision_in_audit(db_session):
         d.hitl_decision and d.hitl_decision.get("decision") == "reject"
         for d in decisions
     )
+
+
+# --- a run that never reaches the gate is not left pending -------------------
+
+
+def test_run_that_never_reaches_the_gate_is_finalised_incomplete(db_session):
+    pid = uuid.uuid4()
+    model = ScriptedProfilerModel(
+        structured_outcomes=[make_answers()], chat_responses=[final_reply()]
+    )
+
+    run = _run(model, db_session, portfolio_id=pid)
+
+    assert run.interrupt is None
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "incomplete"
+    assert row.finished_at is not None
+    assert MifidProfileRepository(db_session).get_active(pid) is None
 
 
 # --- re-profiling appends the next version ----------------------------------

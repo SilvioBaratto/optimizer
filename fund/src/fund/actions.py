@@ -986,6 +986,11 @@ def _apply_profile(
     ``SuitabilityAssessment``, and pauses at the always-confirm gate — approving it
     later (through ``apply_action("approve", ...)``) persists the profile and caches
     the active set. The agent stack is imported here, never at module scope.
+
+    Raises:
+        ValueError: ``portfolio_id`` is missing.
+        RuntimeError: The profiler ended without pausing at the gate, so there is
+            nothing to approve (the run is finalised ``incomplete``).
     """
     if portfolio_id is None:
         raise ValueError("'profile' requires a portfolio_id")
@@ -1002,6 +1007,11 @@ def _apply_profile(
         asof=asof,
         config=config,
     )
+    if run.interrupt is None:
+        raise RuntimeError(
+            f"profiler run {run.run_id} ended without reaching the approval gate; "
+            "no profile was saved and there is nothing to approve"
+        )
     row = _append_audit(
         session,
         action="profile",

@@ -43,7 +43,7 @@ from _fund_fakes import (
     make_constraint_set,
     seed_panel,
 )
-from _profiler_fakes import make_answers
+from _profiler_fakes import ScriptedProfilerModel, final_reply, make_answers
 from _profiler_fakes import make_model as make_profiler_model
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
@@ -918,3 +918,19 @@ def test_profile_appends_a_cli_audit_row(harness, monkeypatch, cli_actor) -> Non
     assert row["portfolio_id"] == PORTFOLIO_ID
     assert row["actor"] == cli_actor
     assert row["source"] == "cli"
+
+
+def test_profile_that_never_reaches_the_gate_fails(harness, monkeypatch) -> None:
+    model = ScriptedProfilerModel(
+        structured_outcomes=[make_answers()], chat_responses=[final_reply()]
+    )
+    monkeypatch.setattr(cli, "build_primary", lambda *a, **k: model)
+
+    res = harness.runner.invoke(
+        cli.app,
+        ["profile", str(PORTFOLIO_ID), "--answers", "Growth over ten years, EUR."],
+    )
+
+    assert res.exit_code == 1
+    assert "awaiting approval" not in res.output
+    assert "approval gate" in res.output

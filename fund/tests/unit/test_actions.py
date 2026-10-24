@@ -823,6 +823,31 @@ def test_reprofile_through_actions_supersedes_the_active_profile(clean_db) -> No
     assert cached.value["a_gamma"] == active.constraint_set["a_gamma"]
 
 
+def test_profile_that_never_reaches_the_gate_fails_instead_of_awaiting_approval(
+    clean_db,
+) -> None:
+    """A model that answers in prose never opens the gate; nothing can be approved."""
+    pid = uuid.UUID("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d")
+    model = ScriptedProfilerModel(
+        structured_outcomes=[make_answers()], chat_responses=[final_reply()]
+    )
+
+    with pytest.raises(RuntimeError, match="approval gate"):
+        apply_action(
+            "profile",
+            session=clean_db,
+            portfolio_id=pid,
+            questionnaire="questionnaire ...",
+            model=model,
+            checkpointer=MemorySaver(),
+            store=InMemoryStore(),
+        )
+
+    assert HumanAuditLogRepository(clean_db).list_recent(action="profile") == []
+    (run,) = AgentRunRepository(clean_db).list_runs_for_portfolio(pid)
+    assert run.status == "incomplete"
+
+
 def test_run_requires_a_portfolio_id_and_a_mandate(db_session) -> None:
     """``run`` guards both its required args before invoking the fund pipeline."""
     with pytest.raises(ValueError, match="requires a portfolio_id"):
