@@ -24,12 +24,22 @@ from _profiler_fakes import (
     make_model,
     save_tool_call,
 )
+from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentRun, MifidProfile
 
-from fund.agents.profiler import SuitabilityBreachError, run_profiler
-from fund.audit import MifidProfileRepository, resolve_constraint_set
+from fund.agents.profiler import (
+    SuitabilityBreachError,
+    resume_profiler,
+    run_mapping,
+    run_profiler,
+)
+from fund.audit import (
+    AgentRunRepository,
+    MifidProfileRepository,
+    resolve_constraint_set,
+)
 from fund.config import settings
 from fund.schemas import ConstraintSet, ConstraintSetRef
 from fund.schemas.enums import GicsSector, RiskToleranceBand
@@ -223,6 +233,87 @@ def test_gate_description_flags_an_overridden_base_currency(db_session):
     assert "base currency USD" in description
     assert "answers say EUR" in description
     assert run.constraint_set.base_currency == "USD"
+
+
+# --- an agent that never reaches the approval gate --------------------------
+
+
+def _prose_only_model(answers):
+    # The model answers in prose and never calls ``save_profile``.
+    return ScriptedProfilerModel(
+        structured_outcomes=[answers],
+        chat_responses=[AIMessage(content="Understood, I will wait for approval.")],
+    )
+
+
+def test_agent_that_never_calls_save_profile_is_finalized_incomplete(db_session):
+    pid = uuid.uuid4()
+
+    run = _run(_prose_only_model(make_answers()), db_session, portfolio_id=pid)
+
+    row = db_session.get(AgentRun, run.run_id)
+    assert row.status == "incomplete"  # not left 'pending' forever
+    assert row.finished_at is not None
+    assert run.interrupt is None
+    assert run.status == "incomplete"
+    assert AgentRunRepository(db_session).list_paused_runs(pid) == []
+    assert MifidProfileRepository(db_session).get_active(pid) is None
+
+
+def test_gate_reaching_run_reports_paused_status(db_session):
+    pid = uuid.uuid4()
+
+    run = _run(
+        make_model(make_answers(), portfolio_id=str(pid)), db_session, portfolio_id=pid
+    )
+
+    assert run.status == "paused"
+
+
+def test_resuming_a_run_that_never_reached_the_gate_is_refused(db_session):
+    pid = uuid.uuid4()
+    saver, store = MemorySaver(), InMemoryStore()
+    run = run_profiler(
+        _prose_only_model(make_answers()),
+        _MESSAGES,
+        portfolio_id=pid,
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+    )
+
+    with pytest.raises(ValueError, match="incomplete"):
+        resume_profiler(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=ScriptedProfilerModel(),
+        )
+    assert MifidProfileRepository(db_session).get_active(pid) is None
+
+
+def test_save_profile_tool_description_says_the_call_raises_the_gate(db_session):
+    from fund.agents.profiler import _make_save_profile
+
+    answers = make_answers()
+    constraint_set, suitability = run_mapping(answers, portfolio_id=str(uuid.uuid4()))
+    tool = _make_save_profile(
+        session=db_session,
+        store=None,
+        config=settings,
+        answers=answers,
+        constraint_set=constraint_set,
+        suitability=suitability,
+        run_id=uuid.uuid4(),
+        portfolio_id=uuid.uuid4(),
+    )
+
+    # The system prompt tells the agent to call the tool now; a description that
+    # says "call after adviser approval" contradicts it and invites withholding.
+    assert "after adviser approval" not in tool.description
+    assert "pauses" in tool.description
 
 
 # --- per-provider structured-output method ----------------------------------

@@ -958,3 +958,5 @@ def test_profile_that_never_reaches_the_gate_fails(harness, monkeypatch) -> None
     assert res.exit_code == 1
     assert "awaiting approval" not in res.output
     assert "approval gate" in res.output
+    with harness.read() as session:
+        assert AgentRunRepository(session).list_paused_runs(PORTFOLIO_ID) == []

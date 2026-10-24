@@ -595,7 +595,10 @@ class ProfilerRun:
     Carries the interpreted ``answers``, the deterministically-mapped
     ``constraint_set`` + ``suitability`` (with any ``inconsistency_flags``), the
     ``interrupt`` payload the adviser reviews, and enough state to resume:
-    ``resume("approve")`` persists, ``resume("reject")`` persists nothing.
+    ``resume("approve")`` persists, ``resume("reject")`` persists nothing. ``status``
+    is ``"paused"`` at the gate, or ``"incomplete"`` when the agent never called
+    ``save_profile`` — then there is no gate to resume and the run is already
+    finalised.
     """
 
     answers: MiFIDAnswers
@@ -606,6 +609,7 @@ class ProfilerRun:
     agent: Any = field(repr=False, compare=False)
     thread_config: dict[str, Any] = field(repr=False, compare=False)
     session: Any = field(repr=False, compare=False)
+    status: str = "paused"
 
     def resume(self, decision: str) -> dict[str, Any]:
         """Resume the paused agent with an adviser ``decision`` (approve / reject).
@@ -729,9 +733,11 @@ def _make_save_profile(
 
     @tool
     def save_profile(portfolio_id: str) -> str:
-        """Persist the approved MiFID profile: append the ``mifid_profiles`` row
-        and cache the active ``ConstraintSet`` in the Store. Call once, after
-        adviser approval, with the portfolio id."""
+        """Submit the validated MiFID profile for adviser sign-off. Call it once,
+        with the portfolio id, as soon as the assessment is complete: the call
+        pauses the run and nothing is written until the adviser approves, which
+        then appends the ``mifid_profiles`` row and caches the active
+        ``ConstraintSet`` in the Store."""
         return json.dumps(
             _persist_profile(
                 session=session,
@@ -871,6 +877,8 @@ def run_profiler(
     and blocks before any write); (3) build the ``deepagents`` agent and invoke it
     so the ``save_profile`` tool pauses at the HITL gate. Returns a
     :class:`ProfilerRun`; call ``.resume("approve" | "reject")`` to persist or not.
+    A model that never calls ``save_profile`` leaves no gate: the run is finalised
+    ``incomplete`` and the returned handle says so in ``status``.
 
     ``model`` must expose ``with_structured_output`` (normalisation) and be a
     tool-calling chat model (the agent). Every write goes through the injected
@@ -974,6 +982,7 @@ def run_profiler(
         # Paused at the always-confirm save_profile gate — mark the row so observers
         # can find it awaiting a decision (symmetric with run_fund's fund gate).
         audit.mark_paused(run.id)
+        status = "paused"
     else:
         # The agent answered without calling save_profile (a model that replies in
         # prose): there is no gate to approve, and leaving the row 'pending' would
@@ -985,6 +994,7 @@ def run_profiler(
             hitl_decision={"decision": "incomplete", "reason": "no_gate"},
         )
         audit.finalize_run(run.id, weights={}, status="incomplete")
+        status = "incomplete"
     return ProfilerRun(
         answers=answers,
         constraint_set=constraint_set,
@@ -994,6 +1004,7 @@ def run_profiler(
         agent=agent,
         thread_config=thread_config,
         session=session,
+        status=status,
     )
 
 
