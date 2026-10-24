@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import uuid
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
@@ -63,6 +64,8 @@ if TYPE_CHECKING:
     # view's reads route through ``fund.observe`` (lazy) and ``import fund.tui.*``
     # stays agent-stack-light (and optimizer/skfolio-free) at module scope.
     from fund.performance import HoldingMark, PerformanceSummary
+
+logger = logging.getLogger(__name__)
 
 
 class _ShellContext(Protocol):
@@ -209,6 +212,7 @@ class ShellView(Vertical):
         self.view_key = view_key
         self.view_title = view_title
         self.render_count = 0
+        self._read_failures: dict[str, str] = {}
 
     def focus_primary(self) -> None:
         """Move focus into the view so its view-scoped keys and arrows act on it.
@@ -249,6 +253,31 @@ class ShellView(Vertical):
         App (see :class:`_ShellContext`).
         """
         return cast("_ShellContext", self.app)
+
+    def _read_failed(self, source: str, exc: BaseException) -> str:
+        """Describe a failed read in one line, logging it once per distinct reason.
+
+        The poll loop retries every tick, so a persistent fault (an FX gap, a dead
+        checkpoint) would otherwise write the same traceback every two seconds.
+
+        Args:
+            source: Which read failed; keys the once-per-reason bookkeeping.
+            exc: The exception the read raised.
+
+        Returns:
+            A single-line ``Type: message`` the view can show next to its data.
+        """
+        error = _error_text(exc)
+        if self._read_failures.get(source) != error:
+            logger.warning(
+                "%s %s read failed: %s", self.view_key, source, error, exc_info=exc
+            )
+        self._read_failures[source] = error
+        return error
+
+    def _read_recovered(self, source: str) -> None:
+        """Forget a read failure so the next one logs afresh."""
+        self._read_failures.pop(source, None)
 
     @contextmanager
     def read_session(self) -> Generator[Session]:
@@ -575,6 +604,18 @@ def _format_risk_gate(gate: Any) -> list[str]:
 def _short(value: Any) -> str:
     """First hex group of a UUID (or its string) — a compact table cell."""
     return str(value).split("-", 1)[0]
+
+
+_ERROR_TEXT_MAX = 120
+
+
+def _error_text(exc: BaseException) -> str:
+    """One ``Type: message`` line for a subtitle; SQL errors run to many lines."""
+    first = next(iter(str(exc).splitlines()), "")
+    text = f"{type(exc).__name__}: {first}" if first else type(exc).__name__
+    if len(text) <= _ERROR_TEXT_MAX:
+        return text
+    return f"{text[: _ERROR_TEXT_MAX - 1]}…"
 
 
 # RiskToleranceBand values least→most risk-tolerant (mirrors fund.schemas.enums and
@@ -1630,6 +1671,8 @@ class DeliberationView(ShellView):
         live_portfolio_id: The live run's portfolio while streaming, else ``None``.
         following: Whether the live tail auto-follows; a cursor move pauses it.
         live_text: Mirror of the rendered live-step detail — a headless-test hook.
+        read_error: Why the last replay read failed, or ``None`` when it succeeded; the
+            rows and selection from the last good read stay put meanwhile.
     """
 
     # View-scoped so ``f`` means follow-live only while Deliberation holds focus; the
@@ -1654,6 +1697,10 @@ class DeliberationView(ShellView):
         self.live_portfolio_id: uuid.UUID | None = None
         self.following = True
         self.live_text = ""
+        self.read_error: str | None = None
+        # The portfolio whose rows the run/step tables hold, so a failed read never
+        # leaves another portfolio's runs on screen after a focus change.
+        self._read_pid: uuid.UUID | None = None
         self._live_events: list[StreamEvent] = []
         # The worker's recompute for the expanded step: (run_id, agent, key, result),
         # where key is the allocator decision_index (None for risk). Held so it survives
@@ -1663,8 +1710,12 @@ class DeliberationView(ShellView):
     def compose(self) -> ComposeResult:
         """Yield the title, subtitle, the runs/steps/live split, detail, and hint."""
         yield Label(self.view_title, classes="view-title")
+        # The subtitle carries read-error text, which can contain ``[...]``.
         yield Label(
-            "(no portfolio focused)", id="delib-subtitle", classes="view-subtitle"
+            "(no portfolio focused)",
+            id="delib-subtitle",
+            classes="view-subtitle",
+            markup=False,
         )
         with Horizontal(classes="delib-body"):
             with Vertical(classes="delib-left"):
@@ -1713,7 +1764,15 @@ class DeliberationView(ShellView):
         if self.live_run_id is not None:
             self._paint_live_subtitle()
             return
-        runs, entries = self._read()
+        pid = self.shell._portfolio_id
+        read = self._read()
+        if read is None:
+            if self._read_pid == pid:
+                self._paint_subtitle()
+                return
+            read = ([], [])
+        self._read_pid = pid
+        runs, entries = read
         self._paint_subtitle()
         self._paint_runs(runs)
         self._paint_steps(entries)
@@ -1972,21 +2031,29 @@ class DeliberationView(ShellView):
         elif event.data_table.id == "delib-steps":
             self.select_step(int(key))
 
-    def _read(self) -> tuple[list[RunSummary], list[Any]]:
+    def _read(self) -> tuple[list[RunSummary], list[Any]] | None:
         """Read the focused portfolio's runs + the selected run's transcript.
 
-        Returns ``([], [])`` when nothing is focused or on any read error, so the poll
-        loop stays alive.
+        Returns:
+            ``([], [])`` when nothing is focused, else ``(runs, entries)``. ``None`` on
+            any read error — distinct from an empty portfolio, so the caller keeps the
+            previous rows and selection instead of reading a hiccup as "the run is
+            gone"; the reason is left in :attr:`read_error`. The poll loop stays alive.
         """
         pid = self.shell._portfolio_id
         if pid is None:
+            self.read_error = None
             return [], []
         try:
             with self.read_session() as session:
                 runs = observe.list_portfolio_runs(session, pid)
-                return runs, self._read_transcript(session, runs)
-        except Exception:  # keep the poll loop alive on any read error
-            return [], []
+                read = runs, self._read_transcript(session, runs)
+        except Exception as exc:  # keep the poll loop alive on any read error
+            self.read_error = self._read_failed("replay", exc)
+            return None
+        self._read_recovered("replay")
+        self.read_error = None
+        return read
 
     def _read_transcript(self, session: Session, runs: list[RunSummary]) -> list[Any]:
         """Load the selected run's transcript while it is still in the live list.
@@ -2013,7 +2080,8 @@ class DeliberationView(ShellView):
         if pid is None:
             subtitle.update("(no portfolio focused — pick one in the header)")
         else:
-            subtitle.update(f"portfolio {_short(pid)}")
+            note = f" · read failed: {self.read_error}" if self.read_error else ""
+            subtitle.update(f"portfolio {_short(pid)}{note}")
 
     def _paint_runs(self, runs: list[RunSummary]) -> None:
         table = self.query_one("#delib-runs", DataTable)
@@ -2552,6 +2620,24 @@ def _perf_direction(period_return: float | None) -> tuple[str, str]:
     return _PERF_UP if period_return > 0 else _PERF_DOWN
 
 
+@dataclass(frozen=True)
+class _PerformanceRead:
+    """One poll tick's Performance reads, each failing independently.
+
+    Attributes:
+        summary: The metrics summary, or ``None`` when its read failed.
+        marks: The marked book, or ``None`` when its read failed — distinct from an
+            empty book, so the view keeps the last rows and drill-down selection.
+        summary_exc: What the summary read raised, else ``None``.
+        holdings_exc: What the holdings read raised, else ``None``.
+    """
+
+    summary: PerformanceSummary | None
+    marks: list[HoldingMark] | None
+    summary_exc: BaseException | None = None
+    holdings_exc: BaseException | None = None
+
+
 class PerformanceView(ShellView):
     """The lightweight performance surface: a metrics strip + a marked holdings table.
 
@@ -2574,6 +2660,8 @@ class PerformanceView(ShellView):
         summary_text: Mirror of the rendered metrics strip — a headless-test hook.
         detail_text: Mirror of the rendered holding drill-down — a headless-test hook.
         selected_ticker: The drilled-into holding's ticker, or ``None``.
+        holdings_error: Why the last holdings read failed (e.g. an FX gap), or ``None``
+            when it succeeded; the last good rows and selection stay put meanwhile.
     """
 
     primary_focus: ClassVar[str | None] = "#perf-holdings"
@@ -2584,20 +2672,33 @@ class PerformanceView(ShellView):
         self.summary_text: str = ""
         self.detail_text: str = ""
         self.selected_ticker: str | None = None
+        self.holdings_error: str | None = None
         self._marks: list[HoldingMark] = []
+        # The portfolio whose book the table holds, so a failed read never leaves
+        # another portfolio's holdings on screen after a focus change.
+        self._marks_pid: uuid.UUID | None = None
 
     def compose(self) -> ComposeResult:
         """Yield the title, returns + risk strip, holdings | drill split, and hint."""
         yield Label(self.view_title, classes="view-title")
+        # The strip and detail carry read-error text, which can contain ``[...]``.
         yield Static(
-            "(no portfolio focused)", id="perf-returns", classes="view-subtitle"
+            "(no portfolio focused)",
+            id="perf-returns",
+            classes="view-subtitle",
+            markup=False,
         )
         yield Static("", id="perf-risk", classes="perf-risk")
         with Horizontal(classes="perf-body"):
             yield DataTable(
                 id="perf-holdings", cursor_type="row", classes="perf-holdings"
             )
-            yield Static("(select a holding)", id="perf-detail", classes="perf-detail")
+            yield Static(
+                "(select a holding)",
+                id="perf-detail",
+                classes="perf-detail",
+                markup=False,
+            )
         yield Static(
             "↑↓ select · ↵ drill into a holding",
             id="perf-hint",
@@ -2622,10 +2723,12 @@ class PerformanceView(ShellView):
                 "(no portfolio focused — pick one in the header)"
             )
             self.query_one("#perf-risk", Static).update("")
+            self.holdings_error = None
+            self._marks_pid = None
             self._paint_holdings([])
             self._paint_detail()
             return
-        self._paint(*self._read(pid))
+        self._paint(pid, self._read(pid))
 
     def poll_task(self) -> tuple[Callable[[], Any], Callable[[Any], None]] | None:
         """Load the book off the loop: marking holdings reads every price history.
@@ -2638,27 +2741,42 @@ class PerformanceView(ShellView):
             return None
         session_factory = self.shell._session_factory
 
-        def read() -> tuple[uuid.UUID, PerformanceSummary | None, list[HoldingMark]]:
-            return (pid, *_read_performance(session_factory, pid))
+        def read() -> tuple[uuid.UUID, _PerformanceRead]:
+            return pid, _read_performance(session_factory, pid)
 
-        def apply(
-            result: tuple[uuid.UUID, PerformanceSummary | None, list[HoldingMark]],
-        ) -> None:
-            read_pid, summary, marks = result
+        def apply(result: tuple[uuid.UUID, _PerformanceRead]) -> None:
+            read_pid, performance = result
             if read_pid != self.shell._portfolio_id:
                 return
             self.render_count += 1
-            self._paint(summary, marks)
+            self._paint(read_pid, performance)
 
         return read, apply
 
-    def _paint(
-        self, summary: PerformanceSummary | None, marks: list[HoldingMark]
-    ) -> None:
-        self.summary = summary
-        self._paint_strip(summary)
-        self._paint_holdings(marks)
+    def _paint(self, pid: uuid.UUID, read: _PerformanceRead) -> None:
+        """Paint one tick's reads; a failed read keeps its last rows and says why.
+
+        The failure bookkeeping (log once per distinct reason) runs here, on the UI
+        thread, so the read itself can run on a worker without touching view state.
+        """
+        summary_error = self._failure("summary", read.summary_exc)
+        self.holdings_error = self._failure("holdings", read.holdings_exc)
+        self.summary = read.summary
+        self._paint_strip(read.summary, summary_error)
+        if read.marks is not None:
+            self._paint_holdings(read.marks)
+            self._marks_pid = pid
+        elif self._marks_pid != pid:
+            self._paint_holdings([])
+            self._marks_pid = pid
         self._paint_detail()
+
+    def _failure(self, source: str, exc: BaseException | None) -> str | None:
+        """One-line reason a ``source`` read failed, or ``None`` when it succeeded."""
+        if exc is None:
+            self._read_recovered(source)
+            return None
+        return self._read_failed(source, exc)
 
     def select_ticker(self, ticker: str) -> None:
         """Drill into a holding by ticker, then repaint the detail pane.
@@ -2675,18 +2793,19 @@ class PerformanceView(ShellView):
         if key is not None:
             self.select_ticker(key)
 
-    def _read(
-        self, pid: uuid.UUID
-    ) -> tuple[PerformanceSummary | None, list[HoldingMark]]:
+    def _read(self, pid: uuid.UUID) -> _PerformanceRead:
         """Read the summary + the marked book for ``pid`` on the calling thread."""
         return _read_performance(self.shell._session_factory, pid)
 
-    def _paint_strip(self, summary: PerformanceSummary | None) -> None:
+    def _paint_strip(
+        self, summary: PerformanceSummary | None, error: str | None = None
+    ) -> None:
         returns_widget = self.query_one("#perf-returns", Static)
         risk_widget = self.query_one("#perf-risk", Static)
         if summary is None:
             self.summary_text = ""
-            returns_widget.update("(performance unavailable)")
+            reason = f": {error}" if error else ""
+            returns_widget.update(f"(performance unavailable{reason})")
             risk_widget.update("")
             return
         dot, label = _perf_direction(summary.returns.get("max"))
@@ -2730,39 +2849,52 @@ class PerformanceView(ShellView):
 
     def _paint_detail(self) -> None:
         mark = next((m for m in self._marks if m.ticker == self.selected_ticker), None)
-        text = _holding_detail(mark) if mark is not None else "(select a holding)"
+        if self.holdings_error is not None:
+            note = f"holdings unavailable: {self.holdings_error}"
+            text = (
+                note
+                if mark is None
+                else f"{note} (showing the last read)\n{_holding_detail(mark)}"
+            )
+        elif mark is not None:
+            text = _holding_detail(mark)
+        else:
+            text = "(select a holding)"
         self.detail_text = text
         self.query_one("#perf-detail", Static).update(text)
 
 
 def _read_performance(
     session_factory: Callable[[], AbstractContextManager[Session]], pid: uuid.UUID
-) -> tuple[PerformanceSummary | None, list[HoldingMark]]:
+) -> _PerformanceRead:
     """Read the summary + the marked book, each guarded independently.
 
     The two reads are isolated so a holdings-mark failure — e.g. an
     ``FxCoverageError`` when the book holds a currency the FX feed never populated —
-    degrades only the holdings table, never the FX-independent returns/risk strip.
-    Either read failing returns its own empty sentinel; the poll loop stays alive on
-    any read error. The tracker is lazy-imported inside ``observe``, keeping this
-    module light. Safe to run on a worker thread: it takes the session factory as an
-    argument rather than reaching for the App.
+    degrades only the holdings table, never the FX-independent returns/risk strip. A
+    failed read leaves its field ``None`` with what it raised alongside (a failed
+    holdings read is distinct from an empty book, so the view keeps its last rows); the
+    poll loop stays alive on any read error. The tracker is lazy-imported inside
+    ``observe``, keeping this module light. Safe to run on a worker thread: it takes
+    the session factory as an argument rather than reaching for the App.
     """
     summary: PerformanceSummary | None = None
-    marks: list[HoldingMark] = []
+    marks: list[HoldingMark] | None = None
+    summary_exc: BaseException | None = None
+    holdings_exc: BaseException | None = None
     try:
         with _short_session(session_factory) as session:
             try:
                 summary = observe.performance_summary(session, pid)
-            except Exception:  # keep the strip independent of a holdings failure
-                summary = None
+            except Exception as exc:  # keep the strip independent of a holdings failure
+                summary_exc = exc
             try:
                 marks = observe.holdings_summary(session, pid)
-            except Exception:  # an FX gap degrades only the table, not the strip
-                marks = []
-    except Exception:  # the session factory itself failing → keep the poll loop alive
-        return None, []
-    return summary, marks
+            except Exception as exc:  # an FX gap degrades only the table, not the strip
+                holdings_exc = exc
+    except Exception as exc:  # the session factory itself failing → keep the poll alive
+        return _PerformanceRead(None, None, exc, exc)
+    return _PerformanceRead(summary, marks, summary_exc, holdings_exc)
 
 
 def _holding_detail(mark: HoldingMark) -> str:

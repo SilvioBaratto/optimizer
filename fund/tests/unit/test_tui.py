@@ -10441,3 +10441,175 @@ async def test_deliberation_live_status_column_is_dot_plus_label(shell_env) -> N
         assert live.get_cell_at(Coordinate(0, 0)) == "✓ done"
         view.ingest_event(_scripted_stream(rid)[2])
         assert live.get_cell_at(Coordinate(2, 0)) == "· paused"
+
+
+def _raise_once_read(message: str):
+    """A stand-in observe read that always fails with ``RuntimeError(message)``."""
+
+    def _boom(*_a, **_k):
+        raise RuntimeError(message)
+
+    return _boom
+
+
+@pytest.mark.asyncio
+async def test_deliberation_failed_poll_keeps_selection_and_says_why(
+    shell_env, monkeypatch
+) -> None:
+    with shell_env.get_session() as session:
+        run_id = _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(1)
+        await pilot.pause()
+        assert "risk" in view.detail_text
+        runs_table = view.query_one("#delib-runs", DataTable)
+        steps_table = view.query_one("#delib-steps", DataTable)
+        subtitle = view.query_one("#delib-subtitle", Label)
+
+        real = observe.list_portfolio_runs
+        monkeypatch.setattr(observe, "list_portfolio_runs", _raise_once_read("db blip"))
+        app._refresh()  # one failed poll tick
+        await pilot.pause()
+
+        assert view.selected_run_id == run_id  # a hiccup is not "the run vanished"
+        assert view.selected_step == 1
+        assert runs_table.row_count == 1
+        assert steps_table.row_count == 3
+        assert "read failed" in subtitle.visual.plain
+        assert "db blip" in subtitle.visual.plain
+
+        monkeypatch.setattr(observe, "list_portfolio_runs", real)
+        app._refresh()  # the next tick recovers with the selection intact
+        await pilot.pause()
+        assert "risk" in view.detail_text
+        assert "read failed" not in subtitle.visual.plain
+
+
+@pytest.mark.asyncio
+async def test_deliberation_failed_transcript_read_keeps_the_run_list(
+    shell_env, monkeypatch
+) -> None:
+    with shell_env.get_session() as session:
+        run_id = _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        monkeypatch.setattr(
+            observe, "load_run_transcript", _raise_once_read("checkpoint gone")
+        )
+        app._refresh()
+        await pilot.pause()
+        assert view.query_one("#delib-runs", DataTable).row_count == 1
+        assert view.selected_run_id == run_id
+        assert (
+            "checkpoint gone" in view.query_one("#delib-subtitle", Label).visual.plain
+        )
+
+
+@pytest.mark.asyncio
+async def test_deliberation_failed_read_does_not_show_another_portfolios_runs(
+    shell_env, monkeypatch
+) -> None:
+    with shell_env.get_session() as session:
+        _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        runs_table = view.query_one("#delib-runs", DataTable)
+        assert runs_table.row_count == 1
+        monkeypatch.setattr(observe, "list_portfolio_runs", _raise_once_read("down"))
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+        assert runs_table.row_count == 0  # A's rows must not linger under B
+
+
+@pytest.mark.asyncio
+async def test_performance_fx_gap_says_why_the_holdings_are_missing(shell_env) -> None:
+    """An empty table from an FX gap must not read like a book with no holdings."""
+    with shell_env.get_session() as session:
+        _seed_perf(session, _PID_A, with_fx=False)
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        assert "holdings unavailable" in view.detail_text
+        assert "FxCoverageError" in view.detail_text
+        assert "(select a holding)" not in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_performance_failed_holdings_read_keeps_rows_and_selection(
+    shell_env, monkeypatch
+) -> None:
+    with shell_env.get_session() as session:
+        _seed_perf(session, _PID_A)
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        view.select_ticker("US1")
+        table = view.query_one("#perf-holdings", DataTable)
+        assert table.row_count == 1
+
+        real = observe.holdings_summary
+        monkeypatch.setattr(observe, "holdings_summary", _raise_once_read("db blip"))
+        app._refresh()
+        await pilot.pause()
+        assert view.selected_ticker == "US1"  # a blip must not drop the drill-down
+        assert table.row_count == 1
+        assert "db blip" in view.detail_text
+        assert "US1" in view.detail_text
+        assert "+1.20%" in view.summary_text  # the FX-independent strip is untouched
+
+        monkeypatch.setattr(observe, "holdings_summary", real)
+        app._refresh()
+        await pilot.pause()
+        assert view.selected_ticker == "US1"
+        assert "holdings unavailable" not in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_performance_failed_summary_read_states_the_reason(
+    shell_env, monkeypatch
+) -> None:
+    with shell_env.get_session() as session:
+        _seed_perf(session, _PID_A)
+        session.commit()
+    monkeypatch.setattr(observe, "performance_summary", _raise_once_read("nav blip"))
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        strip = view.query_one("#perf-returns", Static).visual.plain
+        assert "performance unavailable" in strip
+        assert "nav blip" in strip
+
+
+@pytest.mark.asyncio
+async def test_performance_failed_read_does_not_show_another_portfolios_book(
+    shell_env, monkeypatch
+) -> None:
+    with shell_env.get_session() as session:
+        _seed_perf(session, _PID_A)
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        table = view.query_one("#perf-holdings", DataTable)
+        assert table.row_count == 1
+        monkeypatch.setattr(observe, "holdings_summary", _raise_once_read("down"))
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+        assert table.row_count == 0  # A's holdings must not linger under B
