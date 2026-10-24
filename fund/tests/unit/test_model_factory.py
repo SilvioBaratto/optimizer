@@ -221,21 +221,90 @@ def test_unknown_provider_error_lists_the_valid_providers():
         model.build_chat_model(cfg, model_name="m")
 
 
-def test_uninstalled_provider_extra_reraises_as_runtimeerror_with_hint(monkeypatch):
-    def _boom(_config, _model_name):
-        raise ImportError("No module named 'langchain_openai'")
+# Provider -> (SDK module that goes missing, uv extra that must be named in the hint).
+# `microsoft` and `openrouter` ride on the `openai` extra: no extra of their own
+# exists, so naming one sends the operator to a `uv sync` that uv rejects.
+_SDK_BY_PROVIDER = [
+    ("openai", "langchain_openai", "openai"),
+    ("openrouter", "langchain_openai", "openai"),
+    ("microsoft", "langchain_openai", "openai"),
+    ("anthropic", "langchain_anthropic", "anthropic"),
+    ("groq", "langchain_groq", "groq"),
+    ("google", "langchain_google_genai", "google"),
+    ("aws", "langchain_aws", "aws"),
+    ("nvidia", "langchain_nvidia_ai_endpoints", "nvidia"),
+    ("huggingface", "langchain_huggingface", "huggingface"),
+]
 
-    monkeypatch.setitem(model._BUILDERS, "faux", _boom)
-    cfg = FundConfig(llm_provider="faux")
-    with pytest.raises(RuntimeError, match="--extra faux"):
+
+@pytest.mark.parametrize(("provider", "sdk_module", "extra"), _SDK_BY_PROVIDER)
+def test_uninstalled_provider_sdk_names_the_extra_that_installs_it(
+    monkeypatch, provider, sdk_module, extra
+):
+    monkeypatch.setitem(sys.modules, sdk_module, None)  # import raises, as if absent
+    cfg = FundConfig(llm_provider=provider)
+
+    with pytest.raises(RuntimeError) as excinfo:
         model.build_chat_model(cfg, model_name="m")
+
+    assert f"--extra {extra}`" in str(excinfo.value)
+    assert isinstance(excinfo.value.__cause__, ModuleNotFoundError)
+
+
+def test_uninstalled_ollama_sdk_points_at_a_plain_sync_not_a_missing_extra(
+    monkeypatch,
+):
+    # langchain-ollama is a core dependency: there is no `ollama` extra to install.
+    monkeypatch.setitem(sys.modules, "langchain_ollama", None)
+    cfg = FundConfig(ollama_api_key="sk")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        model.build_chat_model(cfg, model_name="m")
+
+    assert "--extra" not in str(excinfo.value)
+    assert "uv sync --package portopt-fund" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "unrelated",
+    [
+        ImportError("cannot import name 'x' from 'langchain_core'"),
+        ModuleNotFoundError("No module named 'transitive'", name="transitive"),
+    ],
+)
+def test_import_error_unrelated_to_the_sdk_package_is_not_blamed_on_the_extra(
+    monkeypatch, unrelated
+):
+    def _boom(_config, _model_name):
+        raise unrelated
+
+    monkeypatch.setitem(model._BUILDERS, "groq", _boom)
+    cfg = FundConfig(llm_provider="groq")
+
+    with pytest.raises(ImportError) as excinfo:
+        model.build_chat_model(cfg, model_name="m")
+
+    assert excinfo.value is unrelated
+
+
+def test_every_registered_provider_maps_to_a_declared_extra_or_a_core_package():
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    declared = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"][
+        "optional-dependencies"
+    ]
+
+    assert set(model._PROVIDER_SDKS) == set(model._BUILDERS)
+    for provider, sdk in model._PROVIDER_SDKS.items():
+        assert sdk.extra is None or sdk.extra in declared, provider
 
 
 def _install_hint_extra(provider: str, monkeypatch: pytest.MonkeyPatch) -> str | None:
     """Fail `build_chat_model` on a missing SDK; return the extra the hint names."""
 
+    sdk_module = model._PROVIDER_SDKS[provider].modules[0]
+
     def _missing_sdk(_config, _model_name):
-        raise ImportError("No module named 'provider_sdk'")
+        raise ModuleNotFoundError(f"No module named {sdk_module!r}", name=sdk_module)
 
     monkeypatch.setitem(model._BUILDERS, provider, _missing_sdk)
     with pytest.raises(RuntimeError) as err:

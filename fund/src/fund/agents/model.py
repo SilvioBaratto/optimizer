@@ -18,9 +18,10 @@ is guarded by ``tests/unit/hygiene/test_model_no_provider_import.py``.
 **Build-time auth, never import-time.** Required secrets are validated inside the
 builder via :func:`_require` (raising a clear :class:`RuntimeError`), like
 ``fund.audit.persistence`` does for ``DATABASE_URL`` — CI keeps every provider key
-unset. An **uninstalled** optional extra surfaces as the builder's ``ImportError``,
-which ``build_chat_model`` re-raises as a ``RuntimeError`` naming the ``uv sync``
-command to install it.
+unset. An **uninstalled** provider SDK surfaces as the builder's
+``ModuleNotFoundError``, which ``build_chat_model`` re-raises as a ``RuntimeError``
+naming the ``uv sync`` command (and the extra that ships the SDK) to install it. Any
+other ``ImportError`` from inside a builder propagates unchanged.
 
 Construction only — no DB, no network, no ``.invoke``. The chat model is built
 lazily; the first request happens later at call time.
@@ -29,7 +30,7 @@ lazily; the first request happens later at call time.
 from __future__ import annotations
 
 import re
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -50,15 +51,6 @@ __all__ = [
 # Ollama Cloud host marker: a `base_url` on this host is the cloud path and so
 # *requires* a key; a local `base_url` (e.g. http://localhost:11434) does not.
 _OLLAMA_CLOUD_HOST = "ollama.com"
-
-# Install-hint overrides for providers whose SDK is not shipped by an extra named
-# after them: openrouter/microsoft reuse `langchain-openai` (the `openai` extra);
-# ollama is a hard dependency, so there is no extra to suggest (None).
-_INSTALL_EXTRA: dict[str, str | None] = {
-    "ollama": None,
-    "openrouter": "openai",
-    "microsoft": "openai",
-}
 
 # OpenRouter has no dedicated LangChain package — it is `ChatOpenAI` aimed at this
 # fixed OpenAI-compatible gateway with its own `OPENROUTER_API_KEY`.
@@ -484,17 +476,68 @@ _BUILDERS: dict[str, Callable[[FundConfig, str], BaseChatModel]] = {
 }
 
 
+@dataclass(frozen=True)
+class _ProviderSdk:
+    """The importable packages behind a provider and the ``uv`` extra that ships them.
+
+    ``extra`` is ``None`` when the SDK is a core dependency of ``portopt-fund``.
+    Several providers can share one extra: ``openrouter`` and ``microsoft`` are
+    served by ``langchain-openai`` and so by the ``openai`` extra.
+    """
+
+    modules: tuple[str, ...]
+    extra: str | None
+
+
+_PROVIDER_SDKS: dict[str, _ProviderSdk] = {
+    "ollama": _ProviderSdk(("langchain_ollama",), None),
+    "openai": _ProviderSdk(("langchain_openai",), "openai"),
+    "openrouter": _ProviderSdk(("langchain_openai",), "openai"),
+    "microsoft": _ProviderSdk(("langchain_openai",), "openai"),
+    "anthropic": _ProviderSdk(("langchain_anthropic",), "anthropic"),
+    "groq": _ProviderSdk(("langchain_groq",), "groq"),
+    "google": _ProviderSdk(("langchain_google_genai",), "google"),
+    "aws": _ProviderSdk(("langchain_aws",), "aws"),
+    "nvidia": _ProviderSdk(("langchain_nvidia_ai_endpoints",), "nvidia"),
+    "huggingface": _ProviderSdk(
+        ("langchain_huggingface", "huggingface_hub"), "huggingface"
+    ),
+}
+
+
+def _missing_sdk_error(provider: str, exc: ModuleNotFoundError) -> RuntimeError | None:
+    """Return the install hint when ``exc`` is the provider's own SDK being absent.
+
+    A ``ModuleNotFoundError`` for some other package (a transitive dependency, or
+    a lazy import inside the SDK) is not fixed by installing the provider's extra,
+    so it yields ``None`` and the caller re-raises the original error.
+    """
+    sdk = _PROVIDER_SDKS.get(provider)
+    if sdk is None or (exc.name or "").partition(".")[0] not in sdk.modules:
+        return None
+    if sdk.extra is None:
+        return RuntimeError(
+            f"The {provider!r} provider's SDK ({exc.name}) is a core dependency of "
+            "portopt-fund but is not installed; reinstall with "
+            "`uv sync --package portopt-fund`."
+        )
+    return RuntimeError(
+        f"The {provider!r} provider needs its optional extra; install it with "
+        f"`uv sync --package portopt-fund --extra {sdk.extra}`."
+    )
+
+
 def build_chat_model(config: FundConfig, *, model_name: str) -> BaseChatModel:
     """Return a ``BaseChatModel`` for ``model_name`` from the provider registry.
 
     Dispatches on ``config.llm_provider``:
 
     * unknown provider → :class:`RuntimeError` listing the valid providers;
-    * a provider whose optional extra is not installed → the builder's
-      ``ImportError`` is caught and re-raised as a :class:`RuntimeError` naming the
+    * a provider whose SDK package is not installed → the builder's
+      ``ModuleNotFoundError`` is re-raised as a :class:`RuntimeError` naming the
       ``uv sync --package portopt-fund --extra <extra>`` command, where ``<extra>``
-      is the extra that actually ships the SDK (``openai`` for ``openrouter`` and
-      ``microsoft``);
+      is the extra that ships the SDK (not always the provider's own name). Any
+      other ``ImportError`` is a different fault and propagates unchanged;
     * required-secret checks happen inside the builder (build time, not import).
     """
     try:
@@ -507,18 +550,11 @@ def build_chat_model(config: FundConfig, *, model_name: str) -> BaseChatModel:
 
     try:
         return builder(config, model_name)
-    except ImportError as exc:
-        extra = _INSTALL_EXTRA.get(config.llm_provider, config.llm_provider)
-        if extra is None:
-            raise RuntimeError(
-                f"The {config.llm_provider!r} provider's package is a core "
-                f"dependency of portopt-fund but failed to import; reinstall "
-                f"with `uv sync --package portopt-fund`."
-            ) from exc
-        raise RuntimeError(
-            f"The {config.llm_provider!r} provider needs its optional extra; "
-            f"install it with `uv sync --package portopt-fund --extra {extra}`."
-        ) from exc
+    except ModuleNotFoundError as exc:
+        hint = _missing_sdk_error(config.llm_provider, exc)
+        if hint is None:
+            raise
+        raise hint from exc
 
 
 def _fallback_config(config: FundConfig) -> FundConfig:
