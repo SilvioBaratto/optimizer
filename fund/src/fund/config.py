@@ -19,6 +19,7 @@ so reading config in a test does not drag in the DB driver.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -267,6 +268,17 @@ def load_project_env() -> None:
 # langchain-huggingface raises NotImplementedError when a pydantic schema is bound
 # with method="function_calling", and every structured step here passes one.
 _PROVIDER_STRUCTURED_OUTPUT_METHOD: Mapping[str, str] = {"huggingface": "json_schema"}
+
+
+def silence_http_request_logs() -> None:
+    """Keep ``httpx`` / ``httpcore`` at WARNING under a root logger set to INFO.
+
+    httpx logs every request as ``HTTP Request: POST <full url>`` at INFO, so a
+    provider URL that carries credentials, or any query token, would be written to
+    the daemon log on every model call.
+    """
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def _env_flag(env: Mapping[str, str], name: str) -> bool:

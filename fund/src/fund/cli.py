@@ -61,7 +61,7 @@ from fund.audit import (
     setup_langgraph,
 )
 from fund.audit.orders_repository import weights_hash
-from fund.config import settings
+from fund.config import settings, silence_http_request_logs
 from fund.database import get_session
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
 
@@ -96,6 +96,7 @@ def _boot() -> None:
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+    silence_http_request_logs()
 
 
 def _exit(ok: bool) -> None:

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import datetime as dt
+import logging
 import os
 import subprocess
 import sys
@@ -615,3 +616,43 @@ def test_blank_structured_output_method_falls_back_to_the_provider_default():
     )
 
     assert cfg.structured_output_method == "json_schema"
+
+
+@pytest.fixture
+def restore_http_logger_levels():
+    names = ("httpx", "httpcore")
+    saved = {name: logging.getLogger(name).level for name in names}
+    root_level = logging.getLogger().level
+    yield
+    for name, level in saved.items():
+        logging.getLogger(name).setLevel(level)
+    logging.getLogger().setLevel(root_level)
+
+
+def test_silencing_http_logs_keeps_httpx_request_lines_out_of_info(
+    restore_http_logger_levels,
+):
+    """httpx logs ``HTTP Request: POST <full url>`` at INFO, userinfo included."""
+    from fund.config import silence_http_request_logs
+
+    logging.getLogger().setLevel(logging.INFO)
+    logging.getLogger("httpx").setLevel(logging.NOTSET)
+
+    silence_http_request_logs()
+
+    for name in ("httpx", "httpcore"):
+        assert not logging.getLogger(name).isEnabledFor(logging.INFO)
+        assert logging.getLogger(name).isEnabledFor(logging.WARNING)
+
+
+def test_every_logging_setup_in_the_package_silences_http_request_logs():
+    src = Path(__file__).resolve().parents[2] / "src" / "fund"
+    configuring = [
+        path
+        for path in src.rglob("*.py")
+        if "basicConfig(" in path.read_text(encoding="utf-8")
+    ]
+
+    assert configuring
+    for path in configuring:
+        assert "silence_http_request_logs()" in path.read_text(encoding="utf-8"), path

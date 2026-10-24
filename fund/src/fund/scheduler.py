@@ -54,7 +54,12 @@ from apscheduler.triggers.interval import IntervalTrigger
 from pydantic import ValidationError
 
 from fund import observe
-from fund.config import FundConfig, load_project_env, settings
+from fund.config import (
+    FundConfig,
+    load_project_env,
+    settings,
+    silence_http_request_logs,
+)
 from fund.database import database_manager
 from fund.schemas.mandate import PortfolioMandate
 
@@ -1077,6 +1082,7 @@ def main(
     """
     load_project_env()
     logging.basicConfig(level=logging.INFO)
+    silence_http_request_logs()
     raw = argv if argv is not None else sys.argv[1:]
     full = "--full" in raw
     args = [a for a in raw if a != "--full"]

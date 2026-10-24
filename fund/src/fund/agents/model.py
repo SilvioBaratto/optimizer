@@ -89,6 +89,24 @@ _KEYLESS_API_KEY_PLACEHOLDER = "unused"
 _NVIDIA_HOSTED_HOSTS = frozenset({"integrate.api.nvidia.com", "ai.api.nvidia.com"})
 
 
+def _reject_url_credentials(url: str | None, env_name: str) -> None:
+    """Refuse a provider URL that embeds ``user:password@``.
+
+    httpx honours the userinfo as basic auth, then writes the full URL into its
+    request log and into every connection error, so the credential would leak
+    through both. It belongs in the provider's API key variable instead.
+
+    Raises:
+        RuntimeError: ``url`` carries userinfo. The message never repeats it.
+    """
+    if url and (urlparse(url).password or urlparse(url).username):
+        raise RuntimeError(
+            f"{env_name} must not embed credentials (user:password@host): they would "
+            "be written to the logs. Pass the credential through the provider's API "
+            "key variable instead."
+        )
+
+
 def _require(value: str | None, env_name: str) -> str:
     """Return ``value`` or raise a clear build-time error naming ``env_name``.
 
@@ -213,6 +231,7 @@ def _build_openai(config: FundConfig, model_name: str) -> BaseChatModel:
     from langchain_openai import ChatOpenAI
 
     api_key = _require(config.openai_api_key, "OPENAI_API_KEY")
+    _reject_url_credentials(config.openai_base_url, "OPENAI_BASE_URL")
     kwargs: dict[str, Any] = {
         "model": model_name,
         "api_key": api_key,
@@ -336,6 +355,7 @@ def _build_microsoft(config: FundConfig, model_name: str) -> BaseChatModel:
     """
     from langchain_openai import AzureChatOpenAI
 
+    _reject_url_credentials(config.azure_openai_endpoint, "AZURE_OPENAI_ENDPOINT")
     kwargs: dict[str, Any] = {
         "model": model_name,
         "api_key": _require(config.azure_openai_api_key, "AZURE_OPENAI_API_KEY"),
@@ -392,6 +412,7 @@ def _build_nvidia(config: FundConfig, model_name: str) -> BaseChatModel:
     """
     from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
+    _reject_url_credentials(config.nvidia_base_url, "NVIDIA_BASE_URL")
     kwargs: dict[str, Any] = {
         "model": model_name,
         "temperature": config.model_temperature,

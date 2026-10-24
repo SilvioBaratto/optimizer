@@ -59,7 +59,7 @@ from contextlib import AbstractContextManager
 from types import FrameType
 from typing import TYPE_CHECKING
 
-from fund.config import settings
+from fund.config import settings, silence_http_request_logs
 from fund.database import close_db, database_manager, init_db
 from fund.healthcheck import touch_heartbeat
 from fund.scheduler import SchedulerRuntime, configure_runtime, create_scheduler
@@ -96,6 +96,7 @@ def _configure_logging() -> None:
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+    silence_http_request_logs()
 
 
 def _build_runtime() -> SchedulerRuntime:  # pragma: no cover - needs OLLAMA + DB

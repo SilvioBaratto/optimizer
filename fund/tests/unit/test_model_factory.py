@@ -1159,9 +1159,8 @@ def test_nvidia_explicit_hosted_url_without_a_key_fails_at_build(monkeypatch):
     [
         "http://integrate.api.nvidia.com/v1",
         "https://integrate.api.nvidia.com.evil.example/v1",
-        "https://integrate.api.nvidia.com@evil.example/v1",
     ],
-    ids=["cleartext", "suffix-lookalike", "userinfo-lookalike"],
+    ids=["cleartext", "suffix-lookalike"],
 )
 def test_nvidia_lookalike_hosted_url_is_a_custom_endpoint(monkeypatch, lookalike_url):
     # Only an https URL on NVIDIA's own hosts may receive the key by default.
@@ -1178,6 +1177,21 @@ def test_nvidia_lookalike_hosted_url_is_a_custom_endpoint(monkeypatch, lookalike
 
     assert isinstance(llm, fake_cls)
     assert llm.kwargs["api_key"] != "nvapi-HOSTED-SECRET"
+
+
+def test_nvidia_userinfo_lookalike_url_is_refused_before_any_key_is_sent():
+    # `host@evil.example` makes the NVIDIA name the userinfo and evil.example the
+    # host. Embedded credentials are refused outright, so the key cannot go there.
+    cfg = FundConfig(
+        llm_provider="nvidia",
+        nvidia_api_key="nvapi-HOSTED-SECRET",
+        nvidia_base_url="https://integrate.api.nvidia.com@evil.example/v1",
+    )
+
+    with pytest.raises(RuntimeError, match="NVIDIA_BASE_URL") as excinfo:
+        model.build_chat_model(cfg, model_name="meta/llama-3.1-70b-instruct")
+
+    assert "nvapi-HOSTED-SECRET" not in str(excinfo.value)
 
 
 def test_nvidia_building_a_keyless_nim_does_not_edit_the_process_env(monkeypatch):
@@ -1473,3 +1487,44 @@ def test_huggingface_default_structured_output_method_binds_a_pydantic_schema():
     llm = model.build_chat_model(cfg, model_name="meta-llama/Meta-Llama-3-8B-Instruct")
 
     llm.with_structured_output(MiFIDAnswers, method=cfg.structured_output_method)
+
+
+# --- base URLs that carry credentials ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("config", "env_name"),
+    [
+        (
+            FundConfig(
+                llm_provider="openai",
+                openai_api_key="sk-test",
+                openai_base_url="https://user:s3cret@gw.internal:8443/v1",
+            ),
+            "OPENAI_BASE_URL",
+        ),
+        (
+            FundConfig(
+                llm_provider="microsoft",
+                azure_openai_api_key="k",
+                azure_openai_endpoint="https://user:s3cret@res.openai.azure.com/",
+                azure_openai_api_version="2024-10-21",
+                azure_openai_deployment_name="d",
+            ),
+            "AZURE_OPENAI_ENDPOINT",
+        ),
+        (
+            FundConfig(
+                llm_provider="nvidia",
+                nvidia_base_url="http://user:s3cret@nim.internal:8000/v1",
+            ),
+            "NVIDIA_BASE_URL",
+        ),
+    ],
+)
+def test_a_provider_url_with_embedded_credentials_is_refused(config, env_name):
+    """httpx logs and raises with the full URL, so userinfo would leak through both."""
+    with pytest.raises(RuntimeError, match=env_name) as excinfo:
+        model.build_chat_model(config, model_name="m")
+
+    assert "s3cret" not in str(excinfo.value)
