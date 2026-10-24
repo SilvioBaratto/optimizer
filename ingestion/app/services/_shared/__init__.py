@@ -3,6 +3,7 @@
 Cross-cutting service helpers and utilities.
 """
 
+from app.services._shared._feed_outage import FeedOutageError
 from app.services._shared._json_safe import safe_float
 from app.services._shared._price_fetcher import fetch_close_prices
 from app.services._shared._progress import (
@@ -27,6 +28,7 @@ from app.services._shared.trading_calendar import (
 __all__ = [
     "EXCHANGE_NAME_TO_MIC",
     "UNCLASSIFIED",
+    "FeedOutageError",
     "ProgressCallback",
     "_noop",
     "fetch_close_prices",

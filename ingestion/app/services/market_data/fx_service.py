@@ -22,7 +22,7 @@ from typing import Any
 import pandas as pd
 from sqlalchemy import select
 
-from app.services._shared import ProgressCallback, _noop
+from app.services._shared import FeedOutageError, ProgressCallback, _noop
 
 logger = logging.getLogger(__name__)
 
@@ -133,8 +133,8 @@ def run_fx_fetch(
     the USD leg (``{CCY}USD=X``) for each currency plus the base, computes
     base-per-quote rates cross-via-USD on aligned dates, and upserts them. A
     failing or empty leg is logged and skipped rather than sinking the run; if
-    the base's own USD leg is unavailable nothing can be converted and the run
-    completes writing no rows.
+    the base's own USD leg is unavailable nothing can be converted, so the run
+    writes no rows and raises instead of reporting success.
 
     Args:
         yf_client: Configured yfinance client exposing ``fetch_history``.
@@ -144,6 +144,11 @@ def run_fx_fetch(
 
     Returns:
         Dict with ``rows_total`` (rows upserted) and ``error_count``.
+
+    Raises:
+        FeedOutageError: The base currency's USD leg could not be fetched, so no
+            rate could be computed. The per-symbol errors are passed to
+            ``on_progress`` before the raise.
     """
     from portopt_db.repositories.market_data.fx_rates_repository import (
         FxRatesRepository,
@@ -191,8 +196,10 @@ def run_fx_fetch(
         logger.warning(
             "fx_fetch: base USD leg (%sUSD=X) unavailable; wrote no rows", base
         )
-        on_progress(status="completed", finished_at=_utc_now_iso(), result=result)
-        return result
+        on_progress(errors=errors, result=result)
+        raise FeedOutageError(
+            f"fx_fetch: base USD leg ({base}USD=X) unavailable; no rates written"
+        )
 
     rows = _build_rows(base, quotes, usd_legs, base_leg, base_dates)
     with database_manager.get_session() as session:
