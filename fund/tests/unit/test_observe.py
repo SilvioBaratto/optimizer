@@ -1953,6 +1953,18 @@ def test_audit_timeline_limit_keeps_the_latest_step_of_a_same_instant_run(db_ses
     assert [row.action for row in rows] == ["report"]
 
 
+def test_audit_timeline_entries_carry_a_stable_unique_identity(db_session):
+    _seed_audit(db_session)
+
+    first = observe.audit_timeline(db_session)
+    again = observe.audit_timeline(db_session)
+
+    ids = [row.entry_id for row in first]
+    assert len(set(ids)) == len(ids) == 3
+    assert {i.split(":")[0] for i in ids} == {"agent", "human"}
+    assert sorted(ids) == sorted(row.entry_id for row in again)
+
+
 def test_import_fund_observe_is_agent_stack_free():
     code = textwrap.dedent(
         """

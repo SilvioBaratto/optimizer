@@ -185,6 +185,9 @@ class AuditEntry:
     ``False``); human rows carry the full provenance the detail pane renders.
 
     Attributes:
+        entry_id: Stable identity of the underlying row (``"agent:<decision id>"`` /
+            ``"human:<log id>"``). The timeline is newest-first and shifts as rows
+            arrive, so a position is no handle on a record; this is.
         when: The decision timestamp (``created_at``), the sort key.
         kind: ``"agent"`` or ``"human"`` — the actor-column split.
         actor: The agent name (agent rows) or the human actor (human rows).
@@ -204,6 +207,7 @@ class AuditEntry:
             agent rows.
     """
 
+    entry_id: str
     when: dt.datetime
     kind: str
     actor: str
@@ -958,6 +962,7 @@ def _agent_audit_entries(
     )
     return [
         AuditEntry(
+            entry_id=f"agent:{decision.id}",
             when=decision.created_at,
             kind="agent",
             actor=decision.agent,
@@ -998,6 +1003,7 @@ def _human_audit_entries(
     )
     return [
         AuditEntry(
+            entry_id=f"human:{row.id}",
             when=row.created_at,
             kind="human",
             actor=row.actor,

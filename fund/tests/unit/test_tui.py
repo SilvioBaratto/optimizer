@@ -23,7 +23,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager, suppress
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
@@ -42,7 +42,7 @@ from _fund_fakes import (
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import Base, PaperOrder
+from portopt_db.models import Base, HumanAuditLog, PaperOrder
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -3037,6 +3037,60 @@ async def test_audit_detail_shows_provenance_and_flags(shell_env) -> None:
         assert "aggressive" in view.detail_text  # new_value provenance
         assert "idem-xyz" in view.detail_text  # idempotency key
         assert "immutable" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_audit_detail_stays_on_selected_record_when_new_rows_arrive(
+    shell_env,
+) -> None:
+    # The timeline is newest-first and re-read on every poll tick, so a new decision
+    # prepends a row. The pane must keep showing the record the adviser selected, not
+    # whatever now sits at the same list position.
+    with shell_env.get_session() as session:
+        _seed_audit_rows(session)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        view.select_index(0)
+        selected = view.detail_text
+        assert selected != "(select a decision)"
+
+        with shell_env.get_session() as session:
+            session.add(
+                HumanAuditLog(
+                    action="freeze",
+                    actor="human",
+                    portfolio_id=_PID_B,
+                    created_at=datetime(2099, 1, 1, tzinfo=UTC),
+                )
+            )
+            session.commit()
+        app._refresh()
+        await pilot.pause()
+
+        assert len(view._entries) == 4  # the new row really did arrive on top
+        assert view.detail_text == selected
+
+
+@pytest.mark.asyncio
+async def test_audit_enter_selects_the_highlighted_record(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_audit_rows(session)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        table = view.query_one("#audit-table", DataTable)
+        table.focus()
+        table.move_cursor(row=1)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        from fund.tui.views import _audit_detail
+
+        assert view.detail_text == _audit_detail(view._entries[1])
 
 
 @pytest.mark.asyncio
@@ -7406,6 +7460,7 @@ async def test_audit_detail_renders_bracketed_text_literally(shell_env) -> None:
         view = await _open_audit(app, pilot)
         view._entries = [
             SimpleNamespace(
+                entry_id="agent:1",
                 kind="agent",
                 actor="allocator",
                 action="optimize_portfolio",
@@ -7421,7 +7476,7 @@ async def test_audit_detail_renders_bracketed_text_literally(shell_env) -> None:
                 suitability_flag=False,
             )
         ]
-        view.selected_index = 0
+        view.selected_entry_id = "agent:1"
         view._paint_detail()
         await pilot.pause()
         assert _BRACKETED in _rendered(view.query_one("#audit-detail", Static))

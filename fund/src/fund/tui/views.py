@@ -1162,6 +1162,10 @@ class AuditView(ShellView):
         filter_kind: ``None`` (both) / ``"agent"`` / ``"human"`` — the actor filter.
         filter_overrides: Keep only ⚑ override rows when ``True``.
         filter_portfolio: Scope to the header-focused portfolio when ``True``.
+        selected_entry_id: The selected record's stable ``AuditEntry.entry_id``, or
+            ``None``. Selection is by identity, not list position: the timeline is
+            newest-first and re-read each tick, so a position drifts onto another
+            record as rows arrive.
         detail_text: Mirror of the rendered detail pane — a headless-test hook.
     """
 
@@ -1173,7 +1177,7 @@ class AuditView(ShellView):
         self.filter_overrides = False
         self.filter_portfolio = False
         self.detail_text = ""
-        self.selected_index: int | None = None
+        self.selected_entry_id: str | None = None
         self._entries: list[Any] = []
 
     def compose(self) -> ComposeResult:
@@ -1214,29 +1218,35 @@ class AuditView(ShellView):
         """Advance the actor filter: all → agent → human → all, then repaint."""
         order: tuple[str | None, ...] = (None, "agent", "human")
         self.filter_kind = order[(order.index(self.filter_kind) + 1) % len(order)]
-        self.selected_index = None
+        self.selected_entry_id = None
         self.refresh_view()
 
     def toggle_overrides(self) -> None:
         """Flip the ⚑ overrides-only filter, then repaint."""
         self.filter_overrides = not self.filter_overrides
-        self.selected_index = None
+        self.selected_entry_id = None
         self.refresh_view()
 
     def toggle_portfolio_scope(self) -> None:
         """Flip the header-focused-portfolio scope, then repaint."""
         self.filter_portfolio = not self.filter_portfolio
-        self.selected_index = None
+        self.selected_entry_id = None
         self.refresh_view()
 
     def select_index(self, index: int) -> None:
-        """Focus a timeline row by position, then repaint the detail pane."""
-        self.selected_index = index
+        """Select the row currently shown at ``index``, then repaint the detail pane.
+
+        A driver/test hook: the position is resolved against the last-painted
+        timeline and remembered as that record's identity.
+        """
+        in_range = 0 <= index < len(self._entries)
+        self.selected_entry_id = self._entries[index].entry_id if in_range else None
         self.refresh_view()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """A row selection reveals that decision's full provenance."""
-        self.select_index(event.cursor_row)
+        self.selected_entry_id = event.row_key.value
+        self.refresh_view()
 
     def export_csv(self, path: str) -> str:
         """Write the current (filtered) timeline to ``path`` as CSV; return ``path``.
@@ -1281,11 +1291,18 @@ class AuditView(ShellView):
                     _short(entry.portfolio_id) if entry.portfolio_id else "fund",
                     entry.actor,
                     _audit_label(entry),
+                    key=entry.entry_id,
                 )
-        if self.selected_index is not None and self.selected_index >= len(
-            self._entries
-        ):
-            self.selected_index = None
+        if self._selected_entry() is None:
+            self.selected_entry_id = None
+
+    def _selected_entry(self) -> Any | None:
+        """The selected record from the freshly read timeline, or ``None`` if gone."""
+        if self.selected_entry_id is None:
+            return None
+        return next(
+            (e for e in self._entries if e.entry_id == self.selected_entry_id), None
+        )
 
     def _paint_filters(self) -> None:
         parts = [f"actor {self.filter_kind or 'all'}"]
@@ -1297,10 +1314,8 @@ class AuditView(ShellView):
         self.query_one("#audit-filters", Static).update(" · ".join(parts))
 
     def _paint_detail(self) -> None:
-        if self.selected_index is not None and self.selected_index < len(self._entries):
-            text = _audit_detail(self._entries[self.selected_index])
-        else:
-            text = "(select a decision)"
+        entry = self._selected_entry()
+        text = _audit_detail(entry) if entry is not None else "(select a decision)"
         self.detail_text = text
         self.query_one("#audit-detail", Static).update(text)
 
