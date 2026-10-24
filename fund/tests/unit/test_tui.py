@@ -13,6 +13,7 @@ fund.tui.app`` is checked (in a stripped subprocess env) to need no
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -3403,6 +3404,129 @@ async def test_run_in_flight_from_posture_refuses_deliberation_and_ask_runs(
 
         held.release.set()
         await first.wait()
+
+
+def _held_stream(calls: list[uuid.UUID], release: threading.Event):
+    """A ``stream_fund`` stand-in: one live step, then blocked until ``release``.
+
+    Records every portfolio it is started for, so a test can count how many rounds
+    the shell launched; the held step keeps the round in flight (no committed row yet).
+    """
+
+    def _stream(model, mandate, *, portfolio_id, asof, **_kwargs):
+        calls.append(portfolio_id)
+        run_id = uuid.uuid4()
+        yield StreamEvent(
+            kind="step",
+            run_id=run_id,
+            index=0,
+            agent="economist",
+            step="report",
+            status=StepStatus.LIVE,
+            text="macro read",
+        )
+        release.wait(timeout=10)
+        yield StreamEvent(
+            kind="incomplete",
+            run_id=run_id,
+            index=1,
+            agent="orchestrator",
+            step="place_orders",
+            status=StepStatus.PENDING,
+            text="pipeline ended before the gate",
+        )
+
+    return _stream
+
+
+async def _wait_on_loop(predicate, *, timeout: float = 5.0) -> bool:
+    """Poll ``predicate`` on the loop until it holds or ``timeout`` elapses."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        if predicate():
+            return True
+        await asyncio.sleep(0.02)
+    return predicate()
+
+
+@pytest.mark.asyncio
+async def test_run_refused_while_a_round_is_already_in_flight(
+    tui_env, monkeypatch
+) -> None:
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    calls: list[uuid.UUID] = []
+    release = threading.Event()
+    monkeypatch.setattr("fund.agents.graph.stream_fund", _held_stream(calls, release))
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    blocking_runs: list[str] = []
+    app._run_worker = lambda *_a, **_k: blocking_runs.append("run")  # type: ignore[method-assign]
+    try:
+        async with app.run_test(size=_SIZE) as pilot:
+            app.query_one(ContentSwitcher).current = "view-deliberation"
+            app._refresh()
+            await pilot.pause()
+            app.action_run_portfolio(asof=ASOF)  # first u: the round starts streaming
+            assert await _wait_on_loop(lambda: len(calls) == 1)
+            app.action_run_portfolio(asof=ASOF)  # impatient second u
+            await pilot.pause(0.3)
+            # One round only: a second thread would interleave into the same live
+            # table and race the first for the run / gate rows.
+            assert len(calls) == 1
+            assert "already in progress" in app.last_status
+            # The blocking Posture launchpad is refused too while a round streams.
+            await _open_posture(app, pilot)
+            app.action_run_portfolio(asof=ASOF)
+            await pilot.pause()
+            assert blocking_runs == []
+            assert "already in progress" in app.last_status
+            release.set()
+            assert await _wait_on_loop(
+                lambda: not any(w.group == "stream" for w in app.workers)
+            )
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
+async def test_ask_run_refused_while_a_round_is_already_in_flight(
+    tui_env, monkeypatch
+) -> None:
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    calls: list[uuid.UUID] = []
+    release = threading.Event()
+    monkeypatch.setattr("fund.agents.graph.stream_fund", _held_stream(calls, release))
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    blocking_runs: list[str] = []
+    app._run_worker = lambda *_a, **_k: blocking_runs.append("run")  # type: ignore[method-assign]
+    try:
+        async with app.run_test(size=_SIZE) as pilot:
+            app.query_one(ContentSwitcher).current = "view-deliberation"
+            app._refresh()
+            await pilot.pause()
+            app.action_run_portfolio(asof=ASOF)  # a round is streaming
+            assert await _wait_on_loop(lambda: len(calls) == 1)
+            view = await _open_ask(app, pilot)
+            view.submit_turn("run a rebalance")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmScreen)
+            await pilot.click("#confirm-yes")
+            await pilot.pause(0.3)
+            # The Ask verb is a second entry point to the same round: it must not open
+            # a second run / gate for the bar next to the one still streaming.
+            assert blocking_runs == []
+            assert len(calls) == 1
+            assert app.last_worker is None  # nothing dispatched
+            assert "already in progress" in app.last_status
+            release.set()
+            assert await _wait_on_loop(
+                lambda: not any(w.group == "stream" for w in app.workers)
+            )
+    finally:
+        release.set()
 
 
 # --- Barge-in: PM directive overlay + `b` hotkey (T8) -------------------------

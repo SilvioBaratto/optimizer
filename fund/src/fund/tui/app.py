@@ -657,9 +657,6 @@ class ShellApp(App[None]):
         self._poll_interval = poll_interval
         self.last_status: str = ""
         self.last_worker: Worker[None] | None = None
-        # The run/stream worker launched most recently; a new launch is refused while
-        # it is alive (see ``_launch_run``).
-        self._run_in_flight: Worker[None] | None = None
         # ``_portfolio_ids`` / ``_runstate`` are headless-test hooks mirroring the
         # views' ``render_count``.
         self._portfolio_ids: list[uuid.UUID] = []
@@ -1639,8 +1636,7 @@ class ShellApp(App[None]):
         the run, which resolves the newest fillable one. Returns the new worker, or
         ``None`` when refused.
         """
-        current = self._run_in_flight
-        if current is not None and not current.is_finished:
+        if self._round_in_flight():
             self._set_status("a run is already in progress — wait for it to finish")
             return None
         self._set_status(f"run started for portfolio {self._short_label(portfolio_id)}")
@@ -1648,8 +1644,20 @@ class ShellApp(App[None]):
             worker = self._stream_worker(portfolio_id, asof, view)
         else:
             worker = self._run_worker(portfolio_id, asof)
-        self._run_in_flight = worker
         return worker
+
+    def _round_in_flight(self) -> bool:
+        """Whether a drive or stream worker is still running a round.
+
+        ``exclusive=True`` only cancels a worker's Textual handle, never its thread, so
+        a second launch would run next to the first: both threads feed one live table
+        (a duplicate-row error aborts one) and each opens its own run and gate for the
+        same bar. The launch is refused instead of relying on that cancel.
+        """
+        return any(
+            worker.group in ("drive", "stream") and not worker.is_finished
+            for worker in self.workers
+        )
 
     def _posture_active(self) -> bool:
         """Whether the Posture view is the active content pane (the drive launchpad)."""
@@ -2262,7 +2270,10 @@ class ShellApp(App[None]):
         if verb == "rearm" and action.scope is not None:
             return self._rearm_worker(action.scope, action.portfolio_id, None)
         if verb == "run" and action.portfolio_id is not None:
-            return self._launch_run(action.portfolio_id, None)
+            worker = self._launch_run(action.portfolio_id, None)
+            if worker is None:
+                view.append_log("ask", "run refused — a run is already in progress")
+            return worker
         return None
 
     def _ask_fund_rearm(self, view: AskView) -> None:
