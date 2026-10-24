@@ -119,6 +119,15 @@ def test_allocator_prompt_names_its_tools_and_skills():
     assert "optimization-objective-map" in lower
 
 
+def test_prompts_do_not_claim_views_feed_the_optimizer_prior():
+    # ``optimize_portfolio`` takes only the ConstraintSet; no tool builds a
+    # Black-Litterman prior from the economist's ViewSet.
+    for prompt in (ECONOMIST_SYSTEM_PROMPT, ALLOCATOR_SYSTEM_PROMPT):
+        flat = " ".join(prompt.lower().split())
+        assert "turn them into a prior" not in flat
+        assert "views as the prior" not in flat
+
+
 def test_risk_prompt_reports_pass_fail_with_explicit_violations():
     lower = RISK_SYSTEM_PROMPT.lower()
     assert "pass" in lower

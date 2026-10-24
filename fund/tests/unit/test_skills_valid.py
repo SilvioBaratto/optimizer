@@ -159,6 +159,24 @@ def test_skill_references_expected_tools(name: str):
         assert tool in body, f"{name}: SKILL.md must reference tool `{tool}`"
 
 
+# No tool builds a Black-Litterman prior from the economist's ViewSet (the views are
+# recorded in the allocator's decision for the audit trail), so no skill the agents
+# load may promise that the optimizer prices them.
+_PHANTOM_VIEW_PRICING = (
+    r"optimizer (folds|runs black-litterman|computes the posterior)",
+    r"price[sd]? (the )?(views? )?into the (black-litterman )?(prior|posterior)",
+    r"views? (as|into) the (prior|posterior)",
+)
+
+
+@pytest.mark.parametrize("name", _SKILL_DIRS)
+def test_skills_do_not_claim_the_optimizer_prices_views(name: str):
+    text = _read(name, "SKILL.md") + " " + _read(name, "reference.md")
+    flat = " ".join(text.lower().split())
+    for pattern in _PHANTOM_VIEW_PRICING:
+        assert not re.search(pattern, flat), f"{name}: stale claim /{pattern}/"
+
+
 def test_optimization_objective_map_has_factories():
     factories = _SKILLS_DIR / "optimization-objective-map" / "factories.py"
     assert factories.read_text(encoding="utf-8").strip(), "empty factories.py"
