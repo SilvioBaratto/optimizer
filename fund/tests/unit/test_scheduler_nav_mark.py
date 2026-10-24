@@ -461,3 +461,162 @@ def test_nav_mark_full_rewrites_the_whole_series_on_request(session_factory):
     navs = _navs(session_factory)
     for day, expected in _CHAIN_LINKED.items():
         assert navs[day] == pytest.approx(expected, rel=1e-6), day
+
+
+_HIST_START = date(2026, 9, 1)
+_HIST_DAYS = 30
+_HIST_END = date(2026, 9, 30)
+
+
+def _day(offset: int) -> date:
+    return date.fromordinal(_HIST_START.toordinal() + offset)
+
+
+def _seed_long_history(factory: SessionFactory) -> None:
+    """A month of daily bars for two USD names with a drifting EUR/USD rate.
+
+    Two names with different trajectories and a moving FX rate make any two books
+    (and any two base currencies) mark to visibly different NAVs, so a stale row is
+    detectable. Ticket A holds ``US1`` only and fills on the first bar.
+    """
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    with factory() as session:
+        ex = Exchange(name="X")
+        session.add(ex)
+        session.flush()
+        insts = {}
+        for ticker in ("US1", "ALT"):
+            inst = Instrument(
+                ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+            )
+            session.add(inst)
+            session.flush()
+            insts[ticker] = inst
+        for i in range(_HIST_DAYS):
+            session.add_all(
+                [
+                    PriceHistory(
+                        instrument_id=insts["US1"].id,
+                        date=_day(i),
+                        close=Decimal(100 + i),
+                        price_unit="USD",
+                    ),
+                    PriceHistory(
+                        instrument_id=insts["ALT"].id,
+                        date=_day(i),
+                        close=Decimal(50 + 3 * i),
+                        price_unit="USD",
+                    ),
+                ]
+            )
+        FxRatesRepository(session).upsert_rates(
+            [
+                {
+                    "base_currency": "EUR",
+                    "quote_currency": "USD",
+                    "date": _day(i),
+                    "rate": 0.90 + 0.002 * i,
+                }
+                for i in range(_HIST_DAYS)
+            ]
+        )
+        MandateRepository(session).upsert(
+            PortfolioMandate(
+                portfolio_id=str(_PID),
+                capital=Decimal("10000"),
+                base_currency="EUR",
+                drift_l1_threshold=0.1,
+                triggers=RunTriggers(cron=True, drift=False),
+            )
+        )
+        session.commit()
+    _add_ticket(factory, ticker="US1", fill=_day(0))
+
+
+def _add_ticket(factory: SessionFactory, *, ticker: str, fill: date) -> None:
+    with factory() as session:
+        session.add(
+            PaperOrder(
+                portfolio_id=_PID,
+                asof=date.fromordinal(fill.toordinal() - 1),
+                weights_hash=f"h-{ticker}-{fill.isoformat()}",
+                weights={ticker: 1.0},
+                fill_date=fill,
+                lines=[
+                    {
+                        "ticker": ticker,
+                        "notional": 10000.0,
+                        "fill_price": 100.0,
+                        "shares": 100.0,
+                    }
+                ],
+                notional=10000.0,
+                total_commission=0.0,
+                total_slippage_cost=0.0,
+            )
+        )
+        session.commit()
+
+
+def _recomputed_navs(factory: SessionFactory, base_currency: str) -> dict[date, float]:
+    """The NAV series rebuilt from every ticket: what ``nav_history`` must equal."""
+    from fund.performance import build_nav_series
+
+    with factory() as session:
+        points = build_nav_series(
+            _PID, session=session, base_currency=base_currency, asof=_HIST_END
+        )
+    return {p.date: p.nav for p in points}
+
+
+def test_nav_mark_remarks_history_older_than_the_window_for_a_back_dated_ticket(
+    session_factory,
+):
+    """A ticket filled long before the last mark rewrites the rows it changes.
+
+    An approval delayed past the incremental window files a ticket whose fill date
+    precedes ``last_nav_date - window``. Re-marking only the recent bars would leave
+    the older rows on the previous book and put a seam in the series at the window
+    edge.
+    """
+    _seed_long_history(session_factory)
+    assert run_nav_mark(session_factory=session_factory, asof=_HIST_END) is True
+
+    _add_ticket(session_factory, ticker="ALT", fill=_day(10))
+    assert run_nav_mark(session_factory=session_factory, asof=_HIST_END) is True
+
+    assert _navs(session_factory) == pytest.approx(
+        _recomputed_navs(session_factory, "EUR"), rel=1e-6
+    )
+
+
+def test_nav_mark_remarks_history_older_than_the_window_after_a_base_currency_edit(
+    session_factory,
+):
+    """Changing the mandate base currency re-marks the whole persisted series.
+
+    Rows older than the incremental window would otherwise stay in the previous
+    currency next to recent rows in the new one.
+    """
+    _seed_long_history(session_factory)
+    assert run_nav_mark(session_factory=session_factory, asof=_HIST_END) is True
+
+    with session_factory() as session:
+        MandateRepository(session).upsert(
+            PortfolioMandate(
+                portfolio_id=str(_PID),
+                capital=Decimal("10000"),
+                base_currency="USD",
+                drift_l1_threshold=0.1,
+                triggers=RunTriggers(cron=True, drift=False),
+            )
+        )
+        session.commit()
+    assert run_nav_mark(session_factory=session_factory, asof=_HIST_END) is True
+
+    assert _navs(session_factory) == pytest.approx(
+        _recomputed_navs(session_factory, "USD"), rel=1e-6
+    )

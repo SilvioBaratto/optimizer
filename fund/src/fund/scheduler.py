@@ -61,6 +61,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from fund.audit.persistence import LangGraphPersistence
+    from fund.performance import NavPoint
 
 logger = logging.getLogger(__name__)
 
@@ -716,6 +717,25 @@ def run_nav_mark(
 # bulk of the history is not rewritten every day.
 _NAV_MARK_LOOKBACK_DAYS = 7
 
+# ``nav_history.nav`` / ``benchmark`` are ``Numeric(20, 6)``: a recomputed value
+# within half a unit of the sixth decimal is the stored one, not a change.
+_NAV_ROW_ABS_TOL = 5e-7
+
+
+def _nav_row_changed(
+    point: NavPoint, stored: tuple[float, float | None] | None
+) -> bool:
+    """Whether a recomputed NAV point differs from its persisted values."""
+    if stored is None:
+        return True
+    nav, benchmark = stored
+    if not math.isclose(nav, point.nav, abs_tol=_NAV_ROW_ABS_TOL):
+        return True
+    if benchmark is None or point.benchmark is None:
+        return benchmark is not point.benchmark
+    return not math.isclose(benchmark, point.benchmark, abs_tol=_NAV_ROW_ABS_TOL)
+
+
 # Persisted NAV is Numeric(20, 6); this only has to absorb that rounding.
 _NAV_ANCHOR_REL_TOL = 1e-6
 
@@ -807,7 +827,19 @@ def _mark_all_navs(session: Session, asof: dt.date, *, full: bool = False) -> No
             points = _nav_points_to_persist(
                 session, nav_repo, pid, mandate, asof, full=full
             )
-            if not points:
+            persisted = {
+                row.date: (
+                    float(row.nav),
+                    None if row.benchmark is None else float(row.benchmark),
+                )
+                for row in nav_repo.get_navs(pid)
+            }
+            changed = [
+                point
+                for point in points
+                if _nav_row_changed(point, persisted.get(point.date))
+            ]
+            if not changed:
                 continue
             nav_repo.upsert_navs(
                 [
@@ -817,7 +849,7 @@ def _mark_all_navs(session: Session, asof: dt.date, *, full: bool = False) -> No
                         "nav": point.nav,
                         "benchmark": point.benchmark,
                     }
-                    for point in points
+                    for point in changed
                 ]
             )
             session.commit()
