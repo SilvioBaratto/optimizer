@@ -163,7 +163,7 @@ def _backtest_lines(compute: Any) -> list[str]:
     mode = "out-of-sample" if result.out_of_sample else "in-sample"
     return [
         f"backtest · sharpe {_num(result.sharpe_ratio)} {_units_label(compute)}"
-        f" · maxDD {_num(result.max_drawdown)}",
+        f" · maxDD {_magnitude_pct(result.max_drawdown)}",
         f"  {result.n_observations} obs · {result.n_folds} folds · {mode}"
         f" · {result.window_start} → {result.window_end}",
     ]
@@ -388,6 +388,18 @@ def _mock_lines() -> list[str]:
 
 def _indent(lines: list[str]) -> list[str]:
     return [f"  {line}" for line in lines]
+
+
+def _magnitude_pct(value: Any) -> str:
+    """Format a non-negative fraction (a drawdown) as a two-decimal percentage.
+
+    Two decimals because a drawdown of a few basis points would otherwise round to
+    zero; unsigned because it is a magnitude, not a gain.
+    """
+    if value is None:
+        return "—"
+    numeric = _as_float(value)
+    return str(value) if numeric is None else f"{numeric:.2%}"
 
 
 def _num(value: Any) -> str:
