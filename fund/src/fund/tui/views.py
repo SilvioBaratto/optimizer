@@ -147,6 +147,14 @@ class ShellView(Vertical):
         """
         self.render_count += 1
 
+    def has_unsaved_edits(self) -> bool:
+        """Whether the view holds input the adviser has typed but not yet saved.
+
+        The poll timer skips a repaint while this is true, so a tick cannot overwrite
+        in-progress edits with the stored state. Read-only views never hold edits.
+        """
+        return False
+
     # --- context seam -------------------------------------------------------
 
     @property
@@ -411,6 +419,9 @@ class MandateView(ShellView):
         self.mandate: Any = None
         self.suitability_band: str | None = None
         self._directives: list[str] = []
+        # Editor values as last painted from the read model; the difference against the
+        # live widgets is what counts as an unsaved edit.
+        self._painted_state: tuple[Any, ...] | None = None
 
     def compose(self) -> ComposeResult:
         """Yield the title, the run-policy | guardrails split, and the key hint."""
@@ -468,6 +479,7 @@ class MandateView(ShellView):
             self._paint_guardrails(None, "")
             self._paint_gates(None)
             self._paint_directives(None)
+            self._painted_state = self._edit_state()
             return
         subtitle.update(f"portfolio {_short(pid)}")
         mandate, band, caps = self._read(pid)
@@ -477,6 +489,26 @@ class MandateView(ShellView):
         self._paint_guardrails(band, caps)
         self._paint_gates(mandate)
         self._paint_directives(mandate)
+        self._painted_state = self._edit_state()
+
+    def has_unsaved_edits(self) -> bool:
+        """Whether any editor widget differs from what the last repaint put there."""
+        return (
+            self._painted_state is not None
+            and self._edit_state() != self._painted_state
+        )
+
+    def _edit_state(self) -> tuple[Any, ...]:
+        """The values of every editable widget, in a stable order."""
+        return (
+            self.query_one("#mandate-capital", Input).value,
+            self.query_one("#mandate-base-currency", Input).value,
+            self.query_one("#mandate-drift", Input).value,
+            self.query_one("#mandate-benchmark", Input).value,
+            self.query_one("#mandate-band", Select).value,
+            self.query_one("#gate-place-orders", Checkbox).value,
+            tuple(self._directives),
+        )
 
     def proposed_mandate(self) -> Any:
         """Build a ``PortfolioMandate`` from the edited run-policy inputs, re-validated.

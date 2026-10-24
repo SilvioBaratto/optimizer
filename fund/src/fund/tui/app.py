@@ -708,21 +708,30 @@ class ShellApp(App[None]):
         every manual/test repaint also re-read the autonomy rows.
         """
         self._refresh_runstate()
-        self._refresh()
+        self._refresh(preserve_edits=True)
 
-    def _refresh(self) -> None:
+    def _refresh(self, *, preserve_edits: bool = False) -> None:
         """Repaint the active view from the read model — synchronous, test-callable.
 
         A single sync entry point a headless test can call directly instead of racing
         the poll timer. Runs the cross-portfolio notification bus first (fund-wide,
         independent of the active view), then delegates to the visible
         :class:`~fund.tui.views.ShellView` for its repaint.
+
+        Args:
+            preserve_edits: Skip the repaint when the view holds unsaved input. The
+                timer passes this so a tick never overwrites what the adviser is
+                typing; an explicit navigation, refocus or post-action repaint does
+                not, since those deliberately reset the view.
         """
         self._poll_attention()
         current = self.query_one(ContentSwitcher).current
         if current is None:
             return
-        self.query_one(f"#{current}", ShellView).refresh_view()
+        view = self.query_one(f"#{current}", ShellView)
+        if preserve_edits and view.has_unsaved_edits():
+            return
+        view.refresh_view()
 
     def focus_portfolio(self, portfolio_id: uuid.UUID) -> None:
         """Focus the shell on a portfolio picked inside a content view (Posture roster).

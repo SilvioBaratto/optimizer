@@ -1097,6 +1097,108 @@ async def test_mandate_remove_directive_drops_it_on_save(shell_env) -> None:
         assert reloaded.remembered_directives == ("Keep 5% cash",)
 
 
+@pytest.mark.asyncio
+async def test_poll_tick_keeps_unsaved_mandate_edits(shell_env) -> None:
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"remembered_directives": ("Trim AAA", "Keep 5% cash")}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = "0.25"
+        view.query_one("#gate-place-orders", Checkbox).value = False
+        view.query_one("#mandate-directives", ListView).index = 0
+        view.action_remove_directive()
+        await pilot.pause()
+
+        app._poll()  # the timer tick must not repaint over what the adviser typed
+        await pilot.pause()
+
+        assert view.query_one("#mandate-drift", Input).value == "0.25"
+        assert view.query_one("#gate-place-orders", Checkbox).value is False
+        assert view._directives == ["Keep 5% cash"]
+        app.action_save_mandate()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        reloaded = observe.get_mandate(session, PORTFOLIO_ID)
+        assert reloaded.drift_l1_threshold == 0.25
+        assert reloaded.hitl_gates == ()
+        assert reloaded.remembered_directives == ("Keep 5% cash",)
+
+
+@pytest.mark.asyncio
+async def test_poll_tick_keeps_picked_guardrail_band_so_override_is_flagged(
+    shell_env,
+) -> None:
+    # The ceiling is balanced; the adviser picks aggressive and a tick lands before
+    # ``o``. Repainting the ceiling over the pick would log balanced -> balanced with
+    # no override flag, silently dropping the MiFID audit signal.
+    _seed_mandate_and_profile(shell_env, band="balanced")
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-band", Select).value = "aggressive"
+
+        app._poll()
+        await pilot.pause()
+
+        assert view.proposed_band() == "aggressive"
+        app.action_override_guardrail()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        rows = HumanAuditLogRepository(session).list_recent(action="guardrail_override")
+        assert len(rows) == 1
+        assert rows[0].new_value == "aggressive"
+        assert rows[0].override_flag is True
+        assert rows[0].suitability_flag is True
+
+
+@pytest.mark.asyncio
+async def test_poll_tick_still_repaints_an_untouched_mandate_view(shell_env) -> None:
+    # The edit guard must not freeze the view: with nothing edited, an external change
+    # to the stored mandate shows up on the next tick.
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        assert view.query_one("#mandate-drift", Input).value == "0.1"
+        with shell_env.get_session() as session:
+            MandateRepository(session).upsert(
+                make_mandate().model_copy(update={"drift_l1_threshold": 0.3})
+            )
+            session.commit()
+
+        app._poll()
+        await pilot.pause()
+
+        assert view.query_one("#mandate-drift", Input).value == "0.3"
+
+
+@pytest.mark.asyncio
+async def test_mandate_edits_reset_when_the_focused_portfolio_changes(
+    shell_env,
+) -> None:
+    # An explicit refocus (not a timer tick) repaints even a dirty editor: stale
+    # inputs from portfolio A must never be saved against portfolio B.
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = "0.25"
+
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+
+        assert view.query_one("#mandate-drift", Input).value == ""
+
+
 # --- Posture view: fund roster + fund strip + focused detail (T6) -------------
 
 _PID_C = uuid.UUID("cccc0003-0000-4000-8000-000000000003")
