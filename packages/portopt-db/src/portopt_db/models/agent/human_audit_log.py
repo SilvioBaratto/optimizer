@@ -40,7 +40,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from portopt_db.base import BaseModel
 
 # Use JSONB on PostgreSQL, plain JSON elsewhere (e.g. SQLite in tests).
-_JSON = JSON().with_variant(JSONB, "postgresql")
+# ``none_as_null`` makes a Python ``None`` persist as SQL NULL; the default stores the
+# JSON literal ``null``, which ``IS NULL`` / ``IS NOT NULL`` filters on the nullable
+# columns would silently misclassify.
+_JSON = JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
 
 
 class HumanAuditLog(BaseModel):
