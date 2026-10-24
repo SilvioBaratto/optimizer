@@ -16,6 +16,9 @@ Contracts under test:
   hiccup, and reporting ``False`` when the deadline elapses first.
 * ``main`` boots the full sequence with mocks (no real scheduler/pool/DB/block),
   and its drain path calls ``scheduler.shutdown`` + ``pool.close`` + ``close_db``.
+* After a timed-out drain, ``main`` leaves the pool and engine open (the abandoned
+  step still uses them), fails the in-flight slots, and ends the process with
+  ``os._exit`` rather than returning into a join on the executor thread.
 
 A subprocess guard (fresh interpreter) proves ``import fund.worker`` drags in none
 of the agent stack (deepagents/langchain/langgraph) nor the ingestion daemon
@@ -24,7 +27,9 @@ of the agent stack (deepagents/langchain/langgraph) nor the ingestion daemon
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
 import signal
 import subprocess
 import sys
@@ -134,6 +139,39 @@ def test_reconcile_orphans_is_non_fatal_on_db_error() -> None:
     worker._reconcile_orphans(session_factory=_boom_factory)
 
 
+# --- _fail_in_flight_slots --------------------------------------------------
+
+
+def test_fail_in_flight_slots_fails_a_fresh_active_fund_slot(job_factory) -> None:
+    _insert_slot(job_factory, job_type="fund_rebalance_sweep", heartbeat="fresh")
+
+    worker._fail_in_flight_slots(session_factory=job_factory)
+
+    with job_factory() as session:
+        row = session.query(BackgroundJob).one()
+    assert row.status == "failed"
+    assert row.finished_at is not None
+    assert "drain timeout" in (row.error or "")
+
+
+def test_fail_in_flight_slots_spares_non_fund_jobs(job_factory) -> None:
+    _insert_slot(job_factory, job_type="daily_pipeline", heartbeat="fresh")
+
+    worker._fail_in_flight_slots(session_factory=job_factory)
+
+    with job_factory() as session:
+        row = session.query(BackgroundJob).one()
+    assert row.status == "running"
+
+
+def test_fail_in_flight_slots_is_non_fatal_on_db_error() -> None:
+    def _boom_factory():
+        raise RuntimeError("db down")
+
+    # Must not raise — a DB failure cannot block the forced exit.
+    worker._fail_in_flight_slots(session_factory=_boom_factory)
+
+
 # --- _install_signal_handlers -----------------------------------------------
 
 
@@ -235,7 +273,11 @@ def _install_main_stubs(monkeypatch, *, healthy: bool):
     monkeypatch.setattr(worker, "close_db", lambda: calls.append("close_db"))
 
     return SimpleNamespace(
-        scheduler=scheduler, runtime=runtime, installed=installed, calls=calls
+        scheduler=scheduler,
+        runtime=runtime,
+        installed=installed,
+        calls=calls,
+        database_manager=dm,
     )
 
 
@@ -263,6 +305,66 @@ def test_main_warns_but_continues_on_failed_health_check(monkeypatch, caplog) ->
 
     assert any("health check" in r.message.lower() for r in caplog.records)
     stubs.scheduler.start.assert_called_once()
+
+
+class _ForcedExit(BaseException):
+    """Raised by the patched ``os._exit`` so nothing after the exit call runs."""
+
+
+def _capture_hard_exit(monkeypatch) -> list[int]:
+    """Replace ``os._exit`` with a recorder that unwinds instead of killing pytest."""
+    codes: list[int] = []
+
+    def _exit(code: int) -> None:
+        codes.append(code)
+        raise _ForcedExit
+
+    monkeypatch.setattr(os, "_exit", _exit)
+    return codes
+
+
+def test_main_forces_exit_without_closing_shared_resources_on_drain_timeout(
+    monkeypatch, job_factory
+) -> None:
+    """A step that outlives the drain still owns the pool and engine, so they stay open.
+
+    Closing them underneath it would make every remaining checkpointer/store call
+    raise ``PoolClosed`` (the sweep swallows that per portfolio and then records
+    ``completed``), and a clean return would leave the process lingering until the
+    abandoned executor thread finished. The slot is failed instead and the process
+    exits at once.
+    """
+    stubs = _install_main_stubs(monkeypatch, healthy=True)
+    monkeypatch.setattr(worker, "_drain_and_shutdown", lambda *a, **k: False)
+    stubs.database_manager.get_session = job_factory
+    _insert_slot(job_factory, job_type="fund_rebalance_sweep", heartbeat="fresh")
+    exit_codes = _capture_hard_exit(monkeypatch)
+
+    with contextlib.suppress(_ForcedExit):
+        worker.main()
+
+    stubs.runtime.persistence.pool.close.assert_not_called()
+    assert "close_db" not in stubs.calls
+    with job_factory() as session:
+        row = session.query(BackgroundJob).one()
+    assert row.status == "failed"
+    # Same convention as the ingestion daemon: the shutdown was requested and the
+    # abandoned work is safe to re-run, so a drain timeout must not trip exit-code
+    # alerting.
+    assert exit_codes == [0]
+
+
+def test_main_still_closes_resources_and_returns_after_a_clean_drain(
+    monkeypatch,
+) -> None:
+    stubs = _install_main_stubs(monkeypatch, healthy=True)
+    exit_codes = _capture_hard_exit(monkeypatch)
+
+    worker.main()
+
+    stubs.runtime.persistence.pool.close.assert_called_once()
+    assert "close_db" in stubs.calls
+    assert exit_codes == []
 
 
 # --- import hygiene ---------------------------------------------------------
