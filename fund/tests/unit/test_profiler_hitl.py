@@ -10,6 +10,7 @@ them at the confirmation gate. Zero live LLM, zero network.
 from __future__ import annotations
 
 import dataclasses
+import json
 import uuid
 from types import SimpleNamespace
 
@@ -26,7 +27,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision
 
-from fund.agents.profiler import run_profiler
+from fund.agents.profiler import _make_save_profile, run_profiler
 from fund.audit import AgentRunRepository, MifidProfileRepository
 from fund.schemas.enums import GicsSector, KnowledgeLevel, LossReaction, ObjectiveChoice
 
@@ -312,13 +313,14 @@ def test_reprofile_appends_a_new_version_and_refreshes_the_store(committing_sess
     committing_session.commit()
     assert MifidProfileRepository(committing_session).get_active(pid).version == 1
 
-    # Second profile for the SAME portfolio with materially different answers.
+    # Second profile for the SAME portfolio with materially different answers: the
+    # client's loss capacity collapsed, the adviser re-runs the questionnaire.
     diff = make_answers(
-        likert=(7, 7, 7),
-        max_loss=0.5,
-        buffer=12.0,
-        goal=ObjectiveChoice.MAX,
-        reaction=LossReaction.BUY_MORE,
+        likert=(2, 2, 2),
+        max_loss=0.05,
+        buffer=1.0,
+        goal=ObjectiveChoice.PROTECTION,
+        reaction=LossReaction.SELL_ALL,
     )
     run2 = _run(
         make_model(diff, portfolio_id=str(pid)),
@@ -326,6 +328,7 @@ def test_reprofile_appends_a_new_version_and_refreshes_the_store(committing_sess
         portfolio_id=pid,
         store=store,
     )
+    assert run2.constraint_set.a_gamma != run1.constraint_set.a_gamma
     run2.resume("approve")
     # The Store cache is released only once the session commits.
     committing_session.commit()
@@ -355,9 +358,7 @@ def test_reprofile_appends_a_new_version_and_refreshes_the_store(committing_sess
 
 def test_save_profile_replay_of_a_completed_run_writes_nothing(db_session):
     """A same-run replay (SPEC D3) appends no version and re-logs no decision."""
-    import json
 
-    from fund.agents.profiler import _make_save_profile
     from fund.config import settings
 
     pid = uuid.uuid4()
