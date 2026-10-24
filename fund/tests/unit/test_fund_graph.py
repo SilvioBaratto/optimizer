@@ -19,6 +19,7 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 import deepagents
@@ -608,6 +609,9 @@ def test_resume_fund_rereads_mandate_gates_into_interrupt_on(db_session, monkeyp
     captured: dict[str, Any] = {}
 
     class _FakeAgent:
+        def get_state(self, *a: Any, **k: Any) -> Any:
+            return SimpleNamespace(interrupts=())
+
         def invoke(self, *a: Any, **k: Any) -> dict[str, Any]:
             return {}
 

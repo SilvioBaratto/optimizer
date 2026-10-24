@@ -18,6 +18,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from _fund_fakes import (
@@ -326,6 +327,87 @@ def test_resume_fund_reject_places_no_order(db_session) -> None:
         d.hitl_decision and d.hitl_decision.get("decision") == "reject"
         for d in _decisions(db_session, run.run_id)
     )
+
+
+# --- parallel place_orders calls: one decision per hanging tool call -----------
+
+
+def _run_to_double_gate(db_session, saver, store, expected) -> FundRun:
+    """Drive a PM that emits two ``place_orders`` calls in one message to its gate."""
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected, parallel_orders=2),
+        db_session,
+        saver,
+        store,
+    )
+    assert run.status == "paused"
+    assert len(run.interrupt["action_requests"]) == 2
+    return run
+
+
+def test_resume_fund_approve_resolves_a_gate_with_parallel_place_orders(
+    db_session,
+) -> None:
+    """Two gated calls in one PM message are both approved by one adviser approve;
+    the idempotent ticket is still written once and the run completes."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_double_gate(db_session, saver, store, expected)
+
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected, parallel_orders=2),
+    )
+
+    assert len(_paper_orders(db_session)) == 1
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "completed"
+
+
+def test_resume_fund_reject_resolves_a_gate_with_parallel_place_orders(
+    db_session,
+) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_double_gate(db_session, saver, store, expected)
+
+    resume_fund(
+        run.run_id,
+        "reject",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected, parallel_orders=2),
+    )
+
+    assert _paper_orders(db_session) == []
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "rejected"
+
+
+def test_fundrun_resume_respond_resolves_a_gate_with_parallel_place_orders(
+    db_session,
+) -> None:
+    """The live handle sizes its resume to the pending gate too, so a respond to a
+    two-call interrupt neither raises nor leaves the run wedged."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_double_gate(db_session, saver, store, expected)
+
+    run.resume("respond", pm_directive="keep it to one ticket")
+
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "incomplete"
+    assert len(_respond_decisions(db_session, run.run_id)) == 1
 
 
 # --- resume_fund guards ------------------------------------------------------
@@ -816,6 +898,9 @@ def test_resume_fund_reraises_when_the_gate_was_not_consumed(
     )
 
     class _DeadAgent:
+        def get_state(self, *_args, **_kwargs):
+            return SimpleNamespace(interrupts=())
+
         def invoke(self, *_args, **_kwargs):
             raise ConnectionError("checkpointer unreachable")
 

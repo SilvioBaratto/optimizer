@@ -107,7 +107,9 @@ class ScriptedFundModel(BaseChatModel):
     agree). ``risk_passes``, ``risk_checks`` and ``overrun`` select the non-happy
     paths; ``max_orders`` (default 1) lets the PM re-gate — call ``place_orders``
     again after a respond barge-in or a refused approval — so a re-gating resume can
-    be scripted.
+    be scripted. ``parallel_orders`` (default 1) makes each ``place_orders`` turn emit
+    that many tool calls in one message, the parallel-tool-calling shape that gives
+    the HITL gate several action requests.
     """
 
     universe: list[str] = Field(default_factory=list)
@@ -116,6 +118,7 @@ class ScriptedFundModel(BaseChatModel):
     risk_checks: bool = True
     overrun: bool = False
     max_orders: int = 1
+    parallel_orders: int = 1
     generate_calls: int = 0
 
     @property
@@ -174,8 +177,9 @@ class ScriptedFundModel(BaseChatModel):
                     {
                         "name": "place_orders",
                         "args": {"weights": self.weights},
-                        "id": f"call_place_orders_{n_orders}",
+                        "id": f"call_place_orders_{n_orders}_{k}",
                     }
+                    for k in range(self.parallel_orders)
                 ],
             )
         return AIMessage(content="Run complete; paper ticket handled.")

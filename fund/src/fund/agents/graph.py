@@ -892,10 +892,7 @@ class FundRun:
         """
         from fund.audit import AgentRunRepository
 
-        result: dict[str, Any] = self.agent.invoke(
-            _resume_command(decision, pm_directive),
-            config=self.thread_config,
-        )
+        result = _resume_agent(self.agent, self.thread_config, decision, pm_directive)
         if decision == "respond":
             _finalize_respond(
                 self.session,
@@ -939,22 +936,61 @@ def _finalize_incomplete(audit: Any, run_id: uuid.UUID, reason: str) -> None:
     audit.finalize_run(run_id, weights={}, status="incomplete")
 
 
-def _resume_command(decision: str, pm_directive: str | None) -> Any:
+def _resume_command(
+    decision: str, pm_directive: str | None, *, actions: int = 1
+) -> Any:
     """Build the HITL ``Command(resume=…)`` for a gate decision.
 
     ``approve`` / ``reject`` carry only the decision type; ``respond`` carries the
     adviser's free-text ``pm_directive`` as the gated tool's result, threading it back
     to the PM (a successful ``place_orders`` ``ToolMessage``) so the gate continues
-    instead of terminating. Imports ``langgraph`` lazily to keep a bare
-    ``import fund.agents.graph`` light.
+    instead of terminating. The middleware demands exactly one decision per gated tool
+    call, so the same decision is repeated ``actions`` times (a PM turn that emits
+    parallel gated calls pauses with several action requests). Imports ``langgraph``
+    lazily to keep a bare ``import fund.agents.graph`` light.
     """
     from langgraph.types import Command
 
-    if decision == "respond":
-        return Command(
-            resume={"decisions": [{"type": "respond", "message": pm_directive}]}
-        )
-    return Command(resume={"decisions": [{"type": decision}]})
+    decisions: list[dict[str, Any]] = [
+        {"type": "respond", "message": pm_directive}
+        if decision == "respond"
+        else {"type": decision}
+        for _ in range(max(actions, 1))
+    ]
+    return Command(resume={"decisions": decisions})
+
+
+def _pending_action_count(agent: Any, thread_config: dict[str, Any]) -> int:
+    """How many gated tool calls the paused PM is awaiting a decision on.
+
+    Read from the checkpointed interrupt rather than a cached payload, because a
+    ``respond`` can re-gate with a different number of calls than the first pause.
+    ``1`` when no interrupt carries action requests.
+    """
+    for pending in agent.get_state(thread_config).interrupts:
+        value = pending.value
+        requests = value.get("action_requests") if isinstance(value, dict) else None
+        if requests:
+            return len(requests)
+    return 1
+
+
+def _resume_agent(
+    agent: Any,
+    thread_config: dict[str, Any],
+    decision: str,
+    pm_directive: str | None,
+) -> dict[str, Any]:
+    """Resume the paused PM, answering every gated tool call it is waiting on."""
+    result: dict[str, Any] = agent.invoke(
+        _resume_command(
+            decision,
+            pm_directive,
+            actions=_pending_action_count(agent, thread_config),
+        ),
+        config=thread_config,
+    )
+    return result
 
 
 def _finalize_respond(
@@ -1695,10 +1731,7 @@ def resume_fund(
         "recursion_limit": config.recursion_limit,
     }
     try:
-        result: dict[str, Any] = agent.invoke(
-            _resume_command(decision, pm_directive),
-            config=thread_config,
-        )
+        result = _resume_agent(agent, thread_config, decision, pm_directive)
     except Exception as exc:
         # The checkpointer commits on its own connection while the ticket and
         # positions live in the caller's uncommitted session. If the PM's follow-up
