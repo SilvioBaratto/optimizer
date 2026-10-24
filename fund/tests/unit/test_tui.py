@@ -3128,6 +3128,49 @@ async def test_audit_export_includes_rows_beyond_the_view_cap(
 
 
 @pytest.mark.asyncio
+async def test_audit_table_keeps_cursor_and_scroll_across_repaints(shell_env) -> None:
+    # The table is repainted on every poll tick; browsing down to older decisions must
+    # not snap the highlight and the viewport back to the top.
+    with shell_env.get_session() as session:
+        _seed_many_audit_rows(session, 60)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        table = view.query_one("#audit-table", DataTable)
+        table.focus()
+        table.move_cursor(row=50)
+        await pilot.pause()
+        scrolled_to = table.scroll_y
+        assert scrolled_to > 0
+
+        app._poll()
+        await pilot.pause()
+
+        assert table.cursor_row == 50
+        assert table.scroll_y == scrolled_to
+
+
+@pytest.mark.asyncio
+async def test_audit_enter_keeps_highlight_on_the_selected_row(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_many_audit_rows(session, 60)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        table = view.query_one("#audit-table", DataTable)
+        table.focus()
+        table.move_cursor(row=40)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert view.selected_entry_id == view._entries[40].entry_id
+        assert table.cursor_row == 40  # highlight and detail agree after the repaint
+
+
+@pytest.mark.asyncio
 async def test_audit_view_flags_a_truncated_timeline(shell_env) -> None:
     with shell_env.get_session() as session:
         _seed_many_audit_rows(session, 201)
