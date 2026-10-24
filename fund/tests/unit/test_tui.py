@@ -5665,6 +5665,94 @@ async def test_ask_query_returns_grounded_answer(shell_env) -> None:
         assert "how are we doing?" in str(view.query_one("#ask-log", Static).render())
 
 
+class _GatedAskModel(BaseChatModel):
+    """A chat model that can park inside ``invoke`` until released, then answer or fail.
+
+    ``entered`` is set as soon as the call starts and ``finished`` once it is about to
+    return, so a test can overlap two queries deterministically.
+    """
+
+    answer: str = ""
+    fail: bool = False
+    entered: threading.Event | None = None
+    release: threading.Event | None = None
+    finished: threading.Event | None = None
+
+    @property
+    def _llm_type(self) -> str:
+        return "gated-ask"
+
+    def _generate(self, messages, stop=None, run_manager=None, **_):
+        """Wait for ``release`` (when gated), then answer or raise."""
+        from langchain_core.messages import AIMessage
+        from langchain_core.outputs import ChatGeneration, ChatResult
+
+        if self.entered is not None:
+            self.entered.set()
+        if self.release is not None:
+            assert self.release.wait(timeout=10)
+        try:
+            if self.fail:
+                raise RuntimeError("model blew up")
+            return ChatResult(
+                generations=[ChatGeneration(message=AIMessage(content=self.answer))]
+            )
+        finally:
+            if self.finished is not None:
+                self.finished.set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stale_fails", [False, True], ids=["answer", "error"])
+async def test_ask_superseded_query_never_paints_its_stale_reply(
+    shell_env, stale_fails
+) -> None:
+    """A newer question cancels the older one; its late reply must not reach the log.
+
+    A cancelled thread worker keeps running, so without a guard its answer (or error
+    note) lands after the newer question's answer and reads as the reply to it.
+    """
+    entered, release, finished = (threading.Event() for _ in range(3))
+    models = iter(
+        [
+            _GatedAskModel(
+                answer="ANSWER-1 (slow)",
+                fail=stale_fails,
+                entered=entered,
+                release=release,
+                finished=finished,
+            ),
+            _GatedAskModel(answer="ANSWER-2 (fast)"),
+        ]
+    )
+    app = _make_shell(
+        shell_env, portfolio_id=_PID_A, model_factory=lambda: next(models)
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("how are we doing?")
+        assert await asyncio.to_thread(entered.wait, 5)  # Q1 is parked in the model
+        view.submit_turn("what about drift?")
+        second = app.last_worker
+        assert second is not None
+        await second.wait()
+        await pilot.pause()
+        assert view.last_answer == "ANSWER-2 (fast)"
+        status_after_answer = app.last_status
+
+        release.set()
+        assert await asyncio.to_thread(finished.wait, 5)
+        await asyncio.sleep(0.2)  # let a stale paint through if the guard is missing
+        await pilot.pause()
+
+        log = _rendered(view.query_one("#ask-log", Static))
+        assert "ANSWER-2 (fast)" in log
+        assert "ANSWER-1" not in log
+        assert "ask failed" not in log
+        assert view.last_answer == "ANSWER-2 (fast)"
+        assert app.last_status == status_after_answer
+
+
 @pytest.mark.asyncio
 async def test_ask_query_without_model_degrades_to_status(shell_env) -> None:
     """No model configured → a status line + log note, never a crash, no answer."""

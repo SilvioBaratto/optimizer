@@ -2428,21 +2428,37 @@ class ShellApp(App[None]):
         marshals the answer back via ``call_from_thread``. ``view`` is resolved by the
         caller on the event loop and passed in — this thread never queries the DOM,
         touching the view only through ``call_from_thread``. A missing/failed model
-        degrades to a status line + a log note, never a crash. The langchain message
-        types are imported lazily so ``import fund.tui.app`` stays agent-stack-light.
+        degrades to a status line + a log note, never a crash. A newer question cancels
+        this worker, but a thread cannot be force-stopped, so every paint is dropped
+        once it is cancelled: a slow stale reply never lands under the newer question.
+        The langchain message types are imported lazily so ``import fund.tui.app`` stays
+        agent-stack-light.
         """
         from langchain_core.messages import HumanMessage, SystemMessage
+        from textual.worker import get_current_worker
+
+        worker = get_current_worker()
+
+        def deliver(paint: Callable[..., None], *args: Any) -> None:
+            # Cancellation is checked on the event loop, where the newer question
+            # cancels this worker, so no stale paint can slip in between the check and
+            # the call.
+            def guarded() -> None:
+                if not worker.is_cancelled:
+                    paint(*args)
+
+            self.call_from_thread(guarded)
 
         focus = self._portfolio_id
         try:
             model = self._model_factory()
         except Exception as exc:  # surface a clean message, never crash the App
-            self.call_from_thread(self._set_status, f"model unavailable: {exc}")
-            self.call_from_thread(view.append_log, "ask", f"(model unavailable: {exc})")
+            deliver(self._set_status, f"model unavailable: {exc}")
+            deliver(view.append_log, "ask", f"(model unavailable: {exc})")
             return
         if model is None:
-            self.call_from_thread(self._set_status, "no model configured")
-            self.call_from_thread(view.append_log, "ask", "(no model configured)")
+            deliver(self._set_status, "no model configured")
+            deliver(view.append_log, "ask", "(no model configured)")
             return
         try:
             with self._session_factory() as session:
@@ -2456,10 +2472,10 @@ class ShellApp(App[None]):
             ]
             answer = _answer_text(model.invoke(prompt))
         except Exception as exc:  # surface a clean message, never crash the App
-            self.call_from_thread(self._set_status, f"ask failed: {exc}")
-            self.call_from_thread(view.append_log, "ask", f"(ask failed: {exc})")
+            deliver(self._set_status, f"ask failed: {exc}")
+            deliver(view.append_log, "ask", f"(ask failed: {exc})")
             return
-        self.call_from_thread(view.set_answer, answer)
+        deliver(view.set_answer, answer)
 
     # --- header picker + run state -----------------------------------------
 
