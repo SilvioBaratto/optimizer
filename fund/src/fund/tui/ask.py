@@ -45,7 +45,8 @@ _ACTION_VERBS: dict[str, str] = {
 }
 
 # Resume verbs target a specific paused gate (a run); scope verbs target an autonomy
-# scope; ``run`` (rebalance) targets the focused portfolio.
+# scope; ``run`` (rebalance) targets the focused portfolio. ``killswitch`` is a resume
+# verb only at run level: naming a scope turns it into the freeze at that scope.
 _RESUME_VERBS: frozenset[str] = frozenset(
     {"approve", "reject", "killswitch", "respond"}
 )
@@ -54,6 +55,7 @@ _SCOPE_VERBS: frozenset[str] = frozenset({"freeze", "rearm"})
 # Fund-wide scope is named by the standalone word "fund". A bare substring test would
 # misroute a focused freeze/rearm onto the whole fund on words like "refund"/"funding".
 _FUND_WORD = re.compile(r"\bfund\b")
+_PORTFOLIO_WORD = re.compile(r"\bportfolios?\b")
 
 # "run" opens many ordinary questions ("run me through…", "run the numbers…"), so it
 # only means a rebalance when a rebalance word follows it, past a few filler words.
@@ -228,13 +230,17 @@ def resolve_target(
 
     Routes on the verb kind — never guessing a target:
 
-    * a resume verb (approve / reject / killswitch / respond) resolves against the
-      pending-HITL gates: a single gate (or one named by its short id in the turn) is
-      ``resolved``, two or more unnamed are ``ambiguous`` (the candidates), none is
-      ``unresolved`` — as is a turn naming an id that matches no live gate (already
-      decided, or a typo), which is never swapped for another gate. A negation
-      ("approve not #id") is ``ambiguous`` over every live gate: the excluded gate is
-      never the one acted on;
+    * a resume verb (approve / reject / respond) resolves against the pending-HITL
+      gates: a single gate (or one named by its short id in the turn) is ``resolved``,
+      two or more unnamed are ``ambiguous`` (the candidates), none is ``unresolved`` —
+      as is a turn naming an id that matches no live gate (already decided, or a
+      typo), which is never swapped for another gate. A negation ("approve not #id")
+      is ``ambiguous`` over every live gate: the excluded gate is never the one acted
+      on;
+    * ``killswitch`` resolves the same way at run level, but a turn that names a scope
+      ("the fund", "the portfolio") or a blanket target ("everything") without naming a
+      live gate is the emergency stop at that scope: it resolves like ``freeze``, so the
+      stop never shrinks to rejecting one paused run, nor dead-ends when none is paused;
     * a scope verb (freeze / rearm) resolves to ``fund`` when the turn says so, to the
       portfolio whose short id it names, else to the focused portfolio, else
       ``ambiguous`` (ask which). A turn that names an id matching no portfolio is
@@ -258,6 +264,8 @@ def resolve_target(
     verb = _leading_verb(turn)
     if verb is None:
         return TargetResolution("unresolved", None, (), "not a recognized action")
+    if verb == "killswitch":
+        return _resolve_killswitch(turn, session, saver, focus)
     if verb in _RESUME_VERBS:
         return _resolve_gate(verb, turn, session, saver)
     if verb in _SCOPE_VERBS:
@@ -265,12 +273,50 @@ def resolve_target(
     return _resolve_rebalance(turn, session, focus)  # verb == "run"
 
 
+def _resolve_killswitch(
+    turn: str, session: Any, saver: Any, focus: uuid.UUID | None
+) -> TargetResolution:
+    """Resolve a killswitch to a scoped freeze, or to a paused gate when no scope.
+
+    The Decisions view offers run / portfolio / fund for the killswitch; typing a
+    scope word is the same choice. Only a turn that names a live gate's own id keeps the
+    run-level meaning once a scope word is present.
+    """
+    lowered = turn.lower()
+    names_scope = (
+        _FUND_WORD.search(lowered) is not None
+        or _PORTFOLIO_WORD.search(lowered) is not None
+        or _BLANKET_WORD.search(lowered) is not None
+    )
+    if names_scope and not _names_gate_run(turn, session, saver):
+        return _resolve_scope("freeze", turn, session, focus)
+    return _resolve_gate("killswitch", turn, session, saver)
+
+
+def _names_gate_run(turn: str, session: Any, saver: Any) -> bool:
+    """Whether ``turn`` types the short id of a live gate's own run."""
+    tokens = _id_tokens(turn)
+    if not tokens:
+        return False
+    return any(
+        _short(gate.run_id).startswith(token)
+        for gate in observe.pending_hitl(session, saver, None)
+        for token in tokens
+    )
+
+
 def _resolve_gate(verb: str, turn: str, session: Any, saver: Any) -> TargetResolution:
     """Resolve a resume verb against the pending-HITL gates (never on a guess)."""
     gates = observe.pending_hitl(session, saver, None)
     if not gates:
+        hint = (
+            " — to halt live runs say 'killswitch the fund' or 'killswitch the "
+            "portfolio'"
+            if verb == "killswitch"
+            else ""
+        )
         return TargetResolution(
-            "unresolved", None, (), "no gate is awaiting a decision"
+            "unresolved", None, (), f"no gate is awaiting a decision{hint}"
         )
     if _NEGATION.search(turn.lower()):
         prompt = "a negation is too easy to misread — " + _gate_prompt(verb, gates)
@@ -480,8 +526,13 @@ class PendingAction:
 
 def pending_action(turn: str, resolution: TargetResolution) -> PendingAction:
     """Build the pending action to carry from an ambiguous ``turn`` + ``resolution``."""
+    verb = _leading_verb(turn) or ""
+    if verb == "killswitch" and not resolution.candidates:
+        # Only a scope question is ambiguous without gate candidates, and the answer
+        # ("the fund" / a portfolio id) completes a freeze, not a gate pick.
+        verb = "freeze"
     return PendingAction(
-        verb=_leading_verb(turn) or "",
+        verb=verb,
         candidates=tuple(gate.run_id for gate in resolution.candidates),
     )
 

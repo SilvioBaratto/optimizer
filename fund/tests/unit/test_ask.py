@@ -296,6 +296,101 @@ def test_resolve_target_no_gate_is_unresolved(db_session):
     assert res.action is None
 
 
+# --- resolve_target: killswitch scope ---------------------------------------
+
+
+def test_resolve_target_killswitch_the_fund_freezes_the_fund_not_one_gate(db_session):
+    """An emergency stop that names the fund is a fund freeze, whether one gate is
+    paused (it must not shrink to rejecting that run) or none is (not a dead end)."""
+    saver = MemorySaver()
+    for gates in range(2):
+        if gates:
+            _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
+        for turn in ("killswitch the whole fund", "kill the fund"):
+            res = ask.resolve_target(turn, db_session, saver, None)
+
+            assert res.status == "resolved", (turn, gates)
+            assert res.action is not None
+            assert res.action.verb == "freeze", (turn, gates)
+            assert res.action.scope == "fund", (turn, gates)
+            assert res.action.run_id is None and res.action.portfolio_id is None
+
+
+def test_resolve_target_killswitch_the_portfolio_freezes_the_focused_portfolio(
+    db_session,
+):
+    """'killswitch the portfolio' freezes the focused portfolio, whatever gates are
+    paused elsewhere, and asks which when nothing is focused."""
+    saver = MemorySaver()
+    _seed_gate(db_session, saver, portfolio_id=_PID_B, thread_id="t-b")
+
+    res = ask.resolve_target("killswitch the portfolio", db_session, saver, _PID_A)
+    unfocused = ask.resolve_target("killswitch the portfolio", db_session, saver, None)
+
+    assert res.status == "resolved"
+    assert res.action is not None and res.action.verb == "freeze"
+    assert res.action.scope == "portfolio" and res.action.portfolio_id == _PID_A
+    assert unfocused.status == "ambiguous"
+    assert unfocused.action is None
+
+
+def test_resolve_target_killswitch_blanket_or_negated_scope_asks(db_session):
+    """'kill everything' / 'kill the run, not the fund' never narrow to one gate."""
+    saver = MemorySaver()
+    _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
+
+    for turn in ("kill everything", "killswitch all", "kill the run, not the fund"):
+        res = ask.resolve_target(turn, db_session, saver, _PID_A)
+
+        assert res.status == "ambiguous", turn
+        assert res.action is None, turn
+
+
+def test_resolve_target_killswitch_stays_run_level_for_a_named_or_sole_gate(
+    db_session,
+):
+    """With no scope word the killswitch still finalises a paused run, and a gate
+    named by its short id keeps it run-level even beside the word 'fund'."""
+    saver = MemorySaver()
+    run_a = _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
+    short = str(run_a).split("-", 1)[0]
+
+    sole = ask.resolve_target("killswitch the run", db_session, saver, None)
+    named = ask.resolve_target(
+        f"killswitch gate #{short} for the fund", db_session, saver, None
+    )
+
+    for res in (sole, named):
+        assert res.status == "resolved"
+        assert res.action is not None
+        assert res.action.verb == "killswitch" and res.action.run_id == run_a
+
+
+def test_resolve_target_killswitch_without_a_gate_points_at_the_scoped_stop(
+    db_session,
+):
+    """With nothing paused a bare killswitch explains how to stop live runs."""
+    res = ask.resolve_target("killswitch", db_session, MemorySaver(), None)
+
+    assert res.status == "unresolved"
+    assert "fund" in res.prompt and "portfolio" in res.prompt
+
+
+def test_killswitch_scope_follow_up_resolves_to_a_freeze(db_session):
+    """'killswitch everything' asks which scope; answering 'the fund' freezes it."""
+    saver = MemorySaver()
+    turn = "killswitch everything"
+    first = ask.resolve_target(turn, db_session, saver, None)
+    pending = ask.pending_action(turn, first)
+
+    res = ask.resolve_pending(pending, "the fund", db_session, saver, None)
+
+    assert first.status == "ambiguous"
+    assert res.status == "resolved"
+    assert res.action is not None
+    assert res.action.verb == "freeze" and res.action.scope == "fund"
+
+
 # --- resolve_target: scope + rebalance verbs --------------------------------
 
 

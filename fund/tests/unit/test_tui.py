@@ -6277,6 +6277,31 @@ def test_ask_confirm_prompt_keys_the_target_on_the_verb() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ask_killswitch_the_fund_confirms_then_freezes_the_fund(
+    tui_env,
+) -> None:
+    """'killswitch the fund' with a gate paused is a fund freeze, not a run reject."""
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("killswitch the fund")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        prompt = str(app.screen.query_one(".confirm-prompt", Static).render())
+        assert "whole fund" in prompt and "gate" not in prompt
+        await pilot.click("#confirm-yes")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+    with tui_env.get_session() as session:
+        from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
+
+        assert AutonomyRepository(session).fund_posture() == AutonomyState.FROZEN.value
+
+
+@pytest.mark.asyncio
 async def test_ask_portfolio_scope_confirm_names_the_portfolio_not_a_gate(
     shell_env,
 ) -> None:
