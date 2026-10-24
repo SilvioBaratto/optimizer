@@ -3295,6 +3295,39 @@ async def test_deliberation_u_streams_live_round_to_gate(tui_env) -> None:
         assert run.status == "paused"  # the run reached its HITL pause
 
 
+@pytest.mark.asyncio
+async def test_deliberation_leaves_live_mode_once_the_gate_is_resolved(tui_env) -> None:
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        streamed = view.live_run_id
+        assert streamed is not None  # the timeline stands at the gate
+
+        decisions = await _open_decisions(app, pilot)
+        decisions.select_run(streamed)
+        await pilot.pause()
+        app.action_decide_approve()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+
+        view = await _open_deliberation(app, pilot)
+        assert view.live_run_id is None  # the round is over: back to replay
+        assert view.query_one("#delib-runs", DataTable).display is True
+        assert view.query_one("#delib-steps", DataTable).display is True
+        assert view.query_one("#delib-live", DataTable).display is False
+        app.action_barge_in()  # nothing live to steer any more
+        await pilot.pause()
+        assert not isinstance(app.screen, BargeInScreen)
+
+
 # --- Run launch is single-flight ---------------------------------------------
 
 
