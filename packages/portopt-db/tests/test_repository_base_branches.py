@@ -176,6 +176,15 @@ class TestGetByField:
         result = repo.get_by_field("job_type", "no_such_type_xyz_base_branch")
         assert result is None
 
+    def test_when_field_is_not_unique_then_returns_first_row_deterministically(
+        self, db_session: Session
+    ) -> None:
+        rows = [_seed_job(db_session, "gbf_dup") for _ in range(3)]
+        repo = _make_repo(db_session)
+        result = repo.get_by_field("job_type", "gbf_dup")
+        assert result is not None
+        assert result.id == min(r.id for r in rows)
+
 
 class TestGetMulti:
     def test_default_ordering_falls_back_to_created_at(

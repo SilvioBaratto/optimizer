@@ -127,6 +127,9 @@ class BaseRepository(
     def get_by_field(self, field: str, value: Any) -> ModelType | None:
         """Fetch the first record matching ``field == value``.
 
+        When several rows match, the one with the lowest primary key is
+        returned so repeated calls agree.
+
         Args:
             field: Attribute name on the model to filter by.
             value: Value to compare against.
@@ -135,9 +138,14 @@ class BaseRepository(
             The matched instance, or ``None`` if no row matches.
         """
         column = getattr(self.model, field)
-        stmt = select(self.model).where(column == value)
+        stmt = (
+            select(self.model)
+            .where(column == value)
+            .order_by(*_get_table(self.model).primary_key.columns)
+            .limit(1)
+        )
         result = self.session.execute(stmt)
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     def get_multi(
         self,
