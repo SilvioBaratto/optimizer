@@ -334,8 +334,18 @@ def shell_env():
     engine.dispose()
 
 
+# A config that gates nothing by itself, so the Mandate's own gate set is the only
+# thing deciding whether ``place_orders`` pauses (the editable-checkbox branch).
+_NO_BASELINE_GATES = dataclasses.replace(settings, interrupt_on=())
+
+
 def _make_shell(
-    env, *, portfolio_id=None, poll_interval: float = 30.0, model_factory=None
+    env,
+    *,
+    portfolio_id=None,
+    poll_interval: float = 30.0,
+    model_factory=None,
+    config=settings,
 ) -> ShellApp:
     """Build the shell wired onto ``env`` (a big poll interval keeps ticks away)."""
     return ShellApp(
@@ -343,6 +353,7 @@ def _make_shell(
         session_factory=env.get_session,
         persistence=env.persistence,
         model_factory=model_factory or env.model_factory,
+        config=config,
         poll_interval=poll_interval,
     )
 
@@ -2206,11 +2217,12 @@ async def test_mandate_actions_inert_without_a_mandate(shell_env) -> None:
 @pytest.mark.asyncio
 async def test_mandate_gate_checkbox_toggles_hitl_gates(shell_env) -> None:
     _seed_mandate_and_profile(shell_env)
-    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, config=_NO_BASELINE_GATES)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_mandate(app, pilot)
         place = view.query_one("#gate-place-orders", Checkbox)
         assert place.value is True  # the default mandate gates place_orders
+        assert place.disabled is False  # nothing else gates it, so the box is live
         save_profile = view.query_one("#gate-save-profile", Checkbox)
         assert save_profile.disabled is True  # always-on indicator, not toggleable
         assert save_profile.value is True
@@ -2283,7 +2295,7 @@ async def test_poll_tick_keeps_unsaved_mandate_edits(shell_env) -> None:
         )
         MandateRepository(session).upsert(mandate)
         session.commit()
-    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, config=_NO_BASELINE_GATES)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_mandate(app, pilot)
         view.query_one("#mandate-drift", Input).value = "0.25"
@@ -2317,7 +2329,7 @@ async def test_poll_tick_keeps_picked_guardrail_band_so_override_is_flagged(
     # ``o``. Repainting the ceiling over the pick would log balanced -> balanced with
     # no override flag, silently dropping the MiFID audit signal.
     _seed_mandate_and_profile(shell_env, band="balanced")
-    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, config=_NO_BASELINE_GATES)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_mandate(app, pilot)
         view.query_one("#mandate-band", Select).value = "aggressive"
@@ -2343,7 +2355,7 @@ async def test_poll_tick_still_repaints_an_untouched_mandate_view(shell_env) -> 
     # The edit guard must not freeze the view: with nothing edited, an external change
     # to the stored mandate shows up on the next tick.
     _seed_mandate_and_profile(shell_env)
-    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, config=_NO_BASELINE_GATES)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_mandate(app, pilot)
         assert view.query_one("#mandate-drift", Input).value == "0.1"
@@ -2386,7 +2398,12 @@ _SETTLE = 0.9  # several poll ticks at _FAST_POLL
 @pytest.mark.asyncio
 async def test_mandate_poll_keeps_unsaved_run_policy_edit(shell_env) -> None:
     _seed_mandate_and_profile(shell_env)
-    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    app = _make_shell(
+        shell_env,
+        portfolio_id=PORTFOLIO_ID,
+        poll_interval=_FAST_POLL,
+        config=_NO_BASELINE_GATES,
+    )
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_mandate(app, pilot)
         view.query_one("#mandate-drift", Input).value = "0.25"
@@ -9506,7 +9523,7 @@ async def test_mandate_poll_tick_keeps_removed_directive_and_highlight(
 async def test_mandate_repaints_when_persisted_mandate_changes(shell_env) -> None:
     # The guard must not freeze the editor: a change made elsewhere still shows up.
     _seed_mandate_and_profile(shell_env)
-    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, config=_NO_BASELINE_GATES)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_mandate(app, pilot)
         with shell_env.get_session() as session:
@@ -9569,7 +9586,7 @@ async def test_mandate_gate_edit_preserves_gates_outside_the_editor(
         mandate = make_mandate().model_copy(update={"hitl_gates": stored})
         MandateRepository(session).upsert(mandate)
         session.commit()
-    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, config=_NO_BASELINE_GATES)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_mandate(app, pilot)
         view.query_one("#gate-place-orders", Checkbox).value = place_orders_checked

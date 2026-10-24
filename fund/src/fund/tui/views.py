@@ -56,6 +56,8 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
     from textual.binding import BindingType
 
+    from fund.config import FundConfig
+
     # Annotation-only: ``fund.performance`` pulls ``optimizer``/``skfolio``; with
     # ``from __future__ import annotations`` these are strings, so the Performance
     # view's reads route through ``fund.observe`` (lazy) and ``import fund.tui.*``
@@ -76,12 +78,14 @@ class _ShellContext(Protocol):
         _persistence: LangGraph bundle (``.saver`` / ``.store``) the reads cross-check.
         _portfolio_id: The focused portfolio, or ``None`` for the fund-wide landing.
         _streaming: Whether a live-streamed round is still pushing steps to the shell.
+        _config: The runtime settings, read for the baseline HITL gate set.
     """
 
     _session_factory: Callable[[], AbstractContextManager[Session]]
     _persistence: Any
     _portfolio_id: uuid.UUID | None
     _streaming: bool
+    _config: FundConfig
 
     def focus_portfolio(self, portfolio_id: uuid.UUID) -> None:
         """Focus the shell on ``portfolio_id`` (set the header context from a view)."""
@@ -634,10 +638,12 @@ class MandateView(ShellView):
     (``mandate_edit``). GUARDRAILS are read from the active MiFID profile — the
     suitability ``band`` is the ceiling, and proposing a *riskier* band logs a
     ``guardrail_override`` flagged ⚠ (audit-only this phase; enforcement is
-    ``03-copilot``). The HITL gates are editable checkboxes (the ``place_orders`` PM
-    gate toggles ``hitl_gates``; ``save_profile`` is the profiler's always-on gate, an
-    indicator only); remembered directives render in a removable list (``x`` drops the
-    highlighted one). Both fold back into the mandate on save.
+    ``03-copilot``). The HITL gates mirror what a run actually pauses at: the config
+    baseline always gates ``place_orders`` (a mandate can only widen it), so that box
+    shows as always on (editable only when the config does not gate it), and
+    ``save_profile`` is the profiler's always-on gate, an indicator only. Remembered
+    directives render in a removable list (``x`` drops the highlighted one). Both fold
+    back into the mandate on save.
 
     Reads through the context seam (``observe.get_mandate`` +
     ``MifidProfileRepository.get_active`` over a short read session); the writes go
@@ -784,15 +790,31 @@ class MandateView(ShellView):
         """The mandate's gates with ``place_orders`` set from the checkbox.
 
         Only ``place_orders`` is editable here (``save_profile`` is not a mandate
-        gate). Any other gate on the mandate (e.g. one added through the CLI's
-        ``--interrupt-on``) is carried over untouched, so saving never drops an
-        approval requirement the editor cannot show.
+        gate), and only while the config baseline does not already gate it. Any other
+        gate on the mandate (e.g. one added through the CLI's ``--interrupt-on``) is
+        carried over untouched, so saving never drops an approval requirement the
+        editor cannot show.
         """
-        checked = self.query_one("#gate-place-orders", Checkbox).value
         current = list(self.mandate.hitl_gates) if self.mandate is not None else []
+        if self._place_orders_always_gated():
+            return current
+        checked = self.query_one("#gate-place-orders", Checkbox).value
         if not checked:
             return [gate for gate in current if gate != "place_orders"]
         return current if "place_orders" in current else [*current, "place_orders"]
+
+    def _place_orders_always_gated(self) -> bool:
+        """Whether the config baseline gates ``place_orders`` regardless of the mandate.
+
+        The agent graph runs under ``config.interrupt_on | mandate.hitl_gates``, so a
+        mandate cannot lift a baseline gate.
+        """
+        return "place_orders" in self.shell._config.interrupt_on
+
+    def _effective_gates(self, mandate: Any) -> list[str]:
+        """The gates a run pauses at: config baseline, then the mandate's extras."""
+        baseline = list(self.shell._config.interrupt_on)
+        return [*baseline, *(g for g in mandate.hitl_gates if g not in baseline)]
 
     def action_remove_directive(self) -> None:
         """Drop the highlighted remembered directive (persisted on the next save)."""
@@ -918,7 +940,7 @@ class MandateView(ShellView):
         triggers.update(
             f"triggers cron {_tick(mandate.triggers.cron)} "
             f"drift {_tick(mandate.triggers.drift)} · "
-            f"gates {', '.join(mandate.hitl_gates)}"
+            f"gates {', '.join(self._effective_gates(mandate))}"
         )
 
     def _paint_guardrails(self, band: str | None, caps: str) -> None:
@@ -937,11 +959,21 @@ class MandateView(ShellView):
         caps_widget.update(caps)
 
     def _paint_gates(self, mandate: Any) -> None:
-        """Reflect the mandate's PM gates into the toggleable ``place_orders`` box."""
-        checkbox = self.query_one("#gate-place-orders", Checkbox)
-        persisted = mandate is not None and "place_orders" in mandate.hitl_gates
-        if self._take_persisted("gate", checkbox.value, persisted):
-            checkbox.value = persisted
+        """Reflect the effective ``place_orders`` gate into its checkbox.
+
+        A baseline-gated ``place_orders`` renders checked, disabled and labelled as
+        always on; otherwise the box follows the mandate's own gate set and stays
+        editable.
+        """
+        box = self.query_one("#gate-place-orders", Checkbox)
+        locked = self._place_orders_always_gated()
+        box.disabled = locked
+        box.label = "Before execution (always on)" if locked else "Before execution"
+        persisted = locked or (
+            mandate is not None and "place_orders" in mandate.hitl_gates
+        )
+        if self._take_persisted("gate", box.value, persisted):
+            box.value = persisted
 
     def _paint_directives(self, mandate: Any) -> None:
         """Repopulate the removable directives list from the mandate.
