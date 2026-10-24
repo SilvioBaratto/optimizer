@@ -1505,6 +1505,9 @@ class ShellApp(App[None]):
         status line); the upsert + audit happen on a worker thread.
         """
         view = self._active_mandate_view()
+        if view is not None and view.mandate is None and view.read_error:
+            self._set_status(f"mandate unreadable: {view.read_error}")
+            return
         if view is None or view.mandate is None:
             self._set_status("focus a portfolio with a mandate first")
             return

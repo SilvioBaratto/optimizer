@@ -9825,3 +9825,76 @@ async def test_posture_and_mandate_load_a_legacy_over_bound_drift_threshold(
         drift = float(mandate.query_one("#mandate-drift", Input).value)
         assert drift == pytest.approx(2.0)
         assert drift < 2.0
+
+
+def _fail_get_mandate_for(monkeypatch, *pids) -> None:
+    """Make ``observe.get_mandate`` raise for ``pids`` (all portfolios when empty)."""
+    real = observe.get_mandate
+
+    def flaky(session, portfolio_id):
+        if not pids or portfolio_id in pids:
+            raise RuntimeError("db hiccup [type=boom]")
+        return real(session, portfolio_id)
+
+    monkeypatch.setattr(observe, "get_mandate", flaky)
+
+
+@pytest.mark.asyncio
+async def test_mandate_read_failure_keeps_the_editor_and_reports_the_error(
+    shell_env, monkeypatch
+) -> None:
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-capital", Input).value = "250000"
+        _fail_get_mandate_for(monkeypatch)
+        app._refresh()
+        await pilot.pause()
+        assert view.mandate is not None
+        assert view.query_one("#mandate-capital", Input).value == "250000"
+        assert view.query_one("#mandate-drift", Input).value == "0.1"
+        triggers = str(view.query_one("#mandate-triggers", Static).render())
+        assert "read failed" in triggers
+        assert "no mandate" not in triggers
+
+
+@pytest.mark.asyncio
+async def test_mandate_unreadable_at_open_is_not_reported_as_missing(
+    shell_env, monkeypatch
+) -> None:
+    _seed_mandate_and_profile(shell_env)
+    _fail_get_mandate_for(monkeypatch)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        triggers = str(view.query_one("#mandate-triggers", Static).render())
+        assert "read failed" in triggers
+        assert "no mandate" not in triggers
+        app.action_save_mandate()
+        await pilot.pause()
+        assert app.last_worker is None
+        assert "focus a portfolio with a mandate" not in app.last_status
+        assert "unreadable" in app.last_status
+
+
+@pytest.mark.asyncio
+async def test_mandate_read_failure_after_switch_does_not_keep_the_old_portfolio(
+    shell_env, monkeypatch
+) -> None:
+    # Saving the stale mandate would write portfolio A's policy onto portfolio B.
+    with shell_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate(_PID_A))
+        MandateRepository(session).upsert(make_mandate(_PID_B))
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        assert view.query_one("#mandate-capital", Input).value == "100000"
+        _fail_get_mandate_for(monkeypatch, _PID_B)
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+        assert view.mandate is None
+        assert view.query_one("#mandate-capital", Input).value == ""
+        triggers = str(view.query_one("#mandate-triggers", Static).render())
+        assert "read failed" in triggers

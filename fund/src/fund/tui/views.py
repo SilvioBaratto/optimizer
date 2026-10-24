@@ -663,6 +663,8 @@ class MandateView(ShellView):
         currency_locked: ``True`` once the portfolio has NAV history, positions or
             paper orders; the base currency is then read-only (none of them stores a
             currency).
+        read_error: Text of the last failed read of the focused portfolio's mandate,
+            or ``None`` when the latest read succeeded.
     """
 
     # View-scoped so ``x`` removes a directive only while Mandate holds focus.
@@ -679,6 +681,7 @@ class MandateView(ShellView):
         self.mandate: Any = None
         self.suitability_band: str | None = None
         self.currency_locked = False
+        self.read_error: str | None = None
         self._directives: list[str] = []
         # Value each editable widget was last painted with, to tell an adviser edit
         # from a stale repaint; reset whenever the focused portfolio changes.
@@ -698,7 +701,9 @@ class MandateView(ShellView):
                 yield Input(placeholder="base currency", id="mandate-base-currency")
                 yield Input(placeholder="drift L1 threshold (0-2)", id="mandate-drift")
                 yield Input(placeholder="benchmark", id="mandate-benchmark")
-                yield Static("", id="mandate-triggers", classes="mandate-readonly")
+                yield Static(
+                    "", id="mandate-triggers", classes="mandate-readonly", markup=False
+                )
             with Vertical(classes="mandate-guardrails"):
                 yield Label(
                     "GUARDRAILS (from MiFID profile)", classes="mandate-section"
@@ -732,7 +737,8 @@ class MandateView(ShellView):
         """Repaint the editor from the focused portfolio's mandate + active profile."""
         self.render_count += 1
         pid = self.shell._portfolio_id
-        if pid != self._painted_pid:
+        switched = pid != self._painted_pid
+        if switched:
             self._painted.clear()
             self._painted_pid = pid
         subtitle = self.query_one("#mandate-subtitle", Label)
@@ -741,13 +747,19 @@ class MandateView(ShellView):
             self.mandate = None
             self.suitability_band = None
             self.currency_locked = False
+            self.read_error = None
             self._paint_policy(None)
             self._paint_guardrails(None, "")
             self._paint_gates(None)
             self._paint_directives(None)
             return
         subtitle.update(f"portfolio {_short(pid)}")
-        mandate, band, caps, marked = self._read(pid)
+        read = self._read(pid)
+        if read is None:
+            self._paint_read_failure(switched)
+            return
+        mandate, band, caps, marked = read
+        self.read_error = None
         self.mandate = mandate
         self.suitability_band = band
         self.currency_locked = marked
@@ -830,19 +842,41 @@ class MandateView(ShellView):
         value = self.query_one("#mandate-band", Select).value
         return None if value is Select.NULL else str(value)
 
-    def _read(self, pid: uuid.UUID) -> tuple[Any, str | None, str, bool]:
-        """Read the mandate, active guardrails and NAV-marked flag in one session.
+    def _read(self, pid: uuid.UUID) -> tuple[Any, str | None, str, bool] | None:
+        """Read the mandate, active guardrails and ledger-history flag in one session.
 
-        Returns ``(None, None, "", False)`` on any read error so the poll loop stays
-        alive.
+        Returns ``None`` on any read error (recorded on :attr:`read_error`) so the
+        poll loop stays alive and a failure stays distinguishable from a portfolio
+        that simply has no mandate.
         """
         try:
             with self.read_session() as session:
                 mandate = observe.get_mandate(session, pid)
                 band, caps = self._read_guardrails(session, pid)
                 return mandate, band, caps, self._has_ledger_history(session, pid)
-        except Exception:  # keep the poll loop alive on any read error
-            return None, None, "", False
+        except Exception as exc:  # keep the poll loop alive on any read error
+            self.read_error = str(exc) or type(exc).__name__
+            return None
+
+    def _paint_read_failure(self, switched: bool) -> None:
+        """Report a failed read without wiping what the adviser is working on.
+
+        The inputs and the last-known mandate are left alone, so an unsaved edit
+        survives a transient error. After a switch to another portfolio they would
+        belong to the previous one, so the editor is blanked instead — saving them
+        would write that portfolio's policy onto this one.
+        """
+        if switched:
+            self.mandate = None
+            self.suitability_band = None
+            self.currency_locked = False
+            self._paint_policy(None)
+            self._paint_guardrails(None, "")
+            self._paint_gates(None)
+            self._paint_directives(None)
+        self.query_one("#mandate-triggers", Static).update(
+            f"(read failed: {self.read_error})"
+        )
 
     @staticmethod
     def _has_ledger_history(session: Session, pid: uuid.UUID) -> bool:
