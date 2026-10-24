@@ -1349,16 +1349,20 @@ class ShellApp(App[None]):
         """Resolve a gate through the unified action path — off the event loop.
 
         The model is built lazily (a missing key surfaces as a status line, not a
-        crash), ``apply_action`` resumes + logs on a freshly opened session, the caller
-        commits, and the UI touches marshal back via ``call_from_thread``.
+        crash) and only for decisions that drive the graph: reject / killswitch settle
+        in the DB, so a down provider never blocks the emergency stop.
+        ``apply_action`` resumes + logs on a freshly opened session, the caller commits,
+        and the UI touches marshal back via ``call_from_thread``.
         """
-        from fund.actions import apply_action
+        from fund.actions import MODEL_FREE_ACTIONS, apply_action
 
-        try:
-            model = self._model_factory()
-        except Exception as exc:  # surface a clean message, never crash the App
-            self.call_from_thread(self._set_status, f"model unavailable: {exc}")
-            return
+        model = None
+        if decision not in MODEL_FREE_ACTIONS:
+            try:
+                model = self._model_factory()
+            except Exception as exc:  # surface a clean message, never crash the App
+                self.call_from_thread(self._set_status, f"model unavailable: {exc}")
+                return
         try:
             with self._session_factory() as session:
                 result = apply_action(

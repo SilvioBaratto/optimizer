@@ -1152,6 +1152,30 @@ async def test_decisions_model_unavailable_surfaces_and_run_stays_paused(
 
 
 @pytest.mark.asyncio
+async def test_decisions_reject_needs_no_model(tui_env) -> None:
+    """Reject is the emergency stop: a missing provider key must not block it."""
+
+    def _no_model():
+        raise RuntimeError("OLLAMA_API_KEY missing")
+
+    app = _make_shell(tui_env, model_factory=_no_model)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_reject()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert "rejected" in app.last_status
+        assert "model unavailable" not in app.last_status
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "rejected"
+
+
+@pytest.mark.asyncio
 async def test_decisions_action_failure_surfaces_and_run_stays_paused(
     tui_env, monkeypatch
 ) -> None:
@@ -8333,19 +8357,20 @@ async def _type_ask_turn(view: AskView, pilot, turn: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_ask_action_read_failure_is_reported_not_fatal(
+async def test_ask_turn_failure_outside_the_gate_read_is_reported_not_fatal(
     tui_env, monkeypatch
 ) -> None:
-    """A DB/checkpointer error while resolving an action turn logs 'ask failed'.
+    """An error raised while handling an Ask turn logs 'ask failed' instead of exiting.
 
-    The read runs on the UI thread inside the Input handler, so an unguarded raise
+    The gate reads have their own guard (``could not read gates``); this is the net
+    under everything else the turn does on the UI thread, where an unguarded raise
     would take the whole TUI (and the conversation) down.
     """
 
     def _boom(*_a, **_k):
         raise RuntimeError("server closed the connection unexpectedly")
 
-    monkeypatch.setattr(observe, "pending_hitl", _boom)
+    monkeypatch.setattr(tui_app.ask, "classify", _boom)
     app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_ask(app, pilot)
@@ -8365,6 +8390,11 @@ async def test_ask_pending_followup_read_failure_is_reported_not_fatal(
 ) -> None:
     """The disambiguation follow-up shares the guard: a read error never crashes."""
     app = _make_shell(shell_env)  # fund-wide: 'freeze it' is scope-ambiguous
+    statuses: list[str] = []
+    set_status = app._set_status
+    monkeypatch.setattr(
+        app, "_set_status", lambda text: (statuses.append(text), set_status(text))[1]
+    )
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_ask(app, pilot)
         await _type_ask_turn(view, pilot, "freeze it")
@@ -8376,7 +8406,10 @@ async def test_ask_pending_followup_read_failure_is_reported_not_fatal(
         monkeypatch.setattr(tui_app.ask, "resolve_pending", _boom)
         await _type_ask_turn(view, pilot, "the fund")
         assert app.is_running
-        assert "ask failed" in app.last_status
+        assert any(
+            "could not read gates" in text and "checkpointer connection lost" in text
+            for text in statuses
+        )
         assert view.pending_action is None  # single-shot, never lingers
 
 

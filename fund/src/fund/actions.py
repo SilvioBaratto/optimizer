@@ -50,6 +50,15 @@ _RESUME_DECISION = {
     "killswitch": "reject",
 }
 
+# Actions that settle in the DB alone, so a caller needs no model, store or
+# checkpointer to drive them (the human's emergency stop must not depend on the LLM
+# provider being up).
+MODEL_FREE_ACTIONS = frozenset({"reject", "killswitch"})
+
+# A run in one of these states is finished; resuming or re-rejecting it would rewrite
+# a terminal outcome (mirrors the guard in ``resume_fund``).
+_FINAL_STATUSES = ("completed", "rejected", "incomplete", "blocked", "failed")
+
 # Past-tense verb per action, for the status line the shell reports.
 _PAST = {
     "approve": "approved",
@@ -121,12 +130,14 @@ def apply_action(
     rebalance → approve — funnels through one audited path. Opens no session and never
     commits: the caller injects ``session`` and owns the transaction (D1).
 
-    ``approve`` / ``reject`` resume the paused run via
-    :func:`fund.agents.graph.resume_run` (dispatched by gate); ``respond`` threads the
-    adviser's ``pm_directive`` back to the PM at the ``place_orders`` gate (the run
-    re-gates as ``responded`` or finalises incomplete) and, like every action here, is
-    recorded with its own ``human_audit_log`` row; ``killswitch`` finalises a paused run
-    through the same reject path but is logged under its own action (no paired undo).
+    ``approve`` resumes the paused run via :func:`fund.agents.graph.resume_run`
+    (dispatched by gate); ``reject`` finalises it rejected in the DB alone, so the
+    emergency stop needs no model, store or checkpointer (:data:`MODEL_FREE_ACTIONS`).
+    ``respond`` threads the adviser's ``pm_directive`` back to the PM at the
+    ``place_orders`` gate (the run re-gates as ``responded`` or finalises incomplete)
+    and, like every action here, is recorded with its own ``human_audit_log`` row;
+    ``killswitch`` finalises a paused run through the same reject path but is logged
+    under its own action (no paired undo).
     ``edit`` validates the adviser-supplied ``new_value`` weights against the risk
     invariants, logs them as a fresh allocator decision, and resumes via the approve
     path so the ticket/positions/run all commit the edited allocation (⚑ override).
@@ -231,14 +242,10 @@ def apply_action(
             scope=scope,
             run_id=run_id,
             portfolio_id=portfolio_id,
-            checkpointer=checkpointer,
-            store=store,
-            model=model,
             actor=actor,
             source=source,
             idempotency_key=idempotency_key,
             rationale=rationale,
-            config=config,
         )
     if action == "rearm":
         return _apply_rearm(
@@ -346,8 +353,6 @@ def _apply_resume(
     the adviser's ``pm_directive`` (required) back to the PM at the ``place_orders``
     gate. The agent stack is imported here, never at module scope.
     """
-    from fund.agents.graph import resume_run
-
     if run_id is None:
         raise ValueError(f"{action!r} requires a run_id")
     if action == "respond" and not pm_directive:
@@ -369,16 +374,22 @@ def _apply_resume(
         idempotency_key=idempotency_key,
         rationale=rationale,
     )
-    result = resume_run(
-        rid,
-        decision,
-        session=session,
-        checkpointer=checkpointer,
-        store=store,
-        model=model,
-        pm_directive=pm_directive,
-        config=config,
-    )
+    result: dict[str, Any] | None = None
+    if decision == "reject":
+        _reject_at_gate(session, rid)
+    else:
+        from fund.agents.graph import resume_run
+
+        result = resume_run(
+            rid,
+            decision,
+            session=session,
+            checkpointer=checkpointer,
+            store=store,
+            model=model,
+            pm_directive=pm_directive,
+            config=config,
+        )
     return ActionResult(
         action=action,
         run_id=rid,
@@ -597,6 +608,44 @@ _FREEZE_SCOPES = ("run", "portfolio", "fund")
 _REARM_SCOPES = ("portfolio", "fund")
 
 
+def _reject_at_gate(session: Session, run_id: uuid.UUID) -> None:
+    """Finalise one paused run as rejected straight in the DB — no graph, no model.
+
+    Reject / killswitch / run-scope freeze are the human's emergency stop, so they must
+    work with the provider down or the portfolio's ConstraintSet gone. Resuming the
+    graph cannot promise that (it rebuilds the PM agent, re-guards the ConstraintSet and
+    takes a post-reject model turn), and a failure there consumes the checkpoint's
+    interrupt without recording the reject. The standing interrupt is left alone, as a
+    portfolio/fund freeze leaves it: the finalised status keeps ``resume_fund`` from
+    ever re-driving it. Writes the same decision row the graph path logs for the gate.
+    No commit (the caller owns it).
+
+    Raises:
+        LookupError: ``run_id`` names no run.
+        ValueError: The run is already finalised.
+    """
+    from fund.audit.repository import AgentRunRepository
+
+    repo = AgentRunRepository(session)
+    run = repo.get_run(run_id)
+    if run is None:
+        raise LookupError(f"no agent_run {run_id}")
+    if run.status in _FINAL_STATUSES:
+        raise ValueError(
+            f"agent_run {run_id} is {run.status!r}, already finalised and not "
+            "rejectable (it completed, failed, or was rejected/frozen/blocked since "
+            "the gate opened)"
+        )
+    if (run.optimizer_config or {}).get("step") == "profiler":
+        agent, step = "profiler", "save_profile"
+    else:
+        agent, step = "orchestrator", "place_orders"
+    repo.append_decision(
+        run_id, agent=agent, step=step, hitl_decision={"decision": "reject"}
+    )
+    repo.finalize_run(run_id, weights={}, status="rejected")
+
+
 def _reject_live_runs(session: Session, portfolio_id: uuid.UUID | None) -> None:
     """Finalise any paused/responded runs in scope as rejected (DB-level halt).
 
@@ -649,21 +698,18 @@ def _apply_freeze(
     scope: str | None,
     run_id: uuid.UUID | str | None,
     portfolio_id: uuid.UUID | None,
-    checkpointer: Any | None,
-    store: Any | None,
-    model: Any | None,
     actor: str,
     source: str | None,
     idempotency_key: str | None,
     rationale: str | None,
-    config: FundConfig,
 ) -> ActionResult:
     """Freeze autonomy at ``scope`` (``run`` / ``portfolio`` / ``fund``) and audit it.
 
-    ``run`` keeps the killswitch semantics — reject-finalise the paused run, touching
-    no autonomy posture. ``portfolio`` / ``fund`` flip the autonomy row FROZEN (via
-    :class:`AutonomyRepository`, recording ``rationale`` as the frozen reason) and halt
-    any live run in scope. Every path appends one ⚑ ``human_audit_log`` row.
+    ``run`` keeps the killswitch semantics — reject-finalise the paused run in the DB
+    (no model needed), touching no autonomy posture. ``portfolio`` / ``fund`` flip the
+    autonomy row FROZEN (via :class:`AutonomyRepository`, recording ``rationale`` as the
+    frozen reason) and halt any live run in scope. Every path appends one ⚑
+    ``human_audit_log`` row.
 
     Raises:
         ValueError: ``scope`` is not one of ``run`` / ``portfolio`` / ``fund``, or the
@@ -673,8 +719,6 @@ def _apply_freeze(
         raise ValueError(f"'freeze' requires scope in {_FREEZE_SCOPES}, got {scope!r}")
 
     if scope == "run":
-        from fund.agents.graph import resume_run
-
         if run_id is None:
             raise ValueError("'freeze' scope='run' requires a run_id")
         rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
@@ -692,22 +736,13 @@ def _apply_freeze(
             idempotency_key=idempotency_key,
             rationale=rationale,
         )
-        result = resume_run(
-            rid,
-            "reject",
-            session=session,
-            checkpointer=checkpointer,
-            store=store,
-            model=model,
-            config=config,
-        )
+        _reject_at_gate(session, rid)
         return ActionResult(
             action="freeze",
             run_id=rid,
             portfolio_id=pid,
             audit_id=row.id,
             message=f"run {rid} {_PAST['freeze']}",
-            detail=result,
         )
 
     from fund.audit.autonomy_repository import (
@@ -1285,6 +1320,7 @@ def is_within_suitability_band(proposed_band: str, suitability_band: str) -> boo
 
 
 __all__ = [
+    "MODEL_FREE_ACTIONS",
     "ActionResult",
     "append_run_audit",
     "apply_action",

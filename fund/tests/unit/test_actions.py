@@ -1748,3 +1748,76 @@ def test_approve_is_finalised_from_the_ticket_when_the_post_ticket_pm_turn_fails
         }
         assert positions == env.expected
         assert len(HumanAuditLogRepository(session).list_recent(action="approve")) == 1
+
+
+# --- the run-scope emergency stop needs no model, store or checkpoint --------------
+
+
+def _paused_run(session, *, step: str = "fund", status: str = "paused"):
+    """A run parked at a gate, with no checkpoint behind it (nothing to resume)."""
+    run = AgentRunRepository(session).create_run(
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        seed=1,
+        universe=[],
+        optimizer_config={"step": step},
+        status=status,
+    )
+    session.commit()
+    return run.id
+
+
+@pytest.mark.parametrize(
+    ("action", "extra"),
+    [("reject", {}), ("killswitch", {}), ("freeze", {"scope": "run"})],
+)
+def test_run_scope_stop_finalises_rejected_without_a_model_store_or_checkpoint(
+    clean_db, action, extra
+) -> None:
+    """Reject / killswitch / freeze(run) are the human's emergency stop: they must
+    work with the provider down or the portfolio's ConstraintSet gone, so they settle
+    in the DB instead of rebuilding the PM agent to resume the graph."""
+    run_id = _paused_run(clean_db)
+
+    result = apply_action(
+        action, session=clean_db, run_id=run_id, portfolio_id=PORTFOLIO_ID, **extra
+    )
+    clean_db.commit()
+
+    assert result.action == action
+    run = AgentRunRepository(clean_db).get_run(run_id)
+    assert run.status == "rejected"
+    assert run.weights == {}
+    assert [d.step for d in run.decisions] == ["place_orders"]
+    assert run.decisions[0].hitl_decision == {"decision": "reject"}
+    rows = HumanAuditLogRepository(clean_db).list_recent(action=action)
+    assert [r.id for r in rows] == [result.audit_id]
+    assert rows[0].run_id == run_id
+
+
+def test_reject_of_a_profiler_gate_records_the_profiler_decision(clean_db) -> None:
+    """The profiler's ``save_profile`` gate is settled the same model-free way."""
+    run_id = _paused_run(clean_db, step="profiler")
+
+    apply_action("reject", session=clean_db, run_id=run_id)
+    clean_db.commit()
+
+    run = AgentRunRepository(clean_db).get_run(run_id)
+    assert run.status == "rejected"
+    assert [(d.agent, d.step) for d in run.decisions] == [("profiler", "save_profile")]
+
+
+def test_reject_refuses_an_already_finalised_run(clean_db) -> None:
+    """Rejecting a run that already completed must not rewrite its terminal state."""
+    run_id = _paused_run(clean_db, status="completed")
+
+    with pytest.raises(ValueError, match="already finalised"):
+        apply_action("reject", session=clean_db, run_id=run_id)
+    clean_db.rollback()
+
+    assert AgentRunRepository(clean_db).get_run(run_id).status == "completed"
+
+
+def test_reject_of_an_unknown_run_raises_lookup_error(clean_db) -> None:
+    with pytest.raises(LookupError, match="no agent_run"):
+        apply_action("reject", session=clean_db, run_id=uuid.uuid4())
