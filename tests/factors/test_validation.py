@@ -135,6 +135,103 @@ class TestComputeICSeries:
         assert len(strict_result) == 0
 
 
+def _autocorrelated_ic_panel(
+    n_dates: int = 48, n_tickers: int = 25
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Scores/returns whose per-date signal strength follows an AR(1) path.
+
+    The persistence makes the Newey-West t-stat depend on the order of the IC
+    series, so a mis-ordered history shows up in the statistic.
+    """
+    rng = np.random.default_rng(7)
+    dates = pd.date_range("2018-01-31", periods=n_dates, freq="ME")
+    tickers = [f"T{i:02d}" for i in range(n_tickers)]
+    beta = np.zeros(n_dates)
+    for t in range(1, n_dates):
+        beta[t] = 0.9 * beta[t - 1] + rng.normal(0.0, 0.3)
+    scores = pd.DataFrame(
+        rng.normal(size=(n_dates, n_tickers)), index=dates, columns=tickers
+    )
+    returns = pd.DataFrame(
+        beta[:, None] * scores.to_numpy() + rng.normal(0.0, 1.0, (n_dates, n_tickers)),
+        index=dates,
+        columns=tickers,
+    )
+    return scores, returns
+
+
+class TestComputeICSeriesDateOrdering:
+    @pytest.mark.parametrize("use_cs_regression", [False, True])
+    def test_when_history_is_newest_first_then_series_is_chronological(
+        self, use_cs_regression: bool
+    ) -> None:
+        scores, returns = _autocorrelated_ic_panel()
+
+        expected = compute_ic_series(
+            scores, returns, "f", use_cs_regression=use_cs_regression
+        )
+        result = compute_ic_series(
+            scores.iloc[::-1],
+            returns.iloc[::-1],
+            "f",
+            use_cs_regression=use_cs_regression,
+        )
+
+        assert result.index.is_monotonic_increasing
+        pd.testing.assert_series_equal(result, expected)
+
+    @pytest.mark.parametrize("use_cs_regression", [False, True])
+    def test_when_history_is_shuffled_then_series_matches_sorted_history(
+        self, use_cs_regression: bool
+    ) -> None:
+        scores, returns = _autocorrelated_ic_panel()
+        order = np.random.default_rng(11).permutation(len(scores))
+
+        expected = compute_ic_series(
+            scores, returns, "f", use_cs_regression=use_cs_regression
+        )
+        result = compute_ic_series(
+            scores.iloc[order],
+            returns.iloc[order],
+            "f",
+            use_cs_regression=use_cs_regression,
+        )
+
+        pd.testing.assert_series_equal(result, expected)
+
+    def test_when_history_is_shuffled_then_newey_west_tstat_is_unchanged(
+        self,
+    ) -> None:
+        scores, returns = _autocorrelated_ic_panel()
+        order = np.random.default_rng(11).permutation(len(scores))
+
+        expected = compute_newey_west_tstat(compute_ic_series(scores, returns, "f"), 6)
+        result = compute_newey_west_tstat(
+            compute_ic_series(scores.iloc[order], returns.iloc[order], "f"), 6
+        )
+
+        assert result == pytest.approx(expected)
+
+    def test_run_factor_validation_is_invariant_to_history_row_order(self) -> None:
+        scores, returns = _autocorrelated_ic_panel()
+        order = np.random.default_rng(11).permutation(len(scores))
+
+        expected = run_factor_validation({"value": scores}, returns)
+        result = run_factor_validation(
+            {"value": scores.iloc[order]}, returns.iloc[order]
+        )
+
+        assert result.ic_results[0].t_stat == pytest.approx(
+            expected.ic_results[0].t_stat
+        )
+        assert result.ic_results[0].p_value == pytest.approx(
+            expected.ic_results[0].p_value
+        )
+        assert result.quantile_spreads[0].spread == pytest.approx(
+            expected.quantile_spreads[0].spread
+        )
+
+
 class TestComputeICSeriesCSRegression:
     @pytest.fixture
     def panel(self) -> tuple[pd.DataFrame, pd.DataFrame]:

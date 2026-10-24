@@ -185,6 +185,16 @@ def compute_monthly_ic(
     )
 
 
+def _common_dates(scores: pd.DataFrame, returns: pd.DataFrame) -> pd.Index:
+    """Dates present in both panels, oldest first.
+
+    ``Index.intersection`` keeps the caller's order, but the IC series feeds
+    Newey-West autocovariances taken at positional lags, so storage order
+    (newest-first, concatenated, shuffled) would pair unrelated periods.
+    """
+    return scores.index.intersection(returns.index).sort_values()
+
+
 def compute_ic_series(
     factor_scores_history: pd.DataFrame,
     returns_history: pd.DataFrame,
@@ -214,7 +224,8 @@ def compute_ic_series(
             defaults.
 
     Returns:
-        IC values indexed by date.
+        IC values indexed by date, in chronological order regardless of the
+        row order of the inputs.
     """
     if use_cs_regression:
         return _compute_ic_series_cs_regression(
@@ -225,9 +236,7 @@ def compute_ic_series(
             cs_config=cs_config,
         )
 
-    common_dates = factor_scores_history.index.intersection(
-        returns_history.index,
-    )
+    common_dates = _common_dates(factor_scores_history, returns_history)
     ics: dict[object, float] = {}
     for date in common_dates:
         ic = compute_monthly_ic(
@@ -275,9 +284,7 @@ def _compute_ic_series_cs_regression(
         build_cs_linear_regression,
     )
 
-    common_dates = factor_scores_history.index.intersection(
-        returns_history.index,
-    )
+    common_dates = _common_dates(factor_scores_history, returns_history)
     cfg = cs_config if cs_config is not None else CSLinearRegressionConfig()
     required = max(min_observations, cfg.min_observations)
     # Score and price panels are built separately and rarely share a ticker
@@ -829,9 +836,7 @@ def run_factor_validation(
         )
         p_values[factor_name] = p_value
 
-        common_dates = scores_df.index.intersection(
-            returns_history.index,
-        )
+        common_dates = _common_dates(scores_df, returns_history)
         per_date_spreads = [
             compute_quantile_spread(
                 scores_df.loc[date],
