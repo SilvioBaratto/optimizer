@@ -823,6 +823,72 @@ def test_resolve_pending_run_needs_an_explicit_portfolio_id(db_session):
     assert named.action.verb == "run" and named.action.portfolio_id == _PID_B
 
 
+def test_resolve_pending_an_unrelated_request_naming_the_target_is_not_an_answer(
+    db_session,
+):
+    """A statement or request that merely mentions the fund / a typed id never answers
+    'freeze what?' or 'run which portfolio?' — only a bare target reference does."""
+    saver, run_a, run_b = _two_gates(db_session)
+    short = str(run_b).split("-", 1)[0]
+    cases = (
+        (ask.PendingAction("freeze", ()), "give me the fund drawdown"),
+        (ask.PendingAction("freeze", ()), "list the fund's holdings"),
+        (ask.PendingAction("rearm", ()), "fund performance this month"),
+        (ask.PendingAction("freeze", ()), "fund is fine, thanks"),
+        (ask.PendingAction("freeze", ()), "run bbbb0002"),
+        (ask.PendingAction("freeze", ()), "summarize bbbb0002 drift"),
+        (ask.PendingAction("run", ()), "check bbbb0002 for me"),
+        (ask.PendingAction("run", ()), "list bbbb0002 positions"),
+        (ask.PendingAction("approve", (run_a, run_b)), f"check #{short} for me"),
+    )
+
+    for pending, turn in cases:
+        res = ask.resolve_pending(pending, turn, db_session, saver, None)
+
+        assert res.status == "unresolved", (pending.verb, turn)
+        assert res.action is None, (pending.verb, turn)
+
+
+def test_resolve_pending_a_bare_target_with_politeness_still_answers(db_session):
+    """Filler around the target ('yes, the whole fund please', 'portfolio <id>', a
+    pasted full uuid, the pending verb's synonym) is still an answer."""
+    saver, run_a, run_b = _two_gates(db_session)
+    short = str(run_b).split("-", 1)[0]
+
+    for turn in ("yes, the whole fund please", "fund.", "re-arm the fund"):
+        res = ask.resolve_pending(
+            ask.PendingAction("rearm", ()), turn, db_session, saver, None
+        )
+        assert res.action is not None and res.action.scope == "fund", turn
+
+    for turn in ("portfolio bbbb0002", str(_PID_B), "ok, #bbbb0002"):
+        res = ask.resolve_pending(
+            ask.PendingAction("freeze", ()), turn, db_session, saver, None
+        )
+        assert res.action is not None, turn
+        assert res.action.portfolio_id == _PID_B, turn
+
+    for turn in (
+        "bbbb0002",
+        "rebalance bbbb0002",
+        "run bbbb0002",
+        "portfolio #bbbb0002",
+    ):
+        res = ask.resolve_pending(
+            ask.PendingAction("run", ()), turn, db_session, saver, None
+        )
+        assert res.action is not None and res.action.portfolio_id == _PID_B, turn
+
+    res = ask.resolve_pending(
+        ask.PendingAction("killswitch", (run_a, run_b)),
+        f"kill gate #{short}",
+        db_session,
+        saver,
+        None,
+    )
+    assert res.action is not None and res.action.run_id == run_b
+
+
 # --- resolve_pending --------------------------------------------------------
 
 

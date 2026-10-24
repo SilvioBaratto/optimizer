@@ -112,12 +112,27 @@ _REBALANCE_FILLER: frozenset[str] = frozenset(
 _BLANKET_WORD = re.compile(r"\b(?:all|every|everything|each|both)\b")
 _NEGATION = re.compile(r"\b(?:not|never|nor|neither|except|without)\b|n['\u2019]t\b")
 
-# A turn opening with one of these is a question or a read request, never the answer
-# to "which gate / which scope?".
-_QUESTION_START = re.compile(
-    r"(?:what|why|how|when|where|who|whom|whose|is|are|was|were|does|did|do|can|could"
-    r"|should|would|will|show|tell|explain)\b"
+# What a bare answer to "which gate / scope / portfolio?" is made of: the target itself
+# (an id, "the fund") plus politeness. A follow-up with any other word asks for
+# something else, however much it mentions the fund or a typed id.
+_ANSWER_FILLER: frozenset[str] = frozenset(
+    {
+        "the",
+        "a",
+        "whole",
+        "entire",
+        "fund",
+        "portfolio",
+        "portfolios",
+        "gate",
+        "please",
+        "yes",
+        "ok",
+        "okay",
+        "sure",
+    }
 )
+_ANSWER_WORD = re.compile(r"[^\s,.;:!\"']+")
 
 # A typed id: the 8-hex short form the views render (optionally ``#``-prefixed) or a
 # ``#``-prefixed partial of it. Delimited so a word that merely contains hex letters is
@@ -571,10 +586,12 @@ def resolve_pending(
 ) -> TargetResolution:
     """Resolve a carried pending action against the next ``turn`` — never on a guess.
 
-    The follow-up must *answer* the question that was asked. It is not an answer — so
-    stays non-``resolved`` and the caller handles it as a fresh turn — when it is a
-    question, carries a negation, or opens with a different decision verb (a pending
-    ``approve`` followed by "reject #id" is a new reject request, not an approve). An
+    The follow-up must *answer* the question that was asked: a bare target reference
+    ("the fund", an id) and nothing else. It is not an answer — so stays
+    non-``resolved`` and the caller handles it as a fresh turn — when it is a question,
+    carries a negation, opens with a different decision verb (a pending ``approve``
+    followed by "reject #id" is a new reject request, not an approve) or says anything
+    beyond the target ("list the fund's holdings" is a read, not a freeze scope). An
     answer to a resume-verb pending names a still-live candidate gate by short id; an
     answer to a scope pending names "the fund" or a portfolio id; an answer to a ``run``
     pending names a portfolio id. The focus is never an answer on its own: whatever is
@@ -616,16 +633,20 @@ def resolve_pending(
 def _answers_pending(verb: str, turn: str) -> bool:
     """Whether ``turn`` can be the answer to a pending ``verb`` question.
 
-    A question, a negation, or a turn opening with a different decision verb is a new
-    request, not an answer.
+    Only a bare target reference answers: ids, "the fund", politeness and the pending
+    verb itself (or a synonym). A question, a negation, a different decision verb or
+    any other word is a new request — it would otherwise turn "list the fund's
+    holdings" into a fund freeze confirm.
     """
     lowered = turn.strip().lower()
-    if lowered.endswith("?") or _QUESTION_START.match(lowered):
+    if lowered.endswith("?") or _NEGATION.search(lowered):
         return False
-    if _NEGATION.search(lowered):
-        return False
-    leading = _leading_verb(lowered)
-    return leading is None or leading == verb
+    return all(
+        word in _ANSWER_FILLER
+        or _ID_TOKEN.match(word) is not None
+        or _ACTION_VERBS.get(word) == verb
+        for word in _ANSWER_WORD.findall(lowered)
+    )
 
 
 def build_context(

@@ -6785,6 +6785,27 @@ async def test_ask_pending_scope_question_about_the_fund_is_not_a_freeze(
             await worker.wait()
 
 
+@pytest.mark.asyncio
+async def test_ask_pending_scope_request_about_the_fund_is_not_a_freeze(
+    shell_env,
+) -> None:
+    """A non-question request naming 'fund' after 'freeze what?' never confirms."""
+    app = _make_shell(shell_env)  # model_factory=lambda: None
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("freeze it")
+        await pilot.pause()
+        assert view.pending_action is not None
+
+        view.submit_turn("give me the fund drawdown")
+        await pilot.pause()
+        assert view.pending_action is None
+        assert not isinstance(app.screen, ConfirmScreen)
+        worker = app.last_worker  # routed fresh as a query (model is None)
+        if worker is not None:
+            await worker.wait()
+
+
 # --- Ask markdown export (Phase 08 T8) --------------------------------------
 
 
