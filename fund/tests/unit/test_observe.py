@@ -2283,6 +2283,62 @@ def test_untagged_benchmark_levels_are_kept_when_identity_is_unknown(db_session)
     assert summary.excess["max"] is not None
 
 
+def _seed_benchmark_levels(db_session, levels):
+    """Upsert ten-ish NAV marks for _PID carrying the given benchmark levels."""
+    NavHistoryRepository(db_session).upsert_navs(
+        [
+            {
+                "portfolio_id": _PID,
+                "date": date(2026, 10, 1) + timedelta(days=i),
+                "nav": Decimal(str(100 + i)),
+                "benchmark": None if level is None else Decimal(str(level)),
+            }
+            for i, level in enumerate(levels)
+        ]
+    )
+    db_session.flush()
+
+
+def _attributed_benchmark_levels(db_session, monkeypatch):
+    """Benchmark levels ``macro_attribution_summary`` hands the attribution engine."""
+    import fund.attribution as attribution_mod
+
+    seen = {}
+
+    def _capture(points, **_kwargs):
+        seen["levels"] = [p.benchmark for p in points]
+
+    monkeypatch.setattr(attribution_mod, "attribution_from_nav_points", _capture)
+    observe.macro_attribution_summary(db_session, _PID)
+    return seen["levels"]
+
+
+def test_macro_attribution_summary_leaves_trailing_benchmark_nulls_absent(
+    db_session, monkeypatch
+):
+    """Rows marked after the benchmark was cleared never inherit its last level.
+
+    A flat carried-forward level would give the equity factor a fabricated zero
+    return on every such day while the NAV keeps moving.
+    """
+    _seed_benchmark_levels(db_session, [450, 452, 454, 456, None, None, None])
+
+    levels = _attributed_benchmark_levels(db_session, monkeypatch)
+
+    assert levels == [450.0, 452.0, 454.0, 456.0, None, None, None]
+
+
+def test_macro_attribution_summary_still_fills_an_interior_benchmark_gap(
+    db_session, monkeypatch
+):
+    """A null bracketed by benchmark levels is bridged so no return spans the hole."""
+    _seed_benchmark_levels(db_session, [None, 450, None, None, 456, 458, None])
+
+    levels = _attributed_benchmark_levels(db_session, monkeypatch)
+
+    assert levels == [None, 450.0, 450.0, 450.0, 456.0, 458.0, None]
+
+
 # --- holdings_summary (Phase 08 T1) -----------------------------------------
 
 

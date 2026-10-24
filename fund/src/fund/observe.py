@@ -652,17 +652,37 @@ def macro_attribution_summary(
     # benchmark mid-series and the upsert overwrites the prior non-null value, so the
     # benchmark return window stays contiguous and never spans a hole with a
     # multi-period return that biases the equity beta — the same forward-fill the
-    # compute path applies to base prices. A leading null stays absent, never
-    # fabricated before the benchmark's first observation.
-    levels = _current_benchmark_levels(rows, get_mandate(session, portfolio_id))
-    points: list[NavPoint] = []
-    last_benchmark: float | None = None
-    for row, level in zip(rows, levels, strict=True):
-        benchmark = level if level is not None else last_benchmark
-        if benchmark is not None:
-            last_benchmark = benchmark
-        points.append(NavPoint(date=row.date, nav=float(row.nav), benchmark=benchmark))
+    # compute path applies to base prices. Leading and trailing nulls stay absent:
+    # a trailing run means the benchmark was removed, and carrying its last level
+    # would hand the equity factor a fabricated zero return on every such day.
+    levels = _bridge_interior_gaps(
+        _current_benchmark_levels(rows, get_mandate(session, portfolio_id))
+    )
+    points = [
+        NavPoint(date=row.date, nav=float(row.nav), benchmark=level)
+        for row, level in zip(rows, levels, strict=True)
+    ]
     return attribution_from_nav_points(points, session=session, config=config)
+
+
+def _bridge_interior_gaps(levels: list[float | None]) -> list[float | None]:
+    """Forward-fill ``None`` levels that sit between two observed levels.
+
+    Nulls before the first observation or after the last one are left as ``None``:
+    there is no benchmark level on both sides to bridge, so any fill would be
+    invented.
+    """
+    observed = [i for i, level in enumerate(levels) if level is not None]
+    if not observed:
+        return list(levels)
+    last_observed = observed[-1]
+    filled: list[float | None] = []
+    carried: float | None = None
+    for i, level in enumerate(levels):
+        if level is not None:
+            carried = level
+        filled.append(level if level is not None or i > last_observed else carried)
+    return filled
 
 
 def _current_benchmark_levels(
