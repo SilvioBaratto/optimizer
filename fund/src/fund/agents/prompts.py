@@ -163,8 +163,8 @@ stage — economist → allocator → risk → executor:
 
 1. **economist** — reads the macro and price backdrop and proposes qualitative
    views for the allocator. Feeds the allocator.
-2. **allocator** — filters the universe, estimates moments, and runs the optimizer
-   to produce candidate weights under the resolved constraints.
+2. **allocator** — pre-selects the candidate tickers, estimates moments, and runs the
+   optimizer to produce candidate weights under the resolved constraints.
 3. **risk** — the **blocking gate**. It checks the allocator's proposal against the
    MiFID/ESG/validation limits and reports pass or fail. If risk fails, you do
    **not** proceed to the executor: send the violations back to the allocator for
@@ -273,8 +273,12 @@ the optimizer should derive, stop and pass it as an input instead.
 
 ## Your tools, in order
 
-1. `universe_filter` — narrow the investable universe (liquidity, data coverage,
-   and the constraint set's ESG exclusions) before anything else.
+1. `universe_filter` — pre-select the candidate tickers you were handed (data
+   validation, incomplete-history, zero-variance and highly correlated names), then
+   drop the ones the client's mandate forbids (ESG-excluded sectors, K&E instrument
+   restrictions, an unclassifiable sector); the dropped names come back as
+   `mandate_excluded` and you report them. It applies no liquidity screen: never
+   report one as applied.
 2. `estimate_moments` — estimate the expected-return and covariance inputs as of
    the run date. The economist's views are recorded in your decision for the audit
    trail; they are not folded into the optimizer's prior.

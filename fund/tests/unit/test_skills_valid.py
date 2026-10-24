@@ -23,6 +23,7 @@ _FUND_ROOT = Path(__file__).resolve().parents[2]  # …/fund
 _FUND_SRC = _FUND_ROOT / "src" / "fund"
 _SKILLS_DIR = _FUND_SRC / "skills"
 _THEORY_DOCS = _FUND_ROOT.parent / "optimizerwiki" / "docs"
+_TOOLSETS_SRC = _FUND_SRC / "agents" / "toolsets.py"
 
 # deepagents built-in tools a skill body may legitimately name.
 _BUILTINS = frozenset(
@@ -101,6 +102,27 @@ def _tools_all_from_source() -> set[str]:
         ):
             return set(ast.literal_eval(node.value))
     raise AssertionError("fund/tools/__init__.py defines no __all__")
+
+
+def _bound_tool_params(tool: str) -> list[str]:
+    """Parameter names of the ``@tool`` that ``toolsets._bind_<tool>`` exposes.
+
+    Read via AST so the check needs no optimizer import and tracks the schema the
+    LLM actually sees (a skill documenting any other argument misleads it).
+    """
+    tree = ast.parse(_TOOLSETS_SRC.read_text(encoding="utf-8"))
+    for binder in ast.walk(tree):
+        if isinstance(binder, ast.FunctionDef) and binder.name == f"_bind_{tool}":
+            for inner in ast.walk(binder):
+                if isinstance(inner, ast.FunctionDef) and inner.name == tool:
+                    return [a.arg for a in inner.args.args]
+    raise AssertionError(f"toolsets.py binds no `{tool}` tool")
+
+
+def _documented_call_args(text: str, tool: str) -> list[list[str]]:
+    """Argument names of every inline ``tool(a, b)`` call form in ``text``."""
+    calls = re.findall(rf"`{tool}\(([^`)]*)\)`", text)
+    return [[a.strip() for a in call.split(",") if a.strip()] for call in calls]
 
 
 # --- sanity: the test's own tables agree with the codebase --------------------
@@ -193,6 +215,54 @@ def _section(text: str, heading: str) -> str:
     )
     assert match, f"no `## {heading}` section"
     return match.group(1)
+
+
+# --- universe-preselection documents the surface the allocator really has ----
+
+# Selection knobs no bound tool or ``PreSelectionConfig`` field implements: the filter
+# has no ADV/price, factor or sector-cap input, so a skill presenting them as levers
+# makes the LLM believe a screen ran. (The ESG and K&E instrument screens are real: the
+# bound tool applies them from the ConstraintSet.)
+_INERT_KNOB_RE = re.compile(
+    r"liquidity|\bADV\b|factor[- ](?:score|tilt)|sector[- ]cap", re.IGNORECASE
+)
+_NEGATION_RE = re.compile(
+    r"\b(?:no|not|never|none|cannot|unavailable|absent|ignored)\b", re.IGNORECASE
+)
+
+
+@pytest.mark.parametrize("tool", ["universe_filter", "estimate_moments"])
+def test_universe_preselection_calls_match_the_bound_tool_signature(tool: str):
+    skill = _read("universe-preselection", "SKILL.md")
+    reference = _read("universe-preselection", "reference.md")
+    real = set(_bound_tool_params(tool))
+    skill_calls = _documented_call_args(skill, tool)
+    assert skill_calls, f"SKILL.md must show the `{tool}(...)` call form"
+    for args in skill_calls + _documented_call_args(reference, tool):
+        assert set(args) <= real, f"`{tool}({', '.join(args)})` vs real {sorted(real)}"
+
+
+def test_universe_preselection_does_not_advertise_inert_selection_knobs():
+    text = _read("universe-preselection", "SKILL.md") + "\n"
+    text += _read("universe-preselection", "reference.md")
+    for line in text.splitlines():
+        if _INERT_KNOB_RE.search(line):
+            assert _NEGATION_RE.search(line), f"presented as a live knob: {line!r}"
+
+
+def _module_str_constant(path: Path, name: str) -> str:
+    """Value of a module-level string constant, read via AST (no agent-stack import)."""
+    for node in ast.parse(path.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == name for t in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise AssertionError(f"{path.name} defines no `{name}` string constant")
+
+
+def _sentences(text: str) -> list[str]:
+    """Soft-wrap-insensitive sentences, so a claim split over two lines stays whole."""
+    return re.split(r"(?<=[.;])\s+", " ".join(text.split()))
 
 
 def _bound_optimize_tool_args() -> set[str]:
@@ -490,3 +560,45 @@ def test_executor_is_told_where_current_holdings_come_from():
     for body in (orchestration, rebalancing):
         assert "current_holdings" in body
         assert "get_portfolio_history" in body
+
+
+# The allocator's system prompt is read on every run, the skill only on demand, so
+# the prompt may not claim a screen the skill says is absent.
+def test_allocator_prompt_does_not_claim_screens_the_filter_lacks():
+    from fund.agents.prompts import ALLOCATOR_SYSTEM_PROMPT
+
+    for sentence in _sentences(ALLOCATOR_SYSTEM_PROMPT):
+        if _INERT_KNOB_RE.search(sentence):
+            assert _NEGATION_RE.search(sentence), f"presented as applied: {sentence!r}"
+
+
+def test_allocator_is_described_as_pre_selecting_handed_over_tickers():
+    from fund.agents.prompts import ALLOCATOR_SYSTEM_PROMPT, PM_SYSTEM_PROMPT
+
+    pm_bullet = re.search(r"\*\*allocator\*\*(.*?)\n3\.", PM_SYSTEM_PROMPT, re.S)
+    assert pm_bullet, "PM prompt lost its allocator bullet"
+    always_loaded = {
+        "allocator prompt": ALLOCATOR_SYSTEM_PROMPT,
+        "PM prompt bullet": pm_bullet.group(1),
+        "graph description": _module_str_constant(
+            _FUND_SRC / "agents" / "graph.py", "_ALLOCATOR_DESCRIPTION"
+        ),
+        "orchestration reference": next(
+            row
+            for row in _read("fund-orchestration", "reference.md").splitlines()
+            if "| allocator |" in row
+        ),
+    }
+    for label, text in always_loaded.items():
+        assert "pre-select" in text.lower(), f"{label} still says the allocator filters"
+
+
+def test_universe_preselection_missing_has_both_causes_and_is_not_dropped_by_hand():
+    skill = _read("universe-preselection", "SKILL.md")
+    # The load-bearing rule bars the LLM from dropping a ticker, so no procedure
+    # step may tell it to; the tools already skip what they flag as ``missing``.
+    assert re.search(r"never adds, drops or invents", skill)
+    steps = re.split(r"^(?=\d+\. )", _section(skill, "Procedure"), flags=re.M)
+    step = " ".join(next(s for s in steps if "`missing`" in s).split())
+    assert "no instrument" in step and "no priced" in step, step
+    assert "drop" not in step.lower(), step

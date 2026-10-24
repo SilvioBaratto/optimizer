@@ -1,37 +1,57 @@
 ---
 name: universe-preselection
 description: |
-  Filter the full DB universe (~8898 names) down to a tractable candidate set using
-  liquidity, factor-score, drop-correlated and sector-cap enums before optimization.
-  Use when the allocator must scope the universe for a run. Emits filter enums and
-  thresholds only — never a hand-picked ticker list and never weights.
+  Prune the candidate tickers handed to the allocator with the pre-selection stack
+  (data cleaning, incomplete-history, zero-variance and correlated-asset drops)
+  before moments and optimization. Use when the allocator must scope a run's
+  universe. Passes the tickers it was given - never invents a ticker, never emits
+  weights.
 ---
 
 # Universe pre-selection
 
-The allocator's first step: shrink ~8898 names to a well-conditioned candidate set so
-the optimizer is stable. The LLM chooses the FILTERS; the pipeline applies them.
+The allocator's first step: prune the candidate tickers to a well-conditioned set so
+the optimizer is stable. The LLM passes the candidates in; the pipeline decides which
+survive.
 
 ## When to use
 Start of the allocator step, before moments + optimization.
 
 ## Load-bearing rule
-The LLM emits filter enums/thresholds (liquidity floor, factor score, correlation
-cap, sector caps). `universe_filter` / the pre-selection pipeline picks the names.
-Never hand-pick tickers and never emit weights.
+`universe_filter` picks the surviving names. The LLM only forwards the candidate
+tickers it was handed; it never adds, drops or invents a ticker and never emits
+weights.
 
 ## Procedure
-1. Choose filters from the ConstraintSet + regime (see reference.md): liquidity
-   floor, factor tilts, drop-correlated threshold, sector caps, K&E exclusions.
-2. Call `universe_filter(criteria)` for the candidate list (big frames stay in the
-   tool; only the summary returns).
-3. Call `estimate_moments(returns_asof, universe, config)` for mu/cov on the subset.
-4. Hand the candidate set + moments to `optimization-objective-map`.
+1. Take the candidate tickers from the task / the economist's handoff. No tool lists
+   the investable universe, so if none were handed over, stop and report that to the
+   PM instead of guessing names.
+2. Call `universe_filter(universe)` with those tickers. It returns the survivors in
+   requested order (big frames stay in the tool; only the ticker list returns). Names
+   the client's mandate forbids come back under `mandate_excluded`: report them to the
+   PM. An empty list is a valid outcome: report it, do not retry with other names.
+3. Call `estimate_moments(universe)` with the survivors for mu/cov (Ledoit-Wolf
+   covariance + empirical mean over history up to the run date). Tickers it flags as
+   `missing` had no instrument row (an unknown or mistyped ticker) or no priced days.
+   The tools skip them on their own, so do not edit the list by hand: report the
+   `missing` names to the PM and never substitute other tickers.
+4. Hand the survivors + moments to `optimization-objective-map`.
+
+## What the filter applies
+Fixed defaults, no thresholds to choose: data validation and outlier treatment,
+incomplete-history and zero-variance drops, and a 0.95 pairwise-correlation cap. The
+tool then applies the client's mandate from the ConstraintSet: names in an
+ESG-excluded sector or breaching the K&E instrument restrictions (and any whose sector
+it cannot classify) are removed and listed as `mandate_excluded`. The tools take only
+`universe`; any other argument is silently dropped, so never pass thresholds,
+criteria or a config.
 
 ## Boundaries
 - Never bypass the filter to name assets directly; never emit weights.
-- Honour the ESG hard exclusions from the ConstraintSet (they cannot be re-admitted).
+- There is no liquidity floor (no volume data is loaded), factor tilt or sector cap
+  in the filter. Never tell the PM one was applied.
+- Honour the mandate screen: never re-admit a name listed as `mandate_excluded`.
 
 ## Deeper detail
-Filter enum table, factor-selection theory, and the pipeline gotchas live in
-`reference.md` (theory `09`, `13`, `05`, `27`, `08`).
+Pipeline stages, what is not modelled, factor-selection theory and the pipeline
+gotchas live in `reference.md` (theory `09`, `13`, `05`, `27`, `08`).

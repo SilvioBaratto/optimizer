@@ -89,9 +89,9 @@ _ECONOMIST_DESCRIPTION = (
     "qualitative regime narrative plus candidate views. Delegate first."
 )
 _ALLOCATOR_DESCRIPTION = (
-    "Pipeline step 2. Filters the universe, estimates moments folding in the "
-    "economist's views, and runs the optimizer to produce candidate weights under "
-    "the resolved constraints. Delegate after the economist."
+    "Pipeline step 2. Pre-selects the candidate tickers it is handed, estimates "
+    "moments folding in the economist's views, and runs the optimizer to produce "
+    "candidate weights under the resolved constraints. Delegate after the economist."
 )
 _RISK_DESCRIPTION = (
     "Pipeline step 3 — the blocking gate. Checks the allocator's proposal against "

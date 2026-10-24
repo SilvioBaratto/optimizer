@@ -8,7 +8,7 @@ On-demand support for `fund-orchestration`. Points to the theory; never copies i
 |---|---|---|---|---|
 | 0 | Profile | profiler | ConstraintSet | mifid mapping (once / annual) |
 | 1 | Regime + views | economist | regime label, ViewSet | get_macro_series, get_regime_stats |
-| 2 | Universe + optimize | allocator | filters, optimizer config, weights | universe_filter, estimate_moments, optimize_portfolio |
+| 2 | Pre-select + optimize | allocator | surviving tickers, optimizer config, weights | universe_filter, estimate_moments, optimize_portfolio |
 | 3 | Validate | risk | passed / violations (BLOCKING) | risk_check, backtest |
 | 4 | Execute | executor | rebalance proposal; the PM commits paper orders (HITL) | none (PM: get_portfolio_history, place_orders) |
 
