@@ -587,6 +587,64 @@ async def test_shell_picker_lists_portfolios_and_selection_refocuses(shell_env) 
 
 
 @pytest.mark.asyncio
+async def test_shell_focus_on_portfolio_created_after_startup_syncs_the_picker(
+    shell_env,
+) -> None:
+    # The Posture roster re-lists portfolios every tick, so it can offer one the
+    # header picker has never seen (created from the CLI while the shell is open).
+    def _create_run(pid, seed) -> None:
+        with shell_env.get_session() as session:
+            AgentRunRepository(session).create_run(
+                portfolio_id=pid,
+                asof=date(2026, 1, 2),
+                seed=seed,
+                universe=[],
+                optimizer_config={},
+            )
+            session.commit()
+
+    _create_run(_PID_A, 1)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        assert app._portfolio_ids == [_PID_A]
+        _create_run(_PID_B, 2)
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+        select = app.query_one("#hdr-portfolio", Select)
+        assert app._portfolio_id == _PID_B
+        assert _PID_B in app._portfolio_ids
+        assert select.value == str(_PID_B)
+        # The picker must still be able to go back to the first portfolio.
+        select.value = str(_PID_A)
+        await pilot.pause()
+        assert app._portfolio_id == _PID_A
+
+
+@pytest.mark.asyncio
+async def test_shell_reseeding_the_picker_does_not_defocus_the_shell(
+    shell_env,
+) -> None:
+    # Re-seeding resets the Select to blank first; that blank echo must not be taken
+    # for the adviser picking fund-wide, even for an id no read model lists.
+    with shell_env.get_session() as session:
+        AgentRunRepository(session).create_run(
+            portfolio_id=_PID_A,
+            asof=date(2026, 1, 2),
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        app.focus_portfolio(_PID_B)  # unknown to every reader
+        await pilot.pause()
+        assert app._portfolio_id == _PID_B
+
+
+@pytest.mark.asyncio
 async def test_shell_focused_launch_preselects_without_spurious_refocus(
     shell_env, monkeypatch
 ) -> None:

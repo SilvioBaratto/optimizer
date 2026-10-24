@@ -912,17 +912,21 @@ class ShellApp(App[None]):
 
         Sets the same header context the picker does — updates ``_portfolio_id``,
         repaints the run-state glyph, and repaints the active view — and keeps the
-        header ``Select`` naming the focused portfolio (assigning an existing option
-        echoes a ``Select.Changed`` that ``on_select_changed``'s value-equality guard
-        drops, since ``_portfolio_id`` already matches). A portfolio created after the
-        picker was seeded is added to its options first, so the header never shows a
-        different portfolio from the one ``u`` / ``K`` / approvals act on.
+        header ``Select`` in sync (its echoed ``Select.Changed`` is dropped by
+        ``on_select_changed``'s value-equality guard, since ``_portfolio_id`` already
+        matches). The roster re-lists portfolios every tick, so a portfolio created
+        since the picker was last seeded re-seeds it first; otherwise the header would
+        keep showing a different portfolio from the one ``u`` / ``K`` / approvals act
+        on, and re-choosing the old one would emit no change.
         """
         self._portfolio_id = portfolio_id
+        if portfolio_id not in self._portfolio_ids:
+            # ``set_options`` blanks the Select first; that echo would otherwise read
+            # as a fund-wide pick and drop the focus just set.
+            with self.query_one("#hdr-portfolio", Select).prevent(Select.Changed):
+                self._populate_picker()
         if portfolio_id in self._portfolio_ids:
             self.query_one("#hdr-portfolio", Select).value = str(portfolio_id)
-        else:
-            self._populate_picker()
         self._refresh_runstate()
         self._refresh()
 
