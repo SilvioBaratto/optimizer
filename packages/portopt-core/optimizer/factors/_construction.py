@@ -135,14 +135,21 @@ def _compute_sales_to_price(fundamentals: pd.DataFrame) -> pd.Series:
 
 
 def _compute_ebitda_to_ev(fundamentals: pd.DataFrame) -> pd.Series:
-    """EBITDA / enterprise value."""
+    """EBITDA / enterprise value.
+
+    EV multiples are undefined for non-positive enterprise value: a profitable
+    net-cash firm (cash above market cap plus debt) would otherwise get a
+    negative yield and rank below ordinary expensive stocks.  Non-positive EV
+    yields NaN.
+    """
     ebitda = fundamentals.get("ebitda")
     ev = fundamentals.get("enterprise_value")
     if ebitda is None or ev is None:
         return pd.Series(dtype=float)
     ebitda_s = cast(pd.Series, ebitda)
     ev_s = cast(pd.Series, ev)
-    return (ebitda_s / ev_s).replace([np.inf, -np.inf], np.nan)
+    positive_ev = ev_s.where(ev_s > 0)
+    return (ebitda_s / positive_ev).replace([np.inf, -np.inf], np.nan)
 
 
 def _compute_gross_profitability(fundamentals: pd.DataFrame) -> pd.Series:

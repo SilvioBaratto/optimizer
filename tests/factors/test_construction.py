@@ -1222,6 +1222,23 @@ class TestNonPositiveDenominators:
         assert np.isnan(result["zero"])
         assert result["x"] == pytest.approx(2.0)
 
+    def test_ebitda_to_ev_is_nan_for_non_positive_enterprise_value(
+        self, _tiny_prices: pd.DataFrame
+    ) -> None:
+        frame = pd.DataFrame(
+            {
+                "ebitda": [100.0, 100.0, -100.0, 100.0, 100.0],
+                "enterprise_value": [1000.0, -200.0, -200.0, 0.0, 500.0],
+            },
+            index=pd.Index(["ok", "net_cash", "loss_net_cash", "zero", "x"]),
+        )
+        result = compute_factor(FactorType.EBITDA_TO_EV, frame, _tiny_prices)
+        assert result["ok"] == pytest.approx(0.1)
+        assert np.isnan(result["net_cash"])
+        assert np.isnan(result["loss_net_cash"])
+        assert np.isnan(result["zero"])
+        assert result["x"] == pytest.approx(0.2)
+
 
 class TestBetaDegenerateMarket:
     """A near-zero market variance produces NaN betas rather than huge values."""
