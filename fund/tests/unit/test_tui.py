@@ -3004,7 +3004,22 @@ async def test_onboarding_full_cycle_profile_run_approve(
     with onboard_env.get_session() as session:
         run = AgentRunRepository(session).get_run(fund_run_id)
         assert run.status == "completed"
-        assert run.weights == onboard_env.expected  # optimizer output, not the LLM's
+        # The optimizer's output under the profiler's own constraint set, not the
+        # LLM's: the profile this portfolio was onboarded with (not the fixture's
+        # growth profile behind ``onboard_env.expected``) drives the optimizer.
+        from fund.schemas import ConstraintSet
+        from fund.tools.optimize import config_from_constraint_set, optimize_portfolio
+
+        allocation = next(
+            d
+            for d in run.decisions
+            if d.agent == "allocator" and d.step == "optimize_portfolio"
+        )
+        profile = ConstraintSet.model_validate(allocation.constraint_set)
+        optimized = optimize_portfolio(
+            session, ASOF, UNIVERSE, config=config_from_constraint_set(profile)
+        )
+        assert run.weights == optimized["data"]["weights"]
         actions = [row.action for row in HumanAuditLogRepository(session).list_recent()]
         assert "new_portfolio" in actions
         assert "profile" in actions

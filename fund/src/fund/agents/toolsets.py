@@ -190,12 +190,20 @@ def _bounds_args(cs: ConstraintSet) -> dict[str, Any]:
 
 
 def _optimizer_constraints(cs: ConstraintSet) -> dict[str, Any]:
-    """The mapped ``MeanRiskConfig`` fields ``optimize_portfolio`` consumes."""
+    """The mapped ``MeanRiskConfig`` fields ``optimize_portfolio`` consumes.
+
+    The risk-free rate, which a client quotes annually while the optimiser compares
+    it with daily returns, is compounded down to a daily rate.
+    """
+    from fund.tools._base import PERIODS_PER_YEAR
     from fund.tools.optimize import _CONSTRAINT_FIELDS
 
     config = dataclasses.replace(
         cs.to_mean_risk_config(), max_weights=_effective_max_weight(cs)
     )
+    if config.risk_free_rate:
+        daily = (1.0 + config.risk_free_rate) ** (1.0 / PERIODS_PER_YEAR) - 1.0
+        config = dataclasses.replace(config, risk_free_rate=daily)
     return {name: getattr(config, name) for name in _CONSTRAINT_FIELDS}
 
 

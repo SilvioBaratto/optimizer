@@ -42,6 +42,10 @@ ToolResult = dict[str, Any]
 # held to ``2 * n_assets`` instead, see ``thin_sample_error``.
 MIN_RETURN_OBSERVATIONS = 20
 
+# Daily bars per year: converts between the per-period figures skfolio works in and
+# the annual figures a client or an adviser reads.
+PERIODS_PER_YEAR = 252
+
 P = ParamSpec("P")
 
 
@@ -210,6 +214,7 @@ def summarize_frame(frame: Any, *, name: str = "frame") -> dict[str, Any]:
 
 __all__ = [
     "MIN_RETURN_OBSERVATIONS",
+    "PERIODS_PER_YEAR",
     "ToolResult",
     "coerce_date",
     "err",

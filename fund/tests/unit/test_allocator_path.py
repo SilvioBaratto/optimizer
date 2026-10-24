@@ -22,14 +22,20 @@ import math
 
 import pytest
 from optimizer.moments import CovEstimatorType, MomentEstimationConfig
+from optimizer.optimization import MeanRiskConfig, build_mean_risk
+from optimizer.preprocessing import prices_to_returns
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
 
+from fund.agents.toolsets import _optimizer_constraints
 from fund.audit.repository import AgentRunRepository
+from fund.schemas import ConstraintSet
+from fund.schemas.constraint_set import Bounds, UniverseFilters
+from fund.schemas.enums import Horizon, ObjectiveChoice, RiskMeasureChoice
 from fund.tools._base import MIN_RETURN_OBSERVATIONS
 from fund.tools.moments import estimate_moments
-from fund.tools.optimize import optimize_portfolio
-from fund.tools.prices import get_prices
+from fund.tools.optimize import _CONSTRAINT_FIELDS, optimize_portfolio
+from fund.tools.prices import get_prices, load_price_frame
 
 _START = dt.date(2024, 1, 1)
 _N_DAYS = 80
@@ -513,6 +519,127 @@ class TestOptimizePortfolio:
 
         assert result["ok"] is False
         assert "NEW" in result["error"]
+
+    def test_supplied_config_replaces_the_default_min_variance_objective(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+        config = MeanRiskConfig.for_max_sharpe()
+        frame, _ = load_price_frame(db_session, _ASOF, _UNIVERSE)
+        expected = build_mean_risk(config).fit(prices_to_returns(frame)).weights_
+
+        default = optimize_portfolio(db_session, _ASOF, _UNIVERSE)["data"]["weights"]
+        result = optimize_portfolio(
+            db_session,
+            _ASOF,
+            _UNIVERSE,
+            constraints={name: getattr(config, name) for name in _CONSTRAINT_FIELDS},
+        )
+
+        assert result["ok"] is True
+        weights = result["data"]["weights"]
+        assert [weights[t] for t in _UNIVERSE] == pytest.approx(list(expected))
+        assert weights != default
+
+    def test_aggressive_client_with_a_position_cap_stays_under_it(
+        self, db_session
+    ) -> None:
+        # Max-Sharpe at low risk aversion piles into one name; the K&E cap must
+        # still bind on the weights the optimiser hands out.
+        _seed_panel(db_session)
+        aggressive = _client(
+            objective=ObjectiveChoice.MAX,
+            a_gamma=1.0,
+            universe_filters=UniverseFilters(max_position_cap=0.4),
+        )
+        uncapped = optimize_portfolio(
+            db_session,
+            _ASOF,
+            _UNIVERSE,
+            constraints=_optimizer_constraints(_client(objective=ObjectiveChoice.MAX)),
+        )["data"]["weights"]
+        assert max(uncapped.values()) > 0.4 + 1e-3  # the cap is what changes this
+
+        result = optimize_portfolio(
+            db_session, _ASOF, _UNIVERSE, constraints=_optimizer_constraints(aggressive)
+        )
+
+        assert result["ok"] is True
+        assert all(w <= 0.4 + 1e-6 for w in result["data"]["weights"].values())
+
+    def test_cap_too_tight_for_the_universe_is_a_clear_error(self, db_session) -> None:
+        # 3 names at <=20% each can never sum to 100%; say so instead of
+        # surfacing an opaque solver failure the agent would retry.
+        _seed_panel(db_session)
+
+        result = optimize_portfolio(
+            db_session, _ASOF, _UNIVERSE, constraints={"max_weights": 0.2}
+        )
+
+        assert result["ok"] is False
+        assert "max_weights" in result["error"]
+        assert "Solver" not in result["error"]
+
+
+def _client(**overrides: object) -> ConstraintSet:
+    kwargs: dict[str, object] = {
+        "portfolio_id": "pf-1",
+        "base_currency": "EUR",
+        "a_gamma": 2.5,
+        "objective": ObjectiveChoice.GROWTH,
+        "risk_measure": RiskMeasureChoice.VARIANCE,
+        "nu1": 0.05,
+        "nu2": 0.10,
+        "nu3": 0.20,
+        "horizon": Horizon.LONG,
+    }
+    kwargs.update(overrides)
+    return ConstraintSet(**kwargs)  # type: ignore[arg-type]
+
+
+class TestOptimizerConstraintsFromConstraintSet:
+    def test_carries_the_mifid_mapped_knobs(self) -> None:
+        cs = _client(
+            objective=ObjectiveChoice.MAX,
+            risk_measure=RiskMeasureChoice.CVAR,
+            a_gamma=7.0,
+            beta=0.99,
+        )
+
+        constraints = _optimizer_constraints(cs)
+
+        assert constraints["objective"].value == "maximize_ratio"
+        assert constraints["risk_measure"].value == "cvar"
+        assert constraints["risk_aversion"] == 7.0
+        assert constraints["cvar_beta"] == 0.99
+
+    def test_annual_risk_free_rate_is_converted_to_the_daily_return_frequency(
+        self,
+    ) -> None:
+        # The optimizer works on daily returns, so a quoted annual 4% must not be
+        # handed over as a 4% daily rate.
+        constraints = _optimizer_constraints(_client(risk_free_rate=0.04))
+
+        assert constraints["risk_free_rate"] == pytest.approx(1.04 ** (1 / 252) - 1)
+
+    def test_absent_risk_free_rate_stays_zero(self) -> None:
+        assert _optimizer_constraints(_client())["risk_free_rate"] == 0.0
+
+    def test_position_cap_tightens_the_max_weight_bound(self) -> None:
+        cs = _client(universe_filters=UniverseFilters(max_position_cap=0.4))
+
+        assert _optimizer_constraints(cs)["max_weights"] == 0.4
+
+    def test_position_cap_never_loosens_a_tighter_bound(self) -> None:
+        cs = _client(
+            bounds=Bounds(max_weights=0.3),
+            universe_filters=UniverseFilters(max_position_cap=0.4),
+        )
+
+        assert _optimizer_constraints(cs)["max_weights"] == 0.3
+
+    def test_without_a_position_cap_the_bound_is_untouched(self) -> None:
+        assert _optimizer_constraints(_client())["max_weights"] == 1.0
 
 
 class TestWalkingSkeleton:
