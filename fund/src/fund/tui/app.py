@@ -2339,21 +2339,34 @@ class ShellApp(App[None]):
         """The autonomy posture glyph: ``❄ FROZEN`` when frozen, else ``● ARMED``.
 
         Fund scope wins: a FROZEN fund reads frozen regardless of the focused
-        portfolio's own row; a read error falls back to ``● ARMED``.
+        portfolio's own row; a read error falls back to ``● ARMED``. Portfolios frozen
+        *other than* the focused one are counted after the glyph (``· ❄ 1 other
+        frozen``), since a freeze from the fund-wide Decisions queue can land on a
+        portfolio the header is not focused on and would otherwise show nowhere.
         """
         from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
 
         frozen_value = AutonomyState.FROZEN.value
+        focus = self._portfolio_id
         try:
             with self._session_factory() as session:
                 repo = AutonomyRepository(session)  # read-only: never creates rows
                 frozen = repo.fund_posture() == frozen_value
-                if not frozen and self._portfolio_id is not None:
-                    frozen = repo.portfolio_posture(self._portfolio_id) == frozen_value
+                others: list[uuid.UUID] = []
+                if not frozen:
+                    frozen = (
+                        focus is not None
+                        and repo.portfolio_posture(focus) == frozen_value
+                    )
+                    others = [p for p in repo.frozen_portfolio_ids() if p != focus]
                 session.rollback()
         except Exception:  # keep the shell alive on a read error
             return "● ARMED"
-        return "❄ FROZEN" if frozen else "● ARMED"
+        glyph = "❄ FROZEN" if frozen else "● ARMED"
+        if others:
+            qualifier = "other " if focus is not None else ""
+            glyph += f" · ❄ {len(others)} {qualifier}frozen"
+        return glyph
 
     def _run_state_glyph(self) -> str:
         """The focused portfolio's latest-run glyph: live / running / awaiting / idle.

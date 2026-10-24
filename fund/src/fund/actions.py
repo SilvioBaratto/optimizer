@@ -592,7 +592,7 @@ def _apply_freeze(
         run_id=None,
         portfolio_id=pid,
         audit_id=row.id,
-        message=f"{scope} {_PAST['freeze']}",
+        message=f"{_scope_subject(scope, pid)} {_PAST['freeze']}",
     )
 
 
@@ -655,8 +655,19 @@ def _apply_rearm(
         run_id=None,
         portfolio_id=pid,
         audit_id=row.id,
-        message=f"{scope} {_PAST['rearm']}",
+        message=f"{_scope_subject(scope, pid)} {_PAST['rearm']}",
     )
+
+
+def _scope_subject(scope: str, portfolio_id: uuid.UUID | None) -> str:
+    """The status-line subject of an autonomy change: the portfolio it hit, else scope.
+
+    Naming the portfolio matters because the Decisions queue is fund-wide, so the
+    portfolio a freeze lands on need not be the one the header is focused on.
+    """
+    if scope == "portfolio" and portfolio_id is not None:
+        return f"portfolio {portfolio_id}"
+    return scope
 
 
 def _portfolio_of(session: Session, run_id: uuid.UUID) -> uuid.UUID | None:

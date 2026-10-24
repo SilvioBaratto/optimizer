@@ -83,6 +83,27 @@ class AutonomyRepository(RepositoryBase):
         row = self._get(AutonomyScope.PORTFOLIO, portfolio_id)
         return row.state if row is not None else AutonomyState.ARMED.value
 
+    def frozen_portfolio_ids(self) -> list[uuid.UUID]:
+        """Ids of the portfolios whose own autonomy row is FROZEN, sorted ascending.
+
+        Read-only like :meth:`portfolio_posture`: it never creates a row. The fund
+        scope is not consulted — a frozen fund halts every portfolio regardless, and
+        callers that care read :meth:`fund_posture` separately.
+
+        Returns:
+            The explicitly frozen portfolio ids; ``[]`` when none is frozen.
+        """
+        stmt = (
+            select(FundAutonomyState.portfolio_id)
+            .where(
+                FundAutonomyState.scope == AutonomyScope.PORTFOLIO.value,
+                FundAutonomyState.state == AutonomyState.FROZEN.value,
+            )
+            .order_by(FundAutonomyState.portfolio_id)
+        )
+        ids = self.session.execute(stmt).scalars().all()
+        return [pid for pid in ids if pid is not None]  # portfolio rows carry an id
+
     def set_state(
         self,
         scope: AutonomyScope,

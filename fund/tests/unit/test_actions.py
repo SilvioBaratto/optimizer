@@ -708,6 +708,21 @@ def test_rearm_portfolio_restores_armed(clean_db) -> None:
     assert state.frozen_at is None
 
 
+def test_portfolio_freeze_and_rearm_messages_name_the_portfolio(clean_db) -> None:
+    """The status line says which portfolio changed posture, not just the scope."""
+    frozen = apply_action(
+        "freeze", session=clean_db, scope="portfolio", portfolio_id=PORTFOLIO_ID
+    )
+    rearmed = apply_action(
+        "rearm", session=clean_db, scope="portfolio", portfolio_id=PORTFOLIO_ID
+    )
+    fund = apply_action("freeze", session=clean_db, scope="fund")
+
+    assert frozen.message == f"portfolio {PORTFOLIO_ID} frozen"
+    assert rearmed.message == f"portfolio {PORTFOLIO_ID} re-armed"
+    assert fund.message == "fund frozen"
+
+
 def test_rearm_fund_requires_a_rationale(clean_db) -> None:
     """A fund-scope re-arm without a rationale is rejected before any write."""
     with pytest.raises(ValueError, match="rationale"):

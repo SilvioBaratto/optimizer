@@ -3425,6 +3425,37 @@ async def test_killswitch_portfolio_scope_freezes(tui_env) -> None:
 
 
 @pytest.mark.asyncio
+async def test_freezing_a_non_focused_portfolio_names_it_and_flags_the_header(
+    tui_env,
+) -> None:
+    # The Decisions queue is cross-portfolio, so the gate's portfolio need not be the
+    # header-focused one (here: fund-wide).
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_killswitch()
+        await pilot.pause()
+        await pilot.click("#scope-portfolio")
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+
+        mode = app.query_one("#hdr-mode", Static)
+        assert str(PORTFOLIO_ID) in app.last_status  # says which portfolio froze
+        assert str(mode.render()) == "● ARMED · ❄ 1 frozen"
+
+        app.focus_portfolio(PORTFOLIO_ID)  # the frozen one: no longer "other"
+        await pilot.pause()
+        assert str(mode.render()) == "❄ FROZEN"
+
+        app.focus_portfolio(_PID_B)  # a third, armed portfolio
+        await pilot.pause()
+        assert str(mode.render()) == "● ARMED · ❄ 1 other frozen"
+
+
+@pytest.mark.asyncio
 async def test_killswitch_fund_scope_freezes(tui_env) -> None:
     from fund.audit.autonomy_repository import AutonomyRepository
 

@@ -116,3 +116,16 @@ def test_consume_first_round_is_portfolio_scoped(db_session):
     pid_a, pid_b = uuid.uuid4(), uuid.uuid4()
     repo.consume_first_round(pid_a)
     assert repo.portfolio_state(pid_b).first_round_gated is True
+
+
+def test_frozen_portfolio_ids_lists_only_frozen_portfolio_rows(db_session):
+    """Armed portfolios and the fund row are excluded; the read creates no rows."""
+    repo = AutonomyRepository(db_session)
+    frozen, armed, never_seen = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    repo.set_state(AutonomyScope.PORTFOLIO, frozen, AutonomyState.FROZEN, reason="x")
+    repo.set_state(AutonomyScope.PORTFOLIO, armed, AutonomyState.ARMED)
+    repo.set_state(AutonomyScope.FUND, None, AutonomyState.FROZEN, reason="halt")
+
+    assert repo.frozen_portfolio_ids() == [frozen]
+    assert repo.portfolio_posture(never_seen) == "armed"
+    assert repo.frozen_portfolio_ids() == [frozen]
