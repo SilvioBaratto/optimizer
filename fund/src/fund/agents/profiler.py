@@ -712,7 +712,8 @@ def _persist_instruction(portfolio_id: str) -> str:
     """The human turn that drives the agent to call ``save_profile`` once."""
     return (
         f"The suitability assessment for portfolio {portfolio_id} is complete and "
-        f"validated. Call the save_profile tool now with this portfolio id. "
+        f"validated. Call the save_profile tool now; it takes no arguments, the "
+        f"portfolio is already bound to this run. "
         f"save_profile is gated: calling it writes nothing immediately — it pauses "
         f"the run for the adviser to approve or reject before any write. Calling it "
         f"is how you reach that review gate, so you must call it now. Do not reply "
@@ -793,6 +794,20 @@ class ProfilerRun:
         it). Any other decision writes nothing but records the HITL choice in the
         audit trail and finalises the run as rejected. A run that is no longer at
         its gate (already decided, frozen, or never gated) raises ``ValueError``.
+
+        Args:
+            decision: The adviser's choice; ``"approve"`` persists, anything else
+                rejects.
+
+        Returns:
+            The agent's invoke result for the resumed graph.
+
+        Raises:
+            ValueError: The run is no longer at its gate.
+            LookupError: The run no longer exists.
+            RuntimeError: ``decision`` is ``"approve"`` but the run did not finish
+                ``save_profile``, so nothing was written and the run is still
+                pending. The approval is not reported as applied.
         """
         from fund.audit import AgentRunRepository
 
@@ -808,7 +823,9 @@ class ProfilerRun:
             audit=audit,
             run_id=self.run_id,
         )
-        if decision != "approve":
+        if decision == "approve":
+            _require_profile_saved(audit, self.run_id)
+        else:
             audit.append_decision(
                 self.run_id,
                 agent="profiler",
@@ -917,18 +934,18 @@ def _make_save_profile(
     """Build the closure ``save_profile`` tool for one run.
 
     The write is driven entirely by the captured, deterministically-mapped values
-    (see :func:`_persist_profile`) — the LLM-supplied ``portfolio_id`` argument is
-    advisory only, so no knob can enter through a tool argument (the load-bearing
-    rule).
+    (see :func:`_persist_profile`) — the tool takes no argument, so no knob (and no
+    malformed argument that would fail validation after the adviser has approved)
+    can enter through a tool call (the load-bearing rule).
     """
     from langchain_core.tools import tool
 
     portfolio_id_uuid = portfolio_id  # trusted UUID bound into the closure
 
     @tool
-    def save_profile(portfolio_id: str) -> str:
-        """Submit the validated MiFID profile for adviser sign-off. Call it once,
-        with the portfolio id, as soon as the assessment is complete: the call
+    def save_profile() -> str:
+        """Submit the validated MiFID profile for adviser sign-off. Takes no
+        arguments; call it once, as soon as the assessment is complete: the call
         pauses the run and nothing is written until the adviser approves, which
         then appends the ``mifid_profiles`` row and caches the active
         ``ConstraintSet`` in the Store."""
@@ -961,6 +978,22 @@ def _require_live_gate(run: Any, run_id: uuid.UUID) -> None:
         raise ValueError(
             f"profiler run {run_id} is {run.status!r}, not awaiting a decision "
             "(it completed, was rejected/frozen/blocked, or never reached its gate)"
+        )
+
+
+def _require_profile_saved(audit: Any, run_id: uuid.UUID) -> None:
+    """Raise unless an approved run reached the end of ``save_profile``.
+
+    The approve decision resumes the graph, but the tool call it releases can still
+    fail before writing (a malformed call is returned to the model as an error
+    message, not raised). Without this check the caller would report the adviser's
+    approval as applied while the run sits at ``paused`` with no profile written.
+    """
+    run = audit.get_run(run_id)
+    if run is None or run.finished_at is None:
+        raise RuntimeError(
+            f"profiler run {run_id} was approved but save_profile did not complete: "
+            "nothing was written and the run is still pending"
         )
 
 
@@ -1234,6 +1267,26 @@ def resume_profiler(
     Mirrors
     :func:`~fund.agents.graph.resume_fund` for the ``place_orders`` gate; the CLI /
     TUI dispatch on the run's recorded ``step`` so the two paths cannot diverge.
+
+    Args:
+        run_id: The paused profiler run, as a ``UUID`` or its canonical string.
+        decision: ``"approve"`` or ``"reject"``.
+        session: Sync session every write goes through; the caller owns the
+            transaction.
+        checkpointer: The checkpointer the run paused on (same ``thread_id``).
+        store: The Store the active ``ConstraintSet`` is cached in, or ``None``.
+        model: The chat model the rebuilt profiler agent drives.
+        config: Fund settings; defaults to the process-wide ``settings``.
+
+    Returns:
+        The rebuilt agent's invoke result for the resumed graph.
+
+    Raises:
+        ValueError: ``decision`` is neither ``"approve"`` nor ``"reject"``, or the
+            run is not awaiting a decision.
+        LookupError: ``run_id`` names no ``agent_run``.
+        RuntimeError: The run has no portfolio or no recorded ``normalize_answers``
+            decision to resume from.
     """
     if decision not in ("approve", "reject"):
         raise ValueError(f"decision must be 'approve' or 'reject', not {decision!r}")

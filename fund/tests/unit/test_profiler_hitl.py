@@ -9,7 +9,9 @@ them at the confirmation gate. Zero live LLM, zero network.
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from _profiler_fakes import (
@@ -19,6 +21,7 @@ from _profiler_fakes import (
     make_model,
     save_tool_call,
 )
+from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision
@@ -138,6 +141,53 @@ def test_interrupt_description_shows_the_extracted_answers(db_session):
     assert "likert 3, 4, 5" in description
     assert "other ESG preferences (not enforced): no tobacco" in description
     assert "unenforced_esg_preference" in description
+
+
+# --- a malformed save_profile call must not burn the adviser's approval ------
+
+
+def _model_calling_save_profile_with(args: dict, *, answers=None):
+    call = AIMessage(
+        content="",
+        tool_calls=[{"name": "save_profile", "args": args, "id": "call_save_profile"}],
+    )
+    return ScriptedProfilerModel(
+        structured_outcomes=[answers or make_answers()],
+        chat_responses=[call, final_reply()],
+    )
+
+
+@pytest.mark.parametrize(
+    "args",
+    [{}, {"portfolio_id": 5}, {"portfolio_id": "not-the-id", "extra": 1}],
+    ids=["no-args", "mistyped-portfolio-id", "foreign-args"],
+)
+def test_approve_persists_whatever_arguments_the_model_passes(db_session, args):
+    pid = uuid.uuid4()
+    run = _run(_model_calling_save_profile_with(args), db_session, portfolio_id=pid)
+
+    run.resume("approve")
+
+    active = MifidProfileRepository(db_session).get_active(pid)
+    assert active is not None
+    assert active.version == 1
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
+
+
+def test_approve_that_leaves_the_run_unfinished_is_reported_not_silent(db_session):
+    pid = uuid.uuid4()
+    run = _run(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        portfolio_id=pid,
+    )
+    # An agent whose resume never reaches the write (e.g. the tool call errored).
+    stalled = dataclasses.replace(run, agent=SimpleNamespace(invoke=lambda *a, **k: {}))
+
+    with pytest.raises(RuntimeError, match="save_profile"):
+        stalled.resume("approve")
+
+    assert MifidProfileRepository(db_session).get_active(pid) is None
 
 
 # --- audit trail records the HITL decision ----------------------------------
