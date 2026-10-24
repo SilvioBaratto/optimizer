@@ -1444,3 +1444,97 @@ class TestComputeAllFactorsEmpty:
         assert isinstance(result, pd.DataFrame)
         assert result.shape[1] == 0
         assert list(result.index) == ["A", "B"]
+
+
+class TestAmihudCurrencyInvariance:
+    """Amihud ranks liquidity, not the currency a ticker happens to be quoted in.
+
+    |return| / (price x volume) scales with the price's unit, so a yen-quoted
+    or pence-quoted name looks 100-150x "more liquid" than a dollar name with
+    the same traded value unless prices are converted to one base currency
+    (and minor units rescaled) first.
+    """
+
+    @pytest.fixture()
+    def _panel(
+        self,
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, str]]:
+        rng = np.random.default_rng(7)
+        dates = pd.bdate_range("2023-01-02", periods=60)
+        usd = 50 * np.exp(rng.normal(0, 0.01, len(dates)).cumsum())
+        # Same economic series quoted in USD, JPY (150 JPY per USD) and GBp
+        # (pence; 1 GBP == 1 USD here so only the minor unit differs).
+        prices = pd.DataFrame(
+            {"US": usd, "JP": usd * 150.0, "UK": usd * 100.0}, index=dates
+        )
+        shares = rng.integers(1_000_000, 2_000_000, len(dates)).astype(float)
+        volume = pd.DataFrame(dict.fromkeys(prices.columns, shares), index=dates)
+        fx_rates = pd.DataFrame({"JPY": 1.0 / 150.0, "GBP": 1.0}, index=dates)
+        currency_map = {"US": "USD", "JP": "JPY", "UK": "GBp"}
+        return prices, volume, fx_rates, currency_map
+
+    def test_mixed_currency_panel_gives_equal_amihud_for_equal_liquidity(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, str]],
+        _dummy: pd.DataFrame,
+    ) -> None:
+        from optimizer.fx import FxPriceConverter
+
+        prices, volume, fx_rates, currency_map = _panel
+        converter = FxPriceConverter(
+            base_currency="USD", currency_map=currency_map, fx_rates=fx_rates
+        )
+        result = compute_factor(
+            FactorType.AMIHUD_ILLIQUIDITY,
+            _dummy,
+            prices,
+            volume_history=volume,
+            fx_converter=converter,
+        )
+        assert result.loc["JP"] == pytest.approx(result.loc["US"], rel=1e-9)
+        assert result.loc["UK"] == pytest.approx(result.loc["US"], rel=1e-9)
+
+    def test_compute_all_factors_forwards_fx_converter(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, str]],
+    ) -> None:
+        from optimizer.fx import FxPriceConverter
+
+        prices, volume, fx_rates, currency_map = _panel
+        fundamentals = pd.DataFrame(
+            {"market_cap": [1.0e9] * 3}, index=pd.Index(prices.columns, name="ticker")
+        )
+        converter = FxPriceConverter(
+            base_currency="USD", currency_map=currency_map, fx_rates=fx_rates
+        )
+        config = FactorConstructionConfig(factors=(FactorType.AMIHUD_ILLIQUIDITY,))
+        out = compute_all_factors(
+            fundamentals,
+            prices,
+            volume_history=volume,
+            config=config,
+            fx_converter=converter,
+        )
+        col = out["amihud_illiquidity"]
+        assert col.loc["JP"] == pytest.approx(col.loc["US"], rel=1e-9)
+        assert col.loc["UK"] == pytest.approx(col.loc["US"], rel=1e-9)
+
+    def test_converter_is_not_mutated_by_the_factor_computation(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, str]],
+        _dummy: pd.DataFrame,
+    ) -> None:
+        from optimizer.fx import FxPriceConverter
+
+        prices, volume, fx_rates, currency_map = _panel
+        converter = FxPriceConverter(
+            base_currency="USD", currency_map=currency_map, fx_rates=fx_rates
+        )
+        compute_factor(
+            FactorType.AMIHUD_ILLIQUIDITY,
+            _dummy,
+            prices,
+            volume_history=volume,
+            fx_converter=converter,
+        )
+        assert not hasattr(converter, "fx_aligned_")

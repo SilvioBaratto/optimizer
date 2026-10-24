@@ -8,12 +8,14 @@ from typing import cast
 
 import numpy as np
 import pandas as pd
+from sklearn.base import clone
 
 from optimizer.factors._config import (
     DEFAULT_MIN_OBSERVATIONS,
     FactorConstructionConfig,
     FactorType,
 )
+from optimizer.fx import FxPriceConverter
 
 logger = logging.getLogger(__name__)
 
@@ -341,15 +343,26 @@ def _compute_amihud_illiquidity(
     volume_history: pd.DataFrame,
     lookback: int = 252,
     min_obs: int = DEFAULT_MIN_OBSERVATIONS,
+    fx_converter: FxPriceConverter | None = None,
 ) -> pd.Series:
     """Amihud illiquidity ratio (avg |return| / dollar volume).
 
     Higher illiquidity = higher expected return premium. Only days with a
     return and non-zero dollar volume count towards ``min_obs``; tickers
     below it are NaN.
+
+    The ratio is not scale-invariant: dollar volume is price x volume, so the
+    price's currency unit leaks straight into the cross-sectional ranking.
+    ``fx_converter`` expresses the prices used for dollar volume in one base
+    currency (rescaling GBp/ZAc/ILA minor units first); returns are always
+    taken from the local-currency prices, where the unit cancels.
     """
     returns = _simple_returns(price_history)
-    dollar_vol = (price_history * volume_history).reindex(returns.index)
+    traded_price = price_history
+    if fx_converter is not None:
+        # Cloned so the caller's converter is never fitted in place.
+        traded_price = clone(fx_converter).fit_transform(price_history)
+    dollar_vol = (traded_price * volume_history).reindex(returns.index)
 
     tail_ret = returns.iloc[-lookback:]
     tail_dv = dollar_vol.iloc[-lookback:]
@@ -457,6 +470,7 @@ def compute_factor(
     insider_data: pd.DataFrame | None = None,
     config: FactorConstructionConfig | None = None,
     market_returns: pd.Series | None = None,
+    fx_converter: FxPriceConverter | None = None,
 ) -> pd.Series:
     """Compute a single factor.
 
@@ -473,6 +487,12 @@ def compute_factor(
             cross-sectional mean.  Pass a currency-consistent broad index (e.g.
             SPY daily returns) when ``price_history`` spans multiple currency
             zones.
+        fx_converter: Converter that expresses ``price_history`` in a single
+            base currency (``currency_map`` keyed on the DB ``price_unit``,
+            so minor units such as GBp are rescaled too).  Used only by
+            ``AMIHUD_ILLIQUIDITY``, whose dollar volume depends on the price
+            unit; without it ``price_history`` must already share one major
+            currency or the factor ranks by quotation currency.
 
     Returns:
         Factor values indexed by ticker.
@@ -511,6 +531,7 @@ def compute_factor(
                 volume_history,
                 lookback=config.amihud_lookback,
                 min_obs=config.min_observations,
+                fx_converter=fx_converter,
             )
         case FactorType.RECOMMENDATION_CHANGE:
             return _compute_recommendation_change(analyst_data)
@@ -528,6 +549,7 @@ def compute_all_factors(
     insider_data: pd.DataFrame | None = None,
     config: FactorConstructionConfig | None = None,
     market_returns: pd.Series | None = None,
+    fx_converter: FxPriceConverter | None = None,
 ) -> pd.DataFrame:
     """Compute all configured factors.
 
@@ -540,6 +562,8 @@ def compute_all_factors(
         config: Construction parameters.
         market_returns: Pre-computed market return series for beta estimation.
             See `compute_factor` for details.
+        fx_converter: Base-currency price converter for the dollar-volume
+            based factors.  See `compute_factor` for details.
 
     Returns:
         Tickers x factors matrix.
@@ -558,6 +582,7 @@ def compute_all_factors(
             insider_data=insider_data,
             config=config,
             market_returns=market_returns,
+            fx_converter=fx_converter,
         )
         if len(series) > 0:
             results[factor_type.value] = series
