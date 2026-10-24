@@ -2733,6 +2733,40 @@ def test_daily_brief_blank_economist_read_when_never_run(db_session):
     assert brief.deliberation_run_id is None
 
 
+def test_daily_brief_survives_a_checkpointer_failure_in_the_economist_read(
+    db_session,
+):
+    """An unreadable checkpoint blanks only the read; the DB-derived sections stay.
+
+    The checkpointer has its own connection pool, so a timeout or a corrupt blob
+    there must not take the NAV, attribution and events down with it.
+    """
+
+    class _BrokenSaver(MemorySaver):
+        def get_tuple(self, config):
+            raise RuntimeError("checkpointer pool timeout")
+
+    saver = _BrokenSaver()
+    _seed_navs_and_fred(db_session)
+    day = date(2026, 1, 24)
+    run = _seed_economist_run(
+        db_session,
+        MemorySaver(),
+        asof=day,
+        created_at=datetime(2026, 1, 24, 10, tzinfo=UTC),
+        thread_id="brief-broken-saver",
+        narrative="never read",
+    )
+
+    brief = observe.daily_brief(db_session, saver, _PID, asof=day)
+
+    assert brief.performance is not None
+    assert brief.attribution is not None
+    assert brief.economist_read is None
+    assert brief.economist_read_date is None
+    assert brief.deliberation_run_id == run.id
+
+
 def test_daily_brief_attribution_covers_only_the_briefed_day(db_session):
     """The brief's "today" attribution explains that day's NAV return only."""
     saver = MemorySaver()

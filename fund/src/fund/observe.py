@@ -913,7 +913,9 @@ def _economist_read_asof(
     ``created_at``, not ``asof``) and takes the last economist ``message`` turn of its
     transcript. Profiling runs share the portfolio's run history but have no economist,
     so they are skipped: a later re-profile must not shadow the last rebalance's read.
-    All-None when the portfolio has no fund run on-or-before ``day``.
+    All-None when the portfolio has no fund run on-or-before ``day``; a checkpoint that
+    cannot be read degrades to ``(None, None, run_id)`` so the caller still links the
+    run it could not quote.
     """
     from fund.audit.repository import AgentRunRepository
 
@@ -928,9 +930,20 @@ def _economist_read_asof(
     # asof is the tie-break winner — no created_at compare (dodges naive/aware mixing).
     max_asof = max(run.asof for run in eligible)
     chosen = next(run for run in eligible if run.asof == max_asof)
+    # The checkpointer runs on its own connection pool, so a timeout or an
+    # undecodable blob there must not blank the sections derived from portopt_db.
+    try:
+        transcript = load_run_transcript(session, saver, chosen)
+    except Exception:
+        logger.warning(
+            "economist read unavailable for run %s: checkpoint read failed",
+            chosen.id,
+            exc_info=True,
+        )
+        return None, None, chosen.id
     economist = [
         entry
-        for entry in load_run_transcript(session, saver, chosen)
+        for entry in transcript
         if entry.source == "message" and entry.agent == "economist"
     ]
     text = economist[-1].text if economist else None
