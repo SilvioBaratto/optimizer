@@ -19,7 +19,7 @@ from typing import Any
 
 from portopt_db.models import NavHistory
 from portopt_db.repository import RepositoryBase
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 
 class NavHistoryRepository(RepositoryBase):
@@ -34,8 +34,8 @@ class NavHistoryRepository(RepositoryBase):
         transaction; this issues the upsert without committing.
 
         Args:
-            rows: Mappings with ``portfolio_id``, ``date``, ``nav`` and an
-                optional ``benchmark`` key.
+            rows: Mappings with ``portfolio_id``, ``date``, ``nav`` and optional
+                ``benchmark`` (level) and ``benchmark_ticker`` (its identity) keys.
 
         Returns:
             Number of distinct rows passed to the upsert.
@@ -53,6 +53,7 @@ class NavHistoryRepository(RepositoryBase):
                 "date": date,
                 "nav": nav,
                 "benchmark": r.get("benchmark"),
+                "benchmark_ticker": r.get("benchmark_ticker"),
             }
         if not out:
             return 0
@@ -60,7 +61,7 @@ class NavHistoryRepository(RepositoryBase):
             NavHistory,
             list(out.values()),
             constraint_name="uq_nav_history_portfolio_date",
-            update_columns=["nav", "benchmark", "updated_at"],
+            update_columns=["nav", "benchmark", "benchmark_ticker", "updated_at"],
         )
         return len(out)
 
@@ -88,6 +89,39 @@ class NavHistoryRepository(RepositoryBase):
             stmt = stmt.where(NavHistory.date <= end)
         stmt = stmt.order_by(NavHistory.date)
         return list(self.session.execute(stmt).scalars().all())
+
+    def has_foreign_benchmark(
+        self, portfolio_id: uuid.UUID, benchmark: str | None
+    ) -> bool:
+        """Whether any persisted benchmark level is not known to be ``benchmark``'s.
+
+        A level counts as foreign when it is tagged with another ticker, or untagged
+        (written before the identity was recorded, so it cannot be trusted). Rows
+        without a level cannot mix benchmarks and are ignored. The daily NAV mark uses
+        this to decide that an incremental re-mark would leave a stitched series.
+
+        Args:
+            portfolio_id: Portfolio to query.
+            benchmark: The mandate's current benchmark ticker, or ``None`` when it
+                has none (any persisted level is then foreign).
+
+        Returns:
+            ``True`` when at least one persisted level needs re-marking.
+        """
+        conditions = [
+            NavHistory.portfolio_id == portfolio_id,
+            NavHistory.benchmark.is_not(None),
+        ]
+        if benchmark is not None:
+            # ``!=`` alone would skip NULL tags (NULL != x is NULL), so test them too.
+            conditions.append(
+                or_(
+                    NavHistory.benchmark_ticker.is_(None),
+                    NavHistory.benchmark_ticker != benchmark,
+                )
+            )
+        stmt = select(NavHistory.id).where(*conditions).limit(1)
+        return self.session.execute(stmt).first() is not None
 
     def last_nav_date(self, portfolio_id: uuid.UUID) -> dt.date | None:
         """Return the most recent persisted NAV date for a portfolio, or ``None``.

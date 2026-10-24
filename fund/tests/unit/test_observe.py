@@ -2190,6 +2190,99 @@ def test_performance_summary_empty_is_graceful(db_session):
     assert summary.returns["max"] is None
 
 
+def _seed_benchmark_switch(db_session):
+    """Ten NAV marks whose benchmark changed from SPY to ACWI after the sixth.
+
+    Mirrors a mandate benchmark edit followed by a 7-day re-mark: the older rows keep
+    SPY's level (~450) tagged ``SPY``, the recent ones carry ACWI's (~100).
+    """
+    rows = []
+    for i in range(10):
+        spy = i < 6
+        rows.append(
+            {
+                "portfolio_id": _PID,
+                "date": date(2026, 10, 1) + timedelta(days=i),
+                "nav": Decimal(str(100 + i)),
+                "benchmark": Decimal(str(450 + 2 * i if spy else 100 + (i - 6))),
+                "benchmark_ticker": "SPY" if spy else "ACWI",
+            }
+        )
+    NavHistoryRepository(db_session).upsert_navs(rows)
+    MandateRepository(db_session).upsert(
+        PortfolioMandate(
+            portfolio_id=str(_PID),
+            capital=Decimal("100000"),
+            base_currency="EUR",
+            benchmark="ACWI",
+            drift_l1_threshold=0.1,
+            triggers=RunTriggers(cron=True, drift=False),
+        )
+    )
+    db_session.flush()
+
+
+def test_performance_summary_ignores_levels_of_a_previous_benchmark(db_session):
+    """Excess is measured on the current benchmark's window, not across the switch."""
+    _seed_benchmark_switch(db_session)
+
+    summary = observe.performance_summary(db_session, _PID)
+
+    # Only the four ACWI marks (nav 106..109, benchmark 100..103) are comparable.
+    expected = (109.0 / 106.0 - 1.0) - (103.0 / 100.0 - 1.0)
+    assert summary.excess["max"] == pytest.approx(expected, rel=1e-6)
+
+
+def test_macro_attribution_summary_ignores_levels_of_a_previous_benchmark(
+    db_session, monkeypatch
+):
+    """The attribution never sees SPY levels once the mandate benchmarks ACWI."""
+    import fund.attribution as attribution_mod
+
+    _seed_benchmark_switch(db_session)
+    seen = {}
+
+    def _capture(points, **_kwargs):
+        seen["levels"] = [p.benchmark for p in points]
+
+    monkeypatch.setattr(attribution_mod, "attribution_from_nav_points", _capture)
+
+    observe.macro_attribution_summary(db_session, _PID)
+
+    assert seen["levels"] == [None] * 6 + [100.0, 101.0, 102.0, 103.0]
+
+
+def test_untagged_benchmark_levels_are_kept_when_identity_is_unknown(db_session):
+    """Pre-migration rows carry no ticker; they stay readable until re-marked."""
+    _seed_navs(db_session, [100.0, 101.0, 102.0])  # benchmark None, ticker None
+    NavHistoryRepository(db_session).upsert_navs(
+        [
+            {
+                "portfolio_id": _PID,
+                "date": date(2026, 10, 1) + timedelta(days=i),
+                "nav": Decimal(str(100 + i)),
+                "benchmark": Decimal(str(200 + i)),
+            }
+            for i in range(3)
+        ]
+    )
+    MandateRepository(db_session).upsert(
+        PortfolioMandate(
+            portfolio_id=str(_PID),
+            capital=Decimal("100000"),
+            base_currency="EUR",
+            benchmark="SPY",
+            drift_l1_threshold=0.1,
+            triggers=RunTriggers(cron=True, drift=False),
+        )
+    )
+    db_session.flush()
+
+    summary = observe.performance_summary(db_session, _PID)
+
+    assert summary.excess["max"] is not None
+
+
 # --- holdings_summary (Phase 08 T1) -----------------------------------------
 
 

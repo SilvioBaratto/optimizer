@@ -563,13 +563,10 @@ def performance_summary(
     from fund.performance import NavPoint, portfolio_metrics
 
     rows = NavHistoryRepository(session).get_navs(portfolio_id, end=asof)
+    levels = _current_benchmark_levels(rows, get_mandate(session, portfolio_id))
     points = [
-        NavPoint(
-            date=row.date,
-            nav=float(row.nav),
-            benchmark=float(row.benchmark) if row.benchmark is not None else None,
-        )
-        for row in rows
+        NavPoint(date=row.date, nav=float(row.nav), benchmark=level)
+        for row, level in zip(rows, levels, strict=True)
     ]
     return portfolio_metrics(portfolio_id, points)
 
@@ -657,16 +654,40 @@ def macro_attribution_summary(
     # multi-period return that biases the equity beta — the same forward-fill the
     # compute path applies to base prices. A leading null stays absent, never
     # fabricated before the benchmark's first observation.
+    levels = _current_benchmark_levels(rows, get_mandate(session, portfolio_id))
     points: list[NavPoint] = []
     last_benchmark: float | None = None
-    for row in rows:
-        benchmark = (
-            float(row.benchmark) if row.benchmark is not None else last_benchmark
-        )
+    for row, level in zip(rows, levels, strict=True):
+        benchmark = level if level is not None else last_benchmark
         if benchmark is not None:
             last_benchmark = benchmark
         points.append(NavPoint(date=row.date, nav=float(row.nav), benchmark=benchmark))
     return attribution_from_nav_points(points, session=session, config=config)
+
+
+def _current_benchmark_levels(
+    rows: list[Any], mandate: PortfolioMandate | None
+) -> list[float | None]:
+    """Each row's benchmark level, ``None`` where it was taken from another benchmark.
+
+    ``nav_history`` rows are re-marked only inside a lookback window, so after a
+    mandate benchmark edit the older rows still carry the previous benchmark's level;
+    mixing them with the new one would put a phantom return at the join. A row is
+    dropped only when it is tagged with a ticker different from the mandate's current
+    one — untagged (pre-tagging) rows keep their level, as their identity is unknown
+    until the next full re-mark, and so does everything when there is no mandate to
+    compare against.
+    """
+    levels: list[float | None] = []
+    for row in rows:
+        level = float(row.benchmark) if row.benchmark is not None else None
+        foreign = (
+            mandate is not None
+            and row.benchmark_ticker is not None
+            and row.benchmark_ticker != mandate.benchmark
+        )
+        levels.append(None if foreign else level)
+    return levels
 
 
 def reprofile_status(

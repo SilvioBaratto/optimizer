@@ -768,17 +768,27 @@ _NAV_ROW_ABS_TOL = 5e-7
 
 
 def _nav_row_changed(
-    point: NavPoint, stored: tuple[float, float | None] | None
+    point: NavPoint,
+    stored: tuple[float, float | None, str | None] | None,
+    benchmark_ticker: str | None,
 ) -> bool:
-    """Whether a recomputed NAV point differs from its persisted values."""
+    """Whether a recomputed NAV point differs from its persisted values.
+
+    A row whose level is unchanged but is tagged with another benchmark (or none) still
+    counts as changed: the tag is what lets readers and :func:`_nav_points_to_persist`
+    trust the level, so it has to be written.
+    """
     if stored is None:
         return True
-    nav, benchmark = stored
+    nav, benchmark, stored_ticker = stored
     if not math.isclose(nav, point.nav, abs_tol=_NAV_ROW_ABS_TOL):
         return True
     if benchmark is None or point.benchmark is None:
-        return benchmark is not point.benchmark
-    return not math.isclose(benchmark, point.benchmark, abs_tol=_NAV_ROW_ABS_TOL)
+        if benchmark is not point.benchmark:
+            return True
+    elif not math.isclose(benchmark, point.benchmark, abs_tol=_NAV_ROW_ABS_TOL):
+        return True
+    return point.benchmark is not None and stored_ticker != benchmark_ticker
 
 
 # Persisted NAV is Numeric(20, 6); this only has to absorb that rounding.
@@ -820,6 +830,13 @@ def _nav_points_to_persist(
     under another NAV convention (e.g. flat-notional marks from before rebalances were
     chain-linked), and the whole series is rebuilt rather than leaving a seam at the
     window boundary.
+
+    The anchor check sees only the NAV level, so a mandate benchmark edit would go
+    unnoticed and leave older rows on the previous benchmark's level, stitching two
+    benchmarks into one series with a phantom return at the join. Each row therefore
+    records which benchmark its level came from, and any persisted level that is not
+    the mandate's current benchmark's (including an untagged legacy one) rebuilds the
+    whole series.
     """
     from fund.performance import build_nav_series
 
@@ -836,6 +853,14 @@ def _nav_points_to_persist(
 
     last = None if full else nav_repo.last_nav_date(portfolio_id)
     if last is None:
+        return _build(None)
+    if nav_repo.has_foreign_benchmark(portfolio_id, mandate.benchmark):
+        logger.info(
+            "nav mark: portfolio %s holds benchmark levels that are not %s's; "
+            "re-marking in full",
+            portfolio_id,
+            mandate.benchmark,
+        )
         return _build(None)
     window_start = last - dt.timedelta(days=_NAV_MARK_LOOKBACK_DAYS)
     anchor = nav_repo.last_nav_before(portfolio_id, window_start)
@@ -857,7 +882,8 @@ def _mark_all_navs(session: Session, asof: dt.date, *, full: bool = False) -> No
     Incremental after the first run: only bars from ``_NAV_MARK_LOOKBACK_DAYS``
     before the last persisted NAV are re-emitted, so the whole history is not
     rewritten daily — unless the persisted history no longer matches the recomputed
-    series (see :func:`_nav_points_to_persist`) or ``full`` is set. A mandate whose
+    series or holds a benchmark level that is not the mandate's current benchmark's
+    (see :func:`_nav_points_to_persist`), or ``full`` is set. A mandate whose
     base currency has no FX coverage (e.g. a non-EUR mandate against the EUR-only
     feed) is skipped loudly, not mis-marked.
     """
@@ -876,13 +902,14 @@ def _mark_all_navs(session: Session, asof: dt.date, *, full: bool = False) -> No
                 row.date: (
                     float(row.nav),
                     None if row.benchmark is None else float(row.benchmark),
+                    row.benchmark_ticker,
                 )
                 for row in nav_repo.get_navs(pid)
             }
             changed = [
                 point
                 for point in points
-                if _nav_row_changed(point, persisted.get(point.date))
+                if _nav_row_changed(point, persisted.get(point.date), mandate.benchmark)
             ]
             if not changed:
                 continue
@@ -893,6 +920,7 @@ def _mark_all_navs(session: Session, asof: dt.date, *, full: bool = False) -> No
                         "date": point.date,
                         "nav": point.nav,
                         "benchmark": point.benchmark,
+                        "benchmark_ticker": mandate.benchmark,
                     }
                     for point in changed
                 ]

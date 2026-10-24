@@ -17,7 +17,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, Index, Numeric, UniqueConstraint, Uuid
+from sqlalchemy import Date, Index, Numeric, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from portopt_db.base import BaseModel
@@ -44,9 +44,12 @@ class NavHistory(BaseModel):
     # Benchmark level FX-normalized to the base currency, date-aligned to the NAV
     # bar; NULL when the mandate carries no benchmark or none aligns. The upsert
     # fully replaces this column on any row it re-marks (not a merge); the daily
-    # step re-marks only recent bars, so a mandate benchmark change is not back-
-    # propagated to older rows without a full re-mark.
+    # step re-marks only recent bars, so ``benchmark_ticker`` is what lets readers
+    # and the step tell levels of a previous benchmark apart after a mandate edit.
     benchmark: Mapped[Decimal | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # Identity of the benchmark ``benchmark`` was taken from; NULL on rows written
+    # before the column existed (identity unknown) or when no benchmark was set.
+    benchmark_ticker: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 __all__ = ["NavHistory"]

@@ -62,6 +62,54 @@ def test_upsert_updates_nav_on_conflict(db_session):
     assert Decimal(str(got.benchmark)) == Decimal("11")
 
 
+def test_upsert_persists_and_overwrites_benchmark_ticker(db_session):
+    """The benchmark's identity travels with its level and follows a re-mark."""
+    repo = NavHistoryRepository(db_session)
+    d = dt.date(2026, 10, 1)
+    repo.upsert_navs(
+        [{**_row(_PID, d, 100.0, Decimal("450")), "benchmark_ticker": "SPY"}]
+    )
+    db_session.flush()
+    repo.upsert_navs(
+        [{**_row(_PID, d, 100.0, Decimal("90")), "benchmark_ticker": "ACWI"}]
+    )
+    db_session.flush()
+
+    got = db_session.query(NavHistory).one()
+    assert got.benchmark_ticker == "ACWI"
+
+
+def test_has_foreign_benchmark_flags_levels_of_another_or_unknown_benchmark(
+    db_session,
+):
+    """A persisted benchmark level is trusted only when tagged with the current one."""
+    repo = NavHistoryRepository(db_session)
+    d1, d2 = dt.date(2026, 10, 1), dt.date(2026, 10, 2)
+    repo.upsert_navs(
+        [{**_row(_PID, d1, 100.0, Decimal("450")), "benchmark_ticker": "SPY"}]
+    )
+    db_session.flush()
+
+    assert repo.has_foreign_benchmark(_PID, "SPY") is False
+    assert repo.has_foreign_benchmark(_PID, "ACWI") is True
+    assert repo.has_foreign_benchmark(_PID, None) is True
+
+    # An untagged (pre-migration) level has unknown identity: also foreign.
+    repo.upsert_navs([_row(_PID, d2, 101.0, Decimal("451"))])
+    db_session.flush()
+    assert repo.has_foreign_benchmark(_PID, "SPY") is True
+
+
+def test_has_foreign_benchmark_ignores_rows_without_a_level(db_session):
+    """Rows with no benchmark level cannot mix benchmarks, whatever their tag."""
+    repo = NavHistoryRepository(db_session)
+    repo.upsert_navs([_row(_PID, dt.date(2026, 10, 1), 100.0)])
+    db_session.flush()
+
+    assert repo.has_foreign_benchmark(_PID, "SPY") is False
+    assert repo.has_foreign_benchmark(_PID2, "SPY") is False
+
+
 def test_upsert_empty_returns_zero(db_session):
     """An empty payload writes nothing and returns zero."""
     assert NavHistoryRepository(db_session).upsert_navs([]) == 0

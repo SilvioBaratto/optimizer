@@ -795,3 +795,130 @@ def test_nav_mark_rewrites_history_when_a_ticket_is_approved_after_the_fact(
     for i, day in enumerate(days):
         expected = 100_000.0 * 1.01**i if i < 2 else handover * 1.02 ** (i - 2)
         assert navs[day] == pytest.approx(expected, rel=1e-6), day
+
+
+def _seed_benchmark_book(factory: SessionFactory, *, benchmark: str) -> None:
+    """Twelve USD bars for one holding plus two candidate benchmarks (EUR base).
+
+    SPY trades near 400 and ACWI near 100, so their base levels are unmistakable;
+    twelve bars outrun the 7-day incremental re-mark window.
+    """
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    days = [date(2026, 10, 1) + timedelta(days=i) for i in range(12)]
+    with factory() as session:
+        ex = Exchange(name="X")
+        session.add(ex)
+        session.flush()
+        for ticker, start in (("US1", 100), ("SPY", 400), ("ACWI", 100)):
+            inst = Instrument(
+                ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+            )
+            session.add(inst)
+            session.flush()
+            session.add_all(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=d,
+                    close=Decimal(str(start + i)),
+                    price_unit="USD",
+                )
+                for i, d in enumerate(days)
+            )
+        FxRatesRepository(session).upsert_rates(
+            [
+                {
+                    "base_currency": "EUR",
+                    "quote_currency": "USD",
+                    "date": d,
+                    "rate": 0.9,
+                }
+                for d in days
+            ]
+        )
+        session.add(
+            PaperOrder(
+                portfolio_id=_PID,
+                asof=date(2026, 9, 30),
+                weights_hash="hb",
+                weights={"US1": 1.0},
+                fill_date=days[0],
+                lines=[
+                    {
+                        "ticker": "US1",
+                        "notional": 9000.0,
+                        "fill_price": 100.0,
+                        "shares": 90.0,
+                    }
+                ],
+                notional=9000.0,
+                total_commission=0.0,
+                total_slippage_cost=0.0,
+            )
+        )
+        session.commit()
+    _set_benchmark(factory, benchmark)
+
+
+def _set_benchmark(factory: SessionFactory, benchmark: str) -> None:
+    with factory() as session:
+        MandateRepository(session).upsert(
+            PortfolioMandate(
+                portfolio_id=str(_PID),
+                capital=Decimal("10000"),
+                base_currency="EUR",
+                benchmark=benchmark,
+                drift_l1_threshold=0.1,
+                triggers=RunTriggers(cron=True, drift=False),
+            )
+        )
+        session.commit()
+
+
+def _benchmark_rows(factory: SessionFactory) -> dict[date, tuple[float, str | None]]:
+    with factory() as session:
+        rows = session.query(NavHistory).filter_by(portfolio_id=_PID).all()
+        return {r.date: (float(r.benchmark), r.benchmark_ticker) for r in rows}
+
+
+def test_nav_mark_remarks_full_history_when_the_mandate_benchmark_changes(
+    session_factory,
+):
+    """A benchmark switch rewrites every persisted level, not just the last 7 days.
+
+    Rows older than the incremental window would otherwise keep the previous
+    benchmark's level beside the new one, and the stitched series would show a
+    phantom benchmark return at the join.
+    """
+    _seed_benchmark_book(session_factory, benchmark="SPY")
+    assert run_nav_mark(session_factory=session_factory, asof=date(2026, 10, 12))
+    first = _benchmark_rows(session_factory)
+    assert first[date(2026, 10, 1)] == (pytest.approx(0.9 * 400), "SPY")
+
+    _set_benchmark(session_factory, "ACWI")
+    assert run_nav_mark(session_factory=session_factory, asof=date(2026, 10, 12))
+
+    rows = _benchmark_rows(session_factory)
+    assert {ticker for _, ticker in rows.values()} == {"ACWI"}
+    assert rows[date(2026, 10, 1)][0] == pytest.approx(0.9 * 100)
+    assert rows[date(2026, 10, 12)][0] == pytest.approx(0.9 * 111)
+
+
+def test_nav_mark_stays_incremental_while_the_benchmark_is_unchanged(session_factory):
+    """With the same benchmark the older persisted rows are left untouched."""
+    _seed_benchmark_book(session_factory, benchmark="SPY")
+    run_nav_mark(session_factory=session_factory, asof=date(2026, 10, 12))
+    with session_factory() as session:
+        oldest = (
+            session.query(NavHistory)
+            .filter_by(portfolio_id=_PID, date=date(2026, 10, 1))
+            .one()
+        )
+        oldest.benchmark = Decimal("1")  # a sentinel an incremental run won't rewrite
+        session.commit()
+
+    run_nav_mark(session_factory=session_factory, asof=date(2026, 10, 12))
+
+    assert _benchmark_rows(session_factory)[date(2026, 10, 1)][0] == pytest.approx(1.0)

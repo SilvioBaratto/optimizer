@@ -95,3 +95,25 @@ def test_distinct_portfolios_and_dates_coexist(db_session):
 
     rows = db_session.execute(select(NavHistory)).scalars().all()
     assert len(rows) == 3
+
+
+def test_benchmark_ticker_round_trips_and_defaults_to_null(db_session):
+    """The benchmark's identity is stored beside its level; legacy rows are NULL."""
+    tagged = NavHistory(
+        portfolio_id=_PID,
+        date=datetime.date(2026, 10, 1),
+        nav=Decimal("100"),
+        benchmark=Decimal("450"),
+        benchmark_ticker="SPY",
+    )
+    legacy = NavHistory(
+        portfolio_id=_PID,
+        date=datetime.date(2026, 10, 2),
+        nav=Decimal("101"),
+        benchmark=Decimal("451"),
+    )
+    db_session.add_all([tagged, legacy])
+    db_session.flush()
+
+    assert tagged.benchmark_ticker == "SPY"
+    assert legacy.benchmark_ticker is None
