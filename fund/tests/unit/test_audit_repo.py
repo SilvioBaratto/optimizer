@@ -9,12 +9,14 @@ own — the caller injects one (sync).
 
 from __future__ import annotations
 
+import contextlib
+import threading
 import uuid
 from datetime import UTC, date, datetime
 
 import pytest
 from portopt_db.models import AgentDecision, AgentRun
-from sqlalchemy import update
+from sqlalchemy import event, update
 
 from fund.audit import AgentRunRepository
 from fund.audit.repository import RunNotOpenError
@@ -65,6 +67,53 @@ def test_append_decision_auto_increments_index(db_session):
     assert d1.constraint_set == {"max_weight": 0.1}
     rows = db_session.query(AgentDecision).filter_by(run_id=run.id).all()
     assert len(rows) == 2
+
+
+def test_concurrent_appends_on_a_shared_session_get_distinct_indexes(db_session):
+    """Two tool calls of one assistant message run on a thread pool and share the
+    run's session; each must still get its own ``decision_index`` and neither may
+    poison the session."""
+    repo = AgentRunRepository(db_session)
+    run = repo.create_run(
+        portfolio_id=None,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=["AAPL"],
+        optimizer_config={},
+    )
+    # Hold every appender at the flush until both have chosen an index, which is
+    # the interleaving the thread pool produces under load. A serialised writer
+    # never reaches the barrier together, so the timeout keeps it from deadlocking.
+    barrier = threading.Barrier(2)
+
+    @event.listens_for(db_session, "before_flush")
+    def _rendezvous(session, flush_context, instances):
+        with contextlib.suppress(threading.BrokenBarrierError):
+            barrier.wait(timeout=0.3)
+
+    indexes: list[int] = []
+    errors: list[BaseException] = []
+
+    def _append() -> None:
+        try:
+            indexes.append(
+                repo.append_decision(
+                    run.id, agent="allocator", step="optimize_portfolio"
+                ).decision_index
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_append) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert sorted(indexes) == [0, 1]
+    # The session must stay usable for the run's later writes.
+    assert repo.append_decision(run.id, agent="pm", step="close").decision_index == 2
 
 
 def test_finalize_run_writes_weights_and_status(db_session):

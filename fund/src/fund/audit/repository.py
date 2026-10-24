@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 import uuid
 from collections.abc import Iterator, Sequence
 from datetime import UTC, date, datetime, timedelta
@@ -20,6 +21,7 @@ from portopt_db.models import AgentDecision, AgentRun
 from portopt_db.repository import RepositoryBase
 from sqlalchemy import Select, func, or_, select, update
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.orm import Session
 
 from fund.audit.orders_repository import weights_hash
 
@@ -56,6 +58,24 @@ class RunNotOpenError(ValueError):
     Another resolver (a reject, a freeze, a completed approve) got there first. A
     ``ValueError`` so the shells treat it like the resume guard's own refusals.
     """
+
+
+_APPEND_LOCK_KEY = "fund.audit.append_decision_lock"
+_APPEND_LOCK_GUARD = threading.Lock()
+
+
+def _append_lock(session: Session) -> threading.RLock:
+    """Return the lock that serialises decision appends on ``session``.
+
+    The lock lives in ``session.info`` so every repository instance wrapping the
+    same session shares it, however many ``AgentRunRepository`` objects the bound
+    tools construct.
+    """
+    with _APPEND_LOCK_GUARD:
+        lock = session.info.get(_APPEND_LOCK_KEY)
+        if lock is None:
+            lock = session.info[_APPEND_LOCK_KEY] = threading.RLock()
+        return lock
 
 
 class AgentRunRepository(RepositoryBase):
@@ -100,31 +120,35 @@ class AgentRunRepository(RepositoryBase):
     ) -> AgentDecision:
         """Append a decision with the next 0-based ``decision_index`` for the run.
 
-        The index is derived from a ``count()`` of existing decisions. Safe under
-        the D1 model (one sync writer per run appends sequentially); a concurrent
-        appender would collide on ``uq_agent_decision_run_index``, which is the
+        The index is derived from a ``count()`` of existing decisions, so reading
+        it and inserting the row run under a per-session lock: the tool calls of
+        one assistant message execute on a thread pool that shares the run's
+        session, and two unserialised appenders would pick the same index and
+        poison the session on the unique-constraint failure. A writer in another
+        process still collides on ``uq_agent_decision_run_index``, which is the
         backstop (IntegrityError, not a duplicated index). The caller owns the
         transaction boundary and rolls back a failed session.
         """
-        next_index = self.session.execute(
-            select(func.count()).where(AgentDecision.run_id == run_id)
-        ).scalar_one()
-        decision = AgentDecision(
-            run_id=run_id,
-            decision_index=next_index,
-            agent=agent,
-            step=step,
-            constraint_set=constraint_set,
-            views=views,
-            llm_prompt=llm_prompt,
-            llm_response=llm_response,
-            llm_response_hash=llm_response_hash,
-            hitl_decision=hitl_decision,
-        )
-        self.session.add(decision)
-        self.session.flush()
-        self.session.refresh(decision)
-        return decision
+        with _append_lock(self.session):
+            next_index = self.session.execute(
+                select(func.count()).where(AgentDecision.run_id == run_id)
+            ).scalar_one()
+            decision = AgentDecision(
+                run_id=run_id,
+                decision_index=next_index,
+                agent=agent,
+                step=step,
+                constraint_set=constraint_set,
+                views=views,
+                llm_prompt=llm_prompt,
+                llm_response=llm_response,
+                llm_response_hash=llm_response_hash,
+                hitl_decision=hitl_decision,
+            )
+            self.session.add(decision)
+            self.session.flush()
+            self.session.refresh(decision)
+            return decision
 
     def finalize_run(
         self,
