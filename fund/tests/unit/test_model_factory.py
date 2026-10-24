@@ -273,6 +273,38 @@ def test_ollama_http_clients_have_finite_request_timeouts():
         assert client.timeout.read is not None
 
 
+def _sent_ollama_options(llm: object) -> dict[str, object]:
+    """Options block ChatOllama would put in the ``/api/chat`` request."""
+    from langchain_core.messages import HumanMessage
+
+    return llm._chat_params([HumanMessage("hi")])["options"]  # type: ignore[attr-defined]
+
+
+def test_ollama_local_base_url_requests_an_explicit_context_window():
+    # A local Ollama server falls back to its own tiny default window and silently
+    # truncates the oldest tokens (system prompt, tool schemas) of a deep-agent run.
+    cfg = FundConfig(ollama_api_key=None, ollama_base_url="http://localhost:11434")
+
+    llm = model.build_chat_model(cfg, model_name="llama3")
+
+    assert cfg.ollama_num_ctx > 4096
+    assert _sent_ollama_options(llm)["num_ctx"] == cfg.ollama_num_ctx
+
+
+def test_ollama_local_context_window_is_configurable():
+    cfg = FundConfig(ollama_base_url="http://localhost:11434", ollama_num_ctx=65536)
+
+    llm = model.build_chat_model(cfg, model_name="llama3")
+
+    assert _sent_ollama_options(llm)["num_ctx"] == 65536
+
+
+def test_ollama_cloud_leaves_the_context_window_to_the_server():
+    llm = model.build_chat_model(_CFG, model_name="deepseek-v4.1-flash:cloud")
+
+    assert "num_ctx" not in _sent_ollama_options(llm)
+
+
 def test_google_request_timeout_is_finite():
     # The google-genai client has no request deadline unless one is passed.
     cfg = FundConfig(llm_provider="google", google_api_key="gk-google-test")

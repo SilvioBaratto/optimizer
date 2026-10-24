@@ -266,6 +266,12 @@ def test_model_ids_and_ollama_base_url_are_env_sourced():
     assert default_cfg.ollama_base_url == "https://ollama.com"
 
 
+def test_ollama_num_ctx_is_env_sourced_with_a_large_window_default():
+    assert load_config(env={}).ollama_num_ctx >= 32768
+    cfg = load_config(env={"FUND_OLLAMA_NUM_CTX": "65536"})
+    assert cfg.ollama_num_ctx == 65536
+
+
 def test_provider_keys_and_endpoints_sourced_from_env():
     cfg = load_config(
         env={

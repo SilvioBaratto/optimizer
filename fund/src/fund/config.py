@@ -70,6 +70,10 @@ class FundConfig:
     # DeepSeek-on-Ollama-Cloud path byte-for-byte (SPEC "Switchable LLM Backends").
     llm_provider: str = "ollama"
     ollama_base_url: str = "https://ollama.com"
+    # Context window requested from a *local* Ollama server. Its own default is a
+    # few thousand tokens and it truncates silently, which would cut the deep-agent
+    # system prompt and tool schemas; Ollama Cloud sizes the window itself.
+    ollama_num_ctx: int = 32768
     primary_model: str = "deepseek-v4.1-flash:cloud"
     fallback_model: str = "deepseek-v4-pro:cloud"
     model_temperature: float = 0.0
@@ -288,6 +292,7 @@ def load_config(
         primary_model=env.get("FUND_PRIMARY_MODEL", defaults.primary_model),
         fallback_model=env.get("FUND_FALLBACK_MODEL", defaults.fallback_model),
         ollama_base_url=env.get("OLLAMA_BASE_URL", defaults.ollama_base_url),
+        ollama_num_ctx=int(env.get("FUND_OLLAMA_NUM_CTX", defaults.ollama_num_ctx)),
         # Per-provider secret keys → _read_secret (file-based docker secret wins);
         # non-secret endpoints/urls/region stay plain env.get (absent → None).
         openai_api_key=_read_secret(env, "OPENAI_API_KEY"),

@@ -160,15 +160,19 @@ def _build_ollama(config: FundConfig, model_name: str) -> BaseChatModel:
     """Build a ``ChatOllama`` (SPEC D4 default provider).
 
     Cloud (``base_url`` on ``ollama.com``) **requires** ``OLLAMA_API_KEY``; a local
-    ``base_url`` needs none. The bearer ``Authorization`` header is attached iff a
-    key is present (so a local run may still authenticate a proxy). ``reasoning``
+    ``base_url`` needs none but is given an explicit ``num_ctx``
+    (:attr:`FundConfig.ollama_num_ctx`): a local server otherwise applies its own
+    small default window and silently truncates the oldest tokens (system prompt,
+    tool schemas). The bearer ``Authorization`` header is attached iff a key is
+    present (so a local run may still authenticate a proxy). ``reasoning``
     (the non-thinking flash route) and ``temperature=0`` thread the D4 contract;
     ``reasoning=`` is Ollama-only — never pass it to another provider's class.
     """
     import httpx
     from langchain_ollama import ChatOllama
 
-    if _OLLAMA_CLOUD_HOST in config.ollama_base_url:
+    is_cloud = _OLLAMA_CLOUD_HOST in config.ollama_base_url
+    if is_cloud:
         _require(config.ollama_api_key, "OLLAMA_API_KEY")
 
     client_kwargs: dict[str, Any] = {
@@ -179,12 +183,17 @@ def _build_ollama(config: FundConfig, model_name: str) -> BaseChatModel:
     if config.ollama_api_key:
         client_kwargs["auth"] = _BearerAuth(config.ollama_api_key)
 
+    context_kwargs: dict[str, Any] = (
+        {} if is_cloud else {"num_ctx": config.ollama_num_ctx}
+    )
+
     return ChatOllama(
         model=model_name,
         base_url=config.ollama_base_url,
         client_kwargs=client_kwargs,
         temperature=config.model_temperature,
         reasoning=config.model_reasoning,
+        **context_kwargs,
     )
 
 
