@@ -92,6 +92,9 @@ class AgentDecision(BaseModel):
             "run_id", "decision_index", name="uq_agent_decision_run_index"
         ),
         Index("ix_agent_decisions_run_id", "run_id"),
+        # The Audit timeline orders every decision by recency (ORDER BY created_at
+        # DESC LIMIT n); PostgreSQL walks this index backwards instead of sorting.
+        Index("ix_agent_decisions_created_at", "created_at"),
     )
 
     run_id: Mapped[uuid.UUID] = mapped_column(
