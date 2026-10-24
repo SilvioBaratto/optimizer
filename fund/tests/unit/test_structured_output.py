@@ -180,6 +180,146 @@ def test_exhaustion_raises_structured_error_not_bare_validation_error():
     assert isinstance(excinfo.value.__cause__, pydantic.ValidationError)
 
 
+# -- retry quality: feedback, root cause, non-retryable, backoff -------------
+
+
+class _HttpError(Exception):
+    """An SDK-style failure carrying the HTTP status the provider answered with."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+@pytest.fixture
+def sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Capture backoff sleeps so no test ever waits for real."""
+    recorded: list[float] = []
+    monkeypatch.setattr(structured.time, "sleep", recorded.append)
+    return recorded
+
+
+def test_retry_after_a_validation_failure_tells_the_model_what_was_wrong():
+    model = _MockChatModel([{"value": "not-an-int"}, _Answer(value=7)])
+    structured_call(model, _Answer, list(_MESSAGES))
+    first, second = model.messages_seen
+    assert first == _MESSAGES
+    assert second[: len(_MESSAGES)] == _MESSAGES
+    feedback = second[len(_MESSAGES) :]
+    assert len(feedback) == 1
+    assert feedback[0]["role"] == "user"
+    assert "value" in feedback[0]["content"]
+
+
+def test_validation_feedback_does_not_mutate_the_callers_messages():
+    messages = list(_MESSAGES)
+    model = _MockChatModel([dict(_MALFORMED), _Answer(value=7)])
+    structured_call(model, _Answer, messages)
+    assert messages == _MESSAGES
+
+
+def test_a_bare_string_prompt_still_receives_validation_feedback():
+    model = _MockChatModel([dict(_MALFORMED), _Answer(value=7)])
+    structured_call(model, _Answer, "pick a number")
+    retry = model.messages_seen[1]
+    assert retry[0] == {"role": "user", "content": "pick a number"}
+    assert len(retry) == 2
+
+
+def test_the_error_message_names_the_root_cause_of_the_last_failure():
+    model = _MockChatModel([PermissionError("401 Unauthorized: invalid api key")] * 2)
+    with pytest.raises(StructuredOutputError) as excinfo:
+        structured_call(model, _Answer, _MESSAGES)
+    assert "401 Unauthorized: invalid api key" in str(excinfo.value)
+    assert "PermissionError" in str(excinfo.value)
+
+
+def test_the_error_message_names_the_failing_field_of_a_validation_failure():
+    model = _MockChatModel([dict(_MALFORMED), dict(_MALFORMED)])
+    with pytest.raises(StructuredOutputError) as excinfo:
+        structured_call(model, _Answer, _MESSAGES)
+    assert "value" in str(excinfo.value)
+
+
+def test_an_authentication_failure_is_not_retried_on_the_same_model():
+    model = _MockChatModel([_HttpError(401, "invalid api key"), _Answer(value=7)])
+    with pytest.raises(StructuredOutputError) as excinfo:
+        structured_call(model, _Answer, _MESSAGES)
+    assert model.invoke_calls == 1
+    assert "invalid api key" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+def test_auth_and_unknown_model_failures_skip_the_remaining_retries(status: int):
+    model = _MockChatModel([_HttpError(status, "unrecoverable"), _Answer(value=7)])
+    with pytest.raises(StructuredOutputError):
+        structured_call(model, _Answer, _MESSAGES, retries=3)
+    assert model.invoke_calls == 1
+
+
+def test_a_400_may_be_a_model_flake_and_is_retried():
+    # Groq answers a malformed tool call with HTTP 400 ``tool_use_failed``: a weak
+    # model's flake that the next attempt can clear.
+    model = _MockChatModel([_HttpError(400, "tool_use_failed"), _Answer(value=7)])
+    result = structured_call(model, _Answer, _MESSAGES)
+    assert result == _Answer(value=7)
+    assert model.invoke_calls == 2
+
+
+def test_the_fallback_does_not_see_feedback_about_the_primarys_payload():
+    primary = _MockChatModel([dict(_MALFORMED), dict(_MALFORMED)])
+    fallback = _MockChatModel([_Answer(value=9)])
+    structured_call(primary, _Answer, list(_MESSAGES), fallback=fallback)
+    # The fallback never produced the rejected payload: it starts from the prompt.
+    assert fallback.messages_seen == [_MESSAGES]
+
+
+def test_validation_feedback_does_not_outlive_the_attempt_it_describes():
+    model = _MockChatModel(
+        [dict(_MALFORMED), RuntimeError("model exploded"), _Answer(value=7)]
+    )
+    structured_call(model, _Answer, list(_MESSAGES), retries=2)
+    after_validation, after_exception = model.messages_seen[1], model.messages_seen[2]
+    assert len(after_validation) == len(_MESSAGES) + 1  # carries the feedback
+    assert after_exception == _MESSAGES  # the exception made it stale
+
+
+def test_a_non_retryable_primary_failure_still_hands_over_to_the_fallback():
+    primary = _MockChatModel([_HttpError(403, "forbidden")])
+    fallback = _MockChatModel([_Answer(value=9)])
+    result = structured_call(primary, _Answer, _MESSAGES, fallback=fallback)
+    assert result == _Answer(value=9)
+    assert primary.invoke_calls == 1
+    assert fallback.invoke_calls == 1
+
+
+def test_a_transient_failure_backs_off_before_the_retry(sleeps: list[float]):
+    model = _MockChatModel([_HttpError(429, "slow down"), _Answer(value=7)])
+    result = structured_call(model, _Answer, _MESSAGES)
+    assert result == _Answer(value=7)
+    assert len(sleeps) == 1
+    assert sleeps[0] > 0
+
+
+def test_backoff_grows_between_successive_transient_failures(sleeps: list[float]):
+    model = _MockChatModel(
+        [_HttpError(503, "busy"), _HttpError(503, "busy"), _Answer(value=7)]
+    )
+    structured_call(model, _Answer, _MESSAGES, retries=2)
+    assert len(sleeps) == 2
+    assert sleeps[1] > sleeps[0]
+
+
+def test_validation_failures_and_unknown_errors_retry_without_sleeping(
+    sleeps: list[float],
+):
+    model = _MockChatModel(
+        [dict(_MALFORMED), RuntimeError("model exploded"), _Answer(value=7)]
+    )
+    structured_call(model, _Answer, _MESSAGES, retries=2)
+    assert sleeps == []
+
+
 # -- no network --------------------------------------------------------------
 
 
