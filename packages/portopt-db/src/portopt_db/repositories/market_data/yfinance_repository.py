@@ -114,6 +114,45 @@ def _safe_str(v: Any, max_len: int | None = None) -> str | None:
     return s
 
 
+# Description and classification columns. When quoteSummary fails, yfinance
+# serves the bare v7 quote payload, which has none of them although the security
+# has not changed, so an absent value must not erase what a full fetch stored.
+# Market and fundamental columns are deliberately not listed: Yahoo drops those
+# keys for real (a suspended dividend, lost analyst coverage) and the row should
+# follow.
+_PROFILE_STICKY_COLUMNS = frozenset(
+    {
+        "isin",
+        "exchange",
+        "quote_type",
+        "currency",
+        "short_name",
+        "long_name",
+        "sector",
+        "industry",
+        "country",
+        "website",
+        "long_business_summary",
+        "full_time_employees",
+    }
+)
+_PROFILE_EXTRAS_STICKY_COLUMNS = frozenset({"sector_key", "industry_key"})
+
+
+def _refreshable_columns(row: dict[str, Any], sticky: frozenset[str]) -> list[str]:
+    """Columns an ON CONFLICT update may overwrite for a single-row snapshot.
+
+    Every column except the conflict key, minus the ``sticky`` ones this row
+    leaves empty. ``updated_at`` stays in so the row is still stamped.
+    """
+    columns = [
+        name
+        for name, value in row.items()
+        if name != "instrument_id" and not (name in sticky and value is None)
+    ]
+    return [*columns, "updated_at"]
+
+
 def _last_wins(rows: list[dict[str, Any]], *key_fields: str) -> list[dict[str, Any]]:
     """Collapse rows that share a conflict key, keeping the last occurrence.
 
@@ -391,22 +430,11 @@ class YFinanceRepository(RepositoryBase):
             "full_time_employees": _safe_int(info.get("fullTimeEmployees")),
         }
 
-        # The ISIN comes from a separate, flaky lookup that the caller injects
-        # into ``info``; a refresh whose lookup failed carries none, and writing
-        # that NULL would erase an ISIN already stored.
-        refreshed = None
-        if row["isin"] is None:
-            refreshed = [
-                col.name
-                for col in TickerProfile.__table__.columns
-                if col.name not in {"id", "created_at", "isin"}
-            ]
-
         return self._upsert(
             TickerProfile,
             [row],
             constraint_name="uq_ticker_profile_instrument",
-            update_columns=refreshed,
+            update_columns=_refreshable_columns(row, _PROFILE_STICKY_COLUMNS),
         )
 
     def get_profile(self, instrument_id: UUID) -> TickerProfile | None:
@@ -444,6 +472,7 @@ class YFinanceRepository(RepositoryBase):
             TickerProfileExtra,
             [row],
             constraint_name="uq_ticker_profile_extras_instrument",
+            update_columns=_refreshable_columns(row, _PROFILE_EXTRAS_STICKY_COLUMNS),
         )
 
     # ------------------------------------------------------------------

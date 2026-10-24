@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import pandas as pd
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from portopt_db.repositories.market_data.yfinance_repository import (
     YFinanceRepository,
@@ -103,6 +104,76 @@ class TestProfileRatioUnits:
         assert row["dividend_yield"] is None
         assert row["five_year_avg_dividend_yield"] is None
         assert row["debt_to_equity"] is None
+
+
+class TestDegradedInfoKeepsStoredDescription:
+    """When quoteSummary fails, yfinance falls back to the v7 quote payload alone:
+    a non-empty ``info`` with no sector, industry, country, website or summary.
+    The ON CONFLICT update must not overwrite what an earlier full fetch stored
+    with NULL for those columns."""
+
+    @staticmethod
+    def _set_clause(session: MagicMock) -> str:
+        stmt = session.execute.call_args.args[0]
+        sql = str(stmt.compile(dialect=postgresql.dialect()))
+        return sql.split("DO UPDATE SET", 1)[1]
+
+    @pytest.fixture
+    def session(self) -> MagicMock:
+        return MagicMock(name="session")
+
+    @pytest.fixture
+    def degraded_info(self) -> dict:
+        return {
+            "symbol": "AAPL",
+            "shortName": "Apple",
+            "regularMarketPrice": 190.0,
+            "marketCap": 3e12,
+        }
+
+    def test_missing_descriptive_fields_do_not_overwrite_stored_values(
+        self, session, degraded_info
+    ) -> None:
+        YFinanceRepository(session).upsert_profile(_IID, degraded_info)
+        update = self._set_clause(session)
+        for column in (
+            "sector",
+            "industry",
+            "country",
+            "website",
+            "long_business_summary",
+            "isin",
+        ):
+            assert f"{column} = excluded.{column}" not in update
+
+    def test_present_descriptive_fields_are_refreshed(self, session) -> None:
+        info = {"symbol": "AAPL", "sector": "Technology", "industry": "Hardware"}
+        YFinanceRepository(session).upsert_profile(_IID, info)
+        update = self._set_clause(session)
+        assert "sector = excluded.sector" in update
+        assert "industry = excluded.industry" in update
+
+    def test_market_fields_still_mirror_the_latest_response(
+        self, session, degraded_info
+    ) -> None:
+        # A dropped dividend or lost analyst coverage must clear, not linger.
+        YFinanceRepository(session).upsert_profile(_IID, degraded_info)
+        update = self._set_clause(session)
+        assert "dividend_yield = excluded.dividend_yield" in update
+        assert "target_mean_price = excluded.target_mean_price" in update
+
+    def test_row_is_still_stamped_on_conflict(self, session, degraded_info) -> None:
+        YFinanceRepository(session).upsert_profile(_IID, degraded_info)
+        assert "updated_at = clock_timestamp()" in self._set_clause(session)
+
+    def test_extras_keep_stored_sector_and_industry_keys(
+        self, session, degraded_info
+    ) -> None:
+        YFinanceRepository(session).upsert_profile_extras(_IID, degraded_info)
+        update = self._set_clause(session)
+        assert "sector_key = excluded.sector_key" not in update
+        assert "industry_key = excluded.industry_key" not in update
+        assert "shares_short = excluded.shares_short" in update
 
 
 class TestAnalystEstimates:
