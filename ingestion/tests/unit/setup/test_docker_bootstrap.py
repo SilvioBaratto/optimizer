@@ -158,6 +158,26 @@ def test_stop_services_failure_raises(mock_run: MagicMock) -> None:
 
 
 @patch("app.setup.docker_bootstrap.subprocess.run")
+def test_restart_services_restarts_named_services(mock_run: MagicMock) -> None:
+    mock_run.return_value = _cp(0)
+    db.restart_services(["fund", "scheduler"])
+    assert mock_run.call_args[0][0] == [
+        "docker",
+        "compose",
+        "restart",
+        "fund",
+        "scheduler",
+    ]
+
+
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_restart_services_failure_raises(mock_run: MagicMock) -> None:
+    mock_run.return_value = _cp(1, "restart boom")
+    with pytest.raises(db.DockerError):
+        db.restart_services(["fund"])
+
+
+@patch("app.setup.docker_bootstrap.subprocess.run")
 def test_running_services_parses_lines(mock_run: MagicMock) -> None:
     result = _cp(0)
     result.stdout = "db\nscheduler\n"

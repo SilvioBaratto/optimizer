@@ -27,7 +27,9 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     """Decrypt secrets, render compose secret files, and bring the full stack up.
 
     Brings up both the fund decision engine and the persistent ingestion daemon so
-    the scheduler is never left down by a start.
+    the scheduler is never left down by a start. A running service whose mounted
+    secret was rotated since the last render is restarted first, so it picks up
+    the new key instead of keeping the one it read at startup.
 
     Args:
         passphrase: The master passphrase that decrypts the secret store.
@@ -44,9 +46,9 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     # directory with live keys.
     repo = docker_bootstrap.compose_dir()
     secrets = secret_store.load_secrets(passphrase)
-    compose_secrets.render(
-        secrets, secrets_dir=repo / compose_secrets.DEFAULT_SECRETS_DIR
-    )
+    secrets_dir = repo / compose_secrets.DEFAULT_SECRETS_DIR
+    rotated = compose_secrets.changed_names(secrets, secrets_dir=secrets_dir)
+    compose_secrets.render(secrets, secrets_dir=secrets_dir)
     # Containers never read config.toml — the fund's non-secret LLM selection
     # reaches it only through the generated .env.fund env_file (the compose
     # `environment:` block omits these vars so nothing shadows the file), and the
@@ -56,6 +58,15 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     compose_env.render_scheduler(
         config, path=repo / compose_env.DEFAULT_ENV_SCHEDULER_PATH
     )
+    # `up` recreates a service only when its compose config changes, and a
+    # rewritten secret file is not one. Daemons read their keys once at startup,
+    # so a rotated key would reach only new processes (the TUI, `fund run`) while
+    # the scheduled jobs kept failing on the old one.
+    if rotated:
+        stale = compose_secrets.services_mounting(rotated)
+        stale &= docker_bootstrap.running_services(repo=repo)
+        if stale:
+            docker_bootstrap.restart_services(sorted(stale), repo=repo)
     # Every service is profile-gated (a bare `up` starts nothing). Bring up BOTH
     # the fund profile (db + decision engine) AND the ingestion profile (the
     # scheduler daemon): the scheduler must stay up for the daily/macro/news jobs,

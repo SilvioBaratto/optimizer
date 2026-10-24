@@ -57,6 +57,13 @@ DAEMON_SECRET_NAMES = (
 FUND_ONLY_SECRET_NAMES = tuple(
     name for name in SECRET_NAMES if name not in DAEMON_SECRET_NAMES
 )
+# The fund mounts every secret except the Trading 212 keys, which only the
+# scheduler uses (parity-tested against docker-compose.yml).
+FUND_SECRET_NAMES = tuple(
+    name
+    for name in SECRET_NAMES
+    if name not in ("trading_212_api_key", "trading_212_secret_key")
+)
 
 # Relative to the compose project directory (the repo root), never the cwd: callers
 # join it onto the checkout so compose mounts exactly what was rendered.
@@ -133,6 +140,44 @@ def render(secrets: Mapping[str, str], *, secrets_dir: Path) -> list[Path]:
         _write_secret(path, secrets.get(name, ""), file_mode)
         written.append(path)
     return written
+
+
+def changed_names(secrets: Mapping[str, str], *, secrets_dir: Path) -> list[str]:
+    """Return the rendered secret files whose content differs from ``secrets``.
+
+    Call before :func:`render`. Compose recreates a service only when its
+    configuration changes, never when a bind-mounted secret file is rewritten, and
+    the daemons read their keys once at startup, so a rotated key leaves a running
+    service on the old one. A file that was never rendered is not reported: nothing
+    can be running on a secret that does not exist yet.
+
+    Args:
+        secrets: The decrypted secrets about to be rendered, by name.
+        secrets_dir: Directory the files were rendered into.
+
+    Returns:
+        The declared secret names whose existing file holds another value.
+    """
+    changed: list[str] = []
+    for name in SECRET_NAMES:
+        try:
+            raw = (secrets_dir / name).read_bytes()
+        except OSError:
+            continue
+        if raw.decode("utf-8", errors="replace") != secrets.get(name, ""):
+            changed.append(name)
+    return changed
+
+
+def services_mounting(names: Iterable[str]) -> set[str]:
+    """Return the compose services that mount any of the named secrets."""
+    wanted = set(names)
+    services: set[str] = set()
+    if wanted & set(FUND_SECRET_NAMES):
+        services.add("fund")
+    if wanted & set(DAEMON_SECRET_NAMES):
+        services.add("scheduler")
+    return services
 
 
 def cleanup(*, secrets_dir: Path, names: Iterable[str] | None = None) -> None:

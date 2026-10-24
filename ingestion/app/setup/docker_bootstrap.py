@@ -312,6 +312,18 @@ def stop_services(services: Sequence[str], *, repo: Path | None = None) -> None:
         raise DockerError(f"`docker compose stop` failed:\n{result.stderr}")
 
 
+def restart_services(services: Sequence[str], *, repo: Path | None = None) -> None:
+    """Restart the named compose services so they re-read their mounted secrets.
+
+    Args:
+        services: Compose service names to restart.
+        repo: The checkout whose compose project to act on; located when omitted.
+    """
+    result = _compose("restart", *services, repo=repo)
+    if result.returncode != 0:
+        raise DockerError(f"`docker compose restart` failed:\n{result.stderr}")
+
+
 def build_and_up(
     *,
     profiles: Sequence[str] = ("fund",),

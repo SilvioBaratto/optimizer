@@ -123,27 +123,74 @@ def test_cleanup_with_names_removes_only_those_files(tmp_path: Path) -> None:
     assert (tmp_path / "fred_api_key").read_text(encoding="utf-8") == "x"
 
 
-def _scheduler_mounted_secrets() -> set[str]:
-    """Secret names listed under the `scheduler` service in docker-compose.yml."""
+def _mounted_secrets(service: str) -> set[str]:
+    """Secret names listed under `service` in docker-compose.yml."""
     mounted: set[str] = set()
-    in_scheduler = in_secrets = False
+    in_service = in_secrets = False
     for line in _COMPOSE.read_text(encoding="utf-8").splitlines():
         if line.startswith("  ") and not line.startswith("   ") and line.strip():
-            in_scheduler = line.strip() == "scheduler:"
+            in_service = line.strip() == f"{service}:"
             in_secrets = False
-        elif in_scheduler and line.startswith("    ") and not line.startswith("     "):
+        elif in_service and line.startswith("    ") and not line.startswith("     "):
             in_secrets = line.strip() == "secrets:"
-        elif in_scheduler and in_secrets and line.strip().startswith("- "):
+        elif in_service and in_secrets and line.strip().startswith("- "):
             mounted.add(line.strip()[2:])
     return mounted
 
 
 def test_daemon_and_fund_only_names_partition_the_declared_secrets() -> None:
-    assert set(cs.DAEMON_SECRET_NAMES) == _scheduler_mounted_secrets()
+    assert set(cs.DAEMON_SECRET_NAMES) == _mounted_secrets("scheduler")
     assert set(cs.DAEMON_SECRET_NAMES) | set(cs.FUND_ONLY_SECRET_NAMES) == set(
         cs.SECRET_NAMES
     )
     assert not set(cs.DAEMON_SECRET_NAMES) & set(cs.FUND_ONLY_SECRET_NAMES)
+
+
+def test_fund_secret_names_match_what_compose_mounts_into_the_fund() -> None:
+    assert set(cs.FUND_SECRET_NAMES) == _mounted_secrets("fund")
+
+
+def test_changed_names_lists_secrets_whose_file_holds_another_value(
+    tmp_path: Path,
+) -> None:
+    cs.render({"ollama_api_key": "old", "fred_api_key": "same"}, secrets_dir=tmp_path)
+
+    changed = cs.changed_names(
+        {"ollama_api_key": "new", "fred_api_key": "same"}, secrets_dir=tmp_path
+    )
+
+    assert changed == ["ollama_api_key"]
+
+
+def test_changed_names_counts_a_key_added_to_an_empty_placeholder(
+    tmp_path: Path,
+) -> None:
+    cs.render({}, secrets_dir=tmp_path)
+
+    assert cs.changed_names({"groq_api_key": "k"}, secrets_dir=tmp_path) == [
+        "groq_api_key"
+    ]
+
+
+def test_changed_names_ignores_files_that_were_never_rendered(tmp_path: Path) -> None:
+    # Nothing can be running on a secret that was never written (first start, or
+    # after `portopt stop` wiped it), so there is nothing to restart.
+    assert cs.changed_names({"fred_api_key": "k"}, secrets_dir=tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    ("names", "services"),
+    [
+        (["ollama_api_key"], {"fund"}),
+        (["trading_212_api_key"], {"scheduler"}),
+        (["fred_api_key"], {"fund", "scheduler"}),
+        ([], set()),
+    ],
+)
+def test_services_mounting_names_the_compose_services_to_restart(
+    names: list[str], services: set[str]
+) -> None:
+    assert cs.services_mounting(names) == services
 
 
 def test_cleanup_missing_dir_is_noop(tmp_path: Path) -> None:

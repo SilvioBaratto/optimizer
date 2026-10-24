@@ -87,6 +87,93 @@ def test_run_start_renders_secrets_then_brings_up(patched: dict) -> None:
     assert patched["compose"] == ["up"]
 
 
+def _rotate(
+    patched: dict,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    on_disk: dict[str, str],
+    new: dict[str, str],
+    running: set[str],
+) -> None:
+    """Leave `on_disk` rendered under the repo, then start with `new` secrets."""
+    secrets_dir = patched["repo"] / "secrets"
+    secrets_dir.mkdir()
+    for name, value in on_disk.items():
+        (secrets_dir / name).write_text(value, encoding="utf-8")
+    monkeypatch.setattr(
+        lifecycle.secret_store, "load_secrets", lambda passphrase, **kw: dict(new)
+    )
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap, "running_services", lambda **kw: set(running)
+    )
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap,
+        "restart_services",
+        lambda services, **kw: patched["compose"].append(
+            f"restart:{','.join(services)}"
+        ),
+        raising=False,
+    )
+
+
+def test_run_start_restarts_a_running_fund_whose_provider_key_was_rotated(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The worker reads the key once at import and compose does not see a changed
+    # secret file, so without a restart a rotated key reaches only new processes.
+    _rotate(
+        patched,
+        monkeypatch,
+        on_disk={"ollama_api_key": "revoked"},
+        new={"ollama_api_key": "fresh"},
+        running={"db", "fund", "scheduler"},
+    )
+    lifecycle.run_start("pw")
+    assert patched["compose"] == ["restart:fund", "up"]
+
+
+def test_run_start_restarts_the_scheduler_when_its_key_was_rotated(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _rotate(
+        patched,
+        monkeypatch,
+        on_disk={"trading_212_api_key": "old"},
+        new={"trading_212_api_key": "new"},
+        running={"db", "fund", "scheduler"},
+    )
+    lifecycle.run_start("pw")
+    assert patched["compose"] == ["restart:scheduler", "up"]
+
+
+def test_run_start_leaves_services_alone_when_no_secret_changed(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _rotate(
+        patched,
+        monkeypatch,
+        on_disk={"ollama_api_key": "same"},
+        new={"ollama_api_key": "same"},
+        running={"db", "fund", "scheduler"},
+    )
+    lifecycle.run_start("pw")
+    assert patched["compose"] == ["up"]
+
+
+def test_run_start_does_not_restart_a_service_that_is_not_running(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _rotate(
+        patched,
+        monkeypatch,
+        on_disk={"ollama_api_key": "revoked"},
+        new={"ollama_api_key": "fresh"},
+        running={"db", "scheduler"},
+    )
+    lifecycle.run_start("pw")
+    assert patched["compose"] == ["up"]
+
+
 def test_run_start_requires_passphrase(patched: dict) -> None:
     with pytest.raises(lifecycle.LifecycleError):
         lifecycle.run_start("")
