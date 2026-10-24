@@ -887,7 +887,7 @@ def audit_timeline(
     overrides_only: bool = False,
     start: dt.datetime | None = None,
     end: dt.datetime | None = None,
-    limit: int = 200,
+    limit: int | None = 200,
 ) -> list[AuditEntry]:
     """The fund-wide decision timeline: ``agent_decisions`` ∪ ``human_audit_log``.
 
@@ -907,7 +907,8 @@ def audit_timeline(
         overrides_only: Keep only ⚑ override rows (drops every agent row).
         start: Lower ``created_at`` bound (inclusive).
         end: Upper ``created_at`` bound (inclusive).
-        limit: Maximum rows returned after the merge.
+        limit: Maximum rows returned after the merge; ``None`` returns every match
+            (what an export needs, since a capped list is not the audit record).
 
     Returns:
         The merged entries ordered by ``when`` descending, capped at ``limit``.
@@ -952,7 +953,7 @@ def _agent_audit_entries(
     step: str | None,
     start: dt.datetime | None,
     end: dt.datetime | None,
-    limit: int,
+    limit: int | None,
 ) -> list[AuditEntry]:
     """Agent decisions as :class:`AuditEntry` rows (``kind == "agent"``, no flags)."""
     from fund.audit.repository import AgentRunRepository
@@ -988,7 +989,7 @@ def _human_audit_entries(
     overrides_only: bool,
     start: dt.datetime | None,
     end: dt.datetime | None,
-    limit: int,
+    limit: int | None,
 ) -> list[AuditEntry]:
     """Human actions as :class:`AuditEntry` rows (``kind == "human"``, with flags)."""
     from fund.audit.human_audit_repository import HumanAuditLogRepository

@@ -3093,6 +3093,95 @@ async def test_audit_enter_selects_the_highlighted_record(shell_env) -> None:
         assert view.detail_text == _audit_detail(view._entries[1])
 
 
+def _seed_many_audit_rows(session, count: int) -> None:
+    """Seed ``count`` human audit rows, one minute apart, newest last."""
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    for i in range(count):
+        session.add(
+            HumanAuditLog(
+                action="note",
+                actor="human",
+                portfolio_id=_PID_A,
+                created_at=base + timedelta(minutes=i),
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_audit_export_includes_rows_beyond_the_view_cap(
+    shell_env, tmp_path
+) -> None:
+    # The view shows the newest 200 rows, but an export is the audit record: it must
+    # not silently drop the older decisions.
+    with shell_env.get_session() as session:
+        _seed_many_audit_rows(session, 205)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        assert len(view._entries) == 200
+        out = tmp_path / "audit.csv"
+        view.export_csv(str(out))
+
+    data_rows = out.read_text(encoding="utf-8").strip().splitlines()[1:]
+    assert len(data_rows) == 205
+
+
+@pytest.mark.asyncio
+async def test_audit_view_flags_a_truncated_timeline(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_many_audit_rows(session, 201)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        filters = str(view.query_one("#audit-filters", Static).render())
+        assert "200 rows" in filters
+        assert "older omitted" in filters
+
+
+@pytest.mark.asyncio
+async def test_audit_view_does_not_flag_a_timeline_that_exactly_fits(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        _seed_many_audit_rows(session, 200)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        filters = str(view.query_one("#audit-filters", Static).render())
+        assert "200 rows" in filters
+        assert "older omitted" not in filters
+
+
+@pytest.mark.asyncio
+async def test_audit_export_fails_visibly_when_the_read_fails(
+    shell_env, tmp_path, monkeypatch
+) -> None:
+    # A read error on the export must not produce a header-only file reported as
+    # exported.
+    with shell_env.get_session() as session:
+        _seed_audit_rows(session)
+        session.commit()
+    monkeypatch.chdir(tmp_path)
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("db hiccup")
+
+        monkeypatch.setattr(observe, "audit_timeline", _boom)
+        with pytest.raises(RuntimeError, match="db hiccup"):
+            view.export_csv(str(tmp_path / "audit.csv"))
+        assert not (tmp_path / "audit.csv").exists()
+
+        app.action_export_audit()
+        assert app.last_status.startswith("export failed")
+        assert list(tmp_path.glob("audit-export-*.csv")) == []
+
+
 @pytest.mark.asyncio
 async def test_audit_export_writes_csv(shell_env, tmp_path) -> None:
     with shell_env.get_session() as session:

@@ -2215,7 +2215,8 @@ class ShellApp(App[None]):
         """Export the Audit timeline to a timestamped CSV (the ``e`` binding).
 
         A silent no-op off the Audit pane (so ``e`` stays free for other views). The
-        current (filtered) timeline is written; the path is reported on the status bar.
+        full filtered timeline is written; the path is reported on the status bar, or
+        ``export failed`` when the read or the write fails.
         """
         view = self._active_audit_view()
         if view is None:
@@ -2223,7 +2224,7 @@ class ShellApp(App[None]):
         path = f"audit-export-{dt.datetime.now():%Y%m%d-%H%M%S}.csv"
         try:
             written = view.export_csv(path)
-        except OSError as exc:  # a write failure surfaces, never crashes the App
+        except Exception as exc:  # a read or write failure surfaces, never crashes
             self._set_status(f"export failed: {exc}")
             return
         self._set_status(f"exported audit to {written}")

@@ -489,7 +489,7 @@ class AgentRunRepository(RepositoryBase):
         step: str | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
-        limit: int = 200,
+        limit: int | None = 200,
     ) -> list[tuple[AgentDecision, uuid.UUID | None]]:
         """Agent decisions joined to their run's portfolio, newest first.
 
@@ -502,7 +502,7 @@ class AgentRunRepository(RepositoryBase):
             step: Keep only decisions at this step (the decision "type").
             start: Lower ``created_at`` bound (inclusive).
             end: Upper ``created_at`` bound (inclusive).
-            limit: Maximum rows to return.
+            limit: Maximum rows to return; ``None`` for no cap.
 
         Returns:
             ``(decision, portfolio_id)`` pairs ordered by ``created_at`` descending,

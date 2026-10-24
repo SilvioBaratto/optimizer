@@ -1147,6 +1147,10 @@ def _posture_nav_line(session: Session, pid: uuid.UUID) -> str:
     return f"NAV  {dot} {label}  {horizons}"
 
 
+# Rows the Audit table shows; the export is not bound by it.
+_AUDIT_VIEW_LIMIT = 200
+
+
 class AuditView(ShellView):
     """The fund-wide, filterable decision timeline: agents ∪ humans.
 
@@ -1155,8 +1159,9 @@ class AuditView(ShellView):
     (:attr:`filter_kind`), ⚑ overrides (:attr:`filter_overrides`), and the
     header-focused portfolio (:attr:`filter_portfolio`). Selecting a row reveals the
     full provenance (prev value, source, idempotency key — immutable); ⚑ override / ⚠
-    suitability rows are flagged in the decision cell. :meth:`export_csv` writes the
-    current (filtered) timeline to a file.
+    suitability rows are flagged in the decision cell. The table shows the newest
+    ``_AUDIT_VIEW_LIMIT`` rows and says so in the filter line when older ones exist;
+    :meth:`export_csv` re-reads and writes the whole filtered timeline to a file.
 
     Attributes:
         filter_kind: ``None`` (both) / ``"agent"`` / ``"human"`` — the actor filter.
@@ -1179,6 +1184,7 @@ class AuditView(ShellView):
         self.detail_text = ""
         self.selected_entry_id: str | None = None
         self._entries: list[Any] = []
+        self._truncated = False
 
     def compose(self) -> ComposeResult:
         """Yield the title, the filter line, the table | detail split, and the hint."""
@@ -1249,35 +1255,53 @@ class AuditView(ShellView):
         self.refresh_view()
 
     def export_csv(self, path: str) -> str:
-        """Write the current (filtered) timeline to ``path`` as CSV; return ``path``.
+        """Write the full filtered timeline to ``path`` as CSV; return ``path``.
 
-        One row per entry with the full provenance columns, so the exported file is a
-        faithful, portable snapshot of what the view shows. JSON-valued cells are
-        serialised deterministically.
+        One row per entry with the full provenance columns, under the same filters as
+        the view but without its row cap. The timeline is re-read here rather than
+        taken from the last paint, which may be capped or blank after a failed tick.
+        JSON-valued cells are serialised deterministically.
+
+        Raises:
+            Exception: Any read error propagates before the file is opened, so a
+                failed read never leaves a header-only file reported as exported.
         """
         import csv
         from pathlib import Path
 
+        entries = self._query(None)
         with Path(path).open("w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle)
             writer.writerow(_AUDIT_CSV_HEADER)
-            for entry in self._entries:
+            for entry in entries:
                 writer.writerow(_audit_csv_row(entry))
         return path
 
+    def _query(self, limit: int | None) -> list[Any]:
+        """Read the filtered timeline in one short session; errors propagate."""
+        with self.read_session() as session:
+            pid = self.shell._portfolio_id if self.filter_portfolio else None
+            return observe.audit_timeline(
+                session,
+                portfolio_id=pid,
+                kind=self.filter_kind,
+                overrides_only=self.filter_overrides,
+                limit=limit,
+            )
+
     def _read(self) -> list[Any]:
-        """Read the filtered timeline in one short session (``[]`` on any error)."""
+        """Read the newest rows the table shows (``[]`` on any error).
+
+        Asks for one row past the cap so a full page that happens to be the whole
+        timeline is told apart from a truncated one.
+        """
         try:
-            with self.read_session() as session:
-                pid = self.shell._portfolio_id if self.filter_portfolio else None
-                return observe.audit_timeline(
-                    session,
-                    portfolio_id=pid,
-                    kind=self.filter_kind,
-                    overrides_only=self.filter_overrides,
-                )
+            entries = self._query(_AUDIT_VIEW_LIMIT + 1)
         except Exception:  # keep the poll loop alive on any read error
+            self._truncated = False
             return []
+        self._truncated = len(entries) > _AUDIT_VIEW_LIMIT
+        return entries[:_AUDIT_VIEW_LIMIT]
 
     def _paint_table(self) -> None:
         table = self.query_one("#audit-table", DataTable)
@@ -1310,7 +1334,10 @@ class AuditView(ShellView):
             parts.append("⚑ overrides")
         if self.filter_portfolio:
             parts.append("this pf")
-        parts.append(f"{len(self._entries)} rows")
+        count = f"{len(self._entries)} rows"
+        if self._truncated:
+            count += " · older omitted (e exports all)"
+        parts.append(count)
         self.query_one("#audit-filters", Static).update(" · ".join(parts))
 
     def _paint_detail(self) -> None:

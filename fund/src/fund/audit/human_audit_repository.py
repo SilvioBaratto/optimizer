@@ -106,7 +106,7 @@ class HumanAuditLogRepository(RepositoryBase):
         overrides_only: bool = False,
         start: dt.datetime | None = None,
         end: dt.datetime | None = None,
-        limit: int = 200,
+        limit: int | None = 200,
     ) -> list[HumanAuditLog]:
         """Human actions newest first, with composable filters.
 
@@ -121,7 +121,7 @@ class HumanAuditLogRepository(RepositoryBase):
             overrides_only: Keep only rows flagged as overrides.
             start: Lower ``created_at`` bound (inclusive).
             end: Upper ``created_at`` bound (inclusive).
-            limit: Maximum rows to return.
+            limit: Maximum rows to return; ``None`` for no cap.
 
         Returns:
             Matching rows ordered by ``created_at`` descending.

@@ -1965,6 +1965,13 @@ def test_audit_timeline_entries_carry_a_stable_unique_identity(db_session):
     assert sorted(ids) == sorted(row.entry_id for row in again)
 
 
+def test_audit_timeline_limit_caps_the_merge_and_none_lifts_it(db_session):
+    _seed_audit(db_session)
+
+    assert len(observe.audit_timeline(db_session, limit=2)) == 2
+    assert len(observe.audit_timeline(db_session, limit=None)) == 3
+
+
 def test_import_fund_observe_is_agent_stack_free():
     code = textwrap.dedent(
         """
