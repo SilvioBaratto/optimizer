@@ -34,10 +34,43 @@ class TestStockAndReject:
             "GraniteShares 3x Long Natural Gas",
             "WisdomTree Bund 10Y 3x Daily Leveraged",
             "Xtrackers Inverse US Treasury Bond",
+            "ProShares UltraShort 20+ Year Treasury",
+            "ProShares Ultra 20+ Year Treasury",
+            "ProShares Short 20+ Year Treasury",
+            "ProShares UltraPro Short 20+ Year Treasury",
+            "ProShares UltraShort Investment Grade Corporate Bond",
+            "Xtrackers II US Treasuries Short Daily Swap",
+            "Xtrackers II US Treasuries x2 Daily",
+            "Direxion Daily 20+ Year Treasury Bear Shares",
+            "UltraShort 20+ Year Treasury",
+            "UltraShort 7-10 Year Treasury",
+            "Ultra 20+ Year Treasury",
         ],
     )
     def test_leveraged_and_inverse_products_are_rejected(self, name: str) -> None:
         assert classify_instrument(name, "ETF") is None
+
+    @pytest.mark.parametrize(
+        ("name", "duration"),
+        [
+            ("iShares USD Ultrashort Bond (Dist)", "short"),
+            ("Vanguard Ultra-Short Bond", "short"),
+            ("Invesco Ultra Short Duration Bond", "short"),
+            ("ProShares Short Term USD Emerging Markets Bond", "short"),
+            ("Xtrackers USD Ultra Short 0-1 Year Treasury", "short"),
+            ("Amundi Ultra-Short 0-1Y Euro Government Bond", "short"),
+            ("Foo Ultrashort 0-1 Year Treasury", "short"),
+            ("Foo Ultra Short Investment Grade Bond", "short"),
+            ("Foo Ultra Short High Yield Bond", "short"),
+        ],
+    )
+    def test_ultra_short_duration_bond_funds_are_kept(
+        self, name: str, duration: str
+    ) -> None:
+        result = classify_instrument(name, "ETF")
+        assert result is not None
+        assert result.asset_class == "fixed_income"
+        assert result.duration_bucket == duration
 
 
 class TestMultiAsset:
@@ -82,6 +115,9 @@ class TestFixedIncomeSubclass:
                 "short",
             ),
             ("iShares USD Ultrashort Bond (Dist)", "aggregate", "short"),
+            ("iShares Short Treasury Bond ETF", "government", "short"),
+            ("iShares 10-20 Year Treasury Bond ETF", "government", "long"),
+            ("iShares 10-30 Year Treasury Bond ETF", "government", "long"),
         ],
     )
     def test_fixed_income(self, name: str, subclass: str, duration: str) -> None:
@@ -90,3 +126,39 @@ class TestFixedIncomeSubclass:
         assert result.asset_class == "fixed_income"
         assert result.fi_subclass == subclass
         assert result.duration_bucket == duration
+
+
+class TestEquityFundsWithBondVocabulary:
+    """Words like "high yield" or "inflation" also name equity strategies; they
+    must not by themselves turn an equity ETF into a bond fund."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "Invesco High Yield Equity Dividend Achievers ETF",
+            "Horizon Kinetics Inflation Beneficiaries ETF",
+            "Global X Government Infrastructure Equity ETF",
+            "Corporate Governance Leaders Stock ETF",
+            "Credit Services Dividend ETF",
+        ],
+    )
+    def test_equity_etf_with_bond_like_word_is_rejected(self, name: str) -> None:
+        assert classify_instrument(name, "ETF") is None
+
+    @pytest.mark.parametrize(
+        ("name", "subclass"),
+        [
+            ("Amundi Prime Euro Corporates (Dist)", "corporate"),
+            ("UBS Bloomberg Euro Area Liquid Corporates (Acc)", "corporate"),
+            ("iShares Euro Government (Dist)", "government"),
+            ("SPDR Bloomberg High Yield (Dist)", "high_yield"),
+            ("Equity Hedged Government Bond (Acc)", "government"),
+        ],
+    )
+    def test_bond_fund_naming_the_segment_without_the_word_bond_is_kept(
+        self, name: str, subclass: str
+    ) -> None:
+        result = classify_instrument(name, "ETF")
+        assert result is not None
+        assert result.asset_class == "fixed_income"
+        assert result.fi_subclass == subclass

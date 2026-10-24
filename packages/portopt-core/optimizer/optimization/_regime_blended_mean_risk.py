@@ -5,17 +5,25 @@ Composes `_ExternallyControlledRegimeCovariance` →
 `TimeSeriesFactorModel` →
 `build_mean_risk` → `build_portfolio_pipeline`.
 
-Factor returns are passed via the optimizer step's ``factors`` fit param —
-``pipeline.fit(X, optimizer__factors=factor_returns)``, or through
-`run_cross_val` with
-``params={"factors": factor_returns}`` (skfolio 1.0 replaced the former
-positional ``y`` factor argument).
+Factor returns are passed as the optimizer step's ``factors`` fit param
+(skfolio 1.0 replaced the former positional ``y`` factor argument). Its
+spelling depends on sklearn's ``enable_metadata_routing`` switch, which is
+off by default, and only the matching spelling is accepted:
+
+- routing off (default): ``pipeline.fit(X, optimizer__factors=factor_returns)``
+  or `run_cross_val` with ``params={"optimizer__factors": factor_returns}``;
+- ``sklearn.set_config(enable_metadata_routing=True)``:
+  ``pipeline.fit(X, factors=factor_returns)`` or `run_cross_val` with
+  ``params={"factors": factor_returns}``.
+
+The other spelling raises ``ValueError`` or ``TypeError`` at fit time.
 """
 
 from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -36,6 +44,12 @@ from optimizer.validation._config import WalkForwardConfig
 from optimizer.validation._factory import build_walk_forward
 
 logger = logging.getLogger(__name__)
+
+# Caps how many consecutive training dates may reuse the last known regime
+# probabilities. Bridges a one-day HMM lag, holiday-calendar mismatches and
+# weekly probability grids while still failing loudly on a truncated series
+# instead of silently blending on a stale state.
+_MAX_PROBABILITY_STALENESS = 5
 
 
 @dataclass(frozen=True)
@@ -71,8 +85,10 @@ class _ExternallyControlledRegimeCovariance(BaseCovariance):
     Args:
         half_life: EW decay half-life in trading days.
         regime_probabilities: Pre-computed HMM regime probabilities indexed by
-            date, shape ``(T, n_regimes)``. Must cover every date in the
-            training window passed to `fit`.
+            date, shape ``(T, n_regimes)``. Each training date uses the most
+            recent probabilities at or before it, carried forward for at most
+            ``_MAX_PROBABILITY_STALENESS`` consecutive dates; the last
+            training date must be covered or `fit` raises.
         nearest: Passed to `BaseCovariance`.
         higham: Passed to `BaseCovariance`.
         higham_max_iteration: Passed to `BaseCovariance`.
@@ -122,16 +138,35 @@ class _ExternallyControlledRegimeCovariance(BaseCovariance):
                 "Ensure the pipeline uses set_output(transform='pandas')."
             )
 
-        aligned = self.regime_probabilities.reindex(X.index).fillna(0.0)
-        overlap = self.regime_probabilities.index.intersection(X.index)
-        if len(overlap) < 30:
+        aligned = (
+            self.regime_probabilities.sort_index()
+            .reindex(X.index, method="ffill", limit=_MAX_PROBABILITY_STALENESS)
+            .fillna(0.0)
+        )
+        row_sums = aligned.sum(axis=1)
+        has_mass = row_sums > 1e-10
+        n_covered = int(has_mass.sum())
+        if n_covered < 30:
             raise ConfigurationError(
-                f"Insufficient overlap: {len(overlap)} observations "
+                f"Insufficient overlap: {n_covered} observations "
                 "(minimum 30 required). Ensure regime_probabilities "
                 "covers the training window dates."
             )
-        row_sums = aligned.sum(axis=1).clip(lower=1e-10)
-        aligned = aligned.div(row_sums, axis=0)
+        if not has_mass.iloc[-1]:
+            raise ConfigurationError(
+                f"regime_probabilities has no row within "
+                f"{_MAX_PROBABILITY_STALENESS} observations of the last "
+                f"training date ({X.index[-1]}); the terminal regime "
+                "probabilities that blend the covariance are undefined."
+            )
+        if n_covered < len(X):
+            logger.warning(
+                "regime_probabilities cover %d of %d training dates; the "
+                "uncovered dates are excluded from every regime's covariance.",
+                n_covered,
+                len(X),
+            )
+        aligned = aligned.div(row_sums.clip(lower=1e-10), axis=0)
 
         X_np = X.to_numpy(dtype=float)
         n_obs, n_assets = X_np.shape
@@ -168,6 +203,17 @@ class _ExternallyControlledRegimeCovariance(BaseCovariance):
         return self
 
 
+def _name_keyed_weights(
+    previous_weights: Mapping[str, float] | pd.Series | np.ndarray,
+) -> dict[str, float] | np.ndarray:
+    """Convert name-labelled weights to a plain dict that skfolio resolves by name."""
+    if isinstance(previous_weights, pd.Series):
+        return {str(name): float(w) for name, w in previous_weights.items()}
+    if isinstance(previous_weights, Mapping):
+        return dict(previous_weights)
+    return previous_weights
+
+
 def build_regime_blended_mean_risk(
     config: RegimeBlendedMeanRiskConfig | None = None,
     *,
@@ -175,7 +221,9 @@ def build_regime_blended_mean_risk(
     regime_probabilities: pd.DataFrame,
     pre_selection_config: PreSelectionConfig | None = None,
     sector_mapping: dict[str, str] | None = None,
-    previous_weights: np.ndarray | None = None,
+    min_sector_weights: dict[str, float] | None = None,
+    sector_bands: dict[str, tuple[float, float]] | None = None,
+    previous_weights: Mapping[str, float] | pd.Series | np.ndarray | None = None,
 ) -> tuple[Pipeline, WalkForward]:
     """Build a regime-blended MeanRisk pipeline and walk-forward CV splitter.
 
@@ -187,28 +235,44 @@ def build_regime_blended_mean_risk(
                     └─ MeanRisk
                          └─ Pipeline           (pre-selection → optimizer)
 
-    Pass factor returns (aligned to the asset return index) via the
-    ``optimizer`` step's ``factors`` fit param:
-    ``pipeline.fit(X, optimizer__factors=factor_returns)``, or through
-    `run_cross_val` with
-    ``params={"factors": factor_returns}`` (skfolio 1.0).
+    Pass factor returns (aligned to the asset return index) as the
+    ``optimizer`` step's ``factors`` fit param. The spelling depends on
+    sklearn's ``enable_metadata_routing`` switch (off by default):
+
+    - routing off: ``pipeline.fit(X, optimizer__factors=factor_returns)`` or
+      `run_cross_val` with ``params={"optimizer__factors": factor_returns}``;
+    - ``sklearn.set_config(enable_metadata_routing=True)``:
+      ``pipeline.fit(X, factors=factor_returns)`` or `run_cross_val` with
+      ``params={"factors": factor_returns}``.
+
+    The spelling of the other setting raises at fit time.
 
     Args:
         config: Configuration. Defaults to `RegimeBlendedMeanRiskConfig`
             with max-Sharpe objective and quarterly rolling walk-forward.
         factor_returns: Factor return time series indexed by date, shape
-            ``(T, n_factors)``. Pass via the ``optimizer`` step's ``factors``
-            fit param: ``pipeline.fit(X, optimizer__factors=...)`` or through
-            `run_cross_val` with
-            ``params={"factors": factor_returns}``.
+            ``(T, n_factors)``. Pass again at fit time as the ``optimizer``
+            step's ``factors`` fit param, spelled per the
+            ``enable_metadata_routing`` setting described above.
         regime_probabilities: Pre-computed HMM regime probabilities indexed by
             date, shape ``(T, n_regimes)``. Baked into the covariance estimator;
             sliced to each CV fold's training window automatically during fit.
         pre_selection_config: Pre-selection pipeline configuration.
-        sector_mapping: Ticker → sector mapping forwarded to
-            `build_portfolio_pipeline`.
+        sector_mapping: Ticker → sector mapping. Forwarded both to
+            `build_portfolio_pipeline` and to `build_mean_risk`, so
+            ``config.mean_risk_config.max_sector_weight`` is enforced on the
+            fitted weights.
+        min_sector_weights: Per-sector floor weights forwarded to
+            `build_mean_risk`. Requires ``sector_mapping``.
+        sector_bands: Regime-conditional per-sector ``(floor, cap)`` bands
+            forwarded to `build_mean_risk`. Requires ``sector_mapping``.
         previous_weights: Previous portfolio weights for turnover control.
-            Forwarded to `build_mean_risk` via ``**kwargs``.
+            Forwarded to `build_mean_risk` via ``**kwargs``. Prefer a
+            ticker → weight mapping (or a ticker-indexed `pd.Series`, which is
+            converted to one): skfolio resolves it by name after pre-selection,
+            treating dropped assets as liquidated. A positional array is only
+            valid when pre-selection keeps every asset; it raises at fit time
+            as soon as one column is dropped.
 
     Returns:
         A 2-tuple of the pre-selection → MeanRisk(TimeSeriesFactorModel)
@@ -218,6 +282,8 @@ def build_regime_blended_mean_risk(
     Raises:
         ConfigurationError: If ``factor_returns`` or ``regime_probabilities``
             are empty.
+        ValueError: If ``min_sector_weights`` or ``sector_bands`` is given
+            without ``sector_mapping``, or the floors are infeasible.
     """
     if config is None:
         config = RegimeBlendedMeanRiskConfig()
@@ -241,11 +307,14 @@ def build_regime_blended_mean_risk(
 
     extra_kwargs: dict[str, Any] = {}
     if previous_weights is not None:
-        extra_kwargs["previous_weights"] = previous_weights
+        extra_kwargs["previous_weights"] = _name_keyed_weights(previous_weights)
 
     optimizer = build_mean_risk(
         config.mean_risk_config,
         prior_estimator=factor_model,
+        sector_mapping=sector_mapping,
+        min_sector_weights=min_sector_weights,
+        sector_bands=sector_bands,
         **extra_kwargs,
     )
 

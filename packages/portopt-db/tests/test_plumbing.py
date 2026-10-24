@@ -30,6 +30,32 @@ class TestDbConfig:
         with pytest.raises(Exception):
             cfg.url = "y"  # type: ignore[misc]
 
+    def test_server_timeouts_are_off_by_default(self) -> None:
+        # Server defaults (0 = unlimited) must be preserved unless opted in:
+        # a surprise statement_timeout would cancel legitimate bulk writes.
+        ca = DbConfig(url="postgresql://u:p@h:5432/d").connect_args()
+        assert "options" not in ca
+
+    def test_server_timeouts_are_passed_as_session_options(self) -> None:
+        cfg = DbConfig(
+            url="postgresql://u:p@h:5432/d",
+            lock_timeout_ms=5_000,
+            statement_timeout_ms=30_000,
+            idle_in_transaction_timeout_ms=60_000,
+        )
+        options = cfg.connect_args()["options"]
+        assert "-c lock_timeout=5000" in options
+        assert "-c statement_timeout=30000" in options
+        assert "-c idle_in_transaction_session_timeout=60000" in options
+
+    def test_only_the_enabled_timeouts_are_sent(self) -> None:
+        cfg = DbConfig(url="postgresql://u:p@h:5432/d", lock_timeout_ms=2_500)
+        assert cfg.connect_args()["options"] == "-c lock_timeout=2500"
+
+    def test_negative_timeout_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="statement_timeout_ms"):
+            DbConfig(url="x", statement_timeout_ms=-1)
+
 
 class TestUpsertGuards:
     def _repo(self) -> RepositoryBase:

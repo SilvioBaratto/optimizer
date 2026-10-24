@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 from decimal import Decimal
 
 import numpy as np
@@ -41,6 +42,27 @@ class TestReturnsConfig:
         assert hash(ReturnsConfig()) == hash(ReturnsConfig())
 
 
+class TestReturnsConfigSerialisation:
+    def test_json_round_trip_drives_to_returns(self, prices: pd.DataFrame) -> None:
+        original = ReturnsConfig(join=JoinMethod.INNER, log_returns=True)
+        restored = ReturnsConfig(**json.loads(json.dumps(dataclasses.asdict(original))))
+        bench = prices[["MSFT"]].rename(columns={"MSFT": "BENCH"})
+        got = to_returns(prices, bench, config=restored)
+        want = to_returns(prices, bench, config=original)
+        pd.testing.assert_frame_equal(got[0], want[0])
+        pd.testing.assert_frame_equal(got[1], want[1])
+
+    def test_string_join_is_coerced_to_the_enum(self) -> None:
+        cfg = ReturnsConfig(join="inner")  # type: ignore[arg-type]
+        assert cfg.join is JoinMethod.INNER
+        assert cfg == ReturnsConfig(join=JoinMethod.INNER)
+        assert hash(cfg) == hash(ReturnsConfig(join=JoinMethod.INNER))
+
+    def test_unknown_join_is_rejected_at_construction(self) -> None:
+        with pytest.raises(ValueError, match="cross"):
+            ReturnsConfig(join="cross")  # type: ignore[arg-type]
+
+
 class TestToReturns:
     def test_matches_skfolio_default(self, prices: pd.DataFrame) -> None:
         out = to_returns(prices)
@@ -77,6 +99,49 @@ class TestToReturns:
     def test_rejects_non_dataframe_benchmark(self, prices: pd.DataFrame) -> None:
         with pytest.raises(TypeError, match="y_prices"):
             to_returns(prices, np.zeros((6, 1)))  # type: ignore[arg-type]
+
+
+class TestJoinMethods:
+    """Every selectable join must keep the date index of the price panels."""
+
+    @pytest.mark.parametrize("join", list(JoinMethod), ids=lambda j: j.value)
+    def test_benchmark_join_keeps_the_date_index(
+        self, prices: pd.DataFrame, join: JoinMethod
+    ) -> None:
+        bench = prices[["MSFT"]].rename(columns={"MSFT": "BENCH"})
+        x_ret, y_ret = to_returns(prices, bench, config=ReturnsConfig(join=join))
+        assert isinstance(x_ret.index, pd.DatetimeIndex)
+        assert x_ret.index.equals(y_ret.index)
+        assert len(x_ret) == len(prices) - 1
+
+    def test_cartesian_cross_join_is_not_offered(self) -> None:
+        assert "cross" not in {m.value for m in JoinMethod}
+
+
+class TestNanThresholdFiltersRows:
+    """``nan_threshold`` removes dates, not assets, exactly like skfolio."""
+
+    @staticmethod
+    def _sparse_panel() -> pd.DataFrame:
+        idx = pd.date_range("2024-01-01", periods=10, freq="B")
+        px = pd.DataFrame(
+            {
+                "A": np.linspace(100.0, 110.0, 10),
+                "B": np.linspace(50.0, 55.0, 10),
+                "C": np.linspace(20.0, 22.0, 10),
+            },
+            index=idx,
+        )
+        px.iloc[:6, 2] = np.nan
+        return px
+
+    def test_sparse_asset_is_kept_and_its_missing_dates_dropped_for_all(self) -> None:
+        cfg = ReturnsConfig(
+            nan_threshold=0.3, drop_inceptions_nan=False, fill_nan=False
+        )
+        out = to_returns(self._sparse_panel(), config=cfg)
+        assert list(out.columns) == ["A", "B", "C"]
+        assert len(out) == 3
 
 
 class TestDecimalCoercion:

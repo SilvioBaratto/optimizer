@@ -138,6 +138,67 @@ def test_macos_roots_reads_both_keychains_with_security(
         assert "find-certificate" in cmd
 
 
+def _pem(body: str) -> str:
+    return f"-----BEGIN CERTIFICATE-----\n{body}\n-----END CERTIFICATE-----"
+
+
+def _stub_macos_trust(
+    monkeypatch: pytest.MonkeyPatch, exported: str, verdicts: dict[str, int]
+) -> list[list[str]]:
+    """Stub the keychain export and `security verify-cert`; return the verify argvs.
+
+    ``verdicts`` maps a certificate body to the exit code macOS would return for it.
+    """
+    monkeypatch.setattr(ca_bundle, "_run_capture", lambda cmd, source: exported)
+    verify_calls: list[list[str]] = []
+
+    class _Result:
+        def __init__(self, returncode: int) -> None:
+            self.returncode = returncode
+            self.stderr = ""
+            self.stdout = ""
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> _Result:
+        verify_calls.append(cmd)
+        body = Path(cmd[cmd.index("-c") + 1]).read_text(encoding="utf-8")
+        return _Result(next(rc for key, rc in verdicts.items() if key in body))
+
+    monkeypatch.setattr(ca_bundle.subprocess, "run", fake_run)
+    return verify_calls
+
+
+def test_macos_roots_drops_certificates_macos_does_not_trust(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`find-certificate` dumps every keychain item regardless of trust settings, so a
+    root marked Never Trust (or trusted only for code signing) would otherwise become
+    a global TLS anchor. Only certs macOS itself evaluates as trusted may survive."""
+    calls = _stub_macos_trust(
+        monkeypatch,
+        f"{_pem('TRUSTED_ROOT')}\n{_pem('NEVER_TRUST_ROOT')}\n",
+        {"TRUSTED_ROOT": 0, "NEVER_TRUST_ROOT": 1},
+    )
+    roots = ca_bundle._macos_roots()
+    assert "TRUSTED_ROOT" in roots
+    assert "NEVER_TRUST_ROOT" not in roots
+    # A CA cert is the leaf being verified, hence `-l`; `-L` keeps it offline.
+    assert all(
+        cmd[:2] == ["security", "verify-cert"] and "-l" in cmd and "-L" in cmd
+        for cmd in calls
+    )
+    assert len(calls) == 2 * len(ca_bundle._MACOS_KEYCHAINS)
+
+
+def test_macos_roots_raises_when_trust_evaluation_rejects_everything(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A broken evaluator (e.g. no trustd) rejects even the built-in roots; that must
+    fail loudly rather than silently ship a bundle without the corporate root."""
+    _stub_macos_trust(monkeypatch, _pem("SOME_ROOT"), {"SOME_ROOT": 1})
+    with pytest.raises(CABundleError, match="trust"):
+        ca_bundle._macos_roots()
+
+
 def test_linux_roots_reads_first_present_candidate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -18,6 +18,7 @@ from optimizer.factors import (
     compute_composite_ic,
     compute_ic_series,
     compute_ic_stats,
+    compute_icir,
     compute_monthly_ic,
     compute_newey_west_tstat,
     compute_quantile_spread,
@@ -26,6 +27,7 @@ from optimizer.factors import (
     run_factor_validation,
     validate_factor_universe,
 )
+from optimizer.linear_model import CSLinearRegressionConfig
 
 
 @pytest.fixture()
@@ -41,6 +43,28 @@ def forward_returns() -> pd.Series:
         rng.normal(0.001, 0.02, 100),
         index=[f"T{i:03d}" for i in range(100)],
     )
+
+
+def _reference_newey_west(values: np.ndarray, n_lags: int) -> tuple[float, float]:
+    """Textbook Bartlett-kernel NW t-stat: every autocovariance is sum / n."""
+    from scipy import stats as sp_stats
+
+    n = len(values)
+    mean = values.mean()
+    e = values - mean
+    var = float(e @ e) / n
+    for j in range(1, min(n_lags, n - 1) + 1):
+        var += 2.0 * (1.0 - j / (n_lags + 1)) * float(e[j:] @ e[:-j]) / n
+    t_stat = mean / np.sqrt(var / n)
+    return float(t_stat), float(2.0 * sp_stats.t.sf(abs(t_stat), df=n - 1))
+
+
+# 14 usable periods around one gap: above the 2 * lags + 1 Newey-West floor for
+# both lags=5 and lags=6, so the NaN handling is what the tests exercise.
+_IC_WITH_GAP: list[float] = [
+    0.05, 0.02, np.nan, 0.04, 0.06, 0.03, 0.05,
+    0.04, 0.02, 0.07, 0.05, 0.03, 0.06, 0.04, 0.05,
+]  # fmt: skip
 
 
 class TestComputeMonthlyIC:
@@ -111,6 +135,103 @@ class TestComputeICSeries:
         assert len(strict_result) == 0
 
 
+def _autocorrelated_ic_panel(
+    n_dates: int = 48, n_tickers: int = 25
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Scores/returns whose per-date signal strength follows an AR(1) path.
+
+    The persistence makes the Newey-West t-stat depend on the order of the IC
+    series, so a mis-ordered history shows up in the statistic.
+    """
+    rng = np.random.default_rng(7)
+    dates = pd.date_range("2018-01-31", periods=n_dates, freq="ME")
+    tickers = [f"T{i:02d}" for i in range(n_tickers)]
+    beta = np.zeros(n_dates)
+    for t in range(1, n_dates):
+        beta[t] = 0.9 * beta[t - 1] + rng.normal(0.0, 0.3)
+    scores = pd.DataFrame(
+        rng.normal(size=(n_dates, n_tickers)), index=dates, columns=tickers
+    )
+    returns = pd.DataFrame(
+        beta[:, None] * scores.to_numpy() + rng.normal(0.0, 1.0, (n_dates, n_tickers)),
+        index=dates,
+        columns=tickers,
+    )
+    return scores, returns
+
+
+class TestComputeICSeriesDateOrdering:
+    @pytest.mark.parametrize("use_cs_regression", [False, True])
+    def test_when_history_is_newest_first_then_series_is_chronological(
+        self, use_cs_regression: bool
+    ) -> None:
+        scores, returns = _autocorrelated_ic_panel()
+
+        expected = compute_ic_series(
+            scores, returns, "f", use_cs_regression=use_cs_regression
+        )
+        result = compute_ic_series(
+            scores.iloc[::-1],
+            returns.iloc[::-1],
+            "f",
+            use_cs_regression=use_cs_regression,
+        )
+
+        assert result.index.is_monotonic_increasing
+        pd.testing.assert_series_equal(result, expected)
+
+    @pytest.mark.parametrize("use_cs_regression", [False, True])
+    def test_when_history_is_shuffled_then_series_matches_sorted_history(
+        self, use_cs_regression: bool
+    ) -> None:
+        scores, returns = _autocorrelated_ic_panel()
+        order = np.random.default_rng(11).permutation(len(scores))
+
+        expected = compute_ic_series(
+            scores, returns, "f", use_cs_regression=use_cs_regression
+        )
+        result = compute_ic_series(
+            scores.iloc[order],
+            returns.iloc[order],
+            "f",
+            use_cs_regression=use_cs_regression,
+        )
+
+        pd.testing.assert_series_equal(result, expected)
+
+    def test_when_history_is_shuffled_then_newey_west_tstat_is_unchanged(
+        self,
+    ) -> None:
+        scores, returns = _autocorrelated_ic_panel()
+        order = np.random.default_rng(11).permutation(len(scores))
+
+        expected = compute_newey_west_tstat(compute_ic_series(scores, returns, "f"), 6)
+        result = compute_newey_west_tstat(
+            compute_ic_series(scores.iloc[order], returns.iloc[order], "f"), 6
+        )
+
+        assert result == pytest.approx(expected)
+
+    def test_run_factor_validation_is_invariant_to_history_row_order(self) -> None:
+        scores, returns = _autocorrelated_ic_panel()
+        order = np.random.default_rng(11).permutation(len(scores))
+
+        expected = run_factor_validation({"value": scores}, returns)
+        result = run_factor_validation(
+            {"value": scores.iloc[order]}, returns.iloc[order]
+        )
+
+        assert result.ic_results[0].t_stat == pytest.approx(
+            expected.ic_results[0].t_stat
+        )
+        assert result.ic_results[0].p_value == pytest.approx(
+            expected.ic_results[0].p_value
+        )
+        assert result.quantile_spreads[0].spread == pytest.approx(
+            expected.quantile_spreads[0].spread
+        )
+
+
 class TestComputeICSeriesCSRegression:
     @pytest.fixture
     def panel(self) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -169,8 +290,6 @@ class TestComputeICSeriesCSRegression:
         self,
         panel: tuple[pd.DataFrame, pd.DataFrame],
     ) -> None:
-        from optimizer.linear_model import CSLinearRegressionConfig
-
         scores, returns = panel
         cfg = CSLinearRegressionConfig(fit_intercept=False)
         result = compute_ic_series(
@@ -204,6 +323,58 @@ class TestComputeICSeriesCSRegression:
             use_cs_regression=True,
         )
         assert scores_sparse.index[0] not in result.index
+
+    def test_when_cs_config_min_observations_exceeds_valid_pairs_then_dates_dropped(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        """The config's own floor must be enforced, not only the argument's."""
+        from optimizer.linear_model import CSLinearRegressionConfig
+
+        scores, returns = panel
+        cfg = CSLinearRegressionConfig(min_observations=30)
+        result = compute_ic_series(
+            scores, returns, "f", use_cs_regression=True, cs_config=cfg
+        )
+        assert len(result) == 0
+
+    def test_when_cs_config_default_floor_then_sparse_period_dropped(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        from optimizer.linear_model import CSLinearRegressionConfig
+
+        scores, returns = panel
+        sparse = scores.copy()
+        sparse.iloc[0, :15] = np.nan  # 5 valid pairs: above 3, below config's 10
+        result = compute_ic_series(
+            sparse,
+            returns,
+            "f",
+            use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(),
+        )
+        assert sparse.index[0] not in result.index
+        assert len(result) == len(sparse) - 1
+
+    def test_when_cs_config_floor_below_argument_then_argument_still_applies(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        from optimizer.linear_model import CSLinearRegressionConfig
+
+        scores, returns = panel
+        sparse = scores.copy()
+        sparse.iloc[0, :18] = np.nan  # 2 valid pairs
+        result = compute_ic_series(
+            sparse,
+            returns,
+            "f",
+            min_observations=5,
+            use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(min_observations=0),
+        )
+        assert sparse.index[0] not in result.index
 
     def test_when_regression_all_dates_filtered_then_empty_series(self) -> None:
         rng = np.random.default_rng(0)
@@ -274,9 +445,219 @@ class TestComputeICSeriesCSRegression:
             "f",
             min_observations=3,
             use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(min_observations=3),
         )
         assert len(result) == 1
         assert result.iloc[0] == pytest.approx(2.0, abs=1e-6)
+
+    def test_when_cs_config_min_observations_exceeds_valid_names_then_periods_dropped(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        """cs_config.min_observations gates periods, not just the function arg."""
+        scores, returns = panel  # 20 valid names per period
+        cfg = CSLinearRegressionConfig(min_observations=30)
+        result = compute_ic_series(
+            scores, returns, "f", use_cs_regression=True, cs_config=cfg
+        )
+        assert len(result) == 0
+
+    def test_when_cs_config_none_then_default_min_observations_applies(self) -> None:
+        """None defers to CSLinearRegressionConfig defaults (10 names)."""
+        rng = np.random.default_rng(8)
+        dates = pd.date_range("2023-01-01", periods=6, freq="ME")
+        tickers = [f"T{i}" for i in range(8)]
+        scores = pd.DataFrame(rng.normal(0, 1, (6, 8)), index=dates, columns=tickers)
+        returns = 0.01 * scores
+        result = compute_ic_series(scores, returns, "f", use_cs_regression=True)
+        assert len(result) == 0
+
+    def test_when_function_min_observations_stricter_than_cs_config_then_it_wins(
+        self,
+        panel: tuple[pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        scores, returns = panel  # 20 valid names per period
+        cfg = CSLinearRegressionConfig(min_observations=5)
+        result = compute_ic_series(
+            scores,
+            returns,
+            "f",
+            min_observations=25,
+            use_cs_regression=True,
+            cs_config=cfg,
+        )
+        assert len(result) == 0
+
+    def test_when_return_columns_reordered_then_slope_pairs_by_ticker(self) -> None:
+        """Scores and returns are paired by ticker label, not column position."""
+        rng = np.random.default_rng(5)
+        dates = pd.date_range("2023-01-01", periods=6, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(10)]
+        scores = pd.DataFrame(rng.normal(0, 1, (6, 10)), index=dates, columns=tickers)
+        returns = 0.01 * scores
+        shuffled = returns[tickers[::-1]]
+
+        result = compute_ic_series(scores, shuffled, "f", use_cs_regression=True)
+
+        assert len(result) == 6
+        np.testing.assert_allclose(result.to_numpy(), 0.01, atol=1e-9)
+
+    def test_when_returns_cover_extra_tickers_then_only_common_names_used(
+        self,
+    ) -> None:
+        """A returns panel wider than the score panel must not crash the fit."""
+        rng = np.random.default_rng(6)
+        dates = pd.date_range("2023-01-01", periods=6, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(12)]
+        returns = pd.DataFrame(
+            rng.normal(0, 0.02, (6, 12)), index=dates, columns=tickers
+        )
+        scores = returns.iloc[:, :10] / 0.01
+
+        result = compute_ic_series(scores, returns, "f", use_cs_regression=True)
+
+        assert len(result) == 6
+        np.testing.assert_allclose(result.to_numpy(), 0.01, atol=1e-9)
+
+    @pytest.mark.parametrize("bad", [np.inf, -np.inf])
+    def test_when_score_is_infinite_then_pair_excluded_like_nan(
+        self, bad: float
+    ) -> None:
+        """A non-finite score is masked out, not clamped to float max."""
+        dates = pd.date_range("2023-01-01", periods=2, freq="ME")
+        tickers = [f"T{i}" for i in range(6)]
+        x_vals = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        scores = pd.DataFrame([x_vals, x_vals], index=dates, columns=tickers)
+        returns = 2.0 * scores
+        scores.iloc[0, 5] = bad
+
+        result = compute_ic_series(
+            scores,
+            returns,
+            "f",
+            min_observations=3,
+            use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(min_observations=3),
+        )
+
+        assert len(result) == 2
+        np.testing.assert_allclose(result.to_numpy(), 2.0, atol=1e-6)
+
+    def test_when_return_is_infinite_then_pair_excluded_like_nan(self) -> None:
+        dates = pd.date_range("2023-01-01", periods=1, freq="ME")
+        tickers = [f"T{i}" for i in range(6)]
+        scores = pd.DataFrame(
+            [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], index=dates, columns=tickers
+        )
+        returns = 2.0 * scores
+        returns.iloc[0, 0] = np.inf
+
+        result = compute_ic_series(
+            scores,
+            returns,
+            "f",
+            min_observations=3,
+            use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(min_observations=3),
+        )
+
+        assert len(result) == 1
+        assert result.iloc[0] == pytest.approx(2.0, abs=1e-6)
+
+    def test_when_infinite_pairs_leave_too_few_names_then_period_dropped(
+        self,
+    ) -> None:
+        dates = pd.date_range("2023-01-01", periods=1, freq="ME")
+        tickers = [f"T{i}" for i in range(4)]
+        scores = pd.DataFrame(
+            [[1.0, 2.0, np.inf, -np.inf]], index=dates, columns=tickers
+        )
+        returns = pd.DataFrame([[1.0, 2.0, 3.0, 4.0]], index=dates, columns=tickers)
+
+        result = compute_ic_series(
+            scores,
+            returns,
+            "f",
+            min_observations=3,
+            use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(min_observations=3),
+        )
+
+        assert len(result) == 0
+
+    @pytest.mark.parametrize("constant", [0.0, 0.1, 3.7])
+    def test_when_period_scores_are_constant_then_period_dropped(
+        self, constant: float
+    ) -> None:
+        """A zero-dispersion cross-section has no rank IC and no slope either."""
+        rng = np.random.default_rng(21)
+        dates = pd.date_range("2023-01-01", periods=6, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(12)]
+        scores = pd.DataFrame(rng.normal(0, 1, (6, 12)), index=dates, columns=tickers)
+        returns = pd.DataFrame(
+            0.05 * scores.values + rng.normal(0, 0.02, (6, 12)),
+            index=dates,
+            columns=tickers,
+        )
+        scores.iloc[2] = constant
+
+        result = compute_ic_series(scores, returns, "f", use_cs_regression=True)
+
+        assert dates[2] not in result.index
+        assert len(result) == 5
+
+    def test_when_valid_scores_all_tied_after_masking_then_period_dropped(
+        self,
+    ) -> None:
+        """Ties among the finite names count, not the NaN placeholders."""
+        dates = pd.date_range("2023-01-01", periods=2, freq="ME")
+        tickers = [f"T{i}" for i in range(6)]
+        scores = pd.DataFrame(
+            [
+                [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                [0.5, 0.5, 0.5, np.nan, np.nan, np.nan],
+            ],
+            index=dates,
+            columns=tickers,
+        )
+        returns = pd.DataFrame(
+            [[2.0, 4.0, 6.0, 8.0, 10.0, 12.0], [0.1, -0.2, 0.3, 0.0, 0.0, 0.0]],
+            index=dates,
+            columns=tickers,
+        )
+
+        result = compute_ic_series(
+            scores,
+            returns,
+            "f",
+            min_observations=3,
+            use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(min_observations=3),
+        )
+
+        assert list(result.index) == [dates[0]]
+        assert result.iloc[0] == pytest.approx(2.0, abs=1e-6)
+
+    def test_when_scores_tiny_but_dispersed_then_period_kept(self) -> None:
+        """The zero-dispersion test is scale-free, not an absolute epsilon."""
+        dates = pd.date_range("2023-01-01", periods=1, freq="ME")
+        tickers = [f"T{i}" for i in range(6)]
+        scores = pd.DataFrame(
+            [[1e-9, 2e-9, 3e-9, 4e-9, 5e-9, 6e-9]], index=dates, columns=tickers
+        )
+        returns = 2.0e9 * scores
+
+        result = compute_ic_series(
+            scores,
+            returns,
+            "f",
+            min_observations=3,
+            use_cs_regression=True,
+            cs_config=CSLinearRegressionConfig(min_observations=3),
+        )
+
+        assert len(result) == 1
+        assert result.iloc[0] == pytest.approx(2.0e9, rel=1e-6)
 
 
 class TestNeweyWestTStat:
@@ -299,6 +680,120 @@ class TestNeweyWestTStat:
         ic = pd.Series([0.05, 0.06])
         t_stat, _p_value = compute_newey_west_tstat(ic)
         assert isinstance(t_stat, float)
+
+    @pytest.mark.parametrize("n", [4, 6, 9, 12, 30])
+    def test_when_series_short_then_matches_textbook_newey_west(self, n: int) -> None:
+        """Autocovariances are normalised by n so the HAC variance stays >= 0."""
+        n_lags = min(6, (n - 1) // 2)
+        rng = np.random.default_rng(n)
+        for _ in range(25):
+            values = rng.normal(0.0, 0.1, n)
+            t_stat, p_value = compute_newey_west_tstat(pd.Series(values), n_lags)
+            ref_t, ref_p = _reference_newey_west(values, n_lags)
+            assert t_stat == pytest.approx(ref_t, rel=1e-9)
+            assert p_value == pytest.approx(ref_p, rel=1e-9, abs=1e-15)
+
+    def test_when_short_alternating_series_then_t_stat_not_inflated(self) -> None:
+        t_stat, p_value = compute_newey_west_tstat(
+            pd.Series([0.15, 0.05, 0.15, 0.05]), 1
+        )
+        assert abs(t_stat) < 100.0
+        assert p_value > 1e-6
+
+    @pytest.mark.parametrize(("n_lags", "n"), [(6, 12), (6, 5), (2, 4), (4, 8)])
+    def test_when_series_shorter_than_two_lags_plus_one_then_no_evidence(
+        self, n_lags: int, n: int
+    ) -> None:
+        """Below 2 * n_lags + 1 periods the HAC variance is not usable."""
+        rng = np.random.default_rng(n)
+        ic = pd.Series(0.05 + rng.normal(0.0, 1e-3, n))
+        assert compute_newey_west_tstat(ic, n_lags) == (0.0, 1.0)
+
+    @pytest.mark.parametrize("n_lags", [1, 2, 6])
+    def test_when_series_has_two_lags_plus_one_periods_then_inference_runs(
+        self, n_lags: int
+    ) -> None:
+        n = 2 * n_lags + 1
+        rng = np.random.default_rng(n)
+        values = 0.05 + rng.normal(0.0, 1e-2, n)
+
+        t_stat, p_value = compute_newey_west_tstat(pd.Series(values), n_lags)
+        ref_t, ref_p = _reference_newey_west(values, n_lags)
+
+        assert t_stat == pytest.approx(ref_t, rel=1e-9)
+        assert p_value == pytest.approx(ref_p, rel=1e-9, abs=1e-15)
+        assert abs(t_stat) > 2.0
+
+    def test_when_ic_history_is_pure_noise_and_short_then_never_significant(
+        self,
+    ) -> None:
+        """The documented 2 * lags + 1 floor keeps noise out of short histories."""
+        rng = np.random.default_rng(2024)
+        flagged = sum(
+            abs(compute_newey_west_tstat(pd.Series(rng.normal(0.0, 0.1, 12)), 6)[0])
+            >= 2.0
+            for _ in range(400)
+        )
+        assert flagged == 0
+
+    @pytest.mark.parametrize("n", [10, 20])
+    def test_when_ic_series_constant_then_no_evidence(self, n: int) -> None:
+        """A constant IC series has no variance to infer from: t=0, p=1."""
+        t_stat, p_value = compute_newey_west_tstat(pd.Series([0.05] * n), 6)
+        assert t_stat == 0.0
+        assert p_value == 1.0
+
+    @pytest.mark.parametrize("scale", [1e-3, 1e-7, 1e-9, 1e-12, 1e3])
+    def test_when_series_rescaled_then_t_stat_unchanged(self, scale: float) -> None:
+        """The t-statistic is scale-free: no absolute variance floor."""
+        rng = np.random.default_rng(0)
+        base = pd.Series(rng.normal(2.0, 1.0, 60))
+        ref_t, ref_p = compute_newey_west_tstat(base, 6)
+
+        t_stat, p_value = compute_newey_west_tstat(base * scale, 6)
+
+        assert t_stat == pytest.approx(ref_t, rel=1e-9)
+        assert p_value == pytest.approx(ref_p, rel=1e-9, abs=1e-15)
+
+    def test_when_cs_slopes_tiny_then_t_stat_matches_standardised_slopes(
+        self,
+    ) -> None:
+        """Slopes on unscaled scores (raw market cap) are ~1e-12 per unit."""
+        rng = np.random.default_rng(4)
+        dates = pd.date_range("2020-01-31", periods=60, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(40)]
+        caps = pd.DataFrame(
+            rng.lognormal(23.0, 1.0, (60, 40)), index=dates, columns=tickers
+        )
+        returns = pd.DataFrame(
+            1e-3 * (caps.values - caps.values.mean(axis=1, keepdims=True)) / 1e10
+            + rng.normal(0.0, 1e-3, (60, 40)),
+            index=dates,
+            columns=tickers,
+        )
+        slopes = compute_ic_series(caps, returns, "cap", use_cs_regression=True)
+
+        t_raw, _ = compute_newey_west_tstat(slopes, 6)
+        t_scaled, _ = compute_newey_west_tstat(slopes * 1e10, 6)
+
+        assert t_raw == pytest.approx(t_scaled, rel=1e-9)
+        assert abs(t_raw) > 10.0
+
+    def test_when_series_has_nan_then_matches_series_with_nan_dropped(self) -> None:
+        """A gap is a missing period, not a poisoned HAC sum."""
+        ic = pd.Series(_IC_WITH_GAP)
+
+        t_stat, p_value = compute_newey_west_tstat(ic, 6)
+        ref_t, ref_p = compute_newey_west_tstat(ic.dropna(), 6)
+
+        assert np.isfinite(t_stat)
+        assert t_stat > 2.0
+        assert t_stat == pytest.approx(ref_t, rel=1e-12)
+        assert p_value == pytest.approx(ref_p, rel=1e-12, abs=1e-15)
+
+    def test_when_nan_leaves_fewer_than_three_values_then_no_evidence(self) -> None:
+        ic = pd.Series([0.05, np.nan, 0.04, np.nan, np.nan])
+        assert compute_newey_west_tstat(ic, 6) == (0.0, 1.0)
 
 
 class TestQuantileSpread:
@@ -499,6 +994,167 @@ class TestComputeICStats:
         result = compute_ic_stats(ic)
         assert result.variance_nw > 0.0
 
+    @pytest.mark.parametrize("n", [3, 4, 6, 9, 12, 30])
+    def test_when_series_short_then_matches_textbook_newey_west(self, n: int) -> None:
+        """Autocovariances are normalised by n so the HAC variance stays >= 0."""
+        n_lags = min(5, (n - 1) // 2)
+        rng = np.random.default_rng(100 + n)
+        for _ in range(25):
+            values = rng.normal(0.0, 0.1, n)
+            result = compute_ic_stats(pd.Series(values), lags=n_lags)
+            ref_t, ref_p = _reference_newey_west(values, n_lags)
+            assert result.t_stat_nw == pytest.approx(ref_t, rel=1e-9)
+            assert result.p_value == pytest.approx(ref_p, rel=1e-9, abs=1e-15)
+            assert result.variance_nw > 0.0
+
+    def test_when_short_series_then_t_stat_not_inflated(self) -> None:
+        result = compute_ic_stats(pd.Series([0.1, 0.0, 0.1]), lags=1)
+        assert abs(result.t_stat_nw) < 100.0
+        assert result.p_value > 1e-6
+
+    @pytest.mark.parametrize(("lags", "n"), [(5, 10), (5, 4), (2, 4), (4, 8)])
+    def test_when_series_shorter_than_two_lags_plus_one_then_no_inference(
+        self, lags: int, n: int
+    ) -> None:
+        """Below 2 * lags + 1 periods no t-test is run; descriptives still are."""
+        rng = np.random.default_rng(n)
+        ic = pd.Series(0.05 + rng.normal(0.0, 1e-3, n))
+
+        result = compute_ic_stats(ic, lags=lags)
+
+        assert result.t_stat_nw == 0.0
+        assert result.p_value == 1.0
+        assert result.mean == pytest.approx(float(ic.mean()), rel=1e-12)
+        assert result.icir == pytest.approx(
+            float(ic.mean()) / float(ic.std(ddof=1)), rel=1e-9
+        )
+
+    @pytest.mark.parametrize("lags", [1, 2, 5])
+    def test_when_series_has_two_lags_plus_one_periods_then_inference_runs(
+        self, lags: int
+    ) -> None:
+        n = 2 * lags + 1
+        rng = np.random.default_rng(n)
+        values = 0.05 + rng.normal(0.0, 1e-2, n)
+
+        result = compute_ic_stats(pd.Series(values), lags=lags)
+        ref_t, ref_p = _reference_newey_west(values, lags)
+
+        assert result.t_stat_nw == pytest.approx(ref_t, rel=1e-9)
+        assert result.p_value == pytest.approx(ref_p, rel=1e-9, abs=1e-15)
+        assert abs(result.t_stat_nw) > 2.0
+
+    @pytest.mark.parametrize("n", [10, 20])
+    def test_when_ic_series_constant_then_no_evidence(self, n: int) -> None:
+        result = compute_ic_stats(pd.Series([0.05] * n), lags=5)
+        assert result.t_stat_nw == 0.0
+        assert result.p_value == 1.0
+        assert result.variance_nw == 0.0
+
+    def test_when_universe_ic_history_short_then_noise_not_flagged(self) -> None:
+        """Spurious p ~ 0 on short histories must not survive the corrections."""
+        rng = np.random.default_rng(1)
+        ic_matrix = pd.DataFrame(rng.normal(0.0, 0.1, (6, 20)))
+        result = validate_factor_universe(ic_matrix, lags=5)
+        assert result["p_value_raw"].min() > 1e-6
+        assert result["significant_holm"].sum() == 0
+
+    def test_when_universe_history_below_floor_then_no_factor_flagged(self) -> None:
+        """A 10-period history with 5 lags is under the 2 * lags + 1 floor."""
+        rng = np.random.default_rng(5)
+        ic_matrix = pd.DataFrame(rng.normal(0.0, 0.1, (10, 200)))
+
+        result = validate_factor_universe(ic_matrix, lags=5)
+
+        assert (result["p_value_raw"] == 1.0).all()
+        assert result["significant_bh"].sum() == 0
+
+    @pytest.mark.parametrize("scale", [1e-3, 1e-9, 1e-12, 1e3])
+    def test_when_series_rescaled_then_t_stat_and_icir_unchanged(
+        self, scale: float
+    ) -> None:
+        rng = np.random.default_rng(0)
+        base = pd.Series(rng.normal(2.0, 1.0, 60))
+        ref = compute_ic_stats(base)
+
+        scaled = compute_ic_stats(base * scale)
+
+        assert scaled.t_stat_nw == pytest.approx(ref.t_stat_nw, rel=1e-9)
+        assert scaled.icir == pytest.approx(ref.icir, rel=1e-9)
+
+    def test_when_series_has_nan_then_stats_match_series_with_nan_dropped(
+        self,
+    ) -> None:
+        """NaN is dropped before n, mean and the HAC sums, so they stay consistent."""
+        ic = pd.Series(_IC_WITH_GAP)
+
+        result = compute_ic_stats(ic, lags=5)
+        ref = compute_ic_stats(ic.dropna(), lags=5)
+
+        assert np.isfinite(result.variance_nw)
+        assert result.t_stat_nw > 2.0
+        assert result.p_value < 0.05
+        assert result.mean == pytest.approx(ref.mean, rel=1e-12)
+        assert result.variance_nw == pytest.approx(ref.variance_nw, rel=1e-12)
+        assert result.t_stat_nw == pytest.approx(ref.t_stat_nw, rel=1e-12)
+        assert result.p_value == pytest.approx(ref.p_value, rel=1e-12, abs=1e-15)
+        assert result.icir == pytest.approx(ref.icir, rel=1e-12)
+
+    def test_when_nan_leaves_fewer_than_three_values_then_short_series_result(
+        self,
+    ) -> None:
+        ic = pd.Series([0.05, np.nan, 0.04, np.nan, np.nan])
+        result = compute_ic_stats(ic)
+        assert np.isnan(result.mean)
+        assert np.isnan(result.variance_nw)
+        assert result.t_stat_nw == 0.0
+        assert result.p_value == 1.0
+
+
+class TestICIRConstantSeries:
+    """A constant IC series has no dispersion: ICIR is 0.0, not mean / noise."""
+
+    @pytest.mark.parametrize(
+        ("value", "n"), [(0.05, 20), (0.1, 13), (0.2, 7), (-0.03, 20)]
+    )
+    def test_when_ic_series_constant_then_compute_icir_is_zero(
+        self, value: float, n: int
+    ) -> None:
+        assert compute_icir(pd.Series([value] * n)) == 0.0
+
+    @pytest.mark.parametrize(
+        ("value", "n"), [(0.05, 20), (0.1, 13), (0.2, 7), (-0.03, 20)]
+    )
+    def test_when_ic_series_constant_then_ic_stats_icir_is_zero(
+        self, value: float, n: int
+    ) -> None:
+        assert compute_ic_stats(pd.Series([value] * n)).icir == 0.0
+
+    def test_when_composite_ic_constant_then_icir_is_zero(self) -> None:
+        rng = np.random.default_rng(0)
+        n_tickers, n_dates = 8, 20
+        dates = pd.date_range("2020-01-31", periods=n_dates, freq="ME")
+        tickers = [f"T{i}" for i in range(n_tickers)]
+        score_row = rng.normal(size=n_tickers)
+        return_row = rng.normal(size=n_tickers) * 0.02
+        scores = pd.DataFrame([score_row] * n_dates, index=dates, columns=tickers)
+        returns = pd.DataFrame([return_row] * n_dates, index=dates, columns=tickers)
+
+        result = compute_composite_ic(scores, returns)
+
+        assert result.mean_ic == pytest.approx(0.238095, abs=1e-6)
+        assert result.icir == 0.0
+
+    def test_when_ic_series_small_but_dispersed_then_icir_is_finite_ratio(
+        self,
+    ) -> None:
+        """The degenerate test is relative to the series scale."""
+        rng = np.random.default_rng(3)
+        ic = pd.Series(rng.normal(2.0, 1.0, 40) * 1e-9)
+        expected = float(ic.mean()) / float(ic.std(ddof=1))
+        assert compute_icir(ic) == pytest.approx(expected, rel=1e-12)
+        assert compute_ic_stats(ic).icir == pytest.approx(expected, rel=1e-12)
+
 
 class TestCorrectPValues:
     def test_returns_corrected_pvalues(self) -> None:
@@ -566,6 +1222,38 @@ class TestCorrectPValues:
         # Smallest raw (index 1) should have smallest Holm and BH
         assert result.holm[1] <= result.holm[0]
         assert result.bh[1] <= result.bh[0]
+
+    def test_nan_pvalue_does_not_poison_other_adjusted_pvalues(self) -> None:
+        result = correct_pvalues(np.array([0.001, np.nan, 0.03]))
+
+        # m is the count of finite p-values (2): the NaN is not a test.
+        np.testing.assert_allclose(result.holm[[0, 2]], [0.002, 0.03])
+        np.testing.assert_allclose(result.bh[[0, 2]], [0.002, 0.03])
+
+    def test_nan_pvalue_stays_nan_in_its_own_position_only(self) -> None:
+        result = correct_pvalues(np.array([0.2, np.nan, 0.01, 0.04]))
+
+        assert np.isnan(result.holm[1])
+        assert np.isnan(result.bh[1])
+        assert np.isfinite(np.delete(result.holm, 1)).all()
+        assert np.isfinite(np.delete(result.bh, 1)).all()
+
+    def test_nan_pvalues_match_correction_of_finite_subset(self) -> None:
+        finite = np.array([0.04, 0.001, 0.2, 0.01])
+        padded = np.array([0.04, np.nan, 0.001, 0.2, np.nan, 0.01])
+        mask = np.isfinite(padded)
+
+        expected = correct_pvalues(finite)
+        result = correct_pvalues(padded)
+
+        np.testing.assert_allclose(result.holm[mask], expected.holm)
+        np.testing.assert_allclose(result.bh[mask], expected.bh)
+
+    def test_all_nan_pvalues_return_all_nan(self) -> None:
+        result = correct_pvalues(np.array([np.nan, np.nan]))
+
+        assert np.isnan(result.holm).all()
+        assert np.isnan(result.bh).all()
 
 
 class TestValidateFactorUniverse:
@@ -720,6 +1408,74 @@ class TestFactorSpreadBenchmarks:
         report = run_factor_validation(factor_history, returns_hist)
         for qs in report.quantile_spreads:
             assert isinstance(qs.within_benchmark, bool)
+
+    @staticmethod
+    def _linear_panel(
+        per_period_spreads: list[float], n_tickers: int = 30
+    ) -> tuple[dict[str, pd.DataFrame], pd.DataFrame]:
+        """Panel whose date-t quintile spread equals ``per_period_spreads[t]``."""
+        n_dates = len(per_period_spreads)
+        dates = pd.date_range("2021-01-31", periods=n_dates, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(n_tickers)]
+        ranks = np.arange(n_tickers, dtype=float)
+        scores = pd.DataFrame(
+            np.tile(ranks, (n_dates, 1)), index=dates, columns=tickers
+        )
+        unit = compute_quantile_spread(scores.iloc[0], scores.iloc[0], n_quantiles=5)
+        returns = pd.DataFrame(
+            np.outer(np.asarray(per_period_spreads) / unit, ranks),
+            index=dates,
+            columns=tickers,
+        )
+        return {"momentum": scores}, returns
+
+    def test_when_monthly_spread_annualises_into_band_then_within_benchmark(
+        self,
+    ) -> None:
+        """0.5%/month is ~6% a year: inside the 4%-10% momentum band."""
+        factors, returns = self._linear_panel([0.005] * 36)
+        report = run_factor_validation(factors, returns)
+        (qs,) = report.quantile_spreads
+        assert qs.spread == pytest.approx(0.005)
+        assert qs.within_benchmark is True
+
+    def test_when_monthly_spread_matches_annual_band_numerically_then_not_within(
+        self,
+    ) -> None:
+        """A 6% monthly spread is ~72% a year, far above the momentum band."""
+        factors, returns = self._linear_panel([0.06] * 36)
+        report = run_factor_validation(factors, returns)
+        (qs,) = report.quantile_spreads
+        assert qs.within_benchmark is False
+
+    def test_when_spread_negative_then_not_within_benchmark(self) -> None:
+        """A reversed factor (loser-minus-winner) is not inside the benchmark."""
+        factors, returns = self._linear_panel([-0.06] * 36)
+        report = run_factor_validation(
+            factors, returns, FactorValidationConfig(periods_per_year=1)
+        )
+        (qs,) = report.quantile_spreads
+        assert qs.spread == pytest.approx(-0.06)
+        assert qs.within_benchmark is False
+
+    @pytest.mark.filterwarnings("ignore:An input array is constant")
+    def test_when_latest_date_is_noise_then_spread_averaged_over_dates(self) -> None:
+        """One bad final month must not decide the benchmark flag."""
+        factors, returns = self._linear_panel([0.0055] * 35 + [0.0])
+        report = run_factor_validation(factors, returns)
+        (qs,) = report.quantile_spreads
+        assert qs.spread == pytest.approx(0.0055 * 35 / 36)
+        assert qs.within_benchmark is True
+
+    def test_when_periods_per_year_set_then_annualisation_follows_it(self) -> None:
+        """Quarterly forward returns: 1.5%/quarter is 6% a year."""
+        factors, returns = self._linear_panel([0.015] * 36)
+        monthly = run_factor_validation(factors, returns)
+        quarterly = run_factor_validation(
+            factors, returns, FactorValidationConfig(periods_per_year=4)
+        )
+        assert monthly.quantile_spreads[0].within_benchmark is False
+        assert quarterly.quantile_spreads[0].within_benchmark is True
 
     def test_significant_factors_holm_populated(self) -> None:
         rng = np.random.default_rng(42)
@@ -887,6 +1643,27 @@ class TestCompositeICValidation:
         assert abs(result.mean_ic) < 0.3
         assert result.significant is False
 
+    def test_when_ic_history_shorter_than_two_lags_plus_one_then_not_significant(
+        self,
+    ) -> None:
+        """Noise on a 12-period history cannot be flagged with 6 HAC lags."""
+        dates = pd.date_range("2020-01-01", periods=12, freq="ME")
+        tickers = [f"T{i:02d}" for i in range(20)]
+        flagged = 0
+        for seed in range(150):
+            rng = np.random.default_rng(seed)
+            scores = pd.DataFrame(
+                rng.normal(0, 1, (12, 20)), index=dates, columns=tickers
+            )
+            returns = pd.DataFrame(
+                rng.normal(0, 1, (12, 20)), index=dates, columns=tickers
+            )
+            result = compute_composite_ic(scores, returns, newey_west_lags=6)
+            flagged += int(result.significant)
+            assert result.t_stat == 0.0
+            assert result.p_value == 1.0
+        assert flagged == 0
+
     def test_best_individual_ic_nan_standalone(self) -> None:
         """Direct call has NaN best_individual_ic."""
         rng = np.random.default_rng(42)
@@ -969,7 +1746,12 @@ class TestCompositeICValidation:
         )
         result = compute_composite_ic(scores, returns)
         assert pytest.approx(result.mean_ic, abs=1e-9) == 1.0
-        assert result.significant is True
+        # A zero-variance IC series gives the Newey-West standard error nothing
+        # to estimate, so inference is undefined rather than infinitely
+        # significant (a stale or copied cross-section looks exactly like this).
+        assert result.significant is False
+        assert result.t_stat == 0.0
+        assert result.p_value == 1.0
         # Perfect IC every period → ic_std=0 → icir=0 by zero-std guard
         assert result.ic_std == 0.0
         assert result.icir == 0.0

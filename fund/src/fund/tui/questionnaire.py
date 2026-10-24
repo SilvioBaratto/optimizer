@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, SelectionList, Static
 
@@ -62,6 +62,7 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
         border: thick $accent; background: $surface;
     }
     .q-title { text-style: bold; color: $accent; }
+    .q-form { height: 1fr; }
     .q-error { height: auto; color: $error; }
     .q-actions { height: auto; align-horizontal: center; padding-top: 1; }
     .q-dialog Button { margin: 0 1; }
@@ -85,36 +86,45 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
 
         with Vertical(classes="q-dialog"):
             yield Label("MiFID suitability questionnaire", classes="q-title")
-            if self._ask_capital:
-                yield Input(placeholder="capital (e.g. 100000)", id="q-capital")
-            yield Input(value="EUR", placeholder="base currency", id="q-base-currency")
-            yield Select(
-                [(level.value, level.value) for level in KnowledgeLevel],
-                id="q-knowledge",
-                prompt="knowledge & experience",
-            )
-            yield Input(placeholder="max 1yr loss (fraction 0-1)", id="q-max-loss")
-            yield Input(placeholder="cash buffer (months)", id="q-buffer")
-            yield Select(
-                [(goal.value, goal.value) for goal in ObjectiveChoice],
-                id="q-goal",
-                prompt="primary objective",
-            )
-            yield Select(
-                [(horizon.value, horizon.value) for horizon in Horizon],
-                id="q-horizon",
-                prompt="horizon",
-            )
-            yield Input(placeholder="risk likert 1-7 (comma-separated)", id="q-likert")
-            yield Select(
-                [(reaction.value, reaction.value) for reaction in LossReaction],
-                id="q-loss-reaction",
-                prompt="reaction to a severe loss",
-            )
-            yield SelectionList[str](
-                *((sector.value, sector.value) for sector in GicsSector), id="q-esg"
-            )
-            yield Static("", id="q-error", classes="q-error")
+            # Only the fields scroll; the error line and buttons sit outside the
+            # scroll area so a short terminal can never push them out of reach.
+            with VerticalScroll(classes="q-form"):
+                if self._ask_capital:
+                    yield Input(placeholder="capital (e.g. 100000)", id="q-capital")
+                yield Input(
+                    value="EUR", placeholder="base currency", id="q-base-currency"
+                )
+                yield Select(
+                    [(level.value, level.value) for level in KnowledgeLevel],
+                    id="q-knowledge",
+                    prompt="knowledge & experience",
+                )
+                yield Input(placeholder="max 1yr loss (fraction 0-1)", id="q-max-loss")
+                yield Input(placeholder="cash buffer (months)", id="q-buffer")
+                yield Select(
+                    [(goal.value, goal.value) for goal in ObjectiveChoice],
+                    id="q-goal",
+                    prompt="primary objective",
+                )
+                yield Select(
+                    [(horizon.value, horizon.value) for horizon in Horizon],
+                    id="q-horizon",
+                    prompt="horizon",
+                )
+                yield Input(
+                    placeholder="risk likert 1-7 (comma-separated)", id="q-likert"
+                )
+                yield Select(
+                    [(reaction.value, reaction.value) for reaction in LossReaction],
+                    id="q-loss-reaction",
+                    prompt="reaction to a severe loss",
+                )
+                yield SelectionList[str](
+                    *((sector.value, sector.value) for sector in GicsSector), id="q-esg"
+                )
+            # Plain text: error detail routinely carries ``[...]``, which Textual's
+            # markup parser rejects with a MarkupError that would crash the app.
+            yield Static("", id="q-error", classes="q-error", markup=False)
             with Horizontal(classes="q-actions"):
                 yield Button("Submit", variant="primary", id="q-submit")
                 yield Button("Cancel", id="q-cancel")
@@ -126,6 +136,11 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
         elif event.button.id == "q-cancel":
             self.dismiss(None)
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """``↵`` in any text field submits, so the form works without a pointer."""
+        event.stop()
+        self._submit()
+
     def action_cancel(self) -> None:
         """``escape`` dismisses the questionnaire as a cancel (a caller no-op)."""
         self.dismiss(None)
@@ -135,7 +150,7 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
         try:
             submission = self.build_submission()
         except Exception as exc:  # pydantic/parse errors → an inline message, stay open
-            self.query_one("#q-error", Static).update(f"invalid: {exc}")
+            self.query_one("#q-error", Static).update(f"invalid: {describe_error(exc)}")
             return
         self.dismiss(submission)
 
@@ -210,4 +225,27 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
         return capital
 
 
-__all__ = ["OnboardingSubmission", "QuestionnaireScreen"]
+def describe_error(exc: Exception) -> str:
+    """One-line, per-field summary of a form error.
+
+    A pydantic ``ValidationError`` stringifies to a multi-line dump with the offending
+    ``input_value`` and a docs URL; the field path plus the rule is what the adviser
+    needs to fix the entry.
+
+    Args:
+        exc: The exception raised while building the submission.
+
+    Returns:
+        ``"<field>: <rule>; ..."`` for a validation error, else ``str(exc)``.
+    """
+    from pydantic import ValidationError
+
+    if isinstance(exc, ValidationError):
+        return "; ".join(
+            f"{'.'.join(str(part) for part in err['loc'])}: {err['msg']}"
+            for err in exc.errors()
+        )
+    return str(exc)
+
+
+__all__ = ["OnboardingSubmission", "QuestionnaireScreen", "describe_error"]

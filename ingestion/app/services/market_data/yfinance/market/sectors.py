@@ -13,8 +13,9 @@ from typing import Any
 
 import pandas as pd
 import yfinance as yf
+from yfinance.exceptions import YFDataException
 
-from ..infrastructure import is_rate_limit_error, retry_with_backoff
+from ..infrastructure import is_no_data_error, is_rate_limit_error, retry_with_backoff
 from ..protocols import CircuitBreakerProtocol, RateLimiterProtocol
 
 logger = logging.getLogger(__name__)
@@ -46,8 +47,21 @@ def _industries_to_list(value: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _present(value: Any) -> Any:
+    """Return *value*, or ``None`` when pandas marks it missing (NaN, NaT, None).
+
+    NaN is truthy, so ``value or fallback`` keeps it and a later ``str()``
+    stores the text ``"nan"`` as if it were real data.
+    """
+    return None if pd.api.types.is_scalar(value) and pd.isna(value) else value
+
+
 def _top_companies_to_list(value: Any) -> list[dict[str, Any]]:
-    """``sector.top_companies`` → ``[{"symbol","name","weight","rating"}]``."""
+    """``sector.top_companies`` → ``[{"symbol","name","weight","rating"}]``.
+
+    Fields yfinance leaves NaN (an unrated constituent, an unnamed row) come
+    back as ``None``; a genuine ``0.0`` weight is kept.
+    """
     if not isinstance(value, pd.DataFrame) or value.empty:
         return []
     out: list[dict[str, Any]] = []
@@ -55,11 +69,13 @@ def _top_companies_to_list(value: Any) -> list[dict[str, Any]]:
         out.append(
             {
                 "symbol": str(symbol),
-                "name": row.get("name") or row.get("Name"),
-                "weight": row.get("market weight")
-                if "market weight" in row
-                else row.get("market_weight"),
-                "rating": row.get("rating") or row.get("Rating"),
+                "name": _present(row.get("name")) or _present(row.get("Name")),
+                "weight": _present(
+                    row.get("market weight")
+                    if "market weight" in row
+                    else row.get("market_weight")
+                ),
+                "rating": _present(row.get("rating")) or _present(row.get("Rating")),
             }
         )
     return out
@@ -94,6 +110,14 @@ class SectorsClient:
         Returns:
             Dict with ``key``, ``name``, ``symbol``, ``overview``,
             ``industries``, and ``top_companies``, or ``None`` on failure.
+
+        Raises:
+            YFDataException: Yahoo exposed no name and no overview for the pair.
+                yfinance swallows the failed fetch (a throttle or a 404) and
+                leaves every attribute empty, which would otherwise look like a
+                valid, truthy result.  It is raised as a final no-data answer so
+                it is not retried, and the caller can record the failure instead
+                of persisting an all-NULL snapshot.
         """
         logger.debug("Fetching sector '%s' (region=%s)", key, region)
         retries = max_retries if max_retries is not None else self.default_max_retries
@@ -105,6 +129,8 @@ class SectorsClient:
             overview = sec.overview
             if not isinstance(overview, dict):
                 overview = {}
+            if sec.name is None and all(v is None for v in overview.values()):
+                raise YFDataException(f"no sector data for {key}/{region}")
             return {
                 "key": sec.key or key,
                 "name": sec.name,
@@ -118,6 +144,7 @@ class SectorsClient:
             _action,
             retries,
             is_valid=lambda v: v is not None,
+            is_permanent_error=is_no_data_error,
             is_rate_limit_error=is_rate_limit_error,
             on_rate_limit=self.circuit_breaker.trigger,
             on_success=lambda _: self.circuit_breaker.reset(),

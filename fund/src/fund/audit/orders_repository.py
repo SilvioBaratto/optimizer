@@ -21,6 +21,8 @@ not this repo — rolls back that failed session.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from datetime import date
 from typing import Any
@@ -28,6 +30,24 @@ from typing import Any
 from portopt_db.models import PaperOrder
 from portopt_db.repository import RepositoryBase
 from sqlalchemy import select
+
+
+def weights_hash(weights: dict[str, float]) -> str:
+    """sha256 of the canonical weights JSON — stable across calls, order-free.
+
+    The weights leg of the ticket idempotency key, shared by ``place_orders`` (to
+    find-or-create) and by readers that need the ticket an approved run placed.
+
+    Args:
+        weights: Ticker to target weight. Insertion order is irrelevant: keys are
+            sorted before hashing, so equal mappings always hash equal.
+
+    Returns:
+        The 64-character lowercase hex digest. Values must be JSON-serialisable
+        (``float``/``int``); anything else raises ``TypeError`` from ``json.dumps``.
+    """
+    canonical = json.dumps(weights, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class OrderRepository(RepositoryBase):
@@ -95,11 +115,36 @@ class OrderRepository(RepositoryBase):
         )
         return list(self.session.execute(stmt).scalars().all())
 
+    def latest_on_or_before(
+        self, portfolio_id: uuid.UUID, asof: date
+    ) -> PaperOrder | None:
+        """Return the newest ticket decided at or before ``asof``, or ``None``.
+
+        The book a new ticket rebalances *from*: ordered by decision bar, then fill
+        bar, then insertion time so a same-bar re-proposal with different weights
+        still resolves deterministically.
+
+        Args:
+            portfolio_id: Portfolio to query.
+            asof: Inclusive upper bound on the ticket's decision bar.
+        """
+        stmt = (
+            select(PaperOrder)
+            .where(PaperOrder.portfolio_id == portfolio_id, PaperOrder.asof <= asof)
+            .order_by(
+                PaperOrder.asof.desc(),
+                PaperOrder.fill_date.desc(),
+                PaperOrder.created_at.desc(),
+            )
+        )
+        return self.session.execute(stmt).scalars().first()
+
     def latest_for_portfolio(self, portfolio_id: uuid.UUID) -> PaperOrder | None:
         """Return the most recent ticket for a portfolio, or ``None`` when it has none.
 
-        ``report RUN_ID`` reads it as ``latest_for_portfolio(run.portfolio_id)`` —
-        the just-approved run's ticket is the newest by ``created_at`` (O2).
+        Only the run being approved right now can assume its ticket is the newest by
+        ``created_at`` (O2); a reader of an arbitrary run resolves its ticket with
+        :meth:`get_by_key` and :func:`weights_hash` instead.
         """
         stmt = (
             select(PaperOrder)
@@ -109,4 +154,4 @@ class OrderRepository(RepositoryBase):
         return self.session.execute(stmt).scalars().first()
 
 
-__all__ = ["OrderRepository"]
+__all__ = ["OrderRepository", "weights_hash"]

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.moments._config import MomentEstimationConfig
 
 
@@ -74,6 +76,13 @@ class RatioMeasureType(str, Enum):
     INFORMATION_RATIO = "information_ratio"
 
 
+# skfolio adds ``l2_coef * ||w||^2`` straight onto the variance term, in the
+# same units as the returns.  Daily variance is ~1e-4, so a coefficient of the
+# usual 0.01-0.1 makes the ridge hundreds of times larger than the risk it is
+# meant to regularise and the covariance stops steering the weights.
+_DAILY_RIDGE_L2_COEF = 1e-3
+
+
 class FallbackPolicy(str, Enum):
     """Serialisable fallback policy for the optimizer resilience layer.
 
@@ -111,14 +120,24 @@ class MeanRiskConfig:
         budget: Portfolio budget (sum of weights).
         max_short: Maximum short position.
         max_long: Maximum long position.
-        cardinality: Maximum number of assets.
+        cardinality: Maximum number of assets.  Makes the problem
+            mixed-integer, so ``solver`` must be MIP-capable (``"SCIP"``, or
+            ``"SCIPY"`` for linear risk measures); `build_mean_risk` rejects
+            the default ``"CLARABEL"``.
         transaction_costs: Linear transaction costs penalising turnover relative
             to ``previous_weights``.
         management_fees: Linear management fees proportional to position size.
         max_tracking_error: Maximum tracking error relative to benchmark returns
-            (passed as ``y`` in ``fit(X, y)``).
+            (passed as ``y`` in ``fit(X, y)``).  Forwarded unchanged to
+            skfolio, which measures it as the RMSE of active returns in the
+            same frequency as ``X`` (per period, NOT annualised); use
+            ``for_tracking_error`` to state the cap in annualised terms.
         l1_coef: L1 regularisation coefficient.
-        l2_coef: L2 regularisation coefficient.
+        l2_coef: L2 regularisation coefficient.  It is added to the risk term
+            unscaled, so it must be sized against the variance of the returns
+            in ``X`` (about 1e-4 to 1e-3 for daily data, an order of magnitude
+            more for monthly data); a value far above that ignores the
+            covariance matrix.
         risk_free_rate: Risk-free rate for ratio objectives.
         cvar_beta: CVaR confidence level.
         evar_beta: EVaR confidence level.
@@ -197,13 +216,13 @@ class MeanRiskConfig:
         Targets the Sharpe ratio while using L2 regularisation and
         a per-asset weight cap to enforce diversification and keep
         volatility stable.  Uses ShrunkMu + DenoiseCovariance for
-        robust moment estimates.
+        robust moment estimates.  The ridge is sized for daily returns.
         """
         return cls(
             objective=ObjectiveFunctionType.MAXIMIZE_RATIO,
             risk_measure=RiskMeasureType.VARIANCE,
             max_weights=0.10,
-            l2_coef=0.05,
+            l2_coef=_DAILY_RIDGE_L2_COEF,
             prior_config=MomentEstimationConfig.for_shrunk_denoised(),
         )
 
@@ -213,14 +232,15 @@ class MeanRiskConfig:
 
         Uses ``min_weights=0.01`` to ensure all selected stocks get a
         meaningful allocation and ``max_weights=0.10`` to cap individual
-        positions.  L2 regularisation pushes toward equal-weight.
+        positions.  L2 regularisation pushes toward equal-weight; it is
+        sized for daily returns.
         """
         return cls(
             objective=ObjectiveFunctionType.MAXIMIZE_RATIO,
             risk_measure=RiskMeasureType.VARIANCE,
             min_weights=0.01,
             max_weights=0.10,
-            l2_coef=0.05,
+            l2_coef=_DAILY_RIDGE_L2_COEF,
             prior_config=MomentEstimationConfig.for_shrunk_denoised(),
         )
 
@@ -234,7 +254,8 @@ class MeanRiskConfig:
         Combines L2 regularisation, a 10% per-asset cap, and a uniform
         per-sector cap to prevent sector concentration.
 
-        Uses ShrunkMu + DenoiseCovariance for robust moment estimates.
+        Uses ShrunkMu + DenoiseCovariance for robust moment estimates.  The
+        ridge is sized for daily returns.
 
         Args:
             max_sector_weight: Maximum total weight for any single sector.
@@ -243,7 +264,7 @@ class MeanRiskConfig:
             objective=ObjectiveFunctionType.MAXIMIZE_RATIO,
             risk_measure=RiskMeasureType.VARIANCE,
             max_weights=0.10,
-            l2_coef=0.05,
+            l2_coef=_DAILY_RIDGE_L2_COEF,
             max_sector_weight=max_sector_weight,
             prior_config=MomentEstimationConfig.for_shrunk_denoised(),
         )
@@ -283,6 +304,7 @@ class MeanRiskConfig:
     def for_tracking_error(
         cls,
         max_tracking_error: float = 0.05,
+        periods_per_year: int = 252,
     ) -> MeanRiskConfig:
         """Max-Sharpe portfolio with a hard tracking-error cap.
 
@@ -292,12 +314,24 @@ class MeanRiskConfig:
 
         Args:
             max_tracking_error: Upper bound on annualised tracking error vs.
-                the benchmark.
+                the benchmark.  Stored on the config as the per-period
+                equivalent ``max_tracking_error / sqrt(periods_per_year)``
+                because skfolio reads the cap in the frequency of ``X``.
+            periods_per_year: Observations per year of the return frames the
+                optimiser will be fitted on (252 daily, 52 weekly,
+                12 monthly).
+
+        Raises:
+            ConfigurationError: If ``periods_per_year`` is not positive.
         """
+        if periods_per_year <= 0:
+            raise ConfigurationError(
+                f"periods_per_year must be > 0 (got {periods_per_year})"
+            )
         return cls(
             objective=ObjectiveFunctionType.MAXIMIZE_RATIO,
             risk_measure=RiskMeasureType.VARIANCE,
-            max_tracking_error=max_tracking_error,
+            max_tracking_error=max_tracking_error / math.sqrt(periods_per_year),
         )
 
     @classmethod

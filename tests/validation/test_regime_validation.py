@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -74,6 +76,7 @@ class TestRegimeValidationConfig:
         assert cfg.trading_days_per_year == 252
         assert cfg.risk_free_rate == 0.0
         assert cfg.include_unknown_regime is False
+        assert cfg.max_macro_staleness_days == 120
 
     def test_frozen(self) -> None:
         cfg = RegimeValidationConfig()
@@ -112,6 +115,18 @@ class TestRegimeValidationConfig:
     def test_invalid_risk_free_rate(self) -> None:
         with pytest.raises(ValueError, match="risk_free_rate"):
             RegimeValidationConfig(risk_free_rate=-0.01)
+
+    def test_invalid_max_macro_staleness_days(self) -> None:
+        with pytest.raises(ValueError, match="max_macro_staleness_days"):
+            RegimeValidationConfig(max_macro_staleness_days=-1)
+
+    def test_unbounded_macro_staleness_is_allowed(self) -> None:
+        assert (
+            RegimeValidationConfig(
+                max_macro_staleness_days=None
+            ).max_macro_staleness_days
+            is None
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +390,92 @@ class TestRunRegimeValidation:
         expected = (1.001) ** 252 - 1.0
         assert ann_ret == pytest.approx(expected, rel=1e-6)
 
+    def test_ann_return_is_realised_cagr_not_compounded_mean(
+        self,
+        expansion_macro_data: pd.DataFrame,
+    ) -> None:
+        """Volatility drag must reduce ann_return: +10% / -10% days lose money."""
+        dates = expansion_macro_data.index
+        returns = pd.Series(np.tile([0.10, -0.10], len(dates) // 2), index=dates)
+        result = run_regime_validation(returns, expansion_macro_data)
+        ann_ret = result.per_regime_metrics.loc["expansion", "ann_return"]
+        expected = float(np.prod(1.0 + returns.to_numpy())) ** (252 / len(dates)) - 1.0
+        assert expected < 0
+        assert ann_ret == pytest.approx(expected, rel=1e-9)
+
+    def test_ann_return_equals_total_return_over_one_year(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=252)
+        macro = pd.DataFrame(
+            {"pmi": 55.0, "spread_2s10s": 1.5, "hy_oas": 300.0}, index=dates
+        )
+        rng = np.random.default_rng(7)
+        returns = pd.Series(rng.normal(0.0005, 0.02, size=252), index=dates)
+        result = run_regime_validation(returns, macro)
+        ann_ret = result.per_regime_metrics.loc["expansion", "ann_return"]
+        assert ann_ret == pytest.approx(float((1.0 + returns).prod() - 1.0), rel=1e-9)
+
+    def test_single_observation_block_reports_undefined_dispersion_as_nan(
+        self,
+    ) -> None:
+        """One day has no volatility, and annualising it only extrapolates."""
+        dates = pd.bdate_range("2024-01-02", periods=61)
+        macro = pd.DataFrame(
+            {
+                "pmi": [55.0] * 60 + [46.0],
+                "spread_2s10s": [1.5] * 60 + [-0.5],
+                "hy_oas": [300.0] * 60 + [600.0],
+            },
+            index=dates,
+        )
+        returns = pd.Series([0.001] * 60 + [-0.02], index=dates)
+        config = RegimeValidationConfig(min_regime_obs=1)
+
+        result = run_regime_validation(returns, macro, config=config)
+
+        one_day = result.per_regime_metrics.loc["recession"]
+        assert one_day["obs"] == 1
+        assert np.isnan(one_day["ann_vol"])
+        assert np.isnan(one_day["ann_return"])
+        assert np.isnan(one_day["sharpe"])
+        assert one_day["max_drawdown"] == pytest.approx(-0.02)
+        last_block = result.per_subperiod_metrics.iloc[-1]
+        assert last_block["obs"] == 1
+        assert np.isnan(last_block["ann_vol"])
+        attribution = result.to_attribution_dict()
+        regimes = cast(list[dict[str, object]], attribution["regimes"])
+        recession = next(r for r in regimes if r["regime"] == "recession")
+        assert recession["ann_vol"] is None
+
+    def test_max_drawdown_counts_loss_from_starting_equity(self) -> None:
+        """A block that opens with a loss is a drawdown from the initial 1.0."""
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        macro = pd.DataFrame(
+            {"pmi": 55.0, "spread_2s10s": 1.5, "hy_oas": 300.0}, index=dates
+        )
+        returns = pd.Series([-0.20, 0.01, 0.01, 0.01], index=dates)
+        config = RegimeValidationConfig(min_regime_obs=1)
+
+        result = run_regime_validation(returns, macro, config=config)
+
+        assert result.per_regime_metrics.loc["expansion", "max_drawdown"] == (
+            pytest.approx(-0.20)
+        )
+        assert result.per_subperiod_metrics["max_drawdown"].iloc[0] == (
+            pytest.approx(-0.20)
+        )
+
+    def test_max_drawdown_zero_for_monotonic_gains(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        macro = pd.DataFrame(
+            {"pmi": 55.0, "spread_2s10s": 1.5, "hy_oas": 300.0}, index=dates
+        )
+        returns = pd.Series([0.01, 0.02, 0.0, 0.01], index=dates)
+        config = RegimeValidationConfig(min_regime_obs=1)
+
+        result = run_regime_validation(returns, macro, config=config)
+
+        assert result.per_regime_metrics.loc["expansion", "max_drawdown"] == 0.0
+
     def test_to_attribution_dict_structure(
         self,
         synthetic_oos_returns: pd.Series,
@@ -458,3 +559,287 @@ class TestRunRegimeValidation:
         # Sharpe should be None for insufficient data
         for regime in d["regimes"]:
             assert regime["sharpe"] is None
+
+
+class TestMixedFrequencyMacroData:
+    def test_sparse_pmi_is_carried_forward_between_releases(self) -> None:
+        """A monthly PMI on a daily frame keeps its last published value."""
+        dates = pd.bdate_range("2024-01-02", periods=120)
+        pmi = pd.Series(np.nan, index=dates)
+        pmi.iloc[0] = 55.0
+        macro = pd.DataFrame({"pmi": pmi, "spread_2s10s": 0.2}, index=dates)
+        returns = pd.Series(0.001, index=dates)
+
+        result = run_regime_validation(returns, macro)
+
+        assert list(result.per_regime_metrics.index) == ["expansion"]
+        assert result.per_regime_metrics.loc["expansion", "obs"] == len(dates)
+        assert len(result.per_subperiod_metrics) == 1
+
+    def test_carry_forward_does_not_look_ahead(self) -> None:
+        """Days before the first PMI release stay neutral, not back-filled."""
+        dates = pd.bdate_range("2024-01-02", periods=60)
+        pmi = pd.Series(np.nan, index=dates)
+        pmi.iloc[30] = 44.0
+        macro = pd.DataFrame({"pmi": pmi, "spread_2s10s": -0.5}, index=dates)
+        returns = pd.Series(0.001, index=dates)
+
+        result = run_regime_validation(returns, macro)
+
+        timeline = result.regime_timeline
+        assert (timeline.iloc[:30] == "recovery").all()
+        assert (timeline.iloc[30:] == "recession").all()
+
+    def test_sparse_gdp_growth_keeps_native_release_cadence(self) -> None:
+        """Forward-filling must not flatten the GDP series' period-over-period step."""
+        dates = pd.bdate_range("2024-01-02", periods=8)
+        gdp = pd.Series(np.nan, index=dates)
+        gdp.iloc[[0, 2, 4, 6]] = [1.0, 1.5, 2.0, 3.0]
+        macro = pd.DataFrame({"gdp_growth": gdp}, index=dates)
+        returns = pd.Series(0.001, index=dates)
+
+        result = run_regime_validation(
+            returns, macro, config=RegimeValidationConfig(min_regime_obs=1)
+        )
+
+        assert result.regime_timeline.iloc[-1] == "expansion"
+
+
+_EXPANSION = {"pmi": 55.0, "spread_2s10s": 1.5, "hy_oas": 300.0}
+_RECOVERY = {"pmi": 46.0, "spread_2s10s": 0.5, "hy_oas": 400.0}
+_SLOWDOWN = {"pmi": 50.0, "spread_2s10s": 0.5, "hy_oas": 400.0}
+
+
+def _blocks_macro(*blocks: tuple[dict[str, float], int]) -> pd.DataFrame:
+    """Concatenate constant-indicator blocks on a business-day index."""
+    n = sum(length for _, length in blocks)
+    dates = pd.bdate_range("2024-01-02", periods=n)
+    rows = [ind for ind, length in blocks for _ in range(length)]
+    return pd.DataFrame(rows, index=dates)
+
+
+class TestAlphaConcentration:
+    def test_dominant_regime_with_uniform_daily_edge_is_not_flagged(self) -> None:
+        """Identical per-day performance must not read as concentrated alpha."""
+        macro = _blocks_macro((_EXPANSION, 255), (_RECOVERY, 45))
+        returns = pd.Series(0.0005, index=macro.index)
+
+        result = run_regime_validation(returns, macro)
+
+        assert result.n_regimes_observed == 2
+        assert result.concentrated_regimes == []
+        conc = result.regime_alpha_concentration
+        assert conc["expansion"] == pytest.approx(0.5)
+        assert conc["recovery"] == pytest.approx(0.5)
+
+    def test_regimes_below_min_obs_take_no_share(self) -> None:
+        """An under-sampled regime has NaN metrics and must not absorb alpha."""
+        macro = _blocks_macro((_EXPANSION, 60), (_RECOVERY, 60), (_SLOWDOWN, 3))
+        returns = pd.Series(
+            [0.001] * 120 + [0.05] * 3,
+            index=macro.index,
+        )
+
+        result = run_regime_validation(returns, macro)
+
+        assert not result.per_regime_metrics.loc["slowdown", "obs_sufficient"]
+        conc = result.regime_alpha_concentration
+        assert conc["slowdown"] == 0.0
+        assert conc["expansion"] == pytest.approx(0.5)
+        assert conc["recovery"] == pytest.approx(0.5)
+        assert result.concentrated_regimes == []
+
+    def test_concentration_uses_excess_over_risk_free_rate(self) -> None:
+        """Alpha is return above the risk-free rate, as in the Sharpe ratio."""
+        macro = _blocks_macro((_EXPANSION, 60), (_RECOVERY, 60))
+        returns = pd.Series([0.0006] * 60 + [0.0004] * 60, index=macro.index)
+        config = RegimeValidationConfig(risk_free_rate=0.0004 * 252)
+
+        result = run_regime_validation(returns, macro, config=config)
+
+        conc = result.regime_alpha_concentration
+        assert conc["expansion"] == pytest.approx(1.0)
+        assert conc["recovery"] == pytest.approx(0.0)
+        assert result.concentrated_regimes == ["expansion"]
+
+    def test_concentration_flags_regime_with_all_the_edge(self) -> None:
+        macro = _blocks_macro((_EXPANSION, 60), (_RECOVERY, 60))
+        returns = pd.Series([0.002] * 60 + [-0.001] * 60, index=macro.index)
+
+        result = run_regime_validation(returns, macro)
+
+        assert result.concentrated_regimes == ["expansion"]
+
+
+class TestMacroDataOrdering:
+    @staticmethod
+    def _sparse_pmi_macro() -> tuple[pd.DataFrame, pd.Series]:
+        dates = pd.bdate_range("2024-01-02", periods=180)
+        pmi = pd.Series(np.nan, index=dates)
+        pmi.iloc[[0, 60, 120]] = [55.0, 46.0, 55.0]
+        macro = pd.DataFrame({"pmi": pmi, "spread_2s10s": 0.2}, index=dates)
+        rng = np.random.default_rng(1)
+        returns = pd.Series(rng.normal(0.001, 0.01, size=180), index=dates)
+        return macro, returns
+
+    def test_newest_first_macro_data_gives_the_same_regimes(self) -> None:
+        """Row order of the macro frame must not decide what counts as past."""
+        macro, returns = self._sparse_pmi_macro()
+
+        expected = run_regime_validation(returns, macro)
+        result = run_regime_validation(returns, macro.iloc[::-1])
+
+        pd.testing.assert_series_equal(result.regime_timeline, expected.regime_timeline)
+        pd.testing.assert_frame_equal(
+            result.per_regime_metrics, expected.per_regime_metrics
+        )
+
+    def test_shuffled_macro_data_gives_the_same_regimes(self) -> None:
+        macro, returns = self._sparse_pmi_macro()
+
+        expected = run_regime_validation(returns, macro)
+        result = run_regime_validation(returns, macro.sample(frac=1.0, random_state=0))
+
+        pd.testing.assert_series_equal(result.regime_timeline, expected.regime_timeline)
+
+    def test_duplicate_macro_dates_keep_the_latest_row(self) -> None:
+        """A superseded row must not leak its values into the carry-forward.
+
+        The surviving row has no PMI release; if the superseded duplicate were
+        kept, forward-filling would hand it the superseded PMI of 40.0.
+        """
+        dates = pd.bdate_range("2024-01-02", periods=60)
+        pmi = pd.Series(np.nan, index=dates)
+        pmi.iloc[30] = 55.0
+        macro = pd.DataFrame({"pmi": pmi, "spread_2s10s": 0.2}, index=dates)
+        superseded = macro.iloc[[0]].copy()
+        superseded["pmi"] = 40.0
+        with_duplicate = pd.concat([superseded, macro])
+        returns = pd.Series(0.001, index=dates)
+
+        expected = run_regime_validation(returns, macro)
+        result = run_regime_validation(returns, with_duplicate)
+
+        pd.testing.assert_series_equal(result.regime_timeline, expected.regime_timeline)
+
+
+class TestMacroDataStaleness:
+    @staticmethod
+    def _expansion_macro_ending_early() -> tuple[pd.DataFrame, pd.Series]:
+        macro_dates = pd.bdate_range("2024-01-02", periods=60)
+        macro = pd.DataFrame(
+            {"pmi": 55.0, "spread_2s10s": 1.5, "hy_oas": 300.0}, index=macro_dates
+        )
+        oos_dates = pd.bdate_range("2024-01-02", periods=250)
+        rng = np.random.default_rng(3)
+        returns = pd.Series(rng.normal(0.0005, 0.01, size=250), index=oos_dates)
+        return macro, returns
+
+    def test_regime_is_not_carried_past_the_staleness_limit(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Macro data that stops early must not label the rest of the sample."""
+        macro, returns = self._expansion_macro_ending_early()
+        last_macro = macro.index[-1]
+        limit = pd.Timedelta(days=120)
+        expected_obs = int((returns.index <= last_macro + limit).sum())
+        assert expected_obs < len(returns)
+
+        with caplog.at_level("WARNING"):
+            result = run_regime_validation(returns, macro)
+
+        assert result.per_regime_metrics.loc["expansion", "obs"] == expected_obs
+        assert result.per_regime_metrics.loc["expansion", "coverage_pct"] < 1.0
+        assert len(result.regime_timeline) == expected_obs
+        assert result.total_obs == len(returns)
+        assert "stale" in caplog.text
+
+    def test_include_unknown_marks_stale_days_unknown(self) -> None:
+        macro, returns = self._expansion_macro_ending_early()
+        config = RegimeValidationConfig(include_unknown_regime=True)
+
+        result = run_regime_validation(returns, macro, config=config)
+
+        assert result.regime_timeline.iloc[-1] == "unknown"
+        assert result.regime_timeline.iloc[0] == "expansion"
+
+    def test_unbounded_staleness_restores_open_ended_carry_forward(self) -> None:
+        macro, returns = self._expansion_macro_ending_early()
+        config = RegimeValidationConfig(max_macro_staleness_days=None)
+
+        result = run_regime_validation(returns, macro, config=config)
+
+        assert result.per_regime_metrics.loc["expansion", "coverage_pct"] == 1.0
+
+    def test_quarterly_cadence_stays_within_the_default_limit(self) -> None:
+        """Quarter-start stamps leave gaps of about 90 days between releases."""
+        oos_dates = pd.bdate_range("2024-01-02", periods=250)
+        macro = pd.DataFrame(
+            {"pmi": 55.0, "spread_2s10s": 1.5, "hy_oas": 300.0},
+            index=pd.DatetimeIndex(
+                ["2024-01-01", "2024-04-01", "2024-07-01", "2024-10-01"]
+            ),
+        )
+        returns = pd.Series(0.001, index=oos_dates)
+
+        result = run_regime_validation(returns, macro)
+
+        assert result.per_regime_metrics.loc["expansion", "coverage_pct"] == 1.0
+
+
+class TestMacroCalendarAlignment:
+    """Macro stamps rarely coincide with trading days; alignment is as-of."""
+
+    def test_weekend_stamped_macro_data_classifies_trading_days(self) -> None:
+        macro_dates = pd.date_range("2024-01-07", periods=30, freq="W-SUN")
+        macro = pd.DataFrame(_EXPANSION, index=macro_dates)
+        oos_dates = pd.bdate_range("2024-01-08", periods=120)
+        returns = pd.Series(0.001, index=oos_dates)
+
+        result = run_regime_validation(returns, macro)
+
+        assert result.n_regimes_observed == 1
+        assert result.per_regime_metrics.loc["expansion", "obs"] == len(oos_dates)
+
+    def test_month_start_macro_data_covers_a_window_between_releases(self) -> None:
+        macro_dates = pd.date_range("2023-06-01", "2024-12-01", freq="MS")
+        macro = pd.DataFrame(_EXPANSION, index=macro_dates)
+        oos_dates = pd.bdate_range("2024-06-03", periods=20)
+        returns = pd.Series(0.001, index=oos_dates)
+        assert macro.index.intersection(oos_dates).empty
+
+        result = run_regime_validation(
+            returns, macro, config=RegimeValidationConfig(min_regime_obs=5)
+        )
+
+        assert result.n_regimes_observed == 1
+        assert result.per_regime_metrics.loc["expansion", "obs"] == 20
+
+    def test_macro_data_starting_after_the_sample_leaves_nothing_classified(
+        self,
+    ) -> None:
+        macro_dates = pd.bdate_range("2025-01-02", periods=20)
+        macro = pd.DataFrame(_EXPANSION, index=macro_dates)
+        returns = pd.Series(0.001, index=pd.bdate_range("2024-01-02", periods=60))
+
+        result = run_regime_validation(returns, macro)
+
+        assert result.n_regimes_observed == 0
+        assert result.total_obs == 60
+
+    def test_empty_macro_data_returns_empty_result(self) -> None:
+        returns = pd.Series(0.001, index=pd.bdate_range("2024-01-02", periods=60))
+        macro = pd.DataFrame({"pmi": []}, index=pd.DatetimeIndex([]))
+
+        result = run_regime_validation(returns, macro)
+
+        assert result.n_regimes_observed == 0
+        assert result.total_obs == 60
+
+    def test_timezone_mismatch_between_macro_and_returns_is_rejected(self) -> None:
+        macro_dates = pd.bdate_range("2024-01-02", periods=60, tz="UTC")
+        macro = pd.DataFrame(_EXPANSION, index=macro_dates)
+        returns = pd.Series(0.001, index=pd.bdate_range("2024-01-02", periods=60))
+
+        with pytest.raises(DataError, match="timezone"):
+            run_regime_validation(returns, macro)

@@ -10,7 +10,15 @@ dataclass defaults so a bare import yields the verified values; secrets
 
 from __future__ import annotations
 
+import ast
+import datetime as dt
+import logging
+import os
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 from fund.config import FundConfig, load_config, settings
 
@@ -98,16 +106,86 @@ def test_daemon_fields_default_to_the_phase9_contract():
 
     # Cron uses the weekday NAME `sat` — a bare `0` fires Monday under
     # APScheduler `from_crontab` (0=Mon..6=Sun).
-    assert cfg.fund_rebalance_cron == "0 3 * * sat"
+    assert cfg.fund_rebalance_cron == "0 12 * * sat"
     assert cfg.fund_drift_interval_seconds == 900
+    assert cfg.fund_drift_cooldown_seconds == 86400
     assert cfg.fund_heartbeat_cadence_seconds == 30
     assert cfg.fund_orphan_timeout_seconds == 300
     assert cfg.fund_shutdown_drain_timeout_seconds == 30
+    # Hours, not APScheduler's 1s: a job queued behind a long round must still run.
+    assert cfg.fund_misfire_grace_time_seconds == 21600
     # Daily NAV mark at 08:00 UTC — after the 07:00 ingestion pipeline.
     assert cfg.fund_nav_mark_cron == "0 8 * * *"
+    assert cfg.approval_max_age_days == 7
     assert cfg.reprofile_interval_days == 365
-    assert cfg.summary_token_threshold == 170000
+    # No threshold = deepagents' model-aware default stays; a pinned 170000 would
+    # sit above the context window of a 128k model and never fire.
+    assert cfg.summary_token_threshold is None
     assert cfg.summary_messages_to_keep == 6
+
+
+def test_blank_summary_threshold_means_unset():
+    # Compose renders an unset passthrough variable as an empty string.
+    cfg = load_config(env={"FUND_SUMMARY_TOKEN_THRESHOLD": "  "})
+
+    assert cfg.summary_token_threshold is None
+
+
+_INGESTION_CONFIG = (
+    Path(__file__).resolve().parents[3] / "ingestion" / "app" / "config.py"
+)
+_SATURDAY = dt.datetime(2026, 1, 3, tzinfo=dt.timezone.utc)
+
+
+def _ingestion_cron_defaults() -> dict[str, str]:
+    """Read the ingestion daemon's ``scheduler_*_cron`` defaults without importing it.
+
+    ``fund`` must never import the ingestion ``app`` package, so the defaults are
+    pulled from the source text of its settings class.
+    """
+    crons: dict[str, str] = {}
+    for node in ast.walk(ast.parse(_INGESTION_CONFIG.read_text(encoding="utf-8"))):
+        if not isinstance(node, ast.AnnAssign) or not isinstance(node.target, ast.Name):
+            continue
+        name = node.target.id
+        if not (name.startswith("scheduler_") and name.endswith("_cron")):
+            continue
+        if not isinstance(node.value, ast.Call):
+            continue
+        for keyword in node.value.keywords:
+            if keyword.arg == "default" and isinstance(keyword.value, ast.Constant):
+                crons[name] = keyword.value.value
+    return crons
+
+
+def _saturday_fire_time(cron: str) -> dt.datetime:
+    from apscheduler.triggers.cron import CronTrigger
+
+    trigger = CronTrigger.from_crontab(cron, timezone="UTC")
+    fire = trigger.get_next_fire_time(None, _SATURDAY)
+    assert fire is not None
+    return fire
+
+
+def test_default_rebalance_cron_fires_after_the_saturday_ingestion_jobs():
+    # The weekly decision reads the price panel; firing alongside (or before) the
+    # Saturday full refetch would size the portfolio on a stale, in-flux panel.
+    if not _INGESTION_CONFIG.exists():
+        pytest.skip("ingestion package not present in this checkout")
+    crons = _ingestion_cron_defaults()
+    ingestion_jobs = (
+        "scheduler_universe_build_cron",
+        "scheduler_weekly_refetch_cron",
+        "scheduler_market_wide_cron",
+        "scheduler_daily_pipeline_cron",
+    )
+    assert set(ingestion_jobs) <= crons.keys()
+
+    rebalance = _saturday_fire_time(load_config(env={}).fund_rebalance_cron)
+
+    for job in ingestion_jobs:
+        assert rebalance.date() == _SATURDAY.date()
+        assert rebalance > _saturday_fire_time(crons[job]), job
 
 
 def test_daemon_fields_parse_from_fund_env_aliases():
@@ -117,10 +195,13 @@ def test_daemon_fields_parse_from_fund_env_aliases():
         env={
             "FUND_REBALANCE_CRON": "0 4 * * sun",
             "FUND_DRIFT_INTERVAL_SECONDS": "1800",
+            "FUND_DRIFT_COOLDOWN_SECONDS": "7200",
             "FUND_HEARTBEAT_CADENCE_SECONDS": "45",
             "FUND_ORPHAN_TIMEOUT_SECONDS": "600",
             "FUND_SHUTDOWN_DRAIN_TIMEOUT_SECONDS": "60",
+            "FUND_MISFIRE_GRACE_TIME_SECONDS": "7200",
             "FUND_NAV_MARK_CRON": "0 9 * * *",
+            "FUND_APPROVAL_MAX_AGE_DAYS": "3",
             "FUND_REPROFILE_INTERVAL_DAYS": "180",
             "FUND_SUMMARY_TOKEN_THRESHOLD": "120000",
             "FUND_SUMMARY_MESSAGES_TO_KEEP": "8",
@@ -129,10 +210,13 @@ def test_daemon_fields_parse_from_fund_env_aliases():
 
     assert cfg.fund_rebalance_cron == "0 4 * * sun"
     assert cfg.fund_drift_interval_seconds == 1800
+    assert cfg.fund_drift_cooldown_seconds == 7200
     assert cfg.fund_heartbeat_cadence_seconds == 45
     assert cfg.fund_orphan_timeout_seconds == 600
     assert cfg.fund_shutdown_drain_timeout_seconds == 60
+    assert cfg.fund_misfire_grace_time_seconds == 7200
     assert cfg.fund_nav_mark_cron == "0 9 * * *"
+    assert cfg.approval_max_age_days == 3
     assert cfg.reprofile_interval_days == 180
     assert cfg.summary_token_threshold == 120000
     assert cfg.summary_messages_to_keep == 8
@@ -183,6 +267,12 @@ def test_model_ids_and_ollama_base_url_are_env_sourced():
     assert default_cfg.ollama_base_url == "https://ollama.com"
 
 
+def test_ollama_num_ctx_is_env_sourced_with_a_large_window_default():
+    assert load_config(env={}).ollama_num_ctx >= 32768
+    cfg = load_config(env={"FUND_OLLAMA_NUM_CTX": "65536"})
+    assert cfg.ollama_num_ctx == 65536
+
+
 def test_provider_keys_and_endpoints_sourced_from_env():
     cfg = load_config(
         env={
@@ -221,6 +311,22 @@ def test_provider_keys_and_endpoints_sourced_from_env():
     assert cfg.azure_openai_deployment_name == "gpt4o-deploy"
 
 
+def test_azure_fallback_deployment_is_env_sourced_and_optional():
+    assert load_config(env={}).azure_openai_fallback_deployment_name is None
+    cfg = load_config(env={"AZURE_OPENAI_FALLBACK_DEPLOYMENT_NAME": "gpt4o-mini-dep"})
+    assert cfg.azure_openai_fallback_deployment_name == "gpt4o-mini-dep"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("true", True), ("1", True), ("YES", True), ("false", False), ("", False)],
+)
+def test_nvidia_base_url_send_key_is_an_opt_in_flag(raw, expected):
+    assert load_config(env={}).nvidia_base_url_send_key is False
+    cfg = load_config(env={"NVIDIA_BASE_URL_SEND_KEY": raw})
+    assert cfg.nvidia_base_url_send_key is expected
+
+
 def test_provider_fields_default_safe_so_bare_import_never_fails():
     # Every provider key/endpoint stays None with no env; hf_mode defaults to
     # "cloud". A bare load must not require any secret.
@@ -241,6 +347,31 @@ def test_provider_fields_default_safe_so_bare_import_never_fails():
     assert cfg.azure_openai_api_version is None
     assert cfg.azure_openai_deployment_name is None
     assert cfg.hf_mode == "cloud"
+
+
+@pytest.mark.parametrize("name", ["OPENAI_BASE_URL", "NVIDIA_BASE_URL"])
+def test_blank_sdk_endpoint_env_is_dropped_so_the_sdk_uses_its_default_host(
+    monkeypatch, name
+):
+    # The provider SDKs read these variables from os.environ themselves and keep a
+    # blank value verbatim, so a `KEY=` line copied from .env.example would become
+    # an empty base URL rather than "use the default host".
+    monkeypatch.setenv(name, "")
+
+    cfg = load_config(load_dotenv_file=False)
+
+    assert name not in os.environ
+    assert cfg.openai_base_url is None
+    assert cfg.nvidia_base_url is None
+
+
+def test_nonblank_sdk_endpoint_env_survives_load_config(monkeypatch):
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://oai.example/v1")
+
+    cfg = load_config(load_dotenv_file=False)
+
+    assert os.environ["OPENAI_BASE_URL"] == "https://oai.example/v1"
+    assert cfg.openai_base_url == "https://oai.example/v1"
 
 
 # --- file-based docker secrets (<NAME>_FILE wins over inline <NAME>) -----------
@@ -354,3 +485,174 @@ def test_ssl_cert_file_is_a_path_not_routed_through_read_secret(tmp_path):
     cfg = load_config(env={"SSL_CERT_FILE": str(ca)})
 
     assert cfg.ssl_cert_file == str(ca)
+
+
+# --- .env precedence: the process environment beats the repo .env -------------
+
+_EXPORTED_DB = "postgresql://scratch-host:5432/scratch"
+_DOTENV_DB = "postgresql://dotenv-host:5432/live"
+
+
+@pytest.fixture
+def dotenv_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Aim python-dotenv's ``.env`` discovery at a temp file and fence ``os.environ``.
+
+    ``load_dotenv`` writes into ``os.environ``; the swapped-in copy keeps those writes
+    from leaking into other tests.
+    """
+    import dotenv.main
+
+    path = tmp_path / ".env"
+    monkeypatch.setattr(os, "environ", os.environ.copy())
+    monkeypatch.setattr(dotenv.main, "find_dotenv", lambda *a, **k: str(path))
+    return path
+
+
+def test_exported_database_url_beats_the_repo_dotenv(dotenv_file: Path):
+    # Alembic honours an exported DATABASE_URL and never reads .env; if fund let the
+    # .env win, `fund` would run against a different database than its migrations.
+    dotenv_file.write_text(f"DATABASE_URL={_DOTENV_DB}\n", encoding="utf-8")
+    os.environ["DATABASE_URL"] = _EXPORTED_DB
+
+    cfg = load_config()
+
+    assert cfg.database_url == _EXPORTED_DB
+    assert os.environ["DATABASE_URL"] == _EXPORTED_DB
+
+
+def test_dotenv_supplies_variables_the_environment_lacks(dotenv_file: Path):
+    dotenv_file.write_text(f"DATABASE_URL={_DOTENV_DB}\n", encoding="utf-8")
+    os.environ.pop("DATABASE_URL", None)
+
+    assert load_config().database_url == _DOTENV_DB
+
+
+def test_dotenv_still_overrides_an_ambient_ssl_cert_file(dotenv_file: Path):
+    # A conda-activated shell exports SSL_CERT_FILE to a stock bundle without the
+    # corporate CA; the project .env must keep winning for that one variable.
+    dotenv_file.write_text("SSL_CERT_FILE=/corp/ca.pem\n", encoding="utf-8")
+    os.environ["SSL_CERT_FILE"] = "/conda/cacert.pem"
+
+    assert load_config().ssl_cert_file == "/corp/ca.pem"
+
+
+def test_scheduler_entrypoint_keeps_an_exported_database_url(dotenv_file: Path):
+    from fund import scheduler
+
+    dotenv_file.write_text(f"DATABASE_URL={_DOTENV_DB}\n", encoding="utf-8")
+    os.environ["DATABASE_URL"] = _EXPORTED_DB
+
+    with pytest.raises(SystemExit):
+        scheduler.main([])
+
+    assert os.environ["DATABASE_URL"] == _EXPORTED_DB
+
+
+_ENTRYPOINT_PROBE = """
+import os, sys
+import dotenv.main
+
+dotenv.main.find_dotenv = lambda *args, **kwargs: sys.argv[1]
+import {module}
+from fund.config import settings
+
+print(os.environ["DATABASE_URL"], settings.database_url)
+"""
+
+
+@pytest.mark.parametrize("module", ["fund.worker", "fund.cli"])
+def test_entrypoint_import_keeps_an_exported_database_url(module: str, tmp_path: Path):
+    # Both entrypoints load the .env before anything reads settings; that early load
+    # must not clobber an exported DATABASE_URL either.
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(f"DATABASE_URL={_DOTENV_DB}\n", encoding="utf-8")
+
+    result = subprocess.run(  # noqa: S603 (fixed argv: this interpreter + probe)
+        [
+            sys.executable,
+            "-c",
+            _ENTRYPOINT_PROBE.format(module=module),
+            str(dotenv_path),
+        ],
+        env={**os.environ, "DATABASE_URL": _EXPORTED_DB},
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == [_EXPORTED_DB, _EXPORTED_DB]
+
+
+def test_structured_output_method_is_env_sourced():
+    cfg = load_config(env={"FUND_STRUCTURED_OUTPUT_METHOD": "json_mode"})
+
+    assert cfg.structured_output_method == "json_mode"
+
+
+def test_huggingface_does_not_default_to_function_calling_structured_output():
+    # langchain-huggingface raises NotImplementedError for a pydantic schema under
+    # function_calling, so that provider needs a different default.
+    cfg = load_config(env={"LLM_PROVIDER": "huggingface"})
+
+    assert cfg.structured_output_method == "json_schema"
+
+
+def test_explicit_structured_output_method_beats_the_provider_default():
+    cfg = load_config(
+        env={
+            "LLM_PROVIDER": "huggingface",
+            "FUND_STRUCTURED_OUTPUT_METHOD": "json_mode",
+        }
+    )
+
+    assert cfg.structured_output_method == "json_mode"
+
+
+def test_blank_structured_output_method_falls_back_to_the_provider_default():
+    cfg = load_config(
+        env={"LLM_PROVIDER": "huggingface", "FUND_STRUCTURED_OUTPUT_METHOD": " "}
+    )
+
+    assert cfg.structured_output_method == "json_schema"
+
+
+@pytest.fixture
+def restore_http_logger_levels():
+    names = ("httpx", "httpcore")
+    saved = {name: logging.getLogger(name).level for name in names}
+    root_level = logging.getLogger().level
+    yield
+    for name, level in saved.items():
+        logging.getLogger(name).setLevel(level)
+    logging.getLogger().setLevel(root_level)
+
+
+def test_silencing_http_logs_keeps_httpx_request_lines_out_of_info(
+    restore_http_logger_levels,
+):
+    """httpx logs ``HTTP Request: POST <full url>`` at INFO, userinfo included."""
+    from fund.config import silence_http_request_logs
+
+    logging.getLogger().setLevel(logging.INFO)
+    logging.getLogger("httpx").setLevel(logging.NOTSET)
+
+    silence_http_request_logs()
+
+    for name in ("httpx", "httpcore"):
+        assert not logging.getLogger(name).isEnabledFor(logging.INFO)
+        assert logging.getLogger(name).isEnabledFor(logging.WARNING)
+
+
+def test_every_logging_setup_in_the_package_silences_http_request_logs():
+    src = Path(__file__).resolve().parents[2] / "src" / "fund"
+    configuring = [
+        path
+        for path in src.rglob("*.py")
+        if "basicConfig(" in path.read_text(encoding="utf-8")
+    ]
+
+    assert configuring
+    for path in configuring:
+        assert "silence_http_request_logs()" in path.read_text(encoding="utf-8"), path

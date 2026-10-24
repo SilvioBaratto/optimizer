@@ -16,11 +16,16 @@ coercion (which dropped every column and stored nothing) is gone.
 
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
 from typing import Any
 from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pandas as pd
+import pytest
+from portopt_db.repositories.market_data.yfinance_repository import (
+    YFinanceRepository,
+)
 
 from app.services.market_data.yfinance_data_service import YFinanceDataService
 
@@ -55,8 +60,8 @@ def _eps_revisions_fixture() -> pd.DataFrame:
         {
             "upLast7days": [2, 1, 3, 0],
             "upLast30days": [5, 4, 7, 2],
-            "downLast7days": [0, 1, 0, 1],
             "downLast30days": [1, 2, 1, 3],
+            "downLast7Days": [0, 1, 0, 1],
         },
         index=["0q", "+1q", "0y", "+1y"],
     )
@@ -162,6 +167,28 @@ def test_when_fetchers_return_data_then_routed_to_correct_upserts() -> None:
     assert "eps_revisions" in result["counts"]
 
 
+def test_valuation_current_column_is_stamped_with_the_fetch_date() -> None:
+    # Ticker.valuation carries a "Current" column that has no date of its own.
+    real_shape = pd.DataFrame(
+        {"Current": [3.0e12], "9/30/2025": [2.9e12]}, index=["MarketCap"]
+    )
+    yf_client = _build_yf_client(valuation=real_shape)
+    repo = _build_repo()
+    before = datetime.now(timezone.utc).date()
+
+    _run(yf_client, repo)
+
+    after = datetime.now(timezone.utc).date()
+    calls = [
+        c
+        for c in repo.upsert_financial_statements.call_args_list
+        if c.args[2] == "valuation_measures"
+    ]
+    assert len(calls) == 1
+    stamped = {c.date() for c in calls[0].args[1].columns}
+    assert stamped & {before, after}
+
+
 def test_when_fetchers_return_none_then_no_upsert_and_no_errors() -> None:
     yf_client = _build_yf_client(valuation=None, eps_trend=None, eps_revisions=None)
     repo = _build_repo()
@@ -197,3 +224,195 @@ def test_when_eps_panels_present_then_passed_through_unchanged() -> None:
     rev_df = repo.upsert_eps_revisions.call_args.args[1]
     assert list(rev_df.index) == ["0q", "+1q", "0y", "+1y"]
     assert "upLast7days" in rev_df.columns
+
+
+# ---------------------------------------------------------------------------
+# Statement currency label: Yahoo's financialCurrency, not the listing currency
+# ---------------------------------------------------------------------------
+
+_STATEMENT_TYPES = {"income_statement", "balance_sheet", "cashflow"}
+
+
+def _statement_fixture() -> pd.DataFrame:
+    return pd.DataFrame(
+        {pd.Timestamp("2024-12-31"): {"TotalRevenue": 100.0, "NetIncome": 12.0}}
+    )
+
+
+def _yf_client_with_statements(info: dict[str, Any] | None) -> MagicMock:
+    yf_client = _build_yf_client(valuation=_valuation_fixture())
+    yf_client.fetch_info.return_value = info
+    yf_client.metadata.fetch_isin.return_value = None
+    stmt = _statement_fixture()
+    yf_client.financials.fetch_income_stmt.return_value = stmt
+    yf_client.financials.fetch_balance_sheet.return_value = stmt
+    yf_client.financials.fetch_cashflow.return_value = stmt
+    return yf_client
+
+
+def _statement_currencies(repo: MagicMock) -> list[str | None]:
+    return [c for t, _p, c in _statement_type_calls(repo) if t in _STATEMENT_TYPES]
+
+
+def _valuation_currencies(repo: MagicMock) -> list[str | None]:
+    return [c for t, _p, c in _statement_type_calls(repo) if t == "valuation_measures"]
+
+
+@pytest.mark.parametrize(
+    ("listing", "financial", "statement_ccy", "valuation_ccy"),
+    [
+        # LSE oil major quoted in pence, reporting in dollars.
+        ("GBp", "USD", "USD", "GBP"),
+        # NYSE ADR of a Taiwanese company: statements are in TWD.
+        ("USD", "TWD", "TWD", "USD"),
+        # A minor-unit financialCurrency still collapses to its major unit.
+        ("GBp", "GBp", "GBP", "GBP"),
+        ("ZAc", "ZAc", "ZAR", "ZAR"),
+    ],
+)
+def test_when_info_reports_financial_currency_then_statements_carry_it(
+    listing: str, financial: str, statement_ccy: str, valuation_ccy: str
+) -> None:
+    yf_client = _yf_client_with_statements({"financialCurrency": financial})
+    repo = _build_repo()
+
+    _run(yf_client, repo, currency_code=listing)
+
+    assert _statement_currencies(repo) == [statement_ccy] * 6
+    # valuation measures are market-cap based, so they stay in the listing currency.
+    assert _valuation_currencies(repo) == [valuation_ccy]
+
+
+def test_when_financial_currency_unknown_then_statement_currency_is_not_guessed() -> (
+    None
+):
+    yf_client = _yf_client_with_statements({"symbol": "BP.L"})
+    repo = _build_repo()
+
+    _run(yf_client, repo, currency_code="GBp")
+
+    assert _statement_currencies(repo) == [None] * 6
+
+
+def test_when_profile_fresh_then_financial_currency_is_fetched_for_statements() -> None:
+    yf_client = _yf_client_with_statements({"financialCurrency": "TWD"})
+    repo = _build_repo()
+    service = YFinanceDataService(repo=repo, yf_client=yf_client)
+    now = datetime.now(timezone.utc)
+    staleness = {"profile_updated_at": now, "price_max_date": None}
+
+    result = service.fetch_and_store(
+        instrument_id=uuid4(),
+        yfinance_ticker="TSM",
+        mode="incremental",
+        currency_code="USD",
+        staleness=staleness,
+    )
+
+    assert "profile" in result["skipped"]
+    assert _statement_currencies(repo) == ["TWD"] * 6
+    yf_client.fetch_info.assert_called_once()
+
+
+def test_when_profile_fresh_and_no_statements_then_info_is_not_fetched() -> None:
+    yf_client = _yf_client_with_statements({"financialCurrency": "TWD"})
+    yf_client.financials.fetch_income_stmt.return_value = None
+    yf_client.financials.fetch_balance_sheet.return_value = None
+    yf_client.financials.fetch_cashflow.return_value = None
+    repo = _build_repo()
+    service = YFinanceDataService(repo=repo, yf_client=yf_client)
+    staleness = {"profile_updated_at": datetime.now(timezone.utc)}
+
+    service.fetch_and_store(
+        instrument_id=uuid4(),
+        yfinance_ticker="TSM",
+        mode="incremental",
+        currency_code="USD",
+        staleness=staleness,
+    )
+
+    yf_client.fetch_info.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# valuation_measures: the real yfinance 1.x frame labels columns with strings
+# ---------------------------------------------------------------------------
+
+
+def _yfinance_valuation_frame() -> pd.DataFrame:
+    """Real ``Ticker.valuation`` shape: measures as rows, string column labels."""
+    return pd.DataFrame(
+        {
+            "Current": [3.0e12, 28.5, 7.5],
+            "9/30/2025": [2.9e12, 27.0, 7.1],
+            "6/30/2025": [2.8e12, float("nan"), 6.9],
+        },
+        index=["Market Cap", "Trailing P/E", "Price/Sales"],
+    )
+
+
+def _persisted_valuation_rows(frame: pd.DataFrame) -> tuple[dict[str, Any], list[Any]]:
+    """Run the service against the real repository row-builder, capturing rows."""
+    real_repo = YFinanceRepository(MagicMock(name="session"))
+    captured = MagicMock(name="_upsert", side_effect=lambda _m, rows, **_k: len(rows))
+    real_repo._upsert = captured  # type: ignore[method-assign]
+    repo = _build_repo()
+    repo.upsert_financial_statements = real_repo.upsert_financial_statements
+    yf_client = _build_yf_client(valuation=frame)
+
+    result = _run(yf_client, repo)
+
+    valuation_rows = [
+        row
+        for call in captured.call_args_list
+        for row in call.args[1]
+        if row["statement_type"] == "valuation_measures"
+    ]
+    return result, valuation_rows
+
+
+def test_when_valuation_columns_are_yfinance_strings_then_rows_are_persisted() -> None:
+    before = datetime.now(timezone.utc).date()
+
+    result, rows = _persisted_valuation_rows(_yfinance_valuation_frame())
+
+    after = datetime.now(timezone.utc).date()
+    # One of the nine cells (6/30/2025 Trailing P/E) is NaN and is not written.
+    assert result["counts"]["valuation_measures"] == 8
+    assert len(rows) == 8
+    dates = {row["period_date"] for row in rows}
+    assert date(2025, 9, 30) in dates
+    assert date(2025, 6, 30) in dates
+    current_dates = dates - {date(2025, 9, 30), date(2025, 6, 30)}
+    assert len(current_dates) == 1
+    assert before <= current_dates.pop() <= after
+
+
+def test_when_valuation_current_column_present_then_it_is_dated_as_of_fetch() -> None:
+    _, rows = _persisted_valuation_rows(_yfinance_valuation_frame())
+
+    today_rows = {
+        row["line_item"]: row["value"]
+        for row in rows
+        if row["period_date"] not in {date(2025, 9, 30), date(2025, 6, 30)}
+    }
+    assert today_rows == {
+        "Market Cap": 3.0e12,
+        "Trailing P/E": 28.5,
+        "Price/Sales": 7.5,
+    }
+
+
+def test_when_no_valuation_column_parses_as_a_date_then_a_warning_is_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    frame = pd.DataFrame({"n/a": [1.0]}, index=["Market Cap"])
+
+    with caplog.at_level(
+        "WARNING", logger="app.services.market_data.yfinance_data_service"
+    ):
+        result, rows = _persisted_valuation_rows(frame)
+
+    assert rows == []
+    assert result["counts"]["valuation_measures"] == 0
+    assert any("valuation_measures" in r.getMessage() for r in caplog.records)

@@ -5,11 +5,11 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from itertools import combinations
-from typing import cast
 
 import numpy as np
 import pandas as pd
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.factors._validation import (
     compute_ic_series,
     compute_icir,
@@ -28,11 +28,29 @@ class FactorOOSConfig:
         train_periods: Length of the training window in index periods.
         val_periods: Length of the validation window in index periods.
         step_periods: Number of index periods to roll forward between folds.
+        min_observations: Minimum common non-NaN names a validation date needs
+            for its rank IC and quintile spread to count.  Applies to both the
+            rolling and CPCV paths.  Default 24 matches
+            ``FactorValidationConfig.min_ic_observations`` so both validation
+            paths apply the same minimum-data guard; a Spearman IC over a
+            handful of names is mostly noise.
+
+    Raises:
+        ConfigurationError: If ``train_periods``, ``val_periods`` or
+            ``step_periods`` is below 1.
     """
 
     train_periods: int = 36
     val_periods: int = 12
     step_periods: int = 6
+    min_observations: int = 24
+
+    def __post_init__(self) -> None:
+        for name in ("train_periods", "val_periods", "step_periods"):
+            value = getattr(self, name)
+            if value < 1:
+                msg = f"{name} must be >= 1, got {value}"
+                raise ConfigurationError(msg)
 
 
 @dataclass
@@ -44,6 +62,7 @@ class FactorOOSResult:
         per_fold_spread: ``n_folds × factors`` matrix of mean quintile spread per fold.
         mean_oos_ic: Mean OOS IC aggregated across folds (one value per factor).
         mean_oos_icir: OOS ICIR (mean IC / std IC across folds) per factor.
+            NaN for a factor with fewer than two valid fold ICs.
         n_folds: Number of folds generated.
     """
 
@@ -167,8 +186,10 @@ def run_factor_oos_validation(
             ``(date, ticker)`` and one column per factor.
         returns: Forward returns panel with the same ``(date, ticker)`` MultiIndex
             and a single return column.
-        config: Rolling window parameters.  Defaults to ``FactorOOSConfig()``.
-            Ignored when ``cpcv_config`` is provided.
+        config: Rolling window parameters and the per-date minimum-observation
+            guard.  Defaults to ``FactorOOSConfig()``.  The window parameters
+            are ignored when ``cpcv_config`` is provided; ``min_observations``
+            still applies.
         cpcv_config: When provided, uses combinatorial purged cross-validation
             instead of rolling blocks.  Overrides ``config``.
 
@@ -226,7 +247,12 @@ def run_factor_oos_validation(
 
         for factor in factors:
             factor_history = scores_val[factor]  # date × ticker for this factor
-            ic_series = compute_ic_series(factor_history, returns_val, factor)
+            ic_series = compute_ic_series(
+                factor_history,
+                returns_val,
+                factor,
+                min_observations=config.min_observations,
+            )
             fold_ic[factor] = (
                 float(ic_series.mean()) if len(ic_series) > 0 else float("nan")
             )
@@ -237,6 +263,11 @@ def run_factor_oos_validation(
                     continue
                 f_scores = factor_history.loc[date].dropna()
                 r_returns = returns_val.loc[date].dropna()
+                if (
+                    len(f_scores.index.intersection(r_returns.index))
+                    < config.min_observations
+                ):
+                    continue
                 spread = compute_quantile_spread(f_scores, r_returns)
                 if not np.isnan(spread):
                     spreads.append(spread)
@@ -246,10 +277,23 @@ def run_factor_oos_validation(
         per_fold_spread_rows.append(fold_spread)
 
     n_folds = len(folds)
-    per_fold_ic = pd.DataFrame(per_fold_ic_rows, columns=factors)
-    per_fold_spread = pd.DataFrame(per_fold_spread_rows, columns=factors)
+    # Explicit float dtype: a frame built from an empty row list would
+    # otherwise be object-typed and make the aggregates object-typed too.
+    per_fold_ic = pd.DataFrame(per_fold_ic_rows, columns=factors, dtype=float)
+    per_fold_spread = pd.DataFrame(per_fold_spread_rows, columns=factors, dtype=float)
     mean_oos_ic = per_fold_ic.mean(axis=0)
-    mean_oos_icir = cast(pd.Series, per_fold_ic.apply(compute_icir, axis=0))
+
+    # compute_icir returns 0.0 below two valid observations, which would rank an
+    # unvalidated factor as zero skill while mean_oos_ic reports it as NaN.
+    valid_folds = per_fold_ic.notna().sum(axis=0).to_numpy()
+    mean_oos_icir = pd.Series(
+        [
+            compute_icir(per_fold_ic.iloc[:, j]) if valid_folds[j] >= 2 else np.nan
+            for j in range(per_fold_ic.shape[1])
+        ],
+        index=per_fold_ic.columns,
+        dtype=float,
+    )
 
     return FactorOOSResult(
         per_fold_ic=per_fold_ic,

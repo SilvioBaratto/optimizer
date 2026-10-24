@@ -33,11 +33,13 @@ needs no environment (mirrors :mod:`fund.agents.profiler`).
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING, Any, NotRequired, cast
 
-from fund.agents.backend import build_backend
+from fund.agents.backend import build_backend, read_only_permissions
 from fund.agents.prompts import (
     ALLOCATOR_SYSTEM_PROMPT,
     ECONOMIST_SYSTEM_PROMPT,
@@ -46,11 +48,14 @@ from fund.agents.prompts import (
     RISK_SYSTEM_PROMPT,
 )
 from fund.agents.skills import skill_sources
-from fund.config import FundConfig, settings
+from fund.agents.summarization import summarization_override
+from fund.config import DEFAULT_LOOKBACK_DAYS, FundConfig, settings
+
+_log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     import datetime as dt
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator, Sequence
 
     # ``fund.agents.toolsets`` reaches ``fund.tools`` (the agent stack) at import;
     # keep it type-only here and import ``bind_toolset`` lazily inside the builders
@@ -74,9 +79,15 @@ __all__ = [
     "stream_fund",
 ]
 
-# The moments/backtest lookback recorded on every run (mirrors the
-# ``RunContext.lookback_days`` default — 3y rolling, ~756 trading days).
-_LOOKBACK_DAYS = 756
+# Cap on the error text stored with a failed run; provider errors can embed whole
+# response bodies.
+_RUN_ERROR_MAX_CHARS = 2000
+
+# The backtest's rolling training window recorded on every run (the
+# ``RunContext.lookback_days`` default — 3y, ~756 trading days). Moments and the
+# optimiser fit on the full history up to ``asof``, so the record names only the
+# backtest as applying it.
+_LOOKBACK_DAYS = DEFAULT_LOOKBACK_DAYS
 
 # One-line descriptions the PM reads (via the built-in ``task`` tool) to decide
 # when to delegate — each names the role's fixed pipeline position.
@@ -85,9 +96,10 @@ _ECONOMIST_DESCRIPTION = (
     "qualitative regime narrative plus candidate views. Delegate first."
 )
 _ALLOCATOR_DESCRIPTION = (
-    "Pipeline step 2. Filters the universe, estimates moments folding in the "
-    "economist's views, and runs the optimizer to produce candidate weights under "
-    "the resolved constraints. Delegate after the economist."
+    "Pipeline step 2. Pre-selects the candidate tickers it is handed, estimates "
+    "moments, and runs the optimizer to produce candidate weights under the "
+    "resolved constraints; the economist's views are advisory context, not an "
+    "optimizer input. Delegate after the economist."
 )
 _RISK_DESCRIPTION = (
     "Pipeline step 3 — the blocking gate. Checks the allocator's proposal against "
@@ -107,6 +119,7 @@ def _subagent(
     system_prompt: str,
     ctx: RunContext,
     fallback: Any | None = None,
+    summarization: Sequence[Any] = (),
 ) -> dict[str, Any]:
     """Build one ``SubAgent`` dict for ``role`` from the per-run context.
 
@@ -114,36 +127,51 @@ def _subagent(
     root-relative skills; never sets ``interrupt_on``. When ``fallback`` is given
     (critical roles only), attaches a single ``ModelFallbackMiddleware`` so a
     primary-model failure retries on the fallback (a langchain middleware, not a
-    hand-rolled ``.with_fallbacks``).
+    hand-rolled ``.with_fallbacks``). Every role also carries the per-delegation
+    model-call cap (:func:`_subagent_call_cap_middleware`). ``summarization`` carries
+    the operator's override from
+    :func:`fund.agents.summarization.summarization_override`; a declarative subagent
+    inherits no middleware from the PM, so it is attached to each spec explicitly.
     """
     from fund.agents.toolsets import bind_toolset
 
-    sub: dict[str, Any] = {
+    middleware: list[Any] = []
+    if fallback is not None:
+        from langchain.agents.middleware import ModelFallbackMiddleware
+
+        middleware.append(ModelFallbackMiddleware(fallback))
+    middleware.append(
+        _subagent_call_cap_middleware(ctx.config.max_subagent_model_calls)
+    )
+    middleware.extend(summarization)
+    return {
         "name": role,
         "description": description,
         "system_prompt": system_prompt,
         "tools": bind_toolset(role, ctx),
         "skills": skill_sources(role),
+        "middleware": middleware,
     }
-    if fallback is not None:
-        from langchain.agents.middleware import ModelFallbackMiddleware
-
-        sub["middleware"] = [ModelFallbackMiddleware(fallback)]
-    return sub
 
 
-def build_economist_subagent(ctx: RunContext) -> dict[str, Any]:
+def build_economist_subagent(
+    ctx: RunContext, *, summarization: Sequence[Any] = ()
+) -> dict[str, Any]:
     """The economist subagent (step 1) — narrative regime read, no fallback."""
     return _subagent(
         "economist",
         description=_ECONOMIST_DESCRIPTION,
         system_prompt=ECONOMIST_SYSTEM_PROMPT,
         ctx=ctx,
+        summarization=summarization,
     )
 
 
 def build_allocator_subagent(
-    ctx: RunContext, *, fallback: Any | None = None
+    ctx: RunContext,
+    *,
+    fallback: Any | None = None,
+    summarization: Sequence[Any] = (),
 ) -> dict[str, Any]:
     """The allocator subagent (step 2) — the optimizer path; critical role."""
     return _subagent(
@@ -152,11 +180,15 @@ def build_allocator_subagent(
         system_prompt=ALLOCATOR_SYSTEM_PROMPT,
         ctx=ctx,
         fallback=fallback,
+        summarization=summarization,
     )
 
 
 def build_risk_subagent(
-    ctx: RunContext, *, fallback: Any | None = None
+    ctx: RunContext,
+    *,
+    fallback: Any | None = None,
+    summarization: Sequence[Any] = (),
 ) -> dict[str, Any]:
     """The risk subagent (step 3) — the blocking gate; critical role."""
     return _subagent(
@@ -165,11 +197,15 @@ def build_risk_subagent(
         system_prompt=RISK_SYSTEM_PROMPT,
         ctx=ctx,
         fallback=fallback,
+        summarization=summarization,
     )
 
 
 def build_executor_subagent(
-    ctx: RunContext, *, fallback: Any | None = None
+    ctx: RunContext,
+    *,
+    fallback: Any | None = None,
+    summarization: Sequence[Any] = (),
 ) -> dict[str, Any]:
     """The executor subagent (step 4) — proposes the rebalance; critical role.
 
@@ -182,7 +218,48 @@ def build_executor_subagent(
         system_prompt=EXECUTOR_SYSTEM_PROMPT,
         ctx=ctx,
         fallback=fallback,
+        summarization=summarization,
     )
+
+
+def _subagent_call_cap_middleware(max_model_calls: int) -> Any:
+    """Bound one subagent delegation to ``max_model_calls`` model calls.
+
+    The PM's ``recursion_limit`` and :func:`_pm_round_cap_middleware` count only PM
+    supersteps, and the ``task`` tool runs a subagent graph that carries langgraph's
+    own 9999 bound (the subagent's bound config wins over the parent's), so a
+    subagent that keeps retrying a failing tool would otherwise run for thousands
+    of model calls inside a single PM round. ``run_limit`` resets on every ``task``
+    invocation; ``exit_behavior="end"`` hands the PM a final "limits exceeded"
+    message instead of raising across the delegation. Imported lazily to keep a
+    bare ``import fund.agents.graph`` agent-stack-free.
+    """
+    from langchain.agents.middleware import ModelCallLimitMiddleware
+
+    return ModelCallLimitMiddleware(run_limit=max_model_calls, exit_behavior="end")
+
+
+def _general_purpose_subagent(
+    config: FundConfig, *, summarization: Sequence[Any] = ()
+) -> dict[str, Any]:
+    """Explicit ``general-purpose`` spec carrying the same call cap as the roles.
+
+    deepagents auto-adds its own ``general-purpose`` subagent to the ``task`` tool
+    unless the caller supplies one by that name, and the auto-added spec has no
+    model-call bound. Supplying the stock spec (prompt, description, inherited PM
+    tools and skills) plus the cap keeps the default behaviour while closing that
+    runaway path.
+    """
+    from deepagents.middleware.subagents import GENERAL_PURPOSE_SUBAGENT
+
+    return {
+        **GENERAL_PURPOSE_SUBAGENT,
+        "skills": skill_sources("orchestrator"),
+        "middleware": [
+            _subagent_call_cap_middleware(config.max_subagent_model_calls),
+            *summarization,
+        ],
+    }
 
 
 def _pm_round_cap_middleware(max_pm_rounds: int) -> Any:
@@ -260,21 +337,30 @@ def build_fund_agent(
     mandate's ``hitl_gates`` in), else the config default (``place_orders``). It
     delegates through the built-in ``task`` tool to the four subagents in pipeline
     order (economist → allocator → risk → executor); the critical three carry the
-    ``fallback`` middleware when one is supplied. Skills are the root-relative
-    staged sources (Risk R1) resolved through the ``virtual_mode`` ``backend``.
+    ``fallback`` middleware when one is supplied, and every delegation target (the
+    ``general-purpose`` one included) is bounded by the per-delegation model-call
+    cap. Skills are the root-relative
+    staged sources (Risk R1) resolved through the ``virtual_mode`` ``backend``, which
+    every role may read but none may write (:func:`read_only_permissions`).
     ``temperature=0`` / the DeepSeek route ride on ``model`` (built from
     ``FundConfig``), not passed here.
     """
     from deepagents import create_deep_agent
 
-    from fund.agents.toolsets import bind_toolset
+    from fund.agents.toolsets import bind_toolset, build_gate_weights_middleware
 
     gates = interrupt_on if interrupt_on is not None else config.interrupt_on_map()
+    backend = build_backend(config, run_id=ctx.run_id)
+
+    def summarization() -> list[Any]:
+        return summarization_override(model, backend, config)
+
     subagents = [
-        build_economist_subagent(ctx),
-        build_allocator_subagent(ctx, fallback=fallback),
-        build_risk_subagent(ctx, fallback=fallback),
-        build_executor_subagent(ctx, fallback=fallback),
+        build_economist_subagent(ctx, summarization=summarization()),
+        build_allocator_subagent(ctx, fallback=fallback, summarization=summarization()),
+        build_risk_subagent(ctx, fallback=fallback, summarization=summarization()),
+        build_executor_subagent(ctx, fallback=fallback, summarization=summarization()),
+        _general_purpose_subagent(config, summarization=summarization()),
     ]
     return create_deep_agent(
         model=model,
@@ -282,20 +368,30 @@ def build_fund_agent(
         system_prompt=PM_SYSTEM_PROMPT,
         subagents=cast("list[Any]", subagents),
         skills=skill_sources("orchestrator"),
-        backend=build_backend(config),
+        backend=backend,
+        permissions=read_only_permissions(),
         interrupt_on=cast("dict[str, Any]", gates),
-        middleware=[_pm_round_cap_middleware(config.max_pm_rounds)],
+        middleware=[
+            _pm_round_cap_middleware(config.max_pm_rounds),
+            build_gate_weights_middleware(ctx),
+            *summarization(),
+        ],
         checkpointer=checkpointer,
         store=store,
     )
 
 
 # The full set of PM-level gates round-0 forces (every shipped orchestrator gate).
-# A brand-new portfolio's first round pauses at all of them regardless of the
-# mandate; ``first_round_gated`` then flips so later rounds respect the mandate.
+# A brand-new portfolio's first round pauses at all of them whatever the config or
+# mandate say, on top of whatever those gate; ``first_round_gated`` then flips so
+# later rounds use the config and mandate gates alone.
 # before_risk is deferred (needs a synthetic checkpoint tool), so place_orders is
 # the only real PM gate today — grow this tuple as gates ship.
 _ALL_ORCHESTRATOR_GATES: tuple[str, ...] = ("place_orders",)
+
+# The gated tool whose approval commits the paper ticket; any other gate a mandate adds
+# only steers the PM towards it.
+_ORDER_GATE = "place_orders"
 
 
 def _effective_gates(config: FundConfig, mandate: PortfolioMandate) -> dict[str, bool]:
@@ -429,9 +525,10 @@ def _write_portfolio_journal(
 
     Assembles ``allocation`` (target weights), ``trades`` (committed fills), and
     ``drift`` (vs ``prior_weights``) plus a deterministic narrative, then upserts
-    keyed on ``(portfolio_id, asof)``. Repos are imported lazily — ``fund.audit``
-    drags in the agent stack, so a bare ``import fund.agents.graph`` must not — and
-    no ``commit`` is issued (the caller owns the transaction).
+    keyed on ``(portfolio_id, asof)``. Repos are imported lazily so a bare
+    ``import fund.agents.graph`` stays light (``fund.audit`` loads its langgraph
+    bootstrap on demand, so this is defence in depth) and no ``commit`` is issued
+    (the caller owns the transaction).
     """
     from portopt_db.repositories.orders.portfolio_journal_repository import (
         PortfolioJournalRepository,
@@ -461,6 +558,24 @@ def _write_portfolio_journal(
     )
 
 
+def _holdings_from_ticket(ticket: Any) -> list[dict[str, Any]]:
+    """Snapshot rows for the holdings a paper ticket produced.
+
+    Carries each line's base-currency notional but not its ``shares``: that figure is
+    the base notional divided by the listing price, so it is currency-mixed for a
+    non-base listing (the performance marks re-derive FX-correct shares for the same
+    reason) and would be a wrong holding size.
+    """
+    return [
+        {
+            "ticker": line["ticker"],
+            "weight": line["weight"],
+            "notional": line.get("notional"),
+        }
+        for line in ticket.lines
+    ]
+
+
 def _finalize_hitl(
     session: Any,
     *,
@@ -470,16 +585,20 @@ def _finalize_hitl(
     weights: dict[str, float],
     decision: str,
     order_lines: list[dict[str, Any]] | None = None,
+    ticket: Any | None = None,
 ) -> None:
     """Finalise a HITL decision — the single write path both resume routes share.
 
-    Used by :meth:`FundRun.resume` (the live in-process handle) **and**
-    :func:`resume_fund` (the cross-process rebuild), so the two cannot diverge.
+    Reached through :func:`_settle_hitl` by :meth:`FundRun.resume` (the live in-process
+    handle) **and** :func:`resume_fund` (the cross-process rebuild), so the two cannot
+    diverge.
     ``approve`` finalises the run ``completed`` with the optimizer ``weights`` and
     replaces the portfolio's ``positions`` snapshot built from them (O1 = Option B
     per-ticker row dicts; ``order_lines``, when supplied, carries the filled
-    shares/notional). Any other ``decision`` writes no order, records the
-    orchestrator's HITL choice, and finalises the run ``rejected``.
+    shares/notional). ``ticket``, the paper order the approve placed, links every
+    snapshot row to it and supplies each row's base notional and the journal's trades.
+    Any other ``decision`` writes no order, records the orchestrator's HITL choice,
+    and finalises the run ``rejected``.
 
     The ``agent.invoke(Command(resume=…))`` that actually runs (approve) or denies
     (reject) the gated ``place_orders`` tool is the **caller's** job — inside that
@@ -498,17 +617,31 @@ def _finalize_hitl(
         prior_weights = {
             p.ticker: float(p.weight) for p in positions.get_holdings(portfolio_id)
         }
-        holdings = order_lines or [
-            {"ticker": ticker, "weight": weight} for ticker, weight in weights.items()
-        ]
-        positions.set_holdings(portfolio_id, holdings, asof=asof)
+        if order_lines:
+            holdings = order_lines
+        elif ticket is not None:
+            holdings = _holdings_from_ticket(ticket)
+        else:
+            holdings = [
+                {"ticker": ticker, "weight": weight}
+                for ticker, weight in weights.items()
+            ]
+        positions.set_holdings(
+            portfolio_id,
+            holdings,
+            asof=asof,
+            paper_order_id=ticket.id if ticket is not None else None,
+        )
+        journal_lines = order_lines
+        if journal_lines is None and ticket is not None:
+            journal_lines = ticket.lines
         _write_portfolio_journal(
             session,
             run_id=run_id,
             portfolio_id=portfolio_id,
             asof=asof,
             weights=weights,
-            order_lines=order_lines,
+            order_lines=journal_lines,
             prior_weights=prior_weights,
         )
     else:
@@ -521,8 +654,179 @@ def _finalize_hitl(
         audit.finalize_run(run_id, weights={}, status="rejected")
 
 
+def _placed_ticket(
+    session: Any,
+    *,
+    run_id: uuid.UUID,
+    portfolio_id: uuid.UUID,
+    asof: dt.date,
+    weights: dict[str, float],
+) -> Any | None:
+    """The ticket this run's approved ``place_orders`` left for ``weights``, if any.
+
+    ``place_orders`` can decline an approved gate (a missing fill bar, the current
+    mandate no longer admits the audited weights, or the risk gate had not passed
+    them) and still return normally to the graph, so a resume that completed without
+    raising proves nothing about the ticket. The ticket row, keyed
+    ``(portfolio_id, asof, weights_hash)`` like the tool's own idempotency lookup, is
+    the only evidence that the book moved; an idempotent re-run that returned the
+    stored ticket counts as placed. The tool is refused unless the risk gate passed
+    exactly these weights, so a ticket an earlier run left on the same bar does not
+    count when risk never passed this one. No weights means nothing could have been
+    placed.
+    """
+    from fund.audit import AgentRunRepository, OrderRepository
+    from fund.audit.orders_repository import weights_hash
+
+    if not weights or not AgentRunRepository(session).risk_passed(run_id, weights):
+        return None
+    return OrderRepository(session).get_by_key(
+        portfolio_id=portfolio_id, asof=asof, weights_hash=weights_hash(weights)
+    )
+
+
+def _ticket_placed(
+    session: Any,
+    *,
+    run_id: uuid.UUID,
+    portfolio_id: uuid.UUID,
+    asof: dt.date,
+    weights: dict[str, float],
+) -> bool:
+    """Whether :func:`_placed_ticket` finds a ticket for ``weights``."""
+    return (
+        _placed_ticket(
+            session,
+            run_id=run_id,
+            portfolio_id=portfolio_id,
+            asof=asof,
+            weights=weights,
+        )
+        is not None
+    )
+
+
+def _settle_hitl(
+    session: Any,
+    *,
+    run_id: uuid.UUID,
+    portfolio_id: uuid.UUID,
+    asof: dt.date,
+    weights: dict[str, float],
+    decision: str,
+    result: Any,
+    regated_from: str | None = None,
+) -> None:
+    """Finalise an approve/reject resume, verifying an approve actually ticketed.
+
+    ``place_orders`` reports a missing fill bar, an unknown ticker or a mandate breach
+    as an ``{ok: false}`` envelope instead of raising, so resuming the gate succeeds
+    even when no ticket was written. An approve with no ticket must not stamp the run
+    ``completed`` nor replace the ``positions`` snapshot with weights no order backs:
+    it finalises ``incomplete`` (``"place_orders_failed"``). When the resumed PM
+    answered by re-gating (``result`` carries a fresh interrupt) the run stays alive as
+    ``"responded"`` instead, with the declined approve on the audit trail. Reject and
+    a ticketed approve go through :func:`_finalize_hitl`.
+
+    An approve that ``regated_from`` an earlier, non-order gate (see
+    :class:`_GateResume`) finalises nothing: it only records the decision and leaves
+    the run alive at the fresh gate, whose own approve is the order commit. Finalising
+    there would stamp the run ``completed`` with no ticket, replace the holdings with
+    whatever weights existed before the allocator ran, and strand the real gate behind
+    the finalised-run guard. A reject always closes the run, whatever the PM does
+    afterwards, so the freeze-a-run killswitch (a reject) cannot be outlived by a
+    re-gating PM. No commit.
+    """
+    if regated_from is not None and decision == "approve":
+        from fund.audit import AgentRunRepository
+
+        AgentRunRepository(session).append_decision(
+            run_id,
+            agent="orchestrator",
+            step=regated_from,
+            hitl_decision={"decision": decision, "regated": True},
+        )
+        return
+    ticket = (
+        _placed_ticket(
+            session,
+            run_id=run_id,
+            portfolio_id=portfolio_id,
+            asof=asof,
+            weights=weights,
+        )
+        if decision == "approve"
+        else None
+    )
+    if decision != "approve" or ticket is not None:
+        _finalize_hitl(
+            session,
+            run_id=run_id,
+            portfolio_id=portfolio_id,
+            asof=asof,
+            weights=weights,
+            decision=decision,
+            ticket=ticket,
+        )
+        return
+
+    from fund.audit import AgentRunRepository
+
+    audit = AgentRunRepository(session)
+    if _extract_interrupt(result) is None:
+        _finalize_incomplete(audit, run_id, "place_orders_failed")
+        return
+    audit.append_decision(
+        run_id,
+        agent="orchestrator",
+        step="place_orders",
+        hitl_decision={"decision": "approve", "reason": "place_orders_failed"},
+    )
+    audit.mark_responded(run_id)
+
+
 _HISTORY_SUMMARY_BUDGET = 800
 _HISTORY_DIGEST_WINDOW_DAYS = 14
+_HISTORY_SUMMARY_PREFIX = "Since last rebalance — "
+_UNBOUNDED = 10**9
+
+
+def _fit_entries(head: str, entries: list[str], limit: int) -> str:
+    """``head`` plus as many whole ``entries`` as fit in ``limit`` characters.
+
+    ``entries`` are in priority order, so the tail is what gets dropped, and the
+    dropped count is stated rather than clipping the last entry mid-value.
+    Returns ``""`` when not even one entry fits.
+    """
+    for keep in range(len(entries), 0, -1):
+        hidden = len(entries) - keep
+        more = f", +{hidden} more" if hidden else ""
+        text = f"{head}{', '.join(entries[:keep])}{more}."
+        if len(text) <= limit:
+            return text
+    return ""
+
+
+def _fit_prose(text: str, limit: int) -> str:
+    """``text`` cut back to a word boundary so it fits in ``limit`` characters."""
+    if len(text) <= limit:
+        return text
+    if limit <= 3:
+        return ""
+    cut = text[: limit - 3]
+    words = cut.rsplit(None, 1)
+    return (words[0] if len(words) == 2 else cut).rstrip() + "..."
+
+
+def _fair_shares(sizes: list[int], total: int) -> list[int]:
+    """Split ``total`` so small sections keep their size and big ones share the rest."""
+    shares = [0] * len(sizes)
+    remaining = total
+    order = sorted(range(len(sizes)), key=sizes.__getitem__)
+    for rank, index in enumerate(order):
+        shares[index] = min(sizes[index], remaining // (len(order) - rank))
+        remaining -= shares[index]
+    return shares
 
 
 def _history_summary(
@@ -539,7 +843,10 @@ def _history_summary(
     (no look-ahead), and folds them into one short string. Repos are imported
     lazily so a bare ``import fund.agents.graph`` stays agent-stack-free, and the
     result is capped to ``budget`` chars so it never crowds the model context or
-    the PM round cap.
+    the PM round cap. Weights print at four decimals; when the recap overflows,
+    each section is trimmed on its own — whole smallest positions are dropped
+    (and counted), the digest is cut at a word boundary — so the digest survives
+    and no weight is clipped mid-number.
 
     Args:
         session: A sync ``portopt_db`` session; not owned here.
@@ -560,29 +867,100 @@ def _history_summary(
         PortfolioJournalRepository,
     )
 
-    parts: list[str] = []
+    sections: list[Callable[[int], str]] = []
 
     overlays = PortfolioJournalRepository(session).list_for_portfolio(portfolio_id)
     prior = next((o for o in overlays if o.as_of < asof), None)
     if prior is not None:
         allocation = prior.allocation or {}
-        alloc_str = ", ".join(f"{t} {w}" for t, w in sorted(allocation.items()))
-        parts.append(f"Prior rebalance {prior.as_of.isoformat()}: {alloc_str}.")
+        # Largest weights first: when the book overflows the budget it is the small
+        # tail that is dropped.
+        ranked = sorted(allocation.items(), key=lambda item: (-float(item[1]), item[0]))
+        entries = [f"{ticker} {float(weight):.4f}" for ticker, weight in ranked]
+        head = f"Prior rebalance {prior.as_of.isoformat()}: "
+        sections.append(partial(_fit_entries, head, entries))
         if prior.trades:
-            parts.append(f"Traded: {', '.join(sorted(prior.trades))}.")
+            sections.append(partial(_fit_entries, "Traded: ", sorted(prior.trades)))
 
     start = asof - dt.timedelta(days=_HISTORY_DIGEST_WINDOW_DAYS)
     digests = MarketJournalRepository(session).get_range(start, asof)
     if digests:
         latest = digests[-1]  # get_range is ascending → the freshest at/before asof
-        parts.append(f"Latest digest {latest.as_of.isoformat()}: {latest.narrative}")
+        digest = f"Latest digest {latest.as_of.isoformat()}: {latest.narrative}"
+        sections.append(partial(_fit_prose, digest))
 
+    if not sections:
+        return ""
+    # Each section is bounded on its own so one long list cannot push the others out
+    # of the recap, and a cut never lands inside a number.
+    room = budget - len(_HISTORY_SUMMARY_PREFIX) - (len(sections) - 1)
+    shares = _fair_shares([len(render(_UNBOUNDED)) for render in sections], room)
+    parts = [render(share) for render, share in zip(sections, shares, strict=True)]
+    parts = [part for part in parts if part]
     if not parts:
         return ""
-    summary = "Since last rebalance — " + " ".join(parts)
-    if len(summary) > budget:
-        summary = summary[: budget - 3].rstrip() + "..."
-    return summary
+    return _HISTORY_SUMMARY_PREFIX + " ".join(parts)
+
+
+_DIRECTIVES_BUDGET = 1200
+_DIRECTIVE_MAX_CHARS = 300
+
+
+def _directives_block(
+    mandate: PortfolioMandate, *, budget: int = _DIRECTIVES_BUDGET
+) -> str:
+    """Render the adviser's remembered directives, or ``""`` when there are none.
+
+    Each directive is collapsed onto a single bullet line so free text cannot pose
+    as a separate instruction to the PM, capped to ``_DIRECTIVE_MAX_CHARS``, and the
+    newest directives win when the total would exceed ``budget``, so a long-lived
+    mandate cannot crowd the PM context.
+    """
+    kept: list[str] = []
+    used = 0
+    for directive in reversed(mandate.remembered_directives):
+        text = " ".join(directive.split())
+        if not text:
+            continue
+        if len(text) > _DIRECTIVE_MAX_CHARS:
+            text = text[: _DIRECTIVE_MAX_CHARS - 3].rstrip() + "..."
+        if used + len(text) > budget:
+            break
+        kept.append(text)
+        used += len(text)
+    if not kept:
+        return ""
+    bullets = "\n".join(f"- {text}" for text in reversed(kept))
+    return (
+        "Adviser standing directives (authored by the human adviser and remembered "
+        "across rounds; soft guardrails). Pass them on in every delegation brief and "
+        "have risk flag any proposal that breaches one. They never relax the "
+        f"ConstraintSet limits, the risk gate or the adviser approval:\n{bullets}\n\n"
+    )
+
+
+def _constraint_digest(constraint_set: ConstraintSet) -> str:
+    """One-line read-only digest of the limits the PM must relay to its subagents.
+
+    The ``ConstraintSet`` lives in the langgraph Store, which no agent tool can
+    read, so the seed turn is the only place the PM can learn the objective,
+    bounds and drawdown ceilings the skills tell it to pass on. It is rendered
+    from the resolved set, never model-authored, so the risk and executor steps
+    compare against the real limits instead of invented ones.
+    """
+    bounds = constraint_set.bounds
+    exclusions = ", ".join(s.value for s in constraint_set.esg.exclusions) or "none"
+    position_cap = constraint_set.universe_filters.max_position_cap
+    cap = "" if position_cap is None else f", per-name position cap {position_cap}"
+    return (
+        f"ConstraintSet: objective {constraint_set.objective.value}, "
+        f"risk measure {constraint_set.risk_measure.value}, "
+        f"risk aversion {constraint_set.a_gamma}, tail beta {constraint_set.beta}, "
+        f"weight bounds [{bounds.min_weights}, {bounds.max_weights}]{cap}, "
+        f"budget {bounds.budget}, drawdown ceilings (fractions of capital) "
+        f"nu1 {constraint_set.nu1} / nu2 {constraint_set.nu2} / "
+        f"nu3 {constraint_set.nu3}, ESG exclusions {exclusions}."
+    )
 
 
 def _run_instruction(
@@ -590,21 +968,66 @@ def _run_instruction(
     portfolio_id: str,
     asof: dt.date,
     history_summary: str = "",
+    *,
+    constraint_set: ConstraintSet | None = None,
 ) -> str:
     """The human turn that drives the PM through one paper rebalance.
 
     When ``history_summary`` is non-empty it is prepended as a context block so
     the PM sees the portfolio's recent allocation/trades and the latest market
     digest before deciding; an empty summary (first run) yields the bare seed.
+    The mandate's ``remembered_directives`` follow as one bullet each: the adviser
+    saved them to steer every later round, including unattended scheduled ones. The
+    mandate line carries the drift band and HITL gates, and a given ``constraint_set``
+    adds its limits digest, so the PM can pass real numbers to the subagents rather
+    than guessing them.
     """
     benchmark = f", benchmark {mandate.benchmark}" if mandate.benchmark else ""
     history = f"{history_summary}\n\n" if history_summary else ""
+    gates = ", ".join(mandate.hitl_gates) or "none"
+    limits = f" {_constraint_digest(constraint_set)}" if constraint_set else ""
     return (
-        f"{history}Produce an allocation for portfolio {portfolio_id} as of "
-        f"{asof.isoformat()}. Mandate: capital {mandate.capital} "
-        f"{mandate.base_currency}{benchmark}. Delegate in order economist -> "
-        f"allocator -> risk -> executor, then commit the risk-approved trades "
-        f"through place_orders."
+        f"{history}{_directives_block(mandate)}Produce an allocation for portfolio "
+        f"{portfolio_id} as of {asof.isoformat()}. Mandate: capital {mandate.capital} "
+        f"{mandate.base_currency}{benchmark}, no-trade band (drift band (L1)) "
+        f"{mandate.drift_l1_threshold}, HITL gates {gates}.{limits} Delegate in "
+        f"order economist -> allocator -> risk -> executor, then commit the "
+        f"risk-approved trades through place_orders."
+    )
+
+
+_FINALISED_STATUSES = ("completed", "rejected", "incomplete", "blocked", "failed")
+
+
+def _require_resumable(run: Any) -> None:
+    """Refuse to resume a run that is not at a live gate.
+
+    An external freeze marks live gates "rejected" at the DB without resolving the
+    checkpoint (a completed / incomplete / blocked run, or a stale observer racing a
+    concurrent approve, is the same shape): the LangGraph checkpoint is left standing,
+    so without this guard a blind ``Command(resume=…)`` would re-drive
+    ``place_orders`` and ship live orders against a halted run. A ``pending`` row is no
+    gate either: the run is still being driven, or crashed before reaching one, and
+    resuming it would re-run the PM headlessly and finalise it as approved with no
+    gate and no ticket. Only ``paused`` / ``responded`` runs are resumable. Shared by
+    :meth:`FundRun.resume` and :func:`resume_fund`.
+
+    Raises:
+        ValueError: ``run`` is finalised, or has not reached a live gate.
+    """
+    from fund.audit.repository import RESUMABLE_RUN_STATUSES
+
+    if run.status in RESUMABLE_RUN_STATUSES:
+        return
+    if run.status in _FINALISED_STATUSES:
+        raise ValueError(
+            f"agent_run {run.id} is {run.status!r}, already finalised and not "
+            "resumable (it completed, failed, or was rejected/frozen/blocked since "
+            "the gate opened)"
+        )
+    raise ValueError(
+        f"agent_run {run.id} is {run.status!r}, not at a live gate and not resumable "
+        "(it is still being driven, or crashed before reaching its gate)"
     )
 
 
@@ -616,8 +1039,9 @@ class FundRun:
     ``constraint_set``, the load-bearing optimizer ``weights`` (captured from the
     audit trail before the pause), the ``interrupt`` payload the adviser reviews,
     the run ``status``, and enough state to resume. ``resume("approve")`` commits
-    the paper ticket and finalises the run completed; any other decision commits no
-    order, records the HITL choice, and finalises the run rejected.
+    the paper ticket and finalises the run completed, or incomplete when
+    ``place_orders`` wrote no ticket (see :func:`_settle_hitl`); ``resume("reject")``
+    commits no order, records the HITL choice, and finalises the run rejected.
     """
 
     constraint_set: ConstraintSet
@@ -628,6 +1052,7 @@ class FundRun:
     agent: Any = field(repr=False, compare=False)
     thread_config: dict[str, Any] = field(repr=False, compare=False)
     session: Any = field(repr=False, compare=False)
+    ctx: Any = field(repr=False, compare=False)
 
     def resume(
         self, decision: str, *, pm_directive: str | None = None
@@ -636,24 +1061,63 @@ class FundRun:
 
         ``approve`` runs the gated ``place_orders`` tool (the paper ticket is written
         and the executor decision logged inside the closure), then finalises the run
-        as completed with the optimizer's weights. ``reject`` writes no order, records
-        the HITL choice, and finalises rejected. ``respond`` threads ``pm_directive``
-        back to the PM and lets it continue: if it re-gates the run stays alive as
-        ``"responded"`` (still awaiting approval), else it finalises ``incomplete`` —
-        delegated to :func:`_finalize_respond`.
+        as completed with the optimizer's weights — unless ``place_orders`` placed no
+        ticket (a missing fill bar, the audited weights breach the current mandate, or
+        the risk gate had not passed them), in which case nothing is booked and the run
+        ends ``incomplete`` (or stays ``responded`` if the PM re-gated). ``reject``
+        writes no order, records the HITL choice, and finalises rejected. ``respond``
+        threads ``pm_directive`` back to the PM and lets it continue: if it re-gates
+        the run stays alive as ``"responded"`` (still awaiting approval), else it
+        finalises ``incomplete`` — delegated to :func:`_finalize_respond`.
 
-        Approve/reject finalisation is delegated to the shared :func:`_finalize_hitl`,
+        Approve/reject finalisation is delegated to the shared :func:`_settle_hitl`,
         and respond to :func:`_finalize_respond`, so this in-process path and the
         cross-process :func:`resume_fund` cannot diverge — both stamp the audit trail
-        identically. The run's ``portfolio_id`` / ``asof`` (which ``FundRun`` does not
-        carry) are read back from its persisted row for the approve/reject path.
+        identically, and both refuse a run that is already finalised. The run's
+        ``portfolio_id`` / ``asof`` (which ``FundRun`` does not carry) are read back
+        from its persisted row for the approve/reject path, and so are the audited
+        weights: the vector captured at the pause may have been superseded by the time
+        the adviser decides (a ``respond`` can make the PM re-optimise), and
+        finalisation must record what ``place_orders`` placed. They are read *before*
+        the resume, because the gated ``place_orders`` is the first thing the resume
+        runs and a PM that re-runs the allocator afterwards would move the latest
+        optimizer decision off the weights the ticket was placed with.
         """
         from fund.audit import AgentRunRepository
 
-        result: dict[str, Any] = self.agent.invoke(
-            _resume_command(decision, pm_directive),
-            config=self.thread_config,
-        )
+        run = AgentRunRepository(self.session).get_run(self.run_id)
+        if run is None:
+            raise LookupError(f"no agent_run {self.run_id}")
+        _require_resumable(run)
+        if run.portfolio_id is None:
+            raise ValueError(f"agent_run {self.run_id} has no portfolio_id")
+        approved_weights = _optimizer_weights(self.session, self.run_id)
+        regated_from: str | None = None
+        try:
+            resumed = _resume_gate(
+                self.agent,
+                self.ctx,
+                self.thread_config,
+                decision=decision,
+                pm_directive=pm_directive,
+                approved_weights=approved_weights,
+            )
+            result = resumed.result
+            regated_from = resumed.regated_from
+        except Exception as exc:
+            # Same rule as ``resume_fund``: the checkpointer commits on its own
+            # connection, so a failure of the PM's follow-up turn after the gate was
+            # consumed would leave the checkpoint past the tool step while the caller
+            # rolls the ticket back. A gate still pending means nothing moved and the
+            # failure is safely retryable.
+            if _pending_gate_names(self.agent, self.thread_config):
+                raise
+            _log.warning(
+                "resume of run %s failed after the gate was consumed",
+                self.run_id,
+                exc_info=True,
+            )
+            result = {"resume_error": f"{type(exc).__name__}: {exc}"}
         if decision == "respond":
             _finalize_respond(
                 self.session,
@@ -662,29 +1126,63 @@ class FundRun:
                 pm_directive=pm_directive,
             )
             return result
-        run = AgentRunRepository(self.session).get_run(self.run_id)
-        if run is None:
-            raise LookupError(f"no agent_run {self.run_id}")
-        if run.portfolio_id is None:
-            raise ValueError(f"agent_run {self.run_id} has no portfolio_id")
-        _finalize_hitl(
+        _settle_hitl(
             self.session,
             run_id=self.run_id,
             portfolio_id=run.portfolio_id,
             asof=run.asof,
-            weights=self.weights,
+            weights=approved_weights,
             decision=decision,
+            result=result,
+            regated_from=regated_from,
         )
         return result
 
 
-def _finalize_incomplete(audit: Any, run_id: uuid.UUID, reason: str) -> None:
-    """Finalise a run that never reached the gate — the shared no-ticket end.
+# Provider stop reasons (lower-cased) that say the output cap, not the model, ended a
+# turn, under the key each provider family reports them with.
+_OUTPUT_CAP_STOPS = frozenset({"max_tokens", "length"})
+_STOP_REASON_KEYS = ("stop_reason", "finish_reason", "done_reason", "stopReason")
 
-    Records the orchestrator's incomplete decision with ``reason`` (``"round_cap"`` /
-    ``"pm_round_cap"`` / ``"no_order"``) and finalises the run ``incomplete`` with no
-    weights. Shared by the blocking :func:`run_fund` and the streaming
-    :func:`stream_fund` so the two cannot diverge on the no-ticket path. No commit.
+
+def _last_message(result: Any) -> Any:
+    """The final message of a compiled-graph result (``None`` when it has none)."""
+    messages = result.get("messages") if isinstance(result, dict) else None
+    return messages[-1] if messages else None
+
+
+def _ungated_end_reason(last_message: Any, *, pm_round_cap_reached: bool) -> str:
+    """Why the PM's last turn ended the run without reaching the ``place_orders`` gate.
+
+    ``create_agent`` treats any turn without a valid tool call as a final answer, and
+    langchain surfaces a truncated or unparsable tool call only as
+    ``invalid_tool_calls``. Telling those apart from a blocking risk verdict is the
+    only way the adviser can see why a round ended: ``"pm_round_cap"`` when the
+    delegation cap tripped, ``"output_truncated"`` when the provider reported an
+    output-cap stop, ``"invalid_tool_call"`` when the call was malformed, and
+    ``"no_order"`` otherwise (nothing left to commit).
+    """
+    if pm_round_cap_reached:
+        return "pm_round_cap"
+    metadata = getattr(last_message, "response_metadata", None) or {}
+    if any(
+        str(metadata.get(key, "")).lower() in _OUTPUT_CAP_STOPS
+        for key in _STOP_REASON_KEYS
+    ):
+        return "output_truncated"
+    if getattr(last_message, "invalid_tool_calls", None):
+        return "invalid_tool_call"
+    return "no_order"
+
+
+def _finalize_incomplete(audit: Any, run_id: uuid.UUID, reason: str) -> None:
+    """Finalise a run that ended without a ticket — the shared no-ticket end.
+
+    Records the orchestrator's incomplete decision with ``reason`` (``"round_cap"``,
+    ``"place_orders_failed"`` or one of :func:`_ungated_end_reason`'s) and finalises
+    the run ``incomplete`` with no weights. Shared by the blocking :func:`run_fund`, the
+    streaming :func:`stream_fund` and the approve resume so they cannot diverge on the
+    no-ticket path. No commit.
     """
     audit.append_decision(
         run_id,
@@ -695,22 +1193,282 @@ def _finalize_incomplete(audit: Any, run_id: uuid.UUID, reason: str) -> None:
     audit.finalize_run(run_id, weights={}, status="incomplete")
 
 
-def _resume_command(decision: str, pm_directive: str | None) -> Any:
+# The PM prompt and the fund-orchestration skill teach the PM to recognise this
+# opening; keep the marker in sync with them.
+_RESPOND_FRAME = (
+    "ADVISER DIRECTIVE — place_orders was NOT executed and no ticket exists. "
+    "Revise the proposal per the directive below, re-run the affected pipeline "
+    "stages (the risk gate included) and call place_orders again. "
+    "Directive: {directive}"
+)
+
+
+def _resume_command(
+    decision: str, pm_directive: str | None, *, actions: int = 1
+) -> Any:
     """Build the HITL ``Command(resume=…)`` for a gate decision.
 
     ``approve`` / ``reject`` carry only the decision type; ``respond`` carries the
     adviser's free-text ``pm_directive`` as the gated tool's result, threading it back
-    to the PM (a successful ``place_orders`` ``ToolMessage``) so the gate continues
-    instead of terminating. Imports ``langgraph`` lazily to keep a bare
-    ``import fund.agents.graph`` light.
+    to the PM so the gate continues instead of terminating. The middleware always
+    delivers a respond as a *successful* ``place_orders`` ``ToolMessage``, which a bare
+    sentence would make read like a placed order, so the directive is framed as a
+    non-execution (see :data:`_RESPOND_FRAME`). The middleware demands exactly one
+    decision per gated tool call, so the same decision is repeated ``actions`` times
+    (a PM turn that emits parallel gated calls pauses with several action requests).
+    Imports ``langgraph`` lazily to keep a bare ``import fund.agents.graph`` light.
     """
     from langgraph.types import Command
 
-    if decision == "respond":
-        return Command(
-            resume={"decisions": [{"type": "respond", "message": pm_directive}]}
+    decisions: list[dict[str, Any]] = [
+        {
+            "type": "respond",
+            "message": _RESPOND_FRAME.format(directive=pm_directive or "(none given)"),
+        }
+        if decision == "respond"
+        else {"type": decision}
+        for _ in range(max(actions, 1))
+    ]
+    return Command(resume={"decisions": decisions})
+
+
+def _pending_action_count(agent: Any, thread_config: dict[str, Any]) -> int:
+    """How many gated tool calls the paused PM is awaiting a decision on.
+
+    Read from the checkpointed interrupt rather than a cached payload, because a
+    ``respond`` can re-gate with a different number of calls than the first pause.
+    ``1`` when no interrupt carries action requests.
+    """
+    for pending in agent.get_state(thread_config).interrupts:
+        value = pending.value
+        requests = value.get("action_requests") if isinstance(value, dict) else None
+        if requests:
+            return len(requests)
+    return 1
+
+
+def _resume_agent(
+    agent: Any,
+    thread_config: dict[str, Any],
+    decision: str,
+    pm_directive: str | None,
+) -> dict[str, Any]:
+    """Resume the paused PM, answering every gated tool call it is waiting on."""
+    result: dict[str, Any] = agent.invoke(
+        _resume_command(
+            decision,
+            pm_directive,
+            actions=_pending_action_count(agent, thread_config),
+        ),
+        config=thread_config,
+    )
+    return result
+
+
+def _gate_consumed(agent: Any, thread_config: dict[str, Any]) -> bool:
+    """Whether the thread already ran its ``place_orders`` call and moved past the gate.
+
+    A gate decision is one-shot: once the checkpoint has advanced past the interrupt, a
+    second ``Command(resume=...)`` replays nothing. A failed approve leaves exactly
+    that behind when a later step of the same resume (the finalisation, the caller's
+    commit) raises after ``place_orders`` ran. The caller then rolls the SQL session
+    back and the ticket is gone, but the LangGraph saver commits each superstep on its
+    own connection, so the checkpoint keeps the call.
+    """
+    state = agent.get_state(thread_config)
+    if state.interrupts:
+        return False
+    messages = (state.values or {}).get("messages") or []
+    return any(
+        getattr(m, "type", None) == "tool"
+        and getattr(m, "name", None) == "place_orders"
+        for m in messages
+    )
+
+
+def _replace_consumed_ticket(ctx: Any, weights: dict[str, float]) -> None:
+    """Place the approved ticket directly for a gate an earlier attempt consumed.
+
+    Resuming a consumed gate cannot reach ``place_orders`` again, so a retried approve
+    would otherwise dead-end on a missing ticket. The placement is the one the gate
+    would have run (audited weights, mandate capital, risk-gate and mandate checks,
+    executor decision) and is idempotent: an existing ticket is left alone.
+
+    Raises:
+        RuntimeError: The placement was refused (e.g. still no fill bar after the
+            decision date); nothing was written.
+    """
+    from fund.agents.toolsets import place_audited_orders
+
+    if _ticket_placed(
+        ctx.session,
+        run_id=ctx.run_id,
+        portfolio_id=ctx.portfolio_id,
+        asof=ctx.asof,
+        weights=weights,
+    ):
+        return
+    outcome = place_audited_orders(ctx)
+    if not outcome.get("ok"):
+        raise RuntimeError(
+            f"approve could not place the paper ticket: {outcome.get('error')}"
         )
-    return Command(resume={"decisions": [{"type": decision}]})
+
+
+def _pending_gate_names(agent: Any, thread_config: dict[str, Any]) -> tuple[str, ...]:
+    """Names of the gated tools the thread is currently paused on, in request order."""
+    names: list[str] = []
+    for interrupt in agent.get_state(thread_config).interrupts:
+        value = getattr(interrupt, "value", None)
+        requests = value.get("action_requests") if isinstance(value, dict) else None
+        names.extend(str(r.get("name")) for r in requests or [] if isinstance(r, dict))
+    return tuple(names)
+
+
+@dataclass(frozen=True)
+class _GateResume:
+    """What driving one gate decision through the graph produced.
+
+    ``regated_from`` names the gate an approve resolved when that gate was not the
+    order commit and the PM, running on, stopped at a fresh one: the run is still
+    awaiting an adviser decision. ``None`` for every other outcome.
+    """
+
+    result: dict[str, Any]
+    regated_from: str | None = None
+
+
+def _refuse_stale_approval(ctx: Any) -> None:
+    """Refuse an approve that would backdate the ticket or roll the holdings back.
+
+    The paper ticket fills at the first close after the run's ``asof`` whatever the
+    date of the approval, so a gate left open past the approval window would let the
+    adviser pick, with the bars since in view, which fills to keep. And a run for an
+    earlier bar than the portfolio's current holdings would replace them with weights
+    the later round already superseded. Either run can still be rejected.
+
+    Raises:
+        ValueError: The run opened more than ``approval_max_age_days`` ago, or the
+            portfolio already holds positions stamped with a later ``asof``.
+    """
+    import datetime as dt
+
+    from fund.audit import AgentRunRepository, PositionRepository
+    from fund.audit.repository import run_age
+
+    run = AgentRunRepository(ctx.session).get_run(ctx.run_id)
+    window = dt.timedelta(days=ctx.config.approval_max_age_days)
+    if run is not None and (age := run_age(run)) > window:
+        raise ValueError(
+            f"agent_run {ctx.run_id} is stale: it opened {age.days} days ago, past the "
+            f"{ctx.config.approval_max_age_days}-day approval window; reject it and "
+            "run a fresh round"
+        )
+    holdings = PositionRepository(ctx.session).get_holdings(ctx.portfolio_id)
+    held = max((p.asof for p in holdings), default=None)
+    if held is not None and held > ctx.asof:
+        raise ValueError(
+            f"agent_run {ctx.run_id} (asof {ctx.asof}) is older than the portfolio's "
+            f"current holdings (asof {held}); reject it and run a fresh round"
+        )
+
+
+def _require_fill_bars(ctx: Any, weights: dict[str, float]) -> None:
+    """Refuse an approve of the order gate that ``place_orders`` could not fill yet.
+
+    Approving resumes the graph, which runs the gated ``place_orders`` and so consumes
+    its interrupt. When that call fails for want of a fill bar the checkpoint is
+    already past the gate (the saver commits on its own connection, so no rollback
+    undoes it) while the run row stays ``paused``: the Decisions queue, which lists
+    only live interrupts, no longer shows it. The ticket fills at the first close after
+    ``asof`` and the weekly sweep sets ``asof`` to a Saturday, so an approve that lands
+    before the next close is ingested is the ordinary case, not a rare error. Looking
+    for the fills first leaves the gate untouched for the retry. A ticket that already
+    exists needs none (``place_orders`` returns it as is).
+
+    Raises:
+        RuntimeError: A line has no fill bar after ``asof``; nothing was resumed.
+    """
+    if not weights:
+        return
+    if _ticket_placed(
+        ctx.session,
+        run_id=ctx.run_id,
+        portfolio_id=ctx.portfolio_id,
+        asof=ctx.asof,
+        weights=weights,
+    ):
+        return
+    from fund.tools.orders import fill_shortfalls
+
+    shortfalls = fill_shortfalls(
+        ctx.session, ctx.asof, weights, base_currency=ctx.base_currency
+    )
+    if shortfalls:
+        raise RuntimeError(
+            f"approve would leave no paper ticket ({'; '.join(shortfalls)}); the gate "
+            f"stays open, so approve again once the next close after {ctx.asof} is "
+            "ingested"
+        )
+
+
+def _resume_gate(
+    agent: Any,
+    ctx: Any,
+    thread_config: dict[str, Any],
+    *,
+    decision: str,
+    pm_directive: str | None,
+    approved_weights: dict[str, float],
+) -> _GateResume:
+    """Resume the paused PM for a gate decision, shared by both resume routes.
+
+    The run is claimed first (:meth:`AgentRunRepository.claim_for_resume`): the status
+    guard that precedes this is a plain read, so a concurrent reject, freeze or second
+    approve may have finalised the run since, and driving the graph then would place
+    orders for a run the adviser already settled. An approve whose gate was already
+    consumed by an earlier attempt that did not survive (:func:`_gate_consumed`) has
+    its ticket placed directly, since the resume can no longer reach ``place_orders``;
+    every other decision is the plain :func:`_resume_agent`.
+
+    An approve is also refused when the run is stale or older than the portfolio's
+    holdings (:func:`_refuse_stale_approval`), and an approve of the order gate while
+    no fill bar exists leaves the gate untouched (:func:`_require_fill_bars`).
+
+    Raises:
+        RuntimeError: The fund or the portfolio is frozen and ``decision`` is not a
+            reject, or the order gate's ticket has no fill bar yet.
+        ValueError: The run is no longer at a live gate, or an approve is stale.
+    """
+    from fund.audit.repository import AgentRunRepository
+
+    # The status guard and the freeze check of ``resume_fund`` are plain reads, so a
+    # freeze committed since (a round that was mid-flight when the killswitch fired
+    # commits its gate afterwards) must be seen here too, and the in-process
+    # ``FundRun.resume`` route has no earlier check at all. Reject stays open so the
+    # adviser can still close the gate.
+    if decision != "reject":
+        _raise_if_frozen(ctx.session, ctx.portfolio_id, doing=f"{decision} a run")
+    if decision == "approve":
+        _refuse_stale_approval(ctx)
+    if not AgentRunRepository(ctx.session).claim_for_resume(ctx.run_id):
+        raise ValueError(
+            f"agent_run {ctx.run_id} is no longer at a live gate (another resolver "
+            "finalised it first); nothing was resumed"
+        )
+    gated: tuple[str, ...] = (
+        _pending_gate_names(agent, thread_config) if decision == "approve" else ()
+    )
+    if _ORDER_GATE in gated:
+        _require_fill_bars(ctx, approved_weights)
+    if decision == "approve" and _gate_consumed(agent, thread_config):
+        _replace_consumed_ticket(ctx, approved_weights)
+    result = _resume_agent(agent, thread_config, decision, pm_directive)
+    # Approving a gate other than the order commit (a mandate-added tool gate) just
+    # lets the PM run on; if it stops at another gate the approve settled nothing.
+    if gated and _ORDER_GATE not in gated and _extract_interrupt(result) is not None:
+        return _GateResume(result, regated_from=gated[0])
+    return _GateResume(result)
 
 
 def _finalize_respond(
@@ -742,12 +1500,95 @@ def _finalize_respond(
     if _extract_interrupt(result) is not None:
         audit.mark_responded(run_id)
     else:
-        reason = (
-            "pm_round_cap"
-            if isinstance(result, dict) and result.get("pm_round_cap_reached")
-            else "no_order"
+        reason = _ungated_end_reason(
+            _last_message(result),
+            pm_round_cap_reached=bool(
+                isinstance(result, dict) and result.get("pm_round_cap_reached")
+            ),
         )
         _finalize_incomplete(audit, run_id, reason)
+
+
+def _frozen_scope(session: Any, portfolio_id: uuid.UUID) -> str | None:
+    """The autonomy scope FROZEN for ``portfolio_id`` (``"fund"`` wins), else ``None``.
+
+    Reads the database rather than the session's cached rows: a run session loads the
+    armed rows when it opens, and a freeze committed by the operator's session while
+    the round is in flight is otherwise invisible to it. Read-only: it never creates a
+    row.
+    """
+    from fund.audit.autonomy_repository import AutonomyRepository
+
+    scope = AutonomyRepository(session).frozen_scope(portfolio_id)
+    return scope.value if scope is not None else None
+
+
+def _raise_if_frozen(session: Any, portfolio_id: uuid.UUID, *, doing: str) -> None:
+    """Raise ``RuntimeError`` when the fund or the portfolio is FROZEN (re-arm first).
+
+    ``doing`` completes the message ("re-arm before ``doing``").
+    """
+    scope = _frozen_scope(session, portfolio_id)
+    if scope == "fund":
+        raise RuntimeError(f"fund autonomy is frozen; re-arm before {doing}")
+    if scope == "portfolio":
+        raise RuntimeError(f"portfolio {portfolio_id} is frozen; re-arm before {doing}")
+
+
+def _raise_if_profile_superseded(session: Any, run: Any) -> None:
+    """Raise ``RuntimeError`` when the portfolio was re-profiled after ``run`` opened.
+
+    A gate parks the optimizer weights computed under the profile that was active when
+    the round opened, and ``place_orders`` sizes the ticket from exactly those weights.
+    A re-profile appends a new ``mifid_profiles`` version (the old one stays), so a
+    gate left waiting would otherwise still be approvable and trade a book the new
+    ``ConstraintSet`` never validated. A run opened before the version was recorded
+    carries none and is not checked.
+
+    Args:
+        session: A sync ``portopt_db`` session; not owned here.
+        run: The ``agent_run`` row being resumed; its ``optimizer_config`` holds the
+            ``profile_version`` it was opened under.
+
+    Raises:
+        RuntimeError: A newer profile version exists; the message tells the adviser
+            to reject the run and start a new round.
+    """
+    from fund.audit import MifidProfileRepository
+
+    built_under = (run.optimizer_config or {}).get("profile_version")
+    if built_under is None:
+        return
+    current = MifidProfileRepository(session).get_active(run.portfolio_id)
+    if current is not None and current.version > built_under:
+        raise RuntimeError(
+            f"portfolio {run.portfolio_id} was re-profiled (v{built_under} -> "
+            f"v{current.version}) after run {run.id} opened; reject this run and "
+            "start a new round under the current profile"
+        )
+
+
+def _halt_if_frozen(
+    session: Any, audit: Any, run_id: uuid.UUID, portfolio_id: uuid.UUID
+) -> bool:
+    """Finalise a run ``rejected`` when a freeze landed while it was in flight.
+
+    The freeze verbs only see runs already committed at a gate, so a round still
+    executing when the operator freezes would otherwise open its gate afterwards and
+    be approvable under a FROZEN posture. Returns ``True`` when the run was halted.
+    No commit.
+    """
+    scope = _frozen_scope(session, portfolio_id)
+    if scope is None:
+        return False
+    audit.append_decision(
+        run_id,
+        agent="orchestrator",
+        step="place_orders",
+        hitl_decision={"decision": "halted", "reason": "frozen", "scope": scope},
+    )
+    audit.finalize_run(run_id, weights={}, status="rejected")
+    return True
 
 
 @dataclass(frozen=True)
@@ -760,6 +1601,8 @@ class _FundRunSetup:
     constraint_set: ConstraintSet = field(repr=False, compare=False)
     seed_input: dict[str, Any] = field(repr=False, compare=False)
     audit: Any = field(repr=False, compare=False)
+    ctx: Any = field(repr=False, compare=False)
+    first_round: bool = field(default=False, repr=False, compare=False)
 
 
 def _prepare_fund_run(
@@ -770,7 +1613,7 @@ def _prepare_fund_run(
     asof: dt.date,
     session: Any,
     checkpointer: Any,
-    store: Any | None,
+    store: Any,
     config: FundConfig,
     fallback: Any | None,
     thread_id: str | None,
@@ -781,19 +1624,29 @@ def _prepare_fund_run(
     The setup :func:`run_fund` and :func:`stream_fund` share so neither drifts from the
     other: a FROZEN fund or portfolio raises ``RuntimeError`` (re-arm first — Q3, fund
     scope wins); a missing active ``ConstraintSet`` raises ``RuntimeError`` (profile
-    first); a pending ``agent_run`` is opened recording the seed + ``temperature`` + 3y
-    lookback (D31); its checkpointer thread is pinned to ``str(run_id)`` so the
-    rebuild-to-resume path recovers it; and the PM agent is built against this run's
-    ``RunContext`` with the effective gate set — the portfolio's **first** round forces
-    every PM gate (``_ALL_ORCHESTRATOR_GATES``), later rounds use config baseline ∪
-    ``mandate.hitl_gates``. The caller drives the agent (invoke or stream). Every write
-    goes through ``session`` (caller owns the transaction).
+    first); a pending ``agent_run`` is opened recording the seed + the effective
+    ``temperature`` (``None`` for a model built without one) + the 3y backtest training
+    window (D31) + the mandate's ``capital`` (the ticket's gross
+    book) + the active MiFID ``profile_version`` (``None`` when unprofiled); its
+    checkpointer thread is pinned to ``str(run_id)`` so the rebuild-to-resume path
+    recovers it; and the PM agent is built against this run's ``RunContext`` with the
+    effective gate set — config baseline ∪ ``mandate.hitl_gates``, which the
+    portfolio's **first** round widens with every PM gate
+    (``_ALL_ORCHESTRATOR_GATES``). The caller drives the agent (invoke or stream). An
+    error once the run is open (agent build, seed) finalises it ``failed`` and hands
+    back a first-round gate it spent, then propagates. Every write goes through
+    ``session`` (caller owns the transaction).
     """
     import secrets
 
+    from fund.agents.model import effective_temperature
     from fund.agents.toolsets import RunContext
-    from fund.audit import AgentRunRepository, resolve_constraint_set
-    from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
+    from fund.audit import (
+        AgentRunRepository,
+        MifidProfileRepository,
+        resolve_constraint_set,
+    )
+    from fund.audit.autonomy_repository import AutonomyRepository
     from fund.schemas import ConstraintSetRef
 
     pid_uuid = _coerce_uuid(portfolio_id)
@@ -802,82 +1655,124 @@ def _prepare_fund_run(
     # FROZEN blocks every new run — scheduled and human-triggered — until an explicit
     # re-arm (Q3). Fund scope wins over portfolio scope. The scheduler pre-checks and
     # skips cleanly; this raise is the backstop that blocks a manual run before any run
-    # row is opened.
+    # row is opened. Read-only on purpose: a row created here would sit uncommitted in
+    # the round's transaction for its whole run, and a concurrent freeze would then
+    # wait on the unique index until the round ends instead of acting at once.
+    _raise_if_frozen(session, pid_uuid, doing="running a rebalance")
     autonomy = AutonomyRepository(session)
-    if autonomy.fund_state().state == AutonomyState.FROZEN:
-        raise RuntimeError("fund autonomy is frozen; re-arm before running a rebalance")
-    if autonomy.portfolio_state(pid_uuid).state == AutonomyState.FROZEN:
-        raise RuntimeError(
-            f"portfolio {pid_str} is frozen; re-arm before running a rebalance"
-        )
 
-    constraint_set = None
-    if store is not None:
-        constraint_set = resolve_constraint_set(
-            store,
-            ConstraintSetRef(
-                portfolio_id=pid_str, store_key=config.constraint_set_store_key
-            ),
+    if store is None:
+        raise RuntimeError(
+            f"A store is required to resolve the ConstraintSet of portfolio {pid_str}."
         )
+    constraint_set = resolve_constraint_set(
+        store,
+        ConstraintSetRef(
+            portfolio_id=pid_str, store_key=config.constraint_set_store_key
+        ),
+        session=session,
+    )
     if constraint_set is None:
         raise RuntimeError(
             f"No active ConstraintSet for portfolio {pid_str}; run the profiler "
             f"first to establish a risk profile."
         )
 
-    run_seed = seed if seed is not None else secrets.randbits(32)
+    # 31 bits: ``agent_runs.seed`` is a signed 32-bit INTEGER on PostgreSQL, so a full
+    # 32-bit draw overflows the INSERT about half the time (SQLite never notices). The
+    # seed is an audit label only: the allocator path draws no random numbers (a convex
+    # min-variance QP over deterministic estimators), so identical inputs reproduce
+    # identical weights without it.
+    run_seed = seed if seed is not None else secrets.randbits(31)
+    active_profile = MifidProfileRepository(session).get_active(pid_uuid)
     audit = AgentRunRepository(session)
     run = audit.create_run(
         portfolio_id=pid_uuid,
         asof=asof,
         seed=run_seed,
+        # Candidates are picked at runtime; optimize_portfolio records them.
         universe=[],
         optimizer_config={
             "step": "fund",
-            "temperature": config.model_temperature,
-            "lookback_days": _LOOKBACK_DAYS,
+            "temperature": effective_temperature(config, config.primary_model),
+            "backtest_train_size": _LOOKBACK_DAYS,
+            # Recorded so the rebuild-to-resume path sizes the ticket at the capital
+            # the PM was told, even if the mandate is edited before approval.
+            "capital": float(mandate.capital),
+            # Recorded so approving the gate can tell the portfolio was re-profiled
+            # while the round was running or waiting.
+            "profile_version": (
+                active_profile.version if active_profile is not None else None
+            ),
         },
     )
-    resolved_thread_id = thread_id or str(run.id)
-    audit.set_thread_id(run.id, resolved_thread_id)
+    # The run row now exists, and the portfolio's first-round gate is spent below. An
+    # error before the caller owns a setup to finalise (the agent build, the seed's DB
+    # reads) would leave a ``pending`` orphan the roster shows as running, with the
+    # one-time gate gone, once the scheduler sweep commits the session.
+    first_round = False
+    try:
+        resolved_thread_id = thread_id or str(run.id)
+        audit.set_thread_id(run.id, resolved_thread_id)
 
-    ctx = RunContext(
-        session=session,
-        asof=asof,
-        store=store,
-        config=config,
-        run_id=run.id,
-        portfolio_id=pid_uuid,
-    )
-    effective_gates = _effective_gates(config, mandate)
-    if autonomy.consume_first_round(pid_uuid):
-        # A portfolio's first round forces every PM gate for maximum oversight,
-        # overriding the mandate; the flag is now consumed, so later rounds respect
-        # the mandate's gate set.
-        effective_gates = dict.fromkeys(_ALL_ORCHESTRATOR_GATES, True)
-    agent = build_fund_agent(
-        model,
-        checkpointer=checkpointer,
-        store=store,
-        ctx=ctx,
-        config=config,
-        fallback=fallback,
-        interrupt_on=effective_gates,
-    )
-    thread_config = {
-        "configurable": {"thread_id": resolved_thread_id},
-        "recursion_limit": config.recursion_limit,
-    }
-    seed_input = {
-        "messages": [
-            {
-                "role": "user",
-                "content": _run_instruction(
-                    mandate, pid_str, asof, _history_summary(session, pid_uuid, asof)
-                ),
+        ctx = RunContext(
+            session=session,
+            asof=asof,
+            store=store,
+            config=config,
+            run_id=run.id,
+            portfolio_id=pid_uuid,
+            base_currency=mandate.base_currency,
+            notional=float(mandate.capital),
+        )
+        effective_gates = _effective_gates(config, mandate)
+        first_round = autonomy.consume_first_round(pid_uuid)
+        if first_round:
+            # A portfolio's first round adds every PM gate for maximum oversight. It
+            # widens the effective set rather than replacing it: a gate the mandate
+            # adds must not be dropped for round one and only reinstated from round
+            # two.
+            effective_gates = {
+                **effective_gates,
+                **dict.fromkeys(_ALL_ORCHESTRATOR_GATES, True),
             }
-        ]
-    }
+        agent = build_fund_agent(
+            model,
+            checkpointer=checkpointer,
+            store=store,
+            ctx=ctx,
+            config=config,
+            fallback=fallback,
+            interrupt_on=effective_gates,
+        )
+        thread_config = {
+            "configurable": {"thread_id": resolved_thread_id},
+            "recursion_limit": config.recursion_limit,
+        }
+        seed_input = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": _run_instruction(
+                        mandate,
+                        pid_str,
+                        asof,
+                        _history_summary(session, pid_uuid, asof),
+                        constraint_set=constraint_set,
+                    ),
+                }
+            ]
+        }
+    except Exception as exc:
+        _finalize_failed(
+            audit,
+            run.id,
+            exc,
+            session=session,
+            portfolio_id=pid_uuid,
+            first_round=first_round,
+        )
+        raise
     return _FundRunSetup(
         agent=agent,
         thread_config=thread_config,
@@ -885,7 +1780,45 @@ def _prepare_fund_run(
         constraint_set=constraint_set,
         seed_input=seed_input,
         audit=audit,
+        ctx=ctx,
+        first_round=first_round,
     )
+
+
+def _finalize_failed(
+    audit: Any,
+    run_id: uuid.UUID,
+    exc: Exception,
+    *,
+    session: Any,
+    portfolio_id: uuid.UUID,
+    first_round: bool,
+) -> None:
+    """Finalise a round that errored before reaching the gate as ``failed``.
+
+    Without it the run row stays ``pending`` for good: nothing else ever closes it, and
+    the scheduler sweep commits that half-written state after logging the error. The
+    error text lands in ``agent_runs.error``. A first-round gate the round consumed
+    (``first_round``) is handed back, since no adviser reviewed anything. Best effort:
+    a broken session (a failed flush awaits a rollback) must not mask the error being
+    propagated, and the caller's rollback discards the half-written round in that case
+    anyway. No commit.
+    """
+    reason = f"{type(exc).__name__}: {exc}"[:_RUN_ERROR_MAX_CHARS]
+    try:
+        audit.append_decision(
+            run_id,
+            agent="orchestrator",
+            step="place_orders",
+            hitl_decision={"decision": "failed", "reason": type(exc).__name__},
+        )
+        audit.finalize_run(run_id, weights={}, status="failed", error=reason)
+        if first_round:
+            from fund.audit.autonomy_repository import AutonomyRepository
+
+            AutonomyRepository(session).restore_first_round(portfolio_id)
+    except Exception:
+        _log.exception("could not finalise failed fund run %s", run_id)
 
 
 def run_fund(
@@ -896,7 +1829,7 @@ def run_fund(
     asof: dt.date,
     session: Any,
     checkpointer: Any,
-    store: Any | None = None,
+    store: Any,
     config: FundConfig = settings,
     fallback: Any | None = None,
     thread_id: str | None = None,
@@ -914,11 +1847,16 @@ def run_fund(
     executor) runs and the run pauses at the ``place_orders`` HITL gate.
 
     Returns a :class:`FundRun`. When the pipeline never reaches the gate — a blocking
-    risk verdict, or the delegation round cap tripping the recursion limit — the run
-    is finalised ``incomplete`` (no ticket) and surfaced for review instead.
+    risk verdict, the delegation round cap tripping the recursion limit, or a PM order
+    call that was cut off or malformed — the run is finalised ``incomplete`` (no
+    ticket) with the cause as its reason and surfaced for review instead. A freeze
+    committed while the round was running finalises it ``rejected`` rather than
+    opening a gate under a FROZEN posture. Any other error (provider outage, tool or
+    DB failure) finalises the run ``failed`` with the error recorded, then propagates.
 
-    ``model`` must be a tool-calling chat model. Every write goes through the injected
-    ``session`` (caller owns the transaction) and, when given, the ``store``.
+    ``model`` must be a tool-calling chat model. ``store`` is required: the active
+    ``ConstraintSet`` is resolved from it. Every write goes through the injected
+    ``session`` (caller owns the transaction) and the ``store``.
     """
     from langgraph.errors import GraphRecursionError
 
@@ -956,15 +1894,29 @@ def run_fund(
             agent=agent,
             thread_config=thread_config,
             session=session,
+            ctx=setup.ctx,
         )
+    except Exception as exc:
+        _finalize_failed(
+            audit,
+            run.id,
+            exc,
+            session=session,
+            portfolio_id=setup.ctx.portfolio_id,
+            first_round=setup.first_round,
+        )
+        raise
 
     interrupt = _extract_interrupt(result)
     weights = _optimizer_weights(session, run.id)
     if interrupt is None:
         # The pipeline ended before the HITL gate: the PM tripped the delegation round
-        # cap (reason "pm_round_cap") or a blocking risk verdict left nothing to commit
-        # (reason "no_order"). Keep both distinct from the recursion-limit "round_cap".
-        reason = "pm_round_cap" if result.get("pm_round_cap_reached") else "no_order"
+        # cap, its order call was cut off or malformed, or a blocking risk verdict left
+        # nothing to commit. Keep each distinct from the recursion-limit "round_cap".
+        reason = _ungated_end_reason(
+            _last_message(result),
+            pm_round_cap_reached=bool(result.get("pm_round_cap_reached")),
+        )
         _finalize_incomplete(audit, run.id, reason)
         return FundRun(
             constraint_set=constraint_set,
@@ -975,6 +1927,20 @@ def run_fund(
             agent=agent,
             thread_config=thread_config,
             session=session,
+            ctx=setup.ctx,
+        )
+
+    if _halt_if_frozen(session, audit, run.id, _coerce_uuid(portfolio_id)):
+        return FundRun(
+            constraint_set=constraint_set,
+            run_id=run.id,
+            interrupt=None,
+            weights={},
+            status="rejected",
+            agent=agent,
+            thread_config=thread_config,
+            session=session,
+            ctx=setup.ctx,
         )
 
     # Flip the row to "paused" so observers (CLI/TUI) can find awaiting-approval
@@ -989,6 +1955,7 @@ def run_fund(
         agent=agent,
         thread_config=thread_config,
         session=session,
+        ctx=setup.ctx,
     )
 
 
@@ -1002,6 +1969,13 @@ def _message_text(message: Any) -> str:
     """A streamed message's content as text (``""`` when absent or non-string)."""
     content = getattr(message, "content", "")
     return content if isinstance(content, str) else str(content)
+
+
+_UNGATED_END_TEXT = {
+    "pm_round_cap": "delegation round cap reached before a ticket",
+    "output_truncated": "the model's output limit cut off the PM's order call",
+    "invalid_tool_call": "the PM's order call was malformed",
+}
 
 
 def _gate_why(interrupt_value: dict[str, Any] | None) -> str:
@@ -1019,7 +1993,7 @@ def stream_fund(
     asof: dt.date,
     session: Any,
     checkpointer: Any,
-    store: Any | None = None,
+    store: Any,
     config: FundConfig = settings,
     fallback: Any | None = None,
     thread_id: str | None = None,
@@ -1035,11 +2009,14 @@ def stream_fund(
     commit — in emission order, filtering the interleaved middleware-hook chunks. The
     stream ends on exactly one terminal event: ``paused`` once the ``place_orders`` HITL
     gate is live (the run is flipped ``paused`` so the Decisions queue finds it), or
-    ``incomplete`` on a round-cap / no-order end (the run is finalised ``incomplete``).
+    ``incomplete`` on a round-cap / no-order end (the run is finalised ``incomplete``)
+    or when a freeze landed mid-round (the run is finalised ``rejected``). Any other
+    error finalises the run ``failed`` with the error recorded, then propagates.
 
     The agent stack and the ``StreamEvent`` DTO are imported lazily, so a bare
-    ``import fund.agents.graph`` stays agent-stack-free. Every write goes through
-    ``session`` (caller owns the transaction). Not thread-safe — one stream per thread.
+    ``import fund.agents.graph`` stays agent-stack-free. ``store`` is required: the
+    active ``ConstraintSet`` is resolved from it. Every write goes through ``session``
+    (caller owns the transaction). Not thread-safe — one stream per thread.
 
     Yields:
         :class:`~fund.tui.stream.StreamEvent` in emission order, terminated by a single
@@ -1066,9 +2043,12 @@ def stream_fund(
     audit = setup.audit
 
     index = 0
-    pending_sub: str | None = None
+    # A PM turn may batch several delegations, and each result streams back as its own
+    # tools update, so the subagent is matched to its call by id, not by recency.
+    delegated: dict[str, str | None] = {}
     interrupt_value: dict[str, Any] | None = None
     pm_round_cap_reached = False
+    last_pm_message: Any = None
     try:
         for chunk in setup.agent.stream(
             setup.seed_input, config=setup.thread_config, stream_mode="updates"
@@ -1090,12 +2070,14 @@ def stream_fund(
                 messages = update.get("messages") if isinstance(update, dict) else None
                 message = messages[-1] if messages else None
                 if node == "model":
+                    if message is not None:
+                        last_pm_message = message
                     for call in _tool_calls(message):
                         name = call.get("name")
                         if name == "task":
-                            # A delegation names its subagent; attribute the result that
-                            # follows (the tools node) to it.
-                            pending_sub = (call.get("args") or {}).get("subagent_type")
+                            delegated[call.get("id") or ""] = (
+                                call.get("args") or {}
+                            ).get("subagent_type")
                         elif name == "place_orders":
                             yield StreamEvent(
                                 kind="step",
@@ -1108,11 +2090,12 @@ def stream_fund(
                             )
                             index += 1
                 elif node == "tools" and getattr(message, "name", None) == "task":
+                    call_id = getattr(message, "tool_call_id", None) or ""
                     yield StreamEvent(
                         kind="step",
                         run_id=run_id,
                         index=index,
-                        agent=pending_sub or "subagent",
+                        agent=delegated.get(call_id) or "subagent",
                         step="report",
                         status=StepStatus.LIVE,
                         text=_message_text(message),
@@ -1130,9 +2113,21 @@ def stream_fund(
             text="round cap reached before a ticket",
         )
         return
+    except Exception as exc:
+        _finalize_failed(
+            audit,
+            run_id,
+            exc,
+            session=session,
+            portfolio_id=setup.ctx.portfolio_id,
+            first_round=setup.first_round,
+        )
+        raise
 
     if interrupt_value is None:
-        reason = "pm_round_cap" if pm_round_cap_reached else "no_order"
+        reason = _ungated_end_reason(
+            last_pm_message, pm_round_cap_reached=pm_round_cap_reached
+        )
         _finalize_incomplete(audit, run_id, reason)
         yield StreamEvent(
             kind="incomplete",
@@ -1141,11 +2136,19 @@ def stream_fund(
             agent="orchestrator",
             step="place_orders",
             status=StepStatus.PENDING,
-            text=(
-                "delegation round cap reached before a ticket"
-                if pm_round_cap_reached
-                else "pipeline ended before the gate"
-            ),
+            text=_UNGATED_END_TEXT.get(reason, "pipeline ended before the gate"),
+        )
+        return
+
+    if _halt_if_frozen(session, audit, run_id, _coerce_uuid(portfolio_id)):
+        yield StreamEvent(
+            kind="incomplete",
+            run_id=run_id,
+            index=index,
+            agent="orchestrator",
+            step="place_orders",
+            status=StepStatus.PENDING,
+            text="halted: autonomy was frozen while the round was running",
         )
         return
 
@@ -1161,6 +2164,27 @@ def stream_fund(
         text=_gate_why(interrupt_value),
         payload=interrupt_value,
     )
+
+
+def _ticket_capital(run: Any, mandate: PortfolioMandate | None) -> float | None:
+    """Capital the paper ticket is priced at when a gate resumes.
+
+    The capital recorded when the run opened wins: it is the book the PM was told
+    to allocate, so a mandate edited while the gate was pending must not silently
+    re-price the ticket. Runs opened before capital was recorded fall back to the
+    current mandate, and ``None`` leaves the paper-cost model's default notional.
+
+    Args:
+        run: The persisted ``agent_run`` row being resumed.
+        mandate: The portfolio's current mandate, or ``None`` if it vanished.
+
+    Returns:
+        The notional to size the ticket with, or ``None`` for the default book.
+    """
+    recorded = (run.optimizer_config or {}).get("capital")
+    if recorded is not None:
+        return float(recorded)
+    return float(mandate.capital) if mandate is not None else None
 
 
 def resume_fund(
@@ -1182,19 +2206,25 @@ def resume_fund(
     TUI HITL queue) resumes a paused ``place_orders`` gate by **rebuilding** the PM
     agent against the *same* ``checkpointer`` + ``thread_id`` and issuing
     ``Command(resume=…)`` itself. Approving executes the interrupted commit inside
-    the graph (so a ``model`` is required to resume); the shared
-    :func:`_finalize_hitl` then stamps the terminal audit state and, on approve, the
-    positions snapshot — leaving DB state identical to :meth:`FundRun.resume`.
+    the graph (so a ``model`` is required to resume); the shared :func:`_settle_hitl`
+    then stamps the terminal audit state and, on an approve whose ticket was placed, the
+    positions snapshot — leaving DB state identical to :meth:`FundRun.resume`. A PM
+    follow-up turn that fails after the gate was consumed does not raise: the decision
+    stands and the failure is returned as ``{"resume_error": ...}``.
 
     Loads the ``agent_run`` to recover its ``thread_id`` / ``portfolio_id`` / ``asof``
-    (an unknown ``run_id`` raises ``LookupError``), re-guards the portfolio's active
-    ``ConstraintSet`` from the Store (missing raises ``RuntimeError`` — a run whose
-    profile vanished cannot be committed), re-reads the mandate so a gate set edited
-    since the run opened applies on resume too (a vanished mandate falls back to the
-    config default gate), rebuilds the ``RunContext`` + PM agent, resumes, and
+    (an unknown ``run_id`` raises ``LookupError``; a run that is not at a live gate —
+    ``paused`` / ``responded`` — raises ``ValueError``), re-guards the portfolio's
+    active ``ConstraintSet`` from the Store (missing raises ``RuntimeError`` — a run
+    whose profile vanished cannot be committed), re-reads the mandate so a gate set
+    edited since the run opened applies on resume too (a vanished mandate falls back to
+    the config default gate), rebuilds the ``RunContext`` + PM agent, resumes, and
     finalises. ``decision`` is ``approve``, ``reject``, or ``respond``.
-    Any other value raises ``ValueError``. A ``respond`` threads ``pm_directive`` (the
-    adviser's free text) back to the PM via :func:`_finalize_respond`, keeping the run
+    Any other value raises ``ValueError``; ``approve`` / ``respond`` raise
+    ``RuntimeError`` while the fund or portfolio is FROZEN, or when the portfolio was
+    re-profiled after the run opened (``reject`` always passes). A ``respond`` threads
+    ``pm_directive`` (the adviser's free text) back to the PM via
+    :func:`_finalize_respond`, keeping the run
     alive as ``responded`` if it re-gates; the resume ``thread_config`` keeps the full
     ``recursion_limit`` so a re-gate has headroom. Every write goes through the injected
     ``session`` (caller owns the transaction); the agent stack is imported lazily so a
@@ -1216,21 +2246,30 @@ def resume_fund(
         raise LookupError(f"no agent_run {rid}")
     if run.portfolio_id is None:
         raise ValueError(f"agent_run {rid} has no portfolio_id")
-    # A run already finalised must not be resumed. An external freeze marks live gates
-    # "rejected" at the DB without resolving the checkpoint (a completed / incomplete /
-    # blocked run, or a stale observer racing a concurrent approve, is the same shape):
-    # the LangGraph checkpoint is left standing, so without this guard a blind
-    # Command(resume=…) would re-drive place_orders and ship live orders against a
-    # halted run. Pre-gate states (pending/paused/responded) stay resumable.
-    if run.status in ("completed", "rejected", "incomplete", "blocked"):
-        raise ValueError(
-            f"agent_run {rid} is {run.status!r}, already finalised and not resumable "
-            "(it completed, or was rejected/frozen/blocked since the gate opened)"
-        )
+    _require_resumable(run)
+
+    # set_holdings replaces the whole snapshot, so approving a round that started before
+    # an already-completed one would silently roll the book back to older weights.
+    # Rejecting a stale run stays allowed: that is how an adviser clears it.
+    if decision == "approve":
+        newer = audit.newer_completed_rebalance_run(run)
+        if newer is not None:
+            raise ValueError(
+                f"agent_run {rid} is stale: newer run {newer.id} for portfolio "
+                f"{run.portfolio_id} already completed, and approving would overwrite "
+                "its holdings with older weights; reject this run instead"
+            )
 
     portfolio_id = run.portfolio_id
     pid_str = str(portfolio_id)
     resolved_thread_id = run.thread_id or str(rid)
+
+    # A gate that opened before (or raced) a freeze, or under a since-replaced profile,
+    # stays approvable at the DB level, so approve/respond re-check both. Reject is the
+    # way out and always passes.
+    if decision != "reject":
+        _raise_if_frozen(session, portfolio_id, doing="resuming a run")
+        _raise_if_profile_superseded(session, run)
 
     # Re-guard the active ConstraintSet — the run's risk profile must still exist.
     constraint_set = None
@@ -1240,6 +2279,7 @@ def resume_fund(
             ConstraintSetRef(
                 portfolio_id=pid_str, store_key=config.constraint_set_store_key
             ),
+            session=session,
         )
     if constraint_set is None:
         raise RuntimeError(
@@ -1247,6 +2287,12 @@ def resume_fund(
             f"first to establish a risk profile."
         )
 
+    # Re-read the mandate so a gate set edited since the run opened takes effect on
+    # resume too (mirrors the ConstraintSet re-guard above); a vanished mandate falls
+    # back to the config default gate and the tool's default notional.
+    from fund import observe
+
+    mandate = observe.get_mandate(session, portfolio_id)
     ctx = RunContext(
         session=session,
         asof=run.asof,
@@ -1254,13 +2300,9 @@ def resume_fund(
         config=config,
         run_id=rid,
         portfolio_id=portfolio_id,
+        base_currency=mandate.base_currency if mandate is not None else None,
+        notional=_ticket_capital(run, mandate),
     )
-    # Re-read the mandate so a gate set edited since the run opened takes effect on
-    # resume too (mirrors the ConstraintSet re-guard above); a vanished mandate falls
-    # back to the config default gate.
-    from fund import observe
-
-    mandate = observe.get_mandate(session, portfolio_id)
     agent = build_fund_agent(
         model,
         checkpointer=checkpointer,
@@ -1274,20 +2316,48 @@ def resume_fund(
         "configurable": {"thread_id": resolved_thread_id},
         "recursion_limit": config.recursion_limit,
     }
-    result: dict[str, Any] = agent.invoke(
-        _resume_command(decision, pm_directive),
-        config=thread_config,
-    )
+    # Read before the resume: the gated ``place_orders`` runs first and places these
+    # weights, while a PM that re-runs the allocator afterwards moves the latest
+    # optimizer decision off the weights the ticket was placed with.
+    approved_weights = _optimizer_weights(session, rid)
+    regated_from: str | None = None
+    try:
+        resumed = _resume_gate(
+            agent,
+            ctx,
+            thread_config,
+            decision=decision,
+            pm_directive=pm_directive,
+            approved_weights=approved_weights,
+        )
+        result = resumed.result
+        regated_from = resumed.regated_from
+    except Exception as exc:
+        # The checkpointer commits on its own connection while the ticket and
+        # positions live in the caller's uncommitted session. If the PM's follow-up
+        # turn fails after the gate was consumed, propagating would roll the ticket
+        # back yet leave the checkpoint past the tool step: the run would stay
+        # "paused" with no pending interrupt, gone from the queue and unretryable.
+        # So once the gate is consumed the decision stands and is finalised; a gate
+        # still pending means nothing moved and the failure is safely retryable.
+        if observe._has_pending_interrupt(checkpointer, resolved_thread_id):
+            raise
+        _log.warning(
+            "resume of run %s failed after the gate was consumed", rid, exc_info=True
+        )
+        result = {"resume_error": f"{type(exc).__name__}: {exc}"}
     if decision == "respond":
         _finalize_respond(session, run_id=rid, result=result, pm_directive=pm_directive)
         return result
-    _finalize_hitl(
+    _settle_hitl(
         session,
         run_id=rid,
         portfolio_id=portfolio_id,
         asof=run.asof,
-        weights=_optimizer_weights(session, rid),
+        weights=approved_weights,
         decision=decision,
+        result=result,
+        regated_from=regated_from,
     )
     return result
 

@@ -4,8 +4,8 @@ Two entry points share one persist+bootstrap core:
 - ``run_setup_noninteractive`` — flags/env for CI; fails loud, never loops.
 - ``run_setup_interactive`` — drives a `Prompter`.
 
-Secrets are validated live *before* anything is written, so a failure at any
-step leaves nothing persisted.
+Secrets are validated live and the database is brought up and migrated *before*
+anything is written, so a failure at any of those steps leaves nothing persisted.
 """
 
 from __future__ import annotations
@@ -25,13 +25,16 @@ from app.setup.prompts import Prompter
 
 # Stable prompt messages (also used as keys by NonInteractivePrompter in tests).
 _MSG_PASSPHRASE = "Master passphrase:"  # noqa: S105 - UI label, not a secret
+_MSG_PASSPHRASE_CONFIRM = "Confirm master passphrase:"  # noqa: S105 - UI label
 _MSG_T212_KEY = "Trading212 API key (optional — paste it, or press Enter to skip):"
 _MSG_T212_SECRET = "Trading212 secret key:"  # noqa: S105 - UI label, not a secret
 _MSG_FRED_KEY = "FRED API key (optional — paste it, or press Enter to skip):"
 _MSG_CONFIGURE_LLM = "Configure the fund LLM backend?"
 _MSG_LLM_PROVIDER = "LLM provider:"
-_MSG_LLM_MODEL = "LLM model id:"
-_MSG_LLM_BASE_URL = "LLM base URL (blank for the hosted default):"
+_MSG_LLM_MODEL = "LLM model id (type - to clear a stored one):"
+_MSG_LLM_BASE_URL = (
+    "LLM base URL (blank for the hosted default, type - to clear a stored one):"
+)
 _MSG_LLM_KEY = "LLM API key:"
 _MSG_AWS_REGION = "AWS region:"
 _MSG_AZURE_ENDPOINT = "Azure OpenAI endpoint:"
@@ -58,13 +61,61 @@ _LLM_SECRET_NAMES = {
 _OLLAMA_CLOUD_HOST = "ollama.com"
 # Sensible model default per provider (blank = the operator must type one).
 _LLM_DEFAULT_MODEL = {"ollama": "deepseek-v4.1-flash:cloud"}
+# Config keys that only make sense for the provider that wrote them. Staging a
+# provider replaces all of them, because the config merge would otherwise carry a
+# previous provider's endpoint/model onto the new one (and send its key there).
+_LLM_PROVIDER_SCOPED_KEYS = (
+    "llm_model",
+    "llm_fallback_model",
+    "llm_base_url",
+    "aws_region",
+    "azure_openai_endpoint",
+    "azure_openai_api_version",
+    "azure_openai_deployment_name",
+)
 # Interactive re-prompts for a rejected key before giving up (bounded so a
 # NonInteractivePrompter can never spin forever).
 _LLM_KEY_ATTEMPTS = 3
+# Bounded for the same reason when choosing a new master passphrase.
+_PASSPHRASE_ATTEMPTS = 3
+# Typed at a prompt or passed as --llm-model/--llm-base-url, these remove the stored
+# value. A blank cannot: the plain-stdin prompter turns it into the offered default and
+# a blank flag means "not given", so a stored local URL could never be unset.
+_CLEAR_SENTINELS = frozenset({"-", "none"})
 
 
 class SetupError(RuntimeError):
     """Raised when the wizard cannot complete (validation or config error)."""
+
+
+_T212_MODES = ("live", "demo")
+
+
+def _t212_mode() -> str:
+    """Trading212 environment (``live``/``demo``) the credentials belong to.
+
+    Reads the same ``TRADING_212_MODE`` the daemon uses so a demo key is probed
+    against the demo host; Trading212 keys are environment-scoped and 401 on the
+    other one. Unset falls back to ``live``, matching the daemon default.
+
+    Raises:
+        SetupError: The value is neither ``live`` nor ``demo``. The validator and
+            the daemon both fall back to live on an unknown mode, which would
+            probe (and later run) against the wrong host without a word.
+    """
+    mode = (os.getenv("TRADING_212_MODE") or "live").strip().lower()
+    if mode not in _T212_MODES:
+        raise SetupError(
+            f"TRADING_212_MODE must be one of {', '.join(_T212_MODES)}; got {mode!r}."
+        )
+    return mode
+
+
+def _t212_failure_message(mode: str) -> str:
+    return (
+        f"Trading212 credentials failed validation against the {mode} host "
+        "(demo/paper keys need TRADING_212_MODE=demo)."
+    )
 
 
 def _is_first_run() -> bool:
@@ -77,6 +128,59 @@ def _is_first_run() -> bool:
         secret_store.DEFAULT_SECRETS_PATH.exists()
         or config_file.DEFAULT_CONFIG_PATH.exists()
     )
+
+
+def _require_acceptable_passphrase(passphrase: str) -> None:
+    """Reject a passphrase too short to protect a newly created secret store."""
+    if len(passphrase) < secret_store.MIN_PASSPHRASE_LENGTH:
+        raise SetupError(
+            "The master passphrase must be at least "
+            f"{secret_store.MIN_PASSPHRASE_LENGTH} characters."
+        )
+
+
+def _prompt_new_passphrase(prompter: Prompter) -> str:
+    """Prompt for a passphrase to create a store with, and make the user confirm it.
+
+    A typo here would lock the user out of the store with no recovery path, so the
+    passphrase is entered twice; a too-short or mismatched entry re-prompts.
+    """
+    for _ in range(_PASSPHRASE_ATTEMPTS):
+        pw = prompter.password(_MSG_PASSPHRASE)
+        if not pw:
+            raise SetupError("A master passphrase is required.")
+        try:
+            _require_acceptable_passphrase(pw)
+        except SetupError as exc:
+            prompter.error(str(exc))
+            continue
+        if prompter.password(_MSG_PASSPHRASE_CONFIRM) == pw:
+            return pw
+        prompter.error("The passphrases do not match; try again.")
+    raise SetupError(
+        f"No acceptable master passphrase after {_PASSPHRASE_ATTEMPTS} attempts."
+    )
+
+
+def _resolve_interactive_passphrase(prompter: Prompter, supplied: str | None) -> str:
+    """Pick the master passphrase from arg, env or prompt.
+
+    Creating a store enforces the minimum length (and a confirmation when prompted);
+    an existing store is only ever opened with its original passphrase, so that one
+    is not policed — decrypting it is the check.
+    """
+    pw = supplied or os.getenv("PORTOPT_PASSPHRASE")
+    creating = not secret_store.store_exists()
+    if pw:
+        if creating:
+            _require_acceptable_passphrase(pw)
+        return pw
+    if creating:
+        return _prompt_new_passphrase(prompter)
+    pw = prompter.password(_MSG_PASSPHRASE)
+    if not pw:
+        raise SetupError("A master passphrase is required.")
+    return pw
 
 
 def _merge_with_existing_secrets(
@@ -95,9 +199,22 @@ def _merge_with_existing_secrets(
     except secret_store.InvalidPassphraseError as exc:
         raise SetupError(
             "The existing secret store could not be decrypted with this passphrase; "
-            "re-run with the original passphrase."
+            "re-run with the original passphrase. If it is lost, delete "
+            f"{secret_store.DEFAULT_SECRETS_PATH} and run setup again "
+            "(every stored key must then be re-entered)."
         ) from exc
     return {**existing, **new}
+
+
+def _preflight() -> None:
+    """Verify Docker and the checkout before anything is persisted.
+
+    No checkout means no compose file to bring the db up from; finding that out after
+    the secret store and config were written leaves a half-done install whose re-run
+    is no longer a first run, so it would never auto-launch.
+    """
+    docker_bootstrap.check_docker()
+    docker_bootstrap.compose_dir()
 
 
 def _persist_and_bootstrap(
@@ -107,13 +224,16 @@ def _persist_and_bootstrap(
     *,
     skip_path_install: bool = False,
 ) -> None:
+    # Decrypt-check first and bootstrap before writing: a failure at either step must
+    # leave no store/config behind, or the retry stops counting as a first run (no
+    # auto-launch) and is pinned to the first attempt's passphrase.
     merged = _merge_with_existing_secrets(secrets, passphrase)
+    docker_bootstrap.bring_up_db()
+    docker_bootstrap.migrate()
     secret_store.save_secrets(merged, passphrase)
     # Merge, never clobber: a re-run that omits a section must keep the config the
     # earlier run persisted (and the repo_path the launcher install records).
     config_file.update_config(config)
-    docker_bootstrap.bring_up_db()
-    docker_bootstrap.migrate()
     if not skip_path_install:
         # Best-effort: secrets are already encrypted and the DB migrated, so a PATH
         # failure must not fail the whole setup — warn and let the user add it manually.
@@ -145,6 +265,15 @@ def _auto_launch(passphrase: str) -> None:
         )
 
 
+def _clean_secret(value: str | None) -> str:
+    """Strip the whitespace a paste or a CRLF env file leaves around a credential.
+
+    A stray space or newline is an illegal HTTP header value, which surfaces as a
+    network failure rather than a rejected key.
+    """
+    return (value or "").strip()
+
+
 def _llm_key_env(provider: str) -> str:
     """The env var a provider's key may also arrive in (upper-cased secret name)."""
     return _LLM_SECRET_NAMES[provider].upper()
@@ -165,6 +294,22 @@ def _llm_needs_key(provider: str, base_url: str | None) -> bool:
     return True
 
 
+def _typed_value(answer: str) -> str:
+    """A prompt answer stripped; a clear sentinel becomes blank (= unset)."""
+    value = answer.strip()
+    return "" if value.lower() in _CLEAR_SENTINELS else value
+
+
+def _carry_forward(given: str | None, stored: object) -> str | None:
+    """The value a model/base-URL flag resolves to.
+
+    The flag wins; a blank or absent flag keeps ``stored``; a clear sentinel drops it.
+    """
+    if not (given or "").strip():
+        return str(stored) if stored else None
+    return _typed_value(given or "") or None
+
+
 def _stage_llm(
     config: dict[str, object],
     secrets: dict[str, str],
@@ -175,13 +320,21 @@ def _stage_llm(
     fields: dict[str, str | None],
     secret_name: str | None,
     key: str | None,
+    existing: dict[str, object],
 ) -> None:
-    """Stage validated LLM choices: non-secret → ``config``, key → ``secrets``."""
+    """Stage validated LLM choices: non-secret → ``config``, key → ``secrets``.
+
+    A provider switch replaces the whole provider-scoped section: anything not
+    supplied here is staged as ``None`` so ``config_file.update_config`` deletes the
+    value the previous provider left. A re-run of the same provider keeps the keys the
+    wizard never asks about (``llm_fallback_model``); ``model`` and ``base_url`` are
+    the resolved answers, so ``None`` there clears the stored value.
+    """
+    if existing.get("llm_provider") != provider:
+        config.update(dict.fromkeys(_LLM_PROVIDER_SCOPED_KEYS))
     config["llm_provider"] = provider
-    if model:
-        config["llm_model"] = model
-    if base_url:
-        config["llm_base_url"] = base_url
+    config["llm_model"] = model or None
+    config["llm_base_url"] = base_url or None
     if provider == "aws" and fields.get("region"):
         config["aws_region"] = fields["region"]
     if provider == "microsoft":
@@ -208,7 +361,9 @@ def _configure_llm_noninteractive(
 ) -> None:
     """Stage the fund LLM backend from flags/env; validate before anything persists.
 
-    ``llm_provider`` unset → no LLM config (fund keeps its env-free default).
+    ``llm_provider`` unset → no LLM config (fund keeps its env-free default). Re-running
+    the stored provider keeps a model/base URL the flags do not mention, and the key is
+    validated against that same effective base URL, so what is probed is what is stored.
     """
     if not llm_provider:
         return
@@ -217,11 +372,17 @@ def _configure_llm_noninteractive(
             f"Unknown LLM provider {llm_provider!r}; expected one of "
             f"{', '.join(validators.SUPPORTED_LLM_PROVIDERS)}."
         )
+    existing = config_file.load_config()
+    stored = existing if existing.get("llm_provider") == llm_provider else {}
+    llm_model = _carry_forward(llm_model, stored.get("llm_model"))
+    llm_base_url = _carry_forward(llm_base_url, stored.get("llm_base_url"))
     fields = _llm_fields_from_env(llm_provider, llm_base_url)
     secret_name = _LLM_SECRET_NAMES.get(llm_provider)
     key: str | None = None
     if secret_name and _llm_needs_key(llm_provider, llm_base_url):
-        key = llm_key or os.getenv(_llm_key_env(llm_provider))
+        key = _clean_secret(llm_key) or _clean_secret(
+            os.getenv(_llm_key_env(llm_provider))
+        )
         if not key:
             raise SetupError(
                 f"{llm_provider} needs an API key "
@@ -244,6 +405,7 @@ def _configure_llm_noninteractive(
         fields=fields,
         secret_name=secret_name,
         key=key,
+        existing=existing,
     )
 
 
@@ -260,18 +422,39 @@ def _llm_fields_from_env(provider: str, base_url: str | None) -> dict[str, str |
     return {}
 
 
+def _prompt_required(prompter: Prompter, message: str) -> str:
+    """Prompt until the answer is non-blank (bounded, like the key retry).
+
+    The validators reject a blank required field the same way as a bad key, so
+    leaving it empty here would surface later as a misleading "key rejected" loop.
+
+    Raises:
+        SetupError: If the answer is still blank after ``_LLM_KEY_ATTEMPTS`` tries.
+    """
+    label = message.rstrip(":")
+    for _ in range(_LLM_KEY_ATTEMPTS):
+        answer = prompter.text(message).strip()
+        if answer:
+            return answer
+        prompter.error(f"{label} is required.")
+    raise SetupError(f"{label} is required.")
+
+
 def _prompt_llm_fields(prompter: Prompter, provider: str) -> dict[str, str | None]:
-    """Prompt provider-specific non-secret fields (env auto-detected first)."""
+    """Prompt provider-specific required fields (env auto-detected first)."""
     if provider == "aws":
-        return {"region": os.getenv("AWS_REGION") or prompter.text(_MSG_AWS_REGION)}
+        return {
+            "region": os.getenv("AWS_REGION")
+            or _prompt_required(prompter, _MSG_AWS_REGION)
+        }
     if provider == "microsoft":
         return {
             "endpoint": os.getenv("AZURE_OPENAI_ENDPOINT")
-            or prompter.text(_MSG_AZURE_ENDPOINT),
+            or _prompt_required(prompter, _MSG_AZURE_ENDPOINT),
             "api_version": os.getenv("OPENAI_API_VERSION")
-            or prompter.text(_MSG_AZURE_API_VERSION),
+            or _prompt_required(prompter, _MSG_AZURE_API_VERSION),
             "deployment_name": os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
-            or prompter.text(_MSG_AZURE_DEPLOYMENT),
+            or _prompt_required(prompter, _MSG_AZURE_DEPLOYMENT),
         }
     return {}
 
@@ -285,9 +468,9 @@ def _validate_llm_key_with_retry(
     skip_validation: bool = False,
 ) -> str:
     """Prompt for the key and validate; re-prompt on rejection (network → abort)."""
-    env_key = os.getenv(_llm_key_env(provider))
+    env_key = _clean_secret(os.getenv(_llm_key_env(provider)))
     for _ in range(_LLM_KEY_ATTEMPTS):
-        key = env_key or prompter.password(_MSG_LLM_KEY)
+        key = env_key or _clean_secret(prompter.password(_MSG_LLM_KEY))
         if validators.validate_llm(
             provider,
             key=key,
@@ -296,7 +479,7 @@ def _validate_llm_key_with_retry(
             **fields,
         ):
             return key
-        env_key = None  # discard a bad env key so the next round prompts
+        env_key = ""  # discard a bad env key so the next round prompts
         prompter.error("That LLM key was rejected; try again.")
     raise SetupError(
         f"{provider} key failed validation after {_LLM_KEY_ATTEMPTS} attempts."
@@ -317,22 +500,32 @@ def _configure_llm_interactive(
     Declining keeps fund.config's env-free default (or, on a re-run, the provider the
     earlier run persisted — the merge preserves it). The "configure?" prompt defaults
     to reconfigure: off on a first run / a reuse re-run, on when ``--reconfigure`` asks
-    to change it. Prompt defaults are pre-filled from ``existing`` config. A rejected
-    key re-prompts; an unreachable service raises ``ValidationNetworkError``.
+    to change it. Model and base-URL defaults are pre-filled from ``existing`` config
+    only when it was written for the same provider; blank or a clear sentinel (``-``)
+    removes the stored value. A rejected key re-prompts; an unreachable service raises
+    ``ValidationNetworkError``.
     """
     existing = existing or {}
     if not prompter.confirm(_MSG_CONFIGURE_LLM, default=reconfigure):
         return
     provider = prompter.select(_MSG_LLM_PROVIDER, validators.SUPPORTED_LLM_PROVIDERS)
-    model = prompter.text(
-        _MSG_LLM_MODEL,
-        default=_LLM_DEFAULT_MODEL.get(provider)
-        or str(existing.get("llm_model") or ""),
-    ).strip()
-    base_url = (
+    # A stored model/URL belongs to the provider that wrote it. Offering it for
+    # another provider would make a bare Enter probe the new key against the old host.
+    same = existing if existing.get("llm_provider") == provider else {}
+    model = _typed_value(
         prompter.text(
-            _MSG_LLM_BASE_URL, default=str(existing.get("llm_base_url") or "")
-        ).strip()
+            _MSG_LLM_MODEL,
+            default=str(
+                same.get("llm_model") or _LLM_DEFAULT_MODEL.get(provider) or ""
+            ),
+        )
+    )
+    base_url = (
+        _typed_value(
+            prompter.text(
+                _MSG_LLM_BASE_URL, default=str(same.get("llm_base_url") or "")
+            )
+        )
         or None
     )
     fields = _prompt_llm_fields(prompter, provider)
@@ -357,6 +550,7 @@ def _configure_llm_interactive(
         fields=fields,
         secret_name=secret_name,
         key=key,
+        existing=existing,
     )
 
 
@@ -382,18 +576,29 @@ def run_setup_noninteractive(
     """
     if not passphrase:
         raise SetupError("A master passphrase is required (set PORTOPT_PASSPHRASE).")
-    docker_bootstrap.check_docker()
+    if not secret_store.store_exists():
+        _require_acceptable_passphrase(passphrase)
+    _preflight()
 
     secrets: dict[str, str] = {}
     config: dict[str, object] = {}
+    t212_key = _clean_secret(t212_key)
+    t212_secret = _clean_secret(t212_secret)
+    fred_key = _clean_secret(fred_key)
 
     if t212_key or t212_secret:
         if not (t212_key and t212_secret):
             raise SetupError("Trading212 needs both an API key and a secret key.")
-        if not skip_validation and not validators.validate_t212(t212_key, t212_secret):
-            raise SetupError("Trading212 credentials failed validation.")
+        t212_mode = _t212_mode()
+        if not skip_validation and not validators.validate_t212(
+            t212_key, t212_secret, mode=t212_mode
+        ):
+            raise SetupError(_t212_failure_message(t212_mode))
         secrets["trading_212_api_key"] = t212_key
         secrets["trading_212_secret_key"] = t212_secret
+        # The scheduler container reads env vars only; persisting the mode with the
+        # keys lets `portopt start` hand the daemon the host these keys belong to.
+        config["trading_212_mode"] = t212_mode
 
     if fred_key:
         if not skip_validation and not validators.validate_fred(fred_key):
@@ -430,17 +635,11 @@ def run_setup_interactive(
     a re-run never auto-launches and merges over the existing store/config, pre-filling
     the LLM prompts from what was persisted. ``skip_validation`` bypasses live checks.
     """
-    docker_bootstrap.check_docker()
+    _preflight()
     first_run = _is_first_run()
     existing = config_file.load_config()
 
-    pw = (
-        passphrase
-        or os.getenv("PORTOPT_PASSPHRASE")
-        or prompter.password(_MSG_PASSPHRASE)
-    )
-    if not pw:
-        raise SetupError("A master passphrase is required.")
+    pw = _resolve_interactive_passphrase(prompter, passphrase)
 
     secrets: dict[str, str] = {}
     config: dict[str, object] = {}
@@ -455,10 +654,16 @@ def run_setup_interactive(
         t212_secret = (
             os.getenv("TRADING_212_SECRET_KEY") or prompter.password(_MSG_T212_SECRET)
         ).strip()
-        if not skip_validation and not validators.validate_t212(t212_key, t212_secret):
-            raise SetupError("Trading212 credentials failed validation.")
+        t212_mode = _t212_mode()
+        if not skip_validation and not validators.validate_t212(
+            t212_key, t212_secret, mode=t212_mode
+        ):
+            raise SetupError(_t212_failure_message(t212_mode))
         secrets["trading_212_api_key"] = t212_key
         secrets["trading_212_secret_key"] = t212_secret
+        # The scheduler container reads env vars only; persisting the mode with the
+        # keys lets `portopt start` hand the daemon the host these keys belong to.
+        config["trading_212_mode"] = t212_mode
 
     fred_key = (os.getenv("FRED_API_KEY") or prompter.password(_MSG_FRED_KEY)).strip()
     if fred_key:

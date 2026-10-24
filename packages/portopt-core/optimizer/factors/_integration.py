@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import warnings
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import pandas as pd
@@ -12,6 +13,9 @@ import pandas as pd
 from optimizer.exceptions import ConfigurationError
 from optimizer.factors._config import FactorIntegrationConfig
 from optimizer.rebalancing._rebalancer import compute_turnover
+
+if TYPE_CHECKING:
+    from skfolio.prior import BlackLitterman
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +55,25 @@ def build_factor_bl_views(
 ) -> tuple[tuple[str, ...], tuple[float, ...]]:
     """Generate Black-Litterman absolute views from composite factor scores.
 
-    For each selected ticker with composite score ``z_i``, generates a view::
+    For each selected ticker with composite score ``z_i``, generates a view
+    on the *excess* return over the risk-free rate::
 
-        E[r_i] = (rf + market_premium + z_i * score_premium) / 252
+        E[r_i] - rf = (market_premium + z_i * score_premium) / 252
+
+    The default Black-Litterman prior (``EquilibriumMu``) is an excess-return
+    quantity, so the risk-free rate is not part of the views.  It is added back
+    uniformly to the posterior by ``BlackLittermanConfig.risk_free_rate``
+    (``config.risk_free_rate / 252``), which `build_factor_integration` sets.
+    Callers wiring these views into their own prior must do the same.
+
+    Every view carries the same Idzorek confidence,
+    ``config.view_confidence_cap``: the signed score already sets the view
+    level, so the posterior expected return is monotonic in the score.
 
     Args:
         composite_scores: Composite factor scores indexed by ticker.
         selected_tickers: Tickers in the portfolio.
-        config: Integration configuration with rf, market premium, and score
+        config: Integration configuration with the market premium and score
             premium.
 
     Returns:
@@ -70,26 +85,20 @@ def build_factor_bl_views(
         return (), ()
 
     views: list[str] = []
-    raw_confidences: list[float] = []
 
     for ticker, z_i in scores.items():
-        daily_er = (
-            config.risk_free_rate
-            + config.market_risk_premium
-            + float(z_i) * config.score_premium
+        daily_excess_er = (
+            config.market_risk_premium + float(z_i) * config.score_premium
         ) / 252.0
-        views.append(f"{ticker} == {daily_er:.8f}")
-        raw_confidences.append(abs(float(z_i)))
+        views.append(f"{ticker} == {daily_excess_er:.8f}")
 
-    # Scale confidences to [0, cap].  Idzorek confidence=1.0 means
-    # "posterior equals view exactly" — extreme concentration.
-    # Typical calibrations use 0.25–0.50 to blend view with prior.
-    cap = config.view_confidence_cap
-    max_abs_z = max(raw_confidences) if raw_confidences else 1.0
-    if max_abs_z > 0:
-        confidences = [(c / max_abs_z) * cap for c in raw_confidences]
-    else:
-        confidences = [cap] * len(raw_confidences)
+    # Each view is an absolute return level that already encodes the score, so
+    # confidence is constant.  Scaling it by |z| would zero out the neutral
+    # names' (well above equilibrium) views and let bearish names, whose views
+    # still sit above the prior, pull the posterior up more than neutral ones.
+    # Idzorek confidence=1.0 means "posterior equals view exactly" — extreme
+    # concentration; the cap keeps the blend towards the prior.
+    confidences = [config.view_confidence_cap] * len(views)
 
     return tuple(views), tuple(confidences)
 
@@ -112,6 +121,8 @@ def build_factor_exposure_constraints(
     Args:
         factor_scores: Tickers x factors matrix of standardised factor scores.
             The tickers must match the assets used in the optimizer ``fit``.
+            Missing (NaN) scores are treated as neutral (``z = 0``) so the
+            emitted matrices are always finite.
         bounds: Exposure bounds applied to every factor (uniform) when given as
             a single ``(lower, upper)`` tuple, or per-factor bounds when given
             as a dict mapping factor name to ``(lower, upper)``.
@@ -152,6 +163,17 @@ def build_factor_exposure_constraints(
     # lb <= z @ w  =>  -z @ w <= -lb
     # z @ w <= ub
     scores_matrix = factor_scores.to_numpy(dtype=float)  # (n_assets, n_factors)
+
+    # Standardisation keeps NaN for unscored names; a NaN in A would make the
+    # solver reject the whole problem, and a z-score of 0 is the neutral
+    # exposure for a name with no information.
+    missing = np.isnan(scores_matrix)
+    if missing.any():
+        logger.warning(
+            "Imputing %d missing factor score(s) with neutral exposure 0.0",
+            int(missing.sum()),
+        )
+        scores_matrix = np.where(missing, 0.0, scores_matrix)
 
     A = np.empty((2 * n_factors, n_assets))
     b = np.empty(2 * n_factors)
@@ -211,17 +233,25 @@ def build_factor_integration(
 
     Depending on ``config.use_black_litterman``, either creates a
     Black-Litterman prior from composite scores or builds linear
-    factor exposure constraints.
+    factor exposure constraints. The constraint bounds are an active band
+    of ``[exposure_lower_bound, exposure_upper_bound]`` around the
+    equal-weight exposure of ``selected_tickers`` to each factor.
 
     Args:
         config: Integration configuration.
         composite_scores: Composite factor scores indexed by ticker.
         standardized_factors: Standardized factor scores (tickers x factors).
-        selected_tickers: Tickers selected for the portfolio.
+        selected_tickers: Tickers selected for the portfolio.  The constraint
+            matrices have one column per ticker, in this order; tickers with
+            missing scores contribute neutral (zero) exposure.  The matrices
+            are fixed to these tickers, so they only fit an optimiser fitted on
+            exactly this asset set; a Black-Litterman prior instead ignores the
+            views on tickers absent from the fitted returns.
 
     Returns:
         ``(prior, constraints)`` — one of the two will be set, the other
-        ``None``.
+        ``None``.  Neither carries a per-asset weight cap; the caller bounds
+        weights on the optimizer (``MeanRiskConfig.max_weights``).
     """
     if config.use_black_litterman:
         views, confidences = build_factor_bl_views(
@@ -235,27 +265,56 @@ def build_factor_integration(
             BlackLittermanConfig,
             ViewUncertaintyMethod,
         )
-        from optimizer.views._factory import build_black_litterman
+        from optimizer.views._factory import (
+            AvailableAssetViewsPrior,
+            build_black_litterman,
+        )
 
         bl_config = BlackLittermanConfig(
             views=views,
             view_confidences=confidences,
             uncertainty_method=ViewUncertaintyMethod.IDZOREK,
+            risk_free_rate=config.risk_free_rate / 252.0,
         )
         prior = build_black_litterman(bl_config)
-        return prior, None
-    else:
-        selected_factors = standardized_factors.reindex(selected_tickers).dropna(
-            how="all"
+        view_assets = tuple(view.rsplit(" == ", 1)[0] for view in views)
+        return (
+            AvailableAssetViewsPrior(cast("BlackLitterman", prior), view_assets),
+            None,
         )
-        if selected_factors.empty:
+    else:
+        # Every selected ticker keeps its column: the matrices are applied to
+        # the optimizer's full asset set, so dropping an unscored name would
+        # shift the shape (or, if the caller slices X, the column alignment).
+        selected_factors = standardized_factors.reindex(selected_tickers)
+        if selected_factors.dropna(how="all").empty:
             logger.warning("No factor data for selected tickers")
             return None, None
 
-        constraints = build_factor_exposure_constraints(
-            selected_factors,
-            bounds=(config.exposure_lower_bound, config.exposure_upper_bound),
-        )
+        unscored = selected_factors.index[selected_factors.isna().all(axis=1)]
+        if len(unscored) > 0:
+            logger.warning(
+                "No factor scores for %d selected ticker(s); treated as neutral "
+                "exposure: %s",
+                len(unscored),
+                list(unscored),
+            )
+
+        # The selected names are the top scorers, so their equal-weight
+        # exposure sits far from the universe mean of 0. Centring the band on
+        # that exposure keeps the equal-weight portfolio feasible by
+        # construction; absolute +/-0.5 bounds would be infeasible for any
+        # top-N selection. Unscored cells count as neutral (0), as they do in
+        # the constraint matrix itself.
+        centre = selected_factors.fillna(0.0).mean()
+        bounds = {
+            name: (
+                config.exposure_lower_bound + float(c),
+                config.exposure_upper_bound + float(c),
+            )
+            for name, c in centre.items()
+        }
+        constraints = build_factor_exposure_constraints(selected_factors, bounds)
         return None, constraints
 
 
@@ -265,10 +324,12 @@ class NetAlphaResult:
 
     Attributes:
         gross_alpha: Annualised IC-based alpha proxy:
-            ``mean(IC) * sqrt(annualisation)``.
+            ``mean(IC) * sqrt(annualisation)``. It is on the IC scale (a
+            dimensionless score), not a return.
         avg_turnover: Mean one-way turnover across consecutive rebalancing
             dates, computed via ``compute_turnover``.
-        total_cost: Cost deduction: ``avg_turnover * cost_bps / 10_000``.
+        total_cost: Annual cost drag as a fraction of capital:
+            ``avg_turnover * cost_bps / 10_000 * annualisation``.
         net_alpha: Net annualised alpha after cost deduction:
             ``gross_alpha - total_cost``.
         net_icir: Net information coefficient information ratio:
@@ -296,9 +357,14 @@ def compute_net_alpha(
 
         gross_alpha  = mean(IC) * sqrt(annualisation)
         avg_turnover = mean one-way turnover across rebalancing dates
-        total_cost   = avg_turnover * cost_bps / 10_000
+        total_cost   = avg_turnover * cost_bps / 10_000 * annualisation
         net_alpha    = gross_alpha - total_cost
         net_icir     = net_alpha / (std(IC) * sqrt(annualisation))
+
+    The cost is paid once per rebalance, so it is scaled by the number of
+    rebalances per year to land on the same annual footing as the alpha it is
+    netted against.  ``gross_alpha`` stays on the IC scale (unit cross-sectional
+    return dispersion), so ``net_alpha`` is a screening score, not a return.
 
     Args:
         ic_series: Time series of period information coefficients (Spearman or
@@ -306,10 +372,12 @@ def compute_net_alpha(
             one value per rebalancing period.
         weights_history: Portfolio weights at each rebalancing date: rows are
             dates, columns are assets. Turnover is computed between every pair
-            of consecutive rows.
+            of consecutive rows. NaN means the asset was not held, i.e. zero
+            weight.
         cost_bps: Round-trip transaction cost in basis points.
-        annualisation: Number of periods per year (252 for daily, 12 for
-            monthly).
+        annualisation: Number of rebalancing periods per year (252 for daily,
+            12 for monthly); it must match the spacing of ``ic_series`` and
+            ``weights_history``.
 
     Returns:
         Dataclass with ``gross_alpha``, ``avg_turnover``, ``total_cost``,
@@ -321,16 +389,15 @@ def compute_net_alpha(
 
     gross_alpha = ic_mean * float(np.sqrt(annualisation))
 
-    turnovers: list[float] = []
-    for i in range(1, len(weights_history)):
-        t = compute_turnover(
-            weights_history.iloc[i - 1].to_numpy(dtype=float),
-            weights_history.iloc[i].to_numpy(dtype=float),
-        )
-        turnovers.append(t)
+    # A frame built from per-date holdings leaves NaN for assets not held on a
+    # date; that is a zero weight, and NaN would poison every turnover figure.
+    weights = weights_history.fillna(0.0).to_numpy(dtype=float)
+    turnovers = [
+        compute_turnover(weights[i - 1], weights[i]) for i in range(1, len(weights))
+    ]
     avg_turnover = float(np.mean(turnovers)) if turnovers else 0.0
 
-    total_cost = avg_turnover * cost_bps / 10_000.0
+    total_cost = avg_turnover * cost_bps / 10_000.0 * float(annualisation)
     net_alpha = gross_alpha - total_cost
 
     annual_ic_vol = ic_std * float(np.sqrt(annualisation))

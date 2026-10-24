@@ -20,12 +20,32 @@ The optimizer / validation computes the risk numbers; the LLM only compares them
 the ConstraintSet limits and decides pass/block. It never edits weights itself.
 
 ## Procedure
-1. Call `risk_check(weights, constraints)` → passed + violations (drawdown ceilings
-   nu1/nu2/nu3, sector caps, ESG exclusions, bounds).
-2. Call `backtest(weights, window)` walk-forward (`shuffle=False`) and check drawdown
-   / tail metrics against the ceilings. Check `out_of_sample`: when it is `False` the
-   panel was too short for a walk-forward fold and the metrics are in-sample — do NOT
-   count them as walk-forward validation of robustness.
+1. Call `risk_check()` — it takes no arguments and judges the allocator's latest audited
+   proposal → passed + violations (weight bounds and position cap, ESG sector
+   exclusions, complex/leveraged-instrument restrictions; an instrument it cannot
+   classify is a violation, not a pass), and the drawdown ceilings: it backtests the
+   same weights and a drawdown past nu2 or nu3 is a violation (`drawdown_nu2` /
+   `drawdown_nu3`), past nu1 only a `warnings` entry. When the history is too short to
+   measure a drawdown the ceilings are not checked and `warnings` carries
+   `drawdown_unverified`; say so rather than reporting the ceilings as met.
+2. Call `backtest()` (also no arguments) walk-forward (`shuffle=False`) to read the
+   numbers behind that verdict. It errors,
+   rather than evaluating a different portfolio, when the proposal does not sum to
+   the budget or holds a ticker with no prices. It returns
+   `drawdown_tiers`: the client's ceilings nu1 (soft warning), nu2 (hard ceiling) and
+   nu3 (absolute stop), the worst drawdown over the whole history
+   (`full_sample_max_drawdown`, not the walk-forward window's `max_drawdown`, which
+   skips the first lookback), and the `breached` tiers — a
+   breach of nu2 or nu3 is a BLOCK, nu1 is a warning to report. Check
+   `out_of_sample`: when it is `False` the metrics are in-sample — the panel was too
+   short for a walk-forward fold, or the weights were fitted on the same bars the
+   test blocks cover (always the case for the allocator's optimizer weights) — so do
+   NOT count them as walk-forward validation of robustness; treat them as a
+   consistency check only.
+   `max_drawdown` is the compounded wealth-path decline (`drawdown_basis`), while the
+   optimizer enforces nu1/nu2/nu3 on the additive return path — read it as the
+   realised decline, not an exact ceiling comparison, and do not block or pass on a
+   margin inside that gap.
 3. Confirm the ESG hard gate: any excluded GICS name present → immediate BLOCK.
 4. For prudent profiles, confirm the robust uncertainty set was applied.
 5. Emit pass, or block with the specific violations for the allocator to fix.

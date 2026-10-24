@@ -145,7 +145,9 @@ def compute_equal_weight_composite(
             provided, skip tier-based derivation and use these weights directly.
 
     Returns:
-        Composite score per ticker.
+        Composite score per ticker. All NaN when no group in ``group_scores``
+        has a usable weight (no recognised factor columns, or
+        ``group_weights`` sharing no key with ``group_scores``).
     """
     if config is None:
         config = CompositeScoringConfig()
@@ -165,9 +167,23 @@ def compute_equal_weight_composite(
             )
 
     if not weights:
-        return pd.Series(0.0, index=group_scores.index)
+        # NaN, not 0.0: a constant score would rank every ticker as a tie and
+        # let selection pick arbitrary names without any sign of missing data.
+        logger.warning(
+            "compute_equal_weight_composite: no factor group has a usable "
+            "weight (group_scores columns: %s); returning NaN scores.",
+            list(group_scores.columns),
+        )
+        return pd.Series(np.nan, index=group_scores.index)
 
     return _renormalized_weighted_composite(group_scores, weights)
+
+
+def _trim_to_lookback(ic_history: pd.DataFrame, lookback: int) -> pd.DataFrame:
+    """Keep the most recent ``lookback`` periods of ``ic_history``."""
+    n_keep = min(lookback, len(ic_history))
+    # Not iloc[-n_keep:]: a zero lookback would select the whole history.
+    return ic_history.iloc[len(ic_history) - n_keep :]
 
 
 def _summarize_ic_history(ic_history: pd.DataFrame, decay_halflife: int) -> pd.Series:
@@ -175,11 +191,33 @@ def _summarize_ic_history(ic_history: pd.DataFrame, decay_halflife: int) -> pd.S
 
     ``decay_halflife == 0`` returns the simple mean (legacy behaviour).
     Positive values apply EWM with the given half-life so recent observations
-    dominate stale ones.
+    dominate stale ones.  An empty history (cold start) yields NaN per group so
+    the caller's zero-weight fallback strategy decides the outcome.
     """
+    if ic_history.empty:
+        return pd.Series(np.nan, index=ic_history.columns, dtype=float)
     if decay_halflife <= 0:
         return ic_history.mean()
     return ic_history.ewm(halflife=decay_halflife, min_periods=1).mean().iloc[-1]
+
+
+def _summarize_icir(ic_series: pd.Series, lookback: int, decay_halflife: int) -> float:
+    """Reduce one group's IC series to a trailing (optionally decayed) ICIR.
+
+    Only the last ``lookback`` observations are used. ``decay_halflife == 0``
+    keeps the plain ``mean / std`` of that window; positive values use the
+    exponentially weighted mean and standard deviation so recent observations
+    dominate stale ones, mirroring ``_summarize_ic_history``.
+    """
+    window = ic_series.iloc[-lookback:]
+    if decay_halflife <= 0:
+        return compute_icir(window)
+    clean = window.dropna()
+    if len(clean) < 2:
+        return 0.0
+    ewm = clean.ewm(halflife=decay_halflife, min_periods=2)
+    ew_std = float(ewm.std().iloc[-1])
+    return float(ewm.mean().iloc[-1]) / ew_std if ew_std > 0.0 else 0.0
 
 
 def compute_ic_weighted_composite(
@@ -206,8 +244,7 @@ def compute_ic_weighted_composite(
     if config is None:
         config = CompositeScoringConfig()
 
-    lookback = min(config.ic_lookback, len(ic_history))
-    trimmed_ic = ic_history.iloc[-lookback:]
+    trimmed_ic = _trim_to_lookback(ic_history, config.ic_lookback)
     recent_ic = _summarize_ic_history(trimmed_ic, config.ic_decay_halflife)
 
     weights: dict[str, float] = {}
@@ -260,7 +297,9 @@ def compute_icir_weighted_composite(
         group_scores: Tickers x groups matrix.
         ic_series_per_group: Per-group IC time series. Keys must match
             ``group_scores`` columns.
-        config: Scoring configuration.
+        config: Scoring configuration. ``ic_lookback`` limits each series to
+            its most recent observations and ``ic_decay_halflife`` applies
+            exponential decay within that window.
         group_weights: Pre-computed group weights (e.g. from regime tilts). When
             provided, use as tier multipliers instead of config
             core/supplementary weights.
@@ -277,7 +316,7 @@ def compute_icir_weighted_composite(
         if group.value not in group_scores.columns:
             continue
         ic_s = ic_series_per_group.get(group.value, pd.Series(dtype=float))
-        icir = compute_icir(ic_s)
+        icir = _summarize_icir(ic_s, config.ic_lookback, config.ic_decay_halflife)
         if icir < 0.0:
             n_negative += 1
         if group_weights is not None:
@@ -326,7 +365,26 @@ def compute_ml_composite(
 
     Returns:
         Normalised composite score per ticker (zero mean, unit variance).
+
+    Raises:
+        ConfigurationError: If ``standardized_factors`` and
+            ``training_scores`` do not carry the same factor columns.  The
+            current-period columns are reordered to the training order, since
+            the fitted models are positional and would otherwise apply one
+            factor's coefficient to another.
     """
+    train_cols = list(training_scores.columns)
+    missing = [c for c in train_cols if c not in standardized_factors.columns]
+    unseen = [c for c in standardized_factors.columns if c not in train_cols]
+    if missing or unseen:
+        msg = (
+            "standardized_factors must have the same factor columns as "
+            f"training_scores; missing from standardized_factors: {missing}, "
+            f"not present in training_scores: {unseen}"
+        )
+        raise ConfigurationError(msg)
+    aligned = standardized_factors.loc[:, train_cols]
+
     model: FittedMLModel
     if config.method == CompositeMethod.RIDGE_WEIGHTED:
         model = fit_ridge_composite(
@@ -340,7 +398,7 @@ def compute_ml_composite(
             config.gbt_n_estimators,
             config.gbt_random_state,
         )
-    return predict_composite_scores(model, standardized_factors)
+    return predict_composite_scores(model, aligned)
 
 
 def _apply_coverage_gating(
@@ -381,7 +439,8 @@ def compute_composite_score(
         config: Scoring configuration.
         ic_history: Required when ``config.method`` is ``IC_WEIGHTED`` or
             ``ICIR_WEIGHTED``. Columns must match group names; each column
-            is treated as the IC time series for that group.
+            is treated as the IC time series for that group. Only the most
+            recent ``config.ic_lookback`` periods are used.
         training_scores: Required when ``config.method`` is
             ``RIDGE_WEIGHTED`` or ``GBT_WEIGHTED``. Historical tickers x
             factors matrix used to train the ML model (must not overlap with
@@ -390,7 +449,11 @@ def compute_composite_score(
             ``RIDGE_WEIGHTED`` or ``GBT_WEIGHTED``. Forward returns aligned
             with ``training_scores``.
         group_weights: Pre-computed group weights (e.g. from regime tilts).
-            Threaded through to the inner scoring functions.
+            Threaded through to the equal-weight, IC-weighted and
+            ICIR-weighted scoring functions.  The ridge and GBT methods learn
+            per-factor weights from returns and cannot apply group tilts, so
+            they ignore this argument and emit a ``UserWarning`` when it is
+            given.
 
     Returns:
         Composite score per ticker. When ``config.return_coverage`` is True,
@@ -414,8 +477,9 @@ def compute_composite_score(
         if ic_history is None:
             msg = "ic_history required for ICIR_WEIGHTED composite method"
             raise ConfigurationError(msg)
+        recent_history = _trim_to_lookback(ic_history, config.ic_lookback)
         ic_series_per_group = {
-            col: ic_history[col].dropna() for col in ic_history.columns
+            col: recent_history[col].dropna() for col in recent_history.columns
         }
         composite = compute_icir_weighted_composite(
             group_scores, ic_series_per_group, config, group_weights
@@ -429,6 +493,14 @@ def compute_composite_score(
                 f"{config.method.value} composite method"
             )
             raise ConfigurationError(msg)
+        if group_weights is not None:
+            warnings.warn(
+                f"group_weights is ignored by the {config.method.value} composite "
+                "method: ML models learn per-factor weights and cannot apply "
+                "group-level tilts such as regime tilts.",
+                UserWarning,
+                stacklevel=2,
+            )
         composite = compute_ml_composite(
             standardized_factors, training_scores, training_returns, config
         )

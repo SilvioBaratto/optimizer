@@ -98,6 +98,35 @@ class TestBuildMuEstimator:
         assert estimator.min_observations == 25
 
 
+class TestEwDefaultHalfLife:
+    """Unconfigured EW estimators must use a multi-week half-life, matching
+    skfolio's own default and ``variance_half_life``."""
+
+    def test_default_ew_mu_matches_skfolio_default(self) -> None:
+        cfg = MomentEstimationConfig(mu_estimator=MuEstimatorType.EW)
+        estimator = build_mu_estimator(cfg)
+        assert isinstance(estimator, EWMu)
+        assert estimator.half_life == EWMu().half_life
+
+    def test_default_ew_cov_matches_skfolio_default(self) -> None:
+        cfg = MomentEstimationConfig(cov_estimator=CovEstimatorType.EW)
+        estimator = build_cov_estimator(cfg)
+        assert isinstance(estimator, EWCovariance)
+        assert estimator.half_life == EWCovariance().half_life
+
+    def test_adaptive_preset_is_not_dominated_by_last_few_days(self) -> None:
+        rng = np.random.default_rng(7)
+        cols = [f"A{i}" for i in range(30)]
+        returns = pd.DataFrame(rng.normal(0.0, 0.01, (1250, 30)), columns=cols)
+        prior = build_prior(MomentEstimationConfig.for_adaptive())
+        prior.fit(returns)
+        cov = prior.return_distribution_.covariance
+        cond = np.linalg.cond(cov)
+        # True covariance is 1e-4 * I (cond 1); a ~9-observation effective
+        # sample on 30 assets is near-singular (cond > 1e3).
+        assert cond < 1e3
+
+
 class TestEquilibriumMuWiring:
     """EquilibriumMu is reverse-optimised against the configured covariance and
     (optionally) DB market-cap weights, not skfolio's silent defaults."""
@@ -153,6 +182,76 @@ class TestEquilibriumMuWiring:
         rd = prior.return_distribution_
         assert rd.mu.shape == (4,)
         assert rd.covariance.shape == (4, 4)
+
+
+class TestEquilibriumMarketWeightValidation:
+    """Raw market caps are normalised and malformed caps are rejected, so the
+    reverse-optimised equilibrium mu keeps a return-sized scale."""
+
+    @staticmethod
+    def _returns() -> pd.DataFrame:
+        rng = np.random.default_rng(3)
+        cols = [f"A{i}" for i in range(5)]
+        return pd.DataFrame(rng.normal(0.0005, 0.01, (300, 5)), columns=cols)
+
+    @staticmethod
+    def _equilibrium_cfg() -> MomentEstimationConfig:
+        return MomentEstimationConfig.for_equilibrium_ledoitwolf()
+
+    def test_raw_market_caps_give_same_mu_as_normalised_weights(self) -> None:
+        returns = self._returns()
+        caps = np.array([2.8e12, 1.1e12, 3e11, 8e10, 2e10])
+        raw = build_prior(self._equilibrium_cfg(), market_weights=caps)
+        raw.fit(returns)
+        normalised = build_prior(
+            self._equilibrium_cfg(), market_weights=caps / caps.sum()
+        )
+        normalised.fit(returns)
+        np.testing.assert_allclose(
+            raw.return_distribution_.mu, normalised.return_distribution_.mu
+        )
+        assert np.abs(raw.return_distribution_.mu).max() < 1.0
+
+    def test_built_estimator_weights_sum_to_one(self) -> None:
+        estimator = build_mu_estimator(
+            self._equilibrium_cfg(), market_weights=np.array([3.0, 1.0])
+        )
+        assert isinstance(estimator, EquilibriumMu)
+        np.testing.assert_allclose(estimator.weights, [0.75, 0.25])
+
+    def test_nan_market_cap_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="market_weights"):
+            build_mu_estimator(
+                self._equilibrium_cfg(),
+                market_weights=np.array([1e12, np.nan, 1e11]),
+            )
+
+    def test_infinite_market_cap_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="market_weights"):
+            build_mu_estimator(
+                self._equilibrium_cfg(),
+                market_weights=np.array([1e12, np.inf, 1e11]),
+            )
+
+    def test_negative_market_cap_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="market_weights"):
+            build_mu_estimator(
+                self._equilibrium_cfg(),
+                market_weights=np.array([1e12, -1e11, 1e11]),
+            )
+
+    def test_all_zero_market_caps_raise(self) -> None:
+        with pytest.raises(ConfigurationError, match="market_weights"):
+            build_mu_estimator(self._equilibrium_cfg(), market_weights=np.zeros(3))
+
+    def test_non_vector_market_weights_raise(self) -> None:
+        with pytest.raises(ConfigurationError, match="market_weights"):
+            build_mu_estimator(self._equilibrium_cfg(), market_weights=np.ones((2, 2)))
+
+    def test_invalid_weights_ignored_for_non_equilibrium(self) -> None:
+        cfg = MomentEstimationConfig(mu_estimator=MuEstimatorType.EMPIRICAL)
+        estimator = build_mu_estimator(cfg, market_weights=np.array([np.nan, 1.0]))
+        assert isinstance(estimator, EmpiricalMu)
 
 
 class TestBuildCovEstimator:
@@ -356,6 +455,38 @@ class TestBuildPrior:
         assert isinstance(prior, EmpiricalPrior)
         assert prior.investment_horizon == 252.0
 
+    def test_factor_model_rejects_log_normal_horizon_scaling(self) -> None:
+        # skfolio adds the idiosyncratic variance and intercepts at the
+        # per-period scale, so scaling only the factor prior mixes horizons.
+        cfg = MomentEstimationConfig(
+            use_factor_model=True, is_log_normal=True, investment_horizon=21.0
+        )
+        with pytest.raises(ConfigurationError, match="is_log_normal"):
+            build_prior(cfg)
+
+    def test_factor_model_rejects_horizon_without_log_normal(self) -> None:
+        cfg = MomentEstimationConfig(use_factor_model=True, investment_horizon=21.0)
+        with pytest.raises(ConfigurationError, match="investment_horizon"):
+            build_prior(cfg)
+
+    @pytest.mark.parametrize("with_weights", [False, True])
+    def test_factor_model_rejects_equilibrium_mu(self, with_weights: bool) -> None:
+        # The factor prior is fit on the (n_obs, n_factors) factor matrix, so
+        # asset-aligned market weights cannot apply and an equal-weight "market
+        # portfolio of factors" would discard the factor risk premia.
+        cfg = MomentEstimationConfig(
+            mu_estimator=MuEstimatorType.EQUILIBRIUM, use_factor_model=True
+        )
+        weights = np.ones(8) / 8 if with_weights else None
+        with pytest.raises(ConfigurationError, match="EQUILIBRIUM"):
+            build_prior(cfg, market_weights=weights)
+
+    def test_horizon_scaling_still_allowed_without_factor_model(self) -> None:
+        cfg = MomentEstimationConfig(is_log_normal=True, investment_horizon=21.0)
+        prior = build_prior(cfg)
+        assert isinstance(prior, EmpiricalPrior)
+        assert prior.investment_horizon == 21.0
+
     def test_mu_and_cov_composed(self) -> None:
         cfg = MomentEstimationConfig(
             mu_estimator=MuEstimatorType.SHRUNK,
@@ -520,17 +651,33 @@ class TestBuildCharacteristicsFactorModel:
         )
         assert model.neutralize_against == {"value": ["market"]}
 
-    def test_market_weights_forwarded_to_factor_prior(self) -> None:
-        weights = np.array([0.7, 0.3])
+    def test_equilibrium_mu_rejected_for_factor_prior(self) -> None:
         cfg = MomentEstimationConfig(mu_estimator=MuEstimatorType.EQUILIBRIUM)
-        model = build_characteristics_factor_model(
-            cfg, factors=_make_factors(), market_weights=weights
-        )
-        assert isinstance(model.factor_prior_estimator, EmpiricalPrior)
-        assert isinstance(model.factor_prior_estimator.mu_estimator, EquilibriumMu)
-        assert np.array_equal(
-            model.factor_prior_estimator.mu_estimator.weights, weights
-        )
+        with pytest.raises(ConfigurationError, match="EQUILIBRIUM"):
+            build_characteristics_factor_model(cfg, factors=_make_factors())
+
+    def test_log_normal_horizon_scaling_rejected_for_factor_prior(self) -> None:
+        # The same config is rejected by build_prior with a factor model; the
+        # characteristics path must not silently return per-period moments.
+        cfg = MomentEstimationConfig(is_log_normal=True, investment_horizon=21.0)
+        with pytest.raises(ConfigurationError, match="is_log_normal"):
+            build_characteristics_factor_model(cfg, factors=_make_factors())
+
+    def test_horizon_without_log_normal_rejected_for_factor_prior(self) -> None:
+        # build_prior's factor path fails on this config (skfolio requires
+        # investment_horizon=None when is_log_normal is False); the
+        # characteristics path must not build a prior that drops the horizon.
+        cfg = MomentEstimationConfig(investment_horizon=21.0)
+        with pytest.raises(ConfigurationError, match="investment_horizon"):
+            build_characteristics_factor_model(cfg, factors=_make_factors())
+
+    def test_horizon_rejection_does_not_blame_use_factor_model(self) -> None:
+        # The caller never set use_factor_model here; the message must not
+        # point at a setting they did not use.
+        cfg = MomentEstimationConfig(is_log_normal=True, investment_horizon=21.0)
+        with pytest.raises(ConfigurationError) as excinfo:
+            build_characteristics_factor_model(cfg, factors=_make_factors())
+        assert "use_factor_model" not in str(excinfo.value)
 
     def test_fit_produces_full_universe_moments(self, asset_panel) -> None:  # type: ignore[no-untyped-def]
         cfg = MomentEstimationConfig(min_regression_assets=3)

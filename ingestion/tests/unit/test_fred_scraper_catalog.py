@@ -7,6 +7,7 @@ and the scraper registry.
 from __future__ import annotations
 
 from app.services.macro.scrapers.fred_scraper import (
+    FRED_DAILY_SERIES,
     FRED_GDP_SERIES,
     FRED_RATE_SERIES,
     FRED_RECESSION_SERIES,
@@ -54,3 +55,15 @@ class TestFredSeriesUnion:
     def test_when_FRED_SERIES_built_each_value_is_non_empty_label(self) -> None:
         for sid, label in FRED_SERIES.items():
             assert isinstance(label, str) and label, sid
+
+
+class TestDailySeriesSubset:
+    def test_daily_series_are_a_subset_of_the_registry(self) -> None:
+        assert FRED_DAILY_SERIES.keys() <= FRED_SERIES.keys()
+
+    def test_attribution_factor_series_are_daily(self) -> None:
+        assert {"DGS10", "BAA10Y", "DTWEXBGS"} <= FRED_DAILY_SERIES.keys()
+
+    def test_slow_series_stay_off_the_daily_cadence(self) -> None:
+        slow = {*FRED_GDP_SERIES, "USALOLITOAASTSAM", "RECPROUSM156N", "USRECDM"}
+        assert not slow & FRED_DAILY_SERIES.keys()

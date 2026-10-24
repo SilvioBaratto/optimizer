@@ -52,6 +52,16 @@ def test_when_estimator_lacks_partial_fit_then_raises(returns) -> None:
         run_online_covariance_forecast_evaluation(estimators, returns, config=cfg)
 
 
+def test_when_estimator_names_duplicate_then_raises(returns) -> None:
+    estimators = [
+        ("ew", EWCovariance(half_life=40)),
+        ("ew", EWCovariance(half_life=20)),
+    ]
+    cfg = OnlineCovarianceForecastConfig(warmup_size=252, test_size=21)
+    with pytest.raises(ConfigurationError, match="ew"):
+        run_online_covariance_forecast_evaluation(estimators, returns, config=cfg)
+
+
 def test_when_default_config_then_warmup_252(returns) -> None:
     cfg = OnlineCovarianceForecastConfig()
     assert cfg.warmup_size == 252

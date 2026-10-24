@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 
 import numpy as np
 import pandas as pd
@@ -70,6 +71,42 @@ class TestAbsolutePower:
         with pytest.raises(ConfigurationError, match="power must be"):
             DistanceConfig.for_pearson(power=0.0)
 
+    @pytest.mark.parametrize(
+        "preset",
+        [
+            DistanceConfig.for_pearson,
+            DistanceConfig.for_kendall,
+            DistanceConfig.for_spearman,
+            DistanceConfig.for_covariance,
+        ],
+    )
+    def test_when_fractional_power_without_absolute_then_raises(
+        self, preset: Callable[..., DistanceConfig]
+    ) -> None:
+        # skfolio raises the signed codependence to ``power``; a negative base
+        # with a fractional exponent is NaN, which would poison every entry of
+        # distance_ (including the diagonal) whatever the data.
+        with pytest.raises(ConfigurationError, match="absolute"):
+            preset(power=0.5)
+
+    def test_when_fractional_power_with_absolute_then_distances_finite(
+        self, returns: pd.DataFrame
+    ) -> None:
+        cfg = DistanceConfig.for_pearson(absolute=True, power=0.5)
+        est = build_distance(cfg).fit(returns)
+        assert np.isfinite(est.distance_).all()
+
+    def test_when_integer_valued_float_power_then_distances_finite(
+        self, returns: pd.DataFrame
+    ) -> None:
+        est = build_distance(DistanceConfig.for_pearson(power=2.0)).fit(returns)
+        assert np.isfinite(est.distance_).all()
+
+    @pytest.mark.parametrize("power", [float("nan"), float("inf")])
+    def test_when_power_not_finite_then_raises(self, power: float) -> None:
+        with pytest.raises(ConfigurationError, match="power must be"):
+            DistanceConfig.for_pearson(absolute=True, power=power)
+
     def test_when_absolute_true_then_negative_corr_becomes_close(
         self, returns: pd.DataFrame
     ) -> None:
@@ -106,24 +143,31 @@ class TestCovarianceEstimatorKwarg:
 
 
 class TestDistanceCorrelationThreshold:
-    def test_when_threshold_set_then_forwarded(self) -> None:
-        cfg = DistanceConfig.for_distance_correlation(threshold=0.3)
-        est = build_distance(cfg)
-        assert isinstance(est, DistanceCorrelation)
-        assert est.threshold == 0.3
+    @pytest.mark.parametrize("threshold", [0.0, 0.3, 0.5, 1.0, 1.5])
+    def test_when_threshold_set_then_raises_because_skfolio_ignores_it(
+        self, threshold: float
+    ) -> None:
+        # skfolio's DistanceCorrelation stores ``threshold`` but never reads it,
+        # so accepting a value would be a silent no-op knob.
+        with pytest.raises(ConfigurationError, match=r"threshold.*no effect"):
+            DistanceConfig.for_distance_correlation(threshold=threshold)
 
     def test_when_threshold_none_then_skfolio_default(self) -> None:
         est = build_distance(DistanceConfig.for_distance_correlation())
         assert isinstance(est, DistanceCorrelation)
         assert est.threshold == DistanceCorrelation().threshold
 
-    def test_when_threshold_out_of_range_then_raises(self) -> None:
-        with pytest.raises(ConfigurationError, match=r"\[0, 1\]"):
-            DistanceConfig.for_distance_correlation(threshold=1.5)
-
-    def test_when_threshold_on_non_dcorr_then_raises(self) -> None:
-        with pytest.raises(ConfigurationError, match="DISTANCE_CORRELATION"):
-            DistanceConfig(estimator=DistanceEstimatorType.PEARSON, threshold=0.5)
+    @pytest.mark.parametrize("estimator", list(DistanceEstimatorType))
+    def test_when_threshold_on_any_estimator_then_message_does_not_redirect(
+        self, estimator: DistanceEstimatorType
+    ) -> None:
+        # Pointing a PEARSON user at DISTANCE_CORRELATION would just trade one
+        # error for the "no effect" one, so the message must be the same everywhere.
+        with pytest.raises(ConfigurationError) as exc_info:
+            DistanceConfig(estimator=estimator, threshold=0.5)
+        message = str(exc_info.value)
+        assert "no effect" in message
+        assert "only valid" not in message
 
 
 class TestMutualInformationKnobs:
@@ -135,6 +179,27 @@ class TestMutualInformationKnobs:
         assert isinstance(est, MutualInformation)
         assert est.n_bins_method == SkNBinsMethod.KNUTH
         assert est.n_bins is None
+
+    def test_when_only_n_bins_method_given_then_rule_is_applied(
+        self, returns: pd.DataFrame
+    ) -> None:
+        # The preset must not inject a fixed bin count that silently masks the
+        # requested rule: skfolio consults n_bins_method only when n_bins is None.
+        cfg = DistanceConfig.for_mutual_information(n_bins_method=NBinsMethod.KNUTH)
+        assert cfg.n_bins is None
+        est = build_distance(cfg)
+        assert isinstance(est, MutualInformation)
+        assert est.n_bins is None
+        assert est.n_bins_method == SkNBinsMethod.KNUTH
+        reference = MutualInformation(n_bins=None, n_bins_method=SkNBinsMethod.KNUTH)
+        np.testing.assert_allclose(
+            est.fit(returns).distance_, reference.fit(returns).distance_
+        )
+
+    def test_when_preset_defaults_then_matches_constructor_default(self) -> None:
+        assert DistanceConfig.for_mutual_information() == DistanceConfig(
+            estimator=DistanceEstimatorType.MUTUAL_INFORMATION
+        )
 
     def test_when_normalize_set_then_forwarded(self) -> None:
         cfg = DistanceConfig.for_mutual_information(normalize=False)

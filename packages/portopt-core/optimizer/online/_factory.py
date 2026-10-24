@@ -6,6 +6,7 @@ constructing one wrapper per thread.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 import numpy.typing as npt
@@ -36,29 +37,57 @@ def _resolve_measure(scorer_config: Any) -> Any:
 
     Online *portfolio* evaluation (``OnlineGridSearch`` / ``online_score``
     on optimizers) rejects ``make_scorer`` objects and requires a
-    ``BaseMeasure`` passed directly. Custom callables and the
-    benchmark-relative Information Ratio cannot be expressed as a single
-    ``BaseMeasure``, so they are unsupported here.
+    ``BaseMeasure`` passed directly. Ratio, perf and risk measure families
+    all map onto one; custom callables and the benchmark-relative
+    Information Ratio cannot be expressed as a single ``BaseMeasure``, so
+    they are unsupported here.
     """
     from optimizer.optimization._config import RatioMeasureType
-    from optimizer.scoring._factory import _RATIO_MEASURE_MAP
+    from optimizer.scoring._factory import _resolve_native_measure
 
-    measure = getattr(scorer_config, "ratio_measure", None)
-    if measure is None:
-        raise ConfigurationError(
-            "Online portfolio search requires a built-in ratio measure. "
-            "ScorerConfig.ratio_measure=None (custom callable) is not "
-            "supported — online evaluation scores the aggregated "
-            "MultiPeriodPortfolio and rejects make_scorer objects. "
-            "Set ratio_measure=RatioMeasureType.SHARPE_RATIO (or similar)."
-        )
-    if measure == RatioMeasureType.INFORMATION_RATIO:
+    ratio_measure = getattr(scorer_config, "ratio_measure", None)
+    if ratio_measure == RatioMeasureType.INFORMATION_RATIO:
         raise ConfigurationError(
             "Information Ratio is benchmark-relative and not expressible as "
             "a skfolio BaseMeasure for online portfolio search. Use a "
             "built-in ratio measure (e.g. SHARPE_RATIO, SORTINO_RATIO)."
         )
-    return _RATIO_MEASURE_MAP[measure]
+    if (
+        ratio_measure is None
+        and getattr(scorer_config, "perf_measure", None) is None
+        and getattr(scorer_config, "risk_measure", None) is None
+    ):
+        raise ConfigurationError(
+            "Online portfolio search requires a built-in ratio measure, perf "
+            "measure or risk measure. A ScorerConfig with no measure family "
+            "(custom callable) is not supported — online evaluation scores "
+            "the aggregated MultiPeriodPortfolio and rejects make_scorer "
+            "objects. Set ratio_measure=RatioMeasureType.SHARPE_RATIO (or "
+            "similar), or use perf_measure / risk_measure."
+        )
+    return _resolve_native_measure(scorer_config)
+
+
+def _resolve_portfolio_params(scorer_config: Any) -> dict[str, Any] | None:
+    """Translate a `ScorerConfig`'s risk-free rate and annualization to skfolio.
+
+    ``OnlineGridSearch`` / ``OnlineRandomizedSearch`` evaluate the aggregated
+    `MultiPeriodPortfolio`, which only sees ``risk_free_rate`` and
+    ``annualization_factor`` through ``portfolio_params``. Values left at their
+    defaults are omitted so skfolio still inherits the optimizer's own
+    ``risk_free_rate`` instead of having ``0.0`` forced over it.
+
+    Returns:
+        The non-default overrides, or ``None`` when there are none.
+    """
+    params: dict[str, Any] = {}
+    risk_free_rate = getattr(scorer_config, "risk_free_rate", 0.0)
+    if risk_free_rate != 0.0:
+        params["risk_free_rate"] = risk_free_rate
+    annualization_factor = getattr(scorer_config, "annualization_factor", None)
+    if annualization_factor is not None:
+        params["annualization_factor"] = annualization_factor
+    return params or None
 
 
 def _to_offset(freq_offset: str | None) -> Any:
@@ -122,6 +151,7 @@ def run_online_score(
     scorer: Any,
     config: OnlinePredictConfig,
     per_step: bool = False,
+    portfolio_params: dict[str, Any] | None = None,
 ) -> Any:
     """Forward to `online_score`.
 
@@ -130,6 +160,11 @@ def run_online_score(
     online portfolio evaluation rejects ``make_scorer`` objects. When
     ``per_step`` is ``True`` a per-rebalance array is returned instead of
     a single aggregated scalar.
+
+    A bare ``scorer`` cannot carry a ``risk_free_rate`` or
+    ``annualization_factor``; pass ``portfolio_params`` (see
+    `optimizer.scoring.build_online_portfolio_params`) so the aggregated
+    portfolio is scored at the same rate as the online searches.
     """
     _validate_partial_fit(estimator)
     return online_score(
@@ -145,6 +180,7 @@ def run_online_score(
         reduce_test=config.reduce_test,
         scoring=scorer,
         per_step=per_step,
+        portfolio_params=portfolio_params,
     )
 
 
@@ -164,6 +200,7 @@ def build_online_grid_search(
         estimator=estimator,
         param_grid=param_grid,
         scoring=_resolve_measure(config.base.scorer_config),
+        portfolio_params=_resolve_portfolio_params(config.base.scorer_config),
         warmup_size=config.online.warmup_size,
         test_size=config.online.test_size,
         purged_size=config.online.purged_size,
@@ -174,7 +211,11 @@ def build_online_grid_search(
         n_jobs=config.online.n_jobs
         if config.online.n_jobs is not None
         else config.base.n_jobs,
-        verbose=int(config.online.verbose),
+        refit=config.base.refit,
+        # sklearn accepts "raise" or a float for error_score; its stub types it float.
+        error_score=config.base.error_score,  # pyright: ignore[reportArgumentType]
+        # Either level may switch verbosity on; the stricter (louder) one wins.
+        verbose=max(config.base.verbose, int(config.online.verbose)),
     )
 
 
@@ -195,6 +236,7 @@ def build_online_randomized_search(
         param_distributions=param_distributions,
         n_iter=config.base.n_iter,
         scoring=_resolve_measure(config.base.scorer_config),
+        portfolio_params=_resolve_portfolio_params(config.base.scorer_config),
         warmup_size=config.online.warmup_size,
         test_size=config.online.test_size,
         purged_size=config.online.purged_size,
@@ -206,7 +248,11 @@ def build_online_randomized_search(
         n_jobs=config.online.n_jobs
         if config.online.n_jobs is not None
         else config.base.n_jobs,
-        verbose=int(config.online.verbose),
+        refit=config.base.refit,
+        # sklearn accepts "raise" or a float for error_score; its stub types it float.
+        error_score=config.base.error_score,  # pyright: ignore[reportArgumentType]
+        # Either level may switch verbosity on; the stricter (louder) one wins.
+        verbose=max(config.base.verbose, int(config.online.verbose)),
     )
 
 
@@ -280,6 +326,10 @@ def build_covariance_forecast_comparison(
     Ranks several fitted `CovarianceForecastEvaluation` results
     (e.g. EW vs regime-adjusted covariance) before embedding one in a
     prior.
+
+    Raises:
+        ConfigurationError: If ``evaluations`` is empty, ``names`` has a
+            different length, or two candidates resolve to the same name.
     """
     if not evaluations:
         raise ConfigurationError(
@@ -290,5 +340,17 @@ def build_covariance_forecast_comparison(
         raise ConfigurationError(
             f"names length ({len(names)}) must match evaluations length "
             f"({len(evaluations)})."
+        )
+    # skfolio keys its summaries by name (falling back to each evaluation's own
+    # name), so a collision silently drops a candidate from the ranking.
+    resolved = names or [
+        ev.name if ev.name is not None else f"Estimator {i}"
+        for i, ev in enumerate(evaluations)
+    ]
+    duplicated = [name for name, n in Counter(resolved).items() if n > 1]
+    if duplicated:
+        raise ConfigurationError(
+            "Covariance forecast comparison requires unique candidate names. "
+            f"Duplicated: {', '.join(duplicated)}"
         )
     return CovarianceForecastComparison(evaluations, names=names)

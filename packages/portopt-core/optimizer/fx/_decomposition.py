@@ -10,6 +10,22 @@ from optimizer.exceptions import DataError
 from optimizer.fx._minor_units import normalize_currency_code
 
 
+def _bridged_returns(prices: pd.DataFrame, observed: pd.DataFrame) -> pd.DataFrame:
+    """Simple returns between consecutive observed prices, on observed dates.
+
+    Args:
+        prices: Price matrix (dates x tickers).
+        observed: Boolean mask of the same shape; ``False`` cells are
+            treated as missing.
+
+    Returns:
+        Returns that are ``NaN`` on unobserved dates and on each ticker's
+        first observed date.  The first observation after a gap carries the
+        full move since the last observation before it.
+    """
+    return prices.where(observed).ffill().pct_change().where(observed)
+
+
 @dataclass
 class FxReturnDecomposition:
     """Decomposition of portfolio returns into stock and FX components.
@@ -24,7 +40,8 @@ class FxReturnDecomposition:
     For base-currency assets, ``r_fx = 0`` and ``r_total = r_local``.
 
     Attributes:
-        total_returns: Base-currency total returns (dates x tickers).
+        total_returns: Base-currency total returns (dates x tickers). All
+            components are ``NaN`` on dates where any of them is unknown.
         local_returns: Local-currency stock returns (dates x tickers).
         fx_returns: FX contribution (dates x tickers). Zero for
             base-currency tickers.
@@ -82,11 +99,14 @@ class FxReturnDecomposition:
 
         Returns:
             DataFrame indexed by ticker with columns
-            ``["local", "fx", "cross", "total"]``.
+            ``["local", "fx", "cross", "total"]``.  A component with no
+            valid return for a ticker is ``NaN``, not ``0.0``.
         """
 
         def _compound(frame: pd.DataFrame) -> pd.Series:
-            return (1.0 + frame).prod(axis=0) - 1.0
+            # min_count=1: prod() of an all-NaN column is 1.0, which would
+            # report a ticker with no data as a 0% return.
+            return (1.0 + frame).prod(axis=0, min_count=1) - 1.0
 
         return pd.DataFrame(
             {
@@ -107,6 +127,12 @@ def decompose_fx_returns(
 ) -> FxReturnDecomposition:
     """Decompose total returns into local, FX, and cross components.
 
+    Returns are taken between consecutive dates on which a ticker's local
+    price, base price and FX rate are all known.  A gap therefore yields one
+    multi-day return on the first date after it (``NaN`` on the gap dates),
+    with local, FX and total measured over the same interval, so the identity
+    ``r_total = r_local + r_fx + r_local * r_fx`` holds on every date.
+
     Args:
         local_prices: Price matrix in local currencies (dates x tickers).
         base_prices: Price matrix in base currency (dates x tickers), as
@@ -122,34 +148,51 @@ def decompose_fx_returns(
     """
     base_ccy, _base_scale = normalize_currency_code(base_currency)
 
-    # Compute returns from prices.  Returns are scale-invariant, so the
-    # minor-unit rescaling applied to prices cancels in pct_change and the
-    # decomposition identity r_total = r_local + r_fx + r_local*r_fx still
-    # holds exactly — the only sub-unit concern here is resolving each ticker
-    # to its *major* currency so the correct FX column is found.
-    local_returns = local_prices.pct_change().iloc[1:]
-    total_returns = base_prices.pct_change().iloc[1:]
+    # DB Numeric columns arrive as Python Decimal (object dtype), which cannot
+    # be multiplied against the float FX returns below; FxPriceConverter casts
+    # the same way at its own boundary.
+    local_prices = local_prices.astype("float64")
+    base_prices = base_prices.astype("float64").reindex_like(local_prices)
 
+    # Resolve each foreign ticker to its aligned FX rate series.  Returns are
+    # scale-invariant, so the minor-unit rescaling applied to prices cancels
+    # and the decomposition identity r_total = r_local + r_fx + r_local*r_fx
+    # still holds exactly -- the only sub-unit concern here is resolving each
+    # ticker to its *major* currency so the correct FX column is found.
     fx_col_by_ccy = {str(c).upper(): c for c in fx_rates_aligned.columns}
-
-    fx_returns = pd.DataFrame(
-        0.0, index=local_returns.index, columns=local_returns.columns
-    )
-
-    for ticker in local_returns.columns:
+    rates: dict[str, pd.Series] = {}
+    for ticker in local_prices.columns:
         ccy, _scale = normalize_currency_code(currency_map.get(ticker, base_ccy))
-        if ccy == base_ccy:
-            continue
         col = fx_col_by_ccy.get(ccy)
-        if col is None:
+        if ccy == base_ccy or col is None:
             continue
-        # Compute the FX return on the FULL aligned rate series *before*
-        # slicing, so the first return date uses the prior (dropped) price
-        # date's rate rather than being lost to a leading NaN.  With the
-        # correct r_fx the identity r_total = r_local + r_fx + r_local*r_fx
-        # holds exactly for foreign assets.
-        fx_ret = fx_rates_aligned[col].pct_change()
-        fx_returns[ticker] = fx_ret.reindex(local_returns.index).fillna(0.0)
+        rates[ticker] = fx_rates_aligned[col].reindex(local_prices.index)
+    rate_frame = pd.DataFrame(rates, index=local_prices.index)
+
+    # A date is usable for a ticker only when every input to its decomposition
+    # is known there.  Returns are then taken between consecutive usable dates,
+    # so a missing price (a market holiday on a union calendar) or a missing
+    # rate is bridged by one multi-day return for local, FX and total alike
+    # instead of dropping that move or booking a zero for it.
+    observed = local_prices.notna() & base_prices.notna()
+    for ticker in rate_frame.columns:
+        observed[ticker] &= rate_frame[ticker].notna()
+
+    local_returns = _bridged_returns(local_prices, observed)
+    total_returns = _bridged_returns(base_prices, observed)
+    fx_returns = pd.DataFrame(
+        0.0, index=local_prices.index, columns=local_prices.columns
+    )
+    fx_returns = fx_returns.where(local_returns.notna())
+    if not rate_frame.empty:
+        fx_returns[rate_frame.columns] = _bridged_returns(
+            rate_frame, observed[rate_frame.columns]
+        )
+
+    known = local_returns.notna() & total_returns.notna() & fx_returns.notna()
+    local_returns = local_returns.where(known).iloc[1:]
+    total_returns = total_returns.where(known).iloc[1:]
+    fx_returns = fx_returns.where(known).iloc[1:]
 
     cross_terms = local_returns * fx_returns
 

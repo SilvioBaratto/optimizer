@@ -299,6 +299,97 @@ class TestNewSharedFields:
             )
 
 
+class TestNumericFieldValidation:
+    """Out-of-range numeric fields must fail at construction, naming the field."""
+
+    @pytest.mark.parametrize(
+        "config_cls",
+        [
+            MuUncertaintySetConfig,
+            CovarianceUncertaintySetConfig,
+        ],
+    )
+    @pytest.mark.parametrize(
+        "bad_level", [0.0, 1.0, -0.2, 1.5, 95.0, float("nan"), float("inf")]
+    )
+    def test_when_confidence_level_outside_open_unit_interval_then_raises(
+        self, config_cls: type, bad_level: float
+    ) -> None:
+        with pytest.raises(ConfigurationError, match="confidence_level"):
+            config_cls(confidence_level=bad_level)
+
+    @pytest.mark.parametrize(
+        "config_cls",
+        [
+            MuUncertaintySetConfig,
+            CovarianceUncertaintySetConfig,
+        ],
+    )
+    @pytest.mark.parametrize("good_level", [0.01, 0.5, 0.95, 0.999])
+    def test_when_confidence_level_inside_open_unit_interval_then_accepted(
+        self, config_cls: type, good_level: float
+    ) -> None:
+        assert config_cls(confidence_level=good_level).confidence_level == good_level
+
+    @pytest.mark.parametrize("bad_level", [0.0, 1.0, 95.0])
+    def test_when_for_moderate_uncertainty_level_out_of_range_then_raises(
+        self, bad_level: float
+    ) -> None:
+        from optimizer.optimization import RobustMeanRiskConfig
+
+        with pytest.raises(ConfigurationError, match="confidence_level"):
+            RobustMeanRiskConfig.for_moderate(uncertainty_level=bad_level)
+
+    @pytest.mark.parametrize(
+        "config_cls",
+        [
+            MuUncertaintySetConfig,
+            CovarianceUncertaintySetConfig,
+        ],
+    )
+    @pytest.mark.parametrize("bad_n_eff", [0.0, -5.0, float("nan"), float("inf")])
+    def test_when_n_eff_not_positive_then_raises(
+        self, config_cls: type, bad_n_eff: float
+    ) -> None:
+        with pytest.raises(ConfigurationError, match="n_eff"):
+            config_cls.for_empirical(n_eff=bad_n_eff)
+
+    @pytest.mark.parametrize(
+        "config_cls",
+        [
+            MuUncertaintySetConfig,
+            CovarianceUncertaintySetConfig,
+        ],
+    )
+    @pytest.mark.parametrize("bad_block", [0.0, -3.0, float("nan"), float("inf")])
+    def test_when_block_size_not_positive_then_raises(
+        self, config_cls: type, bad_block: float
+    ) -> None:
+        with pytest.raises(ConfigurationError, match="block_size"):
+            config_cls.for_bootstrap(block_size=bad_block)
+
+    @pytest.mark.parametrize(
+        "config_cls",
+        [
+            MuUncertaintySetConfig,
+            CovarianceUncertaintySetConfig,
+        ],
+    )
+    @pytest.mark.parametrize("bad_samples", [0, -10])
+    def test_when_n_bootstrap_samples_below_one_then_raises(
+        self, config_cls: type, bad_samples: int
+    ) -> None:
+        with pytest.raises(ConfigurationError, match="n_bootstrap_samples"):
+            config_cls.for_bootstrap(n_bootstrap_samples=bad_samples)
+
+    def test_when_boundary_positive_values_then_accepted(self) -> None:
+        mu = MuUncertaintySetConfig.for_bootstrap(n_bootstrap_samples=1, block_size=0.5)
+        cov = CovarianceUncertaintySetConfig.for_empirical(n_eff=1e-6)
+        assert mu.n_bootstrap_samples == 1
+        assert mu.block_size == 0.5
+        assert cov.n_eff == 1e-6
+
+
 class TestOrthogonalMuConfig:
     def test_when_uncertainty_shape_on_empirical_then_raises(self) -> None:
         with pytest.raises(ConfigurationError, match="uncertainty_shape"):

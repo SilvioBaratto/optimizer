@@ -5,9 +5,15 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from skfolio.optimization import EqualWeighted, HierarchicalRiskParity, MeanRisk
+from skfolio.optimization import (
+    EqualWeighted,
+    HierarchicalRiskParity,
+    InverseVolatility,
+    MeanRisk,
+)
 from sklearn.pipeline import Pipeline
 
+from optimizer.exceptions import DataError
 from optimizer.optimization import MeanRiskConfig, build_mean_risk
 from optimizer.pre_selection import PreSelectionConfig, build_portfolio_pipeline
 
@@ -96,6 +102,13 @@ class TestBuildPortfolioPipeline:
         assert "select_non_expiring" in steps
         assert steps["select_non_expiring"].expiration_dates == exp
 
+    def test_non_expiring_without_dates_raises_at_build(self) -> None:
+        """The portfolio factory shares the pre-selection contract: a requested
+        expiry filter needs the dates it filters on."""
+        cfg = PreSelectionConfig(use_non_expiring=True, expiration_lookahead=30)
+        with pytest.raises(ValueError, match="expiration_dates"):
+            build_portfolio_pipeline(EqualWeighted(), pre_selection_config=cfg)
+
     def test_expiration_dates_noop_by_default(self, returns_df: pd.DataFrame) -> None:
         """Without use_non_expiring, no SelectNonExpiring step is added."""
         import datetime as dt
@@ -104,3 +117,109 @@ class TestBuildPortfolioPipeline:
         pipe = build_portfolio_pipeline(EqualWeighted(), expiration_dates=exp)
         step_names = [name for name, _ in pipe.steps]
         assert "select_non_expiring" not in step_names
+
+
+class TestPredictColumnOrder:
+    def test_predict_on_reordered_columns_matches_original_order(self) -> None:
+        # Daily vols differ per asset so a positional relabel of a reordered
+        # frame feeds one asset's series to another asset's fitted weight.
+        rng = np.random.default_rng(0)
+        vols = {"A": 0.005, "B": 0.01, "C": 0.02, "D": 0.03}
+        X = pd.DataFrame(
+            {k: rng.normal(0.0005, v, 300) for k, v in vols.items()},
+            index=pd.date_range("2022-01-01", periods=300, freq="B"),
+        )
+        pipe = build_portfolio_pipeline(InverseVolatility())
+        pipe.fit(X)
+
+        reference = pipe.predict(X)
+        reordered = pipe.predict(X[["D", "C", "B", "A"]])
+
+        np.testing.assert_allclose(reordered.returns, reference.returns)
+
+
+class TestPredictScoresRealisedReturns:
+    """Held-out P&L must come from realised returns, not from cleaned ones.
+
+    Cleaning (winsorise / remove / impute) belongs to fitting.  Applying it to
+    the test window would clip real crashes and fabricate peer returns, which
+    understates tails and overstates Sharpe for any out-of-sample evaluation.
+    """
+
+    @staticmethod
+    def _train_test() -> tuple[pd.DataFrame, pd.DataFrame]:
+        rng = np.random.default_rng(11)
+        n_train, n_test, n_assets = 400, 200, 5
+        cols = [f"S{i}" for i in range(n_assets)]
+        idx = pd.date_range("2022-01-03", periods=n_train + n_test, freq="B")
+        data = rng.normal(0.0005, 0.01, size=(n_train + n_test, n_assets))
+        frame = pd.DataFrame(data, columns=cols, index=idx)
+        return frame.iloc[:n_train].copy(), frame.iloc[n_train:].copy()
+
+    def test_predict_keeps_extreme_held_out_returns(self) -> None:
+        train, test = self._train_test()
+        test.iloc[50, 0] = -0.30
+        test.iloc[100, 1] = -0.12
+
+        pipe = build_portfolio_pipeline(EqualWeighted())
+        pipe.fit(train)
+        portfolio = pipe.predict(test)
+
+        np.testing.assert_allclose(
+            np.asarray(portfolio.returns), test.mean(axis=1).to_numpy(), atol=1e-12
+        )
+
+    def test_predict_does_not_fabricate_missing_held_out_returns(self) -> None:
+        train, test = self._train_test()
+        test.iloc[20, 2] = np.nan
+
+        pipe = build_portfolio_pipeline(EqualWeighted())
+        pipe.fit(train)
+        portfolio = pipe.predict(test)
+
+        # A missing observation contributes no P&L; it is not a peer average.
+        expected = test.fillna(0.0).mean(axis=1).to_numpy()
+        np.testing.assert_allclose(np.asarray(portfolio.returns), expected, atol=1e-12)
+
+    def test_predict_applies_column_selection_learned_at_fit(self) -> None:
+        train, test = self._train_test()
+        train["DEAD"] = np.nan
+        test["DEAD"] = 0.0
+
+        pipe = build_portfolio_pipeline(EqualWeighted())
+        pipe.fit(train)
+        portfolio = pipe.predict(test)
+
+        assert "DEAD" not in list(portfolio.assets)
+        assert len(portfolio.weights) == 5
+
+    def test_fit_still_cleans_training_returns(self) -> None:
+        train, _ = self._train_test()
+        train.iloc[10, 0] = -0.30
+
+        pipe = build_portfolio_pipeline(EqualWeighted())
+        cleaned = pipe[:-1].fit_transform(train)
+
+        assert cleaned.iloc[10, 0] > -0.30
+
+
+class TestRowWithNoObservation:
+    """A date on which every asset is missing cannot be filled from peers."""
+
+    def test_fit_names_the_unfillable_date(self) -> None:
+        train, _ = TestPredictScoresRealisedReturns._train_test()
+        train.iloc[30, :] = np.nan
+
+        with pytest.raises(DataError, match=str(train.index[30].date())):
+            build_portfolio_pipeline(EqualWeighted()).fit(train)
+
+    def test_predict_scores_such_a_held_out_date_at_zero(self) -> None:
+        train, test = TestPredictScoresRealisedReturns._train_test()
+        test.iloc[20, :] = np.nan
+
+        pipe = build_portfolio_pipeline(EqualWeighted())
+        pipe.fit(train)
+        portfolio = pipe.predict(test)
+
+        expected = test.fillna(0.0).mean(axis=1).to_numpy()
+        np.testing.assert_allclose(np.asarray(portfolio.returns), expected, atol=1e-12)

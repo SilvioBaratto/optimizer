@@ -15,6 +15,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -120,11 +121,15 @@ class TickerProfile(BaseModel):
     total_cash: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     total_cash_per_share: Mapped[float | None] = mapped_column(Float, nullable=True)
     total_debt: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Plain ratio (0.78 = 0.78x); Yahoo quotes it in percent and the writer rescales.
     debt_to_equity: Mapped[float | None] = mapped_column(Float, nullable=True)
     current_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     quick_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     dividend_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Both dividend yields are fractions (0.0031 = 0.31%), like the payout ratio
+    # and the trailing yield; Yahoo quotes these two in percent and the writer
+    # rescales.
     dividend_yield: Mapped[float | None] = mapped_column(Float, nullable=True)
     ex_dividend_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
     payout_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -291,6 +296,8 @@ class EarningsEstimate(BaseModel):
     high: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     year_ago_eps: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     growth: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # Quote currency of the estimates; can differ from the listing currency.
+    currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class RevenueEstimate(BaseModel):
@@ -318,6 +325,8 @@ class RevenueEstimate(BaseModel):
         Numeric(38, 2), nullable=True
     )
     growth: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # Quote currency of the estimates; can differ from the listing currency.
+    currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class GrowthEstimate(BaseModel):
@@ -373,6 +382,8 @@ class EpsTrend(BaseModel):
     days_ago_30: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     days_ago_60: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     days_ago_90: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # Quote currency of the estimates; can differ from the listing currency.
+    currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class EpsRevisions(BaseModel):
@@ -401,10 +412,16 @@ class EpsRevisions(BaseModel):
     up_last_30days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     down_last_7days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     down_last_30days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Quote currency of the estimates; can differ from the listing currency.
+    currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class EarningsHistory(BaseModel):
-    """Historical EPS surprise from yf.Ticker.earnings_history (per past quarter)."""
+    """Historical EPS surprise from yf.Ticker.earnings_history (per past quarter).
+
+    ``surprise_percent`` is in percent points (4.0 = a 4% beat), matching
+    ``EarningsDate.surprise_percent`` and ``EarningsCalendar.eps_surprise_pct``.
+    """
 
     __tablename__ = "earnings_history"
     __table_args__ = (
@@ -423,13 +440,18 @@ class EarningsHistory(BaseModel):
     eps_estimate: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     eps_actual: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     eps_difference: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # Percent (6.74 = 6.74%), the same unit as earnings_dates.surprise_percent;
+    # Yahoo quotes this feed as a fraction and the writer rescales.
     surprise_percent: Mapped[float | None] = mapped_column(
         Numeric(20, 6), nullable=True
     )
 
 
 class EarningsDate(BaseModel):
-    """Past + upcoming earnings dates from yf.Ticker.get_earnings_dates()."""
+    """Past + upcoming earnings dates from yf.Ticker.get_earnings_dates().
+
+    ``surprise_percent`` is in percent points (4.0 = a 4% beat).
+    """
 
     __tablename__ = "earnings_dates"
     __table_args__ = (
@@ -447,6 +469,7 @@ class EarningsDate(BaseModel):
     earnings_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     eps_estimate: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     eps_actual: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    # Percent (6.74 = 6.74%), as the earnings-dates calendar quotes it.
     surprise_percent: Mapped[float | None] = mapped_column(
         Numeric(20, 6), nullable=True
     )
@@ -531,7 +554,6 @@ class MajorHolders(BaseModel):
     __tablename__ = "major_holders"
     __table_args__ = (
         UniqueConstraint("instrument_id", name="uq_major_holders_instrument"),
-        Index("ix_major_holders_instrument_id", "instrument_id"),
     )
 
     instrument_id: Mapped[uuid.UUID] = mapped_column(
@@ -555,7 +577,6 @@ class InsiderPurchaseSummary(BaseModel):
     __tablename__ = "insider_purchases"
     __table_args__ = (
         UniqueConstraint("instrument_id", name="uq_insider_purchases_instrument"),
-        Index("ix_insider_purchases_instrument_id", "instrument_id"),
     )
 
     instrument_id: Mapped[uuid.UUID] = mapped_column(
@@ -629,7 +650,6 @@ class AnalystPriceTarget(BaseModel):
     __tablename__ = "analyst_price_targets"
     __table_args__ = (
         UniqueConstraint("instrument_id", name="uq_analyst_pt_instrument"),
-        Index("ix_analyst_price_targets_instrument_id", "instrument_id"),
     )
 
     instrument_id: Mapped[uuid.UUID] = mapped_column(
@@ -698,7 +718,12 @@ class MutualFundHolder(BaseModel):
 
 
 class InsiderTransaction(BaseModel):
-    """Insider transactions from yf.Ticker.insider_transactions."""
+    """Insider transactions from yf.Ticker.insider_transactions.
+
+    Yahoo renders distinct lots identically (same insider, day and text, e.g.
+    two grants of different size), so ``lot_index`` numbers the rows that share
+    the other key columns and lets each lot keep its own shares and value.
+    """
 
     __tablename__ = "insider_transactions"
     __table_args__ = (
@@ -707,6 +732,7 @@ class InsiderTransaction(BaseModel):
             "insider_name",
             "start_date",
             "transaction_type",
+            "lot_index",
             name="uq_insider_tx_row",
         ),
         Index("ix_insider_transactions_instrument_id", "instrument_id"),
@@ -726,6 +752,9 @@ class InsiderTransaction(BaseModel):
     value: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     start_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     ownership: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    lot_index: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=0, server_default="0"
+    )
 
 
 class TickerNews(BaseModel):
@@ -764,7 +793,6 @@ class TickerProfileExtra(BaseModel):
     __tablename__ = "ticker_profile_extras"
     __table_args__ = (
         UniqueConstraint("instrument_id", name="uq_ticker_profile_extras_instrument"),
-        Index("ix_ticker_profile_extras_instrument_id", "instrument_id"),
     )
 
     instrument_id: Mapped[uuid.UUID] = mapped_column(

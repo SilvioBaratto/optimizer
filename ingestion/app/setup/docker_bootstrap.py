@@ -15,6 +15,11 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from app.setup import ca_bundle, path_install
+
+# Env var docker-compose.yml's `ca_bundle` secret reads its file path from.
+_CA_BUNDLE_ENV = "CA_BUNDLE_FILE"
+
 
 class DockerError(RuntimeError):
     """Raised when Docker is unavailable or a bootstrap command fails."""
@@ -43,6 +48,62 @@ def _start_hint() -> str:
     return "Start the Docker daemon (e.g. `sudo systemctl start docker`) and retry."
 
 
+def compose_dir() -> Path:
+    """Return the checkout whose ``docker-compose.yml`` drives the stack.
+
+    Compose resolves the compose file and every ``./secrets/<name>`` mount source
+    relative to its project directory, so each compose call and each rendered
+    plaintext file must be anchored here rather than to the current directory.
+
+    Raises:
+        DockerError: If no checkout can be located (e.g. ``portopt`` was installed
+            with ``uv tool install`` and never cloned), before anything is written.
+    """
+    repo = path_install.locate_repo()
+    if repo is None:
+        raise DockerError(
+            "Cannot locate the optimizer checkout (no docker-compose.yml). Run "
+            "portopt from inside a clone of the repository, or set OPTIMIZER_REPO "
+            "to its path."
+        )
+    return repo
+
+
+def _compose_env(repo: Path) -> dict[str, str] | None:
+    """Return the compose environment, or ``None`` to inherit the caller's.
+
+    docker-compose.yml defaults the ``ca_bundle`` build secret to a committed empty
+    file so a plain ``docker compose`` works on a fresh clone. Once ``--corp-ca`` has
+    generated a real bundle, ``CA_BUNDLE_FILE`` swaps it in; an operator-exported
+    value is left alone.
+    """
+    if _CA_BUNDLE_ENV in os.environ:
+        return None
+    bundle = repo / ca_bundle.DEFAULT_BUNDLE_PATH
+    if not bundle.is_file() or bundle.stat().st_size == 0:
+        return None
+    return {**os.environ, _CA_BUNDLE_ENV: str(bundle)}
+
+
+def _compose(*args: str, repo: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """Run ``docker compose <args>`` with the checkout as the project directory.
+
+    Args:
+        *args: Arguments for ``docker compose``.
+        repo: A checkout the caller already resolved (``portopt start`` rendered the
+            secrets under it). It is also passed as ``--project-directory`` so
+            compose cannot fall back to another directory; without it the checkout
+            is located here.
+    """
+    project = repo if repo is not None else compose_dir()
+    pin = [] if repo is None else ["--project-directory", str(repo)]
+    return _run(
+        ["docker", "compose", *pin, *args],
+        cwd=str(project),
+        env=_compose_env(project),
+    )
+
+
 def check_docker() -> None:
     """Verify the Docker CLI, a reachable daemon, and the compose v2 plugin."""
     if shutil.which("docker") is None:
@@ -55,7 +116,7 @@ def check_docker() -> None:
 
 def bring_up_db() -> None:
     """Start the Postgres service and wait for it to become healthy."""
-    result = _run(["docker", "compose", "up", "-d", "--wait", "db"])
+    result = _compose("up", "-d", "--wait", "db")
     if result.returncode != 0:
         raise DockerError(f"Failed to start the db service:\n{result.stderr}")
 
@@ -90,10 +151,10 @@ def migrate() -> None:
     ``DATABASE_URL``, and a bare ``alembic`` on PATH may belong to an unrelated
     environment (or be absent). So run it as ``sys.executable -m alembic`` — the
     interpreter running ``portopt``, which has ``portopt_db`` + alembic — from the
-    package dir with the host DB URL injected. On any failure (missing dir, alembic
-    not importable, or a non-zero exit) warn and continue rather than aborting
-    setup: the fund container runs the same migration on start and its healthcheck
-    gates on it, so the DB reaches head there regardless.
+    package dir with the compose host DB URL forced. On any failure (missing dir,
+    alembic not importable, or a non-zero exit) warn and continue rather than
+    aborting setup: the fund container runs the same migration on start and its
+    healthcheck gates on it, so the DB reaches head there regardless.
     """
     db_dir = _find_db_package()
     if db_dir is None:
@@ -102,8 +163,9 @@ def migrate() -> None:
             "migration — the fund container migrates on start."
         )
         return
-    env = {**os.environ}
-    env.setdefault("DATABASE_URL", _HOST_DB_URL)
+    # Assigned, not setdefault: an ambient DATABASE_URL (shell, direnv, .env) belongs
+    # to some other database and must never receive this DDL.
+    env = {**os.environ, "DATABASE_URL": _HOST_DB_URL}
     try:
         result = _run(
             [sys.executable, "-m", "alembic", "upgrade", "head"],
@@ -124,11 +186,16 @@ def migrate() -> None:
         )
 
 
-def running_services() -> set[str]:
-    """Return the set of compose services currently running (empty on error)."""
-    result = _run(
-        ["docker", "compose", "ps", "--services", "--filter", "status=running"]
-    )
+def running_services(*, repo: Path | None = None) -> set[str]:
+    """Return the set of compose services currently running (empty on error).
+
+    Args:
+        repo: The checkout whose compose project to query; located when omitted.
+    """
+    try:
+        result = _compose("ps", "--services", "--filter", "status=running", repo=repo)
+    except DockerError:
+        return set()
     if result.returncode != 0:
         return set()
     return {line.strip() for line in result.stdout.splitlines() if line.strip()}
@@ -229,16 +296,32 @@ def _image_exists(ref: str) -> bool:
     return _run(["docker", "image", "inspect", ref]).returncode == 0
 
 
-def stop_services(services: Sequence[str]) -> None:
+def stop_services(services: Sequence[str], *, repo: Path | None = None) -> None:
     """Stop the named compose services, leaving the rest of the stack running.
 
     Unlike ``docker compose down`` (which removes every project container), this
     targets services by name so ``portopt stop`` can halt the fund decision engine
     without taking down the persistent ingestion daemon or the shared db.
+
+    Args:
+        services: Compose service names to stop.
+        repo: The checkout whose compose project to act on; located when omitted.
     """
-    result = _run(["docker", "compose", "stop", *services])
+    result = _compose("stop", *services, repo=repo)
     if result.returncode != 0:
         raise DockerError(f"`docker compose stop` failed:\n{result.stderr}")
+
+
+def restart_services(services: Sequence[str], *, repo: Path | None = None) -> None:
+    """Restart the named compose services so they re-read their mounted secrets.
+
+    Args:
+        services: Compose service names to restart.
+        repo: The checkout whose compose project to act on; located when omitted.
+    """
+    result = _compose("restart", *services, repo=repo)
+    if result.returncode != 0:
+        raise DockerError(f"`docker compose restart` failed:\n{result.stderr}")
 
 
 def build_and_up(
@@ -246,6 +329,7 @@ def build_and_up(
     profiles: Sequence[str] = ("fund",),
     wait_timeout: int = 300,
     force_build: bool = False,
+    repo: Path | None = None,
 ) -> list[str]:
     """Build each profile's images when absent, then bring the stack up and wait.
 
@@ -262,6 +346,9 @@ def build_and_up(
         force_build: Rebuild the images even when they already exist. Compose only
             rebuilds a missing image, so after a code or migration change the images
             go stale and a start silently reuses them — this forces the rebuild.
+        repo: The checkout whose compose project to build and start; located when
+            omitted. ``portopt start`` pins it so compose mounts the ``./secrets`` it
+            just rendered, whatever directory the operator ran from.
 
     Returns:
         The advisory version warnings surfaced (empty when tooling is current).
@@ -277,31 +364,20 @@ def build_and_up(
     built = [img for profile in profiles for img in _BUILT_IMAGES.get(profile, ())]
     if force_build or any(not _image_exists(ref) for ref in built):
         print("Building images — slow the first time; later starts reuse them.")
-        build = _run(
-            [
-                "docker",
-                "compose",
-                *profile_args,
-                "--progress",
-                "plain",
-                "build",
-                "--pull",
-            ]
+        build = _compose(
+            *profile_args, "--progress", "plain", "build", "--pull", repo=repo
         )
         if build.returncode != 0:
             raise DockerError(f"`docker compose build` failed:\n{build.stderr}")
 
-    up = _run(
-        [
-            "docker",
-            "compose",
-            *profile_args,
-            "up",
-            "-d",
-            "--wait",
-            "--wait-timeout",
-            str(wait_timeout),
-        ]
+    up = _compose(
+        *profile_args,
+        "up",
+        "-d",
+        "--wait",
+        "--wait-timeout",
+        str(wait_timeout),
+        repo=repo,
     )
     if up.returncode != 0:
         raise DockerError(f"`docker compose up --wait` failed:\n{up.stderr}")

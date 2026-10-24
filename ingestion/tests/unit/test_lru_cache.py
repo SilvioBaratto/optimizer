@@ -8,7 +8,9 @@ interleaving.  The monotonic clock is mocked for deterministic TTL assertions
 
 from __future__ import annotations
 
+import gc
 import threading
+import weakref
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
@@ -67,6 +69,17 @@ class TestGetPut:
         assert cache.size() == 0
         assert cache.get("k") is None
 
+    def test_when_deleted_then_only_that_key_is_gone(self) -> None:
+        cache = LRUCache()
+        cache.put("a", 1)
+        cache.put("b", 2)
+        cache.delete("a")
+        assert cache.get("a") is None
+        assert cache.get("b") == 2
+
+    def test_when_deleting_absent_key_then_nothing_happens(self) -> None:
+        LRUCache().delete("missing")
+
     def test_capacity_property_reflects_constructor(self) -> None:
         assert LRUCache(capacity=42).capacity == 42
 
@@ -100,6 +113,34 @@ class TestTTL:
         cache.put("k", "v")
         clock.advance(1_000_000.0)
         assert cache.get("k") == "v"
+
+    def test_when_put_after_expiry_then_expired_values_are_released(
+        self, clock: _Clock
+    ) -> None:
+        class Payload:
+            """Weak-referenceable stand-in for a heavyweight cached object."""
+
+        cache = LRUCache(default_ttl=10.0)
+        payload = Payload()
+        released = weakref.ref(payload)
+        cache.put("stale", payload)
+        del payload
+        clock.advance(11.0)
+
+        cache.put("fresh", object())
+        gc.collect()
+
+        assert released() is None
+
+    def test_when_entries_expired_then_size_counts_only_live_entries(
+        self, clock: _Clock
+    ) -> None:
+        cache = LRUCache(default_ttl=10.0)
+        cache.put("a", 1)
+        cache.put("b", 2)
+        clock.advance(11.0)
+
+        assert cache.size() == 0
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +206,27 @@ class TestContainsAndKeys:
         clock.advance(3.0)
         assert cache.keys() == ["fresh"]
         assert cache.size() == 1  # expired entry purged
+
+
+# ---------------------------------------------------------------------------
+# delete
+# ---------------------------------------------------------------------------
+
+
+class TestDelete:
+    def test_delete_removes_only_that_key(self) -> None:
+        cache = LRUCache()
+        cache.put("a", 1)
+        cache.put("b", 2)
+        cache.delete("a")
+        assert cache.get("a") is None
+        assert cache.get("b") == 2
+        assert cache.size() == 1
+
+    def test_delete_of_absent_key_is_a_no_op(self) -> None:
+        cache = LRUCache()
+        cache.delete("nope")
+        assert cache.size() == 0
 
 
 # ---------------------------------------------------------------------------

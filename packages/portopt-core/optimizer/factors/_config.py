@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import math
+from dataclasses import dataclass
 from enum import Enum
 
 from optimizer.exceptions import ConfigurationError
+
+# About one trading month of daily returns: below this a volatility, beta or
+# Amihud estimate is noise that would otherwise rank a fresh listing as the
+# lowest-risk, most liquid name in the cross-section.
+DEFAULT_MIN_OBSERVATIONS = 20
 
 
 class FactorGroupType(str, Enum):
@@ -80,34 +86,6 @@ class ICFallbackStrategy(str, Enum):
     EQUAL_WEIGHT = "equal_weight"
     NAN = "nan"
     RAISE = "raise"
-
-
-class ICWeightingMethod(str, Enum):
-    """Method for aggregating per-factor ICs within a group.
-
-    SIMPLE_MEAN averages ICs equally (current default behaviour).
-    TSTAT_WEIGHTED uses absolute Newey-West t-stat as weight so that
-    factors with more statistically significant ICs dominate the group
-    average.
-    """
-
-    SIMPLE_MEAN = "simple_mean"
-    TSTAT_WEIGHTED = "tstat_weighted"
-
-
-class ICNegativeFilterPolicy(str, Enum):
-    """Policy for handling factors with consistently negative IC.
-
-    INCLUDE keeps all factors regardless of IC sign (current default).
-    EXCLUDE removes negative-IC factors before computing the group
-    average (denominator shrinks).
-    SOFT zeros the contribution of negative-IC factors but keeps
-    them in the denominator (dampening).
-    """
-
-    INCLUDE = "include"
-    EXCLUDE = "exclude"
-    SOFT = "soft"
 
 
 class SelectionMethod(str, Enum):
@@ -202,7 +180,13 @@ class PublicationLagConfig:
     Each source has an independent delay between the period end date and
     the date the data is reliably available for use in factor construction.
     Using source-specific lags avoids look-ahead bias when aligning
-    fundamental data to price dates.
+    fundamental data to price dates. The lags are not applied automatically:
+    pass the matching field as ``lag_days`` to ``align_to_pit``.
+
+    The defaults follow US filing cadence (10-K / 10-Q). Non-US issuers can
+    publish later (EU annual reports and 20-F filings up to ~120 days after
+    fiscal year end, half-year reports up to ~90 days), so global universes
+    should override ``annual_days`` and ``quarterly_days``.
 
     Attributes:
         annual_days: Lag for annual financial statements in days after fiscal
@@ -235,17 +219,26 @@ class PublicationLagConfig:
 class FactorConstructionConfig:
     """Configuration for factor computation.
 
+    The factor calculators consume cross-sectional fundamentals that carry no
+    period dates, so they cannot apply publication lags themselves. Point-in-time
+    correctness is the caller's job: align statements with ``align_to_pit``
+    (see ``PublicationLagConfig`` for the lag to pass) before computing factors.
+
     Attributes:
         factors: Which factors to compute.
         momentum_lookback: Lookback window for momentum in trading days.
         momentum_skip: Recent days to skip for momentum (reversal avoidance).
+            Must be ``>= 0`` and ``< momentum_lookback - 1`` so the momentum
+            window is non-empty.
         volatility_lookback: Lookback window for volatility in trading days.
         beta_lookback: Lookback window for beta estimation in trading days.
         amihud_lookback: Lookback window for Amihud illiquidity in trading days.
-        publication_lag: Per-source publication lags for point-in-time
-            correctness. Accepts a plain ``int`` for a uniform lag across all
-            sources (backward-compatible; converted to
-            ``PublicationLagConfig`` automatically).
+            All four lookbacks must be ``>= 1``; invalid values raise
+            ``ConfigurationError``.
+        min_observations: Fewest per-ticker return observations inside the
+            lookback window for which volatility, beta and Amihud illiquidity
+            are reported; tickers below it get NaN. Capped at the lookback so
+            a short window never blanks the whole cross-section. Must be >= 2.
     """
 
     factors: tuple[FactorType, ...] = (
@@ -266,16 +259,32 @@ class FactorConstructionConfig:
     volatility_lookback: int = 252
     beta_lookback: int = 252
     amihud_lookback: int = 252
-    publication_lag: PublicationLagConfig = field(default_factory=PublicationLagConfig)
+    min_observations: int = DEFAULT_MIN_OBSERVATIONS
 
     def __post_init__(self) -> None:
-        # Runtime backward-compat: accept plain int for uniform lag
-        if not isinstance(self.publication_lag, PublicationLagConfig):
-            object.__setattr__(
-                self,
-                "publication_lag",
-                PublicationLagConfig.uniform(int(self.publication_lag)),
+        for name in (
+            "momentum_lookback",
+            "volatility_lookback",
+            "beta_lookback",
+            "amihud_lookback",
+        ):
+            value = getattr(self, name)
+            if value < 1:
+                msg = f"{name} must be >= 1, got {value}"
+                raise ConfigurationError(msg)
+        if self.min_observations < 2:
+            msg = f"min_observations must be >= 2, got {self.min_observations}"
+            raise ConfigurationError(msg)
+        # Momentum compares the price `skip + 1` bars back with the price
+        # `lookback` bars back; they coincide (zero momentum) once
+        # skip + 1 >= lookback and reverse order beyond that.
+        if self.momentum_skip < 0 or self.momentum_skip + 1 >= self.momentum_lookback:
+            msg = (
+                "momentum_skip must satisfy 0 <= momentum_skip < "
+                f"momentum_lookback - 1, got momentum_skip={self.momentum_skip} "
+                f"with momentum_lookback={self.momentum_lookback}"
             )
+            raise ConfigurationError(msg)
 
     @classmethod
     def for_core_factors(cls) -> FactorConstructionConfig:
@@ -303,7 +312,10 @@ class StandardizationConfig:
         winsorize_upper: Upper percentile for winsorization (0-1, used with
             PERCENTILE).
         neutralize_sector: Whether to sector-neutralize scores.
-        neutralize_country: Whether to country-neutralize scores.
+        neutralize_country: Whether to country-neutralize scores. Combined
+            with ``neutralize_sector`` scores are demeaned within each
+            (sector, country) cell; on its own they are demeaned within each
+            country.
         factor_method_overrides: Per-factor standardization method overrides as
             ``(factor_name, method_value)`` pairs. When non-empty, each factor
             is standardized with its assigned method; factors not in the map
@@ -373,8 +385,8 @@ class CompositeScoringConfig:
     Attributes:
         method: Equal-weight, IC-weighted, ICIR-weighted, ridge, or GBT
             composite.
-        ic_lookback: Number of periods for IC estimation when using IC
-            weighting.
+        ic_lookback: Number of trailing periods used for IC estimation when
+            using IC or ICIR weighting. Must be >= 1.
         core_weight: Relative weight for core factor groups.
         supplementary_weight: Relative weight for supplementary factor groups.
         ridge_alpha: L2 regularisation strength for ``RIDGE_WEIGHTED``.
@@ -396,11 +408,13 @@ class CompositeScoringConfig:
             ``EQUAL_WEIGHT`` preserves the current behavior. ``NAN`` returns
             all-NaN scores to suppress trading. ``RAISE`` raises
             ``ConfigurationError``. Default is ``EQUAL_WEIGHT``.
-        ic_decay_halflife: EWM half-life in IC observation periods for
-            IC-weighted scoring. ``0`` (default) disables decay and uses the
-            simple trailing mean over ``ic_lookback`` periods. Positive values
-            apply ``ic_history.ewm(halflife=N, min_periods=1).mean().iloc[-1]``
-            so the most recent fold dominates older folds.
+        ic_decay_halflife: EWM half-life in IC observation periods for IC and
+            ICIR weighted scoring. ``0`` (default) disables decay and uses the
+            simple trailing mean (``mean / std`` for ICIR) over ``ic_lookback``
+            periods. Positive values apply
+            ``ic_history.ewm(halflife=N, min_periods=1).mean().iloc[-1]`` (the
+            exponentially weighted mean over exponentially weighted standard
+            deviation for ICIR) so the most recent fold dominates older folds.
     """
 
     method: CompositeMethod = CompositeMethod.EQUAL_WEIGHT
@@ -417,8 +431,27 @@ class CompositeScoringConfig:
     ic_decay_halflife: int = 0
 
     def __post_init__(self) -> None:
+        if self.ic_lookback < 1:
+            # A non-positive value would reach ``ic_history.iloc[-lookback:]``
+            # and silently select the whole history (0) or drop leading rows.
+            msg = f"ic_lookback must be >= 1, got {self.ic_lookback}"
+            raise ConfigurationError(msg)
         if self.ic_decay_halflife < 0:
             msg = f"ic_decay_halflife must be >= 0, got {self.ic_decay_halflife}"
+            raise ConfigurationError(msg)
+        for name in ("core_weight", "supplementary_weight"):
+            value = getattr(self, name)
+            if not (math.isfinite(value) and value >= 0.0):
+                msg = f"{name} must be finite and >= 0, got {value}"
+                raise ConfigurationError(msg)
+        if self.core_weight + self.supplementary_weight <= 0.0:
+            # Both tiers at zero leave every row with a zero weight sum, which
+            # the renormalised composite turns into all-NaN scores.
+            msg = (
+                "tier weights must have a positive sum, got "
+                f"core_weight={self.core_weight} and "
+                f"supplementary_weight={self.supplementary_weight}"
+            )
             raise ConfigurationError(msg)
 
     @classmethod
@@ -497,10 +530,13 @@ class SelectionConfig:
 
     Attributes:
         method: Fixed-count or quantile-based selection.
-        target_count: Number of stocks to select (for FIXED_COUNT).
+        target_count: Number of stocks to select (for FIXED_COUNT). Must be
+            >= 1.
         target_quantile: Quantile threshold for selection (for QUANTILE, 0-1).
-        exit_quantile: Exit quantile for hysteresis (for QUANTILE).
-        buffer_fraction: Buffer zone fraction around selection boundary.
+        exit_quantile: Exit quantile for hysteresis (for QUANTILE, 0-1). Must
+            not exceed ``target_quantile``.
+        buffer_fraction: Buffer zone fraction around selection boundary. Must
+            be >= 0.
         sector_balance: Whether to enforce sector-proportional representation.
         sector_tolerance: Maximum deviation from parent universe sector weights
             as a fraction (0–1). Default 0.05 (5 pp) matches MSCI, S&P DJI,
@@ -509,8 +545,10 @@ class SelectionConfig:
             institutional low-active-risk mandates.
         max_per_sector: Hard ceiling on the number of stocks selected from any
             single sector. ``0`` (default) disables the cap; positive values
-            evict the lowest-scoring excess members from any sector after the
-            tolerance-based balance loop.
+            evict the lowest-scoring excess members from any sector once the
+            sector bands are applied, then refill to the pre-balance holding
+            count with the best-scoring names from sectors that are still
+            below both their band and the cap.
     """
 
     method: SelectionMethod = SelectionMethod.FIXED_COUNT
@@ -523,6 +561,32 @@ class SelectionConfig:
     max_per_sector: int = 0
 
     def __post_init__(self) -> None:
+        if self.target_count < 1:
+            # ``ranked.index[:target_count]`` treats a negative count as
+            # "all but the worst N" instead of a top-N selection.
+            msg = f"target_count must be >= 1, got {self.target_count}"
+            raise ConfigurationError(msg)
+        for name in (
+            "target_quantile",
+            "exit_quantile",
+            "sector_tolerance",
+        ):
+            value = getattr(self, name)
+            if not 0.0 <= value <= 1.0:
+                msg = f"{name} must be in [0, 1], got {value}"
+                raise ConfigurationError(msg)
+        if self.exit_quantile > self.target_quantile:
+            # Hysteresis keeps members above the exit threshold, so it must
+            # not sit above the entry threshold.
+            msg = (
+                "exit_quantile must be <= target_quantile, got "
+                f"exit_quantile={self.exit_quantile} with "
+                f"target_quantile={self.target_quantile}"
+            )
+            raise ConfigurationError(msg)
+        if not self.buffer_fraction >= 0.0:
+            msg = f"buffer_fraction must be >= 0, got {self.buffer_fraction}"
+            raise ConfigurationError(msg)
         if self.max_per_sector < 0:
             msg = f"max_per_sector must be >= 0, got {self.max_per_sector}"
             raise ConfigurationError(msg)
@@ -591,10 +655,13 @@ class RegimeTiltConfig:
         max_tilt_multiplier: Upper bound on any single raw tilt multiplier
             (default 2.0). Multipliers exceeding this value are clamped before
             application. Must be >= 1.0.
-        min_post_tilt_weight: Minimum weight any group may hold after tilting,
-            expressed as a fraction of the original total weight (default 0.05).
-            Groups suppressed below this floor are raised to it before
-            renormalization. Must be in [0.0, 1.0).
+        min_post_tilt_weight: Minimum weight a protected group may hold after
+            tilting and renormalization, expressed as a fraction of the
+            original total weight (default 0.05). A group is protected when
+            its tilt compressed it or its base weight was already at or above
+            the floor; its minimum is the floor, never above its own base
+            weight. Untilted groups below the floor and zero-weight groups are
+            left alone. Must be in [0.0, 1.0).
     """
 
     enable: bool = False
@@ -653,9 +720,13 @@ class RegimeTiltConfig:
     def for_strict_bounds(cls) -> RegimeTiltConfig:
         """Enable tilts with tight multiplier cap and weight floor.
 
-        Caps each raw tilt multiplier at 1.5x and prevents any group
-        from falling below 10% of the total weight.  Suitable for
-        mandates requiring diversification guarantees.
+        Caps each raw tilt multiplier at 1.5x and stops a tilt from eroding
+        a group below 10% of the total weight: a group that started at or
+        above 10%, or that a tilt compressed, never ends under it (a
+        compressed group that started lower is held at its base weight).
+        Zero-weight groups and untilted groups that start below 10% are not
+        raised to the floor, so the preset bounds how far tilts can cut a
+        group; it does not guarantee every group a 10% share.
         """
         return cls(
             enable=True,
@@ -671,7 +742,8 @@ class SectorRegimeBandsConfig:
     Stores the full regime × sector band matrix as a serialisable tuple of
     ``(regime_value, sector_name, floor, cap)`` entries.  The default bands
     are loaded from the module-level ``SECTOR_REGIME_BANDS`` matrix via the
-    `for_default` classmethod.
+    `for_default` classmethod, and also when an enabled config is built with
+    no ``bands``.
 
     Single-regime-per-run semantics: the regime is resolved once from the
     lagged classified macro regime and injected into the optimizer before
@@ -681,11 +753,16 @@ class SectorRegimeBandsConfig:
     the implementation simple.
 
     Attributes:
-        enable: Whether to apply dynamic sector bands. When ``False``, the
-            optimizer constraints are left unchanged.
+        enable: Whether to apply dynamic sector bands. When ``False``,
+            `resolve_sector_bands` returns an empty mapping so the optimizer
+            constraints are left unchanged.
         bands: Serialisable flat representation of the band matrix. Each entry
             is ``(regime_value, sector_name, floor, cap)`` with
-            ``0.0 <= floor <= cap <= 1.0``.
+            ``0.0 <= floor <= cap <= 1.0``. Left empty on an enabled config,
+            it is filled with the default ``SECTOR_REGIME_BANDS`` matrix. Each
+            ``(regime_value, sector_name)`` pair may appear once; per regime the
+            floors must sum to at most 1.0 and, when all 11 sectors are listed,
+            the caps must sum to at least 1.0.
 
     Examples:
         >>> cfg = SectorRegimeBandsConfig.for_default()
@@ -698,10 +775,21 @@ class SectorRegimeBandsConfig:
     bands: tuple[tuple[str, str, float, float], ...] = ()
 
     def __post_init__(self) -> None:
-        from optimizer.factors._sector_bands import ALL_11_SECTORS
+        from optimizer.factors._sector_bands import (
+            ALL_11_SECTORS,
+            _matrix_to_bands_tuple,
+        )
+
+        if self.enable and not self.bands:
+            # An enabled config with no matrix would otherwise resolve every
+            # regime to the same flat fallback bands.
+            object.__setattr__(self, "bands", _matrix_to_bands_tuple())
 
         valid_regimes = {r.value for r in MacroRegime}
         regime_floors: dict[str, float] = {}
+        regime_caps: dict[str, float] = {}
+        regime_sector_counts: dict[str, int] = {}
+        seen: set[tuple[str, str]] = set()
 
         for entry in self.bands:
             if len(entry) != 4:
@@ -726,13 +814,37 @@ class SectorRegimeBandsConfig:
                     f"require 0.0 <= floor <= cap <= 1.0, "
                     f"got floor={floor}, cap={cap}"
                 )
+            # resolve_sector_bands keeps only the last row per key, so a repeat
+            # would be summed here but silently dropped at resolution time.
+            if (regime_val, sector) in seen:
+                raise ConfigurationError(
+                    f"Duplicate band for ({regime_val!r}, {sector!r}); "
+                    f"each regime/sector pair may appear only once."
+                )
+            seen.add((regime_val, sector))
             regime_floors[regime_val] = regime_floors.get(regime_val, 0.0) + floor
+            regime_caps[regime_val] = regime_caps.get(regime_val, 0.0) + cap
+            regime_sector_counts[regime_val] = (
+                regime_sector_counts.get(regime_val, 0) + 1
+            )
 
         for regime_val, total_floor in regime_floors.items():
             if total_floor > 1.0 + 1e-9:
                 raise ConfigurationError(
                     f"Sector floors for regime {regime_val!r} sum to "
                     f"{total_floor:.4f} > 1.0; bands are infeasible."
+                )
+
+        # Sectors a regime omits are unconstrained and can absorb the residual
+        # weight, so caps can only be proven infeasible once every sector is
+        # listed.
+        for regime_val, total_cap in regime_caps.items():
+            covers_all = regime_sector_counts[regime_val] == len(ALL_11_SECTORS)
+            if covers_all and total_cap < 1.0 - 1e-9:
+                raise ConfigurationError(
+                    f"Sector caps for regime {regime_val!r} sum to "
+                    f"{total_cap:.4f} < 1.0; a fully invested portfolio cannot "
+                    f"satisfy them, so bands are infeasible."
                 )
 
     @classmethod
@@ -811,7 +923,11 @@ class RegimeThresholdConfig:
 
         Pass historical Series for each indicator; thresholds are set at
         the specified percentiles.  Any ``None`` series falls back to the
-        hard-coded empirical default for that indicator.
+        hard-coded empirical default for that indicator.  The curve-inversion
+        threshold is not percentile-based: inversion is the structural
+        10Y-2Y = 0 point, so it always keeps the conventional default (a
+        mirrored percentile of a mostly positive history would score a normal
+        upward-sloping curve as inverted).
         """
         import pandas as pd
 
@@ -833,9 +949,6 @@ class RegimeThresholdConfig:
             spread_2s10s_steep=_pct(
                 spread_series, spread_steep_pct, defaults.spread_2s10s_steep
             ),
-            spread_2s10s_inversion=_pct(
-                spread_series, 1.0 - spread_steep_pct, defaults.spread_2s10s_inversion
-            ),
             sentiment_positive=_pct(
                 sentiment_series,
                 sentiment_positive_pct,
@@ -854,30 +967,39 @@ class FactorValidationConfig:
     """Configuration for factor validation and statistical testing.
 
     Attributes:
-        newey_west_lags: Number of lags for Newey-West t-statistic.
+        newey_west_lags: Number of lags for Newey-West t-statistic.  An IC
+            history shorter than ``2 * newey_west_lags + 1`` periods (13 with
+            the default 6) gets ``t = 0, p = 1``: no evidence either way.
         t_stat_threshold: Minimum absolute t-statistic for significance.
         fdr_alpha: False discovery rate alpha level.
         n_quantiles: Number of quantiles for spread analysis.
-        fmp_top_pct: Top percentile for factor-mimicking portfolios.
-        fmp_bottom_pct: Bottom percentile for factor-mimicking portfolios.
         composite_min_observations: Minimum non-NaN observations per
-            cross-section for composite IC. Default 24. Newey-West with 6 lags
-            requires at least 13 observations (2*lags+1); 24 provides two years
-            of monthly IC for reliable Spearman rank correlations.
+            cross-section for composite IC. Default 24, for reliable Spearman
+            rank correlations. This bounds assets per date, not the number of
+            dates; the Newey-West floor on IC history length is set by
+            ``newey_west_lags``.
         min_ic_observations: Minimum non-NaN observations per cross-section
             date for per-factor IC computation in ``run_factor_validation``.
             Default 24, matching ``composite_min_observations`` so both paths
             apply consistent minimum-data guards.
+        periods_per_year: Forward-return periods per year, used to annualise
+            the mean per-date quantile spread before it is compared with
+            ``FACTOR_SPREAD_BENCHMARKS``.  Default 12 (one-month forward
+            returns); use 4 for quarterly horizons.
     """
 
     newey_west_lags: int = 6
     t_stat_threshold: float = 2.0
     fdr_alpha: float = 0.05
     n_quantiles: int = 5
-    fmp_top_pct: float = 0.2
-    fmp_bottom_pct: float = 0.2
     composite_min_observations: int = 24
     min_ic_observations: int = 24
+    periods_per_year: int = 12
+
+    def __post_init__(self) -> None:
+        if self.periods_per_year <= 0:
+            msg = f"periods_per_year must be > 0, got {self.periods_per_year}"
+            raise ConfigurationError(msg)
 
     @classmethod
     def for_strict(cls) -> FactorValidationConfig:
@@ -895,19 +1017,22 @@ class FactorIntegrationConfig:
     """Configuration for bridging factor scores to optimization.
 
     Attributes:
-        risk_free_rate: Annual risk-free rate for expected return mapping.
+        risk_free_rate: Annual risk-free rate. BL views are excess returns, so
+            it is added back to the posterior mean as ``risk_free_rate / 252``.
         market_risk_premium: Annual equity risk premium.
         score_premium: Annualized premium per unit of composite z-score.
         use_black_litterman: Whether to generate Black-Litterman views from
             factor scores.
-        view_confidence_cap: Maximum Idzorek confidence for BL views (0–1).
+        view_confidence_cap: Idzorek confidence applied to every BL view (0–1).
             At 1.0 the posterior equals the view exactly, causing extreme
             concentration. Values 0.25–0.50 blend the view with the
-            equilibrium prior.
-        max_weight: Maximum per-asset weight enforced on the optimizer when
-            the integration injects a BL prior. 0.0 disables the constraint.
-        exposure_lower_bound: Lower bound for factor exposure constraints.
-        exposure_upper_bound: Upper bound for factor exposure constraints.
+            equilibrium prior. Per-asset weight caps are not part of the
+            integration: set ``MeanRiskConfig.max_weights`` on the optimizer.
+        exposure_lower_bound: Lower edge of the factor exposure band, in
+            z-score units relative to the equal-weight exposure of the
+            selected tickers (not to the universe mean).
+        exposure_upper_bound: Upper edge of the factor exposure band, relative
+            to the same equal-weight selected-ticker exposure.
     """
 
     risk_free_rate: float = 0.04
@@ -915,7 +1040,6 @@ class FactorIntegrationConfig:
     score_premium: float = 0.02
     use_black_litterman: bool = False
     view_confidence_cap: float = 0.50
-    max_weight: float = 0.10
     exposure_lower_bound: float = -0.5
     exposure_upper_bound: float = 0.5
 
@@ -930,55 +1054,9 @@ class FactorIntegrationConfig:
         return cls(use_black_litterman=True)
 
 
-@dataclass(frozen=True)
-class GroupICAggregationConfig:
-    """Configuration for group-level IC aggregation.
-
-    Controls how per-factor ICs are combined within each factor group.
-
-    Attributes:
-        weighting: Method for weighting per-factor ICs within a group.
-        negative_filter: Policy for handling factors with consistently
-            negative IC.
-        min_observations_tstat: Minimum IC observations to compute a valid
-            t-stat. Factors below this threshold fall back to equal weight
-            when ``weighting=TSTAT_WEIGHTED``. Default 24.
-        newey_west_lags: Number of lags for Newey-West HAC standard errors
-            when computing t-stat weights.
-    """
-
-    weighting: ICWeightingMethod = ICWeightingMethod.SIMPLE_MEAN
-    negative_filter: ICNegativeFilterPolicy = ICNegativeFilterPolicy.INCLUDE
-    min_observations_tstat: int = 24
-    newey_west_lags: int = 6
-
-    @classmethod
-    def for_simple_mean(cls) -> GroupICAggregationConfig:
-        """Default: simple arithmetic mean, no filtering."""
-        return cls()
-
-    @classmethod
-    def for_tstat_weighted(cls) -> GroupICAggregationConfig:
-        """Weight factor ICs by absolute Newey-West t-stat."""
-        return cls(weighting=ICWeightingMethod.TSTAT_WEIGHTED)
-
-    @classmethod
-    def for_excluding_negative(cls) -> GroupICAggregationConfig:
-        """Exclude factors with consistently negative IC."""
-        return cls(negative_filter=ICNegativeFilterPolicy.EXCLUDE)
-
-    @classmethod
-    def for_robust(cls) -> GroupICAggregationConfig:
-        """T-stat weighted with negative IC exclusion."""
-        return cls(
-            weighting=ICWeightingMethod.TSTAT_WEIGHTED,
-            negative_filter=ICNegativeFilterPolicy.EXCLUDE,
-        )
-
-
 @dataclass
 class FactorBuildHealth:
-    """Diagnostic report from build_factor_scores_history().
+    """Diagnostic report on how many rebalancing dates a factor build covered.
 
     Attributes:
         total_dates: Number of rebalancing dates attempted.

@@ -1,26 +1,33 @@
 """Live API-key validators for the portopt install wizard (SPEC D8).
 
 Each validator issues one cheap request and returns ``True`` on HTTP 200,
-``False`` on auth/other non-200 (invalid key), or raises
-``ValidationNetworkError`` when the request itself fails (network/timeout) so the
-wizard can tell "bad key" (retry) apart from "network down" (abort/inform).
+``False`` on a definitive non-200 answer (invalid key), or raises
+``ValidationNetworkError`` when the service gave no verdict: the request itself
+failed (network/timeout) or it answered 429/5xx (throttled/outage). That lets the
+wizard tell "bad key" (retry) apart from "service unavailable" (abort/inform).
 
 The LLM-backend validator (``validate_llm()``, SPEC "Switchable LLM Backends")
 probes the fund's ten switchable providers over **httpx only** — never an
 agent-stack or provider SDK import, so ingestion keeps its ``⊬ agent stack``
-boundary. Most providers get a cheap authed GET (200 → ok, 401/403 → bad key);
-``aws`` (Bedrock, region-scoped via the boto3 chain) and ``microsoft`` (Azure,
-four wired fields) have no cheap authed REST probe, so they are presence-only
-(+ endpoint reachability for Azure) — SPEC Open Q2.
+boundary. Most providers get a cheap authed request (200 → ok, 401/403 → bad
+key); ``aws`` (Bedrock, region-scoped via the boto3 chain) and ``microsoft``
+(Azure, four wired fields) have no cheap authed REST probe, so they are
+presence-only (+ endpoint reachability for Azure) — SPEC Open Q2. Hosted
+``nvidia`` is the same in practice: its only cheap endpoint, ``/v1/models``, is
+public, so a key is checked for presence and the host for reachability.
 """
 
 from __future__ import annotations
 
 import base64
 from collections.abc import Callable, Mapping
+from urllib.parse import urlsplit
 
 import httpx
 import requests
+
+from app.setup.host_urls import to_host_probe_url
+from app.utils.log_redaction import redact_secrets
 
 _TIMEOUT = 10
 
@@ -38,27 +45,58 @@ def _get(url: str, **kwargs: object) -> requests.Response:
     try:
         return requests.get(url, timeout=_TIMEOUT, **kwargs)  # type: ignore[arg-type]
     except requests.RequestException as exc:
-        raise ValidationNetworkError(str(exc)) from exc
+        # str(exc) embeds the full request URL, and the FRED key rides in its query
+        # string; the CLI echoes this message to stderr/CI logs. Raise `from None`
+        # so a traceback cannot resurface the URL through the chained cause either.
+        host = urlsplit(url).hostname
+        raise ValidationNetworkError(
+            f"{type(exc).__name__} contacting {host}"
+        ) from None
+
+
+def _accepted(status_code: int, url: str) -> bool:
+    """Map a probe's HTTP status to "key accepted".
+
+    Raises:
+        ValidationNetworkError: The service answered 429 or 5xx, which says nothing
+            about the key; reporting it as invalid would send the user hunting for
+            a typo in a correct credential. Only the host is named because ``url``
+            can carry the key in its query string.
+    """
+    if status_code == 429 or status_code >= 500:
+        host = urlsplit(url).hostname
+        raise ValidationNetworkError(
+            f"{host} answered HTTP {status_code} (rate-limited or unavailable), so "
+            "the key could not be checked; retry shortly or use --skip-validation."
+        )
+    return status_code == 200
 
 
 def validate_t212(api_key: str, secret_key: str, *, mode: str = "live") -> bool:
-    """True if the Trading212 metadata endpoint accepts the key/secret pair."""
+    """True if the Trading212 metadata endpoint accepts the key/secret pair.
+
+    Raises:
+        ValidationNetworkError: Trading212 is unreachable, throttling or erroring.
+    """
     base = _T212_BASE.get(mode, _T212_BASE["live"])
     token = base64.b64encode(f"{api_key}:{secret_key}".encode()).decode()
-    resp = _get(
-        f"{base}/api/v0/equity/metadata/exchanges",
-        headers={"Authorization": f"Basic {token}"},
-    )
-    return resp.status_code == 200
+    url = f"{base}/api/v0/equity/metadata/exchanges"
+    resp = _get(url, headers={"Authorization": f"Basic {token}"})
+    return _accepted(resp.status_code, url)
 
 
 def validate_fred(api_key: str) -> bool:
-    """True if the FRED API accepts the key on a minimal series request."""
+    """True if the FRED API accepts the key on a minimal series request.
+
+    Raises:
+        ValidationNetworkError: FRED is unreachable, throttling or erroring.
+    """
+    url = "https://api.stlouisfed.org/fred/series"
     resp = _get(
-        "https://api.stlouisfed.org/fred/series",
+        url,
         params={"series_id": "GNPCA", "api_key": api_key, "file_type": "json"},
     )
-    return resp.status_code == 200
+    return _accepted(resp.status_code, url)
 
 
 # --- LLM backend validators (SPEC "Switchable LLM Backends", httpx only) -------
@@ -92,22 +130,38 @@ _NVIDIA_BASE = "https://integrate.api.nvidia.com/v1"
 _HF_WHOAMI = "https://huggingface.co/api/whoami-v2"
 
 
+def _llm_request(
+    method: str, url: str, headers: Mapping[str, str] | None
+) -> httpx.Response:
+    try:
+        with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
+            return getattr(client, method)(url, headers=headers)
+    except httpx.RequestError as exc:
+        raise ValidationNetworkError(redact_secrets(str(exc))) from None
+
+
 def _llm_get(
     url: str,
     *,
     headers: Mapping[str, str] | None = None,
-    params: Mapping[str, str] | None = None,
 ) -> httpx.Response:
     """One cheap httpx GET; connect/timeout → ``ValidationNetworkError``.
 
     Isolated so tests mock a single seam and the network→exception mapping lives
     in one place. httpx only — no agent-stack/provider SDK ever imported here.
+    Credentials go in ``headers`` only: httpx logs the full request URL at INFO,
+    so a key in the query string would land in the operator's terminal.
     """
-    try:
-        with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
-            return client.get(url, headers=headers, params=params)
-    except httpx.RequestError as exc:
-        raise ValidationNetworkError(str(exc)) from exc
+    return _llm_request("get", url, headers)
+
+
+def _llm_post(
+    url: str,
+    *,
+    headers: Mapping[str, str] | None = None,
+) -> httpx.Response:
+    """One cheap bodyless httpx POST; same error mapping as :func:`_llm_get`."""
+    return _llm_request("post", url, headers)
 
 
 def _bearer_get_ok(url: str, key: str | None) -> bool:
@@ -115,7 +169,7 @@ def _bearer_get_ok(url: str, key: str | None) -> bool:
     if not key:
         return False
     resp = _llm_get(url, headers={"Authorization": f"Bearer {key}"})
-    return resp.status_code == 200
+    return _accepted(resp.status_code, url)
 
 
 def _v_openai(
@@ -142,11 +196,11 @@ def _v_anthropic(
 ) -> bool:
     if not key:
         return False
+    url = f"{(base_url or _ANTHROPIC_BASE).rstrip('/')}/v1/models"
     resp = _llm_get(
-        f"{(base_url or _ANTHROPIC_BASE).rstrip('/')}/v1/models",
-        headers={"x-api-key": key, "anthropic-version": _ANTHROPIC_VERSION},
+        url, headers={"x-api-key": key, "anthropic-version": _ANTHROPIC_VERSION}
     )
-    return resp.status_code == 200
+    return _accepted(resp.status_code, url)
 
 
 def _v_google(
@@ -154,10 +208,9 @@ def _v_google(
 ) -> bool:
     if not key:
         return False
-    resp = _llm_get(
-        f"{(base_url or _GOOGLE_BASE).rstrip('/')}/models", params={"key": key}
-    )
-    return resp.status_code == 200
+    url = f"{(base_url or _GOOGLE_BASE).rstrip('/')}/models"
+    resp = _llm_get(url, headers={"x-goog-api-key": key})
+    return _accepted(resp.status_code, url)
 
 
 def _v_huggingface(
@@ -167,25 +220,42 @@ def _v_huggingface(
     return _bearer_get_ok(_HF_WHOAMI, key)
 
 
+def _is_ollama_cloud(base: str) -> bool:
+    # Compare the parsed hostname, not a substring: a self-hosted server named
+    # e.g. ollama.company.local must stay on the local probe, since it 404s the
+    # cloud-only /api/me and the wizard would report a good key as rejected.
+    host = urlsplit(base).hostname or ""
+    return host == _OLLAMA_CLOUD_HOST or host.endswith(f".{_OLLAMA_CLOUD_HOST}")
+
+
 def _v_ollama(
     key: str | None, base_url: str | None, fields: Mapping[str, str | None]
 ) -> bool:
     # Cloud (ollama.com) requires a key; a local base_url needs none. Attach the
     # bearer only when a key is present (server-down → connect → raise).
     base = (base_url or _OLLAMA_BASE).rstrip("/")
-    if _OLLAMA_CLOUD_HOST in base and not key:
-        return False
+    if _is_ollama_cloud(base):
+        if not key:
+            return False
+        # ollama.com/api/tags is public (200 for any bearer), so a mistyped or
+        # revoked key would pass; /api/me is the cheapest call that checks it.
+        url = f"{base}/api/me"
+        resp = _llm_post(url, headers={"Authorization": f"Bearer {key}"})
+        return _accepted(resp.status_code, url)
     headers = {"Authorization": f"Bearer {key}"} if key else None
-    return _llm_get(f"{base}/api/tags", headers=headers).status_code == 200
+    url = f"{base}/api/tags"
+    return _accepted(_llm_get(url, headers=headers).status_code, url)
 
 
 def _v_nvidia(
     key: str | None, base_url: str | None, fields: Mapping[str, str | None]
 ) -> bool:
-    # Self-hosted NIM (base_url set) needs no key — reachability only; hosted
-    # (build.nvidia.com) requires the key.
+    # Self-hosted NIM (base_url set) needs no key — reachability only. Hosted
+    # (build.nvidia.com) requires a key, but its /v1/models listing is public
+    # (200 for any bearer), so this only proves presence plus reachability.
     if base_url:
-        return _llm_get(f"{base_url.rstrip('/')}/models").status_code == 200
+        url = f"{base_url.rstrip('/')}/models"
+        return _accepted(_llm_get(url).status_code, url)
     return _bearer_get_ok(f"{_NVIDIA_BASE}/models", key)
 
 
@@ -242,7 +312,8 @@ def validate_llm(
     Returns ``True`` when the provider accepts the credentials (or, for the
     presence-only providers, when the required fields are present and the endpoint
     is reachable); ``False`` on a bad/absent key (the wizard re-prompts); raises
-    ``ValidationNetworkError`` when the service is unreachable (abort/inform).
+    ``ValidationNetworkError`` when the service is unreachable or answers 429/5xx
+    (abort/inform; neither says anything about the key).
 
     Args:
         provider: One of ``SUPPORTED_LLM_PROVIDERS``.
@@ -266,4 +337,6 @@ def validate_llm(
             f"Unknown LLM provider: {provider!r}; expected one of "
             f"{', '.join(SUPPORTED_LLM_PROVIDERS)}"
         ) from None
-    return validator(key, base_url, fields)
+    # The fund container reaches the host via host.docker.internal, which usually
+    # does not resolve from the host process running this probe.
+    return validator(key, to_host_probe_url(base_url) if base_url else None, fields)

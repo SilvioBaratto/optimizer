@@ -11,6 +11,7 @@ Covers:
 from __future__ import annotations
 
 import threading
+import time
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
@@ -75,12 +76,23 @@ def _fully_fresh_staleness() -> dict[str, Any]:
     """Return a staleness dict where every category is very recently updated."""
     from datetime import datetime, timezone
 
+    from portopt_db.repositories.market_data.yfinance_repository import (
+        FINANCIAL_STATEMENT_GROUPS,
+        FUNDAMENTAL_CATEGORIES,
+        statement_staleness_key,
+    )
+
     # updated 1 minute ago — well within all thresholds (minimum threshold is
     # 24 h for most categories, 168 h for financials)
     recent = datetime.now(timezone.utc).replace(microsecond=0)
     from datetime import date
 
     return {
+        **{f"{category}_updated_at": recent for category in FUNDAMENTAL_CATEGORIES},
+        **{
+            statement_staleness_key(stmt, period): recent
+            for stmt, period in FINANCIAL_STATEMENT_GROUPS
+        },
         "profile_updated_at": recent,
         "financials_updated_at": recent,
         "dividends_updated_at": recent,
@@ -115,12 +127,170 @@ class TestCallWithTimeout:
 
         barrier.set()  # release the daemon thread
 
+    def test_when_function_outlives_timeout_then_caller_returns_at_the_deadline(self):
+        """The wait is bounded: a stuck call is abandoned, not joined."""
+        release = threading.Event()
+        started = time.monotonic()
+        try:
+            with pytest.raises(TimeoutError, match="did not complete within"):
+                call_with_timeout(lambda: release.wait(timeout=3), timeout=0.2)
+            elapsed = time.monotonic() - started
+        finally:
+            release.set()
+
+        assert elapsed < 1.5
+
+    def test_when_function_succeeds_late_then_caller_still_times_out_promptly(self):
+        """A result that arrives after the deadline is dropped without a wait."""
+        started = time.monotonic()
+        with pytest.raises(TimeoutError):
+            call_with_timeout(lambda: (time.sleep(1.5), "late")[1], timeout=0.1)
+
+        assert time.monotonic() - started < 1.0
+
+    def test_when_function_outlives_timeout_then_worker_is_a_daemon_thread(self):
+        """An abandoned worker must not hold the interpreter open at exit."""
+        release = threading.Event()
+        workers: list[threading.Thread] = []
+
+        def _hang():
+            workers.append(threading.current_thread())
+            release.wait(timeout=3)
+
+        try:
+            with pytest.raises(TimeoutError):
+                call_with_timeout(_hang, timeout=0.1)
+        finally:
+            release.set()
+
+        assert workers
+        assert workers[0].daemon
+
     def test_when_function_raises_then_exception_propagates(self):
         def _boom():
             raise ValueError("bad ticker")
 
         with pytest.raises(ValueError, match="bad ticker"):
             call_with_timeout(_boom, timeout=5.0)
+
+    def test_when_function_hangs_then_caller_returns_at_the_deadline(self):
+        release = threading.Event()
+        started = time.monotonic()
+
+        with pytest.raises(TimeoutError):
+            call_with_timeout(lambda: release.wait(3), timeout=0.2)
+
+        elapsed = time.monotonic() - started
+        release.set()
+        assert elapsed < 1.5, f"caller blocked {elapsed:.1f}s on a 0.2s deadline"
+
+    def test_abandoned_worker_runs_in_a_daemon_thread(self):
+        release = threading.Event()
+        seen: dict[str, bool] = {}
+
+        def _hang():
+            seen["daemon"] = threading.current_thread().daemon
+            release.wait(3)
+
+        with pytest.raises(TimeoutError):
+            call_with_timeout(_hang, timeout=0.2)
+
+        release.set()
+        assert seen["daemon"] is True
+
+
+# ---------------------------------------------------------------------------
+# circuit-breaker back-off is not a hang
+# ---------------------------------------------------------------------------
+
+
+class TestBreakerBackoffOutsideDeadline:
+    """The watchdog bounds network I/O, not the breaker's deliberate wait."""
+
+    @staticmethod
+    def _open_breaker(window_seconds: float):
+        from app.services.infrastructure.circuit_breaker import CircuitBreaker
+
+        breaker = CircuitBreaker(base_wait_minutes=window_seconds / 60)
+        breaker.trigger()  # first attempt: window = 2**1 * 60 * base / 2 seconds
+        assert breaker.is_active
+        return breaker
+
+    def test_when_breaker_window_exceeds_timeout_then_call_waits_it_out_and_succeeds(
+        self,
+    ):
+        """A 0.4s back-off against a 0.1s watchdog must not become a timeout."""
+        breaker = self._open_breaker(window_seconds=0.4)
+        yf_client = _make_yf_client_silent()
+        yf_client.circuit_breaker = breaker
+
+        def _guarded_fetch(_ticker: str) -> dict[str, Any]:
+            breaker.check()  # what fetch_with_resilience does before each attempt
+            return {"shortName": "ACME"}
+
+        yf_client.fetch_info.side_effect = _guarded_fetch
+        yf_client.metadata.fetch_isin.return_value = None
+        repo = _make_repo()
+        repo.upsert_profile.return_value = 1
+
+        service = YFinanceDataService(
+            repo=repo, yf_client=yf_client, request_timeout=0.1
+        )
+        result = service.fetch_and_store(
+            instrument_id=uuid4(), yfinance_ticker="ACME", mode="full"
+        )
+
+        assert not any("profile" in e for e in result["errors"])
+        assert result["counts"]["profile"] == 1
+
+    def test_when_breaker_attempts_exhausted_then_the_guarded_call_still_decides(
+        self,
+    ):
+        """check() raising RuntimeError must reach the retry loop, not mask fn."""
+        from app.services.infrastructure.circuit_breaker import CircuitBreaker
+
+        breaker = CircuitBreaker(max_attempts=1)
+        breaker.trigger()  # attempt count now equals max_attempts
+        yf_client = _make_yf_client_silent()
+        yf_client.circuit_breaker = breaker
+        service = YFinanceDataService(
+            repo=_make_repo(), yf_client=yf_client, request_timeout=5.0
+        )
+
+        assert service._timed(lambda: "reached fn") == "reached fn"
+
+    def test_when_call_with_timeout_gets_a_breaker_then_window_is_waited_before_deadline(
+        self,
+    ):
+        """Every caller of the watchdog gets the same pre-wait, not just _timed."""
+        breaker = self._open_breaker(window_seconds=0.4)
+        started_at: list[float] = []
+
+        def _guarded() -> str:
+            started_at.append(time.monotonic())
+            breaker.check()
+            return "fetched"
+
+        begun = time.monotonic()
+        result = call_with_timeout(_guarded, 0.1, circuit_breaker=breaker)
+
+        assert result == "fetched"
+        # fn only started once the window had closed, so the 0.1s deadline
+        # covered the request and not the back-off.
+        assert started_at[0] - begun >= 0.3
+
+    def test_when_call_with_timeout_breaker_is_exhausted_then_fn_still_runs(self):
+        from app.services.infrastructure.circuit_breaker import CircuitBreaker
+
+        breaker = CircuitBreaker(max_attempts=1)
+        breaker.trigger()
+
+        result = call_with_timeout(lambda: "reached fn", 5.0, circuit_breaker=breaker)
+
+        assert result == "reached fn"
+
+    def test_when_call_with_timeout_has_no_breaker_then_nothing_is_waited(self):
+        assert call_with_timeout(lambda: "ok", 5.0) == "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +507,86 @@ class TestIncrementalShortCircuit:
         # Profile fetch attempted even though data was "fresh"
         yf_client.fetch_info.assert_called_once()
 
+    def test_when_price_history_is_days_old_then_prices_fetched_despite_fresh_categories(
+        self,
+    ):
+        """Fresh fundamentals must not hide a stale price series.
+
+        Every non-price category was refreshed within its window, but the
+        newest stored bar is ten days old: the ticker still needs its prices.
+        """
+        from datetime import date, timedelta
+
+        staleness = _fully_fresh_staleness()
+        staleness["price_max_date"] = date.today() - timedelta(days=10)
+
+        repo = _make_repo(staleness=staleness)
+        yf_client = _make_yf_client_silent()
+
+        service = YFinanceDataService(repo=repo, yf_client=yf_client)
+        result = service.fetch_and_store(
+            instrument_id=uuid4(),
+            yfinance_ticker="AAPL",
+            mode="incremental",
+        )
+
+        assert "all:fresh" not in result["skipped"]
+        yf_client.fetch_history.assert_called_once()
+        # Only prices were stale: the fresh categories stay skipped.
+        yf_client.fetch_info.assert_not_called()
+        assert "profile" in result["skipped"]
+
+    def test_when_price_history_is_one_session_behind_then_prices_fetched(self):
+        from datetime import datetime, timedelta, timezone
+
+        from app.services._shared.trading_calendar import last_completed_session
+
+        today = datetime.now(timezone.utc).date()
+        staleness = _fully_fresh_staleness()
+        staleness["price_max_date"] = last_completed_session("NYSE", today) - timedelta(
+            days=1
+        )
+
+        repo = _make_repo(staleness=staleness)
+        yf_client = _make_yf_client_silent()
+
+        service = YFinanceDataService(repo=repo, yf_client=yf_client)
+        result = service.fetch_and_store(
+            instrument_id=uuid4(),
+            yfinance_ticker="AAPL",
+            mode="incremental",
+            exchange_name="NYSE",
+        )
+
+        assert "all:fresh" not in result["skipped"]
+        yf_client.fetch_history.assert_called_once()
+
+    def test_when_price_history_reaches_last_completed_session_then_short_circuit_fires(
+        self,
+    ):
+        """The incremental window ends before today, so that bar is the newest."""
+        from datetime import datetime, timezone
+
+        from app.services._shared.trading_calendar import last_completed_session
+
+        today = datetime.now(timezone.utc).date()
+        staleness = _fully_fresh_staleness()
+        staleness["price_max_date"] = last_completed_session("NYSE", today)
+
+        repo = _make_repo(staleness=staleness)
+        yf_client = _make_yf_client_silent()
+
+        service = YFinanceDataService(repo=repo, yf_client=yf_client)
+        result = service.fetch_and_store(
+            instrument_id=uuid4(),
+            yfinance_ticker="AAPL",
+            mode="incremental",
+            exchange_name="NYSE",
+        )
+
+        assert "all:fresh" in result["skipped"]
+        yf_client.fetch_history.assert_not_called()
+
     def test_when_no_price_max_date_then_short_circuit_does_not_fire(self):
         """Fresh staleness without a price_max_date must NOT short-circuit."""
         staleness = _fully_fresh_staleness()
@@ -431,6 +681,43 @@ class TestSchedulerWorkerSettings:
             sched_module.run_daily_pipeline()
 
         assert captured[0].workers <= 16
+
+    @pytest.mark.parametrize(
+        ("pool_size", "max_overflow", "expected"),
+        [
+            (5, 10, 12),
+            (5, 5, 7),
+            (2, 1, 1),
+        ],
+    )
+    def test_when_workers_exceed_pool_capacity_then_clamped_below_pool(
+        self, pool_size: int, max_overflow: int, expected: int
+    ):
+        """Each worker pins a pooled connection for a whole ticker.
+
+        The progress writer, the heartbeat thread and the job store need
+        connections too, so the pool must keep headroom beyond the workers.
+        """
+        from app.services.jobs import scheduler as sched_module
+
+        captured: list[Any] = []
+
+        def _fake_run_step(label, job_svc, fn, *args, **kwargs):
+            captured.extend(args)
+            return True
+
+        with (
+            patch.object(sched_module, "_run_step", side_effect=_fake_run_step),
+            patch.object(sched_module.settings, "database_pool_size", pool_size),
+            patch.object(sched_module.settings, "database_max_overflow", max_overflow),
+            patch(
+                "app.services.market_data.yfinance.get_yfinance_client",
+                return_value=MagicMock(),
+            ),
+        ):
+            sched_module.run_yfinance_step(workers=16)
+
+        assert captured[0].workers == expected
 
 
 # ---------------------------------------------------------------------------

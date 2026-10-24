@@ -71,6 +71,16 @@ FRED_FX_SERIES: dict[str, str] = {
     "DTWEXBGS": "Trade Weighted US Dollar Index: Broad, Goods and Services",
 }
 
+# Daily-frequency subset, refreshed by the daily pipeline. The monthly and
+# quarterly groups stay on the slow cadence; ``USRECDM`` is excluded because it
+# only moves when the NBER announces a turning point.
+FRED_DAILY_SERIES: dict[str, str] = {
+    **FRED_SPREAD_SERIES,
+    **FRED_VOLATILITY_SERIES,
+    **FRED_RATE_SERIES,
+    **FRED_FX_SERIES,
+}
+
 # Combined registry used by default fetch operations.
 FRED_SERIES: dict[str, str] = {
     **FRED_SPREAD_SERIES,
@@ -83,6 +93,29 @@ FRED_SERIES: dict[str, str] = {
 }
 
 _FRED_BASE_URL = "https://api.stlouisfed.org/fred"
+
+# Client errors worth repeating: the request itself was fine, the server was
+# not ready for it. Every other 4xx (bad api_key, unknown series_id) is an
+# answer that retrying cannot change.
+_RETRYABLE_CLIENT_STATUSES = frozenset({408, 429})
+
+
+class _FredRequestRejected(Exception):
+    """FRED refused the request with a permanent client error (HTTP 4xx)."""
+
+
+def _rejection_message(resp: requests.Response) -> str:
+    """Return FRED's own ``error_message`` for a rejected request.
+
+    FRED explains a 4xx in a JSON body; the bare HTTP status is the fallback
+    when the body is absent or not JSON.
+    """
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    message = body.get("error_message") if isinstance(body, dict) else None
+    return message or f"HTTP {resp.status_code}"
 
 
 class FredScraper:
@@ -135,18 +168,32 @@ class FredScraper:
         def _fetch() -> requests.Response:
             _fred_circuit_breaker.check()
             resp = self.session.get(url, params=params, timeout=self.timeout)
+            if (
+                400 <= resp.status_code < 500
+                and resp.status_code not in _RETRYABLE_CLIENT_STATUSES
+            ):
+                raise _FredRequestRejected(_rejection_message(resp))
             resp.raise_for_status()
             return resp
 
-        raw = retry_with_backoff(
-            _fetch,
-            max_retries=5,
-            base_delay=1.0,
-            max_delay=60.0,
-            is_rate_limit_error=is_transient_network_error,
-            on_rate_limit=_fred_circuit_breaker.trigger,
-            on_success=lambda _: _fred_circuit_breaker.reset(),
-        )
+        try:
+            raw = retry_with_backoff(
+                _fetch,
+                max_retries=5,
+                base_delay=1.0,
+                max_delay=60.0,
+                is_rate_limit_error=is_transient_network_error,
+                on_rate_limit=_fred_circuit_breaker.trigger,
+                on_success=lambda _: _fred_circuit_breaker.reset(),
+                is_permanent_error=lambda exc: isinstance(exc, _FredRequestRejected),
+            )
+        except _FredRequestRejected as exc:
+            return {
+                "status": "error",
+                "series_id": series_id,
+                "error": str(exc),
+                "timestamp": datetime.now().isoformat(),
+            }
         if raw is None:
             return {
                 "status": "error",

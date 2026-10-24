@@ -10,11 +10,15 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
-from optimizer.exceptions import ConfigurationError
+from optimizer.exceptions import ConfigurationError, DataError
 
 logger = logging.getLogger(__name__)
 
 _WEIGHTING_MODES = frozenset({"equal", "value"})
+
+# Matches FactorPriorConfig.min_observations: below this a leg beta is too
+# noisy to hedge with, and two points always fit a line exactly.
+_MIN_BETA_OBSERVATIONS = 12
 
 
 @dataclass
@@ -28,9 +32,9 @@ class QuintileSpreadResult:
         spread_returns: Qn − Q1 long-short spread return series indexed by date.
             Equals ``quintile_returns.iloc[:, -1] - quintile_returns.iloc[:, 0]``
             element-wise.
-        annualised_mean: ``spread_returns.mean() * 252``.
+        annualised_mean: ``spread_returns.mean() * annualisation``.
         t_stat: Two-tailed t-statistic: ``mean / (std / sqrt(T))``.
-        sharpe: Annualised Sharpe ratio: ``mean * sqrt(252) / std``.
+        sharpe: Annualised Sharpe ratio: ``mean * sqrt(annualisation) / std``.
     """
 
     quintile_returns: pd.DataFrame
@@ -102,16 +106,30 @@ def _compute_leg_beta(
 
     Returns:
         OLS beta coefficient.
+
+    Raises:
+        DataError: If fewer than ``_MIN_BETA_OBSERVATIONS`` dates are shared
+            by both series (e.g. a timezone or frequency mismatch in the
+            index), or if the market series is constant over the overlap.
+            A silent default beta would turn the hedge into a no-op.
     """
     common = leg_returns.dropna().index.intersection(market_returns.dropna().index)
-    if len(common) < 2:
-        return 1.0
+    if len(common) < _MIN_BETA_OBSERVATIONS:
+        raise DataError(
+            f"market_returns shares only {len(common)} dates with the factor "
+            f"legs; at least {_MIN_BETA_OBSERVATIONS} dates with values in both "
+            "are required to estimate the hedge beta. Check that the index "
+            "types, timezones and frequencies match scores and returns."
+        )
     y = leg_returns.loc[common].to_numpy(dtype=np.float64)
     x = market_returns.loc[common].to_numpy(dtype=np.float64)
     cov_xy = float(np.cov(y, x, ddof=1)[0, 1])
     var_x = float(np.var(x, ddof=1))
     if var_x < 1e-20:
-        return 1.0
+        raise DataError(
+            "market_returns has zero variance over the dates shared with the "
+            "factor legs, so the hedge beta is undefined."
+        )
     return cov_xy / var_x
 
 
@@ -151,7 +169,9 @@ def build_factor_mimicking_portfolios(
             on the date index.  Columns may be a superset or subset of
             `scores` columns; the intersection is used.
         quantile: Fraction of the asset universe assigned to each leg.  Must be
-            in ``(0, 0.5]``.
+            in ``(0, 0.5]``.  Each leg holds ``ceil(n * quantile)`` assets,
+            capped at ``n // 2`` so the legs never overlap (with ``0.5`` and
+            an odd number ``n`` of valid assets the middle asset is excluded).
         weighting: Weighting scheme within each leg.
             ``"equal"`` — every asset in the leg receives the same weight.
             ``"value"``  — assets are weighted by the absolute value of
@@ -166,12 +186,17 @@ def build_factor_mimicking_portfolios(
     Returns:
         Dates × 1 DataFrame of long-short portfolio returns.  Column
         name is ``"factor_return"``.  Index is the intersection of
-        *scores* and *returns* dates.  Missing periods (fewer than
-        ``2 * k`` valid observations) are filled with NaN.
+        *scores* and *returns* dates.  Missing periods (fewer than two
+        assets with both a score and a return) are filled with NaN.
 
     Raises:
         ConfigurationError: If ``quantile`` is outside ``(0, 0.5]`` or ``weighting``
             is unknown.
+        DataError: If ``beta_neutral=True`` and *market_returns* overlaps the
+            factor legs on too few dates (fewer than 12) or has no variance
+            there, so the hedge beta cannot be estimated.  Not raised when no
+            date has enough valid assets: the result is then an empty or
+            all-NaN frame, exactly as with ``beta_neutral=False``.
     """
     if not (0.0 < quantile <= 0.5):
         raise ConfigurationError(f"quantile must be in (0, 0.5], got {quantile}")
@@ -192,7 +217,9 @@ def build_factor_mimicking_portfolios(
         scores_t = scores.loc[date, common_assets]
         returns_t = returns.loc[date, common_assets]
         valid_n = int((~scores_t.isna() & ~returns_t.isna()).sum())
-        k = max(1, math.ceil(valid_n * quantile))
+        # Capped at half the universe so that quantile=0.5 on an odd count
+        # yields two disjoint legs instead of an overlap that forces NaN.
+        k = max(1, min(math.ceil(valid_n * quantile), valid_n // 2))
 
         if beta_neutral:
             common = scores_t.dropna().index.intersection(returns_t.dropna().index)
@@ -213,6 +240,12 @@ def build_factor_mimicking_portfolios(
     if beta_neutral and market_returns is not None:
         long_s = pd.Series(long_ret_series, dtype=float)
         short_s = pd.Series(short_ret_series, dtype=float)
+        if not (long_s.notna() & short_s.notna()).any():
+            # An empty or all-NaN factor panel gives the hedge nothing to fit;
+            # report it like the unhedged path rather than blaming market_returns.
+            return pd.DataFrame(
+                {"factor_return": long_s}, index=common_dates, dtype=float
+            )
         beta_long = _compute_leg_beta(long_s, market_returns)
         beta_short = _compute_leg_beta(short_s, market_returns)
         hedge_ratio = beta_long / beta_short if abs(beta_short) > 1e-10 else 1.0
@@ -265,6 +298,9 @@ def build_all_factor_mimicking_portfolios(
     Raises:
         ConfigurationError: If ``factor_scores`` is empty, or any per-factor argument
             is invalid (propagated from ``build_factor_mimicking_portfolios``).
+        DataError: If ``beta_neutral=True`` and *market_returns* cannot hedge a
+            factor (too few shared dates or no variance); propagated from
+            ``build_factor_mimicking_portfolios``.
     """
     if not factor_scores:
         raise ConfigurationError("factor_scores must be a non-empty mapping")
@@ -308,6 +344,7 @@ def compute_quintile_spread(
     scores: pd.DataFrame,
     returns: pd.DataFrame,
     n_quantiles: int = 5,
+    annualisation: int = 252,
 ) -> QuintileSpreadResult:
     """Compute quintile portfolio returns and spread for a single factor.
 
@@ -324,15 +361,22 @@ def compute_quintile_spread(
         returns: Dates × assets matrix of asset returns, aligned with `scores`.
         n_quantiles: Number of equal-count buckets.  5 = quintiles, 10 = deciles.
             Must be ≥ 2.
+        annualisation: Number of periods per year of the input frequency
+            (252 for daily, 12 for monthly).  Scales ``annualised_mean`` and
+            ``sharpe``; the t-statistic is frequency-invariant.  Must be ≥ 1.
 
     Returns:
-        See `QuintileSpreadResult` for field descriptions.
+        See `QuintileSpreadResult` for field descriptions.  When `scores` and
+        `returns` share no dates, ``quintile_returns`` is an empty frame with
+        the Q1..Qn columns and every statistic is NaN.
 
     Raises:
-        ConfigurationError: If `n_quantiles` < 2.
+        ConfigurationError: If `n_quantiles` < 2 or `annualisation` < 1.
     """
     if n_quantiles < 2:
         raise ConfigurationError(f"n_quantiles must be >= 2, got {n_quantiles}")
+    if annualisation < 1:
+        raise ConfigurationError(f"annualisation must be >= 1, got {annualisation}")
 
     labels = [f"Q{i}" for i in range(1, n_quantiles + 1)]
     common_dates = scores.index.intersection(returns.index)
@@ -365,9 +409,11 @@ def compute_quintile_spread(
             row[lbl] = float(returns_c.loc[bucket_assets].mean())
         rows[date] = row
 
-    quintile_returns = pd.DataFrame(rows, dtype=float).T
+    # reindex (not label selection) so an empty ``rows`` still yields the Q1..Qn
+    # columns instead of a KeyError on a column-less frame.
+    quintile_returns = pd.DataFrame(rows, dtype=float).T.reindex(columns=labels)
     quintile_returns.index = pd.Index(list(rows.keys()))
-    quintile_returns = cast(pd.DataFrame, quintile_returns[labels])
+    quintile_returns = cast(pd.DataFrame, quintile_returns.astype(float))
 
     top_label = labels[-1]
     bot_label = labels[0]
@@ -376,14 +422,16 @@ def compute_quintile_spread(
 
     valid = spread_returns.dropna()
     n = len(valid)
-    mean_daily = float(valid.mean()) if n > 0 else float(np.nan)
-    std_daily = float(valid.std(ddof=1)) if n > 1 else float(np.nan)
+    mean_period = float(valid.mean()) if n > 0 else float(np.nan)
+    std_period = float(valid.std(ddof=1)) if n > 1 else float(np.nan)
 
-    annualised_mean = mean_daily * 252 if not np.isnan(mean_daily) else float(np.nan)
+    annualised_mean = (
+        mean_period * annualisation if not np.isnan(mean_period) else float(np.nan)
+    )
 
-    if n > 1 and std_daily > 0:
-        t_stat = mean_daily / (std_daily / math.sqrt(n))
-        sharpe = mean_daily * math.sqrt(252) / std_daily
+    if n > 1 and std_period > 0:
+        t_stat = mean_period / (std_period / math.sqrt(n))
+        sharpe = mean_period * math.sqrt(annualisation) / std_period
     else:
         t_stat = float(np.nan)
         sharpe = float(np.nan)

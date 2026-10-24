@@ -5,20 +5,29 @@ through:
 
 * ``risk_check`` validates a weight vector against a ConstraintSet placeholder
   (``min_weights`` / ``max_weights`` / ``budget`` — the same keys ``optimize``
-  honours, SPEC D17). It is pure arithmetic on the weights: no DB, no RNG. In-norm
-  weights return ``passed=True`` with an empty ``violations`` list; every breach
-  adds a structured entry and flips ``passed`` to ``False``.
-* ``backtest`` holds the given weights fixed and evaluates them *out of sample*
-  with a walk-forward split from ``optimizer.validation``
-  (``shuffle=False`` — the test window strictly follows the training block, so no
-  future data leaks). Returns are computed **outside** any pipeline via
+  honours, SPEC D17) plus the MiFID guardrails a profile carries: the ESG
+  ``excluded_assets`` hard block and the ``nu1``/``nu2``/``nu3`` drawdown tiers
+  compared with an ``observed_drawdown`` the caller measured. It is pure
+  arithmetic on its inputs: no DB, no RNG. In-norm weights return ``passed=True``
+  with an empty ``violations`` list; every breach adds a structured entry and
+  flips ``passed`` to ``False`` (the ``nu1`` soft tier only adds a ``warnings``
+  entry).
+* ``backtest`` holds the given weights fixed and scores them on the walk-forward
+  test blocks from ``optimizer.validation`` (``shuffle=False`` — each test block
+  strictly follows its training block). The weights are never re-estimated per
+  fold, so the metrics are out-of-sample only when the weights were fixed without
+  seeing those test blocks; the caller states how far the weights' own estimation
+  sample reaches (``fit_end``). Returns are computed **outside** any pipeline via
   ``optimizer.preprocessing.prices_to_returns`` (linear returns); metrics come
   from a skfolio ``Portfolio``. When the panel is too short for even one fold the
   tool falls back to the full IN-SAMPLE series (``n_folds == 0``); those metrics
   are then in-sample, not walk-forward, and are flagged ``out_of_sample=False``.
+  ``metrics.max_drawdown`` is the **compounded** wealth-path decline (see
+  :func:`backtest`), flagged ``drawdown_basis="compounded"``.
 
 Contract (via ``tool_envelope``): every failure — empty weights, no priced
-assets, a bad constraint value, an invalid walk-forward window — is returned as
+assets, too few common return observations (see ``MIN_RETURN_OBSERVATIONS``), a
+bad constraint value, an invalid walk-forward window — is returned as
 ``{ok: false, error}``, never raised.
 """
 
@@ -35,7 +44,15 @@ from optimizer.preprocessing import prices_to_returns
 from optimizer.validation import WalkForwardConfig, build_walk_forward
 from skfolio import Portfolio
 
-from fund.tools._base import ToolResult, err, ok, tool_envelope
+from fund.tools._base import (
+    ToolResult,
+    annualized_metrics,
+    coerce_date,
+    err,
+    ok,
+    thin_sample_error,
+    tool_envelope,
+)
 from fund.tools.prices import load_price_frame
 
 if TYPE_CHECKING:
@@ -68,13 +85,20 @@ def risk_check(
     Args:
         weights: ``{ticker: weight}`` to validate.
         constraints: Optional overrides for ``min_weights`` / ``max_weights`` /
-            ``budget``; defaults to long-only, fully invested (D17).
+            ``budget``; defaults to long-only, fully invested (D17). Also honours
+            ``excluded_assets`` (tickers barred by the client's ESG block) and the
+            drawdown tiers ``nu1`` / ``nu2`` / ``nu3`` with the
+            ``observed_drawdown`` (a positive fraction of capital) to compare
+            against them; the drawdown check runs only when ``observed_drawdown``
+            is supplied.
 
     Returns:
-        ``ok`` with ``passed`` (``True`` iff no breach) and ``violations`` (a list
-        of structured breach records — ``min_weight`` / ``max_weight`` per asset,
-        or a single ``budget`` entry). ``err`` on empty ``weights``; a
-        non-numeric bound is caught by the envelope and returned as ``{ok: false}``.
+        ``ok`` with ``passed`` (``True`` iff no breach), ``violations`` (a list
+        of structured breach records — ``min_weight`` / ``max_weight`` /
+        ``esg_exclusion`` per asset, a ``drawdown_nu2`` / ``drawdown_nu3`` tier
+        breach, or a single ``budget`` entry) and ``warnings`` (the non-blocking
+        ``drawdown_nu1`` soft tier). ``err`` on empty ``weights``; a non-numeric
+        bound is caught by the envelope and returned as ``{ok: false}``.
     """
     if not weights:
         return err("empty weights")
@@ -105,7 +129,46 @@ def risk_check(
     if abs(total - budget) > _BUDGET_TOL:
         violations.append({"type": "budget", "value": total, "target": budget})
 
-    return ok({"passed": not violations, "violations": violations})
+    for asset in bounds.get("excluded_assets") or ():
+        held = weights.get(asset)
+        if held is not None and float(held) > _WEIGHT_TOL:
+            violations.append(
+                {"type": "esg_exclusion", "asset": asset, "value": float(held)}
+            )
+
+    warnings: list[dict[str, Any]] = []
+    observed = bounds.get("observed_drawdown")
+    if observed is not None:
+        _check_drawdown(float(observed), bounds, violations, warnings)
+
+    return ok(
+        {"passed": not violations, "violations": violations, "warnings": warnings}
+    )
+
+
+def _check_drawdown(
+    observed: float,
+    bounds: dict[str, Any],
+    violations: list[dict[str, Any]],
+    warnings: list[dict[str, Any]],
+) -> None:
+    """Compare an observed drawdown with the ``nu1/nu2/nu3`` tiers, in place.
+
+    The most severe breached tier is the one reported: past ``nu3`` the absolute
+    stop, past ``nu2`` the hard ceiling (both block), past ``nu1`` only a soft
+    warning. A non-finite measurement blocks, since every comparison against NaN
+    is ``False`` and would otherwise wave the allocation through.
+    """
+    if not math.isfinite(observed):
+        violations.append({"type": "drawdown_unverified", "value": observed})
+        return
+    for tier, blocking in (("nu3", True), ("nu2", True), ("nu1", False)):
+        limit = bounds.get(tier)
+        if limit is None or observed <= float(limit):
+            continue
+        record = {"type": f"drawdown_{tier}", "value": observed, "limit": float(limit)}
+        (violations if blocking else warnings).append(record)
+        return
 
 
 def _resolve_window(window: dict[str, Any] | None) -> WalkForwardConfig:
@@ -128,13 +191,18 @@ def backtest(
     weights: dict[str, float],
     *,
     window: dict[str, Any] | None = None,
+    base_currency: str | None = None,
+    fit_end: dt.date | str | None = None,
+    budget: float | None = None,
 ) -> ToolResult:
-    """Backtest fixed ``weights`` out-of-sample over prices up to ``asof``.
+    """Backtest fixed ``weights`` over prices up to ``asof``.
 
     Holds ``weights`` constant and evaluates them on the walk-forward *test*
     windows only (``shuffle=False`` — each test block strictly follows its
-    training block, so no future data leaks). When the panel is too short for a
-    single fold the full sample is used instead (``n_folds == 0``).
+    training block). The weights are not re-estimated per fold, so the result is
+    out-of-sample only if they were fixed before the test blocks (see ``fit_end``).
+    When the panel is too short for a single fold the full sample is used instead
+    (``n_folds == 0``).
 
     Args:
         session: A sync ``portopt_db`` session (D1); the tool does not own it.
@@ -143,24 +211,64 @@ def backtest(
         window: Optional overrides mapped onto ``WalkForwardConfig`` fields
             (``train_size`` / ``test_size`` / ``purged_size`` / ...); unknown keys
             are ignored. ``None`` uses the default walk-forward window.
+        base_currency: Mandate base currency prices are FX-converted to before
+            returns are derived (``None`` keeps listing currency; see
+            :func:`fund.tools.prices.load_price_frame`).
+        fit_end: Last bar whose returns the ``weights`` were estimated from, when
+            they were fitted on this same panel (accepts a ``date`` or an ISO
+            string). A walk-forward test block that reaches back to ``fit_end`` lies
+            inside the weights' own estimation sample, so its metrics are in-sample.
+            ``None`` asserts the weights were fixed independently of this panel.
+        budget: Total weight the proposal must sum to (``risk_check``'s ``budget``).
+            When given, weights summing elsewhere (percent-style, partially
+            invested, non-finite) are rejected instead of being replayed as a
+            scaled or part-cash book. ``None`` evaluates the vector as given.
 
     Returns:
-        ``ok`` with ``metrics`` (``mean`` / ``standard_deviation`` /
-        ``sharpe_ratio`` / ``max_drawdown``), ``n_observations`` (evaluated rows),
-        ``n_folds``, ``out_of_sample`` (``True`` iff at least one walk-forward fold
-        was produced; ``False`` when the panel was too short and the full IN-SAMPLE
-        series was evaluated — the metrics are then in-sample, not walk-forward),
-        ``sample_start`` / ``window_start`` / ``window_end`` (ISO dates), and
-        ``missing`` (weighted tickers absent from the panel). ``err`` on empty
-        ``weights``, no priced assets, too little history, or a bad ``window``.
+        ``ok`` with ``metrics`` (annualised ``annualized_mean`` /
+        ``annualized_standard_deviation`` / ``annualized_sharpe_ratio`` plus the
+        ``max_drawdown`` fraction, over the evaluated window),
+        ``full_sample_max_drawdown`` (the same drawdown over every aligned return row,
+        including the initial training block the walk-forward blocks skip; the figure
+        to compare with a drawdown ceiling), ``drawdown_basis``, ``n_observations``
+        (evaluated rows), ``n_folds``, ``out_of_sample`` (``True`` iff at least one
+        walk-forward fold was produced and every test bar falls after ``fit_end``;
+        ``False`` when the panel was too short and the full IN-SAMPLE series was
+        evaluated, or when the weights were fitted on the test blocks — the metrics
+        are then in-sample), ``sample_start`` / ``window_start`` / ``window_end`` (ISO
+        dates), and ``missing`` (zero-weight tickers absent from the panel). ``err`` on
+        empty ``weights``, weights that do not sum to ``budget``, no priced assets, a
+        non-zero weight on a ticker with no prices (the proposal cannot be evaluated as
+        given), fewer than two return rows once the assets' histories are aligned, a
+        bad ``window``, or metrics that are not finite.
+
+        ``max_drawdown`` is the peak-to-trough decline of the **compounded** wealth
+        path (``drawdown_basis == "compounded"``), the loss an investor holding the
+        weights would have seen. The ``nu1`` / ``nu2`` / ``nu3`` drawdown ceilings
+        the optimizer enforces are measured on the **additive** cumulative-return
+        path (skfolio's convention), so the two can differ: treat this figure as the
+        realised decline, not a like-for-like reading of those ceilings, and do not
+        block or pass on a margin smaller than that basis gap.
     """
     if not weights:
         return err("empty weights")
+    if budget is not None:
+        total = math.fsum(float(weight) for weight in weights.values())
+        # Written as a negated ``<=`` so a NaN sum is rejected too.
+        if not abs(total - budget) <= _BUDGET_TOL:
+            return err(f"weights sum to {total:g}, not the budget {budget:g}")
 
     config = _resolve_window(window)
-    frame, missing = load_price_frame(session, asof, list(weights))
+    frame, missing = load_price_frame(
+        session, asof, list(weights), base_currency=base_currency
+    )
     if frame.shape[1] == 0:
         return err("no priced assets for weights")
+    # A dropped weight would be evaluated as idle cash, understating volatility and
+    # drawdown by the dropped share; only a zero weight can be dropped losslessly.
+    unpriced = [ticker for ticker in missing if float(weights[ticker]) != 0.0]
+    if unpriced:
+        return err(f"no prices for weighted tickers: {', '.join(unpriced)}")
     if frame.shape[0] < 2:
         return err("insufficient price history to backtest")
 
@@ -168,12 +276,17 @@ def backtest(
     # branch only applies when ``y`` is passed. Narrow it so the ``.index`` chains
     # below don't resolve against ``tuple.index``.
     returns = cast("pd.DataFrame", prices_to_returns(frame))
+    # ``frame`` counts the union of price dates, but ``prices_to_returns`` trims every
+    # row before the youngest asset's first bar, so the returns can be empty or a
+    # single row even when ``frame`` is long.
+    if returns.shape[0] < 2:
+        return err("insufficient price history to backtest")
+    if (reason := thin_sample_error(frame, returns, action="backtest")) is not None:
+        return err(reason)
     weight_vector = np.array([float(weights[col]) for col in returns.columns])
 
-    # A test block strictly follows its training block, so evaluating only on the
-    # concatenated test windows keeps the backtest out-of-sample. Fall back to the
-    # full IN-SAMPLE series when the panel cannot supply even one fold — those
-    # metrics are in-sample, surfaced truthfully via ``out_of_sample=bool(splits)``.
+    # Fall back to the full IN-SAMPLE series when the panel cannot supply even one
+    # fold; those metrics are in-sample, surfaced via ``out_of_sample``.
     min_needed = config.train_size + config.purged_size + config.test_size
     splits = (
         list(build_walk_forward(config).split(returns))
@@ -185,20 +298,38 @@ def backtest(
     else:
         oos = returns
 
-    portfolio = Portfolio(oos, weight_vector)
+    # Fixed weights never see a test block only if they were estimated before it:
+    # a block that reaches back into the weights' own fit window is in-sample.
+    out_of_sample = bool(splits)
+    if splits and fit_end is not None:
+        out_of_sample = oos.index.min().date() > coerce_date(fit_end)
+
+    # Compounded so max_drawdown is the wealth-path peak-to-trough decline, not the
+    # additive-return one the optimizer's ceilings use; ``drawdown_basis`` says so.
+    portfolio = Portfolio(oos, weight_vector, compounded=True)
+    full_sample_max_drawdown = (
+        float(Portfolio(returns, weight_vector, compounded=True).max_drawdown)
+        if splits
+        else float(portfolio.max_drawdown)
+    )
     metrics = {
-        "mean": float(portfolio.mean),
-        "standard_deviation": float(portfolio.standard_deviation),
-        "sharpe_ratio": float(portfolio.sharpe_ratio),
-        "max_drawdown": float(portfolio.max_drawdown),
+        **annualized_metrics(portfolio),
+        # skfolio yields -0.0 for a path with no drawdown; max() pins it to +0.0.
+        "max_drawdown": max(0.0, float(portfolio.max_drawdown)),
     }
+    # A degenerate series (zero variance) yields NaN/inf, which are not valid JSON
+    # for the agent and compare False against every ceiling, so nothing is flagged.
+    if not all(math.isfinite(value) for value in metrics.values()):
+        return err("backtest metrics are not finite (degenerate return series)")
 
     return ok(
         {
             "metrics": metrics,
+            "full_sample_max_drawdown": full_sample_max_drawdown,
+            "drawdown_basis": "compounded",
             "n_observations": int(oos.shape[0]),
             "n_folds": len(splits),
-            "out_of_sample": bool(splits),
+            "out_of_sample": out_of_sample,
             "sample_start": str(returns.index.min().date()),
             "window_start": str(oos.index.min().date()),
             "window_end": str(oos.index.max().date()),

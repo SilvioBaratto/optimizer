@@ -13,7 +13,8 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from sqlalchemy import inspect, select
+from sqlalchemy import event, inspect, select, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
 
 from portopt_db.models import AgentDecision, AgentRun
@@ -137,3 +138,76 @@ def test_deleting_run_cascades_to_its_decisions(db_session):
 
     remaining = db_session.execute(select(AgentDecision)).scalars().all()
     assert remaining == []
+
+
+def test_loading_a_run_does_not_eagerly_load_its_decisions(db_session, test_engine):
+    run = AgentRun(asof=date(2026, 1, 2), universe=["AAPL"], optimizer_config={})
+    db_session.add(run)
+    db_session.flush()
+    db_session.add(AgentDecision(run_id=run.id, decision_index=0, agent="pm", step="a"))
+    db_session.flush()
+    db_session.expunge_all()
+
+    statements: list[str] = []
+
+    def _capture(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(test_engine, "before_cursor_execute", _capture)
+    try:
+        db_session.execute(select(AgentRun)).scalars().all()
+    finally:
+        event.remove(test_engine, "before_cursor_execute", _capture)
+
+    assert not [s for s in statements if "agent_decisions" in s]
+
+
+def test_explicit_none_in_nullable_json_columns_is_sql_null_not_json_null(db_session):
+    run = AgentRun(
+        asof=date(2026, 1, 2), universe=["AAPL"], optimizer_config={}, weights=None
+    )
+    db_session.add(run)
+    db_session.flush()
+    db_session.add(
+        AgentDecision(
+            run_id=run.id,
+            decision_index=0,
+            agent="pm",
+            step="a",
+            constraint_set=None,
+            views=None,
+            hitl_decision=None,
+        )
+    )
+    db_session.flush()
+
+    decisions_all_sql_null = db_session.execute(
+        text(
+            "SELECT count(*) FROM agent_decisions WHERE constraint_set IS NULL "
+            "AND views IS NULL AND hitl_decision IS NULL"
+        )
+    ).scalar_one()
+    runs_sql_null = db_session.execute(
+        text("SELECT count(*) FROM agent_runs WHERE weights IS NULL")
+    ).scalar_one()
+    assert decisions_all_sql_null == 1
+    assert runs_sql_null == 1
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        AgentRun.weights,
+        AgentDecision.constraint_set,
+        AgentDecision.views,
+        AgentDecision.hitl_decision,
+    ],
+    ids=lambda column: column.key,
+)
+def test_postgresql_variant_binds_none_as_sql_null(column):
+    """Production runs the JSONB variant, which SQLite never exercises."""
+    dialect = postgresql.dialect()
+
+    bind = column.type.dialect_impl(dialect).bind_processor(dialect)
+
+    assert bind(None) is None

@@ -27,8 +27,9 @@ def screen_universe(
     default configuration when none is provided.
 
     Args:
-        fundamentals: Cross-sectional data with one row per ticker.
-        price_history: Price matrix (dates x tickers).
+        fundamentals: Cross-sectional data with one row per ticker; ``market_cap``
+            must be USD-normalised (see ``apply_investability_screens``).
+        price_history: Price matrix (dates x tickers), USD-normalised.
         volume_history: Volume matrix (dates x tickers).
         financial_statements: Optional statement-level data.
         config: Screening configuration. ``None`` uses developed-market defaults.
@@ -36,6 +37,13 @@ def screen_universe(
 
     Returns:
         Tickers passing all investability screens.
+
+    Raises:
+        DataError: If ``fundamentals`` lacks ``market_cap`` or ``current_price``,
+            or if ``price_history`` or ``volume_history`` is empty.  An empty
+            ``price_history`` used to yield an empty universe; the liquidity and
+            listing-history screens cannot run without data, so it now fails
+            loudly rather than skipping them.
     """
     if config is None:
         config = InvestabilityScreenConfig()
@@ -67,8 +75,9 @@ def build_investability_screen(
     pre-selection or optimisation inside a single ``sklearn.pipeline.Pipeline``.
 
     Args:
-        fundamentals: Cross-sectional data with one row per ticker.
-        price_history: Price matrix (dates x tickers).
+        fundamentals: Cross-sectional data with one row per ticker; ``market_cap``
+            must be USD-normalised (see ``apply_investability_screens``).
+        price_history: Price matrix (dates x tickers), USD-normalised.
         volume_history: Volume matrix (dates x tickers).
         financial_statements: Optional statement-level data.
         config: Screening configuration. ``None`` uses developed-market defaults.
@@ -76,6 +85,12 @@ def build_investability_screen(
 
     Returns:
         Unfitted selector; call ``fit(X)`` with a linear-return DataFrame.
+
+    Raises:
+        DataError: Not at build time.  ``fit`` raises it if ``fundamentals``
+            lacks ``market_cap`` or ``current_price``, if ``price_history`` or
+            ``volume_history`` is empty (including after the fit window cuts
+            away all of it), or if ``X`` has no ticker column names.
     """
     return InvestabilityScreenSelector(
         fundamentals=fundamentals,

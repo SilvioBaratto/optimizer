@@ -33,6 +33,7 @@ def _build_config() -> DbConfig:
     return DbConfig(
         url=settings.database_url or "",
         application_name="fund-cli",
+        lock_timeout_ms=settings.db_lock_timeout_ms,
     )
 
 

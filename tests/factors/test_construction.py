@@ -353,6 +353,44 @@ class TestAlignToPit:
         result = align_to_pit(data, "period_date", as_of, lag_days=90)
         assert result.empty
 
+    def test_latest_record_is_not_spliced_across_periods_when_field_is_nan(
+        self,
+    ) -> None:
+        """A NaN line item in the newest filing stays NaN, not the older value."""
+        data = pd.DataFrame(
+            [
+                {
+                    "ticker": "A",
+                    "period_date": "2022-12-31",
+                    "net_income": 100.0,
+                    "total_assets": 1000.0,
+                },
+                {
+                    "ticker": "A",
+                    "period_date": "2023-12-31",
+                    "net_income": np.nan,
+                    "total_assets": 2000.0,
+                },
+            ]
+        )
+        result = align_to_pit(data, "period_date", "2024-06-30", lag_days=45)
+        assert pd.Timestamp(result.loc["A", "period_date"]) == pd.Timestamp(
+            "2023-12-31"
+        )
+        assert result.loc["A", "total_assets"] == 2000.0
+        assert np.isnan(result.loc["A", "net_income"])
+
+    def test_most_recent_record_wins_regardless_of_input_order(self) -> None:
+        """Rows supplied newest-first still resolve to the newest filing."""
+        data = pd.DataFrame(
+            [
+                {"ticker": "A", "period_date": "2023-09-30", "earnings": 3.0},
+                {"ticker": "A", "period_date": "2023-03-31", "earnings": 1.0},
+            ]
+        )
+        result = align_to_pit(data, "period_date", "2023-12-31", lag_days=45)
+        assert result.loc["A", "earnings"] == 3.0
+
     def test_accepts_string_as_of_date(self) -> None:
         """align_to_pit accepts a string for as_of_date."""
         data = _make_annual_data(
@@ -851,6 +889,58 @@ class TestFactorMissingInputGuards:
         assert result.empty
 
 
+class TestMissingMarketCapDegradesGracefully:
+    """Value factors need market_cap; its absence must not abort other factors."""
+
+    @pytest.fixture()
+    def _no_market_cap(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "book_value": [5.0e8, 7.0e8],
+                "net_income": [8.0e7, 1.0e8],
+                "total_equity": [4.0e8, 6.0e8],
+                "operating_cashflow": [9.0e7, 1.1e8],
+                "total_revenue": [1.0e9, 2.0e9],
+                "total_assets": [2.0e9, 3.0e9],
+            },
+            index=pd.Index(["A", "B"], name="ticker"),
+        )
+
+    @pytest.mark.parametrize(
+        "factor_type",
+        [
+            FactorType.BOOK_TO_PRICE,
+            FactorType.EARNINGS_YIELD,
+            FactorType.CASH_FLOW_YIELD,
+            FactorType.SALES_TO_PRICE,
+        ],
+    )
+    def test_market_cap_based_factor_returns_empty(
+        self,
+        factor_type: FactorType,
+        _no_market_cap: pd.DataFrame,
+        _tiny_prices: pd.DataFrame,
+    ) -> None:
+        result = compute_factor(factor_type, _no_market_cap, _tiny_prices)
+        assert isinstance(result, pd.Series)
+        assert result.empty
+
+    def test_compute_all_factors_still_returns_market_cap_free_factors(
+        self, _no_market_cap: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        config = FactorConstructionConfig(
+            factors=(
+                FactorType.BOOK_TO_PRICE,
+                FactorType.ROE,
+                FactorType.ACCRUALS,
+            )
+        )
+        result = compute_all_factors(_no_market_cap, _tiny_prices, config=config)
+        assert "book_to_price" not in result.columns
+        assert result["roe"]["A"] == pytest.approx(0.2)
+        assert result["accruals"]["A"] == pytest.approx(-1.0e7 / 2.0e9)
+
+
 class TestEarningsYieldDimensionalContract:
     """earnings_yield requires total net_income, not per-share EPS.
 
@@ -895,6 +985,318 @@ class TestAlignToPitNoTickerColumn:
         assert "ticker" not in result.columns
 
 
+def _ragged_panel(n_days: int = 300) -> pd.DataFrame:
+    """Prices for A, B, C (full history), D (never traded) and E (young IPO)."""
+    rng = np.random.default_rng(7)
+    dates = pd.bdate_range("2023-01-01", periods=n_days)
+    common = rng.normal(0.0004, 0.01, n_days)
+    rets = {
+        t: common * beta + rng.normal(0, 0.012, n_days)
+        for t, beta in zip("ABC", (0.8, 1.0, 1.3), strict=True)
+    }
+    prices = pd.DataFrame(
+        {t: 100 * np.exp(np.cumsum(r)) for t, r in rets.items()}, index=dates
+    )
+    prices["D"] = np.nan
+    young = pd.Series(np.nan, index=dates)
+    young.iloc[-50:] = 100 * np.exp(np.cumsum(rng.normal(0, 0.03, 50)))
+    prices["E"] = young
+    return prices
+
+
+class TestRaggedPriceHistory:
+    """One gap or dead ticker must not corrupt the rest of the cross-section."""
+
+    def test_volatility_survives_all_nan_ticker(self) -> None:
+        from optimizer.factors._construction import _compute_volatility
+
+        prices = _ragged_panel()
+        result = _compute_volatility(prices)
+        assert result[["A", "B", "C"]].notna().all()
+        assert np.isnan(result["D"])
+
+    def test_volatility_window_is_not_shortened_by_young_listing(self) -> None:
+        from optimizer.factors._construction import _compute_volatility
+
+        prices = _ragged_panel()
+        alone = _compute_volatility(prices[["A", "B", "C"]])
+        joint = _compute_volatility(prices)
+        pd.testing.assert_series_equal(joint[["A", "B", "C"]], alone, check_names=False)
+
+    def test_volatility_ignores_exchange_holiday_gap_of_one_ticker(self) -> None:
+        from optimizer.factors._construction import _compute_volatility
+
+        prices = _ragged_panel()[["A", "B", "C"]]
+        gappy = prices.copy()
+        gappy.iloc[100, gappy.columns.get_loc("C")] = np.nan
+        alone = _compute_volatility(prices[["A", "B"]])
+        joint = _compute_volatility(gappy)
+        pd.testing.assert_series_equal(joint[["A", "B"]], alone, check_names=False)
+
+    @pytest.mark.parametrize("gap_row", [-22, -252])
+    def test_momentum_uses_last_valid_price_on_reference_date_gap(
+        self, gap_row: int
+    ) -> None:
+        from optimizer.factors._construction import _compute_momentum
+
+        prices = _ragged_panel()[["A", "B", "C"]]
+        clean = _compute_momentum(prices)
+        gappy = prices.copy()
+        gappy.iloc[gap_row, gappy.columns.get_loc("B")] = np.nan
+        result = _compute_momentum(gappy)
+
+        filled = gappy.ffill()
+        expected = filled.iloc[-22] / filled.iloc[-252] - 1.0
+        assert result["B"] == pytest.approx(expected["B"], rel=1e-12)
+        assert result["B"] != pytest.approx(clean["B"], rel=1e-6)
+        pd.testing.assert_series_equal(result[["A", "C"]], clean[["A", "C"]])
+
+    def test_momentum_does_not_revive_a_long_dead_ticker(self) -> None:
+        from optimizer.factors._construction import _compute_momentum
+
+        prices = _ragged_panel()[["A", "B", "C"]]
+        dead = prices.copy()
+        dead.iloc[-60:, dead.columns.get_loc("C")] = np.nan
+        result = _compute_momentum(dead)
+        assert np.isnan(result["C"])
+        assert result[["A", "B"]].notna().all()
+
+    def test_beta_survives_all_nan_ticker(self) -> None:
+        from optimizer.factors._construction import _compute_beta
+
+        prices = _ragged_panel()
+        mkt = prices[["A", "B", "C"]].pct_change().mean(axis=1).dropna()
+        result = _compute_beta(prices, market_returns=mkt)
+        assert result[["A", "B", "C"]].notna().all()
+        assert np.isnan(result["D"])
+
+    def test_beta_default_proxy_unaffected_by_dead_ticker(self) -> None:
+        from optimizer.factors._construction import _compute_beta
+
+        prices = _ragged_panel()
+        alone = _compute_beta(prices[["A", "B", "C"]])
+        joint = _compute_beta(prices[["A", "B", "C", "D"]])
+        pd.testing.assert_series_equal(joint[["A", "B", "C"]], alone)
+
+    def test_beta_uses_pairwise_complete_sample_for_covariance_and_variance(
+        self,
+    ) -> None:
+        from optimizer.factors._construction import _compute_beta
+
+        prices = _ragged_panel()[["A", "B", "C", "E"]]
+        prices["G"] = prices["B"]
+        prices.iloc[100:140, prices.columns.get_loc("G")] = np.nan
+        mkt = prices[["A", "B", "C"]].pct_change().mean(axis=1).dropna()
+        result = _compute_beta(prices, market_returns=mkt)
+
+        for ticker in ("A", "E", "G"):
+            rets = prices[ticker].pct_change().iloc[-252:]
+            pair = pd.concat([rets, mkt], axis=1, keys=["r", "m"], sort=True).dropna()
+            expected = pair["r"].cov(pair["m"]) / pair["m"].var()
+            assert result[ticker] == pytest.approx(expected, rel=1e-9), ticker
+
+    def test_amihud_survives_all_nan_ticker(
+        self,
+    ) -> None:
+        from optimizer.factors._construction import _compute_amihud_illiquidity
+
+        prices = _ragged_panel()
+        volume = pd.DataFrame(1e6, index=prices.index, columns=prices.columns)
+        result = _compute_amihud_illiquidity(prices, volume)
+        assert result[["A", "B", "C"]].notna().all()
+        assert np.isnan(result["D"])
+
+    def test_amihud_window_is_not_shortened_by_young_listing(self) -> None:
+        from optimizer.factors._construction import _compute_amihud_illiquidity
+
+        prices = _ragged_panel()
+        volume = pd.DataFrame(1e6, index=prices.index, columns=prices.columns)
+        cols = ["A", "B", "C"]
+        alone = _compute_amihud_illiquidity(prices[cols], volume[cols])
+        joint = _compute_amihud_illiquidity(prices, volume)
+        pd.testing.assert_series_equal(joint[cols], alone, check_names=False)
+
+
+def _panel_with_fresh_listing() -> pd.DataFrame:
+    """Ragged panel plus Y, which has only three prices (two returns)."""
+    prices = _ragged_panel()
+    fresh = pd.Series(np.nan, index=prices.index)
+    fresh.iloc[-3:] = (100.0, 101.0, 99.5)
+    prices["Y"] = fresh
+    return prices
+
+
+class TestMinimumObservations:
+    """A ticker with almost no history must not be ranked on noise."""
+
+    def test_volatility_is_nan_below_default_minimum(self) -> None:
+        from optimizer.factors._construction import _compute_volatility
+
+        result = _compute_volatility(_panel_with_fresh_listing())
+        assert np.isnan(result["Y"])
+        assert result[["A", "B", "C", "E"]].notna().all()
+
+    def test_beta_is_nan_below_default_minimum(self) -> None:
+        from optimizer.factors._construction import _compute_beta
+
+        prices = _panel_with_fresh_listing()
+        mkt = prices[["A", "B", "C"]].pct_change().mean(axis=1).dropna()
+        for market_returns in (None, mkt):
+            result = _compute_beta(prices, market_returns=market_returns)
+            assert np.isnan(result["Y"])
+            assert result[["A", "B", "C", "E"]].notna().all()
+
+    def test_amihud_is_nan_below_default_minimum(self) -> None:
+        from optimizer.factors._construction import _compute_amihud_illiquidity
+
+        prices = _panel_with_fresh_listing()
+        volume = pd.DataFrame(1e6, index=prices.index, columns=prices.columns)
+        result = _compute_amihud_illiquidity(prices, volume)
+        assert np.isnan(result["Y"])
+        assert result[["A", "B", "C", "E"]].notna().all()
+
+    def test_minimum_is_inclusive(self) -> None:
+        from optimizer.factors._construction import (
+            _compute_amihud_illiquidity,
+            _compute_beta,
+            _compute_volatility,
+        )
+
+        prices = _panel_with_fresh_listing()
+        volume = pd.DataFrame(1e6, index=prices.index, columns=prices.columns)
+        # Y has exactly two return observations.
+        assert np.isfinite(_compute_volatility(prices, min_obs=2)["Y"])
+        assert np.isnan(_compute_volatility(prices, min_obs=3)["Y"])
+        assert np.isfinite(_compute_beta(prices, min_obs=2)["Y"])
+        assert np.isnan(_compute_beta(prices, min_obs=3)["Y"])
+        assert np.isfinite(_compute_amihud_illiquidity(prices, volume, min_obs=2)["Y"])
+        assert np.isnan(_compute_amihud_illiquidity(prices, volume, min_obs=3)["Y"])
+
+    def test_amihud_counts_only_days_with_traded_volume(self) -> None:
+        from optimizer.factors._construction import _compute_amihud_illiquidity
+
+        prices = _ragged_panel()[["A", "B", "C"]]
+        volume = pd.DataFrame(1e6, index=prices.index, columns=prices.columns)
+        volume.iloc[-30:, volume.columns.get_loc("C")] = 0.0
+        result = _compute_amihud_illiquidity(prices, volume, lookback=40, min_obs=20)
+        assert np.isnan(result["C"])
+        assert result[["A", "B"]].notna().all()
+
+    def test_minimum_is_capped_by_the_lookback_window(self) -> None:
+        from optimizer.factors._construction import (
+            _compute_amihud_illiquidity,
+            _compute_beta,
+            _compute_volatility,
+        )
+
+        prices = _ragged_panel()[["A", "B", "C"]]
+        volume = pd.DataFrame(1e6, index=prices.index, columns=prices.columns)
+        assert _compute_volatility(prices, lookback=10, min_obs=60).notna().all()
+        assert _compute_beta(prices, lookback=10, min_obs=60).notna().all()
+        amihud = _compute_amihud_illiquidity(prices, volume, lookback=10, min_obs=60)
+        assert amihud.notna().all()
+
+    def test_compute_factor_honours_config_minimum(self) -> None:
+        prices = _ragged_panel()
+        volume = pd.DataFrame(1e6, index=prices.index, columns=prices.columns)
+        fundamentals = pd.DataFrame(index=pd.Index(list(prices.columns)))
+        factors = (
+            FactorType.VOLATILITY,
+            FactorType.BETA,
+            FactorType.AMIHUD_ILLIQUIDITY,
+        )
+        for factor in factors:
+            lenient = compute_factor(
+                factor,
+                fundamentals,
+                prices,
+                volume_history=volume,
+                config=FactorConstructionConfig(min_observations=20),
+            )
+            strict = compute_factor(
+                factor,
+                fundamentals,
+                prices,
+                volume_history=volume,
+                config=FactorConstructionConfig(min_observations=60),
+            )
+            # E has 49 return observations: enough for 20, not for 60.
+            assert np.isfinite(lenient["E"]), factor
+            assert np.isnan(strict["E"]), factor
+            assert strict[["A", "B", "C"]].notna().all(), factor
+
+
+class TestNonPositiveDenominators:
+    """Ratios with a sign-sensitive denominator are undefined at <= 0."""
+
+    @pytest.fixture()
+    def _frame(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "market_cap": [1.0e9] * 5,
+                "net_income": [100.0, -100.0, 100.0, 100.0, 100.0],
+                "total_equity": [500.0, -50.0, -50.0, 0.0, 50.0],
+            },
+            index=pd.Index(["ok", "neg_ni_neg_eq", "pos_ni_neg_eq", "zero", "x"]),
+        )
+
+    def test_roe_is_nan_for_non_positive_equity(
+        self, _frame: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        result = compute_factor(FactorType.ROE, _frame, _tiny_prices)
+        assert result["ok"] == pytest.approx(0.2)
+        assert np.isnan(result["neg_ni_neg_eq"])
+        assert np.isnan(result["pos_ni_neg_eq"])
+        assert np.isnan(result["zero"])
+        assert result["x"] == pytest.approx(2.0)
+
+    def test_ebitda_to_ev_is_nan_for_non_positive_enterprise_value(
+        self, _tiny_prices: pd.DataFrame
+    ) -> None:
+        frame = pd.DataFrame(
+            {
+                "ebitda": [100.0, 100.0, -100.0, 100.0, 100.0],
+                "enterprise_value": [1000.0, -200.0, -200.0, 0.0, 500.0],
+            },
+            index=pd.Index(["ok", "net_cash", "loss_net_cash", "zero", "x"]),
+        )
+        result = compute_factor(FactorType.EBITDA_TO_EV, frame, _tiny_prices)
+        assert result["ok"] == pytest.approx(0.1)
+        assert np.isnan(result["net_cash"])
+        assert np.isnan(result["loss_net_cash"])
+        assert np.isnan(result["zero"])
+        assert result["x"] == pytest.approx(0.2)
+
+
+class TestNonStringTickerLabels:
+    """Price-based factors keep the caller's column labels (e.g. instrument ids)."""
+
+    @pytest.fixture()
+    def _id_prices(self) -> pd.DataFrame:
+        prices = _ragged_panel()[["A", "B", "C"]]
+        prices.columns = pd.Index([1, 2, 3])
+        return prices
+
+    def test_beta_index_keeps_original_labels(self, _id_prices: pd.DataFrame) -> None:
+        from optimizer.factors._construction import _compute_beta
+
+        result = _compute_beta(_id_prices)
+        assert list(result.index) == [1, 2, 3]
+        assert result.notna().all()
+
+    def test_compute_all_factors_aligns_beta_to_id_indexed_fundamentals(
+        self, _id_prices: pd.DataFrame
+    ) -> None:
+        fundamentals = pd.DataFrame({"market_cap": [1.0e9] * 3}, index=[1, 2, 3])
+        config = FactorConstructionConfig(
+            factors=(FactorType.MOMENTUM_12_1, FactorType.BETA)
+        )
+        result = compute_all_factors(fundamentals, _id_prices, config=config)
+        assert list(result.index) == [1, 2, 3]
+        assert result["beta"].notna().all()
+        assert result["momentum_12_1"].notna().all()
+
+
 class TestBetaDegenerateMarket:
     """A near-zero market variance produces NaN betas rather than huge values."""
 
@@ -928,9 +1330,110 @@ class TestRecommendationChangeBranches:
         assert result.loc["A"] == 0.0
         assert result.loc["B"] == 2.0
 
-    def test_raw_counts_with_ticker_compute_net_score(
+    @staticmethod
+    def _counts(rows: list[tuple[str, str, int, int, int, int, int]]) -> pd.DataFrame:
+        """Build snapshots shaped like ``analyst_recommendations`` rows."""
+        return pd.DataFrame(
+            rows,
+            columns=[
+                "ticker",
+                "period",
+                "strong_buy",
+                "buy",
+                "hold",
+                "sell",
+                "strong_sell",
+            ],
+        )
+
+    def test_revision_is_latest_net_rating_share_minus_prior_snapshot(
         self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
     ) -> None:
+        """Upgrades score positive and downgrades negative, whatever the row order."""
+        analyst = self._counts(
+            [
+                # Rows deliberately newest-first: order comes from ``period``.
+                ("UP", "0m", 8, 0, 2, 0, 0),
+                ("UP", "-1m", 5, 0, 5, 0, 0),
+                ("DOWN", "-1m", 8, 0, 2, 0, 0),
+                ("DOWN", "0m", 5, 0, 5, 0, 0),
+            ]
+        )
+        result = compute_factor(
+            FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
+        )
+        assert result.loc["UP"] == pytest.approx(0.3)
+        assert result.loc["DOWN"] == pytest.approx(-0.3)
+
+    def test_constant_consensus_is_not_a_revision(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        """A strong but unchanged consensus scores zero, not its level."""
+        analyst = self._counts(
+            [
+                ("A", "-1m", 5, 3, 1, 1, 0),
+                ("A", "0m", 5, 3, 1, 1, 0),
+            ]
+        )
+        result = compute_factor(
+            FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
+        )
+        assert result.loc["A"] == pytest.approx(0.0)
+
+    def test_score_is_independent_of_analyst_coverage(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        """A 40-analyst name and a 4-analyst name with the same shift tie."""
+        analyst = self._counts(
+            [
+                ("MEGA", "-1m", 20, 0, 20, 0, 0),
+                ("MEGA", "0m", 30, 0, 10, 0, 0),
+                ("SMALL", "-1m", 2, 0, 2, 0, 0),
+                ("SMALL", "0m", 3, 0, 1, 0, 0),
+            ]
+        )
+        result = compute_factor(
+            FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
+        )
+        assert result.loc["MEGA"] == pytest.approx(0.25)
+        assert result.loc["SMALL"] == pytest.approx(result.loc["MEGA"])
+
+    def test_uses_the_two_most_recent_available_snapshots(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        """A missing month does not break the comparison of latest vs prior."""
+        analyst = self._counts(
+            [
+                ("A", "-3m", 0, 0, 10, 0, 10),
+                ("A", "-2m", 4, 0, 6, 0, 0),
+                ("A", "0m", 6, 0, 4, 0, 0),
+            ]
+        )
+        result = compute_factor(
+            FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
+        )
+        assert result.loc["A"] == pytest.approx(0.2)
+
+    def test_single_snapshot_has_no_revision(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        """One snapshot has nothing to change from, so the ticker is not scored."""
+        analyst = self._counts(
+            [
+                ("A", "-1m", 5, 0, 5, 0, 0),
+                ("A", "0m", 8, 0, 2, 0, 0),
+                ("B", "0m", 9, 0, 1, 0, 0),
+            ]
+        )
+        result = compute_factor(
+            FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
+        )
+        assert list(result.index) == ["A"]
+
+    def test_counts_without_period_cannot_form_a_revision(
+        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        """Without snapshot ordering the level is not passed off as a change."""
         analyst = pd.DataFrame(
             {
                 "ticker": ["A", "B"],
@@ -943,19 +1446,25 @@ class TestRecommendationChangeBranches:
         result = compute_factor(
             FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
         )
-        assert result.loc["A"] == 7.0  # (5+3) - (0+1)
-        assert result.loc["B"] == -5.0  # (1+0) - (4+2)
+        assert result.empty
 
-    def test_raw_counts_without_ticker_returns_score(
+    def test_counts_without_ticker_cannot_form_a_revision(
         self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
     ) -> None:
+        """Snapshots that cannot be tied to a ticker are not scored."""
         analyst = pd.DataFrame(
-            {"strong_buy": [5], "buy": [3], "sell": [1], "strong_sell": [0]}
+            {
+                "period": ["0m"],
+                "strong_buy": [5],
+                "buy": [3],
+                "sell": [1],
+                "strong_sell": [0],
+            }
         )
         result = compute_factor(
             FactorType.RECOMMENDATION_CHANGE, _dummy, _tiny_prices, analyst_data=analyst
         )
-        assert result.iloc[0] == 7.0
+        assert result.empty
 
     def test_unrecognized_columns_return_empty(
         self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
@@ -970,6 +1479,14 @@ class TestRecommendationChangeBranches:
 class TestNetInsiderBuyingBranches:
     """Cover the insider-buying signed/unsigned and missing-column paths."""
 
+    @pytest.fixture()
+    def _funds(self) -> pd.DataFrame:
+        """Fundamentals whose 10k shares outstanding scale the share counts."""
+        return pd.DataFrame(
+            {"market_cap": [1.0, 1.0], "shares_outstanding": [10_000.0, 10_000.0]},
+            index=pd.Index(["A", "B"], name="ticker"),
+        )
+
     def test_missing_shares_or_ticker_returns_empty(
         self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
     ) -> None:
@@ -980,7 +1497,7 @@ class TestNetInsiderBuyingBranches:
         assert result.empty
 
     def test_transaction_type_signs_shares(
-        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+        self, _funds: pd.DataFrame, _tiny_prices: pd.DataFrame
     ) -> None:
         insider = pd.DataFrame(
             {
@@ -990,19 +1507,257 @@ class TestNetInsiderBuyingBranches:
             }
         )
         result = compute_factor(
-            FactorType.NET_INSIDER_BUYING, _dummy, _tiny_prices, insider_data=insider
+            FactorType.NET_INSIDER_BUYING, _funds, _tiny_prices, insider_data=insider
         )
-        assert result.loc["A"] == 50.0  # +100 purchase - 50 sale
-        assert result.loc["B"] == 200.0  # +200 buy
+        assert result.loc["A"] == pytest.approx(0.005)  # (100 - 50) / 10_000
+        assert result.loc["B"] == pytest.approx(0.02)  # 200 / 10_000
 
-    def test_no_transaction_type_sums_shares(
-        self, _dummy: pd.DataFrame, _tiny_prices: pd.DataFrame
+    def test_compensation_grants_and_gifts_are_not_counted_as_sales(
+        self, _funds: pd.DataFrame, _tiny_prices: pd.DataFrame
     ) -> None:
-        insider = pd.DataFrame({"ticker": ["A", "A"], "shares": [100, 50]})
-        result = compute_factor(
-            FactorType.NET_INSIDER_BUYING, _dummy, _tiny_prices, insider_data=insider
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "A", "A", "B", "B"],
+                "shares": [1000, 500, 200, 10, 40],
+                "transaction_type": [
+                    "Purchase at price 10.00 per share.",
+                    "Stock Award(Grant) at price 0.00 per share.",
+                    "Sale at price 11.00 per share.",
+                    "Stock Gift at price 0.00 per share.",
+                    "Conversion of Exercise of derivative security",
+                ],
+            }
         )
-        assert result.loc["A"] == 150.0
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING, _funds, _tiny_prices, insider_data=insider
+        )
+        # +1000 purchase - 200 sale over 10_000 shares, the grant is ignored
+        assert result.loc["A"] == pytest.approx(0.08)
+        assert result.loc["B"] == 0.0  # no open-market trade at all
+
+    def test_blank_transaction_types_are_neutral_not_bearish(
+        self, _funds: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "A", "B", "B"],
+                "shares": [1000, 500, 100, 5000],
+                "transaction_type": [None, "", "Purchase", ""],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING, _funds, _tiny_prices, insider_data=insider
+        )
+        # B's blank row is not read as a sale; it adds nothing to the purchase.
+        assert result.loc["B"] == pytest.approx(0.01)
+        # A has no classifiable row at all, so its direction is unknown.
+        assert np.isnan(result.loc["A"])
+
+    def test_ledger_with_no_classifiable_transaction_type_is_not_scored(
+        self, _funds: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        # A blank type column (all NaN after loading, or all empty strings)
+        # carries no direction; a constant 0.0 would rank every name mid-pack.
+        for types in ([np.nan, np.nan], ["", "  "]):
+            insider = pd.DataFrame(
+                {"ticker": ["A", "B"], "shares": [1500, 100], "transaction_type": types}
+            )
+            result = compute_factor(
+                FactorType.NET_INSIDER_BUYING,
+                _funds,
+                _tiny_prices,
+                insider_data=insider,
+            )
+            assert result.empty
+
+
+class TestNetInsiderBuyingNormalisation:
+    """Net insider buying is a fraction of the company, not a raw share count."""
+
+    @pytest.fixture()
+    def _prices(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {"A": [1.0, 1.0, 1.0], "B": [1.0, 1.0, 1.0]},
+            index=pd.bdate_range("2023-01-01", periods=3),
+        )
+
+    @staticmethod
+    def _funds(**columns: list[float]) -> pd.DataFrame:
+        return pd.DataFrame(columns, index=pd.Index(["A", "B"], name="ticker"))
+
+    def test_same_share_count_scores_by_value_over_market_cap(
+        self, _prices: pd.DataFrame
+    ) -> None:
+        # A: 1M shares at 0.50 in a 5M company (10%); B: 1M shares at 500 in a
+        # 500B company (0.1%).  Both trade 1M shares, so a raw share sum ties.
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "B"],
+                "shares": [1_000_000, 1_000_000],
+                "value": [500_000, 500_000_000],
+                "transaction_type": ["Purchase", "Purchase"],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[5e6, 500e9]),
+            _prices,
+            insider_data=insider,
+        )
+        assert result.loc["A"] == pytest.approx(0.1)
+        assert result.loc["B"] == pytest.approx(0.001)
+
+    def test_sales_are_subtracted_in_value_terms(self, _prices: pd.DataFrame) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "A", "B"],
+                "shares": [100, 40, 10],
+                "value": [1_000.0, 600.0, 300.0],
+                "transaction_type": [
+                    "Purchase at price 10.00 per share.",
+                    "Sale at price 15.00 per share.",
+                    "Sale at price 30.00 per share.",
+                ],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[10_000.0, 1_000.0]),
+            _prices,
+            insider_data=insider,
+        )
+        assert result.loc["A"] == pytest.approx(0.04)  # (1000 - 600) / 10000
+        assert result.loc["B"] == pytest.approx(-0.3)  # -300 / 1000
+
+    def test_shares_are_scaled_by_shares_outstanding_without_value(
+        self, _prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "B"],
+                "shares": [1_000, 1_000],
+                "transaction_type": ["Purchase", "Sale"],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[1.0, 1.0], shares_outstanding=[10_000.0, 2_000.0]),
+            _prices,
+            insider_data=insider,
+        )
+        assert result.loc["A"] == pytest.approx(0.1)
+        assert result.loc["B"] == pytest.approx(-0.5)
+
+    def test_unsigned_amounts_without_transaction_type_are_not_scored(
+        self, _prices: pd.DataFrame
+    ) -> None:
+        # The ledger stores sales as positive numbers, so without a type column
+        # the sum would be total traded volume mislabelled as net buying.
+        insider = pd.DataFrame(
+            {"ticker": ["A", "A"], "shares": [1_000, 1_000], "value": [10.0, 10.0]}
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[1e6, 1e6], shares_outstanding=[1e5, 1e5]),
+            _prices,
+            insider_data=insider,
+        )
+        assert result.empty
+
+    def test_no_normaliser_in_fundamentals_leaves_factor_uncomputed(
+        self, _prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A"],
+                "shares": [1_000],
+                "transaction_type": ["Purchase"],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[1e6, 1e6]),
+            _prices,
+            insider_data=insider,
+        )
+        assert result.empty
+
+    def test_trade_without_a_usable_amount_leaves_the_ticker_unscored(
+        self, _prices: pd.DataFrame
+    ) -> None:
+        # A's sale has no value: summing only the purchase would report +1e-4
+        # for a ticker whose net direction is unknown.
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "A", "B", "B"],
+                "value": [100.0, np.nan, 100.0, 40.0],
+                "transaction_type": ["Purchase", "Sale", "Purchase", "Sale"],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[1e6, 1_000.0]),
+            _prices,
+            insider_data=insider,
+        )
+        assert np.isnan(result.loc["A"])
+        assert result.loc["B"] == pytest.approx(0.06)
+
+    def test_ticker_whose_trades_all_lack_an_amount_is_nan_not_zero(
+        self, _prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "B"],
+                "value": [np.nan, 100.0],
+                "transaction_type": ["Purchase", "Purchase"],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[1e6, 1_000.0]),
+            _prices,
+            insider_data=insider,
+        )
+        assert np.isnan(result.loc["A"])
+        assert result.loc["B"] == pytest.approx(0.1)
+
+    def test_missing_amount_on_a_non_trade_row_does_not_hide_the_signal(
+        self, _prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "A"],
+                "value": [100.0, np.nan],
+                "transaction_type": ["Purchase", "Stock Award(Grant)"],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[1_000.0, 1_000.0]),
+            _prices,
+            insider_data=insider,
+        )
+        assert result.loc["A"] == pytest.approx(0.1)
+
+    def test_non_positive_market_cap_gives_nan_not_infinity(
+        self, _prices: pd.DataFrame
+    ) -> None:
+        insider = pd.DataFrame(
+            {
+                "ticker": ["A", "B"],
+                "value": [100.0, 100.0],
+                "transaction_type": ["Purchase", "Purchase"],
+            }
+        )
+        result = compute_factor(
+            FactorType.NET_INSIDER_BUYING,
+            self._funds(market_cap=[0.0, 1_000.0]),
+            _prices,
+            insider_data=insider,
+        )
+        assert np.isnan(result.loc["A"])
+        assert result.loc["B"] == pytest.approx(0.1)
 
 
 class TestComputeFactorDispatchEdges:
@@ -1042,3 +1797,254 @@ class TestComputeAllFactorsEmpty:
         assert isinstance(result, pd.DataFrame)
         assert result.shape[1] == 0
         assert list(result.index) == ["A", "B"]
+
+
+class TestAmihudCurrencyInvariance:
+    """Amihud ranks liquidity, not the currency a ticker happens to be quoted in.
+
+    |return| / (price x volume) scales with the price's unit, so a yen-quoted
+    or pence-quoted name looks 100-150x "more liquid" than a dollar name with
+    the same traded value unless prices are converted to one base currency
+    (and minor units rescaled) first.
+    """
+
+    @pytest.fixture()
+    def _panel(
+        self,
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, str]]:
+        rng = np.random.default_rng(7)
+        dates = pd.bdate_range("2023-01-02", periods=60)
+        usd = 50 * np.exp(rng.normal(0, 0.01, len(dates)).cumsum())
+        # Same economic series quoted in USD, JPY (150 JPY per USD) and GBp
+        # (pence; 1 GBP == 1 USD here so only the minor unit differs).
+        prices = pd.DataFrame(
+            {"US": usd, "JP": usd * 150.0, "UK": usd * 100.0}, index=dates
+        )
+        shares = rng.integers(1_000_000, 2_000_000, len(dates)).astype(float)
+        volume = pd.DataFrame(dict.fromkeys(prices.columns, shares), index=dates)
+        fx_rates = pd.DataFrame({"JPY": 1.0 / 150.0, "GBP": 1.0}, index=dates)
+        currency_map = {"US": "USD", "JP": "JPY", "UK": "GBp"}
+        return prices, volume, fx_rates, currency_map
+
+    def test_mixed_currency_panel_gives_equal_amihud_for_equal_liquidity(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, str]],
+        _dummy: pd.DataFrame,
+    ) -> None:
+        from optimizer.fx import FxPriceConverter
+
+        prices, volume, fx_rates, currency_map = _panel
+        converter = FxPriceConverter(
+            base_currency="USD", currency_map=currency_map, fx_rates=fx_rates
+        )
+        result = compute_factor(
+            FactorType.AMIHUD_ILLIQUIDITY,
+            _dummy,
+            prices,
+            volume_history=volume,
+            fx_converter=converter,
+        )
+        assert result.loc["JP"] == pytest.approx(result.loc["US"], rel=1e-9)
+        assert result.loc["UK"] == pytest.approx(result.loc["US"], rel=1e-9)
+
+    def test_compute_all_factors_forwards_fx_converter(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, str]],
+    ) -> None:
+        from optimizer.fx import FxPriceConverter
+
+        prices, volume, fx_rates, currency_map = _panel
+        fundamentals = pd.DataFrame(
+            {"market_cap": [1.0e9] * 3}, index=pd.Index(prices.columns, name="ticker")
+        )
+        converter = FxPriceConverter(
+            base_currency="USD", currency_map=currency_map, fx_rates=fx_rates
+        )
+        config = FactorConstructionConfig(factors=(FactorType.AMIHUD_ILLIQUIDITY,))
+        out = compute_all_factors(
+            fundamentals,
+            prices,
+            volume_history=volume,
+            config=config,
+            fx_converter=converter,
+        )
+        col = out["amihud_illiquidity"]
+        assert col.loc["JP"] == pytest.approx(col.loc["US"], rel=1e-9)
+        assert col.loc["UK"] == pytest.approx(col.loc["US"], rel=1e-9)
+
+    def test_converter_is_not_mutated_by_the_factor_computation(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, str]],
+        _dummy: pd.DataFrame,
+    ) -> None:
+        from optimizer.fx import FxPriceConverter
+
+        prices, volume, fx_rates, currency_map = _panel
+        converter = FxPriceConverter(
+            base_currency="USD", currency_map=currency_map, fx_rates=fx_rates
+        )
+        compute_factor(
+            FactorType.AMIHUD_ILLIQUIDITY,
+            _dummy,
+            prices,
+            volume_history=volume,
+            fx_converter=converter,
+        )
+        assert not hasattr(converter, "fx_aligned_")
+
+
+class TestAmihudAsTradedPrice:
+    """Dollar volume is built from as-traded prices, not dividend-adjusted ones.
+
+    yfinance ``auto_adjust=True`` closes shrink at old dates by every later
+    dividend, so adjusted price x volume understates old turnover and a
+    dividend payer looks less liquid than a non-payer with identical trading.
+    Returns keep coming from the adjusted panel (total return); only the
+    price level used for turnover comes from ``traded_price_history``.
+    """
+
+    @pytest.fixture()
+    def _panel(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        rng = np.random.default_rng(11)
+        dates = pd.bdate_range("2022-01-03", periods=120)
+        raw = pd.DataFrame(
+            {"PAYER": 40 * np.exp(rng.normal(0, 0.01, len(dates)).cumsum())},
+            index=dates,
+        )
+        dividends = pd.DataFrame(0.0, index=dates, columns=["PAYER"])
+        # About 4% a year in four instalments, so the oldest closes are
+        # scaled down by roughly a percent per later ex-date.
+        for i in (20, 50, 80, 110):
+            dividends.iloc[i, 0] = 0.4
+        factor = pd.Series(1.0, index=dates)
+        running = 1.0
+        for i in range(len(dates) - 1, 0, -1):
+            running *= 1.0 - dividends.iloc[i, 0] / raw.iloc[i - 1, 0]
+            factor.iloc[i - 1] = running
+        adjusted = raw.mul(factor, axis=0)
+        volume = pd.DataFrame(
+            {"PAYER": rng.integers(1_000_000, 2_000_000, len(dates)).astype(float)},
+            index=dates,
+        )
+        return raw, adjusted, dividends, volume
+
+    @staticmethod
+    def _expected(
+        raw: pd.DataFrame, adjusted: pd.DataFrame, volume: pd.DataFrame
+    ) -> pd.Series:
+        returns = adjusted.pct_change().dropna()
+        dollar_volume = (raw * volume).reindex(returns.index)
+        return (returns.abs() / dollar_volume).mean()
+
+    def test_traded_price_history_replaces_adjusted_close_in_dollar_volume(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame],
+        _dummy: pd.DataFrame,
+    ) -> None:
+        """Amihud is |r| / (as-traded price x volume), not the adjusted one."""
+        raw, adjusted, _, volume = _panel
+        expected = self._expected(raw, adjusted, volume)
+
+        result = compute_factor(
+            FactorType.AMIHUD_ILLIQUIDITY,
+            _dummy,
+            adjusted,
+            volume_history=volume,
+            traded_price_history=raw,
+        )
+        biased = compute_factor(
+            FactorType.AMIHUD_ILLIQUIDITY, _dummy, adjusted, volume_history=volume
+        )
+
+        assert result.loc["PAYER"] == pytest.approx(expected.loc["PAYER"], rel=1e-9)
+        assert biased.loc["PAYER"] > result.loc["PAYER"] * 1.02
+
+    def test_unadjust_close_output_is_a_valid_traded_price_history(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame],
+        _dummy: pd.DataFrame,
+    ) -> None:
+        """Stored adjusted closes plus stored dividends are enough to fix it."""
+        from optimizer.preprocessing import unadjust_close
+
+        raw, adjusted, dividends, volume = _panel
+        expected = self._expected(raw, adjusted, volume)
+
+        result = compute_factor(
+            FactorType.AMIHUD_ILLIQUIDITY,
+            _dummy,
+            adjusted,
+            volume_history=volume,
+            traded_price_history=unadjust_close(adjusted, dividends),
+        )
+
+        assert result.loc["PAYER"] == pytest.approx(expected.loc["PAYER"], rel=1e-9)
+
+    def test_compute_all_factors_forwards_traded_price_history(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        """The panel-level entry point passes the traded prices on."""
+        raw, adjusted, _, volume = _panel
+        fundamentals = pd.DataFrame(
+            {"market_cap": [1.0e9]}, index=pd.Index(["PAYER"], name="ticker")
+        )
+        config = FactorConstructionConfig(factors=(FactorType.AMIHUD_ILLIQUIDITY,))
+        expected = self._expected(raw, adjusted, volume)
+
+        out = compute_all_factors(
+            fundamentals,
+            adjusted,
+            volume_history=volume,
+            config=config,
+            traded_price_history=raw,
+        )
+
+        assert out.loc["PAYER", "amihud_illiquidity"] == pytest.approx(
+            expected.loc["PAYER"], rel=1e-9
+        )
+
+    def test_fx_converter_is_applied_to_the_traded_prices(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame],
+        _dummy: pd.DataFrame,
+    ) -> None:
+        """Base-currency conversion acts on the price level that sets turnover."""
+        from optimizer.fx import FxPriceConverter
+
+        raw, adjusted, _, volume = _panel
+        expected = self._expected(raw, adjusted, volume)
+        fx_rates = pd.DataFrame({"JPY": 1.0 / 150.0}, index=raw.index)
+        converter = FxPriceConverter(
+            base_currency="USD", currency_map={"PAYER": "JPY"}, fx_rates=fx_rates
+        )
+
+        result = compute_factor(
+            FactorType.AMIHUD_ILLIQUIDITY,
+            _dummy,
+            adjusted * 150.0,
+            volume_history=volume,
+            fx_converter=converter,
+            traded_price_history=raw * 150.0,
+        )
+
+        assert result.loc["PAYER"] == pytest.approx(expected.loc["PAYER"], rel=1e-9)
+
+    def test_traded_prices_for_other_tickers_do_not_add_result_rows(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame],
+        _dummy: pd.DataFrame,
+    ) -> None:
+        """Only tickers present in price_history are scored."""
+        raw, adjusted, _, volume = _panel
+        traded = raw.assign(OTHER=raw["PAYER"])
+
+        result = compute_factor(
+            FactorType.AMIHUD_ILLIQUIDITY,
+            _dummy,
+            adjusted,
+            volume_history=volume,
+            traded_price_history=traded,
+        )
+
+        assert list(result.index) == ["PAYER"]

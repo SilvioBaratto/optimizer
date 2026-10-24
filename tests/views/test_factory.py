@@ -12,6 +12,7 @@ from skfolio.prior import (
     TimeSeriesFactorModel,
 )
 from skfolio.prior._base import BasePrior
+from sklearn.base import clone
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.moments import MomentEstimationConfig, MuEstimatorType
@@ -83,6 +84,36 @@ class TestBuildBlackLitterman:
 
         assert isinstance(prior.prior_estimator.mu_estimator, ShrunkMu)
 
+    def test_market_weights_forwarded_to_equilibrium_prior(self) -> None:
+        cfg = BlackLittermanConfig.for_equilibrium(views=("TICK_00 == 0.05",))
+        weights = np.array([0.7, 0.3])
+        prior = build_black_litterman(cfg, market_weights=weights)
+        assert isinstance(prior, BlackLitterman)
+        mu_estimator = prior.prior_estimator.mu_estimator  # type: ignore[union-attr]
+        np.testing.assert_array_equal(mu_estimator.weights, weights)
+
+    def test_market_weights_default_none(self) -> None:
+        cfg = BlackLittermanConfig.for_equilibrium(views=("TICK_00 == 0.05",))
+        prior = build_black_litterman(cfg)
+        assert isinstance(prior, BlackLitterman)
+        assert prior.prior_estimator.mu_estimator.weights is None  # type: ignore[union-attr]
+
+    def test_market_weights_change_posterior_mean(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        """Cap weights move the equilibrium prior away from the equal-weight one."""
+        cfg = BlackLittermanConfig.for_equilibrium(views=("TICK_00 == 0.05",))
+        n_assets = returns_df.shape[1]
+        caps = np.full(n_assets, 0.5 / (n_assets - 1))
+        caps[1] = 0.5
+
+        equal = build_black_litterman(cfg).fit(returns_df)
+        cap_weighted = build_black_litterman(cfg, market_weights=caps).fit(returns_df)
+
+        assert not np.allclose(
+            equal.return_distribution_.mu, cap_weighted.return_distribution_.mu
+        )
+
     def test_factor_model_variant(self) -> None:
         cfg = BlackLittermanConfig(views=("TICK_00 == 0.05",), use_factor_model=True)
         prior = build_black_litterman(cfg)
@@ -93,6 +124,49 @@ class TestBuildBlackLitterman:
         prior = build_black_litterman(cfg)
         assert isinstance(prior, BlackLitterman)
         assert isinstance(prior.views, list)
+
+    def test_empirical_omega_prior_exposes_all_params(self) -> None:
+        cfg = BlackLittermanConfig(
+            views=("TICK_00 == 0.05",),
+            tau=0.1,
+            risk_free_rate=0.01,
+            uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
+        )
+        prior = build_black_litterman(cfg, omega=np.diag([1e-4]))
+        params = prior.get_params(deep=False)
+        assert set(params) == {
+            "views",
+            "groups",
+            "prior_estimator",
+            "tau",
+            "view_confidences",
+            "risk_free_rate",
+            "empirical_omega",
+        }
+        assert params["tau"] == 0.1
+        assert params["risk_free_rate"] == 0.01
+
+    def test_empirical_omega_prior_survives_clone(self) -> None:
+        cfg = BlackLittermanConfig(
+            views=("TICK_00 == 0.05",),
+            tau=0.1,
+            uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
+        )
+        prior = build_black_litterman(cfg, omega=np.diag([1e-4]))
+        cloned = clone(prior)
+        assert isinstance(cloned, _EmpiricalOmegaBlackLitterman)
+        assert cloned.views == ["TICK_00 == 0.05"]
+        assert cloned.tau == 0.1
+        np.testing.assert_array_equal(cloned.empirical_omega, np.diag([1e-4]))
+
+    def test_empirical_omega_prior_set_params_updates_tau(self) -> None:
+        cfg = BlackLittermanConfig(
+            views=("TICK_00 == 0.05",),
+            uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
+        )
+        prior = build_black_litterman(cfg, omega=np.diag([1e-4]))
+        prior.set_params(tau=0.2)
+        assert prior.tau == 0.2
 
 
 class TestBuildEntropyPooling:
@@ -177,6 +251,11 @@ class TestBuildEntropyPooling:
 
         assert isinstance(prior.prior_estimator.mu_estimator, ShrunkMu)
 
+    def test_default_prior_left_unset_so_pooling_can_own_it(self) -> None:
+        cfg = EntropyPoolingConfig(mean_views=("TICK_00 == 0.05",))
+        prior = build_entropy_pooling(cfg)
+        assert prior.prior_estimator is None
+
     def test_none_views_stay_none(self) -> None:
         cfg = EntropyPoolingConfig(mean_views=("TICK_00 == 0.05",))
         prior = build_entropy_pooling(cfg)
@@ -214,7 +293,7 @@ class TestBuildEntropyPooling:
         mu = np.array([0.05, 0.03])
         cov = np.diag([0.04, 0.02])
         cfg = EntropyPoolingConfig(
-            relative_mean_views=(("AAPL", 0.01),),
+            relative_mean_views=(("AAPL", 1.2),),
         )
         prior = build_entropy_pooling(
             cfg,
@@ -224,6 +303,36 @@ class TestBuildEntropyPooling:
         assert prior.mean_views is not None
         assert len(prior.mean_views) == 1
         assert "AAPL == 0.06" in prior.mean_views[0]
+
+    def test_relative_mean_views_scale_the_prior_mean(self) -> None:
+        """A relative mean view is multiplier x prior mean, like the variance one."""
+        mu = np.array([-0.001, 0.0004])
+        cov = np.diag([0.04, 0.02])
+        cfg = EntropyPoolingConfig(
+            relative_mean_views=(("AAPL", 1.5), ("MSFT", 1.2)),
+        )
+        prior = build_entropy_pooling(
+            cfg, prior_moments=(mu, cov), asset_names=["AAPL", "MSFT"]
+        )
+        assert prior.mean_views is not None
+        targets = {
+            view.split(" == ")[0]: float(view.split(" == ")[1])
+            for view in prior.mean_views
+        }
+        assert targets["AAPL"] == pytest.approx(-0.0015)
+        assert targets["MSFT"] == pytest.approx(0.00048)
+
+    def test_relative_mean_view_fits_to_scaled_prior_mean(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        """The resolved view is feasible and pins the posterior mean at m x prior."""
+        mu = returns_df.mean().to_numpy()
+        cov = returns_df.cov().to_numpy()
+        names = list(returns_df.columns)
+        cfg = EntropyPoolingConfig(relative_mean_views=((names[0], 1.5),))
+        prior = build_entropy_pooling(cfg, prior_moments=(mu, cov), asset_names=names)
+        prior.fit(returns_df)
+        assert prior.return_distribution_.mu[0] == pytest.approx(1.5 * mu[0], abs=1e-6)
 
     def test_relative_variance_views_resolved(self) -> None:
         """Relative variance views multiply prior diagonal variance."""
@@ -255,7 +364,7 @@ class TestBuildEntropyPooling:
         cov = np.diag([0.04, 0.02])
         cfg = EntropyPoolingConfig(
             mean_views=("MSFT == 0.02",),
-            relative_mean_views=(("AAPL", 0.01),),
+            relative_mean_views=(("AAPL", 1.2),),
         )
         prior = build_entropy_pooling(
             cfg, prior_moments=(mu, cov), asset_names=["AAPL", "MSFT"]
@@ -451,6 +560,28 @@ class TestIntegration:
         assert rd.mu is not None
         assert rd.covariance is not None
 
+    def test_built_entropy_pooling_experts_compose_with_opinion_pooling(self) -> None:
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+
+        expert_1 = build_entropy_pooling(
+            EntropyPoolingConfig(mean_views=("AAPL == 0.001",))
+        )
+        expert_2 = build_entropy_pooling(
+            EntropyPoolingConfig(mean_views=("JPM == 0.001",))
+        )
+        estimators: list[tuple[str, BasePrior]] = [
+            ("ep_1", expert_1),
+            ("ep_2", expert_2),
+        ]
+        cfg = OpinionPoolingConfig(opinion_probabilities=(0.6, 0.4))
+        prior = build_opinion_pooling(estimators, cfg)
+        prior.fit(returns)
+        assert np.all(np.isfinite(prior.return_distribution_.mu))
+
     def test_bl_factor_model_fit(self) -> None:
         from skfolio.datasets import load_factors_dataset, load_sp500_dataset
         from skfolio.preprocessing import prices_to_returns
@@ -600,6 +731,41 @@ class TestIntegration:
         prior.fit(returns)
         eigvals = np.linalg.eigvalsh(prior.return_distribution_.covariance)
         assert np.all(eigvals >= -1e-10)
+
+    def test_idzorek_integer_confidences_give_finite_posterior(self) -> None:
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+
+        cfg = BlackLittermanConfig(
+            views=("AAPL == 0.001", "JPM == 0.001"),
+            uncertainty_method=ViewUncertaintyMethod.IDZOREK,
+            view_confidences=(0, 1),
+        )
+        prior = build_black_litterman(cfg)
+        prior.fit(returns)
+        assert np.all(np.isfinite(prior.return_distribution_.mu))
+
+    def test_empirical_omega_composes_with_meanrisk(self) -> None:
+        from skfolio.datasets import load_sp500_dataset
+        from skfolio.optimization import MeanRisk
+        from skfolio.preprocessing import prices_to_returns
+
+        prices = load_sp500_dataset()
+        returns = prices_to_returns(prices)
+
+        cfg = BlackLittermanConfig(
+            views=("AAPL == 0.0005",),
+            uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
+        )
+        prior = build_black_litterman(cfg, omega=np.diag([1e-5]))
+        model = MeanRisk(prior_estimator=prior)
+        model.fit(returns)
+        portfolio = model.predict(returns)
+        assert portfolio.weights is not None
+        assert np.all(np.isfinite(portfolio.weights))
 
     def test_bl_composes_with_meanrisk(self) -> None:
         from skfolio.datasets import load_sp500_dataset

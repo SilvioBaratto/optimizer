@@ -12,17 +12,21 @@ delegates to.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.services._shared import trading_calendar
 from app.services._shared.trading_calendar import (
     get_expected_trading_sessions,
     has_sufficient_history,
     iter_trading_days,
+    last_completed_session,
     parse_period_years,
+    period_start_date,
 )
+from app.services.universe.trading212.config import UniverseBuilderConfig
 
 
 class TestParsePeriodYears:
@@ -33,6 +37,35 @@ class TestParsePeriodYears:
     @pytest.mark.parametrize("period", ["6mo", "max", "1d", "ytd", ""])
     def test_when_non_year_period_then_none(self, period: str) -> None:
         assert parse_period_years(period) is None
+
+
+class TestPeriodStartDate:
+    _REF = date(2024, 12, 31)
+
+    @pytest.mark.parametrize(
+        "period,expected",
+        [
+            ("5y", date(2019, 12, 31)),
+            ("1y", date(2023, 12, 31)),
+            ("6mo", date(2024, 6, 30)),
+            ("2wk", date(2024, 12, 17)),
+            ("10d", date(2024, 12, 21)),
+            ("ytd", date(2024, 1, 1)),
+        ],
+    )
+    def test_when_valid_period_then_window_start_returned(
+        self, period: str, expected: date
+    ) -> None:
+        assert period_start_date(period, self._REF) == expected
+
+    def test_when_leap_day_reference_then_year_offset_clamps_to_month_end(
+        self,
+    ) -> None:
+        assert period_start_date("1y", date(2024, 2, 29)) == date(2023, 2, 28)
+
+    @pytest.mark.parametrize("period", ["max", "5yrs", "", "0y"])
+    def test_when_period_has_no_finite_start_then_none(self, period: str) -> None:
+        assert period_start_date(period, self._REF) is None
 
 
 class TestExpectedTradingSessions:
@@ -57,6 +90,25 @@ class TestExpectedTradingSessions:
         )
         assert sessions is not None
         assert 240 <= sessions <= 256
+
+    @pytest.mark.parametrize(
+        "exchange", sorted(UniverseBuilderConfig().yahoo_suffix_map)
+    )
+    def test_when_universe_exchange_then_calendar_resolves(self, exchange: str) -> None:
+        # The universe scope is exactly ``yahoo_suffix_map``; a venue missing from
+        # the calendar map silently loses the truncated-history guard.
+        assert get_expected_trading_sessions(exchange, "5y", self._REF) is not None
+
+    def test_when_exchange_has_no_calendar_then_skip_is_logged_once(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setattr(trading_calendar, "_UNMAPPED_LOGGED", set())
+        with caplog.at_level("INFO", logger=trading_calendar.logger.name):
+            get_expected_trading_sessions("Bogus Exchange", "1y", self._REF)
+            get_expected_trading_sessions("Bogus Exchange", "1y", self._REF)
+        skipped = [r for r in caplog.records if "Bogus Exchange" in r.getMessage()]
+        assert len(skipped) == 1
+        assert skipped[0].levelname == "INFO"
 
     # ------------------------------------------------------------------
     # Uncovered branch: lines 54-56 — Feb-29 leap-year fallback (day=28)
@@ -168,6 +220,37 @@ class TestIterTradingDays:
         mock_cal.sessions_in_range.assert_not_called()
 
 
+class TestLastCompletedSession:
+    """Newest session strictly before a date: the bar an incremental fetch ends on."""
+
+    def test_monday_resolves_to_the_previous_friday(self) -> None:
+        assert last_completed_session("NYSE", date(2024, 7, 8)) == date(2024, 7, 5)
+
+    def test_midweek_resolves_to_the_previous_day(self) -> None:
+        assert last_completed_session("NYSE", date(2024, 7, 9)) == date(2024, 7, 8)
+
+    def test_skips_an_exchange_holiday(self) -> None:
+        """2024-07-04 is a NYSE holiday, so Friday 07-05 looks back to Wed 07-03."""
+        assert last_completed_session("NYSE", date(2024, 7, 5)) == date(2024, 7, 3)
+
+    def test_the_reference_date_itself_never_counts(self) -> None:
+        assert last_completed_session("NYSE", date(2024, 7, 9)) < date(2024, 7, 9)
+
+    def test_unknown_exchange_falls_back_to_the_previous_weekday(self) -> None:
+        assert last_completed_session("Bogus", date(2024, 7, 5)) == date(2024, 7, 4)
+        assert last_completed_session("Bogus", date(2024, 7, 8)) == date(2024, 7, 5)
+
+    def test_missing_exchange_falls_back_to_the_previous_weekday(self) -> None:
+        assert last_completed_session(None, date(2024, 7, 8)) == date(2024, 7, 5)
+
+    def test_calendar_failure_falls_back_to_the_previous_weekday(self) -> None:
+        with patch(
+            "app.services._shared.trading_calendar.xcals.get_calendar",
+            side_effect=Exception("boom"),
+        ):
+            assert last_completed_session("NYSE", date(2024, 7, 5)) == date(2024, 7, 4)
+
+
 class TestHasSufficientHistory:
     def test_when_exchange_none_then_skipped_true(self) -> None:
         assert has_sufficient_history(0, None, "5y") == (True, None, None)
@@ -189,3 +272,37 @@ class TestHasSufficientHistory:
         assert sufficient is False
         assert expected is not None
         assert minimum is not None and minimum > 1
+
+    def test_when_young_listing_has_every_session_since_its_start_then_sufficient(
+        self,
+    ) -> None:
+        listed = date.today() - timedelta(days=730)
+        rows = len(iter_trading_days(listed, date.today(), "NYSE"))
+
+        sufficient, expected, minimum = has_sufficient_history(
+            rows, "NYSE", "5y", since=listed
+        )
+
+        assert sufficient is True
+        assert expected is not None and expected < 600
+        assert minimum == int(expected * 0.95)
+
+    def test_when_young_listing_is_missing_most_sessions_then_insufficient(
+        self,
+    ) -> None:
+        listed = date.today() - timedelta(days=730)
+        rows = len(iter_trading_days(listed, date.today(), "NYSE")) // 5
+
+        sufficient, _, _ = has_sufficient_history(rows, "NYSE", "5y", since=listed)
+
+        assert sufficient is False
+
+    def test_when_since_predates_period_then_window_stays_full_period(
+        self,
+    ) -> None:
+        full = has_sufficient_history(1, "NYSE", "5y")
+        bounded = has_sufficient_history(
+            1, "NYSE", "5y", since=date.today() - timedelta(days=3650)
+        )
+
+        assert bounded == full

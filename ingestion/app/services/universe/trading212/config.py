@@ -51,6 +51,14 @@ class UniverseBuilderConfig:
         "NYSE",
     )
 
+    # Delisting-reconciliation sanity guard. A venue losing more than this
+    # fraction of its active tickers in one run looks like a cut-off source
+    # answer rather than a mass delisting, so none of them is marked.
+    max_delisting_fraction: float = 0.20
+    # Below this many active tickers one delisting already exceeds any sensible
+    # fraction, so the guard only applies to venues at least this large.
+    delisting_guard_min_tickers: int = 20
+
     def get_allowed_exchanges(self) -> set[str]:
         """The universe scope: every exchange with a Yahoo suffix mapping."""
         return set(self.yahoo_suffix_map)

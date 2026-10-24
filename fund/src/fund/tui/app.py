@@ -8,7 +8,9 @@ all side effects:
 * **Polling, not pushing.** ``ShellApp._refresh`` runs on a ``set_interval``
   timer (``poll_interval``, ~2s), opening a *short read-only* session, extracting
   plain dataclasses, and rolling back — the UI never holds a transaction or an ORM
-  row across ticks.
+  row across ticks. A view with a heavy read (Performance, Daily brief) instead
+  splits its tick via ``ShellView.poll_task`` so the read runs on a worker thread and
+  only the paint touches the event loop.
 * **Mutations off the event loop.** Actions (approve/reject/killswitch/mandate/
   onboard/run) dispatch ``@work(thread=True)`` workers that call
   ``fund.actions.apply_action`` on a background thread, commit once, then marshal
@@ -27,10 +29,13 @@ over SQLite + ``MemorySaver`` + a scripted model with zero network.
 from __future__ import annotations
 
 import datetime as dt
+import functools
+import logging
 import threading
 import uuid
 from contextlib import suppress
-from typing import TYPE_CHECKING, Any, ClassVar
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, ClassVar, Concatenate, ParamSpec
 
 from textual import work
 from textual.app import App, ComposeResult
@@ -55,8 +60,10 @@ from fund import observe
 from fund.config import FundConfig, settings
 from fund.tui import ask
 from fund.tui.barge_in import BargeInResult, BargeInScreen
-from fund.tui.questionnaire import QuestionnaireScreen
+from fund.tui.exports import export_path
+from fund.tui.questionnaire import QuestionnaireScreen, describe_error
 from fund.tui.views import (
+    RAIL_LABELS,
     VIEW_SPECS,
     AskView,
     AuditView,
@@ -69,7 +76,7 @@ from fund.tui.views import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Collection
     from contextlib import AbstractContextManager
 
     from sqlalchemy.orm import Session
@@ -77,6 +84,18 @@ if TYPE_CHECKING:
     from textual.worker import Worker
 
     from fund.tui.questionnaire import OnboardingSubmission
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _QueuedDirective:
+    """A barge-in directive held back until its run reaches the committed gate."""
+
+    run_id: uuid.UUID
+    portfolio_id: uuid.UUID | None
+    text: str
+    remember: bool
 
 
 class ConfirmScreen(ModalScreen[bool]):
@@ -101,6 +120,10 @@ class ConfirmScreen(ModalScreen[bool]):
     .confirm-actions { height: auto; align-horizontal: center; padding-top: 1; }
     """
 
+    # The dialog opens right after the Enter that submitted the triggering turn, so a
+    # key repeat lands on whatever holds focus: that must be the harmless button.
+    AUTO_FOCUS: ClassVar[str | None] = "#confirm-no"
+
     BINDINGS: ClassVar[list[BindingType]] = [("escape", "cancel", "Cancel")]
 
     def __init__(self, prompt: str) -> None:
@@ -124,26 +147,44 @@ class ConfirmScreen(ModalScreen[bool]):
         self.dismiss(False)
 
 
-def _parse_weights(raw: str) -> dict[str, float]:
+def _parse_weights(
+    raw: str, *, allowed: Collection[str] | None = None
+) -> dict[str, float]:
     """Parse a ``"ticker:weight, …"`` edit string into a weights mapping.
 
     Args:
         raw: Comma-separated ``ticker:weight`` pairs the adviser typed.
+        allowed: The tickers an edit may name (the gate's proposed names). When
+            given, each typed ticker is resolved to its canonical spelling (exact
+            match first, then case-insensitive) and anything outside the set is
+            rejected, so a typo can never reach the order path as a phantom holding.
 
     Returns:
         The parsed ``{ticker: weight}`` mapping (risk invariants are left to
-        ``apply_action("edit")``; this only guards the textual shape).
+        ``apply_action("edit")``; this guards the textual shape and the ticker set).
 
     Raises:
-        ValueError: A pair is missing its ``ticker``/``weight`` or the weight is
-            not a float — surfaced inline so a typo never dismisses the editor.
+        ValueError: A pair is missing its ``ticker``/``weight``, the weight is not a
+            float, the ticker is not in ``allowed`` or appears twice — surfaced
+            inline so a typo never dismisses the editor.
     """
+    known = frozenset(allowed) if allowed is not None else None
+    folded = {name.upper(): name for name in known} if known is not None else {}
     weights: dict[str, float] = {}
     for part in raw.split(","):
         ticker, _, weight = part.partition(":")
         ticker = ticker.strip()
         if not ticker or not weight.strip():
             raise ValueError(f"bad entry {part.strip()!r}; use ticker:weight")
+        if known is not None and ticker not in known:
+            resolved = folded.get(ticker.upper())
+            if resolved is None:
+                raise ValueError(
+                    f"unknown ticker {ticker!r}; not among the proposed tickers"
+                )
+            ticker = resolved
+        if ticker in weights:
+            raise ValueError(f"duplicate ticker {ticker!r}")
         try:
             weights[ticker] = float(weight)
         except ValueError:
@@ -157,8 +198,10 @@ class OrderEditScreen(ModalScreen["dict[str, float] | None"]):
     Pre-fills the optimizer's proposed ``{ticker: weight}`` as an editable line; on
     Commit (or ``↵``) it parses the text and — if well-formed — dismisses the edited
     mapping, which the caller threads through ``apply_action("edit")``. A parse error
-    surfaces inline (the editor stays open); Cancel / ``escape`` / empty dismiss
-    ``None``. Risk invariants (long-only, fully-invested) are enforced downstream.
+    or a ticker outside the proposed set surfaces inline (the editor stays open);
+    Cancel / ``escape`` / empty dismiss ``None``. The proposed tickers are the only
+    names an edit may use. Risk invariants (long-only, fully-invested) are enforced
+    downstream.
 
     Args:
         weights: The proposed target weights to pre-fill.
@@ -191,12 +234,12 @@ class OrderEditScreen(ModalScreen["dict[str, float] | None"]):
             )
             yield Input(
                 value=", ".join(
-                    f"{ticker}:{weight:.4f}"
+                    f"{ticker}:{weight:.10g}"
                     for ticker, weight in sorted(self._weights.items())
                 ),
                 id="edit-weights",
             )
-            yield Static("", id="edit-error", classes="edit-error")
+            yield Static("", id="edit-error", classes="edit-error", markup=False)
             with Horizontal(classes="edit-actions"):
                 yield Button("Commit", variant="primary", id="edit-commit")
                 yield Button("Cancel", id="edit-cancel")
@@ -223,7 +266,7 @@ class OrderEditScreen(ModalScreen["dict[str, float] | None"]):
             self.dismiss(None)
             return
         try:
-            edited = _parse_weights(raw)
+            edited = _parse_weights(raw, allowed=self._weights)
         except ValueError as exc:
             self.query_one("#edit-error", Static).update(f"⚠ {exc}")
             return
@@ -252,6 +295,10 @@ class ScopePickScreen(ModalScreen["str | None"]):
     .scope-actions { height: auto; align-horizontal: center; padding-top: 1; }
     .scope-actions Button { margin: 0 1; }
     """
+
+    # Every scope button is consequential, so a stray Enter right after the opening
+    # keypress must land on Cancel rather than the first scope.
+    AUTO_FOCUS: ClassVar[str | None] = "#scope-cancel"
 
     BINDINGS: ClassVar[list[BindingType]] = [("escape", "cancel", "Cancel")]
 
@@ -354,6 +401,7 @@ GLOBAL
   ctrl+s save mandate    o override guardrail
   n new portfolio   p profile   u run now   b barge in
   t audit actor   f audit overrides   g audit this-pf   e export (Audit)
+  tab / shift+tab move focus: header, sidebar, view
   ? / F1 help   q quit
 
 VIEW-SCOPED
@@ -362,8 +410,8 @@ VIEW-SCOPED
   Decisions     e edit weights   s steer PM
   Mandate       x remove directive
   Performance   ↵ drill into a holding
-  Ask           ↵ ask   e export
-  Daily brief   ← / → day   ↵ deliberation   e export"""
+  Ask           ↵ ask   shift+tab log, then e export
+  Daily brief   ← / → day   ↵ deliberation   e export   esc sidebar"""
 
 
 class HelpScreen(ModalScreen[None]):
@@ -404,6 +452,93 @@ class HelpScreen(ModalScreen[None]):
 
 
 _NARROW_WIDTH = 80  # below this terminal width the sidebar collapses to a rail
+# How often a barge-in-held stream worker re-checks whether the app is quitting.
+_HOLD_POLL_SECONDS = 0.25
+
+# ``App.notify`` has no "never expire" value: ``timeout=None`` falls back to the
+# default (5s). A day outlasts any unattended stretch, and the adviser can still click
+# a toast away.
+_ATTENTION_TOAST_TIMEOUT_S = 24 * 60 * 60.0
+
+_AttentionKey = tuple[str, uuid.UUID]
+
+
+@dataclass(frozen=True)
+class _AttentionRead:
+    """One tick's read of the fund-wide attention feed, with what could not be read.
+
+    Attributes:
+        items: ``(key, message)`` for every gate / breach the tick could see.
+        unknown_kinds: Item kinds (``"gate"`` / ``"breach"``) whose whole read failed,
+            so their prior state is neither confirmed nor cleared.
+        unreadable_breaches: Portfolios whose drift check failed on its own while the
+            rest of the roster read fine.
+    """
+
+    items: list[tuple[_AttentionKey, str]]
+    unknown_kinds: frozenset[str] = frozenset()
+    unreadable_breaches: frozenset[uuid.UUID] = frozenset()
+
+    @property
+    def degraded(self) -> bool:
+        """Whether any part of the feed could not be read this tick."""
+        return bool(self.unknown_kinds or self.unreadable_breaches)
+
+    def is_unknown(self, key: _AttentionKey) -> bool:
+        """Whether ``key``'s state is undetermined, so it must not be cleared."""
+        kind, ident = key
+        return kind in self.unknown_kinds or (
+            kind == "breach" and ident in self.unreadable_breaches
+        )
+
+
+_P = ParamSpec("_P")
+
+
+def _single_flight(
+    label: str,
+) -> Callable[
+    [Callable[Concatenate[ShellApp, _P], None]],
+    Callable[Concatenate[ShellApp, _P], None],
+]:
+    """Run a gate-mutating thread worker only while no other one is in flight.
+
+    Textual's ``exclusive=True`` merely flags the *older* ``Worker`` cancelled; its
+    thread keeps running. Without this guard a repeat or conflicting keypress during
+    the seconds a graph resume takes starts a second thread on the same paused run, so
+    approve + reject both execute and whichever commits last decides the run's final
+    state. A non-blocking lock refuses the late action with a status line rather than
+    queueing a decision made against a stale screen, and it is released on every exit
+    path, failures included. The portfolio / fund freeze is deliberately not guarded:
+    see :meth:`ShellApp._freeze_worker`.
+
+    Args:
+        label: Present-tense phrase shown on the status line while the action runs.
+
+    Returns:
+        A decorator for a ``ShellApp`` worker body, applied beneath ``@work``.
+    """
+
+    def decorate(
+        body: Callable[Concatenate[ShellApp, _P], None],
+    ) -> Callable[Concatenate[ShellApp, _P], None]:
+        @functools.wraps(body)
+        def guarded(self: ShellApp, *args: _P.args, **kwargs: _P.kwargs) -> None:
+            if not self._action_lock.acquire(blocking=False):
+                self.call_from_thread(
+                    self._set_status,
+                    "another action is still in progress — wait for it to finish",
+                )
+                return
+            try:
+                self.call_from_thread(self._set_status, f"{label}…")
+                body(self, *args, **kwargs)
+            finally:
+                self._action_lock.release()
+
+        return guarded
+
+    return decorate
 
 
 class ShellApp(App[None]):
@@ -425,13 +560,20 @@ class ShellApp(App[None]):
     CSS = """
     .shell-header { height: 1; background: $panel; color: $text; }
     .shell-header Static { width: auto; padding: 0 2; }
+    /* A bordered Select is 3 rows tall; in the 1-row header its label row would sit
+       under the body, so strip the border (focus included) to keep it on one row. */
+    .hdr-picker { height: 1; }
+    .hdr-picker > SelectCurrent,
+    .hdr-picker:focus > SelectCurrent { height: 1; border: none; padding: 0 1; }
+    #hdr-feed { display: none; color: $warning; }
     .shell-body { height: 1fr; }
     .sidebar { width: 22; border-right: solid $accent; }
     .sidebar.narrow { width: 5; }
     .content { width: 1fr; padding: 0 1; }
     .view-title { text-style: bold; color: $accent; }
     .view-subtitle { color: $accent; }
-    .status-bar { dock: bottom; height: 1; background: $panel; padding: 0 1; }
+    /* Not docked: the Footer owns the bottom dock edge and would paint over it. */
+    .status-bar { height: 1; background: $panel; padding: 0 1; }
     .posture-body { height: 1fr; }
     .posture-roster { width: 45%; }
     .posture-detail { width: 1fr; padding: 0 1; color: $warning; }
@@ -456,6 +598,7 @@ class ShellApp(App[None]):
     .delib-runs { height: 40%; }
     .delib-steps { height: 1fr; }
     .delib-live { height: 1fr; }
+    .delib-detail-wrap { width: 1fr; }
     .delib-detail { width: 1fr; padding: 0 1; color: $warning; }
     .delib-hint { height: 1; color: $accent; }
     .perf-risk { height: auto; color: $accent; }
@@ -495,6 +638,7 @@ class ShellApp(App[None]):
         session_factory: Callable[[], AbstractContextManager[Session]],
         persistence: Any,
         model_factory: Callable[[], Any],
+        fallback_factory: Callable[[], Any] | None = None,
         config: FundConfig = settings,
         poll_interval: float = 2.0,
     ) -> None:
@@ -509,6 +653,8 @@ class ShellApp(App[None]):
                 ``.store`` (used by the data-bearing views in later phases).
             model_factory: Called lazily when the adviser acts; unused by the
                 Phase-0 placeholder views.
+            fallback_factory: Called lazily alongside ``model_factory`` to build
+                the model the subagents retry on; ``None`` runs without one.
             config: Application settings; defaults to the process singleton.
             poll_interval: Refresh timer cadence in seconds.
         """
@@ -517,6 +663,7 @@ class ShellApp(App[None]):
         self._session_factory = session_factory
         self._persistence = persistence
         self._model_factory = model_factory
+        self._fallback_factory = fallback_factory
         self._config = config
         self._poll_interval = poll_interval
         self.last_status: str = ""
@@ -535,11 +682,23 @@ class ShellApp(App[None]):
         # is never left cleared (which would hang the worker).
         self._stream_resume = threading.Event()
         self._stream_resume.set()
+        # Serialises the gate-mutating workers (see ``_single_flight``).
+        self._action_lock = threading.Lock()
+        # A directive sent while the round is still streaming. ``respond`` needs the
+        # run row committed and parked at its gate, neither of which holds until the
+        # stream worker finishes, so it waits here and ``_deliver_queued_directive``
+        # sends it (or drops it) once the stream ends.
+        self._queued_directive: _QueuedDirective | None = None
         # Notification bus (poll-diff): attention keys already alerted, so a
         # still-pending gate/breach never re-toasts on the next tick.
-        self._seen_attention: set[tuple[str, uuid.UUID]] = set()
+        self._seen_attention: set[_AttentionKey] = set()
         self._awaiting_count = 0
+        self._attention_degraded = False
+        # Failing feed reads already logged, so a read that fails on every ~2s tick
+        # writes one line per failure episode instead of one per tick.
+        self._logged_attention_failures: set[str] = set()
         self.last_attention: list[str] = []  # headless-test hook (mirrors last_status)
+        self._poll_read_inflight = False
 
     # --- layout -------------------------------------------------------------
 
@@ -547,10 +706,17 @@ class ShellApp(App[None]):
         """Yield the header, the sidebar | content split, the status bar, and footer."""
         yield Header()
         with Horizontal(id="shell-header", classes="shell-header"):
-            yield Select([], prompt="⟨fund-wide⟩", id="hdr-portfolio", allow_blank=True)
+            yield Select(
+                [],
+                prompt="⟨fund-wide⟩",
+                id="hdr-portfolio",
+                classes="hdr-picker",
+                allow_blank=True,
+            )
             yield Static("● ARMED", id="hdr-mode")
             yield Static(self._runstate, id="hdr-runstate")
             yield Static("⏸0 awaiting", id="hdr-attention")
+            yield Static("⚠ feed degraded", id="hdr-feed")
         with Horizontal(id="shell-body", classes="shell-body"):
             yield ListView(
                 *(ListItem(Label(title), id=f"nav-{key}") for key, title in VIEW_SPECS),
@@ -561,14 +727,16 @@ class ShellApp(App[None]):
                 initial="view-posture", id="content", classes="content"
             ):
                 yield from build_views()
-        yield Static("", id="status-bar", classes="status-bar")
+        # Status text embeds exception messages (pydantic's "[type=..., input_..]") that
+        # Textual would otherwise parse as markup and raise on.
+        yield Static("", id="status-bar", classes="status-bar", markup=False)
         yield Footer()
 
     def on_mount(self) -> None:
         """Seed the portfolio picker, paint the run-state glyph, and start polling.
 
-        The mount-time ``Select.Changed`` the seeding echoes is dropped by
-        ``on_select_changed``'s value-equality guard, not a mount-window flag.
+        The seeding runs with ``Select.Changed`` prevented (see :meth:`_apply_picker`),
+        so it never reaches ``on_select_changed`` as a phantom pick.
         """
         # Seed the picker, then paint once the views have mounted and poll on the
         # cockpit's cadence (the placeholder views' refresh is a no-op counter bump
@@ -577,8 +745,21 @@ class ShellApp(App[None]):
         self._refresh_runstate()
         if self.size.width:
             self._apply_width(self.size.width)
-        self.call_after_refresh(self._refresh)
+        self.call_after_refresh(self._paint_landing)
         self.set_interval(self._poll_interval, self._poll)
+
+    def _paint_landing(self) -> None:
+        """First paint: repaint the landing view and move focus into it.
+
+        Textual's auto-focus parks on the first focusable widget, the header portfolio
+        picker, so without this the landing view's hinted keys (``d`` brief) and arrow
+        selection stay dead until the adviser tabs in. The header stays reachable with
+        shift+tab.
+        """
+        self._refresh()
+        current = self.query_one(ContentSwitcher).current
+        if current is not None:
+            self.query_one(f"#{current}", ShellView).focus_primary()
 
     def on_resize(self, event: Resize) -> None:
         """Collapse/restore the sidebar rail as the terminal crosses the threshold."""
@@ -594,11 +775,12 @@ class ShellApp(App[None]):
         self.push_screen(HelpScreen())
 
     def _apply_width(self, width: int) -> None:
-        """Collapse the sidebar to a single-letter rail below the narrow threshold.
+        """Collapse the sidebar to a short-label rail below the narrow threshold.
 
         At narrow widths the sidebar shrinks (``.narrow`` CSS) and each entry's
-        label drops to its leading letter, leaving the content pane effectively
-        single-pane; above the threshold the full titles and width return.
+        label drops to its :data:`~fund.tui.views.RAIL_LABELS` abbreviation, leaving
+        the content pane effectively single-pane; above the threshold the full
+        titles and width return.
         """
         self._narrow = width < _NARROW_WIDTH
         try:
@@ -608,7 +790,7 @@ class ShellApp(App[None]):
         sidebar.set_class(self._narrow, "narrow")
         for key, title in VIEW_SPECS:
             self.query_one(f"#nav-{key}", ListItem).query_one(Label).update(
-                title[0] if self._narrow else title
+                RAIL_LABELS[key] if self._narrow else title
             )
 
     # --- navigation + refresh ----------------------------------------------
@@ -626,11 +808,9 @@ class ShellApp(App[None]):
         key = item_id[len("nav-") :]
         self.query_one(ContentSwitcher).current = f"view-{key}"
         self._refresh()
-        # Focus a focusable content view so its key bindings fire. Only the brief is
-        # focusable, so other views keep focus on the sidebar until a row is picked.
-        view = self.query_one(f"#view-{key}", ShellView)
-        if view.can_focus:
-            view.focus()
+        # View-scoped keys and the arrow selection the hints advertise only reach a
+        # view once focus is inside it, so a pick must not leave focus on the rail.
+        self.query_one(f"#view-{key}", ShellView).focus_primary()
 
     def on_select_changed(self, event: Select.Changed) -> None:
         """Re-focus the shell on the picked portfolio (or fund-wide when blank).
@@ -639,14 +819,16 @@ class ShellApp(App[None]):
         the Mandate guardrail band), whose values are not portfolio ids — handling them
         here would send a non-UUID down ``uuid.UUID(...)``.
 
-        A no-op pick is dropped: seeding the picker at mount echoes a
-        ``Select.Changed`` whose value equals the current focus, and Textual
-        dispatches it *after* ``on_mount`` returns — so the guard is value equality,
-        not a mount-window flag (async dispatch would already have cleared the flag).
-        A real change updates the run-state glyph and repaints. The no-selection
-        sentinel is ``Select.NULL`` (the ``NoSelection`` singleton) — *not*
-        ``Select.BLANK``, which resolves to ``Widget.BLANK is False`` and would send a
-        blank pick down ``uuid.UUID("Select.NULL")``.
+        A no-op pick is dropped: :meth:`focus_portfolio` assigns the ``Select`` a value
+        that already equals the focus, and Textual dispatches the resulting
+        ``Select.Changed`` *after* the assigning call returns — so the guard is value
+        equality, not an "echo in progress" flag (async dispatch would already have
+        cleared it). Re-seeding the options never reaches this handler:
+        :meth:`_apply_picker` prevents the message. A real change updates the
+        run-state glyph and repaints. The no-selection sentinel is ``Select.NULL``
+        (the ``NoSelection`` singleton) — *not* ``Select.BLANK``, which resolves to
+        ``Widget.BLANK is False`` and would send a blank pick down
+        ``uuid.UUID("Select.NULL")``.
         """
         if event.select.id != "hdr-portfolio":
             return
@@ -663,10 +845,51 @@ class ShellApp(App[None]):
         The autonomy/run-state glyphs are re-read here (not in :meth:`_refresh`) so an
         external freeze/re-arm — from the scheduler or another session — reflects on the
         next tick instead of lingering stale until the next local action, without making
-        every manual/test repaint also re-read the autonomy rows.
+        every manual/test repaint also re-read the autonomy rows. A view that declares a
+        :meth:`~fund.tui.views.ShellView.poll_task` reads on a worker thread (see
+        :meth:`_poll_read_worker`); every other view repaints in place.
         """
+        if not self.is_running:
+            # The timer outlives the widgets for a moment on shutdown; Textual clears
+            # ``is_running`` before it empties the DOM, so a tick landing in that window
+            # has nothing to paint. Any other NoMatches is a real bug and must surface.
+            return
         self._refresh_runstate()
-        self._refresh()
+        self._sync_picker()
+        view = self._current_view()
+        task = view.poll_task() if view is not None else None
+        if task is None:
+            self._refresh()
+            return
+        self._poll_attention()
+        # One read in flight at a time: a read slower than the tick would otherwise
+        # pile up threads, each repainting an already-superseded snapshot.
+        if self._poll_read_inflight:
+            return
+        self._poll_read_inflight = True
+        self._poll_read_worker(*task)
+
+    @work(thread=True, group="poll")
+    def _poll_read_worker(
+        self, read: Callable[[], Any], apply: Callable[[Any], None]
+    ) -> None:
+        """Run a heavy view's read off the event loop, then paint it back on the loop.
+
+        ``read`` and ``apply`` come from :meth:`~fund.tui.views.ShellView.poll_task`;
+        this thread never queries the DOM. A failed read keeps the last paint rather
+        than crashing the App.
+        """
+        try:
+            result = read()
+        except Exception:  # keep the poll loop alive on any read error
+            result = None
+        self.call_from_thread(self._finish_poll_read, apply, result)
+
+    def _finish_poll_read(self, apply: Callable[[Any], None], result: Any) -> None:
+        """Free the poll slot and paint ``result`` (``None`` means the read failed)."""
+        self._poll_read_inflight = False
+        if result is not None:
+            apply(result)
 
     def _refresh(self) -> None:
         """Repaint the active view from the read model — synchronous, test-callable.
@@ -674,24 +897,39 @@ class ShellApp(App[None]):
         A single sync entry point a headless test can call directly instead of racing
         the poll timer. Runs the cross-portfolio notification bus first (fund-wide,
         independent of the active view), then delegates to the visible
-        :class:`~fund.tui.views.ShellView` for its repaint.
+        :class:`~fund.tui.views.ShellView` for its repaint. A view that hosts editable
+        inputs is responsible for keeping an unsaved edit across this repaint.
         """
         self._poll_attention()
+        view = self._current_view()
+        if view is not None:
+            view.refresh_view()
+
+    def _current_view(self) -> ShellView | None:
+        """The visible content pane's view, or ``None`` before one is selected."""
         current = self.query_one(ContentSwitcher).current
         if current is None:
-            return
-        self.query_one(f"#{current}", ShellView).refresh_view()
+            return None
+        return self.query_one(f"#{current}", ShellView)
 
     def focus_portfolio(self, portfolio_id: uuid.UUID) -> None:
         """Focus the shell on a portfolio picked inside a content view (Posture roster).
 
         Sets the same header context the picker does — updates ``_portfolio_id``,
         repaints the run-state glyph, and repaints the active view — and keeps the
-        header ``Select`` in sync when the portfolio is a known option (its echoed
-        ``Select.Changed`` is dropped by ``on_select_changed``'s value-equality guard,
-        since ``_portfolio_id`` already matches).
+        header ``Select`` in sync (its echoed ``Select.Changed`` is dropped by
+        ``on_select_changed``'s value-equality guard, since ``_portfolio_id`` already
+        matches). The roster re-lists portfolios every tick, so a portfolio created
+        since the picker was last seeded re-seeds it first; otherwise the header would
+        keep showing a different portfolio from the one ``u`` / ``K`` / approvals act
+        on, and re-choosing the old one would emit no change.
         """
         self._portfolio_id = portfolio_id
+        if portfolio_id not in self._portfolio_ids:
+            # ``set_options`` blanks the Select first; that echo would otherwise read
+            # as a fund-wide pick and drop the focus just set.
+            with self.query_one("#hdr-portfolio", Select).prevent(Select.Changed):
+                self._populate_picker()
         if portfolio_id in self._portfolio_ids:
             self.query_one("#hdr-portfolio", Select).value = str(portfolio_id)
         self._refresh_runstate()
@@ -738,7 +976,9 @@ class ShellApp(App[None]):
         self.query_one("#view-deliberation", DeliberationView).select_run(run_id)
 
     def action_export_brief(self) -> None:
-        """Export the brief to ``daily-brief-<pf>-<asof>.md`` in CWD (the ``e`` key).
+        """Export the brief to ``daily-brief-<pf>-<asof>.md`` in the export directory.
+
+        Bound to the ``e`` key.
 
         View-scoped to the brief (``DailyBriefView.BINDINGS``) so it does not collide
         with the global Audit export ``e``. Re-export overwrites (idempotent); a write
@@ -748,9 +988,9 @@ class ShellApp(App[None]):
         if view is None or view.brief is None:
             return
         brief = view.brief
-        path = f"daily-brief-{brief.portfolio_id}-{brief.asof.isoformat()}.md"
+        name = f"daily-brief-{brief.portfolio_id}-{brief.asof.isoformat()}.md"
         try:
-            written = view.export_markdown(path)
+            written = view.export_markdown(str(export_path(name)))
         except OSError as exc:  # write failure → status bar, never crash
             self._set_status(f"export failed: {exc}")
             return
@@ -762,48 +1002,102 @@ class ShellApp(App[None]):
         """Diff fund-wide attention items against the seen-set; toast the new ones.
 
         Each tick reads the cross-portfolio awaiting gates + drift breaches, raises a
-        persistent (never auto-dismissing) toast for any **newly-appeared** item, and
+        persistent (stays until dismissed) toast for any **newly-appeared** item, and
         bumps the header ``⏸N awaiting`` counter. A still-pending item stays in the
         seen-set, so it is not re-toasted; a resolved item drops out and would re-alert
         only if it genuinely recurs.
+
+        A read that failed is *unknown*, not *empty*: the items it would have covered
+        keep their prior seen-state and the awaiting counter keeps its last value, so a
+        DB hiccup neither re-toasts every still-pending gate on the next good tick nor
+        flickers the counter to zero. Reads fail independently — one portfolio's
+        unreadable mandate must not silence the gates or the other portfolios — and
+        the header flags the feed as degraded while any of them is failing.
         """
-        current = self._read_attention()
-        if current is None:
-            # A read error, not an empty fund: leave the seen-set and counter untouched
-            # so a transient DB hiccup neither re-toasts every still-pending gate on the
-            # next good tick nor flickers the "awaiting" counter to zero.
-            return
-        for key, message in current:
+        read = self._read_attention()
+        for key, message in read.items:
             if key not in self._seen_attention:
                 self._raise_attention(message)
-        self._seen_attention = {key for key, _ in current}
-        self._awaiting_count = sum(1 for (kind, _), _ in current if kind == "gate")
+        carried = {key for key in self._seen_attention if read.is_unknown(key)}
+        self._seen_attention = {key for key, _ in read.items} | carried
+        if "gate" not in read.unknown_kinds:
+            self._awaiting_count = sum(
+                1 for (kind, _), _ in read.items if kind == "gate"
+            )
+        self._attention_degraded = read.degraded
         self._paint_attention()
 
-    def _read_attention(self) -> list[tuple[tuple[str, uuid.UUID], str]] | None:
+    def _read_attention(self) -> _AttentionRead:
         """The current fund-wide attention items: awaiting gates + drift breaches.
 
         Each item is ``((kind, id), message)`` where ``kind`` is ``"gate"`` (keyed by
-        run id) or ``"breach"`` (keyed by portfolio id). Returns ``None`` on any read
-        error — distinct from an empty list — so the poll can leave prior state intact
-        rather than mistaking a hiccup for a cleared fund.
+        run id) or ``"breach"`` (keyed by portfolio id). The gate read, the roster read
+        and each portfolio's drift check are isolated from one another; whatever
+        failed is reported on the result instead of being folded into "no items", and
+        logged (once per failure episode) so the header's degraded flag can be traced
+        to the read behind it.
         """
-        items: list[tuple[tuple[str, uuid.UUID], str]] = []
+        items: list[tuple[_AttentionKey, str]] = []
+        unknown: set[str] = set()
+        unreadable: set[uuid.UUID] = set()
+        failing: set[str] = set()
         try:
             with self._session_factory() as session:
                 saver = self._persistence.saver
-                for row in observe.pending_hitl(session, saver, None):
-                    short = str(row.run_id)[:8]
-                    items.append((("gate", row.run_id), f"⏸ gate awaiting · {short}"))
-                for pid in observe.list_portfolios(session):
-                    if self._is_drift_breach(session, pid):
+                try:
+                    for row in observe.pending_hitl(session, saver, None):
+                        short = str(row.run_id)[:8]
                         items.append(
-                            (("breach", pid), f"◐ drift breach · {str(pid)[:8]}")
+                            (("gate", row.run_id), f"⏸ gate awaiting · {short}")
+                        )
+                except Exception:  # unknown gates, not "no gates"
+                    session.rollback()
+                    unknown.add("gate")
+                    self._log_attention_failure(failing, "gate", "pending gates")
+                try:
+                    roster = observe.list_portfolios(session)
+                except Exception:  # unknown breaches, not "no breaches"
+                    session.rollback()
+                    unknown.add("breach")
+                    self._log_attention_failure(failing, "roster", "portfolio roster")
+                    roster = []
+                for pid in roster:
+                    try:
+                        if self._is_drift_breach(session, pid):
+                            items.append(
+                                (("breach", pid), f"◐ drift breach · {str(pid)[:8]}")
+                            )
+                    except Exception:  # only this portfolio (e.g. a bad mandate)
+                        session.rollback()
+                        unreadable.add(pid)
+                        self._log_attention_failure(
+                            failing, f"breach:{pid}", f"drift check for portfolio {pid}"
                         )
                 session.rollback()
-        except Exception:  # a transient read error — signal "unknown", not "empty"
-            return None
-        return items
+        except Exception:  # the session itself failed: nothing read can be trusted
+            self._log_attention_failure(failing, "session", "database session")
+            self._logged_attention_failures &= failing
+            return _AttentionRead([], frozenset({"gate", "breach"}))
+        self._logged_attention_failures &= failing
+        return _AttentionRead(items, frozenset(unknown), frozenset(unreadable))
+
+    def _log_attention_failure(self, failing: set[str], key: str, what: str) -> None:
+        """Note a failed feed read for this tick; log it if it just started failing.
+
+        Called from inside the ``except`` that caught the error, so ``exc_info`` carries
+        the traceback. A read that stops failing drops out of the logged set (see
+        :meth:`_read_attention`), so a recurrence is logged again.
+
+        Args:
+            failing: This tick's failing-read keys, extended with ``key``.
+            key: Stable identity of the read (the gate read, the roster read, or one
+                portfolio's drift check).
+            what: Human description of the read, naming the portfolio where relevant.
+        """
+        failing.add(key)
+        if key not in self._logged_attention_failures:
+            self._logged_attention_failures.add(key)
+            logger.warning("attention feed: %s unreadable", what, exc_info=True)
 
     def _is_drift_breach(self, session: Session, portfolio_id: uuid.UUID) -> bool:
         """Whether ``portfolio_id``'s L1 drift breaches its mandate threshold.
@@ -818,16 +1112,17 @@ class ShellApp(App[None]):
         return state.drift_l1 >= mandate.drift_l1_threshold
 
     def _raise_attention(self, message: str) -> None:
-        """Raise a persistent attention toast (never auto-dismisses) + record it."""
+        """Raise an attention toast that stays until dismissed + record it."""
         self.last_attention.append(message)
-        self.notify(message, timeout=None)
+        self.notify(message, timeout=_ATTENTION_TOAST_TIMEOUT_S)
 
     def _paint_attention(self) -> None:
-        """Repaint the header ``⏸N awaiting`` counter from the bus's awaiting count."""
+        """Repaint the header ``⏸N awaiting`` counter and the feed-degraded flag."""
         with suppress(NoMatches):
             self.query_one("#hdr-attention", Static).update(
                 f"⏸{self._awaiting_count} awaiting"
             )
+            self.query_one("#hdr-feed", Static).display = self._attention_degraded
 
     # --- decisions actions (worker thread) ---------------------------------
 
@@ -842,12 +1137,21 @@ class ShellApp(App[None]):
     def _decide(self, decision: str) -> None:
         """Dispatch ``decision`` for the Decisions view's selected gate on a worker.
 
-        A no-op with a status message unless the Decisions view is active and a
-        paused run is selected — the same guard the cockpit uses for a blind approve.
+        A no-op with a status message unless the Decisions view is active, a paused
+        run is selected, and that gate's detail rendered — the same guard the cockpit
+        uses for a blind approve.
         """
-        view = self._active_decisions_view()
+        view = self._selected_gate_view("select a paused run first")
         if view is None or view.selected_run_id is None:
-            self._set_status("select a paused run first")
+            return
+        # Approve/reject act at once with no confirm, so the adviser must have the
+        # orders on screen: a failed gate render fails closed rather than releasing a
+        # gate they could not read.
+        if view.gate_unavailable:
+            self._set_status(
+                f"cannot {decision}: gate details unavailable - "
+                "retry once the gate renders again"
+            )
             return
         self.last_worker = self._action_worker(
             view.selected_run_id, view.selected_portfolio_id, decision
@@ -862,9 +1166,8 @@ class ShellApp(App[None]):
         until an explicit re-arm. Cancelling is a no-op. Inert — with a status hint —
         unless Decisions is active and a run is selected (approve/reject's guard).
         """
-        view = self._active_decisions_view()
+        view = self._selected_gate_view("select a paused run first")
         if view is None or view.selected_run_id is None:
-            self._set_status("select a paused run first")
             return
         run_id = view.selected_run_id
         portfolio_id = view.selected_portfolio_id
@@ -953,6 +1256,28 @@ class ShellApp(App[None]):
             return None
         return view if isinstance(view, DecisionsView) else None
 
+    def _selected_gate_view(self, no_selection_hint: str) -> DecisionsView | None:
+        """The Decisions view when its selected gate is also the highlighted row.
+
+        Returns ``None`` with a status message when Decisions is not active, nothing is
+        selected (``no_selection_hint``), or the cursor has moved off the selected gate.
+        Selection only follows Enter or a click, so acting then would resolve a gate
+        other than the one the adviser is looking at — they must press Enter on it
+        first. These actions release orders or kill a run, hence the explicit guard.
+        """
+        view = self._active_decisions_view()
+        if view is None or view.selected_run_id is None:
+            self._set_status(no_selection_hint)
+            return None
+        highlighted = view.highlighted_run_id()
+        if highlighted is not None and highlighted != view.selected_run_id:
+            self._set_status(
+                f"highlighted gate #{str(highlighted)[:8]} is not the selected gate "
+                f"#{str(view.selected_run_id)[:8]} - press Enter on it first"
+            )
+            return None
+        return view
+
     def action_edit_decision(self) -> None:
         """Edit the selected gate's proposed weights before committing (``e`` binding).
 
@@ -961,9 +1286,8 @@ class ShellApp(App[None]):
         editor, and on Commit threads the edit through ``apply_action("edit")``. A no-op
         with a hint off Decisions or without a selected paused gate.
         """
-        view = self._active_decisions_view()
+        view = self._selected_gate_view("select a paused gate to edit")
         if view is None or view.selected_run_id is None:
-            self._set_status("select a paused gate to edit")
             return
         run_id = view.selected_run_id
         portfolio_id = view.selected_portfolio_id
@@ -987,9 +1311,8 @@ class ShellApp(App[None]):
         through ``apply_action("respond")`` so the run re-gates ``responded``. A no-op
         with a hint off Decisions or without a selected paused gate.
         """
-        view = self._active_decisions_view()
+        view = self._selected_gate_view("select a paused gate to steer")
         if view is None or view.selected_run_id is None:
-            self._set_status("select a paused gate to steer")
             return
         run_id = view.selected_run_id
         portfolio_id = view.selected_portfolio_id  # the gate's own portfolio
@@ -1005,47 +1328,52 @@ class ShellApp(App[None]):
         self.push_screen(BargeInScreen("the selected gate"), _resolved)
 
     def _proposed_weights(self, run_id: uuid.UUID) -> dict[str, float]:
-        """The gate's proposed ``{ticker: weight}``, or ``{}`` on any read error.
+        """The weights to seed the editor with, or ``{}`` on any read error.
 
-        Reads the pending interrupt's ``place_orders`` args through a short read-only
-        session; the run repo is imported from its submodule (never the ``fund.audit``
-        root, which pulls the langgraph bootstrap) so this stays agent-stack-light.
+        Needs a pending gate (its ``place_orders`` interrupt). The seed is the run's
+        audited optimizer output at full precision — the vector approving actually
+        places — never the PM's own ``place_orders`` args, which that tool ignores, so
+        the editor starts from what approval would place. The run repo is imported from
+        its submodule (never the ``fund.audit`` root, which pulls the langgraph
+        bootstrap) so this stays agent-stack-light.
         """
         from fund.audit.repository import AgentRunRepository
 
         try:
             with self._session_factory() as session:
-                run = AgentRunRepository(session).get_run(run_id)
+                repo = AgentRunRepository(session)
+                run = repo.get_run(run_id)
                 interrupt = (
                     observe.interrupt_for(self._persistence.saver, run) if run else None
                 )
+                weights = repo.latest_optimizer_weights(run_id) if interrupt else {}
                 session.rollback()
         except Exception:  # keep the shell alive on a read error
             return {}
-        requests = (interrupt or {}).get("action_requests") or []
-        args = (requests[0].get("args") if requests else {}) or {}
-        weights = args.get("weights")
-        if not isinstance(weights, dict):
-            return {}
         return {str(ticker): float(weight) for ticker, weight in weights.items()}
 
-    @work(thread=True, exclusive=True, group="action")
+    @work(thread=True, group="action")
+    @_single_flight("resolving gate")
     def _action_worker(
         self, run_id: uuid.UUID, portfolio_id: uuid.UUID | None, decision: str
     ) -> None:
         """Resolve a gate through the unified action path — off the event loop.
 
         The model is built lazily (a missing key surfaces as a status line, not a
-        crash), ``apply_action`` resumes + logs on a freshly opened session, the caller
-        commits, and the UI touches marshal back via ``call_from_thread``.
+        crash) and only for decisions that drive the graph: reject / killswitch settle
+        in the DB, so a down provider never blocks the emergency stop.
+        ``apply_action`` resumes + logs on a freshly opened session, the caller commits,
+        and the UI touches marshal back via ``call_from_thread``.
         """
-        from fund.actions import apply_action
+        from fund.actions import MODEL_FREE_ACTIONS, apply_action
 
-        try:
-            model = self._model_factory()
-        except Exception as exc:  # surface a clean message, never crash the App
-            self.call_from_thread(self._set_status, f"model unavailable: {exc}")
-            return
+        model = None
+        if decision not in MODEL_FREE_ACTIONS:
+            try:
+                model = self._model_factory()
+            except Exception as exc:  # surface a clean message, never crash the App
+                self.call_from_thread(self._set_status, f"model unavailable: {exc}")
+                return
         try:
             with self._session_factory() as session:
                 result = apply_action(
@@ -1056,6 +1384,7 @@ class ShellApp(App[None]):
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
                     model=model,
+                    fallback=self._build_fallback() if model is not None else None,
                     # Resolving a run is terminal: key on (run, decision) so a repeat
                     # replays the first outcome instead of re-resuming.
                     idempotency_key=f"{run_id}:{decision}",
@@ -1066,7 +1395,8 @@ class ShellApp(App[None]):
             return
         self.call_from_thread(self._after_action, result.message)
 
-    @work(thread=True, exclusive=True, group="action")
+    @work(thread=True, group="action")
+    @_single_flight("committing edit")
     def _edit_worker(
         self,
         run_id: uuid.UUID,
@@ -1096,6 +1426,7 @@ class ShellApp(App[None]):
                     portfolio_id=portfolio_id,
                     new_value=weights,
                     model=model,
+                    fallback=self._build_fallback(),
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
                     idempotency_key=f"{run_id}:edit",
@@ -1106,16 +1437,27 @@ class ShellApp(App[None]):
             return
         self.call_from_thread(self._after_action, result.message)
 
-    @work(thread=True, exclusive=True, group="action")
+    @work(thread=True, group="action")
     def _freeze_worker(self, scope: str, portfolio_id: uuid.UUID | None) -> None:
         """Freeze autonomy at ``portfolio`` / ``fund`` scope — off the event loop.
 
         Dispatches ``apply_action("freeze", scope=…)``: the autonomy row flips FROZEN
         and every live run in scope is rejected (DB-level). A ``fund`` freeze ignores
         ``portfolio_id`` (the single fund row). Any failure surfaces as a status line.
+
+        Deliberately outside :func:`_single_flight`: the freeze is the adviser's
+        emergency stop, so it is never refused behind an in-flight approve / edit /
+        steer — a graph resume that hangs would otherwise leave every freeze refused
+        until the TUI restarts. It is safe to run alongside one because a freeze never
+        resumes the graph, the hazard the lock exists for (the run-scope killswitch does
+        resume it, via :meth:`_action_worker`, and stays guarded). It cannot cancel a
+        resume that is already running, and an approve in flight may still finalise a
+        run the freeze just rejected; the FROZEN autonomy row is what keeps further
+        runs halted.
         """
         from fund.actions import apply_action
 
+        self.call_from_thread(self._set_status, "freezing autonomy…")
         try:
             with self._session_factory() as session:
                 result = apply_action(
@@ -1132,7 +1474,8 @@ class ShellApp(App[None]):
             return
         self.call_from_thread(self._after_action, result.message)
 
-    @work(thread=True, exclusive=True, group="action")
+    @work(thread=True, group="action")
+    @_single_flight("re-arming autonomy")
     def _rearm_worker(
         self, scope: str, portfolio_id: uuid.UUID | None, rationale: str | None
     ) -> None:
@@ -1159,6 +1502,20 @@ class ShellApp(App[None]):
             return
         self.call_from_thread(self._after_action, result.message)
 
+    def _build_fallback(self) -> Any | None:
+        """Build the retry model, or ``None`` when none is configured or it fails.
+
+        The fallback only adds resilience, so a provider problem with it must not
+        stop an action whose primary model built fine.
+        """
+        if self._fallback_factory is None:
+            return None
+        try:
+            return self._fallback_factory()
+        except Exception as exc:
+            logger.warning("no fallback model for this action: %s", exc)
+            return None
+
     def _after_action(self, message: str) -> None:
         """On the main thread once a worker committed: report + repaint view/header."""
         self._set_status(message)
@@ -1175,13 +1532,16 @@ class ShellApp(App[None]):
         status line); the upsert + audit happen on a worker thread.
         """
         view = self._active_mandate_view()
+        if view is not None and view.mandate is None and view.read_error:
+            self._set_status(f"mandate unreadable: {view.read_error}")
+            return
         if view is None or view.mandate is None:
             self._set_status("focus a portfolio with a mandate first")
             return
         try:
             proposed = view.proposed_mandate()
         except Exception as exc:  # pydantic ValidationError on an out-of-contract edit
-            self._set_status(f"invalid mandate: {exc}")
+            self._set_status(f"invalid mandate: {describe_error(exc)}")
             return
         prev_value = view.mandate.model_dump(mode="json")
         self.last_worker = self._mandate_worker(
@@ -1237,7 +1597,28 @@ class ShellApp(App[None]):
         except Exception as exc:  # surface a clean message, never crash the App
             self.call_from_thread(self._set_status, f"action failed: {exc}")
             return
-        self.call_from_thread(self._after_action, result.message)
+        self.call_from_thread(
+            self._after_mandate_saved, result.message, portfolio_id, mandate
+        )
+
+    def _after_mandate_saved(
+        self, message: str, portfolio_id: uuid.UUID | None, saved: Any
+    ) -> None:
+        """On the main thread once a mandate save committed: release its edit guard.
+
+        The Mandate view is looked up whether or not it is the active pane — the
+        adviser may have switched away while the worker ran, and the guard would
+        otherwise keep the saved fields frozen on return. A save for a portfolio that
+        is no longer focused has nothing to release: the focus change already reset it.
+        """
+        if portfolio_id == self._portfolio_id:
+            try:
+                view = self.query_one("#view-mandate", ShellView)
+            except NoMatches:
+                view = None
+            if isinstance(view, MandateView):
+                view.mark_saved(saved)
+        self._after_action(message)
 
     @work(thread=True, exclusive=True, group="mandate")
     def _guardrail_worker(
@@ -1288,7 +1669,7 @@ class ShellApp(App[None]):
             try:
                 mandate = _initial_mandate(new_id, submission)
             except Exception as exc:  # pydantic ValidationError (e.g. bad capital)
-                self._set_status(f"invalid onboarding: {exc}")
+                self._set_status(f"invalid onboarding: {describe_error(exc)}")
                 return
             self.last_worker = self._onboard_worker(
                 new_id,
@@ -1333,8 +1714,9 @@ class ShellApp(App[None]):
         Routes on the active view: from **Deliberation** the adviser watches the
         agents think, so ``u`` launches the **live-streamed** run (``_stream_worker``);
         from **Posture** it keeps the existing **blocking** run (``_run_worker``). The
-        ``u`` key passes today's bar; callers may pass an explicit decision bar. A
-        no-op with a hint off both launchpads or without a focused portfolio.
+        ``u`` key leaves the bar unset so the run resolves the newest fillable one;
+        callers may pass an explicit decision bar. A no-op with a hint off both
+        launchpads or without a focused portfolio.
         """
         deliberation = self._deliberation_active()
         if not (deliberation or self._posture_active()):
@@ -1344,15 +1726,54 @@ class ShellApp(App[None]):
         if pid is None:
             self._set_status("focus a portfolio to run")
             return
-        bar = asof or dt.date.today()
+        view = None
         if deliberation:
             view = self._deliberation_view()
             if view is None:
                 self._set_status("open Deliberation to run a portfolio")
                 return
-            self.last_worker = self._stream_worker(pid, bar, view)
+        worker = self._launch_run(pid, asof, view)
+        if worker is not None:
+            self.last_worker = worker
+
+    def _launch_run(
+        self,
+        portfolio_id: uuid.UUID,
+        asof: dt.date | None,
+        view: DeliberationView | None = None,
+    ) -> Worker[None] | None:
+        """Start one rebalance — streamed into ``view``, else blocking — single-flight.
+
+        A round is minutes of LLM work that draws nothing until its first step
+        reports, so a repeat ``u`` (or an Ask "run") is easy to fire, and a second
+        concurrent round would double the spend, open a competing gate and interleave
+        both streams into one timeline. A launch while the previous run worker is still
+        alive is refused with a status line instead. ``asof=None`` leaves the bar to
+        the run, which resolves the newest fillable one. Returns the new worker, or
+        ``None`` when refused.
+        """
+        if self._round_in_flight():
+            self._set_status("a run is already in progress — wait for it to finish")
+            return None
+        self._set_status(f"run started for portfolio {self._short_label(portfolio_id)}")
+        if view is not None:
+            worker = self._stream_worker(portfolio_id, asof, view)
         else:
-            self.last_worker = self._run_worker(pid, bar)
+            worker = self._run_worker(portfolio_id, asof)
+        return worker
+
+    def _round_in_flight(self) -> bool:
+        """Whether a drive or stream worker is still running a round.
+
+        ``exclusive=True`` only cancels a worker's Textual handle, never its thread, so
+        a second launch would run next to the first: both threads feed one live table
+        (a duplicate-row error aborts one) and each opens its own run and gate for the
+        same bar. The launch is refused instead of relying on that cancel.
+        """
+        return any(
+            worker.group in ("drive", "stream") and not worker.is_finished
+            for worker in self.workers
+        )
 
     def _posture_active(self) -> bool:
         """Whether the Posture view is the active content pane (the drive launchpad)."""
@@ -1383,9 +1804,13 @@ class ShellApp(App[None]):
         showing. Holds the stream at the next step boundary, pushes the directive
         overlay (showing where it paused), and on Send threads the directive to the PM
         at the gate via ``respond``; Cancel resumes the stream unchanged. Both paths
-        re-arm the stream so the hold is never left standing.
+        re-arm the stream so the hold is never left standing. A directive sent while
+        the round is still streaming is queued and delivered when the stream ends at
+        its gate, since only then is the run committed and awaiting an answer.
         """
         view = self._deliberation_view()
+        if view is not None:
+            view.retire_spent_live_tail()  # a gate decided since the last poll tick
         if (
             not self._deliberation_active()
             or view is None
@@ -1396,7 +1821,7 @@ class ShellApp(App[None]):
             return
         self._stream_resume.clear()  # hold a streaming worker at the next boundary
         run_id = view.live_run_id
-        paused_at = view.live_text.splitlines()[0] if view.live_text else "the gate"
+        paused_at = view.held_step_label()
 
         # The streaming run's own portfolio, NOT self._portfolio_id — the header focus
         # may have moved since the stream started, which would otherwise mis-route the
@@ -1408,11 +1833,45 @@ class ShellApp(App[None]):
             if result is None:
                 self._set_status("barge-in cancelled")
                 return
+            if self._streaming:
+                replaced = self._queued_directive is not None
+                self._queued_directive = _QueuedDirective(
+                    run_id, portfolio_id, result.text, result.remember
+                )
+                self._set_status(
+                    "directive queued"
+                    + (" (replaces the earlier one)" if replaced else "")
+                    + " — sent when the run reaches its gate"
+                )
+                return
             self.last_worker = self._barge_in_worker(
                 run_id, portfolio_id, result.text, result.remember
             )
 
         self.push_screen(BargeInScreen(paused_at), _resolved)
+
+    def _deliver_queued_directive(
+        self, gate_run_id: uuid.UUID | None, *, failure: str | None = None
+    ) -> None:
+        """Send the directive queued during a stream, now that the stream has ended.
+
+        Runs on the main thread after the stream worker finished. ``gate_run_id`` is
+        the run the stream left paused at its gate, or ``None`` when the round ended
+        without one; a directive with no matching gate to answer is dropped with a
+        status line rather than sent to a run that cannot take it. ``failure`` is the
+        status the stream ended with when it errored: the drop notice is appended to it
+        so the single status line keeps the reason the round died.
+        """
+        queued, self._queued_directive = self._queued_directive, None
+        if queued is None:
+            return
+        if gate_run_id != queued.run_id:
+            reason = failure or "run ended without a gate"
+            self._set_status(f"{reason} — queued directive dropped")
+            return
+        self.last_worker = self._barge_in_worker(
+            queued.run_id, queued.portfolio_id, queued.text, queued.remember
+        )
 
     def action_expand_readout(self) -> None:
         """Recompute the selected step's live read-out (the Deliberation ``x`` binding).
@@ -1447,7 +1906,8 @@ class ShellApp(App[None]):
         (latest) allocation. ``view`` is resolved by the caller on the event loop and
         passed in — this thread never queries the DOM, touching the view only through
         ``call_from_thread``. The result marshals back that way, unless a newer expand
-        has cancelled this worker. Any failure surfaces as a status line.
+        has cancelled this worker, and replaces the ``recomputing`` status with a ready
+        line. Any failure surfaces as a status line.
         """
         from textual.worker import get_current_worker
 
@@ -1469,15 +1929,28 @@ class ShellApp(App[None]):
                     constraint_set: Any = (
                         decision.constraint_set if decision is not None else None
                     )
+                    mandate = (
+                        observe.get_mandate(session, run.portfolio_id)
+                        if run.portfolio_id is not None
+                        else None
+                    )
                     result: Any = readouts_compute.compute_results(
-                        session, run.asof, list(weights), constraint_set, weights
+                        session,
+                        run.asof,
+                        list(weights),
+                        constraint_set,
+                        weights,
+                        base_currency=(
+                            mandate.base_currency if mandate is not None else None
+                        ),
+                        lookback_days=_recorded_train_size(run.optimizer_config),
                     )
                 else:
                     weights = repo.latest_optimizer_weights(run_id)
                     # Risk evaluates the run's authoritative allocation; pair its bounds
                     # with the SAME newest allocator proposal those weights came from
                     # (decisions are decision_index ASC, so scan reversed — mirrors
-                    # ``observe._metrics_from_runs``).
+                    # ``observe.run_metrics``).
                     constraint_set = next(
                         (
                             d.constraint_set
@@ -1487,7 +1960,7 @@ class ShellApp(App[None]):
                         None,
                     )
                     result = readouts_compute.compute_risk(
-                        weights, constraint_set, None
+                        weights, constraint_set, None, session=session
                     )
                 session.rollback()
         except Exception as exc:  # surface a clean message, never crash the App
@@ -1497,6 +1970,7 @@ class ShellApp(App[None]):
         # the paint so a slow stale result never clobbers the newer one in the view.
         if not get_current_worker().is_cancelled:
             self.call_from_thread(view.paint_readout, run_id, agent, key, result)
+            self.call_from_thread(self._set_status, "read-out ready")
 
     @work(thread=True, exclusive=True, group="drive")
     def _onboard_worker(
@@ -1534,6 +2008,7 @@ class ShellApp(App[None]):
                     portfolio_id=portfolio_id,
                     questionnaire=questionnaire_json,
                     model=model,
+                    fallback=self._build_fallback(),
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
                     base_currency=base_currency,
@@ -1545,7 +2020,7 @@ class ShellApp(App[None]):
         self.call_from_thread(self._after_onboard, result.message)
 
     @work(thread=True, exclusive=True, group="drive")
-    def _run_worker(self, portfolio_id: uuid.UUID, asof: dt.date) -> None:
+    def _run_worker(self, portfolio_id: uuid.UUID, asof: dt.date | None) -> None:
         """Drive one paper rebalance for ``portfolio_id`` to its gate — off the loop."""
         from fund.actions import apply_action
 
@@ -1569,6 +2044,7 @@ class ShellApp(App[None]):
                     mandate=mandate,
                     asof=asof,
                     model=model,
+                    fallback=self._build_fallback(),
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
                 )
@@ -1580,7 +2056,7 @@ class ShellApp(App[None]):
 
     @work(thread=True, exclusive=True, group="stream")
     def _stream_worker(
-        self, portfolio_id: uuid.UUID, asof: dt.date, view: DeliberationView
+        self, portfolio_id: uuid.UUID, asof: dt.date | None, view: DeliberationView
     ) -> None:
         """Stream one paper rebalance into the live Deliberation timeline.
 
@@ -1589,12 +2065,14 @@ class ShellApp(App[None]):
         ``call_from_thread`` (``start_live`` on the first, ``ingest_event`` per step).
         A ``paused`` gate leaves the timeline standing — the adviser just watched it
         build and acts on it in Decisions — while a no-ticket / error end falls back to
-        the replay transcript. ``view`` is resolved by the caller on the event loop and
-        passed in — this thread never queries the DOM, touching the view only through
-        ``call_from_thread``. The agent stack is imported lazily so the module import
-        stays agent-stack-light; one stream per worker (``stream_fund`` is not
-        thread-safe). Model/stream errors surface as a status line, never a crash.
+        the replay transcript. Like the blocking run it appends the human ``run`` audit
+        row in the round's own transaction. ``view`` is resolved by the caller on the
+        event loop and passed in — this thread never queries the DOM, touching the view
+        only through ``call_from_thread``. The agent stack is imported lazily so the
+        module import stays agent-stack-light; one stream per worker (``stream_fund`` is
+        not thread-safe). Model/stream errors surface as a status line, never a crash.
         """
+        from fund.actions import append_run_audit, halt_run_if_frozen
         from fund.agents.graph import stream_fund
 
         self._stream_resume.set()  # clear any stale barge-in hold from a prior round
@@ -1604,6 +2082,9 @@ class ShellApp(App[None]):
             self.call_from_thread(self._set_status, f"model unavailable: {exc}")
             return
         last_kind: str | None = None
+        last_text = ""
+        gate_run_id: uuid.UUID | None = None
+        halted = False
         try:
             with self._session_factory() as session:
                 mandate = observe.get_mandate(session, portfolio_id)
@@ -1616,10 +2097,15 @@ class ShellApp(App[None]):
                     model,
                     mandate,
                     portfolio_id=portfolio_id,
-                    asof=asof,
+                    asof=(
+                        asof
+                        if asof is not None
+                        else observe.default_decision_bar(session)
+                    ),
                     session=session,
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
+                    fallback=self._build_fallback(),
                 ):
                     if last_kind is None:
                         self.call_from_thread(
@@ -1628,21 +2114,70 @@ class ShellApp(App[None]):
                         self.call_from_thread(self._enter_live_runstate)
                     self.call_from_thread(view.ingest_event, event)
                     last_kind = event.kind
+                    last_text = event.text
+                    gate_run_id = event.run_id
                     # Suspend the graph generator at this step boundary while a barge-in
                     # is open; the overlay re-sets the flag on resolve.
-                    self._stream_resume.wait()
+                    if not self._hold_at_boundary():
+                        return  # quit / superseded: abandon the round uncommitted
+                if last_kind == "paused" and gate_run_id is not None:
+                    halted = halt_run_if_frozen(session, gate_run_id, portfolio_id)
+                if gate_run_id is not None:
+                    append_run_audit(
+                        session, run_id=gate_run_id, portfolio_id=portfolio_id
+                    )
                 session.commit()
         except Exception as exc:  # surface a clean message, never crash the App
-            self.call_from_thread(self._set_status, f"action failed: {exc}")
+            failure = f"action failed: {exc}"
+            self.call_from_thread(self._set_status, failure)
             self.call_from_thread(view.end_live)
             self.call_from_thread(self._exit_live_runstate)
+            self.call_from_thread(self._deliver_queued_directive, None, failure=failure)
             return
-        if last_kind != "paused":
-            # A no-ticket / incomplete end has nothing to act on — drop to replay.
+        if halted:
+            self.call_from_thread(
+                self._set_status, "round halted — autonomy was frozen while it ran"
+            )
+        if last_kind == "incomplete":
+            # The replay view that follows has no trace of why the round produced no
+            # ticket, and the status bar is the only place left to say so.
+            self.call_from_thread(
+                self._set_status, f"round ended with no ticket — {last_text}"
+            )
+        if last_kind != "paused" or halted:
+            # A no-ticket / incomplete / halted end has nothing to act on — drop to
+            # replay.
             self.call_from_thread(view.end_live)
         self.call_from_thread(self._exit_live_runstate)
+        # A halted round left no live gate, so a directive queued for it has nothing to
+        # answer; the halt reason becomes the drop notice.
+        self.call_from_thread(
+            self._deliver_queued_directive,
+            gate_run_id if last_kind == "paused" and not halted else None,
+            failure="round halted — autonomy was frozen while it ran"
+            if halted
+            else None,
+        )
 
-    @work(thread=True, exclusive=True, group="action")
+    def _hold_at_boundary(self) -> bool:
+        """Block a stream worker while a barge-in holds it; ``False`` once cancelled.
+
+        Only the overlay's resolve callback re-arms the stream, and that never runs when
+        the app quits with the overlay open. A thread worker cannot be killed and
+        executor threads are joined at interpreter exit, so an unbounded wait would
+        leave the process alive after the UI is gone. Polling the worker's cancel flag
+        (Textual sets it on quit) bounds the hold and lets the round be abandoned.
+        """
+        from textual.worker import get_current_worker
+
+        worker = get_current_worker()
+        while not self._stream_resume.wait(_HOLD_POLL_SECONDS):
+            if worker.is_cancelled:
+                return False
+        return not worker.is_cancelled
+
+    @work(thread=True, group="action")
+    @_single_flight("steering the PM")
     def _barge_in_worker(
         self,
         run_id: uuid.UUID,
@@ -1676,6 +2211,7 @@ class ShellApp(App[None]):
                     portfolio_id=portfolio_id,
                     pm_directive=directive,
                     model=model,
+                    fallback=self._build_fallback(),
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
                 )
@@ -1763,15 +2299,16 @@ class ShellApp(App[None]):
         """Export the Audit timeline to a timestamped CSV (the ``e`` binding).
 
         A silent no-op off the Audit pane (so ``e`` stays free for other views). The
-        current (filtered) timeline is written; the path is reported on the status bar.
+        full filtered timeline is written; the path is reported on the status bar, or
+        ``export failed`` when the read or the write fails.
         """
         view = self._active_audit_view()
         if view is None:
             return
-        path = f"audit-export-{dt.datetime.now():%Y%m%d-%H%M%S}.csv"
+        name = f"audit-export-{dt.datetime.now():%Y%m%d-%H%M%S}.csv"
         try:
-            written = view.export_csv(path)
-        except OSError as exc:  # a write failure surfaces, never crashes the App
+            written = view.export_csv(str(export_path(name)))
+        except Exception as exc:  # a read or write failure surfaces, never crashes
             self._set_status(f"export failed: {exc}")
             return
         self._set_status(f"exported audit to {written}")
@@ -1799,12 +2336,18 @@ class ShellApp(App[None]):
         view = self._active_ask_view()
         if view is None:
             return
-        if view.pending_action is not None:
-            self._resolve_pending(view, turn)
-        elif ask.classify(turn) == "query":
-            self.ask_query(turn)
-        else:
-            self.ask_action(turn)
+        # Action turns read the database and the checkpointer on the UI thread; an
+        # unhandled error here would end the whole TUI and lose the conversation.
+        try:
+            if view.pending_action is not None:
+                self._resolve_pending(view, turn)
+            elif ask.classify(turn) == "query":
+                self.ask_query(turn)
+            else:
+                self.ask_action(turn)
+        except Exception as exc:  # surface a clean message, never crash the App
+            self._set_status(f"ask failed: {exc}")
+            view.append_log("ask", f"(ask failed: {exc})")
 
     def ask_query(self, turn: str) -> None:
         """Dispatch the Ask query-summarize worker for ``turn``.
@@ -1853,11 +2396,11 @@ class ShellApp(App[None]):
         view.pending_action = None
         if pending is None:
             return
-        with self._session_factory() as session:
-            resolution = ask.resolve_pending(
+        resolution = self._read_resolution(
+            lambda session: ask.resolve_pending(
                 pending, turn, session, self._persistence.saver, self._portfolio_id
             )
-            session.rollback()
+        )
         if resolution.status == "resolved" and resolution.action is not None:
             self._confirm_ask_action(view, resolution.action)
         elif ask.classify(turn) == "query":
@@ -1902,7 +2445,10 @@ class ShellApp(App[None]):
         if verb == "rearm" and action.scope is not None:
             return self._rearm_worker(action.scope, action.portfolio_id, None)
         if verb == "run" and action.portfolio_id is not None:
-            return self._run_worker(action.portfolio_id, dt.date.today())
+            worker = self._launch_run(action.portfolio_id, None)
+            if worker is None:
+                view.append_log("ask", "run refused — a run is already in progress")
+            return worker
         return None
 
     def _ask_fund_rearm(self, view: AskView) -> None:
@@ -1941,15 +2487,37 @@ class ShellApp(App[None]):
 
     def _resolve_ask(self, turn: str) -> ask.TargetResolution:
         """Resolve an action turn's target over a short read session (no execution)."""
-        with self._session_factory() as session:
-            resolution = ask.resolve_target(
+        return self._read_resolution(
+            lambda session: ask.resolve_target(
                 turn, session, self._persistence.saver, self._portfolio_id
             )
-            session.rollback()
+        )
+
+    def _read_resolution(
+        self, resolve: Callable[[Session], ask.TargetResolution]
+    ) -> ask.TargetResolution:
+        """Run ``resolve`` over a short read session; a read error is a dead end.
+
+        Resolution runs on the event loop inside the ``Input.Submitted`` handler, where
+        an escaped exception exits the whole App. A failed gate read therefore comes
+        back as an ``unresolved`` resolution (and a status line) instead, so the
+        adviser sees why nothing happened and nothing is confirmed on an unread gate
+        list.
+        """
+        try:
+            with self._session_factory() as session:
+                resolution = resolve(session)
+                session.rollback()
+        except Exception as exc:  # a read error must never exit the shell
+            message = f"could not read gates: {exc}"
+            self._set_status(message)
+            return ask.TargetResolution("unresolved", None, (), message)
         return resolution
 
     def action_export_ask(self) -> None:
-        """Export the Ask conversation to ``ask-<pf>-<timestamp>.md`` in CWD (``e``).
+        """Export the Ask conversation to ``ask-<pf>-<timestamp>.md`` (``e``).
+
+        Written to the export directory (see :mod:`fund.tui.exports`).
 
         View-scoped to Ask (``AskView.BINDINGS``) so it does not collide with the global
         Audit export ``e``. Re-export overwrites (idempotent); a write failure surfaces
@@ -1959,9 +2527,9 @@ class ShellApp(App[None]):
         if view is None:
             return
         pid = self._portfolio_id or "fund"
-        path = f"ask-{pid}-{dt.datetime.now():%Y%m%d-%H%M%S}.md"
+        name = f"ask-{pid}-{dt.datetime.now():%Y%m%d-%H%M%S}.md"
         try:
-            written = view.export_markdown(path)
+            written = view.export_markdown(str(export_path(name)))
         except OSError as exc:  # write failure → status bar, never crash
             self._set_status(f"export failed: {exc}")
             return
@@ -1986,21 +2554,37 @@ class ShellApp(App[None]):
         marshals the answer back via ``call_from_thread``. ``view`` is resolved by the
         caller on the event loop and passed in — this thread never queries the DOM,
         touching the view only through ``call_from_thread``. A missing/failed model
-        degrades to a status line + a log note, never a crash. The langchain message
-        types are imported lazily so ``import fund.tui.app`` stays agent-stack-light.
+        degrades to a status line + a log note, never a crash. A newer question cancels
+        this worker, but a thread cannot be force-stopped, so every paint is dropped
+        once it is cancelled: a slow stale reply never lands under the newer question.
+        The langchain message types are imported lazily so ``import fund.tui.app`` stays
+        agent-stack-light.
         """
         from langchain_core.messages import HumanMessage, SystemMessage
+        from textual.worker import get_current_worker
+
+        worker = get_current_worker()
+
+        def deliver(paint: Callable[..., None], *args: Any) -> None:
+            # Cancellation is checked on the event loop, where the newer question
+            # cancels this worker, so no stale paint can slip in between the check and
+            # the call.
+            def guarded() -> None:
+                if not worker.is_cancelled:
+                    paint(*args)
+
+            self.call_from_thread(guarded)
 
         focus = self._portfolio_id
         try:
             model = self._model_factory()
         except Exception as exc:  # surface a clean message, never crash the App
-            self.call_from_thread(self._set_status, f"model unavailable: {exc}")
-            self.call_from_thread(view.append_log, "ask", f"(model unavailable: {exc})")
+            deliver(self._set_status, f"model unavailable: {exc}")
+            deliver(view.append_log, "ask", f"(model unavailable: {exc})")
             return
         if model is None:
-            self.call_from_thread(self._set_status, "no model configured")
-            self.call_from_thread(view.append_log, "ask", "(no model configured)")
+            deliver(self._set_status, "no model configured")
+            deliver(view.append_log, "ask", "(no model configured)")
             return
         try:
             with self._session_factory() as session:
@@ -2014,37 +2598,71 @@ class ShellApp(App[None]):
             ]
             answer = _answer_text(model.invoke(prompt))
         except Exception as exc:  # surface a clean message, never crash the App
-            self.call_from_thread(self._set_status, f"ask failed: {exc}")
-            self.call_from_thread(view.append_log, "ask", f"(ask failed: {exc})")
+            deliver(self._set_status, f"ask failed: {exc}")
+            deliver(view.append_log, "ask", f"(ask failed: {exc})")
             return
-        self.call_from_thread(view.set_answer, answer)
+        deliver(view.set_answer, answer)
 
     # --- header picker + run state -----------------------------------------
 
     def _populate_picker(self) -> None:
         """Seed the header ``Select`` from the fund's known portfolios (T2 reader).
 
-        Reads ``observe.list_portfolios`` through a short read-only session and
-        records the ids on :attr:`_portfolio_ids` (a test hook). When the shell
-        launched focused on a known portfolio, that option is pre-selected.
+        The options are the ids :meth:`_picker_ids` resolves, recorded on
+        :attr:`_portfolio_ids` (a test hook). The ``Select`` always ends up showing the
+        focused portfolio (or blank, fund-wide). ``set_options`` resets the selection,
+        so the whole re-seed runs with ``Select.Changed`` prevented: otherwise the
+        reset to blank would be dispatched after this returns and, read as a pick,
+        move the shell's focus to fund-wide and back.
         """
-        self._portfolio_ids = self._list_portfolios()
-        select = self.query_one("#hdr-portfolio", Select)
-        select.set_options(
-            (self._short_label(pid), str(pid)) for pid in self._portfolio_ids
-        )
-        if self._portfolio_id in self._portfolio_ids:
-            select.value = str(self._portfolio_id)
+        self._apply_picker(self._picker_ids())
 
-    def _list_portfolios(self) -> list[uuid.UUID]:
-        """Distinct portfolio ids for the picker; ``[]`` on any read error."""
+    def _sync_picker(self) -> None:
+        """Re-seed the picker when the fund's portfolio set changed since the last seed.
+
+        Portfolios appear after launch (the ``fund`` CLI, the scheduler, another
+        session), and a mount-time read that failed leaves the picker empty. Re-seeding
+        only on a change keeps an open dropdown stable between ticks.
+        """
+        ids = self._picker_ids()
+        if ids != self._portfolio_ids:
+            self._apply_picker(ids)
+
+    def _picker_ids(self) -> list[uuid.UUID]:
+        """The portfolio ids the picker should offer, focused portfolio included.
+
+        A focused portfolio with no rows yet (a ``fund-tui <new-uuid>`` launch) is still
+        offered, so the header can name it. On a read error the current options are
+        kept rather than blanked.
+        """
+        listed = self._list_portfolios()
+        ids = list(self._portfolio_ids) if listed is None else listed
+        if self._portfolio_id is not None and self._portfolio_id not in ids:
+            ids.append(self._portfolio_id)
+        return ids
+
+    def _apply_picker(self, ids: list[uuid.UUID]) -> None:
+        """Replace the picker's options with ``ids`` and re-select the focus, silently.
+
+        ``set_options`` resets the selection to blank; with the message prevented that
+        reset (and the re-selection) is never read as an adviser pick.
+        """
+        self._portfolio_ids = ids
+        select = self.query_one("#hdr-portfolio", Select)
+        with select.prevent(Select.Changed):
+            select.set_options((self._short_label(pid), str(pid)) for pid in ids)
+            if self._portfolio_id in ids:
+                select.value = str(self._portfolio_id)
+
+    def _list_portfolios(self) -> list[uuid.UUID] | None:
+        """Distinct portfolio ids for the picker; ``None`` on any read error."""
         try:
             with self._session_factory() as session:
                 ids = observe.list_portfolios(session)
                 session.rollback()
                 return ids
         except Exception:  # keep the shell alive on a read error (mirrors the cockpit)
-            return []
+            return None
 
     def _refresh_runstate(self) -> None:
         """Repaint the header run-state + autonomy-mode glyphs for the focused scope."""
@@ -2056,29 +2674,44 @@ class ShellApp(App[None]):
         """The autonomy posture glyph: ``❄ FROZEN`` when frozen, else ``● ARMED``.
 
         Fund scope wins: a FROZEN fund reads frozen regardless of the focused
-        portfolio's own row; a read error falls back to ``● ARMED``.
+        portfolio's own row. A read error reads ``? UNKNOWN`` — never the permissive
+        ``● ARMED``, which would tell the adviser a frozen fund had resumed. Portfolios
+        frozen *other than* the focused one are counted after the glyph (``· ❄ 1 other
+        frozen``), since a freeze from the fund-wide Decisions queue can land on a
+        portfolio the header is not focused on and would otherwise show nowhere.
         """
         from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
 
         frozen_value = AutonomyState.FROZEN.value
+        focus = self._portfolio_id
         try:
             with self._session_factory() as session:
                 repo = AutonomyRepository(session)  # read-only: never creates rows
                 frozen = repo.fund_posture() == frozen_value
-                if not frozen and self._portfolio_id is not None:
-                    frozen = repo.portfolio_posture(self._portfolio_id) == frozen_value
+                others: list[uuid.UUID] = []
+                if not frozen:
+                    frozen = (
+                        focus is not None
+                        and repo.portfolio_posture(focus) == frozen_value
+                    )
+                    others = [p for p in repo.frozen_portfolio_ids() if p != focus]
                 session.rollback()
         except Exception:  # keep the shell alive on a read error
-            return "● ARMED"
-        return "❄ FROZEN" if frozen else "● ARMED"
+            return "? UNKNOWN"
+        glyph = "❄ FROZEN" if frozen else "● ARMED"
+        if others:
+            qualifier = "other " if focus is not None else ""
+            glyph += f" · ❄ {len(others)} {qualifier}frozen"
+        return glyph
 
     def _run_state_glyph(self) -> str:
         """The focused portfolio's latest-run glyph: live / running / awaiting / idle.
 
         A streaming round latches ``▶ LIVE`` (poll-stable). Otherwise: fund-wide (no
-        focus), no runs, or a read error all read as ``idle``; a ``paused`` or
-        ``responded`` (barge-in re-gate) latest run is ``awaiting`` the adviser,
-        ``pending``/``running`` is live, everything else (completed / rejected) is idle.
+        focus) or no runs read as ``idle`` and a read error as ``? unknown``; a
+        ``paused`` or ``responded`` (barge-in re-gate) latest run is ``awaiting`` the
+        adviser, ``pending``/``running`` is live, everything else (completed /
+        rejected) is idle.
         """
         if self._streaming:
             return "▶ LIVE"
@@ -2086,10 +2719,10 @@ class ShellApp(App[None]):
             return "✓ idle"
         try:
             with self._session_factory() as session:
-                runs = observe.list_portfolio_runs(session, self._portfolio_id)
+                runs = observe.list_portfolio_runs(session, self._portfolio_id, limit=1)
                 session.rollback()
         except Exception:
-            return "✓ idle"
+            return "? unknown"
         if not runs:
             return "✓ idle"
         status = runs[0].status
@@ -2118,6 +2751,15 @@ _ASK_SYSTEM = (
 )
 
 
+def _recorded_train_size(optimizer_config: dict[str, Any] | None) -> int | None:
+    """The backtest training window a run recorded, or ``None`` if it recorded none.
+
+    Runs opened before the key was renamed carry it as ``lookback_days``.
+    """
+    config = optimizer_config or {}
+    return config.get("backtest_train_size", config.get("lookback_days"))
+
+
 def _answer_text(message: Any) -> str:
     """Flatten a chat model reply's ``content`` (a str or a list of content blocks)."""
     content = getattr(message, "content", "")
@@ -2141,13 +2783,20 @@ _ASK_CONSEQUENCE: dict[str, str] = {
 }
 
 
+# The verbs that act on one paused gate (a run); every other verb targets a scope or
+# the focused portfolio, whatever ``run_id`` happens to hold.
+_ASK_GATE_VERBS: frozenset[str] = frozenset({"approve", "reject", "killswitch"})
+
+
 def _ask_confirm_prompt(action: Any) -> str:
     """The spelled-out confirm prompt for a resolved Ask ``action``."""
     verb = action.verb
-    if action.run_id is not None:
-        target = f"gate #{str(action.run_id)[:8]}"
-    elif action.scope == "fund":
+    if action.scope == "fund":
         target = "the whole fund"
+    elif verb in _ASK_GATE_VERBS and action.run_id is not None:
+        target = f"gate #{str(action.run_id)[:8]}"
+        if action.portfolio_id is not None:
+            target += f" (portfolio {str(action.portfolio_id)[:8]})"
     elif action.portfolio_id is not None:
         target = f"portfolio {str(action.portfolio_id)[:8]}"
     else:
@@ -2187,7 +2836,7 @@ def main() -> None:
     import typer
 
     def _launch(portfolio_id: str | None = typer.Argument(default=None)) -> None:
-        from fund.agents.model import build_primary
+        from fund.agents.model import build_fallback, build_primary
         from fund.audit import setup_langgraph
         from fund.database import get_session
 
@@ -2199,6 +2848,7 @@ def main() -> None:
                 session_factory=get_session,
                 persistence=persistence,
                 model_factory=lambda: build_primary(settings),
+                fallback_factory=lambda: build_fallback(settings),
             )
             app.run()
         finally:

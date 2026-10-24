@@ -2,19 +2,35 @@
 
 import logging
 import re
-from datetime import date
+from datetime import date, timedelta
 
 import exchange_calendars as xcals
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# Keys are the exchange names the universe stores (``yahoo_suffix_map``): a venue
+# missing here silently loses the truncated-history guard. AIM shares the London
+# calendar; Gettex has no calendar of its own and follows the Frankfurt sessions.
 EXCHANGE_NAME_TO_MIC = {
     "NYSE": "XNYS",
     "NASDAQ": "XNAS",
     "London Stock Exchange": "XLON",
+    "London Stock Exchange AIM": "XLON",
     "Euronext Paris": "XPAR",
+    "Euronext Amsterdam": "XAMS",
+    "Euronext Brussels": "XBRU",
+    "Euronext Lisbon": "XLIS",
     "Deutsche Börse Xetra": "XFRA",
+    "Gettex": "XFRA",
+    "Borsa Italiana": "XMIL",
+    "Bolsa de Madrid": "XMAD",
+    "SIX Swiss Exchange": "XSWX",
+    "Wiener Börse": "XWBO",
+    "Toronto Stock Exchange": "XTSE",
 }
+
+_UNMAPPED_LOGGED: set[str] = set()
 
 
 def parse_period_years(period: str) -> int | None:
@@ -26,10 +42,43 @@ def parse_period_years(period: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+_PERIOD_PATTERN = re.compile(r"([1-9]\d*)(d|wk|mo|y)")
+
+
+def period_start_date(period: str, reference_date: date) -> date | None:
+    """Return the first calendar date covered by a yfinance period string.
+
+    Args:
+        period: yfinance period such as ``"5y"``, ``"6mo"``, ``"2wk"``,
+            ``"10d"`` or ``"ytd"``.
+        reference_date: End of the window, normally today.
+
+    Returns:
+        The window's start date. Month and year offsets clamp to the end of a
+        shorter month (one year before 2024-02-29 is 2023-02-28). ``None`` when the
+        period has no finite start (``"max"``) or is not a recognised period.
+    """
+    if period == "ytd":
+        return date(reference_date.year, 1, 1)
+    match = _PERIOD_PATTERN.fullmatch(period)
+    if match is None:
+        return None
+    count = int(match.group(1))
+    offsets = {
+        "d": pd.DateOffset(days=count),
+        "wk": pd.DateOffset(weeks=count),
+        "mo": pd.DateOffset(months=count),
+        "y": pd.DateOffset(years=count),
+    }
+    offset = offsets[match.group(2)]
+    return (pd.Timestamp(reference_date) - offset).date()
+
+
 def get_expected_trading_sessions(
     exchange_name: str,
     period: str,
     reference_date: date | None = None,
+    since: date | None = None,
 ) -> int | None:
     """Compute expected trading sessions for an exchange over a period.
 
@@ -38,6 +87,9 @@ def get_expected_trading_sessions(
             ``EXCHANGE_NAME_TO_MIC`` to resolve a calendar).
         period: yfinance period string (e.g. ``"5y"``).
         reference_date: End of the period window; defaults to today.
+        since: Earliest date the window may start, so an instrument listed
+            after the period start is measured only over its own lifetime.
+            ``None`` keeps the full period.
 
     Returns:
         Number of scheduled trading sessions in the window, or ``None``
@@ -50,6 +102,15 @@ def get_expected_trading_sessions(
 
     mic = EXCHANGE_NAME_TO_MIC.get(exchange_name)
     if mic is None:
+        # Once per name: the fetch loop asks for every instrument, and the point
+        # is only to make the skipped guard discoverable.
+        if exchange_name not in _UNMAPPED_LOGGED:
+            _UNMAPPED_LOGGED.add(exchange_name)
+            logger.info(
+                "No trading calendar for exchange %r; history sufficiency check "
+                "skipped for its instruments",
+                exchange_name,
+            )
         return None
 
     if reference_date is None:
@@ -60,6 +121,9 @@ def get_expected_trading_sessions(
     except ValueError:
         # Feb 29 in a leap year → fall back to Feb 28
         start = reference_date.replace(year=reference_date.year - years, day=28)
+
+    if since is not None:
+        start = max(start, since)
 
     try:
         cal = xcals.get_calendar(mic)
@@ -161,11 +225,46 @@ def iter_trading_days(
     return [s.date() if hasattr(s, "date") else s for s in sessions]
 
 
+# Wider than any real run of consecutive closures (the longest exchange
+# shutdowns are a few days), so the window always contains a session.
+_LAST_SESSION_LOOKBACK_DAYS = 14
+
+
+def last_completed_session(exchange_name: str | None, as_of: date) -> date:
+    """Return the newest trading session strictly before *as_of*.
+
+    Args:
+        exchange_name: Exchange name as stored in the database. ``None`` or an
+            exchange without a calendar falls back to the previous weekday,
+            which ignores holidays and so can only err towards "a newer
+            session exists".
+        as_of: Reference date; its own session is excluded because it has not
+            completed (and a date-ranged fetch ending on it excludes it too).
+
+    Returns:
+        The date of the most recent session before *as_of*.
+    """
+    day_before = as_of - timedelta(days=1)
+    if exchange_name is not None:
+        sessions = iter_trading_days(
+            as_of - timedelta(days=_LAST_SESSION_LOOKBACK_DAYS),
+            day_before,
+            exchange_name,
+        )
+        if sessions:
+            return sessions[-1]
+
+    while day_before.weekday() >= 5:
+        day_before -= timedelta(days=1)
+    return day_before
+
+
 def has_sufficient_history(
     row_count: int,
     exchange_name: str | None,
     period: str,
     tolerance: float = 0.95,
+    since: date | None = None,
 ) -> tuple[bool, int | None, int | None]:
     """Check whether fetched row count meets expected trading sessions.
 
@@ -176,6 +275,13 @@ def has_sufficient_history(
         period: yfinance period string (e.g. ``"5y"``).
         tolerance: Fraction of expected sessions required to pass
             (default 0.95 allows for minor calendar gaps).
+        since: Earliest date the expected window may start, typically the
+            earliest bar already stored for the instrument. When it falls
+            inside the period, sessions are counted from that date instead of
+            the period start, so a young listing's complete history is not
+            judged against sessions that predate its IPO. Anchor it on stored
+            data, never on the fetched frame: a fetch that lost its head would
+            otherwise be measured only against its own surviving bars.
 
     Returns:
         ``(sufficient, expected, minimum)`` where *sufficient* is ``True``
@@ -186,7 +292,7 @@ def has_sufficient_history(
     if exchange_name is None:
         return (True, None, None)
 
-    expected = get_expected_trading_sessions(exchange_name, period)
+    expected = get_expected_trading_sessions(exchange_name, period, since=since)
     if expected is None:
         return (True, None, None)
 

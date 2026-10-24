@@ -1,14 +1,22 @@
 """Tests for portopt_db.engine.DatabaseManager.
 
-Config-injected; ``create_engine`` patched throughout — no server is contacted.
+Config-injected. Most tests patch ``create_engine``; the ones that take
+``tmp_path`` build a real file-SQLite engine instead. No server is contacted.
 """
 
 from __future__ import annotations
 
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
-from sqlalchemy.exc import DisconnectionError, OperationalError, SQLAlchemyError
+from sqlalchemy import event, text
+from sqlalchemy.exc import (
+    DataError,
+    DisconnectionError,
+    OperationalError,
+    SQLAlchemyError,
+)
 
 from portopt_db.config import DbConfig
 from portopt_db.engine import DatabaseManager
@@ -20,6 +28,24 @@ _URL = "postgresql://u:p@h:5432/db"
 
 def _cfg(**kw) -> DbConfig:
     return DbConfig(url=_URL, **kw)
+
+
+class _SqliteConfig(DbConfig):
+    """File-SQLite config: the psycopg2 connect args would be rejected."""
+
+    def connect_args(self) -> dict:
+        return {}
+
+
+def _sqlite_manager(tmp_path) -> tuple[DatabaseManager, list[str]]:
+    """Return an initialized real-engine manager and its pool event log."""
+    mgr = DatabaseManager(_SqliteConfig(url=f"sqlite:///{tmp_path / 'engine.db'}"))
+    mgr.initialize()
+    events: list[str] = []
+    assert mgr.engine is not None
+    for name in ("checkout", "invalidate"):
+        event.listen(mgr.engine, name, lambda *_a, _n=name: events.append(_n))
+    return mgr, events
 
 
 def _make_manager(
@@ -53,6 +79,13 @@ class TestInitialize:
         assert kwargs["pool_size"] == 7
         assert kwargs["max_overflow"] == 13
         assert kwargs["pool_pre_ping"] is True
+
+    def test_server_timeouts_reach_the_driver_connect_args(self) -> None:
+        mgr, engine = _make_manager(cfg=_cfg(lock_timeout_ms=4_000))
+        with patch(f"{M}.create_engine", return_value=engine) as create:
+            mgr.initialize()
+        options = create.call_args.kwargs["connect_args"]["options"]
+        assert options == "-c lock_timeout=4000"
 
     def test_is_idempotent(self) -> None:
         mgr, engine = _make_manager()
@@ -165,20 +198,24 @@ class TestGetSession:
             OperationalError("stmt", {}, Exception("dropped")),
         ],
     )
-    def test_on_disconnect_rolls_back_invalidates_and_reraises(self, exc) -> None:
+    def test_on_connection_error_rolls_back_and_reraises(self, exc) -> None:
         mgr, session = self._ready()
         with pytest.raises(type(exc)), mgr.get_session():
             raise exc
         session.rollback.assert_called_once()
-        session.connection.return_value.invalidate.assert_called_once()
         session.close.assert_called_once()
 
-    def test_when_invalidate_fails_then_original_error_still_propagates(self) -> None:
-        mgr, session = self._ready()
-        session.connection.return_value.invalidate.side_effect = RuntimeError("nope")
-        with pytest.raises(DisconnectionError), mgr.get_session():
-            raise DisconnectionError("dropped")
-        session.close.assert_called_once()
+    def test_on_operational_error_does_not_check_out_another_connection(
+        self, tmp_path
+    ) -> None:
+        mgr, events = _sqlite_manager(tmp_path)
+        try:
+            with pytest.raises(OperationalError), mgr.get_session() as session:
+                session.execute(text("SELECT 1"))
+                raise OperationalError("stmt", {}, Exception("QueryCanceled"))
+            assert events == ["checkout"]
+        finally:
+            mgr.close()
 
     def test_on_sqlalchemy_error_rolls_back_and_reraises(self) -> None:
         mgr, session = self._ready()
@@ -194,11 +231,96 @@ class TestGetSession:
         session.rollback.assert_called_once()
         session.close.assert_called_once()
 
+    def test_failed_bulk_insert_logs_the_driver_error_not_the_statement(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        mgr, _ = self._ready()
+        statement = "INSERT INTO price_history VALUES " + ",".join(["(%s, %s)"] * 5000)
+        exc = DataError(
+            statement, {"p": 1}, Exception("numeric field overflow\nDETAIL: row 1")
+        )
+        with (
+            caplog.at_level("ERROR", logger=M),
+            pytest.raises(DataError),
+            mgr.get_session(),
+        ):
+            raise exc
+        logged = "\n".join(r.getMessage() for r in caplog.records)
+        assert "numeric field overflow" in logged
+        assert "INSERT INTO price_history" not in logged
+        assert len(logged) < 1_000
+
+    def test_oversized_non_driver_error_message_is_capped_in_the_log(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        mgr, _ = self._ready()
+        with (
+            caplog.at_level("ERROR", logger=M),
+            pytest.raises(ValueError),
+            mgr.get_session(),
+        ):
+            raise ValueError("x" * 100_000)
+        assert len("\n".join(r.getMessage() for r in caplog.records)) < 1_000
+
     def test_close_failure_is_swallowed(self) -> None:
         mgr, session = self._ready()
         session.close.side_effect = RuntimeError("already closed")
         with mgr.get_session():
             pass  # must not raise
+
+    def test_after_close_raises_instead_of_building_a_new_engine(
+        self, tmp_path
+    ) -> None:
+        mgr, _ = _sqlite_manager(tmp_path)
+        mgr.close()
+        with pytest.raises(RuntimeError, match="closed"), mgr.get_session():
+            pass
+        assert mgr.engine is None
+        assert mgr.is_initialized is False
+
+    def test_after_close_on_a_never_initialized_manager_still_raises(self) -> None:
+        mgr = DatabaseManager(_cfg())
+        mgr.close()
+        with (
+            patch(f"{M}.create_engine") as create,
+            pytest.raises(RuntimeError, match="closed"),
+            mgr.get_session(),
+        ):
+            pass
+        create.assert_not_called()
+
+    def test_explicit_initialize_reopens_a_closed_manager(self, tmp_path) -> None:
+        mgr, _ = _sqlite_manager(tmp_path)
+        mgr.close()
+        mgr.initialize()
+        with mgr.get_session() as session:
+            assert session.execute(text("SELECT 1")).scalar() == 1
+        mgr.close()
+
+    def test_close_racing_get_session_yields_closed_error_not_type_error(
+        self,
+    ) -> None:
+        mgr, _ = self._ready()
+        errors: list[BaseException] = []
+
+        def worker() -> None:
+            try:
+                with mgr.get_session():
+                    pass
+            except BaseException as exc:
+                errors.append(exc)
+
+        with mgr._lock:
+            thread = threading.Thread(target=worker)
+            thread.start()
+            thread.join(timeout=0.2)
+            assert thread.is_alive(), "get_session did not wait for the manager lock"
+            mgr.close()
+        thread.join(timeout=5)
+
+        assert len(errors) == 1
+        assert isinstance(errors[0], RuntimeError)
+        assert "closed" in str(errors[0])
 
 
 class TestClose:

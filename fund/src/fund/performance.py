@@ -21,8 +21,9 @@ import datetime as dt
 import itertools
 import logging
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -30,6 +31,36 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 _HORIZONS = ("1D", "1M", "YTD", "1Y", "max")
+
+# Daily-bar periods per year: the one scale the annualised figures of the Performance
+# strip share, so a Sharpe ratio never mixes scales (the tools' annualised metrics use
+# the same 252).
+TRADING_DAYS_PER_YEAR = 252.0
+
+# Calendar days of bars read before a book's earliest fill so the fill-day price, and
+# the 5-row FX forward-fill behind it, still resolve across weekends and holidays.
+_MARK_LOOKBACK_DAYS = 30
+
+# FX history loaded before the first fill so the rate in force on the fill bar can be
+# carried in when that bar has no row of its own (the feed only writes dates present
+# on every USD leg, so single-day gaps happen).
+_FX_LOOKBACK_DAYS = 10
+
+# Holdings are marked from each ticker's newest bars, never its whole stored history:
+# the 1Y return baseline sits 365 days before the last close, and 450 bars reach that
+# far even for a listing that trades every calendar day. The count is per ticker (not
+# a date) so a holding that stopped trading long ago is still marked at its last close,
+# and it does not grow with the age of the book.
+_HOLDING_LOOKBACK_BARS = 450
+
+# A ticket filled before that window is priced through a narrow lookup this many days
+# either side of its fill (a fill bar can sit a few non-trading days after the last
+# close, and the chain-link reads both books on the switch bar).
+_FILL_LOOKUP_DAYS = 10
+
+# FX rates are read this many days before the first loaded bar so the forward-fill
+# (``fill_limit`` rows) still finds a rate for the earliest bar of a window.
+_FX_MARGIN_DAYS = 10
 
 
 @dataclass(frozen=True)
@@ -95,8 +126,12 @@ class HoldingMark:
         return_1d: Trailing 1-day price return, or ``None`` with too little data.
         return_1m: Trailing ~1-month price return, or ``None``.
         return_1y: Trailing ~1-year price return, or ``None``.
-        contribution: ``weight × return_1d`` (contribution to 1-day return), or
-            ``None`` when either input is unavailable.
+        contribution: Value change over the NAV series' last return interval as a
+            share of the book value at its start, so the column sums to that NAV
+            return (``start weight × return`` on the NAV's carried-forward prices).
+            The interval is the persisted NAV's last step; the holdings' own last two
+            bars stand in when no NAV is persisted or it lags the latest bar. ``None``
+            when no start-of-interval value exists.
         unrealized_pnl: Current value minus FX-correct cost basis, or ``None``.
     """
 
@@ -168,25 +203,70 @@ def _to_base_prices(
     return converter.fit_transform(prices)
 
 
+def _carried_base_prices(
+    prices: pd.DataFrame,
+    *,
+    base_currency: str,
+    currency_map: dict[str, str],
+    fx_rates: pd.DataFrame,
+) -> pd.DataFrame:
+    """Per-bar base-currency marks: the last local close, FX-converted bar by bar.
+
+    A closed market's last close is carried over the bar *before* conversion, so a
+    holding keeps moving with its currency. Carrying the converted price instead
+    would also fill the bars where the rate is older than the converter's staleness
+    horizon, freezing the holding at a price and rate from before the gap while its
+    market kept trading. Those bars stay NaN (unpriced) here.
+
+    The conversion runs on the union of the price and rate calendars, so rates dated
+    before the first bar seed the window, and the converter's single forward-fill is
+    the only staleness horizon. Pre-filling the rates and handing them to the
+    converter would stack a second fill on the first and double the horizon.
+
+    Args:
+        prices: Wide listing-currency close frame, NaN on a market's closed bars.
+        base_currency: ISO-4217 code to express all prices in.
+        currency_map: ``{ticker: raw price_unit}`` (see :func:`_to_base_prices`).
+        fx_rates: Rates as loaded, including any dated before ``prices.index[0]``.
+
+    Returns:
+        The base-currency frame on ``prices.index``; NaN before a ticker's first
+        close and wherever its rate is stale.
+    """
+    calendar = prices.index if fx_rates.empty else fx_rates.index.union(prices.index)
+    converted = _to_base_prices(
+        prices.reindex(calendar).ffill(),
+        base_currency=base_currency,
+        currency_map=currency_map,
+        fx_rates=fx_rates,
+    )
+    return converted.reindex(prices.index)
+
+
 def _load_price_frame(
     session: Any,
     tickers: list[str],
     *,
     start: dt.date | None = None,
     end: dt.date | None = None,
+    newest: int | None = None,
 ) -> tuple[pd.DataFrame, dict[str, str]]:
     """Load a wide close-price frame + raw currency map for the given tickers.
 
     Joins each yfinance ticker to its instrument (``instruments.yfinance_ticker``)
     and reads ``price_history`` closes into a ``DatetimeIndex`` × ticker frame. The
     currency map keys each ticker to its **raw** ``price_unit`` (e.g. ``GBp``),
-    falling back to ``instruments.currency_code``.
+    falling back to ``instruments.currency_code``; a ticker with neither is in the
+    frame but absent from the map.
 
     Args:
         session: Open SQLAlchemy session.
         tickers: yfinance tickers to load.
         start: Inclusive lower date bound; ``None`` leaves it open.
         end: Inclusive upper date bound; ``None`` leaves it open.
+        newest: When set, keep only each ticker's newest ``newest`` bars within the
+            bounds instead of every bar from ``start``, so the read stays the same size
+            however long the stored history is.
 
     Returns:
         ``(prices, currency_map)`` — the price frame (empty when nothing loads) and
@@ -203,9 +283,18 @@ def _load_price_frame(
         instrument = repo.get_instrument_by_yfinance_ticker(ticker)
         if instrument is None:
             continue
-        rows = repo.get_price_history(
-            instrument.id, start_date=start, end_date=end, ascending=True
-        )
+        if newest is None:
+            rows = repo.get_price_history(
+                instrument.id,
+                start_date=start,
+                end_date=end,
+                limit=None,
+                ascending=True,
+            )
+        else:
+            rows = repo.get_price_history(
+                instrument.id, start_date=start, end_date=end, limit=newest
+            )
         closes = {r.date: float(r.close) for r in rows if r.close is not None}
         if not closes:
             continue
@@ -219,6 +308,29 @@ def _load_price_frame(
     prices = pd.DataFrame(series).sort_index()
     prices.index = pd.DatetimeIndex(prices.index)
     return prices, currency_map
+
+
+def resolve_benchmark(session: Any, benchmark: str) -> str | None:
+    """The stored ticker a mandate benchmark names, matched ignoring case.
+
+    A benchmark only produces a level when an instrument carries that exact
+    ``yfinance_ticker`` and has price rows; anything else leaves every NAV point
+    without one. Yahoo symbols are upper case, so a lower-case entry is retried as
+    upper case.
+
+    Args:
+        session: Open SQLAlchemy session.
+        benchmark: The ticker as the adviser typed it.
+
+    Returns:
+        The ticker as stored, or ``None`` when no instrument with price history
+        matches.
+    """
+    for candidate in dict.fromkeys((benchmark, benchmark.upper())):
+        prices, _ = _load_price_frame(session, [candidate], newest=1)
+        if not prices.empty:
+            return candidate
+    return None
 
 
 def _load_fx_rates_frame(
@@ -257,6 +369,56 @@ def _load_fx_rates_frame(
     frame = pd.DataFrame(data).sort_index()
     frame.index = pd.DatetimeIndex(frame.index)
     return frame
+
+
+def convert_prices_to_base(
+    session: Any,
+    prices: pd.DataFrame,
+    currency_map: dict[str, str],
+    *,
+    base_currency: str,
+) -> pd.DataFrame:
+    """FX-convert a listing-currency price frame to ``base_currency`` from the DB.
+
+    Loads the ``fx_rates`` the frame's date span needs and applies the same
+    conversion the NAV tracker uses, so an allocator reading prices through this
+    helper optimises over the base-currency series NAV is later marked on.
+
+    Args:
+        session: Open SQLAlchemy session the FX rates are read from.
+        prices: Wide price frame (``DatetimeIndex`` rows, ticker columns), in
+            listing currency.
+        currency_map: ``{ticker: raw price_unit}`` — raw sub-unit codes (``GBp``),
+            never pre-normalized to the major (``GBP``).
+        base_currency: ISO-4217 code to express every price in.
+
+    Returns:
+        The base-currency frame; ``prices`` unchanged when it is empty or no ticker
+        carries a currency. Tickers whose currency has a rate column are converted;
+        a currency missing among several present is left unconverted (logged).
+
+    Raises:
+        FxCoverageError: Foreign tickers exist but none of their currencies has a
+            rate under ``base_currency`` — converting would silently mix currencies.
+    """
+    if prices.empty or not currency_map:
+        return prices
+    quotes = sorted({_major_currency(code) for code in currency_map.values()})
+    days = pd.DatetimeIndex(prices.index)
+    fx_rates = _load_fx_rates_frame(
+        session,
+        base_currency,
+        quotes,
+        start=min(days).date(),
+        end=max(days).date(),
+    )
+    _require_fx_coverage(base_currency, currency_map, fx_rates)
+    return _to_base_prices(
+        prices,
+        base_currency=base_currency,
+        currency_map=currency_map,
+        fx_rates=fx_rates,
+    )
 
 
 def _finite(value: float) -> float | None:
@@ -315,6 +477,69 @@ def _require_fx_coverage(
         )
 
 
+def _expressed_in_base(
+    ticker: str,
+    base_currency: str,
+    currency_map: dict[str, str],
+    fx_rates: pd.DataFrame,
+) -> bool:
+    """Whether :func:`_to_base_prices` leaves ``ticker`` priced in ``base_currency``.
+
+    The converter skips a foreign ticker whose currency has no rate column rather
+    than raising, so its prices stay in listing currency; this mirrors that rule so
+    callers can tell a converted series from a raw one. A ticker with no known
+    currency is treated as base, as the converter does.
+    """
+    code = currency_map.get(ticker)
+    if code is None:
+        return True
+    major = _major_currency(code)
+    if major == _major_currency(base_currency):
+        return True
+    available = {str(col).upper() for col in fx_rates.columns}
+    return major in available
+
+
+def _require_known_currencies(
+    prices: pd.DataFrame, currency_map: dict[str, str], *, holdings: set[str]
+) -> pd.DataFrame:
+    """Keep the series whose price currency is known; fail on a held one that isn't.
+
+    A ticker with neither a ``price_unit`` nor an instrument ``currency_code`` has no
+    entry in ``currency_map``, and the FX converter reads a missing entry as "already
+    in base currency" — so it would be valued unconverted with nothing to flag it. A
+    holding in that state cannot be valued correctly and fails loud; any other series
+    (the benchmark, a reference line outside NAV) is dropped with a warning instead.
+
+    Args:
+        prices: Wide price frame as loaded.
+        currency_map: ``{ticker: raw price_unit}`` for the tickers whose currency
+            resolved.
+        holdings: The tickers that are part of the book.
+
+    Returns:
+        ``prices`` without the columns whose currency is unknown.
+
+    Raises:
+        FxCoverageError: A held ticker has no resolvable price currency.
+    """
+    unknown = [ticker for ticker in prices.columns if ticker not in currency_map]
+    if not unknown:
+        return prices
+    held = sorted(ticker for ticker in unknown if ticker in holdings)
+    if held:
+        raise FxCoverageError(
+            f"no price currency for {held}: both price_history.price_unit and "
+            "instruments.currency_code are empty, so their prices cannot be converted "
+            "to the base currency. Backfill the instruments' currency."
+        )
+    logger.warning(
+        "performance: no price currency for %s; left out of the series",
+        sorted(unknown),
+    )
+    return prices.drop(columns=unknown)
+
+
 def _price_asof(prices: pd.DataFrame, ticker: str, ts: Any) -> float | None:
     """Last valid base price for ``ticker`` at or before ``ts`` (no look-ahead)."""
     value: Any = prices[ticker].asof(ts)
@@ -339,11 +564,26 @@ def _ticket_shares(ticket: Any, base_prices: pd.DataFrame) -> dict[str, float]:
     for line in ticket.lines:
         ticker = line.get("ticker")
         notional = line.get("notional")
-        if ticker is None or notional is None or ticker not in base_prices.columns:
+        if ticker is None or notional is None:
+            continue
+        if ticker not in base_prices.columns:
+            logger.warning(
+                "performance: ticket %s line %s has no price history; "
+                "left out of the book",
+                ticket.id,
+                ticker,
+            )
             continue
         fill_ts = pd.Timestamp(line.get("fill_date") or ticket.fill_date)
         price = _price_asof(base_prices, ticker, fill_ts)
         if not price:
+            logger.warning(
+                "performance: ticket %s line %s has no base-currency price at its "
+                "fill %s; left out of the book",
+                ticket.id,
+                ticker,
+                fill_ts.date(),
+            )
             continue
         shares[ticker] = float(notional) / price
     return shares
@@ -365,6 +605,24 @@ def _as_date(value: Any) -> dt.date | None:
         except ValueError:
             return None
     return None
+
+
+def _ticket_order_columns(paper_order: Any) -> tuple[Any, ...]:
+    """Sort keys that rank paper tickets from oldest to newest, with no ties.
+
+    Tickets for the same decision bar share ``asof`` and ``fill_date`` but may carry
+    different weights (a re-run after a reject, a sweep plus a manual run), so those
+    two keys alone leave their order to the database. ``created_at`` then ``id``
+    make the newest ticket supersede the others deterministically; NAV reads the
+    ascending order and the holdings table the descending one, so both follow the
+    same ticket.
+    """
+    return (
+        paper_order.fill_date,
+        paper_order.asof,
+        paper_order.created_at,
+        paper_order.id,
+    )
 
 
 def _ticket_book(
@@ -389,24 +647,150 @@ def _ticket_book(
     return book
 
 
-def _active_book(
+def _active_index(
     ticket_books: list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]],
     day: dt.date,
-) -> dict[str, tuple[float, dt.date, float]]:
-    """The book in force on ``day``: the latest ticket filled at or before it.
+) -> int | None:
+    """Index of the book in force on ``day``: the latest ticket filled at or before it.
 
     Mirrors the full-re-allocation rule (paper tickets replace ``positions`` on each
     approve rather than accumulate), so the active book is the most recent ticket's,
     not the union of every fill. Each line keeps its own fill date so the NAV loop can
-    defer a line that has not yet filled on ``day``.
+    defer a line that has not yet filled on ``day``. ``None`` before the first fill.
     """
-    active: dict[str, tuple[float, dt.date, float]] = {}
-    for fill_date, book in ticket_books:
+    active: int | None = None
+    for index, (fill_date, _) in enumerate(ticket_books):
         if fill_date <= day:
-            active = book
+            active = index
         else:
             break
     return active
+
+
+def _book_value(
+    book: dict[str, tuple[float, dt.date, float]],
+    ts: pd.Timestamp,
+    base_prices: pd.DataFrame,
+) -> float | None:
+    """Base-currency value of ``book`` on bar ``ts``; ``None`` when nothing marks.
+
+    A line that has not yet filled on the bar is carried at its book notional rather
+    than marked early at a price it was never bought at (look-ahead) or dropped, which
+    would read the undeployed capital as a drawdown and recover it as a fake gain. A
+    filled line with no usable price (its FX rate is stale) makes the whole bar
+    unmarkable for the same reason: summing only the priced lines would read as a
+    drawdown.
+    """
+    day = ts.date()
+    value = 0.0
+    marked = False
+    for ticker, (qty, line_fill, notional) in book.items():
+        if line_fill > day:
+            value += notional
+            marked = True
+            continue
+        if ticker not in base_prices.columns:
+            continue
+        price = base_prices.at[ts, ticker]
+        if pd.isna(price):
+            return None
+        value += qty * float(price)
+        marked = True
+    return value if marked else None
+
+
+@dataclass(frozen=True)
+class _ChainLink:
+    """How one ticket's raw book is carried onto the portfolio's NAV.
+
+    Attributes:
+        scale: Factor multiplying the ticket's shares and base notionals.
+        offset: Undeployed cash, net of the first ticket's reserve, that sits beside
+            the book and belongs in NAV (zero for a ticket that deploys everything).
+    """
+
+    scale: float
+    offset: float
+
+
+def _entry_scale(gross: float, capital: float | None) -> float:
+    """Scale taking a ticket sized on ``gross`` to ``capital`` (1.0 when unknown)."""
+    if capital is not None and capital > 0 and gross > 0:
+        return capital / gross
+    return 1.0
+
+
+def _chain_links(
+    ticket_books: list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]],
+    grosses: list[float],
+    base_prices: pd.DataFrame,
+    capital: float | None = None,
+) -> list[_ChainLink]:
+    """The scale (and cash) that makes NAV continuous at each ticket's fill.
+
+    Every ticket is sized off a flat notional (its ``gross``), not the portfolio's
+    marked wealth, so a new ticket's book is worth ``sum(weights) x gross`` on its first
+    bar regardless of what the previous book earned. A rebalance re-allocates wealth; it
+    neither creates nor destroys any, so on each hand-over the ticket's weights are
+    applied to the portfolio's total wealth on that bar (``scale = wealth / gross``) and
+    the series keeps its accumulated P&L (time-weighted-return convention). Whatever
+    the ticket leaves undeployed (a weight sum below one) is held as cash at par:
+    exposure is the weight sum of total wealth and NAV stays continuous through the
+    hand-over.
+
+    The first ticket has nothing to carry, so its wealth is ``capital`` (its own
+    ``gross`` when unknown). The cash it leaves undeployed is a reserve outside NAV, but
+    it is still wealth the later tickets are sized on, so a repeated 90% ticket stays
+    90% exposed instead of shrinking to 90% of 90%.
+
+    When either side cannot be valued on the switch bar the previous link is carried
+    forward instead of resetting to the flat notional.
+
+    This is the single source of the per-ticket scale: :func:`build_nav_series` marks
+    the rescaled books and :func:`holding_marks` applies the same factor to share
+    counts and cost basis, so holdings and NAV cannot disagree after a rebalance.
+
+    Args:
+        ticket_books: Priced tickets ``(fill date, book)``, ascending, non-empty books.
+        grosses: Each ticket's gross notional, aligned with ``ticket_books``.
+        base_prices: Base-currency mark frame the books are marked on (see
+            :func:`_carried_base_prices`); a bar that leaves a line unpriced is skipped.
+        capital: Mandate capital the first ticket is denominated in; ``None`` keeps the
+            ticket's own notional.
+    """
+    links: list[_ChainLink] = []
+    previous_book: dict[str, tuple[float, dt.date, float]] | None = None
+    scale = 1.0
+    cash = 0.0
+    reserve = 0.0
+    for (fill_day, book), gross in zip(ticket_books, grosses, strict=True):
+        position = int(base_prices.index.searchsorted(pd.Timestamp(fill_day)))
+        ts = base_prices.index[position] if position < len(base_prices.index) else None
+        incoming = _book_value(book, ts, base_prices) if ts is not None else None
+        if previous_book is None:
+            scale = _entry_scale(gross, capital)
+            if incoming is not None:
+                wealth = scale * (gross if gross > 0 else incoming)
+                cash = reserve = wealth - scale * incoming
+        elif ts is not None and incoming:
+            outgoing = _book_value(previous_book, ts, base_prices)
+            if outgoing is not None:
+                wealth = outgoing + cash
+                scale = wealth / gross if gross > 0 else wealth / incoming
+                cash = wealth - scale * incoming
+        links.append(_ChainLink(scale, cash - reserve))
+        previous_book = _scaled_book(book, scale)
+    return links
+
+
+def _scaled_book(
+    book: dict[str, tuple[float, dt.date, float]], scale: float
+) -> dict[str, tuple[float, dt.date, float]]:
+    """``book`` with every line's shares and base notional multiplied by ``scale``."""
+    return {
+        ticker: (qty * scale, line_fill, notional * scale)
+        for ticker, (qty, line_fill, notional) in book.items()
+    }
 
 
 def build_nav_series(
@@ -417,6 +801,7 @@ def build_nav_series(
     benchmark: str | None = None,
     asof: dt.date | None = None,
     since: dt.date | None = None,
+    capital: float | None = None,
 ) -> list[NavPoint]:
     """Reconstruct the paper portfolio's NAV series, marked to market in base ccy.
 
@@ -424,8 +809,15 @@ def build_nav_series(
     fill counts from its ``fill_date``) as ``notional_base / price_base@fill``,
     with ``price_base`` FX-converted from listing currency via ``optimizer.fx``.
     Each trading day at or after the first fill is marked with that day's
-    base-currency close (carried forward over gaps). The benchmark level, when
+    base-currency close (a closed market's last close is carried forward over gaps).
+    A bar whose FX rate is more than five bars old leaves that line unpriced and is
+    not emitted, rather than being carried at an old price. The benchmark level, when
     given, is pulled from ``price_history``, FX-normalized to base, and date-aligned.
+
+    Rebalances conserve NAV: each ticket after the first applies its weights to the
+    portfolio's marked wealth on its first active bar (see :func:`_chain_links`), and
+    any weight it leaves undeployed is held as cash at par, instead of snapping back to
+    the flat ticket notional and discarding accumulated P&L.
 
     NAV is **gross** of paper execution costs: shares are reconstructed from the
     fill-bar *close*, so NAV at the fill equals the deployed base notional. The
@@ -437,13 +829,18 @@ def build_nav_series(
         portfolio_id: Portfolio whose paper book to reconstruct.
         session: Open SQLAlchemy session (reader; no commit).
         base_currency: Mandate base currency to express NAV in.
-        benchmark: Optional benchmark ticker; its level is FX-normalized to base.
+        benchmark: Optional benchmark ticker; its level is FX-normalized to base,
+            or left ``None`` when its currency has no FX rate to convert it.
         asof: Upper date bound for the series; ``None`` runs to the latest price.
         since: Lower date bound on the *emitted* points — shares are still derived
             from the full ticket history and prices carried forward from the first
             fill, but only bars on/after ``since`` are returned. ``None`` emits the
             full series from the first fill (backfill). Lets the daily mark re-emit
             only recent bars instead of rewriting the whole history every run.
+        capital: Mandate capital, in base currency, the first ticket is denominated
+            in. Tickets are sized against a paper notional that may not be the
+            mandate's (older ones used a flat default), so without this NAV is on the
+            ticket's own notional instead.
 
     Returns:
         NAV points ordered by date; empty when the portfolio has no fills, no
@@ -452,7 +849,8 @@ def build_nav_series(
     Raises:
         FxCoverageError: The mandate holds foreign-currency instruments but no FX
             rate for their currencies exists under ``base_currency`` (e.g. a
-            non-EUR mandate against the EUR-only feed) — marking would silently mix
+            non-EUR mandate against the EUR-only feed), or a holding has no
+            resolvable price currency at all — marking would silently mix
             currencies, so it fails loud instead.
     """
     from portopt_db.models.orders.paper_order import PaperOrder
@@ -462,7 +860,7 @@ def build_nav_series(
         session.execute(
             select(PaperOrder)
             .where(PaperOrder.portfolio_id == portfolio_id)
-            .order_by(PaperOrder.fill_date, PaperOrder.asof)
+            .order_by(*_ticket_order_columns(PaperOrder))
         )
         .scalars()
         .all()
@@ -479,12 +877,19 @@ def build_nav_series(
     raw_prices, currency_map = _load_price_frame(
         session, load_tickers, start=first_fill, end=asof
     )
+    raw_prices = _require_known_currencies(
+        raw_prices, currency_map, holdings=holding_tickers
+    )
     if raw_prices.empty:
         return []
 
     quotes = sorted({_major_currency(code) for code in currency_map.values()})
     fx_rates = _load_fx_rates_frame(
-        session, base_currency, quotes, start=first_fill, end=asof
+        session,
+        base_currency,
+        quotes,
+        start=first_fill - dt.timedelta(days=_FX_LOOKBACK_DAYS),
+        end=asof,
     )
     # Guard on the HOLDINGS' currencies only: a foreign benchmark that lacks a rate
     # degrades gracefully (it is a reference line, not part of NAV) and must not
@@ -495,19 +900,53 @@ def build_nav_series(
         if ticker in holding_tickers
     }
     _require_fx_coverage(base_currency, holding_currency_map, fx_rates)
-    base_prices = _to_base_prices(
+    base_prices = _carried_base_prices(
         raw_prices,
         base_currency=base_currency,
         currency_map=currency_map,
         fx_rates=fx_rates,
-    ).ffill()
+    )
 
-    ticket_books = [
-        (ticket.fill_date, _ticket_book(ticket, base_prices)) for ticket in tickets
+    # A benchmark whose currency could not be converted is dropped, not emitted raw:
+    # a local-currency index level beside a base-currency NAV would make excess,
+    # tracking error and beta compare two currencies with no FX return between them.
+    bench_in_base = (
+        benchmark is not None
+        and benchmark in base_prices.columns
+        and _expressed_in_base(benchmark, base_currency, currency_map, fx_rates)
+    )
+
+    if benchmark is not None and not bench_in_base:
+        reason = (
+            "its currency has no FX rate to the base currency"
+            if benchmark in base_prices.columns
+            else "no instrument with price history and a known currency matches it"
+        )
+        logger.warning(
+            "performance: benchmark %r left out of the NAV series: %s",
+            benchmark,
+            reason,
+        )
+
+    priced = [
+        (
+            ticket.fill_date,
+            _ticket_book(ticket, base_prices),
+            float(ticket.notional or 0),
+        )
+        for ticket in tickets
     ]
-    ticket_books = [(d, b) for d, b in ticket_books if b]
-    if not ticket_books:
+    priced = [entry for entry in priced if entry[1]]
+    if not priced:
         return []
+    ticket_books = [(fill_date, book) for fill_date, book, _ in priced]
+    links = _chain_links(
+        ticket_books, [gross for _, _, gross in priced], base_prices, capital
+    )
+    scaled_books = [
+        _scaled_book(book, link.scale)
+        for (_, book), link in zip(ticket_books, links, strict=True)
+    ]
     earliest = ticket_books[0][0]
     mark_from = earliest if since is None else max(earliest, since)
 
@@ -516,28 +955,15 @@ def build_nav_series(
         day = ts.date()
         if day < mark_from:
             continue
-        book = _active_book(ticket_books, day)
-        nav = 0.0
-        marked = False
-        for ticker, (qty, line_fill, notional) in book.items():
-            if line_fill > day:
-                # Committed but not yet filled on this bar: carry at base-currency book
-                # value (its notional) so a staggered line is neither marked early at
-                # its future fill price (look-ahead) nor dropped — which would misread
-                # the undeployed capital as a drawdown and recover it as a fake gain.
-                nav += notional
-                marked = True
-                continue
-            if ticker not in base_prices.columns:
-                continue
-            price = base_prices.at[ts, ticker]
-            if pd.notna(price):
-                nav += qty * float(price)
-                marked = True
-        if not marked:
+        index = _active_index(ticket_books, day)
+        if index is None:
             continue
+        raw_nav = _book_value(scaled_books[index], ts, base_prices)
+        if raw_nav is None:
+            continue
+        nav = raw_nav + links[index].offset
         bench_level: float | None = None
-        if benchmark and benchmark in base_prices.columns:
+        if benchmark and bench_in_base:
             raw = base_prices.at[ts, benchmark]
             if pd.notna(raw):
                 bench_level = float(raw)
@@ -654,6 +1080,9 @@ def _risk_measures(
 
     Volatility and Sharpe need at least two returns (sample dispersion); max
     drawdown needs one. Any NaN or failure degrades the affected field to ``None``.
+    The returns are NAV-to-NAV simple returns, so the drawdown is taken on the
+    compounded wealth path; skfolio's default sums returns, which overstates the
+    decline of a compounding NAV.
     """
     from skfolio import BasePortfolio
 
@@ -662,8 +1091,11 @@ def _risk_measures(
             returns=np.asarray(returns, dtype=float),
             observations=list(dates),
             annualization_factor=annualization_factor,
+            compounded=True,
         )
-        max_drawdown = _finite(float(portfolio.max_drawdown))
+        # skfolio yields -0.0 for a path with no drawdown; max() pins it to +0.0.
+        drawdown = _finite(float(portfolio.max_drawdown))
+        max_drawdown = None if drawdown is None else max(0.0, drawdown)
         if len(returns) >= 2:
             volatility = _finite(float(portfolio.annualized_standard_deviation))
             sharpe = _finite(float(portfolio.annualized_sharpe_ratio))
@@ -679,7 +1111,7 @@ def portfolio_metrics(
     portfolio_id: uuid.UUID,
     nav_points: list[NavPoint],
     *,
-    annualization_factor: float = 252.0,
+    annualization_factor: float = TRADING_DAYS_PER_YEAR,
 ) -> PerformanceSummary:
     """Compute multi-horizon returns + risk metrics over a NAV series.
 
@@ -789,6 +1221,8 @@ def _series_returns(
     series: pd.Series,
 ) -> tuple[float | None, float | None, float | None]:
     """Trailing (1D, 1M, 1Y) returns of a base-price series (ascending, non-NaN)."""
+    if series.empty:
+        return None, None, None
     current = float(series.iloc[-1])
     last_ts = series.index[-1]
 
@@ -807,53 +1241,34 @@ def _series_returns(
     return r1d, _window(30), _window(365)
 
 
-def holding_marks(
-    portfolio_id: uuid.UUID,
-    *,
-    session: Any,
-    base_currency: str,
-    asof: dt.date | None = None,
-) -> list[HoldingMark]:
-    """Mark each current holding to market in the mandate base currency.
-
-    Takes the latest paper ticket at or before ``asof`` as the current book,
-    re-derives FX-correct shares (``notional_base / price_base@fill``, ignoring the
-    stored currency-mixed ``lines.shares``), and marks each holding with its latest
-    base-currency close. Per holding it reports value, portfolio weight, trailing
-    1D/1M/1Y price returns, 1-day contribution (``weight × return_1d``), and
-    unrealized P&L (value minus the deployed base cost basis). A holding with no
-    usable price degrades to ``None`` fields rather than raising.
-
-    Value marks on the carried-forward (``asof``) close, but returns are computed
-    on each holding's *own* real closes, so a carry-forward over a day the holding
-    did not trade cannot manufacture a 0 % move. Like :func:`build_nav_series`,
-    value and P&L are gross of the modelled slippage/commission.
-
-    Args:
-        portfolio_id: Portfolio whose current book to mark.
-        session: Open SQLAlchemy session (reader; no commit).
-        base_currency: Mandate base currency to express values in.
-        asof: Mark date upper bound; ``None`` uses the latest available prices.
-
-    Returns:
-        One :class:`HoldingMark` per line of the active ticket, in ticket order;
-        empty when the portfolio has no paper orders.
-
-    Raises:
-        FxCoverageError: Foreign holdings exist but no FX rate covers their currency
-            under ``base_currency`` (see :func:`build_nav_series`).
-    """
+def _active_ticket(session: Any, portfolio_id: uuid.UUID, asof: dt.date | None) -> Any:
+    """The latest paper ticket filled at or before ``asof`` (``None`` when absent)."""
     from portopt_db.models.orders.paper_order import PaperOrder
     from sqlalchemy import select
 
     stmt = select(PaperOrder).where(PaperOrder.portfolio_id == portfolio_id)
     if asof is not None:
         stmt = stmt.where(PaperOrder.fill_date <= asof)
-    stmt = stmt.order_by(PaperOrder.fill_date.desc(), PaperOrder.asof.desc())
-    ticket = session.execute(stmt).scalars().first()
-    if ticket is None:
-        return []
+    stmt = stmt.order_by(*(c.desc() for c in _ticket_order_columns(PaperOrder)))
+    return session.execute(stmt).scalars().first()
 
+
+def _tickets_through(
+    session: Any, portfolio_id: uuid.UUID, asof: dt.date | None
+) -> list[Any]:
+    """Every paper ticket filled at or before ``asof``, oldest first (the NAV chain)."""
+    from portopt_db.models.orders.paper_order import PaperOrder
+    from sqlalchemy import select
+
+    stmt = select(PaperOrder).where(PaperOrder.portfolio_id == portfolio_id)
+    if asof is not None:
+        stmt = stmt.where(PaperOrder.fill_date <= asof)
+    stmt = stmt.order_by(*_ticket_order_columns(PaperOrder))
+    return list(session.execute(stmt).scalars().all())
+
+
+def _ticket_lines(ticket: Any) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    """A ticket's tickers in line order, and the (last) line for each of them."""
     line_by_ticker: dict[str, dict[str, Any]] = {}
     order: list[str] = []
     for line in ticket.lines:
@@ -863,37 +1278,309 @@ def holding_marks(
         if ticker not in line_by_ticker:
             order.append(ticker)
         line_by_ticker[ticker] = line
+    return order, line_by_ticker
 
-    raw_prices, currency_map = _load_price_frame(session, order, end=asof)
+
+def _fill_spans(
+    window_start: dt.date, fill_days: Iterable[dt.date]
+) -> list[tuple[dt.date, dt.date]]:
+    """Narrow ``(start, end)`` spans around the fills that precede ``window_start``."""
+    margin = dt.timedelta(days=_FILL_LOOKUP_DAYS)
+    return [
+        (day - margin, day + margin)
+        for day in sorted({d for d in fill_days if d < window_start})
+    ]
+
+
+def _book_base_prices(
+    session: Any,
+    order: list[str],
+    *,
+    base_currency: str,
+    start: dt.date | None,
+    end: dt.date | None,
+    newest: int | None = None,
+    fill_days: Iterable[dt.date] = (),
+) -> tuple[pd.DataFrame, pd.DataFrame] | None:
+    """Base-currency closes for a book: ``(raw, forward-filled)``, or ``None``.
+
+    ``None`` when no holding has any price in the window. ``raw`` keeps each holding's
+    own trading days (NaN elsewhere); the forward-filled copy is what values are
+    marked on.
+
+    With ``newest`` the read is bounded to each ticker's newest bars (and the FX rates
+    to the span they cover) however long the stored history is. A fill older than that
+    window is read through a narrow span around its date (``fill_days``), so the
+    ticket's shares and the chain-link's switch bars can still be priced without
+    loading the years in between.
+
+    Raises:
+        FxCoverageError: See :func:`_require_fx_coverage`.
+    """
+    raw_prices, currency_map = _load_price_frame(
+        session, order, start=start, end=end, newest=newest
+    )
+    spans: list[tuple[dt.date | None, dt.date | None]] = [(start, end)]
+    if newest is not None and not raw_prices.empty:
+        window_start = cast("pd.Timestamp", raw_prices.index.min()).date()
+        spans = [(window_start - dt.timedelta(days=_FX_MARGIN_DAYS), end)]
+        older = _fill_spans(window_start, fill_days)
+        if older:
+            extra = [
+                _load_price_frame(session, order, start=a, end=b)[0] for a, b in older
+            ]
+            raw_prices = pd.concat([raw_prices, *extra]).sort_index()
+            raw_prices = raw_prices.loc[~raw_prices.index.duplicated(keep="first")]
+            spans.extend(older)
+    raw_prices = _require_known_currencies(
+        raw_prices, currency_map, holdings=set(order)
+    )
     if raw_prices.empty:
-        return [_degraded_mark(ticker) for ticker in order]
-
+        return None
     quotes = sorted({_major_currency(code) for code in currency_map.values()})
-    fx_rates = _load_fx_rates_frame(session, base_currency, quotes, end=asof)
+    fx_frames = [
+        _load_fx_rates_frame(session, base_currency, quotes, start=a, end=b)
+        for a, b in spans
+    ]
+    fx_frames = [frame for frame in fx_frames if not frame.empty]
+    fx_rates = pd.concat(fx_frames).sort_index() if fx_frames else pd.DataFrame()
+    if not fx_rates.empty:
+        fx_rates = fx_rates.loc[~fx_rates.index.duplicated(keep="first")]
     _require_fx_coverage(base_currency, currency_map, fx_rates)
-    base_raw = _to_base_prices(
+    base_prices = _carried_base_prices(
         raw_prices,
         base_currency=base_currency,
         currency_map=currency_map,
         fx_rates=fx_rates,
     )
-    base_prices = base_raw.ffill()
-    shares = _ticket_shares(ticket, base_prices)
+    # ``raw`` keeps only each holding's own trading days, so returns never run over a
+    # carried-forward bar.
+    return base_prices.where(raw_prices.notna()), base_prices
+
+
+def _marked_value(
+    ticker: str, shares: dict[str, float], base_prices: pd.DataFrame
+) -> tuple[float, float] | None:
+    """``(shares, value)`` at the holding's latest base close; ``None`` if unpriced.
+
+    The latest bar itself is read, not the last non-NaN one: a holding whose FX rate is
+    too stale to convert on the last bar has no current mark, and an old price would
+    present a frozen value as today's.
+    """
+    qty = shares.get(ticker)
+    if qty is None or ticker not in base_prices.columns or base_prices.empty:
+        return None
+    latest = base_prices[ticker].iloc[-1]
+    if pd.isna(latest):
+        return None
+    return qty, qty * float(latest)
+
+
+def _nav_last_interval(
+    session: Any,
+    portfolio_id: uuid.UUID,
+    asof: dt.date | None,
+    *,
+    last_bar: dt.date,
+) -> tuple[dt.date, dt.date] | None:
+    """The persisted NAV series' last return interval, when it covers ``last_bar``.
+
+    The Performance strip's 1D return is the last step of ``nav_history``, whose bar
+    calendar is the union of every ticket's tickers and the benchmark, so it can end
+    later than the active book's own bars (a benchmark that trades after the holdings)
+    or step over several of them. Contributions measured over this interval add up to
+    that return.
+
+    Args:
+        session: Open SQLAlchemy session (reader).
+        portfolio_id: Portfolio whose NAV series to read.
+        asof: Upper date bound for the NAV dates; ``None`` leaves it open.
+        last_bar: The holdings' latest bar date; a NAV that ends before it has not
+            been marked for it yet and would freeze the contributions on a stale day.
+
+    Returns:
+        ``(prior date, last date)`` of the last NAV step; ``None`` with fewer than two
+        persisted points or a NAV that lags ``last_bar`` (callers then use the
+        holdings' own last two bars).
+    """
+    from portopt_db.models import NavHistory
+    from sqlalchemy import select
+
+    stmt = select(NavHistory.date).where(NavHistory.portfolio_id == portfolio_id)
+    if asof is not None:
+        stmt = stmt.where(NavHistory.date <= asof)
+    dates = list(
+        session.execute(stmt.order_by(NavHistory.date.desc()).limit(2)).scalars()
+    )
+    if len(dates) < 2 or dates[0] < last_bar:
+        return None
+    return dates[1], dates[0]
+
+
+def _line_value_on(
+    prices: pd.DataFrame,
+    ticker: str,
+    qty: float,
+    line_fill: dt.date,
+    notional: float,
+    day: dt.date,
+) -> float | None:
+    """A line's base-currency value on ``day``, mirroring the NAV loop.
+
+    A line not yet filled on ``day`` is carried at its notional; a filled one is marked
+    at the last base price at or before ``day``. ``None`` when no such price exists.
+    """
+    if line_fill > day:
+        return notional
+    price = _price_asof(prices, ticker, pd.Timestamp(day))
+    return None if price is None else qty * price
+
+
+def holding_marks(
+    portfolio_id: uuid.UUID,
+    *,
+    session: Any,
+    base_currency: str,
+    asof: dt.date | None = None,
+    capital: float | None = None,
+) -> list[HoldingMark]:
+    """Mark each current holding to market in the mandate base currency.
+
+    Takes the latest paper ticket at or before ``asof`` as the current book,
+    re-derives FX-correct shares (``notional_base / price_base@fill``, ignoring the
+    stored currency-mixed ``lines.shares``), and marks each holding with its latest
+    base-currency close. Per holding it reports value, portfolio weight, trailing
+    1D/1M/1Y price returns, 1-day contribution (start-of-interval weight × the move
+    over the NAV series' last interval), and unrealized P&L (value minus the deployed
+    base cost basis). A holding with no usable price degrades to ``None`` fields
+    rather than raising.
+
+    Shares, value and cost basis are rescaled by the same factor
+    :func:`build_nav_series` applies to the current ticket (its chain-linked entry
+    level), so the holdings add up to the NAV instead of the ticket's own notional —
+    less the cash a ticket weighted below 100% holds back, which is not a holding.
+
+    Value marks on the carried-forward (``asof``) close, but returns are computed
+    on each holding's *own* real closes, so a carry-forward over a day the holding
+    did not trade cannot manufacture a 0 % move. The contribution is the exception:
+    it follows the carried-forward bars NAV uses, over the interval of the persisted
+    NAV's last return (whose calendar also holds the benchmark and earlier tickets),
+    so the column reconciles to the NAV 1D return the strip shows and an idle holding
+    contributes 0. While no NAV is persisted, or it lags the latest bar, the
+    holdings' own last two bars stand in. Like :func:`build_nav_series`, value and P&L
+    are gross of the modelled slippage/commission.
+
+    The trailing returns need a year of closes, so this reads each holding's whole
+    price history; a caller that only needs the book's weights (the drift poll) should
+    use :func:`marked_weights`.
+
+    Args:
+        portfolio_id: Portfolio whose current book to mark.
+        session: Open SQLAlchemy session (reader; no commit).
+        base_currency: Mandate base currency to express values in.
+        asof: Mark date upper bound; ``None`` uses the latest available prices.
+        capital: Mandate capital, in base currency, the first ticket is denominated
+            in (see :func:`build_nav_series`); ``None`` keeps the ticket's notional.
+
+    Returns:
+        One :class:`HoldingMark` per line of the active ticket, in ticket order;
+        empty when the portfolio has no paper orders.
+
+    Raises:
+        FxCoverageError: Foreign holdings exist but no FX rate covers their currency
+            under ``base_currency``, or a holding has no resolvable price currency
+            (see :func:`build_nav_series`).
+    """
+    tickets = _tickets_through(session, portfolio_id, asof)
+    if not tickets:
+        return []
+    ticket = tickets[-1]
+
+    order, line_by_ticker = _ticket_lines(ticket)
+    # Earlier tickets' instruments are loaded too: the current ticket's scale depends
+    # on the value of every book it replaced.
+    chain_tickers = sorted(
+        {line["ticker"] for t in tickets for line in t.lines if line.get("ticker")}
+    )
+    fill_days = {t.fill_date for t in tickets}
+    fill_days.update(
+        day
+        for t in tickets
+        for line in t.lines
+        if (day := _as_date(line.get("fill_date"))) is not None
+    )
+    book = _book_base_prices(
+        session,
+        chain_tickers,
+        base_currency=base_currency,
+        start=None,
+        end=asof,
+        newest=_HOLDING_LOOKBACK_BARS,
+        fill_days=fill_days,
+    )
+    if book is None:
+        return [_degraded_mark(ticker) for ticker in order]
+    base_raw, base_prices = book
+    # Each ticket is priced once: pricing is where an unpriceable line is logged.
+    priced = [
+        (t.fill_date, _ticket_book(t, base_prices), float(t.notional or 0))
+        for t in tickets
+    ]
+    current_book = priced[-1][1]
+    scale = _entry_scale(float(ticket.notional or 0), capital)
+    if current_book:
+        priced = [entry for entry in priced if entry[1]]
+        links = _chain_links(
+            [(fill_date, book) for fill_date, book, _ in priced],
+            [gross for _, _, gross in priced],
+            base_prices,
+            capital,
+        )
+        scale = links[-1].scale
+    # Holdings sit on the chain-linked NAV scale, so they sum to the latest NAV and
+    # the cost basis is the value carried into the rebalance, not the flat notional.
+    shares = {ticker: qty * scale for ticker, (qty, _, _) in current_book.items()}
 
     computed: dict[str, tuple[float, float, pd.Series]] = {}
     for ticker in order:
-        qty = shares.get(ticker)
-        if qty is None or ticker not in base_prices.columns:
+        marked = _marked_value(ticker, shares, base_prices)
+        if marked is None:
             continue
-        marked = base_prices[ticker].dropna()
-        if marked.empty:
-            continue
-        # Value marks on the ffilled (asof) close; returns run on the holding's own
+        qty, value = marked
+        # Value marks on the carried (asof) close; returns run on the holding's own
         # real closes so a carry-forward over a non-trading day cannot fake a move.
-        returns_series = base_raw[ticker].dropna()
-        computed[ticker] = (qty, qty * float(marked.iloc[-1]), returns_series)
+        computed[ticker] = (qty, value, base_raw[ticker].dropna())
 
     total = sum(value for _, value, _ in computed.values())
+
+    # Contribution is each holding's value change over one interval divided by the
+    # book's value at the START of it: the only weighting under which the column sums
+    # to the NAV return over that interval. The interval is the one the persisted NAV
+    # series measures last (its calendar also carries the benchmark and earlier
+    # tickets, so it can differ from the holdings' own bars). Values run on the ffilled
+    # bars NAV uses, so a holding idle over it contributes 0, and a line filled inside
+    # it is carried at its notional beforehand (as in the NAV loop) so it earns nothing
+    # for the move that preceded its purchase.
+    interval = _nav_last_interval(
+        session, portfolio_id, asof, last_bar=base_prices.index[-1].date()
+    )
+    if interval is None and len(base_prices.index) >= 2:
+        interval = (base_prices.index[-2].date(), base_prices.index[-1].date())
+    prior_values: dict[str, float] = {}
+    end_values: dict[str, float] = {}
+    if interval is not None:
+        for ticker in computed:
+            qty, line_fill, notional = current_book[ticker]
+            prior = _line_value_on(
+                base_prices, ticker, qty, line_fill, notional, interval[0]
+            )
+            end = _line_value_on(
+                base_prices, ticker, qty, line_fill, notional, interval[1]
+            )
+            if prior is not None and end is not None:
+                prior_values[ticker] = prior
+                end_values[ticker] = end
+    prior_total = sum(prior_values.values())
 
     marks: list[HoldingMark] = []
     for ticker in order:
@@ -903,11 +1590,14 @@ def holding_marks(
         qty, value, series = computed[ticker]
         weight = value / total if total else None
         return_1d, return_1m, return_1y = _series_returns(series)
+        prior_value = prior_values.get(ticker)
         contribution = (
-            weight * return_1d if weight is not None and return_1d is not None else None
+            (end_values[ticker] - prior_value) / prior_total
+            if prior_value is not None and prior_total
+            else None
         )
         notional = line_by_ticker[ticker].get("notional")
-        pnl = value - float(notional) if notional is not None else None
+        pnl = value - float(notional) * scale if notional is not None else None
         marks.append(
             HoldingMark(
                 ticker=ticker,
@@ -924,13 +1614,92 @@ def holding_marks(
     return marks
 
 
+def marked_weights(
+    portfolio_id: uuid.UUID,
+    *,
+    session: Any,
+    base_currency: str,
+    asof: dt.date | None = None,
+) -> dict[str, float] | None:
+    """Market-value weights of the current paper book, from a bounded price read.
+
+    The same weights :func:`holding_marks` reports (shares × latest base close over
+    the book's total), but loading only the bars from ``_MARK_LOOKBACK_DAYS`` before
+    the book's earliest fill instead of each holding's whole listing history. The
+    drift poll runs this for every portfolio every couple of seconds on the TUI event
+    loop, so its cost must scale with the book's age, not the instruments'.
+
+    ``None`` — never a partial map — when the portfolio has no paper ticket, a holding
+    has no price in the window (including one whose last bar before its fill is more
+    than ``_MARK_LOOKBACK_DAYS`` older), or the total value is zero: weights over only
+    the priced holdings would misstate the book.
+
+    Args:
+        portfolio_id: Portfolio whose current book to weight.
+        session: Open SQLAlchemy session (reader; no commit).
+        base_currency: Mandate base currency to express values in.
+        asof: Mark date upper bound; ``None`` uses the latest available prices.
+
+    Returns:
+        ``{ticker: weight}`` as shares of NAV including the cash residual the ticket
+        left undeployed (``notional`` minus the line notionals), so a book approved with
+        ``Bounds.budget < 1`` marks on the same basis as its target instead of being
+        renormalised to 1 and reading as permanently drifted; the weights therefore sum
+        to 1 for a fully invested book. ``None`` when the book cannot be marked.
+
+    Raises:
+        FxCoverageError: Foreign holdings exist but no FX rate covers their currency
+            under ``base_currency`` (see :func:`build_nav_series`).
+    """
+    ticket = _active_ticket(session, portfolio_id, asof)
+    if ticket is None:
+        return None
+
+    order, line_by_ticker = _ticket_lines(ticket)
+    fills = [
+        _as_date(line.get("fill_date")) or ticket.fill_date
+        for line in ticket.lines
+        if line.get("ticker") is not None
+    ]
+    window_start = min(fills, default=ticket.fill_date) - dt.timedelta(
+        days=_MARK_LOOKBACK_DAYS
+    )
+    book = _book_base_prices(
+        session, order, base_currency=base_currency, start=window_start, end=asof
+    )
+    if book is None:
+        return None
+    _, base_prices = book
+    shares = _ticket_shares(ticket, base_prices)
+
+    values: dict[str, float] = {}
+    for ticker in order:
+        marked = _marked_value(ticker, shares, base_prices)
+        if marked is None:
+            return None
+        values[ticker] = marked[1]
+    deployed = sum(
+        float(line["notional"])
+        for line in line_by_ticker.values()
+        if line.get("notional") is not None
+    )
+    cash = max(0.0, float(ticket.notional or 0.0) - deployed)
+    total = sum(values.values()) + cash
+    if total <= 0:
+        return None
+    return {ticker: value / total for ticker, value in values.items()}
+
+
 __all__ = [
     "FxCoverageError",
     "HoldingMark",
     "NavPoint",
     "PerformanceSummary",
     "build_nav_series",
+    "convert_prices_to_base",
     "holding_marks",
+    "marked_weights",
     "nav_return_series",
     "portfolio_metrics",
+    "resolve_benchmark",
 ]

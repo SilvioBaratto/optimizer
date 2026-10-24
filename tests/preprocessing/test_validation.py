@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 from sklearn.utils.validation import check_is_fitted
 
-from optimizer.exceptions import DataError
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.preprocessing import DataValidator
 
 
@@ -95,3 +95,12 @@ class TestDataValidator:
     def test_get_params_unchanged_by_coercion(self) -> None:
         # Coercion must not introduce a constructor parameter.
         assert DataValidator(max_abs_return=5.0).get_params() == {"max_abs_return": 5.0}
+
+    @pytest.mark.parametrize("max_abs_return", [0.0, -1.0, float("nan")])
+    def test_non_positive_max_abs_return_raises_on_fit(
+        self, returns_df: pd.DataFrame, max_abs_return: float
+    ) -> None:
+        # A negative bound would NaN every cell; set_params sweeps bypass the
+        # config, so the transformer has to refuse it itself.
+        with pytest.raises(ConfigurationError, match="max_abs_return"):
+            DataValidator(max_abs_return=max_abs_return).fit(returns_df)

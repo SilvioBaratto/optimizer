@@ -18,11 +18,15 @@ export OPTIMIZER_REPO="$here"
 if ! command -v uv >/dev/null 2>&1; then
   echo "Installing uv (Astral)..."
   curl -LsSf https://astral.sh/uv/install.sh | sh
-  export PATH="$HOME/.local/bin:$PATH"
 fi
+
+# uv drops tool executables in ~/.local/bin, so put it on PATH unconditionally.
+# A uv that was already installed (Homebrew, a distro package) does not imply
+# ~/.local/bin is on PATH, and the `exec portopt` below needs the fresh shim.
+export PATH="$HOME/.local/bin:$PATH"
 
 cd "$here"
 echo "Installing the portopt CLI from this checkout..."
-uv tool install --from ./ingestion portopt
+uv tool install --reinstall --from ./ingestion portopt
 
 exec portopt setup "$@"

@@ -9,9 +9,11 @@ the boundary the workspace is built around. The reverse direction
 (``ingestion``/``portopt-db`` importing ``fund``/``deepagents``) is held by the
 existing optimizer-import guards on those packages.
 
-Source-blind by construction: scans raw tracked-file text for the forbidden
-import marker and a forbidden dependency declaration. No implementation module
-is imported, so the guard cannot itself drag ``deepagents`` into a clean tree.
+Source-blind by construction: parses each file's syntax tree for the forbidden
+import (so ``import os, app`` and ``importlib.import_module("app.worker")`` are
+caught and a docstring quoting an import is not) and scans the manifest text for
+a forbidden dependency declaration. No implementation module is imported, so
+the guard cannot itself drag ``deepagents`` into a clean tree.
 
 ``Path(__file__).resolve().parents[3]`` resolves directly to the ``fund/``
 directory from this file (hygiene → unit → tests → fund), never ``Path.cwd()``.
@@ -25,6 +27,9 @@ import re
 from collections.abc import Iterator
 from pathlib import Path
 
+import pytest
+from _fund_import_scan import imported_module_names
+
 _FUND_ROOT = Path(__file__).resolve().parents[3]
 _SRC_ROOT = _FUND_ROOT / "src" / "fund"
 _PYPROJECT_FILE = _FUND_ROOT / "pyproject.toml"
@@ -32,10 +37,10 @@ _SELF = Path(__file__).resolve()
 
 _EXCLUDE_DIR_PARTS = {"__pycache__"}
 
-# The ingestion daemon's import package is `app` (dist `portopt`). Forbid both
-# `import app` and `from app ...`; a bare `app = typer.Typer()` assignment or a
-# `fund.tui.app` submodule reference does not match (anchored on the keyword).
-_INGESTION_IMPORT_PATTERN = re.compile(r"^\s*(from app\b|import app\b)", re.MULTILINE)
+# The ingestion daemon's import package is `app` (dist `portopt`). The top-level
+# module name is compared, so a bare `app = typer.Typer()` assignment or a
+# `fund.tui.app` submodule reference is not a hit.
+_INGESTION_IMPORT_ROOT = "app"
 
 # The ingestion distribution is exactly `portopt` — NOT `portopt-core`,
 # `portopt-db`, or `portopt-fund` (the lookahead stops at the `-` those carry).
@@ -77,7 +82,10 @@ def find_ingestion_import_violations(root: Path) -> list[str]:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        if _INGESTION_IMPORT_PATTERN.search(text):
+        if any(
+            module.split(".", 1)[0] == _INGESTION_IMPORT_ROOT
+            for module in imported_module_names(text, str(path))
+        ):
             offending.append(str(path.relative_to(root)))
     return offending
 
@@ -147,3 +155,50 @@ def test_when_the_ingestion_dist_is_injected_then_the_guard_fails():
 
 def test_when_own_source_is_scanned_then_it_is_excluded_from_the_tree():
     assert _SELF not in set(_iter_python_files(_FUND_ROOT, exclude=_SELF))
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import numpy, app\n",
+        "from  app import worker\n",
+        "from\tapp import worker\n",
+        "x = 1; import app\n",
+        "if True: import app\n",
+        "import numpy, \\\n    app\n",
+        "import importlib\nimportlib.import_module('app.worker')\n",
+        "__import__('app')\n",
+    ],
+    ids=[
+        "comma-list",
+        "double-space",
+        "tab",
+        "semicolon",
+        "inline-if",
+        "backslash-continuation",
+        "import_module",
+        "dunder-import",
+    ],
+)
+def test_when_a_non_canonical_ingestion_import_is_injected_then_the_guard_fails(
+    tmp_path, source
+):
+    (tmp_path / "offender.py").write_text(source, encoding="utf-8")
+    assert find_ingestion_import_violations(tmp_path) == ["offender.py"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        '"""Example:\n\nfrom app.worker import main\n"""\n',
+        "from fund.tui import app\n",
+        "from . import app\n",
+        "import appdirs\n",
+    ],
+    ids=["docstring", "submodule-named-app", "relative", "lookalike-name"],
+)
+def test_when_source_only_resembles_an_ingestion_import_then_the_guard_allows_it(
+    tmp_path, source
+):
+    (tmp_path / "clean.py").write_text(source, encoding="utf-8")
+    assert find_ingestion_import_violations(tmp_path) == []

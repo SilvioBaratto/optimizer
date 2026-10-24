@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import numpy as np
 import pandas as pd
 import pytest
 
+from optimizer.fx import FxPriceConverter
 from optimizer.fx._decomposition import FxReturnDecomposition, decompose_fx_returns
 
 
@@ -236,4 +239,197 @@ class TestDecomposeMinorUnits:
 
         np.testing.assert_array_equal(
             result.fx_returns["LLOY.L"].values, np.zeros(len(result.fx_returns))
+        )
+
+
+class TestDecomposeDecimalPrices:
+    """DB ``Numeric`` columns arrive as ``Decimal`` (object dtype)."""
+
+    def test_decimal_local_prices_pair_with_converter_output(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=6)
+        local = pd.DataFrame(
+            {
+                "LLOY.L": [Decimal(v) for v in ("50", "51", "52", "53", "54", "55")],
+                "SPY": [Decimal(v) for v in ("480", "482", "481", "485", "487", "490")],
+            },
+            index=dates,
+        )
+        assert local["SPY"].dtype == object
+        fx = pd.DataFrame(
+            {
+                "GBP": [1.10, 1.11, 1.12, 1.11, 1.13, 1.14],
+                "USD": [0.91, 0.92, 0.92, 0.93, 0.92, 0.93],
+            },
+            index=dates,
+        )
+        cmap = {"LLOY.L": "GBP", "SPY": "USD"}
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map=cmap, fx_rates=fx
+        )
+        base = converter.fit_transform(local)
+
+        result = decompose_fx_returns(local, base, converter.fx_aligned_, cmap, "EUR")
+
+        recon = result.local_returns + result.fx_returns + result.cross_terms
+        assert (result.total_returns - recon).abs().max().max() < 1e-10
+        assert result.local_returns["SPY"].iloc[0] == pytest.approx(482 / 480 - 1.0)
+
+
+class TestDecomposeUnknownFx:
+    """An unknown FX rate must not be booked as a 0% FX move."""
+
+    @staticmethod
+    def _frames(
+        rate_values: list[float],
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, str]]:
+        dates = pd.bdate_range("2024-01-02", periods=len(rate_values))
+        rng = np.random.default_rng(7)
+        local = pd.DataFrame(
+            {"A": 100.0 + rng.standard_normal(len(dates)).cumsum()}, index=dates
+        )
+        rate = pd.Series(rate_values, index=dates)
+        base = local.multiply(rate, axis=0)
+        return local, base, pd.DataFrame({"USD": rate}), {"A": "USD"}
+
+    @pytest.mark.parametrize(
+        "rate_values",
+        [
+            pytest.param(
+                [np.nan] * 4 + [0.90, 0.91, 0.92, 0.91, 0.93, 0.94],
+                id="rates-start-late",
+            ),
+            pytest.param(
+                [0.90, 0.91, 0.92, np.nan, np.nan, 0.93, 0.92, 0.94, 0.95, 0.94],
+                id="gap-beyond-fill-limit",
+            ),
+        ],
+    )
+    def test_unhedged_returns_match_total_where_fx_unknown(
+        self, rate_values: list[float]
+    ) -> None:
+        local, base, fx, cmap = self._frames(rate_values)
+        result = decompose_fx_returns(local, base, fx, cmap, "EUR")
+
+        unhedged = result.hedged_returns(hedge_ratio=0.0)
+        pd.testing.assert_frame_equal(
+            unhedged, result.total_returns, check_exact=False, atol=1e-10
+        )
+
+    @pytest.mark.parametrize(
+        "rate_values",
+        [
+            pytest.param(
+                [np.nan] * 4 + [0.90, 0.91, 0.92, 0.91, 0.93, 0.94],
+                id="rates-start-late",
+            ),
+            pytest.param(
+                [0.90, 0.91, 0.92, np.nan, np.nan, 0.93, 0.92, 0.94, 0.95, 0.94],
+                id="gap-beyond-fill-limit",
+            ),
+        ],
+    )
+    def test_cumulative_components_reconcile_where_fx_unknown(
+        self, rate_values: list[float]
+    ) -> None:
+        local, base, fx, cmap = self._frames(rate_values)
+        summary = decompose_fx_returns(
+            local, base, fx, cmap, "EUR"
+        ).cumulative_contributions()
+
+        row = summary.loc["A"]
+        assert (1.0 + row["local"]) * (1.0 + row["fx"]) - 1.0 == pytest.approx(
+            row["total"], abs=1e-10
+        )
+
+
+class TestDecomposeUnionCalendarGaps:
+    """A NaN price (market holiday on a union calendar) must not drop its move."""
+
+    @staticmethod
+    def _frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, str]]:
+        dates = pd.bdate_range("2024-01-02", periods=6)
+        local = pd.DataFrame(
+            {
+                "A": [100.0, 101.0, np.nan, 103.0, 104.0, 104.0],
+                "B": [50.0, 51.0, np.nan, 49.0, 52.0, 53.0],
+            },
+            index=dates,
+        )
+        rate = pd.Series([0.90, 0.91, 0.93, 0.92, 0.94, 0.95], index=dates)
+        base = local.copy()
+        base["A"] = local["A"] * rate
+        return local, base, pd.DataFrame({"USD": rate}), {"A": "USD", "B": "EUR"}
+
+    def test_gap_move_lands_on_first_observed_date(self) -> None:
+        local, base, fx, cmap = self._frames()
+        result = decompose_fx_returns(local, base, fx, cmap, "EUR")
+        dates = local.index
+
+        assert np.isnan(result.local_returns.loc[dates[2], "A"])
+        assert result.local_returns.loc[dates[3], "A"] == pytest.approx(103 / 101 - 1)
+        assert result.fx_returns.loc[dates[3], "A"] == pytest.approx(0.92 / 0.91 - 1)
+
+    def test_cumulative_return_covers_full_price_move(self) -> None:
+        local, base, fx, cmap = self._frames()
+        summary = decompose_fx_returns(
+            local, base, fx, cmap, "EUR"
+        ).cumulative_contributions()
+
+        assert summary.loc["A", "local"] == pytest.approx(104 / 100 - 1)
+        assert summary.loc["A", "fx"] == pytest.approx(0.95 / 0.90 - 1)
+        assert summary.loc["A", "total"] == pytest.approx(
+            (104 * 0.95) / (100 * 0.90) - 1
+        )
+        assert summary.loc["B", "total"] == pytest.approx(53 / 50 - 1)
+
+    def test_identity_holds_across_gap(self) -> None:
+        local, base, fx, cmap = self._frames()
+        result = decompose_fx_returns(local, base, fx, cmap, "EUR")
+
+        recon = result.local_returns + result.fx_returns + result.cross_terms
+        pd.testing.assert_frame_equal(
+            result.total_returns, recon, check_exact=False, atol=1e-10
+        )
+        assert result.total_returns["A"].notna().sum() == 4
+
+
+class TestCumulativeContributionsNoData:
+    """A ticker with no valid returns has an unknown, not a 0%, return."""
+
+    def test_all_nan_returns_stay_nan(self) -> None:
+        dates = pd.bdate_range("2024-01-03", periods=4)
+        nan_col = pd.Series(np.nan, index=dates)
+        valid = pd.Series([0.01, -0.02, 0.03, 0.0], index=dates)
+        result = FxReturnDecomposition(
+            total_returns=pd.DataFrame({"A": nan_col, "B": valid}),
+            local_returns=pd.DataFrame({"A": nan_col, "B": valid}),
+            fx_returns=pd.DataFrame({"A": nan_col, "B": 0.0}),
+            cross_terms=pd.DataFrame({"A": nan_col, "B": 0.0}),
+            currency_map={"A": "USD", "B": "EUR"},
+            base_currency="EUR",
+        )
+
+        summary = result.cumulative_contributions()
+
+        assert summary.loc["A"].isna().all()
+        assert summary.loc["B", "total"] == pytest.approx(
+            (1.01 * 0.98 * 1.03 * 1.0) - 1.0
+        )
+
+    def test_ticker_without_prices_is_nan_end_to_end(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=5)
+        local = pd.DataFrame(
+            {"NEW": np.nan, "SPY": [480.0, 482.0, 481.0, 485.0, 487.0]}, index=dates
+        )
+        rate = pd.Series([0.91, 0.92, 0.92, 0.93, 0.92], index=dates)
+        base = local.multiply(rate, axis=0)
+        cmap = {"NEW": "USD", "SPY": "USD"}
+
+        summary = decompose_fx_returns(
+            local, base, pd.DataFrame({"USD": rate}), cmap, "EUR"
+        ).cumulative_contributions()
+
+        assert summary.loc["NEW"].isna().all()
+        assert summary.loc["SPY", "total"] == pytest.approx(
+            (487 * 0.92) / (480 * 0.91) - 1.0
         )

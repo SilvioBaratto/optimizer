@@ -84,9 +84,115 @@ def test_valid_answers_accepted():
     assert a.esg.exclusions == (GicsSector.ENERGY,)
 
 
-def test_esg_defaults_to_no_exclusions():
-    a = _valid_answers(esg=EsgAnswers())
+def test_no_esg_preference_is_stated_as_an_explicit_empty_list():
+    a = _valid_answers(esg=EsgAnswers(exclusions=()))
     assert a.esg.exclusions == ()
+
+
+def _payload_without(*path: str) -> dict[str, object]:
+    """``_valid_answers`` as an LLM-style dict with the key at ``path`` removed."""
+    payload = _valid_answers().model_dump(mode="json")
+    node = payload
+    for key in path[:-1]:
+        node = node[key]
+    del node[path[-1]]
+    return payload
+
+
+def test_esg_pillar_is_required():
+    # An omitted pillar must fail validation instead of reading as "no exclusions".
+    with pytest.raises(pydantic.ValidationError):
+        MiFIDAnswers.model_validate(_payload_without("esg"))
+
+
+def test_esg_exclusions_must_be_stated_explicitly():
+    with pytest.raises(pydantic.ValidationError):
+        EsgAnswers()  # type: ignore[call-arg]
+    with pytest.raises(pydantic.ValidationError):
+        MiFIDAnswers.model_validate(_payload_without("esg", "exclusions"))
+
+
+@pytest.mark.parametrize(
+    ("path", "extra"),
+    [
+        ((), "horizon_years"),
+        (("knowledge",), "years"),
+        (("capacity",), "income"),
+        (("objectives",), "horizon_years"),
+        (("esg",), "excluded_sectors"),
+    ],
+)
+def test_unknown_keys_are_rejected_instead_of_silently_dropped(
+    path: tuple[str, ...], extra: str
+):
+    # A mis-keyed ESG answer next to a valid one must not pass with the stated
+    # exclusion lost.
+    payload = _valid_answers().model_dump(mode="json")
+    node = payload
+    for key in path:
+        node = node[key]
+    node[extra] = ["energy"]
+    with pytest.raises(pydantic.ValidationError):
+        MiFIDAnswers.model_validate(payload)
+
+
+def test_json_schema_marks_esg_required_and_closes_the_object():
+    schema = MiFIDAnswers.model_json_schema()
+    assert "esg" in schema["required"]
+    assert schema["additionalProperties"] is False
+    esg = schema["$defs"]["EsgAnswers"]
+    assert esg["required"] == ["exclusions"]
+    assert esg["additionalProperties"] is False
+
+
+def test_structured_call_retries_when_the_esg_pillar_is_omitted():
+    from fund.schemas.structured import structured_call
+
+    complete = _valid_answers().model_dump(mode="json")
+
+    class _Runnable:
+        def __init__(self, outcomes: list[dict[str, object]]) -> None:
+            self.outcomes = outcomes
+            self.calls = 0
+
+        def invoke(self, messages: object) -> dict[str, object]:
+            self.calls += 1
+            return self.outcomes.pop(0)
+
+    class _Model:
+        def __init__(self, outcomes: list[dict[str, object]]) -> None:
+            self.runnable = _Runnable(outcomes)
+
+        def with_structured_output(self, schema: object, *, method: str) -> _Runnable:
+            return self.runnable
+
+    model = _Model([_payload_without("esg"), complete])
+
+    answers = structured_call(model, MiFIDAnswers, [{"role": "user", "content": "x"}])
+
+    assert model.runnable.calls == 2
+    assert answers.esg.exclusions == (GicsSector.ENERGY,)
+
+
+def test_answers_default_to_every_datum_stated():
+    assert _valid_answers().unanswered == ()
+
+
+def test_answers_can_declare_which_data_the_client_did_not_state():
+    a = _valid_answers(unanswered=("capacity.buffer_months", "objectives.likert_items"))
+    assert a.unanswered == ("capacity.buffer_months", "objectives.likert_items")
+    assert MiFIDAnswers.model_validate_json(a.model_dump_json()) == a
+
+
+def test_unanswered_marker_rejects_a_datum_the_questionnaire_does_not_have():
+    with pytest.raises(pydantic.ValidationError):
+        _valid_answers(unanswered=("capacity.salary",))
+
+
+def test_legacy_answers_without_the_unanswered_key_still_validate():
+    payload = _valid_answers().model_dump(mode="json")
+    payload.pop("unanswered", None)
+    assert MiFIDAnswers.model_validate(payload).unanswered == ()
 
 
 def test_all_pillar_models_are_frozen():
@@ -253,3 +359,14 @@ def test_module_imports_nothing_forbidden():
     ):
         assert f"import {forbidden}" not in src
         assert f"from {forbidden}" not in src
+
+
+def test_other_esg_preferences_default_to_empty():
+    assert _valid_answers().esg.other_preferences == ()
+
+
+def test_other_esg_preferences_round_trip():
+    a = _valid_answers(
+        esg=EsgAnswers(exclusions=(), other_preferences=("no tobacco", "no weapons"))
+    )
+    assert MiFIDAnswers.model_validate_json(a.model_dump_json()) == a

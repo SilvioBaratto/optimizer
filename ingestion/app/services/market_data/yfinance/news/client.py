@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 from typing import Any
 
-from ..infrastructure import retry_with_backoff
+from .._base import fetch_with_resilience
 from ..protocols import ArticleScraperProtocol, YFinanceClientProtocol
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -18,11 +21,15 @@ class NewsClient:
         scraper: Article scraper; when ``None``, a default ``ArticleScraper``
             is instantiated in ``__post_init__``.
         default_max_retries: Retry count used when callers pass ``None``.
+        empty_feed_alert_after: Number of consecutive tickers without any
+            article after which a single warning is logged.
     """
 
     yf_client: YFinanceClientProtocol
     scraper: ArticleScraperProtocol | None = None
     default_max_retries: int = 3
+    empty_feed_alert_after: int = 3
+    _empty_feed_streak: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.scraper is None:
@@ -48,7 +55,8 @@ class NewsClient:
                 ``fetch_full_content`` is ``True``. ``None`` means all.
 
         Returns:
-            List of article dicts from ``ticker.news``, or ``None`` on failure.
+            List of article dicts from ``ticker.news``, or ``None`` when Yahoo
+            has no usable answer or every attempt failed.
         """
         max_retries = max_retries or self.default_max_retries
 
@@ -56,16 +64,35 @@ class NewsClient:
             ticker = self.yf_client.get_ticker(symbol)
             return ticker.news
 
-        news = retry_with_backoff(
+        news = fetch_with_resilience(
             _action,
             max_retries,
-            is_valid=lambda n: n is not None,
+            circuit_breaker=self.yf_client.circuit_breaker,
         )
+
+        self._record_feed(symbol, news)
 
         if news is not None and fetch_full_content:
             self._enrich_with_content(news, max_articles)
 
         return news
+
+    def _record_feed(self, symbol: str, news: list[dict[str, Any]] | None) -> None:
+        # yfinance turns a failing news endpoint (HTTP 404) into an empty
+        # stream, so one empty feed looks exactly like a quiet ticker. A run of
+        # them is the only observable symptom of a dead endpoint.
+        if news:
+            self._empty_feed_streak = 0
+            return
+
+        self._empty_feed_streak += 1
+        if self._empty_feed_streak == self.empty_feed_alert_after:
+            logger.warning(
+                "Yahoo news returned no articles for %d consecutive tickers "
+                "(latest: %s); the news endpoint may be failing",
+                self._empty_feed_streak,
+                symbol,
+            )
 
     def _enrich_with_content(
         self,

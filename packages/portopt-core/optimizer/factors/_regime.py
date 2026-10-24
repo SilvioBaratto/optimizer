@@ -15,7 +15,9 @@ to surface disagreements between any two regime classifications.
 from __future__ import annotations
 
 import logging
+import math
 
+import numpy as np
 import pandas as pd
 
 from optimizer.factors._config import (
@@ -26,6 +28,80 @@ from optimizer.factors._config import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ``_last_valid`` looks at the newest ``_LAST_VALID_CHUNK`` rows first and
+# widens the window by ``_LAST_VALID_GROWTH`` on every miss, so a series that
+# was never observed costs a handful of passes rather than one per row.
+_LAST_VALID_CHUNK = 16
+_LAST_VALID_GROWTH = 4
+
+# A rolling mean of equal prints can differ from them by an ulp, which would
+# otherwise decide whether steady growth sits above or below its own trend.
+_GDP_TIE_TOLERANCE = 1e-9
+
+# RECESSION drives the defensive tilts and the tight sector caps, so positive
+# growth that dips below its trend must fall under this fraction of the trend
+# before it counts; a smaller dip is only a slowdown.
+_GDP_SEVERE_DECELERATION = 0.5
+
+
+def _last_valid(macro_data: pd.DataFrame, column: str) -> float | None:
+    """Return the most recent non-NaN value of ``column``, or ``None``.
+
+    Macro series publish at different cadences (a monthly PMI beside a daily
+    credit spread), so the newest row routinely has gaps.  Reading only the
+    last row would drop a slow indicator on every non-release day and flip
+    the regime without any change in the macro state.
+
+    The search walks back from the end in growing windows over the column's
+    underlying array, so its cost follows the distance to the latest print,
+    not the length of the history: ``run_regime_validation`` classifies every
+    expanding window, and a full-column pass per call would make that loop
+    quadratic.
+    """
+    if column not in macro_data.columns:
+        return None
+    values = macro_data[column].array
+    stop = len(values)
+    chunk = _LAST_VALID_CHUNK
+    while stop > 0:
+        start = max(stop - chunk, 0)
+        window = values[start:stop]
+        observed = np.flatnonzero(~np.asarray(pd.isna(window)))
+        if observed.size:
+            return float(window[int(observed[-1])])
+        stop = start
+        chunk *= _LAST_VALID_GROWTH
+    return None
+
+
+def _classify_gdp_growth(current: float, previous: float, trend: float) -> MacroRegime:
+    """Map the latest GDP growth print to a regime.
+
+    Contracting growth (``current <= 0``) is never an expansion or a
+    slowdown: it is a recovery only while it is improving, otherwise a
+    recession.  For positive growth the print is read against its trend and
+    the previous print; growth that sits exactly on its trend and did not
+    change is steady expansion.  Growth that is falling and below trend is a
+    slowdown, and a recession only once it has dropped under
+    ``_GDP_SEVERE_DECELERATION`` of its trend.
+    """
+    if current <= 0.0:
+        return MacroRegime.RECOVERY if current > previous else MacroRegime.RECESSION
+
+    at_trend = math.isclose(current, trend, rel_tol=0.0, abs_tol=_GDP_TIE_TOLERANCE)
+    unchanged = math.isclose(current, previous, rel_tol=0.0, abs_tol=_GDP_TIE_TOLERANCE)
+    if at_trend and unchanged:
+        return MacroRegime.EXPANSION
+    if current > trend and current > previous:
+        return MacroRegime.EXPANSION
+    if current > trend and current <= previous:
+        return MacroRegime.SLOWDOWN
+    if current <= trend and current <= previous:
+        if current < _GDP_SEVERE_DECELERATION * trend:
+            return MacroRegime.RECESSION
+        return MacroRegime.SLOWDOWN
+    return MacroRegime.RECOVERY
 
 
 def classify_regime_composite(
@@ -42,15 +118,19 @@ def classify_regime_composite(
     ``pmi`` (Manufacturing PMI), ``spread_2s10s`` (10Y-2Y spread in %),
     ``hy_oas`` (HY OAS in basis points), ``sentiment`` (news score).
 
+    Each indicator is read as its last non-NaN observation, so a monthly
+    series carries forward between releases.  When none of ``pmi``,
+    ``spread_2s10s`` or ``hy_oas`` has an observation the score would be a
+    meaningless zero, so the result is ``MacroRegime.UNKNOWN``; sentiment
+    alone never determines the regime.
+
     Args:
-        macro_data: Macro indicators indexed by date.
+        macro_data: Macro indicators indexed by date in ascending order.
         thresholds: Scoring thresholds. Defaults to the empirical calibration.
 
     Returns:
         Regime classification based on composite score.
     """
-    thresholds = thresholds or RegimeThresholdConfig()
-
     if len(macro_data) == 0:
         logger.warning(
             "classify_regime_composite: empty macro_data DataFrame; "
@@ -58,12 +138,39 @@ def classify_regime_composite(
         )
         return MacroRegime.UNKNOWN
 
-    latest = macro_data.iloc[-1]
+    return _score_composite(
+        pmi=_last_valid(macro_data, "pmi"),
+        spread=_last_valid(macro_data, "spread_2s10s"),
+        hy=_last_valid(macro_data, "hy_oas"),
+        sent=_last_valid(macro_data, "sentiment"),
+        thresholds=thresholds or RegimeThresholdConfig(),
+    )
+
+
+def _score_composite(
+    *,
+    pmi: float | None,
+    spread: float | None,
+    hy: float | None,
+    sent: float | None,
+    thresholds: RegimeThresholdConfig,
+) -> MacroRegime:
+    """Score the composite from indicator observations already resolved.
+
+    ``classify_regime`` has to look the indicators up to decide whether the
+    composite applies; taking the observations as arguments lets it hand
+    them over instead of making the composite look them up a second time.
+    """
+    if pmi is None and spread is None and hy is None:
+        logger.warning(
+            "classify_regime_composite: no observation for pmi, spread_2s10s "
+            "or hy_oas; returning MacroRegime.UNKNOWN with neutral tilts."
+        )
+        return MacroRegime.UNKNOWN
 
     # Default to 0 so missing indicators are neutral, not penalizing.
     s_pmi = 0
-    if "pmi" in macro_data.columns and pd.notna(latest.get("pmi")):
-        pmi = float(latest["pmi"])
+    if pmi is not None:
         s_pmi = (
             1
             if pmi > thresholds.pmi_expansion
@@ -71,8 +178,7 @@ def classify_regime_composite(
         )
 
     s_2s10s = 0
-    if "spread_2s10s" in macro_data.columns and pd.notna(latest.get("spread_2s10s")):
-        spread = float(latest["spread_2s10s"])
+    if spread is not None:
         s_2s10s = (
             1
             if spread > thresholds.spread_2s10s_steep
@@ -80,8 +186,7 @@ def classify_regime_composite(
         )
 
     s_hy = 0
-    if "hy_oas" in macro_data.columns and pd.notna(latest.get("hy_oas")):
-        hy = float(latest["hy_oas"])
+    if hy is not None:
         s_hy = (
             1
             if hy < thresholds.hy_oas_risk_on
@@ -89,8 +194,7 @@ def classify_regime_composite(
         )
 
     s_sent = 0
-    if "sentiment" in macro_data.columns and pd.notna(latest.get("sentiment")):
-        sent = float(latest["sentiment"])
+    if sent is not None:
         s_sent = (
             1
             if sent > thresholds.sentiment_positive
@@ -130,15 +234,18 @@ def classify_regime(
 
     Uses a simple heuristic based on GDP growth and leading
     indicators.  The regime is determined by the latest
-    observation's position relative to trend.
+    observation's position relative to trend; contracting GDP growth is
+    never classified as an expansion or slowdown.
 
     When richer indicators (``pmi``, ``spread_2s10s``, ``hy_oas``)
-    are present, delegates to `classify_regime_composite`.
+    have at least one observation, delegates to
+    `classify_regime_composite`; columns that hold only NaN are ignored
+    and the GDP and yield-spread heuristics are tried instead.
 
     Args:
         macro_data: Macro indicators with columns that may include
             ``gdp_growth``, ``leading_indicator``, ``yield_spread``,
-            ``unemployment_rate``.  Index is date.
+            ``unemployment_rate``.  Index is date in ascending order.
         thresholds: Scoring thresholds forwarded to the composite classifier.
 
     Returns:
@@ -151,16 +258,24 @@ def classify_regime(
         )
         return MacroRegime.UNKNOWN
 
-    _composite_cols = {"pmi", "spread_2s10s", "hy_oas"}
-    if _composite_cols & set(macro_data.columns):
-        return classify_regime_composite(macro_data, thresholds=thresholds)
+    pmi = _last_valid(macro_data, "pmi")
+    spread = _last_valid(macro_data, "spread_2s10s")
+    hy = _last_valid(macro_data, "hy_oas")
+    if pmi is not None or spread is not None or hy is not None:
+        return _score_composite(
+            pmi=pmi,
+            spread=spread,
+            hy=hy,
+            sent=_last_valid(macro_data, "sentiment"),
+            thresholds=thresholds or RegimeThresholdConfig(),
+        )
 
     if "gdp_growth" in macro_data.columns:
         gdp = macro_data["gdp_growth"].dropna()
         if len(gdp) >= 2:
-            current = gdp.iloc[-1]
-            previous = gdp.iloc[-2]
-            trend = gdp.rolling(4, min_periods=1).mean().iloc[-1]
+            current = float(gdp.iloc[-1])
+            previous = float(gdp.iloc[-2])
+            trend = float(gdp.rolling(4, min_periods=1).mean().iloc[-1])
 
             # Multi-indicator override: rising unemployment + positive GDP → SLOWDOWN
             if "unemployment_rate" in macro_data.columns:
@@ -168,13 +283,7 @@ def classify_regime(
                 if len(unemp) >= 2 and unemp.iloc[-1] > unemp.iloc[-2] and current > 0:
                     return MacroRegime.SLOWDOWN
 
-            if current > trend and current > previous:
-                return MacroRegime.EXPANSION
-            if current > trend and current <= previous:
-                return MacroRegime.SLOWDOWN
-            if current <= trend and current <= previous:
-                return MacroRegime.RECESSION
-            return MacroRegime.RECOVERY
+            return _classify_gdp_growth(current, previous, trend)
 
     if "yield_spread" in macro_data.columns:
         spread = macro_data["yield_spread"].dropna()
@@ -190,7 +299,7 @@ def classify_regime(
 
     logger.warning(
         "classify_regime: macro_data contains no recognized indicator columns "
-        "(gdp_growth, yield_spread, pmi, spread_2s10s, hy_oas); "
+        "with usable data (gdp_growth, yield_spread, pmi, spread_2s10s, hy_oas); "
         "returning MacroRegime.UNKNOWN with neutral tilts."
     )
     return MacroRegime.UNKNOWN
@@ -235,6 +344,49 @@ def get_regime_tilts(
     return tilts
 
 
+def _floor_and_renormalize(
+    base: dict[FactorGroupType, float],
+    tilted: dict[FactorGroupType, float],
+    floor: float,
+) -> dict[FactorGroupType, float]:
+    """Rescale ``tilted`` to the total of ``base`` without breaking the floor.
+
+    A group is protected when its tilt compressed it or when it started at or
+    above the floor; its protected minimum is ``min(base weight, floor)``.
+    Flooring before a single rescale would let the rescale push a floored
+    group back under the floor, so protected groups that fall below their
+    minimum are pinned to it and the remaining groups share what is left in
+    their tilted proportions, repeating until no further group binds.  The
+    minimums never exceed the base weights, so they always fit in the total.
+    """
+    total = sum(base.values())
+    minimums = {
+        g: min(base[g], floor) if tilted[g] < base[g] or base[g] >= floor else 0.0
+        for g in base
+    }
+
+    pinned: dict[FactorGroupType, float] = {}
+    while True:
+        free = [g for g in tilted if g not in pinned]
+        free_mass = sum(tilted[g] for g in free)
+        scale = (total - sum(pinned.values())) / free_mass if free_mass > 0 else 0.0
+        binding = [
+            g for g in free if minimums[g] > 0 and scale * tilted[g] < minimums[g]
+        ]
+        if not binding:
+            break
+        pinned.update({g: minimums[g] for g in binding})
+
+    result = {g: pinned[g] if g in pinned else scale * tilted[g] for g in tilted}
+    result_total = sum(result.values())
+    if free_mass <= 0 and result_total > 0:
+        # Every unpinned group was tilted to zero, so the pinned minimums are
+        # all that is left to carry the total.
+        uplift = total / result_total
+        result = {g: w * uplift for g, w in result.items()}
+    return result
+
+
 def apply_regime_tilts(
     group_weights: dict[FactorGroupType, float],
     regime: MacroRegime,
@@ -247,9 +399,12 @@ def apply_regime_tilts(
     1. Look up raw tilts from ``get_regime_tilts``.
     2. Clamp each multiplier to ``[0, config.max_tilt_multiplier]``.
     3. Apply clamped multiplier to each group weight.
-    4. Floor each result to ``config.min_post_tilt_weight * total``
-       so no group is compressed to near-zero.
-    5. Re-normalize to preserve the original total weight.
+    4. Re-normalize to preserve the original total weight while holding every
+       protected group at or above ``config.min_post_tilt_weight * total``.
+       A group is protected when its tilt compressed it or when its base
+       weight was already at or above the floor; the floor is capped at the
+       group's own base weight.  Untilted small groups and zero-weight
+       (excluded) groups are never raised.
 
     Args:
         group_weights: Base group weights.
@@ -275,16 +430,12 @@ def apply_regime_tilts(
         capped_tilt = max(min(raw_tilt, config.max_tilt_multiplier), 0.0)
         tilted[group] = weight * capped_tilt
 
-    if original_total > 0:
-        floor = config.min_post_tilt_weight * original_total
-        tilted = {g: max(w, floor) for g, w in tilted.items()}
+    if original_total <= 0:
+        return tilted
 
-    tilted_total = sum(tilted.values())
-    if tilted_total > 0 and original_total > 0:
-        scale = original_total / tilted_total
-        tilted = {g: w * scale for g, w in tilted.items()}
-
-    return tilted
+    return _floor_and_renormalize(
+        group_weights, tilted, config.min_post_tilt_weight * original_total
+    )
 
 
 def check_regime_disagreement(

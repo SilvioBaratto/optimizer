@@ -8,6 +8,7 @@ import pytest
 from skfolio.model_selection import CovarianceForecastComparison
 from skfolio.moments import EmpiricalCovariance, EWCovariance, LedoitWolf
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.validation import (
     CovarianceForecastConfig,
     run_covariance_forecast_evaluation,
@@ -102,3 +103,16 @@ def test_when_params_routed_then_implied_vol_forwarded(returns) -> None:
         assert result.names == ["implied"]
     finally:
         set_config(enable_metadata_routing=False)
+
+
+def test_when_estimator_names_duplicate_then_raises_before_evaluating(
+    returns,
+) -> None:
+    class _Exploding(EmpiricalCovariance):
+        def fit(self, X, y=None, **fit_params):
+            raise AssertionError("evaluation ran despite duplicate names")
+
+    estimators = [("x", LedoitWolf()), ("x", _Exploding())]
+    cfg = CovarianceForecastConfig(train_size=252, test_size=21)
+    with pytest.raises(ConfigurationError, match="x"):
+        run_covariance_forecast_evaluation(estimators, returns, config=cfg)

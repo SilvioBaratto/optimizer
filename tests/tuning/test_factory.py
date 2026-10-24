@@ -11,6 +11,7 @@ from skfolio.model_selection import WalkForward
 from skfolio.optimization import MeanRisk
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
+from optimizer.exceptions import OptimizationError
 from optimizer.scoring import ScorerConfig
 from optimizer.tuning import (
     GridSearchConfig,
@@ -181,3 +182,92 @@ class TestSearchResultsDataframe:
         assert "rank_test_score" in df.columns
         # Rank-sorted ascending: first row is the best (rank 1).
         assert df["rank_test_score"].iloc[0] == df["rank_test_score"].min()
+
+
+class TestAllCandidatesFailScoring:
+    """A search where no candidate could be scored must not pick one silently.
+
+    sklearn ranks all-NaN candidates as rank 1, so ``best_params_`` would be the
+    first grid entry and get refit on the full sample as if it had won.
+    """
+
+    _cv = WalkForwardConfig(test_size=60, train_size=120, purged_size=2)
+
+    @staticmethod
+    def _returns() -> pd.DataFrame:
+        rng = np.random.default_rng(7)
+        return pd.DataFrame(
+            rng.normal(0.001, 0.02, size=(400, 5)),
+            columns=list("abcde"),
+            index=pd.date_range("2022-01-01", periods=400, freq="B"),
+        )
+
+    def _gapped_benchmark(self, returns: pd.DataFrame) -> pd.Series:
+        rng = np.random.default_rng(11)
+        bm = pd.Series(rng.normal(0.0005, 0.01, size=len(returns)), index=returns.index)
+        return bm.drop(returns.index[200])
+
+    @pytest.mark.filterwarnings("ignore::UserWarning")
+    def test_grid_raises_when_benchmark_gap_makes_every_candidate_nan(self) -> None:
+        returns = self._returns()
+        cfg = GridSearchConfig(
+            cv_config=self._cv, scorer_config=ScorerConfig.for_information_ratio()
+        )
+        gs = build_grid_search_cv(
+            MeanRisk(),
+            {"l2_coef": [0.0, 0.001, 0.1]},
+            config=cfg,
+            benchmark_returns=self._gapped_benchmark(returns),
+        )
+        with pytest.raises(OptimizationError, match="every candidate"):
+            gs.fit(returns)
+
+    @pytest.mark.filterwarnings("ignore::UserWarning")
+    def test_randomized_raises_when_every_candidate_scores_nan(self) -> None:
+        returns = self._returns()
+        cfg = RandomizedSearchConfig(
+            n_iter=2,
+            cv_config=self._cv,
+            scorer_config=ScorerConfig.for_information_ratio(),
+            random_state=0,
+        )
+        rs = build_randomized_search_cv(
+            MeanRisk(),
+            {"l2_coef": [0.0, 0.001, 0.1]},
+            config=cfg,
+            benchmark_returns=self._gapped_benchmark(returns),
+        )
+        with pytest.raises(OptimizationError, match="every candidate"):
+            rs.fit(returns)
+
+    @pytest.mark.filterwarnings("ignore::sklearn.exceptions.FitFailedWarning")
+    def test_partially_failing_grid_still_demotes_the_failed_candidate(self) -> None:
+        # A candidate that cannot be fit is demoted; the search only aborts when
+        # nothing could be scored at all.
+        returns = self._returns()
+        gs = build_grid_search_cv(
+            MeanRisk(),
+            {"l2_coef": [-1.0, 0.1]},
+            config=GridSearchConfig(cv_config=self._cv),
+        )
+        gs.fit(returns)
+        assert gs.best_params_ == {"l2_coef": 0.1}
+
+    @pytest.mark.filterwarnings("ignore::UserWarning")
+    def test_explicit_numeric_error_score_is_not_treated_as_a_silent_failure(
+        self,
+    ) -> None:
+        returns = self._returns()
+        cfg = GridSearchConfig(
+            cv_config=self._cv,
+            scorer_config=ScorerConfig.for_information_ratio(),
+            error_score=-1.0,
+        )
+        gs = build_grid_search_cv(
+            MeanRisk(),
+            {"l2_coef": [0.0, 0.1]},
+            config=cfg,
+            benchmark_returns=self._gapped_benchmark(returns),
+        )
+        gs.fit(returns)
+        assert np.isfinite(gs.cv_results_["mean_test_score"]).all()

@@ -110,6 +110,86 @@ def test_factor_series_ffills_level_from_pre_grid_observation(db_session):
     assert out.returns["rates"].tolist() == pytest.approx([0.20, 0.10, 0.05])
 
 
+def test_factor_series_stale_tail_is_unobserved_not_a_zero_move(db_session):
+    """Grid days after a series' last observation are NaN, never a flat 0.0 return."""
+    _seed_fred(
+        db_session,
+        "DGS10",
+        {
+            dt.date(2026, 1, 5): 4.00,
+            dt.date(2026, 1, 6): 4.10,  # last stored print; 01-07 and 01-08 are stale
+        },
+    )
+    config = MacroAttributionConfig(
+        factors=(FactorSpec("rates", "DGS10", FactorTransform.DIFF),)
+    )
+
+    out = build_macro_factor_returns(
+        session=db_session, dates=_GRID, benchmark_returns=None, config=config
+    )
+
+    rates = out.returns["rates"]
+    assert rates.iloc[0] == pytest.approx(0.10)
+    assert rates.iloc[1:].isna().all()
+    assert out.missing == []
+
+
+def test_factor_series_entirely_stale_over_the_grid_is_missing(db_session):
+    """A series whose last print predates the whole grid has no usable data."""
+    _seed_fred(
+        db_session,
+        "DGS10",
+        {dt.date(2025, 12, 30): 3.90, dt.date(2025, 12, 31): 3.95},
+    )
+    config = MacroAttributionConfig(
+        factors=(FactorSpec("rates", "DGS10", FactorTransform.DIFF),)
+    )
+
+    out = build_macro_factor_returns(
+        session=db_session, dates=_GRID, benchmark_returns=None, config=config
+    )
+
+    assert "rates" not in out.returns.columns
+    assert out.missing == ["rates"]
+
+
+def test_factor_series_reads_only_a_bounded_window_of_fred_history(
+    db_session, monkeypatch
+):
+    """Decades of stored history are not materialised for a few weeks of NAV grid."""
+    from portopt_db.repositories.macro.macro_regime_repository import (
+        MacroRegimeRepository,
+    )
+
+    first = dt.date(2024, 1, 1)
+    last = dt.date(2026, 1, 8)
+    span = (last - first).days
+    _seed_fred(
+        db_session,
+        "DGS10",
+        {first + dt.timedelta(days=i): 3.0 + 0.001 * i for i in range(span + 1)},
+    )
+    loaded: list[int] = []
+    real = MacroRegimeRepository.get_fred_observations
+
+    def counting(self, *args, **kwargs):
+        rows = real(self, *args, **kwargs)
+        loaded.append(len(rows))
+        return rows
+
+    monkeypatch.setattr(MacroRegimeRepository, "get_fred_observations", counting)
+    config = MacroAttributionConfig(
+        factors=(FactorSpec("rates", "DGS10", FactorTransform.DIFF),)
+    )
+
+    out = build_macro_factor_returns(
+        session=db_session, dates=_GRID, benchmark_returns=None, config=config
+    )
+
+    assert sum(loaded) < 100  # a back-pad before the grid, not ~740 stored rows
+    assert out.returns["rates"].tolist() == pytest.approx([0.001, 0.001, 0.001])
+
+
 def test_factor_series_absent_series_flagged_missing(db_session):
     """A factor whose FRED series has no rows is flagged, not built — no crash."""
     _seed_fred(

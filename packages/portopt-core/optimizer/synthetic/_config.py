@@ -34,6 +34,21 @@ class SelectionCriterionType(str, Enum):
     BIC = "bic"
 
 
+def _central_assets_tuple(central_assets: Iterable[str]) -> tuple[str, ...]:
+    """Normalise ``central_assets`` to a non-empty tuple of symbols.
+
+    A bare string is one symbol, not an iterable of characters; without the
+    special case ``"AAPL"`` would become ``("A", "A", "P", "L")`` and skfolio
+    would silently drop the unknown names, leaving no asset central.
+    """
+    central = (
+        (central_assets,) if isinstance(central_assets, str) else tuple(central_assets)
+    )
+    if not central:
+        raise ConfigurationError("central_assets must be non-empty")
+    return central
+
+
 # ---------------------------------------------------------------------------
 # Configs
 # ---------------------------------------------------------------------------
@@ -52,10 +67,21 @@ class VineCopulaConfig:
     carries asset-symbol strings.
 
     Args:
-        fit_marginals: Whether to fit univariate marginals.
+        fit_marginals: Whether to fit univariate marginals. ``False`` treats
+            the input as uniform pseudo-observations already on [0, 1], which
+            is incompatible with ``log_transform=True`` (rejected on
+            construction), so pass ``log_transform=False`` alongside it.
         max_depth: Maximum depth of the vine tree. None lets skfolio build a
-            full-depth (truncation-free) vine. When set, must be >= 1.
-        log_transform: Whether to apply log transformation.
+            full-depth (truncation-free) vine. When set, must be >= 2 because
+            skfolio rejects single-tree truncation at fit time.
+        log_transform: Whether to fit the vine on log returns ``log(1 + R)``
+            and map samples back via ``exp(r) - 1``. Defaults to True so
+            sampled simple returns stay above -100%; marginals fitted
+            directly to simple returns have unbounded support and can emit
+            impossible losses that dominate CVaR / worst-case measures.
+            Requires ``fit_marginals=True`` and, at fit time, every return
+            strictly greater than -1 (``log1p`` is undefined at -100% and
+            below).
         dependence_method: Method for measuring pairwise dependence when
             building the vine structure.
         selection_criterion: Information criterion for selecting copula families.
@@ -73,7 +99,7 @@ class VineCopulaConfig:
 
     fit_marginals: bool = True
     max_depth: int | None = 4
-    log_transform: bool = False
+    log_transform: bool = True
     dependence_method: DependenceMethodType = DependenceMethodType.KENDALL_TAU
     selection_criterion: SelectionCriterionType = SelectionCriterionType.AIC
     independence_level: float = 0.05
@@ -84,9 +110,18 @@ class VineCopulaConfig:
     central_assets: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
-        if self.max_depth is not None and self.max_depth < 1:
+        # skfolio applies log1p to X before the marginal step, so with
+        # fit_marginals=False the [0, 1] pseudo-observations would be
+        # log-transformed and sampled back as exp(u) - 1, spanning [0, e - 1].
+        if self.log_transform and not self.fit_marginals:
             raise ConfigurationError(
-                f"max_depth must be None or >= 1, got {self.max_depth}"
+                "log_transform=True is incompatible with fit_marginals=False: "
+                "the input is treated as uniform pseudo-observations, which "
+                "must not be log-transformed. Pass log_transform=False."
+            )
+        if self.max_depth is not None and self.max_depth < 2:
+            raise ConfigurationError(
+                f"max_depth must be None or >= 2, got {self.max_depth}"
             )
         if not 0.0 <= self.independence_level <= 1.0:
             raise ConfigurationError(
@@ -131,10 +166,7 @@ class VineCopulaConfig:
         slower and less accurate. Pairs with
         `build_conditional_synthetic_data`.
         """
-        central = tuple(central_assets)
-        if not central:
-            raise ConfigurationError("central_assets must be non-empty")
-        return cls(central_assets=central)
+        return cls(central_assets=_central_assets_tuple(central_assets))
 
 
 @dataclass(frozen=True)
@@ -208,13 +240,10 @@ class SyntheticDataConfig:
         Uses BIC selection and a deeper vine (``max_depth=6``) to capture
         tail dependence.
         """
-        central = tuple(central_assets)
-        if not central:
-            raise ConfigurationError("central_assets must be non-empty")
         return cls(
             n_samples=n_samples,
             vine_copula_config=VineCopulaConfig(
-                central_assets=central,
+                central_assets=_central_assets_tuple(central_assets),
                 selection_criterion=SelectionCriterionType.BIC,
                 max_depth=6,
             ),

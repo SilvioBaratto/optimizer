@@ -10,7 +10,7 @@ from sqlalchemy import Table, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import DeclarativeBase, Session
 
-from portopt_db.base import Base
+from portopt_db.base import Base, ClockTimestamp
 
 ModelType = TypeVar("ModelType", bound=Base)
 CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
@@ -66,12 +66,15 @@ class RepositoryBase:
                 if col.name not in exclude
             }
 
-        # Always stamp updated_at with the server's current time on conflict.
-        # excluded.updated_at is unreliable: server_default columns are omitted
-        # from the proposed-INSERT VALUES list, so excluded reflects the original
-        # insert timestamp or NULL — never the conflict timestamp.
-        if "updated_at" in update_dict:
-            update_dict["updated_at"] = func.now()
+        # Always stamp updated_at with the server's current time on conflict, even
+        # when the caller's explicit update_columns omits it. excluded.updated_at
+        # is the proposed row's own insert stamp (or NULL for a server default),
+        # never the conflict time, and ON CONFLICT DO UPDATE does not fire
+        # ``onupdate``, so a revised row would otherwise keep its first-insert
+        # timestamp. The statement clock (not now()) keeps the stamp current when
+        # the caller's transaction has been open for a long time.
+        if "updated_at" in tbl.c:
+            update_dict["updated_at"] = ClockTimestamp()
 
         if constraint_name is not None:
             stmt = stmt.on_conflict_do_update(
@@ -84,7 +87,12 @@ class RepositoryBase:
                 set_=update_dict,
             )
 
-        self.session.execute(stmt)
+        # PostgreSQL aborts the whole transaction on a statement error and turns
+        # the later COMMIT into a silent ROLLBACK. Callers that catch a failure
+        # and carry on (per-category fetches) would lose every earlier write, so
+        # the failure is confined to a SAVEPOINT and still propagates.
+        with self.session.begin_nested():
+            self.session.execute(stmt)
         return len(rows)
 
 
@@ -119,6 +127,9 @@ class BaseRepository(
     def get_by_field(self, field: str, value: Any) -> ModelType | None:
         """Fetch the first record matching ``field == value``.
 
+        When several rows match, the one with the lowest primary key is
+        returned so repeated calls agree.
+
         Args:
             field: Attribute name on the model to filter by.
             value: Value to compare against.
@@ -127,9 +138,14 @@ class BaseRepository(
             The matched instance, or ``None`` if no row matches.
         """
         column = getattr(self.model, field)
-        stmt = select(self.model).where(column == value)
+        stmt = (
+            select(self.model)
+            .where(column == value)
+            .order_by(*_get_table(self.model).primary_key.columns)
+            .limit(1)
+        )
         result = self.session.execute(stmt)
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     def get_multi(
         self,
@@ -142,7 +158,9 @@ class BaseRepository(
         """Fetch a paginated slice of records.
 
         Falls back to ``created_at`` ordering when ``order_by`` is ``None`` or
-        names an attribute that does not exist on the model.
+        names an attribute that does not exist on the model. The primary key is
+        always appended as a tiebreaker, in the same direction, so rows that
+        share a sort value (e.g. one bulk insert) page without overlap or gaps.
 
         Args:
             skip: Number of rows to skip before returning results.
@@ -155,13 +173,14 @@ class BaseRepository(
         """
         stmt = select(self.model)
 
+        sort_columns: list[Any] = []
         if order_by and hasattr(self.model, order_by):
-            column = getattr(self.model, order_by)
-            stmt = stmt.order_by(column.desc() if desc else column.asc())
+            sort_columns.append(getattr(self.model, order_by))
         elif hasattr(self.model, "created_at"):
-            column = cast(Any, self.model).created_at
-            stmt = stmt.order_by(column.desc() if desc else column.asc())
+            sort_columns.append(cast(Any, self.model).created_at)
+        sort_columns.extend(_get_table(self.model).primary_key.columns)
 
+        stmt = stmt.order_by(*(c.desc() if desc else c.asc() for c in sort_columns))
         stmt = stmt.offset(skip).limit(limit)
         result = self.session.execute(stmt)
         return result.scalars().all()

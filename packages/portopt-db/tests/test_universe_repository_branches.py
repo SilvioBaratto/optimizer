@@ -11,19 +11,26 @@ Missed lines targeted
 158-167     get_instruments — exchange_name filter, search filter, skip/limit, no-filter
 170         get_exchanges — empty + populated
 
-PG-only methods (skipped)
---------------------------
-- save_instruments_batch (lines 41-80): uses pg_insert + ON CONFLICT DO UPDATE
-  with a named constraint that does not exist in SQLite — SQLite raises
-  ``OperationalError: no such constraint``.  Document-only, no test.
+save_instruments_batch
+----------------------
+Built with ``pg_insert(...).on_conflict_do_update(constraint=...)``. SQLite
+(>= 3.35) compiles that as a target-less ``ON CONFLICT DO UPDATE``, which fires
+on the table's one non-PK unique constraint (ticker + exchange), so the venue
+change and per-row upsert semantics run against the in-memory engine. What
+SQLite cannot show (the conflict update's column expressions) is checked by
+compiling the emitted statement for the PostgreSQL dialect.
 """
 
 from __future__ import annotations
 
-from datetime import date
+import uuid
+from datetime import date, datetime
+from unittest.mock import MagicMock
 
 import pytest
 from _fixtures import add_and_flush, seed_universe
+from sqlalchemy import select, update
+from sqlalchemy.dialects import postgresql
 
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repositories.universe.universe_repository import UniverseRepository
@@ -193,12 +200,47 @@ class TestGetInstruments:
         result = _repo(db_session).get_instruments(skip=1, limit=10)
         assert len(result) == 2
 
+    def test_pages_walk_the_universe_in_ticker_order_without_gaps_or_repeats(
+        self, db_session
+    ):
+        """OFFSET/LIMIT without ORDER BY lets pages overlap or skip rows."""
+        ex = _make_exchange(db_session, "Ordered Exchange")
+        for ticker in ("MMM", "ZZZ", "AAA", "QQQ", "CCC"):
+            _make_instrument(db_session, ex, ticker)
+        repo = _repo(db_session)
+
+        pages = [
+            [i.ticker for i in repo.get_instruments(skip=skip, limit=2)]
+            for skip in (0, 2, 4)
+        ]
+
+        assert pages == [["AAA", "CCC"], ["MMM", "QQQ"], ["ZZZ"]]
+
     def test_limit_caps_result_count(self, db_session):
         ex = _make_exchange(db_session, "Limit Exchange")
         for i in range(5):
             _make_instrument(db_session, ex, f"LIM{i}")
         result = _repo(db_session).get_instruments(limit=2)
         assert len(result) == 2
+
+
+class TestSaveInstrumentsBatchConflictUpdate:
+    @staticmethod
+    def _upsert_sql() -> str:
+        session = MagicMock()
+        UniverseRepository(session).save_instruments_batch(
+            [{"ticker": "AGG", "shortName": "AGG", "isin": None}], "exchange-id"
+        )
+        stmt = session.execute.call_args.args[0]
+        return " ".join(str(stmt.compile(dialect=postgresql.dialect())).split())
+
+    def test_null_incoming_isin_does_not_overwrite_the_stored_one(self):
+        # The screener-backed build carries no ISIN, so a plain
+        # ``isin = excluded.isin`` would blank every ISIN the profile backfill
+        # had filled on each weekly rebuild.
+        assert "isin = coalesce(excluded.isin, instruments.isin)" in (
+            self._upsert_sql().lower()
+        )
 
 
 class TestMarkDelisted:
@@ -214,6 +256,31 @@ class TestMarkDelisted:
         db_session.refresh(seed.instrument)
         assert seed.instrument.delisted_at == date(2024, 6, 1)
         assert seed.instrument.delisting_return == pytest.approx(-0.30)
+
+    def test_when_no_return_given_then_terminal_return_stays_unknown(self, db_session):
+        """Absence from a universe snapshot proves nothing about the loss taken.
+
+        Stamping a synthetic -30% would let a survivorship correction overwrite
+        the last real return of a stock that is still trading, so the column
+        must stay NULL unless the caller knows the actual terminal return.
+        """
+        seed = seed_universe(db_session, ticker="GONE")
+
+        _repo(db_session).mark_delisted("GONE", seed.exchange.id, date(2024, 6, 1))
+
+        db_session.refresh(seed.instrument)
+        assert seed.instrument.delisted_at == date(2024, 6, 1)
+        assert seed.instrument.delisting_return is None
+
+    def test_when_return_given_then_it_is_stored_verbatim(self, db_session):
+        seed = seed_universe(db_session, ticker="BANKRUPT")
+
+        _repo(db_session).mark_delisted(
+            "BANKRUPT", seed.exchange.id, date(2024, 6, 1), delisting_return=-1.0
+        )
+
+        db_session.refresh(seed.instrument)
+        assert seed.instrument.delisting_return == pytest.approx(-1.0)
 
     def test_when_instrument_not_found_returns_false(self, db_session):
         ex = _make_exchange(db_session, "Delist Exchange")
@@ -345,3 +412,211 @@ class TestGetActiveTickersTypeScope:
         assert repo.get_active_tickers(ex.id, instrument_type="ETF") == {"AGG_US"}
         assert repo.get_active_tickers(ex.id, instrument_type="STOCK") == {"AAPL_US"}
         assert repo.get_active_tickers(ex.id) == {"AAPL_US", "AGG_US"}
+
+
+class TestSaveInstrumentsBatchKeepsBackfilledIsin:
+    """The screener source carries no ISIN, so a rebuild upserts ``isin=NULL``;
+    the conflict update must not erase an ISIN backfilled from ticker_profiles.
+
+    ``save_instruments_batch`` is PG-only (ON CONFLICT on a named constraint),
+    so the statement it emits is captured and compiled for PostgreSQL."""
+
+    def _upsert_sql(self, db_session, monkeypatch) -> str:
+        from sqlalchemy.dialects import postgresql
+
+        statements: list = []
+        real_execute = db_session.execute
+
+        def _capture_upsert(stmt, *args, **kwargs):
+            # The venue-change lookup is a real SELECT; only the upsert, which
+            # SQLite cannot run, is captured instead of executed.
+            if getattr(stmt, "is_insert", False):
+                statements.append(stmt)
+                return None
+            return real_execute(stmt, *args, **kwargs)
+
+        monkeypatch.setattr(db_session, "execute", _capture_upsert)
+        _repo(db_session).save_instruments_batch(
+            [{"ticker": "AAPL_US", "shortName": "AAPL", "isin": None}],
+            exchange_id=uuid.uuid4(),
+        )
+        assert len(statements) == 1
+        return str(statements[0].compile(dialect=postgresql.dialect()))
+
+    def test_null_incoming_isin_does_not_overwrite_stored_isin(
+        self, db_session, monkeypatch
+    ) -> None:
+        sql = self._upsert_sql(db_session, monkeypatch)
+
+        assert "isin = coalesce(excluded.isin, instruments.isin)" in sql
+
+
+def _batch_row(ticker: str, **overrides) -> dict:
+    return {"ticker": ticker, "shortName": ticker, "type": "STOCK", **overrides}
+
+
+def _rows_for(session, ticker: str) -> list[Instrument]:
+    return list(
+        session.execute(select(Instrument).where(Instrument.ticker == ticker))
+        .scalars()
+        .all()
+    )
+
+
+class TestSaveInstrumentsBatchVenueChange:
+    """A symbol that moves venue must stay ONE instrument row.
+
+    Ticker-keyed readers (price lookups, the yfinance sweep) assume a symbol is
+    unique, so a second (ticker, new exchange) row beside the stale one makes
+    them raise ``MultipleResultsFound`` or fetch the symbol twice.
+    """
+
+    def test_when_symbol_moves_exchange_then_existing_row_is_rehomed(self, db_session):
+        repo = _repo(db_session)
+        nasdaq = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        nyse = repo.save_exchange({"name": "NYSE", "id": 2})
+        repo.save_instruments_batch([_batch_row("XYZ")], nasdaq.id)
+        original_id = _rows_for(db_session, "XYZ")[0].id
+
+        repo.save_instruments_batch([_batch_row("XYZ")], nyse.id)
+
+        rows = _rows_for(db_session, "XYZ")
+        assert len(rows) == 1
+        assert rows[0].id == original_id
+        assert rows[0].exchange_id == nyse.id
+
+    def test_when_stale_row_was_marked_delisted_then_move_reactivates_it(
+        self, db_session
+    ):
+        repo = _repo(db_session)
+        nasdaq = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        nyse = repo.save_exchange({"name": "NYSE", "id": 2})
+        repo.save_instruments_batch([_batch_row("XYZ")], nasdaq.id)
+        repo.mark_delisted("XYZ", nasdaq.id, date(2024, 6, 1))
+
+        repo.save_instruments_batch([_batch_row("XYZ")], nyse.id)
+
+        rows = _rows_for(db_session, "XYZ")
+        assert len(rows) == 1
+        assert rows[0].exchange_id == nyse.id
+        assert rows[0].delisted_at is None
+
+    def test_when_symbol_already_on_target_exchange_then_other_venue_is_untouched(
+        self, db_session
+    ):
+        repo = _repo(db_session)
+        nasdaq = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        nyse = repo.save_exchange({"name": "NYSE", "id": 2})
+        # Legacy state: the symbol already has a row on both venues.
+        for exchange in (nasdaq, nyse):
+            add_and_flush(
+                db_session,
+                Instrument(ticker="XYZ", short_name="XYZ", exchange_id=exchange.id),
+            )
+
+        repo.save_instruments_batch([_batch_row("XYZ")], nyse.id)
+
+        venues = sorted(r.exchange_id for r in _rows_for(db_session, "XYZ"))
+        assert venues == sorted([nasdaq.id, nyse.id])
+
+    def test_when_predecessor_is_ambiguous_then_no_existing_row_is_moved(
+        self, db_session
+    ):
+        repo = _repo(db_session)
+        nasdaq = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        amex = repo.save_exchange({"name": "AMEX", "id": 2})
+        nyse = repo.save_exchange({"name": "NYSE", "id": 3})
+        # Legacy state: two stale rows elsewhere, so neither is provably the
+        # predecessor of the NYSE listing.
+        stale_ids = {}
+        for exchange in (nasdaq, amex):
+            row = Instrument(ticker="XYZ", short_name="XYZ", exchange_id=exchange.id)
+            add_and_flush(db_session, row)
+            stale_ids[exchange.id] = row.id
+
+        repo.save_instruments_batch([_batch_row("XYZ")], nyse.id)
+
+        rows = _rows_for(db_session, "XYZ")
+        assert {r.exchange_id for r in rows} == {nasdaq.id, amex.id, nyse.id}
+        for row in rows:
+            if row.exchange_id in stale_ids:
+                assert row.id == stale_ids[row.exchange_id]
+
+    def test_unrelated_tickers_on_other_exchanges_stay_put(self, db_session):
+        repo = _repo(db_session)
+        nasdaq = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        nyse = repo.save_exchange({"name": "NYSE", "id": 2})
+        repo.save_instruments_batch([_batch_row("AAA")], nasdaq.id)
+
+        repo.save_instruments_batch([_batch_row("BBB")], nyse.id)
+
+        assert _rows_for(db_session, "AAA")[0].exchange_id == nasdaq.id
+        assert _rows_for(db_session, "BBB")[0].exchange_id == nyse.id
+
+
+def _reload(session, ticker: str) -> Instrument:
+    return session.execute(
+        select(Instrument)
+        .where(Instrument.ticker == ticker)
+        .execution_options(populate_existing=True)
+    ).scalar_one()
+
+
+class TestSaveInstrumentsBatchResave:
+    """Re-saving a universe must not erase data the source did not resend.
+
+    The yfinance universe source carries no ISIN (it is backfilled later from
+    ticker profiles), so a blind overwrite would blank every ISIN each build.
+    """
+
+    def test_when_resaved_without_isin_then_stored_isin_is_kept(self, db_session):
+        repo = _repo(db_session)
+        ex = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        repo.save_instruments_batch([_batch_row("AAPL")], ex.id)
+        db_session.execute(
+            update(Instrument)
+            .where(Instrument.ticker == "AAPL")
+            .values(isin="US0378331005")
+        )
+
+        repo.save_instruments_batch([_batch_row("AAPL", isin=None)], ex.id)
+
+        assert _reload(db_session, "AAPL").isin == "US0378331005"
+
+    def test_when_resaved_with_isin_then_new_isin_replaces_old(self, db_session):
+        repo = _repo(db_session)
+        ex = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        repo.save_instruments_batch([_batch_row("AAPL", isin="OLD000000000")], ex.id)
+
+        repo.save_instruments_batch([_batch_row("AAPL", isin="US0378331005")], ex.id)
+
+        assert _reload(db_session, "AAPL").isin == "US0378331005"
+
+    def test_when_resaved_without_name_or_currency_then_stored_values_are_kept(
+        self, db_session
+    ):
+        repo = _repo(db_session)
+        ex = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        repo.save_instruments_batch(
+            [_batch_row("AAPL", name="Apple Inc.", currencyCode="USD")], ex.id
+        )
+
+        repo.save_instruments_batch([_batch_row("AAPL")], ex.id)
+
+        row = _reload(db_session, "AAPL")
+        assert row.name == "Apple Inc."
+        assert row.currency_code == "USD"
+
+    def test_when_resaved_then_updated_at_is_refreshed(self, db_session):
+        repo = _repo(db_session)
+        ex = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        repo.save_instruments_batch([_batch_row("AAPL")], ex.id)
+        db_session.execute(
+            update(Instrument)
+            .where(Instrument.ticker == "AAPL")
+            .values(updated_at=datetime(2000, 1, 1))
+        )
+
+        repo.save_instruments_batch([_batch_row("AAPL")], ex.id)
+
+        assert _reload(db_session, "AAPL").updated_at.year > 2000

@@ -63,9 +63,27 @@ class TestBuildMeanRisk:
         assert model.budget == 0.5
 
     def test_cardinality_forwarded(self) -> None:
-        cfg = MeanRiskConfig(cardinality=10)
+        cfg = MeanRiskConfig(cardinality=10, solver="SCIP")
         model = build_mean_risk(cfg)
         assert model.cardinality == 10
+
+    def test_cardinality_with_default_solver_raises_at_build(self) -> None:
+        """CLARABEL cannot solve MIPs, so the config is rejected before fit."""
+        with pytest.raises(ValueError, match="mixed-integer"):
+            build_mean_risk(MeanRiskConfig(cardinality=3))
+
+    def test_cardinality_with_mip_solver_fits(self) -> None:
+        rng = np.random.default_rng(0)
+        returns = pd.DataFrame(
+            rng.normal(0.001, 0.02, (250, 8)), columns=list("ABCDEFGH")
+        )
+        cfg = MeanRiskConfig(
+            risk_measure=RiskMeasureType.MEAN_ABSOLUTE_DEVIATION,
+            cardinality=3,
+            solver="SCIPY",
+        )
+        model = build_mean_risk(cfg).fit(returns)
+        assert int((model.weights_ > 1e-6).sum()) <= 3
 
     def test_transaction_costs_forwarded(self) -> None:
         cfg = MeanRiskConfig(transaction_costs=0.001)
@@ -305,6 +323,35 @@ class TestBuildSectorConstraints:
         assert groups is mapping
         assert constraints == ["Technology <= 0.25"]
         assert not any("None" in c for c in constraints)
+
+    def test_nan_sector_value_skipped_no_crash(self) -> None:
+        """pandas turns a NULL sector into NaN (a truthy float); it must be
+        skipped like None instead of crashing sorted() against the str labels."""
+        mapping = {
+            "AAPL": "Technology",
+            "MSFT": "Technology",
+            "JPM": "Financials",
+            "XYZ": float("nan"),
+        }
+        groups, constraints = build_sector_constraints(mapping, 0.25)  # type: ignore[dict-item]
+        assert groups is mapping
+        assert constraints == ["Financials <= 0.25", "Technology <= 0.25"]
+
+    def test_pd_na_sector_value_skipped_no_crash(self) -> None:
+        mapping = {"AAPL": "Technology", "XYZ": pd.NA}
+        _, constraints = build_sector_constraints(mapping, 0.25)  # type: ignore[dict-item]
+        assert constraints == ["Technology <= 0.25"]
+
+    def test_nan_sector_in_pandas_sourced_mapping_builds_mean_risk(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        labels = ["Tech", "Fin", float("nan"), "Tech"] * 5
+        mapping = pd.Series(labels, index=returns_df.columns).to_dict()
+
+        model = build_mean_risk(
+            MeanRiskConfig(max_sector_weight=0.6), sector_mapping=mapping
+        )
+        assert model.linear_constraints == ["Fin <= 0.6", "Tech <= 0.6"]
 
     def test_empty_string_sector_value_skipped(self) -> None:
         """An empty-string sector is treated like NULL: excluded from caps."""
@@ -593,6 +640,19 @@ class TestSectorBandsAndFactorExposure:
         assert "Energy >= 0.0" not in constraints
         assert model.groups == mapping
 
+    def test_sector_bands_without_sector_mapping_raises(self) -> None:
+        """Bands with no group mapping would be dropped at fit time, so reject."""
+        with pytest.raises(ValueError, match="sector_mapping"):
+            build_mean_risk(MeanRiskConfig(), sector_bands={"Tech": (0.0, 0.2)})
+
+    def test_sector_bands_with_explicit_groups_kwarg_is_accepted(self) -> None:
+        groups = {"AAPL": "Tech", "XOM": "Energy"}
+        model = build_mean_risk(
+            MeanRiskConfig(), sector_bands={"Tech": (0.0, 0.2)}, groups=groups
+        )
+        assert model.groups == groups
+        assert model.linear_constraints == ["Tech <= 0.2"]
+
     def test_factor_exposure_constraints_injected(self) -> None:
         """factor_exposure_constraints inject left/right_inequality into MeanRisk."""
         from optimizer.factors._integration import FactorExposureConstraints
@@ -631,6 +691,127 @@ class TestSectorBandsAndFactorExposure:
         )
         np.testing.assert_array_equal(model.left_inequality, custom_left)
         np.testing.assert_array_equal(model.right_inequality, custom_right)
+
+
+class TestSectorBandsValidation:
+    """Regime bands are checked against the universe before any fit."""
+
+    def test_caps_of_present_sectors_below_budget_warn_not_raise(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Unmapped assets may absorb weight, so low caps only warn."""
+        from optimizer.factors import MacroRegime, resolve_sector_bands
+
+        mapping = {
+            "A": "Technology",
+            "B": "Technology",
+            "C": "Healthcare",
+            "D": "Energy",
+        }
+        bands = resolve_sector_bands(MacroRegime.RECESSION)
+        with caplog.at_level("WARNING", logger="optimizer.optimization._factory"):
+            model = build_mean_risk(
+                MeanRiskConfig(), sector_mapping=mapping, sector_bands=bands
+            )
+        assert any("Technology <=" in row for row in model.linear_constraints)
+        assert "caps" in caplog.text
+
+    def test_sector_mapping_covering_part_of_the_universe_builds_and_fits(
+        self,
+    ) -> None:
+        """A ticker missing from the mapping is a singleton group, not a violation."""
+        rng = np.random.default_rng(11)
+        cols = ["A", "B", "C", "D", "E", "F"]
+        returns = pd.DataFrame(rng.normal(0.001, 0.02, (250, 6)), columns=cols)
+        mapping = {"A": "Technology", "B": "Technology", "C": "Energy", "D": "Energy"}
+        model = build_mean_risk(
+            MeanRiskConfig(),
+            sector_mapping=mapping,
+            sector_bands={"Technology": (0.0, 0.3), "Energy": (0.0, 0.3)},
+        )
+        model.fit(returns)
+        weights = pd.Series(model.weights_, index=cols)
+        assert weights[["A", "B"]].sum() <= 0.3 + 1e-6
+        assert weights[["C", "D"]].sum() <= 0.3 + 1e-6
+        assert weights[["E", "F"]].sum() >= 0.4 - 1e-6
+
+    def test_floor_above_cap_raises(self) -> None:
+        mapping = {"A": "Technology", "B": "Energy"}
+        with pytest.raises(ValueError, match="Technology"):
+            build_mean_risk(
+                MeanRiskConfig(),
+                sector_mapping=mapping,
+                sector_bands={"Technology": (0.5, 0.2), "Energy": (0.0, 1.0)},
+            )
+
+    def test_floors_summing_above_one_raise(self) -> None:
+        mapping = {"A": "Technology", "B": "Energy"}
+        with pytest.raises(ValueError, match="floors"):
+            build_mean_risk(
+                MeanRiskConfig(),
+                sector_mapping=mapping,
+                sector_bands={"Technology": (0.6, 0.9), "Energy": (0.6, 0.9)},
+            )
+
+    def test_bands_for_absent_sectors_are_dropped_with_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        mapping = {"A": "Technology", "B": "Energy"}
+        bands = {
+            "Technology": (0.1, 0.7),
+            "Energy": (0.0, 0.6),
+            "Utilities": (0.05, 0.3),
+        }
+        with caplog.at_level("WARNING", logger="optimizer.optimization._factory"):
+            model = build_mean_risk(
+                MeanRiskConfig(), sector_mapping=mapping, sector_bands=bands
+            )
+        constraints = list(model.linear_constraints)
+        assert not any("Utilities" in row for row in constraints)
+        assert "Technology <= 0.7" in constraints
+        assert "Utilities" in caplog.text
+
+    def test_no_band_sector_present_in_universe_raises(self) -> None:
+        """A GICS 'Health Care' vs Yahoo 'Healthcare' mismatch must not no-op."""
+        mapping = {"A": "Health Care", "B": "Health Care"}
+        with pytest.raises(ValueError, match="Healthcare"):
+            build_mean_risk(
+                MeanRiskConfig(),
+                sector_mapping=mapping,
+                sector_bands={"Healthcare": (0.1, 0.3)},
+            )
+
+    def test_unclassified_assets_skip_the_cap_sum_check(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An asset without a sector is unconstrained, so it can absorb weight."""
+        mapping = {"A": "Technology", "B": "Energy", "C": None}  # type: ignore[dict-item]
+        with caplog.at_level("WARNING", logger="optimizer.optimization._factory"):
+            model = build_mean_risk(
+                MeanRiskConfig(),
+                sector_mapping=mapping,
+                sector_bands={"Technology": (0.0, 0.2), "Energy": (0.0, 0.2)},
+            )
+        assert "Technology <= 0.2" in list(model.linear_constraints)
+        assert "caps" not in caplog.text
+
+    def test_feasible_partial_universe_still_fits_within_caps(self) -> None:
+        rng = np.random.default_rng(7)
+        cols = ["A", "B", "C", "D"]
+        returns = pd.DataFrame(rng.normal(0.001, 0.02, (250, 4)), columns=cols)
+        mapping = {"A": "Technology", "B": "Technology", "C": "Energy", "D": "Energy"}
+        bands = {
+            "Technology": (0.1, 0.6),
+            "Energy": (0.1, 0.8),
+            "Utilities": (0.05, 0.3),
+        }
+        model = build_mean_risk(
+            MeanRiskConfig(), sector_mapping=mapping, sector_bands=bands
+        )
+        model.fit(returns)
+        weights = pd.Series(model.weights_, index=cols)
+        assert weights[["A", "B"]].sum() <= 0.6 + 1e-6
+        assert weights[["C", "D"]].sum() >= 0.1 - 1e-6
 
 
 # ---------------------------------------------------------------------------
@@ -722,6 +903,24 @@ class TestResilienceIntegration:
         model.fit(returns_df, benchmark_returns)
         assert model.weights_.shape == (returns_df.shape[1],)
 
+    def test_tracking_error_preset_binds_annualised_cap_on_daily_returns(
+        self, returns_df: pd.DataFrame, benchmark_returns: pd.Series
+    ) -> None:
+        cap = 0.05
+        n_obs = len(returns_df)
+
+        def annualised_te(weights: np.ndarray) -> float:
+            active = returns_df.to_numpy() @ weights - benchmark_returns.to_numpy()
+            return float(np.linalg.norm(active) / np.sqrt(n_obs - 1) * np.sqrt(252))
+
+        free = build_mean_risk(MeanRiskConfig.for_max_sharpe())
+        free.fit(returns_df)
+        assert annualised_te(free.weights_) > cap
+
+        capped = build_mean_risk(MeanRiskConfig.for_tracking_error(cap))
+        capped.fit(returns_df, benchmark_returns)
+        assert annualised_te(capped.weights_) <= cap + 1e-4
+
     def test_tracking_error_without_benchmark_raises(
         self, returns_df: pd.DataFrame
     ) -> None:
@@ -738,3 +937,53 @@ class TestResilienceIntegration:
         model = build_mean_risk(cfg, target_weights=target)
         model.fit(returns_df)
         assert model.weights_.shape == (returns_df.shape[1],)
+
+
+# ---------------------------------------------------------------------------
+# Sharpe presets: l2_coef must stay on the scale of daily-return variance
+# ---------------------------------------------------------------------------
+
+
+def _daily_returns(*, vol_multiplier: float = 1.0) -> pd.DataFrame:
+    """30 assets x 750 daily observations; the first 15 can be made riskier."""
+    rng = np.random.default_rng(0)
+    n_obs, n_assets, n_risky = 750, 30, 15
+    market = rng.normal(0.0004, 0.01, n_obs)
+    betas = rng.uniform(0.6, 1.4, n_assets)
+    alphas = rng.uniform(0.0, 0.0008, n_assets)
+    idio = rng.uniform(0.008, 0.016, n_assets)
+    data = alphas + np.outer(market, betas) + rng.normal(0, 1, (n_obs, n_assets)) * idio
+    risky = data[:, :n_risky]
+    data[:, :n_risky] = (risky - risky.mean(axis=0)) * vol_multiplier + risky.mean(
+        axis=0
+    )
+    index = pd.bdate_range("2021-01-01", periods=n_obs)
+    return pd.DataFrame(data, index=index, columns=[f"A{i}" for i in range(n_assets)])
+
+
+class TestSharpePresetsStayRiskAware:
+    @pytest.mark.parametrize(
+        "preset",
+        [
+            "for_max_sharpe_diversified",
+            "for_concentrated_sharpe",
+            "for_max_sharpe_sector_constrained",
+        ],
+    )
+    def test_when_asset_volatility_triples_then_preset_cuts_its_weight(
+        self, preset: str
+    ) -> None:
+        # A ridge coefficient far above daily variance (~1e-4) swamps the
+        # covariance term, so the "Sharpe" preset keeps buying assets whose
+        # volatility has tripled instead of reacting to the risk.
+        cfg = getattr(MeanRiskConfig, preset)()
+
+        def risky_share(vol_multiplier: float) -> float:
+            returns = _daily_returns(vol_multiplier=vol_multiplier)
+            model = build_mean_risk(cfg)
+            model.fit(returns)
+            return float(model.weights_[:15].sum())
+
+        calm = risky_share(1.0)
+        stressed = risky_share(3.0)
+        assert stressed < 0.5 * calm

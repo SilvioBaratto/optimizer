@@ -8,9 +8,11 @@ row per natural key.
 from __future__ import annotations
 
 import datetime as dt
+import math
 import uuid
 from typing import Any
 
+import pandas as pd
 from sqlalchemy import select
 
 from portopt_db.models.market_data.market_structure import (
@@ -22,15 +24,40 @@ from portopt_db.repository import RepositoryBase
 
 
 def _num(v: Any) -> float | None:
+    """Coerce to a finite float; NaN/inf are missing data, not numbers.
+
+    PostgreSQL ``numeric`` accepts NaN and sorts it above every value, so one
+    stray NaN would poison any SUM/AVG/ORDER BY over the column.
+    """
     try:
-        return float(v) if v is not None else None
+        f = float(v) if v is not None else None
     except (TypeError, ValueError):
         return None
+    return f if f is not None and math.isfinite(f) else None
 
 
 def _int(v: Any) -> int | None:
     f = _num(v)
     return int(f) if f is not None else None
+
+
+def _text(v: Any, n: int | None = None) -> str | None:
+    """Return ``v`` as text cut to ``n`` characters; None/NaN/NA/empty are missing.
+
+    A pandas string column holds missing cells as float NaN, which is truthy and
+    would otherwise be persisted as the literal ``"nan"``.
+    """
+    if v is None:
+        return None
+    try:
+        if bool(pd.isna(v)):
+            return None
+    except (TypeError, ValueError):
+        pass
+    text = str(v)
+    if not text:
+        return None
+    return text if n is None else text[:n]
 
 
 class MarketStructureRepository(RepositoryBase):
@@ -128,7 +155,7 @@ class MarketStructureRepository(RepositoryBase):
                 "region": region,
                 "as_of": as_of,
                 "industry_key": str(key)[:80],
-                "industry_name": (ind.get("name") or None),
+                "industry_name": _text(ind.get("name")),
             }
         rows = list(by_key.values())
         if not rows:
@@ -172,9 +199,9 @@ class MarketStructureRepository(RepositoryBase):
                 "region": region,
                 "as_of": as_of,
                 "symbol": str(symbol)[:30],
-                "name": c.get("name") or None,
+                "name": _text(c.get("name")),
                 "weight": _num(c.get("weight")),
-                "rating": (str(c["rating"])[:50] if c.get("rating") else None),
+                "rating": _text(c.get("rating"), 50),
             }
         rows = list(by_symbol.values())
         if not rows:

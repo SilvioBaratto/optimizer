@@ -44,10 +44,17 @@ class ScorerConfig:
         risk_measure: Risk measure (minimised). Requires ``ratio_measure=None``.
         greater_is_better: Whether higher scores are better. ``None``
             auto-detects from the measure family (ratio/perf -> True,
-            risk -> False).
+            risk -> False); an explicit value overrides that, so ``False``
+            sign-flips a ratio/perf score and ``True`` leaves a risk measure
+            unflipped. Honoured by `optimizer.scoring.build_scorer` only: the
+            online utilities score a bare measure whose direction is fixed by
+            its family.
         risk_free_rate: Per-period risk-free rate applied to the predicted
-            portfolio before the (ratio) measure is read. Defaults to 0.0.
-            Only affects ratio measures whose definition depends on the
+            portfolio before the (ratio) measure is read. Defaults to 0.0 and
+            is always applied, an explicit 0.0 included, so it overrides the
+            optimizer's own ``risk_free_rate`` and every candidate is scored
+            at the same rate. Set it to the optimizer's rate to score at that
+            rate. Only affects ratio measures whose definition depends on the
             risk-free rate (Sharpe, Sortino, ...); ignored for perf/risk
             measures.
         annualization_factor: Number of periods per year applied to the

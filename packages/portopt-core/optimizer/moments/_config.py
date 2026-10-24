@@ -101,12 +101,14 @@ class MomentEstimationConfig:
         mu_estimator: Which expected return estimator to use.
         shrinkage_method: Shrinkage flavour when ``mu_estimator`` is ``SHRUNK``.
         ew_mu_half_life: Exponential-weighting half-life (in observations) for
-            ``EWMu``. skfolio 1.0 replaced the former ``alpha`` argument with
+            ``EWMu``. Defaults to skfolio's 40 (about two months of daily data).
+            skfolio 1.0 replaced the former ``alpha`` argument with
             ``half_life``; convert via ``half_life = -1 / log2(1 - alpha)``.
         risk_aversion: Risk-aversion coefficient for ``EquilibriumMu``.
         cov_estimator: Which covariance estimator to use.
         ew_cov_half_life: Exponential-weighting half-life (in observations) for
-            ``EWCovariance``. Replaces the former ``alpha`` (skfolio 1.0).
+            ``EWCovariance``. Replaces the former ``alpha`` (skfolio 1.0);
+            defaults to skfolio's 40.
         shrunk_cov_shrinkage: Shrinkage intensity for ``ShrunkCovariance``.
         gerber_threshold: Threshold for ``GerberCovariance``.
         implied_annualization_factor: Number of periods per year forwarded to
@@ -116,9 +118,16 @@ class MomentEstimationConfig:
         implied_window_size: Rolling window (in observations) used by
             ``ImpliedCovariance`` to regress realized on implied volatility.
         is_log_normal: Whether returns are log-normal (for multi-period scaling in
-            ``EmpiricalPrior``).
-        investment_horizon: Investment horizon forwarded to ``EmpiricalPrior``.
-        use_factor_model: If ``True``, wrap the prior in a factor model. When
+            ``EmpiricalPrior``). Not supported together with ``use_factor_model``
+            or ``build_characteristics_factor_model`` (both raise
+            ``ConfigurationError``).
+        investment_horizon: Investment horizon forwarded to ``EmpiricalPrior``;
+            requires ``is_log_normal`` and is rejected with a factor model for
+            the same reason.
+        use_factor_model: If ``True``, wrap the prior in a factor model. Not
+            supported together with ``mu_estimator=EQUILIBRIUM`` (the prior is
+            fit on factor returns, so asset-aligned market weights cannot
+            apply); the factory raises ``ConfigurationError``. When
             ``factor_model_type`` is ``TIME_SERIES`` (the default),
             ``build_prior`` returns a ``TimeSeriesFactorModel`` fit with factor
             returns via the keyword ``factors=`` (skfolio 1.0; the former
@@ -155,13 +164,14 @@ class MomentEstimationConfig:
     # -- Expected return estimator --
     mu_estimator: MuEstimatorType = MuEstimatorType.EMPIRICAL
     shrinkage_method: ShrinkageMethod = ShrinkageMethod.JAMES_STEIN
-    # 3.11 ≈ former alpha=0.2 (skfolio 1.0 dropped alpha; half_life = -1/log2(1-alpha))
-    ew_mu_half_life: float = 3.11
+    # 40 observations matches skfolio's own default; a ~3-observation half-life
+    # leaves an effective sample of ~9 days, so mu and covariance track noise.
+    ew_mu_half_life: float = 40.0
     risk_aversion: float = 1.0
 
     # -- Covariance estimator --
     cov_estimator: CovEstimatorType = CovEstimatorType.LEDOIT_WOLF
-    ew_cov_half_life: float = 3.11
+    ew_cov_half_life: float = 40.0
     shrunk_cov_shrinkage: float = 0.1
     gerber_threshold: float = 0.5
     implied_annualization_factor: float | None = None

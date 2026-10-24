@@ -8,12 +8,15 @@ Forward ``news_count`` to ``yf.Search`` constructor and conditionally include
 from __future__ import annotations
 
 import inspect
+import json
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 pytest.importorskip("yfinance")
+
+from yfinance.data import YfData
 
 from app.services.market_data.yfinance.market.search import SearchClient
 from app.services.market_data.yfinance.protocols import SearchClientProtocol
@@ -165,3 +168,104 @@ def test_when_lookup_called_then_signature_unchanged() -> None:
     assert params == ["self", "query", "asset_type", "count", "max_retries"]
     assert sig.parameters["asset_type"].default == "stock"
     assert sig.parameters["count"].default == 25
+
+
+class _Resp:
+    """Minimal stand-in for the HTTP response yfinance's ``YfData.get`` returns."""
+
+    def __init__(self, payload: dict[str, Any] | None = None, text: str = "") -> None:
+        self._payload = payload or {}
+        self.text = text or json.dumps(self._payload)
+
+    def json(self) -> dict[str, Any]:
+        return self._payload
+
+
+def _serve(*responses: _Resp):
+    """Patch yfinance's HTTP layer to return *responses* in order, then repeat the last."""
+    queue = list(responses)
+
+    def fake_get(url: str, params: Any = None, timeout: float = 30) -> _Resp:
+        return queue.pop(0) if len(queue) > 1 else queue[0]
+
+    return patch.object(YfData, "get", side_effect=fake_get)
+
+
+def _news(title: str) -> _Resp:
+    return _Resp({"quotes": [], "news": [{"title": title}]})
+
+
+@pytest.fixture
+def _real_search_http(monkeypatch: pytest.MonkeyPatch):
+    """Run the real ``yf.Search`` against a clean yfinance response cache."""
+    monkeypatch.setattr("app.services.infrastructure.retry.time.sleep", lambda _: None)
+    YfData.cache_get.cache_clear()
+    yield
+    YfData.cache_get.cache_clear()
+
+
+@pytest.mark.usefixtures("_real_search_http")
+def test_when_first_response_is_a_down_page_then_retry_hits_the_network_again() -> None:
+    # yfinance caches the Response object itself, so a cached "Will be right
+    # back" page used to be replayed to every retry of the same query.
+    client = SearchClient(MagicMock(), MagicMock(), default_max_retries=3)
+    down = _Resp(text="<html>Will be right back</html>")
+    with _serve(down, _news("fresh")) as get:
+        result = client.search("Federal Reserve")
+
+    assert result is not None
+    assert [n["title"] for n in result["news"]] == ["fresh"]
+    assert get.call_count == 2
+
+
+@pytest.mark.usefixtures("_real_search_http")
+def test_when_same_query_repeats_then_second_call_returns_fresh_news() -> None:
+    # The 07:00 and 14:00 news jobs run the same queries in one daemon process.
+    client = SearchClient(MagicMock(), MagicMock(), default_max_retries=1)
+    with _serve(_news("morning"), _news("midday")):
+        first = client.search("Federal Reserve")
+        second = client.search("Federal Reserve")
+
+    assert first is not None and second is not None
+    assert first["news"][0]["title"] == "morning"
+    assert second["news"][0]["title"] == "midday"
+
+
+def _requested_flags(get: MagicMock) -> dict[str, Any]:
+    # ``cache_get`` forwards the query string positionally: (url, params, timeout).
+    params = get.call_args.args[1]
+    return {
+        "research": params["enableResearchReports"],
+        "nav": params["enableNavLinks"],
+    }
+
+
+@pytest.mark.usefixtures("_real_search_http")
+def test_when_research_and_nav_opted_in_then_yahoo_is_asked_for_them() -> None:
+    # yf.Search only requests research reports and nav links when its
+    # constructor flags are set, so reading the attributes alone returns [].
+    client = SearchClient(MagicMock(), MagicMock(), default_max_retries=1)
+    payload = _Resp(
+        {
+            "quotes": [{"symbol": "AAPL"}],
+            "news": [],
+            "researchReports": [{"reportTitle": "AAPL outlook"}],
+            "nav": [{"navName": "Markets"}],
+        }
+    )
+    with _serve(payload) as get:
+        result = client.search("AAPL", include_research=True, include_nav=True)
+
+    assert _requested_flags(get) == {"research": True, "nav": True}
+    assert result is not None
+    assert result["research"] == [{"reportTitle": "AAPL outlook"}]
+    assert result["nav"] == [{"navName": "Markets"}]
+
+
+@pytest.mark.usefixtures("_real_search_http")
+def test_when_extras_not_opted_in_then_yahoo_is_not_asked_for_them() -> None:
+    client = SearchClient(MagicMock(), MagicMock(), default_max_retries=1)
+    with _serve(_news("headline")) as get:
+        client.search("AAPL")
+
+    assert _requested_flags(get) == {"research": False, "nav": False}

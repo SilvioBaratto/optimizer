@@ -37,12 +37,12 @@ class TestMarketJournalMetadata:
         tables = set(inspect(test_engine).get_table_names())
         assert "market_journal" in tables
 
-    def test_expected_indexes_exist(self, test_engine) -> None:
-        """Verify ix_market_journal_as_of is created."""
+    def test_no_plain_index_duplicates_the_unique_constraint(self, test_engine) -> None:
+        """Verify as_of is indexed only through uq_market_journal_as_of."""
         names = {
             idx["name"] for idx in inspect(test_engine).get_indexes("market_journal")
         }
-        assert "ix_market_journal_as_of" in names
+        assert "ix_market_journal_as_of" not in names
 
     def test_unique_constraint_exists(self, test_engine) -> None:
         """Verify uq_market_journal_as_of unique constraint is created."""

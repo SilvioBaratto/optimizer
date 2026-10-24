@@ -9,9 +9,11 @@ converges to one row.
 from __future__ import annotations
 
 import datetime as dt
+import math
 import uuid
 from typing import Any
 
+import pandas as pd
 from sqlalchemy import select
 
 from portopt_db.models.market_data.etf_metadata import (
@@ -44,6 +46,29 @@ def _pick(metrics: dict[str, float], *keys: str) -> float | None:
     return None
 
 
+def _holding_name(value: Any) -> str | None:
+    """Return a holding name, or None for a missing cell.
+
+    A pandas string column holds missing names as NaN, which PostgreSQL would
+    store as the literal text ``'NaN'``.
+    """
+    if value is None:
+        return None
+    try:
+        if bool(pd.isna(value)):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return str(value)
+
+
+def _finite_or_none(value: Any) -> Any:
+    """Map NaN/inf to None; PostgreSQL ``numeric`` would store them as numbers."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
 class ETFMetadataRepository(RepositoryBase):
     """Repository for ETF fund metadata tables.
 
@@ -68,9 +93,10 @@ class ETFMetadataRepository(RepositoryBase):
     ) -> None:
         """Upsert core ETF metadata for an instrument.
 
-        Natural key is ``instrument_id``; a re-run updates all columns except
-        the primary key. Pass ``None`` for fields not available in the source
-        data.
+        Natural key is ``instrument_id``. A re-run updates only the columns for
+        which a value is supplied: ``None`` means the source did not report the
+        field this time and leaves the stored value untouched, so a partial
+        response cannot erase the last known fund data.
 
         Args:
             instrument_id: Identifies the instrument row this metadata belongs to.
@@ -84,34 +110,23 @@ class ETFMetadataRepository(RepositoryBase):
             category: Morningstar or provider-assigned category label.
             description: Free-text fund description.
         """
+        row: dict[str, Any] = {
+            "aum": aum,
+            "nav": nav,
+            "fund_family": fund_family,
+            "legal_type": legal_type,
+            "expense_ratio": expense_ratio,
+            "base_currency": base_currency,
+            "category": category,
+            "description": description,
+            "as_of": as_of,
+        }
         self._upsert(
             ETFMetadata,
-            [
-                {
-                    "id": uuid.uuid4(),
-                    "instrument_id": instrument_id,
-                    "aum": aum,
-                    "nav": nav,
-                    "fund_family": fund_family,
-                    "legal_type": legal_type,
-                    "expense_ratio": expense_ratio,
-                    "base_currency": base_currency,
-                    "category": category,
-                    "description": description,
-                    "as_of": as_of,
-                }
-            ],
+            [{"id": uuid.uuid4(), "instrument_id": instrument_id, **row}],
             index_elements=["instrument_id"],
             update_columns=[
-                "aum",
-                "nav",
-                "fund_family",
-                "legal_type",
-                "expense_ratio",
-                "base_currency",
-                "category",
-                "description",
-                "as_of",
+                *(name for name, value in row.items() if value is not None),
                 "updated_at",
             ],
         )
@@ -125,11 +140,15 @@ class ETFMetadataRepository(RepositoryBase):
         bond_pct: float | None,
         cash_pct: float | None,
         other_pct: float | None,
+        preferred_pct: float | None = None,
+        convertible_pct: float | None = None,
     ) -> None:
         """Upsert the asset-class allocation breakdown for an instrument snapshot.
 
         Natural key is ``(instrument_id, as_of)``; percentages are decimal
-        fractions (0–1).
+        fractions (0–1). The six buckets should sum to ~1; a caller that omits
+        ``preferred_pct``/``convertible_pct`` for a fund holding either stores
+        weights that under-sum.
 
         Args:
             instrument_id: Identifies the ETF instrument.
@@ -138,6 +157,8 @@ class ETFMetadataRepository(RepositoryBase):
             bond_pct: Fraction of NAV allocated to fixed income.
             cash_pct: Fraction of NAV held in cash or equivalents.
             other_pct: Fraction of NAV in all other asset classes.
+            preferred_pct: Fraction of NAV in preferred stock.
+            convertible_pct: Fraction of NAV in convertible securities.
         """
         self._upsert(
             ETFAssetClass,
@@ -149,6 +170,8 @@ class ETFMetadataRepository(RepositoryBase):
                     "stock_pct": stock_pct,
                     "bond_pct": bond_pct,
                     "cash_pct": cash_pct,
+                    "preferred_pct": preferred_pct,
+                    "convertible_pct": convertible_pct,
                     "other_pct": other_pct,
                 }
             ],
@@ -157,6 +180,8 @@ class ETFMetadataRepository(RepositoryBase):
                 "stock_pct",
                 "bond_pct",
                 "cash_pct",
+                "preferred_pct",
+                "convertible_pct",
                 "other_pct",
                 "updated_at",
             ],
@@ -198,8 +223,8 @@ class ETFMetadataRepository(RepositoryBase):
                 "instrument_id": instrument_id,
                 "as_of": as_of,
                 "holding_symbol": symbol,
-                "holding_name": h.get("name"),
-                "weight": h.get("weight"),
+                "holding_name": _holding_name(h.get("name")),
+                "weight": _finite_or_none(h.get("weight")),
             }
         rows = list(by_symbol.values())
         if not rows:

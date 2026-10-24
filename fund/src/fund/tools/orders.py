@@ -3,7 +3,9 @@
 Turns a target-weight vector into a **simulated** order ticket (SPEC D5): each
 line fills at the **next close strictly after** the decision bar ``asof`` (D30 —
 no look-ahead), adjusted by a simple slippage + commission model, and the ticket
-is persisted to ``paper_orders``.
+is persisted to ``paper_orders``. Costs are charged on the **traded** notional —
+the move from the previous ticket's target weights to this one (exits included) —
+not on the whole target book.
 
 The write must be **idempotent**: ``place_orders`` sits behind ``interrupt_on``
 (HITL), and on ``Command(resume=…)`` the interrupting node re-runs from the top
@@ -15,26 +17,35 @@ stored one (``idempotent: true``) instead of writing again; the DB-level
 Contract (via ``tool_envelope``):
 
 * empty ``weights`` ⇒ ``{ok: false, error}``;
-* a ticker with no instrument row, or no close strictly after ``asof`` (no fill
-  bar), ⇒ ``{ok: false, error}`` — a paper ticket must fill every line;
+* a held ticker (weight above ``_DUST_WEIGHT``) with no instrument row, or no close
+  strictly after ``asof`` (no fill bar), ⇒ ``{ok: false, error}`` — a paper ticket
+  must fill every line it carries. A zero or dust weight is no order: it gets no
+  line and needs no fill bar or FX rate, though it stays in the stored ``weights``;
+* weights that are all zero or dust ⇒ ``{ok: false, error}`` — nothing to place;
+* a listing quoted in a foreign currency with no FX rate on or just before its fill
+  bar ⇒ ``{ok: false, error}`` — ``shares`` must be a base-currency notional over a
+  base-currency price, never a unit-mixed ratio;
 * every other failure is caught by the envelope and returned as ``{ok: false}``.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
-import json
 import math
 import uuid
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from portopt_db.repositories.market_data.fx_rates_repository import FxRatesRepository
 from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 
-from fund.audit.orders_repository import OrderRepository
+from fund.audit.orders_repository import OrderRepository, weights_hash
 from fund.tools._base import ToolResult, coerce_date, err, ok, tool_envelope
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from sqlalchemy.orm import Session
 
 # Simple paper-execution cost model (D30): flat notional the weights scale, and
@@ -45,8 +56,33 @@ if TYPE_CHECKING:
 # e.g. a distinct portfolio_id) rather than silently re-priced from the stored
 # ticket.
 _DEFAULT_NOTIONAL = 100_000.0
+# The optimiser returns exact zeros and solver residue for names it does not hold; a
+# weight this small is no order and must not need a fill bar of its own.
+_DUST_WEIGHT = 1e-6
 _DEFAULT_SLIPPAGE_BPS = 5.0
 _DEFAULT_COMMISSION_BPS = 1.0
+
+# How far back from a fill bar an FX rate may be carried when the feed has no row
+# for that exact day (weekends, holidays), mirroring the NAV engine's forward-fill.
+_FX_LOOKBACK_DAYS = 7
+
+
+@dataclass(frozen=True)
+class _Fill:
+    """The fill bar of one ticker: when, at what quoted close, in which unit."""
+
+    date: dt.date
+    close: float
+    unit: str | None
+
+
+def _held(weights: Mapping[str, float]) -> dict[str, float]:
+    """The weights that carry an order: everything above ``_DUST_WEIGHT``.
+
+    Written as ``not <=`` rather than ``>`` so a NaN weight stays held and fails
+    loudly downstream instead of being dropped as dust.
+    """
+    return {t: w for t, w in weights.items() if not abs(w) <= _DUST_WEIGHT}
 
 
 def _coerce_uuid(portfolio_id: uuid.UUID | str) -> uuid.UUID:
@@ -56,16 +92,11 @@ def _coerce_uuid(portfolio_id: uuid.UUID | str) -> uuid.UUID:
     return uuid.UUID(portfolio_id)
 
 
-def _weights_hash(weights: dict[str, float]) -> str:
-    """sha256 of the canonical weights JSON — stable across calls, order-free."""
-    canonical = json.dumps(weights, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+def _next_close(repo: YFinanceRepository, ticker: str, asof: dt.date) -> _Fill:
+    """Return the first priced bar strictly after ``asof`` and its quote unit.
 
-
-def _next_close(
-    repo: YFinanceRepository, ticker: str, asof: dt.date
-) -> tuple[dt.date, float]:
-    """Return ``(fill_date, close)`` for the first bar strictly after ``asof``.
+    The unit is the bar's raw ``price_unit`` (``GBp`` stays pence), falling back to
+    the instrument's trading currency.
 
     Raises ``LookupError`` if the ticker has no instrument row or no priced bar
     after ``asof`` — the envelope turns that into ``{ok: false, error}``.
@@ -76,11 +107,80 @@ def _next_close(
     rows = repo.get_price_history(
         instrument.id, start_date=asof + dt.timedelta(days=1), ascending=True
     )
-    priced = [(row.date, row.close) for row in rows if row.close is not None]
+    priced = [(row, float(row.close)) for row in rows if row.close is not None]
     if not priced:
         raise LookupError(f"no fill bar after {asof.isoformat()} for {ticker!r}")
-    fill_date, close = min(priced, key=lambda pair: pair[0])
-    return fill_date, float(close)
+    first, close = min(priced, key=lambda pair: pair[0].date)
+    return _Fill(
+        date=first.date,
+        close=close,
+        unit=first.price_unit or instrument.currency_code,
+    )
+
+
+def _base_close(
+    session: Session, fill: _Fill, ticker: str, base_currency: str
+) -> float:
+    """The fill close as a price per share in ``base_currency``.
+
+    Rescales a minor-unit quote (pence, cents, agorot) to its major unit, then
+    multiplies by the base-per-foreign rate on the fill bar (carried forward at most
+    ``_FX_LOOKBACK_DAYS``). A listing already in the base currency needs no rate; one
+    with no unit is taken to be in the base currency, as the NAV engine does.
+
+    Raises:
+        LookupError: The listing is foreign and the feed has no rate for it.
+    """
+    from optimizer.fx import normalize_currency_code
+
+    base, _ = normalize_currency_code(base_currency)
+    major, scale = normalize_currency_code(fill.unit or base)
+    price = fill.close / scale
+    if major == base:
+        return price
+    rates = FxRatesRepository(session).get_rates(
+        base,
+        [major],
+        start=fill.date - dt.timedelta(days=_FX_LOOKBACK_DAYS),
+        end=fill.date,
+    )
+    if not rates:
+        raise LookupError(
+            f"no FX rate {major}->{base} on or before {fill.date.isoformat()} "
+            f"for {ticker!r}"
+        )
+    return price * float(rates[-1].rate)
+
+
+def fill_shortfalls(
+    session: Session,
+    asof: dt.date,
+    tickers: Iterable[str],
+    *,
+    base_currency: str | None = None,
+) -> list[str]:
+    """Why ``place_orders`` could not fill each of ``tickers`` at ``asof``.
+
+    A read-only dry run of the fill lookup, so a caller can tell before the gated
+    ``place_orders`` runs (and consumes its interrupt) that the ticket would fail: an
+    unknown ticker, no close strictly after ``asof`` yet, or (given ``base_currency``)
+    a foreign listing with no FX rate for its fill bar. Given a weight mapping, names
+    at zero or dust weight are skipped, as ``place_orders`` places no order for them.
+
+    Returns:
+        One message per ticker that cannot fill; ``[]`` when every line could.
+    """
+    repo = YFinanceRepository(session)
+    shortfalls: list[str] = []
+    names = _held(tickers) if isinstance(tickers, Mapping) else tickers
+    for ticker in names:
+        try:
+            fill = _next_close(repo, ticker, asof)
+            if base_currency is not None:
+                _base_close(session, fill, ticker, base_currency)
+        except LookupError as exc:
+            shortfalls.append(str(exc))
+    return shortfalls
 
 
 def _cost_params_match(
@@ -96,7 +196,9 @@ def _cost_params_match(
     the per-call cost params are NOT in the key. This guards against silently
     returning a ticket priced with *different* params than requested: it
     reconstructs the stored slippage/commission from the persisted lines and
-    compares them (with a float tolerance) against the request.
+    compares them (with a float tolerance) against the request. Commission is a
+    fraction of the line's *traded* notional; tickets stored before turnover
+    pricing carry no ``traded_notional`` and were charged on the full line notional.
     """
     if not math.isclose(order.notional, notional, rel_tol=1e-9, abs_tol=1e-9):
         return False
@@ -105,7 +207,7 @@ def _cost_params_match(
             line.get("slippage_bps", 0.0), slippage_bps, rel_tol=1e-9, abs_tol=1e-9
         ):
             return False
-        ln = line.get("notional", 0.0)
+        ln = line.get("traded_notional", line.get("notional", 0.0))
         if ln:
             stored_comm_bps = line["commission"] / abs(ln) * 1e4
             if not math.isclose(
@@ -140,6 +242,7 @@ def place_orders(
     weights: dict[str, float],
     portfolio_id: uuid.UUID | str,
     *,
+    base_currency: str | None = None,
     notional: float = _DEFAULT_NOTIONAL,
     slippage_bps: float = _DEFAULT_SLIPPAGE_BPS,
     commission_bps: float = _DEFAULT_COMMISSION_BPS,
@@ -152,24 +255,30 @@ def place_orders(
             (no look-ahead). Accepts a ``date`` or an ISO ``YYYY-MM-DD`` string.
         weights: Target ``{ticker: weight}`` vector (from the optimizer).
         portfolio_id: Owning portfolio; part of the idempotency key.
-        notional: Gross book the weights scale (paper cost model). Not part of
-            the idempotency key — overrides apply only to a fresh key.
-        slippage_bps: Per-fill slippage in basis points (buys pay up). Not part
-            of the idempotency key — overrides apply only to a fresh key.
-        commission_bps: Per-fill commission in basis points of line notional.
+        base_currency: The mandate's base currency, in which each line's ``shares``
+            are priced. Without it prices are used as quoted (only meaningful for a
+            what-if on a single-currency universe).
+        notional: Gross book the weights scale (paper cost model). Costs apply to
+            the part of it that trades against the portfolio's previous ticket.
+            Not part of the idempotency key — overrides apply only to a fresh key.
+        slippage_bps: Per-fill slippage in basis points of traded notional (buys
+            pay up, sells receive less; unchanged names fill at the close). Not
+            part of the idempotency key — overrides apply only to a fresh key.
+        commission_bps: Per-fill commission in basis points of traded notional.
             Not part of the idempotency key — overrides apply only to a fresh key.
 
     Returns:
         ``ok`` with the order ticket (``order_id``, ``fill_date``, per-``lines``
-        fills, cost totals, ``idempotent`` flag). ``err`` on empty ``weights``,
-        an unknown ticker, or a ticker with no fill bar after ``asof``.
+        fills for the held names, cost totals, ``idempotent`` flag). ``err`` on empty
+        or all-zero ``weights``, an unknown held ticker, a held ticker with no fill bar
+        after ``asof``, or a held foreign listing with no FX rate for its fill bar.
     """
     if not weights:
         return err("no weights to place")
 
     end_date = coerce_date(asof)
     pid = _coerce_uuid(portfolio_id)
-    whash = _weights_hash(weights)
+    whash = weights_hash(weights)
 
     repo = OrderRepository(session)
     existing = repo.get_by_key(portfolio_id=pid, asof=end_date, weights_hash=whash)
@@ -192,22 +301,53 @@ def place_orders(
             "notional/slippage/commission"
         )
 
+    held = _held(weights)
+    if not held:
+        return err("no non-zero weights to place")
+
+    prior = repo.latest_on_or_before(pid, end_date)
+    prior_weights = (
+        {ticker: float(w) for ticker, w in prior.weights.items()} if prior else {}
+    )
+
     prices = YFinanceRepository(session)
     lines: list[dict[str, Any]] = []
     total_commission = 0.0
     total_slippage_cost = 0.0
     fill_dates: list[dt.date] = []
 
-    for ticker, weight in weights.items():
-        fill_date, fill_price = _next_close(prices, ticker, end_date)
+    for ticker, weight in held.items():
+        fill = _next_close(prices, ticker, end_date)
+        fill_date, fill_price = fill.date, fill.close
         fill_dates.append(fill_date)
+        # Shares divide a base-currency notional, so the price must be one too. Without
+        # a base currency (a what-if) the quote is used as given.
+        base_price = (
+            _base_close(session, fill, ticker, base_currency)
+            if base_currency is not None
+            else fill_price
+        )
 
-        side = 1.0 if weight >= 0 else -1.0  # buys pay up, sells receive less
-        effective_price = fill_price * (1.0 + side * slippage_bps / 1e4)
         line_notional = weight * notional
-        commission = abs(line_notional) * commission_bps / 1e4
-        slippage_cost = abs(line_notional) * slippage_bps / 1e4
-        shares = line_notional / effective_price if effective_price else 0.0
+        # Only the move away from what is already held trades; holding a name at
+        # an unchanged weight costs nothing.
+        traded_notional = (weight - prior_weights.get(ticker, 0.0)) * notional
+        commission = abs(traded_notional) * commission_bps / 1e4
+        slippage_cost = abs(traded_notional) * slippage_bps / 1e4
+        # Direction comes from the trade, not the target's sign: a trim of a long is
+        # a sell, and an unchanged name fills at the raw close.
+        direction = (traded_notional > 0) - (traded_notional < 0)
+        slippage_factor = 1.0 + direction * slippage_bps / 1e4
+        effective_price = fill_price * slippage_factor
+        effective_base_price = base_price * slippage_factor
+        # The carried part of the book is valued at the close; only the traded part
+        # pays (buys) or gives up (sells) the slippage.
+        shares = (
+            (line_notional - traded_notional) / base_price
+            + traded_notional / effective_base_price
+            if base_price and effective_base_price
+            else 0.0
+        )
 
         total_commission += commission
         total_slippage_cost += slippage_cost
@@ -216,15 +356,26 @@ def place_orders(
                 "ticker": ticker,
                 "weight": float(weight),
                 "fill_date": fill_date.isoformat(),
+                "currency": fill.unit,
                 "fill_price": fill_price,
+                "fill_price_base": base_price,
                 "effective_price": effective_price,
                 "slippage_bps": slippage_bps,
                 "notional": line_notional,
+                "traded_notional": traded_notional,
                 "shares": shares,
                 "commission": commission,
                 "slippage_cost": slippage_cost,
             }
         )
+
+    # A name dropped from the target is sold out, but gets no ticket line: lines
+    # become the held book (positions, NAV), so a zero-weight line would resurrect it.
+    for ticker, prior_weight in prior_weights.items():
+        if ticker not in held:
+            exit_notional = abs(prior_weight * notional)
+            total_commission += exit_notional * commission_bps / 1e4
+            total_slippage_cost += exit_notional * slippage_bps / 1e4
 
     order = repo.create(
         portfolio_id=pid,
@@ -240,4 +391,4 @@ def place_orders(
     return ok(_ticket_from_row(order, idempotent=False))
 
 
-__all__ = ["place_orders"]
+__all__ = ["fill_shortfalls", "place_orders"]

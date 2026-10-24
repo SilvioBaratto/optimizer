@@ -16,7 +16,7 @@ are `todo/deep_agent.md` line refs (`file:line`), preserved from the roadmap.
 | Horizon | `objectives.horizon` | `horizon` (passthrough) | `11:175`, `30:24` |
 | Objective | `objectives.goal` | `objective` (passthrough) | `15:80`, `17:89` |
 | Knowledge & experience (low) | `knowledge.level` | `universe_filters` (no_complex, no_leverage, cap) | `06:41`, `06:274` |
-| ESG | `esg.exclusions` | `esg` (**hard gate**, exclusions-only, D16) | fund-scope |
+| ESG | `esg.exclusions` | `esg` (**hard gate**, exclusions-only, D16): `universe_filter` drops the sectors' names and `risk_check` blocks any weight on them | fund-scope |
 
 ## Appetite → aversion (correctness-critical inversion)
 
@@ -61,11 +61,20 @@ The more protective the reaction, the deeper the downside the profile controls.
 | `informed` | false | false | — |
 | `advanced` | false | false | — |
 
-## Drawdown tiers (`nu1/nu2/nu3`, emitted only — enforced in Fase 7)
+The cap is not advisory: it tightens `bounds.max_weights` (the tighter of the two
+wins), so it binds the optimizer and the `risk_check` ceiling alike. A cap of `c`
+needs at least `ceil(1 / c)` priced names; a smaller universe is reported as
+infeasible by `optimize_portfolio` rather than as an opaque solver failure.
+
+## Drawdown tiers (`nu1/nu2/nu3`, emitted here, gated by `risk_check`)
 
 Anchored on the stated one-year loss tolerance `L = capacity.max_1yr_loss_pct`:
 `nu1 = 0.5·L` (soft warning), `nu2 = L` (hard ceiling), `nu3 = min(1.5·L, 1.0)`
-(absolute stop). See `20:75`.
+(absolute stop). See `20:32` (max and average drawdown) and `20:136` (drawdown
+caps as constraints). `risk_check` compares them with the max drawdown of
+a backtest of the proposed weights: past `nu3` or `nu2` blocks, past `nu1` only
+adds a warning. When the backtest cannot run (too little history) the tiers are
+skipped and the report carries a `drawdown_unverified` warning.
 
 ## Hard rules the mapping enforces (never the LLM)
 
@@ -74,3 +83,28 @@ Anchored on the stated one-year loss tolerance `L = capacity.max_1yr_loss_pct`:
   Excluding *every* sector raises `SuitabilityBreachError` (no investable universe).
 - Tolerance (attitude) and capacity (finance) are computed from **disjoint** answer
   fields — never fused.
+
+## Inconsistency flags (flag, never clamp)
+
+The suitability check records a named flag per contradiction and leaves `a_gamma`
+untouched; the adviser sees the flags at the HITL gate. Thresholds are on the same
+appetite scale `[0, 1]` as the bands above.
+
+| Flag | Fires when |
+|---|---|
+| `objective_capacity_mismatch` | `objectives.goal` is `growth` or `max` **and** the weakest of `A_tol`, `A_cap` and the stated loss-capacity sub-score `clip(max_1yr_loss_pct / 0.50)` is below 0.4 |
+| `overconfidence` | `A_tol - A_cap >= 0.4` (attitude far outstripping finances) |
+| `reaction_tolerance_mismatch` | `A_tol >= 0.6` **and** `loss_reaction` is `sell_all` |
+| `unanswered_input:<datum>` | the client left that field unanswered (`MiFIDAnswers.unanswered`); one flag per datum, and the field holds its conservative placeholder |
+| `unenforced_esg_preference` | `esg.other_preferences` is non-empty: a preference no GICS sector expresses, shown to the adviser but not enforced |
+
+A growth/max objective ignores `a_gamma` in the optimizer, so the first flag is the
+only guard against it. It tests each pillar on its own as well as the blend because
+the blended `A_cap` lets a large buffer mask a stated 0% loss capacity, and the
+attitude can be the weakest pillar even when the finances are ample.
+
+An unanswered field takes its most conservative value (lowest appetite, narrowest
+universe, strongest tail control) so the band can never be lifted by a guess. That
+placeholder is not something the client said, so the three contradiction rules only
+read scores and answers whose inputs were all stated: an unanswered pillar shows up
+as `unanswered_input`, never as a contradiction the client did not make.

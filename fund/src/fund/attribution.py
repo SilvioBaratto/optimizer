@@ -21,9 +21,12 @@ whose source has no data over the NAV window is dropped, short history flags
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import logging
+import threading
 import uuid
-from dataclasses import dataclass, field
+from collections import OrderedDict
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -36,6 +39,18 @@ if TYPE_CHECKING:
     from fund.performance import NavPoint
 
 logger = logging.getLogger(__name__)
+
+# How far before the first NAV grid day FRED levels are read. The first grid level is
+# seeded from the latest earlier print, so the pad must outlast a holiday run on the
+# daily series and a monthly release cadence; the whole history would be tens of
+# thousands of ORM rows re-read on every cockpit poll.
+_FRED_SEED_PAD_DAYS = 60
+
+# Estimates kept by ``estimate_exposures``. The cockpit re-reads the daily brief on
+# every poll tick, on the UI thread, and the factor-prior fit is the heaviest compute
+# in that read; paging back through a few dozen days stays warm without holding much
+# (each entry is a few floats and one date index).
+_EXPOSURE_CACHE_SIZE = 64
 
 
 class RegressionMethod(str, Enum):
@@ -105,12 +120,17 @@ class MacroAttributionConfig:
             estimate degrades to an empty, ``insufficient_history`` result.
         lookback_days: Optional trailing-window cap (calendar days) on the NAV
             series the engine regresses; ``None`` uses the full history.
+        attribution_bars: Optional count of trailing NAV bars the contributions and
+            total are summed over; ``None`` attributes the whole regressed window.
+            The betas are still fitted on the full window, so ``1`` explains the
+            latest bar's return with exposures estimated on all of the history.
     """
 
     factors: tuple[FactorSpec, ...] = field(default_factory=lambda: _DEFAULT_FACTORS)
     method: RegressionMethod = RegressionMethod.HUBER
     min_observations: int = 12
     lookback_days: int | None = None
+    attribution_bars: int | None = None
 
     def __post_init__(self) -> None:
         if not self.factors:
@@ -119,6 +139,8 @@ class MacroAttributionConfig:
             raise ValueError("min_observations must be >= 2")
         if self.lookback_days is not None and self.lookback_days <= 0:
             raise ValueError("lookback_days must be positive when set")
+        if self.attribution_bars is not None and self.attribution_bars <= 0:
+            raise ValueError("attribution_bars must be positive when set")
 
     @classmethod
     def for_default(
@@ -163,7 +185,7 @@ class AttributionResult:
     the residual absorbs alpha and idiosyncratic noise.
 
     Attributes:
-        total_return: Additive sum of simple NAV returns over the aligned window.
+        total_return: Additive sum of simple NAV returns over the attribution window.
         contributions: ``{factor_name: β·Σf}`` contribution to the total.
         residual: ``total_return − Σ contributions`` (alpha + idiosyncratic).
         factor_names: The factors that received a contribution, in order.
@@ -199,6 +221,8 @@ def _build_regressor(method: RegressionMethod) -> BaseEstimator:
     if method is RegressionMethod.HUBER:
         return HuberRegressor(fit_intercept=True, max_iter=500)
     if method is RegressionMethod.RIDGE:
+        # The default alpha=1.0 is a penalty on raw coefficients, so it is only sane on
+        # unit-variance inputs; estimate_exposures standardises the factors for this.
         return Ridge(fit_intercept=True)
     return LinearRegression(fit_intercept=True)
 
@@ -210,16 +234,29 @@ def _aligned_finite(
     common = nav_returns.index.intersection(factor_returns.index)
     nav = nav_returns.loc[common]
     fac = factor_returns.loc[common]
-    mask = nav.notna() & fac.notna().all(axis=1)
+    # notna() keeps +/-inf (pct_change off a zero level), which would poison n_obs,
+    # R² and the window sums; fit_factor_prior drops those periods the same way.
+    nav_ok = np.isfinite(nav.to_numpy(dtype=float, na_value=np.nan))
+    fac_ok = np.isfinite(fac.to_numpy(dtype=float, na_value=np.nan)).all(axis=1)
+    mask = nav_ok & fac_ok
     return nav[mask], fac[mask]
+
+
+# Population variance at or below which a return series is treated as constant.
+_FLAT_VARIANCE = 1e-18
 
 
 def _drop_degenerate(fac: pd.DataFrame) -> pd.DataFrame:
     """Drop ~zero-variance columns: a constant factor is collinear with alpha."""
     if fac.empty or fac.shape[1] == 0:
         return fac
-    keep = [col for col, var in fac.var(ddof=0).items() if float(var) > 1e-18]
+    keep = [col for col, var in fac.var(ddof=0).items() if float(var) > _FLAT_VARIANCE]
     return fac.loc[:, keep]
+
+
+def _is_flat(returns: pd.Series) -> bool:
+    """Whether the returns are ~constant (a flat or stale-marked book)."""
+    return float(np.var(returns.to_numpy(dtype=float))) <= _FLAT_VARIANCE
 
 
 def _empty_exposure(n_obs: int, method_used: RegressionMethod) -> ExposureResult:
@@ -231,6 +268,41 @@ def _empty_exposure(n_obs: int, method_used: RegressionMethod) -> ExposureResult
         r2=None,
         method_used=method_used,
         insufficient_history=True,
+    )
+
+
+_exposure_cache: OrderedDict[tuple[Any, ...], ExposureResult] = OrderedDict()
+_exposure_cache_lock = threading.Lock()
+
+
+def clear_exposure_cache() -> None:
+    """Forget every memoised exposure estimate (test isolation; the memo is exact)."""
+    with _exposure_cache_lock:
+        _exposure_cache.clear()
+
+
+def _copy_exposure(result: ExposureResult) -> ExposureResult:
+    """Copy ``result`` so a caller mutating ``exposures`` cannot corrupt the memo."""
+    return replace(result, exposures=dict(result.exposures))
+
+
+def _exposure_cache_key(
+    nav_returns: pd.Series,
+    factor_returns: pd.DataFrame,
+    config: MacroAttributionConfig,
+) -> tuple[Any, ...]:
+    """Key an estimate by its exact inputs and the config fields the fit reads."""
+    digest = hashlib.blake2b(digest_size=16)
+    for part in (nav_returns, factor_returns):
+        digest.update(pd.util.hash_pandas_object(part.index).to_numpy().tobytes())
+        digest.update(np.ascontiguousarray(part.to_numpy(dtype=float)).tobytes())
+    return (
+        digest.hexdigest(),
+        len(nav_returns),
+        factor_returns.shape,
+        tuple(str(col) for col in factor_returns.columns),
+        config.method,
+        config.min_observations,
     )
 
 
@@ -252,8 +324,14 @@ def estimate_exposures(
     sets :attr:`ExposureResult.insufficient_history`. A factor whose return is
     constant over the window (zero variance ≡ collinear with the intercept, with an
     unidentifiable beta) is dropped — its effect folds into the residual. When the
-    sample is below ``config.min_observations``, no factor survives, or the fit fails
-    on degenerate data, it returns an empty, flagged estimate rather than raising.
+    sample is below ``config.min_observations``, no factor survives, the NAV return is
+    itself constant, or the fit fails on degenerate data, it returns an empty, flagged
+    estimate rather than raising.
+
+    The estimate is a pure function of its inputs, so it is memoised on their exact
+    content (bounded LRU): the cockpit re-reads the daily brief every poll tick and an
+    unchanged series is not refit. Any new bar, revised value, factor set or regressor
+    is a different key.
 
     Args:
         nav_returns: Date-indexed portfolio simple returns (the regression target).
@@ -263,6 +341,30 @@ def estimate_exposures(
     Returns:
         An :class:`ExposureResult`; ``exposures`` empty on a degraded estimate.
     """
+    key = _exposure_cache_key(nav_returns, factor_returns, config)
+    with _exposure_cache_lock:
+        cached = _exposure_cache.get(key)
+        if cached is not None:
+            _exposure_cache.move_to_end(key)
+    if cached is not None:
+        return _copy_exposure(cached)
+
+    result = _estimate_exposures(nav_returns, factor_returns, config=config)
+    with _exposure_cache_lock:
+        _exposure_cache[key] = _copy_exposure(result)
+        _exposure_cache.move_to_end(key)
+        while len(_exposure_cache) > _EXPOSURE_CACHE_SIZE:
+            _exposure_cache.popitem(last=False)
+    return result
+
+
+def _estimate_exposures(
+    nav_returns: pd.Series,
+    factor_returns: pd.DataFrame,
+    *,
+    config: MacroAttributionConfig,
+) -> ExposureResult:
+    """Compute :func:`estimate_exposures` without the memo."""
     from optimizer.exceptions import DataError
     from optimizer.factors import FactorPriorConfig, fit_factor_prior
     from skfolio.exceptions import SkfolioError
@@ -273,17 +375,25 @@ def estimate_exposures(
     n_obs = len(nav_f)
     n_factors = fac_f.shape[1]
 
-    if n_factors == 0 or n_obs < config.min_observations:
+    # A constant NAV has no identifiable exposure, and skfolio rejects it with a bare
+    # ValueError (zero residual variance) that cannot be told apart from a real
+    # input-validation bug, so it is screened out here instead of being caught.
+    if n_factors == 0 or n_obs < config.min_observations or _is_flat(nav_f):
         return _empty_exposure(n_obs, config.method)
 
     insufficient = n_obs < 3 * (n_factors + 1)
     method_used = RegressionMethod.OLS if insufficient else config.method
     estimator = LoadingMatrixRegression(linear_regressor=_build_regressor(method_used))
+    # Factor returns sit at ~1e-2 scale, where a fixed ridge penalty would shrink every
+    # beta to ~0 and push the whole return into the residual. Regress on unit-variance
+    # factors and map the betas back (zero variance was dropped above, so std > 0).
+    factor_scale = fac_f.std(ddof=0) if method_used is RegressionMethod.RIDGE else None
+    fit_factors = fac_f if factor_scale is None else fac_f / factor_scale
 
     try:
         model = fit_factor_prior(
             nav_f.to_frame(name="nav"),
-            fac_f,
+            fit_factors,
             config=FactorPriorConfig(min_observations=config.min_observations),
             loading_matrix_estimator=estimator,
         )
@@ -293,6 +403,8 @@ def estimate_exposures(
 
     fitted = model.loading_matrix_estimator_
     betas = np.asarray(fitted.loading_matrix_[0], dtype=float)
+    if factor_scale is not None:
+        betas = betas / factor_scale.to_numpy(dtype=float)
     alpha = float(fitted.intercepts_[0])
     # The loading matrix row is positionally aligned to the fitted factor columns
     # (verified against skfolio 1.4.11), so the fit frame's column order names them.
@@ -332,6 +444,8 @@ def attribute(
     nav_returns: pd.Series,
     factor_returns: pd.DataFrame,
     exposure: ExposureResult,
+    *,
+    window_bars: int | None = None,
 ) -> AttributionResult:
     """Decompose the period's NAV return into per-factor contributions + residual.
 
@@ -341,27 +455,39 @@ def attribute(
     the pieces reconstruct the total exactly. With no exposures the whole return is
     residual.
 
+    With ``window_bars`` the sums narrow to the trailing NAV bars while the betas stay
+    those fitted on the full history, so a daily recap explains that day's return
+    rather than the inception-to-date one. A factor with no observation on a bar in
+    that window (a stale source) contributes nothing for it; its share stays in the
+    residual instead of being fabricated.
+
     Args:
         nav_returns: Date-indexed portfolio simple returns.
         factor_returns: Dates × factors simple-return frame.
         exposure: The exposure estimate from :func:`estimate_exposures`.
+        window_bars: Trailing NAV bars to attribute; ``None`` uses the exposure's
+            whole estimation window.
 
     Returns:
         An :class:`AttributionResult` whose contributions + residual sum to the total.
-    """
-    cols = [c for c in exposure.exposures if c in factor_returns.columns]
-    if not cols:
-        total = float(nav_returns.dropna().sum())
-        return AttributionResult(
-            total_return=total,
-            contributions={},
-            residual=total,
-            factor_names=(),
-            insufficient_history=exposure.insufficient_history,
-        )
 
+    Raises:
+        ValueError: ``window_bars`` is not positive.
+    """
+    if window_bars is not None and window_bars < 1:
+        raise ValueError("window_bars must be positive when set")
+
+    cols = [c for c in exposure.exposures if c in factor_returns.columns]
     idx = exposure.estimation_index
-    if idx is None:
+    nav_ok = np.isfinite(nav_returns.to_numpy(dtype=float, na_value=np.nan))
+    if window_bars is not None:
+        window = nav_returns[nav_ok].index[-window_bars:]
+        nav_f = nav_returns.reindex(window)
+        fac_f = factor_returns.reindex(window)
+    elif not cols:
+        nav_f = nav_returns[nav_ok]
+        fac_f = factor_returns.loc[:, cols]
+    elif idx is None:
         nav_f, fac_f = _aligned_finite(nav_returns, factor_returns.loc[:, cols])
     else:
         # Reuse the exact estimation window so a factor dropped for degeneracy does not
@@ -399,15 +525,17 @@ def build_macro_factor_returns(
 ) -> FactorSeries:
     """Build macro factor returns on the NAV grid, FRED-first, degrading honestly.
 
-    Applies the canonical alignment recipe to each FRED factor: fetch the full level
-    history up to the grid's last date (via :func:`fund.tools.macro.load_macro_frame`,
-    lazy-imported), reindex it onto the NAV grid filling each day from the most recent
-    prior observation, transform to a return (``diff`` or ``pct_change`` per the
-    factor's spec), then drop the first (NaN) row so the result sits on the NAV return
-    grid (``dates[1:]``). The non-FRED ``equity`` factor is the benchmark return series
-    reindexed onto that grid. A FRED series with no rows, an all-NaN transformed column,
-    or a missing benchmark for ``equity`` is dropped into ``missing`` rather than
-    fabricated.
+    Applies the canonical alignment recipe to each FRED factor: fetch the level
+    history from a short pad before the grid's first date up to its last date (via
+    :func:`fund.tools.macro.load_macro_frame`, lazy-imported), reindex it onto the NAV
+    grid filling each day from the most recent prior observation, transform to a
+    return (``diff`` or ``pct_change`` per the factor's spec), then drop the first
+    (NaN) row so the result sits on the NAV return grid (``dates[1:]``). Grid days
+    after a series' last stored observation stay NaN rather than forward-filled into
+    zero returns. The non-FRED ``equity`` factor is the benchmark return series
+    reindexed onto that grid. A FRED series with no rows, an all-NaN transformed
+    column, or a missing benchmark for ``equity`` is dropped into ``missing`` rather
+    than fabricated.
 
     Args:
         session: Open SQLAlchemy session (reader; no commit).
@@ -439,7 +567,16 @@ def build_macro_factor_returns(
         from fund.tools.macro import load_macro_frame
 
         series_ids = [str(s.fred_series_id) for s in fred_specs]
-        frame, _ = load_macro_frame(session, series_ids, grid[-1].date())
+        # Attribution explains realised returns after the fact, so it wants the
+        # series as finally published rather than as known at each date.
+        seed_start = grid[0].date() - dt.timedelta(days=_FRED_SEED_PAD_DAYS)
+        frame, _ = load_macro_frame(
+            session,
+            series_ids,
+            grid[-1].date(),
+            point_in_time=False,
+            start=seed_start,
+        )
 
     for spec in config.factors:
         if spec.fred_series_id is None:
@@ -471,6 +608,14 @@ def _fred_factor(
     # day one series lacks is an internal NaN, which reindex(method="ffill") won't fill.
     level_full = frame[series_id].ffill()
     level_on_grid = level_full.reindex(grid, method="ffill")
+    # Past the series' last stored print nothing is known: a frozen level would diff to
+    # an exact 0.0 and enter the regression as an observed no-move, so leave those days
+    # NaN for _aligned_finite to drop. FRED is ingested monthly, so the tail can span
+    # weeks.
+    observed = frame[series_id].dropna()
+    if observed.empty:
+        return None
+    level_on_grid = level_on_grid.where(level_on_grid.index <= observed.index.max())
     column = _level_to_return(level_on_grid, spec.transform).reindex(target)
     if column.notna().sum() == 0:
         return None
@@ -538,7 +683,12 @@ def attribution_from_nav_points(
         config=cfg,
     )
     exposure = estimate_exposures(nav_returns, factor_series.returns, config=cfg)
-    return attribute(nav_returns, factor_series.returns, exposure)
+    return attribute(
+        nav_returns,
+        factor_series.returns,
+        exposure,
+        window_bars=cfg.attribution_bars,
+    )
 
 
 def macro_attribution(
@@ -600,6 +750,7 @@ __all__ = [
     "attribute",
     "attribution_from_nav_points",
     "build_macro_factor_returns",
+    "clear_exposure_cache",
     "estimate_exposures",
     "macro_attribution",
 ]

@@ -9,9 +9,11 @@ Driven headless over the SQLite ``db_session`` harness — no model, no network.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from types import SimpleNamespace
 
+import pytest
 from _fund_fakes import ASOF, PORTFOLIO_ID, make_constraint_set, make_mandate
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
@@ -103,3 +105,40 @@ def test_drive_rebalance_runs_an_armed_portfolio(db_session, monkeypatch):
     )
 
     assert len(driven) == 1  # armed → the rebalance is driven
+
+
+@pytest.mark.parametrize(
+    ("status", "note"),
+    [
+        ("paused", "at HITL gate"),
+        ("rejected", "no approval gate"),
+        ("incomplete", "no approval gate"),
+    ],
+)
+def test_drive_rebalance_logs_the_outcome_the_round_reached(
+    db_session, monkeypatch, caplog, status, note
+):
+    """Only a paused round sits at a gate; a round a freeze halted (or one that ended
+    with no ticket) must not be logged as sitting 'at HITL gate'."""
+    MandateRepository(db_session).upsert(make_mandate())
+    monkeypatch.setattr(
+        graph_mod,
+        "run_fund",
+        lambda *a, **k: SimpleNamespace(run_id=uuid.uuid4(), status=status),
+    )
+
+    with caplog.at_level(logging.INFO, logger="fund.scheduler"):
+        scheduler._drive_rebalance(
+            PORTFOLIO_ID,
+            ASOF,
+            session=db_session,
+            persistence=_persistence_with_cs(),
+            model=object(),
+            fallback=None,
+        )
+
+    message = next(
+        r.getMessage() for r in caplog.records if f"status={status}" in r.getMessage()
+    )
+    assert note in message
+    assert ("HITL gate" in message) == (status == "paused")

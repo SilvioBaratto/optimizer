@@ -3,23 +3,37 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from collections.abc import Iterator
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-
-if TYPE_CHECKING:
-    from skfolio.model_selection import WalkForward
+from skfolio.model_selection import WalkForward
+from skfolio.typing import IntArray
 
 from optimizer.rebalancing._config import (
+    DEFAULT_TRAIN_YEARS,
+    PANDAS_FREQ,
     CalendarRebalancingConfig,
     HybridRebalancingConfig,
+    RebalancingFrequency,
     ThresholdRebalancingConfig,
     ThresholdType,
 )
 
 logger = logging.getLogger(__name__)
+
+# Convex solvers return 1e-12..1e-6 where the true weight is zero, and up to a
+# few 1e-5 on wide books (skfolio MeanRisk maximising the ratio over 30 assets
+# was measured at ~5e-6). One basis point clears that with margin and is far
+# below any position worth a trade. Below this magnitude a weight is noise, so
+# a relative band must neither measure it against itself nor treat it as a
+# position that needs exiting.
+_WEIGHT_DUST = 1e-4
+
+_SEMIANNUAL_FREQ = PANDAS_FREQ[RebalancingFrequency.SEMIANNUAL]
+_SEMIANNUAL_MONTHS = (1, 7)
 
 
 def _as_1d(name: str, arr: npt.ArrayLike) -> npt.NDArray[np.float64]:
@@ -136,11 +150,13 @@ def drift_breach_mask(
 
     Returns:
         Boolean array, shape (n_assets,), with ``True`` for each asset whose
-        drift breaches the threshold. Under a relative threshold, a zero-target
-        position that still carries weight is always flagged (explicit exit
-        intent). Short (negative) target weights are measured against the
-        magnitude of the target so a short book is treated symmetrically with
-        a long book.
+        drift breaches the threshold. Under a relative threshold, a
+        (near-)zero-target position that still carries a material weight is
+        always flagged (explicit exit intent); weights below one basis point
+        (``1e-4``) in magnitude are treated as solver noise, so dust targets
+        and dust holdings never trigger a breach on their own. Short (negative) target
+        weights are measured against the magnitude of the target so a short
+        book is treated symmetrically with a long book.
     """
     if config is None:
         config = ThresholdRebalancingConfig()
@@ -154,12 +170,15 @@ def drift_breach_mask(
     if config.threshold_type == ThresholdType.ABSOLUTE:
         return drifts > config.threshold
 
-    # Relative threshold: any zero-target position that still carries weight
-    # (long *or* short) always requires rebalancing (explicit exit intent).
-    # Non-zero targets use their absolute magnitude as the denominator so
-    # negative (short) targets are measured symmetrically with positive ones.
-    exit_needed = (tgt == 0) & (cur != 0)
-    safe_targets = np.where(tgt != 0, np.abs(tgt), np.inf)
+    # Relative threshold: any zero-target position that still carries material
+    # weight (long *or* short) always requires rebalancing (explicit exit
+    # intent). Material targets use their absolute magnitude as the
+    # denominator so negative (short) targets are measured symmetrically with
+    # positive ones; dust targets get an infinite denominator and never breach.
+    tgt_magnitude = np.abs(tgt)
+    material_target = tgt_magnitude >= _WEIGHT_DUST
+    exit_needed = ~material_target & (np.abs(cur) >= _WEIGHT_DUST)
+    safe_targets = np.where(material_target, tgt_magnitude, np.inf)
     relative_drifts = drifts / safe_targets
     return exit_needed | (relative_drifts > config.threshold)
 
@@ -183,6 +202,13 @@ def should_rebalance(
     return bool(np.any(drift_breach_mask(current_weights, target_weights, config)))
 
 
+# Largest factor by which the breached targets may be rescaled to fill the
+# budget the held weights leave. Beyond it the targets carry too little (or too
+# much) mass to stand in for that budget: scaling them would re-inflate a
+# position the optimizer all but exited, so the whole vector is renormalised.
+_MAX_BREACH_RESCALE = 2.0
+
+
 def apply_no_trade_band(
     current_weights: npt.ArrayLike,
     target_weights: npt.ArrayLike,
@@ -190,13 +216,21 @@ def apply_no_trade_band(
 ) -> npt.NDArray[np.float64]:
     """Apply a no-trade band, trading only assets that breach the threshold.
 
-    Turnover-reducing partial rebalance: positions whose drift breaches the
-    threshold snap to their target weight; the rest keep their current
-    (drifted) weight. The resulting vector is renormalised to sum to 1 so it
-    remains a valid fully-invested allocation.
+    Turnover-reducing partial rebalance: assets inside the band keep their
+    current (drifted) weight exactly, and the assets that breach the band
+    move to their target weights, rescaled pro rata so the whole vector sums
+    to 1 (the breached targets share ``1 - sum(held weights)``). Held
+    positions are never touched by the rescale, so no in-band asset is traded.
 
-    When no asset breaches the band the current weights are returned unchanged
-    (renormalised), i.e. no trading occurs.
+    When the breached targets cannot stand in for the budget the held weights
+    leave (their sum is not positive, that budget is not positive, or filling
+    it would rescale them by more than a factor of two), the whole blend is
+    renormalised instead, so the held positions absorb the difference and the
+    vector still sums to 1. This covers the exit-only case where every
+    breached target is zero.
+
+    When no asset breaches the band the current weights are returned
+    (renormalised to sum to 1), i.e. no trading occurs.
 
     Args:
         current_weights: Current (drifted) portfolio weights, shape (n_assets,).
@@ -205,15 +239,31 @@ def apply_no_trade_band(
         config: Threshold configuration. Defaults to absolute 5pp threshold.
 
     Returns:
-        Post-band weights renormalised to sum to 1, shape (n_assets,). If the
-        total is zero or non-finite the un-normalised blend is returned.
+        Post-band weights summing to 1, shape (n_assets,). If the weights that
+        would be renormalised sum to zero or a non-finite value, the plain
+        blend (breached targets, held current weights) is returned
+        un-normalised.
     """
     cur = _as_1d("current_weights", current_weights)
     tgt = _as_1d("target_weights", target_weights)
     _check_aligned(cur, tgt, "current_weights", "target_weights")
 
     mask = drift_breach_mask(cur, tgt, config)
+    if not mask.any():
+        total = cur.sum()
+        if not np.isfinite(total) or total == 0.0:
+            return cur
+        return cur / total
+
     blended = np.where(mask, tgt, cur)
+    traded_total = tgt[mask].sum()
+    budget = 1.0 - cur[~mask].sum()
+    if traded_total > 0.0 and budget > 0.0:
+        scale = budget / traded_total
+        if 1.0 / _MAX_BREACH_RESCALE <= scale <= _MAX_BREACH_RESCALE:
+            blended[mask] = tgt[mask] * scale
+            return blended
+
     total = blended.sum()
     if not np.isfinite(total) or total == 0.0:
         return blended
@@ -263,10 +313,111 @@ def should_rebalance_hybrid(
     return False, "threshold_not_met"
 
 
+class _CalendarWalkForward(WalkForward):
+    """`WalkForward` with the calendar semantics skfolio's period grid lacks.
+
+    * A period boundary that has no observation to land on (a positive
+      ``freq_offset`` past the final row with ``previous=False``, or a negative
+      one before the first row with ``previous=True``) is resolved by skfolio
+      to index -1. That index then starts a fold that spans the whole sample or
+      ends a zero-length test window, which crashes ``cross_val_predict`` and
+      is still counted by ``get_n_splits``. Such boundaries are dropped from
+      the grid, whatever the cadence and ``reduce_test`` setting.
+    * A multiple-period alias such as ``"2QS"`` steps from the quarter of the
+      first observation, so one semiannual cadence would land on Jan/Jul or
+      Apr/Oct depending on where the history starts. The semiannual grid is
+      built from the January and July period starts instead.
+
+    Only integer ``train_size`` windows are walked here; a date-offset
+    ``train_size`` or an observation-count walk (``freq=None``) is delegated to
+    skfolio and only stripped of folds whose test window is empty or starts
+    before the first observation.
+    """
+
+    def split(
+        self,
+        X: npt.ArrayLike,
+        y: None = None,
+        groups: None = None,
+    ) -> Iterator[tuple[IntArray, IntArray]]:
+        """Yield the folds of the calendar grid, skipping unresolvable ones."""
+        if self.freq is not None and isinstance(self.train_size, int | np.integer):
+            folds = self._split_calendar(X, y, groups)
+        else:
+            folds = super().split(X, y, groups)
+        for train_idx, test_idx in folds:
+            # Test windows are ascending aranges, so a leading -1 marks a
+            # boundary skfolio could not resolve to an observation.
+            if len(test_idx) > 0 and test_idx[0] >= 0:
+                yield train_idx, test_idx
+
+    def get_n_splits(
+        self,
+        X: npt.ArrayLike | None = None,
+        y: None = None,
+        groups: None = None,
+    ) -> int:
+        """Return the number of folds `split` yields for *X*."""
+        n_splits = super().get_n_splits(X, y, groups)
+        if X is None or self.freq is None:
+            return n_splits
+        return sum(1 for _ in self.split(X))
+
+    def _period_positions(self, ts_index: pd.DatetimeIndex) -> IntArray:
+        """Return the observation index of each period boundary inside the sample."""
+        start = ts_index[0]
+        if self.freq_offset is not None:
+            start = min(start, start - self.freq_offset)
+        if self.freq == _SEMIANNUAL_FREQ:
+            boundaries = pd.date_range(start=start, end=ts_index[-1], freq="QS")
+            boundaries = boundaries[boundaries.month.isin(_SEMIANNUAL_MONTHS)]
+        else:
+            boundaries = pd.date_range(start=start, end=ts_index[-1], freq=self.freq)
+        if self.freq_offset is not None:
+            boundaries = boundaries + self.freq_offset
+        positions = ts_index.get_indexer(
+            boundaries, method="ffill" if self.previous else "bfill"
+        )
+        return positions[positions >= 0]
+
+    def _split_calendar(
+        self,
+        X: npt.ArrayLike,
+        y: None,
+        groups: None,
+    ) -> Iterator[tuple[IntArray, IntArray]]:
+        """Walk forward over the period grid with an integer ``train_size``.
+
+        Mirrors skfolio's period-based loop on a grid that keeps only the
+        boundaries it can resolve to an observation.
+        """
+        # Reuses skfolio's validation of the window sizes and the datetime index.
+        super().get_n_splits(X, y, groups)
+        ts_index = cast("pd.DatetimeIndex", cast("pd.DataFrame", X).index)
+        n_samples = len(ts_index)
+        train_size = int(cast("int", self.train_size))
+        test_size = int(self.test_size)
+
+        positions = self._period_positions(ts_index)
+        n = len(positions)
+        i = 0
+        while i + train_size < n:
+            test_start = positions[i + train_size]
+            if i + train_size + test_size >= n:
+                if not self.reduce_test:
+                    return
+                test_idx = np.arange(test_start, n_samples)
+            else:
+                test_idx = np.arange(test_start, positions[i + train_size + test_size])
+            train_start = 0 if self.expand_train else positions[i]
+            yield np.arange(train_start, test_start - self.purged_size), test_idx
+            i += test_size
+
+
 def build_rebalancing_walk_forward(
     config: CalendarRebalancingConfig | None = None,
     *,
-    train_size: int = 12,
+    train_size: int | None = None,
     test_size: int = 1,
     purged_size: int = 0,
     expand_train: bool = False,
@@ -283,6 +434,10 @@ def build_rebalancing_walk_forward(
     the calendar frequency (``config.pandas_freq``), e.g. quarters for a
     quarterly cadence.
 
+    Unless ``train_size`` is given, the training window covers
+    ``DEFAULT_TRAIN_YEARS`` (three) years whatever the cadence: 36 months, 12
+    quarters, 6 half-years or 3 years.
+
     The returned CV feeds ``cross_val_predict`` / ``GridSearchCV`` and honours
     skfolio 1.0 calendar semantics. The input ``X`` must be a returns
     ``DataFrame`` with a ``DatetimeIndex``.
@@ -290,7 +445,8 @@ def build_rebalancing_walk_forward(
     Args:
         config: Rebalancing cadence supplying the calendar frequency. Defaults
             to quarterly.
-        train_size: Number of ``freq`` periods in each training window. Ignored
+        train_size: Number of ``freq`` periods in each training window. ``None``
+            (default) spans three years of history for every cadence. Ignored
             beyond the first fold when ``expand_train`` is ``True``.
         test_size: Number of ``freq`` periods in each test window (one
             rebalancing period by default).
@@ -306,12 +462,15 @@ def build_rebalancing_walk_forward(
             `to_offset` when a string.
 
     Returns:
-        Configured walk-forward cross-validator.
+        Configured walk-forward cross-validator. A fold whose shifted test
+        boundary lies beyond the last observation (possible with
+        ``freq_offset``) is dropped rather than emitted with an empty test
+        window.
     """
-    from skfolio.model_selection import WalkForward
-
     if config is None:
         config = CalendarRebalancingConfig()
+    if train_size is None:
+        train_size = DEFAULT_TRAIN_YEARS * config.periods_per_year
 
     offset = (
         pd.tseries.frequencies.to_offset(freq_offset)
@@ -319,7 +478,7 @@ def build_rebalancing_walk_forward(
         else freq_offset
     )
 
-    return WalkForward(
+    return _CalendarWalkForward(
         test_size=test_size,
         train_size=train_size,
         freq=config.pandas_freq,

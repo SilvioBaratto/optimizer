@@ -1,15 +1,16 @@
 """Repository for persistent background job operations."""
 
-import logging
 import os
 import socket
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
-from portopt_db.models.jobs.background_job import BackgroundJob, BackgroundJobError
+from portopt_db.models.jobs.background_job import (
+    FUND_JOB_TYPES,
+    BackgroundJob,
+    BackgroundJobError,
+)
 from portopt_db.repository import RepositoryBase
 from sqlalchemy import (
     delete,
@@ -22,6 +23,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 _ACTIVE_STATUSES: tuple[str, ...] = ("pending", "running")
@@ -45,27 +47,6 @@ _CORE_COLUMNS: frozenset[str] = frozenset(
 
 class BackgroundJobRepository(RepositoryBase):
     """Database operations for the ``background_jobs`` table."""
-
-    def _ensure_tables_exist(self) -> None:
-        """Ensure background_jobs table exists (for test isolation)."""
-        from portopt_db.base import Base
-
-        try:
-            inspector = __import__(
-                "sqlalchemy.inspection", fromlist=["inspect"]
-            ).inspect(self.session.bind)
-            if "background_jobs" not in inspector.get_table_names():
-                Base.metadata.create_all(bind=self.session.bind)  # type: ignore[arg-type]
-        except Exception:
-            # Inspector unavailable (e.g. dialect quirk): not fatal — fall back
-            # to create-anyway. The terminal failure of that fallback is logged
-            # at debug below, so the drop here is justified, not silent.
-            try:
-                from portopt_db.base import Base
-
-                Base.metadata.create_all(bind=self.session.bind)  # type: ignore[arg-type]
-            except Exception as e:
-                logger.debug("Could not ensure background_jobs table exists: %s", e)
 
     def __init__(self, session: Session) -> None:
         super().__init__(session)
@@ -94,21 +75,27 @@ class BackgroundJobRepository(RepositoryBase):
         """Update columns on an existing job row, status-guarded.
 
         Core columns map directly to the table; non-core kwargs merge into
-        the JSONB ``extra`` column. The UPDATE only fires when either the
-        target row is still in (pending, running) OR the requested status
-        is terminal (failed/completed) — this closes the worker-vs-reaper
-        race so a reaped row's daemon worker cannot silently overwrite it.
+        the JSONB ``extra`` column. The UPDATE only fires while the target
+        row is still in (pending, running) — terminal writes included, so
+        a row the reaper already failed can never be flipped back to
+        ``completed`` (or re-failed) by its zombie worker's late write.
+
+        A terminal ``status`` without a ``finished_at`` is stamped with the
+        current time: retention (:meth:`cleanup_expired`) and
+        :meth:`get_latest_by_type` both key on ``finished_at``, so a finished
+        row without one would be immortal and invisible.
 
         Returns the affected rowcount (0 or 1). The ``errors`` child-table
         replacement only runs when the main UPDATE matched a row.
         """
         errors_value = kwargs.pop("errors", None)
-        new_status = kwargs.get("status")
 
         core, extras = self._partition_kwargs(kwargs)
+        if kwargs.get("status") in _TERMINAL_STATUSES and not core.get("finished_at"):
+            core["finished_at"] = datetime.now(timezone.utc)
         values = self._build_values(core, extras, job_id)
 
-        rowcount = self._exec_status_guarded_update(job_id, new_status, values)
+        rowcount = self._exec_status_guarded_update(job_id, values)
 
         if rowcount == 1 and errors_value is not None:
             self._replace_error_entries(job_id, errors_value)
@@ -149,15 +136,18 @@ class BackgroundJobRepository(RepositoryBase):
     def _exec_status_guarded_update(
         self,
         job_id: uuid.UUID,
-        new_status: str | None,
         values: dict[str, Any],
     ) -> int:
         if not values:
             return 0
-        clauses = [BackgroundJob.id == job_id]
-        if new_status not in _TERMINAL_STATUSES:
-            clauses.append(BackgroundJob.status.in_(_ACTIVE_STATUSES))
-        stmt = update(BackgroundJob).where(*clauses).values(**values)
+        stmt = (
+            update(BackgroundJob)
+            .where(
+                BackgroundJob.id == job_id,
+                BackgroundJob.status.in_(_ACTIVE_STATUSES),
+            )
+            .values(**values)
+        )
         result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
         return result.rowcount or 0
 
@@ -224,13 +214,17 @@ class BackgroundJobRepository(RepositoryBase):
     ) -> uuid.UUID | None:
         """Atomically create a job only if none is already active.
 
+        The NOT EXISTS check alone is not atomic under READ COMMITTED: a racing
+        claimer cannot see the winner's uncommitted row. The partial unique
+        index ``uq_background_jobs_active_type`` makes the loser's INSERT fail
+        instead, and that is reported like any other busy slot (``None``).
+
         Stamps ``worker_pid``, ``worker_host`` and ``last_heartbeat_at`` so
         the liveness-aware reaper can distinguish a live worker from a dead
         one. ``attempt`` records the reclaim-retry generation (R3/§5.3) — 0 for
         a normal job, ``prev + 1`` when the reaper re-dispatches an orphan.
         Dialect-agnostic: works on PostgreSQL and SQLite (tests).
         """
-        self._ensure_tables_exist()
         new_id = uuid.uuid4()
         now = datetime.now(timezone.utc)
         pid = os.getpid()
@@ -281,7 +275,13 @@ class BackgroundJobRepository(RepositoryBase):
             source,
         )
 
-        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]  # type: ignore[assignment]
+        try:
+            # SAVEPOINT: a unique violation aborts the whole PostgreSQL
+            # transaction unless it is confined to a nested one.
+            with self.session.begin_nested():
+                result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
+        except IntegrityError:
+            return None
         self.session.flush()
         if result.rowcount == 1:
             return new_id
@@ -333,9 +333,12 @@ class BackgroundJobRepository(RepositoryBase):
         return self.session.execute(stmt).scalar_one_or_none()
 
     def cleanup_expired(self, ttl_seconds: int) -> int:
-        """Delete completed/failed jobs older than *ttl_seconds*."""
-        self._ensure_tables_exist()
+        """Delete completed/failed jobs older than *ttl_seconds*.
 
+        Deliberately not scoped to ingestion job types: the fund daemon has no
+        retention of its own, so this is the only thing that stops its terminal
+        rows from accumulating in the shared ``background_jobs`` table.
+        """
         cutoff = datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)
         stmt = delete(BackgroundJob).where(
             BackgroundJob.status.in_(_TERMINAL_STATUSES),
@@ -364,10 +367,15 @@ class BackgroundJobRepository(RepositoryBase):
         only once the lease TTL (``heartbeat_timeout_seconds``, a multiple of the
         cadence — default 300s = 10x) has elapsed with no renewal. It is the
         lease *renewal* that protects long synchronous steps (the multi-minute
-        yfinance fetch, the reference-index seed) from being falsely reaped while
+        yfinance fetch, the full option-chain sweep) from being falsely reaped while
         alive. Host-scope and the Linux-``/proc`` PID probe were removed: they
         false-reaped across a container/host change and were inert off Linux
         (``worker_host`` / ``worker_pid`` are still recorded for observability).
+
+        Rows of the fund daemon's job types are never touched: it shares this
+        table but runs its own lease reaper with its own TTL, so reaping them
+        here would fail a live fund slot early (letting a duplicate run start)
+        and emit terminal metrics for a gauge this process never incremented.
 
         Returns ``{"job_type": ..., "attempt": ...}`` per reaped row so the
         caller can emit terminal metrics and (under RECLAIM) re-dispatch the
@@ -383,6 +391,7 @@ class BackgroundJobRepository(RepositoryBase):
             seconds=heartbeat_timeout_seconds,
         )
         stale_active = (
+            BackgroundJob.job_type.not_in(FUND_JOB_TYPES),
             BackgroundJob.status.in_(_ACTIVE_STATUSES),
             or_(
                 BackgroundJob.last_heartbeat_at.is_(None),

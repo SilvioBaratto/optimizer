@@ -10,7 +10,10 @@ from typing import Any, ClassVar
 
 from sqlalchemy import DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.sql.compiler import SQLCompiler
+from sqlalchemy.sql.expression import FunctionElement
 
 
 class Base(DeclarativeBase):
@@ -26,21 +29,56 @@ class Base(DeclarativeBase):
     }
 
 
-class TimestampMixin:
-    """Adds server-managed ``created_at`` and ``updated_at`` audit columns.
+class ClockTimestamp(FunctionElement[datetime]):
+    """SQL expression for the DB server's wall clock at statement execution.
 
-    Both columns default to the DB server clock on INSERT; ``updated_at``
-    refreshes automatically on every UPDATE without any application-side
-    involvement.
+    PostgreSQL's ``now()`` is frozen at transaction start, so rows written
+    minutes apart inside one long transaction (an agent run) would all carry
+    the same stale instant. ``clock_timestamp()`` advances within a
+    transaction. SQLite has no such function; the stand-in below keeps
+    millisecond resolution so the test database orders rows the same way.
     """
 
+    type = DateTime(timezone=True)
+    name = "clock_timestamp"
+    inherit_cache = True
+
+
+@compiles(ClockTimestamp)
+def _compile_clock_timestamp(
+    element: ClockTimestamp, compiler: SQLCompiler, **kw: Any
+) -> str:
+    return "clock_timestamp()"
+
+
+@compiles(ClockTimestamp, "sqlite")
+def _compile_clock_timestamp_sqlite(
+    element: ClockTimestamp, compiler: SQLCompiler, **kw: Any
+) -> str:
+    return "STRFTIME('%Y-%m-%d %H:%M:%f', 'now')"
+
+
+class TimestampMixin:
+    """Adds server-clocked ``created_at`` and ``updated_at`` audit columns.
+
+    Both columns are stamped with the DB server clock at statement time on
+    INSERT; ``updated_at`` refreshes automatically on every ORM/Core UPDATE
+    without any application-side involvement.
+    """
+
+    # ``default`` governs every ORM/Core write; ``server_default`` is kept only
+    # so raw SQL inserts and the migrated schema still get a value.
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True),
+        default=ClockTimestamp(),
+        server_default=func.now(),
+        nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
+        default=ClockTimestamp(),
         server_default=func.now(),
-        onupdate=func.now(),
+        onupdate=ClockTimestamp(),
         nullable=False,
     )
 
@@ -80,4 +118,10 @@ class BaseModel(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         return f"<{class_name}(id={getattr(self, 'id', None)})>"
 
 
-__all__ = ["Base", "BaseModel", "TimestampMixin", "UUIDPrimaryKeyMixin"]
+__all__ = [
+    "Base",
+    "BaseModel",
+    "ClockTimestamp",
+    "TimestampMixin",
+    "UUIDPrimaryKeyMixin",
+]

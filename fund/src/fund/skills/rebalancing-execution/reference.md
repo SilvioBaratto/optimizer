@@ -2,10 +2,15 @@
 
 On-demand support for `rebalancing-execution`. Points to the theory; never copies it.
 
-## When to trade: no-trade band + turnover
+## When to trade: drift band (no-trade band) + turnover
 - Portfolio instability → revise only when worthwhile: `07:70`, `07:82`, `07:197`.
 - Turnover from signal decay; trade PARTIALLY toward the aim portfolio: `11:14`,
   `11:133`, `11:135`, `11:155`.
+- Implementation status: the optimizer is plain long-only minimum-variance — no
+  `transaction_costs`, no `previous_weights`, and `l1_coef` is constant under
+  long-only budget 1 (the L1 norm equals the budget) — so no turnover term shapes the
+  weights. The band only decides whether a run is proposed; the committed ticket is
+  always the full target book.
 
 ## How to trade: cost-aware execution
 - Implementation shortfall & market impact: `22:14`.
@@ -15,4 +20,9 @@ On-demand support for `rebalancing-execution`. Points to the theory; never copie
 ## Fill model (D30, paper)
 - Fill at the NEXT close (a future bar → no look-ahead) + estimated slippage +
   commissions. Simple slippage now; VWAP / Almgren-Chriss later (needs intraday).
+- The fill bar must be priced strictly AFTER the decision date (`asof`). A scheduled
+  run uses `asof` = today, so an approval given before the next bar is ingested finds
+  no fill bar: `place_orders` returns `{ok: false}` and writes no ticket. The run is
+  then finalised `incomplete` (reason `no_order`) and the holdings snapshot is left
+  untouched — re-run once a later bar exists. Never report such a run as traded.
 - `place_orders` is idempotent: re-running a run does not double-book the ticket.

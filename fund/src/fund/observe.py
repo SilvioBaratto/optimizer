@@ -12,20 +12,22 @@ import stays clean, the call path still routes through the single-source repos.
 Every function takes an injected sync ``Session`` (the caller — CLI/TUI — owns the
 transaction; these read paths never ``commit``). Where a run's transcript or a
 pending-HITL cross-check is needed, an already-bootstrapped LangGraph ``saver`` is
-passed in and typed ``Any`` (no ``langgraph`` import here).
+passed in and typed ``Any`` (no ``langgraph`` import at module load; the transcript
+fold imports ``add_messages`` lazily).
 
 Two sources feed the transcript (SPEC §4a): the verbatim PM/subagent turns live in
-the checkpoint (``saver.get_tuple(...).checkpoint["channel_values"]["messages"]`` —
-read-only, no compiled graph, no model), and the load-bearing structured facts live
-in ``agent_decisions``. :func:`load_run_transcript` interleaves them; economist/risk
-narrative exists only in ``messages`` (they log no decision row), so the merge never
-assumes every agent has one.
+the checkpoint's ``messages`` channel (rebuilt read-only from the saver — no compiled
+graph, no model), and the load-bearing structured facts live in ``agent_decisions``.
+:func:`load_run_transcript` interleaves them; economist/risk narrative exists only in
+``messages`` (they log no decision row), so the merge never assumes every agent has
+one.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -39,10 +41,18 @@ if TYPE_CHECKING:
     from fund.performance import HoldingMark, PerformanceSummary
     from fund.schemas.mandate import PortfolioMandate
 
+logger = logging.getLogger(__name__)
+
 # LangGraph writes a pending dynamic interrupt to this reserved checkpoint channel
 # (``langgraph.constants.INTERRUPT``, now private). Kept as a literal so importing
 # this module never pulls in ``langgraph`` — the agent-stack-free invariant (SPEC R2).
 _INTERRUPT_CHANNEL = "__interrupt__"
+
+# ``agent_runs.status`` values at a live HITL gate — the same pair
+# ``AgentRunRepository.list_paused_runs`` selects (a barge-in that re-gated the PM
+# leaves the run "responded", still in the Approve queue). Shared by the drift
+# monitor's already-awaiting-a-human guard and the history panel's awaiting flag.
+_LIVE_GATE_STATUSES = ("paused", "responded")
 
 
 @dataclass(frozen=True)
@@ -80,6 +90,10 @@ class PortfolioState:
     target: dict[str, float]
     drift_l1: float
     metrics: dict[str, float]  # best-effort — empty when none persisted (never faked)
+    # ``False`` when ``target`` is only an unapproved allocator proposal (or absent):
+    # a never-invested book has nothing to drift from, so drift triggers must not
+    # treat that proposal as the weights the portfolio is supposed to hold.
+    target_approved: bool = True
 
 
 @dataclass(frozen=True)
@@ -172,6 +186,9 @@ class AuditEntry:
     ``False``); human rows carry the full provenance the detail pane renders.
 
     Attributes:
+        entry_id: Stable identity of the underlying row (``"agent:<decision id>"`` /
+            ``"human:<log id>"``). The timeline is newest-first and shifts as rows
+            arrive, so a position is no handle on a record; this is.
         when: The decision timestamp (``created_at``), the sort key.
         kind: ``"agent"`` or ``"human"`` — the actor-column split.
         actor: The agent name (agent rows) or the human actor (human rows).
@@ -184,8 +201,14 @@ class AuditEntry:
         idempotency_key: The human row's dedup key; ``None`` for agent rows.
         override_flag: ⚑ a guardrail edited past its MiFID band (human only).
         suitability_flag: ⚠ outside the suitability band (human only).
+        target: The field, gate, or scope the human action touched (e.g. a re-arm's
+            ``"fund"`` / ``"portfolio"`` scope); ``None`` for agent rows.
+        rationale: The free-text reason recorded with the human action — the only
+            place a fund re-arm's mandatory justification is stored; ``None`` for
+            agent rows.
     """
 
+    entry_id: str
     when: dt.datetime
     kind: str
     actor: str
@@ -198,6 +221,8 @@ class AuditEntry:
     idempotency_key: str | None
     override_flag: bool
     suitability_flag: bool
+    target: str | None = None
+    rationale: str | None = None
 
 
 def drift_l1(current: dict[str, float], target: dict[str, float]) -> float:
@@ -235,17 +260,30 @@ def list_portfolios(session: Any) -> list[uuid.UUID]:
     return sorted(ids)
 
 
-def list_portfolio_runs(session: Any, portfolio_id: uuid.UUID) -> list[RunSummary]:
-    """All runs for a portfolio, newest first, as :class:`RunSummary` rows.
+def list_portfolio_runs(
+    session: Any, portfolio_id: uuid.UUID, *, limit: int | None = None
+) -> list[RunSummary]:
+    """Runs for a portfolio, newest first, as :class:`RunSummary` rows.
 
-    ``awaiting_hitl`` here is the plain ``status == "paused"`` flag (the history
-    panel); the HITL queue uses :func:`pending_hitl`, which additionally checks the
-    checkpoint for a live interrupt.
+    ``awaiting_hitl`` here is the plain status flag (the history panel): ``True`` for
+    ``"paused"`` and ``"responded"`` rows, the same gate statuses
+    ``AgentRunRepository.list_paused_runs`` returns. The HITL queue uses
+    :func:`pending_hitl`, which additionally checks the checkpoint for a live
+    interrupt.
+
+    ``limit`` caps the rows read; callers that only need the latest run (the poll
+    path's status badges) pass ``1`` so a long history is not loaded every tick.
+    ``None`` returns the full history.
     """
     from fund.audit.repository import AgentRunRepository
 
-    runs = AgentRunRepository(session).list_runs_for_portfolio(portfolio_id)
-    return [_run_summary(run, awaiting_hitl=run.status == "paused") for run in runs]
+    runs = AgentRunRepository(session).list_runs_for_portfolio(
+        portfolio_id, limit=limit
+    )
+    return [
+        _run_summary(run, awaiting_hitl=run.status in _LIVE_GATE_STATUSES)
+        for run in runs
+    ]
 
 
 def pending_hitl(
@@ -278,16 +316,29 @@ def load_run_transcript(session: Any, saver: Any, run: Any) -> list[TranscriptEn
     (an agent that logged a row without a PM-thread tool call) trail in
     ``decision_index`` order. Messages from agents that log no decision (economist,
     risk) simply appear on their own.
+
+    An agent can be delegated to more than once (the PM re-delegates to the allocator
+    after a risk rejection), and decisions carry no timestamp to tell the rounds
+    apart. A message therefore claims only the first matching decision while a later
+    message still matches it, so each re-delegation gets the next proposal; the last
+    matching message claims whatever is left, which keeps several rows logged by one
+    delegation together.
     """
     entries: list[TranscriptEntry] = []
     messages = _messages_for(saver, getattr(run, "thread_id", None))
+    subagents = _subagent_by_call(messages)
+    all_tokens = [_message_tokens(message) for message in messages]
     remaining = list(run.decisions)
     for index, message in enumerate(messages):
-        entries.append(_message_entry(message, index))
-        tokens = _message_tokens(message)
+        entries.append(_message_entry(message, index, subagents))
+        tokens = all_tokens[index]
         if not tokens:
             continue
-        for decision in [d for d in remaining if _decision_matches(d, tokens)]:
+        later = all_tokens[index + 1 :]
+        matched = [d for d in remaining if _decision_matches(d, tokens)]
+        for position, decision in enumerate(matched):
+            if position and any(_decision_matches(decision, t) for t in later):
+                continue
             entries.append(_decision_entry(decision))
             remaining.remove(decision)
     entries.extend(_decision_entry(decision) for decision in remaining)
@@ -297,27 +348,129 @@ def load_run_transcript(session: Any, saver: Any, run: Any) -> list[TranscriptEn
 def portfolio_state(session: Any, portfolio_id: uuid.UUID) -> PortfolioState:
     """Current holdings vs target weights, with L1 drift and best-effort metrics.
 
-    ``current`` is the ticker→weight map from the ``positions`` snapshot; ``target``
-    is the latest ``completed`` run's ``weights`` (fallback: the latest allocator
-    ``optimize_portfolio`` proposal). ``metrics`` is read from the latest allocator
-    decision when it carries a ``metrics`` block, else ``{}`` — Phase 7 persists no
-    dedicated metrics column, and metrics are never fabricated.
+    ``current`` is the paper book's **market-value** weights (shares × latest
+    base-currency close, as :func:`holdings_summary` marks them), so a price move
+    since the fill shows up as drift. The ``positions`` snapshot stores the weights
+    the book was *built* to, which equal ``target`` right after every approval, so
+    it is used only when the book cannot be marked (no paper ticket, an unpriced
+    holding, or a base currency without FX coverage). ``target`` is the latest
+    ``completed`` run's ``weights`` (fallback: the latest allocator
+    ``optimize_portfolio`` proposal of a run still awaiting its HITL decision; an
+    ended-without-approval run never supplies one). ``metrics`` is read from that
+    same run's newest allocator decision (see :func:`run_metrics`), so a newer
+    unapproved proposal's metrics never sit beside the approved target weights; it is
+    ``{}`` when that decision carries no ``metrics`` block — they are never
+    fabricated.
     """
     from fund.audit.positions_repository import PositionRepository
     from fund.audit.repository import AgentRunRepository
 
-    holdings = PositionRepository(session).get_holdings(portfolio_id)
-    current = {p.ticker: p.weight for p in holdings}
+    current = _marked_current_weights(session, portfolio_id)
+    if current is None:
+        holdings = PositionRepository(session).get_holdings(portfolio_id)
+        current = {p.ticker: p.weight for p in holdings}
     run_repo = AgentRunRepository(session)
-    runs = run_repo.list_runs_for_portfolio(portfolio_id)
-    target = _target_weights(run_repo, runs)
+    target_run_id, target, target_approved = _target_source(run_repo, portfolio_id)
+    target_run = run_repo.get_run(target_run_id) if target_run_id is not None else None
     return PortfolioState(
         portfolio_id=portfolio_id,
         current=current,
         target=target,
         drift_l1=drift_l1(current, target),
-        metrics=_metrics_from_runs(runs),
+        metrics=run_metrics(target_run) if target_run is not None else {},
+        target_approved=target_approved,
     )
+
+
+# Only bars this recent count when judging what the stored panel covers: an
+# instrument with nothing newer is delisted/dormant and must not hold the bar back.
+_DECISION_BAR_LOOKBACK_DAYS = 14
+# Share of the recently-priced universe allowed to lag the chosen bar (a market closed
+# for a holiday, a half-ingested day) before the bar is judged not yet fillable.
+_DECISION_BAR_LAGGING_SHARE = 0.1
+
+
+def default_decision_bar(session: Any, *, today: dt.date | None = None) -> dt.date:
+    """The newest decision bar whose next close is already stored for the universe.
+
+    ``place_orders`` fills at the first close strictly after the decision bar (D30),
+    so a bar equal to the wall-clock date (or to the last stored bar) has nothing to
+    fill at until a later ingest: an approval in that window finalises the run with no
+    ticket. This picks the day before the bar that all but
+    ``_DECISION_BAR_LAGGING_SHARE`` of the recently-priced instruments have reached, so
+    the ticket fills at a close that exists now and uses no price after the decision.
+
+    Args:
+        session: An injected sync ``portopt_db`` session; not owned here (no commit).
+        today: Upper bound for the bars considered (UTC date by default); also the
+            fallback when no instrument has a recent bar.
+
+    Returns:
+        The decision bar, or ``today`` when no recent price data is stored.
+    """
+    from portopt_db.models.market_data.yfinance_data import PriceHistory
+    from sqlalchemy import func, select
+
+    day = today if today is not None else dt.datetime.now(dt.UTC).date()
+    stmt = (
+        select(func.max(PriceHistory.date))
+        .where(
+            PriceHistory.close.is_not(None),
+            PriceHistory.date >= day - dt.timedelta(days=_DECISION_BAR_LOOKBACK_DAYS),
+            PriceHistory.date <= day,
+        )
+        .group_by(PriceHistory.instrument_id)
+    )
+    latest: list[dt.date] = sorted(session.execute(stmt).scalars())
+    if not latest:
+        return day
+    reached = latest[int(len(latest) * _DECISION_BAR_LAGGING_SHARE)]
+    return reached - dt.timedelta(days=1)
+
+
+def _marked_current_weights(
+    session: Any, portfolio_id: uuid.UUID
+) -> dict[str, float] | None:
+    """Market-value weights of the portfolio's paper book, or ``None`` if unmarkable.
+
+    ``None`` — rather than a partial map — when there is no paper ticket, any
+    holding is unpriced, or the mandate's base currency has no FX coverage: weights
+    renormalised over only the priced holdings would misstate the drift, so the
+    caller falls back to the stored snapshot instead. Best-effort by design: this sits
+    on the always-on poll path, so a failure of any kind (a bad stored mandate, a
+    database error) also yields ``None`` rather than aborting :func:`portfolio_state`,
+    and the read runs in a SAVEPOINT so a failed statement cannot poison the caller's
+    transaction for that snapshot fallback.
+
+    Reads through :func:`fund.performance.marked_weights`, which loads only the bars
+    since the book's fill: this sits on the TUI's 2-second poll path (once per
+    portfolio, several times a tick), where :func:`holdings_summary`'s whole-history
+    read — needed there for its trailing returns — would stall the event loop.
+    """
+    from fund.performance import FxCoverageError, marked_weights
+
+    try:
+        with session.begin_nested():
+            return marked_weights(
+                portfolio_id,
+                session=session,
+                base_currency=_base_currency(session, portfolio_id),
+            )
+    except FxCoverageError:
+        logger.debug("observe: no FX coverage to mark %s", portfolio_id)
+    except Exception:
+        logger.warning(
+            "observe: marking %s failed; using the positions snapshot",
+            portfolio_id,
+            exc_info=True,
+        )
+    return None
+
+
+def _base_currency(session: Any, portfolio_id: uuid.UUID) -> str:
+    """The portfolio's mandate base currency; ``"EUR"`` (the seeded FX base) if none."""
+    mandate = get_mandate(session, portfolio_id)
+    return mandate.base_currency if mandate is not None else "EUR"
 
 
 def interrupt_for(saver: Any, run: Any) -> dict[str, Any] | None:
@@ -368,7 +521,9 @@ def get_mandate(session: Any, portfolio_id: uuid.UUID) -> PortfolioMandate | Non
 
     ``MandateRepository.get`` returns the DB row (JSON source of truth + scalar
     mirror); JSON→pydantic rehydration lives here, on the read side, so the
-    state/report panels get the typed mandate.
+    state/report panels get the typed mandate. A legacy over-bound drift threshold
+    is clamped on read (see ``PortfolioMandate.from_stored``) so one stale row never
+    blanks a panel.
     """
     from fund.audit.mandate_repository import MandateRepository
     from fund.schemas.mandate import PortfolioMandate
@@ -376,7 +531,7 @@ def get_mandate(session: Any, portfolio_id: uuid.UUID) -> PortfolioMandate | Non
     row = MandateRepository(session).get(portfolio_id)
     if row is None:
         return None
-    return PortfolioMandate.model_validate(row.mandate)
+    return PortfolioMandate.from_stored(row.mandate)
 
 
 def performance_summary(
@@ -408,13 +563,10 @@ def performance_summary(
     from fund.performance import NavPoint, portfolio_metrics
 
     rows = NavHistoryRepository(session).get_navs(portfolio_id, end=asof)
+    levels = _current_benchmark_levels(rows, get_mandate(session, portfolio_id))
     points = [
-        NavPoint(
-            date=row.date,
-            nav=float(row.nav),
-            benchmark=float(row.benchmark) if row.benchmark is not None else None,
-        )
-        for row in rows
+        NavPoint(date=row.date, nav=float(row.nav), benchmark=level)
+        for row, level in zip(rows, levels, strict=True)
     ]
     return portfolio_metrics(portfolio_id, points)
 
@@ -432,7 +584,8 @@ def holdings_summary(
     compute-on-demand read of ``paper_orders`` / ``price_history`` / ``fx_rates``,
     mirroring :func:`performance_summary`. The base currency is read from the
     portfolio's mandate, falling back to ``"EUR"`` when it has none (the fund's only
-    seeded FX base). An unmarked portfolio (no paper orders) yields ``[]`` rather than
+    seeded FX base); the mandate's capital denominates the book, matching the persisted
+    NAV series. An unmarked portfolio (no paper orders) yields ``[]`` rather than
     a fabricated row. The tracker is imported lazily (it pulls ``optimizer``/``skfolio``
     — allowed, not the agent stack) so ``import fund.observe`` stays agent-stack-free.
     Builds no model, never commits.
@@ -454,9 +607,12 @@ def holdings_summary(
     from fund.performance import holding_marks
 
     mandate = get_mandate(session, portfolio_id)
-    base_currency = mandate.base_currency if mandate is not None else "EUR"
     return holding_marks(
-        portfolio_id, session=session, base_currency=base_currency, asof=asof
+        portfolio_id,
+        session=session,
+        base_currency=mandate.base_currency if mandate is not None else "EUR",
+        asof=asof,
+        capital=float(mandate.capital) if mandate is not None else None,
     )
 
 
@@ -496,18 +652,62 @@ def macro_attribution_summary(
     # benchmark mid-series and the upsert overwrites the prior non-null value, so the
     # benchmark return window stays contiguous and never spans a hole with a
     # multi-period return that biases the equity beta — the same forward-fill the
-    # compute path applies to base prices. A leading null stays absent, never
-    # fabricated before the benchmark's first observation.
-    points: list[NavPoint] = []
-    last_benchmark: float | None = None
-    for row in rows:
-        benchmark = (
-            float(row.benchmark) if row.benchmark is not None else last_benchmark
-        )
-        if benchmark is not None:
-            last_benchmark = benchmark
-        points.append(NavPoint(date=row.date, nav=float(row.nav), benchmark=benchmark))
+    # compute path applies to base prices. Leading and trailing nulls stay absent:
+    # a trailing run means the benchmark was removed, and carrying its last level
+    # would hand the equity factor a fabricated zero return on every such day.
+    levels = _bridge_interior_gaps(
+        _current_benchmark_levels(rows, get_mandate(session, portfolio_id))
+    )
+    points = [
+        NavPoint(date=row.date, nav=float(row.nav), benchmark=level)
+        for row, level in zip(rows, levels, strict=True)
+    ]
     return attribution_from_nav_points(points, session=session, config=config)
+
+
+def _bridge_interior_gaps(levels: list[float | None]) -> list[float | None]:
+    """Forward-fill ``None`` levels that sit between two observed levels.
+
+    Nulls before the first observation or after the last one are left as ``None``:
+    there is no benchmark level on both sides to bridge, so any fill would be
+    invented.
+    """
+    observed = [i for i, level in enumerate(levels) if level is not None]
+    if not observed:
+        return list(levels)
+    last_observed = observed[-1]
+    filled: list[float | None] = []
+    carried: float | None = None
+    for i, level in enumerate(levels):
+        if level is not None:
+            carried = level
+        filled.append(level if level is not None or i > last_observed else carried)
+    return filled
+
+
+def _current_benchmark_levels(
+    rows: list[Any], mandate: PortfolioMandate | None
+) -> list[float | None]:
+    """Each row's benchmark level, ``None`` where it was taken from another benchmark.
+
+    ``nav_history`` rows are re-marked only inside a lookback window, so after a
+    mandate benchmark edit the older rows still carry the previous benchmark's level;
+    mixing them with the new one would put a phantom return at the join. A row is
+    dropped only when it is tagged with a ticker different from the mandate's current
+    one — untagged (pre-tagging) rows keep their level, as their identity is unknown
+    until the next full re-mark, and so does everything when there is no mandate to
+    compare against.
+    """
+    levels: list[float | None] = []
+    for row in rows:
+        level = float(row.benchmark) if row.benchmark is not None else None
+        foreign = (
+            mandate is not None
+            and row.benchmark_ticker is not None
+            and row.benchmark_ticker != mandate.benchmark
+        )
+        levels.append(None if foreign else level)
+    return levels
 
 
 def reprofile_status(
@@ -643,6 +843,7 @@ def daily_brief(
         A :class:`DailyBrief` whose sections degrade to None/empty where a day lacks
         data — never a fabricated figure, never a raise.
     """
+    from fund.attribution import MacroAttributionConfig
     from fund.audit.nav_history_repository import NavHistoryRepository
 
     day = asof or _latest_nav_date(session, portfolio_id) or dt.date.today()
@@ -653,7 +854,14 @@ def daily_brief(
     performance = (
         performance_summary(session, portfolio_id, asof=day) if marked else None
     )
-    attribution = macro_attribution_summary(session, portfolio_id, asof=day)
+    # Betas come from the full history but only the latest bar is explained, so the
+    # block beside the 1D P&L line is that day's decomposition, not the cumulative one.
+    attribution = macro_attribution_summary(
+        session,
+        portfolio_id,
+        asof=day,
+        config=MacroAttributionConfig(attribution_bars=1),
+    )
     digest = recent_events(session, portfolio_id, asof=day, window_days=1)
     read, read_date, run_id = _economist_read_asof(session, saver, portfolio_id, day)
     return DailyBrief(
@@ -700,30 +908,51 @@ def _economist_read_asof(
 ) -> tuple[str | None, dt.date | None, uuid.UUID | None]:
     """Return the carried-forward economist read as ``(text, run_date, run_id)``.
 
-    Picks the run with the greatest ``asof <= day`` (tie-broken by ``created_at`` so a
-    same-day re-run supersedes — ``list_portfolio_runs`` sorts by ``created_at``, not
-    ``asof``), re-fetches its ORM row for the thread id, and takes the last economist
-    ``message`` turn. All-None when the portfolio has no run on-or-before ``day``.
+    Picks the fund run with the greatest ``asof <= day`` (tie-broken by ``created_at``
+    so a same-day re-run supersedes — ``list_runs_for_portfolio`` sorts by
+    ``created_at``, not ``asof``) and takes the last economist ``message`` turn of its
+    transcript. Profiling runs share the portfolio's run history but have no economist,
+    so they are skipped: a later re-profile must not shadow the last rebalance's read.
+    All-None when the portfolio has no fund run on-or-before ``day``; a checkpoint that
+    cannot be read degrades to ``(None, None, run_id)`` so the caller still links the
+    run it could not quote.
     """
     from fund.audit.repository import AgentRunRepository
 
-    eligible = [s for s in list_portfolio_runs(session, portfolio_id) if s.asof <= day]
+    eligible = [
+        run
+        for run in AgentRunRepository(session).list_runs_for_portfolio(portfolio_id)
+        if run.asof <= day and not _is_profiler_run(run)
+    ]
     if not eligible:
         return None, None, None
-    # list_portfolio_runs is newest-created first, so the first run at the greatest
+    # list_runs_for_portfolio is newest-created first, so the first run at the greatest
     # asof is the tie-break winner — no created_at compare (dodges naive/aware mixing).
-    max_asof = max(summary.asof for summary in eligible)
-    chosen = next(summary for summary in eligible if summary.asof == max_asof)
-    run = AgentRunRepository(session).get_run(chosen.run_id)
-    if run is None:
-        return None, None, chosen.run_id
+    max_asof = max(run.asof for run in eligible)
+    chosen = next(run for run in eligible if run.asof == max_asof)
+    # The checkpointer runs on its own connection pool, so a timeout or an
+    # undecodable blob there must not blank the sections derived from portopt_db.
+    try:
+        transcript = load_run_transcript(session, saver, chosen)
+    except Exception:
+        logger.warning(
+            "economist read unavailable for run %s: checkpoint read failed",
+            chosen.id,
+            exc_info=True,
+        )
+        return None, None, chosen.id
     economist = [
         entry
-        for entry in load_run_transcript(session, saver, run)
+        for entry in transcript
         if entry.source == "message" and entry.agent == "economist"
     ]
     text = economist[-1].text if economist else None
-    return text, chosen.asof, chosen.run_id
+    return text, chosen.asof, chosen.id
+
+
+def _is_profiler_run(run: Any) -> bool:
+    """Whether ``run`` is a MiFID profiling attempt rather than a rebalance round."""
+    return (run.optimizer_config or {}).get("step") == "profiler"
 
 
 def audit_timeline(
@@ -735,7 +964,7 @@ def audit_timeline(
     overrides_only: bool = False,
     start: dt.datetime | None = None,
     end: dt.datetime | None = None,
-    limit: int = 200,
+    limit: int | None = 200,
 ) -> list[AuditEntry]:
     """The fund-wide decision timeline: ``agent_decisions`` ∪ ``human_audit_log``.
 
@@ -755,7 +984,8 @@ def audit_timeline(
         overrides_only: Keep only ⚑ override rows (drops every agent row).
         start: Lower ``created_at`` bound (inclusive).
         end: Upper ``created_at`` bound (inclusive).
-        limit: Maximum rows returned after the merge.
+        limit: Maximum rows returned after the merge; ``None`` returns every match
+            (what an export needs, since a capped list is not the audit record).
 
     Returns:
         The merged entries ordered by ``when`` descending, capped at ``limit``.
@@ -784,6 +1014,8 @@ def audit_timeline(
                 limit=limit,
             )
         )
+    # Stable on purpose: same-instant rows keep the newest-step-first order the
+    # repositories return, which a ``when``-only key cannot express.
     entries.sort(key=lambda entry: entry.when, reverse=True)
     return entries[:limit]
 
@@ -798,7 +1030,7 @@ def _agent_audit_entries(
     step: str | None,
     start: dt.datetime | None,
     end: dt.datetime | None,
-    limit: int,
+    limit: int | None,
 ) -> list[AuditEntry]:
     """Agent decisions as :class:`AuditEntry` rows (``kind == "agent"``, no flags)."""
     from fund.audit.repository import AgentRunRepository
@@ -808,6 +1040,7 @@ def _agent_audit_entries(
     )
     return [
         AuditEntry(
+            entry_id=f"agent:{decision.id}",
             when=decision.created_at,
             kind="agent",
             actor=decision.agent,
@@ -833,7 +1066,7 @@ def _human_audit_entries(
     overrides_only: bool,
     start: dt.datetime | None,
     end: dt.datetime | None,
-    limit: int,
+    limit: int | None,
 ) -> list[AuditEntry]:
     """Human actions as :class:`AuditEntry` rows (``kind == "human"``, with flags)."""
     from fund.audit.human_audit_repository import HumanAuditLogRepository
@@ -848,6 +1081,7 @@ def _human_audit_entries(
     )
     return [
         AuditEntry(
+            entry_id=f"human:{row.id}",
             when=row.created_at,
             kind="human",
             actor=row.actor,
@@ -860,6 +1094,8 @@ def _human_audit_entries(
             idempotency_key=row.idempotency_key,
             override_flag=row.override_flag,
             suitability_flag=row.suitability_flag,
+            target=row.target,
+            rationale=row.rationale,
         )
         for row in rows
     ]
@@ -909,19 +1145,58 @@ def _has_pending_interrupt(saver: Any, thread_id: str | None) -> bool:
 
 
 def _messages_for(saver: Any, thread_id: str | None) -> list[Any]:
-    """The checkpoint's ``messages`` channel for ``thread_id`` (empty if absent)."""
+    """The ``messages`` channel state at ``thread_id``'s latest checkpoint.
+
+    deepagents keeps ``messages`` in a ``DeltaChannel``: a checkpoint stores the
+    channel only as a ``_DeltaSnapshot`` every Nth update and otherwise omits it, so
+    the state is the nearest snapshot (the history's ``seed``) with the ancestor
+    writes folded on top. A plain list under ``channel_values`` (a non-delta graph)
+    is returned as-is. Empty when the thread or the channel is absent.
+    """
     if not thread_id:
         return []
     tup = saver.get_tuple(_thread_config(thread_id))
     if tup is None:
         return []
-    return tup.checkpoint.get("channel_values", {}).get("messages", []) or []
+    channel_values = tup.checkpoint.get("channel_values", {})
+    if "messages" in channel_values:
+        return _stored_messages(channel_values["messages"])
+    return _replay_messages(saver, tup.config)
 
 
-def _message_entry(message: Any, index: int) -> TranscriptEntry:
+def _stored_messages(stored: Any) -> list[Any]:
+    """Unwrap a stored ``messages`` blob (a plain list or a ``_DeltaSnapshot``)."""
+    # Matched by name: the snapshot type is langgraph-private, and importing it here
+    # would break the agent-stack-free module import.
+    if type(stored).__name__ == "_DeltaSnapshot":
+        stored = stored.value
+    return list(stored or [])
+
+
+def _replay_messages(saver: Any, config: Any) -> list[Any]:
+    """Rebuild ``messages`` from the saver's delta history (seed + ordered writes)."""
+    history_for = getattr(saver, "get_delta_channel_history", None)
+    if history_for is None:
+        return []
+    history = history_for(config=config, channels=["messages"]).get("messages") or {}
+    state = _stored_messages(history["seed"]) if "seed" in history else []
+    incoming: list[Any] = []
+    for _task_id, _channel, write in history.get("writes", []):
+        # A write is one message-like or a list of them; only lists flatten.
+        incoming.extend(write if isinstance(write, list) else [write])
+    if not incoming:
+        return state
+    from langgraph.graph.message import add_messages
+
+    return list(add_messages(state, incoming))
+
+
+def _message_entry(
+    message: Any, index: int, subagents: dict[str, str] | None = None
+) -> TranscriptEntry:
     return TranscriptEntry(
         source="message",
-        agent=_message_agent(message),
+        agent=_message_agent(message, subagents),
         step=None,
         index=index,
         text=_message_text(message),
@@ -929,9 +1204,34 @@ def _message_entry(message: Any, index: int) -> TranscriptEntry:
     )
 
 
-def _message_agent(message: Any) -> str:
-    """A named subagent message reports its ``name``; else the message ``type``."""
+def _subagent_by_call(messages: list[Any]) -> dict[str, str]:
+    """Map each ``task`` delegation's ``tool_call_id`` to the subagent it targets."""
+    subagents: dict[str, str] = {}
+    for message in messages:
+        for call in getattr(message, "tool_calls", None) or []:
+            if not isinstance(call, dict) or call.get("name") != "task":
+                continue
+            args = call.get("args")
+            subagent = args.get("subagent_type") if isinstance(args, dict) else None
+            if call.get("id") and subagent:
+                subagents[str(call["id"])] = str(subagent)
+    return subagents
+
+
+def _message_agent(message: Any, subagents: dict[str, str] | None = None) -> str:
+    """The agent a message belongs to.
+
+    A subagent's report never carries its own name in the PM thread: deepagents
+    returns it as ``ToolMessage(name="task")``, tied to the delegating AI turn only
+    by ``tool_call_id``. Such a result is attributed to the ``subagent_type`` of that
+    delegation (via ``subagents``); any other message reports its ``name``, else its
+    ``type``.
+    """
     name = getattr(message, "name", None)
+    if name == "task":
+        subagent = (subagents or {}).get(str(getattr(message, "tool_call_id", "")))
+        if subagent:
+            return subagent
     if name:
         return str(name)
     return str(getattr(message, "type", None) or type(message).__name__)
@@ -981,6 +1281,9 @@ def _decision_entry(decision: Any) -> TranscriptEntry:
     weights = _weights_from_response(decision.llm_response)
     if weights:
         payload["weights"] = weights
+    optimizer_config = _optimizer_config_from_response(decision.llm_response)
+    if optimizer_config:
+        payload["optimizer_config"] = optimizer_config
     return TranscriptEntry(
         source="decision",
         agent=decision.agent,
@@ -991,32 +1294,59 @@ def _decision_entry(decision: Any) -> TranscriptEntry:
     )
 
 
-def _target_weights(run_repo: Any, runs: list[Any]) -> dict[str, float]:
-    """Latest completed run's weights, else the latest allocator proposal, else {}."""
-    for run in runs:
-        if run.status == "completed" and run.weights:
-            return {str(k): float(v) for k, v in run.weights.items()}
-    for run in runs:
-        weights: dict[str, float] = run_repo.latest_optimizer_weights(run.id)
-        if weights:
-            return weights
-    return {}
+def _target_source(
+    run_repo: Any, portfolio_id: uuid.UUID
+) -> tuple[uuid.UUID | None, dict[str, float], bool]:
+    """``(run_id, weights, approved)`` of the run supplying the target, else none.
 
-
-def _metrics_from_runs(runs: list[Any]) -> dict[str, float]:
-    """Best-effort metrics from the newest allocator ``optimize_portfolio`` decision.
-
-    ``run.decisions`` is ordered ``decision_index`` ASC, so iterate it reversed to
-    take the *newest* allocator proposal within a run — aligning the metrics source
-    with ``AgentRunRepository.latest_optimizer_weights`` (which feeds ``target``) so
-    the state panel never shows fresh weights beside a stale run's metrics.
+    The target is the latest completed run's weights, else a pending one's;
+    ``approved`` is ``True`` only for a ``completed`` run's weights, while a proposal
+    from a run still at a live HITL gate is returned for display with
+    ``approved=False``. The proposal fallback only reads such runs: one that ended
+    rejected / incomplete / blocked / failed keeps its allocator row in the audit
+    trail, but nobody adopted it, and treating it as the target would make a portfolio
+    that holds nothing read as drift 1.0. Both reads stream newest-first and stop at
+    the first hit, so a portfolio with a long history costs a handful of rows rather
+    than the whole trail. ``(None, {}, False)`` when no run supplies a target.
     """
-    for run in runs:
-        for decision in reversed(run.decisions):
-            if decision.agent == "allocator" and decision.step == "optimize_portfolio":
-                metrics = _metrics_from_response(decision.llm_response)
-                if metrics:
-                    return metrics
+    for run in run_repo.iter_runs_for_portfolio(portfolio_id, status="completed"):
+        if run.weights:
+            return run.id, {str(k): float(v) for k, v in run.weights.items()}, True
+    seen_runs: set[uuid.UUID] = set()
+    for decision in run_repo.iter_optimizer_decisions(
+        portfolio_id, run_statuses=_LIVE_GATE_STATUSES
+    ):
+        # Only a run's newest proposal counts, matching latest_optimizer_weights.
+        if decision.run_id in seen_runs:
+            continue
+        seen_runs.add(decision.run_id)
+        weights: dict[str, float] = run_repo.decode_weights(decision)
+        if weights:
+            return decision.run_id, weights, False
+    return None, {}, False
+
+
+def run_metrics(run: Any) -> dict[str, float]:
+    """Best-effort metrics from ``run``'s own newest allocator proposal.
+
+    The one reader of a run's persisted metrics: :attr:`PortfolioState.metrics` and
+    ``fund report`` both use it, so neither borrows another run's numbers. A run with
+    no metrics block yields ``{}`` (metrics are never fabricated). The newest proposal
+    is authoritative even when it carries no metrics (an adviser edit does not), so an
+    older proposal's figures never describe the edited weights.
+
+    Args:
+        run: An ``AgentRun`` row with its ``decisions`` loaded; read-only, no session
+            is touched here.
+
+    Returns:
+        Metric name to value from the run's newest ``allocator`` /
+        ``optimize_portfolio`` decision; ``{}`` when the run has no such decision or
+        its payload is unparseable.
+    """
+    for decision in reversed(run.decisions):
+        if decision.agent == "allocator" and decision.step == "optimize_portfolio":
+            return _metrics_from_response(decision.llm_response)
     return {}
 
 
@@ -1026,6 +1356,14 @@ def _weights_from_response(raw: str | None) -> dict[str, Any] | None:
         return None
     weights = parsed.get("weights")
     return weights if isinstance(weights, dict) else None
+
+
+def _optimizer_config_from_response(raw: str | None) -> dict[str, Any] | None:
+    parsed = _parse_json_object(raw)
+    if parsed is None:
+        return None
+    config = parsed.get("optimizer_config")
+    return config if isinstance(config, dict) else None
 
 
 def _metrics_from_response(raw: str | None) -> dict[str, float]:
@@ -1062,6 +1400,7 @@ __all__ = [
     "TranscriptEntry",
     "audit_timeline",
     "daily_brief",
+    "default_decision_bar",
     "drift_l1",
     "get_mandate",
     "holdings_summary",
@@ -1075,4 +1414,5 @@ __all__ = [
     "portfolio_state",
     "recent_events",
     "reprofile_status",
+    "run_metrics",
 ]

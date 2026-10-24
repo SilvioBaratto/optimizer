@@ -7,6 +7,7 @@ full-jitter exponential backoff and transient-error detection.
 from __future__ import annotations
 
 import random
+import re
 import time
 from collections.abc import Callable
 from typing import TypeVar
@@ -18,7 +19,6 @@ T = TypeVar("T")
 TRANSIENT_NETWORK_INDICATORS = [
     "Too Many Requests",
     "Rate limited",
-    "429",
     # TCP-level throttling — servers RST the connection when overloaded
     "Connection reset by peer",
     "[Errno 104]",
@@ -26,14 +26,50 @@ TRANSIENT_NETWORK_INDICATORS = [
     "RemoteDisconnected",
     "ChunkedEncodingError",
     "IncompleteRead",
-    "ReadTimeout",
-    "ConnectTimeout",
+    # Subsumes requests' ReadTimeout/ConnectTimeout and curl_cffi's Timeout,
+    # which yfinance 1.x raises for libcurl error 28.
+    "Timeout",
+    # curl_cffi words DNS and connect failures with libcurl text and reuses the
+    # ConnectionError name that requests also raises, so the class name cannot
+    # be matched without changing how the requests-based scrapers back off.
+    "Could not resolve host",
+    "Failed to connect to",
 ]
+
+# A bare "429" substring also matches payload values, column offsets and
+# durations ("1,429.50", "column 429", "429ms") and would trip the shared
+# breaker for every worker, so the digits only count next to an HTTP-status
+# keyword or the standard "429 Client Error" reason phrase.
+_HTTP_429_IN_TEXT = re.compile(
+    r"(?<![A-Za-z])(?:http(?:\s?error)?|status(?:[ _]code)?|error(?: code)?)"
+    r"[\s:=]*429\b(?![.,]\d)"
+    r"|(?<![\w.,])429(?=\s+(?:client error|too many))",
+    re.IGNORECASE,
+)
+
+
+def _carries_429_status(error: Exception) -> bool:
+    # ``status_code`` is requests/curl_cffi, ``status`` aiohttp, ``code`` urllib.
+    holders = (getattr(error, "response", None), error)
+    return any(
+        getattr(holder, attr, None) == 429
+        for holder in holders
+        for attr in ("status_code", "status", "code")
+    )
 
 
 def is_transient_network_error(error: Exception) -> bool:
-    """Detect transient network errors: HTTP rate limits and TCP resets."""
+    """Detect transient network errors: HTTP rate limits and TCP resets.
+
+    A rate limit is recognised by an HTTP 429 status on the exception or its
+    response, by a 429 stated as a status in the message, or by the textual
+    markers in ``TRANSIENT_NETWORK_INDICATORS``.
+    """
+    if _carries_429_status(error):
+        return True
     combined = f"{type(error).__name__}: {error}"
+    if _HTTP_429_IN_TEXT.search(combined):
+        return True
     return any(indicator in combined for indicator in TRANSIENT_NETWORK_INDICATORS)
 
 
@@ -56,6 +92,7 @@ def retry_with_backoff(
     is_rate_limit_error: Callable[[Exception], bool] | None = None,
     on_rate_limit: Callable[[], None] | None = None,
     on_success: Callable[[T], None] | None = None,
+    is_permanent_error: Callable[[Exception], bool] | None = None,
 ) -> T | None:
     """Execute *action* up to *max_retries* times with exponential-jitter backoff.
 
@@ -75,10 +112,16 @@ def retry_with_backoff(
             ``circuit_breaker.trigger``). The circuit breaker's own exponential
             sleep handles the long wait on the next ``check()``.
         on_success: Callback invoked with the valid result before returning.
+        is_permanent_error: Optional predicate on caught exceptions. When it
+            returns ``True`` the exception is re-raised at once, because
+            repeating the request cannot change the answer.
 
     Returns:
         The value returned by *action* on success, or ``None`` after all
         retries are exhausted.
+
+    Raises:
+        Exception: Whatever *action* raised, when *is_permanent_error* accepts it.
     """
     for attempt in range(max_retries):
         try:
@@ -95,6 +138,9 @@ def retry_with_backoff(
             return result
 
         except Exception as exc:
+            if is_permanent_error is not None and is_permanent_error(exc):
+                raise
+
             if is_rate_limit_error is not None and is_rate_limit_error(exc):
                 if on_rate_limit is not None:
                     on_rate_limit()

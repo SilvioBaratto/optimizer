@@ -23,7 +23,9 @@ if config.config_file_name is not None:
 # real database, so the fallback is harmless there.
 _db_url = os.getenv("DATABASE_URL")
 if _db_url:
-    config.set_main_option("sqlalchemy.url", _db_url)
+    # Alembic keeps option values in a ConfigParser that treats '%' as an
+    # interpolation marker; a percent-encoded password would otherwise raise.
+    config.set_main_option("sqlalchemy.url", _db_url.replace("%", "%%"))
 elif not context.is_offline_mode():
     raise RuntimeError(
         "DATABASE_URL is not set — refusing to run online migrations against "
@@ -31,11 +33,24 @@ elif not context.is_offline_mode():
         "Docker, which sets it) before `alembic upgrade`."
     )
 
+from portopt_db.migration_lock import acquire_migration_lock
+
 # Importing the models package registers every model on Base.metadata, so
 # autogenerate/upgrade see the complete schema.
 from portopt_db.models import Base
 
 target_metadata = Base.metadata
+
+# APScheduler's SQLAlchemyJobStore creates these tables at daemon start, outside
+# Base.metadata. Autogenerate would otherwise report them as stale and emit a
+# drop_table that wipes the persisted schedule of a running daemon.
+_DAEMON_OWNED_TABLES = frozenset({"apscheduler_jobs", "fund_apscheduler_jobs"})
+
+
+def include_object(obj, name, type_, reflected, compare_to) -> bool:
+    """Exclude daemon-owned tables, and their indexes, from autogenerate."""
+    table = obj if type_ == "table" else getattr(obj, "table", None)
+    return getattr(table, "name", None) not in _DAEMON_OWNED_TABLES
 
 
 def run_migrations_offline() -> None:
@@ -44,6 +59,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        include_object=include_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -61,9 +77,17 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_object,
+        )
 
         with context.begin_transaction():
+            # The scheduler and fund containers both migrate on start and come up
+            # together; taking the lock before Alembic reads alembic_version makes
+            # the second runner wait and then see nothing left to apply.
+            acquire_migration_lock(connection)
             context.run_migrations()
 
 

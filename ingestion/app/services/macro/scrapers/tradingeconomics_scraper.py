@@ -4,9 +4,10 @@
 import logging
 import re
 from datetime import datetime
+from decimal import Decimal
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from app.services.infrastructure import (
     CircuitBreaker,
@@ -19,7 +20,11 @@ from app.services.macro.scrapers.exceptions import ParseStructureError
 logger = logging.getLogger(__name__)
 
 _te_circuit_breaker = CircuitBreaker(service_name="Trading Economics", max_attempts=5)
-_te_rate_limiter = RateLimiter(delay=1.5)
+
+# Every page lives on one host, so the minimum interval has to be shared by all
+# of them; keying the limiter by URL would let each distinct page go out at once.
+_TE_RATE_LIMIT_KEY = "tradingeconomics.com"
+_DEFAULT_RATE_LIMIT_DELAY = 1.5
 
 # Minimum row thresholds — below these counts after a successful HTTP fetch,
 # the result is treated as a structural HTML change rather than legitimately
@@ -215,15 +220,139 @@ INDICATOR_PATTERNS = {
     ],
 }
 
+# Trading Economics reuses one row label for different measures per country (an
+# index vs a rate, a level vs a change) and the observation tables keep no unit,
+# so a mixed key cannot be separated afterwards. Where the unit column tells the
+# measures apart, only rows in the listed units may carry the canonical key.
+# Lower-cased; a row with no unit cell cannot be checked and is kept.
+_EXPECTED_INDICATOR_UNITS: dict[str, frozenset[str]] = {
+    "capacity_utilization": frozenset({"percent"}),
+    "leading_economic_index": frozenset({"points"}),
+    "factory_orders": frozenset({"percent"}),
+    "personal_savings": frozenset({"percent"}),
+    "employment_change": frozenset({"thousand"}),
+}
+
+# Series defined for one country only. Other country pages reuse the label for an
+# unrelated measure (France's "Non Farm Payrolls" is an employment level) with
+# the same unit, so the unit cannot separate them.
+_COUNTRY_SPECIFIC_INDICATORS: dict[str, frozenset[str]] = {
+    "non_farm_payrolls": frozenset({"USA"}),
+    "initial_jobless_claims": frozenset({"USA"}),
+    "continuing_jobless_claims": frozenset({"USA"}),
+}
+
+# The US page quotes quarterly GDP growth as an annualised rate (SAAR); the other
+# pages quote the plain quarter-on-quarter rate under the same row label and the
+# same unit, so a US row is filed under its own key instead of sharing one.
+_COUNTRY_KEY_OVERRIDES: dict[tuple[str, str], str] = {
+    ("gdp_growth_rate", "USA"): "gdp_growth_qoq_annualized",
+}
+
+
+# Money rows are quoted in whatever scale each country page prefers ("USD Million",
+# "EUR Billion", "USD Hundred Million"), and the observation tables keep no unit,
+# so the bare numbers of one key differ by 10^3 or more between countries and
+# whenever TE re-labels a page. They are rescaled to billions of the stated
+# currency; converting between currencies needs an FX rate and is left to callers.
+_MONETARY_INDICATORS = frozenset({"current_account", "trade_balance"})
+_MONEY_UNIT = re.compile(
+    r"^(?P<currency>[A-Za-z]{3})\s+(?P<scale>thousand|million|hundred million"
+    r"|billion|trillion)$",
+    re.IGNORECASE,
+)
+_SCALE_MULTIPLIERS = {
+    "thousand": 10**3,
+    "million": 10**6,
+    "hundred million": 10**8,
+    "billion": 10**9,
+    "trillion": 10**12,
+}
+_BILLION = 10**9
+
+
+def _to_billions(value: float, multiplier: int) -> float:
+    # Decimal keeps 19.47 * 10**6 / 10**9 free of binary-float noise.
+    return float(Decimal(repr(value)) * multiplier / _BILLION)
+
+
+def _normalize_monetary_row(
+    value: float, previous: float | None, unit: str
+) -> tuple[float, float | None, str] | None:
+    """Rescale a money row to billions of the currency its unit names.
+
+    Args:
+        value: Latest value as printed on the page.
+        previous: Previous value as printed, if any.
+        unit: Unit cell text, e.g. ``"EUR Million"``.
+
+    Returns:
+        ``(value, previous, unit)`` in billions with the unit relabelled
+        ``"<CCY> Billion"``, or ``None`` when the unit names no recognisable
+        currency and scale, so the magnitude cannot be known.
+    """
+    match = _MONEY_UNIT.match(unit.strip())
+    if match is None:
+        return None
+    multiplier = _SCALE_MULTIPLIERS[match.group("scale").lower()]
+    return (
+        _to_billions(value, multiplier),
+        None if previous is None else _to_billions(previous, multiplier),
+        f"{match.group('currency').upper()} Billion",
+    )
+
+
+def _country_list_tables(soup: BeautifulSoup) -> list[Tag]:
+    """Return the tables of a ``country-list`` page, whatever their styling.
+
+    The data rows used to sit in a ``table-heatmap`` table. The pages now render
+    Tailwind-styled tables (one holding only the header, another the data rows)
+    with no class worth selecting on, so rows are recognised by their cells and
+    the callers skip anything that is not a country link followed by values.
+    """
+    return list(soup.find_all("table"))
+
+
+def _is_comparable_measure(key: str, unit: str, country: str | None) -> bool:
+    """Whether a matched row holds the measure its canonical key stands for.
+
+    Args:
+        key: Canonical indicator key from ``INDICATOR_PATTERNS``.
+        unit: Unit cell text of the row; empty when the page gave none.
+        country: Country the page belongs to, or ``None`` to skip the
+            country check.
+
+    Returns:
+        ``False`` when the unit or country shows the row is a different
+        measure that happens to share the key's row label.
+    """
+    countries = _COUNTRY_SPECIFIC_INDICATORS.get(key)
+    if countries is not None and country is not None and country not in countries:
+        return False
+    units = _EXPECTED_INDICATOR_UNITS.get(key)
+    return units is None or not unit or unit.strip().lower() in units
+
 
 class TradingEconomicsIndicatorsScraper:
     """Scraper for Trading Economics indicator, bond-yield, and production tables."""
 
     BASE_URL = "https://tradingeconomics.com"
 
-    def __init__(self, timeout: int = 20, rate_limit_delay: float = 1.0):
+    def __init__(
+        self,
+        timeout: int = 20,
+        rate_limit_delay: float = _DEFAULT_RATE_LIMIT_DELAY,
+    ):
+        """Create a scraper with its own HTTP session and request pacing.
+
+        Args:
+            timeout: Per-request timeout in seconds.
+            rate_limit_delay: Minimum seconds between any two requests this
+                scraper sends to Trading Economics, whatever the page.
+        """
         self.timeout = timeout
         self.rate_limit_delay = rate_limit_delay
+        self._rate_limiter = RateLimiter(delay=rate_limit_delay)
         self.session = requests.Session()
 
         # Browser-like UA to avoid bot detection.
@@ -254,8 +383,11 @@ class TradingEconomicsIndicatorsScraper:
 
         Returns:
             Dict with ``status``, ``indicators``, and (when ``include_bonds``)
-            ``bond_yields``. ``status`` is ``"error"`` on any fetch or parse
-            failure; ``"success"`` otherwise.
+            ``bond_yields``. ``status`` is ``"error"`` when the indicators page
+            fails to fetch or parse; ``"success"`` otherwise. A failure of the
+            separate bond-yield page leaves ``status`` ``"success"`` (the
+            indicators are still valid) but sets ``bond_yields`` to ``{}`` and
+            adds ``bond_yields_error``, which callers must surface.
         """
         if country not in COUNTRY_MAPPING:
             return {
@@ -270,7 +402,7 @@ class TradingEconomicsIndicatorsScraper:
 
         def _fetch() -> requests.Response:
             _te_circuit_breaker.check()
-            _te_rate_limiter.acquire(url)
+            self._rate_limiter.acquire(_TE_RATE_LIMIT_KEY)
             resp = self.session.get(url, timeout=self.timeout)
             resp.raise_for_status()
             return resp
@@ -292,7 +424,7 @@ class TradingEconomicsIndicatorsScraper:
 
         try:
             soup = BeautifulSoup(response.content, "html.parser")
-            indicators = self._parse_indicators_table(soup)
+            indicators = self._parse_indicators_table(soup, country)
 
             result = {
                 "country": country,
@@ -338,7 +470,9 @@ class TradingEconomicsIndicatorsScraper:
                 "error": f"Parsing failed: {e!s}",
             }
 
-    def _parse_indicators_table(self, soup: BeautifulSoup) -> dict:
+    def _parse_indicators_table(
+        self, soup: BeautifulSoup, country: str | None = None
+    ) -> dict:
         indicators = {}
 
         tables = soup.find_all("table", class_="table-hover")
@@ -379,7 +513,35 @@ class TradingEconomicsIndicatorsScraper:
                         if last_value is not None:
                             matched_key = self._match_indicator_name(indicator_name)
 
-                            if matched_key:
+                            if matched_key and not _is_comparable_measure(
+                                matched_key, unit, country
+                            ):
+                                logger.debug(
+                                    "Skipping %r (%s, unit=%r): not the measure "
+                                    "behind %s",
+                                    indicator_name,
+                                    country,
+                                    unit,
+                                    matched_key,
+                                )
+                            elif matched_key:
+                                matched_key = _COUNTRY_KEY_OVERRIDES.get(
+                                    (matched_key, country or ""), matched_key
+                                )
+                                if matched_key in _MONETARY_INDICATORS:
+                                    scaled = _normalize_monetary_row(
+                                        last_value, previous_value, unit
+                                    )
+                                    if scaled is None:
+                                        logger.debug(
+                                            "Skipping %r (%s, unit=%r): no readable "
+                                            "currency and scale",
+                                            indicator_name,
+                                            country,
+                                            unit,
+                                        )
+                                        continue
+                                    last_value, previous_value, unit = scaled
                                 indicators[matched_key] = {
                                     "value": last_value,
                                     "previous": previous_value,
@@ -449,7 +611,7 @@ class TradingEconomicsIndicatorsScraper:
 
         def _fetch() -> requests.Response:
             _te_circuit_breaker.check()
-            _te_rate_limiter.acquire(url)
+            self._rate_limiter.acquire(_TE_RATE_LIMIT_KEY)
             resp = self.session.get(url, timeout=self.timeout)
             resp.raise_for_status()
             return resp
@@ -615,7 +777,7 @@ class TradingEconomicsIndicatorsScraper:
 
         def _fetch() -> requests.Response:
             _te_circuit_breaker.check()
-            _te_rate_limiter.acquire(url)
+            self._rate_limiter.acquire(_TE_RATE_LIMIT_KEY)
             resp = self.session.get(url, timeout=self.timeout)
             resp.raise_for_status()
             return resp
@@ -667,7 +829,7 @@ class TradingEconomicsIndicatorsScraper:
 
         def _fetch() -> requests.Response:
             _te_circuit_breaker.check()
-            _te_rate_limiter.acquire(url)
+            self._rate_limiter.acquire(_TE_RATE_LIMIT_KEY)
             resp = self.session.get(url, timeout=self.timeout)
             resp.raise_for_status()
             return resp
@@ -711,7 +873,7 @@ class TradingEconomicsIndicatorsScraper:
     def _parse_industrial_production_table(self, soup: BeautifulSoup) -> dict:
         production = {}
 
-        tables = soup.find_all("table", class_="table-heatmap")
+        tables = _country_list_tables(soup)
 
         for table in tables:
             rows = table.find_all("tr")
@@ -775,7 +937,7 @@ class TradingEconomicsIndicatorsScraper:
     def _parse_capacity_utilization_table(self, soup: BeautifulSoup) -> dict:
         capacity = {}
 
-        tables = soup.find_all("table", class_="table-heatmap")
+        tables = _country_list_tables(soup)
 
         for table in tables:
             rows = table.find_all("tr")
@@ -906,8 +1068,6 @@ class TradingEconomicsIndicatorsScraper:
                         capacity_utilization_data[country_full_name]
                     )
 
-            # Rate limiting handled by _te_rate_limiter inside fetch calls
-
         return results
 
     def get_all_portfolio_countries(self) -> dict[str, dict]:
@@ -938,6 +1098,7 @@ class TradingEconomicsIndicatorsScraper:
 
         key_indicators = [
             ("gdp_growth_rate", "GDP Growth Rate (QoQ)"),
+            ("gdp_growth_qoq_annualized", "GDP Growth Rate (QoQ, annualised)"),
             ("gdp_growth_yoy", "GDP Annual Growth Rate"),
             ("unemployment_rate", "Unemployment Rate"),
             ("inflation_rate", "Inflation Rate"),
@@ -980,7 +1141,7 @@ class TradingEconomicsIndicatorsScraper:
                 if maturity in bond_yields:
                     data = bond_yields[maturity]
                     yield_value = data["yield"]
-                    day_change = data.get("day_change", 0)
+                    day_change = data.get("day_change")
                     date = data.get("date", "")
 
                     change_indicator = (
@@ -988,9 +1149,10 @@ class TradingEconomicsIndicatorsScraper:
                         if day_change and day_change > 0
                         else ("↓" if day_change and day_change < 0 else "→")
                     )
+                    day_str = f"{day_change:+.3f}%" if day_change is not None else "N/A"
                     lines.append(
                         f"  {maturity:5s}: {yield_value:5.2f}% {change_indicator} "
-                        f"(day: {day_change:+.3f}%) [{date}]"
+                        f"(day: {day_str}) [{date}]"
                     )
 
         industrial_production = country_data.get("industrial_production")

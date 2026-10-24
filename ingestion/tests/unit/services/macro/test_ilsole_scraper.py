@@ -388,13 +388,13 @@ class TestCircuitBreakerTripsOnNetworkFailure:
     def test_when_circuit_breaker_max_attempts_exceeded_then_check_raises(
         self,
     ) -> None:
-        """After max_attempts triggers, check() must raise RuntimeError immediately.
+        """At max_attempts with the window open, check() must raise immediately.
 
         trigger() only increments _attempt when the breaker is not already active,
-        so we force _attempt to max_attempts directly via the internal field.
+        so we seed _attempt one below max_attempts and let trigger() arm the window.
         """
         cb = CircuitBreaker(service_name="t", max_attempts=2)
-        # Bypass the "already active, skip" guard by directly setting the count
-        cb._attempt = 2  # type: ignore[attr-defined]
+        cb._attempt = 1  # type: ignore[attr-defined]
+        cb.trigger()
         with pytest.raises(RuntimeError):
             cb.check()

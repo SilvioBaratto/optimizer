@@ -8,6 +8,7 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
+from optimizer.exceptions import DataError
 from optimizer.universe._config import (
     DelistingPolicy,
     ExchangeRegion,
@@ -56,17 +57,22 @@ def compute_addv(
     """Compute average daily dollar volume over a trailing window.
 
     Args:
-        price_history: Price matrix (dates x tickers). Must be denominated
-            in major currency units (e.g. GBP, not GBX).
-            ``price_history.price_unit`` carries the listing currency;
-            minor-unit normalisation must be applied upstream via
-            `fx` (e.g. `FxPriceConverter`).
+        price_history: Price matrix (dates x tickers), USD-normalised and in
+            major units (dollars, not cents; a GBP or GBX listing converted to
+            USD).  The result is compared against the USD ADDV thresholds of
+            `InvestabilityScreenConfig` and no conversion happens here, so
+            ``price_history.price_unit`` minor-unit normalisation and FX
+            conversion must be applied upstream via `fx` (e.g.
+            `FxPriceConverter` with a USD base).  Must also be as-traded:
+            ingestion stores dividend-adjusted closes, which understate old
+            turnover by every later dividend, so pass them through
+            ``optimizer.preprocessing.unadjust_close`` first.
         volume_history: Volume matrix (dates x tickers), aligned with
             price_history.
         window: Number of trailing trading days.
 
     Returns:
-        Average daily dollar volume per ticker.
+        Average daily dollar volume per ticker, in USD.
     """
     dollar_volume = price_history * volume_history
     if len(dollar_volume) >= window:
@@ -80,20 +86,26 @@ def compute_trading_frequency(
     volume_history: pd.DataFrame,
     window: int,
 ) -> pd.Series:
-    """Compute fraction of trading days with nonzero volume.
+    """Compute fraction of observed trading days with nonzero volume.
+
+    NaN volume means the market was closed or the instrument was not yet
+    listed, so it is dropped from the denominator (the same convention as
+    `compute_addv`).  Only an explicit zero counts as a day without trading.
 
     Args:
         volume_history: Volume matrix (dates x tickers).
         window: Number of trailing trading days.
 
     Returns:
-        Trading frequency per ticker (0 to 1).
+        Trading frequency per ticker (0 to 1); NaN for a ticker with no
+        observed volume in the window.
     """
     if len(volume_history) >= window:
         tail = volume_history.iloc[-window:]
     else:
         tail = volume_history
-    return (tail > 0).mean()
+    observed = tail.notna().sum()
+    return (tail > 0).sum() / observed.where(observed > 0)
 
 
 def compute_listing_age(price_history: pd.DataFrame) -> pd.Series:
@@ -228,6 +240,40 @@ def _apply_mcap_percentile_screen(
     return surviving.union(new_entrants)
 
 
+def _require_screen_inputs(
+    fundamentals: pd.DataFrame,
+    price_history: pd.DataFrame,
+    volume_history: pd.DataFrame,
+) -> None:
+    """Fail loudly when an input a mandatory screen depends on is missing.
+
+    A failed or empty upstream query would otherwise skip the liquidity and
+    size gates and silently admit untradeable names.
+
+    Raises:
+        DataError: If a required ``fundamentals`` column is absent or the
+            price / volume history is empty.
+    """
+    missing = [
+        column
+        for column in ("market_cap", "current_price")
+        if column not in fundamentals.columns
+    ]
+    if missing:
+        msg = f"fundamentals is missing required column(s): {', '.join(missing)}"
+        raise DataError(msg)
+    for name, frame in (
+        ("price_history", price_history),
+        ("volume_history", volume_history),
+    ):
+        if frame.empty:
+            msg = (
+                f"{name} is empty; the liquidity and listing-history screens "
+                "cannot run without it"
+            )
+            raise DataError(msg)
+
+
 def apply_investability_screens(
     fundamentals: pd.DataFrame,
     price_history: pd.DataFrame,
@@ -249,12 +295,20 @@ def apply_investability_screens(
             ``instruments.exchange``) for the per-exchange market-cap percentile
             screen, ``delisted_at`` (``instruments.delisted_at``) for the
             survivorship policy, and ``is_etf`` (``etf_metadata`` presence) to
-            exempt funds from the equity-only financial-statement screen. All
-            monetary columns (``market_cap``, ``current_price``, etc.) must be
-            denominated in major currency units (e.g. GBP, not GBX); minor-unit
-            normalisation must be applied upstream via `fx`
-            before this function is called.
-        price_history: Price matrix (dates x tickers).
+            exempt funds from the equity-only financial-statement screen.
+            Monetary inputs are never converted here, and the market-cap and
+            dollar-volume thresholds are in USD, so ``market_cap`` and
+            ``price_history`` must be USD-normalised major units (a JPY or EUR
+            value would be compared against the USD thresholds as is).
+            ``current_price`` is the listing price in major units (e.g. GBP, not
+            GBX): USD for ``ExchangeRegion.US`` and local currency for
+            ``ExchangeRegion.EUROPE``.  Apply minor-unit and FX normalisation
+            upstream via `fx` (e.g. `FxPriceConverter` with a USD base) before
+            calling this function.
+        price_history: Price matrix (dates x tickers), USD-normalised major
+            units; drives the USD ADDV screens.  The ADDV screens multiply it
+            by volume, so it must be as-traded rather than dividend-adjusted;
+            see `compute_addv`.
         volume_history: Volume matrix (dates x tickers).
         financial_statements: Statement-level data with ``ticker``,
             ``period_type``, and optionally ``period_date`` columns.
@@ -264,9 +318,15 @@ def apply_investability_screens(
 
     Returns:
         Tickers passing all investability screens.
+
+    Raises:
+        DataError: If ``fundamentals`` lacks ``market_cap`` or ``current_price``,
+            or if ``price_history`` or ``volume_history`` is empty.
     """
     if config is None:
         config = InvestabilityScreenConfig()
+
+    _require_screen_inputs(fundamentals, price_history, volume_history)
 
     candidates = fundamentals.index
 
@@ -282,46 +342,41 @@ def apply_investability_screens(
         active = fundamentals.index[fundamentals["delisted_at"].isna()]
         candidates = candidates.intersection(active)
 
-    if "market_cap" in fundamentals.columns:
-        mcap = fundamentals["market_cap"].dropna()
-        passed = apply_screen(mcap, config.market_cap, current_members)
+    mcap = fundamentals["market_cap"].dropna()
+    passed = apply_screen(mcap, config.market_cap, current_members)
 
-        if "exchange" in fundamentals.columns:
-            exchange_mapping = fundamentals["exchange"].dropna()
-            pct_passed = _apply_mcap_percentile_screen(
-                mcap, exchange_mapping, config, current_members
-            )
-            passed = passed.intersection(pct_passed)
-
-        candidates = candidates.intersection(passed)
-
-    if len(price_history) > 0 and len(volume_history) > 0:
-        addv_12 = compute_addv(price_history, volume_history, window=252)
-        addv_12 = addv_12.reindex(candidates).dropna()
-        passed = apply_screen(addv_12, config.addv_12m, current_members)
-        candidates = candidates.intersection(passed)
-
-    if len(price_history) > 0 and len(volume_history) > 0:
-        addv_3 = compute_addv(price_history, volume_history, window=63)
-        addv_3 = addv_3.reindex(candidates).dropna()
-        passed = apply_screen(addv_3, config.addv_3m, current_members)
-        candidates = candidates.intersection(passed)
-
-    if len(volume_history) > 0:
-        freq = compute_trading_frequency(volume_history, window=252)
-        freq = freq.reindex(candidates).dropna()
-        passed = apply_screen(freq, config.trading_frequency, current_members)
-        candidates = candidates.intersection(passed)
-
-    if "current_price" in fundamentals.columns:
-        prices = fundamentals["current_price"].reindex(candidates).dropna()
-        price_thresh = (
-            config.price_us
-            if config.exchange_region == ExchangeRegion.US
-            else config.price_europe
+    if "exchange" in fundamentals.columns:
+        exchange_mapping = fundamentals["exchange"].dropna()
+        pct_passed = _apply_mcap_percentile_screen(
+            mcap, exchange_mapping, config, current_members
         )
-        passed = apply_screen(prices, price_thresh, current_members)
-        candidates = candidates.intersection(passed)
+        passed = passed.intersection(pct_passed)
+
+    candidates = candidates.intersection(passed)
+
+    addv_12 = compute_addv(price_history, volume_history, window=252)
+    addv_12 = addv_12.reindex(candidates).dropna()
+    passed = apply_screen(addv_12, config.addv_12m, current_members)
+    candidates = candidates.intersection(passed)
+
+    addv_3 = compute_addv(price_history, volume_history, window=63)
+    addv_3 = addv_3.reindex(candidates).dropna()
+    passed = apply_screen(addv_3, config.addv_3m, current_members)
+    candidates = candidates.intersection(passed)
+
+    freq = compute_trading_frequency(volume_history, window=252)
+    freq = freq.reindex(candidates).dropna()
+    passed = apply_screen(freq, config.trading_frequency, current_members)
+    candidates = candidates.intersection(passed)
+
+    prices = fundamentals["current_price"].reindex(candidates).dropna()
+    price_thresh = (
+        config.price_us
+        if config.exchange_region == ExchangeRegion.US
+        else config.price_europe
+    )
+    passed = apply_screen(prices, price_thresh, current_members)
+    candidates = candidates.intersection(passed)
 
     listing_age = compute_listing_age(price_history)
     listing_age = listing_age.reindex(candidates).dropna()

@@ -24,14 +24,17 @@ Design
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import logging
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 pytest.importorskip("yfinance")
 
+from app.services.market_data.yfinance.infrastructure import CircuitBreaker
 from app.services.market_data.yfinance.news.aggregator import (
     CountryNewsFetcher,
     _is_article_recent,
@@ -160,6 +163,77 @@ class TestNewsClientFetch:
         assert scraper.fetch.call_count == 2
 
 
+class TestNewsClientSharedCircuitBreaker:
+    def test_when_rate_limited_then_trips_the_shared_breaker(self) -> None:
+        breaker = CircuitBreaker(service_name="yfinance")
+        yf_client = MagicMock()
+        yf_client.circuit_breaker = breaker
+        yf_client.get_ticker.side_effect = RuntimeError("429 Too Many Requests")
+        client = NewsClient(yf_client=yf_client, scraper=MagicMock())
+        assert client.fetch("^GSPC", max_retries=1) is None
+        assert breaker.attempt_count == 1
+
+    def test_when_breaker_is_exhausted_then_no_request_is_made(self) -> None:
+        breaker = CircuitBreaker(service_name="yfinance", max_attempts=1)
+        breaker.trigger()
+        yf_client = _make_yf_client(news=[_make_article()])
+        yf_client.circuit_breaker = breaker
+        client = NewsClient(yf_client=yf_client, scraper=MagicMock())
+        assert client.fetch("^GSPC", max_retries=1) is None
+        yf_client.get_ticker.assert_not_called()
+
+    def test_when_fetch_succeeds_then_breaker_is_reset(self) -> None:
+        yf_client = _make_yf_client(news=[_make_article()])
+        client = NewsClient(yf_client=yf_client, scraper=MagicMock())
+        client.fetch("^GSPC", max_retries=1)
+        yf_client.circuit_breaker.check.assert_called_once()
+        yf_client.circuit_breaker.reset.assert_called_once()
+
+
+class TestNewsClientEmptyFeedSignal:
+    """yfinance maps a failing news endpoint to an empty stream, so only a run
+    of empty feeds distinguishes an outage from a quiet ticker."""
+
+    _LOGGER = "app.services.market_data.yfinance.news.client"
+
+    def _warnings(self, caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+        return [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    def test_when_consecutive_feeds_are_empty_then_warns_once(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        client = NewsClient(yf_client=_make_yf_client(news=[]), scraper=MagicMock())
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER):
+            results = [
+                client.fetch(symbol, max_retries=1)
+                for symbol in ("^TNX", "^VIX", "GC=F", "XLF", "EEM")
+            ]
+        assert results == [[]] * 5
+        assert len(self._warnings(caplog)) == 1
+        assert "consecutive" in self._warnings(caplog)[0].getMessage()
+
+    def test_when_empty_feeds_stay_below_threshold_then_no_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        client = NewsClient(yf_client=_make_yf_client(news=[]), scraper=MagicMock())
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER):
+            client.fetch("^TNX", max_retries=1)
+            client.fetch("^VIX", max_retries=1)
+        assert self._warnings(caplog) == []
+
+    def test_when_a_feed_has_articles_then_empty_streak_resets(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        yf_client = _make_yf_client(news=[])
+        client = NewsClient(yf_client=yf_client, scraper=MagicMock())
+        ticker = yf_client.get_ticker.return_value
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER):
+            for news in ([], [], [_make_article()], [], []):
+                ticker.news = news
+                client.fetch("^GSPC", max_retries=1)
+        assert self._warnings(caplog) == []
+
+
 class TestExtractLink:
     def _client(self) -> NewsClient:
         return NewsClient(yf_client=MagicMock(), scraper=MagicMock())
@@ -198,8 +272,8 @@ class TestParsArticleDate:
         assert isinstance(result, datetime)
         assert result.year == 2024
 
-    def test_when_datetime_object_then_returns_same(self) -> None:
-        dt = datetime(2024, 1, 1)
+    def test_when_aware_datetime_object_then_returns_same_instant(self) -> None:
+        dt = datetime(2024, 1, 1, 9, tzinfo=timezone(timedelta(hours=2)))
         assert _parse_article_date(dt) == dt
 
     def test_when_none_then_returns_none(self) -> None:
@@ -228,6 +302,51 @@ class TestIsArticleRecent:
     def test_when_epoch_today_then_returns_true(self) -> None:
         epoch = int(datetime.now().timestamp())
         assert _is_article_recent(epoch) is True
+
+
+class TestArticleTimestampsAreUtc:
+    """Every parsed article time is an aware UTC instant, whatever the input."""
+
+    _INSTANT = datetime(2024, 6, 1, 12, 0, tzinfo=timezone.utc)
+
+    def test_when_epoch_on_non_utc_host_then_returns_utc_instant(
+        self, host_timezone: Callable[[str], None]
+    ) -> None:
+        host_timezone("Asia/Tokyo")
+        result = _parse_article_date(int(self._INSTANT.timestamp()))
+        assert result is not None
+        assert result.isoformat() == "2024-06-01T12:00:00+00:00"
+
+    def test_when_iso_string_has_offset_then_converted_to_utc(self) -> None:
+        result = _parse_article_date("2024-06-01T14:00:00+02:00")
+        assert result is not None
+        assert result.isoformat() == "2024-06-01T12:00:00+00:00"
+
+    def test_when_naive_datetime_object_then_taken_as_utc(self) -> None:
+        result = _parse_article_date(datetime(2024, 1, 1, 9))
+        assert result is not None
+        assert result.isoformat() == "2024-01-01T09:00:00+00:00"
+
+    def test_when_iso_string_is_naive_then_taken_as_utc(self) -> None:
+        result = _parse_article_date("2024-06-01T12:00:00")
+        assert result is not None
+        assert result.isoformat() == "2024-06-01T12:00:00+00:00"
+
+    def test_when_aware_time_just_inside_window_in_negative_offset_then_recent(
+        self, host_timezone: Callable[[str], None]
+    ) -> None:
+        host_timezone("UTC")
+        inside = datetime.now(timezone.utc) - timedelta(days=60) + timedelta(hours=1)
+        wall_clock_in_minus_12 = inside.astimezone(timezone(timedelta(hours=-12)))
+        assert _is_article_recent(wall_clock_in_minus_12.isoformat()) is True
+
+    def test_when_aware_time_just_outside_window_in_positive_offset_then_stale(
+        self, host_timezone: Callable[[str], None]
+    ) -> None:
+        host_timezone("UTC")
+        outside = datetime.now(timezone.utc) - timedelta(days=60) - timedelta(hours=1)
+        wall_clock_in_plus_14 = outside.astimezone(timezone(timedelta(hours=14)))
+        assert _is_article_recent(wall_clock_in_plus_14.isoformat()) is False
 
 
 # ===========================================================================
@@ -330,3 +449,24 @@ class TestCountryNewsFetcher:
         result = fetcher.fetch_for_country("USA", fetch_full_content=True)
         assert len(result) == 1
         fetcher.scraper.fetch.assert_called_once()
+
+    def test_when_no_scraper_given_then_default_scraper_supplies_full_content(
+        self,
+    ) -> None:
+        yf_client = _make_yf_client(news=[_make_article(title="Default scraper")])
+        with patch(
+            "app.services.market_data.yfinance.news.scraper.ArticleScraper"
+        ) as scraper_cls:
+            scraper_cls.return_value.fetch.return_value = {
+                "success": True,
+                "content": "article body",
+                "content_length": 12,
+                "error": None,
+            }
+            fetcher = CountryNewsFetcher(
+                yf_client=yf_client, country_tickers={"USA": ["^GSPC"]}
+            )
+
+        result = fetcher.fetch_for_country("USA")
+
+        assert [a.get("full_content") for a in result] == ["article body"]

@@ -13,6 +13,8 @@ minutes and must not delay the first scheduled run).
 
 from __future__ import annotations
 
+import json
+import logging
 import threading
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
@@ -97,6 +99,154 @@ class TestStartup:
             worker_module.main()
 
         m.scheduler.start.assert_called_once()
+
+
+class TestConfigureLogging:
+    """``LOG_FORMAT=json`` (the default) must emit one valid JSON object per record."""
+
+    @staticmethod
+    @contextmanager
+    def _configured(log_format: str):
+        """Run ``_configure_logging`` against a bare root logger, then restore it.
+
+        pytest attaches its capture handlers to the root during each phase and
+        ``basicConfig`` is a no-op while the root has handlers, so the swap has to
+        happen inside the test body.
+        """
+        root = logging.getLogger()
+        handlers, level = root.handlers[:], root.level
+        root.handlers = []
+        try:
+            with (
+                patch.object(worker_module.settings, "log_format", log_format),
+                patch.object(worker_module.settings, "log_level", "INFO"),
+                patch("app.services.market_data.yfinance.configure_yfinance"),
+            ):
+                worker_module._configure_logging()
+            yield
+        finally:
+            root.handlers = handlers
+            root.setLevel(level)
+
+    def test_json_lines_survive_quotes_and_newlines_in_the_message(
+        self, capsys
+    ) -> None:
+        message = (
+            'Orphan reconciliation failed: relation "background_jobs" does not exist'
+            "\nsecond line"
+        )
+        with self._configured("json"):
+            logging.getLogger("app.probe").warning(message)
+
+        (line,) = capsys.readouterr().err.splitlines()
+        record = json.loads(line)
+        assert record["level"] == "WARNING"
+        assert record["name"] == "app.probe"
+        assert record["message"] == message
+        assert record["timestamp"]
+
+    def test_json_traceback_stays_inside_the_record(self, capsys) -> None:
+        with self._configured("json"):
+            probe = logging.getLogger("app.probe")
+            try:
+                raise ValueError('bad "value"')
+            except ValueError:
+                probe.exception("step failed")
+            probe.info("after")
+
+        lines = capsys.readouterr().err.splitlines()
+        failed, after = (json.loads(line) for line in lines)
+        assert failed["message"] == "step failed"
+        assert "Traceback" in failed["exception"]
+        assert "ValueError" in failed["exception"]
+        assert after["message"] == "after"
+
+    def test_text_format_is_unchanged(self, capsys) -> None:
+        with self._configured("text"):
+            logging.getLogger("app.probe").warning("plain")
+
+        assert capsys.readouterr().err.rstrip().endswith("app.probe - WARNING - plain")
+
+
+class TestSchedulerSupervision:
+    """A dead APScheduler thread must take the process down, not idle it green."""
+
+    @staticmethod
+    def _run_main(
+        scheduler: MagicMock, *, join_seconds: float
+    ) -> tuple[bool, dict[str, object]]:
+        """Run ``main()`` off-thread; return (still_blocked, outcome).
+
+        Without supervision ``main()`` waits on ``_shutdown`` forever, so the
+        test must never call it on the pytest thread.
+        """
+        worker_module._shutdown.clear()
+        outcome: dict[str, object] = {}
+
+        def _run() -> None:
+            try:
+                worker_module.main()
+            except SystemExit as exc:
+                outcome["code"] = exc.code
+
+        runner = threading.Thread(target=_run, daemon=True)
+        runner.start()
+        runner.join(timeout=join_seconds)
+        still_blocked = runner.is_alive()
+        worker_module._shutdown.set()  # release a main() that never noticed
+        runner.join(timeout=5)
+        return still_blocked, outcome
+
+    def test_exits_nonzero_when_the_scheduler_thread_dies(self) -> None:
+        """The metrics thread keeps the healthcheck green, so only a restart helps."""
+        scheduler = MagicMock()
+        scheduler.loop_alive.return_value = False
+
+        with (
+            _patched(scheduler=scheduler),
+            patch.object(worker_module, "_SUPERVISION_INTERVAL_SECONDS", 0.01),
+            patch.object(worker_module, "_force_exit"),
+        ):
+            still_blocked, outcome = self._run_main(scheduler, join_seconds=5)
+
+        assert not still_blocked, "main() kept waiting although the scheduler died"
+        assert outcome.get("code") not in (None, 0)
+        scheduler.shutdown.assert_called_once_with(wait=True)
+
+    def test_keeps_running_while_the_scheduler_thread_is_alive(self) -> None:
+        scheduler = MagicMock()
+        scheduler.loop_alive.return_value = True
+
+        with (
+            _patched(scheduler=scheduler),
+            patch.object(worker_module, "_SUPERVISION_INTERVAL_SECONDS", 0.01),
+            patch.object(worker_module, "_force_exit"),
+        ):
+            still_blocked, outcome = self._run_main(scheduler, join_seconds=0.2)
+
+        assert still_blocked
+        assert "code" not in outcome  # a requested shutdown still exits cleanly
+
+    def test_forced_exit_after_scheduler_death_is_nonzero(self) -> None:
+        block = threading.Event()
+        scheduler = MagicMock()
+        scheduler.loop_alive.return_value = False
+        scheduler.shutdown.side_effect = lambda wait=True: block.wait(timeout=5)
+
+        with (
+            _patched(scheduler=scheduler),
+            patch.object(worker_module, "_SUPERVISION_INTERVAL_SECONDS", 0.01),
+            patch.object(
+                worker_module.settings,
+                "scheduler_shutdown_drain_timeout_seconds",
+                0.05,
+            ),
+            patch.object(worker_module, "_force_exit") as fx,
+        ):
+            self._run_main(scheduler, join_seconds=5)
+            block.set()
+
+        fx.assert_called_once_with(1)
 
 
 class TestServeMetrics:
@@ -229,3 +379,20 @@ class TestGracefulShutdown:
         fx.assert_called_once()
         m.close.assert_not_called()  # skipped on the forced path
         block.set()  # release the daemon drain thread
+
+
+class TestLoggingSetup:
+    def test_masks_api_key_query_params_in_log_records(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """urllib3 logs the FRED request path (key included) at DEBUG."""
+        leaked = "FREDSECRETKEY0123456789abcdef"
+        with patch("app.services.market_data.yfinance.configure_yfinance"):
+            worker_module._configure_logging()
+
+        logging.getLogger("urllib3.connectionpool").warning(
+            '"GET /fred/series?series_id=T10Y2Y&api_key=%s HTTP/1.1" 200', leaked
+        )
+
+        assert "api_key=***" in caplog.text
+        assert leaked not in caplog.text

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import datetime as dt
+
 import numpy as np
 import pandas as pd
 import pytest
 from sklearn.pipeline import Pipeline
 
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.pre_selection import (
     PreSelectionConfig,
     SelectKMeasure,
@@ -63,9 +66,9 @@ class TestBuildPreselectionPipeline:
         pipe = build_preselection_pipeline()
         step_names = [name for name, _ in pipe.steps]
         assert step_names == [
+            "select_complete",
             "validate",
             "outliers",
-            "select_complete",
             "impute",
             "drop_zero_variance",
             "drop_correlated",
@@ -91,13 +94,26 @@ class TestBuildPreselectionPipeline:
 
     def test_non_expiring_step_added(self) -> None:
         cfg = PreSelectionConfig(use_non_expiring=True, expiration_lookahead=90)
-        pipe = build_preselection_pipeline(cfg)
+        pipe = build_preselection_pipeline(cfg, expiration_dates={})
         step_names = [name for name, _ in pipe.steps]
         assert "select_non_expiring" in step_names
 
-    def test_non_expiring_requires_lookahead(self) -> None:
+    def test_non_expiring_without_lookahead_raises_at_build(self) -> None:
+        # Silently skipping a hard eligibility filter the caller switched on
+        # would leave expiring contracts in the universe unnoticed.
         cfg = PreSelectionConfig(use_non_expiring=True)
-        pipe = build_preselection_pipeline(cfg)
+        with pytest.raises(ValueError, match="expiration_lookahead"):
+            build_preselection_pipeline(cfg, expiration_dates={})
+
+    def test_non_expiring_without_dates_raises_at_build(self) -> None:
+        cfg = PreSelectionConfig(use_non_expiring=True, expiration_lookahead=30)
+        with pytest.raises(ValueError, match="expiration_dates"):
+            build_preselection_pipeline(cfg)
+
+    def test_expiration_dates_ignored_when_non_expiring_disabled(self) -> None:
+        pipe = build_preselection_pipeline(
+            expiration_dates={"A": dt.datetime(2030, 1, 1)}
+        )
         step_names = [name for name, _ in pipe.steps]
         assert "select_non_expiring" not in step_names
 
@@ -196,6 +212,177 @@ class TestImputeAfterSelectOrdering:
         assert not out.isna().to_numpy().any()
 
 
+class TestCleaningNaNDoesNotDropAssets:
+    """A cleaning-created NaN on the first/last row is not an inception/expiry gap.
+
+    ``SelectComplete`` reads a boundary NaN as late listing or early delisting.
+    Data cleaning writes NaN into flagged cells, so a genuine jump that lands on
+    a window edge must not remove an asset that is still trading.
+    """
+
+    @staticmethod
+    def _frame() -> pd.DataFrame:
+        rng = np.random.default_rng(3)
+        return pd.DataFrame(
+            rng.normal(0.0, 0.01, (300, 8)),
+            columns=list("ABCDEFGH"),
+            index=pd.date_range("2023-01-02", periods=300, freq="B"),
+        )
+
+    @pytest.mark.parametrize(
+        ("row", "value"),
+        [
+            (-1, 15.0),  # DataValidator: |r| > max_abs_return
+            (-1, 0.45),  # OutlierTreater: |z| >= remove_threshold
+            (0, 0.45),
+            (0, 15.0),
+            (150, 0.45),
+            (-1, np.inf),
+        ],
+    )
+    def test_flagged_edge_observation_keeps_the_asset(
+        self, row: int, value: float
+    ) -> None:
+        df = self._frame()
+        df.iloc[row, 0] = value
+        cfg = PreSelectionConfig(correlation_threshold=1.0)
+
+        out = build_preselection_pipeline(cfg).fit_transform(df)
+
+        assert list(out.columns) == list("ABCDEFGH")
+        assert not out.isna().to_numpy().any()
+
+    def test_genuine_trailing_gap_still_drops_the_asset(self) -> None:
+        df = self._frame()
+        df.iloc[-1, 0] = np.nan
+        cfg = PreSelectionConfig(correlation_threshold=1.0)
+
+        out = build_preselection_pipeline(cfg).fit_transform(df)
+
+        assert "A" not in out.columns
+
+    def test_infinity_inside_history_is_imputed_not_fatal(self) -> None:
+        df = self._frame()
+        df.iloc[100, 3] = np.inf
+        cfg = PreSelectionConfig(correlation_threshold=1.0)
+
+        out = build_preselection_pipeline(cfg).fit_transform(df)
+
+        assert "D" in out.columns
+        assert np.isfinite(out.to_numpy()).all()
+
+
+class TestDegenerateUniverses:
+    """Zero or one surviving asset is a valid outcome, not a crash.
+
+    Pairwise selectors cannot fit on fewer than two assets and sklearn rejects
+    zero-column frames, so a universe that shrinks to one asset (or none) used
+    to raise instead of being returned as-is.
+    """
+
+    @staticmethod
+    def _frame(n_assets: int, n_obs: int = 200) -> pd.DataFrame:
+        rng = np.random.default_rng(5)
+        return pd.DataFrame(
+            rng.normal(0.0, 0.01, (n_obs, n_assets)),
+            columns=[f"S{i}" for i in range(n_assets)],
+            index=pd.date_range("2023-01-02", periods=n_obs, freq="B"),
+        )
+
+    @staticmethod
+    def _all_optional_steps() -> PreSelectionConfig:
+        return PreSelectionConfig(
+            top_k=3,
+            use_pareto=True,
+            use_non_expiring=True,
+            expiration_lookahead=30,
+        )
+
+    def test_single_asset_universe_is_returned(self) -> None:
+        out = build_preselection_pipeline().fit_transform(self._frame(1))
+
+        assert list(out.columns) == ["S0"]
+        assert len(out) == 200
+
+    def test_single_survivor_after_zero_variance_is_returned(self) -> None:
+        df = self._frame(4)
+        df[["S1", "S2", "S3"]] = 0.0
+
+        out = build_preselection_pipeline().fit_transform(df)
+
+        assert list(out.columns) == ["S0"]
+
+    def test_no_survivor_after_select_complete_returns_empty_frame(self) -> None:
+        df = self._frame(4)
+        df.iloc[-1, :] = np.nan
+
+        out = build_preselection_pipeline().fit_transform(df)
+
+        assert out.shape == (200, 0)
+
+    def test_no_survivor_after_zero_variance_returns_empty_frame(self) -> None:
+        df = self._frame(4)
+        df[:] = 0.0
+
+        out = build_preselection_pipeline().fit_transform(df)
+
+        assert out.shape == (200, 0)
+
+    @pytest.mark.parametrize("n_assets", [0, 1])
+    def test_all_optional_steps_tolerate_tiny_universes(self, n_assets: int) -> None:
+        pipe = build_preselection_pipeline(
+            self._all_optional_steps(),
+            expiration_dates={"S0": dt.datetime(2030, 1, 1)},
+        )
+
+        out = pipe.fit_transform(self._frame(n_assets))
+
+        assert out.shape == (200, n_assets)
+
+    def test_fitted_pipeline_transforms_an_empty_selection(self) -> None:
+        df = self._frame(4)
+        df.iloc[-1, :] = np.nan
+        pipe = build_preselection_pipeline().fit(df)
+
+        assert pipe.transform(df).shape == (200, 0)
+
+
+class TestUnfillableRows:
+    """A date on which no asset has an observation cannot be imputed.
+
+    The imputer fills a gap from the other assets on the same date, so a row
+    that is missing for every asset stays ``NaN`` and the next selector would
+    reject it with an error that names neither the date nor the imputer.
+    """
+
+    @staticmethod
+    def _frame() -> pd.DataFrame:
+        rng = np.random.default_rng(11)
+        return pd.DataFrame(
+            rng.normal(0.0, 0.01, (200, 5)),
+            columns=list("ABCDE"),
+            index=pd.date_range("2023-01-02", periods=200, freq="B"),
+        )
+
+    @pytest.mark.parametrize("fill", [np.nan, 15.0])
+    def test_row_missing_for_every_asset_names_the_date(self, fill: float) -> None:
+        df = self._frame()
+        df.iloc[100, :] = fill  # 15.0 is NaN-ed by the validator, not the caller
+
+        with pytest.raises(DataError, match=str(df.index[100].date())):
+            build_preselection_pipeline().fit_transform(df)
+
+    def test_row_with_a_single_observation_is_still_imputed(self) -> None:
+        df = self._frame()
+        df.iloc[100, 1:] = np.nan
+
+        out = build_preselection_pipeline(
+            PreSelectionConfig(correlation_threshold=1.0)
+        ).fit_transform(df)
+
+        assert np.isfinite(out.to_numpy()).all()
+
+
 class TestPreSelectionConfigValidation:
     """Tests for PreSelectionConfig.__post_init__ validation (issue #64)."""
 
@@ -210,6 +397,11 @@ class TestPreSelectionConfigValidation:
     def test_winsorize_lt_remove_ok(self) -> None:
         cfg = PreSelectionConfig(winsorize_threshold=3.0, remove_threshold=10.0)
         assert cfg.winsorize_threshold == 3.0
+
+    @pytest.mark.parametrize("threshold", [0.0, -1.0])
+    def test_winsorize_non_positive_raises(self, threshold: float) -> None:
+        with pytest.raises(ValueError, match="winsorize_threshold"):
+            PreSelectionConfig(winsorize_threshold=threshold)
 
     def test_correlation_threshold_zero_raises(self) -> None:
         with pytest.raises(ValueError, match="correlation_threshold"):
@@ -235,6 +427,17 @@ class TestPreSelectionConfigValidation:
         with pytest.raises(ValueError, match="max_abs_return"):
             PreSelectionConfig(max_abs_return=-1.0)
 
+    @pytest.mark.parametrize("fallback", ["zero", "bogus", ""])
+    def test_unsupported_imputation_fallback_raises(self, fallback: str) -> None:
+        # The imputer only ever falls back to the global mean, so any other
+        # request would be silently ignored rather than honoured.
+        with pytest.raises(ValueError, match="imputation_fallback"):
+            PreSelectionConfig(imputation_fallback=fallback)
+
+    def test_global_mean_imputation_fallback_ok(self) -> None:
+        cfg = PreSelectionConfig(imputation_fallback="global_mean")
+        assert cfg.imputation_fallback == "global_mean"
+
     def test_existing_presets_pass_validation(self) -> None:
         PreSelectionConfig.for_daily_annual()
         PreSelectionConfig.for_conservative()
@@ -254,6 +457,18 @@ class TestOutlierMethodValidation:
         cfg = PreSelectionConfig(outlier_method="time_series")
         pipe = build_preselection_pipeline(cfg)
         assert isinstance(pipe, Pipeline)
+
+
+class TestImputationFallbackValidation:
+    def test_unsupported_imputation_fallback_raises_on_fit(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        # The config rejects the value up front; set_params / grid-search sweeps
+        # bypass it, so the imputer has to refuse it at fit as well.
+        pipe = build_preselection_pipeline(PreSelectionConfig())
+        pipe.set_params(impute__fallback_strategy="zero")
+        with pytest.raises(ConfigurationError, match="fallback_strategy"):
+            pipe.fit(returns_df)
 
 
 class TestPreSelectionBehavioral:
@@ -417,13 +632,13 @@ class TestStepOrdering:
             use_non_expiring=True,
             expiration_lookahead=90,
         )
-        pipe = build_preselection_pipeline(cfg)
+        pipe = build_preselection_pipeline(cfg, expiration_dates={})
         step_names = [name for name, _ in pipe.steps]
+        assert step_names.index("select_non_expiring") < step_names.index(
+            "drop_correlated"
+        )
         assert step_names.index("drop_correlated") < step_names.index("select_k")
         assert step_names.index("select_k") < step_names.index("select_pareto")
-        assert step_names.index("select_pareto") < step_names.index(
-            "select_non_expiring"
-        )
 
 
 class TestSkfolioIntegration:
@@ -556,13 +771,59 @@ class TestNonExpiringWithDates:
         assert "LIVE" in out.columns
         assert "OTHER" in out.columns
 
-    def test_no_dates_requires_dates_at_fit(self) -> None:
-        """skfolio's SelectNonExpiring mandates expiration_dates at fit time.
+    def test_top_k_is_filled_from_non_expiring_assets_only(self) -> None:
+        """Expiring assets are ineligible, so they must not consume top-k slots."""
+        rng = np.random.default_rng(11)
+        n_obs, n_assets = 250, 20
+        idx = pd.date_range("2023-01-02", periods=n_obs, freq="B")
+        df = pd.DataFrame(
+            np.column_stack(
+                [rng.normal(0.0005 * i, 0.005, n_obs) for i in range(n_assets)]
+            ),
+            columns=[f"S{i}" for i in range(n_assets)],
+            index=idx,
+        )
+        # The five best-ranked assets are the ones about to expire.
+        expiring = {f"S{i}": idx[-1] + pd.Timedelta(days=5) for i in range(15, 20)}
+        cfg = PreSelectionConfig(
+            top_k=10,
+            correlation_threshold=1.0,
+            use_non_expiring=True,
+            expiration_lookahead=30,
+        )
 
-        Building without them still assembles the pipeline (step-ordering
-        tests rely on that), but fitting raises — documenting that
-        expiration_dates is a required companion of use_non_expiring.
-        """
+        out = build_preselection_pipeline(cfg, expiration_dates=expiring).fit_transform(
+            df
+        )
+
+        assert out.shape[1] == 10
+        assert not set(out.columns) & set(expiring)
+
+    def test_live_twin_survives_correlation_filter_over_expiring_asset(self) -> None:
+        """A live asset must not be dropped as a duplicate of one that expires."""
+        rng = np.random.default_rng(3)
+        n_obs = 250
+        idx = pd.date_range("2023-01-02", periods=n_obs, freq="B")
+        base = rng.normal(0.001, 0.01, n_obs)
+        df = pd.DataFrame(
+            {
+                "EXPIRES": base,
+                "TWIN": base + rng.normal(0.0, 1e-4, n_obs),
+                "OTHER": rng.normal(0.001, 0.01, n_obs),
+            },
+            index=idx,
+        )
+        cfg = PreSelectionConfig(use_non_expiring=True, expiration_lookahead=30)
+        expiring = {"EXPIRES": idx[-1] + pd.Timedelta(days=5)}
+
+        out = build_preselection_pipeline(cfg, expiration_dates=expiring).fit_transform(
+            df
+        )
+
+        assert set(out.columns) == {"TWIN", "OTHER"}
+
+    def test_empty_dates_retain_every_asset(self) -> None:
+        """An explicit empty mapping means no asset expires, so nothing is dropped."""
         rng = np.random.default_rng(2)
         n_obs = 120
         df = pd.DataFrame(
@@ -575,6 +836,5 @@ class TestNonExpiringWithDates:
             expiration_lookahead=30,
             correlation_threshold=1.0,
         )
-        pipe = build_preselection_pipeline(cfg)
-        with pytest.raises(ValueError, match="expiration_dates"):
-            pipe.fit_transform(df)
+        out = build_preselection_pipeline(cfg, expiration_dates={}).fit_transform(df)
+        assert list(out.columns) == ["A", "B", "C"]

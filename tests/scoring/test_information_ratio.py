@@ -248,3 +248,31 @@ class TestBuildIRScorerEdgeCases:
         model.fit(equal_returns)
         score = scorer(model, equal_returns)
         assert score == 0.0
+
+    def test_failed_portfolio_scores_nan_not_zero(self) -> None:
+        """An infeasible fit (all-NaN returns) must rank last, not score 0.0."""
+        from skfolio.optimization import MeanRisk
+
+        rng = np.random.default_rng(1)
+        asset_returns = pd.DataFrame(
+            rng.normal(0.001, 0.01, (N_OBS, 4)),
+            index=DATES,
+            columns=list("ABCD"),
+        )
+        bm = pd.Series(rng.normal(0.001, 0.01, N_OBS), index=DATES)
+        # Four assets cannot each hold 60%, so the solver fails and skfolio
+        # returns a FailedPortfolio with all-NaN returns.
+        with pytest.warns(UserWarning, match="failed"):
+            model = MeanRisk(raise_on_failure=False, min_weights=0.6).fit(asset_returns)
+        scorer = _build_ir_scorer(bm)
+        assert math.isnan(scorer(model, asset_returns))
+
+    def test_single_observation_window_scores_nan(self) -> None:
+        """One observation has no sample std, so the IR is undefined (NaN)."""
+        bm = pd.Series(np.full(N_OBS, 0.001), index=DATES)
+        window = pd.DataFrame(
+            np.full((1, N_ASSETS), 0.002), index=DATES[:1], columns=TICKERS
+        )
+        model = EqualWeighted().fit(window)
+        scorer = _build_ir_scorer(bm)
+        assert math.isnan(scorer(model, window))

@@ -10,7 +10,12 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
 from optimizer.exceptions import ConfigurationError, DataError
+from optimizer.preprocessing._alignment import (
+    _align_to_fit_columns,
+    _fit_feature_names_out,
+)
 from optimizer.preprocessing._coerce import _coerce_numeric
+from optimizer.preprocessing._gaps import edge_gap_mask
 from optimizer.preprocessing._imputation import SectorImputer
 
 logger = logging.getLogger(__name__)
@@ -35,7 +40,10 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
 
     Args:
         n_neighbors: Number of most-correlated assets used as regression
-            predictors.
+            predictors. Candidates are taken in descending ``|corr|`` order and
+            kept only while the target and all kept neighbours stay jointly
+            observed on at least ``min_train_periods`` rows, so an asset may
+            end up with fewer neighbours (or none).
         min_train_periods: Minimum complete-row count required to fit the OLS
             regression for an asset. Assets below this threshold use the
             fallback strategy.
@@ -45,12 +53,18 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
         sector_mapping: Maps ticker to sector label. Passed to the internal
             SectorImputer used for fallback imputation. When None, the
             fallback uses a global cross-sectional mean.
+        fill_edges: Whether to fill the NaN run before an asset's first and
+            after its last observation. Set ``False`` for panels that keep
+            pre-listing and post-delisting NaN on purpose: filling them invents
+            a return history the asset never had. Interior gaps are filled
+            either way.
     """
 
     n_neighbors: int
     min_train_periods: int
     fallback: str
     sector_mapping: dict[str, str] | None
+    fill_edges: bool
 
     def __init__(
         self,
@@ -58,11 +72,13 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
         min_train_periods: int = 60,
         fallback: str = "sector_mean",
         sector_mapping: dict[str, str] | None = None,
+        fill_edges: bool = True,
     ) -> None:
         self.n_neighbors = n_neighbors
         self.min_train_periods = min_train_periods
         self.fallback = fallback
         self.sector_mapping = sector_mapping
+        self.fill_edges = fill_edges
 
     def fit(self, X: pd.DataFrame, y: object = None) -> RegressionImputer:
         """Compute neighbor rankings and fit per-asset OLS regressions.
@@ -84,28 +100,37 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
                 "Only 'sector_mean' is supported."
             )
 
-        corr = X.corr().abs()
+        # pandas' default min_periods=1 scores a 2-6 row overlap as |corr|~1, so a
+        # recent listing would outrank every full-history asset. Pairs without
+        # enough overlap become NaN and drop out of the ranking.
+        corr = X.corr(min_periods=self.min_train_periods).abs()
+        observed = X.notna()
 
         self.neighbors_: dict[str, list[str]] = {}
-        for col in X.columns:
-            others = corr[col].drop(col)
-            k = min(self.n_neighbors, len(others))
-            self.neighbors_[col] = others.nlargest(k).index.tolist()
-
         self.coefs_: dict[str, np.ndarray | None] = {}
         for col in X.columns:
-            nbrs = self.neighbors_[col]
+            ranked = corr[col].drop(col).nlargest(len(X.columns)).index
+            # Pairwise overlap does not bound the joint overlap of K neighbours:
+            # two assets with disjoint histories each overlap the target but
+            # leave no complete row together. Keeping a candidate only while the
+            # running joint count stays sufficient guarantees the OLS below has
+            # at least min_train_periods rows.
+            joint = observed[col]
+            nbrs: list[str] = []
+            for cand in ranked:
+                if len(nbrs) >= self.n_neighbors:
+                    break
+                cand_joint = joint & observed[cand]
+                if cand_joint.sum() >= self.min_train_periods:
+                    nbrs.append(cand)
+                    joint = cand_joint
+            self.neighbors_[col] = nbrs
+
             if not nbrs:
                 self.coefs_[col] = None
                 continue
 
-            cols_needed = [col, *nbrs]
-            complete = X[cols_needed].dropna()
-
-            if len(complete) < self.min_train_periods:
-                self.coefs_[col] = None
-                continue
-
+            complete = X.loc[joint, [col, *nbrs]]
             y_train = complete[col].to_numpy()
             X_train = complete[nbrs].to_numpy()
             # Design matrix: [1, r_j1, ..., r_jK]
@@ -123,13 +148,20 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
         """Impute NaN values using fitted regressions and/or fallback.
 
         Args:
-            X: Asset return DataFrame (dates x assets). May contain NaN.
+            X: Asset return DataFrame (dates x assets). May contain NaN. Must
+                carry the columns seen in fit, in any order.
 
         Returns:
-            Copy of X with NaN values filled.
+            Copy of X with NaN values filled, columns in fit order. Edge gaps
+            stay NaN when ``fill_edges`` is ``False``.
+
+        Raises:
+            DataError: If X lacks a fit column or has one unseen in fit.
         """
         check_is_fitted(self)
-        X = self._validate_input(X)
+        X = _align_to_fit_columns(
+            self._validate_input(X), self.feature_names_in_, "RegressionImputer"
+        )
 
         fallback_df = self._fallback_imputer_.transform(X)
         out = X.copy()
@@ -166,12 +198,25 @@ class RegressionImputer(BaseEstimator, TransformerMixin):
             if still_nan.any():
                 out.loc[still_nan, col] = fallback_df.loc[still_nan, col]
 
+        if not self.fill_edges:
+            out = out.mask(edge_gap_mask(X))
         return out
 
     def get_feature_names_out(self, input_features: object = None) -> np.ndarray:
-        """Return feature names (pass-through)."""
+        """Return the feature names seen during fit.
+
+        Args:
+            input_features: Optional names to check against the fit columns,
+                as sklearn passes through ``Pipeline.get_feature_names_out``.
+
+        Returns:
+            Array of column names from the fitted DataFrame.
+
+        Raises:
+            ValueError: If *input_features* differs from the fit columns.
+        """
         check_is_fitted(self)
-        return self.feature_names_in_
+        return _fit_feature_names_out(self.feature_names_in_, input_features)
 
     @staticmethod
     def _validate_input(X: pd.DataFrame) -> pd.DataFrame:

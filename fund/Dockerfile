@@ -55,18 +55,25 @@ RUN test -d /app/optimizerwiki/docs \
 # Editable install into an isolated venv. --frozen: respect the committed lock.
 # --no-dev: no test deps. NO --no-editable (see header): members stay editable and
 # resolve to /app/... , which the runtime stage reproduces at the same path.
+# --extra all-llm: the setup wizard lets the user pick any of ten providers at
+# runtime, yet only ollama/anthropic/google arrive as hard deps. The runtime stage
+# has no uv, so an SDK missing here can never be installed later and the first
+# model build would fail with an ImportError inside the container.
 RUN uv venv /venv
 ENV VIRTUAL_ENV=/venv PATH=/venv/bin:$PATH
 # uv sync reaches PyPI over TLS; behind a TLS-inspecting proxy the slim image has
 # no corporate root. Honour an OPTIONAL BuildKit secret (absent by default —
 # required=false — so an off-network build still resolves on plain certifi) and
 # point Python's TLS at it only when the mount is non-empty.
+# `--extra all-llm`: the install wizard offers every switchable provider and a
+# running container cannot `uv sync` an extra later, so the image must ship all
+# provider SDKs (no torch/transformers - the huggingface extra is cloud-only).
 RUN --mount=type=secret,id=ca_bundle \
     if [ -s /run/secrets/ca_bundle ]; then \
         export SSL_CERT_FILE=/run/secrets/ca_bundle \
                REQUESTS_CA_BUNDLE=/run/secrets/ca_bundle; \
     fi; \
-    uv sync --frozen --no-dev --package portopt-fund --active
+    uv sync --frozen --no-dev --package portopt-fund --extra all-llm --active
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM python:3.12-slim

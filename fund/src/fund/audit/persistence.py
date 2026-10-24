@@ -22,11 +22,14 @@ allows it, but persistence needs only ``portopt_db``-adjacent primitives.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import cast
 
 import psycopg
 from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.store.postgres import PostgresStore
 from psycopg import Connection
 from psycopg.rows import DictRow
@@ -45,6 +48,11 @@ LANGGRAPH_TABLES: tuple[str, ...] = (
     "store",
     "store_migrations",
 )
+
+
+# Every process bootstrapping the langgraph schema must take the same advisory-lock
+# key; the value itself is arbitrary.
+_BOOTSTRAP_LOCK_KEY = 0x4C47_5F42_4F4F_5453
 
 
 @dataclass(frozen=True)
@@ -101,6 +109,24 @@ def create_schema(conninfo: str, schema: str) -> None:
         conn.execute(SQL("CREATE SCHEMA IF NOT EXISTS {}").format(Identifier(schema)))
 
 
+@contextmanager
+def _bootstrap_lock(conninfo: str) -> Iterator[None]:
+    """Hold a Postgres advisory lock so only one process bootstraps at a time.
+
+    ``.setup()`` reads the applied migration version and then inserts the next one
+    without a lock or ``ON CONFLICT``, so two processes starting together (the
+    worker and a CLI or TUI launched right after it) both insert the same version
+    and the loser dies on a ``UniqueViolation``. The lock is a session lock on its
+    own autocommit connection, released when that connection closes.
+
+    Args:
+        conninfo: A bare ``postgresql://`` connection string.
+    """
+    with psycopg.connect(conninfo, autocommit=True) as conn:
+        conn.execute("SELECT pg_advisory_lock(%s)", (_BOOTSTRAP_LOCK_KEY,))
+        yield
+
+
 def build_pool(config: FundConfig) -> ConnectionPool[Connection[DictRow]]:
     """Open the shared pool forcing ``search_path=langgraph`` + setup requirements.
 
@@ -124,8 +150,29 @@ def build_pool(config: FundConfig) -> ConnectionPool[Connection[DictRow]]:
         max_size=4,
         open=True,
         kwargs=config.langgraph_pool_kwargs(),
+        # Long-lived daemons outlive Postgres restarts and VM suspends; without a
+        # check the pool hands out the dead socket and the next checkpoint op fails.
+        check=ConnectionPool.check_connection,
     )
     return cast("ConnectionPool[Connection[DictRow]]", pool)
+
+
+def build_checkpoint_serde() -> JsonPlusSerializer:
+    """Serializer for checkpoint blobs that refuses to construct arbitrary types.
+
+    The library default imports and calls whatever module and name a stored msgpack
+    blob carries, so anyone able to write the ``langgraph`` schema could run code in
+    every process that loads a checkpoint (the TUI does so on a timer). Passing
+    ``None`` restricts loading to the library's built-in safe types — messages,
+    ``Command``/``Interrupt``, dates and the like — and langgraph widens that with
+    the types of the compiled graph's own state. Any other type comes back as its
+    raw payload instead of being constructed.
+
+    Returns:
+        A serializer with a closed allowlist, independent of the
+        ``LANGGRAPH_STRICT_MSGPACK`` environment variable.
+    """
+    return JsonPlusSerializer(allowed_msgpack_modules=None)
 
 
 def setup_langgraph(config: FundConfig | None = None) -> LangGraphPersistence:
@@ -137,21 +184,33 @@ def setup_langgraph(config: FundConfig | None = None) -> LangGraphPersistence:
     Returns:
         The pool and both persistence handles. The caller owns the pool's
         lifetime (call ``result.pool.close()`` when done).
+
+    Raises:
+        Exception: Whatever the schema or saver/store setup raised; the pool
+            opened for it is closed before the error propagates.
     """
     cfg = config if config is not None else settings
     conninfo = _require_conninfo(cfg)
-    create_schema(conninfo, cfg.langgraph_schema)
-    pool = build_pool(cfg)
-    saver = PostgresSaver(pool)
-    store = PostgresStore(pool)
-    saver.setup()
-    store.setup()
+    with _bootstrap_lock(conninfo):
+        create_schema(conninfo, cfg.langgraph_schema)
+        pool = build_pool(cfg)
+        # The pool is already open (worker threads + connections); if setup fails no
+        # caller ever receives it, so it must be closed here or it leaks.
+        try:
+            saver = PostgresSaver(pool, serde=build_checkpoint_serde())
+            store = PostgresStore(pool)
+            saver.setup()
+            store.setup()
+        except BaseException:
+            pool.close()
+            raise
     return LangGraphPersistence(pool=pool, saver=saver, store=store)
 
 
 __all__ = [
     "LANGGRAPH_TABLES",
     "LangGraphPersistence",
+    "build_checkpoint_serde",
     "build_pool",
     "create_schema",
     "normalize_conninfo",

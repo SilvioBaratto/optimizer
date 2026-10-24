@@ -133,7 +133,10 @@ def run_cross_val(
         params: Auxiliary metadata forwarded to nested estimators via sklearn
             metadata routing (e.g. {"implied_vol": implied_vol_df}). Requires
             sklearn.set_config(enable_metadata_routing=True) and the relevant
-            set_fit_request calls on sub-estimators.
+            set_fit_request calls on sub-estimators. With routing off (the
+            default), a Pipeline instead accepts only step-prefixed keys
+            (e.g. {"optimizer__factors": factor_returns}) and rejects bare
+            ones; with routing on it is the reverse.
         n_jobs: Number of parallel jobs.
         portfolio_params: Additional parameters forwarded to the portfolio
             constructor.
@@ -212,30 +215,70 @@ def compute_optimal_folds(
 
 @dataclass(frozen=True)
 class CrossValFailureReport:
-    """Summary of failed folds in a cross-validated backtest.
+    """Summary of failed and fallback-rescued folds in a cross-validated backtest.
 
     skfolio optimizers accept raise_on_failure=False. When an optimizer
     configured that way cannot solve a fold, cross_val_predict yields a
-    FailedPortfolio sentinel for that fold instead of raising. This report
-    counts those sentinels so a backtest can surface solver fragility rather
-    than silently averaging over failed rebalances.
+    FailedPortfolio sentinel for that fold instead of raising. When a
+    ``fallback`` is configured as well and rescues the fold, the result is an
+    ordinary Portfolio whose ``fallback_chain`` records the primary failure.
+    This report counts both so a backtest can surface solver fragility rather
+    than silently averaging over failed or substituted rebalances.
 
     Attributes:
         total: Total number of (leaf) portfolios inspected.
         n_failed: Number of FailedPortfolio sentinels.
         failure_rate: n_failed / total (0.0 when total is zero).
         failures: (portfolio_name, optimization_error) for each failed fold.
+        failed_folds: 0-based position of each failed fold in the flattened
+            leaf sequence (rebalance order for a MultiPeriodPortfolio,
+            path-major for a Population), parallel to ``failures``. Portfolio
+            names repeat across folds in a real run, so the position is what
+            identifies a fold.
+        n_fell_back: Number of folds whose primary solve failed and was
+            rescued by a fallback, so their weights are not the primary
+            optimum.
+        fallback_rate: n_fell_back / total (0.0 when total is zero).
+        fell_back: (portfolio_name, primary_error) for each rescued fold.
+        fell_back_folds: Fold positions of the rescued folds, parallel to
+            ``fell_back`` and indexed like ``failed_folds``.
     """
 
     total: int
     n_failed: int
     failure_rate: float
     failures: list[tuple[str, str]] = field(default_factory=list)
+    failed_folds: list[int] = field(default_factory=list)
+    n_fell_back: int = 0
+    fallback_rate: float = 0.0
+    fell_back: list[tuple[str, str]] = field(default_factory=list)
+    fell_back_folds: list[int] = field(default_factory=list)
 
     @property
     def has_failures(self) -> bool:
         """``True`` when at least one fold failed to optimize."""
         return self.n_failed > 0
+
+    @property
+    def has_fallbacks(self) -> bool:
+        """``True`` when at least one fold was rescued by a fallback."""
+        return self.n_fell_back > 0
+
+
+_MAX_LOGGED_FOLDS = 10
+
+
+def _format_fold_positions(positions: list[int]) -> str:
+    """Render fold positions for a log line, capped so the line stays bounded.
+
+    CombinatorialPurgedCV can yield hundreds of folds, and every fold of a real
+    run shares one portfolio name, so positions are the only useful identifier.
+    """
+    shown = ", ".join(str(i) for i in positions[:_MAX_LOGGED_FOLDS])
+    hidden = len(positions) - _MAX_LOGGED_FOLDS
+    if hidden > 0:
+        shown += f", ... (+{hidden} more)"
+    return f"[{shown}]"
 
 
 def _iter_leaf_portfolios(pred: Any) -> list[Any]:
@@ -265,36 +308,63 @@ def _iter_leaf_portfolios(pred: Any) -> list[Any]:
 
 
 def summarize_cv_failures(pred: Any) -> CrossValFailureReport:
-    """Count failed folds in a cross-validated backtest prediction.
+    """Count failed and fallback-rescued folds in a cross-validated prediction.
 
     Works on the output of run_cross_val (a MultiPeriodPortfolio for
     single-path CV or a Population for CombinatorialPurgedCV /
     MultipleRandomizedCV). Use together with skfolio's optimizer resilience
     layer (MeanRisk(..., raise_on_failure=False, fallback=...)) so a failed
-    rebalance produces a FailedPortfolio instead of aborting the whole backtest.
+    rebalance does not abort the whole backtest. A fold the fallback rescues is
+    an ordinary Portfolio, so it is reported separately in ``fell_back``
+    instead of counting as a failure; a fold the whole chain could not solve is
+    a FailedPortfolio and is reported in ``failures``. Each list has a parallel
+    ``*_folds`` list of fold positions. A warning naming the first fold
+    positions is logged whenever any fold fell back.
 
     Args:
         pred: A cross-validation prediction (Portfolio, MultiPeriodPortfolio,
             or Population).
 
     Returns:
-        Aggregate failure counts and per-fold error messages.
+        Aggregate failure and fallback counts with per-fold error messages.
     """
     leaves = _iter_leaf_portfolios(pred)
-    failures = [
-        (
-            str(getattr(p, "name", "") or ""),
-            str(getattr(p, "optimization_error", "") or ""),
-        )
-        for p in leaves
-        if isinstance(p, FailedPortfolio)
-    ]
+    failures: list[tuple[str, str]] = []
+    failed_folds: list[int] = []
+    fell_back: list[tuple[str, str]] = []
+    fell_back_folds: list[int] = []
+    for position, p in enumerate(leaves):
+        name = str(getattr(p, "name", "") or "")
+        if isinstance(p, FailedPortfolio):
+            failures.append((name, str(getattr(p, "optimization_error", "") or "")))
+            failed_folds.append(position)
+            continue
+        chain = getattr(p, "fallback_chain", None)
+        if chain:
+            fell_back.append((name, str(chain[0][1])))
+            fell_back_folds.append(position)
+
     total = len(leaves)
     n_failed = len(failures)
-    failure_rate = n_failed / total if total > 0 else 0.0
+    n_fell_back = len(fell_back)
+    if n_fell_back:
+        logger.warning(
+            "%d of %d folds fell back to a fallback optimizer after the primary "
+            "solve failed; their weights are not the primary optimum and a "
+            "previous-weights fallback may leave weight unallocated; fold "
+            "positions: %s",
+            n_fell_back,
+            total,
+            _format_fold_positions(fell_back_folds),
+        )
     return CrossValFailureReport(
         total=total,
         n_failed=n_failed,
-        failure_rate=failure_rate,
+        failure_rate=n_failed / total if total > 0 else 0.0,
         failures=failures,
+        failed_folds=failed_folds,
+        n_fell_back=n_fell_back,
+        fallback_rate=n_fell_back / total if total > 0 else 0.0,
+        fell_back=fell_back,
+        fell_back_folds=fell_back_folds,
     )

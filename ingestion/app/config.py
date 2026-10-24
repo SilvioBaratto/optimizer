@@ -1,14 +1,17 @@
 """Ingestion-daemon configuration using Pydantic Settings v2."""
 
+import logging
 import os
 from pathlib import Path
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+logger = logging.getLogger(__name__)
+
 # Secret fields overridden by mounted Docker-compose secret files at runtime.
 # The container mounts each at ``$PORTOPT_SECRETS_DIR/<field>`` (default
-# ``/run/secrets``); a present file wins over env/.env and is stripped.
+# ``/run/secrets``); a non-empty file wins over env/.env and is stripped.
 _SECRET_FILE_FIELDS = (
     "trading_212_api_key",
     "trading_212_secret_key",
@@ -38,6 +41,16 @@ class Settings(BaseSettings):
     database_pool_pre_ping: bool = Field(default=True)
     database_echo: bool = Field(default=False)
     database_pool_reset_on_return: str = Field(default="rollback")
+    # Server-side caps, 0 = off (PostgreSQL waits forever). The lock timeout is on
+    # by default so a writer queued behind another transaction's row lock fails
+    # instead of pinning a pool connection indefinitely; lock waits in healthy
+    # runs are sub-second, so 60s only trips on a genuine stall. The statement
+    # timeout stays opt-in because it would cancel legitimate bulk writes.
+    # Deliberately no idle-in-transaction knob: a ticker is one transaction
+    # spanning its Yahoo calls, so that timeout would discard the ticker's writes
+    # mid-fetch.
+    database_lock_timeout_ms: int = Field(default=60_000, ge=0)
+    database_statement_timeout_ms: int = Field(default=0, ge=0)
 
     log_level: str = Field(default="INFO")
     log_format: str = Field(default="json")
@@ -67,9 +80,9 @@ class Settings(BaseSettings):
         default="0 2 * * sat",
         alias="SCHEDULER_UNIVERSE_BUILD_CRON",
         description=(
-            "Trading 212 universe rebuild. Saturday 02:00 UTC by default. Must "
-            "precede SCHEDULER_WEEKLY_REFETCH_CRON so the yfinance rebuild "
-            "fetches the fresh instrument set."
+            "Instrument universe rebuild (yfinance Screener). Saturday 02:00 UTC "
+            "by default. Must precede SCHEDULER_WEEKLY_REFETCH_CRON so the "
+            "yfinance rebuild fetches the fresh instrument set."
         ),
     )
     scheduler_weekly_refetch_cron: str = Field(
@@ -113,6 +126,17 @@ class Settings(BaseSettings):
         default=300,
         ge=1,
         alias="SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS",
+    )
+    scheduler_step_stall_timeout_seconds: int = Field(
+        default=3600,
+        ge=1,
+        alias="SCHEDULER_STEP_STALL_TIMEOUT_SECONDS",
+        description=(
+            "A scheduler-run step that reports no progress for this long stops "
+            "renewing its heartbeat lease, so the orphan reaper can free the job "
+            "slot of a worker wedged on a lock. Keep it well above the longest "
+            "legitimate silent stretch of any step."
+        ),
     )
     scheduler_orphan_strategy: str = Field(
         default="fail",
@@ -181,6 +205,16 @@ class Settings(BaseSettings):
             "step. Must be in [1, 16]. Setting 1 uses the serial path."
         ),
     )
+    yfinance_log_level: str = Field(
+        default="CRITICAL",
+        alias="YFINANCE_LOG_LEVEL",
+        description=(
+            "Level for yfinance's own logger. yfinance logs Yahoo's routine "
+            "'no data' answers (e.g. 404 'No fundamentals data found' for most "
+            "non-US listings) at ERROR, so its output is hidden by default. "
+            "Set DEBUG to troubleshoot yfinance itself."
+        ),
+    )
 
     notification_webhook_url: str | None = Field(
         default=None,
@@ -195,15 +229,31 @@ class Settings(BaseSettings):
         """Override secret fields from mounted Docker-compose secret files.
 
         In the container each secret is mounted at ``$PORTOPT_SECRETS_DIR/<field>``
-        (default ``/run/secrets``). A present file wins over env/.env (the compose
-        secret is source of truth), value stripped. Missing files leave the
-        env/default value, so an unset secret stays "" (T212-absent skip intact).
+        (default ``/run/secrets``). A file with content wins over env/.env (the
+        compose secret is source of truth), value stripped. Missing or empty files
+        leave the env/default value: ``compose_secrets.render`` writes an empty
+        placeholder for every secret the store lacks, and that must not shadow a
+        key supplied through ``.env``. An unset secret stays "" (T212-absent skip
+        intact). An unreadable file (compose bind-mounts keep the 0600 host owner,
+        which the container user may not match) also falls back, with a warning,
+        instead of crashing the daemon at import.
         """
         secrets_dir = Path(os.getenv("PORTOPT_SECRETS_DIR", "/run/secrets"))
         for field in _SECRET_FILE_FIELDS:
             secret_path = secrets_dir / field
-            if secret_path.is_file():
-                setattr(self, field, secret_path.read_text(encoding="utf-8").strip())
+            if not secret_path.is_file():
+                continue
+            try:
+                value = secret_path.read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                logger.warning(
+                    "Ignoring unreadable secret file %s (%s); using env/default",
+                    secret_path,
+                    exc.strerror or type(exc).__name__,
+                )
+                continue
+            if value:
+                setattr(self, field, value)
         return self
 
     @property

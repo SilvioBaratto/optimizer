@@ -1,19 +1,41 @@
+# Pinned so the data volume (`optimizer_postgres_data`) and network do not follow
+# the checkout directory's name; the fixed container_names below already don't.
+name: optimizer
+
+# Docker's default json-file driver never rotates. The daemons log JSON, and a
+# stretch of tracebacks (database down, a systematic write failure) would fill the
+# VM disk the Postgres volume lives on. Five 10 MB files per container keeps the
+# recent history without growing past 50 MB.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   # PostgreSQL Database
   db:
     image: postgres:16-alpine
     container_name: optimizer_db
-    # Shared by both stacks: `--profile fund` and `--profile ingestion` each start
-    # db, so a bare `up` (no profile) starts nothing and every depends_on: db holds.
-    profiles: ["ingestion", "fund"]
+    logging: *default-logging
+    # Shared by every stack: `--profile fund`, `--profile ingestion` and
+    # `--profile tools` each start db, so a bare `up` (no profile) starts nothing
+    # and every depends_on: db holds (an undefined dependency fails the whole load).
+    profiles: ["ingestion", "fund", "tools"]
     environment:
       POSTGRES_DB: optimizer_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Host ports bind loopback only: the superuser password is the well-known
+    # `postgres`, so an unqualified mapping would publish the database to every
+    # host on the network. The containers reach each other over optimizer_network.
     ports:
-      - "54320:5432"
+      - "127.0.0.1:54320:5432"
+    # The daemons below restart on their own after a reboot; `depends_on` only
+    # orders the first `up`, so without this they would wait on a dead database.
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d optimizer_db"]
       interval: 10s
@@ -24,13 +46,16 @@ services:
 
   # Adminer - Database Management UI
   adminer:
-    image: adminer:latest
+    # Pinned: this UI is pre-pointed at the database superuser, so a `pull` must
+    # not swap the code behind it unannounced.
+    image: adminer:6.1.2
     container_name: optimizer_adminer
+    logging: *default-logging
     profiles: ["ingestion", "tools"]
     environment:
       ADMINER_DEFAULT_SERVER: db
     ports:
-      - "18081:8080"
+      - "127.0.0.1:18081:8080"
     depends_on:
       db:
         condition: service_healthy
@@ -44,7 +69,10 @@ services:
     build:
       context: .
       dockerfile: ingestion/Dockerfile
+      secrets:
+        - ca_bundle
     container_name: optimizer_scheduler
+    logging: *default-logging
     profiles: ["ingestion"]
     command: ["python", "-m", "app.worker"]
     # Sized above SCHEDULER_SHUTDOWN_DRAIN_TIMEOUT_SECONDS (default 30s) so the
@@ -57,11 +85,23 @@ services:
       # store (~/.portopt rendered to /run/secrets), so it has no root .env.
       - path: .env
         required: false
+      # Carries TRADING_212_MODE from ~/.portopt/config.toml (rendered by
+      # `portopt start`). Listed last so the mode the wizard validated the keys
+      # against overrides .env; without it a demo key would hit the live host.
+      # A file of its own, not the fund's .env.fund, because `portopt stop`
+      # deletes that one while this service keeps running; a later plain
+      # `docker compose up` would then recreate it against the live host.
+      - path: .env.scheduler
+        required: false
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/optimizer_db
       DB_HOST: db
       DB_PORT: "5432"
       DB_USER: postgres
+      # Same interpolation as the published port and the healthcheck below, so a
+      # METRICS_PORT set only in the shell (not in the root .env that env_file
+      # loads) still moves the listener together with its mapping.
+      METRICS_PORT: "${METRICS_PORT:-9000}"
     # Secrets are mounted read-only at /run/secrets/<name>; app.config reads them
     # (see PORTOPT_SECRETS_DIR). `portopt start` renders ./secrets/<name> from the
     # encrypted store before `docker compose up`; the files are git-ignored.
@@ -71,7 +111,7 @@ services:
       - fred_api_key
     ports:
       # Prometheus metrics only — no API is served
-      - "9000:9000"
+      - "127.0.0.1:${METRICS_PORT:-9000}:${METRICS_PORT:-9000}"
     depends_on:
       db:
         condition: service_healthy
@@ -79,7 +119,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/metrics').read()"]
+      test: ["CMD", "python", "-c", "import os, urllib.request; urllib.request.urlopen('http://localhost:%s/metrics' % os.environ.get('METRICS_PORT', '9000')).read()"]
       interval: 30s
       timeout: 10s
       start_period: 60s
@@ -100,7 +140,10 @@ services:
     build:
       context: .
       dockerfile: fund/Dockerfile
+      secrets:
+        - ca_bundle
     container_name: optimizer_fund
+    logging: *default-logging
     profiles: ["fund"]
     command: ["python", "-m", "fund.worker"]
     # Sized above fund_shutdown_drain_timeout_seconds (default 30s) so the daemon
@@ -145,6 +188,12 @@ services:
       HUGGINGFACEHUB_API_TOKEN_FILE: /run/secrets/huggingfacehub_api_token
       AZURE_OPENAI_API_KEY_FILE: /run/secrets/azure_openai_api_key
       FRED_API_KEY_FILE: /run/secrets/fred_api_key
+      # fund-tui exports (audit CSV, ask log, daily brief) hold client data. They go
+      # to the ./exports bind mount below, so they survive a container recreate and
+      # show up on the host instead of vanishing in the writable layer.
+      FUND_EXPORT_DIR: /app/exports
+    volumes:
+      - ./exports:/app/exports
     # Mounted read-only at /run/secrets/<name>; `portopt start` renders
     # ./secrets/<name> from the encrypted store before `docker compose up`.
     secrets:
@@ -171,10 +220,12 @@ services:
     # current` prints the revision annotated `(head)` only after that finished, so
     # `up --wait` gates on migrations, not merely on the process being alive. The
     # probe runs in the migration owner's dir (alembic.ini lives there), matching
-    # the entrypoint. start_period covers first-run migration time so the
+    # the entrypoint. The second half fails once the worker stops beating its
+    # heartbeat file, so a scheduler that died or a daemon that never booted is not
+    # reported healthy. start_period covers first-run migration time so the
     # pre-migration window is not counted as a failure.
     healthcheck:
-      test: ["CMD-SHELL", "cd /app/packages/portopt-db && alembic current 2>/dev/null | grep -q '(head)'"]
+      test: ["CMD-SHELL", "cd /app/packages/portopt-db && alembic current 2>/dev/null | grep -q '(head)' && python -m fund.healthcheck"]
       interval: 30s
       timeout: 10s
       start_period: 90s
@@ -219,3 +270,13 @@ secrets:
     file: ./secrets/huggingfacehub_api_token
   azure_openai_api_key:
     file: ./secrets/azure_openai_api_key
+  # Build-time only (listed under `build.secrets`, never mounted at runtime): the
+  # merged certifi + corporate-root bundle `portopt setup --corp-ca` writes to
+  # .certs/ca-bundle.pem, so `uv sync` trusts a TLS-inspecting proxy. Compose stats
+  # a secret's file before any build or `up` and .certs/ is git-ignored, so the
+  # default is a committed empty file (the Dockerfiles read an empty mount as "no
+  # bundle") and `portopt` sets CA_BUNDLE_FILE once a real bundle exists. A plain
+  # `docker compose build` behind such a proxy needs it exported by hand:
+  #   CA_BUNDLE_FILE=./.certs/ca-bundle.pem docker compose build
+  ca_bundle:
+    file: ${CA_BUNDLE_FILE:-./docker/ca-bundle.empty}

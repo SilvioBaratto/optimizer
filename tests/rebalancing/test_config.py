@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.rebalancing import (
     PANDAS_FREQ,
     TRADING_DAYS,
@@ -81,6 +82,12 @@ class TestCalendarRebalancingConfig:
         assert CalendarRebalancingConfig.for_semiannual().pandas_freq == "2QS"
         assert CalendarRebalancingConfig.for_annual().pandas_freq == "YS"
 
+    def test_periods_per_year_property(self) -> None:
+        assert CalendarRebalancingConfig.for_monthly().periods_per_year == 12
+        assert CalendarRebalancingConfig.for_quarterly().periods_per_year == 4
+        assert CalendarRebalancingConfig.for_semiannual().periods_per_year == 2
+        assert CalendarRebalancingConfig.for_annual().periods_per_year == 1
+
     def test_frozen(self) -> None:
         cfg = CalendarRebalancingConfig()
         with pytest.raises(AttributeError):
@@ -125,6 +132,35 @@ class TestThresholdRebalancingConfig:
         cfg = ThresholdRebalancingConfig.for_relative(threshold=0.20)
         assert cfg.threshold_type == ThresholdType.RELATIVE
         assert cfg.threshold == 0.20
+
+    @pytest.mark.parametrize("threshold", [float("nan"), -0.05, float("-inf")])
+    @pytest.mark.parametrize("threshold_type", list(ThresholdType))
+    def test_rejects_non_finite_or_negative_threshold(
+        self, threshold_type: ThresholdType, threshold: float
+    ) -> None:
+        with pytest.raises(ConfigurationError, match="threshold"):
+            ThresholdRebalancingConfig(
+                threshold_type=threshold_type, threshold=threshold
+            )
+
+    def test_rejects_infinite_threshold(self) -> None:
+        with pytest.raises(ConfigurationError, match="threshold"):
+            ThresholdRebalancingConfig(threshold=float("inf"))
+
+    def test_factories_validate_threshold(self) -> None:
+        with pytest.raises(ConfigurationError):
+            ThresholdRebalancingConfig.for_absolute(threshold=float("nan"))
+        with pytest.raises(ConfigurationError):
+            ThresholdRebalancingConfig.for_relative(threshold=-0.25)
+
+    def test_hybrid_config_rejects_invalid_threshold(self) -> None:
+        with pytest.raises(ConfigurationError):
+            HybridRebalancingConfig(
+                threshold=ThresholdRebalancingConfig(threshold=-0.1)
+            )
+
+    def test_zero_threshold_is_allowed(self) -> None:
+        assert ThresholdRebalancingConfig(threshold=0.0).threshold == 0.0
 
 
 class TestHybridRebalancingConfig:

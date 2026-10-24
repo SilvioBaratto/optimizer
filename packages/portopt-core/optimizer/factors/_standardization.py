@@ -20,6 +20,11 @@ from optimizer.factors._config import (
 
 logger = logging.getLogger(__name__)
 
+# Relative to the largest |value|, so tiny-scale factors (e.g. Amihud) are not
+# mistaken for constants.  A constant series' std is only a few ulps of its
+# magnitude (~1e-16 relative), far below this.
+_CONSTANT_RTOL = 1e-12
+
 
 def winsorize_cross_section(
     scores: pd.Series,
@@ -81,12 +86,21 @@ def z_score_standardize(scores: pd.Series) -> pd.Series:
         scores: Factor scores (may contain NaN).
 
     Returns:
-        Scores with mean 0 and std 1; a zero-filled series when std is 0 or NaN.
+        Scores with mean 0 and std 1.  When std is NaN or zero up to
+        floating-point noise (constant values, or fewer than two valid
+        observations) every valid value maps to 0.0.
+        NaN positions in the input always remain NaN, matching
+        `rank_normal_standardize`, so missing data is never reported as covered.
     """
     mean = scores.mean()
     std = scores.std()
-    if std == 0 or np.isnan(std):
-        return pd.Series(0.0, index=scores.index)
+    # pandas derives the variance from a rounded mean, so a constant non-dyadic
+    # series (0.1, 1/3, ...) has std of a few ulps rather than exactly 0, and
+    # dividing by it would inflate rounding noise into unit-variance scores.
+    if np.isnan(std) or std <= _CONSTANT_RTOL * scores.abs().max():
+        return pd.Series(
+            np.where(scores.isna(), np.nan, 0.0), index=scores.index, dtype=float
+        )
     return (scores - mean) / std
 
 
@@ -115,12 +129,70 @@ def rank_normal_standardize(scores: pd.Series) -> pd.Series:
     return normal_scores.reindex(scores.index)
 
 
+def _peer_group_key(
+    index: pd.Index,
+    sector_labels: pd.Series,
+    country_labels: pd.Series | None,
+) -> pd.Series:
+    """Build the peer-group key per ticker; NaN when any label is missing."""
+    sector = sector_labels.reindex(index)
+    if country_labels is None:
+        return sector
+    country = country_labels.reindex(index)
+    group_key = sector.astype(str) + "_" + country.astype(str)
+    return group_key.where(sector.notna() & country.notna())
+
+
+def _label_kind(country_labels: pd.Series | None) -> str:
+    """Name the label(s) a ticker can be missing, for log wording."""
+    return "sector" if country_labels is None else "sector/country"
+
+
+def _count_unlabeled(group_key: pd.Series, scored: pd.Series) -> tuple[int, int]:
+    """Return ``(scored tickers without a peer group, scored tickers)``."""
+    return int((group_key.isna() & scored).sum()), int(scored.sum())
+
+
+def _warn_unlabeled(
+    scored: pd.Series,
+    config: StandardizationConfig,
+    sector_labels: pd.Series | None,
+    country_labels: pd.Series | None,
+) -> None:
+    """Warn once about scored tickers that neutralization will leave untouched.
+
+    Reported by the public ``standardize_*`` entry points rather than by
+    ``neutralize_sector`` so a multi-factor run logs the (per-universe, not
+    per-factor) count a single time.
+    """
+    if not config.neutralize_sector or sector_labels is None:
+        return
+    country = country_labels if config.neutralize_country else None
+    group_key = _peer_group_key(scored.index, sector_labels, country)
+    n_unlabeled, n_scored = _count_unlabeled(group_key, scored)
+    if n_unlabeled:
+        logger.warning(
+            "%d of %d scored tickers have no %s label; "
+            "their scores are left un-neutralized",
+            n_unlabeled,
+            n_scored,
+            _label_kind(country),
+        )
+
+
 def neutralize_sector(
     scores: pd.Series,
     sector_labels: pd.Series,
     country_labels: pd.Series | None = None,
 ) -> pd.Series:
     """Demean scores within each sector (and optionally country).
+
+    Tickers without a usable label (absent from ``sector_labels``, or a NaN
+    sector, or a NaN country when ``country_labels`` is given) cannot be
+    assigned a peer group.  They keep their standardized score un-demeaned
+    rather than being turned into NaN, which would silently drop them from
+    selection.  The count is logged at debug level; ``standardize_factor`` and
+    ``standardize_all_factors`` raise it to a single warning per call.
 
     Args:
         scores: Standardized factor scores.
@@ -129,16 +201,27 @@ def neutralize_sector(
             When provided, neutralization groups by (sector, country) pairs.
 
     Returns:
-        Sector-neutralized scores.
+        Sector-neutralized scores indexed exactly like ``scores``.
     """
-    if country_labels is not None:
-        group_key = sector_labels.astype(str) + "_" + country_labels.astype(str)
-    else:
-        group_key = sector_labels
+    group_key = _peer_group_key(scores.index, sector_labels, country_labels)
+    labeled = group_key.notna()
 
-    aligned = scores.reindex(group_key.index)
-    group_means = aligned.groupby(group_key).transform("mean")
-    return aligned - group_means
+    n_unlabeled, n_scored = _count_unlabeled(group_key, scores.notna())
+    if n_unlabeled:
+        logger.debug(
+            "neutralize_sector: %d of %d scored tickers have no %s label; "
+            "their scores are left un-neutralized",
+            n_unlabeled,
+            n_scored,
+            _label_kind(country_labels),
+        )
+
+    group_means = scores.groupby(group_key).transform("mean")
+    residual = scores - group_means
+    # A group of identical scores demeans to rounding noise rather than 0.0;
+    # left as is, a later re-standardization would inflate it to unit variance.
+    residual = residual.mask(residual.abs() <= _CONSTANT_RTOL * scores.abs().max(), 0.0)
+    return residual.where(labeled, scores)
 
 
 def _resolve_method(
@@ -174,11 +257,26 @@ def standardize_factor(
             ``FACTOR_DIRECTION`` sign convention.
 
     Returns:
-        Standardized factor scores.
+        Standardized factor scores.  Tickers without a sector (or country)
+        label keep their un-neutralized score and are reported in one warning.
     """
     if config is None:
         config = StandardizationConfig()
 
+    _warn_unlabeled(raw_scores.notna(), config, sector_labels, country_labels)
+    return _standardize_scores(
+        raw_scores, config, sector_labels, country_labels, factor_name
+    )
+
+
+def _standardize_scores(
+    raw_scores: pd.Series,
+    config: StandardizationConfig,
+    sector_labels: pd.Series | None,
+    country_labels: pd.Series | None,
+    factor_name: str,
+) -> pd.Series:
+    """Run winsorize, direction, standardize and neutralize for one factor."""
     if config.winsorize_method == WinsorizeMethod.MAD:
         scores = winsorize_cross_section_mad(raw_scores)
     else:
@@ -206,6 +304,11 @@ def standardize_factor(
         country = country_labels if config.neutralize_country else None
         scores = neutralize_sector(scores, sector_labels, country)
         neutralized = True
+    elif config.neutralize_country and country_labels is not None:
+        # neutralize_sector only needs one group key; with no sector axis the
+        # country labels are that key.
+        scores = neutralize_sector(scores, country_labels)
+        neutralized = True
 
     if config.re_standardize_after_neutralization and neutralized:
         scores = z_score_standardize(scores)
@@ -231,18 +334,20 @@ def standardize_all_factors(
     Returns:
         A tuple ``(standardized_scores, coverage)`` where ``coverage`` is a
         boolean DataFrame indicating non-NaN values in the standardized output.
+        Tickers without a sector (or country) label are reported in a single
+        warning for the whole call, not once per factor.
     """
     if config is None:
         config = StandardizationConfig()
 
+    _warn_unlabeled(
+        raw_factors.notna().any(axis=1), config, sector_labels, country_labels
+    )
+
     standardized: dict[str, pd.Series] = {}
     for col in raw_factors.columns:
-        standardized[col] = standardize_factor(
-            raw_factors[col],
-            config=config,
-            sector_labels=sector_labels,
-            country_labels=country_labels,
-            factor_name=col,
+        standardized[col] = _standardize_scores(
+            raw_factors[col], config, sector_labels, country_labels, col
         )
 
     scores = pd.DataFrame(standardized, index=raw_factors.index)

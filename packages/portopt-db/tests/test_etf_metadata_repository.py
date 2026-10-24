@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import datetime as dt
 
+import pytest
+from sqlalchemy import event
+from sqlalchemy.exc import IntegrityError
+
 from portopt_db.models.market_data.etf_metadata import (
     ETFAssetClass,
     ETFBondHoldings,
@@ -74,6 +78,51 @@ def test_metadata_upsert_is_idempotent_and_updates(db_session) -> None:
     assert float(row.aum) == 2_000_000_000.0
 
 
+def test_metadata_upsert_with_none_keeps_previously_stored_values(db_session) -> None:
+    """A partial Yahoo response (None = not reported this time) must not erase
+    the last known fund metadata; supplied fields still update."""
+    repo = ETFMetadataRepository(db_session)
+    inst = _instrument(db_session)
+    repo.upsert_metadata(
+        inst.id,
+        aum=1_000_000_000.0,
+        nav=100.0,
+        fund_family="JPMorgan",
+        legal_type="ETF",
+        expense_ratio=0.001,
+        base_currency="EUR",
+        as_of=_AS_OF,
+        category="Ultrashort Bond",
+        description="A short-duration bond ETF.",
+    )
+    db_session.flush()
+
+    later = dt.date(2026, 9, 1)
+    repo.upsert_metadata(
+        inst.id,
+        aum=None,
+        nav=None,
+        fund_family=None,
+        legal_type=None,
+        expense_ratio=None,
+        base_currency="USD",
+        as_of=later,
+    )
+    db_session.flush()
+    db_session.expire_all()
+
+    row = db_session.query(ETFMetadata).filter_by(instrument_id=inst.id).one()
+    assert float(row.aum) == 1_000_000_000.0
+    assert float(row.nav) == 100.0
+    assert row.fund_family == "JPMorgan"
+    assert row.legal_type == "ETF"
+    assert float(row.expense_ratio) == 0.001
+    assert row.category == "Ultrashort Bond"
+    assert row.description == "A short-duration bond ETF."
+    assert row.base_currency == "USD"
+    assert row.as_of == later
+
+
 def test_asset_classes_upsert_is_idempotent_and_updates(db_session) -> None:
     repo = ETFMetadataRepository(db_session)
     inst = _instrument(db_session)
@@ -93,6 +142,44 @@ def test_asset_classes_upsert_is_idempotent_and_updates(db_session) -> None:
     assert row is not None
     assert float(row.bond_pct) == 0.9
     assert db_session.query(ETFAssetClass).filter_by(instrument_id=inst.id).count() == 1
+
+
+def test_asset_classes_preserve_preferred_and_convertible_so_weights_sum_to_one(
+    db_session,
+) -> None:
+    # PFF-shaped payload: Yahoo reports six positions and 93% of the fund sits in
+    # preferreds. Dropping that bucket leaves the stored weights summing to ~6%.
+    repo = ETFMetadataRepository(db_session)
+    inst = _instrument(db_session)
+
+    repo.upsert_asset_classes(
+        inst.id,
+        _AS_OF,
+        stock_pct=0.0514,
+        bond_pct=0.0001,
+        cash_pct=0.0111,
+        preferred_pct=0.932,
+        convertible_pct=0.002,
+        other_pct=0.0035,
+    )
+    db_session.flush()
+
+    row = repo.get_asset_classes(inst.id)
+    assert row is not None
+    assert float(row.preferred_pct) == pytest.approx(0.932)
+    assert float(row.convertible_pct) == pytest.approx(0.002)
+    total = sum(
+        float(v)
+        for v in (
+            row.stock_pct,
+            row.bond_pct,
+            row.cash_pct,
+            row.preferred_pct,
+            row.convertible_pct,
+            row.other_pct,
+        )
+    )
+    assert total == pytest.approx(1.0, abs=1e-3)
 
 
 def test_holdings_upsert_is_idempotent(db_session) -> None:
@@ -139,6 +226,35 @@ def test_holdings_dedup_duplicate_symbols_in_one_batch(db_session) -> None:
     assert n == 1
     row = db_session.query(ETFHolding).filter_by(instrument_id=inst.id).one()
     assert float(row.weight) == 0.2
+
+
+def test_holdings_payload_carries_no_nan_name_or_weight(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing holding name arrives as pandas NaN and must reach SQL as NULL.
+
+    SQLite silently stores float NaN as NULL, so the PostgreSQL behaviour (the
+    text 'NaN' in a varchar column) is only visible on the upsert payload.
+    """
+    repo = ETFMetadataRepository(db_session)
+    inst = _instrument(db_session)
+    captured: list[dict] = []
+    monkeypatch.setattr(
+        repo, "_upsert", lambda _model, rows, **_kw: captured.extend(rows)
+    )
+
+    repo.upsert_holdings(
+        inst.id,
+        _AS_OF,
+        [
+            {"symbol": "AAA", "name": float("nan"), "weight": float("nan")},
+            {"symbol": "BBB", "name": "Beta", "weight": float("inf")},
+            {"symbol": "CCC", "name": "Gamma", "weight": 0.1},
+        ],
+    )
+
+    assert [r["holding_name"] for r in captured] == [None, "Beta", "Gamma"]
+    assert [r["weight"] for r in captured] == [None, None, 0.1]
 
 
 def test_sector_weights_upsert_is_idempotent(db_session) -> None:
@@ -201,3 +317,51 @@ def test_depth_upserts_accept_camelcase_fallback(db_session) -> None:
     bh = db_session.query(ETFBondHoldings).filter_by(instrument_id=inst.id).one()
     assert float(bh.duration) == 4.0
     assert float(bh.credit_quality) == 2.5
+
+
+def test_failed_upsert_rolls_back_to_a_savepoint_and_spares_the_transaction(
+    db_session,
+) -> None:
+    # The ingestion caller swallows a failed ETF write and still commits the
+    # instrument's other writes from the same transaction. PostgreSQL aborts the
+    # whole transaction on a failed statement, which turns that commit into a
+    # silent rollback unless the write ran inside a SAVEPOINT.
+    repo = ETFMetadataRepository(db_session)
+    inst = _instrument(db_session)
+    repo.upsert_metadata(
+        inst.id,
+        aum=1_000_000_000.0,
+        nav=100.0,
+        fund_family="JPMorgan",
+        legal_type="ETF",
+        expense_ratio=0.001,
+        base_currency="EUR",
+        as_of=_AS_OF,
+    )
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany) -> None:
+        statements.append(statement)
+
+    connection = db_session.get_bind()
+    event.listen(connection, "before_cursor_execute", record)
+    try:
+        with pytest.raises(IntegrityError):
+            repo.upsert_sector_weights(inst.id, _AS_OF, {None: 0.5})  # type: ignore[dict-item]
+    finally:
+        event.remove(connection, "before_cursor_execute", record)
+
+    insert_at = next(
+        i for i, s in enumerate(statements) if s.startswith("INSERT INTO etf_sector")
+    )
+    assert any(s.startswith("SAVEPOINT") for s in statements[:insert_at])
+    assert any(s.startswith("ROLLBACK TO SAVEPOINT") for s in statements[insert_at:])
+
+    repo.upsert_asset_classes(
+        inst.id, _AS_OF, stock_pct=0.0, bond_pct=1.0, cash_pct=0.0, other_pct=0.0
+    )
+    db_session.flush()
+    meta = repo.get_metadata(inst.id)
+    assert meta is not None
+    assert float(meta.aum) == 1_000_000_000.0
+    assert repo.get_asset_classes(inst.id) is not None

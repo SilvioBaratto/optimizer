@@ -42,7 +42,7 @@ class TestVineCopulaConfig:
         cfg = VineCopulaConfig()
         assert cfg.fit_marginals is True
         assert cfg.max_depth == 4
-        assert cfg.log_transform is False
+        assert cfg.log_transform is True
         assert cfg.dependence_method == DependenceMethodType.KENDALL_TAU
         assert cfg.selection_criterion == SelectionCriterionType.AIC
         assert cfg.independence_level == 0.05
@@ -58,7 +58,7 @@ class TestVineCopulaConfig:
         cfg = VineCopulaConfig(
             fit_marginals=False,
             max_depth=6,
-            log_transform=True,
+            log_transform=False,
             dependence_method=DependenceMethodType.MUTUAL_INFORMATION,
             selection_criterion=SelectionCriterionType.BIC,
             independence_level=0.01,
@@ -67,7 +67,7 @@ class TestVineCopulaConfig:
         )
         assert cfg.fit_marginals is False
         assert cfg.max_depth == 6
-        assert cfg.log_transform is True
+        assert cfg.log_transform is False
         assert cfg.dependence_method == DependenceMethodType.MUTUAL_INFORMATION
         assert cfg.selection_criterion == SelectionCriterionType.BIC
         assert cfg.independence_level == 0.01
@@ -105,6 +105,15 @@ class TestVineCopulaConfig:
         with pytest.raises(ConfigurationError, match="max_depth"):
             VineCopulaConfig(max_depth=0)
 
+    def test_when_max_depth_one_then_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="max_depth"):
+            VineCopulaConfig(max_depth=1)
+
+    def test_when_max_depth_two_then_allowed(self) -> None:
+        assert VineCopulaConfig(max_depth=2).max_depth == 2
+
     def test_when_independence_level_out_of_range_then_raises(self) -> None:
         from optimizer.exceptions import ConfigurationError
 
@@ -116,6 +125,22 @@ class TestVineCopulaConfig:
 
         with pytest.raises(ConfigurationError, match="independence_level"):
             VineCopulaConfig(independence_level=-0.01)
+
+    def test_when_unfitted_marginals_with_log_transform_then_raises(self) -> None:
+        from optimizer.exceptions import ConfigurationError
+
+        # skfolio log-transforms X before the marginal step, so with
+        # fit_marginals=False the uniform pseudo-observations would be mapped
+        # through log1p and sampled back outside [0, 1].
+        with pytest.raises(ConfigurationError, match="log_transform"):
+            VineCopulaConfig(fit_marginals=False)
+
+    def test_when_unfitted_marginals_without_log_transform_then_allowed(
+        self,
+    ) -> None:
+        cfg = VineCopulaConfig(fit_marginals=False, log_transform=False)
+        assert cfg.fit_marginals is False
+        assert cfg.log_transform is False
 
 
 class TestVineCopulaPresets:
@@ -146,6 +171,12 @@ class TestVineCopulaPresets:
 
         with pytest.raises(ConfigurationError, match="central_assets"):
             VineCopulaConfig.for_conditional_sampling([])
+
+    def test_when_for_conditional_sampling_bare_string_then_single_asset(
+        self,
+    ) -> None:
+        cfg = VineCopulaConfig.for_conditional_sampling("AAPL")
+        assert cfg.central_assets == ("AAPL",)
 
 
 class TestSyntheticDataConfig:
@@ -214,3 +245,8 @@ class TestSyntheticDataConfig:
 
         with pytest.raises(ConfigurationError, match="central_assets"):
             SyntheticDataConfig.for_conditional_stress([])
+
+    def test_for_conditional_stress_bare_string_then_single_asset(self) -> None:
+        cfg = SyntheticDataConfig.for_conditional_stress("MSFT")
+        assert cfg.vine_copula_config is not None
+        assert cfg.vine_copula_config.central_assets == ("MSFT",)

@@ -31,9 +31,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from portopt_db.models import BackgroundJob
+from portopt_db.models.jobs.background_job import FUND_JOB_TYPES
 from portopt_db.repository import RepositoryBase
 from sqlalchemy import (
     CursorResult,
+    Integer,
     Result,
     exists,
     func,
@@ -43,16 +45,13 @@ from sqlalchemy import (
     select,
     update,
 )
-
-# The fund daemon job slots. Each gets at most one active (pending|running) row;
-# the scheduler's rebalance sweep, drift monitor, and daily NAV mark claim these.
-FUND_JOB_TYPES: tuple[str, ...] = (
-    "fund_rebalance_sweep",
-    "fund_drift_monitor",
-    "fund_nav_mark",
-)
+from sqlalchemy.exc import IntegrityError
 
 _ACTIVE_STATUSES: tuple[str, ...] = ("pending", "running")
+
+# First key of the two-int advisory lock (ASCII "fund"), so the per-job_type lock
+# cannot collide with another subsystem hashing into the same one-int key space.
+_CLAIM_LOCK_NAMESPACE = 0x66756E64
 
 
 def _rows_affected(result: Result[Any]) -> int:
@@ -68,17 +67,57 @@ def _rows_affected(result: Result[Any]) -> int:
 class FundJobRepository(RepositoryBase):
     """Atomic per-``job_type`` slot + heartbeat-lease reaper on ``background_jobs``."""
 
+    def _recover_session(self) -> None:
+        """Roll back a session a failed flush left refusing every statement.
+
+        The slot transitions share the caller's work session, so a flush error
+        swallowed by the work leaves it in the partial-rollback state, where even
+        the terminal ``mark_done`` would raise ``PendingRollbackError`` and strand
+        the slot as ``running`` until the lease expires. The failed flush already
+        rolled the database transaction back, so this only discards state that is
+        gone anyway.
+        """
+        if not self.session.is_active:
+            self.session.rollback()
+
+    def _serialise_claims(self, job_type: str) -> None:
+        """Queue concurrent claimants of *job_type* behind one another.
+
+        ``background_jobs`` has no unique guard on active rows, and under
+        PostgreSQL's READ COMMITTED two concurrent ``INSERT … WHERE NOT EXISTS``
+        statements cannot see each other's uncommitted row, so both would insert.
+        A transaction-scoped advisory lock makes the second claimant wait for the
+        first one's commit, after which its guard sees the committed row. SQLite
+        already serialises writers, so it takes no lock.
+        """
+        if self.session.get_bind().dialect.name != "postgresql":
+            return
+        self.session.execute(
+            select(
+                func.pg_advisory_xact_lock(
+                    literal(_CLAIM_LOCK_NAMESPACE, type_=Integer),
+                    func.hashtext(job_type),
+                )
+            )
+        )
+
     def claim_or_create(self, job_type: str) -> uuid.UUID | None:
         """Atomically create a ``pending`` job iff no active row of *job_type* exists.
 
-        A single ``INSERT … FROM SELECT … WHERE NOT EXISTS(active row)`` keeps at
-        most one active row per ``job_type`` even under concurrent daemons: exactly
-        one insert affects a row (``rowcount == 1`` → the new UUID), the rest see
-        the existing row and no-op (``None``). Stamps ``worker_pid`` /
-        ``worker_host`` / ``last_heartbeat_at = now`` (observability + the initial
-        lease) and commits so the slot is immediately visible to other processes.
-        Dialect-agnostic (PostgreSQL + SQLite).
+        A single ``INSERT … FROM SELECT … WHERE NOT EXISTS(active row)``, run under a
+        per-``job_type`` advisory lock (:meth:`_serialise_claims`), keeps at most one
+        active row per ``job_type``: exactly one insert affects a row (``rowcount == 1``
+        → the new UUID), the rest see the existing row and no-op (``None``). Under
+        READ COMMITTED a racing claimer that slips past the lock still cannot see the
+        winner's uncommitted row, so the partial unique index
+        ``uq_background_jobs_active_type`` holds the line too: the loser's INSERT
+        violates it and is reported as a busy slot (``None``) as well. Stamps
+        ``worker_pid`` / ``worker_host`` / ``last_heartbeat_at = now`` (observability +
+        the initial lease) and commits so the slot is immediately visible to other
+        processes. Dialect-agnostic (PostgreSQL + SQLite).
         """
+        self._recover_session()
+        self._serialise_claims(job_type)
         new_id = uuid.uuid4()
         now = datetime.now(UTC)
         pid = os.getpid()
@@ -120,7 +159,11 @@ class FundJobRepository(RepositoryBase):
             ],
             source,
         )
-        result = self.session.execute(stmt)
+        try:
+            result = self.session.execute(stmt)
+        except IntegrityError:
+            self.session.rollback()
+            return None
         self.session.commit()
         return new_id if _rows_affected(result) == 1 else None
 
@@ -130,6 +173,7 @@ class FundJobRepository(RepositoryBase):
         Status-guarded on the active statuses so a terminal row is never
         resurrected. Commits so the running state is visible to the reaper.
         """
+        self._recover_session()
         stmt = (
             update(BackgroundJob)
             .where(
@@ -143,19 +187,22 @@ class FundJobRepository(RepositoryBase):
         return _rows_affected(result) == 1
 
     def update_heartbeat(self, job_id: uuid.UUID) -> bool:
-        """Stamp ``last_heartbeat_at = NOW()`` iff the row is still ``running``.
+        """Stamp ``last_heartbeat_at`` iff the row is still ``running``.
 
         Returns ``True`` when a running row was renewed, ``False`` otherwise
         (terminal, never started, or unknown ``job_id``). Commits so the reaper in
         another process sees the fresh lease and spares a live long-running step.
         """
+        # Application clock, like the claim stamp and the reaper cutoff: a lease
+        # renewed on the database clock but compared on this one would be reaped
+        # mid-run whenever the two hosts' clocks drift by more than the TTL.
         stmt = (
             update(BackgroundJob)
             .where(
                 BackgroundJob.id == job_id,
                 BackgroundJob.status == "running",
             )
-            .values(last_heartbeat_at=func.now())
+            .values(last_heartbeat_at=datetime.now(UTC))
         )
         result = self.session.execute(stmt)
         self.session.commit()
@@ -174,13 +221,20 @@ class FundJobRepository(RepositoryBase):
         (a late failure can't overwrite an already-completed row). ``True`` if a
         row moved. Commits so the slot re-opens for the next scheduled run.
         """
+        self._recover_session()
+        # Wall clock, not ``func.now()``: PostgreSQL's now() is the *transaction*
+        # start, and the shared work session's transaction opens when the step
+        # starts, so a long sweep would record a ~0s duration.
+        finished = datetime.now(UTC)
         stmt = (
             update(BackgroundJob)
             .where(
                 BackgroundJob.id == job_id,
                 BackgroundJob.status.in_(_ACTIVE_STATUSES),
             )
-            .values(status=status, error=error, finished_at=func.now())
+            .values(
+                status=status, error=error, finished_at=finished, updated_at=finished
+            )
         )
         result = self.session.execute(stmt)
         self.session.commit()
@@ -202,7 +256,8 @@ class FundJobRepository(RepositoryBase):
         live long-running step). Scoped to :data:`FUND_JOB_TYPES` so a stale
         ingestion job is never touched. Caller owns the commit.
         """
-        cutoff = datetime.now(UTC) - timedelta(seconds=heartbeat_timeout_seconds)
+        now = datetime.now(UTC)
+        cutoff = now - timedelta(seconds=heartbeat_timeout_seconds)
         stale_active = (
             BackgroundJob.job_type.in_(FUND_JOB_TYPES),
             BackgroundJob.status.in_(_ACTIVE_STATUSES),
@@ -214,7 +269,7 @@ class FundJobRepository(RepositoryBase):
         stmt = (
             update(BackgroundJob)
             .where(*stale_active)
-            .values(status="failed", error=error_msg, finished_at=func.now())
+            .values(status="failed", error=error_msg, finished_at=now, updated_at=now)
         )
         # A bulk maintenance sweep: don't synchronise the caller's identity map
         # (callers re-read after the caller-owned commit). This also keeps the

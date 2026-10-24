@@ -12,12 +12,21 @@ whole batch.
 
 from __future__ import annotations
 
+import inspect
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+import yfinance as yf
+from yfinance.base import TickerBase
+from yfinance.scrapers.history import PriceHistory
 
+from app.services.infrastructure.cache import LRUCache
+from app.services.market_data.yfinance._base import TICKER_REQUEST_KEY
 from app.services.market_data.yfinance._facade import YFinanceClient
+from app.services.market_data.yfinance.infrastructure import RateLimiter
+from app.services.market_data.yfinance.ticker import HoldersClient
 
 M = "app.services.market_data.yfinance._facade"
 
@@ -41,13 +50,13 @@ def _hist(rows: int) -> pd.DataFrame:
 
 
 class TestGetTicker:
-    def test_cache_hit_skips_the_rate_limiter(self, client: YFinanceClient) -> None:
-        """A cached Ticker must not pay the per-symbol delay again."""
+    def test_cache_hit_still_acquires_the_limiter(self, client: YFinanceClient) -> None:
+        """Every request starts here, and a cached Ticker still sends requests."""
         cached = MagicMock()
         client.cache.get.return_value = cached
 
         assert client.get_ticker("AAPL") is cached
-        client.rate_limiter.acquire.assert_not_called()
+        client.rate_limiter.acquire.assert_called_once_with(TICKER_REQUEST_KEY)
 
     def test_cache_miss_acquires_the_limiter_and_caches(
         self, client: YFinanceClient
@@ -55,9 +64,110 @@ class TestGetTicker:
         with patch(f"{M}.yf.Ticker") as tk:
             result = client.get_ticker("AAPL")
 
-        client.rate_limiter.acquire.assert_called_once_with("AAPL")
+        client.rate_limiter.acquire.assert_called_once_with(TICKER_REQUEST_KEY)
         client.cache.put.assert_called_once_with("AAPL", tk.return_value)
         assert result is tk.return_value
+
+    def test_default_cache_keeps_only_a_sweeps_working_set_resident(self) -> None:
+        """Every cached Ticker memoises what it fetched, so the cache size is RAM."""
+        YFinanceClient.reset_instance()
+        try:
+            client = YFinanceClient.get_instance(rate_limit_delay=0.0)
+            with patch(f"{M}.yf.Ticker"):
+                for n in range(1000):
+                    client.get_ticker(f"SYM{n}")
+
+            # A sweep runs at most 16 workers, each on one symbol at a time.
+            assert client.cache.size() <= 512
+        finally:
+            YFinanceClient.reset_instance()
+
+
+class TestRequestPacing:
+    """The per-symbol delay applies to every request, not once per cached Ticker."""
+
+    @staticmethod
+    def _real_limiter_client() -> YFinanceClient:
+        return YFinanceClient(
+            cache=LRUCache(capacity=10, default_ttl=3600.0),
+            rate_limiter=RateLimiter(delay=0.1),
+            circuit_breaker=MagicMock(),
+            default_max_retries=1,
+        )
+
+    def test_back_to_back_history_requests_for_one_symbol_are_spaced(self) -> None:
+        client = self._real_limiter_client()
+        ticker = MagicMock()
+        ticker.history.return_value = _hist(20)
+
+        with (
+            patch(f"{M}.yf.Ticker", return_value=ticker),
+            patch("app.services.infrastructure.rate_limiter.time.sleep") as nap,
+        ):
+            client.fetch_history("AAPL")
+            client.fetch_history("AAPL")
+
+        nap.assert_called_once()
+
+    def test_back_to_back_sub_client_requests_for_one_symbol_are_spaced(self) -> None:
+        client = HoldersClient(
+            cache=LRUCache(capacity=10, default_ttl=3600.0),
+            rate_limiter=RateLimiter(delay=0.1),
+            circuit_breaker=MagicMock(),
+            default_max_retries=1,
+        )
+        ticker = MagicMock()
+        ticker.major_holders = pd.DataFrame({"holder": ["x"]})
+        ticker.institutional_holders = pd.DataFrame({"holder": ["y"]})
+
+        with (
+            patch(
+                "app.services.market_data.yfinance._base.yf.Ticker", lambda s: ticker
+            ),
+            patch("app.services.infrastructure.rate_limiter.time.sleep") as nap,
+        ):
+            client.fetch_major_holders("AAPL")
+            client.fetch_institutional_holders("AAPL")
+
+        nap.assert_called_once()
+
+    def test_back_to_back_requests_for_different_symbols_are_spaced(self) -> None:
+        """Parallel workers fetch distinct symbols, so the delay must be shared."""
+        client = self._real_limiter_client()
+        ticker = MagicMock()
+        ticker.history.return_value = _hist(20)
+
+        with (
+            patch(f"{M}.yf.Ticker", return_value=ticker),
+            patch("app.services.infrastructure.rate_limiter.time.sleep") as nap,
+        ):
+            client.fetch_history("AAPL")
+            client.fetch_history("MSFT")
+
+        nap.assert_called_once()
+
+    def test_back_to_back_sub_client_requests_for_different_symbols_are_spaced(
+        self,
+    ) -> None:
+        client = HoldersClient(
+            cache=LRUCache(capacity=10, default_ttl=3600.0),
+            rate_limiter=RateLimiter(delay=0.1),
+            circuit_breaker=MagicMock(),
+            default_max_retries=1,
+        )
+        ticker = MagicMock()
+        ticker.major_holders = pd.DataFrame({"holder": ["x"]})
+
+        with (
+            patch(
+                "app.services.market_data.yfinance._base.yf.Ticker", lambda s: ticker
+            ),
+            patch("app.services.infrastructure.rate_limiter.time.sleep") as nap,
+        ):
+            client.fetch_major_holders("AAPL")
+            client.fetch_major_holders("MSFT")
+
+        nap.assert_called_once()
 
 
 class TestFetchInfo:
@@ -92,6 +202,139 @@ class TestFetchInfo:
             assert client.fetch_info("AAPL") is None
 
         client.circuit_breaker.trigger.assert_called()
+
+
+class _MemoizingTicker:
+    """Mimics yfinance's ``Ticker.info``: the fetched flag is set before the request.
+
+    A request that dies leaves the object answering ``None`` (or ``{}`` when
+    the error was swallowed) without another request until it is discarded.
+    """
+
+    requests = 0
+    built = 0
+    outcomes: list[Any] = []
+
+    def __init__(self, symbol: str) -> None:
+        type(self).built += 1
+        self._fetched = False
+        self._info: Any = None
+
+    @property
+    def info(self) -> Any:
+        if not self._fetched:
+            self._fetched = True
+            outcome = type(self).outcomes[type(self).requests]
+            type(self).requests += 1
+            if isinstance(outcome, Exception):
+                raise outcome
+            self._info = outcome
+        return self._info
+
+
+@pytest.fixture
+def memoizing_yahoo():
+    """Patch ``yf.Ticker`` with a ticker that memoizes its first answer."""
+
+    class _Ticker(_MemoizingTicker):
+        requests = 0
+        built = 0
+        outcomes: list[Any] = []
+
+    with patch(f"{M}.yf.Ticker", _Ticker):
+        yield _Ticker
+
+
+_FULL_INFO = {f"k{i}": i for i in range(12)}
+
+
+class TestCachedTickerMemoization:
+    """yfinance memoizes a failed ``.info``; the cache must not keep that Ticker."""
+
+    @staticmethod
+    def _real_cache_client(retries: int) -> YFinanceClient:
+        return YFinanceClient(
+            cache=LRUCache(capacity=10, default_ttl=3600.0),
+            rate_limiter=MagicMock(),
+            circuit_breaker=MagicMock(),
+            default_max_retries=retries,
+        )
+
+    def test_a_retry_after_a_transient_error_makes_a_real_request(
+        self, memoizing_yahoo: type[_MemoizingTicker]
+    ) -> None:
+        memoizing_yahoo.outcomes = [ConnectionError("reset"), _FULL_INFO]
+        client = self._real_cache_client(retries=3)
+
+        assert client.fetch_info("TEST", min_fields=10) == _FULL_INFO
+        assert memoizing_yahoo.requests == 2
+
+    def test_a_symbol_is_fetchable_again_after_its_retries_were_exhausted(
+        self, memoizing_yahoo: type[_MemoizingTicker]
+    ) -> None:
+        """One transient fault must not hide the profile for the cache TTL."""
+        memoizing_yahoo.outcomes = [ConnectionError("reset"), _FULL_INFO]
+        client = self._real_cache_client(retries=1)
+
+        assert client.fetch_info("TEST", min_fields=10) is None
+
+        assert client.fetch_info("TEST", min_fields=10) == _FULL_INFO
+
+    def test_an_empty_info_from_a_swallowed_error_is_not_kept(
+        self, memoizing_yahoo: type[_MemoizingTicker]
+    ) -> None:
+        """yfinance leaves ``{}`` behind when it swallows an HTTP error."""
+        memoizing_yahoo.outcomes = [{}, _FULL_INFO]
+        client = self._real_cache_client(retries=1)
+
+        assert client.fetch_info("TEST", min_fields=10) is None
+        assert client.fetch_info("TEST", min_fields=10) == _FULL_INFO
+
+    def test_a_good_profile_stays_cached_between_calls(
+        self, memoizing_yahoo: type[_MemoizingTicker]
+    ) -> None:
+        memoizing_yahoo.outcomes = [_FULL_INFO]
+        client = self._real_cache_client(retries=3)
+
+        client.fetch_info("TEST", min_fields=10)
+        client.fetch_info("TEST", min_fields=10)
+
+        assert memoizing_yahoo.built == 1
+
+
+class TestFetchHistoryTimeout:
+    """The request timeout yfinance applies to a history call that sets none."""
+
+    @staticmethod
+    def _timeout_reaching_yfinance(client: YFinanceClient, **kwargs: Any) -> Any:
+        """Return the ``timeout`` that yfinance's own history signature resolves to."""
+        history_signature = inspect.signature(PriceHistory.history)
+        seen: dict[str, Any] = {}
+
+        def _spy(self: PriceHistory, *args: Any, **call_kwargs: Any) -> pd.DataFrame:
+            bound = history_signature.bind(self, *args, **call_kwargs)
+            bound.apply_defaults()
+            seen["timeout"] = bound.arguments["timeout"]
+            return _hist(20)
+
+        with (
+            patch.object(PriceHistory, "history", _spy),
+            patch.object(TickerBase, "_get_ticker_tz", return_value="UTC"),
+            patch.object(client, "get_ticker", return_value=yf.Ticker("TEST")),
+        ):
+            client.fetch_history("TEST", **kwargs)
+        return seen["timeout"]
+
+    def test_default_call_keeps_yfinances_finite_timeout(
+        self, client: YFinanceClient
+    ) -> None:
+        """An explicit None would disable it, and the call could then hang forever."""
+        timeout = self._timeout_reaching_yfinance(client)
+
+        assert timeout is not None and timeout > 0
+
+    def test_an_explicit_timeout_is_forwarded(self, client: YFinanceClient) -> None:
+        assert self._timeout_reaching_yfinance(client, timeout=12.5) == 12.5
 
 
 class TestFetchHistory:
@@ -142,6 +385,19 @@ class TestFetchHistory:
             client.fetch_history("AAPL", period="1y")
 
         assert ticker.history.call_args.kwargs["period"] == "1y"
+
+    def test_end_alone_bounds_the_period_window(self, client: YFinanceClient) -> None:
+        """A backfill bounded by end= must not silently return the latest window."""
+        ticker = MagicMock()
+        ticker.history.return_value = _hist(20)
+
+        with patch.object(client, "get_ticker", return_value=ticker):
+            client.fetch_history("AAPL", period="1y", end="2020-01-01")
+
+        kwargs = ticker.history.call_args.kwargs
+        assert kwargs["end"] == "2020-01-01"
+        assert kwargs["period"] == "1y"
+        assert "start" not in kwargs
 
     def test_repair_is_enabled_by_default(self, client: YFinanceClient) -> None:
         """Price repair fixes bad Yahoo prints; it must stay on by default.
@@ -227,6 +483,28 @@ class TestBulkDownload:
         assert kwargs["start"] == "2024-01-01"
         assert "period" not in kwargs
 
+    def test_end_alone_bounds_the_period_window(self, client: YFinanceClient) -> None:
+        with patch(f"{M}.yf.download", return_value=_hist(5)) as dl:
+            client.bulk_download(["AAPL"], period="1y", end="2020-01-01")
+
+        kwargs = dl.call_args.kwargs
+        assert kwargs["end"] == "2020-01-01"
+        assert kwargs["period"] == "1y"
+        assert "start" not in kwargs
+
+    def test_repairs_bad_prices_by_default(self, client: YFinanceClient) -> None:
+        """yf.download defaults to repair=False; fetch_history repairs, so must this."""
+        with patch(f"{M}.yf.download", return_value=_hist(5)) as dl:
+            client.bulk_download(["AAPL"])
+
+        assert dl.call_args.kwargs["repair"] is True
+
+    def test_repair_can_be_disabled(self, client: YFinanceClient) -> None:
+        with patch(f"{M}.yf.download", return_value=_hist(5)) as dl:
+            client.bulk_download(["AAPL"], repair=False)
+
+        assert dl.call_args.kwargs["repair"] is False
+
     def test_empty_frame_is_a_failed_download(self, client: YFinanceClient) -> None:
         with patch(f"{M}.yf.download", return_value=pd.DataFrame()):
             assert client.bulk_download(["AAPL"]) is None
@@ -247,6 +525,54 @@ class TestFetchPricesDataframe:
 
         assert out is not None
         assert list(out.columns) == ["AAPL", "MSFT"]
+
+    def test_individual_fallback_puts_daily_bars_of_every_exchange_on_one_row(
+        self, client: YFinanceClient
+    ) -> None:
+        """History is stamped at each exchange's local midnight, which are
+        different instants; unaligned they interleave into stale-paired rows."""
+        days = pd.bdate_range("2024-01-02", periods=10)
+        new_york = pd.DataFrame(
+            {"Close": [100.0 + i for i in range(10)]},
+            index=days.tz_localize("America/New_York"),
+        )
+        tokyo = pd.DataFrame(
+            {"Close": [50.0 + i for i in range(10)]},
+            index=days.tz_localize("Asia/Tokyo"),
+        )
+
+        with patch.object(client, "bulk_download", return_value=None):
+            with patch.object(client, "fetch_history", side_effect=[new_york, tokyo]):
+                out = client.fetch_prices_dataframe(["AAPL", "7203.T"])
+
+        assert out is not None
+        assert len(out) == 10
+        assert out.index.tz is None
+        assert out["AAPL"].iloc[3] == 103.0
+        assert out["7203.T"].iloc[3] == 53.0
+
+    def test_individual_fallback_keeps_intraday_bars_timezone_aware(
+        self, client: YFinanceClient
+    ) -> None:
+        idx = pd.date_range("2024-01-02 14:00", periods=6, freq="h", tz="UTC")
+        hourly = pd.DataFrame({"Close": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}, index=idx)
+
+        with patch.object(client, "bulk_download", return_value=None):
+            with patch.object(client, "fetch_history", return_value=hourly):
+                out = client.fetch_prices_dataframe(["AAPL"], interval="1h")
+
+        assert out is not None
+        assert len(out) == 6
+        assert out.index.tz is not None
+
+    def test_bulk_path_repairs_like_the_individual_path(
+        self, client: YFinanceClient
+    ) -> None:
+        """Both paths must return the same prices, so both repair bad prints."""
+        with patch(f"{M}.yf.download", return_value=_hist(5)) as dl:
+            client.fetch_prices_dataframe(["AAPL"])
+
+        assert dl.call_args.kwargs["repair"] is True
 
     def test_individual_fallback_skips_tickers_with_no_history(
         self, client: YFinanceClient
@@ -277,6 +603,164 @@ class TestFetchPricesDataframe:
 
         assert out is not None
         assert sorted(out.columns) == ["AAPL", "MSFT"]
+
+
+class TestStoppedTradingTickers:
+    """A ticker that stopped trading must not be held flat to the panel's end."""
+
+    @staticmethod
+    def _bulk_from_closes(
+        idx: pd.DatetimeIndex, closes: dict[str, list[float]]
+    ) -> pd.DataFrame:
+        """MultiIndex bulk frame with one Close column per symbol."""
+        return pd.concat(
+            {
+                sym: pd.DataFrame({"Close": values}, index=idx)
+                for sym, values in closes.items()
+            },
+            axis=1,
+        )
+
+    @classmethod
+    def _bulk_frame(
+        cls, last_real_bar: dict[str, int], bars: int, freq: str = "B"
+    ) -> pd.DataFrame:
+        """Bulk frame where each symbol prints only up to its last bar."""
+        idx = pd.date_range("2024-01-01", periods=bars, freq=freq)
+        return cls._bulk_from_closes(
+            idx,
+            {
+                sym: [100.0 + i if i <= last else float("nan") for i in range(bars)]
+                for sym, last in last_real_bar.items()
+            },
+        )
+
+    def test_bulk_path_drops_a_ticker_that_stopped_trading(
+        self, client: YFinanceClient
+    ) -> None:
+        frame = self._bulk_frame({"DEAD": 3, "ALIVE": 29}, bars=30)
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["DEAD", "ALIVE"])
+
+        assert out is not None
+        assert list(out.columns) == ["ALIVE"]
+        assert len(out) == 30
+
+    def test_bulk_path_still_bridges_a_short_holiday_gap_at_the_end(
+        self, client: YFinanceClient
+    ) -> None:
+        """Exchanges close on different days; a few missing bars is not delisting."""
+        frame = self._bulk_frame({"LSE": 26, "NYSE": 29}, bars=30)
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["LSE", "NYSE"])
+
+        assert out is not None
+        assert list(out.columns) == ["LSE", "NYSE"]
+        assert out["LSE"].iloc[-1] == out["LSE"].iloc[-4]
+
+    def test_intraday_panel_keeps_a_ticker_whose_session_closed_hours_earlier(
+        self, client: YFinanceClient
+    ) -> None:
+        """Hourly bars of a US and a Hong Kong stock never overlap in time, so the
+        Hong Kong stock trails the panel end by a whole US session of bars."""
+        idx = pd.date_range("2024-01-02", periods=72, freq="h", tz="UTC")
+        hk_hours, us_hours = range(1, 8), range(14, 21)
+        frame = self._bulk_from_closes(
+            idx,
+            {
+                "HK": [
+                    100.0 + i if ts.hour in hk_hours else float("nan")
+                    for i, ts in enumerate(idx)
+                ],
+                "US": [
+                    200.0 + i if ts.hour in us_hours else float("nan")
+                    for i, ts in enumerate(idx)
+                ],
+            },
+        )
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["HK", "US"], interval="1h")
+
+        assert out is not None
+        assert list(out.columns) == ["HK", "US"]
+
+    def test_daily_panel_keeps_a_ticker_through_a_week_long_exchange_closure(
+        self, client: YFinanceClient
+    ) -> None:
+        """Lunar New Year closes Asian exchanges for six trading days while
+        Western ones keep printing."""
+        frame = self._bulk_frame({"HK": 23, "NYSE": 29}, bars=30)
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["HK", "NYSE"])
+
+        assert out is not None
+        assert list(out.columns) == ["HK", "NYSE"]
+
+    def test_daily_panel_drops_a_ticker_silent_for_two_weeks(
+        self, client: YFinanceClient
+    ) -> None:
+        frame = self._bulk_frame({"HALTED": 19, "ALIVE": 29}, bars=30)
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["HALTED", "ALIVE"])
+
+        assert out is not None
+        assert list(out.columns) == ["ALIVE"]
+
+    def test_a_ticker_that_never_printed_is_dropped_even_in_a_short_panel(
+        self, client: YFinanceClient
+    ) -> None:
+        """Without a print there is nothing to carry forward, and keeping the
+        column would leave no date shared by every ticker."""
+        frame = self._bulk_frame({"EMPTY": -1, "ALIVE": 3}, bars=4)
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["EMPTY", "ALIVE"])
+
+        assert out is not None
+        assert list(out.columns) == ["ALIVE"]
+
+    def test_weekly_panel_allows_the_same_number_of_bars_as_a_daily_one(
+        self, client: YFinanceClient
+    ) -> None:
+        """Three weekly bars behind is three weeks, far past a daily panel's limit,
+        but it is no more bars than a daily ticker may miss."""
+        frame = self._bulk_frame({"LATE": 26, "ALIVE": 29}, bars=30, freq="W")
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["LATE", "ALIVE"], interval="1wk")
+
+        assert out is not None
+        assert list(out.columns) == ["LATE", "ALIVE"]
+
+    def test_weekly_panel_drops_a_ticker_silent_for_many_bars(
+        self, client: YFinanceClient
+    ) -> None:
+        frame = self._bulk_frame({"DEAD": 19, "ALIVE": 29}, bars=30, freq="W")
+
+        with patch.object(client, "bulk_download", return_value=frame):
+            out = client.fetch_prices_dataframe(["DEAD", "ALIVE"], interval="1wk")
+
+        assert out is not None
+        assert list(out.columns) == ["ALIVE"]
+
+    def test_individual_path_drops_a_ticker_that_stopped_trading(
+        self, client: YFinanceClient
+    ) -> None:
+        alive = _hist(30)
+        dead = _hist(30).iloc[:4]
+
+        with patch.object(client, "bulk_download", return_value=None):
+            with patch.object(client, "fetch_history", side_effect=[dead, alive]):
+                out = client.fetch_prices_dataframe(["DEAD", "ALIVE"])
+
+        assert out is not None
+        assert list(out.columns) == ["ALIVE"]
+        assert len(out) == 30
 
 
 class TestCacheHelpers:

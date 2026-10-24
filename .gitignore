@@ -4,6 +4,14 @@
 # Runtime agent workdir (staged theory tree, regenerated each startup)
 fund/.runtime/
 
+# fund-tui exports hold client data (capital, mandates, adviser free text). They go to
+# FUND_EXPORT_DIR (./exports when mounted into the container); the name patterns catch
+# the files older versions wrote into the working directory.
+/exports/
+audit-export-*.csv
+ask-*.md
+daily-brief-*.md
+
 # ═══════════════════════════════════════════════════════════
 # ENVIRONMENT FILES (NEVER COMMIT SECRETS)
 # ═══════════════════════════════════════════════════════════
@@ -12,6 +20,10 @@ fund/.runtime/
 .env
 .env.*
 !.env.example
+
+# Plaintext compose secrets rendered by `portopt start`, in any directory — a render
+# that lands outside the root secrets/ must still never be committable.
+**/secrets/
 
 # ═══════════════════════════════════════════════════════════
 # PYTHON

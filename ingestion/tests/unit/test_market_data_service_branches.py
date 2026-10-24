@@ -176,7 +176,9 @@ class TestTimed:
         ) as mock_cwt:
             result = service._timed(fn)
 
-        mock_cwt.assert_called_once_with(fn, 5.0)
+        mock_cwt.assert_called_once_with(
+            fn, 5.0, circuit_breaker=yf_client.circuit_breaker
+        )
         assert result is sentinel
 
     def test_when_request_timeout_none_then_fn_called_directly(self):

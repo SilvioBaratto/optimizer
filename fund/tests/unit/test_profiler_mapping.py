@@ -22,6 +22,7 @@ tested separately — here ``esg`` / ``universe_filters`` stay at their schema d
 from __future__ import annotations
 
 import ast
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,7 @@ from fund.agents.profiler import (
     _appetite_to_aversion,
     _category,
     _nu_tiers,
+    assess_suitability,
     build_constraint_set,
 )
 from fund.schemas.constraint_set import ConstraintSet
@@ -75,7 +77,7 @@ def _answers(
             likert_items=likert,
             loss_reaction=reaction,
         ),
-        esg=EsgAnswers(),
+        esg=EsgAnswers(exclusions=()),
     )
 
 
@@ -187,6 +189,81 @@ def test_a_gamma_is_inverse_to_appetite() -> None:
 )
 def test_appetite_to_aversion_band_boundaries(appetite: float, expected: float) -> None:
     assert _appetite_to_aversion(appetite) == expected
+
+
+_EXACT_BANDS = (
+    (Fraction(1, 5), 12.0),
+    (Fraction(2, 5), 8.0),
+    (Fraction(3, 5), 5.0),
+    (Fraction(4, 5), 2.5),
+)
+
+
+def _likert_with_sum(n: int, total: int) -> tuple[int, ...]:
+    """``n`` Likert answers in 1..7 that add up to ``total``."""
+    items: list[int] = []
+    remaining = total
+    for i in range(n):
+        item = min(7, remaining - (n - i - 1))
+        items.append(item)
+        remaining -= item
+    assert remaining == 0
+    return tuple(items)
+
+
+def _exact_a_gamma(n: int, total: int) -> float:
+    appetite = Fraction(total - n, 6 * n)
+    for upper, a_gamma in _EXACT_BANDS:
+        if appetite < upper:
+            return a_gamma
+    return 1.0
+
+
+@pytest.mark.parametrize(
+    ("likert", "a_gamma", "band"),
+    [
+        ((3, 3, 3, 4, 4), 5.0, RiskToleranceBand.BALANCED),  # mean 3.4 -> exactly 0.4
+        ((6, 6, 6, 6, 5), 1.0, RiskToleranceBand.AGGRESSIVE),  # mean 5.8 -> exactly 0.8
+        ((7, 7, 7, 7, 1), 1.0, RiskToleranceBand.AGGRESSIVE),
+    ],
+)
+def test_exact_edge_likert_mean_lands_in_the_documented_upper_band(
+    likert: tuple[int, ...], a_gamma: float, band: RiskToleranceBand
+) -> None:
+    answers = _answers(likert=likert, max_loss=0.50, buffer=12.0)
+    cs = build_constraint_set(answers, portfolio_id="pf-1")
+    assert cs.a_gamma == a_gamma
+    sa = assess_suitability(answers, cs)
+    assert sa.band is band
+    assert f"band {band.value}" in sa.rationale
+
+
+def test_likert_band_matches_exact_arithmetic_for_every_questionnaire_length() -> None:
+    for n in range(1, 13):
+        for total in range(n, 7 * n + 1):
+            objectives = ObjectivesAnswers(
+                goal=ObjectiveChoice.GROWTH,
+                horizon=Horizon.LONG,
+                likert_items=_likert_with_sum(n, total),
+                loss_reaction=LossReaction.HOLD,
+            )
+            got = _appetite_to_aversion(_appetite_from_tolerance(objectives))
+            assert got == _exact_a_gamma(n, total), (n, total)
+
+
+@pytest.mark.parametrize(
+    ("max_loss", "buffer", "a_gamma"),
+    [
+        (0.0, 4.8, 8.0),  # capacity exactly 0.2
+        (0.3, 2.4, 5.0),  # capacity exactly 0.4
+        (0.0, 9.6, 5.0),  # capacity exactly 0.4
+    ],
+)
+def test_exact_edge_capacity_score_lands_in_the_documented_upper_band(
+    max_loss: float, buffer: float, a_gamma: float
+) -> None:
+    answers = _answers(likert=(7, 7, 7), max_loss=max_loss, buffer=buffer)
+    assert build_constraint_set(answers, portfolio_id="pf-1").a_gamma == a_gamma
 
 
 def test_appetite_to_aversion_caps_above_unit_interval() -> None:

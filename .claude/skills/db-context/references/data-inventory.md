@@ -64,12 +64,14 @@ are live-at-snapshot; treat as orders of magnitude, not exact current values.
 
 ## 2. Empty Tables and Their Populating Scheduler Step
 
-All six empty tables are populated by low-frequency (monthly / weekly / market-wide)
-steps, not the daily per-ticker loop — so empty is a schedule state, not a failure.
+Five of the six empty tables are populated by low-frequency (weekly / market-wide) steps,
+not the daily per-ticker loop — so empty is a schedule state, not a failure. The exception
+is `fred_observations`: `daily_pipeline` fetches it every day, so it stays empty only when
+`FRED_API_KEY` is missing or the fetch fails.
 
 | Table | Populating step | Job / trigger |
 |-------|-----------------|---------------|
-| fred_observations | `run_fred_step` (CLI `fred`) | `fred_monthly` (0 8 1 * *); **also requires `FRED_API_KEY`** — absent key = no-op |
+| fred_observations | `run_fred_step` (CLI `fred`) | `daily_pipeline` (daily 07:00, incremental, daily-frequency series only, after macro); `fred_monthly` (0 8 1 * *) fetches every series; **also requires `FRED_API_KEY`** — absent key = no-op |
 | market_summaries | `run_market_summary_step` | `weekly_market_wide` (Sat); iterates the 8 `MARKET_IDENTIFIERS` |
 | options_chain | `run_options_step` | `weekly_market_wide` (Sat, after weekly refetch); own ~weekly staleness gate |
 | sector_industries | `run_market_structure_step` | `weekly_market_wide` (Sat 04:00, `market_structure_fetch`) |

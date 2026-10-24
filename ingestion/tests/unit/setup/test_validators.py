@@ -8,7 +8,15 @@ other non-200), or raises `ValidationNetworkError` when the request itself fails
 
 from __future__ import annotations
 
+import logging
+import re
+import traceback
+from collections.abc import Callable
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import requests
+import tomllib
 
 from app.setup import validators
 
@@ -55,11 +63,30 @@ import pytest
 
 from app.setup.validators import ValidationNetworkError
 
-# Providers that do a real authed probe (200 -> ok, 401/403 -> bad, connect ->
-# raise). ollama(cloud+key) and nvidia(hosted+key) belong here; aws + microsoft
-# are presence-only and tested separately.
+
+def test_validate_fred_network_error_never_carries_the_api_key() -> None:
+    """requests embeds the full URL, query string included, in its errors."""
+    leaked = "FREDSECRETKEY0123456789abcdef"
+    session = requests.Session()
+    session.trust_env = False
+
+    def refused(_url: str, **kwargs: object) -> requests.Response:
+        # A real urllib3 connection error against a closed local port, so the
+        # message has the exact shape a TLS-inspecting proxy failure produces.
+        return session.get("http://127.0.0.1:1/fred/series", **kwargs)  # type: ignore[arg-type]
+
+    with patch("app.setup.validators.requests.get", side_effect=refused):
+        with pytest.raises(ValidationNetworkError) as exc_info:
+            validators.validate_fred(leaked)
+
+    assert leaked not in str(exc_info.value)
+    assert "api.stlouisfed.org" in str(exc_info.value)
+
+
+# Providers that do a real authed GET probe (200 -> ok, 401/403 -> bad, connect ->
+# raise). ollama cloud probes with a POST (tested below) and aws + microsoft are
+# presence-only, so none of those belong here.
 _AUTHED_PROVIDERS = (
-    "ollama",
     "openai",
     "openrouter",
     "anthropic",
@@ -136,11 +163,77 @@ def test_validate_llm_anthropic_uses_x_api_key_header() -> None:
     assert "anthropic-version" in kwargs["headers"]
 
 
-def test_validate_llm_google_passes_key_as_query_param() -> None:
+def _mock_httpx(handler: Callable[[httpx.Request], httpx.Response]):
+    """Patch the validators' httpx.Client to answer through ``handler``."""
+    real_client = httpx.Client
+
+    def client_with_mock_transport(*args: object, **kwargs: object) -> httpx.Client:
+        return real_client(*args, transport=httpx.MockTransport(handler), **kwargs)  # type: ignore[arg-type]
+
+    return patch("app.setup.validators.httpx.Client", client_with_mock_transport)
+
+
+def test_validate_llm_google_sends_key_in_header_not_url() -> None:
     with patch("app.setup.validators._llm_get", return_value=_resp(200)) as m:
         assert validators.validate_llm("google", key="goog") is True
     _, kwargs = m.call_args
-    assert kwargs["params"]["key"] == "goog"
+    assert kwargs["headers"]["x-goog-api-key"] == "goog"
+    assert not kwargs.get("params")
+
+
+def test_validate_llm_google_key_never_reaches_the_httpx_request_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """httpx logs the full request URL at INFO, which setup enables by default."""
+    leaked = "AIzaSECRETGOOGLEKEY"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"models": []})
+
+    with (
+        _mock_httpx(handler),
+        caplog.at_level(logging.INFO, logger="httpx"),
+    ):
+        assert validators.validate_llm("google", key=leaked) is True
+
+    assert any("HTTP Request" in r.getMessage() for r in caplog.records)
+    assert leaked not in caplog.text
+
+
+def _ollama_cloud(request: httpx.Request) -> httpx.Response:
+    """ollama.com: /api/tags is public, /api/me needs the valid bearer key."""
+    if request.url.path == "/api/tags":
+        return httpx.Response(200, json={"models": []})
+    if request.url.path == "/api/me" and request.method == "POST":
+        authed = request.headers.get("Authorization") == "Bearer good-key"
+        return httpx.Response(200 if authed else 401, json={})
+    return httpx.Response(404)
+
+
+def test_validate_llm_ollama_cloud_rejects_a_bad_key() -> None:
+    """The public tags listing answers 200 to any bearer, so it proves nothing."""
+    with _mock_httpx(_ollama_cloud):
+        assert validators.validate_llm("ollama", key="mistyped-key") is False
+
+
+def test_validate_llm_ollama_cloud_accepts_a_valid_key() -> None:
+    with _mock_httpx(_ollama_cloud):
+        assert validators.validate_llm("ollama", key="good-key") is True
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_validate_llm_ollama_cloud_bad_key_on_401_403(status: int) -> None:
+    with _mock_httpx(lambda request: httpx.Response(status)):
+        assert validators.validate_llm("ollama", key="k") is False
+
+
+def test_validate_llm_ollama_cloud_connect_error_raises() -> None:
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route to host", request=request)
+
+    with _mock_httpx(down):
+        with pytest.raises(ValidationNetworkError):
+            validators.validate_llm("ollama", key="k")
 
 
 def test_validate_llm_ollama_cloud_without_key_is_bad_without_network() -> None:
@@ -158,6 +251,92 @@ def test_validate_llm_ollama_local_needs_no_key() -> None:
     (url,), kwargs = m.call_args
     assert url.endswith("/api/tags")
     assert kwargs["headers"] is None  # no bearer attached for a keyless local run
+
+
+def _local_ollama(request: httpx.Request) -> httpx.Response:
+    """A self-hosted Ollama: serves /api/tags, has never heard of /api/me."""
+    if request.url.path == "/api/tags" and request.method == "GET":
+        return httpx.Response(200, json={"models": []})
+    return httpx.Response(404)
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://ollama.company.local:11434",
+        "http://ollama.com.internal:11434",
+        "https://ollama.com.evil.example",
+        "https://notollama.com",
+    ],
+)
+def test_validate_llm_ollama_lookalike_host_is_not_the_cloud(base_url: str) -> None:
+    """Only the ``ollama.com`` hostname is the cloud; a self-hosted server whose
+    name merely contains that text must keep the local probe, which a local server
+    answers, instead of the cloud-only ``POST /api/me`` it would 404."""
+    with _mock_httpx(_local_ollama):
+        assert validators.validate_llm("ollama", key="k", base_url=base_url) is True
+
+
+def test_validate_llm_ollama_lookalike_host_needs_no_key() -> None:
+    with _mock_httpx(_local_ollama):
+        assert (
+            validators.validate_llm("ollama", base_url="http://ollama.company.local")
+            is True
+        )
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://ollama.com",
+        "https://ollama.com/",
+        "https://OLLAMA.COM:443",
+        "https://api.ollama.com",
+    ],
+)
+def test_validate_llm_ollama_cloud_hostnames_use_the_authed_probe(
+    base_url: str,
+) -> None:
+    with _mock_httpx(_ollama_cloud):
+        assert (
+            validators.validate_llm("ollama", key="mistyped-key", base_url=base_url)
+            is False
+        )
+        assert (
+            validators.validate_llm("ollama", key="good-key", base_url=base_url) is True
+        )
+
+
+@pytest.mark.parametrize(
+    ("provider", "base_url", "probed"),
+    [
+        (
+            "ollama",
+            "http://host.docker.internal:11434",
+            "http://localhost:11434/api/tags",
+        ),
+        (
+            "nvidia",
+            "http://host.docker.internal:8000/v1",
+            "http://localhost:8000/v1/models",
+        ),
+        (
+            "openai",
+            "http://host.docker.internal:4000/v1",
+            "http://localhost:4000/v1/models",
+        ),
+    ],
+)
+def test_validate_llm_probes_container_alias_host_via_loopback(
+    provider: str, base_url: str, probed: str
+) -> None:
+    """``host.docker.internal`` only resolves inside the compose network (and on
+    Docker Desktop); the wizard's own probe runs on the host, so it must reach the
+    same service through loopback instead of aborting on a name that won't resolve."""
+    with patch("app.setup.validators._llm_get", return_value=_resp(200)) as m:
+        assert validators.validate_llm(provider, key="k", base_url=base_url) is True
+    (url,), _ = m.call_args
+    assert url == probed
 
 
 def test_validate_llm_nvidia_self_hosted_needs_no_key() -> None:
@@ -233,3 +412,176 @@ def test_llm_get_maps_httpx_request_error_to_validation_network_error() -> None:
     with patch("app.setup.validators.httpx.Client", _BoomClient):
         with pytest.raises(ValidationNetworkError):
             validators._llm_get("https://api.openai.com/v1/models")
+
+
+# --- requests network failures must never echo the FRED key -------------------
+
+_FRED_KEY = "SECRETFREDKEY123"
+
+
+@pytest.mark.parametrize(
+    "exc_cls",
+    [
+        requests.ConnectionError,
+        requests.exceptions.SSLError,
+        requests.exceptions.ProxyError,
+        requests.ConnectTimeout,
+    ],
+)
+@patch("app.setup.validators.requests.get")
+def test_validate_fred_network_failure_never_leaks_api_key(
+    mock_get: MagicMock, exc_cls: type[requests.RequestException]
+) -> None:
+    # requests embeds the full request URL, query string included, in its
+    # connection-error text; the wizard CLI echoes this message to stderr/CI logs.
+    mock_get.side_effect = exc_cls(
+        "HTTPSConnectionPool(host='api.stlouisfed.org', port=443): Max retries "
+        f"exceeded with url: /fred/series?series_id=GNPCA&api_key={_FRED_KEY}"
+        "&file_type=json (Caused by NewConnectionError('boom'))"
+    )
+    with pytest.raises(ValidationNetworkError) as info:
+        validators.validate_fred(_FRED_KEY)
+    assert _FRED_KEY not in str(info.value)
+    assert _FRED_KEY not in "".join(traceback.format_exception(info.value))
+    assert "api.stlouisfed.org" in str(info.value)
+    assert exc_cls.__name__ in str(info.value)
+
+
+@patch("app.setup.validators.requests.get")
+def test_validate_t212_network_failure_raises_validation_network_error(
+    mock_get: MagicMock,
+) -> None:
+    mock_get.side_effect = requests.ConnectionError("no route")
+    with pytest.raises(ValidationNetworkError, match="live.trading212.com"):
+        validators.validate_t212("k", "s")
+
+
+# --- throttling / outages are not "invalid key" ---------------------------------
+
+_UNAVAILABLE_STATUSES = (429, 500, 502, 503, 504)
+
+
+@pytest.mark.parametrize("status", _UNAVAILABLE_STATUSES)
+@patch("app.setup.validators.requests.get")
+def test_validate_t212_rate_limit_or_outage_is_not_an_invalid_key(
+    mock_get: MagicMock, status: int
+) -> None:
+    mock_get.return_value = _resp(status)
+    with pytest.raises(
+        ValidationNetworkError, match=rf"live\.trading212\.com.*{status}"
+    ):
+        validators.validate_t212("k", "s")
+
+
+@pytest.mark.parametrize("status", _UNAVAILABLE_STATUSES)
+@patch("app.setup.validators.requests.get")
+def test_validate_fred_rate_limit_or_outage_is_not_an_invalid_key(
+    mock_get: MagicMock, status: int
+) -> None:
+    mock_get.return_value = _resp(status)
+    with pytest.raises(
+        ValidationNetworkError, match=rf"api\.stlouisfed\.org.*{status}"
+    ) as info:
+        validators.validate_fred(_FRED_KEY)
+    assert _FRED_KEY not in str(info.value)
+
+
+@pytest.mark.parametrize("status", [401, 403])
+@patch("app.setup.validators.requests.get")
+def test_validate_t212_definitive_auth_answers_stay_an_invalid_key(
+    mock_get: MagicMock, status: int
+) -> None:
+    mock_get.return_value = _resp(status)
+    assert validators.validate_t212("k", "s") is False
+
+
+@pytest.mark.parametrize("status", _UNAVAILABLE_STATUSES)
+@pytest.mark.parametrize("provider", _AUTHED_PROVIDERS)
+def test_validate_llm_rate_limit_or_outage_is_not_a_rejected_key(
+    provider: str, status: int
+) -> None:
+    with patch("app.setup.validators._llm_get", return_value=_resp(status)):
+        with pytest.raises(ValidationNetworkError, match=str(status)):
+            validators.validate_llm(provider, key="k")
+
+
+@pytest.mark.parametrize("status", _UNAVAILABLE_STATUSES)
+def test_validate_llm_keyless_local_probes_surface_outages_too(status: int) -> None:
+    with patch("app.setup.validators._llm_get", return_value=_resp(status)):
+        with pytest.raises(ValidationNetworkError, match=str(status)):
+            validators.validate_llm("ollama", base_url="http://localhost:11434")
+        with pytest.raises(ValidationNetworkError, match=str(status)):
+            validators.validate_llm("nvidia", base_url="http://nim:8000/v1")
+
+
+@pytest.mark.parametrize("status", _UNAVAILABLE_STATUSES)
+def test_validate_llm_ollama_cloud_rate_limit_or_outage_is_not_a_rejected_key(
+    status: int,
+) -> None:
+    with _mock_httpx(lambda request: httpx.Response(status)):
+        with pytest.raises(ValidationNetworkError, match=str(status)):
+            validators.validate_llm("ollama", key="k")
+
+
+@pytest.mark.parametrize("provider", _AUTHED_PROVIDERS)
+def test_validate_llm_bad_request_still_means_a_rejected_key(provider: str) -> None:
+    # Google answers 400 (not 401) for an unknown API key.
+    with patch("app.setup.validators._llm_get", return_value=_resp(400)):
+        assert validators.validate_llm(provider, key="k") is False
+
+
+# --- the wizard only offers providers the fund image can actually import ------
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+
+# Provider -> the fund optional extra that ships its SDK. openrouter and
+# microsoft/Azure reuse the `openai` extra; ollama is a hard dependency.
+_PROVIDER_EXTRA = {
+    "ollama": None,
+    "openai": "openai",
+    "openrouter": "openai",
+    "anthropic": "anthropic",
+    "google": "google",
+    "groq": "groq",
+    "nvidia": "nvidia",
+    "huggingface": "huggingface",
+    "aws": "aws",
+    "microsoft": "openai",
+}
+
+
+def _fund_image_extras() -> set[str]:
+    """Extras the fund Dockerfile's ``uv sync`` installs, ``all-llm`` expanded."""
+    text = (_REPO_ROOT / "fund" / "Dockerfile").read_text(encoding="utf-8")
+    sync = next(
+        line
+        for line in text.replace("\\\n", " ").splitlines()
+        if "uv sync" in line and not line.lstrip().startswith("#")
+    )
+    extras = set(re.findall(r"--extra[ =](\S+)", sync))
+    if "--all-extras" in sync:
+        extras.add("all-llm")
+    if "all-llm" in extras:
+        pyproject = tomllib.loads(
+            (_REPO_ROOT / "fund" / "pyproject.toml").read_text(encoding="utf-8")
+        )
+        for spec in pyproject["project"]["optional-dependencies"]["all-llm"]:
+            match = re.search(r"\[(?P<extras>[^\]]+)\]", spec)
+            if match:
+                extras.update(p.strip() for p in match["extras"].split(","))
+    return extras
+
+
+def test_every_wizard_provider_has_an_extra_mapping() -> None:
+    assert set(_PROVIDER_EXTRA) == set(validators.SUPPORTED_LLM_PROVIDERS)
+
+
+@pytest.mark.parametrize("provider", validators.SUPPORTED_LLM_PROVIDERS)
+def test_fund_image_installs_the_sdk_for_every_wizard_provider(provider: str) -> None:
+    needed = _PROVIDER_EXTRA[provider]
+    if needed is None:
+        pytest.skip("hard dependency of portopt-fund")
+    assert needed in _fund_image_extras(), (
+        f"wizard offers {provider!r} but fund/Dockerfile does not install the "
+        f"{needed!r} extra"
+    )

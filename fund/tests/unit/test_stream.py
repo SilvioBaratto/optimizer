@@ -13,34 +13,61 @@ from __future__ import annotations
 import dataclasses
 import subprocess
 import sys
+import uuid
 from contextlib import contextmanager
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from _fund_fakes import (
     ASOF,
     PORTFOLIO_ID,
     UNIVERSE,
+    AllocatorTimesOutFundModel,
+    BrokenPlaceOrdersFundModel,
+    FreezeMidRunModel,
     ScriptedFundModel,
+    _count_tool_calls,
+    _task_call,
     expected_weights,
     make_constraint_set,
     make_mandate,
     seed_panel,
 )
+from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import AgentDecision, Base
+from portopt_db.models import AgentDecision, AgentRun, Base
+from pydantic import Field
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from fund.agents.graph import stream_fund
-from fund.audit import AgentRunRepository, put_constraint_set
+from fund.audit import (
+    AgentRunRepository,
+    AutonomyRepository,
+    AutonomyScope,
+    AutonomyState,
+    put_constraint_set,
+)
 from fund.config import settings
 from fund.tui.stream import StepStatus, StreamEvent
 
 # The four subagents report in fixed pipeline order, then the PM commits.
 _EXPECTED_AGENTS = ["economist", "allocator", "risk", "executor", "orchestrator"]
+
+
+class _FreezeMidRoundModel(ScriptedFundModel):
+    """Scripted PM that has a freeze land after its first delegation."""
+
+    freeze: Any = Field(default=None, exclude=True)
+
+    def _pm_turn(self, messages):
+        if self.freeze is not None and _count_tool_calls(messages, "task"):
+            freeze, self.freeze = self.freeze, None
+            freeze()
+        return super()._pm_turn(messages)
 
 
 @pytest.fixture
@@ -78,6 +105,7 @@ def stream_env():
         get_session=get_session,
         saver=saver,
         store=store,
+        expected=expected,
         model_factory=lambda: ScriptedFundModel(universe=UNIVERSE, weights=expected),
     )
     engine.dispose()
@@ -126,6 +154,49 @@ def test_stream_fund_yields_ordered_tagged_events_then_pauses(stream_env) -> Non
         assert run.status == "paused"
 
 
+class _ParallelDelegationFundModel(ScriptedFundModel):
+    """A PM that delegates economist and allocator together in one model turn."""
+
+    def _pm_turn(self, messages):
+        if _count_tool_calls(messages, "task") == 0:
+            first, second = _task_call("economist", 0), _task_call("allocator", 1)
+            return AIMessage(
+                content="", tool_calls=[*first.tool_calls, *second.tool_calls]
+            )
+        return super()._pm_turn(messages)
+
+
+def test_stream_fund_attributes_parallel_delegations_to_their_own_subagent(
+    stream_env,
+) -> None:
+    """Two ``task`` calls in one PM turn each report under their own subagent.
+
+    The result of a delegation is matched to its call by ``tool_call_id``; a single
+    "last delegated subagent" slot would label both reports with the second call's
+    subagent and show the economist's text as an allocator report.
+    """
+    model = _ParallelDelegationFundModel(
+        universe=UNIVERSE, weights=stream_env.model_factory().weights
+    )
+
+    with stream_env.get_session() as session:
+        events = list(
+            stream_fund(
+                model,
+                make_mandate(),
+                portfolio_id=PORTFOLIO_ID,
+                asof=ASOF,
+                session=session,
+                checkpointer=stream_env.saver,
+                store=stream_env.store,
+            )
+        )
+
+    reports = [(e.agent, e.text) for e in events if e.step == "report"]
+    assert ("economist", "economist report: analysis complete.") in reports
+    assert ("allocator", "allocator report: candidate weights ready.") in reports
+
+
 def test_stream_fund_pm_round_cap_end_records_distinct_reason(stream_env) -> None:
     """A PM-round-cap end finalises incomplete as ``"pm_round_cap"``, matching
     ``run_fund`` — not the generic ``"no_order"``.
@@ -169,6 +240,177 @@ def test_stream_fund_pm_round_cap_end_records_distinct_reason(stream_env) -> Non
         assert "pm_round_cap" in reasons
         assert "no_order" not in reasons
         assert "round_cap" not in reasons
+
+
+def test_stream_fund_halts_at_the_gate_when_frozen_while_in_flight(
+    stream_env,
+) -> None:
+    """A freeze committed mid-stream ends the round ``incomplete``, never ``paused``.
+
+    Otherwise the Decisions queue would list an ordinary gate under a FROZEN fund and
+    one keypress would approve it.
+    """
+
+    def freeze() -> None:
+        with stream_env.get_session() as other:
+            AutonomyRepository(other).set_state(
+                AutonomyScope.FUND, None, AutonomyState.FROZEN, reason="killswitch"
+            )
+            other.commit()
+
+    model = FreezeMidRunModel(
+        universe=UNIVERSE,
+        weights=stream_env.expected,
+        on_first_call=freeze,
+    )
+    with stream_env.get_session() as session:
+        events = list(
+            stream_fund(
+                model,
+                make_mandate(),
+                portfolio_id=PORTFOLIO_ID,
+                asof=ASOF,
+                session=session,
+                checkpointer=stream_env.saver,
+                store=stream_env.store,
+            )
+        )
+
+        terminal = events[-1]
+        assert terminal.kind == "incomplete"
+        assert not [e for e in events if e.kind == "paused"]
+        run = AgentRunRepository(session).get_run(terminal.run_id)
+        assert run is not None
+        assert run.status == "rejected"
+
+
+def test_stream_fund_halts_instead_of_pausing_when_a_freeze_lands_after_a_delegation(
+    stream_env,
+) -> None:
+    """A freeze committed once the pipeline is under way found no gate to reject; the
+    stream must end on a halted run, not publish a live gate in the frozen fund."""
+    with stream_env.get_session() as session:
+        model = _FreezeMidRoundModel(
+            universe=UNIVERSE,
+            weights=stream_env.expected,
+            freeze=lambda: AutonomyRepository(session).set_state(
+                AutonomyScope.FUND, None, AutonomyState.FROZEN, reason="halt"
+            ),
+        )
+        events = list(
+            stream_fund(
+                model,
+                make_mandate(),
+                portfolio_id=PORTFOLIO_ID,
+                asof=ASOF,
+                session=session,
+                checkpointer=stream_env.saver,
+                store=stream_env.store,
+            )
+        )
+
+        terminal = events[-1]
+        assert terminal.kind == "incomplete"
+        assert not [e for e in events if e.kind == "paused"]
+        runs = AgentRunRepository(session)
+        assert runs.get_run(terminal.run_id).status == "rejected"
+        assert runs.list_paused_runs() == []
+
+
+@pytest.mark.parametrize(
+    ("kind", "status", "expected"),
+    [
+        ("step", StepStatus.LIVE, "\u25cf live"),
+        ("step", StepStatus.DONE, "\u2713 done"),
+        ("paused", StepStatus.PENDING, "\u00b7 paused"),
+        ("incomplete", StepStatus.PENDING, "\u00b7 incomplete"),
+    ],
+)
+def test_status_text_pairs_the_glyph_with_a_word(
+    kind: str, status: StepStatus, expected: str
+) -> None:
+    """A step states its liveness and a terminal event its outcome, never a bare dot."""
+    event = StreamEvent(
+        kind=kind,
+        run_id=uuid.uuid4(),
+        index=0,
+        agent="orchestrator",
+        step="place_orders",
+        status=status,
+        text="",
+    )
+
+    assert event.status_text == expected
+
+
+@pytest.mark.parametrize(
+    ("stop_metadata", "reason", "text"),
+    [
+        ({"stop_reason": "max_tokens"}, "output_truncated", "cut off"),
+        ({"stop_reason": "end_turn"}, "invalid_tool_call", "malformed"),
+    ],
+)
+def test_stream_fund_broken_place_orders_call_records_its_own_reason(
+    stream_env, stop_metadata, reason, text
+) -> None:
+    """A truncated or malformed ``place_orders`` call ends the stream incomplete with
+    the same reason as ``run_fund`` and tells the adviser why, instead of the generic
+    ``"no_order"`` / "pipeline ended before the gate"."""
+    model = BrokenPlaceOrdersFundModel(
+        universe=UNIVERSE, weights={"AAA": 1.0}, stop_metadata=stop_metadata
+    )
+
+    with stream_env.get_session() as session:
+        events = list(
+            stream_fund(
+                model,
+                make_mandate(),
+                portfolio_id=PORTFOLIO_ID,
+                asof=ASOF,
+                session=session,
+                checkpointer=stream_env.saver,
+                store=stream_env.store,
+            )
+        )
+
+        terminal = events[-1]
+        assert terminal.kind == "incomplete"
+        assert text in terminal.text
+        reasons = [
+            d.hitl_decision["reason"]
+            for d in session.query(AgentDecision)
+            .filter(AgentDecision.run_id == terminal.run_id)
+            .all()
+            if d.hitl_decision and "reason" in d.hitl_decision
+        ]
+        assert reasons == [reason]
+
+
+def test_stream_fund_finalises_a_round_that_errors_as_failed(stream_env) -> None:
+    """An error mid-stream propagates, but the run row must not be left ``pending``
+    forever: it is finalised ``failed`` with the error, and the portfolio's one-time
+    first-round gate stays armed because no round reached the adviser."""
+    model = AllocatorTimesOutFundModel(universe=UNIVERSE, weights={"AAA": 1.0})
+
+    with stream_env.get_session() as session:
+        with pytest.raises(TimeoutError):
+            list(
+                stream_fund(
+                    model,
+                    make_mandate(),
+                    portfolio_id=PORTFOLIO_ID,
+                    asof=ASOF,
+                    session=session,
+                    checkpointer=stream_env.saver,
+                    store=stream_env.store,
+                )
+            )
+
+        (row,) = session.query(AgentRun).all()
+        assert row.status == "failed"
+        assert "provider timed out" in row.error
+        state = AutonomyRepository(session).portfolio_state(PORTFOLIO_ID)
+        assert state.first_round_gated is True
 
 
 def test_import_stream_is_agent_stack_light() -> None:

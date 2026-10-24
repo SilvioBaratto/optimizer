@@ -9,15 +9,73 @@ session (D1). No ``commit``: the caller owns the transaction boundary.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import threading
 import uuid
-from collections.abc import Sequence
-from datetime import UTC, date, datetime
-from typing import Any
+from collections.abc import Iterator, Sequence
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, TypeVar, cast
 
 from portopt_db.models import AgentDecision, AgentRun
 from portopt_db.repository import RepositoryBase
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, select, update
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.orm import Session
+
+from fund.audit.orders_repository import weights_hash
+
+_T = TypeVar("_T")
+
+# Rows fetched per round trip when a caller streams a history and usually stops
+# after the first few.
+_STREAM_BATCH = 20
+
+# Statuses at a live HITL gate: the only runs an adviser decision may resolve. A
+# "pending" row is a run still being driven (or one that crashed before the gate), so
+# it is deliberately absent.
+RESUMABLE_RUN_STATUSES: tuple[str, ...] = ("paused", "responded")
+
+# Statuses a run may still be finalised from; every other status is terminal.
+_OPEN_RUN_STATUSES: tuple[str, ...] = ("pending", *RESUMABLE_RUN_STATUSES)
+
+
+def run_age(run: AgentRun, *, now: datetime | None = None) -> timedelta:
+    """How long ago ``run`` opened.
+
+    ``started_at`` is stored in UTC; SQLite returns it without a zone, so a naive
+    value is read as UTC rather than compared against an aware ``now``.
+    """
+    started = run.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    return (now or datetime.now(UTC)) - started
+
+
+class RunNotOpenError(ValueError):
+    """A run was finalised while it was no longer pending or at a live gate.
+
+    Another resolver (a reject, a freeze, a completed approve) got there first. A
+    ``ValueError`` so the shells treat it like the resume guard's own refusals.
+    """
+
+
+_APPEND_LOCK_KEY = "fund.audit.append_decision_lock"
+_APPEND_LOCK_GUARD = threading.Lock()
+
+
+def _append_lock(session: Session) -> threading.RLock:
+    """Return the lock that serialises decision appends on ``session``.
+
+    The lock lives in ``session.info`` so every repository instance wrapping the
+    same session shares it, however many ``AgentRunRepository`` objects the bound
+    tools construct.
+    """
+    with _APPEND_LOCK_GUARD:
+        lock = session.info.get(_APPEND_LOCK_KEY)
+        if lock is None:
+            lock = session.info[_APPEND_LOCK_KEY] = threading.RLock()
+        return lock
 
 
 class AgentRunRepository(RepositoryBase):
@@ -62,31 +120,35 @@ class AgentRunRepository(RepositoryBase):
     ) -> AgentDecision:
         """Append a decision with the next 0-based ``decision_index`` for the run.
 
-        The index is derived from a ``count()`` of existing decisions. Safe under
-        the D1 model (one sync writer per run appends sequentially); a concurrent
-        appender would collide on ``uq_agent_decision_run_index``, which is the
+        The index is derived from a ``count()`` of existing decisions, so reading
+        it and inserting the row run under a per-session lock: the tool calls of
+        one assistant message execute on a thread pool that shares the run's
+        session, and two unserialised appenders would pick the same index and
+        poison the session on the unique-constraint failure. A writer in another
+        process still collides on ``uq_agent_decision_run_index``, which is the
         backstop (IntegrityError, not a duplicated index). The caller owns the
         transaction boundary and rolls back a failed session.
         """
-        next_index = self.session.execute(
-            select(func.count()).where(AgentDecision.run_id == run_id)
-        ).scalar_one()
-        decision = AgentDecision(
-            run_id=run_id,
-            decision_index=next_index,
-            agent=agent,
-            step=step,
-            constraint_set=constraint_set,
-            views=views,
-            llm_prompt=llm_prompt,
-            llm_response=llm_response,
-            llm_response_hash=llm_response_hash,
-            hitl_decision=hitl_decision,
-        )
-        self.session.add(decision)
-        self.session.flush()
-        self.session.refresh(decision)
-        return decision
+        with _append_lock(self.session):
+            next_index = self.session.execute(
+                select(func.count()).where(AgentDecision.run_id == run_id)
+            ).scalar_one()
+            decision = AgentDecision(
+                run_id=run_id,
+                decision_index=next_index,
+                agent=agent,
+                step=step,
+                constraint_set=constraint_set,
+                views=views,
+                llm_prompt=llm_prompt,
+                llm_response=llm_response,
+                llm_response_hash=llm_response_hash,
+                hitl_decision=hitl_decision,
+            )
+            self.session.add(decision)
+            self.session.flush()
+            self.session.refresh(decision)
+            return decision
 
     def finalize_run(
         self,
@@ -95,17 +157,95 @@ class AgentRunRepository(RepositoryBase):
         weights: dict[str, float],
         status: str = "completed",
         finished_at: datetime | None = None,
+        error: str | None = None,
     ) -> AgentRun | None:
-        """Stamp the run's output weights + terminal status; ``None`` if not found."""
+        """Stamp the run's output weights + terminal status; ``None`` if not found.
+
+        ``error`` records why a run ended ``"failed"``; successful finalisations leave
+        it unset. A terminal status is final: the write is a compare-and-set on the
+        stored status, not on the session's loaded copy, so a resolver that lost a race
+        (an approve overtaken by a reject or a freeze, or the reverse) cannot overwrite
+        the winner's outcome. Re-stamping the *same* outcome is an idempotent replay:
+        it succeeds and leaves the first finalisation's weights and timestamp alone.
+
+        Raises:
+            RunNotOpenError: The run was already finalised with a different outcome.
+        """
         run = self.get_run(run_id)
         if run is None:
             return None
-        run.weights = weights
-        run.status = status
-        run.finished_at = finished_at or datetime.now(UTC)
+        values: dict[str, Any] = {
+            "weights": weights,
+            "status": status,
+            "finished_at": finished_at or datetime.now(UTC),
+        }
+        if error is not None:
+            values["error"] = error
+        # Autoflush is off in the shells' sessions; flush so the UPDATE sees the row.
         self.session.flush()
+        result = self.session.execute(
+            update(AgentRun)
+            .where(AgentRun.id == run_id, AgentRun.status.in_(_OPEN_RUN_STATUSES))
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
         self.session.refresh(run)
+        # A replay of the outcome the run already holds changes nothing: the first
+        # finalisation's weights and timestamp stand.
+        if cast("CursorResult[Any]", result).rowcount != 1 and run.status != status:
+            raise RunNotOpenError(
+                f"agent_run {run_id} is {run.status!r}, already finalised; cannot "
+                f"finalise it {status!r}"
+            )
         return run
+
+    def claim_for_resume(self, run_id: uuid.UUID) -> bool:
+        """Take the run for one adviser decision; ``False`` if it left its live gate.
+
+        The compare-and-set a resolver must win before it drives the run's graph
+        thread: a conditional UPDATE on the stored status, so a resolver that read
+        ``"paused"`` before a concurrent approve, reject or freeze finalised the run
+        matches no row and backs off. On PostgreSQL the UPDATE also holds the row's
+        lock until the caller's transaction ends, so a concurrent resolver blocks and
+        then re-evaluates against the committed status instead of resuming the same
+        thread alongside this one. Changes nothing else.
+        """
+        # Autoflush is off in the shells' sessions; flush so the UPDATE sees the row.
+        self.session.flush()
+        result = self.session.execute(
+            update(AgentRun)
+            .where(AgentRun.id == run_id, AgentRun.status.in_(RESUMABLE_RUN_STATUSES))
+            .values(status=AgentRun.status)
+            .execution_options(synchronize_session=False)
+        )
+        return bool(cast("CursorResult[Any]", result).rowcount == 1)
+
+    def reject_gate(
+        self, run_id: uuid.UUID, *, via: str | None = None
+    ) -> AgentRun | None:
+        """Finalise a run rejected at its HITL gate, recording the decision behind it.
+
+        Appends the gate's reject decision (the profiler's ``save_profile`` or the PM's
+        ``place_orders``, by the run's recorded step) and finalises the run
+        ``rejected`` with no weights. ``via`` names what rejected it when it was not
+        the adviser's own reject (e.g. ``"freeze"``), so the trail can tell the two
+        apart. The caller guards the run's state; ``None`` if the run is absent.
+        """
+        run = self.get_run(run_id)
+        if run is None:
+            return None
+        if (run.optimizer_config or {}).get("step") == "profiler":
+            agent, step = "profiler", "save_profile"
+        else:
+            agent, step = "orchestrator", "place_orders"
+        decision: dict[str, Any] = {"decision": "reject"}
+        if via is not None:
+            decision["via"] = via
+        # Finalised first: the compare-and-set refuses a run another resolver already
+        # settled, and the decision row must not be left behind for a reject that lost.
+        finalized = self.finalize_run(run_id, weights={}, status="rejected")
+        self.append_decision(run_id, agent=agent, step=step, hitl_decision=decision)
+        return finalized
 
     def latest_optimizer_weights(self, run_id: uuid.UUID) -> dict[str, float]:
         """The single authoritative read of a run's optimizer weights.
@@ -149,6 +289,120 @@ class AgentRunRepository(RepositoryBase):
         weights = payload.get("weights") or {}
         return {str(k): float(v) for k, v in weights.items()}
 
+    @staticmethod
+    def weights_digest(weights: dict[str, float]) -> str:
+        """sha256 of the canonical weights JSON, order-free.
+
+        The same canonical form as a paper ticket's ``weights_hash`` (shared through
+        :func:`fund.audit.orders_repository.weights_hash`), so a risk verdict and the
+        ticket it cleared cross-reference.
+        """
+        return weights_hash(weights)
+
+    def append_risk_verdict(
+        self,
+        run_id: uuid.UUID,
+        *,
+        weights: dict[str, float],
+        passed: bool,
+        violations: Sequence[dict[str, Any]],
+        not_enforced: Sequence[str] = (),
+        source: str = "risk_check",
+    ) -> AgentDecision:
+        """Record the risk gate's verdict on ``weights`` as an audited decision.
+
+        Args:
+            run_id: The run the verdict belongs to.
+            weights: The vector the gate evaluated; only its digest is stored, so the
+                verdict is bound to exactly these weights.
+            passed: Whether the gate passed them.
+            violations: The structured breach records (empty when ``passed``).
+            not_enforced: Suitability inputs the gate cannot enforce yet, so a pass
+                is not read as full suitability.
+            source: What produced the verdict (``"risk_check"`` for the bound tool,
+                ``"adviser_edit"`` for an adviser's weight edit).
+
+        Returns:
+            The appended ``agent="risk"`` / ``step="risk_check"`` decision.
+        """
+        payload = json.dumps(
+            {
+                "passed": passed,
+                "violations": list(violations),
+                "not_enforced": list(not_enforced),
+                "weights_hash": self.weights_digest(weights),
+                "source": source,
+            },
+            sort_keys=True,
+            default=str,
+        )
+        return self.append_decision(
+            run_id,
+            agent="risk",
+            step="risk_check",
+            llm_response=payload,
+            llm_response_hash=hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+        )
+
+    def risk_gate(self, run_id: uuid.UUID, weights: dict[str, float]) -> dict[str, Any]:
+        """The run's newest risk verdict, read against exactly ``weights``.
+
+        Args:
+            run_id: The run whose verdicts to read.
+            weights: The vector the verdict must have judged to count.
+
+        Returns:
+            ``{"status", "violations", "not_enforced", "source"}`` where ``status`` is
+            ``"passed"`` (the newest verdict passed these weights), ``"failed"`` (it
+            judged these weights and found breaches), ``"stale"`` (it judged a
+            different vector, so a superseded proposal) or ``"not_run"`` (no usable
+            verdict). Anything but ``"passed"`` is a closed gate.
+        """
+        stmt = (
+            select(AgentDecision)
+            .where(
+                AgentDecision.run_id == run_id,
+                AgentDecision.agent == "risk",
+                AgentDecision.step == "risk_check",
+            )
+            .order_by(AgentDecision.decision_index.desc())
+        )
+        row = self.session.execute(stmt).scalars().first()
+        not_run: dict[str, Any] = {
+            "status": "not_run",
+            "violations": [],
+            "not_enforced": [],
+            "source": None,
+        }
+        if row is None or not row.llm_response:
+            return not_run
+        try:
+            verdict = json.loads(row.llm_response)
+        except (ValueError, TypeError):
+            return not_run
+        if not isinstance(verdict, dict):
+            return not_run
+        if verdict.get("weights_hash") != self.weights_digest(weights):
+            status = "stale"
+        elif verdict.get("passed") is True:
+            status = "passed"
+        else:
+            status = "failed"
+        return {
+            "status": status,
+            "violations": list(verdict.get("violations") or []),
+            "not_enforced": list(verdict.get("not_enforced") or []),
+            "source": verdict.get("source"),
+        }
+
+    def risk_passed(self, run_id: uuid.UUID, weights: dict[str, float]) -> bool:
+        """Whether the run's newest risk verdict passed exactly ``weights``.
+
+        Fails closed: no verdict, an unparseable one, a failed one, or one computed
+        on a different vector (a superseded proposal) all return ``False``.
+        """
+        return self.risk_gate(run_id, weights)["status"] == "passed"
+
     def latest_profiler_answers(self, run_id: uuid.UUID) -> str | None:
         """The typed ``MiFIDAnswers`` JSON the profiler logged at ``normalize_answers``.
 
@@ -187,15 +441,32 @@ class AgentRunRepository(RepositoryBase):
         self.session.refresh(run)
         return run
 
-    def mark_paused(self, run_id: uuid.UUID) -> AgentRun | None:
-        """Flip the run to ``"paused"`` at a HITL gate; ``None`` if not found."""
+    def set_universe(
+        self, run_id: uuid.UUID, universe: Sequence[str]
+    ) -> AgentRun | None:
+        """Record the tickers the allocator optimised over; ``None`` if not found.
+
+        A run is opened with an empty universe because the allocator picks its
+        candidates at runtime. Each successful optimisation replaces it, so the stored
+        universe is always the one behind the run's latest audited weights. Pass the
+        tickers the optimiser actually fitted, not the ones requested: a requested
+        ticker it dropped for lack of prices was not allocated and does not belong here.
+        """
         run = self.get_run(run_id)
         if run is None:
             return None
-        run.status = "paused"
+        run.universe = list(universe)
         self.session.flush()
         self.session.refresh(run)
         return run
+
+    def mark_paused(self, run_id: uuid.UUID) -> AgentRun | None:
+        """Flip the run to ``"paused"`` at a HITL gate; ``None`` if not found.
+
+        A run already finalised (a concurrent reject or freeze) keeps its outcome and
+        is never resurrected to a live gate.
+        """
+        return self._set_live_status(run_id, "paused")
 
     def mark_responded(self, run_id: uuid.UUID) -> AgentRun | None:
         """Flip the run to ``"responded"`` after a barge-in re-gate; ``None`` if absent.
@@ -204,13 +475,32 @@ class AgentRunRepository(RepositoryBase):
         directive back to the PM, which may re-gate (call ``place_orders`` again): the
         run then stays alive as ``"responded"`` — distinct from ``"paused"`` so an
         observer tells a plain pause from a barged-in re-gate — and remains in
-        :meth:`list_paused_runs`, still awaiting approval.
+        :meth:`list_paused_runs`, still awaiting approval. A run that is no longer at a
+        live gate (finalised by a concurrent reject or freeze) keeps its outcome.
+        """
+        return self._set_live_status(run_id, "responded")
+
+    def _set_live_status(self, run_id: uuid.UUID, status: str) -> AgentRun | None:
+        """Move a run to a live-gate ``status`` unless it has already been finalised.
+
+        A compare-and-set on the stored status, not on the loaded copy: the caller read
+        the run before a long agent turn, so a freeze or reject that committed
+        ``rejected`` meanwhile must stay final instead of being flipped back to a live
+        gate (last-writer-wins would re-open a halted run).
         """
         run = self.get_run(run_id)
         if run is None:
             return None
-        run.status = "responded"
         self.session.flush()
+        self.session.execute(
+            update(AgentRun)
+            .where(
+                AgentRun.id == run_id,
+                AgentRun.status.in_(_OPEN_RUN_STATUSES),
+            )
+            .values(status=status)
+            .execution_options(synchronize_session=False)
+        )
         self.session.refresh(run)
         return run
 
@@ -222,24 +512,127 @@ class AgentRunRepository(RepositoryBase):
         pause. Optionally scoped to one ``portfolio_id``. This is the pending-HITL query
         the observers and the resume driver read.
         """
-        stmt = select(AgentRun).where(AgentRun.status.in_(("paused", "responded")))
+        stmt = select(AgentRun).where(AgentRun.status.in_(RESUMABLE_RUN_STATUSES))
         if portfolio_id is not None:
             stmt = stmt.where(AgentRun.portfolio_id == portfolio_id)
         stmt = stmt.order_by(AgentRun.created_at.desc())
         return list(self.session.execute(stmt).scalars().all())
 
+    def newer_completed_rebalance_run(self, run: AgentRun) -> AgentRun | None:
+        """The newest completed rebalance run of ``run``'s portfolio that began later.
+
+        "Newer" is ``started_at`` order, so a round opened later on fresher data wins
+        over one that merely finished later. Profiler runs are skipped: completing a
+        risk profile sets no holdings. A run with no portfolio has nothing to compare
+        against. A tie on ``started_at`` is not "newer".
+
+        Returns:
+            The most recently started such run, or ``None`` when ``run`` is current.
+        """
+        if run.portfolio_id is None:
+            return None
+        stmt = (
+            select(AgentRun)
+            .where(
+                AgentRun.portfolio_id == run.portfolio_id,
+                AgentRun.status == "completed",
+                AgentRun.started_at > run.started_at,
+            )
+            .order_by(AgentRun.started_at.desc())
+        )
+        for candidate in self.session.execute(stmt).scalars():
+            if (candidate.optimizer_config or {}).get("step") != "profiler":
+                return candidate
+        return None
+
     def get_run(self, run_id: uuid.UUID) -> AgentRun | None:
         """Return the run by id, or ``None``."""
         return self.session.get(AgentRun, run_id)
 
-    def list_runs_for_portfolio(self, portfolio_id: uuid.UUID) -> list[AgentRun]:
-        """All runs for a portfolio, newest first."""
-        stmt = (
-            select(AgentRun)
-            .where(AgentRun.portfolio_id == portfolio_id)
-            .order_by(AgentRun.created_at.desc())
-        )
+    def list_runs_for_portfolio(
+        self,
+        portfolio_id: uuid.UUID,
+        *,
+        since: date | None = None,
+        limit: int | None = None,
+    ) -> list[AgentRun]:
+        """Runs for a portfolio, newest first.
+
+        Args:
+            portfolio_id: Owning portfolio.
+            since: Keep only runs whose ``asof`` is on or after this date.
+            limit: Maximum rows to return; ``None`` returns the full history.
+
+        Returns:
+            The matching runs, ordered by ``created_at`` descending. Decisions are
+            not loaded; read them per run when a caller needs them.
+        """
+        stmt = select(AgentRun).where(AgentRun.portfolio_id == portfolio_id)
+        if since is not None:
+            stmt = stmt.where(AgentRun.asof >= since)
+        stmt = stmt.order_by(AgentRun.created_at.desc())
+        if limit is not None:
+            stmt = stmt.limit(limit)
         return list(self.session.execute(stmt).scalars().all())
+
+    def iter_runs_for_portfolio(
+        self, portfolio_id: uuid.UUID, *, status: str | None = None
+    ) -> Iterator[AgentRun]:
+        """Stream a portfolio's runs newest first so a caller can stop early.
+
+        Args:
+            portfolio_id: Owning portfolio.
+            status: Keep only runs in this status (e.g. ``"completed"``).
+
+        Yields:
+            Runs ordered by ``created_at`` descending, fetched in batches. Closing
+            the iterator early releases the cursor without reading the tail.
+        """
+        stmt = select(AgentRun).where(AgentRun.portfolio_id == portfolio_id)
+        if status is not None:
+            stmt = stmt.where(AgentRun.status == status)
+        yield from self._stream(stmt.order_by(AgentRun.created_at.desc()))
+
+    def iter_optimizer_decisions(
+        self,
+        portfolio_id: uuid.UUID,
+        *,
+        run_statuses: Sequence[str] | None = None,
+    ) -> Iterator[AgentDecision]:
+        """Stream the allocator ``optimize_portfolio`` decisions, newest first.
+
+        Spans every run of the portfolio in one query, so the observers can find the
+        latest proposal without a per-run lookup.
+
+        Args:
+            portfolio_id: Owning portfolio.
+            run_statuses: Keep only decisions of runs in one of these statuses (e.g.
+                the live HITL gate pair); ``None`` keeps every run's.
+
+        Yields:
+            Decisions ordered newest run first, then ``decision_index`` descending
+            within a run, fetched in batches.
+        """
+        stmt = (
+            select(AgentDecision)
+            .join(AgentRun, AgentDecision.run_id == AgentRun.id)
+            .where(
+                AgentRun.portfolio_id == portfolio_id,
+                AgentDecision.agent == "allocator",
+                AgentDecision.step == "optimize_portfolio",
+            )
+            .order_by(AgentRun.created_at.desc(), AgentDecision.decision_index.desc())
+        )
+        if run_statuses is not None:
+            stmt = stmt.where(AgentRun.status.in_(run_statuses))
+        yield from self._stream(stmt)
+
+    def _stream(self, stmt: Select[tuple[_T]]) -> Iterator[_T]:
+        result = self.session.execute(stmt.execution_options(yield_per=_STREAM_BATCH))
+        try:
+            yield from result.scalars()
+        finally:
+            result.close()
 
     def list_portfolio_ids(self) -> list[uuid.UUID]:
         """Distinct non-null portfolio ids that have at least one run.
@@ -263,7 +656,7 @@ class AgentRunRepository(RepositoryBase):
         step: str | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
-        limit: int = 200,
+        limit: int | None = 200,
     ) -> list[tuple[AgentDecision, uuid.UUID | None]]:
         """Agent decisions joined to their run's portfolio, newest first.
 
@@ -276,10 +669,11 @@ class AgentRunRepository(RepositoryBase):
             step: Keep only decisions at this step (the decision "type").
             start: Lower ``created_at`` bound (inclusive).
             end: Upper ``created_at`` bound (inclusive).
-            limit: Maximum rows to return.
+            limit: Maximum rows to return; ``None`` for no cap.
 
         Returns:
-            ``(decision, portfolio_id)`` pairs ordered by ``created_at`` descending.
+            ``(decision, portfolio_id)`` pairs ordered by ``created_at`` descending,
+            ties broken per run by ``decision_index`` descending.
         """
         stmt = select(AgentDecision, AgentRun.portfolio_id).join(
             AgentRun, AgentDecision.run_id == AgentRun.id
@@ -292,8 +686,20 @@ class AgentRunRepository(RepositoryBase):
             stmt = stmt.where(AgentDecision.created_at >= start)
         if end is not None:
             stmt = stmt.where(AgentDecision.created_at <= end)
-        stmt = stmt.order_by(AgentDecision.created_at.desc()).limit(limit)
+        # Rows stamped inside one transaction before per-statement clocks (and
+        # any same-microsecond pair) tie on created_at; keep a run's steps
+        # grouped and newest-first rather than leaving the tie to the planner.
+        stmt = stmt.order_by(
+            AgentDecision.created_at.desc(),
+            AgentDecision.run_id,
+            AgentDecision.decision_index.desc(),
+        ).limit(limit)
         return [(dec, pid) for dec, pid in self.session.execute(stmt).all()]
 
 
-__all__ = ["AgentRunRepository"]
+__all__ = [
+    "RESUMABLE_RUN_STATUSES",
+    "AgentRunRepository",
+    "RunNotOpenError",
+    "run_age",
+]

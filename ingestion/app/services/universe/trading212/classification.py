@@ -29,11 +29,23 @@ class Classification(NamedTuple):
 
 
 # Leveraged / inverse derivatives (e.g. "Leverage Shares -5x Short 7-10 Year
-# Treasury Bond", "GraniteShares 3x Long"). These are daily-reset trading
-# products, not investable buy-and-hold exposure — reject regardless of any
-# bond marker in the name.
+# Treasury Bond", "GraniteShares 3x Long", "ProShares UltraShort 20+ Year
+# Treasury"). These are daily-reset trading products, not investable
+# buy-and-hold exposure — reject regardless of any bond marker in the name.
+# "Ultra" alone is not a marker: ultra-short *duration* bond funds ("Ultrashort
+# Bond", "Ultra-Short Income", "Ultra Short 0-1 Year Treasury", "Ultra Short
+# Investment Grade") are ordinary fixed income. The Ultra product line is
+# recognised by "Ultra" followed directly by a maturity or credit segment,
+# by the one-word "UltraShort" followed by a non-zero maturity (a 0-N range is
+# the duration fund), or by the ProShares issuer prefix.
 _LEVERAGED_INVERSE = re.compile(
-    r"\bleverage\b|leveraged|\binverse\b|[-+]?\d+\s?x\b|\bdaily\s+(short|long|leveraged)\b",
+    r"\bleverage\b|leveraged|\binverse\b|[-+]?\d+\s?x\b|\bx\d+\b"
+    r"|\bdaily\s+(short|long|leveraged)\b|\bshort\s+daily\b"
+    r"|\b(?:bull|bear)\b"
+    r"|\bultra[\s-]?pro\b"
+    r"|\bultra\s+(?=\d|investment[\s-]grade|high[\s-]yield)"
+    r"|\bultrashort\s+(?=[1-9])"
+    r"|\bproshares\s+(?:ultra|short\b(?![\s-]*(?:term|duration|maturity)))",
     re.I,
 )
 
@@ -50,11 +62,23 @@ _MULTI_ASSET = re.compile(
     re.I,
 )
 
+# Words that only ever describe debt: enough on their own to call a fund a bond
+# fund.
 _BOND_MARKER = re.compile(
-    r"\bbond\b|treasur|\bgilt|\bbund\b|sovereign|government|\bgov(t|ies)?\b"
-    r"|corporate|\bcredit\b|aggregate|fixed income|inflation|linker|\btips\b"
-    r"|high[\s-]?yield|\bagg\b|\bbtp\b",
+    r"\bbond\b|treasur|\bgilt|\bbund\b|sovereign|\bgov(t|ies)?\b"
+    r"|fixed income|linker|\btips\b|\bagg\b|\bbtp\b",
     re.I,
+)
+
+# Segment words that bond funds use ("Euro Corporates", "High Yield") but equity
+# strategies use too ("High Yield Equity Dividend", "Inflation Beneficiaries"),
+# so they count only when the name carries no equity vocabulary.
+_AMBIGUOUS_BOND_MARKER = re.compile(
+    r"government|corporate|\bcredit\b|aggregate|inflation|high[\s-]?yield",
+    re.I,
+)
+_EQUITY_VOCABULARY = re.compile(
+    r"\bequit(?:y|ies)\b|\bstocks?\b|\bdividend|\bbeneficiar", re.I
 )
 
 # Fixed-income sub-class, most-specific first.
@@ -76,13 +100,15 @@ _FI_SUBCLASS: list[tuple[re.Pattern[str], str]] = [
 ]
 
 _DURATION_SHORT = re.compile(
-    r"ultra\s*short|short[\s-]?term|short[\s-]?duration|floating|money market"
+    r"ultra[\s-]?short|short[\s-]?(?:term|duration|maturity)|short\s+treasur"
+    r"|floating|money market"
     r"|\b0[\s-]?1(?=\D|$)|\b1[\s-]?3(?=\D|$)|\b0[\s-]?3(?=\D|$)|\b0[\s-]?5(?=\D|$)",
     re.I,
 )
 _DURATION_LONG = re.compile(
-    r"\b10\+|\b15\+|\b20\+|\b25\+|long[\s-]?term|long[\s-]?duration|ultra\s*long"
-    r"|\b7[\s-]?10(?=\D|$)|\b10[\s-]?25(?=\D|$)|\b15[\s-]?25(?=\D|$)",
+    r"\b10\+|\b15\+|\b20\+|\b25\+|long[\s-]?term|long[\s-]?duration|ultra[\s-]?long"
+    r"|\b7[\s-]?10(?=\D|$)|\b10[\s-]?20(?=\D|$)|\b10[\s-]?25(?=\D|$)"
+    r"|\b10[\s-]?30(?=\D|$)|\b15[\s-]?25(?=\D|$)",
     re.I,
 )
 
@@ -100,6 +126,14 @@ def _fi_subclass(name: str) -> str:
         if pattern.search(name):
             return value
     return FiSubclass.AGGREGATE.value  # broad/mixed bond fund
+
+
+def _is_bond_fund(name: str) -> bool:
+    if _BOND_MARKER.search(name):
+        return True
+    return bool(
+        _AMBIGUOUS_BOND_MARKER.search(name) and not _EQUITY_VOCABULARY.search(name)
+    )
 
 
 def classify_instrument(
@@ -123,7 +157,7 @@ def classify_instrument(
     if _MULTI_ASSET.search(name):
         return Classification(AssetClass.MULTI_ASSET.value, None, None)
 
-    if _BOND_MARKER.search(name):
+    if _is_bond_fund(name):
         return Classification(
             AssetClass.FIXED_INCOME.value, _fi_subclass(name), _duration(name)
         )

@@ -81,7 +81,7 @@ ignore = ["RUF002", "RUF003"]  # allow unicode in docstrings/comments (mathemati
 "packages/portopt-core/optimizer/__init__.py" = ["E402"]  # logging NullHandler must precede module imports
 "packages/portopt-core/optimizer/**" = ["N803", "N806"]  # sklearn convention: X, y parameter names
 "tests/**" = ["N803", "N806", "S101"]
-# Scheduler tests intentionally shell out to `sh -n` / `sh -c` for script
+# Scheduler tests intentionally shell out to `bash -n` for script syntax
 # validation; the subprocess S-rules and raw-shell-snippet E501 would add
 # nothing here.
 "tests/scheduler/**" = ["N803", "N806", "S101", "S603", "S607", "E501"]
@@ -101,13 +101,19 @@ ignore_missing_imports = true
 
 # sklearn/skfolio lack type stubs — suppress errors from untyped bases
 [[tool.mypy.overrides]]
-module = ["optimizer.preprocessing.*", "optimizer.fx.*"]
+module = [
+    "optimizer.preprocessing.*",
+    "optimizer.fx.*",
+    "optimizer.pre_selection._select_complete",
+    "optimizer.pre_selection._guarded",
+]
 disallow_subclassing_any = false
 
-# skfolio BaseMu / BaseCovariance lack type stubs — suppress subclassing errors
+# skfolio BaseMu / BaseCovariance / SyntheticData lack type stubs — suppress subclassing errors
 [[tool.mypy.overrides]]
 module = [
     "optimizer.optimization._regime_blended_mean_risk",
+    "optimizer.synthetic._factory",
     "optimizer.views._factory",
 ]
 disallow_subclassing_any = false
@@ -127,8 +133,10 @@ module = [
     "optimizer.cluster._factory",
     "optimizer.distance._factory",
     "optimizer.linear_model._factory",
+    "optimizer.tuning._factory",
     "optimizer.uncertainty_set._factory",
     "optimizer.universe._transformer",
+    "optimizer.rebalancing._rebalancer",
 ]
 disallow_subclassing_any = false
 
@@ -160,7 +168,10 @@ exclude_lines = [
     "if __name__ == .__main__.",
     "@overload",
     "raise NotImplementedError",
-    "\\.\\.\\.",
+    # Anchored: coverage drops the whole block a matching line opens, so an
+    # unanchored pattern would hide every function whose signature contains
+    # `Callable[..., X]` or `tuple[X, ...]` from the coverage floor.
+    "^\\s*\\.\\.\\.$",
 ]
 
 [tool.pyright]

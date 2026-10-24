@@ -4,7 +4,8 @@ Each guard is an absence assertion over a tree that is already clean, so it
 passes trivially on day one — indistinguishable from a broken pattern, wrong
 anchoring, or too-broad exclusion that would let it pass forever while
 catching nothing. This module drives each guard's scanner against a
-synthetic tree seeded with known violations (in-process, six guards' worth)
+synthetic tree seeded with known violations (in-process, one scanner per
+guard named in ``test_guards_detect_violations_covers_every_guard.py``)
 and, for the two guards whose contract spans working directories, against the
 real repository from two different process working directories.
 """
@@ -17,6 +18,13 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.hygiene._shared_scan import _iter_python_files
+from tests.unit.hygiene.test_hypothesis_dependency_is_pinned_when_used import (
+    find_hypothesis_usages,
+)
+from tests.unit.hygiene.test_no_agent_stack_import import (
+    find_agent_import_violations,
+)
 from tests.unit.hygiene.test_no_http_surface import (
     _INGESTION_ROOT,
     find_http_violations,
@@ -25,6 +33,7 @@ from tests.unit.hygiene.test_no_legacy_api_references import (
     _REPO_ROOT,
     find_legacy_api_violations,
 )
+from tests.unit.hygiene.test_no_llm_reference import find_llm_violations
 from tests.unit.hygiene.test_no_optimizer_import import (
     find_optimizer_import_violations,
 )
@@ -134,10 +143,91 @@ def test_when_synthetic_tree_carries_an_optimizer_import_then_it_is_reported(tmp
 
 
 @pytest.mark.criterion("scope-7")
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import os, optimizer\n",
+        "x = 1; import optimizer\n",
+        "importlib.import_module('optimizer.moments')\n",
+        "__import__('optimizer')\n",
+    ],
+)
+def test_when_synthetic_tree_carries_a_non_canonical_optimizer_import_then_it_is_reported(
+    tmp_path, source
+):
+    (tmp_path / "offender.py").write_text(source, encoding="utf-8")
+
+    assert find_optimizer_import_violations(tmp_path) == ["offender.py"]
+
+
+@pytest.mark.criterion("scope-7")
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from langchain_core.messages import BaseMessage\n",
+        "import langchain_ollama as lo\n",
+        "import os, langgraph\n",
+    ],
+)
+def test_when_synthetic_tree_carries_a_non_canonical_agent_import_then_it_is_reported(
+    tmp_path, source
+):
+    (tmp_path / "offender.py").write_text(source, encoding="utf-8")
+
+    assert find_agent_import_violations(tmp_path) == ["offender.py"]
+
+
+@pytest.mark.criterion("scope-7")
 def test_when_bootstrap_benchmarks_is_reexported_then_the_shared_init_guard_fails():
     reexported_source = "from ._benchmark_bootstrap import bootstrap_benchmarks\n"
 
     assert find_reexport_violation(reexported_source) is True
+
+
+# One seeded violation per scanner that walks a directory tree.
+_TREE_SCANNERS_WITH_VIOLATION = (
+    (find_optimizer_import_violations, "import optimizer\n"),
+    (find_async_violations, "async def handler():\n    pass\n"),
+    (find_agent_import_violations, "import deepagents\n"),
+    (find_http_violations, "import fastapi\n"),
+    (find_llm_violations, "import langchain\n"),
+    (find_hypothesis_usages, "import hypothesis\n"),
+)
+
+
+@pytest.mark.parametrize(
+    ("scanner", "violation"),
+    _TREE_SCANNERS_WITH_VIOLATION,
+    ids=lambda value: getattr(value, "__name__", None),
+)
+def test_when_checkout_sits_under_a_build_ancestor_then_the_scan_still_finds_violations(
+    tmp_path, scanner, violation
+):
+    """Only directories *inside* the scanned root count as excluded noise.
+
+    CI systems with a ``.../build/<repo>`` workspace must not turn every guard
+    into a scan of zero files.
+    """
+    root = tmp_path / "build" / "ingestion" / "app"
+    root.mkdir(parents=True)
+    (root / "offender.py").write_text(violation, encoding="utf-8")
+
+    assert scanner(root)
+
+
+def test_when_a_build_directory_sits_inside_the_root_then_it_is_still_skipped(
+    tmp_path,
+):
+    (tmp_path / "build" / "lib").mkdir(parents=True)
+    (tmp_path / "build" / "lib" / "artifact.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "real.py").write_text("x = 1\n", encoding="utf-8")
+
+    assert [p.name for p in _iter_python_files(tmp_path)] == ["real.py"]
+
+
+def test_when_the_real_app_tree_is_walked_then_python_files_are_visited():
+    """A guard over a tree it cannot see passes forever; prove the walk is live."""
+    assert any(_iter_python_files(_INGESTION_ROOT / "app"))
 
 
 # The migration-reversibility guard detector moved to portopt-db with the

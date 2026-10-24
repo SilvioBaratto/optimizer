@@ -154,6 +154,51 @@ class TestBuildFromSeededData:
         assert row is not None
         assert row.market_moves["US"]["^GSPC"]["price"] == 5000.0
 
+    def test_market_moves_never_fall_back_to_a_later_snapshot(
+        self, committing_session: Session
+    ) -> None:
+        """A backfilled digest must not embed a summary dated after its ``as_of``."""
+        _seed_digest_sources(committing_session)
+        committing_session.add(
+            MarketSummary(
+                market="US",
+                symbol="^GSPC",
+                as_of=datetime.date(2024, 6, 1),
+                price=9999.0,
+                change=1.0,
+                change_percent=0.1,
+            )
+        )
+        committing_session.flush()
+        backfill_day = datetime.date(2024, 1, 4)
+
+        run_build_market_journal(_request(as_of=backfill_day))
+
+        row = MarketJournalRepository(committing_session).get_for_date(backfill_day)
+        assert row is not None
+        assert row.market_moves["US"]["^GSPC"]["price"] == 5000.0
+
+    def test_market_moves_are_empty_when_only_later_snapshots_exist(
+        self, committing_session: Session
+    ) -> None:
+        """With no snapshot on or before ``as_of`` the section stays empty."""
+        committing_session.add(
+            MarketSummary(
+                market="US",
+                symbol="^GSPC",
+                as_of=datetime.date(2024, 6, 1),
+                price=9999.0,
+            )
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.market_moves == {}
+        assert row.source_counts["market_rows"] == 0
+
     def test_news_themes_aggregate_by_volume(self, committing_session: Session) -> None:
         """``news_themes`` counts each theme across the recent article window."""
         _seed_digest_sources(committing_session)
@@ -190,6 +235,220 @@ class TestBuildFromSeededData:
         assert row is not None
         assert "2024-01-02" in row.narrative
         assert "T10Y2Y" in row.narrative
+
+
+class TestPointInTimeMacroDeltas:
+    """A digest built for a past date uses only observations dated on or before it."""
+
+    def test_future_fred_observations_do_not_leak_into_macro_deltas(
+        self, committing_session: Session
+    ) -> None:
+        """Observations after ``as_of`` are ignored when picking latest/prior."""
+        _seed_digest_sources(committing_session)
+        committing_session.add_all(
+            [
+                FredObservation(
+                    series_id="T10Y2Y", date=datetime.date(2024, 6, 3), value=9.9
+                ),
+                FredObservation(
+                    series_id="T10Y2Y", date=datetime.date(2024, 6, 4), value=9.8
+                ),
+            ]
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        delta = row.macro_deltas["T10Y2Y"]
+        assert delta["date"] == _AS_OF.isoformat()
+        assert delta["latest"] == 0.45
+        assert delta["prior"] == 0.30
+        assert "9.9" not in row.narrative
+        assert "9.8" not in row.narrative
+
+    def test_series_with_only_future_observations_is_omitted(
+        self, committing_session: Session
+    ) -> None:
+        """A series that starts after ``as_of`` contributes nothing to the digest."""
+        committing_session.add(
+            FredObservation(
+                series_id="T10Y2Y", date=datetime.date(2024, 6, 3), value=9.9
+            )
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.macro_deltas == {}
+
+
+class TestPointInTimeMarketMoves:
+    """The market-summary fallback never reaches past the digest date."""
+
+    @staticmethod
+    def _summary(as_of: datetime.date, price: float) -> MarketSummary:
+        return MarketSummary(
+            market="US",
+            symbol="^GSPC",
+            as_of=as_of,
+            price=price,
+            change=1.0,
+            change_percent=0.1,
+        )
+
+    def test_fallback_uses_latest_snapshot_on_or_before_as_of(
+        self, committing_session: Session
+    ) -> None:
+        """With no snapshot on ``as_of``, the newest earlier one is used."""
+        committing_session.add_all(
+            [
+                self._summary(datetime.date(2023, 12, 29), 4700.0),
+                self._summary(datetime.date(2024, 6, 3), 9999.0),
+            ]
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.market_moves["US"]["^GSPC"]["price"] == 4700.0
+
+    def test_fallback_picks_the_latest_of_several_earlier_snapshots(
+        self, committing_session: Session
+    ) -> None:
+        """Among snapshots before ``as_of`` the freshest wins; a later one never does."""
+        committing_session.add_all(
+            [
+                self._summary(datetime.date(2023, 12, 23), 4700.0),
+                self._summary(datetime.date(2023, 12, 30), 4800.0),
+                self._summary(datetime.date(2024, 1, 20), 6000.0),
+            ]
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.market_moves["US"]["^GSPC"]["price"] == 4800.0
+
+    def test_snapshots_only_after_as_of_yield_no_market_moves(
+        self, committing_session: Session
+    ) -> None:
+        """A market whose snapshots all post-date ``as_of`` contributes nothing."""
+        committing_session.add(self._summary(datetime.date(2024, 6, 3), 9999.0))
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.market_moves == {}
+        assert row.source_counts["market_rows"] == 0
+
+    def test_fallback_move_records_the_snapshot_date_it_came_from(
+        self, committing_session: Session
+    ) -> None:
+        """A stale fallback snapshot is dated so readers can detect staleness."""
+        committing_session.add(self._summary(datetime.date(2023, 12, 29), 4700.0))
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.market_moves["US"]["^GSPC"]["as_of"] == "2023-12-29"
+
+    def test_same_day_move_records_the_digest_date(
+        self, committing_session: Session
+    ) -> None:
+        """A snapshot dated on ``as_of`` carries that date."""
+        committing_session.add(self._summary(_AS_OF, 5000.0))
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.market_moves["US"]["^GSPC"]["as_of"] == _AS_OF.isoformat()
+
+
+class TestFredPlaceholderRows:
+    """FRED ``.`` placeholders (stored as NULL) never become latest or prior."""
+
+    def test_null_latest_row_is_skipped_for_the_last_real_readings(
+        self, committing_session: Session
+    ) -> None:
+        """A holiday NULL on ``as_of`` falls back to the two last real values."""
+        committing_session.add_all(
+            [
+                FredObservation(
+                    series_id="T10Y2Y", date=datetime.date(2023, 12, 29), value=0.30
+                ),
+                FredObservation(
+                    series_id="T10Y2Y", date=datetime.date(2024, 1, 1), value=0.40
+                ),
+                FredObservation(series_id="T10Y2Y", date=_AS_OF, value=None),
+            ]
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.macro_deltas["T10Y2Y"] == {
+            "latest": 0.40,
+            "date": "2024-01-01",
+            "prior": 0.30,
+            "delta": 0.1,
+        }
+        assert "None" not in row.narrative
+
+    def test_null_prior_row_does_not_drop_the_delta(
+        self, committing_session: Session
+    ) -> None:
+        """A NULL between two real readings still yields their delta."""
+        committing_session.add_all(
+            [
+                FredObservation(
+                    series_id="T10Y2Y", date=datetime.date(2023, 12, 29), value=0.30
+                ),
+                FredObservation(
+                    series_id="T10Y2Y", date=datetime.date(2024, 1, 1), value=None
+                ),
+                FredObservation(series_id="T10Y2Y", date=_AS_OF, value=0.45),
+            ]
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        delta = row.macro_deltas["T10Y2Y"]
+        assert delta["prior"] == 0.30
+        assert delta["delta"] == 0.15
+
+    def test_series_with_only_null_rows_is_omitted(
+        self, committing_session: Session
+    ) -> None:
+        """A series holding nothing but placeholders contributes no entry."""
+        committing_session.add(
+            FredObservation(series_id="T10Y2Y", date=_AS_OF, value=None)
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request())
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert row.macro_deltas == {}
 
 
 class TestIdempotency:
@@ -328,6 +587,53 @@ class TestNarrativePurity:
         without_macro = _build_narrative(_AS_OF, "US", {}, moves, {})
 
         assert with_macro != without_macro
+
+
+class TestNarrativeObservationDates:
+    """Each FRED value in the narrative carries the date it was observed on."""
+
+    def test_stale_series_shows_its_own_observation_date(self) -> None:
+        """A value older than ``as_of`` is dated, so staleness is readable."""
+        macro = {
+            "DGS10": {"latest": 4.1, "date": "2023-12-29", "delta": -0.05},
+            "T10Y2Y": {"latest": 0.45, "date": "2024-01-02", "delta": None},
+        }
+
+        narrative = _build_narrative(_AS_OF, "US", macro, {}, {})
+
+        assert "DGS10 4.1 as of 2023-12-29 (delta -0.05)" in narrative
+        assert "T10Y2Y 0.45 as of 2024-01-02" in narrative
+
+    def test_entry_without_a_date_still_renders(self) -> None:
+        """Sections persisted before the date was recorded do not break the line."""
+        narrative = _build_narrative(
+            _AS_OF, "US", {"DGS10": {"latest": 4.1, "delta": None}}, {}, {}
+        )
+
+        assert "DGS10 4.1" in narrative
+        assert "as of" not in narrative
+
+    def test_built_row_dates_the_stored_latest_observation(
+        self, committing_session: Session
+    ) -> None:
+        """The persisted narrative dates the latest stored observation."""
+        committing_session.add_all(
+            [
+                FredObservation(
+                    series_id="DGS10", date=datetime.date(2023, 12, 28), value=4.15
+                ),
+                FredObservation(
+                    series_id="DGS10", date=datetime.date(2023, 12, 29), value=4.10
+                ),
+            ]
+        )
+        committing_session.flush()
+
+        run_build_market_journal(_request(fred_series=("DGS10",)))
+
+        row = MarketJournalRepository(committing_session).get_for_date(_AS_OF)
+        assert row is not None
+        assert "DGS10 4.1 as of 2023-12-29" in row.narrative
 
 
 class TestThemeSanitization:

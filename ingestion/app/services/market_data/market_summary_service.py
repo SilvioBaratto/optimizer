@@ -1,6 +1,6 @@
 """Regional market-summary ingestion (SPEC B3).
 
-Fetches ``yf.Market(id).summary`` for the eight documented market identifiers
+Fetches Yahoo's market summary for the eight documented market identifiers
 and upserts the flattened index/quote rows. Market-wide → its own scheduler
 step. Each market is fetched + committed independently.
 """
@@ -33,6 +33,8 @@ def run_market_summary_fetch(
 
     Returns:
         Dict with per-market row counts, total rows written, and error count.
+        A market whose fetch failed (raised or returned ``None``) counts as an
+        error and has no entry in the per-market counts.
     """
     from portopt_db.repositories.market_data.market_summary_repository import (
         MarketSummaryRepository,
@@ -53,7 +55,15 @@ def run_market_summary_fetch(
             on_progress(current=idx, current_market=market)
             try:
                 rows = yf_client.market.fetch_summary(market)
-                counts[market] = repo.upsert_summaries(market, as_of, rows or [])
+                if rows is None:
+                    # None is the client's "retries exhausted" signal; an empty
+                    # list is a genuine empty answer and still goes to the repo.
+                    logger.warning(
+                        "Failed market summary %s: fetch returned no result", market
+                    )
+                    errors.append(f"{market}: no data")
+                    continue
+                counts[market] = repo.upsert_summaries(market, as_of, rows)
                 session.commit()
             except Exception as e:  # one market failure must not sink the rest
                 logger.warning("Failed market summary %s: %s", market, e)
@@ -68,7 +78,7 @@ def run_market_summary_fetch(
         logger.info("Market-summary fetch done: %s", counts)
         on_progress(
             status="completed",
-            finished_at=now.isoformat(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
             errors=errors,
             result=result,
         )

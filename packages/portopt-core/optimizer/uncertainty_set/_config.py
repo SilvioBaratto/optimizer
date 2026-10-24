@@ -22,6 +22,7 @@ Three variants are supported per side:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
 
@@ -70,6 +71,7 @@ def _validate_shared_fields(
     is_empirical: bool,
     is_bootstrap: bool,
     is_orthogonal: bool,
+    confidence_level: float,
     n_bootstrap_samples: int,
     block_size: float | None,
     random_state: int | None,
@@ -77,12 +79,13 @@ def _validate_shared_fields(
     diagonal: bool,
     cs_weighting: CrossSectionalWeighting,
 ) -> None:
-    """Reject kind-specific fields set on the wrong variant.
+    """Reject out-of-range values and kind-specific fields on the wrong variant.
 
     Args:
         is_empirical: True when the selected variant is EMPIRICAL.
         is_bootstrap: True when the selected variant is BOOTSTRAP.
         is_orthogonal: True when the selected variant is ORTHOGONAL.
+        confidence_level: Confidence ball level; must lie strictly inside (0, 1).
         n_bootstrap_samples: Bootstrap sample count; default ``1000``. Bootstrap-only.
         block_size: Politis-White block size; ``None`` triggers auto. Bootstrap-only.
         random_state: Bootstrap RNG seed. Bootstrap-only.
@@ -92,8 +95,17 @@ def _validate_shared_fields(
         cs_weighting: Orthogonality metric. Orthogonal-only.
 
     Raises:
-        ConfigurationError: When a kind-specific field is set for the wrong variant.
+        ConfigurationError: When ``confidence_level`` is outside (0, 1), a numeric
+            field is out of range, or a kind-specific field is set for the wrong
+            variant.
     """
+    # The chi-squared radius is 0 at 0 (silently non-robust), inf at 1 and NaN
+    # outside [0, 1], so the failure would otherwise surface as an opaque solver
+    # error far from the config; NaN fails the chained comparison as well.
+    if not 0.0 < confidence_level < 1.0:
+        raise ConfigurationError(
+            f"confidence_level must be in (0, 1), got {confidence_level}"
+        )
     if not is_bootstrap:
         if n_bootstrap_samples != 1000:
             raise ConfigurationError(
@@ -103,8 +115,18 @@ def _validate_shared_fields(
             raise ConfigurationError("block_size is only valid for BOOTSTRAP kind")
         if random_state is not None:
             raise ConfigurationError("random_state is only valid for BOOTSTRAP kind")
+    elif n_bootstrap_samples < 1:
+        raise ConfigurationError(
+            f"n_bootstrap_samples must be >= 1, got {n_bootstrap_samples}"
+        )
+    if block_size is not None and not (math.isfinite(block_size) and block_size > 0):
+        raise ConfigurationError(
+            f"block_size must be a positive finite number, got {block_size}"
+        )
     if n_eff is not None and not is_empirical:
         raise ConfigurationError("n_eff is only valid for EMPIRICAL kind")
+    if n_eff is not None and not (math.isfinite(n_eff) and n_eff > 0):
+        raise ConfigurationError(f"n_eff must be a positive finite number, got {n_eff}")
     if diagonal is not True and is_orthogonal:
         raise ConfigurationError(
             "diagonal is only valid for EMPIRICAL and BOOTSTRAP kinds"
@@ -150,6 +172,7 @@ class MuUncertaintySetConfig:
             is_empirical=self.kind == MuUncertaintySetType.EMPIRICAL,
             is_bootstrap=self.kind == MuUncertaintySetType.BOOTSTRAP,
             is_orthogonal=is_orthogonal,
+            confidence_level=self.confidence_level,
             n_bootstrap_samples=self.n_bootstrap_samples,
             block_size=self.block_size,
             random_state=self.random_state,
@@ -256,6 +279,7 @@ class CovarianceUncertaintySetConfig:
             is_empirical=self.kind == CovarianceUncertaintySetType.EMPIRICAL,
             is_bootstrap=self.kind == CovarianceUncertaintySetType.BOOTSTRAP,
             is_orthogonal=is_orthogonal,
+            confidence_level=self.confidence_level,
             n_bootstrap_samples=self.n_bootstrap_samples,
             block_size=self.block_size,
             random_state=self.random_state,

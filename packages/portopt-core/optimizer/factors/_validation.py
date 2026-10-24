@@ -72,26 +72,19 @@ class CompositeICResult:
 
 
 @dataclass
-class GroupICResult:
-    """Result of group-level IC aggregation with per-factor breakdown.
+class QuantileSpreadResult:
+    """Quantile spread analysis results for a single factor.
 
     Attributes:
-        group_ic: (dates x groups) group-level IC history.  Identical in shape
-            to the legacy ``build_group_ic_history`` return value.
-        factor_ic: (dates x factors) per-factor IC time series.
-        excluded_factors: Group name → list of factor names excluded by the
-            negative-IC filter policy.  Empty when
-            ``ICNegativeFilterPolicy.INCLUDE``.
+        factor_name: Factor the spread belongs to.
+        spread: Mean per-period top-minus-bottom quantile return over all
+            dates with a valid cross-section (not annualised).
+        quantile_returns: Per-quantile mean returns; not populated by
+            ``run_factor_validation``.
+        within_benchmark: True when the spread, annualised by
+            ``FactorValidationConfig.periods_per_year``, lies inside the
+            factor group's ``FACTOR_SPREAD_BENCHMARKS`` range.
     """
-
-    group_ic: pd.DataFrame
-    factor_ic: pd.DataFrame
-    excluded_factors: dict[str, list[str]]
-
-
-@dataclass
-class QuantileSpreadResult:
-    """Quantile spread analysis results for a single factor."""
 
     factor_name: str
     spread: float
@@ -121,8 +114,9 @@ class ICStats:
         mean: Mean IC over the evaluation period.
         variance_nw: Newey-West HAC variance of the IC series.
         t_stat_nw: Newey-West adjusted t-statistic:
-            ``IC_mean / sqrt(Var_NW / T)``.
-        p_value: Two-tailed p-value derived from the Newey-West t-statistic.
+            ``IC_mean / sqrt(Var_NW / T)``; ``0.0`` when no test is run.
+        p_value: Two-tailed p-value derived from the Newey-West t-statistic;
+            ``1.0`` when no test is run.
         icir: Information Coefficient Information Ratio:
             ``mean(IC) / std(IC)``.
     """
@@ -173,6 +167,16 @@ def compute_monthly_ic(
     )
 
 
+def _common_dates(scores: pd.DataFrame, returns: pd.DataFrame) -> pd.Index:
+    """Dates present in both panels, oldest first.
+
+    ``Index.intersection`` keeps the caller's order, but the IC series feeds
+    Newey-West autocovariances taken at positional lags, so storage order
+    (newest-first, concatenated, shuffled) would pair unrelated periods.
+    """
+    return scores.index.intersection(returns.index).sort_values()
+
+
 def compute_ic_series(
     factor_scores_history: pd.DataFrame,
     returns_history: pd.DataFrame,
@@ -189,7 +193,8 @@ def compute_ic_series(
         returns_history: Dates x tickers matrix of forward returns.
         factor_name: Used only for labeling.
         min_observations: Minimum number of common non-NaN observations per
-            date.
+            date.  With ``use_cs_regression`` the stricter of this and
+            ``cs_config.min_observations`` applies.
         use_cs_regression: When ``True``, replace the per-period rank
             correlation with the slope coefficient of a per-period
             cross-sectional regression (built via
@@ -197,11 +202,14 @@ def compute_ic_series(
             original Spearman-rank IC exactly.
         cs_config: Configuration forwarded to
             `build_cs_linear_regression` when ``use_cs_regression`` is
-            ``True``.  ``None`` defers to `CSLinearRegressionConfig`
-            defaults.
+            ``True``.  Its ``min_observations`` raises the per-date floor
+            above the ``min_observations`` argument when larger.  ``None``
+            defers to `CSLinearRegressionConfig` estimator defaults and
+            applies the ``min_observations`` argument alone.
 
     Returns:
-        IC values indexed by date.
+        IC values indexed by date, in chronological order regardless of the
+        row order of the inputs.
     """
     if use_cs_regression:
         return _compute_ic_series_cs_regression(
@@ -212,9 +220,7 @@ def compute_ic_series(
             cs_config=cs_config,
         )
 
-    common_dates = factor_scores_history.index.intersection(
-        returns_history.index,
-    )
+    common_dates = _common_dates(factor_scores_history, returns_history)
     ics: dict[object, float] = {}
     for date in common_dates:
         ic = compute_monthly_ic(
@@ -228,6 +234,21 @@ def compute_ic_series(
     return pd.Series(ics, name=factor_name, dtype=float)
 
 
+# Relative score spread (peak-to-peak over the largest magnitude) below which a
+# cross-section is constant up to round-off.  Its weighted mean misses the
+# constant by ~1e-17, so X'WX is ~1e-34 rather than exactly singular and the
+# solve returns a noise/noise slope instead of the pinv fallback's zero.
+_CS_CONSTANT_REL_SPREAD: float = 1e-12
+
+
+def _has_cross_sectional_dispersion(scores: npt.NDArray[np.float64]) -> bool:
+    """Whether finite scores differ enough to identify a cross-sectional slope."""
+    if scores.size < 2:
+        return False
+    spread = float(np.ptp(scores))
+    return spread > _CS_CONSTANT_REL_SPREAD * float(np.max(np.abs(scores)))
+
+
 def _compute_ic_series_cs_regression(
     factor_scores_history: pd.DataFrame,
     returns_history: pd.DataFrame,
@@ -238,39 +259,49 @@ def _compute_ic_series_cs_regression(
 ) -> pd.Series:
     """Per-period CS regression slope as IC.
 
-    Drops periods with fewer than ``min_observations`` non-NaN pairs.
+    Drops periods with fewer than ``max(min_observations,
+    cs_config.min_observations)`` finite pairs, and periods whose finite
+    scores are all equal (no cross-sectional dispersion to regress on).
     """
     from optimizer.linear_model import (
         CSLinearRegressionConfig,
         build_cs_linear_regression,
     )
 
-    common_dates = factor_scores_history.index.intersection(
-        returns_history.index,
-    )
+    common_dates = _common_dates(factor_scores_history, returns_history)
     cfg = cs_config if cs_config is not None else CSLinearRegressionConfig()
+    required = max(min_observations, cfg.min_observations)
+    # Score and price panels are built separately and rarely share a ticker
+    # order or universe; positional pairing would regress one name's score on
+    # another's return (or crash on a length mismatch).
+    tickers = factor_scores_history.columns.intersection(returns_history.columns)
 
     kept_dates: list[object] = []
     rows_x: list[npt.NDArray[np.float64]] = []
     rows_y: list[npt.NDArray[np.float64]] = []
     rows_w: list[npt.NDArray[np.float64]] = []
     for date in common_dates:
-        scores = factor_scores_history.loc[date]
-        rets = returns_history.loc[date]
-        valid = (scores.notna() & rets.notna()).to_numpy()
-        if int(valid.sum()) < min_observations:
+        scores = factor_scores_history.loc[date, tickers]
+        rets = returns_history.loc[date, tickers]
+        score_vals = scores.to_numpy(dtype=float)
+        ret_vals = rets.to_numpy(dtype=float)
+        valid = np.isfinite(score_vals) & np.isfinite(ret_vals)
+        if int(valid.sum()) < required:
+            continue
+        # The rank path yields NaN (and compute_ic_series drops it) for a
+        # constant cross-section; a regression slope there is arbitrary.
+        if not _has_cross_sectional_dispersion(score_vals[valid]):
             continue
         kept_dates.append(date)
         # skfolio CSLinearRegression rejects any (period, asset) pair with a
         # positive cs_weight whose feature/target is non-finite.  Real panels
-        # have ragged per-period coverage (assets enter/exit, missing scores),
-        # so we exclude invalid pairs via a 0/1 weight mask and replace their
-        # NaN placeholders with a finite 0.0 (ignored because their weight is
-        # 0).  Fitting without the mask crashes on any partial-coverage period.
-        x_row = np.where(valid, scores.to_numpy(dtype=float), 0.0)
-        y_row = np.where(valid, rets.to_numpy(dtype=float), 0.0)
-        rows_x.append(np.nan_to_num(x_row, nan=0.0))
-        rows_y.append(np.nan_to_num(y_row, nan=0.0))
+        # have ragged per-period coverage (assets enter/exit, missing scores)
+        # and ratio factors can emit +/-inf, so we exclude every non-finite
+        # pair via a 0/1 weight mask and replace its placeholder with a finite
+        # 0.0 (ignored because its weight is 0).  Clamping inf to float max
+        # instead would overflow X'WX into a garbage slope.
+        rows_x.append(np.where(valid, score_vals, 0.0))
+        rows_y.append(np.where(valid, ret_vals, 0.0))
         rows_w.append(valid.astype(np.float64))
 
     if not kept_dates:
@@ -285,6 +316,20 @@ def _compute_ic_series_cs_regression(
     return pd.Series(slopes, index=pd.Index(kept_dates), name=factor_name)
 
 
+# A constant series' mean is off by round-off, so its sample std is ~1e-17
+# rather than 0.0; below this fraction of the series magnitude the std is that
+# noise, not dispersion, and dividing by it yields a ~1e15 ratio.
+_ICIR_DEGENERATE_REL_STD: float = 1e-12
+
+
+def _information_ratio(ic_series: pd.Series, mean_ic: float, ic_std: float) -> float:
+    """Return ``mean_ic / ic_std``, or 0.0 for a constant or undefined-std series."""
+    scale = float(ic_series.abs().max())
+    if not ic_std > _ICIR_DEGENERATE_REL_STD * scale:
+        return 0.0
+    return mean_ic / ic_std
+
+
 def compute_icir(ic_series: pd.Series) -> float:
     """Compute the IC Information Ratio (mean IC / std IC).
 
@@ -296,15 +341,62 @@ def compute_icir(ic_series: pd.Series) -> float:
         ic_series: Time series of IC values (one per cross-section date).
 
     Returns:
-        ICIR value, or 0.0 if ``std(IC) == 0`` or fewer than
-        2 non-NaN observations.
+        ICIR value, or 0.0 if the IC series is constant (``std(IC)`` is zero
+        or round-off) or has fewer than 2 non-NaN observations.
     """
     clean = ic_series.dropna()
     if len(clean) < 2:
         return 0.0
     mean_ic = float(clean.mean())
     ic_std = float(cast(float, clean.std(ddof=1)))
-    return mean_ic / ic_std if ic_std > 0.0 else 0.0
+    return _information_ratio(clean, mean_ic, ic_std)
+
+
+# Below this fraction of the squared series magnitude the HAC variance is
+# float round-off around a constant, not a measurable dispersion.
+_NW_DEGENERATE_REL_VAR: float = 1e-20
+
+
+def _min_newey_west_periods(n_lags: int) -> int:
+    """Shortest IC history on which a Newey-West t-test is attempted.
+
+    ``2 * n_lags + 1`` leaves at least as many periods as the Bartlett window
+    spans on each side of the mean.  Shorter histories give a HAC variance
+    that is mostly kernel weights, and pure noise then clears a ``|t| >= 2``
+    cut-off far more often than the nominal 5%.
+    """
+    return max(3, 2 * n_lags + 1)
+
+
+def _newey_west_variance(ic_series: pd.Series, n_lags: int) -> float:
+    """Bartlett-kernel Newey-West long-run variance of an IC series.
+
+    Every autocovariance is normalised by ``n`` (not ``n - lag``): that is what
+    keeps the Bartlett-weighted sum non-negative.  Dividing a lag-``j`` term by
+    ``n - j`` inflates high lags and can push the estimate to zero or below.
+
+    Args:
+        ic_series: Time series of IC values.
+        n_lags: Maximum autocovariance lag; also sets the Bartlett weights.
+
+    Returns:
+        The variance, or ``0.0`` when the series is constant (to round-off)
+        and therefore carries no dispersion to infer a standard error from.
+        ``NaN`` propagates from NaN input.
+    """
+    values = np.asarray(ic_series, dtype=np.float64)
+    n = len(values)
+    demeaned = values - values.mean()
+
+    nw_var = float(demeaned @ demeaned) / n
+    for lag in range(1, min(n_lags, n - 1) + 1):
+        weight = 1.0 - lag / (n_lags + 1)
+        nw_var += 2.0 * weight * float(demeaned[lag:] @ demeaned[:-lag]) / n
+
+    scale = float(np.max(np.abs(values)))
+    if nw_var <= _NW_DEGENERATE_REL_VAR * scale**2:
+        return 0.0
+    return nw_var
 
 
 def compute_newey_west_tstat(
@@ -314,40 +406,27 @@ def compute_newey_west_tstat(
     """Compute Newey-West t-statistic for IC significance.
 
     Args:
-        ic_series: Time series of IC values.
+        ic_series: Time series of IC values.  NaN observations are dropped
+            before any statistic is computed.
         n_lags: Number of lags for HAC standard errors.
 
     Returns:
-        (t_statistic, p_value).
+        (t_statistic, p_value).  ``(0.0, 1.0)`` (no evidence) when fewer than
+        ``2 * n_lags + 1`` observations remain, or when the series is constant.
+        The floor makes the inference defined; it does not make the test
+        exact, as HAC t-tests still over-reject on short histories.
     """
+    ic_series = ic_series.dropna()
     n = len(ic_series)
-    if n < 3:
+    if n < _min_newey_west_periods(n_lags):
         return 0.0, 1.0
 
     mean_ic = float(ic_series.mean())
-    demeaned = ic_series - mean_ic
-
-    gamma_0 = float((demeaned**2).mean())
-    nw_var = gamma_0
-
-    for lag in range(1, min(n_lags, n - 1) + 1):
-        weight = 1.0 - lag / (n_lags + 1)
-        lag_vals: npt.NDArray[np.float64] = np.asarray(
-            demeaned.iloc[lag:], dtype=np.float64
-        )
-        lead_vals: npt.NDArray[np.float64] = np.asarray(
-            demeaned.iloc[:-lag], dtype=np.float64
-        )
-        gamma_j = float((lag_vals * lead_vals).mean())
-        nw_var += 2 * weight * gamma_j
-
-    nw_var = max(nw_var, 1e-12)
-    se = float(np.sqrt(nw_var / n))
-
-    if se == 0:
+    nw_var = _newey_west_variance(ic_series, n_lags)
+    if not nw_var > 0.0:
         return 0.0, 1.0
 
-    t_stat = mean_ic / se
+    t_stat = mean_ic / float(np.sqrt(nw_var / n))
 
     from scipy import stats as sp_stats
 
@@ -363,14 +442,18 @@ def compute_ic_stats(
 
     Args:
         ic_series: Time series of IC values (one per cross-section date).
+            NaN observations are dropped before any statistic is computed.
         lags: Number of lags for Newey-West HAC standard errors.
 
     Returns:
         Dataclass containing ``mean``, ``variance_nw``, ``t_stat_nw``,
-        ``p_value``, and ``icir``.
+        ``p_value``, and ``icir``.  With fewer than ``2 * lags + 1`` periods,
+        or a constant series, no t-test is run: ``t_stat_nw`` is ``0.0`` and
+        ``p_value`` is ``1.0`` while the descriptive fields are still filled.
     """
     from scipy import stats as sp_stats
 
+    ic_series = ic_series.dropna()
     n = len(ic_series)
     if n < 3:
         return ICStats(
@@ -383,27 +466,14 @@ def compute_ic_stats(
 
     mean_ic = float(ic_series.mean())
     ic_std = float(cast(float, ic_series.std(ddof=1)))
-    icir = mean_ic / ic_std if ic_std > 0.0 else 0.0
+    icir = _information_ratio(ic_series, mean_ic, ic_std)
 
-    demeaned = ic_series - mean_ic
-    gamma_0 = float((demeaned**2).mean())
-    nw_var = gamma_0
-
-    for lag in range(1, min(lags, n - 1) + 1):
-        weight = 1.0 - lag / (lags + 1)
-        lag_vals: npt.NDArray[np.float64] = np.asarray(
-            demeaned.iloc[lag:], dtype=np.float64
-        )
-        lead_vals: npt.NDArray[np.float64] = np.asarray(
-            demeaned.iloc[:-lag], dtype=np.float64
-        )
-        gamma_j = float((lag_vals * lead_vals).mean())
-        nw_var += 2 * weight * gamma_j
-
-    nw_var = max(nw_var, 1e-12)
-    se = float(np.sqrt(nw_var / n))
-    t_stat_nw = mean_ic / se if se > 0.0 else 0.0
-    p_value = float(2.0 * (1.0 - sp_stats.t.cdf(abs(t_stat_nw), df=n - 1)))
+    nw_var = _newey_west_variance(ic_series, lags)
+    if n < _min_newey_west_periods(lags) or not nw_var > 0.0:
+        t_stat_nw, p_value = 0.0, 1.0
+    else:
+        t_stat_nw = mean_ic / float(np.sqrt(nw_var / n))
+        p_value = float(2.0 * (1.0 - sp_stats.t.cdf(abs(t_stat_nw), df=n - 1)))
 
     return ICStats(
         mean=mean_ic,
@@ -428,15 +498,24 @@ def correct_pvalues(
     Returns:
         ``holm`` — FWER-controlling Holm-Bonferroni adjusted p-values.
         ``bh``   — FDR-controlling Benjamini-Hochberg adjusted p-values.
-        Both arrays are returned in the **same order** as the input.
+        Both arrays are returned in the **same order** as the input.  NaN
+        p-values are excluded from the family size and stay NaN in their own
+        position; they do not affect the other adjusted values.
     """
     p = np.asarray(p_values, dtype=np.float64)
-    m = len(p)
-    if m == 0:
-        empty: npt.NDArray[np.float64] = np.empty(0, dtype=np.float64)
-        return CorrectedPValues(holm=empty, bh=empty)
+    holm_out = np.full(len(p), np.nan, dtype=np.float64)
+    bh_out = np.full(len(p), np.nan, dtype=np.float64)
 
-    sort_idx = np.argsort(p)
+    # A NaN p-value is not a test: ranking it (argsort puts it last) would
+    # inflate m and, through the right-to-left cumulative minimum, turn every
+    # Benjamini-Hochberg adjusted value into NaN.
+    finite_idx = np.flatnonzero(~np.isnan(p))
+    m = len(finite_idx)
+    if m == 0:
+        return CorrectedPValues(holm=holm_out, bh=bh_out)
+
+    order = np.argsort(p[finite_idx])
+    sort_idx = finite_idx[order]
     sorted_p = p[sort_idx]
     ranks = np.arange(1, m + 1, dtype=np.float64)
 
@@ -448,8 +527,6 @@ def correct_pvalues(
     bh_sorted = np.minimum(1.0, sorted_p * (m / ranks))
     bh_sorted = np.minimum.accumulate(bh_sorted[::-1])[::-1]
 
-    holm_out = np.empty(m, dtype=np.float64)
-    bh_out = np.empty(m, dtype=np.float64)
     holm_out[sort_idx] = holm_sorted
     bh_out[sort_idx] = bh_sorted
 
@@ -546,7 +623,7 @@ def compute_composite_ic(
 
     mean_ic = float(ic_series.mean())
     ic_std = float(cast(float, ic_series.std(ddof=1)))
-    icir = mean_ic / ic_std if ic_std > 0.0 else 0.0
+    icir = _information_ratio(ic_series, mean_ic, ic_std)
 
     t_stat, p_value = compute_newey_west_tstat(ic_series, n_lags=newey_west_lags)
     significant = abs(t_stat) >= t_stat_threshold
@@ -743,30 +820,35 @@ def run_factor_validation(
         )
         p_values[factor_name] = p_value
 
-        common_dates = scores_df.index.intersection(
-            returns_history.index,
-        )
-        if len(common_dates) > 0:
-            latest = common_dates[-1]
-            spread = compute_quantile_spread(
-                scores_df.loc[latest],
-                returns_history.loc[latest],
+        common_dates = _common_dates(scores_df, returns_history)
+        per_date_spreads = [
+            compute_quantile_spread(
+                scores_df.loc[date],
+                returns_history.loc[date],
                 n_quantiles=config.n_quantiles,
             )
-            if not np.isnan(spread):
-                group_name = _factor_to_group_name(factor_name)
-                bench = FACTOR_SPREAD_BENCHMARKS.get(group_name)
-                in_bench = (
-                    bench[0] <= abs(spread) <= bench[1] if bench is not None else False
+            for date in common_dates
+        ]
+        valid_spreads = [x for x in per_date_spreads if not np.isnan(x)]
+        if valid_spreads:
+            spread = float(np.mean(valid_spreads))
+            group_name = _factor_to_group_name(factor_name)
+            bench = FACTOR_SPREAD_BENCHMARKS.get(group_name)
+            # The benchmarks are annual, long-short and signed: scale the
+            # per-period mean to a year and keep the sign so a reversed factor
+            # is not reported as matching the literature.
+            annualised = spread * config.periods_per_year
+            in_bench = (
+                bench[0] <= annualised <= bench[1] if bench is not None else False
+            )
+            report.quantile_spreads.append(
+                QuantileSpreadResult(
+                    factor_name=factor_name,
+                    spread=spread,
+                    quantile_returns=[],
+                    within_benchmark=in_bench,
                 )
-                report.quantile_spreads.append(
-                    QuantileSpreadResult(
-                        factor_name=factor_name,
-                        spread=spread,
-                        quantile_returns=[],
-                        within_benchmark=in_bench,
-                    )
-                )
+            )
 
     if p_values:
         factor_names = list(p_values.keys())

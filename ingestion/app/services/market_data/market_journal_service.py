@@ -75,12 +75,34 @@ def _f(value: Any) -> float | None:
 
 
 def _build_macro_deltas(
-    repo: MacroRegimeRepository, series_ids: tuple[str, ...]
+    repo: MacroRegimeRepository,
+    series_ids: tuple[str, ...],
+    as_of: datetime.date,
 ) -> dict[str, Any]:
-    """Return latest-vs-prior deltas for each FRED series that has data."""
+    """Return latest-vs-prior deltas for each FRED series that has data.
+
+    Only observations dated on or before ``as_of`` are considered, so a
+    backfilled digest never carries values from after its own date.  FRED ``.``
+    placeholders (stored as NULL on holidays) are skipped so latest/prior are the
+    two most recent real readings.
+
+    The ``as_of`` cap removes look-ahead only for the daily market series
+    (spreads, VIX, Treasury rates, dollar index).  FRED rows store the
+    reference-period date, not the release date, so for the monthly OECD CLI
+    series and ``RECPROUSM156N`` and the quarterly ``JHGDPBRINDX`` and
+    ``A191RL1Q225SBEA`` a backfilled digest still carries values that were
+    published weeks or months after ``as_of``.  The NBER ``USREC``/``USRECDM``
+    flags are worse: they are hindsight, announced many months after the period
+    they describe.  The leak is material for all of these.  No release dates are
+    stored and a fixed lag would also age live digests, so none is applied;
+    treat these series as context rather than point-in-time inputs when a
+    digest is rebuilt for a past date.
+    """
     out: dict[str, Any] = {}
     for sid in series_ids:
-        obs = list(repo.get_fred_observations(sid, limit=2))
+        obs = list(
+            repo.get_fred_observations(sid, end_date=as_of, limit=2, exclude_null=True)
+        )
         if not obs:
             continue
         latest = obs[-1]
@@ -107,15 +129,17 @@ def _build_market_moves(
     """Return per-market symbol moves plus the total summary-row count.
 
     Prefers the snapshot dated ``as_of``; when none exists it falls back to the
-    market's freshest snapshot so a weekday digest still reflects the weekend
-    sweep.
+    market's freshest snapshot dated before ``as_of`` so a weekday digest still
+    reflects the weekend sweep without a backfilled digest seeing later prices.
+    Each symbol carries the snapshot date it was read from, so a stale fallback
+    can be told apart from a same-day move.
     """
     out: dict[str, Any] = {}
     total = 0
     for market in markets:
         rows = list(repo.get_summaries(market, as_of))
         if not rows:
-            latest = repo.get_latest_as_of(market)
+            latest = repo.get_latest_as_of(market, on_or_before=as_of)
             if latest is not None:
                 rows = list(repo.get_summaries(market, latest))
         if not rows:
@@ -125,6 +149,7 @@ def _build_market_moves(
                 "price": _f(row.price),
                 "change": _f(row.change),
                 "change_percent": _f(row.change_percent),
+                "as_of": row.as_of.isoformat(),
             }
             for row in rows
         }
@@ -189,11 +214,16 @@ def _build_narrative(
         for sid in sorted(macro_deltas):
             entry = macro_deltas[sid]
             delta = entry.get("delta")
-            latest = entry.get("latest")
+            # FRED publishes each value some time after its reference date, so the
+            # reader must see which day a value belongs to rather than assume it
+            # is current.
+            observed = entry.get("date")
+            text = f"{sid} {entry.get('latest')}"
+            if observed:
+                text += f" as of {observed}"
             if delta is not None:
-                parts.append(f"{sid} {latest} (delta {delta})")
-            else:
-                parts.append(f"{sid} {latest}")
+                text += f" (delta {delta})"
+            parts.append(text)
         lines.append(f"Macro: {len(macro_deltas)} series — {', '.join(parts)}.")
     else:
         lines.append("Macro: no series available.")
@@ -238,8 +268,8 @@ def run_build_market_journal(
         on_progress: Optional callback; invoked with ``total`` at start and
             ``status="completed"`` at the end.  A failure is *not* swallowed: the
             exception propagates so the scheduler's ``_run_step`` records the job
-            as failed (it flips any non-``completed`` status to ``completed``, so
-            a swallowed failure would be mislabelled a success).
+            as failed (it flips a still-active status to ``completed``, so a
+            swallowed failure would be mislabelled a success).
 
     Returns:
         Result dict with ``as_of``, ``region``, ``source_counts``, and
@@ -257,7 +287,7 @@ def run_build_market_journal(
         market_repo = MarketSummaryRepository(session)
         journal_repo = MarketJournalRepository(session)
 
-        macro_deltas = _build_macro_deltas(macro_repo, series_ids)
+        macro_deltas = _build_macro_deltas(macro_repo, series_ids, as_of)
         market_moves, market_rows = _build_market_moves(
             market_repo, request.markets, as_of
         )

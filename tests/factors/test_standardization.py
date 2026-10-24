@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -78,6 +80,49 @@ class TestZScore:
         result = z_score_standardize(scores)
         assert (result == 0.0).all()
 
+    def test_constant_values_keep_nan_positions(self) -> None:
+        scores = pd.Series([5.0, np.nan, 5.0, 5.0], index=list("abcd"))
+        result = z_score_standardize(scores)
+        assert result.isna().tolist() == [False, True, False, False]
+        assert (result.dropna() == 0.0).all()
+
+    @pytest.mark.parametrize(
+        ("value", "n"),
+        [(0.1, 50), (0.1, 3), (0.3, 22), (1 / 3, 30), (0.7, 100), (2.3, 17)],
+    )
+    def test_constant_non_dyadic_series_maps_to_zero(
+        self, value: float, n: int
+    ) -> None:
+        """Float noise in the std of a constant series is not dispersion."""
+        scores = pd.Series([value] * n)
+        result = z_score_standardize(scores)
+        assert (result == 0.0).all()
+
+    def test_constant_non_dyadic_keeps_nan_positions(self) -> None:
+        scores = pd.Series([0.1, np.nan] + [0.1] * 48, index=range(50))
+        result = z_score_standardize(scores)
+        assert np.isnan(result.iloc[1])
+        assert (result.drop(1) == 0.0).all()
+
+    @pytest.mark.parametrize("scale", [1e-15, 1.0, 1e12])
+    def test_small_genuine_dispersion_is_still_standardized(self, scale: float) -> None:
+        """The constancy test is relative to the data, not an absolute floor."""
+        scores = pd.Series(np.arange(1.0, 21.0)) * scale
+        result = z_score_standardize(scores)
+        assert abs(result.mean()) < 1e-10
+        assert abs(result.std() - 1.0) < 1e-10
+
+    def test_all_nan_stays_nan(self) -> None:
+        scores = pd.Series([np.nan] * 4, index=list("abcd"))
+        result = z_score_standardize(scores)
+        assert result.isna().all()
+
+    def test_single_valid_observation_keeps_nan_positions(self) -> None:
+        scores = pd.Series([np.nan, 3.0, np.nan], index=list("abc"))
+        result = z_score_standardize(scores)
+        assert result.isna().tolist() == [True, False, True]
+        assert result["b"] == 0.0
+
 
 class TestRankNormal:
     def test_shape_preserved(self, raw_scores: pd.Series) -> None:
@@ -112,6 +157,77 @@ class TestNeutralizeSector:
         result = neutralize_sector(raw_scores, sector_labels)
         assert len(result) == len(raw_scores)
 
+    def test_unlabeled_tickers_keep_their_score(self) -> None:
+        """A ticker with no sector is not demeaned and is never turned into NaN."""
+        scores = pd.Series([1.0, 3.0, 10.0, 20.0], index=list("abcd"))
+        labels = pd.Series(["x", "x", "y", None], index=list("abcd"))
+
+        result = neutralize_sector(scores, labels)
+
+        expected = pd.Series([-1.0, 1.0, 0.0, 20.0], index=list("abcd"))
+        pd.testing.assert_series_equal(result, expected)
+
+    def test_output_indexed_like_scores_when_labels_cover_a_subset(self) -> None:
+        scores = pd.Series([1.0, 3.0, 5.0, 7.0, 9.0, 11.0], index=list("abcdef"))
+        labels = pd.Series(["x", "x", "y", "y"], index=list("abcd"))
+
+        result = neutralize_sector(scores, labels)
+
+        pd.testing.assert_index_equal(result.index, scores.index)
+        expected = pd.Series([-1.0, 1.0, -1.0, 1.0, 9.0, 11.0], index=list("abcdef"))
+        pd.testing.assert_series_equal(result, expected)
+
+    def test_labels_for_unscored_tickers_are_ignored(self) -> None:
+        scores = pd.Series([1.0, 3.0], index=list("ab"))
+        labels = pd.Series(["x", "x", "y", "y"], index=list("abcd"))
+
+        result = neutralize_sector(scores, labels)
+
+        pd.testing.assert_index_equal(result.index, scores.index)
+        assert result.tolist() == [-1.0, 1.0]
+
+    def test_missing_country_label_leaves_score_untouched(self) -> None:
+        scores = pd.Series([1.0, 3.0, 10.0], index=list("abc"))
+        sectors = pd.Series(["x", "x", "x"], index=list("abc"))
+        countries = pd.Series(["US", "US", None], index=list("abc"))
+
+        result = neutralize_sector(scores, sectors, countries)
+
+        assert result.tolist() == [-1.0, 1.0, 10.0]
+
+    def test_nan_scores_stay_nan(self) -> None:
+        scores = pd.Series([1.0, np.nan, 3.0], index=list("abc"))
+        labels = pd.Series(["x", "x", "x"], index=list("abc"))
+
+        result = neutralize_sector(scores, labels)
+
+        assert result.isna().tolist() == [False, True, False]
+        assert result["a"] == -1.0
+
+    def test_unlabeled_tickers_are_reported_at_debug_only(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        scores = pd.Series([1.0, 3.0, 10.0], index=list("abc"))
+        labels = pd.Series(["x", "x", None], index=list("abc"))
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            neutralize_sector(scores, labels)
+
+        assert [r.levelno for r in caplog.records] == [logging.DEBUG]
+        assert "no sector label" in caplog.records[0].getMessage()
+
+    def test_missing_country_is_reported_as_sector_country(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        scores = pd.Series([1.0, 3.0, 10.0], index=list("abc"))
+        sectors = pd.Series(["x", "x", "x"], index=list("abc"))
+        countries = pd.Series(["US", "US", None], index=list("abc"))
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            neutralize_sector(scores, sectors, countries)
+
+        assert "no sector/country label" in caplog.records[0].getMessage()
+
 
 class TestStandardizeFactor:
     def test_z_score_pipeline(
@@ -144,6 +260,58 @@ class TestStandardizeFactor:
         assert abs(result.mean()) < 0.1
 
 
+class TestCountryOnlyNeutralization:
+    @pytest.fixture()
+    def country_labels(self) -> pd.Series:
+        countries = ["US", "DE", "FR"]
+        return pd.Series(
+            [countries[i % 3] for i in range(100)],
+            index=[f"T{i:03d}" for i in range(100)],
+        )
+
+    def test_country_flag_alone_demeans_within_each_country(
+        self, raw_scores: pd.Series, country_labels: pd.Series
+    ) -> None:
+        biased = raw_scores + country_labels.map({"US": 5.0, "DE": 0.0, "FR": -5.0})
+        config = StandardizationConfig(neutralize_sector=False, neutralize_country=True)
+        result = standardize_factor(
+            biased, config, sector_labels=None, country_labels=country_labels
+        )
+        for country in country_labels.unique():
+            mask = country_labels == country
+            assert abs(result[mask].mean()) < 1e-10
+
+    def test_country_flag_alone_differs_from_no_neutralization(
+        self, raw_scores: pd.Series, country_labels: pd.Series
+    ) -> None:
+        biased = raw_scores + country_labels.map({"US": 5.0, "DE": 0.0, "FR": -5.0})
+        neutral = standardize_factor(
+            biased,
+            StandardizationConfig(neutralize_sector=False, neutralize_country=True),
+            sector_labels=None,
+            country_labels=country_labels,
+        )
+        plain = standardize_factor(
+            biased,
+            StandardizationConfig(neutralize_sector=False),
+            sector_labels=None,
+            country_labels=country_labels,
+        )
+        assert not np.allclose(neutral, plain)
+
+    def test_country_flag_with_sector_labels_ignores_sectors(
+        self,
+        raw_scores: pd.Series,
+        sector_labels: pd.Series,
+        country_labels: pd.Series,
+    ) -> None:
+        config = StandardizationConfig(neutralize_sector=False, neutralize_country=True)
+        result = standardize_factor(raw_scores, config, sector_labels, country_labels)
+        for country in country_labels.unique():
+            mask = country_labels == country
+            assert abs(result[mask].mean()) < 1e-10
+
+
 class TestStandardizeAllFactors:
     def test_returns_scores_and_coverage(self) -> None:
         rng = np.random.default_rng(42)
@@ -167,6 +335,165 @@ class TestStandardizeAllFactors:
         assert not coverage.loc["X", "b"]
 
 
+class TestMissingFactorDataIsNotCovered:
+    """A z-score must not turn missing factor values into covered zeros."""
+
+    @pytest.fixture()
+    def raw(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "book_to_price": [1.0, 2.0, 3.0, 4.0],
+                "net_insider_buying": [np.nan] * 4,
+            },
+            index=list("abcd"),
+        )
+
+    def test_all_nan_factor_has_no_coverage_under_z_score(
+        self, raw: pd.DataFrame
+    ) -> None:
+        config = StandardizationConfig.for_z_score()
+        scores, coverage = standardize_all_factors(raw, config)
+        assert scores["net_insider_buying"].isna().all()
+        assert not coverage["net_insider_buying"].any()
+
+    def test_z_score_and_rank_normal_agree_on_coverage(self, raw: pd.DataFrame) -> None:
+        _, z_cov = standardize_all_factors(raw, StandardizationConfig.for_z_score())
+        _, rank_cov = standardize_all_factors(raw, StandardizationConfig())
+        pd.testing.assert_frame_equal(z_cov, rank_cov)
+
+
+class TestMissingSectorLabelKeepsCoverage:
+    def test_ticker_without_sector_is_not_dropped_from_the_universe(self) -> None:
+        tickers = list("abcdef")
+        raw = pd.DataFrame(
+            {
+                "book_to_price": [1.0, 2.0, 3.0, 4.0, 5.0, 9.0],
+                "earnings_yield": [2.0, 1.0, 4.0, 3.0, 6.0, 8.0],
+            },
+            index=tickers,
+        )
+        sectors = pd.Series(["x", "x", "y", "y", "z", None], index=tickers)
+
+        scores, coverage = standardize_all_factors(raw, sector_labels=sectors)
+
+        assert coverage.loc["f"].all()
+        assert scores.loc["f"].notna().all()
+
+
+def _unlabeled_universe() -> tuple[pd.DataFrame, pd.Series]:
+    tickers = list("abcdef")
+    raw = pd.DataFrame(
+        {
+            "book_to_price": [1.0, 2.0, 3.0, 4.0, 5.0, 9.0],
+            "earnings_yield": [2.0, 1.0, 4.0, 3.0, 6.0, 8.0],
+            "dividend_yield": [1.0, 4.0, 2.0, 5.0, 3.0, 6.0],
+            "sales_to_price": [3.0, 1.0, 2.0, 6.0, 4.0, 5.0],
+            "cash_flow_yield": [2.0, 3.0, 1.0, 5.0, 6.0, 4.0],
+        },
+        index=tickers,
+    )
+    sectors = pd.Series(["x", "x", "y", "y", "z", None], index=tickers)
+    return raw, sectors
+
+
+def _warnings(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+class TestUnlabeledTickerWarning:
+    """The unlabeled-ticker count is reported once per call, not once per factor."""
+
+    def test_all_factors_warns_once_not_per_factor(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw, sectors = _unlabeled_universe()
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            standardize_all_factors(raw, sector_labels=sectors)
+
+        records = _warnings(caplog)
+        assert len(records) == 1
+        message = records[0].getMessage()
+        assert message.startswith("1 of 6 ")
+        assert "sector label" in message
+
+    def test_all_factors_warning_names_country_when_country_is_neutralized(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw, sectors = _unlabeled_universe()
+        countries = pd.Series(["US", "US", "US", "IT", "IT", "IT"], index=raw.index)
+        config = StandardizationConfig(neutralize_country=True)
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            standardize_all_factors(
+                raw, config, sector_labels=sectors, country_labels=countries
+            )
+
+        records = _warnings(caplog)
+        assert len(records) == 1
+        assert "sector/country label" in records[0].getMessage()
+
+    def test_all_factors_counts_a_missing_country_even_with_a_sector(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw, _ = _unlabeled_universe()
+        sectors = pd.Series(["x"] * 6, index=raw.index)
+        countries = pd.Series(["US", "US", "US", "IT", None, None], index=raw.index)
+        config = StandardizationConfig(neutralize_country=True)
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            standardize_all_factors(
+                raw, config, sector_labels=sectors, country_labels=countries
+            )
+
+        records = _warnings(caplog)
+        assert len(records) == 1
+        assert records[0].getMessage().startswith("2 of 6 ")
+
+    def test_single_factor_call_still_warns_once(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw, sectors = _unlabeled_universe()
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            standardize_factor(raw["book_to_price"], sector_labels=sectors)
+
+        assert len(_warnings(caplog)) == 1
+
+    def test_no_warning_when_every_scored_ticker_is_labeled(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw, _ = _unlabeled_universe()
+        sectors = pd.Series(["x", "x", "y", "y", "z", "z"], index=raw.index)
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            standardize_all_factors(raw, sector_labels=sectors)
+
+        assert _warnings(caplog) == []
+
+    def test_unlabeled_ticker_without_any_score_is_not_counted(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw, sectors = _unlabeled_universe()
+        raw.loc["f"] = np.nan
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            standardize_all_factors(raw, sector_labels=sectors)
+
+        assert _warnings(caplog) == []
+
+    def test_no_warning_when_neutralization_is_disabled(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        raw, sectors = _unlabeled_universe()
+        config = StandardizationConfig(neutralize_sector=False)
+
+        with caplog.at_level(logging.DEBUG, logger="optimizer.factors"):
+            standardize_all_factors(raw, config, sector_labels=sectors)
+
+        assert _warnings(caplog) == []
+
+
 class TestReStandardizeAfterNeutralization:
     """Tests for re_standardize_after_neutralization flag (issue #78)."""
 
@@ -180,6 +507,39 @@ class TestReStandardizeAfterNeutralization:
         result = standardize_factor(raw_scores, config, sector_labels)
         assert abs(result.mean()) < 1e-10
         assert abs(result.std() - 1.0) < 0.05
+
+    @pytest.mark.parametrize("value", [0.1, 0.3, 0.7, 1 / 3, 2.3])
+    def test_constant_factor_stays_flat_after_neutralization(
+        self, value: float
+    ) -> None:
+        """A factor identical across the universe must not gain unit variance."""
+        rng = np.random.default_rng(0)
+        names = ["Tech", "Finance", "Health", "Energy", "Util", "Materials", "Telco"]
+        index = [f"T{i:03d}" for i in range(60)]
+        sectors = pd.Series(rng.choice(names, len(index)), index=index)
+        raw = pd.Series(value, index=index)
+        config = StandardizationConfig(
+            method=StandardizationMethod.Z_SCORE,
+            neutralize_sector=True,
+            re_standardize_after_neutralization=True,
+        )
+        result = standardize_factor(raw, config, sectors)
+        assert (result == 0.0).all()
+
+    def test_factor_constant_within_each_sector_stays_flat(self) -> None:
+        """Sector-level factors demean to noise that must not be re-inflated."""
+        labels = ["A"] * 3 + ["B"] * 7 + ["C"] * 5
+        index = [f"T{i:03d}" for i in range(len(labels))]
+        sectors = pd.Series(labels, index=index)
+        level = {"A": 0.1, "B": 0.2, "C": 0.3}
+        raw = sectors.map(level).astype(float)
+        config = StandardizationConfig(
+            method=StandardizationMethod.Z_SCORE,
+            neutralize_sector=True,
+            re_standardize_after_neutralization=True,
+        )
+        result = standardize_factor(raw, config, sectors)
+        assert (result == 0.0).all()
 
     def test_default_false_no_change(
         self, raw_scores: pd.Series, sector_labels: pd.Series

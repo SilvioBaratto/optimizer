@@ -7,15 +7,20 @@ import dataclasses
 import numpy as np
 import pandas as pd
 import pytest
+import sklearn
 from skfolio.model_selection import WalkForward
 from skfolio.portfolio import Portfolio
 from sklearn.pipeline import Pipeline
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.optimization import (
+    MeanRiskConfig,
     RegimeBlendedMeanRiskConfig,
+    _regime_blended_mean_risk,
     build_regime_blended_mean_risk,
 )
+from optimizer.pre_selection import PreSelectionConfig
+from optimizer.validation import run_cross_val
 
 # ---------------------------------------------------------------------------
 # Module-scoped fixtures — computed once per test session
@@ -293,6 +298,64 @@ class TestExplicitConfigAndPreviousWeights:
         np.testing.assert_array_equal(pipeline[-1].previous_weights, prev)
 
 
+class TestPreviousWeightsSurvivePreSelection:
+    """Name-keyed previous weights stay valid when pre-selection drops assets."""
+
+    @staticmethod
+    def _build(
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+        previous_weights: object,
+    ) -> Pipeline:
+        cfg = RegimeBlendedMeanRiskConfig(
+            mean_risk_config=MeanRiskConfig(transaction_costs=0.001)
+        )
+        pipeline, _ = build_regime_blended_mean_risk(
+            cfg,
+            factor_returns=factor_returns_df,
+            regime_probabilities=regime_probs_df,
+            pre_selection_config=PreSelectionConfig(top_k=10),
+            previous_weights=previous_weights,  # type: ignore[arg-type]
+        )
+        return pipeline
+
+    def test_series_previous_weights_fit_after_top_k_drops_assets(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+    ) -> None:
+        prev = pd.Series(1.0 / len(_COLS), index=_COLS)
+        pipeline = self._build(factor_returns_df, regime_probs_df, prev)
+
+        pipeline.fit(returns_df, optimizer__factors=factor_returns_df)
+
+        assert pipeline[-1].weights_.shape == (10,)
+
+    def test_series_is_forwarded_as_a_name_keyed_dict(
+        self, factor_returns_df: pd.DataFrame, regime_probs_df: pd.DataFrame
+    ) -> None:
+        prev = pd.Series(1.0 / len(_COLS), index=_COLS)
+        pipeline = self._build(factor_returns_df, regime_probs_df, prev)
+
+        forwarded = pipeline[-1].previous_weights
+        assert isinstance(forwarded, dict)
+        assert forwarded == prev.to_dict()
+
+    def test_dict_previous_weights_fit_after_top_k_drops_assets(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+    ) -> None:
+        prev = dict.fromkeys(_COLS, 1.0 / len(_COLS))
+        pipeline = self._build(factor_returns_df, regime_probs_df, prev)
+
+        pipeline.fit(returns_df, optimizer__factors=factor_returns_df)
+
+        assert pipeline[-1].weights_.shape == (10,)
+
+
 # ---------------------------------------------------------------------------
 # 9. Direct fit() guards on the regime covariance estimator
 # ---------------------------------------------------------------------------
@@ -320,3 +383,223 @@ class TestRegimeCovarianceFitGuards:
         )
         with pytest.raises(ConfigurationError, match="pandas DataFrame"):
             cov.fit(np.zeros((50, 3)))
+
+
+# ---------------------------------------------------------------------------
+# 9b. Terminal-date coverage of the regime probabilities
+# ---------------------------------------------------------------------------
+
+
+class TestRegimeProbabilitiesMissingOnTerminalDate:
+    def test_probabilities_lagging_one_day_carry_the_last_known_state_forward(
+        self, factor_returns_df: pd.DataFrame, regime_probs_df: pd.DataFrame
+    ) -> None:
+        from optimizer.optimization._regime_blended_mean_risk import (
+            _ExternallyControlledRegimeCovariance,
+        )
+
+        lagged = _ExternallyControlledRegimeCovariance(
+            regime_probabilities=regime_probs_df.iloc[:-1]
+        ).fit(factor_returns_df)
+
+        carried = regime_probs_df.copy()
+        carried.iloc[-1] = regime_probs_df.iloc[-2]
+        expected = _ExternallyControlledRegimeCovariance(
+            regime_probabilities=carried
+        ).fit(factor_returns_df)
+
+        assert np.all(np.diag(lagged.covariance_) > 0.0)
+        np.testing.assert_allclose(lagged.covariance_, expected.covariance_)
+
+    def test_weekly_probabilities_fit_even_when_last_date_is_off_grid(
+        self, factor_returns_df: pd.DataFrame, regime_probs_df: pd.DataFrame
+    ) -> None:
+        from optimizer.optimization._regime_blended_mean_risk import (
+            _ExternallyControlledRegimeCovariance,
+        )
+
+        weekly = regime_probs_df.iloc[::5]
+        assert weekly.index[-1] != factor_returns_df.index[-1]
+
+        fitted = _ExternallyControlledRegimeCovariance(regime_probabilities=weekly).fit(
+            factor_returns_df
+        )
+
+        assert np.all(np.diag(fitted.covariance_) > 0.0)
+
+    def test_probabilities_stale_beyond_the_limit_raise_configuration_error(
+        self, factor_returns_df: pd.DataFrame, regime_probs_df: pd.DataFrame
+    ) -> None:
+        from optimizer.optimization._regime_blended_mean_risk import (
+            _ExternallyControlledRegimeCovariance,
+        )
+
+        cov = _ExternallyControlledRegimeCovariance(
+            regime_probabilities=regime_probs_df.iloc[:-20]
+        )
+        with pytest.raises(ConfigurationError, match="last training date"):
+            cov.fit(factor_returns_df)
+
+    def test_pipeline_fits_when_probabilities_end_one_day_early(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+    ) -> None:
+        pipeline, _ = build_regime_blended_mean_risk(
+            factor_returns=factor_returns_df,
+            regime_probabilities=regime_probs_df.iloc[:-1],
+        )
+        pipeline.fit(returns_df, optimizer__factors=factor_returns_df)
+        assert sum(pipeline[-1].weights_) == pytest.approx(1.0, rel=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# 10. Sector constraints reach the optimiser
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def sector_map() -> dict[str, str]:
+    sectors = ["Tech", "Util", "Health"]
+    return {col: sectors[i // 5] for i, col in enumerate(_COLS)}
+
+
+def _sector_weights(
+    weights: np.ndarray, sector_map: dict[str, str]
+) -> dict[str, float]:
+    totals: dict[str, float] = {}
+    for col, w in zip(_COLS, weights, strict=True):
+        totals[sector_map[col]] = totals.get(sector_map[col], 0.0) + float(w)
+    return totals
+
+
+class TestSectorConstraintsForwarded:
+    def test_max_sector_weight_is_enforced_on_the_fitted_weights(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+        sector_map: dict[str, str],
+    ) -> None:
+        cap = 0.40
+        cfg = RegimeBlendedMeanRiskConfig(
+            mean_risk_config=dataclasses.replace(
+                MeanRiskConfig.for_max_sharpe(), max_sector_weight=cap
+            )
+        )
+        pipeline, _ = build_regime_blended_mean_risk(
+            cfg,
+            factor_returns=factor_returns_df,
+            regime_probabilities=regime_probs_df,
+            sector_mapping=sector_map,
+        )
+        optimizer = pipeline[-1]
+        assert optimizer.groups == sector_map
+        assert optimizer.linear_constraints is not None
+        assert "Tech <= 0.4" in optimizer.linear_constraints
+
+        pipeline.fit(returns_df, optimizer__factors=factor_returns_df)
+        totals = _sector_weights(pipeline[-1].weights_, sector_map)
+        assert max(totals.values()) <= cap + 1e-6
+
+    def test_min_sector_weights_are_forwarded(
+        self,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+        sector_map: dict[str, str],
+    ) -> None:
+        pipeline, _ = build_regime_blended_mean_risk(
+            factor_returns=factor_returns_df,
+            regime_probabilities=regime_probs_df,
+            sector_mapping=sector_map,
+            min_sector_weights={"Util": 0.2},
+        )
+        assert pipeline[-1].linear_constraints is not None
+        assert "Util >= 0.2" in pipeline[-1].linear_constraints
+
+    def test_sector_bands_are_forwarded(
+        self,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+        sector_map: dict[str, str],
+    ) -> None:
+        pipeline, _ = build_regime_blended_mean_risk(
+            factor_returns=factor_returns_df,
+            regime_probabilities=regime_probs_df,
+            sector_mapping=sector_map,
+            sector_bands={"Tech": (0.1, 0.5)},
+        )
+        constraints = pipeline[-1].linear_constraints
+        assert constraints is not None
+        assert "Tech >= 0.1" in constraints
+        assert "Tech <= 0.5" in constraints
+
+
+# ---------------------------------------------------------------------------
+# 11. The ``factors`` fit param spelling depends on metadata routing
+# ---------------------------------------------------------------------------
+
+
+class TestFactorsFitParamSpelling:
+    """The documented recipes work only under the routing setting that fits."""
+
+    @pytest.mark.parametrize(
+        ("routing", "key"),
+        [(False, "optimizer__factors"), (True, "factors")],
+    )
+    def test_run_cross_val_accepts_the_spelling_matching_the_routing_setting(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+        routing: bool,
+        key: str,
+    ) -> None:
+        with sklearn.config_context(enable_metadata_routing=routing):
+            pipeline, cv = build_regime_blended_mean_risk(
+                factor_returns=factor_returns_df,
+                regime_probabilities=regime_probs_df,
+            )
+            population = run_cross_val(
+                pipeline, returns_df, cv=cv, params={key: factor_returns_df}
+            )
+        assert len(population) > 0
+
+    @pytest.mark.parametrize(
+        ("routing", "key"),
+        [(False, "factors"), (True, "optimizer__factors")],
+    )
+    def test_run_cross_val_rejects_the_spelling_of_the_other_routing_setting(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+        routing: bool,
+        key: str,
+    ) -> None:
+        with sklearn.config_context(enable_metadata_routing=routing):
+            pipeline, cv = build_regime_blended_mean_risk(
+                factor_returns=factor_returns_df,
+                regime_probabilities=regime_probs_df,
+            )
+            with pytest.raises((ValueError, TypeError)):
+                run_cross_val(
+                    pipeline, returns_df, cv=cv, params={key: factor_returns_df}
+                )
+
+    @pytest.mark.parametrize(
+        "doc",
+        [
+            _regime_blended_mean_risk.__doc__,
+            build_regime_blended_mean_risk.__doc__,
+        ],
+        ids=["module", "builder"],
+    )
+    def test_docs_state_which_spelling_needs_which_routing_setting(
+        self, doc: str | None
+    ) -> None:
+        assert doc is not None
+        assert "enable_metadata_routing" in doc
+        assert '"optimizer__factors"' in doc
+        assert '"factors"' in doc

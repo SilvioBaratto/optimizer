@@ -2,9 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, development]
   pull_request:
-    branches: [main]
+    branches: [main, development]
+  # release.yml runs this whole workflow as the gate in front of the PyPI upload.
+  workflow_call:
 
 permissions:
   contents: read
@@ -20,18 +22,30 @@ concurrency:
 # ingestion-must-not-import-optimizer boundary now rests entirely on the static
 # source-scan guard (tests/unit/hygiene/test_no_optimizer_import.py) + the
 # portopt-core⊬portopt_db guard. See tasks/plan.md risk #1.
+#
+# Tool versions are pinned so a new uv release or runner-image Python cannot
+# change CI without a commit: setup-uv's `version` mirrors the uv pinned in both
+# Dockerfiles (tests/test_ci_workflow_config.py keeps them equal), and every job
+# names its Python.
 
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: "0.11.19"
+          python-version: "3.12"
           enable-cache: true
-      - run: uv sync --all-packages --all-extras
-      - run: uv run ruff check packages/portopt-core/optimizer/ tests/
-      - run: uv run ruff format --check packages/portopt-core/optimizer/ tests/
+      - run: uv sync --locked --all-packages --all-extras
+      # Each member keeps its own ruff.toml, which ruff resolves per file, so one
+      # invocation from the root lints every tree with that tree's settings.
+      - run: uv run ruff check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/
+      - run: uv run ruff format --check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/
+      # The entrypoints run inside the images and the installers on user machines.
+      - run: shellcheck $(git ls-files '*.sh') scripts/optimizer
       # pip-audit the resolved third-party set. The three editable workspace
       # members (portopt-core/-db/-fund) aren't on PyPI, so auditing the live env
       # trips --strict on "not found on PyPI". Export the locked deps WITHOUT the
@@ -42,75 +56,152 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: "0.11.19"
+          python-version: "3.12"
           enable-cache: true
-      - run: uv sync --all-packages --all-extras
+      - run: uv sync --locked --all-packages --all-extras
       - run: uv run mypy packages/portopt-core/optimizer/
       # portopt-db ships py.typed; hold it to its own strict [tool.mypy] gate.
       - run: cd packages/portopt-db && uv run mypy src/portopt_db
+      # ingestion carries its own [tool.mypy] (relaxed for SQLAlchemy and the
+      # untyped scraper libraries); hold it to that config too.
+      - run: cd ingestion && uv run mypy app
 
   pyright:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: "0.11.19"
+          python-version: "3.12"
           enable-cache: true
-      - run: uv sync --all-packages --all-extras
+      - run: uv sync --locked --all-packages --all-extras
       - run: uv run pyright
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: "0.11.19"
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
-      - run: uv sync --all-packages --all-extras --python ${{ matrix.python-version }}
+      - run: uv sync --locked --all-packages --all-extras --python ${{ matrix.python-version }}
       - run: uv run --python ${{ matrix.python-version }} pytest tests/ -v --tb=short --cov=optimizer --cov-branch --cov-report=xml --cov-report=term-missing --cov-fail-under=90
       - if: matrix.python-version == '3.12'
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v5
         with:
-          file: ./coverage.xml
-          fail_ci_if_error: false
+          files: ./coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          # Forks have no secrets and PR uploads are best-effort, but a push to
+          # main that fails to upload must be visible.
+          fail_ci_if_error: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
   ingestion-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: "0.11.19"
+          python-version: "3.12"
           enable-cache: true
-      - run: uv sync --all-packages --all-extras
+      - run: uv sync --locked --all-packages --all-extras
       - run: cd ingestion && uv run pytest tests/ -v --tb=short --cov=app --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=80
 
   portopt-db-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: "0.11.19"
+          python-version: "3.12"
           enable-cache: true
-      - run: uv sync --all-packages --all-extras
+      - run: uv sync --locked --all-packages --all-extras
       - run: cd packages/portopt-db && uv run pytest -v --tb=short --cov=portopt_db --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=90
 
   fund-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
+          version: "0.11.19"
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
-      - run: uv sync --all-packages --all-extras --python ${{ matrix.python-version }}
+      - run: uv sync --locked --all-packages --all-extras --python ${{ matrix.python-version }}
       - run: cd fund && uv run --python ${{ matrix.python-version }} pytest tests/ -v --tb=short --cov=fund --cov-branch --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=80
+
+  # The unit suites run on in-memory SQLite with hand-built prerequisite tables,
+  # so only this job proves the whole Alembic chain applies to an empty
+  # PostgreSQL and that the live-Postgres `integration` tests pass. Those tests
+  # refuse DATABASE_URL (a developer's live database) and run only against
+  # FUND_TEST_DATABASE_URL, so the job creates a separate scratch database.
+  postgres-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: optimizer_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d optimizer_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/optimizer_db
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          version: "0.11.19"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --locked --all-packages --all-extras
+      - run: cd packages/portopt-db && uv run alembic upgrade head
+      - run: PGPASSWORD=postgres psql -h localhost -U postgres -d optimizer_db -c "CREATE DATABASE fund_test"
+      - run: cd fund && uv run pytest tests/integration -m integration -v --tb=short
+        env:
+          FUND_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fund_test
+
+  # Parses the compose file and builds both shipped images, so a broken
+  # Dockerfile or compose edit fails here instead of on a user's `portopt start`.
+  docker-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      # Secret files are git-ignored and rendered by `portopt start`; empty
+      # placeholders let the compose file resolve the same way it does there.
+      - run: |
+          mkdir -p secrets
+          grep -oE '\./secrets/[a-z0-9_]+' docker-compose.yml | xargs touch
+      - run: docker compose --profile ingestion --profile fund config --quiet
+      - run: docker compose --profile ingestion --profile fund build

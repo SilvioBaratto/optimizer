@@ -8,15 +8,58 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  # A `v*` tag can be pushed from any branch, so check what it points at before
+  # spending CI time on it or uploading anything that PyPI never lets us replace.
+  verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Full history so the ancestry test below is not cut short by a shallow clone.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.12"
+      - name: Tagged commit is on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "::error::$GITHUB_REF_NAME points at $GITHUB_SHA, which is not on main"
+            exit 1
+          fi
+      - name: Tag matches the package version
+        run: |
+          python3 - <<'PY'
+          import os
+          import sys
+          import tomllib
+
+          with open("pyproject.toml", "rb") as handle:
+              version = tomllib.load(handle)["project"]["version"]
+          tag = os.environ["GITHUB_REF_NAME"]
+          if tag != f"v{version}":
+              print(f"::error::tag {tag} does not match pyproject.toml version {version}")
+              sys.exit(1)
+          PY
+
+  # The same lint, type, test, migration and image gates that guard main.
+  ci:
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  build:
+    needs: [verify, ci]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: "3.12"
           cache: "pip"
-      - run: pip install build
+      - run: pip install build==1.6.1
       - run: python -m build
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
@@ -26,6 +69,7 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: pypi
     permissions:
       id-token: write

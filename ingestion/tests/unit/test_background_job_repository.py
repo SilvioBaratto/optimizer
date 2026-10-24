@@ -11,10 +11,16 @@ import os
 import socket
 import uuid
 from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
 
+import pytest
+from sqlalchemy import false
 from sqlalchemy.orm import Session
 
 from app.repositories.jobs.background_job_repository import BackgroundJobRepository
+
+_REPO_MODULE = "app.repositories.jobs.background_job_repository"
+_FUND_JOB_TYPES = ["fund_rebalance_sweep", "fund_drift_monitor", "fund_nav_mark"]
 
 
 def _make_stale(
@@ -71,6 +77,28 @@ class TestClaimOrCreate:
 
         second = repo.claim_or_create("test_job_type_314_e")
         assert second is not None
+
+    def test_returns_none_when_a_concurrent_claimer_won_the_race(
+        self, db_session: Session
+    ) -> None:
+        """The unique index, not the NOT EXISTS check, is what makes a claim atomic.
+
+        Under READ COMMITTED a racing claimer cannot see the winner's
+        uncommitted row, so its NOT EXISTS passes. The check is blinded here to
+        reproduce that, leaving only the database to refuse the second row.
+        """
+        repo = BackgroundJobRepository(db_session)
+        first = repo.claim_or_create("test_job_type_race_a")
+        assert first is not None
+
+        blind_check = MagicMock()
+        blind_check.where.return_value = false()
+        with patch(f"{_REPO_MODULE}.exists", return_value=blind_check):
+            second = repo.claim_or_create("test_job_type_race_a")
+
+        assert second is None
+        assert repo.is_any_running("test_job_type_race_a") == (True, str(first))
+        assert repo.claim_or_create("test_job_type_race_b") is not None
 
     def test_different_job_types_do_not_conflict(self, db_session: Session) -> None:
         repo = BackgroundJobRepository(db_session)
@@ -145,8 +173,11 @@ class TestCleanupExpired:
         repo = BackgroundJobRepository(db_session)
         job_id = repo.claim_or_create("test_job_type_314_cleanup_e")
         assert job_id is not None
-        repo.update(job_id, status="completed")  # no finished_at
+        row = repo.get(job_id)
+        assert row is not None
+        row.status = "completed"  # bypasses update(), which would stamp finished_at
         db_session.flush()
+        assert row.finished_at is None
 
         deleted = repo.cleanup_expired(ttl_seconds=0)
         assert deleted == 0
@@ -162,6 +193,86 @@ class TestCleanupExpired:
 
         deleted = repo.cleanup_expired(ttl_seconds=3600)
         assert deleted == 3
+
+
+class TestTerminalUpdateStampsFinishedAt:
+    """A terminal write that omits ``finished_at`` must not leave it NULL.
+
+    ``cleanup_expired`` and ``get_latest_by_type`` both filter on
+    ``finished_at IS NOT NULL``; a completed row without it is never deleted
+    and never reported as the latest run.
+    """
+
+    def test_completed_without_finished_at_is_stamped_and_reported_latest(
+        self, db_session: Session
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        job_id = repo.claim_or_create("test_finished_at_completed")
+        assert job_id is not None
+        before = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=5)
+
+        repo.update(job_id, status="completed")
+        db_session.flush()
+
+        row = repo.get(job_id)
+        assert row is not None
+        assert row.finished_at is not None
+        assert row.finished_at.replace(tzinfo=None) >= before
+        latest = repo.get_latest_by_type("test_finished_at_completed")
+        assert latest is not None
+        assert latest.id == job_id
+
+    def test_completed_without_finished_at_is_eligible_for_cleanup(
+        self, db_session: Session
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        job_id = repo.claim_or_create("test_finished_at_cleanup")
+        assert job_id is not None
+
+        repo.update(job_id, status="completed")
+        db_session.flush()
+
+        assert repo.cleanup_expired(ttl_seconds=-10) == 1
+
+    def test_failed_without_finished_at_is_stamped(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        job_id = repo.claim_or_create("test_finished_at_failed")
+        assert job_id is not None
+
+        repo.update(job_id, status="failed", error="boom")
+        db_session.flush()
+
+        row = repo.get(job_id)
+        assert row is not None
+        assert row.finished_at is not None
+
+    def test_caller_supplied_finished_at_is_kept(self, db_session: Session) -> None:
+        repo = BackgroundJobRepository(db_session)
+        job_id = repo.claim_or_create("test_finished_at_explicit")
+        assert job_id is not None
+        explicit = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+
+        repo.update(job_id, status="completed", finished_at=explicit)
+        db_session.flush()
+
+        row = repo.get(job_id)
+        assert row is not None
+        assert row.finished_at is not None
+        assert row.finished_at.replace(tzinfo=None) == explicit.replace(tzinfo=None)
+
+    def test_non_terminal_update_leaves_finished_at_null(
+        self, db_session: Session
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        job_id = repo.claim_or_create("test_finished_at_running")
+        assert job_id is not None
+
+        repo.update(job_id, status="running", current=3)
+        db_session.flush()
+
+        row = repo.get(job_id)
+        assert row is not None
+        assert row.finished_at is None
 
 
 class TestGetLatestByType:
@@ -443,6 +554,45 @@ class TestReapOrphans:
         row = repo.get(jid)
         assert row is not None
         assert row.status == "pending"
+
+    def test_fund_job_types_exclusion_covers_every_fund_slot(self) -> None:
+        from portopt_db.models.jobs.background_job import FUND_JOB_TYPES
+
+        assert set(FUND_JOB_TYPES) == set(_FUND_JOB_TYPES)
+
+    @pytest.mark.parametrize("fund_job_type", _FUND_JOB_TYPES)
+    def test_stale_fund_slot_is_left_for_the_fund_reaper(
+        self, db_session: Session, fund_job_type: str
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        fund_id = repo.claim_or_create(fund_job_type)
+        ingestion_id = repo.claim_or_create("yfinance_fetch")
+        assert fund_id is not None
+        assert ingestion_id is not None
+        _make_stale(repo, fund_id, db_session)
+        _make_stale(repo, ingestion_id, db_session)
+
+        reaped = repo.reap_orphans("orphan")
+
+        assert reaped == [{"job_type": "yfinance_fetch", "attempt": 0}]
+        fund_row = repo.get(fund_id)
+        assert fund_row is not None
+        assert fund_row.status == "pending"
+        assert fund_row.error is None
+        assert fund_row.finished_at is None
+
+    def test_startup_reconcile_does_not_count_stale_fund_slots(
+        self, db_session: Session
+    ) -> None:
+        repo = BackgroundJobRepository(db_session)
+        fund_id = repo.claim_or_create("fund_nav_mark")
+        assert fund_id is not None
+        _make_stale(repo, fund_id, db_session)
+
+        assert repo.reconcile_orphans("orphaned at startup") == 0
+        fund_row = repo.get(fund_id)
+        assert fund_row is not None
+        assert fund_row.status == "pending"
 
     def test_claim_or_create_stores_attempt(self, db_session: Session) -> None:
         repo = BackgroundJobRepository(db_session)

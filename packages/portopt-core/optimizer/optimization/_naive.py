@@ -14,6 +14,7 @@ from skfolio.optimization import EqualWeighted, InverseVolatility, Random
 from skfolio.prior import EmpiricalPrior
 from skfolio.prior._base import BasePrior
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.moments._config import MomentEstimationConfig
 from optimizer.moments._factory import build_prior
 
@@ -37,12 +38,26 @@ class InverseVolatilityConfig:
         ew_half_life: When set, the factory composes
             ``EmpiricalPrior(covariance_estimator=EWCovariance(half_life=...))``
             and passes it as ``prior_estimator`` (non-serialisable).
-            Mutually exclusive with ``prior_config`` — populated via
+            Must be positive. Mutually exclusive with ``prior_config``
+            (setting both raises `ConfigurationError`) — populated via
             `for_ew_covariance`.
     """
 
     prior_config: MomentEstimationConfig | None = None
     ew_half_life: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.ew_half_life is None:
+            return
+        if self.prior_config is not None:
+            raise ConfigurationError(
+                "ew_half_life and prior_config are mutually exclusive"
+            )
+        # Negated comparison so NaN is rejected as well.
+        if not self.ew_half_life > 0:
+            raise ConfigurationError(
+                f"ew_half_life must be positive (got {self.ew_half_life})"
+            )
 
     @classmethod
     def for_default(cls) -> InverseVolatilityConfig:

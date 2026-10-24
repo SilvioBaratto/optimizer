@@ -16,6 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -24,6 +25,16 @@ from portopt_db.base import BaseModel
 
 # Use JSONB on PostgreSQL, plain JSON elsewhere (e.g. SQLite in tests).
 _JSON = JSON().with_variant(JSONB, "postgresql")
+
+# ``background_jobs`` is shared by the ingestion and fund daemons, each running
+# its own heartbeat-lease reaper. These are the job slots the fund daemon owns;
+# they live here, not in ``fund``, so the ingestion reaper can leave them alone
+# without importing the agent stack.
+FUND_JOB_TYPES: tuple[str, ...] = (
+    "fund_rebalance_sweep",
+    "fund_drift_monitor",
+    "fund_nav_mark",
+)
 
 
 class BackgroundJob(BaseModel):
@@ -40,6 +51,18 @@ class BackgroundJob(BaseModel):
             "ix_background_jobs_status_heartbeat",
             "status",
             "last_heartbeat_at",
+        ),
+        # The job-slot claim is INSERT ... SELECT ... WHERE NOT EXISTS, and under
+        # READ COMMITTED two concurrent claimers both pass that check. This
+        # partial unique index is what actually caps a job_type at one
+        # pending/running row; SQLite supports partial indexes, so it also fires
+        # in the in-memory test harness.
+        Index(
+            "uq_background_jobs_active_type",
+            "job_type",
+            unique=True,
+            postgresql_where=text("status IN ('pending', 'running')"),
+            sqlite_where=text("status IN ('pending', 'running')"),
         ),
     )
 

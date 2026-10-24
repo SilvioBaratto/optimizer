@@ -10,6 +10,8 @@ from skfolio.moments import EWCovariance
 from skfolio.optimization import EqualWeighted, InverseVolatility, Random
 from skfolio.prior import EmpiricalPrior
 
+from optimizer.exceptions import ConfigurationError
+from optimizer.moments import MomentEstimationConfig
 from optimizer.optimization import (
     EqualWeightedConfig,
     InverseVolatilityConfig,
@@ -48,6 +50,18 @@ class TestInverseVolatilityConfig:
         cfg = InverseVolatilityConfig()
         with pytest.raises(dataclasses.FrozenInstanceError):
             cfg.prior_config = None  # type: ignore[misc]
+
+    def test_when_prior_config_and_ew_half_life_both_set_then_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="mutually exclusive"):
+            InverseVolatilityConfig(
+                prior_config=MomentEstimationConfig.for_regime_adjusted_ew(),
+                ew_half_life=63,
+            )
+
+    @pytest.mark.parametrize("half_life", [0.0, -5.0, float("nan")])
+    def test_when_ew_half_life_not_positive_then_raises(self, half_life) -> None:
+        with pytest.raises(ConfigurationError, match="ew_half_life"):
+            InverseVolatilityConfig(ew_half_life=half_life)
 
 
 class TestRandomConfig:

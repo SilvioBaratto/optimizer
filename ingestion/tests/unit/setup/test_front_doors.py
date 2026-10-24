@@ -9,11 +9,14 @@ the caller's args. These assert the funnel shape, not a live run (live smoke is 
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+
+from tests.unit.setup._shell_stubs import run_front_door
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -75,6 +78,37 @@ class TestSetupSh:
         )
         assert result.returncode == 0, result.stderr
 
+    def test_finds_the_portopt_shim_when_uv_was_already_installed(
+        self, tmp_path: Path
+    ) -> None:
+        """``uv tool install`` drops the shim in ~/.local/bin even for an old uv.
+
+        A uv from Homebrew or a distro package sits on PATH while ~/.local/bin often
+        does not, so the handoff needs that directory on PATH regardless of whether
+        this run installed uv itself.
+        """
+        run = run_front_door("setup.sh", tmp_path, "--non-interactive")
+
+        assert run.result.returncode == 0, run.result.stderr
+        (setup,) = run.calls_to("portopt")
+        assert setup[3] == "setup --non-interactive"
+        assert Path(setup[2]).resolve() == _REPO_ROOT
+
+    def test_reinstalls_the_cli_so_a_rerun_picks_up_the_updated_checkout(
+        self, tmp_path: Path
+    ) -> None:
+        """A re-run after ``git pull`` must rebuild the tool-venv copy of the CLI.
+
+        uv keys a directory source on pyproject.toml only and the version is a
+        constant, so a plain ``uv tool install`` audits the stale snapshot and the
+        wizard/lifecycle fixes in the pulled source never take effect.
+        """
+        run = run_front_door("setup.sh", tmp_path)
+
+        assert run.result.returncode == 0, run.result.stderr
+        (install,) = [c for c in run.calls_to("uv") if c[3].startswith("tool install")]
+        assert "--reinstall" in install[3].split()
+
 
 class TestSetupPs1:
     """The Windows PowerShell front door funnels into ``portopt setup``."""
@@ -103,6 +137,59 @@ class TestSetupPs1:
         assert "portopt setup" in text
         assert "@args" in text
 
+    def test_reinstalls_the_cli_so_a_rerun_picks_up_the_updated_checkout(self) -> None:
+        """A plain ``uv tool install`` keeps the stale non-editable snapshot."""
+        install = next(
+            line
+            for line in _read("setup.ps1").splitlines()
+            if "uv tool install" in line
+        )
+        assert "--reinstall" in install.split()
+
+    def test_puts_uv_tool_bin_on_path_before_installing_the_cli(self) -> None:
+        """The session sees ~/.local/bin before ``uv`` and the shim are needed.
+
+        astral's installer only edits the registry PATH, so right after it runs the
+        current session still cannot resolve ``uv`` or the ``portopt`` shim, and a
+        pre-existing uv does not imply its tool bin dir is on PATH either.
+        """
+        text = _read("setup.ps1")
+        path_export = re.search(
+            r'\$env:Path\s*=\s*"\$env:USERPROFILE\\\.local\\bin;', text
+        )
+        assert path_export is not None
+        assert path_export.start() < text.index("uv tool install")
+
+    def test_stops_when_the_cli_install_fails(self) -> None:
+        """A failed ``uv tool install`` must not fall through to a stale ``portopt``.
+
+        ``$ErrorActionPreference = "Stop"`` does not turn a native command's non-zero
+        exit into an exception, so the exit code has to be checked explicitly.
+        """
+        text = _read("setup.ps1")
+        assert re.search(
+            r"^uv tool install[^\n]*\n(?:#[^\n]*\n)*if \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}",
+            text,
+            re.MULTILINE,
+        )
+
+    def test_puts_uv_tool_dir_on_session_path_before_using_uv(self) -> None:
+        """A freshly bootstrapped uv is callable in the same session.
+
+        Astral's installer only writes the registry PATH, so without a session
+        ``$env:Path`` prepend the very next ``uv tool install`` is "not recognized".
+        """
+        text = _read("setup.ps1")
+        prepend = re.search(
+            r"^\$env:Path\s*=\s*\"\$env:USERPROFILE\\\.local\\bin;",
+            text,
+            re.MULTILINE,
+        )
+        install = re.search(r"^uv tool install", text, re.MULTILINE)
+        assert prepend is not None, "setup.ps1 never prepends ~/.local/bin to $env:Path"
+        assert install is not None
+        assert prepend.start() < install.start()
+
 
 class TestSetupCmd:
     """The Windows cmd.exe front door funnels into ``portopt setup``."""
@@ -126,6 +213,46 @@ class TestSetupCmd:
         text = _read("setup.cmd")
         assert "portopt setup" in text
         assert "%*" in text
+
+    def test_reinstalls_the_cli_so_a_rerun_picks_up_the_updated_checkout(self) -> None:
+        """A plain ``uv tool install`` keeps the stale non-editable snapshot."""
+        install = next(
+            line
+            for line in _read("setup.cmd").splitlines()
+            if "uv tool install" in line
+        )
+        assert "--reinstall" in install.split()
+
+    def test_puts_uv_tool_bin_on_path_before_installing_the_cli(self) -> None:
+        """The session sees ~/.local/bin before ``uv`` and the shim are needed.
+
+        astral's installer only edits the registry PATH, so right after it runs the
+        current cmd.exe still cannot resolve ``uv`` or the ``portopt`` shim, and a
+        pre-existing uv does not imply its tool bin dir is on PATH either.
+        """
+        text = _read("setup.cmd")
+        path_export = re.search(
+            r'set "PATH=%USERPROFILE%\\\.local\\bin;%PATH%"', text, re.IGNORECASE
+        )
+        assert path_export is not None
+        assert path_export.start() < text.index("uv tool install")
+
+    def test_puts_uv_tool_dir_on_session_path_before_using_uv(self) -> None:
+        """A freshly bootstrapped uv is callable in the same cmd session.
+
+        The installer runs in a child powershell, which cannot change this
+        process's PATH, so the parent must prepend ``%USERPROFILE%\\.local\\bin`` itself.
+        """
+        text = _read("setup.cmd")
+        prepend = re.search(
+            r'^set "PATH=%USERPROFILE%\\\.local\\bin;%PATH%"',
+            text,
+            re.MULTILINE | re.IGNORECASE,
+        )
+        install = re.search(r"^uv tool install", text, re.MULTILINE)
+        assert prepend is not None, "setup.cmd never prepends ~/.local/bin to PATH"
+        assert install is not None
+        assert prepend.start() < install.start()
 
 
 class TestMakefileSetup:

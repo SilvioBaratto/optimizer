@@ -27,8 +27,12 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy.orm import Session
 
-from app.services.macro.macro_regime_service import MacroRegimeService
+from app.services.macro.macro_regime_service import (
+    FRED_REVISION_LOOKBACK_DAYS,
+    MacroRegimeService,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -204,6 +208,44 @@ class TestFetchCountryEmptySubSets:
         mock_repo.upsert_bond_yield_observations.assert_not_called()
 
 
+class TestFetchCountryBondFailureIsReported:
+    def test_when_bond_fetch_failed_then_error_is_recorded(self) -> None:
+        service, mock_repo = _build_service(
+            ilsole_forecasts={"gdp_growth_6m": 2.0},
+            te_response={
+                "status": "success",
+                "indicators": {"inflation_rate": 3.1},
+                "bond_yields": {},
+                "bond_yields_error": "Fetch failed after retries",
+            },
+        )
+
+        result = service.fetch_country("USA", include_bonds=True)
+
+        assert result["errors"] == [
+            "trading_economics_bonds: Fetch failed after retries"
+        ]
+        assert result["counts"]["bond_yields"] == 0
+        mock_repo.upsert_te_indicators.assert_called_once()
+
+    def test_when_bond_fetch_failed_then_bulk_totals_carry_the_error(self) -> None:
+        service, _ = _build_service(
+            ilsole_forecasts={"gdp_growth_6m": 2.0},
+            te_response={
+                "status": "success",
+                "indicators": {"inflation_rate": 3.1},
+                "bond_yields": {},
+                "bond_yields_error": "Parse structure failure: no rows",
+            },
+        )
+
+        outcome = service.fetch_and_store(["USA"], include_bonds=True)
+
+        assert outcome["errors"] == [
+            "USA: trading_economics_bonds: Parse structure failure: no rows"
+        ]
+
+
 # ---------------------------------------------------------------------------
 # fetch_fred_series — incremental with/without latest date, error + exception
 # ---------------------------------------------------------------------------
@@ -231,8 +273,29 @@ class TestFetchFredSeries:
         result = service.fetch_fred_series(series_ids=["GDP"], incremental=True)
 
         call_kwargs = fake_scraper.get_series_observations.call_args
-        assert call_kwargs.kwargs.get("start_date") == "2025-01-02"
+        expected = datetime.date(2025, 1, 1) - datetime.timedelta(
+            days=FRED_REVISION_LOOKBACK_DAYS
+        )
+        assert call_kwargs.kwargs.get("start_date") == expected.isoformat()
         assert result["counts"]["GDP"] == 2
+
+    def test_when_incremental_then_start_date_reaches_back_a_full_quarter(
+        self,
+    ) -> None:
+        import datetime
+
+        fake_scraper = self._make_fred_scraper()
+        mock_repo = MagicMock()
+        latest = datetime.date(2026, 7, 1)
+        mock_repo.get_fred_latest_date.return_value = latest
+        mock_repo.upsert_fred_observations.return_value = 1
+        service, _ = _build_service(fred_scraper=fake_scraper, repo=mock_repo)
+
+        service.fetch_fred_series(series_ids=["A191RL1Q225SBEA"], incremental=True)
+
+        call_kwargs = fake_scraper.get_series_observations.call_args
+        start = datetime.date.fromisoformat(call_kwargs.kwargs["start_date"])
+        assert latest - start >= datetime.timedelta(days=90)
 
     def test_when_incremental_and_no_latest_date_then_start_date_none(self) -> None:
         fake_scraper = self._make_fred_scraper()
@@ -316,6 +379,117 @@ class TestFetchFredSeries:
         assert any(kw.get("current_country") == "B" for kw in calls_kwargs)
 
 
+class TestFetchFredSeriesDurability:
+    """Each series is committed as it lands, not once after the whole sweep."""
+
+    @pytest.fixture
+    def fred_session(self):
+        from portopt_db.models import Base
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from sqlalchemy.pool import StaticPool
+
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        session = sessionmaker(bind=engine)()
+        try:
+            yield session
+        finally:
+            session.close()
+            engine.dispose()
+
+    def test_finished_series_survive_a_crash_during_a_later_series(
+        self, fred_session
+    ) -> None:
+        """A forced exit mid-sweep keeps every series fetched before it.
+
+        The scraper rolls the session back while fetching the second series, which
+        is what a SIGTERM drain timeout does to uncommitted work.
+        """
+        import datetime
+
+        from portopt_db.models.macro.macro_regime import FredObservation
+        from portopt_db.repositories.macro.macro_regime_repository import (
+            MacroRegimeRepository,
+        )
+
+        day = datetime.date(2026, 10, 1)
+
+        def _observations(series_id, start_date=None):
+            if series_id == "SECOND":
+                fred_session.rollback()
+                return {"status": "error", "error": "process died"}
+            return {
+                "status": "success",
+                "observations": [{"date": day, "value": 1.5}],
+            }
+
+        scraper = MagicMock()
+        scraper.get_series_observations.side_effect = _observations
+        service = MacroRegimeService(
+            repo=MacroRegimeRepository(fred_session),
+            ilsole_scraper=MagicMock(),
+            te_scraper=MagicMock(),
+            fred_scraper=scraper,
+        )
+
+        service.fetch_fred_series(series_ids=["FIRST", "SECOND"], incremental=False)
+
+        stored = fred_session.query(FredObservation).filter_by(series_id="FIRST")
+        assert stored.count() == 1
+
+    def test_a_series_failing_mid_upsert_does_not_sink_the_later_series(
+        self, fred_session
+    ) -> None:
+        """A failed write is rolled back so the next series can still commit.
+
+        Postgres aborts the whole transaction on a failed statement and every
+        later statement fails until a rollback; a failed flush leaves the SQLite
+        session in the same rollback-only state. Without the per-series rollback
+        the third series dies on the second one's leftover transaction.
+        """
+        import datetime
+
+        from portopt_db.models.macro.macro_regime import FredObservation
+        from portopt_db.repositories.macro.macro_regime_repository import (
+            MacroRegimeRepository,
+        )
+
+        day = datetime.date(2026, 10, 1)
+
+        class _FailsOnSecond(MacroRegimeRepository):
+            def upsert_fred_observations(self, series_id, observations):
+                if series_id == "SECOND":
+                    self.session.add(FredObservation(series_id=None, date=day))
+                    self.session.flush()
+                return super().upsert_fred_observations(series_id, observations)
+
+        scraper = MagicMock()
+        scraper.get_series_observations.side_effect = lambda series_id, **kw: {
+            "status": "success",
+            "observations": [{"date": day, "value": 1.5}],
+        }
+        service = MacroRegimeService(
+            repo=_FailsOnSecond(fred_session),
+            ilsole_scraper=MagicMock(),
+            te_scraper=MagicMock(),
+            fred_scraper=scraper,
+        )
+
+        result = service.fetch_fred_series(
+            series_ids=["FIRST", "SECOND", "THIRD"], incremental=False
+        )
+
+        stored = {row.series_id for row in fred_session.query(FredObservation).all()}
+        assert stored == {"FIRST", "THIRD"}
+        assert [e.split(":")[0] for e in result["errors"]] == ["SECOND"]
+        assert result["counts"] == {"FIRST": 1, "SECOND": 0, "THIRD": 1}
+
+
 # ---------------------------------------------------------------------------
 # fetch_macro_news — various branches
 # ---------------------------------------------------------------------------
@@ -372,7 +546,9 @@ class TestFetchMacroNews:
         assert result["count"] == 1
         assert result["errors"] == []
 
-    def test_when_article_has_no_full_content_then_filtered_out(self) -> None:
+    def test_when_scrape_requested_and_article_has_no_full_content_then_filtered_out(
+        self,
+    ) -> None:
         mock_repo = MagicMock()
         mock_repo.upsert_macro_news.return_value = 0
         service, _ = _build_service(repo=mock_repo)
@@ -384,8 +560,11 @@ class TestFetchMacroNews:
         with (
             patch(self._YF_CLIENT_PATCH, return_value=yf_client),
             patch(self._FETCHER_PATCH, return_value=fetcher_mock),
+            patch(
+                "app.services.market_data.yfinance.news.scraper.ArticleScraper",
+            ),
         ):
-            service.fetch_macro_news()
+            service.fetch_macro_news(fetch_full_content=True)
 
         # upsert called with empty list (all articles filtered)
         call_args = mock_repo.upsert_macro_news.call_args
@@ -393,6 +572,110 @@ class TestFetchMacroNews:
             call_args.args[0] if call_args.args else call_args.kwargs.get("rows", [])
         )
         assert upserted_rows == []
+
+    def test_when_snippet_only_mode_then_articles_with_snippet_are_stored(
+        self,
+    ) -> None:
+        mock_repo = MagicMock()
+        mock_repo.upsert_macro_news.side_effect = len
+        service, _ = _build_service(repo=mock_repo)
+
+        yf_client = self._mock_yf_client()
+        fetcher_mock = MagicMock()
+        fetcher_mock.fetch_all.return_value = [self._make_article(full_content=None)]
+
+        with (
+            patch(self._YF_CLIENT_PATCH, return_value=yf_client),
+            patch(self._FETCHER_PATCH, return_value=fetcher_mock),
+        ):
+            result = service.fetch_macro_news(fetch_full_content=False)
+
+        assert result["count"] == 1
+        upserted_rows = mock_repo.upsert_macro_news.call_args.args[0]
+        assert upserted_rows[0]["snippet"] == "Short snippet."
+        assert upserted_rows[0]["full_content"] is None
+
+    def test_when_snippet_only_mode_then_articles_without_snippet_are_dropped(
+        self,
+    ) -> None:
+        mock_repo = MagicMock()
+        mock_repo.upsert_macro_news.side_effect = len
+        service, _ = _build_service(repo=mock_repo)
+
+        bare = self._make_article(full_content=None)
+        bare["snippet"] = ""
+        fetcher_mock = MagicMock()
+        fetcher_mock.fetch_all.return_value = [bare]
+
+        with (
+            patch(self._YF_CLIENT_PATCH, return_value=self._mock_yf_client()),
+            patch(self._FETCHER_PATCH, return_value=fetcher_mock),
+        ):
+            result = service.fetch_macro_news(fetch_full_content=False)
+
+        assert result["count"] == 0
+
+    def test_when_snippet_only_run_follows_scrape_run_then_scraped_body_survives(
+        self, db_session: Session
+    ) -> None:
+        from portopt_db.models.macro.macro_regime import MacroNews
+        from portopt_db.repositories.macro.macro_regime_repository import (
+            MacroRegimeRepository,
+        )
+
+        service = MacroRegimeService(
+            repo=MacroRegimeRepository(db_session),
+            ilsole_scraper=MagicMock(),
+            te_scraper=MagicMock(),
+        )
+
+        def run(article: dict, *, scrape: bool) -> int:
+            fetcher_mock = MagicMock()
+            fetcher_mock.fetch_all.return_value = [article]
+            with (
+                patch(self._YF_CLIENT_PATCH, return_value=self._mock_yf_client()),
+                patch(self._FETCHER_PATCH, return_value=fetcher_mock),
+                patch("app.services.market_data.yfinance.news.scraper.ArticleScraper"),
+            ):
+                result = service.fetch_macro_news(fetch_full_content=scrape)
+            db_session.flush()
+            return result["count"]
+
+        assert run(self._make_article(full_content="Scraped body."), scrape=True) == 1
+        assert run(self._make_article(full_content=None), scrape=False) == 1
+
+        db_session.expire_all()
+        stored = db_session.query(MacroNews).filter(MacroNews.news_id == "abc").one()
+        assert stored.full_content == "Scraped body."
+
+    def test_when_request_disables_scrape_then_run_stores_snippet_articles(
+        self,
+    ) -> None:
+        from app.schemas.macro.macro_regime import MacroNewsFetchRequest
+        from app.services.macro.macro_regime_service import run_macro_news_fetch
+
+        mock_repo = MagicMock()
+        mock_repo.upsert_macro_news.side_effect = len
+        fetcher_mock = MagicMock()
+        fetcher_mock.fetch_all.return_value = [self._make_article(full_content=None)]
+
+        with (
+            patch("app.database.database_manager") as mock_db,
+            patch(
+                "app.services.macro.macro_regime_service.MacroRegimeRepository",
+                return_value=mock_repo,
+            ),
+            patch(self._YF_CLIENT_PATCH, return_value=self._mock_yf_client()),
+            patch(self._FETCHER_PATCH, return_value=fetcher_mock),
+        ):
+            mock_db.get_session.return_value.__enter__.return_value = MagicMock()
+            mock_db.get_session.return_value.__exit__.return_value = False
+
+            result = run_macro_news_fetch(
+                MacroNewsFetchRequest(fetch_full_content=False)
+            )
+
+        assert result["articles_stored"] == 1
 
     def test_when_article_has_no_publish_time_then_pub_time_is_none(self) -> None:
         mock_repo = MagicMock()
@@ -444,6 +727,27 @@ class TestFetchMacroNews:
 
         assert result["count"] == 0
         assert len(result["errors"]) == 1
+
+    def test_when_every_news_source_fails_then_outage_reported_in_errors(
+        self,
+    ) -> None:
+        mock_repo = MagicMock()
+        service, _ = _build_service(repo=mock_repo)
+
+        yf_client = self._mock_yf_client()
+        yf_client.get_ticker.side_effect = RuntimeError("feed down")
+        yf_client.search.search.return_value = None
+
+        with (
+            patch(self._YF_CLIENT_PATCH, return_value=yf_client),
+            patch("app.services.infrastructure.retry.time"),
+        ):
+            result = service.fetch_macro_news()
+
+        assert result["count"] == 0
+        assert len(result["errors"]) == 1
+        assert "no article" in result["errors"][0].lower()
+        mock_repo.upsert_macro_news.assert_not_called()
 
     def test_when_fetch_full_content_true_then_fetch_all_called_correctly(
         self,
@@ -613,10 +917,39 @@ class TestRunBulkFredFetch:
 
             result = run_bulk_fred_fetch(request)
 
-        assert result["series_fetched"] == 5
+        assert result["series_fetched"] == 1
+        assert result["observations_upserted"] == 5
         assert result["error_count"] == 0
 
-    def test_when_fetch_errors_then_error_count_accumulated(self) -> None:
+    def test_when_some_series_return_nothing_then_only_series_with_rows_counted(
+        self,
+    ) -> None:
+        from app.services.macro.macro_regime_service import run_bulk_fred_fetch
+
+        request = SimpleNamespace(series_ids=["A", "B", "C"], incremental=True)
+        mock_svc = MagicMock()
+        mock_svc.fetch_fred_series.return_value = {
+            "counts": {"A": 100, "B": 0, "C": 40},
+            "errors": ["B: fetch failed"],
+        }
+
+        with (
+            patch("app.database.database_manager") as mock_db,
+            patch("app.services.macro.macro_regime_service.MacroRegimeRepository"),
+            patch(
+                "app.services.macro.macro_regime_service.MacroRegimeService",
+                return_value=mock_svc,
+            ),
+        ):
+            mock_db.get_session.return_value.__enter__.return_value = MagicMock()
+            mock_db.get_session.return_value.__exit__.return_value = False
+
+            result = run_bulk_fred_fetch(request)
+
+        assert result["series_fetched"] == 2
+        assert result["observations_upserted"] == 140
+
+    def test_when_fetch_errors_then_final_status_is_failed(self) -> None:
         from app.services.macro.macro_regime_service import run_bulk_fred_fetch
 
         request = SimpleNamespace(series_ids=["BAD"], incremental=False)
@@ -644,7 +977,37 @@ class TestRunBulkFredFetch:
 
         assert result["error_count"] == 1
         final_kwargs = on_progress.call_args_list[-1].kwargs
-        assert final_kwargs.get("status") == "completed"
+        assert final_kwargs.get("status") == "failed"
+        assert "BAD: fetch failed" in final_kwargs["error"]
+
+    def test_when_api_key_missing_then_job_is_reported_failed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An empty key fetches nothing; reporting completed hides the data gap."""
+        from app.config import settings as app_settings
+        from app.services.macro.macro_regime_service import run_bulk_fred_fetch
+
+        monkeypatch.setattr(app_settings, "fred_api_key", "", raising=False)
+        request = SimpleNamespace(series_ids=None, incremental=True)
+        on_progress = MagicMock()
+
+        with (
+            patch("app.database.database_manager") as mock_db,
+            patch("app.services.macro.macro_regime_service.MacroRegimeRepository"),
+            patch("app.services.macro.macro_regime_service.IlSoleScraper"),
+            patch(
+                "app.services.macro.macro_regime_service."
+                "TradingEconomicsIndicatorsScraper"
+            ),
+        ):
+            mock_db.get_session.return_value.__enter__.return_value = MagicMock()
+            mock_db.get_session.return_value.__exit__.return_value = False
+
+            run_bulk_fred_fetch(request, on_progress=on_progress)
+
+        final_kwargs = on_progress.call_args_list[-1].kwargs
+        assert final_kwargs.get("status") == "failed"
+        assert "FRED_API_KEY missing" in final_kwargs["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -701,3 +1064,39 @@ class TestRunMacroNewsFetch:
 
         final_kwargs = on_progress.call_args_list[-1].kwargs
         assert final_kwargs.get("status") == "completed"
+
+    def test_when_service_reports_errors_then_step_fails_instead_of_completing(
+        self,
+    ) -> None:
+        from app.services.macro.macro_regime_service import run_macro_news_fetch
+
+        request = SimpleNamespace(max_articles=5, fetch_full_content=False)
+        mock_svc = MagicMock()
+        mock_svc.fetch_macro_news.return_value = {
+            "count": 0,
+            "errors": ["no article from any macro news source"],
+        }
+        on_progress = MagicMock()
+
+        with (
+            patch("app.database.database_manager") as mock_db,
+            patch("app.services.macro.macro_regime_service.MacroRegimeRepository"),
+            patch(
+                "app.services.macro.macro_regime_service.MacroRegimeService",
+                return_value=mock_svc,
+            ),
+        ):
+            mock_db.get_session.return_value.__enter__.return_value = MagicMock()
+            mock_db.get_session.return_value.__exit__.return_value = False
+
+            with pytest.raises(RuntimeError, match="no article"):
+                run_macro_news_fetch(request, on_progress=on_progress)
+
+        statuses = [c.kwargs.get("status") for c in on_progress.call_args_list]
+        assert "completed" not in statuses
+        errors_recorded = [
+            c.kwargs["errors"]
+            for c in on_progress.call_args_list
+            if "errors" in c.kwargs
+        ]
+        assert errors_recorded == [["no article from any macro news source"]]

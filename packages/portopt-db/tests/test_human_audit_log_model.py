@@ -14,7 +14,8 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import delete, inspect, select, update
+from sqlalchemy import delete, inspect, select, text, update
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import DatabaseError, IntegrityError
 
 from portopt_db.models import HumanAuditLog
@@ -122,3 +123,29 @@ def test_delete_is_blocked(db_session):
 
     with pytest.raises(DatabaseError, match="append-only"):
         db_session.execute(delete(HumanAuditLog).where(HumanAuditLog.id == row.id))
+
+
+def test_explicit_none_prev_and_new_value_are_sql_null_not_json_null(db_session):
+    """``IS NOT NULL`` filters must not count rows that carry no prev/new value."""
+    db_session.add(HumanAuditLog(action="approve", prev_value=None, new_value=None))
+    db_session.flush()
+
+    both_sql_null = db_session.execute(
+        text(
+            "SELECT count(*) FROM human_audit_log "
+            "WHERE prev_value IS NULL AND new_value IS NULL"
+        )
+    ).scalar_one()
+    assert both_sql_null == 1
+
+
+@pytest.mark.parametrize(
+    "column", [HumanAuditLog.prev_value, HumanAuditLog.new_value], ids=lambda c: c.key
+)
+def test_postgresql_variant_binds_none_as_sql_null(column):
+    """Production runs the JSONB variant, which SQLite never exercises."""
+    dialect = postgresql.dialect()
+
+    bind = column.type.dialect_impl(dialect).bind_processor(dialect)
+
+    assert bind(None) is None

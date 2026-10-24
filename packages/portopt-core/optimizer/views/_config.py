@@ -34,10 +34,14 @@ class BlackLittermanConfig:
         risk_free_rate: Risk-free rate added to posterior expected returns.
         uncertainty_method: How to calibrate view uncertainty (omega matrix).
         view_confidences: Per-view confidence levels in [0, 1] for the
-            Idzorek method; must have one entry per view.
+            Idzorek method; must have one entry per view. Required for, and
+            only accepted with, ``ViewUncertaintyMethod.IDZOREK``.
         groups: Asset group mapping for group-relative views.
         prior_config: Inner prior configuration. Defaults to
-            ``MomentEstimationConfig.for_equilibrium_ledoitwolf()``.
+            ``MomentEstimationConfig.for_equilibrium_ledoitwolf()``, whose
+            ``risk_aversion`` is 1.0; set it here to calibrate the equilibrium
+            risk-aversion coefficient. Market-cap weights for the equilibrium
+            are supplied to ``build_black_litterman(market_weights=...)``.
         use_factor_model: When True, wraps the Black-Litterman prior in a
             skfolio.prior.TimeSeriesFactorModel. Fit with factor returns
             via the keyword ``factors=`` (skfolio 1.0).
@@ -55,6 +59,12 @@ class BlackLittermanConfig:
     def __post_init__(self) -> None:
         if self.tau <= 0:
             raise ValueError(f"tau must be strictly positive, got {self.tau}")
+        is_idzorek = self.uncertainty_method == ViewUncertaintyMethod.IDZOREK
+        if is_idzorek and self.view_confidences is None:
+            raise ValueError(
+                "uncertainty_method IDZOREK requires view_confidences; without "
+                "them the prior silently falls back to He-Litterman"
+            )
         if self.view_confidences is not None:
             for c in self.view_confidences:
                 if not (0.0 <= c <= 1.0):
@@ -64,6 +74,12 @@ class BlackLittermanConfig:
                     "view_confidences must have one entry per view; got "
                     f"{len(self.view_confidences)} confidences for "
                     f"{len(self.views)} views"
+                )
+            if not is_idzorek:
+                raise ValueError(
+                    "view_confidences are only used by uncertainty_method IDZOREK; "
+                    f"got {self.uncertainty_method.value!r}, which would silently "
+                    "ignore them"
                 )
 
     # -- factory methods -----------------------------------------------------
@@ -111,8 +127,10 @@ class EntropyPoolingConfig:
         mean_views: Mean equality view expressions.
         mean_inequality_views: Mean inequality view expressions.
         variance_views: Variance view expressions.
-        relative_mean_views: Relative mean views as (asset, multiplier) pairs.
-        relative_variance_views: Relative variance views as (asset, multiplier) pairs.
+        relative_mean_views: Relative mean views as (asset, multiplier) pairs;
+            each resolves to ``multiplier * prior mean`` of the asset.
+        relative_variance_views: Relative variance views as (asset, multiplier)
+            pairs; each resolves to ``multiplier * prior variance`` of the asset.
         correlation_views: Correlation view expressions.
         skew_views: Skewness view expressions.
         kurtosis_views: Kurtosis view expressions.

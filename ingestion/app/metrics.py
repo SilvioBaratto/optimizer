@@ -41,3 +41,20 @@ jobs_in_progress = Gauge(
     "Number of background jobs currently in the running state",
     ["domain"],
 )
+
+
+def register_domain(domain: str) -> None:
+    """Create every labelled series for ``domain`` at its zero value.
+
+    prometheus_client exposes no sample for a labelled metric until ``.labels()``
+    is called, so without this the first job of a domain shows up as a series born
+    at 1 and ``increase()`` / ``rate()`` miss that first step.
+
+    Args:
+        domain: Job type used as the ``domain`` label value.
+    """
+    jobs_started_total.labels(domain=domain)
+    jobs_completed_total.labels(domain=domain)
+    jobs_failed_total.labels(domain=domain)
+    job_duration_seconds.labels(domain=domain)
+    jobs_in_progress.labels(domain=domain)

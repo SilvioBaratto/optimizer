@@ -8,6 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from skfolio.cluster import HierarchicalClustering
+from skfolio.distance._base import BaseDistance
+from skfolio.moments import BaseCovariance
 from skfolio.optimization import HierarchicalRiskParity
 from skfolio.prior._base import BasePrior
 
@@ -36,8 +39,14 @@ class HRPConfig:
             pick the default.
         min_weights: Lower bound on asset weights.
         max_weights: Upper bound on asset weights.
-        transaction_costs: Linear transaction costs penalising turnover.
+        transaction_costs: Linear transaction costs relative to
+            ``previous_weights``.  Applied only to the cost accounting of the
+            resulting Portfolio (net returns); it does not change the
+            optimised weights, so it cannot damp rebalancing.  Use
+            ``MeanRiskConfig`` for turnover-aware optimisation.
         management_fees: Linear management fees proportional to position size.
+            Applied only to the cost accounting of the resulting Portfolio; it
+            does not change the optimised weights.
     """
 
     risk_measure: RiskMeasureType = RiskMeasureType.VARIANCE
@@ -69,6 +78,9 @@ def build_hrp(
     config: HRPConfig | None = None,
     *,
     prior_estimator: BasePrior | None = None,
+    distance_estimator: BaseDistance | None = None,
+    hierarchical_clustering_estimator: HierarchicalClustering | None = None,
+    covariance_estimator: BaseCovariance | None = None,
     **kwargs: Any,
 ) -> HierarchicalRiskParity:
     """Build a skfolio HierarchicalRiskParity optimiser from config.
@@ -77,10 +89,22 @@ def build_hrp(
         config: HRP configuration. None triggers default.
         prior_estimator: Prior estimator. When None, one is built from
             config.prior_config (or skfolio default).
+        distance_estimator: Prebuilt distance estimator; overrides
+            ``config.distance_config`` when given.
+        hierarchical_clustering_estimator: Prebuilt clustering estimator;
+            overrides ``config.clustering_config`` when given.
+        covariance_estimator: Covariance estimator injected into the
+            ``CovarianceDistance`` built from a ``COVARIANCE``
+            ``config.distance_config``. Rejected when no such distance is
+            built from config.
         **kwargs: Additional kwargs forwarded to the wrapped optimizer.
 
     Returns:
         A fitted-ready skfolio optimiser.
+
+    Raises:
+        ValueError: If ``covariance_estimator`` cannot be attached to a
+            covariance distance (see ``build_distance_or_none``).
     """
     if config is None:
         config = HRPConfig()
@@ -91,9 +115,13 @@ def build_hrp(
     return HierarchicalRiskParity(
         risk_measure=_RISK_MEASURE_MAP[config.risk_measure],
         prior_estimator=prior_estimator,
-        distance_estimator=build_distance_or_none(config.distance_config),
+        distance_estimator=build_distance_or_none(
+            config.distance_config,
+            estimator=distance_estimator,
+            covariance_estimator=covariance_estimator,
+        ),
         hierarchical_clustering_estimator=build_clustering_or_none(
-            config.clustering_config
+            config.clustering_config, estimator=hierarchical_clustering_estimator
         ),
         min_weights=config.min_weights,
         max_weights=config.max_weights,

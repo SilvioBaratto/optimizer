@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
+
+from optimizer.exceptions import ConfigurationError
 
 
 class RebalancingFrequency(str, Enum):
@@ -41,12 +44,30 @@ TRADING_DAYS: dict[RebalancingFrequency, int] = {
 #   * ``"QS"``  — quarter start
 #   * ``"2QS"`` — every two quarters (semi-annual) start
 #   * ``"YS"``  — year start
+# Pandas phases a multiple-period alias from the first observation, so passing
+# ``"2QS"`` to a bare ``WalkForward`` rebalances in Jan/Jul or Apr/Oct depending
+# on where the history starts. ``build_rebalancing_walk_forward`` pins the
+# semi-annual cadence to January and July period starts.
 PANDAS_FREQ: dict[RebalancingFrequency, str] = {
     RebalancingFrequency.MONTHLY: "MS",
     RebalancingFrequency.QUARTERLY: "QS",
     RebalancingFrequency.SEMIANNUAL: "2QS",
     RebalancingFrequency.ANNUAL: "YS",
 }
+
+# Rebalancing periods per calendar year, used to turn a span of history into a
+# walk-forward ``train_size`` counted in ``freq`` periods.
+PERIODS_PER_YEAR: dict[RebalancingFrequency, int] = {
+    RebalancingFrequency.MONTHLY: 12,
+    RebalancingFrequency.QUARTERLY: 4,
+    RebalancingFrequency.SEMIANNUAL: 2,
+    RebalancingFrequency.ANNUAL: 1,
+}
+
+# Default estimation history for a walk-forward training window. A fixed time
+# span keeps the covariance lookback comparable across cadences; a fixed period
+# count would train on 1 year of monthly data but 12 years of annual data.
+DEFAULT_TRAIN_YEARS = 3
 
 
 @dataclass(frozen=True)
@@ -74,9 +95,16 @@ class CalendarRebalancingConfig:
         Suitable for ``skfolio.model_selection.WalkForward(freq=...)`` so a
         walk-forward backtest rebalances on real calendar period-starts
         (e.g. ``"MS"`` for monthly, ``"QS"`` for quarterly) instead of a raw
-        observation count.
+        observation count. The semi-annual alias (``"2QS"``) is only
+        calendar-fixed (January/July) through
+        `optimizer.rebalancing.build_rebalancing_walk_forward`.
         """
         return PANDAS_FREQ[self.frequency]
+
+    @property
+    def periods_per_year(self) -> int:
+        """Number of rebalancing periods in one calendar year."""
+        return PERIODS_PER_YEAR[self.frequency]
 
     @classmethod
     def for_monthly(cls) -> CalendarRebalancingConfig:
@@ -111,10 +139,22 @@ class ThresholdRebalancingConfig:
         threshold: Drift threshold.  For absolute: percentage points of weight
             (e.g. 0.05 = 5pp).  For relative: fraction of target weight
             (e.g. 0.25 = 25% deviation).
+
+    Raises:
+        ConfigurationError: If ``threshold`` is not finite or is negative.
     """
 
     threshold_type: ThresholdType = ThresholdType.ABSOLUTE
     threshold: float = 0.05
+
+    def __post_init__(self) -> None:
+        # NaN makes every drift comparison False (never rebalance) and a
+        # negative value makes it True for zero drift (always rebalance), both
+        # silently.
+        if not math.isfinite(self.threshold) or self.threshold < 0:
+            raise ConfigurationError(
+                f"threshold must be finite and non-negative, got {self.threshold}."
+            )
 
     @classmethod
     def for_absolute(cls, threshold: float = 0.05) -> ThresholdRebalancingConfig:

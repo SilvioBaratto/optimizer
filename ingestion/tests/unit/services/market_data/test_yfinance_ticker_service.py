@@ -1,10 +1,11 @@
-"""Unit tests for ticker sub-clients: corporate_actions, holders, financials.
+"""Unit tests for ticker sub-clients: corporate_actions, holders, financials, metadata.
 
 Coverage targets
 ----------------
 * app.services.market_data.yfinance.ticker.corporate_actions
 * app.services.market_data.yfinance.ticker.holders
 * app.services.market_data.yfinance.ticker.financials
+* app.services.market_data.yfinance.ticker.metadata (``fetch_isin``)
 
 DB / repository note: these modules contain no database or repository logic;
 the upsert layer lives in yfinance_data_service.py which is tested separately.
@@ -35,6 +36,7 @@ from app.services.market_data.yfinance.ticker.corporate_actions import (
 )
 from app.services.market_data.yfinance.ticker.financials import FinancialsClient
 from app.services.market_data.yfinance.ticker.holders import HoldersClient
+from app.services.market_data.yfinance.ticker.metadata import MetadataClient
 
 # ---------------------------------------------------------------------------
 # Builders
@@ -76,6 +78,12 @@ def _fin_client(**attrs) -> tuple[FinancialsClient, MagicMock]:
     return client, ticker
 
 
+def _metadata_client(**attrs) -> tuple[MetadataClient, MagicMock]:
+    cache, rl, cb, ticker = _make_infra(attrs)
+    client = MetadataClient(cache=cache, rate_limiter=rl, circuit_breaker=cb)
+    return client, ticker
+
+
 # Convenience DataFrames / Series for success / empty paths
 _DF = pd.DataFrame({"a": [1, 2]})
 _SERIES = pd.Series([0.5, 1.0], name="val")
@@ -97,6 +105,22 @@ class TestFetchDividends:
     def test_when_series_empty_then_returns_none(self) -> None:
         client, _ = _corp_client(dividends=_EMPTY_SERIES)
         assert client.fetch_dividends("AAPL", max_retries=1) is None
+
+    def test_when_currency_tagged_frame_then_returns_frame_unchanged(self) -> None:
+        # yfinance returns Dividends + currency columns when Yahoo tags payments.
+        frame = pd.DataFrame(
+            {"Dividends": [0.25, 0.30], "currency": ["GBp", "GBp"]},
+            index=pd.to_datetime(["2024-01-15", "2024-04-15"]),
+        )
+        client, _ = _corp_client(dividends=frame)
+        result = client.fetch_dividends("SHEL.L", max_retries=1)
+        assert isinstance(result, pd.DataFrame)
+        pd.testing.assert_frame_equal(result, frame)
+
+    def test_when_currency_tagged_frame_empty_then_returns_none(self) -> None:
+        empty = pd.DataFrame({"Dividends": [], "currency": []})
+        client, _ = _corp_client(dividends=empty)
+        assert client.fetch_dividends("SHEL.L", max_retries=1) is None
 
     def test_when_attribute_raises_then_returns_none(self) -> None:
         cache, rl, cb, ticker = _make_infra()
@@ -177,6 +201,30 @@ class TestFetchSharesFull:
         )
         assert client.fetch_shares_full("AAPL", max_retries=1) is None
 
+    def test_when_no_start_given_then_history_is_requested_from_an_early_date(
+        self,
+    ) -> None:
+        """yfinance alone stops at the trailing 548 days; "earliest available"
+        needs an explicit start or the share-count series never gets older rows."""
+        client, ticker = _corp_client(get_shares_full=MagicMock(return_value=_SERIES))
+
+        client.fetch_shares_full("AAPL", max_retries=1)
+
+        start = ticker.get_shares_full.call_args.kwargs["start"]
+        assert start is not None
+        assert pd.Timestamp(start) <= pd.Timestamp("2000-01-01")
+
+    def test_when_start_given_then_it_is_passed_through_unchanged(self) -> None:
+        client, ticker = _corp_client(get_shares_full=MagicMock(return_value=_SERIES))
+
+        client.fetch_shares_full(
+            "AAPL", start="2020-01-01", end="2021-01-01", max_retries=1
+        )
+
+        ticker.get_shares_full.assert_called_once_with(
+            start="2020-01-01", end="2021-01-01"
+        )
+
     def test_when_get_shares_full_raises_then_returns_none(self) -> None:
         fake_ticker = MagicMock(name="yf.Ticker")
         fake_ticker.get_shares_full.side_effect = RuntimeError("network")
@@ -188,6 +236,87 @@ class TestFetchSharesFull:
             cache=cache, rate_limiter=MagicMock(), circuit_breaker=cb
         )
         assert client.fetch_shares_full("AAPL", max_retries=1) is None
+
+
+# ===========================================================================
+# MetadataClient.fetch_isin
+# ===========================================================================
+
+
+class TestFetchIsin:
+    """yfinance scrapes Business Insider for ``Ticker.isin``.
+
+    Business Insider's tickers carry no Yahoo exchange suffix, so a suffixed
+    symbol never matches and yfinance falls back to the first hit *without* a
+    ticker: a depositary receipt, preferred share or bond of the same issuer.
+    Such codes are well formed, pass the check digit and often carry the
+    listing's own country prefix, so only a suffix-less symbol's ISIN is kept.
+    """
+
+    @pytest.mark.parametrize(
+        ("symbol", "isin"),
+        [
+            ("AAPL", "US0378331005"),
+            ("MSFT", "US5949181045"),
+            ("RY", "CA7800871021"),
+            ("ASML", "USN070592100"),
+        ],
+    )
+    def test_when_a_us_symbol_has_a_well_formed_isin_then_it_is_returned(
+        self, symbol: str, isin: str
+    ) -> None:
+        client, _ = _metadata_client(isin=isin)
+        assert client.fetch_isin(symbol, max_retries=1) == isin
+
+    @pytest.mark.parametrize(
+        ("symbol", "isin"),
+        [
+            pytest.param("ASML.AS", "AR0725224551", id="asml-cedear"),
+            pytest.param("MC.PA", "CA50244Q1037", id="lvmh-cdr"),
+            pytest.param("7203.T", "CA89238H1091", id="toyota-cdr-on-tokyo"),
+            pytest.param("RY.TO", "CA78012H5675", id="rbc-preferred-share"),
+            pytest.param("TD.TO", "CA8911605415", id="td-same-country-prefix"),
+            pytest.param("SHOP.TO", "ARBCOM460341", id="shopify-cedear"),
+            pytest.param("0700.HK", "KYG875721899", id="tencent-cayman-line"),
+            pytest.param("FRO.OL", "PLCTHQM00018", id="frontline-polish-code"),
+            pytest.param("ASML.AS", "NL0010273215", id="genuine-eu-line"),
+            pytest.param("FRO.OL", "BMG3682E1921", id="genuine-bermuda-line"),
+            pytest.param("VUSA.L", "IE00B3XXRP09", id="genuine-ucits-line"),
+            pytest.param("APC.DE", "US0378331005", id="german-venue"),
+            pytest.param("0NMK.IL", "US0378331005", id="london-iob"),
+        ],
+    )
+    def test_when_a_symbol_has_an_exchange_suffix_then_no_isin_is_stored(
+        self, symbol: str, isin: str
+    ) -> None:
+        """Even a genuine line is dropped: the scrape cannot be tied to the listing."""
+        client, _ = _metadata_client(isin=isin)
+
+        assert client.fetch_isin(symbol, max_retries=1) is None
+
+        client.cache.get.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "isin",
+        [
+            "NET000PLEN01",
+            "NL0010273216",
+            "NL001027321",
+            "nl0010273215",
+            "NL0010273215X",
+            "1L0010273215",
+        ],
+    )
+    def test_when_isin_is_malformed_or_fails_checksum_then_it_is_dropped(
+        self, isin: str
+    ) -> None:
+        client, _ = _metadata_client(isin=isin)
+        assert client.fetch_isin("AAPL", max_retries=1) is None
+
+    @pytest.mark.parametrize("isin", ["-", "", None])
+    def test_when_yfinance_reports_no_isin_then_none(self, isin: str | None) -> None:
+        client, _ = _metadata_client(isin=isin)
+        assert client.fetch_isin("AAPL", max_retries=1) is None
 
 
 # ===========================================================================

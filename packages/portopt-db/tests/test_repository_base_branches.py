@@ -9,14 +9,18 @@ exercised, which returns 0 without touching the DB.
 
 from __future__ import annotations
 
+import datetime
 import uuid
 
 import pytest
 from pydantic import BaseModel as PydanticBase
+from sqlalchemy import event, select, text
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from portopt_db.models.jobs.background_job import BackgroundJob
+from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.repository import BaseRepository, RepositoryBase
 
 
@@ -37,13 +41,15 @@ def _make_repo(session: Session) -> BaseRepository[BackgroundJob, JobCreate, Job
     return BaseRepository(BackgroundJob, session)
 
 
-def _seed_job(session: Session, job_type: str = "base_branch_test") -> BackgroundJob:
+def _seed_job(
+    session: Session, job_type: str = "base_branch_test", status: str = "pending"
+) -> BackgroundJob:
     repo = _make_repo(session)
     return repo.create_from_dict(
         {
             "id": uuid.uuid4(),
             "job_type": job_type,
-            "status": "pending",
+            "status": status,
             "current": 0,
             "total": 0,
         }
@@ -66,6 +72,79 @@ class TestUpsertEmptyRowsGuard:
             BackgroundJob, [], "some_constraint", update_columns=["status"]
         )
         assert result == 0
+
+
+class TestUpsertSavepoint:
+    """A failing multi-row upsert must not poison the caller's transaction.
+
+    On PostgreSQL an error inside a transaction aborts it, and a later COMMIT
+    silently becomes a ROLLBACK. Running each upsert in its own SAVEPOINT
+    confines the failure to that statement. SQLite cannot reproduce the abort,
+    so the SAVEPOINT round-trip itself is asserted, using SQLite's own
+    ``insert`` as a stand-in for the PostgreSQL construct.
+    """
+
+    _KEY = ["instrument_id", "date"]
+
+    @pytest.fixture
+    def sqlite_upsert(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("portopt_db.repository.pg_insert", sqlite_insert)
+
+    @staticmethod
+    def _record_savepoints(session: Session) -> list[str]:
+        # The fixture's own SAVEPOINT is emitted lazily on first use; touch the
+        # connection first so only the upsert's savepoints are recorded.
+        session.connection()
+        events: list[str] = []
+        conn = session.get_bind()
+        for name in ("savepoint", "rollback_savepoint", "release_savepoint"):
+            event.listen(conn, name, lambda *a, _n=name, **k: events.append(_n))
+        return events
+
+    def test_failed_upsert_rolls_back_its_savepoint_and_reraises(
+        self, db_session: Session, sqlite_upsert: None
+    ) -> None:
+        iid = uuid.uuid4()
+        repo = RepositoryBase(db_session)
+        repo._upsert(
+            PriceHistory,
+            [{"instrument_id": iid, "date": datetime.date(2024, 1, 2), "close": 1.0}],
+            index_elements=self._KEY,
+        )
+
+        events = self._record_savepoints(db_session)
+
+        with pytest.raises(IntegrityError):
+            repo._upsert(
+                PriceHistory,
+                [{"instrument_id": iid, "date": None, "close": 2.0}],
+                index_elements=self._KEY,
+            )
+
+        assert events == ["savepoint", "rollback_savepoint"]
+        kept = db_session.execute(
+            select(PriceHistory).where(PriceHistory.instrument_id == iid)
+        ).scalars()
+        assert [r.date for r in kept] == [datetime.date(2024, 1, 2)]
+
+    def test_successful_upsert_releases_its_savepoint(
+        self, db_session: Session, sqlite_upsert: None
+    ) -> None:
+        events = self._record_savepoints(db_session)
+
+        RepositoryBase(db_session)._upsert(
+            PriceHistory,
+            [
+                {
+                    "instrument_id": uuid.uuid4(),
+                    "date": datetime.date(2024, 1, 2),
+                    "close": 1.0,
+                }
+            ],
+            index_elements=self._KEY,
+        )
+
+        assert events == ["savepoint", "release_savepoint"]
 
 
 class TestGet:
@@ -98,6 +177,16 @@ class TestGetByField:
         repo = _make_repo(db_session)
         result = repo.get_by_field("job_type", "no_such_type_xyz_base_branch")
         assert result is None
+
+    def test_when_field_is_not_unique_then_returns_first_row_deterministically(
+        self, db_session: Session
+    ) -> None:
+        # Terminal rows only: the schema allows one active row per job_type.
+        rows = [_seed_job(db_session, "gbf_dup", "completed") for _ in range(3)]
+        repo = _make_repo(db_session)
+        result = repo.get_by_field("job_type", "gbf_dup")
+        assert result is not None
+        assert result.id == min(r.id for r in rows)
 
 
 class TestGetMulti:
@@ -135,6 +224,57 @@ class TestGetMulti:
         repo = _make_repo(db_session)
         rows = repo.get_multi(order_by="status", desc=False)
         assert len(rows) >= 2
+
+
+class TestGetMultiPaginationStability:
+    """Rows inserted in one transaction share created_at; pages must still tile."""
+
+    def _tie_created_at(self, db_session: Session) -> None:
+        db_session.execute(
+            text("UPDATE background_jobs SET created_at = :ts"),
+            {"ts": datetime.datetime(2026, 1, 1, 12, 0, 0)},
+        )
+        db_session.flush()
+
+    def test_ties_on_created_at_are_broken_by_primary_key(
+        self, db_session: Session
+    ) -> None:
+        for i in range(5):
+            _seed_job(db_session, f"gm_tie_{i}")
+        self._tie_created_at(db_session)
+        repo = _make_repo(db_session)
+
+        desc_ids = [r.id for r in repo.get_multi(limit=100)]
+        asc_ids = [r.id for r in repo.get_multi(limit=100, desc=False)]
+
+        assert desc_ids == sorted(desc_ids, reverse=True)
+        assert asc_ids == sorted(asc_ids)
+
+    def test_ties_on_explicit_non_unique_order_by_are_broken_by_primary_key(
+        self, db_session: Session
+    ) -> None:
+        for i in range(5):
+            _seed_job(db_session, f"gm_status_tie_{i}")
+        repo = _make_repo(db_session)
+
+        ids = [r.id for r in repo.get_multi(limit=100, order_by="status")]
+
+        assert ids == sorted(ids, reverse=True)
+
+    def test_consecutive_pages_neither_repeat_nor_skip_rows(
+        self, db_session: Session
+    ) -> None:
+        for i in range(7):
+            _seed_job(db_session, f"gm_page_{i}")
+        self._tie_created_at(db_session)
+        repo = _make_repo(db_session)
+
+        paged: list[uuid.UUID] = []
+        for skip in range(0, 8, 2):
+            paged.extend(r.id for r in repo.get_multi(skip=skip, limit=2))
+
+        assert sorted(paged) == sorted(r.id for r in repo.get_all())
+        assert len(paged) == len(set(paged))
 
 
 class TestGetAll:

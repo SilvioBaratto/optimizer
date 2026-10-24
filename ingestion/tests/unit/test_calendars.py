@@ -15,6 +15,7 @@ from portopt_db.repositories.market_data.calendars_repository import CalendarsRe
 
 from app.services.market_data.calendars_service import run_calendars_fetch
 from app.services.market_data.yfinance.market.calendars import CalendarsClient
+from tests._fixtures.clock import FakeClock
 
 
 def _client() -> CalendarsClient:
@@ -93,6 +94,19 @@ class TestCalendarsClient:
         assert fwd.kwargs["start"] == today and fwd.kwargs["end"] > today
         assert past.kwargs["start"] < today and past.kwargs["end"] == today
 
+    def test_windowed_fetch_fails_when_only_one_pass_fails(self) -> None:
+        # Forward pass failing then backward succeeding, and the reverse: a
+        # half-fetched window would persist rows while silently leaving either
+        # the upcoming estimates or the realised actuals stale.
+        for passes in (
+            [RuntimeError("boom"), _page(2, 50)],
+            [_page(2, 0), RuntimeError("boom")],
+        ):
+            cal = MagicMock()
+            cal.get_earnings_calendar.side_effect = passes
+            with patch(_CAL, return_value=cal):
+                assert _client().fetch_earnings() is None
+
     def test_short_first_page_stops_immediately(self) -> None:
         cal = MagicMock()
         cal.get_ipo_info_calendar.return_value = _page(5)
@@ -106,6 +120,65 @@ class TestCalendarsClient:
         cal.get_splits_calendar.return_value = pd.DataFrame()
         with patch(_CAL, return_value=cal):
             assert _client().fetch_splits() == []
+
+
+class _TieOrderedCalendar:
+    """Serves *n* rows that all tie on Yahoo's sort key, like a day of 00:00 events.
+
+    Yahoo does not fix the order of tied rows between requests, so each call
+    sees the tied rows rotated by a different amount. Rows are ``T0..T{n-1}``.
+    """
+
+    def __init__(self, n: int, duplicate_of: int | None = None) -> None:
+        self.rows = [f"T{i}" for i in range(n)]
+        if duplicate_of is not None:
+            self.rows.append(self.rows[duplicate_of])
+        self.calls = 0
+
+    def get_splits_calendar(
+        self, *, start: object, end: object, limit: int, offset: int
+    ) -> pd.DataFrame:
+        self.calls += 1
+        shift = (self.calls * 37) % len(self.rows)
+        order = self.rows[shift:] + self.rows[:shift]
+        page = order[offset : offset + limit]
+        # yfinance indexes every calendar frame by its natural-key column.
+        return pd.DataFrame(
+            {"Symbol": page, "Event Start Date": ["2026-10-30"] * len(page)}
+        ).set_index("Symbol")
+
+
+class TestTieOrderedPagination:
+    def test_rows_displaced_by_unstable_tie_order_are_recovered(self) -> None:
+        # A single pass over 130 tied rows returns 30 of them twice and never
+        # shows 30 others; re-pulling and unioning must recover the full set.
+        cal = _TieOrderedCalendar(130)
+        with patch(_CAL, return_value=cal):
+            out = _client().fetch_splits()
+
+        assert out is not None
+        symbols = [r["Symbol"] for r in out]
+        assert len(symbols) == len(set(symbols))
+        assert set(symbols) == set(cal.rows)
+
+    def test_stable_ordering_costs_a_single_pass(self) -> None:
+        cal = MagicMock()
+        cal.get_splits_calendar.side_effect = [_page(100, 0), _page(30, 100)]
+        with patch(_CAL, return_value=cal):
+            out = _client().fetch_splits()
+
+        assert out is not None and len(out) == 130
+        assert cal.get_splits_calendar.call_count == 2
+
+    def test_genuinely_repeated_row_does_not_cause_endless_repulls(self) -> None:
+        # Yahoo can list one event twice; no number of passes will ever make the
+        # distinct count reach the raw row count.
+        cal = _TieOrderedCalendar(5, duplicate_of=0)
+        with patch(_CAL, return_value=cal):
+            out = _client().fetch_splits()
+
+        assert out is not None and len(out) == 5
+        assert cal.calls <= 2
 
 
 class TestRepository:
@@ -276,6 +349,64 @@ class TestBulkFetch:
             result = run_calendars_fetch(yf)
 
         assert result["error_count"] == 1
+
+    def test_failed_fetch_is_recorded_as_error_not_as_empty_calendar(self) -> None:
+        repo = MagicMock(name="repo")
+        repo.upsert_economic_events.return_value = 1
+        yf = MagicMock()
+        # The client returns None only once its retries are exhausted, whereas an
+        # empty list is Yahoo genuinely answering with no events.
+        yf.calendars.fetch_earnings.return_value = None
+        yf.calendars.fetch_ipos.return_value = []
+        yf.calendars.fetch_splits.return_value = None
+        yf.calendars.fetch_economic_events.return_value = [{"event": "CPI"}]
+        on_progress = MagicMock()
+
+        with (
+            patch(
+                "portopt_db.repositories.market_data.calendars_repository.CalendarsRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        ):
+            result = run_calendars_fetch(yf, on_progress=on_progress)
+
+        assert result["error_count"] == 2
+        assert result["counts"] == {"ipos": 0, "economic_events": 1}
+        repo.upsert_earnings.assert_not_called()
+        repo.upsert_splits.assert_not_called()
+        final = on_progress.call_args_list[-1].kwargs
+        assert final["errors"] == ["earnings: fetch failed", "splits: fetch failed"]
+
+
+class TestFinishedAt:
+    def test_finished_at_is_stamped_at_completion_not_at_start(self) -> None:
+        repo = MagicMock(name="repo")
+        yf = MagicMock()
+        clock = FakeClock()
+        for fetch in (
+            yf.calendars.fetch_earnings,
+            yf.calendars.fetch_ipos,
+            yf.calendars.fetch_splits,
+            yf.calendars.fetch_economic_events,
+        ):
+            fetch.side_effect = clock.advancing([])
+        on_progress = MagicMock()
+
+        with (
+            patch(
+                "portopt_db.repositories.market_data.calendars_repository.CalendarsRepository",
+                return_value=repo,
+            ),
+            patch(
+                "app.services.market_data.calendars_service.datetime",
+                clock.datetime_cls,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        ):
+            run_calendars_fetch(yf, on_progress=on_progress)
+
+        clock.assert_finished_at_marks_run_end(on_progress)
 
 
 class TestSchedulerStep:

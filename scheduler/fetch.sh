@@ -3,7 +3,7 @@
 # Daily ingestion pipeline, run on demand.
 #
 # Thin wrapper over the CLI inside the scheduler container. Step order and the
-# dependency gating (news → summarize → calibrate) live in
+# dependency gating (news is skipped when yfinance did not complete) live in
 # app/services/jobs/scheduler.py, not here — this script only picks the
 # execution context.
 #
@@ -12,8 +12,12 @@
 # run now. If the scheduler is mid-run, the CLI is refused per-step with
 # JobAlreadyRunningError rather than double-fetching.
 #
+# The composite `daily` command always exits 0 even when a step failed or was
+# refused (see app/cli.py), so do not gate on this script's exit status — read
+# the logs or the background_jobs table for per-step outcomes.
+#
 #   ./scheduler/fetch.sh                # inside docker compose (default)
-#   RUNNER=local ./scheduler/fetch.sh   # against the host venv + local DB
+#   RUNNER=local ./scheduler/fetch.sh   # via uv in the workspace venv + local DB
 #
 set -euo pipefail
 
@@ -22,11 +26,15 @@ SERVICE="${SERVICE:-scheduler}"
 
 case "$RUNNER" in
     docker)
+        # Compose resolves docker-compose.yml from the cwd upward, so a caller
+        # outside the checkout (cron, $HOME) would otherwise get "no configuration
+        # file provided".
+        cd "$(dirname "$0")/.."
         exec docker compose exec -T "$SERVICE" python -m app.cli daily
         ;;
     local)
         cd "$(dirname "$0")/../ingestion"
-        exec python -m app.cli daily
+        exec uv run --package portopt python -m app.cli daily
         ;;
     *)
         echo "unknown RUNNER='$RUNNER' (expected 'docker' or 'local')" >&2

@@ -2,18 +2,21 @@
 
 Scheduled jobs:
   1. **daily_pipeline** (CronTrigger, default 07:00 UTC) — sequential data
-     pipeline: yfinance → fx → macro → news → daily-events digest (the digest
-     summarises the day's ingested data into ``market_journal``).
+     pipeline: fx → yfinance → macro → daily FRED series → news → daily-events
+     digest (the digest summarises the day's ingested data into
+     ``market_journal``).
   2. **midday_news** (CronTrigger, default 14:00 UTC) — macro news fetch
      (catch afternoon market news).
-  3. **universe_build** (CronTrigger, default Sunday 02:00 UTC) — Trading 212
-     instrument-universe rebuild. Runs *before* ``weekly_refetch`` so the
+  3. **universe_build** (CronTrigger, default Saturday 02:00 UTC) — instrument-
+     universe rebuild from the yfinance Screener, followed by the optional
+     Trading 212 ticker annotation. Runs *before* ``weekly_refetch`` so the
      yfinance rebuild sees the fresh instrument set.
-  4. **weekly_refetch** (CronTrigger, default Sunday 03:00 UTC) — full yfinance
+  4. **weekly_refetch** (CronTrigger, default Saturday 03:00 UTC) — full yfinance
      + macro rebuild.
-  5. **fred_monthly** (CronTrigger, default 1st of month 08:00 UTC) — FRED
-     economic data.
-  6. **weekly_market_wide** (CronTrigger, default Sunday 04:00 UTC) — market-wide
+  5. **fred_monthly** (CronTrigger, default 1st of month 08:00 UTC) — every
+     FRED series (the daily-frequency ones are also refreshed by the daily
+     pipeline).
+  6. **weekly_market_wide** (CronTrigger, default Saturday 04:00 UTC) — market-wide
      sweep: sector/industry structure, calendars, market summaries, full option
      chains. Runs *after* ``weekly_refetch`` so option chains see the fresh
      universe.
@@ -33,22 +36,26 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 import uuid
 from collections.abc import Callable, Iterator
+from concurrent.futures import CancelledError
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
 
 from apscheduler.executors.pool import ThreadPoolExecutor
+from apscheduler.jobstores.base import BaseJobStore
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.base import STATE_PAUSED, STATE_STOPPED
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config import settings
 from app.database import database_manager
-from app.services._shared import make_progress
+from app.services._shared import make_cancellable_progress
 from app.services.jobs.background_job import (
     BackgroundJobService,
     JobAlreadyRunningError,
@@ -58,7 +65,11 @@ from app.services.macro.macro_regime_service import (
     run_bulk_macro_fetch,
     run_macro_news_fetch,
 )
-from app.services.market_data.yfinance_data_service import run_bulk_yfinance_fetch
+from app.services.macro.scrapers.fred_scraper import FRED_DAILY_SERIES
+from app.services.market_data.yfinance_data_service import (
+    pool_safe_worker_limit,
+    run_bulk_yfinance_fetch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -127,9 +138,48 @@ _daily_events_jobs = BackgroundJobService(
     heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
 
+
+class SupervisedScheduler(BackgroundScheduler):
+    """``BackgroundScheduler`` whose owner can tell that its loop thread died.
+
+    APScheduler's loop thread has no error handling around job-store writes, so a
+    transient database error ends the thread while ``state`` stays RUNNING and no
+    further job ever fires. The owner polls :meth:`loop_alive` instead of trusting
+    ``running``.
+    """
+
+    _started = False
+
+    def start(self, paused: bool = False) -> None:
+        super().start(paused=paused)
+        self._started = True
+
+    @property
+    def draining(self) -> bool:
+        """Whether a shutdown drain has begun (paused, or stopped after a start).
+
+        The drain pauses the scheduler and immediately shuts it down, so work that
+        is still running sees PAUSED and then STOPPED. A scheduler that was never
+        started is also STOPPED but is not draining.
+        """
+        state = self.state
+        return state == STATE_PAUSED or (state == STATE_STOPPED and self._started)
+
+    def _main_loop(self) -> None:
+        try:
+            super()._main_loop()
+        except Exception:
+            logger.exception("APScheduler loop crashed; no scheduled job will fire")
+
+    def loop_alive(self) -> bool:
+        """Return whether the scheduling thread is still running."""
+        thread = self._thread
+        return thread is not None and thread.is_alive()
+
+
 # The live scheduler, bound by create_scheduler(). The RECLAIM reaper submits
 # one-shot re-dispatch jobs through it so they run in the drained executor pool.
-_scheduler: BackgroundScheduler | None = None
+_scheduler: SupervisedScheduler | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -137,9 +187,31 @@ _scheduler: BackgroundScheduler | None = None
 # ---------------------------------------------------------------------------
 
 
+class _ProgressWatch:
+    """Records when a step last reported progress.
+
+    The heartbeat thread proves the process is alive, not that the step is
+    advancing; this is what lets a wedged-but-alive step lose its lease.
+    """
+
+    def __init__(self, stall_timeout_seconds: float) -> None:
+        self._stall_timeout = stall_timeout_seconds
+        self._last_progress = time.monotonic()
+
+    def touch(self) -> None:
+        self._last_progress = time.monotonic()
+
+    def is_stalled(self) -> bool:
+        return time.monotonic() - self._last_progress > self._stall_timeout
+
+
 @contextmanager
 def _heartbeat(
-    job_svc: BackgroundJobService, job_id: str, label: str
+    job_svc: BackgroundJobService,
+    job_id: str,
+    label: str,
+    watch: _ProgressWatch | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> Iterator[None]:
     """Run the heartbeat companion for a job executed in the scheduler thread.
 
@@ -148,14 +220,28 @@ def _heartbeat(
     heartbeat thread stamps ``last_heartbeat_at`` — ``update_job`` never does —
     so without this any step outliving the orphan-reaper timeout (300s) is
     falsely reaped mid-run and its row flips to ``failed`` while the work is
-    still going. Both the multi-minute yfinance fetch and the reference-index
-    seed exceed that.
+    still going. Both the multi-minute yfinance fetch and the full option-chain
+    sweep exceed that.
+
+    When *watch* is given, the lease is renewed only while the step has
+    reported progress within the stall timeout, so a step wedged on a lock does
+    not hold its job slot forever.
+
+    The heartbeat thread sets *cancel_event* when it finds the row reaped, so
+    a progress callback built on the same event (``make_cancellable_progress``)
+    aborts the step instead of letting it run on as a zombie. The event is also
+    set on exit, which stops the thread.
     """
     cadence = job_svc._heartbeat_cadence
-    stop = threading.Event()
+    stop = cancel_event if cancel_event is not None else threading.Event()
     thread = threading.Thread(
         target=job_svc._run_heartbeat,
         args=(uuid.UUID(job_id), stop, cadence),
+        kwargs=(
+            {"should_renew": lambda: not watch.is_stalled()}
+            if watch is not None
+            else {}
+        ),
         daemon=True,
         name=f"hb:sched:{label}:{job_id[:8]}",
     )
@@ -172,6 +258,34 @@ def _heartbeat(
 # ---------------------------------------------------------------------------
 
 
+def _describe_exception(exc: BaseException) -> str:
+    """Return ``"Type: message"``, or just the type when the message is empty."""
+    detail = str(exc)
+    name = type(exc).__name__
+    return f"{name}: {detail}" if detail else name
+
+
+def _mark_job_failed(
+    job_svc: BackgroundJobService, job_id: str, label: str, exc: BaseException
+) -> None:
+    """Record ``failed`` and the cause on a job row, tolerating a database that is down.
+
+    The error text lands in the ``error`` column and the failure webhook, which
+    otherwise only know the status. Used on error paths, where a failing write
+    must not replace the original error or abort the pipeline. A row left
+    behind is failed by the orphan reaper once its heartbeat lapses.
+    """
+    try:
+        job_svc.update_job(
+            job_id,
+            status="failed",
+            error=_describe_exception(exc),
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+    except Exception:
+        logger.exception("%s: could not record failed status (job %s)", label, job_id)
+
+
 def _run_step(
     label: str,
     job_svc: BackgroundJobService,
@@ -185,13 +299,26 @@ def _run_step(
     argument.  Job lifecycle (create / running / failed) is managed here.
     If ``fn`` returns without raising and without calling
     ``on_progress(status='completed')``, the job is marked completed
-    defensively so downstream steps are not silently skipped.
+    defensively so downstream steps are not silently skipped. A status the
+    step reported as ``failed`` is final and is never overwritten.
 
     ``attempt`` records the reclaim generation (R3/§5.3); it is 0 on the normal
     cron/CLI path and ``prev + 1`` when the orphan reaper re-dispatches.
 
-    Returns ``True`` if the step completed, ``False`` on skip or failure.
+    A step reached while the scheduler is draining for shutdown claims no slot:
+    the forced exit at the drain deadline would leave the fresh row 'running'
+    with a live heartbeat, blocking the step on the restarted daemon until the
+    lease expires.
+
+    Returns ``True`` if the step completed, ``False`` on skip or failure. It
+    never raises for a database fault around the job row: callers chain steps
+    back to back, so one step's bookkeeping error must not skip the rest. A
+    ``KeyboardInterrupt`` / ``SystemExit`` marks the row failed and propagates.
     """
+    if _scheduler is not None and _scheduler.draining:
+        logger.warning("%s: skipped — scheduler is shutting down", label)
+        return False
+
     try:
         job_id = job_svc.create_job(attempt=attempt)
     except JobAlreadyRunningError as exc:
@@ -201,15 +328,32 @@ def _run_step(
             exc.existing_job_id,
         )
         return False
+    except Exception:
+        logger.exception("%s: could not claim a job slot", label)
+        return False
 
     logger.info("%s: started (job %s)", label, job_id)
-    job_svc.update_job(job_id, status="running")
 
-    on_progress = make_progress(job_id, job_svc)
+    cancel_event = threading.Event()
+    report_progress = make_cancellable_progress(job_id, job_svc, cancel_event)
+    watch = _ProgressWatch(settings.scheduler_step_stall_timeout_seconds)
+
+    def on_progress(**kwargs: Any) -> None:
+        watch.touch()
+        report_progress(**kwargs)
+
     try:
-        with _heartbeat(job_svc, job_id, label):
+        job_svc.update_job(job_id, status="running")
+        with _heartbeat(job_svc, job_id, label, watch, cancel_event):
             fn(*args, on_progress=on_progress)
         job = job_svc.get_job(job_id) or {}
+        if job.get("status") == "failed":
+            # The step itself (e.g. a partial macro fetch) or the orphan reaper
+            # ended the row as failed. Overwriting it would hide a partial
+            # failure from the exit code, the status column and the metrics
+            # gauge, and the write would be fenced off anyway.
+            logger.warning("%s: finished with status 'failed'", label)
+            return False
         if job.get("status") != "completed":
             logger.warning(
                 "%s: returned without calling on_progress(status='completed')"
@@ -224,14 +368,22 @@ def _run_step(
             )
         logger.info("%s: completed", label)
         return True
-    except Exception:
-        logger.exception("%s: raised an exception", label)
-        job_svc.update_job(
-            job_id,
-            status="failed",
-            finished_at=datetime.now(timezone.utc).isoformat(),
-        )
+    except CancelledError:
+        # The reaper already failed the row and freed the slot; any write here
+        # would be fenced off, and a second run may already own the slot.
+        logger.warning("%s: aborted — job %s was reaped mid-run", label, job_id)
         return False
+    except Exception as exc:
+        logger.exception("%s: raised an exception", label)
+        _mark_job_failed(job_svc, job_id, label, exc)
+        return False
+    except BaseException as exc:
+        # KeyboardInterrupt / SystemExit bypass ``except Exception``. The
+        # heartbeat dies with the process, so a row left active would refuse
+        # every re-run as "already running" until the reaper lease expires.
+        logger.warning("%s: interrupted", label)
+        _mark_job_failed(job_svc, job_id, label, exc)
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +409,19 @@ def run_yfinance_step(
     if workers is None:
         workers = settings.yfinance_fetch_workers
     workers = max(1, min(workers, 16))
+    pool_limit = pool_safe_worker_limit(
+        settings.database_pool_size, settings.database_max_overflow
+    )
+    if workers > pool_limit:
+        logger.warning(
+            "yfinance: clamping workers %d -> %d to fit the DB pool "
+            "(pool_size=%d, max_overflow=%d)",
+            workers,
+            pool_limit,
+            settings.database_pool_size,
+            settings.database_max_overflow,
+        )
+        workers = pool_limit
 
     return _run_step(
         "yfinance",
@@ -377,15 +542,29 @@ def run_macro_step(*, attempt: int = 0) -> bool:
     )
 
 
-def run_fred_step(*, incremental: bool = True, attempt: int = 0) -> bool:
-    """Fetch FRED economic series."""
+def run_fred_step(
+    *,
+    incremental: bool = True,
+    series_ids: list[str] | None = None,
+    attempt: int = 0,
+) -> bool:
+    """Fetch FRED economic series (``series_ids=None`` means every series).
+
+    FRED is an add-on — the setup wizard lets the key be skipped — so a missing
+    key is a config state, not a failure: the step logs, returns ``False``, and
+    never claims a job slot. Real fetch errors still end the job ``failed``.
+    """
     from app.schemas.macro.macro_regime import FredFetchRequest
+
+    if not settings.fred_api_key:
+        logger.info("fred: skipped — FRED_API_KEY is not configured")
+        return False
 
     return _run_step(
         "fred",
         _fred_jobs,
         run_bulk_fred_fetch,
-        FredFetchRequest(incremental=incremental),
+        FredFetchRequest(incremental=incremental, series_ids=series_ids),
         attempt=attempt,
     )
 
@@ -476,23 +655,30 @@ def run_t212_annotate_step(*, attempt: int = 0) -> bool:
 
 
 def run_daily_pipeline() -> None:
-    """Sequential pipeline: yfinance → fx → macro → news → daily-events digest.
+    """Sequential pipeline: fx → yfinance → macro → daily FRED → news → digest.
 
     News depends on yfinance (it fetches article content for the fetched
     tickers), so a failed yfinance step skips news rather than scraping against
-    a stale universe. The FX fetch is independent and always runs — it feeds the
-    downstream fund NAV-mark step fresh rates. Macro is independent of yfinance
-    and always runs. The daily-events digest runs last and unconditionally — it
-    only reads whatever the earlier steps landed, tolerating partial or empty
-    sources.
+    a stale universe. The FX fetch is independent and always runs; it goes first
+    because the fund NAV-mark (08:00 UTC) reads its rates and the multi-thousand
+    ticker yfinance sweep can run past that mark, which would leave the mark
+    valuing foreign holdings at the previous day's FX. The currency set it needs
+    is already stored by the previous universe build and price sweeps. Macro is
+    independent of yfinance and always runs. The FRED refresh covers only the
+    daily-frequency series: the fund attribution engine forward-fills them onto
+    the NAV grid, so a stale tail would turn into zero factor returns. The
+    daily-events digest runs last and unconditionally — it only reads whatever
+    the earlier steps landed, tolerating partial or empty sources.
     """
     logger.info("daily_pipeline: starting")
 
-    yf_ok = run_yfinance_step(mode="incremental")
-
     run_fx_step()
 
+    yf_ok = run_yfinance_step(mode="incremental")
+
     run_macro_step()
+
+    run_fred_step(series_ids=list(FRED_DAILY_SERIES))
 
     if not yf_ok:
         logger.warning("daily_pipeline: news skipped — yfinance did not complete")
@@ -692,9 +878,11 @@ def run_orphan_reaper() -> None:
 
     Orphan reconciliation otherwise runs only at process startup
     (``app.worker.main``), so a job that hangs while the process stays alive
-    (dead daemon thread, wedged network socket) is never reaped and blocks
-    future runs of its type via ``JobAlreadyRunningError``. This periodic tick
-    closes that gap without requiring a restart.
+    (dead daemon thread, wedged network socket) would block future runs of its
+    type via ``JobAlreadyRunningError``. A scheduler-run step stops renewing its
+    lease once it has reported no progress for
+    ``SCHEDULER_STEP_STALL_TIMEOUT_SECONDS``; this periodic tick then reaps it
+    without requiring a restart.
 
     R3/§5.3 — behaviour depends on ``SCHEDULER_ORPHAN_STRATEGY``:
     - ``fail`` (default): mark stale orphans failed; the next cron re-runs them.
@@ -775,7 +963,7 @@ def _build_schedule_registry() -> list[ScheduleDefinition]:
         ),
         ScheduleDefinition(
             job_id="universe_build",
-            name="Weekly Trading 212 universe rebuild",
+            name="Weekly instrument universe rebuild",
             func=run_universe_build,
             trigger=CronTrigger.from_crontab(
                 settings.scheduler_universe_build_cron,
@@ -830,7 +1018,49 @@ def _build_schedule_registry() -> list[ScheduleDefinition]:
 # ---------------------------------------------------------------------------
 
 
-def create_scheduler() -> BackgroundScheduler:
+def _same_schedule(persisted: Any, current: Any) -> bool:
+    """Whether two triggers describe the same recurrence.
+
+    Triggers define no ``__eq__``; their string form carries the cron fields or
+    the interval, which is exactly what a config edit would change.
+    """
+    return (
+        type(persisted) is type(current)
+        and str(persisted) == str(current)
+        and getattr(persisted, "timezone", None) == getattr(current, "timezone", None)
+    )
+
+
+def _persisted_next_run_time(
+    store: BaseJobStore, entry: ScheduleDefinition
+) -> datetime | None:
+    """Return the fire time already stored for ``entry`` when its schedule is unchanged.
+
+    ``add_job(replace_existing=True)`` recomputes ``next_run_time`` from *now*,
+    which silently discards a fire that was missed while the daemon was down and
+    makes the misfire grace window moot. Carrying the stored value over lets
+    APScheduler run the missed fire at startup (or skip it once it is past the
+    grace). A changed trigger is rescheduled from now so cron edits still apply.
+    """
+    try:
+        existing = store.lookup_job(entry.job_id)
+    except Exception:
+        # An unreadable row (e.g. a job function that no longer exists) must
+        # not stop the daemon from booting; replacing it is the old behaviour.
+        logger.warning(
+            "scheduler: could not read persisted job %s — rescheduling from now",
+            entry.job_id,
+            exc_info=True,
+        )
+        return None
+    if existing is None or existing.next_run_time is None:
+        return None
+    if not _same_schedule(existing.trigger, entry.trigger):
+        return None
+    return existing.next_run_time
+
+
+def create_scheduler() -> SupervisedScheduler:
     """Create a fully configured APScheduler instance (not yet started).
 
     Must be called **after** ``init_db()`` so that ``database_manager.engine``
@@ -842,20 +1072,30 @@ def create_scheduler() -> BackgroundScheduler:
             "create_scheduler() called before database_manager.initialize()"
         )
 
-    jobstores = {
-        "default": SQLAlchemyJobStore(engine=engine),
-    }
+    jobstore = SQLAlchemyJobStore(engine=engine)
+    jobstores = {"default": jobstore}
     executors = {
         "default": ThreadPoolExecutor(max_workers=4),
     }
 
-    scheduler = BackgroundScheduler(
+    scheduler = SupervisedScheduler(
         jobstores=jobstores,
         executors=executors,
         timezone="UTC",
     )
 
+    # Binds the store and creates its table now, so persisted schedules can be
+    # read before the scheduler starts. The scheduler's own start() repeats
+    # this harmlessly.
+    jobstore.start(scheduler, "default")
+
     for entry in _build_schedule_registry():
+        # Passing next_run_time=None would register the job paused, so the
+        # argument is only supplied when a stored fire time is carried over.
+        resume: dict[str, Any] = {}
+        resume_at = _persisted_next_run_time(jobstore, entry)
+        if resume_at is not None:
+            resume["next_run_time"] = resume_at
         scheduler.add_job(
             entry.func,
             trigger=entry.trigger,
@@ -864,6 +1104,7 @@ def create_scheduler() -> BackgroundScheduler:
             replace_existing=entry.replace_existing,
             misfire_grace_time=entry.misfire_grace_time,
             coalesce=entry.coalesce,
+            **resume,
         )
 
     # Bind the live scheduler so the RECLAIM reaper can submit one-shot

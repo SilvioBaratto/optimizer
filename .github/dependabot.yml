@@ -6,10 +6,39 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "ci"
-  - package-ecosystem: "pip"
-    directory: "/"
+  # The workspace shares one uv.lock; the uv ecosystem rewrites pyproject pins and
+  # the lock together, which the pip ecosystem cannot do (it never touches uv.lock
+  # and reads only the root pyproject).
+  - package-ecosystem: "uv"
+    directories:
+      - "/"
+      - "/ingestion"
+      - "/packages/portopt-db"
+      - "/fund"
     schedule:
       interval: "weekly"
     commit-message:
       prefix: "deps"
     open-pull-requests-limit: 5
+    groups:
+      # Exact pins repeated across members: bumping one copy alone leaves a
+      # workspace that `uv sync` cannot resolve, so they ship as one pull request.
+      shared-pins:
+        patterns:
+          - "numpy"
+          - "pandas"
+          - "pydantic"
+          - "pytest"
+          - "pytest-asyncio"
+          - "pytest-cov"
+          - "scikit-learn"
+          - "sqlalchemy"
+  # Base images and the pinned uv binary used by the service Dockerfiles.
+  - package-ecosystem: "docker"
+    directories:
+      - "/ingestion"
+      - "/fund"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "build"

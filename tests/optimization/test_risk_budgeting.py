@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 
 import numpy as np
+import pandas as pd
 import pytest
 from skfolio.optimization import RiskBudgeting
 
@@ -48,6 +49,26 @@ class TestRiskBudgetingConfig:
             RiskBudgetingConfig(
                 budgets=(("AAPL", 0.5), ("MSFT", 0.3)),
             )
+
+    def test_when_negative_share_sums_to_one_then_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="non-negative"):
+            RiskBudgetingConfig.for_custom_budgets(
+                {"AAPL": 1.5, "MSFT": -0.5, "JPM": 0.0}
+            )
+
+    @pytest.mark.parametrize("share", [float("nan"), float("inf")])
+    def test_when_share_not_finite_then_raises(self, share: float) -> None:
+        with pytest.raises(ConfigurationError, match="finite"):
+            RiskBudgetingConfig(budgets=(("AAPL", share), ("MSFT", 0.5)))
+
+    def test_when_sum_off_by_more_than_atol_then_raises(self) -> None:
+        # np.isclose's default rtol would accept a sum of 1.000009.
+        with pytest.raises(ConfigurationError, match="sum to 1"):
+            RiskBudgetingConfig(budgets=(("AAPL", 0.500009), ("MSFT", 0.5)))
+
+    def test_when_ticker_repeated_then_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="duplicate"):
+            RiskBudgetingConfig(budgets=(("AAPL", 0.5), ("AAPL", 0.5)))
 
 
 class TestPresets:
@@ -130,14 +151,37 @@ class TestIntegration:
         assert est.weights_.shape == (n,)
         assert np.isclose(est.weights_.sum(), 1.0, atol=1e-6)
 
-    def test_when_custom_budgets_length_mismatches_then_raises_at_fit(
-        self,
-        returns,
+    def test_when_column_order_differs_then_budgets_attach_by_ticker(
+        self, returns
     ) -> None:
-        # Custom budgets size 3 with returns having 20 columns -> skfolio
-        # raises ValueError at fit time.
-        budgets = {"A": 0.5, "B": 0.3, "C": 0.2}
+        budgets = {"AAPL": 0.6, "MSFT": 0.3, "JPM": 0.1}
         cfg = RiskBudgetingConfig.for_custom_budgets(budgets)
-        est = build_risk_budgeting(cfg)
-        with pytest.raises((ValueError, IndexError)):
-            est.fit(returns)
+        aligned = ["AAPL", "MSFT", "JPM"]
+        shuffled = ["JPM", "AAPL", "MSFT"]
+
+        ref = build_risk_budgeting(cfg).fit(returns[aligned])
+        est = build_risk_budgeting(cfg).fit(returns[shuffled])
+
+        ref_w = pd.Series(ref.weights_, index=aligned)
+        est_w = pd.Series(est.weights_, index=shuffled).reindex(aligned)
+        np.testing.assert_allclose(est_w.to_numpy(), ref_w.to_numpy(), atol=1e-4)
+
+        cov = returns[shuffled].cov().to_numpy()
+        marginal = cov @ est.weights_
+        contributions = pd.Series(
+            est.weights_ * marginal / (est.weights_ @ marginal), index=shuffled
+        )
+        for ticker, share in budgets.items():
+            assert contributions[ticker] == pytest.approx(share, abs=1e-3)
+
+    def test_when_budgeted_ticker_absent_from_x_then_fits(self, returns) -> None:
+        budgets = {"AAPL": 0.6, "MSFT": 0.3, "JPM": 0.1}
+        cfg = RiskBudgetingConfig.for_custom_budgets(budgets)
+        est = build_risk_budgeting(cfg).fit(returns[["AAPL", "MSFT"]])
+        assert np.isclose(est.weights_.sum(), 1.0, atol=1e-6)
+        assert est.weights_[0] > est.weights_[1] > 0
+
+    def test_when_budget_covers_subset_of_x_then_fits(self, returns) -> None:
+        cfg = RiskBudgetingConfig.for_custom_budgets({"AAPL": 0.7, "MSFT": 0.3})
+        est = build_risk_budgeting(cfg).fit(returns[["JPM", "MSFT", "AAPL"]])
+        assert np.isclose(est.weights_.sum(), 1.0, atol=1e-6)

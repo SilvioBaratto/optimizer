@@ -1,6 +1,7 @@
 """Integration test proving the migrations-reversible hygiene guard runs to
 green using only the packages the daemon declares in
-``ingestion/pyproject.toml`` (its runtime deps + the ``[test]`` extra) — no
+``ingestion/pyproject.toml`` (its runtime deps + the ``[test]`` extra) plus the
+``portopt-db`` workspace package that owns the guard and the migrations — no
 dev-only extra may be silently relied upon from the outer/dev environment.
 
 Source-blind by construction: drives a real subprocess (the fresh venv's
@@ -31,7 +32,9 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _INGESTION_ROOT = _REPO_ROOT / "ingestion"
-_GUARD_FILE = "tests/unit/hygiene/test_migrations_reversible.py"
+_GUARD_FILE = (
+    _REPO_ROOT / "packages" / "portopt-db" / "tests" / "test_migrations_reversible.py"
+)
 
 
 @pytest.mark.criterion("scope-1")

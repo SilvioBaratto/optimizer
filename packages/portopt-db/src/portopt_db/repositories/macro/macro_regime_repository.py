@@ -476,7 +476,8 @@ class MacroRegimeRepository(RepositoryBase):
             observations: List of ``{"date": datetime.date, "value": float|None}``.
 
         Returns:
-            Number of rows processed.
+            Number of rows processed. Observations with a ``None`` value
+            (FRED's ``"."`` placeholder) are skipped.
         """
         if not observations:
             return 0
@@ -486,9 +487,10 @@ class MacroRegimeRepository(RepositoryBase):
                 "id": uuid.uuid4(),
                 "series_id": series_id,
                 "date": obs["date"],
-                "value": obs.get("value"),
+                "value": obs["value"],
             }
             for obs in observations
+            if obs.get("value") is not None
         ]
 
         return self._upsert(
@@ -504,6 +506,7 @@ class MacroRegimeRepository(RepositoryBase):
         start_date: datetime.date | None = None,
         end_date: datetime.date | None = None,
         limit: int | None = None,
+        exclude_null: bool = False,
     ) -> Sequence[FredObservation]:
         """Return FRED observations with optional filters.
 
@@ -511,8 +514,13 @@ class MacroRegimeRepository(RepositoryBase):
             series_id: Filter to this series. ``None`` returns all series.
             start_date: Inclusive lower bound on observation date.
             end_date: Inclusive upper bound on observation date.
-            limit: When supplied, the *limit* most-recent rows are fetched and
-                re-sorted ascending so ``result[-1]`` is always the latest value.
+            limit: When supplied, the *limit* most-recent rows of each series
+                are kept, so ``result[-1]`` of a single series is always its
+                latest value and no series is starved when *series_id* is
+                ``None``.
+            exclude_null: Drop rows whose ``value`` is NULL (FRED ``.``
+                placeholders for holidays/missing readings) before *limit* is
+                applied, so the window holds the most recent real readings.
 
         Returns:
             Rows ordered by series_id and date ascending. When *limit* is
@@ -525,32 +533,46 @@ class MacroRegimeRepository(RepositoryBase):
             stmt = stmt.where(FredObservation.date >= start_date)
         if end_date:
             stmt = stmt.where(FredObservation.date <= end_date)
+        if exclude_null:
+            stmt = stmt.where(FredObservation.value.is_not(None))
 
         if limit is not None:
-            stmt = stmt.order_by(
-                FredObservation.series_id,
-                FredObservation.date.desc(),
-            ).limit(limit)
-            rows = list(self.session.execute(stmt).scalars().all())
-            rows.sort(key=lambda r: (r.series_id, r.date))
-            return rows
+            # A plain LIMIT would be taken across series in series_id order and
+            # return only the alphabetically first series.
+            recency = sa_func.row_number().over(
+                partition_by=FredObservation.series_id,
+                order_by=FredObservation.date.desc(),
+            )
+            ranked = stmt.with_only_columns(
+                FredObservation.id, recency.label("recency")
+            ).subquery()
+            stmt = (
+                select(FredObservation)
+                .join(ranked, FredObservation.id == ranked.c.id)
+                .where(ranked.c.recency <= limit)
+            )
 
         stmt = stmt.order_by(FredObservation.series_id, FredObservation.date)
         return self.session.execute(stmt).scalars().all()
 
     def get_fred_latest_date(self, series_id: str) -> datetime.date | None:
-        """Return the most recent observation date for a series.
+        """Return the most recent observation date that carries a value.
+
+        Rows whose value is ``NULL`` (FRED's ``"."`` placeholder) are ignored so
+        an incremental fetch anchored on this date never skips past a day whose
+        real value has not been stored yet.
 
         Args:
             series_id: FRED series identifier to query.
 
         Returns:
-            The latest stored date, or ``None`` if no observations exist for
-            the series.
+            The latest stored date with a non-null value, or ``None`` if the
+            series has no such observation.
         """
         result = self.session.execute(
             select(sa_func.max(FredObservation.date)).where(
-                FredObservation.series_id == series_id
+                FredObservation.series_id == series_id,
+                FredObservation.value.isnot(None),
             )
         ).scalar()
         return result
@@ -574,6 +596,10 @@ class MacroRegimeRepository(RepositoryBase):
         (atomic — a crash rolls back both halves), and the one-daemon-per-DB
         invariant precludes a concurrent writer, so the sequence is idempotent
         on re-run and convergent on a changed set.
+
+        A row whose ``full_content`` is ``None`` (a snippet-only fetch) never
+        overwrites a body already stored for the same ``news_id``; every other
+        column is still refreshed. A row carrying a body replaces the stored one.
         """
         # themes is no longer a DB column; must be extracted before upsert
         themes_by_news_id: dict[str, list[str]] = {}
@@ -587,10 +613,26 @@ class MacroRegimeRepository(RepositoryBase):
                 ]
             clean_rows.append(row_copy)
 
+        with_body = [r for r in clean_rows if r.get("full_content") is not None]
+        snippet_only = [r for r in clean_rows if r.get("full_content") is None]
+
         count = self._upsert(
             MacroNews,
-            clean_rows,
+            with_body,
             constraint_name="uq_macro_news_id",
+        )
+        # A separate statement because ON CONFLICT DO UPDATE applies one column
+        # set to the whole batch: excluding full_content here keeps a body that
+        # an earlier scrape run stored from being nulled by a snippet-only run.
+        count += self._upsert(
+            MacroNews,
+            snippet_only,
+            constraint_name="uq_macro_news_id",
+            update_columns=[
+                col.name
+                for col in MacroNews.__table__.columns
+                if col.name not in {"id", "created_at", "full_content"}
+            ],
         )
 
         if themes_by_news_id:

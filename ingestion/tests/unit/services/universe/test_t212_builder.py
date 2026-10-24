@@ -12,8 +12,13 @@ mapped STOCK/ETF is admitted. YFinanceTickerMapper unit tests live in
 
 from __future__ import annotations
 
+import threading
+import time
+from concurrent.futures import CancelledError
 from typing import Any
 from unittest.mock import MagicMock
+
+import pytest
 
 from app.services.universe.trading212.builder import (
     BuildProgress,
@@ -238,6 +243,56 @@ class TestUniverseBuilderDiscoverNone:
 
 
 # ---------------------------------------------------------------------------
+# UniverseBuilder — delisting reconciliation vs. incomplete enumeration
+# ---------------------------------------------------------------------------
+
+
+class _DelistingRepo(_FakeRepo):
+    def __init__(self, active: set[str]) -> None:
+        super().__init__()
+        self._active = active
+        self.delisted: list[str] = []
+
+    def get_active_tickers(
+        self, exchange_id: Any, instrument_type: str | None = None
+    ) -> set[str]:
+        return set(self._active)
+
+    def mark_delisted(self, **kwargs: Any) -> bool:
+        self.delisted.append(kwargs["ticker"])
+        return True
+
+
+class TestUniverseBuilderIncompleteEnumeration:
+    def _build(self, incomplete: frozenset[str]) -> tuple[_DelistingRepo, BuildResult]:
+        repo = _DelistingRepo(active={"GONE_US"})
+        mapper = MagicMock()
+        mapper.discover.return_value = "AAPL"
+        api_client = _make_api_client()
+        api_client.incomplete_instrument_types = incomplete
+        builder = _make_builder(api_client=api_client, ticker_mapper=mapper, repo=repo)
+        return repo, builder.build()
+
+    def test_absent_ticker_is_delisted_when_enumeration_completed(self) -> None:
+        repo, _ = self._build(frozenset())
+        assert repo.delisted == ["GONE_US"]
+
+    def test_no_ticker_is_delisted_when_stock_enumeration_was_incomplete(
+        self,
+    ) -> None:
+        repo, _ = self._build(frozenset({"STOCK"}))
+        assert repo.delisted == []
+
+    def test_incomplete_enumeration_is_reported_in_build_errors(self) -> None:
+        _, result = self._build(frozenset({"STOCK"}))
+        assert any("STOCK" in e and "incomplete" in e for e in result.errors)
+
+    def test_other_instrument_type_still_reconciles(self) -> None:
+        repo, _ = self._build(frozenset({"ETF"}))
+        assert repo.delisted == ["GONE_US"]
+
+
+# ---------------------------------------------------------------------------
 # UniverseBuilder — exchange scoping
 # ---------------------------------------------------------------------------
 
@@ -323,3 +378,225 @@ class TestUniverseBuilderExchangeFiltering:
         result = builder.build()
 
         assert result.instruments_saved == 0
+
+
+class TestProcessInstrumentsCancellation:
+    """A reaped build must stop at its next progress call, not drain the pool."""
+
+    def test_when_progress_raises_cancelled_then_it_propagates_and_queue_is_dropped(
+        self,
+    ) -> None:
+        processed: list[str] = []
+        lock = threading.Lock()
+
+        def slow_single(instrument: dict[str, Any], exchange_name: str) -> Any:
+            time.sleep(0.02)
+            with lock:
+                processed.append(instrument["shortName"])
+            return None, "failed", "skipped for test"
+
+        def cancelled(_progress: BuildProgress) -> None:
+            raise CancelledError("job reaped")
+
+        builder = UniverseBuilder(
+            config=CFG,
+            api_client=_make_api_client(),
+            ticker_mapper=MagicMock(),
+            repository=_FakeRepo(),
+            max_workers=2,
+            progress_callback=cancelled,
+        )
+        builder._process_single_instrument = slow_single  # type: ignore[method-assign]
+        instruments = [{"shortName": f"S{i}"} for i in range(60)]
+
+        with pytest.raises(CancelledError):
+            builder._process_instruments(instruments, "NYSE", len(instruments), 0)
+
+        assert len(processed) < len(instruments) // 2, (
+            f"{len(processed)} of {len(instruments)} queued instruments still ran"
+        )
+        assert builder._errors == [], "cancellation was recorded as a build error"
+
+
+# ---------------------------------------------------------------------------
+# Delisting reconciliation vs. source-reported incompleteness
+# ---------------------------------------------------------------------------
+
+
+class _DelistingRepo(_FakeRepo):
+    def __init__(self, active: set[str]) -> None:
+        super().__init__()
+        self._active = active
+        self.delisted: list[str] = []
+
+    def get_active_tickers(
+        self, exchange_id: Any, instrument_type: str | None = None
+    ) -> set[str]:
+        return set(self._active) if instrument_type == "STOCK" else set()
+
+    def mark_delisted(self, **kwargs: Any) -> bool:
+        self.delisted.append(kwargs["ticker"])
+        return True
+
+
+class TestDelistingSkippedForIncompleteExchange:
+    def _build(self, incomplete_types: list[str]) -> tuple[_DelistingRepo, Any]:
+        repo = _DelistingRepo(active={"AAPL_US", "GONE_US"})
+        mapper = MagicMock()
+        mapper.discover.return_value = "AAPL"
+        exchange = {**_NYSE_EXCHANGE, "incompleteTypes": incomplete_types}
+        builder = _make_builder(
+            api_client=_make_api_client(exchanges=[exchange]),
+            ticker_mapper=mapper,
+            repo=repo,
+        )
+        return repo, builder.build()
+
+    def test_incomplete_type_does_not_delist_absent_tickers(self) -> None:
+        repo, result = self._build(["STOCK"])
+
+        assert repo.delisted == []
+        assert any("incomplete" in e for e in result.errors)
+
+    def test_other_type_incomplete_still_reconciles_this_type(self) -> None:
+        repo, _ = self._build(["ETF"])
+
+        assert repo.delisted == ["GONE_US"]
+
+
+# ---------------------------------------------------------------------------
+# Delisting reconciliation: partial / failed source answers
+# ---------------------------------------------------------------------------
+
+
+def _stock(i: int) -> dict[str, Any]:
+    return {
+        "ticker": f"T{i}_US",
+        "type": "STOCK",
+        "shortName": f"T{i}",
+        "name": f"Company {i}",
+        "currencyCode": "USD",
+        "workingScheduleId": 1,
+    }
+
+
+def _delisting_build(
+    *, active: int, returned: int, discover: Any = lambda short, ex: short
+) -> tuple[_DelistingRepo, Any]:
+    repo = _DelistingRepo(active={f"T{i}_US" for i in range(active)})
+    mapper = MagicMock()
+    mapper.discover.side_effect = discover
+    builder = _make_builder(
+        api_client=_make_api_client(instruments=[_stock(i) for i in range(returned)]),
+        ticker_mapper=mapper,
+        repo=repo,
+    )
+    return repo, builder.build()
+
+
+class TestDelistingSanityGuard:
+    def test_mass_absence_looks_like_a_truncated_source_and_delists_nothing(
+        self,
+    ) -> None:
+        # 60 of 100 active tickers missing in one weekly run is a cut-off
+        # answer, not 60 real delistings.
+        repo, result = _delisting_build(active=100, returned=40)
+
+        assert repo.delisted == []
+        assert any("delisting" in e for e in result.errors)
+
+    def test_ordinary_churn_is_still_delisted(self) -> None:
+        repo, result = _delisting_build(active=100, returned=98)
+
+        assert sorted(repo.delisted) == ["T98_US", "T99_US"]
+        assert result.errors == []
+
+    def test_small_venue_is_not_judged_by_fraction(self) -> None:
+        repo, _ = _delisting_build(active=10, returned=5)
+
+        assert len(repo.delisted) == 5
+
+
+class TestMappingMissIsNotDelisting:
+    def test_ticker_the_source_returned_but_mapper_missed_stays_active(self) -> None:
+        repo, _ = _delisting_build(
+            active=3,
+            returned=3,
+            discover=lambda short, ex: None if short == "T1" else short,
+        )
+
+        assert repo.delisted == []
+
+    def test_ticker_whose_processing_raised_stays_active(self) -> None:
+        def discover(short: str, exchange: str) -> str:
+            if short == "T2":
+                raise RuntimeError("lookup failed")
+            return short
+
+        repo, _ = _delisting_build(active=3, returned=3, discover=discover)
+
+        assert repo.delisted == []
+
+
+class TestExchangesSavedCount:
+    def test_exchange_shared_by_stock_and_etf_passes_is_counted_once(self) -> None:
+        nasdaq = {"name": "NASDAQ", "workingSchedules": [{"id": 1}]}
+        bond_etf = {
+            "ticker": "AGG_US",
+            "type": "ETF",
+            "shortName": "AGG",
+            "name": "iShares Core Aggregate Bond",
+            "isin": "US0000000001",
+            "workingScheduleId": 1,
+        }
+        repo = _FakeRepo()
+        mapper = MagicMock()
+        mapper.discover.side_effect = lambda short, ex: short
+        builder = _make_builder(
+            api_client=_make_api_client(
+                exchanges=[nasdaq], instruments=[_AAPL_INSTRUMENT, bond_etf]
+            ),
+            ticker_mapper=mapper,
+            repo=repo,
+        )
+
+        result = builder.build()
+
+        assert result.instruments_saved == 2
+        assert result.exchanges_saved == 1
+
+
+class TestPerInstrumentErrorsAreReported:
+    def _build(self) -> tuple[_FakeRepo, BuildResult, list[BuildProgress]]:
+        def discover(short: str, exchange: str) -> str:
+            if short == "T1":
+                raise RuntimeError("lookup failed")
+            return short
+
+        repo = _FakeRepo()
+        mapper = MagicMock()
+        mapper.discover.side_effect = discover
+        progress: list[BuildProgress] = []
+        builder = _make_builder(
+            api_client=_make_api_client(instruments=[_stock(i) for i in range(3)]),
+            ticker_mapper=mapper,
+            repo=repo,
+            progress_cb=progress.append,
+        )
+        return repo, builder.build(), progress
+
+    def test_instrument_that_raised_is_listed_in_build_errors(self) -> None:
+        _, result, _ = self._build()
+
+        assert result.errors == ["T1: lookup failed"]
+
+    def test_other_instruments_in_the_batch_are_still_saved(self) -> None:
+        repo, result, _ = self._build()
+
+        assert result.instruments_saved == 2
+        assert [i["shortName"] for i in repo.save_batch_calls[0][0]] == ["T0", "T2"]
+
+    def test_progress_callback_sees_the_error_exactly_once(self) -> None:
+        _, _, progress = self._build()
+
+        assert [p.status for p in progress].count("error") == 1

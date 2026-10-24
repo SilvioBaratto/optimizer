@@ -31,6 +31,11 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _INGESTION_ROOT = _REPO_ROOT / "ingestion"
+_PORTOPT_DB_ROOT = _REPO_ROOT / "packages" / "portopt-db"
+
+# Every service in docker-compose.yml is profile-gated: a bare `compose up` starts
+# nothing and a bare `compose down` stops nothing, so both must name the profile.
+_COMPOSE_PROFILE_ARGS = ("--profile", "ingestion")
 
 _HEALTH_POLL_INTERVAL_SECONDS = 3
 _HEALTH_POLL_TIMEOUT_SECONDS = 180
@@ -67,6 +72,19 @@ def _skip_unless_opted_in(request: pytest.FixtureRequest) -> None:
         )
 
 
+def _compose_argv(docker: str, *args: str) -> list[str]:
+    return [docker, "compose", *_COMPOSE_PROFILE_ARGS, *args]
+
+
+def _pip_install_targets() -> list[str]:
+    """Pip requirements that install the daemon from this checkout.
+
+    ``portopt-db`` is an unpublished workspace member that ingestion lists by
+    bare name; pip only resolves it when its directory is installed alongside.
+    """
+    return [str(_PORTOPT_DB_ROOT), f"{_INGESTION_ROOT}[test]"]
+
+
 def _venv_python(venv_dir: Path) -> Path:
     if sys.platform == "win32":
         return venv_dir / "Scripts" / "python.exe"
@@ -97,7 +115,7 @@ def fresh_ingestion_venv(request: pytest.FixtureRequest, tmp_path_factory):
     python_bin = _venv_python(venv_dir)
 
     install_result = subprocess.run(  # noqa: S603
-        [str(python_bin), "-m", "pip", "install", f"{_INGESTION_ROOT}[test]"],
+        [str(python_bin), "-m", "pip", "install", *_pip_install_targets()],
         capture_output=True,
         text=True,
         timeout=900,
@@ -119,7 +137,8 @@ def _docker_daemon_unreachable(docker: str) -> bool:
 def running_scheduler_container(request: pytest.FixtureRequest):
     """Build and start the ``scheduler`` service, wait for it to go healthy.
 
-    Session-scoped and torn down with ``docker compose down`` so scope-3
+    Session-scoped and torn down with ``docker compose --profile ingestion down``
+    so scope-3
     (in ``test_scheduler_container_health.py``) and scope-4 (in
     ``test_metrics_endpoint_exposure.py``) share one build/up cycle instead
     of each test module racing an independent one against the same
@@ -151,10 +170,9 @@ def running_scheduler_container(request: pytest.FixtureRequest):
         pytest.fail(f"docker compose build scheduler failed:\n{build.stderr}")
 
     up = subprocess.run(  # noqa: S603
-        # Every service is profile-gated; a bare `up` starts nothing. The
-        # ingestion profile is db + scheduler + adminer — exactly what this
+        # The ingestion profile is db + scheduler + adminer — exactly what this
         # scheduler-deployment smoke test polls for below.
-        [docker, "compose", "--profile", "ingestion", "up", "-d"],
+        _compose_argv(docker, "up", "-d"),
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,
@@ -174,7 +192,7 @@ def running_scheduler_container(request: pytest.FixtureRequest):
         yield {"docker": docker, "final_status": status}
     finally:
         subprocess.run(  # noqa: S603
-            [docker, "compose", "down"],
+            _compose_argv(docker, "down"),
             cwd=_REPO_ROOT,
             capture_output=True,
             text=True,

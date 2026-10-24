@@ -177,8 +177,10 @@ class TestMultipleRandomizedCVConfig:
         ("kwargs", "match"),
         [
             ({"n_subsamples": 0}, "n_subsamples"),
+            ({"n_subsamples": 1}, "n_subsamples"),
             ({"asset_subset_size": 0}, "asset_subset_size"),
             ({"window_size": 0}, "window_size"),
+            ({"window_size": 1}, "window_size"),
         ],
     )
     def test_invalid_params_raise(self, kwargs: dict, match: str) -> None:
@@ -188,3 +190,8 @@ class TestMultipleRandomizedCVConfig:
     def test_window_size_none_allowed(self) -> None:
         cfg = MultipleRandomizedCVConfig(window_size=None)
         assert cfg.window_size is None
+
+    def test_minimum_accepted_bounds_match_skfolio(self) -> None:
+        cfg = MultipleRandomizedCVConfig(n_subsamples=2, window_size=2)
+        assert cfg.n_subsamples == 2
+        assert cfg.window_size == 2

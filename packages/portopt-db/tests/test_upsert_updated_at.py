@@ -68,11 +68,12 @@ class TestUpsertUpdatedAtStamping:
         assert row.created_at == created_at, "created_at must never change on conflict"
         assert row.updated_at > _PAST, "updated_at must advance on conflict"
 
-    def test_narrow_update_columns_omitting_updated_at_leaves_it_unchanged(
+    def test_narrow_update_columns_omitting_updated_at_still_advances_it(
         self, db_session: Session
     ) -> None:
-        """Callers that omit 'updated_at' from update_columns (e.g. upsert_te_observations)
-        do not get updated_at touched — correct for append-only time-series rows."""
+        """Callers with an explicit update_columns list that lacks 'updated_at'
+        (e.g. upsert_te_observations) must still get updated_at refreshed when a
+        revised value overwrites the row; Core ON CONFLICT never fires onupdate."""
         repo = MacroRegimeRepository(db_session)
         obs_date = datetime.date(2026, 3, 15)
         repo.upsert_te_observations(
@@ -86,9 +87,8 @@ class TestUpsertUpdatedAtStamping:
                 TradingEconomicsObservation.date == obs_date,
             )
         ).scalar_one()
+        created_at = row.created_at
 
-        # Force updated_at to a sentinel, then upsert — it must stay at sentinel
-        # because 'updated_at' is not in the update_columns for this method.
         db_session.execute(
             text(
                 "UPDATE trading_economics_observations SET updated_at = :ts"
@@ -111,6 +111,7 @@ class TestUpsertUpdatedAtStamping:
             )
         ).scalar_one()
         assert row.value == 3.0
-        assert row.updated_at == _PAST, (
-            "updated_at must not change when excluded from update_columns"
+        assert row.created_at == created_at, "created_at must never change on conflict"
+        assert row.updated_at > _PAST, (
+            "updated_at must advance even when absent from update_columns"
         )

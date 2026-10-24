@@ -8,10 +8,10 @@ repos:
       - id: check-toml
       - id: check-added-large-files
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.7
+    rev: v0.16.10
     hooks:
       - id: ruff
         args: [--fix]
-        files: ^(optimizer/|tests/)
+        files: ^(packages/|ingestion/|fund/|tests/)
       - id: ruff-format
-        files: ^(optimizer/|tests/)
+        files: ^(packages/|ingestion/|fund/|tests/)

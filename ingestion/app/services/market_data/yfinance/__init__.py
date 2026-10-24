@@ -1,13 +1,20 @@
 """yfinance market-data integration: facade, sub-clients, and resilience primitives."""
 
-from ._base import BaseClient
+from ._base import BaseClient, RequestLostError
+from ._config import configure_yfinance
 from ._facade import YFinanceClient, get_yfinance_client
 from .infrastructure import (
     CircuitBreaker,
     LRUCache,
     RateLimiter,
+    RequestOutcomes,
+    is_no_data_error,
     is_rate_limit_error,
+    is_symbol_not_found,
+    is_transport_error,
+    record_failure,
     retry_with_backoff,
+    track_request_outcomes,
 )
 from .market import SearchClient
 from .news import (
@@ -66,13 +73,21 @@ __all__ = [
     "NewsClient",
     "RateLimiter",
     "RateLimiterProtocol",
+    "RequestLostError",
+    "RequestOutcomes",
     "ScreenerClient",
     "ScreenerClientProtocol",
     "SearchClient",
     "SearchClientProtocol",
     "YFinanceClient",
     "YFinanceClientProtocol",
+    "configure_yfinance",
     "get_yfinance_client",
+    "is_no_data_error",
     "is_rate_limit_error",
+    "is_symbol_not_found",
+    "is_transport_error",
+    "record_failure",
     "retry_with_backoff",
+    "track_request_outcomes",
 ]

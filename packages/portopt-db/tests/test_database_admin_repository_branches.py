@@ -16,9 +16,12 @@ Split strategy
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session
 
 from portopt_db.repositories.database_admin import (
@@ -279,3 +282,49 @@ class TestTruncateTablesMock:
         assert cleared == []
         assert errors == []
         mock_session.commit.assert_not_called()
+
+
+# ===========================================================================
+# truncate_tables — real transactional session
+# DOCUMENTED: SQLite has no TRUNCATE, so a listener rewrites it to an
+#             unqualified DELETE.  Both are transactional, which is the
+#             property under test: Session.rollback() undoes every statement
+#             since the last commit, not just the failing one.
+# ===========================================================================
+
+_TRUNCATE_RE = re.compile(r'TRUNCATE TABLE ("\w+") CASCADE')
+
+
+class TestTruncateTablesRealTransactions:
+    def test_when_later_table_fails_then_earlier_cleared_table_stays_empty(
+        self, tmp_path: Path
+    ) -> None:
+        engine = create_engine(f"sqlite:///{tmp_path / 'admin.db'}")
+
+        @event.listens_for(engine, "before_cursor_execute", retval=True)
+        def _truncate_as_delete(conn, cursor, statement, parameters, ctx, many):
+            return _TRUNCATE_RE.sub(r"DELETE FROM \1", statement), parameters
+
+        # ticker_news is allowlisted but deliberately never created, so its
+        # TRUNCATE fails between two successful ones.
+        with engine.begin() as conn:
+            for table in ("economic_indicators", "bond_yields"):
+                conn.execute(text(f"CREATE TABLE {table} (id INTEGER)"))
+                conn.execute(text(f"INSERT INTO {table} VALUES (1), (2)"))
+
+        with Session(engine) as session:
+            cleared, errors = DatabaseAdminRepository(session).truncate_tables(
+                ["economic_indicators", "ticker_news", "bond_yields"]
+            )
+
+        with engine.connect() as conn:
+            remaining = {
+                table: conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
+                for table in ("economic_indicators", "bond_yields")
+            }
+        engine.dispose()
+
+        assert cleared == ["economic_indicators", "bond_yields"]
+        assert len(errors) == 1
+        assert "ticker_news" in errors[0]
+        assert remaining == {"economic_indicators": 0, "bond_yields": 0}

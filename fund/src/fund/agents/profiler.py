@@ -30,13 +30,17 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
-from fund.agents.backend import build_backend
+from pydantic import ValidationError
+
+from fund.agents.backend import build_backend, read_only_permissions
 from fund.agents.prompts import PROFILER_SYSTEM_PROMPT
 from fund.agents.skills import skill_sources
+from fund.agents.summarization import summarization_override
 from fund.config import FundConfig, settings
 from fund.schemas.constraint_set import ConstraintSet, EsgPolicy, UniverseFilters
 from fund.schemas.enums import (
@@ -65,6 +69,8 @@ __all__ = [
     "FLAG_OBJECTIVE_CAPACITY_MISMATCH",
     "FLAG_OVERCONFIDENCE",
     "FLAG_REACTION_TOLERANCE_MISMATCH",
+    "FLAG_UNANSWERED_INPUT",
+    "FLAG_UNENFORCED_ESG_PREFERENCE",
     "ProfilerRun",
     "SuitabilityBreachError",
     "assess_suitability",
@@ -75,6 +81,11 @@ __all__ = [
     "run_profiler",
 ]
 
+logger = logging.getLogger(__name__)
+
+# Run statuses at a live HITL gate — what ``AgentRunRepository.list_paused_runs`` reads.
+_LIVE_GATE_STATUSES = ("paused", "responded")
+
 # The single HITL-gated persistence tool the profiler agent exposes (SPEC §8.5).
 _SAVE_PROFILE_TOOL = "save_profile"
 
@@ -83,6 +94,11 @@ _SAVE_PROFILE_TOOL = "save_profile"
 FLAG_OBJECTIVE_CAPACITY_MISMATCH = "objective_capacity_mismatch"
 FLAG_OVERCONFIDENCE = "overconfidence"
 FLAG_REACTION_TOLERANCE_MISMATCH = "reaction_tolerance_mismatch"
+# Prefix of one flag per datum the client text never stated (``<prefix>:<datum>``).
+FLAG_UNANSWERED_INPUT = "unanswered_input"
+# An ESG preference no GICS sector expresses (``no tobacco``): shown to the adviser,
+# never enforced, so the gate must not let it pass as honoured.
+FLAG_UNENFORCED_ESG_PREFERENCE = "unenforced_esg_preference"
 
 
 class SuitabilityBreachError(ValueError):
@@ -92,7 +108,14 @@ class SuitabilityBreachError(ValueError):
     HITL gate): a breach hard-blocks outright. Raised when the ESG pillar excludes
     every GICS sector, leaving no investable universe. Subclasses ``ValueError`` so
     a caller may catch it broadly or specifically.
+
+    Attributes:
+        run_id: The ``agent_run`` that :func:`run_profiler` finalised ``blocked`` for
+            this breach, so a caller can anchor an audit trail to it; ``None`` for a
+            breach raised outside a profiler run.
     """
+
+    run_id: uuid.UUID | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -160,9 +183,59 @@ _BETA_BY_REACTION: dict[LossReaction, float] = {
 }
 
 
+# The most conservative value for each answer a client may leave unanswered: lowest
+# appetite, narrowest universe, strongest tail control. An unanswered pillar must
+# never lift the risk band, whatever the extraction model put in the field. Paths
+# absent here (``base_currency``, ``esg.exclusions``) have no value that is safer
+# than the one given.
+_CONSERVATIVE_PLACEHOLDER: dict[str, Any] = {
+    "knowledge.level": KnowledgeLevel.NONE,
+    "capacity.max_1yr_loss_pct": 0.0,
+    "capacity.buffer_months": 0.0,
+    "objectives.goal": ObjectiveChoice.PROTECTION,
+    "objectives.horizon": Horizon.SHORT,
+    "objectives.likert_items": (1,),
+    "objectives.loss_reaction": LossReaction.SELL_ALL,
+}
+
+
+def _with_conservative_placeholders(answers: MiFIDAnswers) -> MiFIDAnswers:
+    """Replace every field named in ``answers.unanswered`` with its safe value.
+
+    Idempotent, and a no-op when nothing is unanswered. ``unanswered`` itself is kept
+    so the suitability record still shows which answers the client never gave.
+    """
+    updates: dict[str, dict[str, Any]] = {}
+    for path in answers.unanswered:
+        if path in _CONSERVATIVE_PLACEHOLDER:
+            pillar, name = path.split(".")
+            updates.setdefault(pillar, {})[name] = _CONSERVATIVE_PLACEHOLDER[path]
+    if not updates:
+        return answers
+    return answers.model_copy(
+        update={
+            pillar: getattr(answers, pillar).model_copy(update=fields)
+            for pillar, fields in updates.items()
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # Appetite scoring (SPEC §8.2 — normalized-average composite, all linear).
 # ---------------------------------------------------------------------------
+
+
+# The band edges (0.2/0.4/0.6/0.8) and the soft-flag thresholds are exact ratios, but
+# the scores are float: ``(3.4 - 1) / 6`` is ``0.39999999999999997``, which a strict
+# ``< 0.4`` lookup would file one band too conservative. Genuine scores are ratios of
+# small integers and one-decimal inputs, so none sits within 1e-9 of an edge without
+# being on it; snapping to this many decimals restores the documented half-open bands.
+_SCORE_DECIMALS = 9
+
+
+def _snap(x: float) -> float:
+    """Round away float noise so an exact band edge compares as that edge."""
+    return round(x, _SCORE_DECIMALS)
 
 
 def _clip01(x: float) -> float:
@@ -177,7 +250,12 @@ def _appetite_from_tolerance(objectives: ObjectivesAnswers) -> float:
     financial capacity score.
     """
     mean_likert = sum(objectives.likert_items) / len(objectives.likert_items)
-    return (mean_likert - 1.0) / 6.0
+    return _snap((mean_likert - 1.0) / 6.0)
+
+
+def _loss_capacity_appetite(capacity: CapacityAnswers) -> float:
+    """Stated loss-capacity sub-score ∈ [0, 1]: ``clip(max_1yr_loss_pct / 0.50)``."""
+    return _snap(_clip01(capacity.max_1yr_loss_pct / 0.50))
 
 
 def _appetite_from_capacity(capacity: CapacityAnswers) -> float:
@@ -187,9 +265,8 @@ def _appetite_from_capacity(capacity: CapacityAnswers) -> float:
     ``buffer_sub = clip(buffer_months / 12)`` — reads **only** the financial
     fields, never the attitudinal Likert.
     """
-    loss_sub = _clip01(capacity.max_1yr_loss_pct / 0.50)
-    buffer_sub = _clip01(capacity.buffer_months / 12.0)
-    return (loss_sub + buffer_sub) / 2.0
+    buffer_sub = _snap(_clip01(capacity.buffer_months / 12.0))
+    return _snap((_loss_capacity_appetite(capacity) + buffer_sub) / 2.0)
 
 
 def _appetite_to_aversion(appetite: float) -> float:
@@ -206,11 +283,12 @@ def _category(a_gamma: float) -> RiskToleranceBand:
 
 
 def _nu_tiers(capacity: CapacityAnswers) -> tuple[float, float, float]:
-    """Escalating drawdown-ceiling tiers as fractions of capital (deep_agent ``20:75``).
+    """Escalating drawdown tiers as fractions of capital (``20:32``, ``20:136``).
 
     Anchored on the stated one-year loss tolerance: a soft warning at half the
     tolerance, the hard ceiling at the tolerance itself, and an absolute stop at
-    1.5x (clamped to 1.0). Emitted here, enforced by the ``risk_check`` step.
+    1.5x (clamped to 1.0). Emitted here; the bound ``backtest`` tool compares the
+    backtest drawdown with them.
     """
     ceiling = capacity.max_1yr_loss_pct
     nu1 = ceiling * 0.5
@@ -267,7 +345,7 @@ def _ke_filters(knowledge: KnowledgeAnswers) -> UniverseFilters:
 
 # Appetite thresholds for the soft contradiction rules. All expressed on the
 # appetite scale ∈ [0, 1] so they read against the same bands as ``a_gamma``.
-_LOW_CAPACITY_APPETITE = 0.4  # below the Balanced floor ⇒ conservative capacity
+_LOW_CAPACITY_APPETITE = 0.4  # below the Balanced floor ⇒ a conservative profile
 _OVERCONFIDENCE_GAP = 0.4  # attitude far outstripping financial capacity
 _HIGH_TOLERANCE_APPETITE = 0.6  # comfortable-with-loss attitudinal appetite
 
@@ -280,21 +358,61 @@ def _inconsistency_flags(
     Pure over the already-scored appetites plus the raw objective / reaction
     answers. Each rule is independent and additive; the flags are surfaced to the
     adviser at the HITL gate — the binding ``a_gamma`` is left untouched.
+
+    ``answers`` carry conservative placeholders in the fields the client left
+    unanswered. Those placeholders drive the band but are not statements, so a rule
+    only reads a score or answer whose inputs were all stated: an unanswered pillar
+    surfaces as ``unanswered_input`` instead of as a contradiction the client never
+    made.
     """
     flags: list[str] = []
     objectives = answers.objectives
+    unanswered = set(answers.unanswered)
+    tolerance_stated = "objectives.likert_items" not in unanswered
+    loss_stated = "capacity.max_1yr_loss_pct" not in unanswered
+    capacity_stated = loss_stated and "capacity.buffer_months" not in unanswered
+    reaction_stated = "objectives.loss_reaction" not in unanswered
+
+    # The blended capacity score lets a large buffer mask a stated zero loss
+    # capacity, and a growth/max objective ignores ``a_gamma`` in the optimizer, so
+    # this flag is the only guard: test the stated loss capacity and the attitude
+    # on their own as well as the blend.
+    stated_scores = [
+        score
+        for score, stated in (
+            (a_tol, tolerance_stated),
+            (a_cap, capacity_stated),
+            (_loss_capacity_appetite(answers.capacity), loss_stated),
+        )
+        if stated
+    ]
     if (
         objectives.goal in (ObjectiveChoice.GROWTH, ObjectiveChoice.MAX)
-        and a_cap < _LOW_CAPACITY_APPETITE
+        and stated_scores
+        and min(stated_scores) < _LOW_CAPACITY_APPETITE
     ):
         flags.append(FLAG_OBJECTIVE_CAPACITY_MISMATCH)
-    if a_tol - a_cap >= _OVERCONFIDENCE_GAP:
+    if (
+        tolerance_stated
+        and capacity_stated
+        and _snap(a_tol - a_cap) >= _OVERCONFIDENCE_GAP
+    ):
         flags.append(FLAG_OVERCONFIDENCE)
     if (
-        a_tol >= _HIGH_TOLERANCE_APPETITE
+        tolerance_stated
+        and reaction_stated
+        and a_tol >= _HIGH_TOLERANCE_APPETITE
         and objectives.loss_reaction is LossReaction.SELL_ALL
     ):
         flags.append(FLAG_REACTION_TOLERANCE_MISMATCH)
+    # An assumed placeholder feeds the binding a_gamma exactly like a real answer, so
+    # the gate must say which inputs were not client-provided.
+    flags.extend(
+        f"{FLAG_UNANSWERED_INPUT}:{datum}"
+        for datum in dict.fromkeys(answers.unanswered)
+    )
+    if answers.esg.other_preferences:
+        flags.append(FLAG_UNENFORCED_ESG_PREFERENCE)
     return tuple(flags)
 
 
@@ -324,9 +442,11 @@ def build_constraint_set(
 
     The ESG pillar becomes a HARD ``EsgPolicy`` block (declared exclusions,
     unoverridable; every-sector exclusion raises ``SuitabilityBreachError``) and
-    low K&E tightens ``UniverseFilters``. The ``SuitabilityAssessment`` record is
-    built by ``assess_suitability`` / ``run_mapping``.
+    low K&E tightens ``UniverseFilters``. Answers the client left unanswered are
+    replaced by their most conservative value first. The ``SuitabilityAssessment``
+    record is built by ``assess_suitability`` / ``run_mapping``.
     """
+    answers = _with_conservative_placeholders(answers)
     a_tol = _appetite_from_tolerance(answers.objectives)
     a_cap = _appetite_from_capacity(answers.capacity)
     appetite = min(a_tol, a_cap)  # regulatory double-binding on appetite
@@ -360,8 +480,11 @@ def assess_suitability(
     Pure and LLM-free: recomputes the two disjoint appetite scores, records the
     binding ``a_gamma`` and its named band, mirrors the ESG block, and runs the
     inconsistency check. ``rationale`` is a deterministic, human-readable trail of
-    how the profile was derived (what MiFID record-keeping retains).
+    how the profile was derived (what MiFID record-keeping retains). The record
+    holds the answers as mapped, i.e. with conservative placeholders in the fields
+    the client left unanswered.
     """
+    answers = _with_conservative_placeholders(answers)
     a_tol = _appetite_from_tolerance(answers.objectives)
     a_cap = _appetite_from_capacity(answers.capacity)
     band = _category(constraint_set.a_gamma)
@@ -449,9 +572,21 @@ _EXTRACTION_SYSTEM_PROMPT = (
     "- objectives.likert_items: a non-empty list of integers 1-7\n"
     "- capacity.max_1yr_loss_pct: a fraction in [0, 1] (e.g. 40% -> 0.4)\n"
     "- capacity.buffer_months: months of expenses (>= 0)\n"
-    "- esg.exclusions: a subset of the 11 GICS sectors, or empty\n"
+    "- esg: always include this object; esg.exclusions is a subset of the 11 GICS "
+    "sectors, or [] when the client names none. Only a sector the client named, "
+    "or one that matches their wording exactly\n"
+    "- esg.other_preferences: any stated ESG preference that is not a sector "
+    "(e.g. 'no tobacco', 'no weapons'), verbatim, or []. Never turn one into a "
+    "sector\n"
     "- base_currency: an ISO-4217 alpha code (e.g. EUR)\n"
-    "Fill every required field from the client's statements; do not invent fields."
+    "- unanswered: the dotted path of every datum the client did NOT state (e.g. "
+    "'capacity.buffer_months', 'objectives.likert_items'); [] when everything was "
+    "stated. A required field must still hold a value, so give each unstated datum "
+    "its most conservative value (knowledge.level none, max_1yr_loss_pct 0, "
+    "buffer_months 0, likert_items [1], goal protection, horizon short, "
+    "loss_reaction sell_all, esg.exclusions []) and list its path here.\n"
+    "Take every other value from the client's statements and never guess an "
+    "unstated one from context; do not invent fields."
 )
 
 
@@ -474,6 +609,42 @@ def _extraction_messages(questionnaire: Any) -> Any:
     ]
 
 
+def _typed_answers(questionnaire: Any) -> MiFIDAnswers | None:
+    """The questionnaire as typed answers when it already is a ``MiFIDAnswers``.
+
+    A validated form (the TUI hands over ``MiFIDAnswers.model_dump_json()``) must
+    not be re-read by an LLM: a schema-valid but drifted copy (a dropped ESG
+    exclusion, a different loss capacity) would be accepted and persisted in place
+    of what the client declared. Anything that is not a complete ``MiFIDAnswers``
+    is free text and still goes through extraction.
+    """
+    if isinstance(questionnaire, MiFIDAnswers):
+        return questionnaire
+    if isinstance(questionnaire, str):
+        try:
+            return MiFIDAnswers.model_validate_json(questionnaire)
+        except ValidationError:
+            return None
+    return None
+
+
+def _answers_summary(answers: MiFIDAnswers) -> str:
+    """One-line rendering of all four pillars for the adviser at the HITL gate."""
+    exclusions = ", ".join(s.value for s in answers.esg.exclusions) or "none"
+    other = "; ".join(answers.esg.other_preferences) or "none"
+    likert = ", ".join(str(item) for item in answers.objectives.likert_items)
+    return (
+        f"Answers: knowledge {answers.knowledge.level.value}; "
+        f"goal {answers.objectives.goal.value}, "
+        f"horizon {answers.objectives.horizon.value}, "
+        f"loss reaction {answers.objectives.loss_reaction.value}, "
+        f"likert {likert}; "
+        f"max 1y loss {answers.capacity.max_1yr_loss_pct * 100:g}%, "
+        f"buffer {answers.capacity.buffer_months:g} months; "
+        f"ESG exclusions: {exclusions}; other ESG preferences (not enforced): {other}."
+    )
+
+
 def _prompt_text(questionnaire: Any) -> str:
     """A stable string rendering of the questionnaire input for the audit trail."""
     if isinstance(questionnaire, str):
@@ -481,11 +652,85 @@ def _prompt_text(questionnaire: Any) -> str:
     return json.dumps(questionnaire, default=str, sort_keys=True)
 
 
+def _record_normalised_answers(
+    audit: Any,
+    run_id: uuid.UUID,
+    *,
+    answers: MiFIDAnswers,
+    questionnaire: Any,
+    typed: bool,
+) -> None:
+    """Log the typed answers as the run's ``normalize_answers`` decision.
+
+    ``resume_profiler`` re-derives the mapping from this payload, so it is the
+    run's source of truth; a verbatim typed form carries no prompt to audit.
+    """
+    answers_json = answers.model_dump_json()
+    audit.append_decision(
+        run_id,
+        agent="profiler",
+        step="normalize_answers",
+        llm_prompt=None if typed else _prompt_text(questionnaire),
+        llm_response=answers_json,
+        llm_response_hash=_hash(answers_json),
+    )
+
+
+def _commit_blocked_trail(
+    session: Session,
+    *,
+    portfolio_id: uuid.UUID,
+    asof: dt.date,
+    answers: MiFIDAnswers,
+    questionnaire: Any,
+    typed: bool,
+    reason: str,
+) -> uuid.UUID:
+    """Persist a suitability breach's audit trail alone, then commit it.
+
+    Every caller's session scope rolls back on the ``SuitabilityBreachError`` that
+    follows, which would erase the only record of a legally blocked assessment. A
+    commit takes the whole transaction with it though, including whatever the
+    caller staged beforehand (the TUI onboarding flushes the portfolio's mandate and
+    its audit row first, and a blocked onboarding must leave neither behind). So
+    the transaction is rolled back and the trail is re-recorded on the clean one,
+    which is what gets committed.
+
+    Returns:
+        The id of the committed ``blocked`` run (the one rolled back with the
+        caller's transaction no longer exists), for the breach error to carry.
+    """
+    from fund.audit import AgentRunRepository
+
+    session.rollback()
+    audit = AgentRunRepository(session)
+    run = audit.create_run(
+        portfolio_id=portfolio_id,
+        asof=asof,
+        seed=None,
+        universe=[],
+        optimizer_config={"step": "profiler"},
+    )
+    _record_normalised_answers(
+        audit, run.id, answers=answers, questionnaire=questionnaire, typed=typed
+    )
+    audit.append_decision(
+        run.id,
+        agent="profiler",
+        step="suitability_breach",
+        hitl_decision={"decision": "blocked", "reason": reason},
+    )
+    audit.finalize_run(run.id, weights={}, status="blocked")
+    session.commit()
+    return run.id
+
+
 def _persist_instruction(portfolio_id: str) -> str:
     """The human turn that drives the agent to call ``save_profile`` once."""
     return (
         f"The suitability assessment for portfolio {portfolio_id} is complete and "
-        f"validated. Call the save_profile tool now with this portfolio id. "
+        f"validated. Call the save_profile tool now; it takes no arguments, the "
+        f"portfolio is already bound to this run. "
         f"save_profile is gated: calling it writes nothing immediately — it pauses "
         f"the run for the adviser to approve or reject before any write. Calling it "
         f"is how you reach that review gate, so you must call it now. Do not reply "
@@ -493,15 +738,34 @@ def _persist_instruction(portfolio_id: str) -> str:
     )
 
 
+def _currency_summary(base_currency: str, answers: MiFIDAnswers) -> str:
+    """The reporting currency the profile will be written with.
+
+    It is the effective ``ConstraintSet`` currency, which an adviser override can
+    make differ from the extracted answer; the gate names both so neither is
+    approved unseen.
+    """
+    if base_currency == answers.base_currency:
+        return f"base currency {base_currency}"
+    return f"base currency {base_currency} (answers say {answers.base_currency})"
+
+
 def _interrupt_description(
-    portfolio_id: str, suitability: SuitabilityAssessment
+    portfolio_id: str, suitability: SuitabilityAssessment, base_currency: str
 ) -> str:
-    """The HITL pause message — surfaces the band + any inconsistency flags."""
+    """The HITL pause message — the band, the flags and the answers behind them.
+
+    The adviser approves what is written to the regulated suitability record, so
+    the interpreted answers and the currency the set is written in (not just the
+    derived band) must be on the gate.
+    """
     flags = ", ".join(suitability.inconsistency_flags) or "none"
     return (
         f"Persist MiFID suitability profile for portfolio {portfolio_id}. "
         f"Risk band {suitability.band.value}; a_gamma {suitability.a_gamma:g}; "
         f"inconsistency flags: {flags}. "
+        f"{_answers_summary(suitability.answers)} "
+        f"{_currency_summary(base_currency, suitability.answers)}. "
         f"Approve to write the profile, or reject to discard."
     )
 
@@ -524,7 +788,10 @@ class ProfilerRun:
     Carries the interpreted ``answers``, the deterministically-mapped
     ``constraint_set`` + ``suitability`` (with any ``inconsistency_flags``), the
     ``interrupt`` payload the adviser reviews, and enough state to resume:
-    ``resume("approve")`` persists, ``resume("reject")`` persists nothing.
+    ``resume("approve")`` persists, ``resume("reject")`` persists nothing. ``status``
+    is ``"paused"`` at the gate, or ``"incomplete"`` when the agent never called
+    ``save_profile`` — then there is no gate to resume and the run is already
+    finalised.
     """
 
     answers: MiFIDAnswers
@@ -535,24 +802,47 @@ class ProfilerRun:
     agent: Any = field(repr=False, compare=False)
     thread_config: dict[str, Any] = field(repr=False, compare=False)
     session: Any = field(repr=False, compare=False)
+    status: str = "paused"
 
     def resume(self, decision: str) -> dict[str, Any]:
         """Resume the paused agent with an adviser ``decision`` (approve / reject).
 
         ``approve`` runs the gated ``save_profile`` tool (the write happens inside
         it). Any other decision writes nothing but records the HITL choice in the
-        audit trail and finalises the run as rejected.
-        """
-        from langgraph.types import Command
+        audit trail and finalises the run as rejected. A run that is no longer at
+        its gate (already decided, frozen, or never gated) raises ``ValueError``.
 
+        Args:
+            decision: The adviser's choice; ``"approve"`` persists, anything else
+                rejects.
+
+        Returns:
+            The agent's invoke result for the resumed graph.
+
+        Raises:
+            ValueError: The run is no longer at its gate.
+            LookupError: The run no longer exists.
+            RuntimeError: ``decision`` is ``"approve"`` but the run did not finish
+                ``save_profile``, so nothing was written and the run is still
+                pending. The approval is not reported as applied.
+        """
         from fund.audit import AgentRunRepository
 
-        result: dict[str, Any] = self.agent.invoke(
-            Command(resume={"decisions": [{"type": decision}]}),
-            config=self.thread_config,
+        audit = AgentRunRepository(self.session)
+        run = audit.get_run(self.run_id)
+        if run is None:
+            raise LookupError(f"no agent_run {self.run_id}")
+        _require_live_gate(run, self.run_id)
+        result = _resume_at_gate(
+            self.agent,
+            self.thread_config,
+            decision,
+            audit=audit,
+            run_id=self.run_id,
         )
-        if decision != "approve":
-            audit = AgentRunRepository(self.session)
+        if decision == "approve":
+            _require_profile_saved(audit, self.run_id)
+        else:
             audit.append_decision(
                 self.run_id,
                 agent="profiler",
@@ -561,6 +851,90 @@ class ProfilerRun:
             )
             audit.finalize_run(self.run_id, weights={}, status="rejected")
         return result
+
+
+def _persist_profile(
+    *,
+    session: Session,
+    store: Any | None,
+    config: FundConfig,
+    answers: MiFIDAnswers,
+    constraint_set: ConstraintSet,
+    suitability: SuitabilityAssessment,
+    run_id: uuid.UUID,
+    portfolio_id: uuid.UUID,
+) -> dict[str, Any]:
+    """Write the approved profile: row, Store cache and audit trail, then finalise.
+
+    Driven entirely by the deterministically-mapped values. Idempotent per the HITL
+    re-run contract (SPEC D3): a replay of a run that already completed is a true
+    no-op — no second version, no double-log. A fresh run for an already-profiled
+    portfolio is a re-profile: it appends the next version and re-caches the
+    ``ConstraintSet``, so the amended assessment supersedes the prior one. The Store
+    cache is queued behind the session's commit, so a lost transaction never leaves
+    a cached profile with no row behind it. Returns the tool-result payload.
+    """
+    from fund.audit import (
+        AgentRunRepository,
+        MifidProfileRepository,
+        put_constraint_set_after_commit,
+    )
+
+    store_key = config.constraint_set_store_key
+    repo = MifidProfileRepository(session)
+    audit = AgentRunRepository(session)
+    run = audit.get_run(run_id)
+    if run is not None and run.status == "completed":
+        # A replay of a run whose approval already applied (SPEC D3): writing again
+        # would append a duplicate version and double-log the decision.
+        current = repo.get_active(portfolio_id)
+        return {
+            "saved": True,
+            "idempotent": True,
+            "version": current.version if current is not None else None,
+        }
+
+    profile = repo.add_version(
+        portfolio_id=portfolio_id,
+        questionnaire=answers.model_dump(mode="json"),
+        constraint_set=constraint_set.model_dump(mode="json"),
+        suitability=suitability.model_dump(mode="json"),
+        store_key=store_key,
+    )
+    put_constraint_set_after_commit(session, store, constraint_set, store_key=store_key)
+
+    audit.append_decision(
+        run_id,
+        agent="profiler",
+        step=_SAVE_PROFILE_TOOL,
+        constraint_set=constraint_set.model_dump(mode="json"),
+        hitl_decision={
+            "decision": "approve",
+            "flags": list(suitability.inconsistency_flags),
+        },
+    )
+    audit.finalize_run(run_id, weights={}, status="completed")
+    return {
+        "saved": True,
+        "idempotent": False,
+        "profile_id": str(profile.id),
+        "version": profile.version,
+        "store_key": store_key,
+    }
+
+
+def _profiler_run_config(base_currency: str | None) -> dict[str, Any]:
+    """The ``agent_runs.optimizer_config`` of a profiler run.
+
+    ``step`` lets the resume dispatcher tell a profiler run from a fund run. The
+    ``base_currency`` override is recorded because the mapping is re-derived at
+    approval time in a fresh process, which must reproduce the ConstraintSet the
+    adviser reviewed rather than fall back to the extracted currency.
+    """
+    config: dict[str, Any] = {"step": "profiler"}
+    if base_currency is not None:
+        config["base_currency"] = base_currency
+    return config
 
 
 def _make_save_profile(
@@ -577,91 +951,106 @@ def _make_save_profile(
     """Build the closure ``save_profile`` tool for one run.
 
     The write is driven entirely by the captured, deterministically-mapped values
-    — the LLM-supplied ``portfolio_id`` argument is advisory only, so no knob can
-    enter through a tool argument (the load-bearing rule). Idempotent per the HITL
-    re-run contract (SPEC D3): a second call for an already-profiled portfolio
-    never writes a new version (re-profiling is deferred, D11), but it
-    still finalises the (otherwise orphaned) run and records the idempotent
-    approve so the audit trail reflects what actually applied. A same-run replay
-    (already finalised) is a true no-op — no double-log.
+    (see :func:`_persist_profile`) — the tool takes no argument, so no knob (and no
+    malformed argument that would fail validation after the adviser has approved)
+    can enter through a tool call (the load-bearing rule).
     """
     from langchain_core.tools import tool
 
-    from fund.audit import (
-        AgentRunRepository,
-        MifidProfileRepository,
-        put_constraint_set,
-    )
-
-    store_key = config.constraint_set_store_key
     portfolio_id_uuid = portfolio_id  # trusted UUID bound into the closure
 
     @tool
-    def save_profile(portfolio_id: str) -> str:
-        """Persist the approved MiFID profile: append the ``mifid_profiles`` row
-        and cache the active ``ConstraintSet`` in the Store. Call once, after
-        adviser approval, with the portfolio id."""
-        repo = MifidProfileRepository(session)
-        existing = repo.get_active(portfolio_id_uuid)
-        if existing is not None:
-            # Re-profiling to a new version is deferred (D11). A fresh
-            # run that hits this branch (a manual re-profile) is otherwise
-            # orphaned at "pending"; finalise it + record the idempotent approve
-            # so the audit trail reflects what actually applied. A same-run
-            # replay (already finalised) is left untouched — no double-log
-            # (SPEC-D3 precedent).
-            audit = AgentRunRepository(session)
-            run = audit.get_run(run_id)
-            if run is not None and run.finished_at is None:
-                audit.append_decision(
-                    run_id,
-                    agent="profiler",
-                    step=_SAVE_PROFILE_TOOL,
-                    hitl_decision={
-                        "decision": "approve",
-                        "idempotent": True,
-                        "existing_version": existing.version,
-                        "flags": list(suitability.inconsistency_flags),
-                    },
-                )
-                audit.finalize_run(run_id, weights={}, status="completed")
-            return json.dumps(
-                {"saved": True, "idempotent": True, "version": existing.version}
-            )
-
-        profile = repo.add_version(
-            portfolio_id=portfolio_id_uuid,
-            questionnaire=answers.model_dump(mode="json"),
-            constraint_set=constraint_set.model_dump(mode="json"),
-            suitability=suitability.model_dump(mode="json"),
-            store_key=store_key,
-        )
-        if store is not None:
-            put_constraint_set(store, constraint_set, store_key=store_key)
-
-        audit = AgentRunRepository(session)
-        audit.append_decision(
-            run_id,
-            agent="profiler",
-            step=_SAVE_PROFILE_TOOL,
-            constraint_set=constraint_set.model_dump(mode="json"),
-            hitl_decision={
-                "decision": "approve",
-                "flags": list(suitability.inconsistency_flags),
-            },
-        )
-        audit.finalize_run(run_id, weights={}, status="completed")
+    def save_profile() -> str:
+        """Submit the validated MiFID profile for adviser sign-off. Takes no
+        arguments; call it once, as soon as the assessment is complete: the call
+        pauses the run and nothing is written until the adviser approves, which
+        then appends the ``mifid_profiles`` row and caches the active
+        ``ConstraintSet`` in the Store."""
         return json.dumps(
-            {
-                "saved": True,
-                "idempotent": False,
-                "profile_id": str(profile.id),
-                "version": profile.version,
-                "store_key": store_key,
-            }
+            _persist_profile(
+                session=session,
+                store=store,
+                config=config,
+                answers=answers,
+                constraint_set=constraint_set,
+                suitability=suitability,
+                run_id=run_id,
+                portfolio_id=portfolio_id_uuid,
+            )
         )
 
     return save_profile
+
+
+def _require_live_gate(run: Any, run_id: uuid.UUID) -> None:
+    """Refuse to resume a profiler run that is not awaiting an adviser decision.
+
+    A freeze rejects live gates at the DB without resolving the checkpoint, so the
+    graph's interrupt still stands for a run the adviser halted; a blind
+    ``Command(resume=...)`` would write the profile for it (or, on a finished
+    thread, silently do nothing yet report success). Only a run flipped to
+    ``paused``/``responded`` at its gate is resumable.
+    """
+    if run.status not in _LIVE_GATE_STATUSES:
+        raise ValueError(
+            f"profiler run {run_id} is {run.status!r}, not awaiting a decision "
+            "(it completed, was rejected/frozen/blocked, or never reached its gate)"
+        )
+
+
+def _require_profile_saved(audit: Any, run_id: uuid.UUID) -> None:
+    """Raise unless an approved run reached the end of ``save_profile``.
+
+    The approve decision resumes the graph, but the tool call it releases can still
+    fail before writing (a malformed call is returned to the model as an error
+    message, not raised). Without this check the caller would report the adviser's
+    approval as applied while the run sits at ``paused`` with no profile written.
+    """
+    run = audit.get_run(run_id)
+    if run is None or run.finished_at is None:
+        raise RuntimeError(
+            f"profiler run {run_id} was approved but save_profile did not complete: "
+            "nothing was written and the run is still pending"
+        )
+
+
+def _resume_at_gate(
+    agent: Any,
+    thread_config: dict[str, Any],
+    decision: str,
+    *,
+    audit: Any,
+    run_id: uuid.UUID,
+) -> dict[str, Any]:
+    """Resume the paused agent with the adviser's ``decision``.
+
+    ``save_profile`` writes inside the graph and the model then takes one more turn
+    to close the conversation. If that turn fails, the exception unwinds to a caller
+    that rolls its session back, while the checkpoint has already moved past the
+    tool and the Store write stands: the profile row and the run's finalisation
+    would be lost with nothing left to re-run the tool. Once the write has
+    finalised the run ``completed`` that closing turn is cosmetic, so its failure
+    is logged and the approval stands.
+    """
+    from langgraph.types import Command
+
+    try:
+        result: dict[str, Any] = agent.invoke(
+            Command(resume={"decisions": [{"type": decision}]}),
+            config=thread_config,
+        )
+    except Exception:
+        run = audit.get_run(run_id)
+        if decision != "approve" or run is None or run.status != "completed":
+            raise
+        logger.warning(
+            "profiler run %s: closing model turn failed after the approved "
+            "write; keeping the approval",
+            run_id,
+            exc_info=True,
+        )
+        return {}
+    return result
 
 
 def build_profiler_agent(
@@ -672,6 +1061,7 @@ def build_profiler_agent(
     store: Any | None = None,
     interrupt_config: dict[str, Any] | None = None,
     config: FundConfig = settings,
+    run_id: uuid.UUID | str | None = None,
 ) -> Any:
     """Assemble the ``deepagents`` profiler agent (SPEC §8.5).
 
@@ -686,20 +1076,25 @@ def build_profiler_agent(
     ``mifid-profiling`` skill through it (Risk R1), so the consultation protocol in
     ``PROFILER_SYSTEM_PROMPT`` can reach ``optimizer-theory/`` — the profiler is
     step 0 and must ground its suitability reasoning in the staged theory, not
-    parametric memory, like every other role.
+    parametric memory, like every other role. ``run_id`` scopes the agent's writable
+    scratch area to its audit run so one portfolio's offloaded transcripts are never
+    visible to another run.
     """
     from deepagents import create_deep_agent
 
     # bool | InterruptOnConfig (a langchain TypedDict) — kept Any to avoid a
     # top-level import of the agent stack (the module stays import-light).
     gate: Any = interrupt_config if interrupt_config else True
+    backend = build_backend(config, run_id=run_id)
     return create_deep_agent(
         model=model,
         tools=tools,
         system_prompt=PROFILER_SYSTEM_PROMPT,
         skills=skill_sources("profiler"),
-        backend=build_backend(config),
+        backend=backend,
+        permissions=read_only_permissions(),
         interrupt_on={_SAVE_PROFILE_TOOL: gate},
+        middleware=summarization_override(model, backend, config),
         checkpointer=checkpointer,
         store=store,
     )
@@ -721,17 +1116,25 @@ def run_profiler(
 ) -> ProfilerRun:
     """Run the MiFID profiler to the adviser-confirmation gate (runtime step 0).
 
-    Orchestrates: (1) normalise free-text ``questionnaire`` answers into a typed
-    ``MiFIDAnswers`` via ``structured_call`` (retry once, then ``fallback``);
+    Orchestrates: (1) obtain a typed ``MiFIDAnswers`` — a ``questionnaire`` that
+    already is one (an instance, or its JSON as the TUI form hands it over) is used
+    verbatim with no LLM call, while free text is normalised via ``structured_call``
+    (retry once, then ``fallback``);
     (2) run the deterministic mapping (``run_mapping`` → ``ConstraintSet`` +
     ``SuitabilityAssessment``; an ESG/legal breach raises ``SuitabilityBreachError``
     and blocks before any write); (3) build the ``deepagents`` agent and invoke it
     so the ``save_profile`` tool pauses at the HITL gate. Returns a
     :class:`ProfilerRun`; call ``.resume("approve" | "reject")`` to persist or not.
+    A model that never calls ``save_profile`` leaves no gate: the run is finalised
+    ``incomplete`` and the returned handle says so in ``status``.
 
     ``model`` must expose ``with_structured_output`` (normalisation) and be a
     tool-calling chat model (the agent). Every write goes through the injected
-    ``session`` (caller owns the transaction) and, when given, the ``store``.
+    ``session`` (caller owns the transaction) and, when given, the ``store`` — with
+    one exception: a ``SuitabilityBreachError`` ends the caller's transaction. The
+    session is rolled back, discarding anything the caller had staged, and only the
+    ``blocked`` run's trail is committed before the error propagates, so the
+    compliance record outlives the caller's own rollback.
     """
     from fund.audit import AgentRunRepository
     from fund.schemas.structured import structured_call
@@ -746,7 +1149,7 @@ def run_profiler(
         asof=run_asof,
         seed=None,
         universe=[],
-        optimizer_config={"step": "profiler"},
+        optimizer_config=_profiler_run_config(base_currency),
     )
     # Scoped to the run (not the portfolio) so the rebuild-to-resume path can
     # recover the exact transcript for a specific profiling attempt. Persisted on
@@ -754,22 +1157,19 @@ def run_profiler(
     resolved_thread_id = thread_id or str(run.id)
     audit.set_thread_id(run.id, resolved_thread_id)
 
-    answers = structured_call(
-        model,
-        MiFIDAnswers,
-        _extraction_messages(questionnaire),
-        method=config.structured_output_method,
-        retries=1,
-        fallback=fallback,
-    )
-    answers_json = answers.model_dump_json()
-    audit.append_decision(
-        run.id,
-        agent="profiler",
-        step="normalize_answers",
-        llm_prompt=_prompt_text(questionnaire),
-        llm_response=answers_json,
-        llm_response_hash=_hash(answers_json),
+    answers = _typed_answers(questionnaire)
+    typed = answers is not None
+    if answers is None:
+        answers = structured_call(
+            model,
+            MiFIDAnswers,
+            _extraction_messages(questionnaire),
+            method=config.structured_output_method,
+            retries=1,
+            fallback=fallback,
+        )
+    _record_normalised_answers(
+        audit, run.id, answers=answers, questionnaire=questionnaire, typed=typed
     )
 
     try:
@@ -777,17 +1177,19 @@ def run_profiler(
             answers, portfolio_id=pid_str, base_currency=base_currency
         )
     except SuitabilityBreachError as exc:
-        # HARD MiFID breach: a terminal business outcome, not an infra error.
-        # Record it and finalise the run so no 'pending' orphan is left behind
-        # (mirrors run_fund's early-exit finalisation; the caller still sees the
-        # exception).
-        audit.append_decision(
-            run.id,
-            agent="profiler",
-            step="suitability_breach",
-            hitl_decision={"decision": "blocked", "reason": str(exc)},
+        # HARD MiFID breach: a terminal business outcome, not an infra error. The
+        # blocked run is finalised (no 'pending' orphan, mirroring run_fund's
+        # early-exit) and kept past the caller's rollback; the caller still sees
+        # the exception.
+        exc.run_id = _commit_blocked_trail(
+            session,
+            portfolio_id=pid_uuid,
+            asof=run_asof,
+            answers=answers,
+            questionnaire=questionnaire,
+            typed=typed,
+            reason=str(exc),
         )
-        audit.finalize_run(run.id, weights={}, status="blocked")
         raise
 
     save_profile = _make_save_profile(
@@ -802,7 +1204,9 @@ def run_profiler(
     )
     interrupt_config = {
         "allowed_decisions": ["approve", "reject"],
-        "description": _interrupt_description(pid_str, suitability),
+        "description": _interrupt_description(
+            pid_str, suitability, constraint_set.base_currency
+        ),
     }
     agent = build_profiler_agent(
         model,
@@ -811,6 +1215,7 @@ def run_profiler(
         store=store,
         interrupt_config=interrupt_config,
         config=config,
+        run_id=run.id,
     )
     thread_config = {
         "configurable": {"thread_id": resolved_thread_id},
@@ -825,6 +1230,19 @@ def run_profiler(
         # Paused at the always-confirm save_profile gate — mark the row so observers
         # can find it awaiting a decision (symmetric with run_fund's fund gate).
         audit.mark_paused(run.id)
+        status = "paused"
+    else:
+        # The agent answered without calling save_profile (a model that replies in
+        # prose): there is no gate to approve, and leaving the row 'pending' would
+        # hide it from every queue forever. Mirrors run_fund's no-gate finalise.
+        audit.append_decision(
+            run.id,
+            agent="profiler",
+            step=_SAVE_PROFILE_TOOL,
+            hitl_decision={"decision": "incomplete", "reason": "no_gate"},
+        )
+        audit.finalize_run(run.id, weights={}, status="incomplete")
+        status = "incomplete"
     return ProfilerRun(
         answers=answers,
         constraint_set=constraint_set,
@@ -834,6 +1252,7 @@ def run_profiler(
         agent=agent,
         thread_config=thread_config,
         session=session,
+        status=status,
     )
 
 
@@ -857,20 +1276,41 @@ def resume_profiler(
     audit trail: the ``normalize_answers`` decision carries the typed
     ``MiFIDAnswers`` as JSON, and :func:`run_mapping` is a *pure* function of those
     answers, so the ``ConstraintSet`` + ``SuitabilityAssessment`` are re-derived
-    deterministically (they are never persisted before the gate). On approve the
+    deterministically (they are never persisted before the gate), applying the
+    ``base_currency`` override recorded on the run. On approve the
     gated ``save_profile`` executes inside the graph — writing the ``mifid_profiles``
     row, caching the active ``ConstraintSet`` in the Store, and finalising the run
     ``completed``; on reject nothing is written and the run is finalised ``rejected``
     (symmetric with :meth:`ProfilerRun.resume`). ``decision`` must be ``"approve"``
-    or ``"reject"``; an unknown ``run_id`` raises ``LookupError``. Every write goes
-    through the injected ``session`` (caller owns the transaction). Mirrors
+    or ``"reject"``; an unknown ``run_id`` raises ``LookupError``, and a run that is
+    not awaiting a decision (finalised, frozen, or never gated) raises ``ValueError``.
+    Every write goes through the injected ``session`` (caller owns the transaction).
+    Mirrors
     :func:`~fund.agents.graph.resume_fund` for the ``place_orders`` gate; the CLI /
     TUI dispatch on the run's recorded ``step`` so the two paths cannot diverge.
+
+    Args:
+        run_id: The paused profiler run, as a ``UUID`` or its canonical string.
+        decision: ``"approve"`` or ``"reject"``.
+        session: Sync session every write goes through; the caller owns the
+            transaction.
+        checkpointer: The checkpointer the run paused on (same ``thread_id``).
+        store: The Store the active ``ConstraintSet`` is cached in, or ``None``.
+        model: The chat model the rebuilt profiler agent drives.
+        config: Fund settings; defaults to the process-wide ``settings``.
+
+    Returns:
+        The rebuilt agent's invoke result for the resumed graph.
+
+    Raises:
+        ValueError: ``decision`` is neither ``"approve"`` nor ``"reject"``, or the
+            run is not awaiting a decision.
+        LookupError: ``run_id`` names no ``agent_run``.
+        RuntimeError: The run has no portfolio or no recorded ``normalize_answers``
+            decision to resume from.
     """
     if decision not in ("approve", "reject"):
         raise ValueError(f"decision must be 'approve' or 'reject', not {decision!r}")
-
-    from langgraph.types import Command
 
     from fund.audit import AgentRunRepository
 
@@ -879,8 +1319,18 @@ def resume_profiler(
     run = audit.get_run(rid)
     if run is None:
         raise LookupError(f"no agent_run {rid}")
+    # A freeze rejects live gates at the DB without resolving the checkpoint, and a
+    # stale observer can race a concurrent decision: the checkpoint is still pending,
+    # so a blind Command(resume=…) would run save_profile on a rejected run or relabel
+    # an approved profile's run as rejected. Mirrors the resume_fund guard.
+    if run.status in ("completed", "rejected", "incomplete", "blocked"):
+        raise ValueError(
+            f"agent_run {rid} is {run.status!r}, already finalised and not resumable "
+            "(it completed, or was rejected/frozen/blocked since the gate opened)"
+        )
     if run.portfolio_id is None:
         raise RuntimeError(f"profiler run {rid} has no portfolio to resume")
+    _require_live_gate(run, rid)
     resolved_thread_id = run.thread_id or str(rid)
 
     # Recover the typed answers logged at ``normalize_answers`` and re-derive the
@@ -893,7 +1343,11 @@ def resume_profiler(
         )
     answers = MiFIDAnswers.model_validate_json(answers_json)
     pid_str = str(run.portfolio_id)
-    constraint_set, suitability = run_mapping(answers, portfolio_id=pid_str)
+    constraint_set, suitability = run_mapping(
+        answers,
+        portfolio_id=pid_str,
+        base_currency=(run.optimizer_config or {}).get("base_currency"),
+    )
 
     save_profile = _make_save_profile(
         session=session,
@@ -907,7 +1361,9 @@ def resume_profiler(
     )
     interrupt_config = {
         "allowed_decisions": ["approve", "reject"],
-        "description": _interrupt_description(pid_str, suitability),
+        "description": _interrupt_description(
+            pid_str, suitability, constraint_set.base_currency
+        ),
     }
     agent = build_profiler_agent(
         model,
@@ -916,15 +1372,21 @@ def resume_profiler(
         store=store,
         interrupt_config=interrupt_config,
         config=config,
+        run_id=rid,
     )
     thread_config = {
         "configurable": {"thread_id": resolved_thread_id},
         "recursion_limit": config.recursion_limit,
     }
-    result: dict[str, Any] = agent.invoke(
-        Command(resume={"decisions": [{"type": decision}]}),
-        config=thread_config,
-    )
+    # The status guard above is a plain read; claim the gate so a concurrent reject,
+    # freeze or second approve that settled it since makes this resolver back off
+    # instead of driving the same thread.
+    if not audit.claim_for_resume(rid):
+        raise ValueError(
+            f"agent_run {rid} is no longer at a live gate (another resolver "
+            "finalised it first); nothing was resumed"
+        )
+    result = _resume_at_gate(agent, thread_config, decision, audit=audit, run_id=rid)
     if decision != "approve":
         # Reject writes nothing, but records the HITL choice + finalises the run so
         # no 'paused' orphan is left behind (symmetric with ProfilerRun.resume).
@@ -935,4 +1397,23 @@ def resume_profiler(
             hitl_decision={"decision": decision},
         )
         audit.finalize_run(rid, weights={}, status="rejected")
+    else:
+        finalised = audit.get_run(rid)
+        if finalised is None or finalised.status != "completed":
+            # The checkpoint is already past the tool — an earlier approve whose DB
+            # writes were rolled back — so the resume above was a no-op. Re-apply
+            # what the adviser approved instead of reporting a success that wrote
+            # nothing. Keyed on the run, not on a missing profile: a re-profile also
+            # starts from an existing row, so the row alone cannot say whether this
+            # run's approval landed.
+            _persist_profile(
+                session=session,
+                store=store,
+                config=config,
+                answers=answers,
+                constraint_set=constraint_set,
+                suitability=suitability,
+                run_id=rid,
+                portfolio_id=run.portfolio_id,
+            )
     return result

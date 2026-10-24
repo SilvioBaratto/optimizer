@@ -33,13 +33,23 @@ class RiskBudgetingConfig:
     Attributes:
         budgets: Custom risk budgets as ``((ticker, share), ...)``. ``None``
             selects the equal-risk-contribution (ERC) special case (skfolio
-            default). Must sum to 1 within 1e-6.
+            default). Tickers must be unique, shares finite and non-negative,
+            and the total must sum to 1 within 1e-6. Shares are matched to the
+            fitted ``X`` columns by ticker, so ``X`` must be a DataFrame;
+            assets without a share get a negligible budget and tickers
+            absent from ``X`` are ignored.
         prior_config: Inner prior configuration. ``None`` defers to the
             skfolio default (``EmpiricalPrior``).
         min_weights: Lower bound on asset weights.
         max_weights: Upper bound on asset weights.
-        transaction_costs: Linear transaction costs penalising turnover.
+        transaction_costs: Linear transaction costs relative to
+            ``previous_weights``.  Applied only to the cost accounting of the
+            resulting Portfolio (net returns); it does not change the
+            optimised weights, so it cannot damp rebalancing.  Use
+            ``MeanRiskConfig`` for turnover-aware optimisation.
         management_fees: Linear management fees proportional to position size.
+            Applied only to the cost accounting of the resulting Portfolio; it
+            does not change the optimised weights.
         solver: CVXPY solver name.
         solver_params: Additional solver parameters.
     """
@@ -54,10 +64,20 @@ class RiskBudgetingConfig:
     solver_params: dict[str, object] | None = None
 
     def __post_init__(self) -> None:
-        if self.budgets is not None:
-            total = sum(value for _, value in self.budgets)
-            if not np.isclose(total, 1.0, atol=_BUDGET_SUM_ATOL):
-                raise ConfigurationError(f"budgets must sum to 1 (got {total:.6f})")
+        if self.budgets is None:
+            return
+        tickers = [ticker for ticker, _ in self.budgets]
+        if len(set(tickers)) != len(tickers):
+            raise ConfigurationError("budgets contain duplicate tickers")
+        for ticker, value in self.budgets:
+            if not np.isfinite(value) or value < 0:
+                raise ConfigurationError(
+                    f"budget shares must be finite and non-negative "
+                    f"(got {value} for {ticker!r})"
+                )
+        total = sum(value for _, value in self.budgets)
+        if not np.isclose(total, 1.0, rtol=0.0, atol=_BUDGET_SUM_ATOL):
+            raise ConfigurationError(f"budgets must sum to 1 (got {total:.6f})")
 
     @classmethod
     def for_equal_risk_contribution(cls) -> RiskBudgetingConfig:
@@ -99,11 +119,9 @@ def build_risk_budgeting(
     if prior_estimator is None and config.prior_config is not None:
         prior_estimator = build_prior(config.prior_config)
 
-    risk_budget = (
-        np.array([value for _, value in config.budgets])
-        if config.budgets is not None
-        else None
-    )
+    # Passed by name so skfolio aligns shares to X.columns; a bare array would
+    # be taken positionally and silently attach budgets to the wrong assets.
+    risk_budget = dict(config.budgets) if config.budgets is not None else None
 
     return RiskBudgeting(
         risk_budget=risk_budget,

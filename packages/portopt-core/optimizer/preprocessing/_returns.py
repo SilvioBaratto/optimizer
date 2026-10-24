@@ -54,21 +54,25 @@ def _coerce_price_frame(frame: pd.DataFrame, *, name: str) -> pd.DataFrame:
 class JoinMethod(str, Enum):
     """How to align the price and (optional) benchmark price frames.
 
-    Maps directly to the ``join`` argument of `prices_to_returns`.
+    Maps to the ``join`` argument of `prices_to_returns`.  skfolio's ``"cross"``
+    is deliberately absent: a Cartesian product pairs every price date with every
+    benchmark date and discards the date index, so its output is not a return
+    series.
     """
 
     LEFT = "left"
     RIGHT = "right"
     INNER = "inner"
     OUTER = "outer"
-    CROSS = "cross"
 
 
 @dataclass(frozen=True)
 class ReturnsConfig:
     """Frozen, serialisable configuration for price -> return conversion.
 
-    Mirrors the keyword surface of `prices_to_returns`.
+    Mirrors the keyword surface of `prices_to_returns`.  ``join`` also accepts
+    its string value (``"inner"``) and is coerced to `JoinMethod`; an unknown
+    value raises ``ValueError``.
 
     Attributes:
         log_returns: When ``False`` (the default and the **required** setting
@@ -76,13 +80,24 @@ class ReturnsConfig:
             returns. Log returns aggregate across time but not across assets,
             silently breaking every weighted-sum portfolio return. Only set
             ``True`` for a log-normal prior with an explicit investment horizon.
-        nan_threshold: Drop assets whose fraction of missing prices exceeds
-            this threshold. ``1.0`` keeps every asset.
+        nan_threshold: Drop observations (dates) on which the fraction of
+            assets with a missing price exceeds this threshold. It filters
+            rows, not assets: a sparse asset stays in the panel while the dates
+            it is missing are removed for every asset. ``1.0`` keeps every
+            observation.
         join: Index-alignment strategy between the asset frame and the optional
             benchmark frame.
-        drop_inceptions_nan: Drop the leading NaN rows created before an
-            asset's first quote.
-        fill_nan: Forward-fill interior NaN prices before differencing.
+        drop_inceptions_nan: Drop every leading row in which any asset still
+            has no price, so the panel starts at the latest first quote of any
+            asset and one late listing shortens the history of all of them.
+            ``False`` keeps the NaNs for a downstream pre-selection step.
+        fill_nan: Forward-fill NaN prices before differencing.  This also
+            fills the *trailing* gap after an asset's last quote, so a delisted
+            asset ends in a run of exact ``0.0`` returns instead of ``NaN``;
+            pass ``delisted_at`` to `apply_delisting_returns` in that case.
+            Setting it to ``False`` keeps the NaN tail but, with the default
+            ``drop_inceptions_nan=True``, drops every row after the earliest
+            delisting for all assets.
     """
 
     log_returns: bool = False
@@ -90,6 +105,12 @@ class ReturnsConfig:
     join: JoinMethod = JoinMethod.OUTER
     drop_inceptions_nan: bool = True
     fill_nan: bool = True
+
+    def __post_init__(self) -> None:
+        # A JSON round-trip hands ``join`` back as a plain string; normalising it
+        # here keeps equality, hashing and ``to_returns`` independent of how the
+        # config was built.
+        object.__setattr__(self, "join", JoinMethod(self.join))
 
 
 def to_returns(

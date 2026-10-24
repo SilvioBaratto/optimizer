@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 
 import numpy as np
 import pytest
@@ -15,6 +16,7 @@ from optimizer.optimization import (
     SchurComplementaryConfig,
     build_schur_complementary,
 )
+from optimizer.optimization import _schur as schur_module
 
 
 @pytest.fixture(scope="module")
@@ -60,6 +62,40 @@ class TestPresets:
     def test_when_for_balanced_then_gamma_half(self) -> None:
         cfg = SchurComplementaryConfig.for_balanced()
         assert cfg.gamma == 0.5
+
+
+class TestMvpAnchorContract:
+    """gamma=1.0 approaches the MVP but is not guaranteed to reach it."""
+
+    @staticmethod
+    def _flat(doc: str | None) -> str:
+        return re.sub(r"\s+", " ", doc or "").lower()
+
+    @pytest.mark.parametrize(
+        "doc",
+        [
+            schur_module.__doc__,
+            SchurComplementaryConfig.__doc__,
+            SchurComplementaryConfig.for_mvp_anchor.__doc__,
+        ],
+        ids=["module", "config", "for_mvp_anchor"],
+    )
+    def test_when_documented_then_does_not_claim_exact_mvp_recovery(
+        self, doc: str | None
+    ) -> None:
+        flat = self._flat(doc)
+        assert not re.search(r"recover\w* (the )?(minimum[- ]variance|mvp)", flat)
+
+    def test_when_for_mvp_anchor_documented_then_discloses_gamma_cap(self) -> None:
+        flat = self._flat(SchurComplementaryConfig.for_mvp_anchor.__doc__)
+        assert "effective_gamma_" in flat
+
+    def test_when_mvp_anchor_fitted_then_gamma_can_be_capped_below_one(
+        self, returns
+    ) -> None:
+        est = build_schur_complementary(SchurComplementaryConfig.for_mvp_anchor())
+        est.fit(returns)
+        assert est.effective_gamma_ < 1.0
 
 
 class TestBuildSchurComplementary:
@@ -111,6 +147,91 @@ class TestBuildSchurComplementary:
         cfg = SchurComplementaryConfig(prior_config=MomentEstimationConfig())
         est = build_schur_complementary(cfg)
         assert isinstance(est.prior_estimator, EmpiricalPrior)
+
+
+class TestInjectedEstimators:
+    def test_when_distance_estimator_kwarg_then_it_wins_over_config(self) -> None:
+        from skfolio.distance import CovarianceDistance
+        from skfolio.moments import LedoitWolf
+
+        prebuilt = CovarianceDistance(covariance_estimator=LedoitWolf())
+        cfg = SchurComplementaryConfig(
+            distance_config=DistanceConfig(estimator=DistanceEstimatorType.KENDALL)
+        )
+        est = build_schur_complementary(cfg, distance_estimator=prebuilt)
+        assert est.distance_estimator is prebuilt
+
+    def test_when_distance_estimator_kwarg_and_no_config_then_forwarded(self) -> None:
+        from skfolio.distance import CovarianceDistance
+        from skfolio.moments import LedoitWolf
+
+        prebuilt = CovarianceDistance(covariance_estimator=LedoitWolf())
+        est = build_schur_complementary(
+            SchurComplementaryConfig(), distance_estimator=prebuilt
+        )
+        assert est.distance_estimator is prebuilt
+
+    def test_when_hierarchical_clustering_estimator_kwarg_then_it_wins_over_config(
+        self,
+    ) -> None:
+        from skfolio.cluster import HierarchicalClustering, LinkageMethod
+
+        prebuilt = HierarchicalClustering(linkage_method=LinkageMethod.COMPLETE)
+        cfg = SchurComplementaryConfig(
+            clustering_config=HierarchicalClusteringConfig(
+                linkage_method=LinkageMethodType.SINGLE
+            )
+        )
+        est = build_schur_complementary(cfg, hierarchical_clustering_estimator=prebuilt)
+        assert est.hierarchical_clustering_estimator is prebuilt
+
+    def test_when_hierarchical_clustering_estimator_kwarg_and_no_config_then_forwarded(
+        self,
+    ) -> None:
+        from skfolio.cluster import HierarchicalClustering, LinkageMethod
+
+        prebuilt = HierarchicalClustering(linkage_method=LinkageMethod.COMPLETE)
+        est = build_schur_complementary(
+            SchurComplementaryConfig(), hierarchical_clustering_estimator=prebuilt
+        )
+        assert est.hierarchical_clustering_estimator is prebuilt
+
+    def test_when_covariance_estimator_kwarg_then_covariance_distance_uses_it(
+        self,
+    ) -> None:
+        from skfolio.distance import CovarianceDistance
+        from skfolio.moments import LedoitWolf
+
+        cov = LedoitWolf()
+        cfg = SchurComplementaryConfig(distance_config=DistanceConfig.for_covariance())
+        est = build_schur_complementary(cfg, covariance_estimator=cov)
+        assert isinstance(est.distance_estimator, CovarianceDistance)
+        assert est.distance_estimator.covariance_estimator is cov
+
+    def test_when_covariance_estimator_without_covariance_distance_then_raises(
+        self,
+    ) -> None:
+        from skfolio.moments import LedoitWolf
+
+        with pytest.raises(ValueError, match="covariance_estimator"):
+            build_schur_complementary(
+                SchurComplementaryConfig(), covariance_estimator=LedoitWolf()
+            )
+
+    def test_when_covariance_estimator_and_distance_estimator_then_raises(
+        self,
+    ) -> None:
+        from skfolio.distance import PearsonDistance
+        from skfolio.moments import LedoitWolf
+
+        with pytest.raises(ValueError, match="covariance_estimator"):
+            build_schur_complementary(
+                SchurComplementaryConfig(
+                    distance_config=DistanceConfig.for_covariance()
+                ),
+                distance_estimator=PearsonDistance(),
+                covariance_estimator=LedoitWolf(),
+            )
 
 
 class TestIntegration:

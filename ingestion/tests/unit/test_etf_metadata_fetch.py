@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as dt
 from unittest.mock import MagicMock
 
+import pytest
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repositories.market_data.etf_metadata_repository import (
     ETFMetadataRepository,
@@ -82,6 +83,49 @@ def test_fetch_etf_metadata_writes_all_tables(db_session) -> None:
     assert counts.get("etf_holdings") == 1
     assert counts.get("etf_sector_weights") == 1
     assert not errors
+
+
+def test_fetch_etf_metadata_stores_preferred_and_convertible_positions(
+    db_session,
+) -> None:
+    """A preferred/convertible ETF keeps all six Yahoo positions, so the stored
+    asset-class weights still sum to ~1 instead of ~6%."""
+    inst = _fi_instrument(db_session)
+    yf = MagicMock()
+    yf.funds.fetch_fund_profile.return_value = {"aum": 1e9}
+    yf.funds.fetch_funds_data.return_value = {
+        "asset_classes": {
+            "stockPosition": 0.0514,
+            "bondPosition": 0.0001,
+            "cashPosition": 0.0111,
+            "preferredPosition": 0.932,
+            "convertiblePosition": 0.002,
+            "otherPosition": 0.0035,
+        },
+    }
+    svc = _service(db_session, yf)
+
+    svc._fetch_etf_metadata(
+        inst.id, "PFF", "full", DEFAULT_THRESHOLDS, _NOW, {}, [], []
+    )
+    db_session.flush()
+
+    ac = ETFMetadataRepository(db_session).get_asset_classes(inst.id)
+    assert ac is not None
+    assert float(ac.preferred_pct) == 0.932
+    assert float(ac.convertible_pct) == 0.002
+    total = sum(
+        float(v)
+        for v in (
+            ac.stock_pct,
+            ac.bond_pct,
+            ac.cash_pct,
+            ac.preferred_pct,
+            ac.convertible_pct,
+            ac.other_pct,
+        )
+    )
+    assert abs(total - 1.0) < 1e-3
 
 
 def test_fetch_etf_metadata_writes_depth_tables(db_session) -> None:
@@ -159,6 +203,46 @@ def test_fetch_etf_metadata_writes_depth_tables(db_session) -> None:
     assert not errors
 
 
+def test_fetch_etf_metadata_stores_major_unit_base_currency(db_session) -> None:
+    """Yahoo quotes an LSE-listed UCITS ETF in pence ('GBp'); a sub-unit code is
+    not a currency a fund's NAV or AUM is expressed in, so the major is stored."""
+    inst = _fi_instrument(db_session)
+    yf = MagicMock()
+    yf.funds.fetch_fund_profile.return_value = {
+        "aum": 1e9,
+        "nav": 100.0,
+        "base_currency": "GBp",
+    }
+    yf.funds.fetch_funds_data.return_value = None
+    svc = _service(db_session, yf)
+
+    svc._fetch_etf_metadata(
+        inst.id, "JAGA.L", "full", DEFAULT_THRESHOLDS, _NOW, {}, [], []
+    )
+    db_session.flush()
+
+    meta = ETFMetadataRepository(db_session).get_metadata(inst.id)
+    assert meta is not None
+    assert meta.base_currency == "GBP"
+
+
+def test_fetch_etf_metadata_keeps_absent_base_currency_null(db_session) -> None:
+    inst = _fi_instrument(db_session)
+    yf = MagicMock()
+    yf.funds.fetch_fund_profile.return_value = {"aum": 1e9, "nav": 100.0}
+    yf.funds.fetch_funds_data.return_value = None
+    svc = _service(db_session, yf)
+
+    svc._fetch_etf_metadata(
+        inst.id, "JAGA.DE", "full", DEFAULT_THRESHOLDS, _NOW, {}, [], []
+    )
+    db_session.flush()
+
+    meta = ETFMetadataRepository(db_session).get_metadata(inst.id)
+    assert meta is not None
+    assert meta.base_currency is None
+
+
 def test_incremental_skips_when_metadata_is_fresh(db_session) -> None:
     inst = _fi_instrument(db_session)
     ETFMetadataRepository(db_session).upsert_metadata(
@@ -224,3 +308,175 @@ def test_none_profile_and_funds_data_is_safe(db_session) -> None:
 
     assert counts == {}
     assert not errors
+
+
+def test_unreported_allocation_does_not_overwrite_the_latest_snapshot(
+    db_session,
+) -> None:
+    """A fund whose profile is populated but whose positions Yahoo omits must
+    not write an all-NULL asset-class row: readers take the newest as_of, so it
+    would shadow the last real allocation."""
+    inst = _fi_instrument(db_session)
+    etf_repo = ETFMetadataRepository(db_session)
+    etf_repo.upsert_asset_classes(
+        inst.id,
+        dt.date(2026, 8, 24),
+        stock_pct=0.0,
+        bond_pct=0.98,
+        cash_pct=0.02,
+        other_pct=0.0,
+    )
+    db_session.flush()
+
+    yf = MagicMock()
+    yf.funds.fetch_fund_profile.return_value = None
+    yf.funds.fetch_funds_data.return_value = {
+        "asset_classes": {},
+        "top_holdings": [],
+        "sector_weightings": {},
+        "fund_overview": {"categoryName": "Global Bond"},
+        "description": "A bond ETF.",
+    }
+    svc = _service(db_session, yf)
+
+    counts: dict[str, int] = {}
+    errors: list[str] = []
+    svc._fetch_etf_metadata(
+        inst.id, "AGGB.L", "full", DEFAULT_THRESHOLDS, _NOW, counts, errors, []
+    )
+    db_session.flush()
+
+    latest = etf_repo.get_asset_classes(inst.id)
+    assert latest is not None
+    assert latest.as_of == dt.date(2026, 8, 24)
+    assert float(latest.bond_pct) == 0.98
+    assert "etf_asset_classes" not in counts
+    assert counts.get("etf_metadata") == 1
+    assert not errors
+
+
+def test_allocation_without_any_mapped_bucket_is_not_stored(db_session) -> None:
+    inst = _fi_instrument(db_session)
+    yf = MagicMock()
+    yf.funds.fetch_fund_profile.return_value = None
+    yf.funds.fetch_funds_data.return_value = {
+        # Preferred and convertible positions fold into ``other``; a key the source
+        # does not map at all is what leaves nothing to store.
+        "asset_classes": {"unmappedPosition": 0.1},
+        "top_holdings": [{"symbol": "UST", "name": "US Treasury", "weight": 0.05}],
+        "sector_weightings": {},
+    }
+    svc = _service(db_session, yf)
+
+    counts: dict[str, int] = {}
+    svc._fetch_etf_metadata(
+        inst.id, "AGGB.L", "full", DEFAULT_THRESHOLDS, _NOW, counts, [], []
+    )
+    db_session.flush()
+
+    assert ETFMetadataRepository(db_session).get_asset_classes(inst.id) is None
+    assert "etf_asset_classes" not in counts
+    assert counts.get("etf_holdings") == 1
+
+
+def test_partial_profile_keeps_previously_stored_aum_and_nav(db_session) -> None:
+    """A transient ``info`` without totalAssets/navPrice must not null the
+    stored AUM and NAV."""
+    inst = _fi_instrument(db_session)
+    etf_repo = ETFMetadataRepository(db_session)
+    etf_repo.upsert_metadata(
+        inst.id,
+        aum=1e9,
+        nav=100.0,
+        fund_family="JPMorgan",
+        legal_type="ETF",
+        expense_ratio=0.001,
+        base_currency="EUR",
+        as_of=dt.date(2026, 8, 18),
+    )
+    db_session.flush()
+
+    yf = MagicMock()
+    yf.funds.fetch_fund_profile.return_value = {"base_currency": "EUR"}
+    yf.funds.fetch_funds_data.return_value = None
+    svc = _service(db_session, yf)
+
+    svc._fetch_etf_metadata(
+        inst.id, "JAGA.DE", "full", DEFAULT_THRESHOLDS, _NOW, {}, [], []
+    )
+    db_session.flush()
+    db_session.expire_all()
+
+    meta = etf_repo.get_metadata(inst.id)
+    assert meta is not None
+    assert float(meta.aum) == 1e9
+    assert float(meta.nav) == 100.0
+    assert meta.fund_family == "JPMorgan"
+    assert float(meta.expense_ratio) == 0.001
+
+
+def _store_asset_classes(db_session, positions: dict[str, float | None]):
+    inst = _fi_instrument(db_session)
+    yf = MagicMock()
+    yf.funds.fetch_fund_profile.return_value = None
+    yf.funds.fetch_funds_data.return_value = {
+        "asset_classes": positions,
+        "top_holdings": [],
+        "sector_weightings": {},
+    }
+    svc = _service(db_session, yf)
+    errors: list[str] = []
+    svc._fetch_etf_metadata(
+        inst.id, "CWB", "full", DEFAULT_THRESHOLDS, _NOW, {}, errors, []
+    )
+    db_session.flush()
+    assert not errors
+    ac = ETFMetadataRepository(db_session).get_asset_classes(inst.id)
+    assert ac is not None
+    return ac
+
+
+def test_convertible_and_preferred_positions_are_stored_in_their_own_columns(
+    db_session,
+) -> None:
+    """A convertible-bond ETF is mostly convertiblePosition/preferredPosition;
+    each keeps its own column so ``other_pct`` stays the residual Yahoo reports."""
+    ac = _store_asset_classes(
+        db_session,
+        {
+            "stockPosition": 0.024,
+            "bondPosition": 0.032,
+            "cashPosition": 0.004,
+            "preferredPosition": 0.148,
+            "convertiblePosition": 0.792,
+            "otherPosition": 0.0,
+        },
+    )
+
+    assert float(ac.preferred_pct) == pytest.approx(0.148)
+    assert float(ac.convertible_pct) == pytest.approx(0.792)
+    assert float(ac.other_pct) == pytest.approx(0.0)
+
+
+def test_other_is_not_built_from_the_extra_positions_when_other_is_missing(
+    db_session,
+) -> None:
+    ac = _store_asset_classes(
+        db_session,
+        {
+            "stockPosition": 0.051,
+            "bondPosition": 0.0,
+            "cashPosition": 0.011,
+            "preferredPosition": 0.932,
+            "otherPosition": None,
+        },
+    )
+
+    assert float(ac.preferred_pct) == pytest.approx(0.932)
+    assert ac.other_pct is None
+
+
+def test_other_stays_null_when_no_residual_position_is_reported(db_session) -> None:
+    ac = _store_asset_classes(db_session, {"stockPosition": 0.6, "bondPosition": 0.4})
+
+    assert ac.other_pct is None

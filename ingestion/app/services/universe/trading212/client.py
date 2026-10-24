@@ -1,4 +1,5 @@
 import base64
+import math
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -16,6 +17,13 @@ _BROWSER_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
+# T212 reports the end of a rate-limit window in ``x-ratelimit-reset`` (epoch
+# seconds) and sends no Retry-After. The window on /metadata/instruments is
+# about 50 s, so a fixed 2+4+8+16 s backoff gives up before it reopens; waiting
+# for the reported reset is capped so a bogus header cannot stall the daemon.
+_MAX_RATE_LIMIT_WAIT_SECONDS = 120
+_RESET_MARGIN_SECONDS = 1
+
 
 @dataclass
 class Trading212Client:
@@ -26,8 +34,8 @@ class Trading212Client:
     (the daemon ingests market data, it does not trade).
     """
 
-    api_key: str
-    api_secret: str
+    api_key: str = field(repr=False)
+    api_secret: str = field(repr=False)
     mode: str = "live"
     max_retries: int = 5
     base_url: str = field(init=False)
@@ -118,18 +126,19 @@ class Trading212Client:
 
             except requests.exceptions.HTTPError as e:
                 last_error = e
-                if e.response is not None and e.response.status_code == 429:
+                response = e.response
+                if response is None:
+                    raise
+                if response.status_code == 429:
                     if attempt >= self.max_retries - 1:
                         raise
-                    retry_after = e.response.headers.get("Retry-After")
-                    if retry_after:
-                        try:
-                            wait_time = int(retry_after)
-                        except ValueError:
-                            wait_time = (2**attempt) * 2
-                    else:
-                        wait_time = (2**attempt) * 2
-                    time.sleep(wait_time)
+                    time.sleep(self._rate_limit_wait(response.headers, attempt))
+                    continue
+                if response.status_code == 408 or response.status_code >= 500:
+                    # Cloudflare in front of T212 answers 502/503/504 under load.
+                    if attempt >= self.max_retries - 1:
+                        raise
+                    time.sleep((2**attempt) * 2)
                     continue
                 raise
 
@@ -143,6 +152,34 @@ class Trading212Client:
         raise Exception(
             f"Failed to fetch {path} after {self.max_retries} attempts"
         ) from last_error
+
+    @staticmethod
+    def _rate_limit_wait(headers: Any, attempt: int) -> float:
+        """Seconds to sleep after a 429.
+
+        Precedence: ``Retry-After`` (seconds), then the time left until
+        ``x-ratelimit-reset`` (capped), then exponential backoff when neither
+        header is usable.
+        """
+        backoff = (2**attempt) * 2
+        if not isinstance(headers, Mapping):
+            return backoff
+        lowered = {str(key).lower(): value for key, value in headers.items()}
+
+        retry_after = lowered.get("retry-after")
+        if retry_after:
+            try:
+                return int(retry_after)
+            except ValueError:
+                return backoff
+
+        try:
+            until_reset = float(lowered["x-ratelimit-reset"]) - time.time()
+        except (KeyError, TypeError, ValueError):
+            return backoff
+        if not math.isfinite(until_reset) or until_reset <= 0:
+            return backoff
+        return min(until_reset + _RESET_MARGIN_SECONDS, _MAX_RATE_LIMIT_WAIT_SECONDS)
 
     def _fetch_json(self, path: str) -> list[dict[str, Any]]:
         return self._get(path)
@@ -165,6 +202,24 @@ class Trading212Client:
         if captured:
             self.rate_limit = captured
 
+    @staticmethod
+    def missing_credentials() -> list[str]:
+        """Names of the Trading 212 env vars that are unset in settings.
+
+        Basic auth is ``Base64(API_KEY:SECRET_KEY)``, so a key without its
+        secret authenticates as ``key:`` and every request 401s. This is the
+        single definition of "configured" shared by :meth:`from_settings` and
+        the scheduler's skip gate.
+        """
+        return [
+            name
+            for name, value in (
+                ("TRADING_212_API_KEY", settings.trading_212_api_key),
+                ("TRADING_212_SECRET_KEY", settings.trading_212_secret_key),
+            )
+            if not value
+        ]
+
     @classmethod
     def from_settings(cls, mode: str | None = None) -> Optional["Trading212Client"]:
         """Construct a client from ``app.config.settings``, or return ``None``.
@@ -175,12 +230,13 @@ class Trading212Client:
 
         Returns:
             A configured client, or ``None`` when either API credential is
-            absent from settings (universe build skips without claiming a slot).
+            absent from settings (the ``t212_annotate`` step skips without
+            claiming a slot; the universe build does not need this client).
         """
+        if cls.missing_credentials():
+            return None
         api_key = settings.trading_212_api_key
         api_secret = settings.trading_212_secret_key
-        if not api_key or not api_secret:
-            return None
         return cls(
             api_key=api_key,
             api_secret=api_secret,

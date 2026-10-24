@@ -59,3 +59,9 @@ class TestNotifyFailure:
         with patch("app.services._shared.notifications.httpx.post") as mock_post:
             notify_failure("https://example.com/hook", "d", "job-id", "err")
         assert mock_post.call_args.kwargs["timeout"] == 10
+
+    def test_payload_carries_slack_text_key_alongside_discord_content(self) -> None:
+        with patch("app.services._shared.notifications.httpx.post") as mock_post:
+            notify_failure("https://hooks.slack.com/services/T/B/x", "d", "job-id", "e")
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["text"] == payload["content"]

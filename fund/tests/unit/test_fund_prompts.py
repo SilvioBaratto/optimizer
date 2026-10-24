@@ -13,7 +13,7 @@ These tests assert the prompt contract:
   and no agent ever emits a weight;
 * each prompt names its own tools/skills;
 * the **PM** names the fixed delegation order, the **blocking** risk gate, and the
-  **round cap** (→ incomplete + HITL when hit);
+  **round cap** (→ finalised incomplete with no ticket and no escalation tool);
 * the **risk** officer reports pass/fail with explicit violations and hard-blocks a
   MiFID/ESG/validation breach;
 * the **executor** treats ``place_orders`` as paper-only, next-close, idempotent,
@@ -78,10 +78,59 @@ def test_pm_prompt_marks_risk_as_a_blocking_gate():
     assert "gate" in lower
 
 
+def test_pm_prompt_explains_how_to_treat_standing_directives():
+    lower = " ".join(PM_SYSTEM_PROMPT.lower().split())
+    assert "standing directives" in lower
+    assert "never relax" in lower
+
+
 def test_pm_prompt_respects_the_round_cap():
     lower = PM_SYSTEM_PROMPT.lower()
     assert "round" in lower
     assert "incomplete" in lower
+
+
+def _pm_section(heading: str) -> str:
+    """The lowercased body of one ``## heading`` section of the PM prompt."""
+    return PM_SYSTEM_PROMPT.split(f"## {heading}")[1].split("\n## ")[0].lower()
+
+
+def test_pm_round_cap_does_not_promise_a_hitl_checkpoint():
+    # The PM's only gated tool is place_orders (it commits the latest optimizer
+    # weights); telling it to "surface the open issue through the HITL gate" on the
+    # cap can only be obeyed by calling place_orders, which asks the adviser to
+    # approve a ticket for weights the risk gate may have blocked.
+    section = _pm_section("Respect the round cap")
+
+    assert "hitl" not in section
+    assert "automatically" in section
+    assert "place_orders" in section  # told not to use it as an escalation
+
+
+def test_pm_prompt_commits_only_after_risk_passed():
+    section = _pm_section("Committing orders is yours, and it is gated")
+
+    assert "only after the risk gate" in section
+
+
+def test_risk_prompt_says_the_gate_reads_the_audited_weights():
+    # risk_check takes no weights and place_orders refuses an unjudged vector, so
+    # the officer must not be invited to relay a retyped copy of the proposal.
+    lower = RISK_SYSTEM_PROMPT.lower()
+
+    assert "takes no arguments" in lower
+    assert "latest audited" in lower
+    assert "`place_orders` refuses" in lower
+
+
+def test_pm_prompt_explains_how_to_read_an_adviser_directive():
+    # A ``respond`` barge-in reaches the PM as the ``place_orders`` tool result; the
+    # prompt must say that is a steer, not a placed order, and what to do with it.
+    lower = " ".join(PM_SYSTEM_PROMPT.lower().replace("`", "").split())
+    assert "adviser directive" in lower
+    assert "not executed" in lower
+    assert "place_orders again" in lower
+    assert "never reply that an order was placed" in lower
 
 
 def test_economist_prompt_names_its_tools_and_skills():
@@ -92,13 +141,42 @@ def test_economist_prompt_names_its_tools_and_skills():
     assert "views-construction" in lower
 
 
+def _tool_bullet(prompt: str, tool: str) -> str:
+    """The prompt's ``- `tool` — ...`` bullet, up to the next bullet or blank line."""
+    start = prompt.index(f"- `{tool}`")
+    end = prompt.index("\n\n", start)
+    next_bullet = prompt.find("\n- `", start + 1)
+    return prompt[start : min(end, next_bullet) if next_bullet != -1 else end]
+
+
+def test_economist_prompt_describes_only_what_get_prices_returns():
+    # get_prices returns a bounded per-ticker statistics block, never the raw price
+    # matrix, so the prompt must name those figures and must not promise more.
+    bullet = _tool_bullet(ECONOMIST_SYSTEM_PROMPT, "get_prices").lower()
+
+    for figure in ("last close", "realised volatility", "drawdown"):
+        assert figure in bullet
+    assert "history" not in bullet
+
+
 def test_allocator_prompt_names_its_tools_and_skills():
     lower = ALLOCATOR_SYSTEM_PROMPT.lower()
+    assert "list_universe" in lower
+    assert "list_universe" in lower
     assert "universe_filter" in lower
     assert "estimate_moments" in lower
     assert "optimize_portfolio" in lower
     assert "universe-preselection" in lower
     assert "optimization-objective-map" in lower
+
+
+def test_prompts_do_not_claim_views_feed_the_optimizer_prior():
+    # ``optimize_portfolio`` takes only the ConstraintSet; no tool builds a
+    # Black-Litterman prior from the economist's ViewSet.
+    for prompt in (ECONOMIST_SYSTEM_PROMPT, ALLOCATOR_SYSTEM_PROMPT):
+        flat = " ".join(prompt.lower().split())
+        assert "turn them into a prior" not in flat
+        assert "views as the prior" not in flat
 
 
 def test_risk_prompt_reports_pass_fail_with_explicit_violations():
@@ -126,6 +204,33 @@ def test_executor_prompt_describes_paper_orders_semantics():
     assert "next" in lower and "close" in lower
     assert "idempotent" in lower
     assert "rebalancing-execution" in lower
+
+
+def test_pm_prompt_hands_the_executor_the_current_holdings():
+    # The executor binds no tool, so the PM is the only agent that can read the
+    # current holdings and it must pass them on with the target weights.
+    assert "get_portfolio_history" in PM_SYSTEM_PROMPT
+    assert "current_holdings" in PM_SYSTEM_PROMPT
+
+
+def test_executor_prompt_takes_the_current_holdings_from_the_pm():
+    lower = EXECUTOR_SYSTEM_PROMPT.lower()
+    assert "current_holdings" in lower
+    assert "no tool" in lower
+
+
+def test_pm_prompt_hands_the_executor_the_no_trade_band():
+    # The band is the mandate's drift threshold, stated in the run instruction; the
+    # executor has no tool to look it up, so the PM must relay it.
+    flat = " ".join(PM_SYSTEM_PROMPT.lower().split())
+    assert "no-trade band" in flat
+    assert "run instruction" in flat
+
+
+def test_executor_prompt_takes_the_no_trade_band_from_the_pm():
+    lower = EXECUTOR_SYSTEM_PROMPT.lower()
+    assert "no-trade band" in lower
+    assert "never infer" in lower or "never invent" in lower
 
 
 def test_executor_prompt_forbids_fabricating_weights():

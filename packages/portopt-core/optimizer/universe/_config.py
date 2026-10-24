@@ -32,7 +32,9 @@ class DelistingPolicy(str, Enum):
             *survivorship-bias free*.  Pair this with as-of-date-windowed
             price / volume history (which naturally caps a name at its
             delisting) and use ``instruments.delisting_return`` in the
-            downstream return assembly.
+            downstream return assembly.  A delisted row whose
+            ``delisting_return`` is ``NULL`` left the universe but is still
+            trading; it has no terminal return, so do not substitute a default.
     """
 
     EXCLUDE = "exclude"
@@ -69,6 +71,10 @@ class InvestabilityScreenConfig:
     price level, listing history, and data availability.  All
     hysteresis thresholds use separate entry/exit values to reduce
     turnover at screen boundaries.
+
+    The screens never convert currencies: the market-cap and dollar-volume
+    thresholds below are USD, so the ``market_cap`` and price-history inputs
+    must already be USD-normalised (see ``apply_investability_screens``).
 
     Attributes:
         market_cap: Free-float market capitalization thresholds (USD).

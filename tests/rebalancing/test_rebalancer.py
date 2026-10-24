@@ -177,6 +177,11 @@ class TestInputRobustness:
             compute_rebalancing_cost([0.6, 0.4], [0.5, 0.5], np.array([[0.01, 0.02]]))
 
 
+# Convex solvers (skfolio MeanRisk MAXIMIZE_RATIO included) return 1e-12 up to a
+# few 1e-6, and occasionally tens of 1e-6, where the true weight is zero.
+SOLVER_NOISE = [1e-12, 1e-9, 1e-6, 2e-6, 5e-6, 2e-5, 5e-5]
+
+
 class TestDriftBreachMask:
     def test_absolute_per_asset(self) -> None:
         current = np.array([0.56, 0.24, 0.20])
@@ -216,6 +221,72 @@ class TestDriftBreachMask:
         cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
         mask = drift_breach_mask(current, target, cfg)
         np.testing.assert_array_equal(mask, [False, True])
+
+    @pytest.mark.parametrize("noise", SOLVER_NOISE)
+    def test_relative_ignores_solver_dust_in_target(self, noise: float) -> None:
+        """A solver-noise target is not a position to measure relatively."""
+        current = np.array([0.5, 0.5, 0.0])
+        target = np.array([0.5, 0.5 - noise, noise])
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        mask = drift_breach_mask(current, target, cfg)
+        np.testing.assert_array_equal(mask, [False, False, False])
+        assert should_rebalance(current, target, cfg) is False
+
+    @pytest.mark.parametrize("noise", SOLVER_NOISE)
+    def test_relative_ignores_held_dust_against_zero_target(self, noise: float) -> None:
+        """A solver-noise residue held against a zero target is not an exit."""
+        current = np.array([0.5, 0.5 - noise, noise])
+        target = np.array([0.5, 0.5, 0.0])
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        mask = drift_breach_mask(current, target, cfg)
+        np.testing.assert_array_equal(mask, [False, False, False])
+
+    @pytest.mark.parametrize("noise", SOLVER_NOISE)
+    def test_relative_ignores_noise_targets_across_a_wide_book(
+        self, noise: float
+    ) -> None:
+        """Sleeves flattened by hand while the solver keeps noise there."""
+        n = 30
+        current = np.zeros(n)
+        current[:20] = 1.0 / 20
+        target = np.zeros(n)
+        target[:20] = (1.0 - 10 * noise) / 20
+        target[20:] = noise
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        assert should_rebalance(current, target, cfg) is False
+
+    def test_relative_material_position_exit_to_dust_target_flagged(self) -> None:
+        """A real position whose target collapsed to dust is still an exit."""
+        current = np.array([0.5, 0.3, 0.2])
+        target = np.array([0.5, 0.5 - 1e-9, 1e-9])
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        mask = drift_breach_mask(current, target, cfg)
+        np.testing.assert_array_equal(mask, [False, True, True])
+
+    def test_relative_held_position_above_dust_floor_exits_to_zero_target(
+        self,
+    ) -> None:
+        """A 5bp holding is a real position: a zero target is an exit."""
+        current = np.array([0.5, 0.4995, 0.0005])
+        target = np.array([0.5, 0.5, 0.0])
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        mask = drift_breach_mask(current, target, cfg)
+        np.testing.assert_array_equal(mask, [False, False, True])
+
+    def test_relative_target_above_dust_floor_is_a_real_entry(self) -> None:
+        """A 5bp target from flat is a position, not noise, so it is an entry."""
+        current = np.array([0.5, 0.5, 0.0])
+        target = np.array([0.5, 0.4995, 0.0005])
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        mask = drift_breach_mask(current, target, cfg)
+        np.testing.assert_array_equal(mask, [False, False, True])
+
+    def test_relative_entry_into_material_target_from_flat_flagged(self) -> None:
+        current = np.array([0.6, 0.4, 0.0])
+        target = np.array([0.5, 0.4, 0.1])
+        cfg = ThresholdRebalancingConfig.for_relative(threshold=0.25)
+        mask = drift_breach_mask(current, target, cfg)
+        np.testing.assert_array_equal(mask, [False, False, True])
 
     def test_mask_matches_should_rebalance(self) -> None:
         current = np.array([0.54, 0.26, 0.20])
@@ -263,6 +334,67 @@ class TestApplyNoTradeBand:
         out = apply_no_trade_band([0.0, 0.0], [0.0, 0.0])
         np.testing.assert_allclose(out, [0.0, 0.0])
 
+    def test_in_band_asset_is_not_traded_when_others_breach(self) -> None:
+        current = np.array([0.52, 0.30, 0.18])
+        target = np.array([0.40, 0.33, 0.27])
+        cfg = ThresholdRebalancingConfig.for_absolute(threshold=0.05)
+        out = apply_no_trade_band(current, target, cfg)
+        # asset 1 drifts 3pp (inside the 5pp band): it must keep its weight.
+        assert out[1] == pytest.approx(0.30)
+        assert out.sum() == pytest.approx(1.0)
+
+    def test_breached_assets_share_remaining_budget_pro_rata_to_target(
+        self,
+    ) -> None:
+        current = np.array([0.52, 0.30, 0.18])
+        target = np.array([0.40, 0.33, 0.27])
+        cfg = ThresholdRebalancingConfig.for_absolute(threshold=0.05)
+        out = apply_no_trade_band(current, target, cfg)
+        # held 0.30 -> traded targets (0.40, 0.27) rescale to sum to 0.70.
+        np.testing.assert_allclose(out, [0.40 * 0.70 / 0.67, 0.30, 0.27 * 0.70 / 0.67])
+
+    def test_all_assets_breaching_returns_target(self) -> None:
+        current = np.array([0.70, 0.20, 0.10])
+        target = np.array([0.40, 0.40, 0.20])
+        cfg = ThresholdRebalancingConfig.for_absolute(threshold=0.05)
+        np.testing.assert_allclose(apply_no_trade_band(current, target, cfg), target)
+
+    def test_traded_targets_summing_to_zero_renormalise_the_blend(self) -> None:
+        # Long/short book: the breached targets (0.30, -0.30) cancel, so no
+        # positive scale can make them fill the remaining budget. The held
+        # asset absorbs the gap through the plain renormalisation.
+        current = np.array([0.50, -0.47, 0.97])
+        target = np.array([0.30, -0.30, 1.00])
+        cfg = ThresholdRebalancingConfig.for_absolute(threshold=0.05)
+        out = apply_no_trade_band(current, target, cfg)
+        assert np.all(np.isfinite(out))
+        assert out.sum() == pytest.approx(1.0)
+        np.testing.assert_allclose(out, np.array([0.30, -0.30, 0.97]) / 0.97)
+
+    def test_exit_only_breach_stays_fully_invested(self) -> None:
+        # Only the held name being exited breaches; its target is zero, so the
+        # 10% it frees must flow to the held names instead of going missing.
+        current = np.array([0.45, 0.45, 0.10])
+        target = np.array([0.50, 0.50, 0.0])
+        cfg = ThresholdRebalancingConfig.for_absolute(threshold=0.05)
+        out = apply_no_trade_band(current, target, cfg)
+        np.testing.assert_allclose(out, [0.50, 0.50, 0.0], atol=1e-12)
+        assert out.sum() == pytest.approx(1.0)
+
+    @pytest.mark.parametrize("exit_target", [1e-12, 1e-9, 1e-6, 1e-5, 1e-4])
+    def test_near_zero_breached_target_is_not_reinflated(
+        self, exit_target: float
+    ) -> None:
+        # A breached target the optimizer all but zeroed must not be scaled up
+        # to soak the whole budget, which would undo the exit.
+        current = np.array([0.45, 0.45, 0.10])
+        target = np.array([0.50, 0.50 - exit_target, exit_target])
+        cfg = ThresholdRebalancingConfig.for_absolute(threshold=0.05)
+        out = apply_no_trade_band(current, target, cfg)
+        assert out.sum() == pytest.approx(1.0)
+        assert out[2] < 1e-3
+        assert np.all(out >= 0.0)
+
 
 class TestBuildRebalancingWalkForward:
     def _returns(self) -> pd.DataFrame:
@@ -308,6 +440,178 @@ class TestBuildRebalancingWalkForward:
         )
         assert cv.freq_offset == pd.tseries.frequencies.to_offset("2D")
 
+    @staticmethod
+    def _returns_ending(end: str) -> pd.DataFrame:
+        idx = pd.bdate_range("2022-01-03", end)
+        rng = np.random.default_rng(1)
+        return pd.DataFrame(
+            rng.normal(0.0, 0.01, size=(len(idx), 3)),
+            index=idx,
+            columns=["A", "B", "C"],
+        )
+
+    def test_freq_offset_past_last_observation_drops_empty_test_fold(self) -> None:
+        # The last month start (2024-12-01) + 2D lies after the final row.
+        X = self._returns_ending("2024-12-02")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_monthly(), train_size=12, freq_offset="2D"
+        )
+        folds = list(cv.split(X))
+        assert folds
+        assert all(len(test_idx) > 0 for _, test_idx in folds)
+        assert cv.get_n_splits(X) == len(folds)
+
+    def test_freq_offset_past_last_observation_works_with_cross_val_predict(
+        self,
+    ) -> None:
+        from skfolio.model_selection import cross_val_predict
+        from skfolio.optimization import EqualWeighted
+
+        X = self._returns_ending("2024-12-02")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_monthly(), train_size=12, freq_offset="2D"
+        )
+        pred = cross_val_predict(EqualWeighted(), X, cv=cv)
+        assert len(pred) == cv.get_n_splits(X)
+
+    def test_freq_offset_inside_data_keeps_every_fold(self) -> None:
+        X = self._returns_ending("2024-12-04")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_monthly(), train_size=12, freq_offset="2D"
+        )
+        folds = list(cv.split(X))
+        assert all(len(test_idx) > 0 for _, test_idx in folds)
+        assert cv.get_n_splits(X) == len(folds)
+        # The 2024-12-03 boundary is now observable, so it closes a fold.
+        assert X.index[folds[-1][1][-1] + 1] == pd.Timestamp("2024-12-03")
+
+    @staticmethod
+    def _daily_returns(start: str, years: int = 4) -> pd.DataFrame:
+        idx = pd.bdate_range(start, periods=years * 261)
+        rng = np.random.default_rng(2)
+        return pd.DataFrame(
+            rng.normal(0.0, 0.01, size=(len(idx), 2)),
+            index=idx,
+            columns=["A", "B"],
+        )
+
+    @pytest.mark.parametrize(
+        "start", ["2015-01-05", "2015-03-10", "2015-06-10", "2020-12-10"]
+    )
+    def test_semiannual_test_windows_start_in_january_and_july(
+        self, start: str
+    ) -> None:
+        X = self._daily_returns(start)
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_semiannual(), train_size=1
+        )
+        folds = list(cv.split(X))
+        assert len(folds) >= 3
+        for _, test_idx in folds:
+            first = X.index[test_idx[0]]
+            # First trading day on or after Jan 1 / Jul 1.
+            assert first.month in (1, 7)
+            assert first.day <= 4
+
+    @pytest.mark.parametrize("start", ["2015-01-05", "2015-03-10", "2015-06-10"])
+    def test_semiannual_test_windows_are_six_months_apart(self, start: str) -> None:
+        X = self._daily_returns(start)
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_semiannual(), train_size=2
+        )
+        months = [
+            X.index[test_idx[0]].year * 12 + X.index[test_idx[0]].month
+            for _, test_idx in cv.split(X)
+        ]
+        assert len(months) >= 2
+        assert np.diff(months).tolist() == [6] * (len(months) - 1)
+
+    def test_semiannual_get_n_splits_matches_split(self) -> None:
+        X = self._daily_returns("2015-03-10")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_semiannual(), train_size=2
+        )
+        assert cv.get_n_splits(X) == len(list(cv.split(X)))
+
+    def test_semiannual_freq_offset_shifts_the_january_july_boundaries(self) -> None:
+        X = self._daily_returns("2015-03-10")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_semiannual(), train_size=1, freq_offset="2D"
+        )
+        folds = list(cv.split(X))
+        assert folds
+        for _, test_idx in folds:
+            first = X.index[test_idx[0]]
+            assert first.month in (1, 7)
+            assert 3 <= first.day <= 6
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {},
+            {"expand_train": True, "purged_size": 2},
+            {"reduce_test": True},
+            {"test_size": 2, "previous": True},
+        ],
+    )
+    def test_semiannual_matches_skfolio_when_first_boundary_is_january_or_july(
+        self, kwargs: dict[str, object]
+    ) -> None:
+        from skfolio.model_selection import WalkForward
+
+        # First observation in June: skfolio's own 2QS grid already starts in July.
+        X = self._daily_returns("2015-06-10")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_semiannual(), train_size=2, **kwargs
+        )
+        reference = WalkForward(
+            freq="2QS",
+            **{"test_size": 1, "train_size": 2, **kwargs},  # type: ignore[arg-type]
+        )
+        got = list(cv.split(X))
+        want = list(reference.split(X))
+        assert len(got) == len(want) > 0
+        for (g_train, g_test), (w_train, w_test) in zip(got, want, strict=True):
+            np.testing.assert_array_equal(g_train, w_train)
+            np.testing.assert_array_equal(g_test, w_test)
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            CalendarRebalancingConfig.for_monthly(),
+            CalendarRebalancingConfig.for_quarterly(),
+            CalendarRebalancingConfig.for_semiannual(),
+            CalendarRebalancingConfig.for_annual(),
+        ],
+        ids=["monthly", "quarterly", "semiannual", "annual"],
+    )
+    def test_default_train_window_spans_three_years_for_every_cadence(
+        self, config: CalendarRebalancingConfig
+    ) -> None:
+        X = self._daily_returns("2010-01-04", years=10)
+        cv = build_rebalancing_walk_forward(config)
+        folds = list(cv.split(X))
+        assert folds
+        train_idx, _ = folds[0]
+        span_years = (X.index[train_idx[-1]] - X.index[train_idx[0]]).days / 365.25
+        assert span_years == pytest.approx(3.0, abs=0.1)
+
+    def test_default_train_window_gives_annual_cadence_folds_on_short_history(
+        self,
+    ) -> None:
+        X = self._daily_returns("2015-01-05", years=5)
+        cv = build_rebalancing_walk_forward(CalendarRebalancingConfig.for_annual())
+        assert cv.get_n_splits(X) > 0
+
+    def test_explicit_train_size_overrides_the_default_window(self) -> None:
+        X = self._daily_returns("2010-01-04", years=10)
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_annual(), train_size=5
+        )
+        train_idx, _ = next(iter(cv.split(X)))
+        span_years = (X.index[train_idx[-1]] - X.index[train_idx[0]]).days / 365.25
+        assert span_years == pytest.approx(5.0, abs=0.1)
+
     def test_splits_are_time_ordered(self) -> None:
         cv = build_rebalancing_walk_forward(
             CalendarRebalancingConfig.for_monthly(), train_size=6
@@ -319,6 +623,136 @@ class TestBuildRebalancingWalkForward:
             assert train_idx.max() < test_idx.min()
             assert test_idx.min() > prev_test_start
             prev_test_start = test_idx.min()
+
+    @staticmethod
+    def _returns_between(start: str, end: str) -> pd.DataFrame:
+        idx = pd.bdate_range(start, end)
+        rng = np.random.default_rng(3)
+        return pd.DataFrame(
+            rng.normal(0.0, 0.01, size=(len(idx), 2)),
+            index=idx,
+            columns=["A", "B"],
+        )
+
+    @staticmethod
+    def _assert_folds_inside_sample(
+        folds: list[tuple[np.ndarray, np.ndarray]], n_samples: int
+    ) -> None:
+        assert folds
+        for train_idx, test_idx in folds:
+            assert len(train_idx) > 0
+            assert len(test_idx) > 0
+            assert train_idx.min() >= 0
+            assert test_idx.min() >= 0
+            assert train_idx.max() < n_samples
+            assert test_idx.max() < n_samples
+
+    @pytest.mark.parametrize("reduce_test", [False, True])
+    @pytest.mark.parametrize("expand_train", [False, True])
+    @pytest.mark.parametrize(
+        ("config", "end"),
+        [
+            (CalendarRebalancingConfig.for_monthly(), "2024-12-02"),
+            (CalendarRebalancingConfig.for_quarterly(), "2024-10-02"),
+            (CalendarRebalancingConfig.for_semiannual(), "2024-07-02"),
+            (CalendarRebalancingConfig.for_annual(), "2025-01-02"),
+        ],
+        ids=["monthly", "quarterly", "semiannual", "annual"],
+    )
+    def test_freq_offset_past_last_observation_never_leaves_the_sample(
+        self,
+        config: CalendarRebalancingConfig,
+        end: str,
+        expand_train: bool,
+        reduce_test: bool,
+    ) -> None:
+        from skfolio.model_selection import cross_val_predict
+        from skfolio.optimization import EqualWeighted
+
+        # The final shifted boundary lies after the last row. skfolio resolves
+        # it to -1, which must not become a fold start or a window edge.
+        X = self._returns_between("2018-01-01", end)
+        cv = build_rebalancing_walk_forward(
+            config,
+            train_size=2,
+            freq_offset="2D",
+            expand_train=expand_train,
+            reduce_test=reduce_test,
+        )
+        folds = list(cv.split(X))
+        self._assert_folds_inside_sample(folds, len(X))
+        assert cv.get_n_splits(X) == len(folds)
+        assert len(cross_val_predict(EqualWeighted(), X, cv=cv)) == len(folds)
+
+    @pytest.mark.parametrize("reduce_test", [False, True])
+    def test_negative_offset_drops_boundaries_before_first_observation(
+        self, reduce_test: bool
+    ) -> None:
+        # With previous=True the first boundary minus two days precedes the
+        # first row and resolves to -1.
+        X = self._returns_between("2020-01-01", "2021-12-31")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_monthly(),
+            train_size=2,
+            freq_offset="-2D",
+            previous=True,
+            reduce_test=reduce_test,
+        )
+        folds = list(cv.split(X))
+        self._assert_folds_inside_sample(folds, len(X))
+        assert cv.get_n_splits(X) == len(folds)
+
+    def test_date_offset_train_window_drops_the_unresolved_boundary_fold(
+        self,
+    ) -> None:
+        X = self._returns_between("2018-01-01", "2024-12-02")
+        cv = build_rebalancing_walk_forward(
+            CalendarRebalancingConfig.for_monthly(),
+            freq_offset="2D",
+            reduce_test=True,
+        )
+        # The helper only builds integer windows; a DateOffset window is walked
+        # by skfolio itself, whose -1 boundary must still not become a fold.
+        cv.train_size = pd.DateOffset(months=12)
+        folds = list(cv.split(X))
+        self._assert_folds_inside_sample(folds, len(X))
+        assert cv.get_n_splits(X) == len(folds)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {},
+            {"expand_train": True, "purged_size": 2},
+            {"reduce_test": True},
+            {"test_size": 2, "previous": True},
+        ],
+    )
+    @pytest.mark.parametrize(
+        "config",
+        [
+            CalendarRebalancingConfig.for_monthly(),
+            CalendarRebalancingConfig.for_quarterly(),
+            CalendarRebalancingConfig.for_annual(),
+        ],
+        ids=["monthly", "quarterly", "annual"],
+    )
+    def test_matches_skfolio_when_the_period_grid_has_no_unresolved_boundary(
+        self, config: CalendarRebalancingConfig, kwargs: dict[str, object]
+    ) -> None:
+        from skfolio.model_selection import WalkForward
+
+        X = self._returns_between("2015-03-10", "2023-03-10")
+        cv = build_rebalancing_walk_forward(config, train_size=2, **kwargs)
+        reference = WalkForward(
+            freq=config.pandas_freq,
+            **{"test_size": 1, "train_size": 2, **kwargs},  # type: ignore[arg-type]
+        )
+        got = list(cv.split(X))
+        want = list(reference.split(X))
+        assert len(got) == len(want) > 0
+        for (g_train, g_test), (w_train, w_test) in zip(got, want, strict=True):
+            np.testing.assert_array_equal(g_train, w_train)
+            np.testing.assert_array_equal(g_test, w_test)
 
 
 # ---------------------------------------------------------------------------

@@ -11,11 +11,16 @@ staged workdir; construction only, no agent invocation and no network.
 
 from __future__ import annotations
 
+import os
+import sys
+import time
+import uuid
 from pathlib import Path
 
 import pytest
 
 from fund.agents import backend
+from fund.agents.skills import SKILLS_BY_AGENT, skill_sources
 from fund.config import FundConfig
 
 _PRELOAD = FundConfig(preload_theory=True)
@@ -271,3 +276,194 @@ def test_stage_theory_preload_gate_skips_skills(tmp_path):
     # Gated off: neither theory docs nor skills are staged.
     assert not (root / "optimizer-theory").exists()
     assert not (root / STAGED_SKILLS_ROOT).exists()
+
+
+# --- Staging must not disturb a workdir another live run may be reading ------
+# Every agent build stages the one shared workdir; the worker sweep, the TUI and
+# ``fund approve`` build agents concurrently, and a running agent lazily reads
+# theory/skill files through the backend. An up-to-date workdir must therefore be
+# left untouched, and concurrent stagers must serialise rather than corrupt it.
+
+
+def _file_identities(root: Path) -> dict[str, tuple[int, int]]:
+    """Snapshot ``(inode, ctime_ns)`` per staged file; a rewrite changes ctime."""
+    return {
+        path.relative_to(root).as_posix(): (path.stat().st_ino, path.stat().st_ctime_ns)
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def test_restaging_an_up_to_date_workdir_leaves_every_file_untouched(tmp_path):
+    root, _ = _stage(_PRELOAD, tmp_path)
+    before = _file_identities(root)
+    assert before, "fixture must stage at least one file"
+
+    _stage(_PRELOAD, tmp_path)
+
+    assert _file_identities(root) == before
+
+
+def test_restaging_after_the_canonical_source_changes_picks_up_the_change(tmp_path):
+    root, skills = _stage(_PRELOAD, tmp_path)
+    theory = tmp_path / "canonical" / "optimizerwiki"
+    (theory / "openwiki" / "quickstart.md").write_text("new routing", encoding="utf-8")
+    first_skill = next(skills.glob("*/SKILL.md"))
+    first_skill.write_text("---\nname: changed\n---\nnew body", encoding="utf-8")
+
+    _stage(_PRELOAD, tmp_path)
+
+    quickstart = root / "optimizer-theory" / "openwiki" / "quickstart.md"
+    assert quickstart.read_text(encoding="utf-8") == "new routing"
+    restaged = next((root / "skills").rglob(f"{first_skill.parent.name}/SKILL.md"))
+    assert restaged.read_text(encoding="utf-8") == first_skill.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_concurrent_staging_never_fails_or_exposes_a_missing_file(tmp_path):
+    import threading
+
+    theory = _fake_theory(tmp_path / "canonical")
+    skills = _fake_skills(tmp_path / "canonical-skills")
+    dest = tmp_path / "agent-fs"
+    backend.stage_theory(_PRELOAD, source=theory, dest=dest, skills_source=skills)
+    probe = dest / "optimizer-theory" / "openwiki" / "quickstart.md"
+
+    errors: list[BaseException] = []
+    missing_reads: list[int] = []
+    stop = threading.Event()
+
+    def stager() -> None:
+        try:
+            for _ in range(8):
+                backend.stage_theory(
+                    _PRELOAD, source=theory, dest=dest, skills_source=skills
+                )
+        except BaseException as exc:
+            errors.append(exc)
+
+    def reader() -> None:
+        while not stop.is_set():
+            try:
+                probe.read_text(encoding="utf-8")
+            except OSError:
+                missing_reads.append(1)
+
+    threads = [threading.Thread(target=stager) for _ in range(3)]
+    watcher = threading.Thread(target=reader)
+    watcher.start()
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    stop.set()
+    watcher.join()
+
+    assert errors == []
+    assert missing_reads == []
+
+
+# --- Per-run scratch area -------------------------------------------------------
+# deepagents offloads transcripts and oversized tool results, and the agents can
+# write notes, into the backend. Those files hold one portfolio's profile, holdings
+# and orders, so they must not be listable or readable from another run's backend.
+
+
+@pytest.fixture
+def staged_workdir(tmp_path, monkeypatch):
+    dest = tmp_path / "agent-fs"
+    monkeypatch.setattr(backend, "_THEORY_SRC", _fake_theory(tmp_path / "canonical"))
+    monkeypatch.setattr(backend, "_AGENT_FS_ROOT", dest)
+    return dest
+
+
+def test_runs_get_separate_writable_scratch_areas(staged_workdir):
+    run_a, run_b = uuid.uuid4(), uuid.uuid4()
+    fs_a = backend.build_backend(_PRELOAD, run_id=run_a)
+    fs_b = backend.build_backend(_PRELOAD, run_id=run_b)
+
+    assert fs_a.write("/conversation_history/s.md", "CLIENT A").error is None
+
+    assert fs_b.ls("/conversation_history").entries in (None, [])
+    assert "CLIENT A" not in str(fs_b.grep("CLIENT A", "/").matches)
+    assert fs_a.read("/conversation_history/s.md").file_data["content"] == "CLIENT A"
+
+
+def test_every_run_backend_reads_the_shared_theory_and_skills(staged_workdir):
+    fs = backend.build_backend(_PRELOAD, run_id=uuid.uuid4())
+
+    theory = fs.read("/optimizer-theory/openwiki/index.md")
+    skill = fs.read("/skills/risk/risk-limits-check/SKILL.md")
+
+    assert theory.error is None
+    assert skill.error is None
+    paths = {entry["path"] for entry in fs.ls("/").entries}
+    assert {"/optimizer-theory/", "/skills/"} <= paths
+
+
+@pytest.mark.parametrize("role", sorted(SKILLS_BY_AGENT))
+def test_every_role_loads_its_skills_through_the_run_backend(staged_workdir, role):
+    """Drive deepagents' ``SkillsMiddleware`` with the sources the graph passes.
+
+    A source the composite does not route falls through to the scratch backend and
+    loads nothing (only a logged warning), so reading ``/skills/...`` directly is
+    not enough to prove the agents get their skill guidance.
+    """
+    from deepagents.middleware.skills import SkillsMiddleware
+
+    fs = backend.build_backend(_PRELOAD, run_id=uuid.uuid4())
+    middleware = SkillsMiddleware(backend=fs, sources=skill_sources(role))
+
+    update = middleware.before_agent({}, None, {})
+
+    assert update is not None
+    assert update.get("skills_load_errors") is None
+    assert {s["name"] for s in update["skills_metadata"]} == set(SKILLS_BY_AGENT[role])
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_run_scratch_is_private_to_the_owning_user(staged_workdir):
+    fs = backend.build_backend(_PRELOAD, run_id=uuid.uuid4())
+
+    scratch = Path(fs.default.cwd)
+    assert scratch.stat().st_mode & 0o777 == 0o700
+    assert scratch.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_stale_run_scratch_is_purged_and_live_runs_are_kept(
+    staged_workdir, monkeypatch
+):
+    monkeypatch.setattr(backend, "_SCRATCH_MAX_AGE_SECONDS", 3600)
+    old = Path(backend.build_backend(_PRELOAD, run_id=uuid.uuid4()).default.cwd)
+    recent = Path(backend.build_backend(_PRELOAD, run_id=uuid.uuid4()).default.cwd)
+    (old / "conversation_history").mkdir()
+    long_ago = time.time() - 7200
+    os.utime(old, (long_ago, long_ago))
+
+    backend.build_backend(_PRELOAD, run_id=uuid.uuid4())
+
+    assert not old.exists()
+    assert recent.is_dir()
+
+
+def test_rebuilding_a_run_backend_keeps_its_scratch_and_refreshes_its_age(
+    staged_workdir, monkeypatch
+):
+    monkeypatch.setattr(backend, "_SCRATCH_MAX_AGE_SECONDS", 3600)
+    run_id = uuid.uuid4()
+    first = backend.build_backend(_PRELOAD, run_id=run_id)
+    first.write("/notes.md", "kept across a resume")
+    scratch = Path(first.default.cwd)
+    long_ago = time.time() - 7200
+    os.utime(scratch, (long_ago, long_ago))
+
+    resumed = backend.build_backend(_PRELOAD, run_id=run_id)
+
+    assert resumed.read("/notes.md").file_data["content"] == "kept across a resume"
+    assert time.time() - scratch.stat().st_mtime < 3600
+
+
+def test_scratch_dir_name_cannot_escape_the_runs_root(staged_workdir):
+    with pytest.raises(ValueError, match="run_id"):
+        backend.build_backend(_PRELOAD, run_id="../../etc")

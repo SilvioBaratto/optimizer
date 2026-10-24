@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import threading
 import uuid
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -82,6 +83,68 @@ class TestCreateJob:
             result = self._service().create_job(current_country="")
 
         assert result == str(new_id)
+
+    def test_conflict_does_not_propagate_through_the_session_scope(self) -> None:
+        """A skipped run is expected control flow, not a database failure.
+
+        ``DatabaseManager.get_session`` logs every exception that crosses it at
+        ERROR and rolls back, so the conflict must be raised only after the
+        session scope has exited cleanly.
+        """
+        session = MagicMock()
+        crossed: list[BaseException] = []
+
+        @contextmanager
+        def factory():
+            try:
+                yield session
+            except Exception as exc:
+                crossed.append(exc)
+                raise
+
+        svc = BackgroundJobService(job_type="t", session_factory=factory)
+        with patch(_REPO) as MockRepo:
+            repo = MockRepo.return_value
+            repo.claim_or_create.return_value = None
+            repo.is_any_running.return_value = (True, "existing-id-123")
+            with pytest.raises(JobAlreadyRunningError):
+                svc.create_job()
+
+        assert crossed == []
+        session.commit.assert_called()
+
+    def test_conflict_does_not_propagate_through_a_nested_session_scope(
+        self,
+    ) -> None:
+        """Same contract when the factory yields a nested context manager."""
+        session = MagicMock()
+        crossed: list[BaseException] = []
+
+        @contextmanager
+        def inner():
+            try:
+                yield session
+            except Exception as exc:
+                crossed.append(exc)
+                raise
+
+        @contextmanager
+        def outer():
+            try:
+                yield inner()
+            except Exception as exc:
+                crossed.append(exc)
+                raise
+
+        svc = BackgroundJobService(job_type="t", session_factory=outer)
+        with patch(_REPO) as MockRepo:
+            repo = MockRepo.return_value
+            repo.claim_or_create.return_value = None
+            repo.is_any_running.return_value = (True, "existing-id-123")
+            with pytest.raises(JobAlreadyRunningError):
+                svc.create_job()
+
+        assert crossed == []
 
 
 # ---------------------------------------------------------------------------

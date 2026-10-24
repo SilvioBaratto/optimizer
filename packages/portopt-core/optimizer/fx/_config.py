@@ -40,18 +40,30 @@ class FxConfig:
         mode: ``NONE`` disables conversion (default, backward-compatible).
             ``TO_BASE`` converts all prices to the base currency.
             ``DECOMPOSE`` converts and also produces an FX return decomposition.
-        data_source: Where to source FX rates.
-        fill_limit: Maximum number of trading days to forward-fill missing FX
-            rates (weekends, holidays).
+        data_source: Where to source FX rates (read by the rate loader, not
+            by ``build_fx_converter``).
+        fill_limit: Maximum age, in business days, of an FX rate that may be
+            carried forward over weekends and holidays.  ``0`` converts with
+            same-day rates only.
         require_full_coverage: If ``True``, raise ``DataError`` when any
-            required FX pair has insufficient data. If ``False``, log a
-            warning and leave base-currency-denominated tickers unchanged.
+            required FX pair has insufficient data, or when a ticker has no
+            known currency (absent from ``currency_map`` or mapped to
+            ``None`` / NaN / a blank string). If ``False``, log a warning and
+            leave the affected tickers unconverted: an FX pair with no data
+            leaves its tickers in local currency, and a ticker with no known
+            currency is valued as if quoted in the base major currency.
         cross_via_usd: When ``True``, compute cross-rates via USD
             (e.g. GBP/EUR = GBP/USD / EUR/USD) rather than looking up direct
-            pairs. yfinance direct cross pairs are often sparse.
+            pairs. yfinance direct cross pairs are often sparse. Read by
+            whoever loads the rates, not by ``build_fx_converter``, which
+            receives them ready-made.
         strict: If ``True``, raise ``ConfigurationError`` when ``mode != NONE``
-            but ``currency_map`` or ``fx_rates`` is ``None``. If ``False``
-            (default), log a ``WARNING`` and silently skip conversion.
+            but ``currency_map`` or ``fx_rates`` is ``None`` or empty, and
+            treat missing FX coverage as an error (as if
+            ``require_full_coverage`` were set). If ``False`` (default), log a
+            ``WARNING`` and skip conversion for the affected tickers; empty
+            ``fx_rates`` is accepted silently when every ticker is already
+            quoted in the base currency.
     """
 
     base_currency: BaseCurrency = BaseCurrency.EUR

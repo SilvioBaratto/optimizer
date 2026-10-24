@@ -38,8 +38,6 @@ def run_calendars_fetch(
 
     from app.database import database_manager
 
-    now = datetime.now(timezone.utc)
-
     with database_manager.get_session() as session:
         repo = CalendarsRepository(session)
         counts: dict[str, int] = {}
@@ -61,6 +59,13 @@ def run_calendars_fetch(
             on_progress(current=idx, current_calendar=name)
             try:
                 rows = fetch()
+                if rows is None:
+                    # The client swallows its own exceptions and signals an
+                    # exhausted retry budget with None; folding that into "0
+                    # rows" would report a Yahoo outage as a clean run.
+                    logger.warning("Failed calendar %s: fetch returned no result", name)
+                    errors.append(f"{name}: fetch failed")
+                    continue
                 counts[name] = upsert(rows) if rows else 0
                 session.commit()
             except Exception as e:  # one calendar failure must not sink the rest
@@ -72,7 +77,7 @@ def run_calendars_fetch(
         logger.info("Calendars fetch done: %s", counts)
         on_progress(
             status="completed",
-            finished_at=now.isoformat(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
             errors=errors,
             result=result,
         )

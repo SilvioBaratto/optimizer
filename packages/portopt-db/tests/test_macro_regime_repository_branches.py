@@ -26,7 +26,9 @@ exercised below.
 from __future__ import annotations
 
 import datetime
+from typing import Any
 
+import pytest
 from sqlalchemy.orm import Session
 
 from portopt_db.models.macro.macro_regime import (
@@ -161,6 +163,36 @@ class TestUpsertEmptyInputGuards:
     ) -> None:
         repo = MacroRegimeRepository(db_session)
         assert repo.upsert_fred_observations("T10Y2Y", []) == 0
+
+    def test_upsert_fred_observations_skips_null_values(
+        self, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: list[dict[str, Any]] = []
+
+        def _capture(self: Any, model: type, rows: list[dict[str, Any]], **_: Any):
+            captured.extend(rows)
+            return len(rows)
+
+        monkeypatch.setattr(MacroRegimeRepository, "_upsert", _capture)
+        repo = MacroRegimeRepository(db_session)
+
+        processed = repo.upsert_fred_observations(
+            "DGS10",
+            [
+                {"date": _D(2026, 1, 1), "value": 4.1},
+                {"date": _D(2026, 1, 2), "value": None},
+            ],
+        )
+
+        assert processed == 1
+        assert [r["date"] for r in captured] == [_D(2026, 1, 1)]
+
+    def test_upsert_fred_observations_all_null_values_returns_zero(
+        self, db_session: Session
+    ) -> None:
+        repo = MacroRegimeRepository(db_session)
+        observations = [{"date": _D(2026, 1, 2), "value": None}]
+        assert repo.upsert_fred_observations("DGS10", observations) == 0
 
     def test_upsert_macro_news_empty_list_returns_zero(
         self, db_session: Session
@@ -679,6 +711,35 @@ class TestGetFredObservations:
         assert results[0].date < results[1].date
         assert results[0].date >= self._D3  # D3 and D4 are the two most recent
 
+    def test_limit_without_series_id_applies_per_series(
+        self, db_session: Session
+    ) -> None:
+        _flush(
+            db_session,
+            *(_fred("A", _D(2026, 1, day), float(day)) for day in range(1, 6)),
+            *(_fred("B", _D(2026, 1, day), float(day)) for day in range(1, 6)),
+        )
+        repo = MacroRegimeRepository(db_session)
+        results = repo.get_fred_observations(limit=2)
+        assert [(r.series_id, r.date.day) for r in results] == [
+            ("A", 4),
+            ("A", 5),
+            ("B", 4),
+            ("B", 5),
+        ]
+
+    def test_limit_without_series_id_respects_date_filters(
+        self, db_session: Session
+    ) -> None:
+        _flush(
+            db_session,
+            *(_fred("A", _D(2026, 1, day)) for day in range(1, 6)),
+            *(_fred("B", _D(2026, 1, day)) for day in range(1, 6)),
+        )
+        repo = MacroRegimeRepository(db_session)
+        results = repo.get_fred_observations(end_date=_D(2026, 1, 3), limit=1)
+        assert [(r.series_id, r.date.day) for r in results] == [("A", 3), ("B", 3)]
+
     def test_limit_none_uses_ascending_order(self, db_session: Session) -> None:
         _flush(
             db_session,
@@ -715,6 +776,30 @@ class TestGetFredObservations:
         assert len(results) == 1
 
 
+class TestGetFredObservationsExcludeNull:
+    _D1 = _D(2026, 1, 1)
+    _D2 = _D(2026, 2, 1)
+    _D3 = _D(2026, 3, 1)
+
+    def test_exclude_null_drops_placeholder_rows_before_limit(
+        self, db_session: Session
+    ) -> None:
+        _flush(
+            db_session,
+            _fred("S", self._D1, 1.0),
+            _fred("S", self._D2, 2.0),
+            _fred("S", self._D3, None),
+        )
+        repo = MacroRegimeRepository(db_session)
+        results = repo.get_fred_observations(series_id="S", limit=2, exclude_null=True)
+        assert [r.date for r in results] == [self._D1, self._D2]
+
+    def test_default_keeps_placeholder_rows(self, db_session: Session) -> None:
+        _flush(db_session, _fred("S", self._D1, 1.0), _fred("S", self._D2, None))
+        repo = MacroRegimeRepository(db_session)
+        assert len(repo.get_fred_observations(series_id="S")) == 2
+
+
 # ===========================================================================
 # get_fred_latest_date
 # ===========================================================================
@@ -738,6 +823,18 @@ class TestGetFredLatestDate:
         repo = MacroRegimeRepository(db_session)
         assert repo.get_fred_latest_date("A") == self._D1
         assert repo.get_fred_latest_date("B") == self._D2
+
+    def test_ignores_null_placeholder_rows(self, db_session: Session) -> None:
+        _flush(db_session, _fred("S", self._D1, 1.0), _fred("S", self._D2, None))
+        repo = MacroRegimeRepository(db_session)
+        assert repo.get_fred_latest_date("S") == self._D1
+
+    def test_returns_none_when_only_placeholder_rows_exist(
+        self, db_session: Session
+    ) -> None:
+        _flush(db_session, _fred("S", self._D1, None))
+        repo = MacroRegimeRepository(db_session)
+        assert repo.get_fred_latest_date("S") is None
 
 
 # ===========================================================================

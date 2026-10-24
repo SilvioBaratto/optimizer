@@ -458,3 +458,416 @@ class TestHappyPathParsing:
         assert len(result) >= _MIN_CAPACITY_UTILIZATION_ROWS
         assert "United States" in result
         assert result["United States"]["value"] == pytest.approx(78.5)
+
+
+# ---------------------------------------------------------------------------
+# TestIndicatorKeyComparability — one canonical key must hold one measure
+# ---------------------------------------------------------------------------
+
+
+def _unit_row(name: str, last: str, unit: str) -> str:
+    return (
+        "<tr>"
+        f"<td><a href='#'>{name}</a></td>"
+        f"<td>{last}</td>"
+        "<td>1.0</td>"
+        "<td>3.0</td>"
+        "<td>0.5</td>"
+        f"<td>{unit}</td>"
+        "<td>Feb 2026</td>"
+        "</tr>"
+    )
+
+
+_FILLER_ROWS = (
+    _indicators_row("GDP Growth Rate", "2.1"),
+    _indicators_row("Inflation Rate", "3.5"),
+    _indicators_row("Interest Rate", "5.25"),
+)
+
+
+class TestIndicatorKeyComparability:
+    def test_capacity_utilization_index_points_are_not_stored_as_percent(
+        self,
+    ) -> None:
+        """Japan reports an index (103 points) under the same row label as the
+        US utilisation rate (76.9 percent); only the rate may share the key."""
+        index_soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Capacity Utilization", "103", "points")
+        )
+        rate_soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Capacity Utilization", "76.9", "percent")
+        )
+        scraper = _make_scraper()
+
+        assert "capacity_utilization" not in scraper._parse_indicators_table(index_soup)
+        kept = scraper._parse_indicators_table(rate_soup)
+        assert kept["capacity_utilization"]["value"] == pytest.approx(76.9)
+
+    def test_leading_index_percent_changes_are_not_stored_as_index_level(
+        self,
+    ) -> None:
+        change_soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Leading Economic Index", "0.7", "percent")
+        )
+        level_soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Leading Economic Index", "99.6", "Points")
+        )
+        scraper = _make_scraper()
+
+        assert "leading_economic_index" not in scraper._parse_indicators_table(
+            change_soup
+        )
+        kept = scraper._parse_indicators_table(level_soup)
+        assert kept["leading_economic_index"]["value"] == pytest.approx(99.6)
+
+    def test_personal_savings_percent_of_gdp_is_not_a_savings_rate(self) -> None:
+        soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Personal Savings", "18.3", "percent of GDP")
+        )
+
+        assert "personal_savings" not in _make_scraper()._parse_indicators_table(soup)
+
+    def test_us_only_labour_series_are_not_taken_from_other_countries(self) -> None:
+        """France's 'Non Farm Payrolls' row is an employment level in thousands,
+        not the US monthly payroll change."""
+        html = (
+            '<table class="table table-hover"><tbody>'
+            + "".join(_FILLER_ROWS)
+            + _unit_row("Non Farm Payrolls", "27021", "Thousand")
+            + _unit_row("Initial Jobless Claims", "-61.3", "Thousand")
+            + "</tbody></table>"
+        ).encode()
+        scraper = _make_scraper()
+
+        with (
+            patch(f"{_MOD}.retry_with_backoff", return_value=_fake_response(html)),
+            patch(f"{_MOD}._te_circuit_breaker"),
+        ):
+            france = scraper.get_country_indicators("France", include_bonds=False)
+            usa = scraper.get_country_indicators("USA", include_bonds=False)
+
+        assert "non_farm_payrolls" not in france["indicators"]
+        assert "initial_jobless_claims" not in france["indicators"]
+        assert usa["indicators"]["non_farm_payrolls"]["value"] == pytest.approx(27021)
+        assert "initial_jobless_claims" in usa["indicators"]
+
+    @pytest.mark.parametrize(
+        ("name", "key", "unit"),
+        [
+            ("Factory Orders", "factory_orders", "Net Balance"),
+            ("Employment Change", "employment_change", "percent"),
+        ],
+    )
+    def test_survey_balance_and_growth_rows_do_not_share_a_level_key(
+        self, name: str, key: str, unit: str
+    ) -> None:
+        soup = _indicators_soup(*_FILLER_ROWS, _unit_row(name, "-32", unit))
+
+        assert key not in _make_scraper()._parse_indicators_table(soup)
+
+
+def _live_country_row(country: str, slug: str, last: str, unit: str) -> str:
+    """A body row as the country-list pages render it today: the name sits in a
+    link inside a span, and a trailing empty cell holds the row actions."""
+    return (
+        "<tr>"
+        f'<td><a href="/{slug}/industrial-production">'
+        f'<span class="whitespace-nowrap">{country}</span></a></td>'
+        f'<td style="min-width:70px">{last}</td>'
+        '<td style="min-width:94px">6.9</td>'
+        '<td style="min-width:110px">Aug/26</td>'
+        f'<td style="min-width:60px">{unit}</td>'
+        '<td class="sticky right-0"></td>'
+        "</tr>"
+    )
+
+
+def _live_country_list_html(*rows: str) -> bytes:
+    """Country-list page as served now: Tailwind tables, one holding only the
+    header and a second one holding the data rows, with no ``table-heatmap``."""
+    table = '<table class="w-max min-w-full border-spacing-0">'
+    header = (
+        f"{table}<thead><tr><th>Country</th><th>Last</th><th>Previous</th>"
+        "<th>Reference</th><th>Unit</th><th></th></tr></thead></table>"
+    )
+    return (header + f"{table}<tbody>" + "".join(rows) + "</tbody></table>").encode()
+
+
+_LIVE_COUNTRY_ROWS = (
+    _live_country_row("Singapore", "singapore", "15.4", "%"),
+    _live_country_row("India", "india", "8", "%"),
+    _live_country_row("Germany", "germany", "-1.2", "%"),
+)
+
+
+class TestCountryListPageLayout:
+    """The bulk pages no longer use the legacy ``table-heatmap`` class."""
+
+    @pytest.mark.parametrize(
+        "parse",
+        [
+            TradingEconomicsIndicatorsScraper._parse_industrial_production_table,
+            TradingEconomicsIndicatorsScraper._parse_capacity_utilization_table,
+        ],
+    )
+    def test_rows_are_read_from_the_tailwind_data_table(self, parse) -> None:
+        soup = BeautifulSoup(
+            _live_country_list_html(*_LIVE_COUNTRY_ROWS), "html.parser"
+        )
+
+        result = parse(_make_scraper(), soup)
+
+        assert set(result) == {"Singapore", "India", "Germany"}
+        assert result["Singapore"] == {
+            "value": pytest.approx(15.4),
+            "previous": pytest.approx(6.9),
+            "reference": "Aug/26",
+            "unit": "%",
+        }
+        assert result["Germany"]["value"] == pytest.approx(-1.2)
+
+    @pytest.mark.parametrize(
+        ("fetch", "url_part"),
+        [
+            ("get_industrial_production_all", "industrial-production"),
+            ("get_capacity_utilization_all", "capacity-utilization"),
+        ],
+    )
+    def test_bulk_fetch_succeeds_on_the_current_page_without_tripping_breaker(
+        self, fetch: str, url_part: str
+    ) -> None:
+        scraper = _make_scraper()
+        scraper.session = MagicMock()
+        scraper.session.get.return_value = _fake_response(
+            _live_country_list_html(*_LIVE_COUNTRY_ROWS)
+        )
+
+        with patch(f"{_MOD}._te_circuit_breaker") as mock_cb:
+            result = getattr(scraper, fetch)()
+
+        assert result["status"] == "success"
+        assert url_part in result["source_url"]
+        assert set(result["data"]) == {"Singapore", "India", "Germany"}
+        mock_cb.trigger.assert_not_called()
+
+
+class TestMonetaryIndicatorScale:
+    """Money rows arrive in the scale each page prefers; one key, one scale."""
+
+    @pytest.mark.parametrize(
+        ("name", "key", "raw", "unit", "value", "unit_out"),
+        [
+            ("Balance of Trade", "trade_balance", "-106", "USD Billion", -106, "USD Billion"),
+            ("Balance of Trade", "trade_balance", "-6122", "EUR Million", -6.122, "EUR Billion"),
+            ("Balance of Trade", "trade_balance", "-537", "JPY Billion", -537, "JPY Billion"),
+            ("Current Account", "current_account", "1937", "USD Hundred Million", 193.7, "USD Billion"),
+            ("Current Account", "current_account", "8927", "USD Million", 8.927, "USD Billion"),
+            ("Current Account", "current_account", "0.5", "USD Trillion", 500, "USD Billion"),
+        ],
+    )  # fmt: skip
+    def test_money_rows_are_rescaled_to_billions_of_their_currency(
+        self, name: str, key: str, raw: str, unit: str, value: float, unit_out: str
+    ) -> None:
+        soup = _indicators_soup(*_FILLER_ROWS, _unit_row(name, raw, unit))
+
+        row = _make_scraper()._parse_indicators_table(soup)[key]
+
+        assert row["value"] == pytest.approx(value)
+        assert row["unit"] == unit_out
+
+    def test_current_account_surpluses_rank_by_size_after_rescaling(self) -> None:
+        """China's 1937 'Hundred Million' is far larger than Mexico's 8927
+        'Million', although the bare numbers say the opposite."""
+        scraper = _make_scraper()
+        china = scraper._parse_indicators_table(
+            _indicators_soup(
+                *_FILLER_ROWS,
+                _unit_row("Current Account", "1937", "USD Hundred Million"),
+            )
+        )
+        mexico = scraper._parse_indicators_table(
+            _indicators_soup(
+                *_FILLER_ROWS, _unit_row("Current Account", "8927", "USD Million")
+            )
+        )
+
+        assert china["current_account"]["value"] > mexico["current_account"]["value"]
+
+    def test_previous_value_is_rescaled_with_the_value(self) -> None:
+        soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Balance of Trade", "-920", "GBP Million")
+        )
+
+        row = _make_scraper()._parse_indicators_table(soup)["trade_balance"]
+
+        assert row["previous"] == pytest.approx(1.0 / 1000)
+
+    @pytest.mark.parametrize("unit", ["", "percent", "USD", "Million"])
+    def test_money_row_with_unreadable_scale_is_not_stored(self, unit: str) -> None:
+        soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Balance of Trade", "-920", unit)
+        )
+
+        assert "trade_balance" not in _make_scraper()._parse_indicators_table(soup)
+
+    def test_non_money_rows_keep_their_page_scale(self) -> None:
+        soup = _indicators_soup(
+            *_FILLER_ROWS, _unit_row("Current Account to GDP", "3.5", "percent of GDP")
+        )
+
+        row = _make_scraper()._parse_indicators_table(soup)["current_account_gdp"]
+
+        assert row["value"] == pytest.approx(3.5)
+        assert row["unit"] == "percent of GDP"
+
+
+class TestGdpQuarterlyConvention:
+    """The US page reports QoQ growth annualised; the other pages do not."""
+
+    @staticmethod
+    def _gdp_page(value: str) -> bytes:
+        return (
+            '<table class="table table-hover"><tbody>'
+            + _unit_row("GDP Growth Rate", value, "percent")
+            + "".join(_FILLER_ROWS[1:])
+            + _unit_row("Unemployment Rate", "4.1", "percent")
+            + "</tbody></table>"
+        ).encode()
+
+    def _indicators(self, country: str, value: str) -> dict:
+        with (
+            patch(
+                f"{_MOD}.retry_with_backoff",
+                return_value=_fake_response(self._gdp_page(value)),
+            ),
+            patch(f"{_MOD}._te_circuit_breaker"),
+        ):
+            result = _make_scraper().get_country_indicators(
+                country, include_bonds=False
+            )
+        return result["indicators"]
+
+    def test_us_annualised_rate_does_not_share_the_quarterly_key(self) -> None:
+        indicators = self._indicators("USA", "2.2")
+
+        assert "gdp_growth_rate" not in indicators
+        assert indicators["gdp_growth_qoq_annualized"]["value"] == pytest.approx(2.2)
+        assert indicators["gdp_growth_qoq_annualized"]["unit"] == "percent"
+
+    def test_non_annualised_countries_keep_the_quarterly_key(self) -> None:
+        for country in ("Germany", "Japan", "UK"):
+            indicators = self._indicators(country, "0.3")
+
+            assert indicators["gdp_growth_rate"]["value"] == pytest.approx(0.3)
+            assert "gdp_growth_qoq_annualized" not in indicators
+
+    def test_summary_labels_the_annualised_us_rate(self) -> None:
+        scraper = _make_scraper()
+        summary = scraper.get_indicator_summary(
+            {
+                "country": "USA",
+                "status": "success",
+                "indicators": {
+                    "gdp_growth_qoq_annualized": {
+                        "value": 2.2,
+                        "previous": 2.5,
+                        "unit": "percent",
+                        "reference": "Jun/26",
+                    }
+                },
+            }
+        )
+
+        assert "annualised" in summary
+        assert "2.20" in summary
+
+
+class TestBondYieldSummary:
+    @staticmethod
+    def _summary(day_change: float | None) -> str:
+        return _make_scraper().get_indicator_summary(
+            {
+                "country": "USA",
+                "status": "success",
+                "indicators": {},
+                "bond_yields": {
+                    "10Y": {"yield": 4.0, "day_change": day_change, "date": "Oct/23"}
+                },
+            }
+        )
+
+    def test_missing_day_change_is_reported_as_not_available(self) -> None:
+        """A blank or '-' Day cell parses to None; the summary must still print."""
+        line = next(
+            ln
+            for ln in self._summary(None).splitlines()
+            if ln.lstrip().startswith("10Y")
+        )
+
+        assert "day: N/A" in line
+        assert "4.00%" in line
+        assert "[Oct/23]" in line
+
+    def test_day_change_is_signed_when_present(self) -> None:
+        assert "day: +0.050%" in self._summary(0.05)
+        assert "day: -0.120%" in self._summary(-0.12)
+
+
+# ---------------------------------------------------------------------------
+# TestRequestSpacing — one interval across every Trading Economics page
+# ---------------------------------------------------------------------------
+
+
+class _FakeClock:
+    """Stand-in for the ``time`` module: sleeping advances the clock."""
+
+    def __init__(self) -> None:
+        self.now = 1_000.0
+
+    def time(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def _page_with_indicators_and_bonds() -> bytes:
+    return (
+        '<table class="table table-hover"><tbody>'
+        + "".join(_FILLER_ROWS)
+        + "</tbody></table>"
+        + '<table class="table-heatmap"><tbody>'
+        + _bond_row("USA 10Y", "4.25")
+        + "</tbody></table>"
+    ).encode()
+
+
+class TestRequestSpacing:
+    @pytest.mark.parametrize("delay", [0.25, 2.0])
+    def test_requests_to_different_pages_are_spaced_by_the_configured_delay(
+        self, delay: float
+    ) -> None:
+        """The indicators page and the bond-yield page have different URLs but
+        the same host, so the interval has to apply across them."""
+        clock = _FakeClock()
+        stamps: list[float] = []
+
+        def _get(url: str, **_: object) -> MagicMock:
+            stamps.append(clock.now)
+            return _fake_response(_page_with_indicators_and_bonds())
+
+        scraper = TradingEconomicsIndicatorsScraper(timeout=5, rate_limit_delay=delay)
+        scraper.session = MagicMock()
+        scraper.session.get.side_effect = _get
+
+        with (
+            patch("app.services.infrastructure.rate_limiter.time", clock),
+            patch(f"{_MOD}._te_circuit_breaker"),
+        ):
+            result = scraper.get_country_indicators("USA", include_bonds=True)
+
+        assert result["status"] == "success"
+        assert result["num_bond_yields"] == 1
+        assert len(stamps) == 2
+        assert stamps[1] - stamps[0] == pytest.approx(delay)

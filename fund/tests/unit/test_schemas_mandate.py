@@ -97,6 +97,27 @@ def test_benchmark_can_be_set():
     assert m.benchmark == "^GSPC"
 
 
+def _mandate_with_benchmark(benchmark: str) -> PortfolioMandate:
+    return PortfolioMandate(
+        portfolio_id="pf-001",
+        capital=Decimal("1000"),
+        base_currency="USD",
+        drift_l1_threshold=0.1,
+        triggers=RunTriggers(cron=False, drift=True),
+        benchmark=benchmark,
+    )
+
+
+def test_benchmark_longer_than_the_mirrored_column_is_rejected_by_the_schema():
+    from portopt_db.models import PortfolioMandate as PortfolioMandateRow
+
+    width = PortfolioMandateRow.__table__.c.benchmark.type.length
+
+    assert _mandate_with_benchmark("S" * width).benchmark == "S" * width
+    with pytest.raises(pydantic.ValidationError):
+        _mandate_with_benchmark("S" * (width + 1))
+
+
 def test_both_models_are_frozen():
     m = _valid_mandate()
     with pytest.raises(pydantic.ValidationError):
@@ -129,8 +150,10 @@ def test_rejects_non_positive_capital(bad_capital: Decimal):
         )
 
 
-@pytest.mark.parametrize("bad_threshold", [0.0, -0.01])
-def test_rejects_non_positive_drift_threshold(bad_threshold: float):
+@pytest.mark.parametrize(
+    "bad_threshold", [0.0, -0.01, 2.0, 5.0, float("nan"), float("inf")]
+)
+def test_rejects_drift_threshold_outside_the_l1_range(bad_threshold: float):
     with pytest.raises(pydantic.ValidationError):
         PortfolioMandate(
             portfolio_id="pf-001",
@@ -139,6 +162,34 @@ def test_rejects_non_positive_drift_threshold(bad_threshold: float):
             drift_l1_threshold=bad_threshold,
             triggers=RunTriggers(cron=True, drift=True),
         )
+
+
+@pytest.mark.parametrize(
+    "bad_threshold", [2.0, 2.01, 5.0, 10.0, float("inf"), float("nan")]
+)
+def test_rejects_drift_threshold_the_l1_drift_can_never_reach(bad_threshold: float):
+    # L1 drift between two long-only portfolios is at most 2, so a percent typed as a
+    # fraction (5 for 5%) would validate yet leave the drift trigger permanently inert.
+    with pytest.raises(pydantic.ValidationError):
+        PortfolioMandate(
+            portfolio_id="pf-001",
+            capital=Decimal("1000"),
+            base_currency="EUR",
+            drift_l1_threshold=bad_threshold,
+            triggers=RunTriggers(cron=True, drift=True),
+        )
+
+
+@pytest.mark.parametrize("threshold", [0.0001, 0.05, 1.99])
+def test_accepts_drift_threshold_inside_the_l1_range(threshold: float):
+    m = PortfolioMandate(
+        portfolio_id="pf-001",
+        capital=Decimal("1000"),
+        base_currency="EUR",
+        drift_l1_threshold=threshold,
+        triggers=RunTriggers(cron=True, drift=True),
+    )
+    assert m.drift_l1_threshold == threshold
 
 
 def test_json_round_trip():
@@ -161,3 +212,45 @@ def test_module_imports_nothing_forbidden():
     for forbidden in ("optimizer", "deepagents", "langgraph", "app", "skfolio"):
         assert f"import {forbidden}" not in text
         assert f"from {forbidden}" not in text
+
+
+def _stored_payload(**overrides) -> dict:
+    return {**_valid_mandate().model_dump(mode="json"), **overrides}
+
+
+def test_from_stored_clamps_a_legacy_threshold_above_the_l1_bound():
+    # A mandate saved before the cap (a percent-style "5") must still load: the
+    # daemon sweeps and the TUI read every stored row and one bad row cannot stop them.
+    loaded = PortfolioMandate.from_stored(_stored_payload(drift_l1_threshold=5.0))
+
+    # Just under the open L1 bound: what a threshold that can never be crossed was.
+    assert loaded.drift_l1_threshold == pytest.approx(2.0)
+    assert loaded.drift_l1_threshold < 2.0
+    assert loaded.capital == Decimal("100000.00")  # nothing else is touched
+
+
+def test_from_stored_leaves_an_in_range_threshold_alone():
+    payload = _stored_payload(drift_l1_threshold=0.3)
+
+    assert PortfolioMandate.from_stored(payload).drift_l1_threshold == 0.3
+
+
+def test_from_stored_does_not_mutate_its_input():
+    payload = _stored_payload(drift_l1_threshold=5.0)
+
+    PortfolioMandate.from_stored(payload)
+
+    assert payload["drift_l1_threshold"] == 5.0
+
+
+def test_from_stored_still_rejects_what_it_cannot_repair():
+    with pytest.raises(pydantic.ValidationError):
+        PortfolioMandate.from_stored(_stored_payload(capital="-1"))
+    with pytest.raises(pydantic.ValidationError):
+        PortfolioMandate.from_stored(_stored_payload(drift_l1_threshold=-0.5))
+
+
+def test_constructor_still_rejects_a_threshold_above_the_l1_bound():
+    # The clamp is a read-side repair only; new input stays strict.
+    with pytest.raises(pydantic.ValidationError):
+        PortfolioMandate.model_validate(_stored_payload(drift_l1_threshold=5.0))

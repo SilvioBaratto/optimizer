@@ -137,6 +137,83 @@ class TestBuildHRP:
         assert isinstance(est.prior_estimator, EmpiricalPrior)
 
 
+class TestInjectedEstimators:
+    def test_when_distance_estimator_kwarg_then_it_wins_over_config(self) -> None:
+        from skfolio.distance import CovarianceDistance
+        from skfolio.moments import LedoitWolf
+
+        prebuilt = CovarianceDistance(covariance_estimator=LedoitWolf())
+        cfg = HRPConfig(
+            distance_config=DistanceConfig(estimator=DistanceEstimatorType.KENDALL)
+        )
+        est = build_hrp(cfg, distance_estimator=prebuilt)
+        assert est.distance_estimator is prebuilt
+
+    def test_when_distance_estimator_kwarg_and_no_config_then_forwarded(self) -> None:
+        from skfolio.distance import CovarianceDistance
+        from skfolio.moments import LedoitWolf
+
+        prebuilt = CovarianceDistance(covariance_estimator=LedoitWolf())
+        est = build_hrp(HRPConfig(), distance_estimator=prebuilt)
+        assert est.distance_estimator is prebuilt
+
+    def test_when_hierarchical_clustering_estimator_kwarg_then_it_wins_over_config(
+        self,
+    ) -> None:
+        from skfolio.cluster import HierarchicalClustering, LinkageMethod
+
+        prebuilt = HierarchicalClustering(linkage_method=LinkageMethod.COMPLETE)
+        cfg = HRPConfig(
+            clustering_config=HierarchicalClusteringConfig(
+                linkage_method=LinkageMethodType.SINGLE
+            )
+        )
+        est = build_hrp(cfg, hierarchical_clustering_estimator=prebuilt)
+        assert est.hierarchical_clustering_estimator is prebuilt
+
+    def test_when_hierarchical_clustering_estimator_kwarg_and_no_config_then_forwarded(
+        self,
+    ) -> None:
+        from skfolio.cluster import HierarchicalClustering, LinkageMethod
+
+        prebuilt = HierarchicalClustering(linkage_method=LinkageMethod.COMPLETE)
+        est = build_hrp(HRPConfig(), hierarchical_clustering_estimator=prebuilt)
+        assert est.hierarchical_clustering_estimator is prebuilt
+
+    def test_when_covariance_estimator_kwarg_then_covariance_distance_uses_it(
+        self,
+    ) -> None:
+        from skfolio.distance import CovarianceDistance
+        from skfolio.moments import LedoitWolf
+
+        cov = LedoitWolf()
+        cfg = HRPConfig(distance_config=DistanceConfig.for_covariance())
+        est = build_hrp(cfg, covariance_estimator=cov)
+        assert isinstance(est.distance_estimator, CovarianceDistance)
+        assert est.distance_estimator.covariance_estimator is cov
+
+    def test_when_covariance_estimator_without_covariance_distance_then_raises(
+        self,
+    ) -> None:
+        from skfolio.moments import LedoitWolf
+
+        with pytest.raises(ValueError, match="covariance_estimator"):
+            build_hrp(HRPConfig(), covariance_estimator=LedoitWolf())
+
+    def test_when_covariance_estimator_and_distance_estimator_then_raises(
+        self,
+    ) -> None:
+        from skfolio.distance import PearsonDistance
+        from skfolio.moments import LedoitWolf
+
+        with pytest.raises(ValueError, match="covariance_estimator"):
+            build_hrp(
+                HRPConfig(distance_config=DistanceConfig.for_covariance()),
+                distance_estimator=PearsonDistance(),
+                covariance_estimator=LedoitWolf(),
+            )
+
+
 class TestIntegration:
     def test_when_default_then_fits_and_sums_to_one(self, returns) -> None:
         est = build_hrp(HRPConfig.for_default())

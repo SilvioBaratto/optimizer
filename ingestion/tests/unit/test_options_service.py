@@ -20,6 +20,7 @@ from app.services.market_data.options_service import (
     _is_fresh,
     run_bulk_options_fetch,
 )
+from tests._fixtures.clock import FakeClock
 
 M = "app.services.market_data.options_service"
 
@@ -144,7 +145,7 @@ class TestBulkFetch:
         yf = _yf_with_options()
         with (
             patch(f"{M}.YFinanceRepository", return_value=repo),
-            patch(f"{M}.call_with_timeout", lambda fn, _t: fn()),
+            patch(f"{M}.call_with_timeout", lambda fn, _t, **_: fn()),
             patch("app.database.database_manager", _session_ctx()),
         ):
             result = run_bulk_options_fetch(yf)
@@ -156,13 +157,61 @@ class TestBulkFetch:
         assert result["instruments_processed"] == 1
         assert result["instruments_skipped_fresh"] == 0
 
+    def test_prunes_older_snapshots_in_the_same_transaction_as_the_new_one(
+        self,
+    ) -> None:
+        iid = uuid4()
+        repo = self._repo(iid=iid, as_of=None)
+        calls: list[str] = []
+
+        def _upsert(*_a, **_k) -> int:
+            calls.append("upsert")
+            return 2
+
+        repo.upsert_option_chain.side_effect = _upsert
+        repo.prune_option_snapshots.side_effect = lambda *_a, **_k: calls.append(
+            "prune"
+        )
+        session = MagicMock(name="session")
+        session.commit.side_effect = lambda: calls.append("commit")
+
+        @contextmanager
+        def _cm():
+            yield session
+
+        dbm = MagicMock()
+        dbm.get_session = _cm
+        with (
+            patch(f"{M}.YFinanceRepository", return_value=repo),
+            patch(f"{M}.call_with_timeout", lambda fn, _t, **_: fn()),
+            patch("app.database.database_manager", dbm),
+        ):
+            run_bulk_options_fetch(_yf_with_options(), retained_snapshots=3)
+
+        repo.prune_option_snapshots.assert_called_once_with(iid, keep=3)
+        assert calls == ["upsert", "prune", "commit"]
+
+    def test_failed_instrument_is_not_pruned(self) -> None:
+        iid = uuid4()
+        repo = self._repo(iid=iid, as_of=None)
+        yf = _yf_with_options()
+        yf.metadata.fetch_option_chain.return_value = None
+        with (
+            patch(f"{M}.YFinanceRepository", return_value=repo),
+            patch(f"{M}.call_with_timeout", lambda fn, _t, **_: fn()),
+            patch("app.database.database_manager", _session_ctx()),
+        ):
+            run_bulk_options_fetch(yf)
+
+        repo.prune_option_snapshots.assert_not_called()
+
     def test_skips_when_fresh(self) -> None:
         iid = uuid4()
         repo = self._repo(iid=iid, as_of=date.today())
         yf = _yf_with_options()
         with (
             patch(f"{M}.YFinanceRepository", return_value=repo),
-            patch(f"{M}.call_with_timeout", lambda fn, _t: fn()),
+            patch(f"{M}.call_with_timeout", lambda fn, _t, **_: fn()),
             patch("app.database.database_manager", _session_ctx()),
         ):
             result = run_bulk_options_fetch(yf, staleness_hours=168)
@@ -177,7 +226,7 @@ class TestBulkFetch:
         yf = _yf_with_options()
         seen: list[float] = []
 
-        def _capture(fn, timeout):
+        def _capture(fn, timeout, **_):
             seen.append(timeout)
             return fn()
 
@@ -190,3 +239,118 @@ class TestBulkFetch:
 
         # expirations + one option_chain both routed through the watchdog
         assert seen and all(t == 7.5 for t in seen)
+
+    def test_breaker_window_is_waited_out_instead_of_timing_out_the_ticker(
+        self,
+    ) -> None:
+        """A rate-limit back-off is not a hang: it must not burn the deadline.
+
+        Otherwise every ticker reached during the window times out after
+        ``request_timeout``, is recorded as an error, and leaves an abandoned
+        thread sleeping in ``check()`` that fires together with the others when
+        the window closes.
+        """
+        from app.services.infrastructure.circuit_breaker import CircuitBreaker
+
+        iid = uuid4()
+        repo = self._repo(iid=iid, as_of=None)
+        breaker = CircuitBreaker(base_wait_minutes=0.4 / 60)
+        breaker.trigger()
+        assert breaker.is_active
+
+        def _guarded_expirations(_ticker: str) -> tuple[str, ...]:
+            breaker.check()  # what fetch_with_resilience does before each attempt
+            return ("2026-09-18",)
+
+        def _guarded_chain(_ticker: str, date: str) -> SimpleNamespace:
+            breaker.check()
+            return _chain()
+
+        yf = _yf_with_options()
+        yf.circuit_breaker = breaker
+        yf.metadata.fetch_options_expirations.side_effect = _guarded_expirations
+        yf.metadata.fetch_option_chain.side_effect = _guarded_chain
+
+        with (
+            patch(f"{M}.YFinanceRepository", return_value=repo),
+            patch("app.database.database_manager", _session_ctx()),
+        ):
+            result = run_bulk_options_fetch(yf, request_timeout=0.1)
+
+        assert result["error_count"] == 0
+        assert result["instruments_processed"] == 1
+        assert result["contract_rows"] == 2
+
+    def test_failed_expiry_chain_rolls_back_instrument_and_records_error(
+        self,
+    ) -> None:
+        iid = uuid4()
+        repo = self._repo(iid=iid, as_of=None)
+        yf = _yf_with_options()
+        yf.metadata.fetch_options_expirations.return_value = (
+            "2026-09-18",
+            "2026-10-16",
+        )
+        # Second expiry exhausts its retries: the client signals that with None.
+        yf.metadata.fetch_option_chain.side_effect = [_chain(), None]
+        session = MagicMock(name="session")
+
+        @contextmanager
+        def _cm():
+            yield session
+
+        dbm = MagicMock()
+        dbm.get_session = _cm
+        progress = MagicMock()
+        with (
+            patch(f"{M}.YFinanceRepository", return_value=repo),
+            patch(f"{M}.call_with_timeout", lambda fn, _t, **_: fn()),
+            patch("app.database.database_manager", dbm),
+        ):
+            result = run_bulk_options_fetch(yf, on_progress=progress)
+
+        # A partial chain must not be committed: its as_of=today rows would make
+        # the freshness gate skip the instrument and hide the missing expiry.
+        session.commit.assert_not_called()
+        session.rollback.assert_called_once()
+        assert result["instruments_processed"] == 0
+        assert result["contract_rows"] == 0
+        assert result["error_count"] == 1
+        errors = progress.call_args_list[-1].kwargs["errors"]
+        assert len(errors) == 1
+        assert "AAPL" in errors[0]
+        assert "2026-10-16" in errors[0]
+
+    def test_ticker_without_listed_expiries_is_a_clean_no_op(self) -> None:
+        iid = uuid4()
+        repo = self._repo(iid=iid, as_of=None)
+        yf = _yf_with_options()
+        # "No options listed" is Yahoo's answer, not a failed request.
+        yf.metadata.fetch_options_expirations.return_value = None
+        with (
+            patch(f"{M}.YFinanceRepository", return_value=repo),
+            patch(f"{M}.call_with_timeout", lambda fn, _t, **_: fn()),
+            patch("app.database.database_manager", _session_ctx()),
+        ):
+            result = run_bulk_options_fetch(yf)
+
+        yf.metadata.fetch_option_chain.assert_not_called()
+        assert result["instruments_processed"] == 1
+        assert result["error_count"] == 0
+
+    def test_finished_at_is_stamped_at_completion_not_at_start(self) -> None:
+        iid = uuid4()
+        repo = self._repo(iid=iid, as_of=None)
+        yf = _yf_with_options()
+        clock = FakeClock()
+        yf.metadata.fetch_option_chain.side_effect = clock.advancing(_chain())
+        progress = MagicMock()
+        with (
+            patch(f"{M}.YFinanceRepository", return_value=repo),
+            patch(f"{M}.call_with_timeout", lambda fn, _t, **_: fn()),
+            patch(f"{M}.datetime", clock.datetime_cls),
+            patch("app.database.database_manager", _session_ctx()),
+        ):
+            run_bulk_options_fetch(yf, on_progress=progress)
+
+        clock.assert_finished_at_marks_run_end(progress)

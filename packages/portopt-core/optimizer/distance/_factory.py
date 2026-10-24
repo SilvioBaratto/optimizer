@@ -91,9 +91,7 @@ def build_distance(
         )
 
     if estimator == DistanceEstimatorType.DISTANCE_CORRELATION:
-        if config.threshold is None:
-            return DistanceCorrelation()
-        return DistanceCorrelation(threshold=config.threshold)
+        return DistanceCorrelation()
 
     if estimator == DistanceEstimatorType.MUTUAL_INFORMATION:
         kwargs: dict[str, Any] = {"n_bins": config.n_bins}

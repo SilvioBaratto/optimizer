@@ -91,6 +91,7 @@ def _build_ir_scorer(
     benchmark_returns: pd.Series,
     *,
     annualization_factor: float = _ANNUALIZATION_FACTOR,
+    greater_is_better: bool | None = None,
 ) -> Callable[..., float]:
     """Build an annualised Information Ratio scorer from benchmark returns.
 
@@ -106,10 +107,16 @@ def _build_ir_scorer(
             active returns.
         annualization_factor: Number of periods per year used to annualise
             the ratio.
+        greater_is_better: ``False`` sign-flips the score so that a lower IR
+            ranks higher. ``None`` keeps the ratio convention (higher is
+            better).
 
     Returns:
         A scorer accepting a skfolio ``Portfolio`` and returning the
-        annualised IR as a float.
+        annualised IR as a float. The score is ``0.0`` for an exactly zero
+        tracking error and ``NaN`` when it is undefined (fewer than two
+        observations or non-finite active returns, as for a skfolio
+        ``FailedPortfolio``).
     """
     if not isinstance(benchmark_returns, pd.Series):
         msg = (
@@ -123,13 +130,18 @@ def _build_ir_scorer(
     def _ir(portfolio: Any) -> float:
         bm = _aligned_benchmark(benchmark_returns, portfolio.observations)
         active = np.asarray(portfolio.returns, dtype=float) - bm
+        # An undefined IR must be NaN so sklearn ranks the candidate last; a
+        # finite 0.0 would let a failed fit (all-NaN returns) outrank candidates
+        # whose IR is genuinely negative.
+        if active.size < 2 or not np.all(np.isfinite(active)):
+            return float("nan")
         std_active = float(np.std(active, ddof=1))
-        if std_active == 0.0 or math.isnan(std_active):
+        if std_active == 0.0:
             return 0.0
         mean_active = float(np.mean(active))
         return (mean_active * annualization_factor) / (std_active * sqrt_factor)
 
-    return _skfolio_make_scorer(_ir)
+    return _skfolio_make_scorer(_ir, greater_is_better=greater_is_better)
 
 
 # ---------------------------------------------------------------------------
@@ -142,24 +154,27 @@ def _build_measure_scorer(
     *,
     risk_free_rate: float,
     annualization_factor: float | None,
+    greater_is_better: bool | None,
 ) -> Callable[..., float]:
     """Build a scorer from a skfolio measure.
 
-    When neither ``risk_free_rate`` nor ``annualization_factor`` deviates
-    from the portfolio defaults the bare measure is handed to skfolio's
-    ``make_scorer`` (preserving its auto ``greater_is_better`` detection and
-    readable repr).  Otherwise the predicted portfolio's ``risk_free_rate``
-    and ``annualization_factor`` are set before the measure is read.
-    """
-    if risk_free_rate == 0.0 and annualization_factor is None:
-        return _skfolio_make_scorer(measure)
+    The predicted portfolio's ``risk_free_rate`` is always set to the
+    configured value, including an explicit ``0.0``. skfolio copies the
+    optimizer's own rate onto the predicted portfolio, so leaving the portfolio
+    default in place would score candidates that differ in their estimator rate
+    against different yardsticks. ``annualization_factor`` is only set when
+    given; ``None`` keeps the skfolio default.
 
-    greater_is_better = bool(measure.is_perf or measure.is_ratio)
+    ``greater_is_better=None`` auto-detects from the measure family (ratio and
+    performance measures are maximised, risk measures minimised); an explicit
+    value overrides that.
+    """
+    if greater_is_better is None:
+        greater_is_better = bool(measure.is_perf or measure.is_ratio)
     attr = measure.value
 
     def _score(portfolio: Any) -> float:
-        if risk_free_rate != 0.0:
-            portfolio.risk_free_rate = risk_free_rate
+        portfolio.risk_free_rate = risk_free_rate
         if annualization_factor is not None:
             portfolio.annualization_factor = annualization_factor
         return float(getattr(portfolio, attr))
@@ -213,13 +228,18 @@ def build_scorer(
             )
             raise ConfigurationError(msg)
         factor = config.annualization_factor or _ANNUALIZATION_FACTOR
-        return _build_ir_scorer(benchmark_returns, annualization_factor=factor)
+        return _build_ir_scorer(
+            benchmark_returns,
+            annualization_factor=factor,
+            greater_is_better=config.greater_is_better,
+        )
 
     if config.ratio_measure is not None:
         return _build_measure_scorer(
             _RATIO_MEASURE_MAP[config.ratio_measure],
             risk_free_rate=config.risk_free_rate,
             annualization_factor=config.annualization_factor,
+            greater_is_better=config.greater_is_better,
         )
 
     if config.perf_measure is not None:
@@ -227,6 +247,7 @@ def build_scorer(
             _PERF_MEASURE_MAP[config.perf_measure],
             risk_free_rate=config.risk_free_rate,
             annualization_factor=config.annualization_factor,
+            greater_is_better=config.greater_is_better,
         )
 
     if config.risk_measure is not None:
@@ -234,6 +255,7 @@ def build_scorer(
             _RISK_MEASURE_MAP[config.risk_measure],
             risk_free_rate=config.risk_free_rate,
             annualization_factor=config.annualization_factor,
+            greater_is_better=config.greater_is_better,
         )
 
     if score_func is None:
@@ -249,25 +271,15 @@ def build_scorer(
     )
 
 
-def build_online_measure(
+def _resolve_native_measure(
     config: ScorerConfig | None = None,
 ) -> RatioMeasure | PerfMeasure | RiskMeasure:
-    """Return the bare skfolio measure for online model selection.
-
-    ``OnlineGridSearch`` / ``online_score`` score the aggregated
-    `MultiPeriodPortfolio` and therefore expect a
-    `measure` passed directly to ``scoring`` -- not a
-    ``make_scorer`` wrapper (which averages per-fold scores).  This helper
-    resolves a `ScorerConfig` to that measure.
-
-    Args:
-        config: Scorer configuration. Defaults to ``ScorerConfig()``
-            (Sharpe ratio).
+    """Map a `ScorerConfig` onto the skfolio measure it names, ignoring its rate.
 
     Raises:
         ConfigurationError: For the custom Information Ratio scorer or a
-            custom ``score_func`` config -- neither maps onto a native skfolio
-            measure and so cannot be used with the online utilities.
+            custom ``score_func`` config, neither of which has a native skfolio
+            measure.
     """
     if config is None:
         config = ScorerConfig()
@@ -290,3 +302,81 @@ def build_online_measure(
         "utilities require a ratio/perf/risk measure"
     )
     raise ConfigurationError(msg)
+
+
+def build_online_measure(
+    config: ScorerConfig | None = None,
+) -> RatioMeasure | PerfMeasure | RiskMeasure:
+    """Return the bare skfolio measure for online model selection.
+
+    ``OnlineGridSearch`` / ``online_score`` score the aggregated
+    `MultiPeriodPortfolio` and therefore expect a
+    `measure` passed directly to ``scoring`` -- not a
+    ``make_scorer`` wrapper (which averages per-fold scores).  This helper
+    resolves a `ScorerConfig` to that measure.
+
+    A bare measure cannot carry ``risk_free_rate`` or ``annualization_factor``;
+    online search takes them from ``portfolio_params`` instead. Use
+    `build_online_portfolio_params` for that dictionary and pass it to
+    ``run_online_score`` / ``run_online_predict``.
+
+    Args:
+        config: Scorer configuration. Defaults to ``ScorerConfig()``
+            (Sharpe ratio).
+
+    Raises:
+        ConfigurationError: For the custom Information Ratio scorer or a
+            custom ``score_func`` config -- neither maps onto a native skfolio
+            measure and so cannot be used with the online utilities -- or when
+            the config sets a non-zero ``risk_free_rate`` or an
+            ``annualization_factor`` that the returned measure would silently
+            drop.
+    """
+    if config is None:
+        config = ScorerConfig()
+    measure = _resolve_native_measure(config)
+
+    dropped = []
+    if config.risk_free_rate != 0.0:
+        dropped.append(f"risk_free_rate={config.risk_free_rate!r}")
+    if config.annualization_factor is not None:
+        dropped.append(f"annualization_factor={config.annualization_factor!r}")
+    if dropped:
+        msg = (
+            f"a bare skfolio measure cannot carry {', '.join(dropped)}; pass "
+            "portfolio_params=build_online_portfolio_params(config) alongside "
+            "the measure (accepted by run_online_score and run_online_predict), "
+            "or build the search with build_online_grid_search / "
+            "build_online_randomized_search, which do so"
+        )
+        raise ConfigurationError(msg)
+    return measure
+
+
+def build_online_portfolio_params(
+    config: ScorerConfig | None = None,
+) -> dict[str, float]:
+    """Return the ``portfolio_params`` that apply a scorer's rate and annualisation.
+
+    Online model selection scores the aggregated `MultiPeriodPortfolio` with a
+    bare measure, so the ``risk_free_rate`` and ``annualization_factor`` of a
+    `ScorerConfig` reach the scored portfolio only through the
+    ``portfolio_params`` argument of ``OnlineGridSearch`` /
+    ``OnlineRandomizedSearch`` / ``online_score``. They take precedence over
+    the estimator's own ``risk_free_rate``, so every candidate is scored at the
+    same rate.
+
+    Args:
+        config: Scorer configuration. Defaults to ``ScorerConfig()``.
+
+    Returns:
+        A dictionary with ``risk_free_rate`` and, when the config sets one,
+        ``annualization_factor``.
+    """
+    if config is None:
+        config = ScorerConfig()
+
+    params: dict[str, float] = {"risk_free_rate": config.risk_free_rate}
+    if config.annualization_factor is not None:
+        params["annualization_factor"] = config.annualization_factor
+    return params

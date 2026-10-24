@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 import yfinance as yf
+from yfinance.data import YfData
 
 from ..infrastructure import is_rate_limit_error, retry_with_backoff
 from ..protocols import CircuitBreakerProtocol, RateLimiterProtocol
@@ -32,6 +33,17 @@ def _collect_extras(search_obj: Any, flags: dict[str, bool]) -> dict[str, Any]:
         for attr in _SEARCH_EXTRA_ATTRS
         if flags[attr]
     }
+
+
+def _evict_response_cache() -> None:
+    """Forget yfinance's cached HTTP responses so the next search hits Yahoo.
+
+    ``yf.Search`` fetches through ``YfData.cache_get``, an unbounded-lifetime LRU
+    shared by the whole process that stores the response object itself, error
+    pages included. Without eviction a retry replays the failed answer and a
+    repeated query replays the first answer for as long as the daemon lives.
+    """
+    YfData.cache_get.cache_clear()
 
 
 class SearchClient:
@@ -94,7 +106,16 @@ class SearchClient:
         def _action() -> dict[str, Any] | None:
             self.circuit_breaker.check()
             self.rate_limiter.acquire("search")
-            s = yf.Search(query, max_results=max_results, news_count=news_count)
+            _evict_response_cache()
+            # Yahoo only returns research reports and nav links when the request
+            # asks for them; reading the attributes afterwards finds them empty.
+            s = yf.Search(
+                query,
+                max_results=max_results,
+                news_count=news_count,
+                include_research=include_research,
+                include_nav_links=include_nav,
+            )
             return {"quotes": s.quotes, "news": s.news, **_collect_extras(s, flags)}
 
         return retry_with_backoff(

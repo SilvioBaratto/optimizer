@@ -13,8 +13,13 @@ set "OPTIMIZER_REPO=%~dp0"
 
 where uv >nul 2>nul || powershell -NoProfile -Command "irm https://astral.sh/uv/install.ps1 | iex"
 
+rem uv drops tool executables in ~/.local/bin. astral's installer only edits the
+rem registry PATH, so this session would not see a fresh uv or the portopt shim, and
+rem a uv that was already installed does not imply the directory is on PATH either.
+set "PATH=%USERPROFILE%\.local\bin;%PATH%"
+
 cd /d "%~dp0"
 echo Installing the portopt CLI from this checkout...
-uv tool install --from ./ingestion portopt || exit /b 1
+uv tool install --reinstall --from ./ingestion portopt || exit /b 1
 
 portopt setup %*

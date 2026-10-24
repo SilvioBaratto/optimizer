@@ -7,7 +7,8 @@ Boots the process that owns the scheduled data pipeline:
 2. ``init_db()`` — build the engine and session factory.
 3. Reap orphan background jobs left behind by a crashed process, so a job that
    died mid-run does not block its type forever via ``JobAlreadyRunningError``.
-4. Start APScheduler and block until SIGTERM / SIGINT.
+4. Start APScheduler and block until SIGTERM / SIGINT, or until the scheduler
+   thread dies (the process then exits non-zero so the container restarts).
 
 There is no HTTP API. Manual runs go through ``python -m app.cli``; job
 progress is readable from the ``background_jobs`` table and the logs.
@@ -20,9 +21,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import json
 import logging
 import os
 import signal
+import sys
 import threading
 from types import FrameType
 
@@ -30,23 +33,54 @@ from prometheus_client import start_http_server
 
 from app.config import settings
 from app.database import close_db, database_manager, init_db
-from app.services.jobs.scheduler import create_scheduler
+from app.services.jobs.scheduler import SupervisedScheduler, create_scheduler
+from app.utils.log_redaction import install_secret_redaction
 
 logger = logging.getLogger(__name__)
 
 _shutdown = threading.Event()
 
+_SUPERVISION_INTERVAL_SECONDS = 30
+
+
+class _JsonFormatter(logging.Formatter):
+    """Render each record as a single-line JSON object.
+
+    The message and any traceback go through ``json.dumps`` so quotes, newlines
+    and multi-line tracebacks cannot break the line for a JSON log shipper.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "timestamp": self.formatTime(record),
+            "name": record.name,
+            "level": record.levelname,
+            "message": record.getMessage(),
+        }
+        if record.exc_info and not record.exc_text:
+            record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            payload["exception"] = record.exc_text
+        if record.stack_info:
+            payload["stack"] = self.formatStack(record.stack_info)
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
 
 def _configure_logging() -> None:
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper()),
-        format=(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-            if settings.log_format == "text"
-            else '{"timestamp": "%(asctime)s", "name": "%(name)s",'
-            ' "level": "%(levelname)s", "message": "%(message)s"}'
-        ),
+    from app.services.market_data.yfinance import configure_yfinance
+
+    formatter: logging.Formatter = (
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        if settings.log_format == "text"
+        else _JsonFormatter()
     )
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper()), handlers=[handler]
+    )
+    install_secret_redaction()
+    configure_yfinance(log_level=settings.yfinance_log_level)
 
 
 def _serve_metrics() -> None:
@@ -55,11 +89,9 @@ def _serve_metrics() -> None:
         logger.info("Prometheus metrics disabled (enable_metrics=False)")
         return
 
-    # BackgroundJobService imports app.metrics lazily, so without this the
-    # jobs_* families are absent from /metrics until the first job runs — a
-    # scrape started before then sees no series at all, and rate() over a
-    # freshly-appearing counter is undefined. Importing here registers them
-    # against the default collector at zero.
+    # Every BackgroundJobService registers its domain's series at zero when it
+    # is built (at import of the scheduler module, above). Importing app.metrics
+    # here keeps the families on /metrics even if no service was built.
     import app.metrics  # noqa: F401
 
     start_http_server(settings.metrics_port)
@@ -96,15 +128,35 @@ def _install_signal_handlers() -> None:
     signal.signal(signal.SIGINT, _handle)
 
 
-def _force_exit() -> None:  # pragma: no cover - terminates the process
+def _force_exit(code: int = 0) -> None:  # pragma: no cover - terminates the process
     """Hard-exit when a step outlives the drain window.
 
-    Exit 0, not non-zero: the shutdown was *requested* (SIGTERM) and the
-    abandoned in-flight work is safe to re-run (idempotent upserts, §5.4), so a
-    drain timeout is a degraded-but-expected outcome, not a crash — a non-zero
+    Exit 0 by default, not non-zero: the shutdown was *requested* (SIGTERM) and
+    the abandoned in-flight work is safe to re-run (idempotent upserts, §5.4), so
+    a drain timeout is a degraded-but-expected outcome, not a crash — a non-zero
     code would misclassify a normal deploy-during-fetch to exit-code alerting.
+    A dead scheduler thread is a crash and passes a non-zero ``code``.
     """
-    os._exit(0)
+    os._exit(code)
+
+
+def _wait_for_shutdown_or_scheduler_death(scheduler: SupervisedScheduler) -> bool:
+    """Block until a shutdown signal arrives or the scheduler thread dies.
+
+    The metrics server runs on its own thread and keeps answering the container
+    healthcheck, so a dead scheduler thread would otherwise leave a daemon that
+    looks healthy and never fires another job.
+
+    Returns:
+        ``True`` if the scheduler thread died, ``False`` on a requested shutdown.
+    """
+    while not _shutdown.wait(timeout=_SUPERVISION_INTERVAL_SECONDS):
+        if not scheduler.loop_alive():
+            logger.critical(
+                "APScheduler thread died — exiting so the container restarts"
+            )
+            return True
+    return False
 
 
 def _drain_and_shutdown(scheduler: object, drain_timeout_seconds: int) -> bool:
@@ -183,7 +235,8 @@ def main() -> None:
     )
 
     _install_signal_handlers()
-    _shutdown.wait()
+    scheduler_died = _wait_for_shutdown_or_scheduler_death(scheduler)
+    exit_code = 1 if scheduler_died else 0
 
     logger.info("Shutting down %s...", settings.project_name)
     drained = _drain_and_shutdown(
@@ -196,7 +249,9 @@ def main() -> None:
         # A step outlived the drain window. Force a hard exit rather than hang;
         # skip close_db, since the stuck job may still hold a pooled connection.
         logger.warning("Shutdown forced after drain timeout")
-        _force_exit()
+        _force_exit(exit_code)
+    if scheduler_died:
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":

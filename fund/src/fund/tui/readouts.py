@@ -9,6 +9,7 @@ verdict) is the view worker's job; this module only formats data already read.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -33,9 +34,30 @@ _MOCK_LABEL = "mock — no live source yet"
 # Cap inline names so a wide universe stays legible; the rest collapse to a count.
 _MAX_NAMES = 8
 
+# The frozen allocator honours only the weight bounds; every other mapped constraint
+# is recorded for audit but inert, so the read-out must never present it as applied.
+_REQUESTED_LABEL = "requested (not applied)"
+
 # Frontier / backtest are live-computable (not aspirational): mark them pending until
 # the adviser expands the step and the recompute worker fills them in (T6).
 _PENDING_LABEL = "compute to view"
+
+# Mean / vol / Sharpe come from the recompute already scaled to per-year (the same 252
+# convention as the Performance view); say so, or a reader assumes per-bar figures.
+_ANNUALISED_LABEL = "(annualised)"
+
+
+def _units_label(compute: Any) -> str:
+    """The unit tag for recomputed figures: annualised, plus their currency if known.
+
+    The recompute scores in the mandate base currency, which the allocator's own tool
+    outputs (listing-currency) do not, so the reader is told which one these are.
+    """
+    currency = getattr(compute, "base_currency", None)
+    if not currency:
+        return _ANNUALISED_LABEL
+    return f"(annualised · {currency})"
+
 
 # Risk verdict tiers as (dot, label) — the word always travels with the glyph so status
 # never rides on colour/shape alone (mirrors views._HEALTH_*). The live ok/warn/breach
@@ -48,6 +70,8 @@ def render_readout(
     step: str | None,
     payload: Mapping[str, Any] | None,
     compute: ResultsCompute | RiskCompute | None = None,
+    *,
+    expandable: bool = True,
 ) -> str | None:
     """Render an agent step's recorded artifacts as plain-text sub-panels.
 
@@ -58,6 +82,10 @@ def render_readout(
         compute: The worker's recompute result — a ``ResultsCompute`` for an allocator
             step or a ``RiskCompute`` for a risk step — which fills the frontier /
             backtest / verdict / sector lines. ``None`` leaves them as pending markers.
+        expandable: Whether the surface can recompute on demand. A risk step with no
+            ``compute`` is nothing but pending markers, so where nothing can resolve
+            them (the live stream) it yields no read-out rather than advertise an
+            action the adviser cannot take.
 
     Returns:
         The rendered sub-panels joined by newlines, or ``None`` when the step has no
@@ -66,13 +94,17 @@ def render_readout(
     if agent == _ALLOCATOR_AGENT and (payload or compute is not None):
         safe = payload or {}
         return "\n".join([*_build_block(safe), *_results_block(safe, compute)])
-    if agent == _RISK_AGENT:
+    if agent == _RISK_AGENT and (expandable or compute is not None):
         return "\n".join(_risk_block(compute))
     return None
 
 
 def _build_block(payload: Mapping[str, Any]) -> list[str]:
-    """The *build* family: the universe, objective, and constraints the allocator used.
+    """The *build* family: the universe, the client's constraints, and what ran.
+
+    The recorded constraint set is the client's *requested* intent; the optimizer
+    config recorded with the decision is what the allocator *applied*. The two differ
+    (the frozen optimizer honours only the bounds), so each is labelled as such.
 
     Args:
         payload: The allocator decision payload.
@@ -82,7 +114,11 @@ def _build_block(payload: Mapping[str, Any]) -> list[str]:
     """
     lines = ["build"]
     lines += _indent(_universe_lines(payload))
-    lines += _indent(_constraints_lines(payload.get("constraint_set")))
+    lines += _indent(
+        _constraints_lines(
+            payload.get("constraint_set"), payload.get("optimizer_config")
+        )
+    )
     lines += _indent(_mock_lines())
     return lines
 
@@ -105,16 +141,16 @@ def _results_block(payload: Mapping[str, Any], compute: Any = None) -> list[str]
 
 
 def _frontier_lines(compute: Any) -> list[str]:
-    """The frontier point: pending until recomputed, then the min-variance point."""
+    """The frontier point: pending until recomputed, then the solved point."""
     if compute is None:
         return [f"frontier point · {_PENDING_LABEL}"]
     if compute.frontier is None:
         return [f"frontier point · unavailable ({compute.frontier_error})"]
     point = compute.frontier
     return [
-        f"frontier point · mean {_num(point.mean)}"
-        f" · vol {_num(point.standard_deviation)}"
-        f" · sharpe {_num(point.sharpe_ratio)}"
+        f"frontier point · mean {_pct2(point.mean, signed=True)}"
+        f" · vol {_pct2(point.standard_deviation)}"
+        f" · sharpe {_ratio(point.sharpe_ratio)} {_units_label(compute)}"
     ]
 
 
@@ -127,8 +163,8 @@ def _backtest_lines(compute: Any) -> list[str]:
     result = compute.backtest
     mode = "out-of-sample" if result.out_of_sample else "in-sample"
     return [
-        f"backtest · sharpe {_num(result.sharpe_ratio)}"
-        f" · maxDD {_num(result.max_drawdown)}",
+        f"backtest · sharpe {_ratio(result.sharpe_ratio)} {_units_label(compute)}"
+        f" · maxDD {_pct2(result.max_drawdown)}",
         f"  {result.n_observations} obs · {result.n_folds} folds · {mode}"
         f" · {result.window_start} → {result.window_end}",
     ]
@@ -163,7 +199,11 @@ def _verdict_lines(compute: Any) -> list[str]:
         return [f"verdict · unavailable ({compute.error})"]
     verdict = risk_verdict(list(compute.violations))
     header = f"verdict · {verdict.dot} {verdict.label}"
-    return [header, *(f"  {line}" for line in verdict.lines)]
+    return [
+        header,
+        *(f"  {line}" for line in verdict.lines),
+        *(f"  not evaluated · {limit}" for limit in compute.unchecked_limits),
+    ]
 
 
 def _sector_lines(compute: Any) -> list[str]:
@@ -198,7 +238,24 @@ class RiskVerdict:
 
 # breach ⊐ warn ⊐ ok: one hard-bound violation outranks any number of budget ones,
 # because a name/exposure breach is actionable where an off-target budget is advisory.
-_HARD = frozenset({"min_weight", "max_weight", "non_finite"})
+_HARD = frozenset(
+    {
+        "min_weight",
+        "max_weight",
+        "non_finite",
+        # Mandate-screen breaches (``fund.tools.mandate``): a forbidden holding is a
+        # hard stop, never an advisory budget gap.
+        "esg_exclusion",
+        "unclassified_sector",
+        "leveraged_instrument",
+        "complex_instrument",
+        # Gate violations from ``risk_check``: a drawdown past the hard ceiling or
+        # absolute stop, or one that could not be measured, blocks the allocation.
+        "drawdown_nu2",
+        "drawdown_nu3",
+        "drawdown_unverified",
+    }
+)
 
 
 def risk_verdict(violations: list[dict[str, Any]]) -> RiskVerdict:
@@ -223,12 +280,31 @@ def _violation_line(violation: Mapping[str, Any]) -> str:
     """One readable line for a ``risk_check`` violation (type, asset/target, value)."""
     kind = str(violation.get("type", "?"))
     if kind == "budget":
-        value = _num(violation.get("value"))
-        return f"budget · {value} vs {_num(violation.get('target'))}"
-    asset = str(violation.get("asset", "?"))
+        value = _pct2(violation.get("value"))
+        return f"budget · {value} vs {_pct2(violation.get('target'))}"
+    asset = violation.get("asset")
+    # Drawdown tiers concern the whole portfolio, so there is no asset to name.
+    subject = f"{asset} " if asset is not None else ""
     limit = violation.get("limit")
-    tail = f" (limit {_num(limit)})" if limit is not None else ""
-    return f"{kind} · {asset} {_num(violation.get('value'))}{tail}"
+    tail = f" (limit {_pct2(limit)})" if limit is not None else ""
+    return f"{kind} · {subject}{_pct2(violation.get('value'))}{tail}"
+
+
+def _effective_max_weight(constraint_set: Mapping[str, Any]) -> tuple[Any, bool]:
+    """The per-name ceiling the optimizer and gate enforce, and whether the cap set it.
+
+    The tighter of the recorded ``bounds.max_weights`` and the K&E
+    ``max_position_cap``, read off the recorded dump so this stdlib-only module needs
+    no schema import.
+    """
+    recorded = (constraint_set.get("bounds") or {}).get("max_weights")
+    cap = _as_float(
+        (constraint_set.get("universe_filters") or {}).get("max_position_cap")
+    )
+    ceiling = _as_float(recorded)
+    if cap is None or (ceiling is not None and cap >= ceiling):
+        return recorded, False
+    return cap, True
 
 
 def _weights_lines(payload: Mapping[str, Any]) -> list[str]:
@@ -259,6 +335,20 @@ def _pct(value: Any) -> str:
     return str(value) if numeric is None else f"{numeric * 100:.1f}%"
 
 
+def _pct2(value: Any, *, signed: bool = False) -> str:
+    """Format a fraction as a two-decimal percentage (``+`` sign when ``signed``).
+
+    ``None`` renders ``—``; a non-numeric, boolean or non-finite value renders raw,
+    like :func:`_pct`, so an anomaly in the recorded JSON stays visible.
+    """
+    if value is None:
+        return "—"
+    numeric = _as_float(value)
+    if numeric is None or not math.isfinite(numeric):
+        return str(value)
+    return f"{numeric:+.2%}" if signed else f"{numeric:.2%}"
+
+
 def _universe_lines(payload: Mapping[str, Any]) -> list[str]:
     """Render the post-filter universe (size + names) from the recorded weights keys."""
     names = list(payload.get("weights") or {})
@@ -270,32 +360,60 @@ def _universe_lines(payload: Mapping[str, Any]) -> list[str]:
     return [f"universe (post-filter) · {len(names)} selected{tail}"]
 
 
-def _constraints_lines(constraint_set: Mapping[str, Any] | None) -> list[str]:
-    """Render the objective and the solver constraints from the recorded constraint set.
+def _constraints_lines(
+    constraint_set: Mapping[str, Any] | None,
+    optimizer_config: Mapping[str, Any] | None = None,
+) -> list[str]:
+    """Render the requested constraints, the applied optimizer config, and the bounds.
 
     Args:
         constraint_set: ``ConstraintSet.model_dump(mode="json")``, or ``None`` when the
             allocator decision recorded no constraint set.
+        optimizer_config: The ``MeanRiskConfig`` fields the allocator actually ran with,
+            or ``None`` for a decision that did not record them.
 
     Returns:
-        The objective/bounds/regularisation/ESG lines, or a single ``unavailable`` line.
+        The requested objective/aversion/regularisation lines (labelled not applied),
+        the applied config lines when recorded, then bounds and ESG — or a single
+        ``unavailable`` line (plus the applied lines) without a constraint set.
     """
+    applied = _applied_lines(optimizer_config)
     if not constraint_set:
-        return ["objective · unavailable (not recorded)"]
+        return ["objective · unavailable (not recorded)", *applied]
     cs = constraint_set
     bounds = cs.get("bounds") or {}
+    max_weight, capped = _effective_max_weight(cs)
     cardinality = cs.get("cardinality")
     esg = cs.get("esg") or {}
     return [
-        f"objective · {cs.get('objective', '—')} · risk {cs.get('risk_measure', '—')}",
-        f"risk aversion a_gamma · {_num(cs.get('a_gamma'))}"
-        f" · beta {_num(cs.get('beta'))}",
-        f"bounds · min {_num(bounds.get('min_weights'))}"
-        f" · max {_num(bounds.get('max_weights'))}"
-        f" · budget {_num(bounds.get('budget'))}",
-        f"regularisation · l1 {_num(cs.get('l1_coef'))} · l2 {_num(cs.get('l2_coef'))}"
+        f"{_REQUESTED_LABEL} · objective {cs.get('objective', '—')}"
+        f" · risk {cs.get('risk_measure', '—')}",
+        f"{_REQUESTED_LABEL} · risk aversion a_gamma {_sig(cs.get('a_gamma'))}"
+        f" · beta {_sig(cs.get('beta'))}",
+        f"{_REQUESTED_LABEL} · regularisation · l1 {_sig(cs.get('l1_coef'))}"
+        f" · l2 {_sig(cs.get('l2_coef'))}"
         f" · cardinality {'none' if cardinality is None else cardinality}",
+        *applied,
+        f"bounds · min {_pct2(bounds.get('min_weights'))}"
+        f" · max {_pct2(max_weight)}{' (K&E cap)' if capped else ''}"
+        f" · budget {_pct2(bounds.get('budget'))}",
         f"esg · {len(esg.get('exclusions') or [])} exclusions",
+    ]
+
+
+def _applied_lines(optimizer_config: Mapping[str, Any] | None) -> list[str]:
+    """The optimizer settings the allocator ran with; empty when none were recorded."""
+    if not optimizer_config:
+        return []
+    cfg = optimizer_config
+    cardinality = cfg.get("cardinality")
+    return [
+        f"applied · objective {cfg.get('objective', '—')}"
+        f" · risk {cfg.get('risk_measure', '—')}"
+        f" · risk aversion {_sig(cfg.get('risk_aversion'))}",
+        f"applied · regularisation · l1 {_sig(cfg.get('l1_coef'))}"
+        f" · l2 {_sig(cfg.get('l2_coef'))}"
+        f" · cardinality {'none' if cardinality is None else cardinality}",
     ]
 
 
@@ -312,12 +430,24 @@ def _indent(lines: list[str]) -> list[str]:
     return [f"  {line}" for line in lines]
 
 
-def _num(value: Any) -> str:
-    """Format a numeric constraint to two decimals; fall back to its string form."""
+def _ratio(value: Any) -> str:
+    """Format a ratio (Sharpe) to two decimals; a non-number renders raw."""
     if value is None:
         return "—"
     numeric = _as_float(value)
     return str(value) if numeric is None else f"{numeric:.2f}"
+
+
+def _sig(value: Any) -> str:
+    """Format a coefficient to four significant figures; raw string if not numeric.
+
+    Fixed decimals would round a regularisation of ``0.0005`` to ``0.00`` and make a
+    regularised run read as unregularised; significant figures keep its magnitude.
+    """
+    if value is None:
+        return "—"
+    numeric = _as_float(value)
+    return str(value) if numeric is None else f"{numeric:.4g}"
 
 
 def _as_float(value: Any) -> float | None:

@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_STALENESS_HOURS = 168  # weekly
 _DEFAULT_TIMEOUT = 30.0  # per yfinance call; bounds a hung socket
+# Each weekly sweep adds a full chain (1-4M rows across the universe) and nothing
+# reads old snapshots, so unbounded history would eventually fill the data disk.
+_DEFAULT_RETAINED_SNAPSHOTS = 8
 
 
 def _f(v: Any) -> float | None:
@@ -92,19 +95,24 @@ def run_bulk_options_fetch(
     *,
     staleness_hours: int = _DEFAULT_STALENESS_HOURS,
     request_timeout: float = _DEFAULT_TIMEOUT,
+    retained_snapshots: int = _DEFAULT_RETAINED_SNAPSHOTS,
     on_progress: ProgressCallback = _noop,
 ) -> dict[str, Any]:
     """Fetch and persist full option chains for every instrument.
 
     Skips instruments whose snapshot is younger than ``staleness_hours``.
     Best-effort per instrument — a ticker with no options simply contributes
-    nothing. Every yfinance call is bounded by ``request_timeout`` via a
-    daemon-thread watchdog, preventing a hung socket from stalling the sweep.
+    nothing, while an instrument whose expiry chain fails to fetch is rolled
+    back as a whole and reported in ``errors`` so it is retried next run.
+    Every yfinance call is bounded by ``request_timeout`` via a daemon-thread
+    watchdog, preventing a hung socket from stalling the sweep.
 
     Args:
         yf_client: Configured yfinance client.
         staleness_hours: Skip instruments with a snapshot newer than this window.
         request_timeout: Wall-clock deadline per yfinance call in seconds.
+        retained_snapshots: Newest snapshot dates kept per instrument; older
+            ones are deleted in the same transaction as the new snapshot.
         on_progress: Callback receiving progress updates.
 
     Returns:
@@ -148,6 +156,7 @@ def run_bulk_options_fetch(
                             t
                         ),
                         request_timeout,
+                        circuit_breaker=yf_client.circuit_breaker,
                     )
                     or ()
                 )
@@ -158,13 +167,20 @@ def run_bulk_options_fetch(
                             yf_client.metadata.fetch_option_chain(t, date=e)
                         ),
                         request_timeout,
+                        circuit_breaker=yf_client.circuit_breaker,
                     )
                     if chain is None:
-                        continue
+                        # The client turns an exhausted retry budget into None.
+                        # Committing the other expiries would stamp a partial
+                        # chain with today's as_of, which the staleness gate
+                        # then reads as a complete snapshot and skips; failing
+                        # the instrument leaves it eligible for the next run.
+                        raise RuntimeError(f"option chain {expiry} fetch failed")
                     expiry_date = cast("date", pd.Timestamp(expiry).date())
                     rows = _flatten_chain(chain, as_of, expiry_date)
                     if rows:
                         inst_rows += repo.upsert_option_chain(instrument.id, rows)
+                repo.prune_option_snapshots(instrument.id, keep=retained_snapshots)
                 total_rows += inst_rows
                 processed += 1
                 session.commit()
@@ -188,7 +204,7 @@ def run_bulk_options_fetch(
         )
         on_progress(
             status="completed",
-            finished_at=now.isoformat(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
             errors=errors,
             result=result,
         )

@@ -13,18 +13,23 @@ transform via ``absolute`` and ``power``:
 * ``absolute`` — take the absolute value of the codependence before mapping it
   to a distance (treats strong negative and positive correlation as equally
   "close").
-* ``power`` — raise the ``(1 - codependence)`` term to this power, sharpening
-  or softening the resulting dendrogram.
+* ``power`` — raise the codependence itself to this power before mapping it to
+  a distance. A fractional power of a negative codependence is NaN, so it
+  requires ``absolute=True``; an even integer power without ``absolute`` makes
+  strong negative and positive correlation equally "close" (squared angular
+  distance).
 
 These apply to the correlation / covariance family (Pearson, Kendall, Spearman,
-Covariance). ``DistanceCorrelation`` instead exposes a ``threshold`` and
-``MutualInformation`` exposes ``n_bins`` / ``n_bins_method`` / ``normalize``.
-Setting a knob that does not belong to the selected estimator raises a
-``ConfigurationError`` to surface configuration mistakes early.
+Covariance). ``DistanceCorrelation`` has no tunable knob (its ``threshold`` is
+stored by skfolio but never read) and ``MutualInformation`` exposes ``n_bins`` /
+``n_bins_method`` / ``normalize``. Setting a knob that does not belong to the
+selected estimator, or one that skfolio ignores, raises a ``ConfigurationError``
+to surface configuration mistakes early.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
 
@@ -74,11 +79,14 @@ class DistanceConfig:
         absolute: Take the absolute value of the codependence before mapping to a
             distance. Only valid for the correlation / covariance family
             (Pearson, Kendall, Spearman, Covariance).
-        power: Exponent applied to the ``(1 - codependence)`` term. Must be strictly
-            positive. Only valid for the correlation / covariance family.
-        threshold: Codependence threshold for ``skfolio.distance.DistanceCorrelation``.
-            Only valid when ``estimator`` is ``DISTANCE_CORRELATION``. ``None`` keeps
-            the skfolio default (0.5).
+        power: Exponent applied to the codependence (not to ``1 - codependence``).
+            Must be finite and strictly positive, and must be a whole number unless
+            ``absolute`` is ``True`` (a fractional power of a negative codependence
+            is NaN). Only valid for the correlation / covariance family.
+        threshold: Reserved for ``skfolio.distance.DistanceCorrelation``. skfolio
+            stores it but never reads it when fitting, so any value would be a
+            silent no-op — it must be ``None``. Retained for backward
+            compatibility only.
         n_bins: Explicit histogram bin count for ``skfolio.distance.MutualInformation``.
             Only valid when ``estimator`` is ``MUTUAL_INFORMATION``. ``None`` defers to
             ``n_bins_method``.
@@ -104,7 +112,6 @@ class DistanceConfig:
 
     def __post_init__(self) -> None:
         is_mi = self.estimator == DistanceEstimatorType.MUTUAL_INFORMATION
-        is_dcorr = self.estimator == DistanceEstimatorType.DISTANCE_CORRELATION
         in_corr_family = self.estimator in _CORR_FAMILY
 
         # absolute / power belong to the correlation / covariance family only.
@@ -114,16 +121,21 @@ class DistanceConfig:
                 "covariance distance family (PEARSON, KENDALL, SPEARMAN, "
                 "COVARIANCE)"
             )
-        if self.power <= 0.0:
-            raise ConfigurationError("power must be strictly positive")
-
-        # threshold belongs to DISTANCE_CORRELATION only.
-        if not is_dcorr and self.threshold is not None:
+        if not math.isfinite(self.power) or self.power <= 0.0:
+            raise ConfigurationError("power must be finite and strictly positive")
+        if not self.absolute and not float(self.power).is_integer():
             raise ConfigurationError(
-                "threshold is only valid for DistanceEstimatorType.DISTANCE_CORRELATION"
+                "a fractional power requires absolute=True: it is applied to the "
+                "signed codependence and is NaN for negative correlations"
             )
-        if self.threshold is not None and not 0.0 <= self.threshold <= 1.0:
-            raise ConfigurationError("threshold must lie in [0, 1]")
+
+        # skfolio's DistanceCorrelation never reads ``threshold``; accepting a
+        # value would let callers tune a knob that changes nothing.
+        if self.threshold is not None:
+            raise ConfigurationError(
+                "threshold has no effect: skfolio DistanceCorrelation stores it "
+                "but never reads it; leave it as None"
+            )
 
         mi_only_set = (
             self.n_bins is not None
@@ -196,7 +208,11 @@ class DistanceConfig:
     def for_distance_correlation(
         cls, *, threshold: float | None = None
     ) -> DistanceConfig:
-        """Szekely-Rizzo distance correlation preset."""
+        """Szekely-Rizzo distance correlation preset.
+
+        ``threshold`` is accepted only so a stale value fails with a clear
+        ``ConfigurationError`` instead of a ``TypeError``; skfolio ignores it.
+        """
         return cls(
             estimator=DistanceEstimatorType.DISTANCE_CORRELATION,
             threshold=threshold,
@@ -205,15 +221,17 @@ class DistanceConfig:
     @classmethod
     def for_mutual_information(
         cls,
-        n_bins: int | None = 10,
+        n_bins: int | None = None,
         *,
         n_bins_method: NBinsMethod | None = None,
         normalize: bool | None = None,
     ) -> DistanceConfig:
         """Mutual-information distance preset.
 
-        Pass ``n_bins=None`` together with ``n_bins_method`` to let skfolio
-        choose the bin count via the Freedman-Diaconis or Knuth rule.
+        By default the bin count is chosen per asset by ``n_bins_method``
+        (skfolio default: Freedman-Diaconis). An explicit ``n_bins`` takes
+        precedence and disables the rule, so ``n_bins`` and ``n_bins_method``
+        should not both be given.
         """
         return cls(
             estimator=DistanceEstimatorType.MUTUAL_INFORMATION,

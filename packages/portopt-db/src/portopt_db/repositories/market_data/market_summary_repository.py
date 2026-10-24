@@ -7,6 +7,7 @@ Uses ``index_elements`` upserts (SQLite-testable); one row per
 from __future__ import annotations
 
 import datetime as dt
+import math
 import uuid
 from collections.abc import Sequence
 from typing import Any
@@ -18,10 +19,12 @@ from portopt_db.repository import RepositoryBase
 
 
 def _num(v: Any) -> float | None:
+    """Coerce to a finite float; NaN/inf quotes are stored as missing (NULL)."""
     try:
-        return float(v) if v is not None else None
+        f = float(v) if v is not None else None
     except (TypeError, ValueError):
         return None
+    return f if f is not None and math.isfinite(f) else None
 
 
 def _str(v: Any, n: int) -> str | None:
@@ -106,7 +109,9 @@ class MarketSummaryRepository(RepositoryBase):
         )
         return self.session.execute(stmt).scalars().all()
 
-    def get_latest_as_of(self, market: str) -> dt.date | None:
+    def get_latest_as_of(
+        self, market: str, on_or_before: dt.date | None = None
+    ) -> dt.date | None:
         """Return the most recent ``as_of`` date available for the given market.
 
         Useful for the digest builder to discover the freshest snapshot without
@@ -114,12 +119,17 @@ class MarketSummaryRepository(RepositoryBase):
 
         Args:
             market: Market identifier to query.
+            on_or_before: Inclusive upper bound on the snapshot date.  Point-in-time
+                callers (a backfilled digest) pass their target date so a later
+                snapshot is never returned; ``None`` leaves the search unbounded.
 
         Returns:
-            The latest ``as_of`` date, or ``None`` when no rows exist for the
-            market.
+            The latest ``as_of`` date within the bound, or ``None`` when no rows
+            exist for the market.
         """
         stmt = select(func.max(MarketSummary.as_of)).where(
             MarketSummary.market == market
         )
+        if on_or_before is not None:
+            stmt = stmt.where(MarketSummary.as_of <= on_or_before)
         return self.session.execute(stmt).scalar_one_or_none()

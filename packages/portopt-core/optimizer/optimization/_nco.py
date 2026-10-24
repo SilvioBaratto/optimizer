@@ -14,6 +14,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from skfolio.cluster import HierarchicalClustering
+from skfolio.distance._base import BaseDistance
+from skfolio.moments import BaseCovariance
 from skfolio.optimization import NestedClustersOptimization
 from skfolio.optimization._base import BaseOptimization
 
@@ -72,6 +75,9 @@ def build_nco(
     *,
     inner_estimator: BaseOptimization | None = None,
     outer_estimator: BaseOptimization | None = None,
+    distance_estimator: BaseDistance | None = None,
+    clustering_estimator: HierarchicalClustering | None = None,
+    covariance_estimator: BaseCovariance | None = None,
     **kwargs: Any,
 ) -> NestedClustersOptimization:
     """Build a NestedClustersOptimization from config.
@@ -82,10 +88,22 @@ def build_nco(
             is called with config.inner_default.
         outer_estimator: Across-cluster optimizer. When None, build_mean_risk
             is called with config.outer_default.
+        distance_estimator: Prebuilt distance estimator; overrides
+            ``config.distance_config`` when given.
+        clustering_estimator: Prebuilt clustering estimator; overrides
+            ``config.clustering_config`` when given.
+        covariance_estimator: Covariance estimator injected into the
+            ``CovarianceDistance`` built from a ``COVARIANCE``
+            ``config.distance_config``. Rejected when no such distance is
+            built from config.
         **kwargs: Additional kwargs forwarded to the wrapped optimizer.
 
     Returns:
         A fitted-ready skfolio NestedClustersOptimization instance.
+
+    Raises:
+        ValueError: If ``covariance_estimator`` cannot be attached to a
+            covariance distance (see ``build_distance_or_none``).
     """
     if config is None:
         config = NCOConfig()
@@ -98,8 +116,14 @@ def build_nco(
     return NestedClustersOptimization(
         inner_estimator=inner_estimator,
         outer_estimator=outer_estimator,
-        distance_estimator=build_distance_or_none(config.distance_config),
-        clustering_estimator=build_clustering_or_none(config.clustering_config),
+        distance_estimator=build_distance_or_none(
+            config.distance_config,
+            estimator=distance_estimator,
+            covariance_estimator=covariance_estimator,
+        ),
+        clustering_estimator=build_clustering_or_none(
+            config.clustering_config, estimator=clustering_estimator
+        ),
         quantile=config.quantile,
         **kwargs,
     )

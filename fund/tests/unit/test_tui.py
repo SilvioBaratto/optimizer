@@ -13,14 +13,21 @@ fund.tui.app`` is checked (in a stripped subprocess env) to need no
 
 from __future__ import annotations
 
+import asyncio
+import dataclasses
+import json
+import logging
 import os
 import subprocess
 import sys
+import threading
+import time
 import uuid
 from contextlib import contextmanager, suppress
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from _fund_fakes import (
@@ -36,11 +43,12 @@ from _fund_fakes import (
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import Base
+from portopt_db.models import Base, HumanAuditLog, PaperOrder
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from textual.coordinate import Coordinate
+from textual.css.query import NoMatches
 from textual.widgets import (
     Button,
     Checkbox,
@@ -53,6 +61,7 @@ from textual.widgets import (
     Select,
     Static,
 )
+from textual.worker import WorkerState
 
 from fund import observe
 from fund.agents.graph import run_fund
@@ -65,6 +74,7 @@ from fund.audit import (
 )
 from fund.config import settings
 from fund.tui import app as tui_app
+from fund.tui import views as tui_views
 from fund.tui.app import (
     ConfirmScreen,
     HelpScreen,
@@ -73,6 +83,7 @@ from fund.tui.app import (
     ScopePickScreen,
     ShellApp,
 )
+from fund.tui.ask import ResolvedAction
 from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.stream import StepStatus, StreamEvent
@@ -324,16 +335,30 @@ def shell_env():
     engine.dispose()
 
 
+# A config that gates nothing by itself, so the Mandate's own gate set is the only
+# thing deciding whether ``place_orders`` pauses (the editable-checkbox branch).
+_NO_BASELINE_GATES = dataclasses.replace(settings, interrupt_on=())
+
+
 def _make_shell(
-    env, *, portfolio_id=None, poll_interval: float = 30.0, model_factory=None
+    env,
+    *,
+    portfolio_id=None,
+    poll_interval: float = 30.0,
+    model_factory=None,
+    fallback_factory=None,
+    config=settings,
 ) -> ShellApp:
     """Build the shell wired onto ``env`` (a big poll interval keeps ticks away)."""
+    extra = {} if fallback_factory is None else {"fallback_factory": fallback_factory}
     return ShellApp(
         portfolio_id,
         session_factory=env.get_session,
         persistence=env.persistence,
         model_factory=model_factory or env.model_factory,
+        config=config,
         poll_interval=poll_interval,
+        **extra,
     )
 
 
@@ -352,6 +377,39 @@ async def test_shell_mounts_frame_and_posture_view(shell_env) -> None:
         # The synchronous per-view refresh entry point drives the active view.
         app._refresh()
         assert posture.render_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_poll_tick_after_teardown_is_a_noop(shell_env) -> None:
+    """A timer tick racing the shutdown finds the DOM gone and must not raise.
+
+    The headless harness re-raises an app-level exception on exit, so an unguarded
+    tick made every fast-polling test flaky on a loaded machine.
+    """
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+    app._poll()
+
+
+@pytest.mark.asyncio
+async def test_poll_tick_on_a_live_app_does_not_hide_a_missing_widget(
+    shell_env, monkeypatch
+) -> None:
+    """Only the shutdown race is silent: a ``NoMatches`` from a view's repaint while
+    the app is running is a real bug and must surface rather than leave the view
+    stale on every tick."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        posture = app.query_one("#view-posture", ShellView)
+
+        def renamed_widget() -> None:
+            raise NoMatches("#renamed-widget")
+
+        monkeypatch.setattr(posture, "refresh_view", renamed_widget)
+        with pytest.raises(NoMatches):
+            app._poll()
 
 
 def test_shell_accepts_optional_portfolio_id() -> None:
@@ -403,6 +461,101 @@ async def test_shell_sidebar_navigates_all_views(shell_env) -> None:
             assert app.query_one(f"#view-{key}", ShellView).render_count >= 1
 
 
+async def _pick_from_sidebar(app, pilot, key: str) -> ShellView:
+    """Open ``key`` the way the adviser does: highlight it in the rail, press Enter."""
+    sidebar = app.query_one("#sidebar", ListView)
+    sidebar.focus()
+    sidebar.index = _VIEW_KEYS.index(key)
+    await pilot.pause()
+    await pilot.press("enter")
+    await pilot.pause()
+    return app.query_one(f"#view-{key}", ShellView)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "key", ["posture", "deliberation", "decisions", "mandate", "audit", "performance"]
+)
+async def test_sidebar_pick_moves_focus_into_the_view(shell_env, key) -> None:
+    # View-scoped keys (e/s on Decisions, d on Posture, x on Deliberation/Mandate)
+    # only fire while focus sits inside the view, and the views' hints advertise
+    # arrow selection - so a pick must not leave focus parked on the rail.
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        view = await _pick_from_sidebar(app, pilot, key)
+        focused = app.focused
+        assert focused is not None
+        assert focused is not app.query_one("#sidebar", ListView)
+        assert view in focused.ancestors_with_self
+
+
+@pytest.mark.asyncio
+async def test_launch_focus_is_inside_the_landing_view(shell_env) -> None:
+    # Textual's auto-focus parks on the first focusable widget - the header portfolio
+    # picker - which left the landing view's hinted keys and arrows dead until a Tab.
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        focused = app.focused
+        assert focused is not None
+        assert focused is not app.query_one("#hdr-portfolio", Select)
+        assert app.query_one("#view-posture", ShellView) in focused.ancestors_with_self
+
+
+@pytest.mark.asyncio
+async def test_posture_brief_key_works_straight_after_launch(
+    shell_env, monkeypatch
+) -> None:
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _full_brief(_PID_A))
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+        assert app.query_one(ContentSwitcher).current == "view-brief"
+
+
+@pytest.mark.asyncio
+async def test_roster_arrow_selection_works_straight_after_launch(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        _seed_run(session, _PID_B, seed=1)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        roster = app.query_one("#posture-roster", DataTable)
+        assert roster.row_count == 2
+        await pilot.press("down")
+        await pilot.pause()
+        assert roster.cursor_row == 1
+        picked = _cursor_key(roster)
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app._portfolio_id == uuid.UUID(str(picked))
+
+
+def test_help_text_says_how_to_return_focus_to_the_sidebar() -> None:
+    # A sidebar pick moves focus into the view, so the keymap must name the way back.
+    assert "shift+tab" in tui_app._HELP_TEXT
+
+
+@pytest.mark.asyncio
+async def test_decisions_edit_key_works_right_after_a_sidebar_pick(tui_env) -> None:
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        view = await _pick_from_sidebar(app, pilot, "decisions")
+        assert isinstance(view, DecisionsView)
+        await pilot.press("enter")  # the queue row the pick left highlighted
+        await pilot.pause()
+        assert view.selected_run_id == tui_env.run_id
+        await pilot.press("e")
+        await pilot.pause()
+        assert isinstance(app.screen, OrderEditScreen)
+
+
 # A letter-bearing UUID avoids SQLite's numeric-affinity coercion of all-digit ids.
 _PID_A = uuid.UUID("aaaa0001-0000-4000-8000-000000000001")
 _PID_B = uuid.UUID("bbbb0002-0000-4000-8000-000000000002")
@@ -435,6 +588,64 @@ async def test_shell_picker_lists_portfolios_and_selection_refocuses(shell_env) 
         await pilot.pause()
         assert app._portfolio_id == _PID_A
         assert "running" in app._runstate
+
+
+@pytest.mark.asyncio
+async def test_shell_focus_on_portfolio_created_after_startup_syncs_the_picker(
+    shell_env,
+) -> None:
+    # The Posture roster re-lists portfolios every tick, so it can offer one the
+    # header picker has never seen (created from the CLI while the shell is open).
+    def _create_run(pid, seed) -> None:
+        with shell_env.get_session() as session:
+            AgentRunRepository(session).create_run(
+                portfolio_id=pid,
+                asof=date(2026, 1, 2),
+                seed=seed,
+                universe=[],
+                optimizer_config={},
+            )
+            session.commit()
+
+    _create_run(_PID_A, 1)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        assert app._portfolio_ids == [_PID_A]
+        _create_run(_PID_B, 2)
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+        select = app.query_one("#hdr-portfolio", Select)
+        assert app._portfolio_id == _PID_B
+        assert _PID_B in app._portfolio_ids
+        assert select.value == str(_PID_B)
+        # The picker must still be able to go back to the first portfolio.
+        select.value = str(_PID_A)
+        await pilot.pause()
+        assert app._portfolio_id == _PID_A
+
+
+@pytest.mark.asyncio
+async def test_shell_reseeding_the_picker_does_not_defocus_the_shell(
+    shell_env,
+) -> None:
+    # Re-seeding resets the Select to blank first; that blank echo must not be taken
+    # for the adviser picking fund-wide, even for an id no read model lists.
+    with shell_env.get_session() as session:
+        AgentRunRepository(session).create_run(
+            portfolio_id=_PID_A,
+            asof=date(2026, 1, 2),
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        app.focus_portfolio(_PID_B)  # unknown to every reader
+        await pilot.pause()
+        assert app._portfolio_id == _PID_B
 
 
 @pytest.mark.asyncio
@@ -483,6 +694,67 @@ async def test_shell_focused_launch_preselects_without_spurious_refocus(
         assert focus_paints == [_PID_A, _PID_B]
 
 
+def _seed_two_portfolio_runs(env) -> None:
+    with env.get_session() as session:
+        repo = AgentRunRepository(session)
+        for seed, pid in enumerate((_PID_A, _PID_B), start=1):
+            repo.create_run(
+                portfolio_id=pid,
+                asof=date(2026, 1, 2),
+                seed=seed,
+                universe=[],
+                optimizer_config={},
+            )
+        session.commit()
+
+
+@pytest.mark.asyncio
+async def test_picker_reseed_keeps_focus_without_a_fund_wide_bounce(
+    shell_env, monkeypatch
+) -> None:
+    # Re-seeding the options resets the Select to NULL; that intermediate NULL must not
+    # reach on_select_changed, or the shell repaints fund-wide before snapping back.
+    _seed_two_portfolio_runs(shell_env)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        seen = []
+        original = ShellApp._refresh_runstate
+
+        def _spy(self) -> None:
+            seen.append(self._portfolio_id)
+            original(self)
+
+        monkeypatch.setattr(ShellApp, "_refresh_runstate", _spy)
+        app._populate_picker()
+        await pilot.pause()
+        assert seen == []  # no focus change ever surfaced
+        assert app._portfolio_id == _PID_A
+        assert app.query_one("#hdr-portfolio", Select).value == str(_PID_A)
+
+
+@pytest.mark.asyncio
+async def test_picker_reseed_read_error_keeps_options_and_focus(
+    shell_env, monkeypatch
+) -> None:
+    # A transient roster read error must not empty the picker nor drop the focus.
+    _seed_two_portfolio_runs(shell_env)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        assert set(app._portfolio_ids) == {_PID_A, _PID_B}
+
+        def _boom(session):
+            raise ConnectionError("pool timeout")
+
+        monkeypatch.setattr(observe, "list_portfolios", _boom)
+        app._populate_picker()
+        await pilot.pause()
+        assert app._portfolio_id == _PID_A
+        assert app.query_one("#hdr-portfolio", Select).value == str(_PID_A)
+        assert set(app._portfolio_ids) == {_PID_A, _PID_B}
+
+
 @pytest.mark.asyncio
 async def test_shell_blank_pick_returns_fund_wide_without_crashing(shell_env) -> None:
     # Picking the blank "⟨fund-wide⟩" row must return to fund-wide (portfolio_id=None),
@@ -510,6 +782,173 @@ async def test_shell_blank_pick_returns_fund_wide_without_crashing(shell_env) ->
         assert "idle" in app._runstate  # fund-wide reads as idle
 
 
+def _screen_lines(app: ShellApp) -> list[str]:
+    """The text the compositor actually paints, one string per terminal row."""
+    return [strip.text for strip in app.screen._compositor.render_strips()]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("size", [(120, 30), (80, 24)])
+async def test_status_message_is_painted_above_the_footer(shell_env, size) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=size) as pilot:
+        await pilot.pause()
+        app._set_status("ACTION FAILED: boom")
+        await pilot.pause()
+        rows = _screen_lines(app)
+        assert any("ACTION FAILED: boom" in row for row in rows)
+        status_row = next(i for i, row in enumerate(rows) if "ACTION FAILED" in row)
+        footer = app.query_one("Footer")
+        assert status_row < footer.region.y  # never painted under the key hints
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("size", [(120, 30), (80, 24)])
+async def test_header_portfolio_picker_label_is_painted(shell_env, size) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=size) as pilot:
+        await pilot.pause()
+        picker = app.query_one("#hdr-portfolio", Select)
+        header = app.query_one("#shell-header")
+        assert picker.region.height == header.region.height == 1
+        # The prompt must sit on the header row itself, not on a row the body covers.
+        assert "fund-wide" in _screen_lines(app)[header.region.y]
+        # The run-state glyphs share that row and must not be pushed off it.
+        assert "ARMED" in _screen_lines(app)[header.region.y]
+
+
+def _seed_portfolio_run(env, pid, *, seed: int = 1) -> None:
+    with env.get_session() as session:
+        AgentRunRepository(session).create_run(
+            portfolio_id=pid,
+            asof=date(2026, 1, 2),
+            seed=seed,
+            universe=[],
+            optimizer_config={},
+        )
+        session.commit()
+
+
+@pytest.mark.asyncio
+async def test_focusing_a_portfolio_created_after_launch_updates_the_header_picker(
+    shell_env,
+) -> None:
+    _seed_portfolio_run(shell_env, _PID_A)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        picker = app.query_one("#hdr-portfolio", Select)
+        assert picker.value == str(_PID_A)
+
+        _seed_portfolio_run(shell_env, _PID_B, seed=2)  # created elsewhere (CLI)
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+
+        assert app._portfolio_id == _PID_B
+        assert picker.value == str(_PID_B)  # header names the portfolio actions target
+        assert _PID_B in app._portfolio_ids
+        # The picker still works as a way back: picking A really moves the focus.
+        picker.value = str(_PID_A)
+        await pilot.pause()
+        assert app._portfolio_id == _PID_A
+
+
+@pytest.mark.asyncio
+async def test_poll_tick_adds_a_new_portfolio_to_the_picker_without_refocusing(
+    shell_env, monkeypatch
+) -> None:
+    _seed_portfolio_run(shell_env, _PID_A)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        picker = app.query_one("#hdr-portfolio", Select)
+        assert app._portfolio_ids == [_PID_A]
+
+        paints: list[object] = []
+        original = ShellApp._refresh_runstate
+
+        def _counting(self) -> None:
+            paints.append(self._portfolio_id)
+            original(self)
+
+        monkeypatch.setattr(ShellApp, "_refresh_runstate", _counting)
+
+        _seed_portfolio_run(shell_env, _PID_B, seed=2)
+        app._poll()
+        await pilot.pause()
+
+        assert set(app._portfolio_ids) == {_PID_A, _PID_B}
+        # Re-seeding the options must not echo a focus change through the picker:
+        # one paint (the poll's own), still focused on A and still showing A.
+        assert app._portfolio_id == _PID_A
+        assert picker.value == str(_PID_A)
+        assert paints == [_PID_A]
+
+        # An unchanged roster leaves the options (and an open dropdown) alone.
+        before = list(app._portfolio_ids)
+        app._poll()
+        await pilot.pause()
+        assert app._portfolio_ids == before
+
+
+@pytest.mark.asyncio
+async def test_picker_recovers_when_the_mount_time_read_failed(
+    shell_env, monkeypatch
+) -> None:
+    _seed_portfolio_run(shell_env, _PID_A)
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("db not ready")
+
+    monkeypatch.setattr(observe, "list_portfolios", _boom)
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        assert app._portfolio_ids == []
+
+        monkeypatch.undo()
+        app._poll()
+        await pilot.pause()
+        assert app._portfolio_ids == [_PID_A]
+
+
+@pytest.mark.asyncio
+async def test_picker_keeps_its_options_when_a_poll_time_read_fails(
+    shell_env, monkeypatch
+) -> None:
+    _seed_portfolio_run(shell_env, _PID_A)
+    _seed_portfolio_run(shell_env, _PID_B, seed=2)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        picker = app.query_one("#hdr-portfolio", Select)
+        assert set(app._portfolio_ids) == {_PID_A, _PID_B}
+
+        def _boom(*_a, **_k):
+            raise RuntimeError("db hiccup")
+
+        monkeypatch.setattr(observe, "list_portfolios", _boom)
+        app._poll()
+        await pilot.pause()
+
+        # A transient read error is not "the fund has no portfolios": B must stay
+        # pickable instead of vanishing until the next good tick.
+        assert set(app._portfolio_ids) == {_PID_A, _PID_B}
+        assert picker.value == str(_PID_A)
+
+
+@pytest.mark.asyncio
+async def test_launch_on_an_unlisted_portfolio_still_shows_it_in_the_picker(
+    shell_env,
+) -> None:
+    _seed_portfolio_run(shell_env, _PID_A)
+    app = _make_shell(shell_env, portfolio_id=_PID_B)  # B has no rows yet
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        assert app.query_one("#hdr-portfolio", Select).value == str(_PID_B)
+        assert app._portfolio_id == _PID_B
+
+
 @pytest.mark.asyncio
 async def test_shell_collapses_sidebar_to_rail_when_narrow(shell_env) -> None:
     app = _make_shell(shell_env)
@@ -517,9 +956,31 @@ async def test_shell_collapses_sidebar_to_rail_when_narrow(shell_env) -> None:
         await pilot.pause()
         assert app._narrow is True
         assert app.query_one("#sidebar", ListView).has_class("narrow")
-        # The labels collapse to a single-letter rail.
+        # The labels collapse to a short rail abbreviation.
         label = app.query_one("#nav-posture", ListItem).query_one(Label)
-        assert str(label.render()) == "P"
+        assert str(label.render()) == "Po"
+
+
+@pytest.mark.asyncio
+async def test_narrow_rail_gives_every_view_a_distinct_painted_label(
+    shell_env,
+) -> None:
+    # Leading letters collide (Deliberation / Decisions / Daily brief, Posture /
+    # Performance, Audit / Ask), leaving the adviser to guess which rail entry is the
+    # approve/kill gate.
+    app = _make_shell(shell_env)
+    async with app.run_test(size=(60, 40)) as pilot:
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        lines = _screen_lines(app)
+        labels = []
+        for key in _VIEW_KEYS:
+            item = app.query_one(f"#nav-{key}", ListItem)
+            label = str(item.query_one(Label).render())
+            labels.append(label)
+            row = lines[item.region.y][: sidebar.region.width]
+            assert label in row, (key, label, row)
+        assert len(set(labels)) == len(labels), labels
 
 
 @pytest.mark.asyncio
@@ -543,6 +1004,51 @@ async def _open_decisions(app, pilot) -> DecisionsView:
     app._refresh()
     await pilot.pause()
     return app.query_one("#view-decisions", DecisionsView)
+
+
+def _seed_gate(env, portfolio_id: uuid.UUID, pm_weights: dict[str, float]) -> uuid.UUID:
+    """Pause one more ``place_orders`` gate for ``portfolio_id`` and return its run id.
+
+    The scripted PM commits ``pm_weights`` to ``place_orders`` while the allocator's
+    audited optimizer output stays whatever the real optimizer computed — so passing
+    a vector that differs from ``env.expected`` models a PM that mistyped or was
+    steered into proposing different weights than will actually execute.
+    """
+    from fund.agents.graph import run_fund
+
+    put_constraint_set(
+        env.store,
+        make_constraint_set(portfolio_id),
+        store_key=settings.constraint_set_store_key,
+    )
+    with env.get_session() as session:
+        run = run_fund(
+            ScriptedFundModel(universe=UNIVERSE, weights=pm_weights),
+            make_mandate(portfolio_id),
+            portfolio_id=portfolio_id,
+            asof=ASOF,
+            session=session,
+            checkpointer=env.saver,
+            store=env.store,
+        )
+        session.commit()
+        return run.run_id
+
+
+def _order_gates(env, *run_ids_newest_first: uuid.UUID) -> None:
+    """Pin the queue order: SQLite's ``created_at`` has one-second resolution.
+
+    ``pending_hitl`` sorts newest first, so gates seeded within the same second would
+    otherwise tie and come back in an arbitrary order.
+    """
+    from datetime import datetime, timedelta
+
+    base = datetime(2030, 1, 1, 12, 0, 0)
+    with env.get_session() as session:
+        repo = AgentRunRepository(session)
+        for rank, run_id in enumerate(run_ids_newest_first):
+            repo.get_run(run_id).created_at = base - timedelta(hours=rank)
+        session.commit()
 
 
 @pytest.mark.asyncio
@@ -600,6 +1106,34 @@ async def test_decisions_approve_resumes_on_worker_and_refreshes(tui_env) -> Non
         assert len(rows) == 1
         assert rows[0].run_id == tui_env.run_id
         assert rows[0].portfolio_id == PORTFOLIO_ID
+
+
+@pytest.mark.asyncio
+async def test_decisions_approve_survives_pm_failure_after_the_ticket(tui_env) -> None:
+    """A PM follow-up LLM turn that fails after ``place_orders`` ran does not undo the
+    approval: the ticket is kept, the run ends completed, and the status line reports
+    the PM failure instead of an action failure."""
+    from _fund_fakes import PmFailsAfterOrderModel
+
+    def failing_model():
+        return PmFailsAfterOrderModel(universe=UNIVERSE, weights=tui_env.expected)
+
+    app = _make_shell(tui_env, model_factory=failing_model)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert "action failed" not in app.last_status
+        assert "approved" in app.last_status
+        assert "PM follow-up failed" in app.last_status
+    with tui_env.get_session() as session:
+        run = AgentRunRepository(session).get_run(tui_env.run_id)
+        assert run.status == "completed"
+        assert session.query(PaperOrder).count() == 1
 
 
 @pytest.mark.asyncio
@@ -691,6 +1225,30 @@ async def test_decisions_model_unavailable_surfaces_and_run_stays_paused(
 
 
 @pytest.mark.asyncio
+async def test_decisions_reject_needs_no_model(tui_env) -> None:
+    """Reject is the emergency stop: a missing provider key must not block it."""
+
+    def _no_model():
+        raise RuntimeError("OLLAMA_API_KEY missing")
+
+    app = _make_shell(tui_env, model_factory=_no_model)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_reject()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert "rejected" in app.last_status
+        assert "model unavailable" not in app.last_status
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "rejected"
+
+
+@pytest.mark.asyncio
 async def test_decisions_action_failure_surfaces_and_run_stays_paused(
     tui_env, monkeypatch
 ) -> None:
@@ -777,6 +1335,50 @@ async def test_decisions_killswitch_cancel_is_a_noop_and_run_stays_paused(
 
 
 @pytest.mark.asyncio
+async def test_confirm_screen_opens_on_cancel_so_a_stray_enter_is_not_a_confirm(
+    shell_env,
+) -> None:
+    # The dialog opens right after the Enter that submitted the Ask turn, so a
+    # double-tap or key repeat lands on it: the safe button must hold focus.
+    app = _make_shell(shell_env)
+    results: list[bool | None] = []
+    async with app.run_test(size=_SIZE) as pilot:
+        app.push_screen(ConfirmScreen("FREEZE the fund"), results.append)
+        await pilot.pause()
+        assert app.focused is not None
+        assert app.focused.id == "confirm-no"
+        await pilot.press("enter")
+        await pilot.pause()
+    assert results == [False]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["k", "K"])
+async def test_scope_pick_screen_opens_on_cancel_so_a_stray_enter_picks_nothing(
+    tui_env, key
+) -> None:
+    # `k` (run killswitch) / `K` (portfolio re-arm) then an immediate Enter must not
+    # fire the first, consequential scope button.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        await pilot.press(key)
+        await pilot.pause()
+        assert isinstance(app.screen, ScopePickScreen)
+        assert app.focused is not None
+        assert app.focused.id == "scope-cancel"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert not isinstance(app.screen, ScopePickScreen)
+        assert app.last_worker is None
+        assert "cancelled" in app.last_status
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
+
+
+@pytest.mark.asyncio
 async def test_decisions_killswitch_without_selection_shows_no_confirm(tui_env) -> None:
     # Guard: nothing selected => no modal, no worker, just the status hint.
     app = _make_shell(tui_env)
@@ -787,6 +1389,263 @@ async def test_decisions_killswitch_without_selection_shows_no_confirm(tui_env) 
         assert not isinstance(app.screen, ScopePickScreen)
         assert app.last_worker is None
         assert "select a paused" in app.last_status
+
+
+async def _wait_until(pilot, predicate, *, timeout: float = 5.0) -> None:
+    """Pump the app until ``predicate()`` holds (a worker thread's side effect)."""
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        assert time.monotonic() < deadline, "condition not reached in time"
+        await pilot.pause(0.02)
+
+
+# Every worker that mutates a gate or re-arms autonomy, keyed by a readable id, each
+# dispatched exactly as the app's keybindings, pickers and Ask routing do. ``freeze`` is
+# deliberately absent: the emergency stop is never refused (see the freeze tests below).
+_GATE_ACTIONS = {
+    "approve": lambda app, env: app._action_worker(env.run_id, PORTFOLIO_ID, "approve"),
+    "reject": lambda app, env: app._action_worker(env.run_id, PORTFOLIO_ID, "reject"),
+    "killswitch": lambda app, env: app._action_worker(
+        env.run_id, PORTFOLIO_ID, "killswitch"
+    ),
+    "edit": lambda app, env: app._edit_worker(env.run_id, PORTFOLIO_ID, {"AAA": 1.0}),
+    "steer": lambda app, env: app._barge_in_worker(
+        env.run_id, PORTFOLIO_ID, "trim AAA", False
+    ),
+    "rearm": lambda app, env: app._rearm_worker("portfolio", PORTFOLIO_ID, None),
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("second", sorted(_GATE_ACTIONS))
+async def test_gate_action_is_refused_while_an_approve_is_in_flight(
+    tui_env, monkeypatch, second
+) -> None:
+    # Resuming a gate takes seconds (graph resume + an LLM turn). A repeat or
+    # conflicting keypress in that window used to start a second thread on the same
+    # run, because Textual's ``exclusive`` only flags the older Worker cancelled.
+    import fund.actions as actions_mod
+
+    entered, release = threading.Event(), threading.Event()
+    calls: list[str] = []
+
+    def _slow_apply(decision, **_kwargs):
+        calls.append(decision)
+        entered.set()
+        release.wait(timeout=1.5)  # bounded so a regression fails instead of hanging
+        return SimpleNamespace(message=f"{decision} done")
+
+    monkeypatch.setattr(actions_mod, "apply_action", _slow_apply)
+
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        first = app.last_worker
+        await _wait_until(pilot, entered.is_set)
+
+        _GATE_ACTIONS[second](app, tui_env)
+        await pilot.pause(0.5)  # long enough for a second thread to start if allowed
+
+        assert calls == ["approve"]
+        assert "in progress" in app.last_status
+
+        release.set()
+        await first.wait()
+        await pilot.pause()
+        assert app.last_status == "approve done"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["portfolio", "fund"])
+async def test_freeze_is_not_refused_while_a_gate_action_is_stuck_in_flight(
+    tui_env, monkeypatch, scope
+) -> None:
+    # The freeze is the adviser's emergency stop. A hung graph resume (an LLM turn that
+    # never returns) must not leave every freeze refused until the TUI restarts.
+    import fund.actions as actions_mod
+
+    entered, release = threading.Event(), threading.Event()
+    calls: list[tuple[str, str | None]] = []
+
+    def _apply(decision, **kwargs):
+        calls.append((decision, kwargs.get("scope")))
+        if decision == "approve":
+            entered.set()
+            release.wait(timeout=5)  # bounded so a regression fails instead of hanging
+        return SimpleNamespace(message=f"{decision} done")
+
+    monkeypatch.setattr(actions_mod, "apply_action", _apply)
+
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        stuck = app.last_worker
+        await _wait_until(pilot, entered.is_set)
+
+        freeze = app._freeze_worker(scope, PORTFOLIO_ID)
+        await freeze.wait()  # lands while the approve is still blocked
+        await pilot.pause()
+
+        assert ("freeze", scope) in calls
+        assert not release.is_set()
+        assert app.last_status == "freeze done"
+
+        release.set()
+        await stuck.wait()
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_a_stuck_freeze_does_not_strand_later_gate_actions(
+    tui_env, monkeypatch
+) -> None:
+    # The exemption is one-way: a freeze never takes the single-flight lock, so a
+    # freeze stuck on a slow DB cannot refuse the approve/reject gate either.
+    import fund.actions as actions_mod
+
+    entered, release = threading.Event(), threading.Event()
+    calls: list[str] = []
+
+    def _apply(decision, **_kwargs):
+        calls.append(decision)
+        if decision == "freeze":
+            entered.set()
+            release.wait(timeout=5)
+        return SimpleNamespace(message=f"{decision} done")
+
+    monkeypatch.setattr(actions_mod, "apply_action", _apply)
+
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        stuck = app._freeze_worker("fund", None)
+        await _wait_until(pilot, entered.is_set)
+
+        app.action_decide_approve()
+        approve = app.last_worker
+        await approve.wait()
+        await pilot.pause()
+
+        assert calls == ["freeze", "approve"]
+        assert "in progress" not in app.last_status
+
+        release.set()
+        await stuck.wait()
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_gate_action_shows_a_working_status_while_it_runs(
+    tui_env, monkeypatch
+) -> None:
+    import fund.actions as actions_mod
+
+    entered, release = threading.Event(), threading.Event()
+
+    def _slow_apply(decision, **_kwargs):
+        entered.set()
+        release.wait(timeout=1.5)
+        return SimpleNamespace(message=f"{decision} done")
+
+    monkeypatch.setattr(actions_mod, "apply_action", _slow_apply)
+
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        first = app.last_worker
+        await _wait_until(pilot, entered.is_set)
+
+        assert "resolving" in app.last_status  # no silent seconds-long wait
+
+        release.set()
+        await first.wait()
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_gate_action_runs_once_the_previous_one_has_finished(
+    tui_env, monkeypatch
+) -> None:
+    import fund.actions as actions_mod
+
+    calls: list[str] = []
+
+    def _apply(decision, **_kwargs):
+        calls.append(decision)
+        if len(calls) == 1:
+            raise RuntimeError("resume exploded")  # a failure must free the latch too
+        return SimpleNamespace(message=f"{decision} done")
+
+    monkeypatch.setattr(actions_mod, "apply_action", _apply)
+
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert "action failed" in app.last_status
+
+        app.action_decide_reject()
+        await app.last_worker.wait()
+        await pilot.pause()
+
+        assert calls == ["approve", "reject"]
+        assert app.last_status == "reject done"
+
+
+@pytest.mark.asyncio
+async def test_reject_pressed_mid_approve_does_not_resume_the_run_twice(
+    tui_env, monkeypatch
+) -> None:
+    # End to end through the real action path: approve then reject on one gate must
+    # leave a completed run and a single audit row, never a filled ticket on a run
+    # recorded as rejected.
+    import fund.agents.graph as graph_mod
+
+    real_resume = graph_mod.resume_run
+    entered = threading.Event()
+    resumed: list[str] = []
+
+    def _slow_resume(run_id, decision, **kwargs):
+        resumed.append(decision)
+        entered.set()
+        time.sleep(0.6)  # stands in for the PM's post-approval LLM turn
+        return real_resume(run_id, decision, **kwargs)
+
+    monkeypatch.setattr(graph_mod, "resume_run", _slow_resume)
+
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        await _wait_until(pilot, entered.is_set)
+
+        app.action_decide_reject()
+        await _wait_until(pilot, lambda: "approved" in app.last_status, timeout=15)
+        await pilot.pause(0.3)
+
+        assert resumed == ["approve"]
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "completed"
+        log = HumanAuditLogRepository(session)
+        assert len(log.list_recent(action="approve")) == 1
+        assert log.list_recent(action="reject") == []
 
 
 def test_format_decision_gate_renders_why_from_description_else_fallback() -> None:
@@ -804,15 +1663,421 @@ def test_format_decision_gate_renders_why_from_description_else_fallback() -> No
             ]
         },
         run,
+        {"AAA": 0.5},
     )
     assert "place_orders" in with_desc
     assert "why: trimmed energy on macro risk-off" in with_desc
     assert "AAA: 0.5000" in with_desc
 
     no_desc = _format_decision_gate(
-        {"action_requests": [{"name": "place_orders", "args": {}}]}, run
+        {"action_requests": [{"name": "place_orders", "args": {}}]}, run, {}
     )
     assert "why: review before it executes" in no_desc
+
+
+def test_format_decision_gate_shows_the_risk_verdict() -> None:
+    from fund.tui.views import _format_decision_gate
+
+    run = SimpleNamespace(id=_PID_A, portfolio_id=_PID_B)
+
+    def gate(risk_gate: dict) -> str:
+        request = {"name": "place_orders", "args": {"risk_gate": risk_gate}}
+        return _format_decision_gate({"action_requests": [request]}, run, {})
+
+    assert "risk gate: passed" in gate({"status": "passed", "violations": []})
+    failed = gate(
+        {
+            "status": "failed",
+            "violations": [{"type": "max_weight", "asset": "AAA"}],
+        }
+    )
+    assert "risk gate: FAILED" in failed
+    assert "max_weight AAA" in failed
+    assert "risk gate: NOT CHECKED" in gate({"status": "not_run"})
+    stale = gate(
+        {"status": "stale", "violations": [{"type": "max_weight", "asset": "AAA"}]}
+    )
+    assert "risk gate: STALE" in stale
+    assert "max_weight" not in stale  # the breach belongs to a superseded vector
+    no_gate = _format_decision_gate(
+        {"action_requests": [{"name": "place_orders", "args": {}}]}, run, {}
+    )
+    assert "risk gate" not in no_gate
+
+
+def test_format_decision_gate_renders_audited_weights_and_flags_pm_mismatch() -> None:
+    from fund.tui.views import _format_decision_gate
+
+    run = SimpleNamespace(id=_PID_A, portfolio_id=_PID_B)
+    interrupt = {
+        "action_requests": [
+            {"name": "place_orders", "args": {"weights": {"SPY": 1.0}}},
+        ]
+    }
+    audited = {"AAA": 0.6, "BBB": 0.4}
+
+    text = _format_decision_gate(interrupt, run, audited)
+
+    # The gate shows what executes (the audited optimizer vector), never the PM's
+    # unverified args, and says so when the two disagree.
+    assert "AAA: 0.6000" in text
+    assert "BBB: 0.4000" in text
+    assert "SPY" not in text
+    assert "differ" in text
+
+    agreeing = _format_decision_gate(
+        {"action_requests": [{"name": "place_orders", "args": {"weights": audited}}]},
+        run,
+        audited,
+    )
+    assert "differ" not in agreeing
+
+    no_audit = _format_decision_gate(interrupt, run, {})
+    assert "SPY" not in no_audit
+    assert "no audited" in no_audit
+
+
+def test_format_decision_gate_tolerates_non_numeric_pm_weights() -> None:
+    from fund.tui.views import _format_decision_gate
+
+    run = SimpleNamespace(id=_PID_A, portfolio_id=_PID_B)
+    interrupt = {
+        "action_requests": [
+            {"name": "place_orders", "args": {"weights": {"AAA": "0.5", "BBB": None}}}
+        ]
+    }
+
+    text = _format_decision_gate(interrupt, run, {"AAA": 0.5, "BBB": 0.5})
+
+    assert "AAA: 0.5000" in text
+    assert "differ" in text
+
+
+@pytest.mark.asyncio
+async def test_decisions_gate_shows_audited_weights_when_pm_args_diverge(
+    tui_env,
+) -> None:
+    # The PM proposes {CCC: 1.0}; the allocator's audited vector (what place_orders
+    # actually executes) is tui_env.expected. The adviser must approve the latter. The
+    # gate middleware already pins the interrupt's args to it, so no mismatch remains
+    # to flag (the flag itself is covered on the formatter).
+    run_id = _seed_gate(tui_env, _PID_B, {"CCC": 1.0})
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        gate = view.gate_text
+    assert "CCC: 1.0000" not in gate
+    assert f"AAA: {tui_env.expected['AAA']:.4f}" in gate
+    assert "differ" not in gate
+
+
+@pytest.mark.asyncio
+async def test_decisions_read_error_keeps_last_queue_and_selection(
+    tui_env, monkeypatch
+) -> None:
+    # A transient read failure must not be painted as "0 awaiting": the queue, the
+    # selected gate and the header counter's view of the world all stay as they were.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        gate_before = view.gate_text
+
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("db down")
+
+        monkeypatch.setattr(observe, "pending_hitl", _boom)
+        view.refresh_view()
+        await pilot.pause()
+
+        assert view.query_one("#decisions-table", DataTable).row_count == 1
+        assert view.selected_run_id == tui_env.run_id
+        assert view.gate_text == gate_before
+        count = str(view.query_one("#decisions-count", Label).render())
+        assert "1 awaiting" in count
+        assert "read failed" in count
+
+
+@pytest.mark.asyncio
+async def test_decisions_gate_render_error_does_not_empty_the_queue(
+    tui_env, monkeypatch
+) -> None:
+    # One gate whose detail cannot be rendered must not hide the queue (or any other
+    # portfolio's pending gate) nor drop the selection.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+
+        def _boom(*_args, **_kwargs):
+            raise ValueError("unrenderable gate")
+
+        monkeypatch.setattr(observe, "interrupt_for", _boom)
+        view.refresh_view()
+        await pilot.pause()
+
+        assert view.query_one("#decisions-table", DataTable).row_count == 1
+        assert view.selected_run_id == tui_env.run_id
+        assert "unavailable" in view.gate_text
+
+
+async def _assert_gate_actions_refused_while_unavailable(app, pilot) -> None:
+    for action in (app.action_decide_approve, app.action_decide_reject):
+        app.last_worker = None
+        action()
+        await pilot.pause()
+        assert app.last_worker is None, action.__name__
+        assert "unavailable" in app.last_status.lower(), action.__name__
+
+
+@pytest.mark.asyncio
+async def test_decisions_gate_that_stops_rendering_cannot_be_approved_blind(
+    tui_env, monkeypatch
+) -> None:
+    # a/r resolve at once with no confirm, so a gate whose orders are no longer on
+    # screen (render error on a poll tick) must not be approvable or rejectable.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        assert "orders" in view.gate_text
+        original = observe.interrupt_for
+
+        def _boom(*_args, **_kwargs):
+            raise ValueError("unrenderable gate")
+
+        monkeypatch.setattr(observe, "interrupt_for", _boom)
+        view.refresh_view()
+        await pilot.pause()
+        await _assert_gate_actions_refused_while_unavailable(app, pilot)
+
+        # The refusal lifts as soon as the gate renders again.
+        monkeypatch.setattr(observe, "interrupt_for", original)
+        view.refresh_view()
+        await pilot.pause()
+        app.action_decide_approve()
+        await pilot.pause()
+        assert app.last_worker is not None
+        await app.last_worker.wait()
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_decisions_freshly_selected_gate_that_cannot_render_is_not_actionable(
+    tui_env, monkeypatch
+) -> None:
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+
+        def _boom(*_args, **_kwargs):
+            raise ValueError("unrenderable gate")
+
+        monkeypatch.setattr(observe, "interrupt_for", _boom)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        assert "unavailable" in view.gate_text
+        await _assert_gate_actions_refused_while_unavailable(app, pilot)
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
+
+
+def _cursor_key(table: DataTable) -> str | None:
+    """The row key under ``table``'s cursor, or ``None`` for an empty table."""
+    if not table.row_count:
+        return None
+    return table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+
+
+@pytest.mark.asyncio
+async def test_decisions_repaint_keeps_the_highlighted_gate(tui_env) -> None:
+    # The poll tick repaints the queue every couple of seconds; DataTable.clear()
+    # resets the cursor to row 0, so without restoring it an Enter after navigating
+    # would select the first gate instead of the one the adviser moved to.
+    _seed_gate(tui_env, _PID_B, tui_env.expected)
+    _seed_gate(tui_env, _PID_A, tui_env.expected)
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        table = view.query_one("#decisions-table", DataTable)
+        assert table.row_count == 3
+        table.move_cursor(row=2)
+        highlighted = _cursor_key(table)
+
+        view.refresh_view()  # what every poll tick does
+        await pilot.pause()
+
+        assert table.cursor_row == 2
+        assert _cursor_key(table) == highlighted
+
+
+@pytest.mark.asyncio
+async def test_decisions_repaint_follows_the_highlighted_gate_by_key(tui_env) -> None:
+    # A gate landing above the highlighted one shifts its row index; the cursor must
+    # stay on the same gate, not on whatever now occupies the old index.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        table = view.query_one("#decisions-table", DataTable)
+        assert _cursor_key(table) == str(tui_env.run_id)
+
+        newer = _seed_gate(tui_env, _PID_B, tui_env.expected)
+        _order_gates(tui_env, newer, tui_env.run_id)  # newest first => row 0
+        view.refresh_view()
+        await pilot.pause()
+
+        assert table.row_count == 2
+        assert table.coordinate_to_cell_key(Coordinate(0, 0)).row_key.value == str(
+            newer
+        )
+        assert _cursor_key(table) == str(tui_env.run_id)
+
+
+@pytest.mark.asyncio
+async def test_decisions_select_run_moves_the_highlight_to_the_selection(
+    tui_env,
+) -> None:
+    newest = _seed_gate(tui_env, _PID_B, tui_env.expected)
+    middle = _seed_gate(tui_env, _PID_A, tui_env.expected)
+    _order_gates(tui_env, newest, middle, tui_env.run_id)
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        table = view.query_one("#decisions-table", DataTable)
+        assert _cursor_key(table) == str(newest)
+
+        view.select_run(tui_env.run_id)  # the oldest gate => last row
+        await pilot.pause()
+
+        assert _cursor_key(table) == str(tui_env.run_id)
+        assert table.cursor_row == 2
+
+
+@pytest.mark.asyncio
+async def test_decisions_enter_then_approve_acts_on_the_highlighted_gate(
+    tui_env,
+) -> None:
+    other_b = _seed_gate(tui_env, _PID_B, tui_env.expected)
+    _seed_gate(tui_env, _PID_A, tui_env.expected)
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        table = view.query_one("#decisions-table", DataTable)
+        table.focus()
+        table.move_cursor(row=table.get_row_index(str(other_b)))
+        highlighted = _cursor_key(table)
+        assert highlighted == str(other_b)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert view.selected_run_id == other_b
+        assert _cursor_key(table) == highlighted  # Enter must not reset the cursor
+
+        app.action_decide_approve()
+        await pilot.pause()
+        assert app.last_worker is not None
+        await app.last_worker.wait()
+        await pilot.pause()
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(other_b).status == "completed"
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
+
+
+@pytest.mark.asyncio
+async def test_decisions_actions_refuse_when_highlight_is_not_the_selected_gate(
+    tui_env,
+) -> None:
+    # Enter on one gate, then arrow to another: a/r/k/e/s would act on the gate that is
+    # selected but no longer highlighted. They must refuse until Enter re-selects.
+    newer = _seed_gate(tui_env, _PID_B, tui_env.expected)
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        table = view.query_one("#decisions-table", DataTable)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        table.move_cursor(row=table.get_row_index(str(newer)))  # off the selection
+        await pilot.pause()
+        assert _cursor_key(table) == str(newer)
+        assert view.selected_run_id == tui_env.run_id
+
+        for action, hint_screen in (
+            (app.action_decide_approve, None),
+            (app.action_decide_reject, None),
+            (app.action_decide_killswitch, ScopePickScreen),
+            (app.action_edit_decision, OrderEditScreen),
+            (app.action_steer_decision, BargeInScreen),
+        ):
+            app.last_worker = None
+            action()
+            await pilot.pause()
+            assert app.last_worker is None, action.__name__
+            assert "press enter" in app.last_status.lower(), action.__name__
+            if hint_screen is not None:
+                assert not isinstance(app.screen, hint_screen), action.__name__
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
+
+
+@pytest.mark.asyncio
+async def test_posture_repaint_keeps_the_highlighted_portfolio(tui_env) -> None:
+    _seed_gate(tui_env, _PID_B, tui_env.expected)
+    _seed_gate(tui_env, _PID_A, tui_env.expected)
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        table = view.query_one("#posture-roster", DataTable)
+        assert table.row_count == 3
+        table.move_cursor(row=2)
+        highlighted = _cursor_key(table)
+
+        view.refresh_view()
+        await pilot.pause()
+
+        assert table.cursor_row == 2
+        assert _cursor_key(table) == highlighted
+
+
+@pytest.mark.asyncio
+async def test_decisions_edit_modal_is_seeded_from_audited_weights(tui_env) -> None:
+    run_id = _seed_gate(tui_env, _PID_B, {"CCC": 1.0})
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        app.action_edit_decision()
+        await pilot.pause()
+        assert isinstance(app.screen, OrderEditScreen)
+        seeded = app.screen.query_one("#edit-weights", Input).value
+    entries = dict(item.split(":") for item in seeded.split(", "))
+    assert float(entries["AAA"]) == pytest.approx(tui_env.expected["AAA"])
+    assert float(entries["CCC"]) == pytest.approx(tui_env.expected["CCC"], abs=1e-6)
+
+
+def test_gate_text_reads_the_run_optimizer_weights_not_the_pm_args(tui_env) -> None:
+    from fund.tui.views import _gate_text
+
+    with tui_env.get_session() as session:
+        AgentRunRepository(session).append_decision(
+            tui_env.run_id,
+            agent="allocator",
+            step="optimize_portfolio",
+            llm_response=json.dumps(
+                {"weights": {"AAA": 0.25, "BBB": 0.25, "CCC": 0.5}}
+            ),
+        )
+        text = _gate_text(session, tui_env.saver, tui_env.run_id)
+
+    assert text is not None
+    assert "CCC: 0.5000" in text
+    assert "differ" in text
 
 
 # --- Mandate view: run-policy editor + guardrail override (T5) ----------------
@@ -855,6 +2120,29 @@ async def test_mandate_renders_run_policy_and_guardrails(shell_env) -> None:
         assert "ESG exclude" in caps
 
 
+def test_format_caps_labels_each_drawdown_tier_and_keeps_precision() -> None:
+    from fund.tui.views import _format_caps
+
+    # nu2 is the client's stated loss tolerance (the hard ceiling); nu3 is the 1.5x
+    # absolute stop. Showing nu3 alone as "drawdown" overstated the ceiling by 50%.
+    caps = _format_caps({"nu1": 0.075, "nu2": 0.15, "nu3": 0.225})
+
+    assert "warn ≤7.5%" in caps
+    assert "ceiling ≤15.0%" in caps
+    assert "stop ≤22.5%" in caps
+    assert "drawdown ≤" not in caps
+
+
+def test_format_caps_skips_a_drawdown_tier_the_profile_lacks() -> None:
+    from fund.tui.views import _format_caps
+
+    caps = _format_caps({"nu2": 0.2})
+
+    assert "ceiling ≤20.0%" in caps
+    assert "warn" not in caps
+    assert "stop" not in caps
+
+
 @pytest.mark.asyncio
 async def test_mandate_save_run_policy_persists_and_logs(shell_env) -> None:
     _seed_mandate_and_profile(shell_env)
@@ -876,6 +2164,52 @@ async def test_mandate_save_run_policy_persists_and_logs(shell_env) -> None:
         assert len(rows) == 1
         assert rows[0].override_flag is False
         assert rows[0].suitability_flag is False
+
+
+@pytest.mark.asyncio
+async def test_mandate_save_rejects_an_unbreachable_drift_threshold(shell_env) -> None:
+    # `5` typed for "5%" exceeds the L1 maximum of 2: the trigger would never fire.
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = "5"
+        app.action_save_mandate()
+        await pilot.pause()
+        assert "invalid mandate" in app.last_status
+    with shell_env.get_session() as session:
+        assert observe.get_mandate(session, PORTFOLIO_ID).drift_l1_threshold == 0.1
+        assert HumanAuditLogRepository(session).list_recent(action="mandate_edit") == []
+
+
+@pytest.mark.asyncio
+async def test_mandate_invalid_capital_reports_on_status_line_without_crashing(
+    shell_env,
+) -> None:
+    # pydantic's error text carries "[type=..., input_value=..., input_type=...]",
+    # which a markup-parsing status line rejects (MarkupError) and kills the cockpit.
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-capital", Input).value = "-5"
+        app.action_save_mandate()
+        await pilot.pause()
+        assert app.last_status.startswith("invalid mandate")
+        shown = str(app.query_one("#status-bar", Static).render())
+        assert shown == app.last_status  # the status line renders as plain text
+        assert "capital" in shown  # the shared per-field summary names the field
+
+
+@pytest.mark.asyncio
+async def test_status_bar_renders_bracketed_text_verbatim(shell_env) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        message = "cash [5%] left; missing key [OLLAMA_API_KEY]; bad [/INST] tag"
+        app._set_status(message)
+        await pilot.pause()
+        assert str(app.query_one("#status-bar", Static).render()) == message
 
 
 @pytest.mark.asyncio
@@ -945,11 +2279,12 @@ async def test_mandate_actions_inert_without_a_mandate(shell_env) -> None:
 @pytest.mark.asyncio
 async def test_mandate_gate_checkbox_toggles_hitl_gates(shell_env) -> None:
     _seed_mandate_and_profile(shell_env)
-    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, config=_NO_BASELINE_GATES)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_mandate(app, pilot)
         place = view.query_one("#gate-place-orders", Checkbox)
         assert place.value is True  # the default mandate gates place_orders
+        assert place.disabled is False  # nothing else gates it, so the box is live
         save_profile = view.query_one("#gate-save-profile", Checkbox)
         assert save_profile.disabled is True  # always-on indicator, not toggleable
         assert save_profile.value is True
@@ -993,6 +2328,289 @@ async def test_mandate_remove_directive_drops_it_on_save(shell_env) -> None:
     with shell_env.get_session() as session:
         reloaded = observe.get_mandate(session, PORTFOLIO_ID)
         assert reloaded.remembered_directives == ("Keep 5% cash",)
+
+
+@pytest.mark.asyncio
+async def test_mandate_directive_with_bracket_sequences_renders_literally(
+    shell_env,
+) -> None:
+    """A remembered steer typed by the adviser is data, never Textual markup."""
+    directive = "cap energy [max=5%, hard] and never [/] trim"
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"remembered_directives": (directive,)}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        label = view.query_one("#mandate-directives", ListView).query_one(Label)
+        assert str(label.render()) == directive
+
+
+@pytest.mark.asyncio
+async def test_poll_tick_keeps_unsaved_mandate_edits(shell_env) -> None:
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"remembered_directives": ("Trim AAA", "Keep 5% cash")}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, config=_NO_BASELINE_GATES)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = "0.25"
+        view.query_one("#gate-place-orders", Checkbox).value = False
+        view.query_one("#mandate-directives", ListView).index = 0
+        view.action_remove_directive()
+        await pilot.pause()
+
+        app._poll()  # the timer tick must not repaint over what the adviser typed
+        await pilot.pause()
+
+        assert view.query_one("#mandate-drift", Input).value == "0.25"
+        assert view.query_one("#gate-place-orders", Checkbox).value is False
+        assert view._directives == ["Keep 5% cash"]
+        app.action_save_mandate()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        reloaded = observe.get_mandate(session, PORTFOLIO_ID)
+        assert reloaded.drift_l1_threshold == 0.25
+        assert reloaded.hitl_gates == ()
+        assert reloaded.remembered_directives == ("Keep 5% cash",)
+
+
+@pytest.mark.asyncio
+async def test_poll_tick_keeps_picked_guardrail_band_so_override_is_flagged(
+    shell_env,
+) -> None:
+    # The ceiling is balanced; the adviser picks aggressive and a tick lands before
+    # ``o``. Repainting the ceiling over the pick would log balanced -> balanced with
+    # no override flag, silently dropping the MiFID audit signal.
+    _seed_mandate_and_profile(shell_env, band="balanced")
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, config=_NO_BASELINE_GATES)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-band", Select).value = "aggressive"
+
+        app._poll()
+        await pilot.pause()
+
+        assert view.proposed_band() == "aggressive"
+        app.action_override_guardrail()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        rows = HumanAuditLogRepository(session).list_recent(action="guardrail_override")
+        assert len(rows) == 1
+        assert rows[0].new_value == "aggressive"
+        assert rows[0].override_flag is True
+        assert rows[0].suitability_flag is True
+
+
+@pytest.mark.asyncio
+async def test_poll_tick_still_repaints_an_untouched_mandate_view(shell_env) -> None:
+    # The edit guard must not freeze the view: with nothing edited, an external change
+    # to the stored mandate shows up on the next tick.
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, config=_NO_BASELINE_GATES)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        assert view.query_one("#mandate-drift", Input).value == "0.1"
+        with shell_env.get_session() as session:
+            MandateRepository(session).upsert(
+                make_mandate().model_copy(update={"drift_l1_threshold": 0.3})
+            )
+            session.commit()
+
+        app._poll()
+        await pilot.pause()
+
+        assert view.query_one("#mandate-drift", Input).value == "0.3"
+
+
+@pytest.mark.asyncio
+async def test_mandate_edits_reset_when_the_focused_portfolio_changes(
+    shell_env,
+) -> None:
+    # An explicit refocus (not a timer tick) repaints even a dirty editor: stale
+    # inputs from portfolio A must never be saved against portfolio B.
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = "0.25"
+
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+
+        assert view.query_one("#mandate-drift", Input).value == ""
+
+
+# --- Mandate polling must not repaint over unsaved edits ----------------------
+
+_FAST_POLL = 0.2
+_SETTLE = 0.9  # several poll ticks at _FAST_POLL
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_keeps_unsaved_run_policy_edit(shell_env) -> None:
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(
+        shell_env,
+        portfolio_id=PORTFOLIO_ID,
+        poll_interval=_FAST_POLL,
+        config=_NO_BASELINE_GATES,
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = "0.25"
+        view.query_one("#gate-place-orders", Checkbox).value = False
+        await pilot.pause(_SETTLE)
+        assert view.query_one("#mandate-drift", Input).value == "0.25"
+        assert view.query_one("#gate-place-orders", Checkbox).value is False
+        proposed = view.proposed_mandate()
+        assert proposed.drift_l1_threshold == 0.25
+        assert proposed.hitl_gates == ()
+        app.action_save_mandate()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        assert observe.get_mandate(session, PORTFOLIO_ID).drift_l1_threshold == 0.25
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_keeps_unsaved_band_pick_for_override(shell_env) -> None:
+    _seed_mandate_and_profile(shell_env, band="balanced")
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-band", Select).value = "aggressive"
+        await pilot.pause(_SETTLE)
+        assert view.proposed_band() == "aggressive"
+        app.action_override_guardrail()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        rows = HumanAuditLogRepository(session).list_recent(action="guardrail_override")
+        assert len(rows) == 1
+        assert rows[0].prev_value == "balanced"
+        assert rows[0].new_value == "aggressive"
+        assert rows[0].override_flag is True
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_keeps_removed_directive_removed(shell_env) -> None:
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"remembered_directives": ("Trim AAA", "Keep 5% cash")}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-directives", ListView).index = 0
+        view.action_remove_directive()
+        await pilot.pause(_SETTLE)
+        assert view._directives == ["Keep 5% cash"]
+        assert view.proposed_mandate().remembered_directives == ("Keep 5% cash",)
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_still_repaints_fields_the_user_did_not_edit(
+    shell_env,
+) -> None:
+    """Only a dirty field is protected: an external change to a clean field lands."""
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-benchmark", Input).value = "SPY"  # unsaved edit
+        with shell_env.get_session() as session:
+            external = observe.get_mandate(session, PORTFOLIO_ID).model_copy(
+                update={"drift_l1_threshold": 0.3}
+            )
+            MandateRepository(session).upsert(external)
+            session.commit()
+        await pilot.pause(_SETTLE)
+        assert view.query_one("#mandate-drift", Input).value == "0.3"
+        assert view.query_one("#mandate-benchmark", Input).value == "SPY"
+
+
+@pytest.mark.asyncio
+async def test_mandate_saved_field_is_released_even_if_typed_text_is_not_canonical(
+    shell_env,
+) -> None:
+    """A save lands the typed value, but the persisted rendering can differ from the
+    typed text (``0.20`` is stored as ``0.2``). The field must still be released, or
+    an external change never reaches it and a later save overwrites that change."""
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        drift = view.query_one("#mandate-drift", Input)
+        drift.value = "0.20"
+        app.action_save_mandate()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause(_SETTLE)
+        assert drift.value == "0.2"
+        with shell_env.get_session() as session:
+            external = observe.get_mandate(session, PORTFOLIO_ID).model_copy(
+                update={"drift_l1_threshold": 0.3}
+            )
+            MandateRepository(session).upsert(external)
+            session.commit()
+        await pilot.pause(_SETTLE)
+        assert drift.value == "0.3"
+
+
+@pytest.mark.asyncio
+async def test_mandate_save_ack_keeps_text_typed_while_the_save_was_in_flight(
+    shell_env,
+) -> None:
+    """Only the fields still holding the submitted value are released: a keystroke
+    typed between ctrl+s and the commit acknowledgement must not be repainted away."""
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        drift = view.query_one("#mandate-drift", Input)
+        capital = view.query_one("#mandate-capital", Input)
+        drift.value = "0.20"
+        capital.value = "250000"
+        submitted = view.proposed_mandate()
+        drift.value = "0.205"
+        view.mark_saved(submitted)
+        assert "capital" not in view._painted  # still the submitted value: released
+        assert "drift" in view._painted  # typed again since: still guarded
+        await pilot.pause(_SETTLE)
+        assert drift.value == "0.205"
+
+
+@pytest.mark.asyncio
+async def test_mandate_edit_made_after_a_save_is_still_protected(shell_env) -> None:
+    """Releasing the saved fields must not make the next edit vulnerable again."""
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        drift = view.query_one("#mandate-drift", Input)
+        drift.value = "0.20"
+        app.action_save_mandate()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause(_SETTLE)
+        drift.value = "0.35"
+        await pilot.pause(_SETTLE)
+        assert drift.value == "0.35"
 
 
 # --- Posture view: fund roster + fund strip + focused detail (T6) -------------
@@ -1085,6 +2703,44 @@ async def test_posture_roster_lists_portfolios_and_aggregates(shell_env) -> None
 
 
 @pytest.mark.asyncio
+async def test_posture_roster_degrades_one_unreadable_portfolio(shell_env) -> None:
+    # One stored mandate that no longer validates must not blank the whole control
+    # tower: the healthy portfolio keeps its row and the broken one reads as an error.
+    from portopt_db.models import PortfolioMandate as PortfolioMandateModel
+
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1, status="paused")
+        _seed_run(session, _PID_B, seed=2)
+        session.add(
+            PortfolioMandateModel(
+                portfolio_id=_PID_B,
+                base_currency="EUR",
+                capital=1000.0,
+                drift_l1_threshold=0.1,
+                mandate={"not": "a mandate"},
+                status="active",
+            )
+        )
+        session.commit()
+
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        table = view.query_one("#posture-roster", DataTable)
+        assert table.row_count == 2
+        health = {
+            table.get_row_at(i)[0]: str(table.get_row_at(i)[2])
+            for i in range(table.row_count)
+        }
+        assert "error" in health[_PID_B.hex[:8]]
+        assert "ok" in health[_PID_A.hex[:8]]
+        strip = str(view.query_one("#posture-strip", Static).render())
+        assert "2 pf" in strip
+        assert "1 awaiting" in strip  # the healthy gate is still counted
+        assert "?1 error" in strip  # the unreadable portfolio is not silently dropped
+
+
+@pytest.mark.asyncio
 async def test_posture_empty_portfolio_shows_profile_hint(shell_env) -> None:
     # A portfolio with a mandate but no runs: roster lists it; focusing shows the
     # "no runs yet · p profile to start" empty-state in the detail pane.
@@ -1098,6 +2754,35 @@ async def test_posture_empty_portfolio_shows_profile_hint(shell_env) -> None:
         assert view.query_one("#posture-roster", DataTable).row_count == 1
         assert "no runs yet" in view.detail_text
         assert "p profile to start" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_posture_poll_reads_only_the_latest_run(shell_env, monkeypatch) -> None:
+    # The roster, the focused detail and the header glyph each need only the newest
+    # run's status, so a 2s tick must not load a portfolio's whole run history.
+    with shell_env.get_session() as session:
+        for seed in range(3):
+            _seed_run(session, _PID_A, seed=seed)
+        session.commit()
+
+    rows_read: list[int] = []
+    real = observe.list_portfolio_runs
+
+    def spy(session, portfolio_id, **kwargs):
+        runs = real(session, portfolio_id, **kwargs)
+        rows_read.append(len(runs))
+        return runs
+
+    monkeypatch.setattr(observe, "list_portfolio_runs", spy)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        assert "ACTIVE RUN" in view.detail_text
+        assert app._run_state_glyph() == "▶ running"
+
+    assert rows_read
+    assert max(rows_read) == 1
 
 
 @pytest.mark.asyncio
@@ -1120,6 +2805,40 @@ async def test_posture_roster_selection_focuses_and_reveals_detail(shell_env) ->
         await pilot.pause()
         assert app._portfolio_id == _PID_A  # header context set from the roster
         assert "ACTIVE RUN" in view.detail_text  # detail revealed for the focus
+
+
+@pytest.mark.asyncio
+async def test_posture_roster_keeps_cursor_on_selected_row_across_repaints(
+    shell_env,
+) -> None:
+    # The roster is repainted on every poll tick and on every focus change; a repaint
+    # must not snap the highlight back to row 0 while the shell is focused on row 2.
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        _seed_run(session, _PID_B, seed=2)
+        _seed_run(session, _PID_C, seed=3)
+        session.commit()
+
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        table = view.query_one("#posture-roster", DataTable)
+        table.focus()
+        table.move_cursor(row=2)
+        await pilot.pause()
+
+        app._refresh()  # a poll tick landing between the arrow keys and Enter
+        await pilot.pause()
+        assert table.cursor_row == 2
+
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app._portfolio_id == _PID_C
+        assert table.cursor_row == 2  # highlight still on the focused portfolio
+
+        await pilot.press("enter")  # a repeated Enter re-focuses the same row
+        await pilot.pause()
+        assert app._portfolio_id == _PID_C
 
 
 # --- Onboarding + drive flows: questionnaire → profiler → run → approve (T7) ---
@@ -1173,12 +2892,18 @@ def onboard_env():
             session.close()
 
     from _fund_fakes import seed_panel
+    from _profiler_fakes import make_answers
+
+    from fund.agents.profiler import build_constraint_set
 
     with get_session() as session:
         seed_panel(session)
         session.commit()
+    # The allocator optimises under the ConstraintSet the TUI's profiler step will
+    # derive from these answers, not the stock one.
+    onboarded = build_constraint_set(make_answers(), portfolio_id=str(_PID_NEW))
     with get_session() as session:
-        expected = expected_weights(session)
+        expected = expected_weights(session, onboarded)
 
     pool = _FakePool()
     yield SimpleNamespace(
@@ -1231,6 +2956,64 @@ async def test_questionnaire_rejects_non_positive_capital(shell_env) -> None:
         screen._submit()
         await pilot.pause()
         assert isinstance(app.screen, QuestionnaireScreen)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("size", [(80, 24), (120, 40)])
+async def test_questionnaire_submit_and_error_stay_reachable_on_short_terminals(
+    shell_env, size
+) -> None:
+    """The form scrolls, so Submit, Cancel and the inline error stay on screen."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=size) as pilot:
+        await pilot.pause()
+        screen = QuestionnaireScreen(ask_capital=True)
+        app.push_screen(screen)
+        await pilot.pause()
+        for selector in ("#q-submit", "#q-cancel", "#q-error"):
+            assert app.screen.region.contains_region(
+                screen.query_one(selector).region
+            ), selector
+        esg = screen.query_one("#q-esg")
+        esg.focus()
+        await pilot.pause()
+        assert screen.query_one(".q-form").scroll_y > 0  # focus scrolls the field in
+        # An empty form fails on the first required choice; the message must be seen.
+        await pilot.click("#q-submit")
+        await pilot.pause()
+        assert isinstance(app.screen, QuestionnaireScreen)
+        assert "required" in str(screen.query_one("#q-error", Static).render())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("selector", "value", "field"),
+    [
+        ("#q-base-currency", "eur", "base_currency"),
+        ("#q-max-loss", "40", "max_1yr_loss_pct"),
+    ],
+)
+async def test_questionnaire_pydantic_error_is_shown_inline_not_crashing(
+    shell_env, selector, value, field
+) -> None:
+    """A contract violation shows as plain inline text, never parsed as markup."""
+    from _profiler_fakes import make_answers
+
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        screen = QuestionnaireScreen(ask_capital=True)
+        app.push_screen(screen)
+        await pilot.pause()
+        _fill_questionnaire(screen, make_answers(), capital="100000")
+        screen.query_one(selector, Input).value = value
+        await pilot.click("#q-submit")
+        await pilot.pause()
+        assert app.is_running
+        assert isinstance(app.screen, QuestionnaireScreen)
+        message = str(screen.query_one("#q-error", Static).render())
+        assert field in message
+        assert "input_value" not in message  # the per-field summary, not the dump
 
 
 @pytest.mark.asyncio
@@ -1358,7 +3141,23 @@ async def test_onboarding_full_cycle_profile_run_approve(
     with onboard_env.get_session() as session:
         run = AgentRunRepository(session).get_run(fund_run_id)
         assert run.status == "completed"
-        assert run.weights == onboard_env.expected  # optimizer output, not the LLM's
+        # The optimizer's output under the profiler's own constraint set, not the
+        # LLM's: the profile this portfolio was onboarded with (not the fixture's
+        # growth profile behind ``onboard_env.expected``) drives the optimizer.
+        from fund.agents.toolsets import _optimizer_constraints
+        from fund.schemas import ConstraintSet
+        from fund.tools.optimize import optimize_portfolio
+
+        allocation = next(
+            d
+            for d in run.decisions
+            if d.agent == "allocator" and d.step == "optimize_portfolio"
+        )
+        profile = ConstraintSet.model_validate(allocation.constraint_set)
+        optimized = optimize_portfolio(
+            session, ASOF, UNIVERSE, constraints=_optimizer_constraints(profile)
+        )
+        assert run.weights == optimized["data"]["weights"]
         actions = [row.action for row in HumanAuditLogRepository(session).list_recent()]
         assert "new_portfolio" in actions
         assert "profile" in actions
@@ -1456,6 +3255,27 @@ async def test_audit_portfolio_scope_filters_to_focus(shell_env) -> None:
         assert view.filter_portfolio is True
         # _PID_A owns the agent decision + the approve row; the override is _PID_B.
         assert table.row_count == 2
+        filters = str(view.query_one("#audit-filters", Static).render())
+        assert "this pf" in filters
+        assert "none focused" not in filters
+
+
+@pytest.mark.asyncio
+async def test_audit_portfolio_scope_says_when_no_portfolio_is_focused(
+    shell_env,
+) -> None:
+    # On the fund-wide landing there is no "this pf" to filter to, so every row stays
+    # listed; the filter line must not claim a scope it is not applying.
+    with shell_env.get_session() as session:
+        _seed_audit_rows(session)
+        session.commit()
+    app = _make_shell(shell_env)  # fund-wide: nothing focused
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        view.toggle_portfolio_scope()
+        assert view.query_one("#audit-table", DataTable).row_count == 3
+        filters = str(view.query_one("#audit-filters", Static).render())
+        assert "this pf (none focused)" in filters
 
 
 @pytest.mark.asyncio
@@ -1477,6 +3297,192 @@ async def test_audit_detail_shows_provenance_and_flags(shell_env) -> None:
 
 
 @pytest.mark.asyncio
+async def test_audit_detail_stays_on_selected_record_when_new_rows_arrive(
+    shell_env,
+) -> None:
+    # The timeline is newest-first and re-read on every poll tick, so a new decision
+    # prepends a row. The pane must keep showing the record the adviser selected, not
+    # whatever now sits at the same list position.
+    with shell_env.get_session() as session:
+        _seed_audit_rows(session)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        view.select_index(0)
+        selected = view.detail_text
+        assert selected != "(select a decision)"
+
+        with shell_env.get_session() as session:
+            session.add(
+                HumanAuditLog(
+                    action="freeze",
+                    actor="human",
+                    portfolio_id=_PID_B,
+                    created_at=datetime(2099, 1, 1, tzinfo=UTC),
+                )
+            )
+            session.commit()
+        app._refresh()
+        await pilot.pause()
+
+        assert len(view._entries) == 4  # the new row really did arrive on top
+        assert view.detail_text == selected
+
+
+@pytest.mark.asyncio
+async def test_audit_enter_selects_the_highlighted_record(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_audit_rows(session)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        table = view.query_one("#audit-table", DataTable)
+        table.focus()
+        table.move_cursor(row=1)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        from fund.tui.views import _audit_detail
+
+        assert view.detail_text == _audit_detail(view._entries[1])
+
+
+def _seed_many_audit_rows(session, count: int) -> None:
+    """Seed ``count`` human audit rows, one minute apart, newest last."""
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    for i in range(count):
+        session.add(
+            HumanAuditLog(
+                action="note",
+                actor="human",
+                portfolio_id=_PID_A,
+                created_at=base + timedelta(minutes=i),
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_audit_export_includes_rows_beyond_the_view_cap(
+    shell_env, tmp_path
+) -> None:
+    # The view shows the newest 200 rows, but an export is the audit record: it must
+    # not silently drop the older decisions.
+    with shell_env.get_session() as session:
+        _seed_many_audit_rows(session, 205)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        assert len(view._entries) == 200
+        out = tmp_path / "audit.csv"
+        view.export_csv(str(out))
+
+    data_rows = out.read_text(encoding="utf-8").strip().splitlines()[1:]
+    assert len(data_rows) == 205
+
+
+@pytest.mark.asyncio
+async def test_audit_table_keeps_cursor_and_scroll_across_repaints(shell_env) -> None:
+    # The table is repainted on every poll tick; browsing down to older decisions must
+    # not snap the highlight and the viewport back to the top.
+    with shell_env.get_session() as session:
+        _seed_many_audit_rows(session, 60)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        table = view.query_one("#audit-table", DataTable)
+        table.focus()
+        table.move_cursor(row=50)
+        await pilot.pause()
+        scrolled_to = table.scroll_y
+        assert scrolled_to > 0
+
+        app._poll()
+        await pilot.pause()
+
+        assert table.cursor_row == 50
+        assert table.scroll_y == scrolled_to
+
+
+@pytest.mark.asyncio
+async def test_audit_enter_keeps_highlight_on_the_selected_row(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_many_audit_rows(session, 60)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        table = view.query_one("#audit-table", DataTable)
+        table.focus()
+        table.move_cursor(row=40)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert view.selected_entry_id == view._entries[40].entry_id
+        assert table.cursor_row == 40  # highlight and detail agree after the repaint
+
+
+@pytest.mark.asyncio
+async def test_audit_view_flags_a_truncated_timeline(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_many_audit_rows(session, 201)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        filters = str(view.query_one("#audit-filters", Static).render())
+        assert "200 rows" in filters
+        assert "older omitted" in filters
+
+
+@pytest.mark.asyncio
+async def test_audit_view_does_not_flag_a_timeline_that_exactly_fits(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        _seed_many_audit_rows(session, 200)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        filters = str(view.query_one("#audit-filters", Static).render())
+        assert "200 rows" in filters
+        assert "older omitted" not in filters
+
+
+@pytest.mark.asyncio
+async def test_audit_export_fails_visibly_when_the_read_fails(
+    shell_env, tmp_path, monkeypatch
+) -> None:
+    # A read error on the export must not produce a header-only file reported as
+    # exported.
+    with shell_env.get_session() as session:
+        _seed_audit_rows(session)
+        session.commit()
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("db hiccup")
+
+        monkeypatch.setattr(observe, "audit_timeline", _boom)
+        with pytest.raises(RuntimeError, match="db hiccup"):
+            view.export_csv(str(tmp_path / "audit.csv"))
+        assert not (tmp_path / "audit.csv").exists()
+
+        app.action_export_audit()
+        assert app.last_status.startswith("export failed")
+        assert list(tmp_path.glob("audit-export-*.csv")) == []
+
+
+@pytest.mark.asyncio
 async def test_audit_export_writes_csv(shell_env, tmp_path) -> None:
     with shell_env.get_session() as session:
         _seed_audit_rows(session)
@@ -1494,6 +3500,86 @@ async def test_audit_export_writes_csv(shell_env, tmp_path) -> None:
     assert text.strip().count("\n") >= 3  # header + 3 data rows
 
 
+@pytest.mark.asyncio
+async def test_audit_export_is_readable_by_its_owner_only(shell_env, tmp_path) -> None:
+    import stat
+
+    with shell_env.get_session() as session:
+        _seed_audit_rows(session)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        out = tmp_path / "audit.csv"
+        view.export_csv(str(out))
+
+    assert stat.S_IMODE(out.stat().st_mode) == 0o600
+
+
+def _seed_rearm_with_rationale(session) -> None:
+    HumanAuditLogRepository(session).append(
+        action="rearm",
+        actor="human",
+        target="fund",
+        new_value={"state": "armed"},
+        rationale="drawdown reviewed with the risk committee",
+    )
+
+
+@pytest.mark.asyncio
+async def test_audit_detail_shows_rationale_and_target(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_rearm_with_rationale(session)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        view.select_index(0)
+        assert "target: fund" in view.detail_text
+        assert "drawdown reviewed with the risk committee" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_audit_detail_renders_bracketed_rationale_verbatim(shell_env) -> None:
+    """A rationale is free text: brackets are literal, never Textual markup.
+
+    ``[/ops]`` is an unmatched closing tag that makes markup parsing raise, and
+    ``[CRO approved]`` would be swallowed as a style tag; either corrupts or crashes
+    the pane that is labelled an immutable audit record.
+    """
+    rationale = "closed per [/ops] review [CRO approved]"
+    with shell_env.get_session() as session:
+        HumanAuditLogRepository(session).append(
+            action="rearm", actor="human", target="fund", rationale=rationale
+        )
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        view.select_index(0)
+        await pilot.pause()
+        rendered = view.query_one("#audit-detail", Static).visual.plain
+    assert f"rationale: {rationale}" in rendered
+
+
+@pytest.mark.asyncio
+async def test_audit_export_includes_rationale_and_target(shell_env, tmp_path) -> None:
+    import csv
+
+    with shell_env.get_session() as session:
+        _seed_rearm_with_rationale(session)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        out = tmp_path / "audit.csv"
+        view.export_csv(str(out))
+    with out.open(newline="", encoding="utf-8") as handle:
+        (row,) = csv.DictReader(handle)
+    assert row["target"] == "fund"
+    assert row["rationale"] == "drawdown reviewed with the risk committee"
+
+
 def test_audit_csv_cells_neutralise_formula_injection() -> None:
     """Agent-generated cells starting with a spreadsheet trigger are de-fanged."""
     from fund.tui.views import _audit_cell, _csv_safe
@@ -1509,6 +3595,84 @@ def test_audit_csv_cells_neutralise_formula_injection() -> None:
     # Scalars route through the same guard; a JSON object renders as {...} (safe).
     assert _audit_cell("=evil") == "'=evil"
     assert _audit_cell({"k": "=v"}) == '{"k": "=v"}'
+
+
+@pytest.mark.asyncio
+async def test_audit_repaint_keeps_cursor_and_scroll(shell_env) -> None:
+    # A long timeline is browsed with the keyboard while the poll tick repaints it;
+    # the highlight and the viewport must not snap back to the top every tick.
+    with shell_env.get_session() as session:
+        hlog = HumanAuditLogRepository(session)
+        for _ in range(80):
+            hlog.append(action="approve", portfolio_id=_PID_A, actor="human")
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        table = view.query_one("#audit-table", DataTable)
+        assert table.row_count == 80
+        table.move_cursor(row=70)
+        await pilot.pause()
+        scrolled = table.scroll_y
+        assert scrolled > 0
+
+        view.refresh_view()  # what every poll tick does
+        await pilot.pause()
+
+        assert table.cursor_row == 70
+        assert table.scroll_y == scrolled
+
+        # A viewport scrolled away from the cursor (mouse wheel) is held too.
+        table.scroll_to(y=5, animate=False)
+        await pilot.pause()
+        assert table.scroll_y == 5
+
+        view.refresh_view()
+        await pilot.pause()
+
+        assert table.cursor_row == 70
+        assert table.scroll_y == 5
+
+
+@pytest.mark.asyncio
+async def test_audit_filter_change_starts_the_new_timeline_at_the_top(
+    shell_env,
+) -> None:
+    # The cursor is held across same-dataset polls only: a different filter is a
+    # different timeline, so it must not inherit the old cursor row or scroll offset.
+    with shell_env.get_session() as session:
+        hlog = HumanAuditLogRepository(session)
+        for _ in range(80):
+            hlog.append(action="approve", portfolio_id=_PID_A, actor="human")
+        for _ in range(5):
+            hlog.append(
+                action="guardrail_override",
+                portfolio_id=_PID_A,
+                actor="human",
+                override_flag=True,
+            )
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        table = view.query_one("#audit-table", DataTable)
+        assert table.row_count == 85
+        table.move_cursor(row=70)
+        await pilot.pause()
+        assert table.scroll_y > 0
+
+        for toggle, rows in (
+            (view.toggle_overrides, 5),
+            (view.toggle_overrides, 85),
+            (view.toggle_portfolio_scope, 85),
+        ):
+            table.move_cursor(row=min(70, table.row_count - 1))
+            await pilot.pause()
+            toggle()
+            await pilot.pause()
+            assert table.row_count == rows, toggle.__name__
+            assert table.cursor_row == 0, toggle.__name__
+            assert table.scroll_y == 0, toggle.__name__
 
 
 # --- Deliberation replay view: transcript + step detail (T9) ------------------
@@ -1592,6 +3756,83 @@ async def test_deliberation_row_selection_drives_steps_then_detail(shell_env) ->
 
 
 @pytest.mark.asyncio
+async def test_deliberation_repaint_keeps_run_and_step_cursors(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=2)
+        run_id = _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        runs = view.query_one("#delib-runs", DataTable)
+        assert runs.row_count == 2
+        view.select_run(run_id)
+        await pilot.pause()
+        steps = view.query_one("#delib-steps", DataTable)
+        assert steps.row_count == 3
+        runs.move_cursor(row=1)
+        steps.move_cursor(row=2)
+
+        view.refresh_view()
+        await pilot.pause()
+
+        assert runs.cursor_row == 1
+        assert steps.cursor_row == 2
+
+
+@pytest.mark.asyncio
+async def test_deliberation_other_run_starts_its_steps_at_the_top(shell_env) -> None:
+    # Steps are keyed by position, so a freshly picked run's transcript would inherit
+    # the previous run's cursor row unless the dataset change resets it.
+    with shell_env.get_session() as session:
+        first = _seed_run_with_steps(session)
+        second = _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        steps = view.query_one("#delib-steps", DataTable)
+        view.select_run(first)
+        await pilot.pause()
+        steps.move_cursor(row=2)
+        assert steps.cursor_row == 2
+
+        view.refresh_view()  # a poll tick on the same run keeps the cursor
+        await pilot.pause()
+        assert steps.cursor_row == 2
+
+        view.select_run(second)
+        await pilot.pause()
+
+        assert steps.row_count == 3
+        assert steps.cursor_row == 0
+
+
+@pytest.mark.asyncio
+async def test_deliberation_other_portfolio_starts_its_runs_at_the_top(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        for seed in range(3):
+            _seed_run(session, _PID_A, seed=seed)
+            _seed_run(session, _PID_B, seed=seed)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        runs = view.query_one("#delib-runs", DataTable)
+        assert runs.row_count == 3
+        runs.move_cursor(row=2)
+        assert runs.cursor_row == 2
+
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+
+        assert runs.row_count == 3
+        assert runs.cursor_row == 0
+
+
+@pytest.mark.asyncio
 async def test_deliberation_empty_without_focus(shell_env) -> None:
     app = _make_shell(shell_env)  # fund-wide landing, nothing focused
     async with app.run_test(size=_SIZE) as pilot:
@@ -1619,6 +3860,49 @@ def test_readout_build_renders_record_and_mock_labels() -> None:
     assert "objective" in text  # constraints/objective carry real recorded values
     assert "bounds" in text
     assert "mock — no live source yet" in text  # factors/signals/views labelled
+
+
+def test_readout_build_separates_requested_intent_from_applied_config() -> None:
+    """The allocator ignores objective/risk measure/aversion/regularisation, so the
+    read-out labels the client's request as not applied and shows what actually ran."""
+    from fund.tui.readouts import render_readout
+
+    constraint_set = make_constraint_set().model_dump(mode="json")
+    constraint_set.update(objective="maximize_ratio", risk_measure="cvar", a_gamma=0.4)
+    payload = {
+        "constraint_set": constraint_set,
+        "weights": {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+        "optimizer_config": {
+            "objective": "minimize_risk",
+            "risk_measure": "variance",
+            "risk_aversion": 1.0,
+            "l1_coef": 0.0,
+            "l2_coef": 0.0,
+            "cardinality": None,
+        },
+    }
+    text = render_readout("allocator", "optimize_portfolio", payload)
+    assert text is not None
+    lines = [line.strip() for line in text.splitlines()]
+    applied = [line for line in lines if line.startswith("applied")]
+    for token in ("maximize_ratio", "a_gamma", "regularisation"):
+        flagged = [line for line in lines if token in line and line not in applied]
+        assert flagged, token
+        assert all(line.startswith("requested (not applied)") for line in flagged)
+    assert any("minimize_risk" in line and "variance" in line for line in applied)
+
+
+def test_readout_build_omits_applied_lines_without_a_recorded_config() -> None:
+    """A decision that predates the recorded config shows no invented applied line."""
+    from fund.tui.readouts import render_readout
+
+    payload = {
+        "constraint_set": make_constraint_set().model_dump(mode="json"),
+        "weights": {"AAA": 1.0},
+    }
+    text = render_readout("allocator", "optimize_portfolio", payload)
+    assert text is not None
+    assert "applied ·" not in text
 
 
 def test_readout_returns_none_for_unmapped_step() -> None:
@@ -1791,7 +4075,7 @@ async def test_deliberation_unmapped_step_with_payload_falls_back_to_json(
 # --- Deliberation drill-down recompute: expand → worker → render (Phase 4 T6) --
 
 
-def _seed_allocator_run(session) -> uuid.UUID:
+def _seed_allocator_run(session, optimizer_config=None) -> uuid.UUID:
     """Seed a run with a constraint-set-bearing allocator step; return its id."""
     repo = AgentRunRepository(session)
     run = repo.create_run(
@@ -1799,7 +4083,7 @@ def _seed_allocator_run(session) -> uuid.UUID:
         asof=date(2026, 1, 2),
         seed=1,
         universe=[],
-        optimizer_config={},
+        optimizer_config=optimizer_config or {},
     )
     repo.append_decision(
         run.id,
@@ -1829,7 +4113,7 @@ async def test_deliberation_expand_renders_recomputed_results(
             mean=0.1,
             standard_deviation=0.18,
             sharpe_ratio=0.55,
-            max_drawdown=-0.08,
+            max_drawdown=0.08,
             n_observations=30,
             n_folds=2,
             out_of_sample=True,
@@ -1860,6 +4144,45 @@ async def test_deliberation_expand_renders_recomputed_results(
         assert "compute to view" not in detail  # markers replaced by live numbers
         assert "sharpe 0.60" in detail  # the frontier point
         assert "sharpe 0.55" in detail  # the backtest
+        # Both figures are annual, and the adviser is told so.
+        assert "sharpe 0.60 (annualised)" in detail
+        assert "sharpe 0.55 (annualised)" in detail
+
+
+@pytest.mark.asyncio
+async def test_deliberation_expand_replays_with_the_runs_recorded_lookback(
+    shell_env, monkeypatch
+) -> None:
+    """The recompute worker hands the run's recorded lookback to the replay, so the
+    backtest trains on the window the risk agent used rather than a library default."""
+    from fund import readouts_compute
+
+    captured: dict[str, object] = {}
+
+    def _capture(*_args, **kwargs):
+        captured.update(kwargs)
+        return readouts_compute.ResultsCompute(
+            frontier=None, frontier_error="stub", backtest=None, backtest_error="stub"
+        )
+
+    monkeypatch.setattr(readouts_compute, "compute_results", _capture)
+    with shell_env.get_session() as session:
+        run_id = _seed_allocator_run(session, {"step": "fund", "lookback_days": 321})
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(0)
+        await pilot.pause()
+        app.action_expand_readout()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+    assert captured["lookback_days"] == 321
 
 
 @pytest.mark.asyncio
@@ -1903,6 +4226,38 @@ async def test_deliberation_expand_renders_recomputed_risk_verdict(
 
 
 @pytest.mark.asyncio
+async def test_deliberation_expand_replaces_recomputing_status_when_done(
+    shell_env, monkeypatch
+) -> None:
+    """The ``recomputing read-out…`` status must not outlive the compute: left in
+    place it reads as a hung computation long after the numbers painted in."""
+    from fund import readouts_compute
+
+    canned = readouts_compute.RiskCompute(
+        passed=True, violations=(), sector_exposures=None, error=None
+    )
+    monkeypatch.setattr(readouts_compute, "compute_risk", lambda *_a, **_k: canned)
+    with shell_env.get_session() as session:
+        run_id = _seed_allocator_run(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(1)  # the risk step
+        await pilot.pause()
+        app.action_expand_readout()
+        assert "recomputing" in app.last_status
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert "recomputing" not in app.last_status
+        assert "read-out ready" in app.last_status
+
+
+@pytest.mark.asyncio
 async def test_deliberation_expand_scopes_to_selected_allocator_step(
     shell_env, monkeypatch
 ) -> None:
@@ -1913,7 +4268,7 @@ async def test_deliberation_expand_scopes_to_selected_allocator_step(
 
     captured = {}
 
-    def _capture(_session, _asof, _universe, constraint_set, weights):
+    def _capture(_session, _asof, _universe, constraint_set, weights, **_kwargs):
         captured["constraint_set"] = constraint_set
         captured["weights"] = dict(weights)
         return readouts_compute.ResultsCompute(
@@ -1979,6 +4334,53 @@ async def test_deliberation_expand_scopes_to_selected_allocator_step(
 
 
 @pytest.mark.asyncio
+async def test_deliberation_expand_recomputes_in_the_mandate_base_currency(
+    shell_env, monkeypatch
+) -> None:
+    """The replay converts prices to the portfolio mandate's base currency, as the
+    agent's allocator tools did, so the drill-down matches the decided numbers."""
+    from fund import readouts_compute
+
+    captured = {}
+
+    def _capture(
+        _session,
+        _asof,
+        _universe,
+        _constraint_set,
+        _weights,
+        base_currency=None,
+        **_kwargs,
+    ):
+        captured["base_currency"] = base_currency
+        return readouts_compute.ResultsCompute(
+            frontier=None, frontier_error="stub", backtest=None, backtest_error="stub"
+        )
+
+    monkeypatch.setattr(readouts_compute, "compute_results", _capture)
+    with shell_env.get_session() as session:
+        MandateRepository(session).upsert(
+            make_mandate(_PID_A).model_copy(update={"base_currency": "CHF"})
+        )
+        run_id = _seed_allocator_run(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(0)
+        await pilot.pause()
+        app.action_expand_readout()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+    assert captured["base_currency"] == "CHF"
+
+
+@pytest.mark.asyncio
 async def test_deliberation_paint_readout_does_not_clobber_live_detail(
     shell_env,
 ) -> None:
@@ -2011,13 +4413,61 @@ async def test_deliberation_paint_readout_does_not_clobber_live_detail(
         assert view._readout is not None  # stored for when replay resumes
 
 
-def test_compute_risk_empty_weights_with_mapping_degrades_to_none() -> None:
+@pytest.mark.asyncio
+async def test_deliberation_recompute_ignores_allocator_message_with_same_index(
+    shell_env,
+) -> None:
+    """An allocator *report message* shares the numbering space of decision indices.
+
+    A recompute is keyed by the decision's ``decision_index``; a message row that
+    happens to carry the same number must not inherit that proposal's frontier and
+    backtest read-out.
+    """
+    from fund import readouts_compute
+    from fund.observe import TranscriptEntry
+
+    canned = readouts_compute.ResultsCompute(
+        frontier=readouts_compute.FrontierPoint(0.1, 0.2, 0.5, 40),
+        frontier_error=None,
+        backtest=None,
+        backtest_error="too short",
+    )
+    with shell_env.get_session() as session:
+        run_id = _seed_allocator_run(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.paint_readout(run_id, "allocator", 4, canned)
+        message = TranscriptEntry(
+            source="message",
+            agent="allocator",
+            step=None,
+            index=4,
+            text="allocator report",
+            payload=None,
+        )
+        decision = TranscriptEntry(
+            source="decision",
+            agent="allocator",
+            step="optimize_portfolio",
+            index=4,
+            text="",
+            payload={"weights": {"AAA": 1.0}},
+        )
+        assert view._compute_for(message) is None
+        assert view._compute_for(decision) is canned
+
+
+def test_compute_risk_empty_weights_with_mapping_degrades_to_none(db_session) -> None:
     """An empty roll-up (mapping present, no usable weights) is None, not an empty
     tuple — so the renderer shows 'unavailable', never a bare header with no rows."""
     from fund.readouts_compute import compute_risk
 
     constraint_set = make_constraint_set().model_dump(mode="json")
-    result = compute_risk({}, constraint_set, {"AAA": "Tech"})
+    result = compute_risk({}, constraint_set, {"AAA": "Tech"}, session=db_session)
     assert result.sector_exposures is None
 
 
@@ -2040,6 +4490,94 @@ def test_readout_allocator_renders_compute_without_payload() -> None:
     assert text is not None
     assert "sharpe 0.50" in text  # the frontier point surfaces
     assert "weights · none recorded" in text  # empty payload rendered, not crashed
+
+
+def test_readout_frontier_labels_annualised_units_with_readable_precision() -> None:
+    """Annualised mean and vol render as percentages, never rounded to 0.00."""
+    from fund import readouts_compute
+    from fund.tui.readouts import render_readout
+
+    compute = readouts_compute.ResultsCompute(
+        frontier=readouts_compute.FrontierPoint(
+            mean=0.1008,
+            standard_deviation=0.1111,
+            sharpe_ratio=0.9,
+            n_observations=500,
+        ),
+        frontier_error=None,
+        backtest=readouts_compute.BacktestResult(
+            mean=0.08,
+            standard_deviation=0.12,
+            sharpe_ratio=0.67,
+            max_drawdown=0.08,
+            n_observations=300,
+            n_folds=0,
+            out_of_sample=False,
+            window_start="2024-01-01",
+            window_end="2024-12-31",
+        ),
+        backtest_error=None,
+    )
+    text = render_readout("allocator", "optimize_portfolio", None, compute)
+    assert text is not None
+    assert "mean +10.08% · vol 11.11% · sharpe 0.90 (annualised)" in text
+    assert "sharpe 0.67 (annualised)" in text
+
+
+def test_readout_results_name_the_currency_the_figures_are_in() -> None:
+    """A recorded base currency labels the frontier and backtest figures with it."""
+    from fund import readouts_compute
+    from fund.tui.readouts import render_readout
+
+    def _compute(base_currency: str | None) -> readouts_compute.ResultsCompute:
+        return readouts_compute.ResultsCompute(
+            frontier=readouts_compute.FrontierPoint(
+                mean=0.1, standard_deviation=0.11, sharpe_ratio=0.9, n_observations=500
+            ),
+            frontier_error=None,
+            backtest=readouts_compute.BacktestResult(
+                mean=0.08,
+                standard_deviation=0.12,
+                sharpe_ratio=0.67,
+                max_drawdown=-0.08,
+                n_observations=300,
+                n_folds=0,
+                out_of_sample=False,
+                window_start="2024-01-01",
+                window_end="2024-12-31",
+            ),
+            backtest_error=None,
+            base_currency=base_currency,
+        )
+
+    labelled = render_readout("allocator", "optimize_portfolio", None, _compute("EUR"))
+    assert labelled is not None
+    assert "sharpe 0.90 (annualised · EUR)" in labelled
+    assert "sharpe 0.67 (annualised · EUR)" in labelled
+
+    unlabelled = render_readout("allocator", "optimize_portfolio", None, _compute(None))
+    assert unlabelled is not None
+    assert "sharpe 0.90 (annualised)" in unlabelled
+    assert "EUR" not in unlabelled
+
+
+def test_readout_risk_lists_limits_the_verdict_did_not_evaluate() -> None:
+    """An ok verdict still names the limits no check covered, so ok is not read as
+    "inside every limit"."""
+    from fund import readouts_compute
+    from fund.tui.readouts import render_readout
+
+    compute = readouts_compute.RiskCompute(
+        passed=True,
+        violations=(),
+        sector_exposures=None,
+        error=None,
+        unchecked_limits=("drawdown ceilings (nu1 10% · nu2 20% · nu3 30%)",),
+    )
+    text = render_readout("risk", "risk_check", None, compute)
+    assert text is not None
+    assert "● ok" in text
+    assert "not evaluated · drawdown ceilings (nu1 10% · nu2 20% · nu3 30%)" in text
 
 
 # --- Deliberation live mode: streamed timeline + follow/inspect (GP0-1) --------
@@ -2095,10 +4633,101 @@ async def test_deliberation_live_renders_steps_and_flips_markers(shell_env) -> N
         assert live.display is True
         assert live.row_count == 3  # the two steps + the terminal gate row
         # Each new event flips the prior LIVE step ●→✓; the terminal row stays ·.
-        assert live.get_cell_at(Coordinate(0, 0)) == StepStatus.DONE.glyph
-        assert live.get_cell_at(Coordinate(1, 0)) == StepStatus.DONE.glyph
-        assert live.get_cell_at(Coordinate(2, 0)) == StepStatus.PENDING.glyph
+        assert live.get_cell_at(Coordinate(0, 0)) == StepStatus.DONE.marker
+        assert live.get_cell_at(Coordinate(1, 0)) == StepStatus.DONE.marker
+        assert live.get_cell_at(Coordinate(2, 0)) == "\u00b7 paused"
         assert "awaiting the execution gate" in view.live_text
+
+
+@pytest.mark.asyncio
+async def test_deliberation_detail_scrolls_when_the_report_overflows(shell_env) -> None:
+    # A subagent report or a weights payload runs far past the pane height; the adviser
+    # reviews it before approving, so the tail must be reachable, not clipped.
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        view.ingest_event(
+            StreamEvent(
+                kind="step",
+                run_id=rid,
+                index=0,
+                agent="economist",
+                step="report",
+                status=StepStatus.LIVE,
+                text="\n".join(f"finding {n}" for n in range(120)),
+            )
+        )
+        await pilot.pause()
+        detail = view.query_one("#delib-detail", Static)
+        inside_view = []
+        for widget in detail.ancestors_with_self:
+            inside_view.append(widget)
+            if widget is view:
+                break
+        scroller = next(
+            (
+                widget
+                for widget in inside_view
+                if widget.allow_vertical_scroll and widget.max_scroll_y > 0
+            ),
+            None,
+        )
+        assert scroller is not None, "no ancestor of the detail pane can scroll"
+        scroller.scroll_end(animate=False)
+        await pilot.pause()
+        assert scroller.scroll_y == scroller.max_scroll_y > 0
+        assert detail.region.width <= scroller.region.width  # wraps, no sideways spill
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_status_cells_pair_glyph_with_a_label(
+    shell_env,
+) -> None:
+    """Status is dot + label under a named column, never a bare glyph."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        await pilot.pause()
+        view.ingest_event(_scripted_stream(rid)[0])
+        live = view.query_one("#delib-live", DataTable)
+        assert live.get_cell_at(Coordinate(0, 0)) == "\u25cf live"
+        view.ingest_event(_scripted_stream(rid)[1])
+        await pilot.pause()
+        assert live.get_cell_at(Coordinate(0, 0)) == "\u2713 done"
+        headers = [str(column.label) for column in live.columns.values()]
+        assert headers[0] == "status"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["paused", "incomplete"])
+async def test_deliberation_live_terminal_row_states_the_round_outcome(
+    shell_env, kind: str
+) -> None:
+    """A paused gate and an incomplete round must not read the same in the table."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        await pilot.pause()
+        view.ingest_event(
+            StreamEvent(
+                kind=kind,
+                run_id=rid,
+                index=0,
+                agent="orchestrator",
+                step="place_orders",
+                status=StepStatus.PENDING,
+                text="terminal",
+            )
+        )
+        await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        assert live.get_cell_at(Coordinate(0, 0)) == f"\u00b7 {kind}"
 
 
 @pytest.mark.asyncio
@@ -2120,6 +4749,110 @@ async def test_deliberation_live_follow_then_inspect_then_resume(shell_env) -> N
         view.action_follow_live()  # f → re-snap to the tail
         await pilot.pause()
         assert view.following is True
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_inspect_shows_the_highlighted_step(shell_env) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        for event in _scripted_stream(rid):
+            view.ingest_event(event)
+            await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        live.focus()
+        live.move_cursor(row=1)
+        await pilot.pause()
+        assert view.following is False
+        assert "proposed weights" in view.live_text  # inspected step, not the newest
+        detail = view.query_one("#delib-detail", Static)
+        assert "proposed weights" in detail.visual.plain
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_new_event_keeps_the_inspected_detail(
+    shell_env,
+) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        for event in _scripted_stream(rid):
+            view.ingest_event(event)
+            await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        live.focus()
+        live.move_cursor(row=1)
+        await pilot.pause()
+        view.ingest_event(_step_event(rid, 5, "a later report"))
+        await pilot.pause()
+        assert live.row_count == 4
+        assert view.following is False
+        assert "proposed weights" in view.live_text  # not clobbered by the newest step
+        view.action_follow_live()
+        await pilot.pause()
+        assert "a later report" in view.live_text  # follow resumes the newest step
+
+
+@pytest.mark.asyncio
+async def test_barge_in_label_names_the_held_step_while_inspecting(shell_env) -> None:
+    """The overlay says where the stream is held (the newest step), not which earlier
+    row the adviser happens to be reading when they press ``b``."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        for event in _scripted_stream(rid):
+            view.ingest_event(event)
+            await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        live.focus()
+        live.move_cursor(row=0)  # inspect the first step
+        await pilot.pause()
+        assert view.following is False
+        assert "economist" in view.live_text  # the detail pane shows the inspected row
+        app.action_barge_in()
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, BargeInScreen)
+        assert "place_orders" in screen._paused_at  # the newest step, held at the gate
+        assert "economist" not in screen._paused_at
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_burst_of_events_keeps_following(shell_env) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        for event in _scripted_stream(rid):  # no yield to the loop between events
+            view.ingest_event(event)
+        await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        assert live.row_count == 3
+        assert view.following is True  # the cursor never left the tail
+        assert live.cursor_row == 2
+
+
+@pytest.mark.asyncio
+async def test_deliberation_follow_key_in_replay_does_not_claim_a_live_round(
+    shell_env,
+) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        assert view.live_run_id is None  # replay: nothing is streaming
+        subtitle = view.query_one("#delib-subtitle", Label)
+        before = subtitle.visual.plain
+        view.action_follow_live()  # `f` is bound whenever Deliberation has focus
+        await pilot.pause()
+        assert "LIVE" not in subtitle.visual.plain
+        assert subtitle.visual.plain == before
 
 
 @pytest.mark.asyncio
@@ -2145,6 +4878,186 @@ async def test_deliberation_live_ends_back_to_replay(shell_env) -> None:
         assert view.query_one("#delib-runs", DataTable).row_count == 1
 
 
+@pytest.mark.asyncio
+async def test_deliberation_live_drops_events_of_another_run(shell_env) -> None:
+    """A superseded stream still draining its thread tags its events with its own
+    run id and reuses the live run's step indexes; they must not enter the live
+    timeline (a colliding row key aborts the stream that owns it)."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid, stale = uuid.uuid4(), uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        events = _scripted_stream(rid)
+        view.ingest_event(events[0])
+        for event in _scripted_stream(stale)[:2]:
+            view.ingest_event(event)
+        view.ingest_event(events[1])
+        await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        assert live.row_count == 2
+        assert live.get_cell_at(Coordinate(1, 2)) == "report"
+        assert view.live_run_id == rid
+
+
+_BRACKETED_TEXT = (
+    "short [/ES] futures; top picks [NVDA] [MSFT]; see [Reuters](http://x.y)"
+)
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_detail_shows_bracketed_agent_text_literally(
+    shell_env,
+) -> None:
+    """Agent text with ``[/x]`` / ``[TICKER]`` is shown verbatim, not as markup."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        view.ingest_event(
+            StreamEvent(
+                kind="step",
+                run_id=rid,
+                index=0,
+                agent="economist",
+                step="report",
+                status=StepStatus.LIVE,
+                text=_BRACKETED_TEXT,
+            )
+        )
+        await pilot.pause()
+        detail = view.query_one("#delib-detail", Static)
+        assert _BRACKETED_TEXT in detail.visual.plain
+
+
+@pytest.mark.asyncio
+async def test_deliberation_replay_detail_shows_bracketed_agent_text_literally(
+    shell_env,
+) -> None:
+    """The replay detail pane renders a step's text verbatim, like the live pane."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view._entries = [
+            SimpleNamespace(
+                agent="economist",
+                step="report",
+                source="message",
+                index=0,
+                text=_BRACKETED_TEXT,
+                payload=None,
+            )
+        ]
+        view.selected_step = 0
+        view._paint_detail()
+        await pilot.pause()
+        detail = view.query_one("#delib-detail", Static)
+        assert _BRACKETED_TEXT in detail.visual.plain
+
+
+def _step_event(run_id: uuid.UUID, index: int, text: str) -> StreamEvent:
+    return StreamEvent(
+        kind="step",
+        run_id=run_id,
+        index=index,
+        agent="economist",
+        step="report",
+        status=StepStatus.LIVE,
+        text=text,
+    )
+
+
+@pytest.mark.asyncio
+async def test_deliberation_ingest_drops_events_from_a_superseded_run(
+    shell_env,
+) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        first, second = uuid.uuid4(), uuid.uuid4()
+        view.start_live(first, _PID_A)
+        view.ingest_event(_step_event(first, 0, "first run"))
+        view.start_live(second, _PID_A)
+        view.ingest_event(_step_event(second, 0, "second run"))
+        # The superseded run's thread cannot be stopped; its late event reuses index 0.
+        view.ingest_event(_step_event(first, 0, "late first-run event"))
+        await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        assert view.live_run_id == second
+        assert live.row_count == 1
+        assert "second run" in view.live_text
+
+
+@pytest.mark.asyncio
+async def test_run_refuses_a_second_stream_while_one_is_in_flight(shell_env) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    launched: list[SimpleNamespace] = []
+
+    def _fake_stream_worker(*_a, **_k):
+        worker = SimpleNamespace(state=WorkerState.RUNNING)
+        launched.append(worker)
+        return worker
+
+    app._stream_worker = _fake_stream_worker  # type: ignore[method-assign]
+    # The fakes are not registered with Textual's worker manager, so stand in for its
+    # liveness probe (the real one is covered by the "already in progress" tests).
+    app._round_in_flight = lambda: any(  # type: ignore[method-assign]
+        worker.state in (WorkerState.PENDING, WorkerState.RUNNING)
+        for worker in launched
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        app.action_run_portfolio(asof=ASOF)  # an impatient second `u`
+        await pilot.pause()
+        assert len(launched) == 1
+        assert "already" in app.last_status
+        launched[0].state = WorkerState.SUCCESS  # the round ended: `u` is live again
+        app.action_run_portfolio(asof=ASOF)
+        assert len(launched) == 2
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_detail_shows_bracketed_text_verbatim(
+    shell_env,
+) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        detail = view.query_one("#delib-detail", Static)
+        report = "Overweight [NVDA] and [AAPL]; flags [true]"
+        view.ingest_event(_step_event(rid, 0, report))
+        assert report in detail.visual.plain  # tickers must not be eaten as markup
+        stray = "scraped text with [/INST] and [/quote] tokens"
+        view.ingest_event(_step_event(rid, 1, stray))  # must not raise MarkupError
+        assert stray in detail.visual.plain
+
+
+@pytest.mark.asyncio
+async def test_deliberation_replay_detail_shows_bracketed_text_verbatim(
+    shell_env,
+) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        report = "Report: hold [NVDA], see [/quote] and [link=http://x] [null]"
+        entry = observe.TranscriptEntry(
+            source="message",
+            agent="economist",
+            step=None,
+            index=0,
+            text=report,
+            payload=None,
+        )
+        view._read = lambda: ([], [entry])  # type: ignore[method-assign]
+        view.select_step(0)  # repainted on every poll tick, so it must never raise
+        await pilot.pause()
+        assert report in view.query_one("#delib-detail", Static).visual.plain
+
+
 def test_deliberation_binds_follow_live() -> None:
     """``f`` is view-scoped to Deliberation (follow-live), not the global filter."""
     actions = {binding[1] for binding in DeliberationView.BINDINGS}
@@ -2168,6 +5081,155 @@ async def test_run_routes_stream_on_deliberation_blocking_on_posture(tui_env) ->
         app.action_run_portfolio(asof=ASOF)
         await pilot.pause()
         assert calls[-1] == "stream"  # Deliberation → live _stream_worker
+
+
+@pytest.mark.asyncio
+async def test_run_key_leaves_the_decision_bar_for_the_run_to_resolve(tui_env) -> None:
+    """``u`` passes no bar: no close is stored after today, so nothing could fill."""
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    bars: list[object] = []
+    app._run_worker = lambda _pid, asof: bars.append(asof)  # type: ignore[method-assign]
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_posture(app, pilot)
+        app.action_run_portfolio()
+        await pilot.pause()
+
+    assert bars == [None]
+
+
+def _pin_wall_clock_to_asof(monkeypatch) -> None:
+    """Make the unparameterised resolver read the seeded panel as of ``ASOF + 1d``.
+
+    The real ``default_decision_bar`` runs over the seeded prices (daily bars through
+    ``ASOF + 9d``); bounding it at ``ASOF + 1d`` makes it answer ``ASOF`` -- a date
+    that differs from ``dt.date.today()``, so a path that skipped the resolver and
+    fell back to the wall clock cannot pass for it.
+    """
+    real = observe.default_decision_bar
+    monkeypatch.setattr(
+        observe,
+        "default_decision_bar",
+        lambda session: real(session, today=ASOF + timedelta(days=1)),
+    )
+
+
+def _spy_decision_bar(monkeypatch, name: str) -> list[date]:
+    """Record the ``asof`` each call to ``fund.agents.graph.<name>`` receives."""
+    from fund.agents import graph
+
+    real = getattr(graph, name)
+    seen: list[date] = []
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs["asof"])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(graph, name, spy)
+    return seen
+
+
+def _persist_mandate(env) -> None:
+    with env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+
+
+@pytest.mark.asyncio
+async def test_deliberation_u_resolves_the_stream_bar_from_stored_prices(
+    tui_env, monkeypatch
+) -> None:
+    """``u`` on Deliberation streams at the stored fillable bar, not today's date."""
+    _persist_mandate(tui_env)
+    _pin_wall_clock_to_asof(monkeypatch)
+    seen = _spy_decision_bar(monkeypatch, "stream_fund")
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        app.query_one(ContentSwitcher).current = "view-deliberation"
+        app._refresh()
+        await pilot.pause()
+        app.action_run_portfolio()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        assert worker.group == "stream"
+        await worker.wait()
+        await pilot.pause()
+
+    assert seen == [ASOF]
+
+
+@pytest.mark.asyncio
+async def test_deliberation_explicit_bar_bypasses_the_resolver(
+    tui_env, monkeypatch
+) -> None:
+    """A caller-supplied bar is streamed as given; the resolver is never consulted."""
+    _persist_mandate(tui_env)
+    consulted: list[object] = []
+
+    def _resolver(session):
+        consulted.append(session)
+        return date(2031, 1, 2)
+
+    monkeypatch.setattr(observe, "default_decision_bar", _resolver)
+    seen = _spy_decision_bar(monkeypatch, "stream_fund")
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        app.query_one(ContentSwitcher).current = "view-deliberation"
+        app._refresh()
+        await pilot.pause()
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        assert app.last_worker is not None
+        await app.last_worker.wait()
+        await pilot.pause()
+
+    assert seen == [ASOF]
+    assert consulted == []
+
+
+@pytest.mark.asyncio
+async def test_posture_u_runs_at_the_stored_fillable_bar(tui_env, monkeypatch) -> None:
+    """``u`` on Posture hands ``run_fund`` the resolved bar via the real worker."""
+    _persist_mandate(tui_env)
+    _pin_wall_clock_to_asof(monkeypatch)
+    seen = _spy_decision_bar(monkeypatch, "run_fund")
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_posture(app, pilot)
+        app.action_run_portfolio()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        assert worker.group == "drive"
+        await worker.wait()
+        await pilot.pause()
+        assert "awaiting approval" in app.last_status
+
+    assert seen == [ASOF]
+
+
+@pytest.mark.asyncio
+async def test_ask_run_runs_at_the_stored_fillable_bar(tui_env, monkeypatch) -> None:
+    """A confirmed Ask 'run' reaches ``run_fund`` with the resolved bar, not today."""
+    _persist_mandate(tui_env)
+    _pin_wall_clock_to_asof(monkeypatch)
+    seen = _spy_decision_bar(monkeypatch, "run_fund")
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("run a rebalance")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        await pilot.click("#confirm-yes")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        assert worker.group == "drive"
+        await worker.wait()
+        await pilot.pause()
+        assert "awaiting approval" in app.last_status
+
+    assert seen == [ASOF]
 
 
 @pytest.mark.asyncio
@@ -2200,6 +5262,608 @@ async def test_deliberation_u_streams_live_round_to_gate(tui_env) -> None:
     with tui_env.get_session() as session:
         run = AgentRunRepository(session).get_run(streamed_run_id)
         assert run.status == "paused"  # the run reached its HITL pause
+
+
+@pytest.mark.asyncio
+async def test_deliberation_leaves_live_mode_once_the_gate_is_resolved(tui_env) -> None:
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        streamed = view.live_run_id
+        assert streamed is not None  # the timeline stands at the gate
+
+        decisions = await _open_decisions(app, pilot)
+        decisions.select_run(streamed)
+        await pilot.pause()
+        app.action_decide_approve()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+
+        view = await _open_deliberation(app, pilot)
+        assert view.live_run_id is None  # the round is over: back to replay
+        assert view.query_one("#delib-runs", DataTable).display is True
+        assert view.query_one("#delib-steps", DataTable).display is True
+        assert view.query_one("#delib-live", DataTable).display is False
+        app.action_barge_in()  # nothing live to steer any more
+        await pilot.pause()
+        assert not isinstance(app.screen, BargeInScreen)
+
+
+# --- Run launch is single-flight ---------------------------------------------
+
+
+class _HeldRound:
+    """A rebalance stand-in that records each launch and blocks until released."""
+
+    def __init__(self) -> None:
+        self.launches: list[str] = []
+        self.release = threading.Event()
+
+    def enter(self, label: str) -> None:
+        self.launches.append(label)
+        self.release.wait(timeout=10)
+
+    async def until_launched(self, pilot, count: int = 1) -> None:
+        for _ in range(200):
+            if len(self.launches) >= count:
+                return
+            await pilot.pause(0.05)
+        raise AssertionError(f"expected {count} launches, saw {self.launches}")
+
+
+def _hold_rounds(monkeypatch) -> _HeldRound:
+    """Replace the stream and the blocking-run entry points with held stand-ins."""
+    held = _HeldRound()
+
+    def fake_stream_fund(*_args, **_kwargs):
+        held.enter("stream")
+        return
+        yield  # a generator that ends without a step
+
+    def fake_apply_action(action, **_kwargs):
+        held.enter(action)
+        return SimpleNamespace(message="run done")
+
+    monkeypatch.setattr("fund.agents.graph.stream_fund", fake_stream_fund)
+    monkeypatch.setattr("fund.actions.apply_action", fake_apply_action)
+    return held
+
+
+def _seed_mandate(env) -> None:
+    with env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+
+
+@pytest.mark.asyncio
+async def test_second_u_is_refused_while_a_stream_is_in_flight(
+    tui_env, monkeypatch
+) -> None:
+    """The live timeline stays empty until the first agent reports, so ``u`` is easy
+    to press twice; a second concurrent round would double the LLM spend and open a
+    competing gate."""
+    _seed_mandate(tui_env)
+    held = _hold_rounds(monkeypatch)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        app.query_one(ContentSwitcher).current = "view-deliberation"
+        app._refresh()
+        await pilot.pause()
+        app.action_run_portfolio(asof=ASOF)
+        await held.until_launched(pilot)
+        first = app.last_worker
+
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause(0.2)
+        assert "already in progress" in app.last_status
+        assert app.last_worker is first
+        assert held.launches == ["stream"]
+
+        held.release.set()
+        await first.wait()
+        await pilot.pause()
+
+        app.action_run_portfolio(asof=ASOF)  # the guard clears once the round ends
+        await app.last_worker.wait()
+        assert held.launches == ["stream", "stream"]
+
+
+@pytest.mark.asyncio
+async def test_run_in_flight_from_posture_refuses_deliberation_and_ask_runs(
+    tui_env, monkeypatch
+) -> None:
+    """The blocking and streamed runs sit in different worker groups, so only a
+    shared guard stops one from starting while the other still runs."""
+    _seed_mandate(tui_env)
+    held = _hold_rounds(monkeypatch)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_posture(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        await held.until_launched(pilot)
+        first = app.last_worker
+
+        app.query_one(ContentSwitcher).current = "view-deliberation"
+        app._refresh()
+        await pilot.pause()
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause(0.2)
+        assert "already in progress" in app.last_status
+
+        ask_view = SimpleNamespace(append_log=lambda *_a, **_k: None)
+        ask_run = ResolvedAction("run", None, PORTFOLIO_ID, None)
+        assert app._dispatch_ask_action(ask_view, ask_run) is None
+        await pilot.pause(0.2)
+        assert held.launches == ["run"]
+
+        held.release.set()
+        await first.wait()
+
+
+@pytest.mark.asyncio
+async def test_deliberation_u_stream_appends_a_run_audit_row(tui_env) -> None:
+    """A streamed round leaves the same human ``run`` audit row a blocking one does."""
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        streamed_run_id = view.live_run_id
+        assert streamed_run_id is not None
+    with tui_env.get_session() as session:
+        rows = HumanAuditLogRepository(session).list_recent(action="run")
+        assert [(row.run_id, row.target, row.actor) for row in rows] == [
+            (streamed_run_id, "rebalance", "human")
+        ]
+        assert rows[0].portfolio_id == PORTFOLIO_ID
+
+
+def _held_stream(calls: list[uuid.UUID], release: threading.Event):
+    """A ``stream_fund`` stand-in: one live step, then blocked until ``release``.
+
+    Records every portfolio it is started for, so a test can count how many rounds
+    the shell launched; the held step keeps the round in flight (no committed row yet).
+    """
+
+    def _stream(model, mandate, *, portfolio_id, asof, **_kwargs):
+        calls.append(portfolio_id)
+        run_id = uuid.uuid4()
+        yield StreamEvent(
+            kind="step",
+            run_id=run_id,
+            index=0,
+            agent="economist",
+            step="report",
+            status=StepStatus.LIVE,
+            text="macro read",
+        )
+        release.wait(timeout=10)
+        yield StreamEvent(
+            kind="incomplete",
+            run_id=run_id,
+            index=1,
+            agent="orchestrator",
+            step="place_orders",
+            status=StepStatus.PENDING,
+            text="pipeline ended before the gate",
+        )
+
+    return _stream
+
+
+async def _wait_on_loop(predicate, *, timeout: float = 5.0) -> bool:
+    """Poll ``predicate`` on the loop until it holds or ``timeout`` elapses."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        if predicate():
+            return True
+        await asyncio.sleep(0.02)
+    return predicate()
+
+
+@pytest.mark.asyncio
+async def test_run_refused_while_a_round_is_already_in_flight(
+    tui_env, monkeypatch
+) -> None:
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    calls: list[uuid.UUID] = []
+    release = threading.Event()
+    monkeypatch.setattr("fund.agents.graph.stream_fund", _held_stream(calls, release))
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    blocking_runs: list[str] = []
+    app._run_worker = lambda *_a, **_k: blocking_runs.append("run")  # type: ignore[method-assign]
+    try:
+        async with app.run_test(size=_SIZE) as pilot:
+            app.query_one(ContentSwitcher).current = "view-deliberation"
+            app._refresh()
+            await pilot.pause()
+            app.action_run_portfolio(asof=ASOF)  # first u: the round starts streaming
+            assert await _wait_on_loop(lambda: len(calls) == 1)
+            app.action_run_portfolio(asof=ASOF)  # impatient second u
+            await pilot.pause(0.3)
+            # One round only: a second thread would interleave into the same live
+            # table and race the first for the run / gate rows.
+            assert len(calls) == 1
+            assert "already in progress" in app.last_status
+            # The blocking Posture launchpad is refused too while a round streams.
+            await _open_posture(app, pilot)
+            app.action_run_portfolio(asof=ASOF)
+            await pilot.pause()
+            assert blocking_runs == []
+            assert "already in progress" in app.last_status
+            release.set()
+            assert await _wait_on_loop(
+                lambda: not any(w.group == "stream" for w in app.workers)
+            )
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
+async def test_ask_run_refused_while_a_round_is_already_in_flight(
+    tui_env, monkeypatch
+) -> None:
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    calls: list[uuid.UUID] = []
+    release = threading.Event()
+    monkeypatch.setattr("fund.agents.graph.stream_fund", _held_stream(calls, release))
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    blocking_runs: list[str] = []
+    app._run_worker = lambda *_a, **_k: blocking_runs.append("run")  # type: ignore[method-assign]
+    try:
+        async with app.run_test(size=_SIZE) as pilot:
+            app.query_one(ContentSwitcher).current = "view-deliberation"
+            app._refresh()
+            await pilot.pause()
+            app.action_run_portfolio(asof=ASOF)  # a round is streaming
+            assert await _wait_on_loop(lambda: len(calls) == 1)
+            view = await _open_ask(app, pilot)
+            view.submit_turn("run a rebalance")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmScreen)
+            await pilot.click("#confirm-yes")
+            await pilot.pause(0.3)
+            # The Ask verb is a second entry point to the same round: it must not open
+            # a second run / gate for the bar next to the one still streaming.
+            assert blocking_runs == []
+            assert len(calls) == 1
+            assert app.last_worker is None  # nothing dispatched
+            assert "already in progress" in app.last_status
+            release.set()
+            assert await _wait_on_loop(
+                lambda: not any(w.group == "stream" for w in app.workers)
+            )
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
+async def test_freeze_mid_stream_leaves_no_approvable_gate(
+    shell_env, monkeypatch
+) -> None:
+    """A freeze pressed while a round streams is not outrun by the gate it reaches.
+
+    The freeze rejects committed paused gates only, and the in-flight round's run row
+    is not one of them; without a re-check at the gate the round would commit a
+    ``paused`` run the adviser can still approve on a frozen portfolio.
+    """
+    from fund.actions import apply_action
+
+    with shell_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    proceed = threading.Event()
+    run_ids: list[uuid.UUID] = []
+
+    def _stream(model, mandate, *, portfolio_id, asof, session, **_kwargs):
+        repo = AgentRunRepository(session)
+        run = repo.create_run(
+            portfolio_id=portfolio_id,
+            asof=asof,
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        run_ids.append(run.id)
+        yield StreamEvent(
+            kind="step",
+            run_id=run.id,
+            index=0,
+            agent="economist",
+            step="report",
+            status=StepStatus.LIVE,
+            text="macro read",
+        )
+        proceed.wait(timeout=10)
+        repo.mark_paused(run.id)
+        yield StreamEvent(
+            kind="paused",
+            run_id=run.id,
+            index=1,
+            agent="orchestrator",
+            step="place_orders",
+            status=StepStatus.PENDING,
+            text="awaiting the execution gate",
+            payload={"action_requests": []},
+        )
+
+    monkeypatch.setattr("fund.agents.graph.stream_fund", _stream)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    try:
+        async with app.run_test(size=_SIZE) as pilot:
+            view = await _open_deliberation(app, pilot)
+            app.action_run_portfolio(asof=ASOF)
+            assert await _wait_on_loop(lambda: view.live_run_id is not None)
+            worker = app.last_worker
+            assert worker is not None
+            with shell_env.get_session() as session:  # the adviser presses `k`
+                apply_action(
+                    "freeze",
+                    session=session,
+                    scope="portfolio",
+                    portfolio_id=PORTFOLIO_ID,
+                    rationale="drawdown breach",
+                )
+                session.commit()
+            proceed.set()
+            await worker.wait()
+            await pilot.pause()
+            assert "frozen" in app.last_status
+            assert view.live_run_id is None  # nothing left to follow at a halted gate
+    finally:
+        proceed.set()
+    with shell_env.get_session() as session:
+        repo = AgentRunRepository(session)
+        assert repo.get_run(run_ids[0]).status == "rejected"
+        assert repo.list_paused_runs(PORTFOLIO_ID) == []
+
+
+@pytest.mark.asyncio
+async def test_stream_ending_incomplete_reports_why_on_the_status_bar(
+    tui_env, monkeypatch
+) -> None:
+    """A round that ends with no ticket drops to replay but says why it ended."""
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    reason = "delegation round cap reached before a ticket"
+
+    def _stream(model, mandate, *, portfolio_id, asof, session, **_kwargs):
+        repo = AgentRunRepository(session)
+        run = repo.create_run(
+            portfolio_id=portfolio_id,
+            asof=asof,
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        repo.finalize_run(run.id, weights={}, status="incomplete")
+        yield StreamEvent(
+            kind="step",
+            run_id=run.id,
+            index=0,
+            agent="economist",
+            step="report",
+            status=StepStatus.LIVE,
+            text="macro read",
+        )
+        yield StreamEvent(
+            kind="incomplete",
+            run_id=run.id,
+            index=1,
+            agent="orchestrator",
+            step="place_orders",
+            status=StepStatus.PENDING,
+            text=reason,
+        )
+
+    monkeypatch.setattr("fund.agents.graph.stream_fund", _stream)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert view.live_run_id is None  # nothing to act on: back to replay
+        assert reason in app.last_status
+        assert reason in str(app.query_one("#status-bar", Static).render())
+
+
+@pytest.mark.asyncio
+async def test_quit_with_barge_in_open_releases_the_stream_thread(
+    shell_env, monkeypatch
+) -> None:
+    """Quitting while a barge-in holds the stream must not strand its worker thread.
+
+    The overlay's resolve callback is what re-arms the stream, and it never runs when
+    the app quits with the overlay open. A thread worker cannot be killed and executor
+    threads are joined at exit, so a hold that only the overlay can release would leave
+    the process alive after the UI is gone.
+    """
+    with shell_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    resumed = threading.Event()
+    proceed = threading.Event()
+    stream_closed = threading.Event()
+
+    def _stream(model, mandate, *, portfolio_id, asof, **_kwargs):
+        run_id = uuid.uuid4()
+        try:
+            for index in range(3):
+                if index == 1:
+                    resumed.set()  # the worker cleared the first step boundary
+                    proceed.wait(timeout=10)
+                yield StreamEvent(
+                    kind="step",
+                    run_id=run_id,
+                    index=index,
+                    agent="economist",
+                    step="report",
+                    status=StepStatus.LIVE,
+                    text=f"step {index}",
+                )
+        finally:
+            stream_closed.set()
+
+    monkeypatch.setattr("fund.agents.graph.stream_fund", _stream)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    try:
+        async with app.run_test(size=_SIZE) as pilot:
+            view = await _open_deliberation(app, pilot)
+            app.action_run_portfolio(asof=ASOF)
+            assert await _wait_on_loop(resumed.is_set)
+            app.action_barge_in()  # hold the stream at its next step boundary
+            await pilot.pause()
+            assert isinstance(app.screen, BargeInScreen)
+            proceed.set()
+            live = view.query_one("#delib-live", DataTable)
+            assert await _wait_on_loop(lambda: live.row_count == 2)
+            await pilot.press("ctrl+q")  # a priority binding: fires under the overlay
+            await pilot.pause()
+        assert await asyncio.to_thread(stream_closed.wait, 5.0), (
+            "the stream worker is still blocked after the app quit"
+        )
+    finally:
+        proceed.set()
+        app._stream_resume.set()  # never leave the blocked thread to hang pytest
+
+
+@pytest.mark.asyncio
+async def test_deliberation_leaves_live_mode_once_the_gate_is_decided(tui_env) -> None:
+    """A streamed round's timeline stands at its gate, then yields to replay.
+
+    While the run still awaits approval the tail stays up (barge-in needs it); once the
+    adviser approves, the view must not keep claiming LIVE for a finalised run.
+    """
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        run_id = view.live_run_id
+        assert run_id is not None
+        app._refresh()  # a poll tick while the gate still stands keeps the tail
+        assert view.live_run_id == run_id
+
+        decisions = await _open_decisions(app, pilot)
+        decisions.select_run(run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert "approved" in app.last_status
+
+        await _open_deliberation(app, pilot)  # the adviser returns to Deliberation
+        assert view.live_run_id is None
+        assert view.live_portfolio_id is None  # barge-in has no finalised run to target
+        assert view.query_one("#delib-live", DataTable).display is False
+        assert view.query_one("#delib-runs", DataTable).display is True
+        assert view.selected_run_id == run_id  # the run just watched stays in view
+
+
+@pytest.mark.asyncio
+async def test_deliberation_drops_a_finished_tail_when_focus_moves_away(
+    tui_env,
+) -> None:
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert view.live_run_id is not None  # standing at the gate for PORTFOLIO_ID
+
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+
+        assert view.live_run_id is None  # another portfolio's tail must not linger
+        assert view.selected_run_id is None  # and its run is not carried over
+
+
+@pytest.mark.asyncio
+async def test_deliberation_keeps_the_tail_while_its_run_is_still_in_flight(
+    tui_env,
+) -> None:
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        with tui_env.get_session() as session:
+            run = AgentRunRepository(session).create_run(
+                portfolio_id=PORTFOLIO_ID,
+                asof=ASOF,
+                seed=1,
+                universe=[],
+                optimizer_config={},
+            )
+            session.commit()
+            run_id = run.id
+        assert app._streaming is False  # the window before the stream latches LIVE
+        view.start_live(run_id, PORTFOLIO_ID)
+
+        app._refresh()  # a poll tick lands while the run row reads as pending
+
+        assert view.live_run_id == run_id
+
+
+@pytest.mark.asyncio
+async def test_barge_in_is_inert_once_the_live_run_was_decided_elsewhere(
+    tui_env,
+) -> None:
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        run_id = view.live_run_id
+        assert run_id is not None
+        with tui_env.get_session() as session:  # decided by another session
+            AgentRunRepository(session).get_run(run_id).status = "completed"
+            session.commit()
+
+        app.action_barge_in()  # before any poll tick repainted the view
+        await pilot.pause()
+
+        assert not isinstance(app.screen, BargeInScreen)
+        assert view.live_run_id is None
+        assert "live Deliberation" in app.last_status
 
 
 # --- Barge-in: PM directive overlay + `b` hotkey (T8) -------------------------
@@ -2315,6 +5979,166 @@ async def test_barge_in_at_gate_responds_and_regates(tui_env) -> None:
         assert rows[0].run_id == run_id
 
 
+def _stream_held_after_first_step(
+    monkeypatch, run_id: uuid.UUID, *, reaches_gate: bool
+) -> threading.Event:
+    """Stand in for ``stream_fund``: one step, then block until the returned event."""
+    release = threading.Event()
+    events = _scripted_stream(run_id)
+
+    def fake_stream_fund(*_args, **_kwargs):
+        yield events[0]
+        release.wait(timeout=10)
+        yield from events[1:] if reaches_gate else events[1:2]
+
+    monkeypatch.setattr("fund.agents.graph.stream_fund", fake_stream_fund)
+    return release
+
+
+def _record_actions(monkeypatch) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+
+    def fake_apply_action(action, **kwargs):
+        calls.append({"action": action, **kwargs})
+        return SimpleNamespace(message=f"{action} done")
+
+    monkeypatch.setattr("fund.actions.apply_action", fake_apply_action)
+    return calls
+
+
+async def _send_barge_in_mid_stream(app, pilot, run_id: uuid.UUID, directive: str):
+    view = app.query_one("#view-deliberation", DeliberationView)
+    for _ in range(200):
+        if view.live_run_id == run_id:
+            break
+        await pilot.pause(0.05)
+    assert view.live_run_id == run_id
+    app.action_barge_in()
+    await pilot.pause()
+    screen = app.screen
+    assert isinstance(screen, BargeInScreen)
+    screen.query_one("#bargein-text", Input).value = directive
+    screen._submit()
+    await pilot.pause(0.3)
+
+
+@pytest.mark.asyncio
+async def test_barge_in_mid_stream_is_delivered_after_the_gate_commits(
+    tui_env, monkeypatch
+) -> None:
+    """The run row is only flushed until the stream worker commits at the end of the
+    round, so a ``respond`` dispatched mid-stream cannot see it (``no agent_run``) and
+    the directive is lost; it has to wait for the committed gate."""
+    _seed_mandate(tui_env)
+    run_id = uuid.uuid4()
+    release = _stream_held_after_first_step(monkeypatch, run_id, reaches_gate=True)
+    calls = _record_actions(monkeypatch)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        stream = app.last_worker
+        try:
+            await _send_barge_in_mid_stream(app, pilot, run_id, "Trim AAA.")
+            assert calls == []
+            assert "queued" in app.last_status
+        finally:
+            release.set()
+        await stream.wait()
+        await pilot.pause()
+        await app.last_worker.wait()
+        assert [c["action"] for c in calls] == ["respond"]
+        assert calls[0]["run_id"] == run_id
+        assert calls[0]["portfolio_id"] == PORTFOLIO_ID
+        assert calls[0]["pm_directive"] == "Trim AAA."
+
+
+@pytest.mark.asyncio
+async def test_barge_in_queued_mid_stream_is_dropped_when_no_gate_is_reached(
+    tui_env, monkeypatch
+) -> None:
+    _seed_mandate(tui_env)
+    run_id = uuid.uuid4()
+    release = _stream_held_after_first_step(monkeypatch, run_id, reaches_gate=False)
+    calls = _record_actions(monkeypatch)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        stream = app.last_worker
+        try:
+            await _send_barge_in_mid_stream(app, pilot, run_id, "Trim AAA.")
+            assert calls == []
+        finally:
+            release.set()
+        await stream.wait()
+        await pilot.pause()
+        assert calls == []
+        assert "dropped" in app.last_status
+
+
+@pytest.mark.asyncio
+async def test_barge_in_queued_mid_stream_keeps_the_stream_failure_reason(
+    tui_env, monkeypatch
+) -> None:
+    """A stream that dies drops the queued directive, but the one-line status must
+    still say why the run failed, not only that the directive was dropped."""
+    _seed_mandate(tui_env)
+    run_id = uuid.uuid4()
+    release = threading.Event()
+    events = _scripted_stream(run_id)
+
+    def failing_stream_fund(*_args, **_kwargs):
+        yield events[0]
+        release.wait(timeout=10)
+        raise RuntimeError("provider exploded")
+
+    monkeypatch.setattr("fund.agents.graph.stream_fund", failing_stream_fund)
+    calls = _record_actions(monkeypatch)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        stream = app.last_worker
+        try:
+            await _send_barge_in_mid_stream(app, pilot, run_id, "Trim AAA.")
+        finally:
+            release.set()
+        await stream.wait()
+        await pilot.pause()
+        assert calls == []
+        assert "provider exploded" in app.last_status
+        assert "dropped" in app.last_status
+
+
+@pytest.mark.asyncio
+async def test_second_barge_in_mid_stream_says_it_replaces_the_queued_one(
+    tui_env, monkeypatch
+) -> None:
+    """Only one directive can wait for the gate, so a second one replaces the first;
+    the status says so and only the latest text is delivered."""
+    _seed_mandate(tui_env)
+    run_id = uuid.uuid4()
+    release = _stream_held_after_first_step(monkeypatch, run_id, reaches_gate=True)
+    calls = _record_actions(monkeypatch)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        stream = app.last_worker
+        try:
+            await _send_barge_in_mid_stream(app, pilot, run_id, "Trim AAA.")
+            assert "replac" not in app.last_status
+            await _send_barge_in_mid_stream(app, pilot, run_id, "Keep 5% cash.")
+            assert "replac" in app.last_status
+        finally:
+            release.set()
+        await stream.wait()
+        await pilot.pause()
+        await app.last_worker.wait()
+        assert [c["pm_directive"] for c in calls] == ["Keep 5% cash."]
+
+
 # --- Decisions e/edit + s/steer (view-scoped bindings) (T9) -------------------
 
 
@@ -2407,6 +6231,28 @@ async def test_decisions_edit_steer_inert_without_selection(tui_env) -> None:
         assert not isinstance(app.screen, BargeInScreen)
 
 
+@pytest.mark.asyncio
+async def test_decisions_edit_error_shows_typed_brackets_verbatim(tui_env) -> None:
+    # _parse_weights echoes the adviser's text via !r; a markup-parsing error line
+    # rejects "[/x]" (MarkupError) and drops "[AAPL]", killing the weight editor.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_edit_decision()
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, OrderEditScreen)
+        for typed in ("[/x]", "[AAPL]"):
+            screen.query_one("#edit-weights", Input).value = typed
+            screen._submit()
+            await pilot.pause()
+            assert isinstance(app.screen, OrderEditScreen)  # editor stays open
+            shown = str(screen.query_one("#edit-error", Static).render())
+            assert typed in shown
+
+
 def test_parse_weights_rejects_garbage_and_parses_pairs() -> None:
     from fund.tui.app import _parse_weights
 
@@ -2415,6 +6261,96 @@ def test_parse_weights_rejects_garbage_and_parses_pairs() -> None:
         _parse_weights("AAA 0.6")
     with pytest.raises(ValueError, match="weight"):
         _parse_weights("AAA:oops")
+
+
+def test_parse_weights_resolves_tickers_against_the_proposed_tickers() -> None:
+    from fund.tui.app import _parse_weights
+
+    allowed = {"AAA", "BBB", "CCC"}
+    # A lowercase entry resolves to the canonical ticker instead of a phantom name.
+    assert _parse_weights("aaa:0.6, Bbb:0.4", allowed=allowed) == {
+        "AAA": 0.6,
+        "BBB": 0.4,
+    }
+    with pytest.raises(
+        ValueError, match="unknown ticker 'ZZZ'; not among the proposed tickers"
+    ):
+        _parse_weights("AAA:0.8, ZZZ:0.2", allowed=allowed)
+    # The same name twice would let the second weight silently replace the first.
+    with pytest.raises(ValueError, match="duplicate ticker 'AAA'"):
+        _parse_weights("AAA:0.5, aaa:0.5", allowed=allowed)
+
+
+@pytest.mark.asyncio
+async def test_order_edit_prefill_committed_unchanged_stays_within_budget(
+    shell_env,
+) -> None:
+    # Thirds are the worst case for a rounded pre-fill: 3 x 0.3333 sums to 0.9999,
+    # outside risk_check's 1e-6 budget tolerance.
+    weights = {"AAA": 1 / 3, "BBB": 1 / 3, "CCC": 1 / 3}
+    committed: list[dict[str, float] | None] = []
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        app.push_screen(OrderEditScreen(weights), committed.append)
+        await pilot.pause()
+        app.screen._submit()
+        await pilot.pause()
+    assert committed and committed[0] is not None
+    assert abs(sum(committed[0].values()) - 1.0) <= 1e-6
+
+
+@pytest.mark.asyncio
+async def test_decisions_edit_prefills_the_audited_optimizer_weights(tui_env) -> None:
+    # The gate shows the model's own place_orders args, which may be rounded; the
+    # ticket is placed from the audited optimizer output, so that is what to edit.
+    from fund.tui.app import _parse_weights
+
+    audited = {"AAA": 1 / 3, "BBB": 1 / 3, "CCC": 1 / 3}
+    with tui_env.get_session() as session:
+        AgentRunRepository(session).append_decision(
+            tui_env.run_id,
+            agent="allocator",
+            step="optimize_portfolio",
+            llm_response=json.dumps({"weights": audited}),
+        )
+        session.commit()
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_edit_decision()
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, OrderEditScreen)
+        seeded = _parse_weights(screen.query_one("#edit-weights", Input).value)
+    assert seeded.keys() == audited.keys()
+    assert all(abs(seeded[k] - audited[k]) <= 1e-9 for k in audited)
+
+
+@pytest.mark.asyncio
+async def test_decisions_edit_with_unknown_ticker_keeps_editor_open(tui_env) -> None:
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_edit_decision()
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, OrderEditScreen)
+        # Sums to 1 and is long-only, so risk_check alone would wave it through.
+        screen.query_one("#edit-weights", Input).value = "AAA:0.5, BBB:0.3, ZZZ:0.2"
+        screen._submit()
+        await pilot.pause()
+        assert app.screen is screen  # the editor stays open on the typo
+        error = str(screen.query_one("#edit-error", Static).render())
+        assert "ZZZ" in error
+        assert "proposed tickers" in error
+        assert app.last_worker is None  # nothing was dispatched
+    with tui_env.get_session() as session:
+        run = AgentRunRepository(session).get_run(tui_env.run_id)
+        assert run.status == "paused"
 
 
 # --- Remember persistence: barge-in/steer remember flag (T11) -----------------
@@ -2518,6 +6454,37 @@ async def test_killswitch_portfolio_scope_freezes(tui_env) -> None:
 
 
 @pytest.mark.asyncio
+async def test_freezing_a_non_focused_portfolio_names_it_and_flags_the_header(
+    tui_env,
+) -> None:
+    # The Decisions queue is cross-portfolio, so the gate's portfolio need not be the
+    # header-focused one (here: fund-wide).
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_killswitch()
+        await pilot.pause()
+        await pilot.click("#scope-portfolio")
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+
+        mode = app.query_one("#hdr-mode", Static)
+        assert str(PORTFOLIO_ID) in app.last_status  # says which portfolio froze
+        assert str(mode.render()) == "● ARMED · ❄ 1 frozen"
+
+        app.focus_portfolio(PORTFOLIO_ID)  # the frozen one: no longer "other"
+        await pilot.pause()
+        assert str(mode.render()) == "❄ FROZEN"
+
+        app.focus_portfolio(_PID_B)  # a third, armed portfolio
+        await pilot.pause()
+        assert str(mode.render()) == "● ARMED · ❄ 1 other frozen"
+
+
+@pytest.mark.asyncio
 async def test_killswitch_fund_scope_freezes(tui_env) -> None:
     from fund.audit.autonomy_repository import AutonomyRepository
 
@@ -2568,6 +6535,51 @@ async def test_rearm_portfolio_restores_armed_without_rationale(tui_env) -> None
     with tui_env.get_session() as session:
         state = AutonomyRepository(session).portfolio_state(PORTFOLIO_ID).state
         assert state == "armed"
+
+
+@pytest.mark.asyncio
+async def test_header_glyphs_show_unknown_not_armed_idle_on_read_error(
+    shell_env,
+) -> None:
+    from fund.audit.autonomy_repository import (
+        AutonomyRepository,
+        AutonomyScope,
+        AutonomyState,
+    )
+
+    with shell_env.get_session() as session:
+        AutonomyRepository(session).set_state(
+            AutonomyScope.FUND, None, AutonomyState.FROZEN, reason="test"
+        )
+        _seed_run(session, _PID_A, seed=1, status="paused")
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        mode = app.query_one("#hdr-mode", Static)
+        assert str(mode.render()) == "❄ FROZEN"
+        assert "awaiting" in app._runstate
+
+        @contextmanager
+        def _failing_session():
+            raise ConnectionError("pool timeout")
+            yield  # pragma: no cover
+
+        healthy = app._session_factory
+        app._session_factory = _failing_session
+        app._refresh_runstate()
+        await pilot.pause()
+        # A blind poll must not read as a permissive "armed"/"idle" on a frozen fund.
+        assert "ARMED" not in str(mode.render())
+        assert "unknown" in str(mode.render()).lower()
+        assert "idle" not in app._runstate
+        assert "unknown" in app._runstate.lower()
+
+        app._session_factory = healthy
+        app._refresh_runstate()
+        await pilot.pause()
+        assert str(mode.render()) == "❄ FROZEN"  # self-heals on the next good read
+        assert "awaiting" in app._runstate
 
 
 @pytest.mark.asyncio
@@ -2662,6 +6674,29 @@ async def test_notification_bus_toasts_new_gate_then_no_retoast(shell_env) -> No
 
 
 @pytest.mark.asyncio
+async def test_attention_toast_outlives_textuals_default_timeout(shell_env) -> None:
+    # ``notify(timeout=None)`` means "the default" (5s), not "never": a gate raised
+    # while the adviser is away would vanish and, being in the seen-set, never re-toast.
+    from _fund_fakes import seed_paused_fund_run
+
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        seed_paused_fund_run(
+            shell_env.get_session,
+            shell_env.persistence.saver,
+            shell_env.persistence.store,
+        )
+        app._refresh()
+        await pilot.pause()
+
+        toasts = list(app._notifications)
+        assert len(toasts) == 1
+        assert toasts[0].timeout > app.NOTIFICATION_TIMEOUT
+        assert toasts[0].time_left > 3600  # effectively until the adviser dismisses it
+
+
+@pytest.mark.asyncio
 async def test_notification_bus_toasts_drift_breach_once(shell_env) -> None:
     # A portfolio whose L1 drift breaches its mandate threshold raises a toast. With
     # no positions, drift = Σ target weights = 1.0 ≥ the 0.1 mandate threshold.
@@ -2728,6 +6763,208 @@ async def test_notification_bus_preserves_state_on_read_error(
         await pilot.pause()
         assert app._awaiting_count == 1
         assert len(app.last_attention) == seen
+
+
+def _seed_breaching_portfolio(env, pid) -> None:
+    # No positions, so drift = sum of target weights = 1.0, over the 0.1 threshold.
+    with env.get_session() as session:
+        repo = AgentRunRepository(session)
+        run = repo.create_run(
+            portfolio_id=pid,
+            asof=date(2026, 1, 2),
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        repo.finalize_run(run.id, weights={"AAA": 1.0}, status="completed")
+        MandateRepository(session).upsert(make_mandate(pid))
+        session.commit()
+
+
+def _corrupt_mandate(env, pid) -> None:
+    with env.get_session() as session:
+        repo = MandateRepository(session)
+        repo.upsert(make_mandate(pid))
+        row = repo.get(pid)
+        row.mandate = {**row.mandate, "capital": "not-a-number"}
+        session.commit()
+
+
+@pytest.mark.asyncio
+async def test_unreadable_mandate_does_not_blind_the_gate_alerts(shell_env) -> None:
+    from _fund_fakes import seed_paused_fund_run
+
+    _corrupt_mandate(shell_env, _PID_B)
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        seed_paused_fund_run(
+            shell_env.get_session,
+            shell_env.persistence.saver,
+            shell_env.persistence.store,
+        )
+        app._poll_attention()
+        await pilot.pause()
+
+        assert app._awaiting_count == 1
+        assert any("gate awaiting" in message for message in app.last_attention)
+        assert str(app.query_one("#hdr-attention", Static).render()) == "⏸1 awaiting"
+
+
+@pytest.mark.asyncio
+async def test_unreadable_mandate_does_not_blind_other_portfolios_breaches(
+    shell_env,
+) -> None:
+    _seed_breaching_portfolio(shell_env, _PID_A)
+    _corrupt_mandate(shell_env, _PID_B)
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        app._poll_attention()
+        await pilot.pause()
+
+        assert [m for m in app.last_attention if "drift breach" in m] == [
+            f"◐ drift breach · {str(_PID_A)[:8]}"
+        ]
+
+
+@pytest.mark.asyncio
+async def test_gate_read_failure_does_not_blind_the_breach_alerts(
+    shell_env, monkeypatch
+) -> None:
+    _seed_breaching_portfolio(shell_env, _PID_A)
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("gate read failed")
+
+    monkeypatch.setattr(observe, "pending_hitl", _boom)
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        app._poll_attention()
+        await pilot.pause()
+
+        assert any("drift breach" in message for message in app.last_attention)
+
+
+@pytest.mark.asyncio
+async def test_attention_feed_flags_itself_degraded_until_every_read_succeeds(
+    shell_env,
+) -> None:
+    _corrupt_mandate(shell_env, _PID_B)
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        feed = app.query_one("#hdr-feed", Static)
+        app._poll_attention()
+        await pilot.pause()
+        assert feed.display
+        assert "degraded" in str(feed.render())
+
+        with shell_env.get_session() as session:
+            MandateRepository(session).upsert(make_mandate(_PID_B))  # repaired
+            session.commit()
+        app._poll_attention()
+        await pilot.pause()
+        assert not feed.display
+
+
+@pytest.mark.asyncio
+async def test_unreadable_portfolio_keeps_its_alerted_breach_quiet(
+    shell_env, monkeypatch
+) -> None:
+    _seed_breaching_portfolio(shell_env, _PID_A)
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        app._poll_attention()
+        await pilot.pause()
+        alerted = len(app.last_attention)
+        assert alerted == 1
+
+        original = ShellApp._is_drift_breach
+
+        def _flaky(self, session, portfolio_id):
+            if portfolio_id == _PID_A:
+                raise RuntimeError("drift read failed")
+            return original(self, session, portfolio_id)
+
+        monkeypatch.setattr(ShellApp, "_is_drift_breach", _flaky)
+        app._poll_attention()  # A's state is unknown, not "cleared"
+        monkeypatch.undo()
+        app._poll_attention()  # recovery: the breach is still the one already alerted
+        await pilot.pause()
+
+        assert len(app.last_attention) == alerted
+
+
+def _attention_warnings(caplog) -> list[logging.LogRecord]:
+    return [
+        r
+        for r in caplog.records
+        if r.name == "fund.tui.app" and r.levelno >= logging.WARNING
+    ]
+
+
+@pytest.mark.asyncio
+async def test_unreadable_portfolio_is_logged_once_per_failure_episode(
+    shell_env, caplog
+) -> None:
+    # The header only says "feed degraded"; the log is how an operator learns which
+    # portfolio is failing. A persistent failure must not write a line every tick.
+    with shell_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate(_PID_B))
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        caplog.clear()
+
+        _corrupt_mandate(shell_env, _PID_B)
+        app._poll_attention()
+        app._poll_attention()  # still failing: same episode, no second line
+        await pilot.pause()
+
+        records = _attention_warnings(caplog)
+        assert len(records) == 1
+        assert str(_PID_B) in records[0].getMessage()
+        assert records[0].exc_info is not None  # the traceback says why it failed
+
+        with shell_env.get_session() as session:
+            MandateRepository(session).upsert(make_mandate(_PID_B))  # repaired
+            session.commit()
+        app._poll_attention()
+        assert len(_attention_warnings(caplog)) == 1  # recovery is quiet
+
+        _corrupt_mandate(shell_env, _PID_B)  # a recurrence is a new episode
+        app._poll_attention()
+        assert len(_attention_warnings(caplog)) == 2
+
+
+@pytest.mark.asyncio
+async def test_gate_and_roster_read_failures_are_logged(
+    shell_env, monkeypatch, caplog
+) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        caplog.clear()
+
+        def _gate_boom(*_a, **_k):
+            raise RuntimeError("gate read failed")
+
+        def _roster_boom(*_a, **_k):
+            raise RuntimeError("roster read failed")
+
+        monkeypatch.setattr(observe, "pending_hitl", _gate_boom)
+        monkeypatch.setattr(observe, "list_portfolios", _roster_boom)
+        app._poll_attention()
+        await pilot.pause()
+
+        messages = [r.getMessage() for r in _attention_warnings(caplog)]
+        assert len(messages) == 2
+        assert any("gate" in m for m in messages)
+        assert any("roster" in m for m in messages)
 
 
 # --- Daily brief (Phase 07 T3) ----------------------------------------------
@@ -2860,6 +7097,108 @@ async def test_daily_brief_view_renders_five_sections(shell_env, monkeypatch) ->
 
 
 @pytest.mark.asyncio
+async def test_daily_brief_shows_bracketed_journal_and_read_text_literally(
+    shell_env, monkeypatch
+) -> None:
+    """A ``[/ES]`` in the economist read or a journal row is neither lost nor fatal."""
+    brief = dataclasses.replace(
+        _full_brief(_PID_A),
+        economist_read="short [/ES] futures; top picks [NVDA]",
+        market_events=({"as_of": "2026-10-06", "narrative": "CPI [Reuters] < exp"},),
+    )
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        rendered = view.query_one("#brief-detail", Static).visual.plain
+        assert "short [/ES] futures; top picks [NVDA]" in rendered
+        assert "CPI [Reuters] < exp" in rendered
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_long_recap_scrolls_and_keeps_the_hint_on_screen(
+    shell_env, monkeypatch
+) -> None:
+    """A recap taller than the pane scrolls by key, with the key hint still visible."""
+    long_read = " ".join(f"economist sentence {i} on rates." for i in range(60))
+    brief = dataclasses.replace(
+        _full_brief(_PID_A),
+        economist_read=long_read,
+        market_events=tuple(
+            {"as_of": "2026-10-06", "narrative": f"headline {i}"} for i in range(10)
+        ),
+    )
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=(100, 24)) as pilot:
+        # Scroll animations advance on the animator's clock, which pilot.pause()
+        # does not wait for: on a loaded runner the asserts below would sample a
+        # mid-flight scroll_y (34.79 of 35) instead of the settled offset.
+        app.animation_level = "none"
+        view = await _open_brief(app, pilot)
+        view.focus()
+        await pilot.pause()
+        hint = view.query_one("#brief-hint", Static)
+        assert hint.region.bottom <= app.size.height  # not pushed below the fold
+        pane = view.query_one("#brief-detail", Static).parent
+        assert pane is not None and pane.max_scroll_y > 0
+        await pilot.press("end")
+        await pilot.pause()
+        assert pane.scroll_y == pane.max_scroll_y  # the tail sections are reachable
+        await pilot.press("home")
+        await pilot.pause()
+        assert pane.scroll_y == 0
+
+
+def _brief_with_attribution_flag(*, insufficient_history: bool):
+    """The full-brief fixture with its attribution's short-history flag set."""
+    brief = _full_brief(_PID_A)
+    return dataclasses.replace(
+        brief,
+        attribution=dataclasses.replace(
+            brief.attribution, insufficient_history=insufficient_history
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_flags_low_confidence_attribution_on_short_history(
+    shell_env, monkeypatch, tmp_path
+) -> None:
+    """A thin-history OLS fit is captioned, in the pane and in the export."""
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
+    brief = _brief_with_attribution_flag(insufficient_history=True)
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert "short history" in view.detail_text
+        app.action_export_brief()
+        await pilot.pause()
+        content = (tmp_path / f"daily-brief-{_PID_A}-2026-10-06.md").read_text(
+            encoding="utf-8"
+        )
+        assert "short history" in content
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_has_no_caveat_when_history_suffices(
+    shell_env, monkeypatch
+) -> None:
+    """A robust fit carries no low-confidence caption."""
+    brief = _brief_with_attribution_flag(insufficient_history=False)
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert "short history" not in view.detail_text
+
+
+@pytest.mark.asyncio
 async def test_daily_brief_degrades_missing_sections(shell_env, monkeypatch) -> None:
     """Each missing section renders an explicit no-data line rather than crashing."""
     brief = _empty_brief(_PID_A)
@@ -2869,6 +7208,49 @@ async def test_daily_brief_degrades_missing_sections(shell_env, monkeypatch) -> 
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_brief(app, pilot)
         assert view.detail_text.count("no data") >= 4
+
+
+def _short_history_brief(pid):
+    """A brief whose attribution is populated but flagged as a short-window OLS fit."""
+    import dataclasses
+
+    brief = _full_brief(pid)
+    return dataclasses.replace(
+        brief,
+        attribution=dataclasses.replace(brief.attribution, insufficient_history=True),
+    )
+
+
+def test_daily_brief_flags_short_history_attribution_in_detail() -> None:
+    """A populated but short-window fit carries a caveat, not a normal-looking read."""
+    from fund.tui.views import _render_brief_detail
+
+    flagged = _render_brief_detail(_short_history_brief(_PID_A))
+    normal = _render_brief_detail(_full_brief(_PID_A))
+
+    assert "short history" in flagged
+    assert "short history" not in normal
+    # The bars still render: the caveat qualifies the fit, it does not hide it.
+    assert "equity" in flagged and "total" in flagged
+
+
+def test_daily_brief_flags_short_history_attribution_in_markdown() -> None:
+    """The exported markdown recap keeps the short-history caveat with the table."""
+    from fund.tui.views import _render_brief_markdown
+
+    flagged = _render_brief_markdown(_short_history_brief(_PID_A))
+    normal = _render_brief_markdown(_full_brief(_PID_A))
+
+    assert "short history" in flagged
+    assert "short history" not in normal
+    assert "| equity |" in flagged
+
+
+def test_daily_brief_empty_attribution_shows_no_short_history_caveat() -> None:
+    """A fully degraded estimate keeps its plain no-data line, with no extra caveat."""
+    from fund.tui.views import _render_brief_detail
+
+    assert "short history" not in _render_brief_detail(_empty_brief(_PID_A))
 
 
 def _nav_grid(pid):
@@ -2991,8 +7373,8 @@ async def test_daily_brief_enter_noop_when_never_run(shell_env, monkeypatch) -> 
 
 @pytest.mark.asyncio
 async def test_daily_brief_export_markdown(shell_env, monkeypatch, tmp_path) -> None:
-    """e writes daily-brief-<pid>-<asof>.md to CWD and reports the path."""
-    monkeypatch.chdir(tmp_path)
+    """e writes daily-brief-<pid>-<asof>.md to the export dir and reports the path."""
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _full_brief(_PID_A))
 
     app = _make_shell(shell_env, portfolio_id=_PID_A)
@@ -3002,7 +7384,7 @@ async def test_daily_brief_export_markdown(shell_env, monkeypatch, tmp_path) -> 
         await pilot.pause()
         expected = tmp_path / f"daily-brief-{_PID_A}-2026-10-06.md"
         assert expected.exists()
-        assert "daily-brief" in app.last_status
+        assert str(expected) in app.last_status  # the full path, not a bare name
         content = expected.read_text(encoding="utf-8")
         assert content.startswith("# Daily brief")
         assert "## Macro attribution" in content
@@ -3015,7 +7397,7 @@ async def test_daily_brief_export_markdown(shell_env, monkeypatch, tmp_path) -> 
 @pytest.mark.asyncio
 async def test_daily_brief_export_off_pane(shell_env, monkeypatch, tmp_path) -> None:
     """e off the brief pane writes nothing and sets no export status."""
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     app = _make_shell(shell_env, portfolio_id=_PID_A)
     async with app.run_test(size=_SIZE) as pilot:
         await _open_posture(app, pilot)  # the brief is not the active pane
@@ -3030,7 +7412,7 @@ async def test_daily_brief_export_degraded_markdown(
     shell_env, monkeypatch, tmp_path
 ) -> None:
     """A degraded day exports markdown with explicit no-data sections, no crash."""
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _empty_brief(_PID_A))
 
     app = _make_shell(shell_env, portfolio_id=_PID_A)
@@ -3050,7 +7432,7 @@ async def test_daily_brief_export_reports_oserror(
     shell_env, monkeypatch, tmp_path
 ) -> None:
     """A write failure surfaces on the status line, never a crash."""
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _full_brief(_PID_A))
 
     app = _make_shell(shell_env, portfolio_id=_PID_A)
@@ -3065,6 +7447,61 @@ async def test_daily_brief_export_reports_oserror(
         await pilot.pause()
         assert "export failed" in app.last_status
         assert not list(tmp_path.glob("daily-brief-*.md"))
+
+
+_MULTI_PARAGRAPH_READ = (
+    "Risk-on into CPI; the tech tilt helped.\n"
+    "\n"
+    "# Outlook\n"
+    "- equities up\n"
+    "- duration short"
+)
+
+
+def _section(text: str, start: str, end: str) -> list[str]:
+    """The lines strictly between the heading lines that begin ``start`` and ``end``."""
+    lines = text.splitlines()
+    first = next(i for i, line in enumerate(lines) if line.startswith(start))
+    last = next(i for i, line in enumerate(lines) if line.startswith(end))
+    return lines[first + 1 : last]
+
+
+def test_daily_brief_markdown_quotes_every_line_of_a_multi_paragraph_read() -> None:
+    """Each line of the economist read stays inside the blockquote, blanks included."""
+    from fund.tui.views import _render_brief_markdown
+
+    brief = dataclasses.replace(
+        _full_brief(_PID_A), economist_read=_MULTI_PARAGRAPH_READ
+    )
+    quote = [
+        line
+        for line in _section(
+            _render_brief_markdown(brief), "## Economist read", "## Fund did"
+        )
+        if line  # the single blank line that ends the section
+    ]
+
+    assert all(line.startswith(">") for line in quote)  # none escapes to a heading
+    assert "> # Outlook" in quote and "> - equities up" in quote
+    assert quote[-1] == "> (from 10-03)"  # the carried-forward date tags the whole read
+
+
+def test_daily_brief_pane_indents_every_line_of_a_multi_paragraph_read() -> None:
+    """The on-screen read is indented as a block, not just on its first line."""
+    from fund.tui.views import _render_brief_detail
+
+    brief = dataclasses.replace(
+        _full_brief(_PID_A), economist_read=_MULTI_PARAGRAPH_READ
+    )
+    rows = [
+        row
+        for row in _section(_render_brief_detail(brief), "ECONOMIST READ", "FUND DID")
+        if row
+    ]
+
+    assert all(row.startswith("  ") for row in rows)
+    assert rows[0] == '  "Risk-on into CPI; the tech tilt helped.'
+    assert rows[-1] == '  - duration short" (from 10-03)'
 
 
 def test_daily_brief_status_tiers_carry_labels() -> None:
@@ -3123,6 +7560,172 @@ async def test_daily_brief_sidebar_pick_focuses(shell_env, monkeypatch) -> None:
         await pilot.pause()
         view = app.query_one("#view-brief", DailyBriefView)
         assert app.focused is view
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_read_failure_is_reported_not_called_no_focus(
+    shell_env, monkeypatch
+) -> None:
+    """A focused portfolio whose read raises says so, never "no portfolio focused"."""
+
+    def boom(*_a, **_k):
+        raise RuntimeError("checkpoint unreadable")
+
+    monkeypatch.setattr(observe, "daily_brief", boom)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert "no portfolio focused" not in view.detail_text
+        assert "brief unavailable" in view.detail_text
+        assert "checkpoint unreadable" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_keeps_day_navigation_through_a_failed_read(
+    shell_env, monkeypatch
+) -> None:
+    """One failed tick keeps the last good brief, so the arrows still step days."""
+    grid = _nav_grid(_PID_A)
+    failing = {"on": False}
+
+    def flaky(_session, _saver, _pid, asof=None):
+        if failing["on"]:
+            raise RuntimeError("transient OperationalError")
+        return grid[asof]
+
+    monkeypatch.setattr(observe, "daily_brief", flaky)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert view.brief is not None and view.brief.asof == date(2026, 10, 6)
+
+        failing["on"] = True
+        app._refresh()
+        await pilot.pause()
+        assert "brief unavailable: RuntimeError: transient OperationalError" in (
+            view.detail_text
+        )
+        assert view.brief is not None  # the last good brief still anchors navigation
+
+        failing["on"] = False
+        view.action_prev_day()
+        assert view.asof == date(2026, 10, 5)
+        assert view.brief is not None and view.brief.asof == date(2026, 10, 5)
+        assert "brief unavailable" not in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_poll_read_failure_is_painted_off_the_loop(
+    shell_env, monkeypatch
+) -> None:
+    """The worker-thread poll surfaces a failed read in the pane too."""
+
+    def boom(*_a, **_k):
+        raise RuntimeError("fred factor load failed")
+
+    monkeypatch.setattr(observe, "daily_brief", boom)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        view.detail_text = ""
+
+        app._poll()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert "fred factor load failed" in view.detail_text
+        assert "no portfolio focused" not in view.detail_text
+
+
+def _two_portfolio_marks(monkeypatch) -> list[tuple[uuid.UUID, date | None]]:
+    """Patch the assembler over two NAV grids; return the ``(pid, asof)`` asked for.
+
+    ``_PID_A`` is marked 10-04..10-06 and ``_PID_B`` 10-05..10-07, so a day pinned
+    for one portfolio can fall off the other's grid.
+    """
+    first = {_PID_A: date(2026, 10, 4), _PID_B: date(2026, 10, 5)}
+    latest = {_PID_A: date(2026, 10, 6), _PID_B: date(2026, 10, 7)}
+    asked: list[tuple[uuid.UUID, date | None]] = []
+
+    def assemble(_session, _saver, pid, asof=None):
+        asked.append((pid, asof))
+        day = asof or latest[pid]
+        return _full_brief(
+            pid,
+            asof=day,
+            prev_day=day - timedelta(days=1) if day > first[pid] else None,
+            next_day=day + timedelta(days=1) if day < latest[pid] else None,
+        )
+
+    monkeypatch.setattr(observe, "daily_brief", assemble)
+    return asked
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_opens_on_latest_day_after_a_portfolio_switch(
+    shell_env, monkeypatch
+) -> None:
+    """A day stepped back to for one portfolio is not carried over to the next."""
+    asked = _two_portfolio_marks(monkeypatch)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        view.action_prev_day()
+        view.action_prev_day()
+        assert view.asof == date(2026, 10, 4)  # before B's first mark
+
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+
+        assert asked[-1] == (_PID_B, None)  # B is read at its own latest day
+        assert view.asof is None
+        assert view.brief is not None and view.brief.portfolio_id == _PID_B
+        assert "Daily brief · 2026-10-07" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_reopened_on_another_portfolio_shows_its_latest_day(
+    shell_env, monkeypatch
+) -> None:
+    """Switching portfolio on another pane, then opening the brief, resets the day."""
+    asked = _two_portfolio_marks(monkeypatch)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        view.action_prev_day()
+        assert view.asof == date(2026, 10, 5)
+
+        app.query_one(ContentSwitcher).current = "view-posture"
+        app.focus_portfolio(_PID_B)
+        app.action_open_brief()  # the Posture 'd' jump
+        await pilot.pause()
+
+        assert asked[-1] == (_PID_B, None)
+        assert view.asof is None
+        assert "Daily brief · 2026-10-07" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_escape_returns_focus_to_the_sidebar(
+    shell_env, monkeypatch
+) -> None:
+    """The hint advertises ``esc``, so it must hand focus back to the sidebar."""
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _full_brief(_PID_A))
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        view.focus()
+        await pilot.pause()
+        assert "esc" in str(view.query_one("#brief-hint", Static).render())
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.focused is app.query_one("#sidebar", ListView)
 
 
 # --- Performance view (Phase 08 T2/T3) --------------------------------------
@@ -3261,6 +7864,101 @@ async def test_performance_strip_and_holdings_render(shell_env) -> None:
 
 
 @pytest.mark.asyncio
+async def test_performance_repaint_keeps_the_highlighted_holding(shell_env) -> None:
+    from fund.performance import HoldingMark
+
+    marks = [
+        HoldingMark(
+            ticker=ticker,
+            shares=1.0,
+            value=100.0,
+            weight=0.25,
+            return_1d=0.01,
+            return_1m=0.02,
+            return_1y=0.03,
+            contribution=0.0025,
+            unrealized_pnl=1.0,
+        )
+        for ticker in ("AAA", "BBB", "CCC", "DDD")
+    ]
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        table = view.query_one("#perf-holdings", DataTable)
+        view._paint_holdings(marks)
+        table.move_cursor(row=2)
+        assert _cursor_key(table) == "CCC"
+
+        view._paint_holdings(marks)
+        await pilot.pause()
+
+        assert _cursor_key(table) == "CCC"
+
+
+@pytest.mark.asyncio
+async def test_performance_other_portfolio_starts_its_holdings_at_the_top(
+    shell_env,
+) -> None:
+    from fund.performance import HoldingMark
+
+    marks = [
+        HoldingMark(
+            ticker=ticker,
+            shares=1.0,
+            value=100.0,
+            weight=0.25,
+            return_1d=0.01,
+            return_1m=0.02,
+            return_1y=0.03,
+            contribution=0.0025,
+            unrealized_pnl=1.0,
+        )
+        for ticker in ("AAA", "BBB", "CCC", "DDD")
+    ]
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        table = view.query_one("#perf-holdings", DataTable)
+        view._paint_holdings(marks)
+        table.move_cursor(row=2)
+        assert _cursor_key(table) == "CCC"
+
+        # Another book's holdings may share tickers; the cursor must not carry over.
+        app._portfolio_id = _PID_B
+        view._paint_holdings(marks)
+        await pilot.pause()
+
+        assert _cursor_key(table) == "AAA"
+
+
+@pytest.mark.asyncio
+async def test_performance_strip_shows_drawdown_as_a_loss(shell_env) -> None:
+    """A 50% peak-to-trough fall reads ``max-dd -50.00%``, never a ``+`` gain."""
+    from fund.audit.nav_history_repository import NavHistoryRepository
+
+    navs = [100000, 200000, 150000, 100000]
+    with shell_env.get_session() as session:
+        NavHistoryRepository(session).upsert_navs(
+            [
+                {
+                    "portfolio_id": _PID_A,
+                    "date": date(2026, 10, 1 + i),
+                    "nav": Decimal(nav),
+                    "benchmark": None,
+                }
+                for i, nav in enumerate(navs)
+            ]
+        )
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        assert "max-dd -50.00%" in view.summary_text
+        assert "max-dd +" not in view.summary_text
+
+
+@pytest.mark.asyncio
 async def test_performance_holding_drilldown(shell_env) -> None:
     """Selecting a holdings row opens its drill-down detail."""
     with shell_env.get_session() as session:
@@ -3321,6 +8019,221 @@ async def test_performance_fx_gap_keeps_returns_strip(shell_env) -> None:
         assert "+1.20%" in view.summary_text
         # ...while the holdings mark needs the missing FX rate, so it degrades to empty.
         assert view.query_one("#perf-holdings", DataTable).row_count == 0
+
+
+def _record_threads(monkeypatch, name: str) -> list[threading.Thread]:
+    """Wrap ``observe.<name>`` so each call records the thread that ran it."""
+    original = getattr(observe, name)
+    seen: list[threading.Thread] = []
+
+    def wrapper(*args, **kwargs):
+        seen.append(threading.current_thread())
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(observe, name, wrapper)
+    return seen
+
+
+@pytest.mark.asyncio
+async def test_performance_poll_tick_reads_off_the_event_loop(
+    shell_env, monkeypatch
+) -> None:
+    """The 2s poll loads price history on a worker thread, then paints the result."""
+    with shell_env.get_session() as session:
+        _seed_perf(session, _PID_A)
+        session.commit()
+    holdings_threads = _record_threads(monkeypatch, "holdings_summary")
+    summary_threads = _record_threads(monkeypatch, "performance_summary")
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        holdings_threads.clear()
+        summary_threads.clear()
+        view.summary = None
+        view.summary_text = ""
+
+        app._poll()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert holdings_threads and summary_threads
+        main = threading.main_thread()
+        assert all(t is not main for t in holdings_threads + summary_threads)
+        assert view.summary is not None and "+1.20%" in view.summary_text
+        assert view.query_one("#perf-holdings", DataTable).row_count == 1
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_poll_tick_reads_off_the_event_loop(
+    shell_env, monkeypatch
+) -> None:
+    """The brief's poll assembles the recap (incl. the regression) off the loop."""
+    brief = _full_brief(_PID_A)
+    threads: list[threading.Thread] = []
+
+    def fake_daily_brief(*_args, **_kwargs):
+        threads.append(threading.current_thread())
+        return brief
+
+    monkeypatch.setattr(observe, "daily_brief", fake_daily_brief)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        threads.clear()
+        view.brief = None
+
+        app._poll()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert threads and all(t is not threading.main_thread() for t in threads)
+        assert view.brief is brief and "MACRO ATTRIBUTION" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_poll_result_for_a_departed_day_is_dropped(
+    shell_env, monkeypatch
+) -> None:
+    """A slow poll read never overwrites the day the adviser stepped to meanwhile."""
+    grid = _nav_grid(_PID_A)
+    release = threading.Event()
+
+    def fake_daily_brief(_session, _saver, _pid, asof=None):
+        if threading.current_thread() is not threading.main_thread():
+            release.wait(timeout=10)  # an in-flight poll read, held mid-query
+        return grid[asof]
+
+    monkeypatch.setattr(observe, "daily_brief", fake_daily_brief)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert view.brief is not None and view.brief.asof == date(2026, 10, 6)
+
+        app._poll()  # reads the latest day on a worker, parked on ``release``
+        view.action_prev_day()  # the adviser steps back; repainted synchronously
+        assert view.brief is not None and view.brief.asof == date(2026, 10, 5)
+        release.set()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert view.asof == date(2026, 10, 5)
+        assert view.brief.asof == date(2026, 10, 5)  # not clobbered by the stale read
+
+
+@pytest.mark.asyncio
+async def test_performance_risk_strip_shows_drawdown_as_loss_and_risk_unsigned(
+    shell_env, monkeypatch
+) -> None:
+    """Drawdown reads as a loss (-x%); volatility and tracking error carry no sign.
+
+    ``PerformanceSummary.max_drawdown`` is a non-negative magnitude, so a bare signed
+    format would print a 6% drawdown as ``+6.00%`` — indistinguishable from a gain.
+    """
+    from fund.performance import PerformanceSummary
+
+    def _summary(max_drawdown: float) -> PerformanceSummary:
+        return PerformanceSummary(
+            portfolio_id=_PID_A,
+            returns={"1D": -0.01, "1M": None, "YTD": None, "1Y": None, "max": -0.06},
+            excess={"1D": None, "1M": None, "YTD": None, "1Y": None, "max": None},
+            tracking_error=0.02,
+            max_drawdown=max_drawdown,
+            volatility=0.4815,
+            sharpe=-0.5,
+            beta=1.1,
+        )
+
+    monkeypatch.setattr(
+        observe, "performance_summary", lambda *_a, **_k: _summary(0.06)
+    )
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        assert "max-dd -6.00%" in view.summary_text
+        assert "vol 48.15%" in view.summary_text
+        assert "TE 2.00%" in view.summary_text
+        assert "+" not in view.summary_text.split("RISK", 1)[1].split("EXCESS")[0]
+
+        monkeypatch.setattr(
+            observe, "performance_summary", lambda *_a, **_k: _summary(0.0)
+        )
+        app._refresh()
+        await pilot.pause()
+        assert "max-dd 0.00%" in view.summary_text
+
+
+@pytest.mark.asyncio
+async def test_performance_poll_repaint_keeps_holdings_cursor_and_scroll(
+    shell_env, monkeypatch
+) -> None:
+    """A poll tick must not snap the holdings cursor/viewport back to the first row."""
+    from fund.performance import HoldingMark
+
+    book = [
+        HoldingMark(
+            ticker=f"T{i:02d}",
+            shares=1.0,
+            value=100.0 + i,
+            weight=0.02,
+            return_1d=0.001,
+            return_1m=None,
+            return_1y=None,
+            contribution=0.00002,
+            unrealized_pnl=1.0,
+        )
+        for i in range(60)
+    ]
+    monkeypatch.setattr(observe, "holdings_summary", lambda *_a, **_k: list(book))
+    with shell_env.get_session() as session:
+        _seed_perf(session, _PID_A)
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        table = view.query_one("#perf-holdings", DataTable)
+        assert table.row_count == 60
+        table.focus()
+        # Overshoot and come back so the cursor sits mid-viewport. A cursor parked on
+        # the viewport edge lands on the same offset after clear() + move_cursor()
+        # alone, which would let a lost scroll restore go unnoticed.
+        table.move_cursor(row=55)
+        await pilot.pause()
+        table.move_cursor(row=50)
+        await pilot.pause()
+        scroll_before = table.scroll_y
+        assert scroll_before > 0  # row 50 sits below the fold
+        assert scroll_before + table.size.height > 51  # ...and off the bottom edge
+
+        app._refresh()  # what every poll tick does
+        await pilot.pause()
+        await pilot.pause()
+
+        assert table.row_count == 60
+        assert table.cursor_row == 50
+        assert table.scroll_y == scroll_before
+        await pilot.press("enter")
+        await pilot.pause()
+        assert view.selected_ticker == "T50"
+
+        # A reordered book keeps the cursor on the same holding, in view.
+        book.reverse()
+        app._refresh()
+        await pilot.pause()
+        await pilot.pause()
+        assert table.cursor_row == 9
+        assert table.ordered_rows[table.cursor_row].key.value == "T50"
+        assert table.scroll_y <= table.cursor_row <= table.scroll_y + table.size.height
+
+        # A holding that left the book falls back to the nearest surviving row.
+        del book[9]
+        app._refresh()
+        await pilot.pause()
+        assert table.row_count == 59
+        assert table.cursor_row == 9
 
 
 # --- Posture NAV tile (Phase 08 T3) -----------------------------------------
@@ -3394,6 +8307,11 @@ class _CannedAskModel(BaseChatModel):
         )
 
 
+def _pane_text(view, selector: str) -> str:
+    """The text a Static pane currently shows, markup already resolved."""
+    return str(view.query_one(selector, Static).render())
+
+
 async def _open_ask(app, pilot) -> AskView:
     """Switch the shell to the Ask view and paint it."""
     await pilot.pause()
@@ -3416,6 +8334,41 @@ async def test_ask_registers_in_sidebar_and_opens(shell_env) -> None:
         await pilot.pause()
         view = app.query_one("#view-ask", AskView)
         assert view.view_title == "Ask"
+
+
+@pytest.mark.asyncio
+async def test_ask_sidebar_pick_focuses_the_input_so_typing_is_not_a_binding(
+    shell_env, monkeypatch, tmp_path
+) -> None:
+    """Picking Ask in the sidebar lands focus on the input: keystrokes become text.
+
+    A bare focused container would hand every printable key to the app bindings, so
+    typing 'quarterly drift?' would hit ``q`` (quit) before anything reached the box.
+    """
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        sidebar.focus()
+        sidebar.index = _VIEW_KEYS.index("ask")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        view = app.query_one("#view-ask", AskView)
+        inp = view.query_one("#ask-input", Input)
+        assert app.focused is inp
+        await pilot.press("q", "u", "a", "r", "t", "e", "r")
+        await pilot.pause()
+        assert app.is_running
+        assert inp.value == "quarter"
+
+        # The view-scoped export is still one shift+tab away, from the log.
+        monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
+        view.append_log("ask", "all good")
+        await pilot.press("shift+tab")
+        await pilot.press("e")
+        await pilot.pause()
+        assert len(list(tmp_path.glob("ask-*.md"))) == 1
 
 
 @pytest.mark.asyncio
@@ -3443,6 +8396,338 @@ async def test_ask_query_returns_grounded_answer(shell_env) -> None:
         assert view.last_answer == "grounded: the fund looks healthy"
         assert "grounded" in str(view.query_one("#ask-log", Static).render())
         assert "how are we doing?" in str(view.query_one("#ask-log", Static).render())
+
+
+class _GatedAskModel(BaseChatModel):
+    """A chat model that can park inside ``invoke`` until released, then answer or fail.
+
+    ``entered`` is set as soon as the call starts and ``finished`` once it is about to
+    return, so a test can overlap two queries deterministically.
+    """
+
+    answer: str = ""
+    fail: bool = False
+    entered: threading.Event | None = None
+    release: threading.Event | None = None
+    finished: threading.Event | None = None
+
+    @property
+    def _llm_type(self) -> str:
+        return "gated-ask"
+
+    def _generate(self, messages, stop=None, run_manager=None, **_):
+        """Wait for ``release`` (when gated), then answer or raise."""
+        from langchain_core.messages import AIMessage
+        from langchain_core.outputs import ChatGeneration, ChatResult
+
+        if self.entered is not None:
+            self.entered.set()
+        if self.release is not None:
+            assert self.release.wait(timeout=10)
+        try:
+            if self.fail:
+                raise RuntimeError("model blew up")
+            return ChatResult(
+                generations=[ChatGeneration(message=AIMessage(content=self.answer))]
+            )
+        finally:
+            if self.finished is not None:
+                self.finished.set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stale_fails", [False, True], ids=["answer", "error"])
+async def test_ask_superseded_query_never_paints_its_stale_reply(
+    shell_env, stale_fails
+) -> None:
+    """A newer question cancels the older one; its late reply must not reach the log.
+
+    A cancelled thread worker keeps running, so without a guard its answer (or error
+    note) lands after the newer question's answer and reads as the reply to it.
+    """
+    entered, release, finished = (threading.Event() for _ in range(3))
+    models = iter(
+        [
+            _GatedAskModel(
+                answer="ANSWER-1 (slow)",
+                fail=stale_fails,
+                entered=entered,
+                release=release,
+                finished=finished,
+            ),
+            _GatedAskModel(answer="ANSWER-2 (fast)"),
+        ]
+    )
+    app = _make_shell(
+        shell_env, portfolio_id=_PID_A, model_factory=lambda: next(models)
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("how are we doing?")
+        assert await asyncio.to_thread(entered.wait, 5)  # Q1 is parked in the model
+        view.submit_turn("what about drift?")
+        second = app.last_worker
+        assert second is not None
+        await second.wait()
+        await pilot.pause()
+        assert view.last_answer == "ANSWER-2 (fast)"
+        status_after_answer = app.last_status
+
+        release.set()
+        assert await asyncio.to_thread(finished.wait, 5)
+        await asyncio.sleep(0.2)  # let a stale paint through if the guard is missing
+        await pilot.pause()
+
+        log = _rendered(view.query_one("#ask-log", Static))
+        assert "ANSWER-2 (fast)" in log
+        assert "ANSWER-1" not in log
+        assert "ask failed" not in log
+        assert view.last_answer == "ANSWER-2 (fast)"
+        assert app.last_status == status_after_answer
+
+
+@pytest.mark.asyncio
+async def test_ask_log_renders_bracketed_answer_verbatim(shell_env) -> None:
+    """Bracketed tickers/values and a stray ``[/x]`` in an answer neither vanish nor
+    crash the log; the screen shows exactly what the markdown export keeps."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        answer = "top holdings: [AAPL], [MSFT]; cash [5%]; stray [/INST] tag"
+        view.set_answer(answer)
+        await pilot.pause()
+        shown = str(view.query_one("#ask-log", Static).render())
+        assert shown == f"ask: {answer}"
+
+
+@pytest.mark.asyncio
+async def test_ask_log_shows_bracketed_answer_text_verbatim(shell_env) -> None:
+    """Tickers in brackets and markdown links survive: the log never parses markup.
+
+    Parsed as Textual markup, ``[AAPL]`` and ``[report]`` were silently deleted, so a
+    grounded answer reached the adviser with its ticker names missing.
+    """
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        session.commit()
+
+    answer = "We hold [AAPL], [MSFT] and [NVDA] (see [report](https://x.y/z))."
+    app = _make_shell(
+        shell_env,
+        portfolio_id=_PID_A,
+        model_factory=lambda: _CannedAskModel(answer=answer),
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("which names are we holding?")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert answer in str(view.query_one("#ask-log", Static).render())
+
+
+@pytest.mark.asyncio
+async def test_ask_log_stray_closing_tag_in_answer_does_not_crash(shell_env) -> None:
+    """A model answer holding ``[/INST]`` renders as text instead of ending the TUI."""
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        session.commit()
+
+    answer = "Closing tag leak: [/INST] done"
+    app = _make_shell(
+        shell_env,
+        portfolio_id=_PID_A,
+        model_factory=lambda: _CannedAskModel(answer=answer),
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("how are we doing?")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert app.is_running
+        assert answer in str(view.query_one("#ask-log", Static).render())
+
+
+@pytest.mark.asyncio
+async def test_ask_log_typed_closing_tag_turn_does_not_crash(shell_env) -> None:
+    """An adviser turn like 'why is [/x] trimmed?' is logged verbatim, not parsed."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)  # model_factory=lambda: None
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("why is [/x] trimmed?")
+        await pilot.pause()
+        assert app.is_running
+        log = str(view.query_one("#ask-log", Static).render())
+        assert "why is [/x] trimmed?" in log
+
+
+@pytest.mark.asyncio
+async def test_status_bar_shows_bracketed_message_verbatim(shell_env) -> None:
+    """Error text with brackets ('[Errno 111]', '[/]') reaches the status bar intact."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        message = "ask failed: [Errno 111] connection refused [/]"
+        app._set_status(message)
+        await pilot.pause()
+        assert app.last_status == message
+        assert message in str(app.query_one("#status-bar", Static).render())
+
+
+# --- Model and adviser text in the other free-text panes ----------------------
+
+# Bracketed tokens a report can legitimately carry; parsed as Textual markup the
+# first two vanish and the stray closing tag raises MarkupError.
+_BRACKETED = "Verdict: [BLOCK] sector [Energy] 0.41 [/INST] done"
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_detail_shows_bracketed_report_verbatim(
+    shell_env,
+) -> None:
+    """A streamed subagent report keeps its [BLOCK]/[Energy] tokens and cannot crash."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        view.ingest_event(
+            StreamEvent(
+                kind="step",
+                run_id=rid,
+                index=0,
+                agent="risk",
+                step="report",
+                status=StepStatus.LIVE,
+                text=_BRACKETED,
+            )
+        )
+        await pilot.pause()
+        assert app.is_running
+        assert _BRACKETED in _pane_text(view, "#delib-detail")
+
+
+@pytest.mark.asyncio
+async def test_deliberation_replay_detail_shows_bracketed_report_verbatim(
+    shell_env,
+) -> None:
+    """A replayed step's payload is shown as stored, brackets and all."""
+    with shell_env.get_session() as session:
+        repo = AgentRunRepository(session)
+        run = repo.create_run(
+            portfolio_id=_PID_A,
+            asof=date(2026, 1, 2),
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        repo.append_decision(
+            run.id,
+            agent="executor",
+            step="place_orders",
+            hitl_decision={"feedback": _BRACKETED},
+        )
+        session.commit()
+        run_id = run.id
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(0)
+        await pilot.pause()
+        assert app.is_running
+        assert _BRACKETED in view.detail_text
+        assert _BRACKETED in _pane_text(view, "#delib-detail")
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_detail_shows_bracketed_narrative_verbatim(
+    shell_env, monkeypatch
+) -> None:
+    """Journal narratives and the economist read keep their bracketed tokens."""
+    import dataclasses
+
+    brief = dataclasses.replace(
+        _full_brief(_PID_A),
+        market_events=({"as_of": "2026-10-06", "narrative": _BRACKETED},),
+        economist_read=_BRACKETED,
+    )
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert app.is_running
+        assert _BRACKETED in _pane_text(view, "#brief-detail")
+
+
+@pytest.mark.asyncio
+async def test_decisions_gate_shows_bracketed_why_verbatim(
+    tui_env, monkeypatch
+) -> None:
+    """The gate's "why" is model prose and must reach the reviewer unparsed."""
+    monkeypatch.setattr(
+        observe,
+        "interrupt_for",
+        lambda saver, run: {
+            "action_requests": [
+                {"name": "place_orders", "description": _BRACKETED, "args": {}}
+            ]
+        },
+    )
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        assert app.is_running
+        assert _BRACKETED in _pane_text(view, "#decisions-gate")
+
+
+@pytest.mark.asyncio
+async def test_audit_detail_shows_bracketed_values_verbatim(shell_env) -> None:
+    """Audit provenance carries agent/adviser strings; brackets must not be parsed."""
+    with shell_env.get_session() as session:
+        HumanAuditLogRepository(session).append(
+            action="guardrail_override",
+            portfolio_id=_PID_B,
+            actor="human",
+            target="risk_band",
+            prev_value="balanced",
+            new_value=_BRACKETED,
+            source="mifid_profile",
+        )
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        view.select_index(0)
+        await pilot.pause()
+        assert app.is_running
+        assert _BRACKETED in _pane_text(view, "#audit-detail")
+
+
+@pytest.mark.asyncio
+async def test_mandate_directive_rows_show_bracketed_text_verbatim(shell_env) -> None:
+    """A remembered directive typed as 'avoid [Energy] [/x]' lists as typed."""
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"remembered_directives": (_BRACKETED,)}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        await pilot.pause()
+        assert app.is_running
+        rows = view.query_one("#mandate-directives", ListView).query(Label)
+        assert [str(row.render()) for row in rows] == [_BRACKETED]
 
 
 @pytest.mark.asyncio
@@ -3528,6 +8813,73 @@ async def test_ask_action_reject_confirms_then_rejects(tui_env) -> None:
         assert AgentRunRepository(session).get_run(tui_env.run_id).status == "rejected"
 
 
+async def _type_ask_turn(view: AskView, pilot, turn: str) -> None:
+    """Submit ``turn`` through the real Input, as an adviser would."""
+    inp = view.query_one("#ask-input", Input)
+    inp.focus()
+    inp.value = turn
+    await pilot.pause()
+    await pilot.press("enter")
+    await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_ask_turn_failure_outside_the_gate_read_is_reported_not_fatal(
+    tui_env, monkeypatch
+) -> None:
+    """An error raised while handling an Ask turn logs 'ask failed' instead of exiting.
+
+    The gate reads have their own guard (``could not read gates``); this is the net
+    under everything else the turn does on the UI thread, where an unguarded raise
+    would take the whole TUI (and the conversation) down.
+    """
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("server closed the connection unexpectedly")
+
+    monkeypatch.setattr(tui_app.ask, "classify", _boom)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        await _type_ask_turn(view, pilot, "approve the gate")
+        assert app.is_running
+        assert "ask failed" in app.last_status
+        assert "server closed the connection" in app.last_status
+        log = str(view.query_one("#ask-log", Static).render())
+        assert "ask failed" in log
+        assert not isinstance(app.screen, ConfirmScreen)  # nothing was confirmed
+        assert app.last_worker is None
+
+
+@pytest.mark.asyncio
+async def test_ask_pending_followup_read_failure_is_reported_not_fatal(
+    shell_env, monkeypatch
+) -> None:
+    """The disambiguation follow-up shares the guard: a read error never crashes."""
+    app = _make_shell(shell_env)  # fund-wide: 'freeze it' is scope-ambiguous
+    statuses: list[str] = []
+    set_status = app._set_status
+    monkeypatch.setattr(
+        app, "_set_status", lambda text: (statuses.append(text), set_status(text))[1]
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        await _type_ask_turn(view, pilot, "freeze it")
+        assert view.pending_action is not None
+
+        def _boom(*_a, **_k):
+            raise RuntimeError("checkpointer connection lost")
+
+        monkeypatch.setattr(tui_app.ask, "resolve_pending", _boom)
+        await _type_ask_turn(view, pilot, "the fund")
+        assert app.is_running
+        assert any(
+            "could not read gates" in text and "checkpointer connection lost" in text
+            for text in statuses
+        )
+        assert view.pending_action is None  # single-shot, never lingers
+
+
 @pytest.mark.asyncio
 async def test_ask_action_freeze_fund_confirms_then_freezes(shell_env) -> None:
     """'freeze the fund' confirms, then flips fund autonomy FROZEN via apply_action."""
@@ -3547,6 +8899,109 @@ async def test_ask_action_freeze_fund_confirms_then_freezes(shell_env) -> None:
         from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
 
         assert AutonomyRepository(session).fund_posture() == AutonomyState.FROZEN.value
+
+
+@pytest.mark.parametrize(
+    ("turn", "expected"),
+    [
+        ("freeze it", "FREEZE autonomy (halts runs) portfolio aaaa0001?"),
+        ("re-arm it", "Re-arm autonomy portfolio aaaa0001?"),
+        ("run a rebalance", "Run a paper rebalance for portfolio aaaa0001?"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_ask_confirm_names_the_focused_portfolio_not_a_gate(
+    shell_env, turn, expected
+) -> None:
+    """A focused freeze / re-arm / run names the portfolio in its confirm; only a
+    resume verb (approve / reject / killswitch) talks about a gate."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn(turn)
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        prompt = str(app.screen.query_one(".confirm-prompt", Static).render())
+        assert prompt == expected
+        assert "gate" not in prompt
+
+
+def test_ask_confirm_prompt_keys_the_target_on_the_verb() -> None:
+    from fund.tui.ask import ResolvedAction
+
+    run_id = uuid.UUID("dddd0004-0000-4000-8000-000000000004")
+    # A resume verb names its gate and the gate's portfolio; a run verb never names a
+    # gate, even if run_id is populated.
+    assert (
+        tui_app._ask_confirm_prompt(ResolvedAction("approve", run_id, _PID_A, None))
+        == "Approve and execute gate #dddd0004 (portfolio aaaa0001)?"
+    )
+    assert (
+        tui_app._ask_confirm_prompt(ResolvedAction("run", _PID_A, _PID_A, None))
+        == "Run a paper rebalance for portfolio aaaa0001?"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ask_killswitch_the_fund_confirms_then_freezes_the_fund(
+    tui_env,
+) -> None:
+    """'killswitch the fund' with a gate paused is a fund freeze, not a run reject."""
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("killswitch the fund")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        prompt = str(app.screen.query_one(".confirm-prompt", Static).render())
+        assert "whole fund" in prompt and "gate" not in prompt
+        await pilot.click("#confirm-yes")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+    with tui_env.get_session() as session:
+        from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
+
+        assert AutonomyRepository(session).fund_posture() == AutonomyState.FROZEN.value
+
+
+@pytest.mark.asyncio
+async def test_ask_gate_confirm_names_the_gates_portfolio(tui_env) -> None:
+    """An approve confirm names the gate's portfolio, so a fund-wide 'approve' never
+    offers orders of an unnamed portfolio."""
+    app = _make_shell(tui_env)  # fund-wide, nothing focused
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        prompt = str(app.screen.query_one(".confirm-prompt", Static).render())
+        assert f"gate #{str(tui_env.run_id)[:8]}" in prompt
+        assert f"portfolio {str(PORTFOLIO_ID)[:8]}" in prompt
+        await pilot.press("escape")
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_ask_portfolio_scope_confirm_names_the_portfolio_not_a_gate(
+    shell_env,
+) -> None:
+    """A focused 'freeze it' confirm spells out the portfolio — there is no gate."""
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("freeze it")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        prompt = str(app.screen.query_one(".confirm-prompt", Static).render())
+        assert "portfolio aaaa0001" in prompt
+        assert "gate" not in prompt
 
 
 # --- Ask disambiguation (Phase 08 T7) ---------------------------------------
@@ -3665,13 +9120,368 @@ async def test_ask_action_two_gates_disambiguate_to_named(tui_env) -> None:
         assert AgentRunRepository(session).get_run(tui_env.run_id).status == "completed"
 
 
+@pytest.mark.asyncio
+async def test_ask_pending_gate_answered_with_new_verb_runs_that_verb(tui_env) -> None:
+    """'approve' asks which gate; answering 'reject #id' must reject it, not approve."""
+    _seed_fake_gate(tui_env, PORTFOLIO_ID, thread_id="thread-gate2", seed=2)
+    short = str(tui_env.run_id).split("-", 1)[0]
+
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert view.pending_action is not None  # ambiguous: two gates
+
+        view.submit_turn(f"reject #{short}")
+        await pilot.pause()
+        assert view.pending_action is None
+        assert isinstance(app.screen, ConfirmScreen)
+        assert "approve" not in app.screen._prompt.lower()
+        await pilot.click("#confirm-yes")
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert "rejected" in app.last_status
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "rejected"
+        assert HumanAuditLogRepository(session).list_recent(action="approve") == []
+
+
+def _fail_gate_read(*_args, **_kwargs):
+    raise RuntimeError("transient db error")
+
+
+@pytest.mark.asyncio
+async def test_ask_action_survives_a_gate_read_error(tui_env, monkeypatch) -> None:
+    """A read failure while resolving an action turn reports on the shell, never exits.
+
+    The resolve runs on the event loop inside the ``Input.Submitted`` handler, so an
+    escaped exception would tear the whole cockpit down mid-decision.
+    """
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        monkeypatch.setattr(observe, "pending_hitl", _fail_gate_read)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert app.is_running
+        assert "could not read gates" in app.last_status
+        assert "could not read gates" in _rendered(view.query_one("#ask-log", Static))
+        assert not isinstance(app.screen, ConfirmScreen)
+        assert app.last_worker is None  # nothing dispatched on an unread gate list
+
+
+@pytest.mark.asyncio
+async def test_ask_pending_follow_up_survives_a_gate_read_error(
+    tui_env, monkeypatch
+) -> None:
+    """A read failure resolving a disambiguation follow-up reports, never exits."""
+    _seed_fake_gate(tui_env, PORTFOLIO_ID, thread_id="thread-gate2", seed=2)
+    short = str(tui_env.run_id).split("-", 1)[0]
+
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert view.pending_action is not None  # ambiguous: two gates
+
+        monkeypatch.setattr(observe, "pending_hitl", _fail_gate_read)
+        view.submit_turn(f"approve #{short}")
+        await pilot.pause()
+        assert app.is_running
+        assert view.pending_action is None  # a pending action stays single-shot
+        assert "could not read gates" in _rendered(view.query_one("#ask-log", Static))
+        assert not isinstance(app.screen, ConfirmScreen)
+
+
+# --- Agent-originated text is data, never Textual markup ---------------------
+
+# Bracketed key=value runs and a stray closing tag all raise ``MarkupError`` when a
+# ``Static`` parses them as markup — realistic in finance prose from a model.
+_BRACKETED = "drift [a=1, b=2] vs [ECB=hawkish, BoE=dovish] and a stray [/]"
+
+
+def _rendered(widget) -> str:
+    return str(widget.render())
+
+
+@pytest.mark.asyncio
+async def test_ask_answer_with_bracket_sequences_renders_literally(shell_env) -> None:
+    """A model answer holding ``[k=v, k=v]`` reaches the log verbatim, not as markup."""
+    app = _make_shell(
+        shell_env,
+        portfolio_id=_PID_A,
+        model_factory=lambda: _CannedAskModel(answer=_BRACKETED),
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("how are we doing?")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert view.last_answer == _BRACKETED
+        assert _BRACKETED in _rendered(view.query_one("#ask-log", Static))
+        # A later repaint re-renders every logged line, so it must stay healthy too.
+        view.append_log("you", "and now?")
+        assert _BRACKETED in _rendered(view.query_one("#ask-log", Static))
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_detail_renders_bracketed_text_literally(
+    shell_env,
+) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        view.ingest_event(
+            StreamEvent(
+                kind="step",
+                run_id=rid,
+                index=0,
+                agent="economist",
+                step="report",
+                status=StepStatus.LIVE,
+                text=_BRACKETED,
+            )
+        )
+        await pilot.pause()
+        assert _BRACKETED in _rendered(view.query_one("#delib-detail", Static))
+
+
+@pytest.mark.asyncio
+async def test_deliberation_replay_detail_renders_bracketed_text_literally(
+    shell_env,
+) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view._entries = [
+            SimpleNamespace(
+                agent="economist",
+                step="report",
+                source="message",
+                index=0,
+                text=_BRACKETED,
+                payload=None,
+            )
+        ]
+        view.selected_step = 0
+        view._paint_detail()
+        await pilot.pause()
+        assert _BRACKETED in _rendered(view.query_one("#delib-detail", Static))
+
+
+@pytest.mark.asyncio
+async def test_decisions_gate_renders_bracketed_text_literally(tui_env) -> None:
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view._paint_gate(f"place_orders — {_BRACKETED}")
+        await pilot.pause()
+        assert _BRACKETED in _rendered(view.query_one("#decisions-gate", Static))
+
+
+@pytest.mark.asyncio
+async def test_audit_detail_renders_bracketed_text_literally(shell_env) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        view._entries = [
+            SimpleNamespace(
+                entry_id="agent:1",
+                kind="agent",
+                actor="allocator",
+                action="optimize_portfolio",
+                portfolio_id=None,
+                run_id=None,
+                target=None,
+                prev_value=None,
+                new_value=_BRACKETED,
+                source=None,
+                idempotency_key=None,
+                rationale=None,
+                override_flag=False,
+                suitability_flag=False,
+            )
+        ]
+        view.selected_entry_id = "agent:1"
+        view._paint_detail()
+        await pilot.pause()
+        assert _BRACKETED in _rendered(view.query_one("#audit-detail", Static))
+
+
+@pytest.mark.asyncio
+async def test_status_bar_renders_bracketed_error_text_literally(shell_env) -> None:
+    """Exception text (pydantic's ``[type=..., input_value=...]``) is not markup."""
+    app = _make_shell(shell_env)
+    message = "invalid mandate: [type=greater_than, input_value=-1, input_type=int]"
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        app._set_status(message)
+        await pilot.pause()
+        assert message in _rendered(app.query_one("#status-bar", Static))
+
+
+@pytest.mark.asyncio
+async def test_weights_editor_error_renders_typed_brackets_literally(tui_env) -> None:
+    """A typo echoed back inline (``[/]``) must not be parsed as a closing tag."""
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_edit_decision()
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, OrderEditScreen)
+        screen.query_one("#edit-weights", Input).value = "[/]"
+        screen._submit()
+        await pilot.pause()
+        assert isinstance(app.screen, OrderEditScreen)
+        assert "bad entry '[/]'" in _rendered(screen.query_one("#edit-error", Static))
+
+
+@pytest.mark.asyncio
+async def test_questionnaire_validation_error_renders_literally(shell_env) -> None:
+    """An out-of-range answer keeps the form open instead of killing the app, and its
+    error text (pydantic's ``[type=...]`` trailer included, were it ever shown) is never
+    parsed as markup."""
+    from _profiler_fakes import make_answers
+
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        screen = QuestionnaireScreen(ask_capital=True)
+        app.push_screen(screen)
+        await pilot.pause()
+        _fill_questionnaire(screen, make_answers(), capital="100000")
+        screen.query_one("#q-max-loss", Input).value = "150"
+        screen.query_one("#q-submit", Button).press()
+        await pilot.pause()
+        assert app.is_running
+        assert isinstance(app.screen, QuestionnaireScreen)
+        error = _rendered(screen.query_one("#q-error", Static))
+        assert error.startswith("invalid:")
+        assert (
+            "max_1yr_loss_pct" in error
+        )  # names the field, without pydantic's trailer
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_renders_bracketed_economist_read_literally(
+    shell_env, monkeypatch
+) -> None:
+    import dataclasses
+
+    brief = dataclasses.replace(_full_brief(_PID_A), economist_read=_BRACKETED)
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert _BRACKETED in _rendered(view.query_one("#brief-detail", Static))
+
+
+@pytest.mark.asyncio
+async def test_ask_pending_follow_up_with_another_verb_runs_that_verb(tui_env) -> None:
+    """After 'approve' asks which gate, 'reject #id' is confirmed as a reject."""
+    _seed_fake_gate(tui_env, PORTFOLIO_ID, thread_id="thread-gate2", seed=2)
+    short = str(tui_env.run_id).split("-", 1)[0]
+
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert view.pending_action is not None
+
+        view.submit_turn(f"reject #{short}")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        prompt = str(app.screen.query_one(".confirm-prompt", Static).render())
+        assert "Reject" in prompt and "Approve" not in prompt
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.last_worker is None  # nothing was dispatched
+
+
+@pytest.mark.asyncio
+async def test_ask_pending_negated_follow_up_never_confirms_the_excluded_gate(
+    tui_env,
+) -> None:
+    """'approve the other one, not #id' after 'approve which?' asks again; it must not
+    confirm an approve of the gate the adviser just excluded."""
+    _seed_fake_gate(tui_env, PORTFOLIO_ID, thread_id="thread-gate2", seed=2)
+    short = str(tui_env.run_id).split("-", 1)[0]
+
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert view.pending_action is not None
+
+        view.submit_turn(f"approve the other one, not #{short}")
+        await pilot.pause()
+        assert not isinstance(app.screen, ConfirmScreen)
+        assert view.pending_action is not None  # asked which gate, outright
+        assert app.last_worker is None  # nothing was dispatched
+
+
+@pytest.mark.asyncio
+async def test_ask_pending_scope_question_about_the_fund_is_not_a_freeze(
+    shell_env,
+) -> None:
+    """A question mentioning 'fund' after 'freeze what?' never reaches a confirm."""
+    app = _make_shell(shell_env)  # model_factory=lambda: None
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("freeze it")
+        await pilot.pause()
+        assert view.pending_action is not None
+
+        view.submit_turn("how is the fund doing?")
+        await pilot.pause()
+        assert view.pending_action is None
+        assert not isinstance(app.screen, ConfirmScreen)
+        worker = app.last_worker  # routed fresh as a query (model is None)
+        if worker is not None:
+            await worker.wait()
+
+
+@pytest.mark.asyncio
+async def test_ask_pending_scope_request_about_the_fund_is_not_a_freeze(
+    shell_env,
+) -> None:
+    """A non-question request naming 'fund' after 'freeze what?' never confirms."""
+    app = _make_shell(shell_env)  # model_factory=lambda: None
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("freeze it")
+        await pilot.pause()
+        assert view.pending_action is not None
+
+        view.submit_turn("give me the fund drawdown")
+        await pilot.pause()
+        assert view.pending_action is None
+        assert not isinstance(app.screen, ConfirmScreen)
+        worker = app.last_worker  # routed fresh as a query (model is None)
+        if worker is not None:
+            await worker.wait()
+
+
 # --- Ask markdown export (Phase 08 T8) --------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_ask_export_markdown(shell_env, monkeypatch, tmp_path) -> None:
     """e on the focused Ask view writes the conversation to ask-<pf>-<ts>.md."""
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     app = _make_shell(shell_env, portfolio_id=_PID_A)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_ask(app, pilot)
@@ -3689,9 +9499,31 @@ async def test_ask_export_markdown(shell_env, monkeypatch, tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ask_and_brief_exports_are_readable_by_their_owner_only(
+    shell_env, monkeypatch, tmp_path
+) -> None:
+    import stat
+
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: _full_brief(_PID_A))
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        ask_view = await _open_ask(app, pilot)
+        ask_view.append_log("you", "client capital 1,250,000")
+        app.action_export_ask()
+        await _open_brief(app, pilot)
+        app.action_export_brief()
+        await pilot.pause()
+
+    exported = list(tmp_path.glob("ask-*.md")) + list(tmp_path.glob("daily-brief-*.md"))
+    assert len(exported) == 2
+    assert {stat.S_IMODE(path.stat().st_mode) for path in exported} == {0o600}
+
+
+@pytest.mark.asyncio
 async def test_ask_export_off_pane_is_noop(shell_env, monkeypatch, tmp_path) -> None:
     """e off the Ask pane writes no ask file and sets no ask-export status."""
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     app = _make_shell(shell_env, portfolio_id=_PID_A)
     async with app.run_test(size=_SIZE) as pilot:
         await _open_posture(app, pilot)  # Ask is not the active pane
@@ -3704,7 +9536,7 @@ async def test_ask_export_off_pane_is_noop(shell_env, monkeypatch, tmp_path) -> 
 @pytest.mark.asyncio
 async def test_ask_export_reports_oserror(shell_env, monkeypatch, tmp_path) -> None:
     """A write failure surfaces on the status line, never crashing the App."""
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FUND_EXPORT_DIR", str(tmp_path))
     app = _make_shell(shell_env, portfolio_id=_PID_A)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_ask(app, pilot)
@@ -3768,14 +9600,10 @@ def _wcag_contrast(fg, bg) -> float:
 
         red, green, blue = color.rgb
         return (
-            0.2126 * _channel(red)
-            + 0.7152 * _channel(green)
-            + 0.0722 * _channel(blue)
+            0.2126 * _channel(red) + 0.7152 * _channel(green) + 0.0722 * _channel(blue)
         )
 
-    hi, lo = sorted(
-        (_relative_luminance(fg), _relative_luminance(bg)), reverse=True
-    )
+    hi, lo = sorted((_relative_luminance(fg), _relative_luminance(bg)), reverse=True)
     return (hi + 0.05) / (lo + 0.05)
 
 
@@ -3829,3 +9657,1352 @@ def test_contrast_destructive_colour_legible_on_light_and_dark():
         surface = Color.parse(palette["surface"])
         error = Color.parse(palette["error"])
         assert _wcag_contrast(error, surface) >= 3.0, theme_name
+
+
+_BRACKETED_RATIONALE = "per IC memo [/policy] approved [urgent] [type=int_parsing]"
+
+
+@pytest.mark.asyncio
+async def test_audit_detail_shows_bracketed_free_text_verbatim(shell_env) -> None:
+    # Audit values carry adviser-typed text (a freeze rationale, a directive). Textual
+    # parses a string as markup, so a stray closing tag crashed the repaint and a
+    # style-looking tag was silently dropped from an "immutable" record.
+    with shell_env.get_session() as session:
+        HumanAuditLogRepository(session).append(
+            action="freeze",
+            portfolio_id=_PID_A,
+            new_value={"state": "frozen", "reason": _BRACKETED_RATIONALE},
+        )
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        view.select_index(0)
+        await pilot.pause()
+        shown = view.query_one("#audit-detail", Static).visual.plain
+        assert _BRACKETED_RATIONALE in shown
+
+
+@pytest.mark.asyncio
+async def test_audit_table_cells_render_bracketed_text_literally(shell_env) -> None:
+    with shell_env.get_session() as session:
+        HumanAuditLogRepository(session).append(
+            action="note [/policy] [urgent]", portfolio_id=_PID_A
+        )
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        table = view.query_one("#audit-table", DataTable)
+        cell = table.get_cell_at(Coordinate(0, 3))
+        assert getattr(cell, "plain", cell) == "note [/policy] [urgent]"
+
+
+@pytest.mark.asyncio
+async def test_decisions_gate_shows_bracketed_description_verbatim(shell_env) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        run = SimpleNamespace(id=uuid.uuid4(), portfolio_id=_PID_A)
+        gate = tui_views._format_decision_gate(
+            {
+                "action_requests": [
+                    {"name": "place_orders", "description": _BRACKETED_RATIONALE}
+                ]
+            },
+            run,
+            {},
+        )
+        view._paint_gate(gate)
+        await pilot.pause()
+        shown = view.query_one("#decisions-gate", Static).visual.plain
+        assert _BRACKETED_RATIONALE in shown
+
+
+@pytest.mark.asyncio
+async def test_mandate_directives_render_bracketed_text_literally(shell_env) -> None:
+    # Remembered directives are adviser-typed; a stray closing tag raised MarkupError
+    # from the poll-tick repaint of the directives list and killed the TUI.
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"remembered_directives": (_BRACKETED_RATIONALE,)}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        labels = view.query_one("#mandate-directives", ListView).query(Label)
+        assert [label.visual.plain for label in labels] == [_BRACKETED_RATIONALE]
+
+
+@pytest.mark.asyncio
+async def test_deliberation_detail_shows_bracketed_free_text_verbatim(
+    shell_env,
+) -> None:
+    # The step detail carries LLM narrative and raw payload dumps.
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view._paint_live_detail(
+            StreamEvent(
+                kind="step",
+                run_id=uuid.uuid4(),
+                index=0,
+                agent="economist",
+                step="report",
+                status=StepStatus.LIVE,
+                text=_BRACKETED_RATIONALE,
+            )
+        )
+        await pilot.pause()
+        shown = view.query_one("#delib-detail", Static).visual.plain
+        assert _BRACKETED_RATIONALE in shown
+
+
+@pytest.mark.asyncio
+async def test_ask_log_shows_bracketed_turns_verbatim(shell_env) -> None:
+    # The Ask log holds what the adviser typed and what the model answered.
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.append_log("you", "why [/policy]?")
+        view.set_answer(_BRACKETED_RATIONALE)
+        await pilot.pause()
+        shown = view.query_one("#ask-log", Static).visual.plain
+        assert "you: why [/policy]?" in shown
+        assert f"ask: {_BRACKETED_RATIONALE}" in shown
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_shows_bracketed_journal_text_verbatim(
+    shell_env, monkeypatch
+) -> None:
+    # Journal narratives and the economist read are free text.
+    brief = _full_brief(_PID_A)
+    brief = dataclasses.replace(
+        brief,
+        market_events=({"as_of": "2026-10-06", "narrative": _BRACKETED_RATIONALE},),
+    )
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        await pilot.pause()
+        shown = view.query_one("#brief-detail", Static).visual.plain
+        assert _BRACKETED_RATIONALE in shown
+
+
+@pytest.mark.asyncio
+async def test_status_bar_shows_a_validation_error_verbatim(shell_env) -> None:
+    # A bad mandate edit surfaces pydantic's message, which embeds
+    # "[type=greater_than, input_value=..., input_type=...]" — not valid markup.
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-capital", Input).value = "-5"
+        app.action_save_mandate()
+        await pilot.pause()
+        assert app.last_status.startswith("invalid mandate:")
+        assert "capital" in app.last_status
+        shown = app.query_one("#status-bar", Static).visual.plain
+        assert shown == app.last_status
+
+
+@pytest.mark.asyncio
+async def test_order_edit_error_echoes_typed_text_verbatim(shell_env) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        screen = OrderEditScreen({"AAA": 1.0})
+        app.push_screen(screen)
+        await pilot.pause()
+        screen.query_one("#edit-weights", Input).value = "AAA[/x]"
+        screen._submit()
+        await pilot.pause()
+        shown = screen.query_one("#edit-error", Static).visual.plain
+        assert "AAA[/x]" in shown
+
+
+@pytest.mark.asyncio
+async def test_questionnaire_error_shows_validation_text_verbatim(
+    shell_env, monkeypatch
+) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        screen = QuestionnaireScreen(ask_capital=True)
+        app.push_screen(screen)
+        await pilot.pause()
+
+        def _reject() -> None:
+            raise ValueError(_BRACKETED_RATIONALE)
+
+        monkeypatch.setattr(screen, "build_submission", _reject)
+        screen._submit()
+        await pilot.pause()
+        shown = screen.query_one("#q-error", Static).visual.plain
+        assert _BRACKETED_RATIONALE in shown
+
+
+# --- Mandate editor survives the poll repaint (persisted-source repaint rules) ----
+# ``app._refresh()`` is exactly what each poll tick runs, so calling it between an
+# edit and the action that reads the widgets reproduces the timer firing mid-edit.
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_tick_keeps_unsaved_run_policy_edits(shell_env) -> None:
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-capital", Input).value = "250000"
+        view.query_one("#mandate-base-currency", Input).value = "USD"
+        view.query_one("#mandate-drift", Input).value = "0.25"
+        view.query_one("#mandate-benchmark", Input).value = "SPY"
+        app._refresh()
+        await pilot.pause()
+        assert view.query_one("#mandate-capital", Input).value == "250000"
+        assert view.query_one("#mandate-base-currency", Input).value == "USD"
+        assert view.query_one("#mandate-drift", Input).value == "0.25"
+        assert view.query_one("#mandate-benchmark", Input).value == "SPY"
+        app.action_save_mandate()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        reloaded = observe.get_mandate(session, PORTFOLIO_ID)
+        assert reloaded.capital == Decimal("250000")
+        assert reloaded.base_currency == "USD"
+        assert reloaded.drift_l1_threshold == 0.25
+        assert reloaded.benchmark == "SPY"
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_tick_keeps_gate_and_band_edits(shell_env) -> None:
+    # A band picked then a tick: the override must log the picked (out-of-band) band,
+    # not the suitability band the Select would snap back to.
+    _seed_mandate_and_profile(shell_env, band="balanced")
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-band", Select).value = "aggressive"
+        view.query_one("#gate-place-orders", Checkbox).value = False
+        app._refresh()
+        await pilot.pause()
+        assert view.proposed_band() == "aggressive"
+        assert view.query_one("#gate-place-orders", Checkbox).value is False
+        app.action_override_guardrail()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        rows = HumanAuditLogRepository(session).list_recent(action="guardrail_override")
+        assert len(rows) == 1
+        assert rows[0].new_value == "aggressive"
+        assert rows[0].override_flag is True
+        assert rows[0].suitability_flag is True
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_tick_keeps_removed_directive_and_highlight(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"remembered_directives": ("a", "b", "c")}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        listview = view.query_one("#mandate-directives", ListView)
+        listview.index = 2
+        view.action_remove_directive()
+        await pilot.pause()
+        listview.index = 0
+        await pilot.pause()
+        app._refresh()
+        await pilot.pause()
+        assert view._directives == ["a", "b"]
+        assert listview.index == 0  # the highlight is not reset by a tick
+
+
+@pytest.mark.asyncio
+async def test_mandate_repaints_when_persisted_mandate_changes(shell_env) -> None:
+    # The guard must not freeze the editor: a change made elsewhere still shows up.
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, config=_NO_BASELINE_GATES)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        with shell_env.get_session() as session:
+            changed = make_mandate().model_copy(
+                update={
+                    "capital": Decimal("500000"),
+                    "drift_l1_threshold": 0.3,
+                    "hitl_gates": (),
+                    "remembered_directives": ("Keep 5% cash",),
+                }
+            )
+            MandateRepository(session).upsert(changed)
+            session.commit()
+        app._refresh()
+        await pilot.pause()
+        assert view.query_one("#mandate-capital", Input).value == "500000"
+        assert view.query_one("#mandate-drift", Input).value == "0.3"
+        assert view.query_one("#gate-place-orders", Checkbox).value is False
+        assert view._directives == ["Keep 5% cash"]
+
+
+@pytest.mark.asyncio
+async def test_mandate_repaints_when_focus_moves_to_another_portfolio(
+    shell_env,
+) -> None:
+    # Two portfolios with identical persisted values: an unsaved edit on the first must
+    # not leak into the second just because nothing "changed" in the data.
+    with shell_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate(_PID_A))
+        MandateRepository(session).upsert(make_mandate(_PID_B))
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-capital", Input).value = "999"
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+        assert view.query_one("#mandate-capital", Input).value == "100000"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("stored", "place_orders_checked", "expected"),
+    [
+        (
+            ("place_orders", "optimize_portfolio"),
+            True,
+            ("place_orders", "optimize_portfolio"),
+        ),
+        (("place_orders", "optimize_portfolio"), False, ("optimize_portfolio",)),
+        (("optimize_portfolio",), False, ("optimize_portfolio",)),
+        (("optimize_portfolio",), True, ("optimize_portfolio", "place_orders")),
+    ],
+)
+async def test_mandate_gate_edit_preserves_gates_outside_the_editor(
+    shell_env, stored, place_orders_checked, expected
+) -> None:
+    # Only ``place_orders`` is editable here; a CLI-configured extra gate must survive.
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(update={"hitl_gates": stored})
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, config=_NO_BASELINE_GATES)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#gate-place-orders", Checkbox).value = place_orders_checked
+        assert view.proposed_mandate().hitl_gates == expected
+
+
+@pytest.mark.asyncio
+async def test_mandate_save_keeps_extra_gate_when_only_drift_changes(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"hitl_gates": ("place_orders", "optimize_portfolio")}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = "0.2"
+        app.action_save_mandate()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        reloaded = observe.get_mandate(session, PORTFOLIO_ID)
+        assert reloaded.drift_l1_threshold == 0.2
+        assert reloaded.hitl_gates == ("place_orders", "optimize_portfolio")
+
+
+@pytest.mark.asyncio
+async def test_mandate_directives_render_verbatim_not_as_markup(shell_env) -> None:
+    # Free text typed by the adviser: ``[/s]`` is an unmatched closing tag (crashes a
+    # markup-parsing Label) and ``[urgent]`` would be swallowed as a style tag.
+    directives = ("Cap tech at 20% [/s]", "Trim AAA [urgent]", "Keep cash [5%]")
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"remembered_directives": directives}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        labels = view.query("#mandate-directives ListItem Label")
+        assert [str(label.visual) for label in labels] == list(directives)
+
+
+def _seed_nav(env, pid=PORTFOLIO_ID) -> None:
+    """Persist one NAV point so the portfolio counts as already marked."""
+    from fund.audit.nav_history_repository import NavHistoryRepository
+
+    with env.get_session() as session:
+        NavHistoryRepository(session).upsert_navs(
+            [
+                {
+                    "portfolio_id": pid,
+                    "date": date(2025, 1, 2),
+                    "nav": Decimal("100000"),
+                    "benchmark": None,
+                }
+            ]
+        )
+        session.commit()
+
+
+@pytest.mark.asyncio
+async def test_mandate_base_currency_is_locked_once_nav_history_exists(
+    shell_env,
+) -> None:
+    # nav_history carries no currency column: re-basing a marked portfolio would leave
+    # the old rows in the old currency next to a re-marked tail in the new one.
+    _seed_mandate_and_profile(shell_env)
+    _seed_nav(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        currency = view.query_one("#mandate-base-currency", Input)
+        assert currency.disabled is True
+        currency.value = "USD"
+        with pytest.raises(ValueError, match="base currency"):
+            view.proposed_mandate()
+        app.action_save_mandate()
+        await pilot.pause()
+        assert app.last_worker is None
+        assert "base currency" in app.last_status
+    with shell_env.get_session() as session:
+        assert observe.get_mandate(session, PORTFOLIO_ID).base_currency == "EUR"
+
+
+@pytest.mark.asyncio
+async def test_mandate_locked_base_currency_still_saves_other_edits(shell_env) -> None:
+    _seed_mandate_and_profile(shell_env)
+    _seed_nav(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = "0.2"
+        app.action_save_mandate()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        reloaded = observe.get_mandate(session, PORTFOLIO_ID)
+        assert reloaded.drift_l1_threshold == 0.2
+        assert reloaded.base_currency == "EUR"
+
+
+@pytest.mark.asyncio
+async def test_mandate_base_currency_is_editable_before_first_nav_mark(
+    shell_env,
+) -> None:
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        currency = view.query_one("#mandate-base-currency", Input)
+        assert currency.disabled is False
+        currency.value = "USD"
+        assert view.proposed_mandate().base_currency == "USD"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ledger", ["position", "paper_order"])
+async def test_mandate_base_currency_is_locked_by_positions_or_orders_too(
+    shell_env, ledger
+) -> None:
+    # A portfolio can hold positions or paper orders before its first daily NAV mark;
+    # re-basing it then would still mark that ledger in the wrong currency.
+    from fund.audit.positions_repository import PositionRepository
+
+    _seed_mandate_and_profile(shell_env)
+    with shell_env.get_session() as session:
+        if ledger == "position":
+            PositionRepository(session).set_holdings(
+                PORTFOLIO_ID, [{"ticker": "AAA", "weight": 1.0}], asof=date(2025, 1, 2)
+            )
+        else:
+            session.add(
+                PaperOrder(
+                    portfolio_id=PORTFOLIO_ID,
+                    asof=date(2025, 1, 2),
+                    weights_hash="h1",
+                    weights={"AAA": 1.0},
+                    fill_date=date(2025, 1, 3),
+                    lines=[],
+                    notional=1000.0,
+                    total_commission=0.0,
+                    total_slippage_cost=0.0,
+                )
+            )
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        currency = view.query_one("#mandate-base-currency", Input)
+        assert currency.disabled is True
+        currency.value = "USD"
+        with pytest.raises(ValueError, match="base currency"):
+            view.proposed_mandate()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("typed", ["5", "10", "inf"])
+async def test_mandate_rejects_a_drift_threshold_above_the_l1_bound(
+    shell_env, typed
+) -> None:
+    # A percent-style entry ("5" for a 5% band) would save and then never breach.
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = typed
+        app.action_save_mandate()
+        await pilot.pause()
+        assert app.last_worker is None
+        assert "invalid mandate" in app.last_status
+    with shell_env.get_session() as session:
+        assert observe.get_mandate(session, PORTFOLIO_ID).drift_l1_threshold == 0.1
+
+
+@pytest.mark.asyncio
+async def test_mandate_drift_input_states_its_unit(shell_env) -> None:
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        placeholder = view.query_one("#mandate-drift", Input).placeholder
+        assert "L1" in placeholder
+        assert "0-2" in placeholder
+
+
+def _store_raw_mandate(env, pid: uuid.UUID, **fields) -> None:
+    """Persist a valid mandate for ``pid``, then overwrite JSON fields raw."""
+    with env.get_session() as session:
+        row = MandateRepository(session).upsert(make_mandate(pid))
+        row.mandate = {**row.mandate, **fields}
+        session.commit()
+
+
+@pytest.mark.asyncio
+async def test_posture_roster_keeps_other_portfolios_when_one_mandate_is_unreadable(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1, status="paused")
+        _seed_run(session, _PID_B, seed=2)
+        session.commit()
+    _store_raw_mandate(shell_env, _PID_A)
+    _store_raw_mandate(shell_env, _PID_B, capital="-1")  # cannot be repaired
+
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        assert view.query_one("#posture-roster", DataTable).row_count == 2
+        labels = {row.portfolio_id: row.label for row in view._roster}
+        assert labels[_PID_A] == "ok"
+        assert labels[_PID_B] == "error"  # dot + label, never colour alone
+        assert "2 pf" in str(view.query_one("#posture-strip", Static).render())
+
+
+@pytest.mark.asyncio
+async def test_posture_and_mandate_load_a_legacy_over_bound_drift_threshold(
+    shell_env,
+) -> None:
+    # Saved before the schema capped the threshold at the L1 bound of 2.
+    _seed_mandate_and_profile(shell_env)
+    _store_raw_mandate(shell_env, PORTFOLIO_ID, drift_l1_threshold=5.0)
+
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        posture = await _open_posture(app, pilot)
+        assert [row.label for row in posture._roster] == ["ok"]
+        mandate = await _open_mandate(app, pilot)
+        assert mandate.mandate is not None
+        # Clamped to just under the open L1 bound: a trigger that can never fire.
+        drift = float(mandate.query_one("#mandate-drift", Input).value)
+        assert drift == pytest.approx(2.0)
+        assert drift < 2.0
+
+
+def _fail_get_mandate_for(monkeypatch, *pids) -> None:
+    """Make ``observe.get_mandate`` raise for ``pids`` (all portfolios when empty)."""
+    real = observe.get_mandate
+
+    def flaky(session, portfolio_id):
+        if not pids or portfolio_id in pids:
+            raise RuntimeError("db hiccup [type=boom]")
+        return real(session, portfolio_id)
+
+    monkeypatch.setattr(observe, "get_mandate", flaky)
+
+
+@pytest.mark.asyncio
+async def test_mandate_read_failure_keeps_the_editor_and_reports_the_error(
+    shell_env, monkeypatch
+) -> None:
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-capital", Input).value = "250000"
+        _fail_get_mandate_for(monkeypatch)
+        app._refresh()
+        await pilot.pause()
+        assert view.mandate is not None
+        assert view.query_one("#mandate-capital", Input).value == "250000"
+        assert view.query_one("#mandate-drift", Input).value == "0.1"
+        triggers = str(view.query_one("#mandate-triggers", Static).render())
+        assert "read failed" in triggers
+        assert "no mandate" not in triggers
+
+
+@pytest.mark.asyncio
+async def test_mandate_unreadable_at_open_is_not_reported_as_missing(
+    shell_env, monkeypatch
+) -> None:
+    _seed_mandate_and_profile(shell_env)
+    _fail_get_mandate_for(monkeypatch)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        triggers = str(view.query_one("#mandate-triggers", Static).render())
+        assert "read failed" in triggers
+        assert "no mandate" not in triggers
+        app.action_save_mandate()
+        await pilot.pause()
+        assert app.last_worker is None
+        assert "focus a portfolio with a mandate" not in app.last_status
+        assert "unreadable" in app.last_status
+
+
+@pytest.mark.asyncio
+async def test_mandate_read_failure_after_switch_does_not_keep_the_old_portfolio(
+    shell_env, monkeypatch
+) -> None:
+    # Saving the stale mandate would write portfolio A's policy onto portfolio B.
+    with shell_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate(_PID_A))
+        MandateRepository(session).upsert(make_mandate(_PID_B))
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        assert view.query_one("#mandate-capital", Input).value == "100000"
+        _fail_get_mandate_for(monkeypatch, _PID_B)
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+        assert view.mandate is None
+        assert view.query_one("#mandate-capital", Input).value == ""
+        triggers = str(view.query_one("#mandate-triggers", Static).render())
+        assert "read failed" in triggers
+
+
+def _seed_gated_run(session, status: str = "paused") -> uuid.UUID:
+    """Seed a run for _PID_A parked at ``status``; return its id."""
+    repo = AgentRunRepository(session)
+    run = repo.create_run(
+        portfolio_id=_PID_A,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={},
+    )
+    if status == "paused":
+        repo.mark_paused(run.id)
+    return run.id
+
+
+async def _stream_to_gate(view, pilot, run_id: uuid.UUID) -> None:
+    """Drive the scripted round into the live tail, ending at the paused gate."""
+    view.start_live(run_id, _PID_A)
+    for event in _scripted_stream(run_id):
+        view.ingest_event(event)
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_ends_once_the_gated_run_is_resolved(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        run_id = _seed_gated_run(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        await _stream_to_gate(view, pilot, run_id)
+        app._refresh()
+        await pilot.pause()
+        assert view.live_run_id == run_id  # still at the gate: the tail stays up
+
+        with shell_env.get_session() as session:  # the gate is approved elsewhere
+            AgentRunRepository(session).finalize_run(
+                run_id, weights={}, status="completed"
+            )
+            session.commit()
+        app._refresh()
+        await pilot.pause()
+
+        assert view.live_run_id is None
+        assert view.live_portfolio_id is None
+        assert view.query_one("#delib-live", DataTable).display is False
+        assert view.query_one("#delib-runs", DataTable).display is True
+        assert view.query_one("#delib-runs", DataTable).row_count == 1
+        view.select_run(run_id)  # replay is reachable again (the brief jump)
+        assert view.selected_run_id == run_id
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_ends_when_focus_leaves_the_streamed_portfolio(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        run_id = _seed_gated_run(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        await _stream_to_gate(view, pilot, run_id)
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+        assert view.live_run_id is None  # B must not show A's stale tail
+        assert view.query_one("#delib-runs", DataTable).display is True
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_survives_focus_move_while_stream_in_flight(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        run_id = _seed_gated_run(session, status="pending")
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.start_live(run_id, _PID_A)
+        app._streaming = True  # the stream worker is still feeding events
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+        assert view.live_run_id == run_id
+        assert view.live_portfolio_id == _PID_A  # a barge-in still targets A
+
+
+def _seed_extra_runs(session, count: int) -> list[uuid.UUID]:
+    """Seed ``count`` bare runs for _PID_A, one day apart; return their ids."""
+    repo = AgentRunRepository(session)
+    return [
+        repo.create_run(
+            portfolio_id=_PID_A,
+            asof=date(2026, 2, 1 + offset),
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        ).id
+        for offset in range(count)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_deliberation_poll_tick_keeps_run_and_step_cursors(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_extra_runs(session, 3)
+        run_id = _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        runs_table = view.query_one("#delib-runs", DataTable)
+        steps_table = view.query_one("#delib-steps", DataTable)
+        assert runs_table.row_count == 4
+        assert steps_table.row_count == 3
+        runs_table.move_cursor(row=2)
+        steps_table.move_cursor(row=2)
+        await pilot.pause()
+
+        app._refresh()  # what the 2s poll timer does
+        await pilot.pause()
+
+        assert runs_table.cursor_row == 2  # Enter must still act on the same run
+        assert steps_table.cursor_row == 2
+
+
+def _seed_run_on_day(session, day: int, *, decisions: int = 0) -> uuid.UUID:
+    """Seed a _PID_A run created on 2026-03-``day`` (so list order is deterministic)."""
+    repo = AgentRunRepository(session)
+    run = repo.create_run(
+        portfolio_id=_PID_A,
+        asof=date(2026, 3, day),
+        seed=1,
+        universe=[],
+        optimizer_config={},
+    )
+    run.created_at = datetime(2026, 3, day, tzinfo=UTC)
+    for _ in range(decisions):
+        repo.append_decision(run.id, agent="risk", step="risk_check")
+    session.flush()
+    return run.id
+
+
+@pytest.mark.asyncio
+async def test_deliberation_switching_runs_resets_the_step_cursor(shell_env) -> None:
+    with shell_env.get_session() as session:
+        first = _seed_run_on_day(session, 1, decisions=5)
+        second = _seed_run_on_day(session, 2, decisions=5)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(first)
+        await pilot.pause()
+        steps = view.query_one("#delib-steps", DataTable)
+        steps.move_cursor(row=3)
+        await pilot.pause()
+        view.select_run(second)  # step keys are positions: not comparable across runs
+        await pilot.pause()
+        assert steps.row_count == 5
+        assert steps.cursor_row == 0
+
+
+def _row_key_at(table: DataTable, row: int) -> str | None:
+    return table.coordinate_to_cell_key(Coordinate(row, 0)).row_key.value
+
+
+@pytest.mark.asyncio
+async def test_deliberation_cursor_follows_its_run_when_a_newer_run_appears(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        for day in (1, 2, 3):
+            _seed_run_on_day(session, day)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        runs_table = view.query_one("#delib-runs", DataTable)
+        runs_table.move_cursor(row=2)  # the oldest run
+        await pilot.pause()
+        highlighted = _row_key_at(runs_table, 2)
+
+        with shell_env.get_session() as session:  # a newer run lands at the top
+            _seed_run_on_day(session, 9)
+            session.commit()
+        app._refresh()
+        await pilot.pause()
+
+        assert runs_table.row_count == 4
+        assert runs_table.cursor_row == 3
+        assert _row_key_at(runs_table, runs_table.cursor_row) == highlighted
+
+
+@pytest.mark.asyncio
+async def test_deliberation_long_transcript_keeps_cursor_and_scroll_on_growth(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        run_id = _seed_run_on_day(session, 1, decisions=40)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        steps = view.query_one("#delib-steps", DataTable)
+        assert steps.row_count == 40
+        steps.focus()
+        steps.move_cursor(row=30)
+        await pilot.pause()
+        scrolled_to = steps.scroll_y
+        assert scrolled_to > 0  # the transcript is taller than the pane
+
+        with shell_env.get_session() as session:  # the run grows by one step
+            AgentRunRepository(session).append_decision(
+                run_id, agent="executor", step="place_orders"
+            )
+            session.commit()
+        app._refresh()
+        await pilot.pause()
+        await pilot.pause()
+
+        assert steps.row_count == 41
+        assert steps.cursor_row == 30
+        assert steps.scroll_y == scrolled_to
+
+
+@pytest.mark.asyncio
+async def test_deliberation_enter_on_a_step_leaves_the_cursor_on_that_step(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        run_id = _seed_run_on_day(session, 1, decisions=30)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        steps = view.query_one("#delib-steps", DataTable)
+        steps.focus()
+        steps.move_cursor(row=12)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert view.selected_step == 12
+        assert steps.cursor_row == 12  # a second Enter must not select step 0
+        await pilot.press("enter")
+        await pilot.pause()
+        assert view.selected_step == 12
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_status_column_is_dot_plus_label(shell_env) -> None:
+    """Status never travels as a bare glyph: the live column is headed ``status`` and
+    each cell pairs the marker with a word, the gate row reading as paused."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        assert next(iter(live.columns.values())).label.plain == "status"
+        view.ingest_event(_scripted_stream(rid)[0])
+        assert live.get_cell_at(Coordinate(0, 0)) == "● live"
+        view.ingest_event(_scripted_stream(rid)[1])
+        assert live.get_cell_at(Coordinate(0, 0)) == "✓ done"
+        view.ingest_event(_scripted_stream(rid)[2])
+        assert live.get_cell_at(Coordinate(2, 0)) == "· paused"
+
+
+def _raise_once_read(message: str):
+    """A stand-in observe read that always fails with ``RuntimeError(message)``."""
+
+    def _boom(*_a, **_k):
+        raise RuntimeError(message)
+
+    return _boom
+
+
+@pytest.mark.asyncio
+async def test_deliberation_failed_poll_keeps_selection_and_says_why(
+    shell_env, monkeypatch
+) -> None:
+    with shell_env.get_session() as session:
+        run_id = _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(1)
+        await pilot.pause()
+        assert "risk" in view.detail_text
+        runs_table = view.query_one("#delib-runs", DataTable)
+        steps_table = view.query_one("#delib-steps", DataTable)
+        subtitle = view.query_one("#delib-subtitle", Label)
+
+        real = observe.list_portfolio_runs
+        monkeypatch.setattr(observe, "list_portfolio_runs", _raise_once_read("db blip"))
+        app._refresh()  # one failed poll tick
+        await pilot.pause()
+
+        assert view.selected_run_id == run_id  # a hiccup is not "the run vanished"
+        assert view.selected_step == 1
+        assert runs_table.row_count == 1
+        assert steps_table.row_count == 3
+        assert "read failed" in subtitle.visual.plain
+        assert "db blip" in subtitle.visual.plain
+
+        monkeypatch.setattr(observe, "list_portfolio_runs", real)
+        app._refresh()  # the next tick recovers with the selection intact
+        await pilot.pause()
+        assert "risk" in view.detail_text
+        assert "read failed" not in subtitle.visual.plain
+
+
+@pytest.mark.asyncio
+async def test_deliberation_failed_transcript_read_keeps_the_run_list(
+    shell_env, monkeypatch
+) -> None:
+    with shell_env.get_session() as session:
+        run_id = _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        monkeypatch.setattr(
+            observe, "load_run_transcript", _raise_once_read("checkpoint gone")
+        )
+        app._refresh()
+        await pilot.pause()
+        assert view.query_one("#delib-runs", DataTable).row_count == 1
+        assert view.selected_run_id == run_id
+        assert (
+            "checkpoint gone" in view.query_one("#delib-subtitle", Label).visual.plain
+        )
+
+
+@pytest.mark.asyncio
+async def test_deliberation_failed_read_does_not_show_another_portfolios_runs(
+    shell_env, monkeypatch
+) -> None:
+    with shell_env.get_session() as session:
+        _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        runs_table = view.query_one("#delib-runs", DataTable)
+        assert runs_table.row_count == 1
+        monkeypatch.setattr(observe, "list_portfolio_runs", _raise_once_read("down"))
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+        assert runs_table.row_count == 0  # A's rows must not linger under B
+
+
+@pytest.mark.asyncio
+async def test_performance_fx_gap_says_why_the_holdings_are_missing(shell_env) -> None:
+    """An empty table from an FX gap must not read like a book with no holdings."""
+    with shell_env.get_session() as session:
+        _seed_perf(session, _PID_A, with_fx=False)
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        assert "holdings unavailable" in view.detail_text
+        assert "FxCoverageError" in view.detail_text
+        assert "(select a holding)" not in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_performance_failed_holdings_read_keeps_rows_and_selection(
+    shell_env, monkeypatch
+) -> None:
+    with shell_env.get_session() as session:
+        _seed_perf(session, _PID_A)
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        view.select_ticker("US1")
+        table = view.query_one("#perf-holdings", DataTable)
+        assert table.row_count == 1
+
+        real = observe.holdings_summary
+        monkeypatch.setattr(observe, "holdings_summary", _raise_once_read("db blip"))
+        app._refresh()
+        await pilot.pause()
+        assert view.selected_ticker == "US1"  # a blip must not drop the drill-down
+        assert table.row_count == 1
+        assert "db blip" in view.detail_text
+        assert "US1" in view.detail_text
+        assert "+1.20%" in view.summary_text  # the FX-independent strip is untouched
+
+        monkeypatch.setattr(observe, "holdings_summary", real)
+        app._refresh()
+        await pilot.pause()
+        assert view.selected_ticker == "US1"
+        assert "holdings unavailable" not in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_performance_failed_summary_read_states_the_reason(
+    shell_env, monkeypatch
+) -> None:
+    with shell_env.get_session() as session:
+        _seed_perf(session, _PID_A)
+        session.commit()
+    monkeypatch.setattr(observe, "performance_summary", _raise_once_read("nav blip"))
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        strip = view.query_one("#perf-returns", Static).visual.plain
+        assert "performance unavailable" in strip
+        assert "nav blip" in strip
+
+
+@pytest.mark.asyncio
+async def test_performance_failed_read_does_not_show_another_portfolios_book(
+    shell_env, monkeypatch
+) -> None:
+    with shell_env.get_session() as session:
+        _seed_perf(session, _PID_A)
+        session.commit()
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        table = view.query_one("#perf-holdings", DataTable)
+        assert table.row_count == 1
+        monkeypatch.setattr(observe, "holdings_summary", _raise_once_read("down"))
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+        assert table.row_count == 0  # A's holdings must not linger under B
+
+
+@pytest.mark.asyncio
+async def test_mandate_save_with_invalid_edit_reports_status_without_crashing(
+    shell_env,
+) -> None:
+    """A pydantic error on a bad edit lands in the status bar as plain text."""
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-base-currency", Input).value = "usd"
+        app.action_save_mandate()
+        await pilot.pause()
+        assert app.is_running
+        assert app.last_worker is None
+        assert app.last_status.startswith("invalid mandate")
+        assert "base_currency" in str(app.query_one("#status-bar", Static).render())
+
+
+@pytest.mark.asyncio
+async def test_order_edit_error_with_bracketed_input_is_plain_text(shell_env) -> None:
+    """Echoing the adviser's typo must not be parsed as markup (it would crash)."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        screen = OrderEditScreen({"AAA": 1.0})
+        app.push_screen(screen)
+        await pilot.pause()
+        screen.query_one("#edit-weights", Input).value = "[/x]"
+        screen._submit()
+        await pilot.pause()
+        assert app.is_running
+        assert isinstance(app.screen, OrderEditScreen)
+        assert "[/x]" in str(screen.query_one("#edit-error", Static).render())
+
+
+class _FailingAskModel(BaseChatModel):
+    """A chat model whose call raises a pydantic-style bracketed error message."""
+
+    @property
+    def _llm_type(self) -> str:
+        return "failing-ask"
+
+    def _generate(self, messages, stop=None, run_manager=None, **_):
+        """Raise an error whose text looks like Textual markup (no network)."""
+        raise ValueError(
+            "1 validation error for Answer\n"
+            "  Input should be <= 1 [type=less_than_equal, input_value=5.0, "
+            "input_type=float]"
+        )
+
+
+@pytest.mark.asyncio
+async def test_ask_model_error_with_bracketed_text_is_plain_text(shell_env) -> None:
+    """A model error echoed into the log must not be parsed as markup."""
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        session.commit()
+
+    app = _make_shell(
+        shell_env, portfolio_id=_PID_A, model_factory=lambda: _FailingAskModel()
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("how are we doing?")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert app.is_running
+        assert view.last_answer == ""
+        log = str(view.query_one("#ask-log", Static).render())
+        assert "ask failed" in log
+        assert "[type=less_than_equal" in log
+
+
+@pytest.mark.asyncio
+async def test_ask_turn_and_answer_with_brackets_render_verbatim(shell_env) -> None:
+    """Bracketed adviser input and model output are shown literally, not as markup."""
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        session.commit()
+
+    app = _make_shell(
+        shell_env,
+        portfolio_id=_PID_A,
+        model_factory=lambda: _CannedAskModel(answer="see [/x] and [1] for detail"),
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("what is [/y]?")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert app.is_running
+        log = str(view.query_one("#ask-log", Static).render())
+        assert "what is [/y]?" in log
+        assert "see [/x] and [1] for detail" in log
+
+
+@pytest.mark.asyncio
+async def test_questionnaire_enter_in_a_text_field_submits(shell_env) -> None:
+    """``↵`` in an Input submits, matching the order editor, for keyboard-only use."""
+    from _profiler_fakes import make_answers
+
+    results: list = []
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        screen = QuestionnaireScreen(ask_capital=True)
+        app.push_screen(screen, results.append)
+        await pilot.pause()
+        _fill_questionnaire(screen, make_answers(), capital="100000")
+        screen.query_one("#q-buffer", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert not isinstance(app.screen, QuestionnaireScreen)
+    assert len(results) == 1
+    assert results[0].capital == Decimal("100000")
+
+
+def test_live_risk_event_does_not_advertise_a_recompute_it_cannot_run() -> None:
+    """Recompute is replay-only, so a live risk report must show its own text, not a
+    'compute to view' verdict the adviser has no key to resolve."""
+    from fund.tui.views import _stream_detail
+
+    event = StreamEvent(
+        kind="step",
+        run_id=uuid.uuid4(),
+        index=3,
+        agent="risk",
+        step="report",
+        status=StepStatus.LIVE,
+        text="all names inside the mandate bounds",
+    )
+    detail = _stream_detail(event)
+    assert "all names inside the mandate bounds" in detail
+    assert "compute to view" not in detail
+    assert "pending" not in detail
+
+
+def test_readout_risk_skips_pending_markers_where_recompute_is_unavailable() -> None:
+    """A surface that cannot expand gets no read-out for a risk step (the caller keeps
+    the raw text), but a recompute that is already in hand still renders."""
+    from fund import readouts_compute
+    from fund.tui.readouts import render_readout
+
+    assert render_readout("risk", "report", None, expandable=False) is None
+    compute = readouts_compute.RiskCompute(
+        passed=True, violations=(), sector_exposures=None, error=None
+    )
+    text = render_readout("risk", "risk_check", None, compute, expandable=False)
+    assert text is not None
+    assert "● ok" in text
+
+
+# -- fallback model: the human-driven drives retry on it like the scheduler ------
+
+
+_FALLBACK_MODEL = object()
+
+
+@pytest.mark.asyncio
+async def test_approve_hands_the_fallback_model_to_apply_action(
+    tui_env, monkeypatch
+) -> None:
+    import fund.actions as actions_mod
+
+    seen: dict[str, object] = {}
+
+    def _apply(_decision, **kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(message="approve done")
+
+    monkeypatch.setattr(actions_mod, "apply_action", _apply)
+
+    app = _make_shell(tui_env, fallback_factory=lambda: _FALLBACK_MODEL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        await app.last_worker.wait()
+
+    assert seen["fallback"] is _FALLBACK_MODEL
+
+
+@pytest.mark.asyncio
+async def test_run_hands_the_fallback_model_to_apply_action(
+    tui_env, monkeypatch
+) -> None:
+    import fund.actions as actions_mod
+
+    _seed_mandate(tui_env)
+    seen: dict[str, object] = {}
+
+    def _apply(_action, **kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(message="run done")
+
+    monkeypatch.setattr(actions_mod, "apply_action", _apply)
+
+    app = _make_shell(
+        tui_env,
+        portfolio_id=PORTFOLIO_ID,
+        fallback_factory=lambda: _FALLBACK_MODEL,
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        worker = app._run_worker(PORTFOLIO_ID, ASOF)
+        await worker.wait()
+
+    assert seen["fallback"] is _FALLBACK_MODEL
+
+
+@pytest.mark.asyncio
+async def test_stream_hands_the_fallback_model_to_stream_fund(
+    tui_env, monkeypatch
+) -> None:
+    _seed_mandate(tui_env)
+    seen: dict[str, object] = {}
+
+    def fake_stream_fund(*_args, **kwargs):
+        seen.update(kwargs)
+        return
+        yield  # a generator that ends without a step
+
+    monkeypatch.setattr("fund.agents.graph.stream_fund", fake_stream_fund)
+
+    app = _make_shell(
+        tui_env,
+        portfolio_id=PORTFOLIO_ID,
+        fallback_factory=lambda: _FALLBACK_MODEL,
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        app.query_one(ContentSwitcher).current = "view-deliberation"
+        app._refresh()
+        await pilot.pause()
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        await app.last_worker.wait()
+
+    assert seen["fallback"] is _FALLBACK_MODEL

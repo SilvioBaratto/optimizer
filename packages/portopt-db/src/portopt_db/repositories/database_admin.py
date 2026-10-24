@@ -167,11 +167,12 @@ class DatabaseAdminRepository(RepositoryBase):
         logger.info("Truncated table: %s", table_name)
 
     def truncate_tables(self, table_names: list[str]) -> tuple[list[str], list[str]]:
-        """Truncate each listed table, rolling back per-table on failure.
+        """Truncate each listed table in its own transaction.
 
         Unrecognised table names are rejected without touching the database.
-        A single commit is issued for all successfully cleared tables; each
-        failure triggers a rollback of that table's statement only.
+        Each table is committed as soon as it is truncated, so a later failure
+        rolls back only that table's statement and never undoes a table already
+        reported as cleared.
 
         Args:
             table_names: Tables to truncate; each must be in ``_ALLOWED_TABLES``
@@ -190,14 +191,12 @@ class DatabaseAdminRepository(RepositoryBase):
                     errors.append(f"{table_name}: not a managed table")
                     continue
                 self.session.execute(text(f'TRUNCATE TABLE "{table_name}" CASCADE'))
+                self.session.commit()
                 cleared.append(table_name)
             except Exception as exc:
                 logger.error("Failed to truncate %s: %s", table_name, exc)
                 errors.append(f"{table_name}: {exc}")
                 self.session.rollback()
-
-        if cleared:
-            self.session.commit()
 
         logger.info("Truncated %d tables", len(cleared))
         return cleared, errors

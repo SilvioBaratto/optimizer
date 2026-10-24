@@ -23,6 +23,9 @@ from .aggregator import _is_article_recent, _parse_article_date
 
 logger = logging.getLogger(__name__)
 
+# Shorter scrapes are paywall or cookie-banner stubs, not article bodies.
+_MIN_FULL_CONTENT_CHARS = 200
+
 
 # ---------------------------------------------------------------------------
 # Enum & static configuration
@@ -274,6 +277,15 @@ def _make_news_id(title: str, link: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+class MacroNewsUnavailableError(RuntimeError):
+    """Raised when a ``fetch_all`` run obtained no article from any source.
+
+    An empty result is normal when every article is filtered out, but zero
+    raw articles across all tickers and searches means the upstream feed is
+    down, which callers must not record as a successful empty run.
+    """
+
+
 @dataclass
 class MacroNewsFetcher:
     """Fetches macro-themed news from yfinance tickers and search queries.
@@ -318,23 +330,42 @@ class MacroNewsFetcher:
         Args:
             max_articles: Overall cap on the returned list.
             fetch_full_content: When ``True``, scrape the full article body
-                via the configured scraper.
+                via the configured scraper and drop articles whose body cannot
+                be scraped, so caps and budgets only count scrapable articles.
             max_per_ticker: Per-ticker article cap to prevent domination.
 
         Returns:
             List of article dicts sorted by publish time (newest first),
             deduplicated by title and classified by macro theme.
+
+        Raises:
+            MacroNewsUnavailableError: When no ticker feed and no search query
+                returned a single raw article (every source failed or was
+                empty), as opposed to articles that were merely filtered out.
         """
         self._seen_titles.clear()
+        # Search articles get priority: 40 % of the budget, or 10 if that is
+        # more. Clamping to max_articles matters for a small budget, where an
+        # unclamped take would leave a negative ticker budget and a negative
+        # slice bound keeps nearly every ticker article instead of none.
+        search_cap = min(max(max_articles * 4 // 10, 10), max_articles)
         ticker_buckets: dict[str, list[dict[str, Any]]] = {}
         search_articles: list[dict[str, Any]] = []
+        sources_delivering = 0
+        sources_failed = 0
+        sources_empty = 0
 
         # 1. Ticker-based news (collected per-ticker for capping)
         for ticker, seed_themes in MACRO_TICKERS.items():
             try:
                 news = self._news_client.fetch(ticker)
-                if not news:
+                if news is None:
+                    sources_failed += 1
                     continue
+                if not news:
+                    sources_empty += 1
+                    continue
+                sources_delivering += 1
                 bucket: list[dict[str, Any]] = []
                 for raw_article in news:
                     article = self._process_article(
@@ -342,7 +373,6 @@ class MacroNewsFetcher:
                         seed_themes=seed_themes,
                         source_ticker=ticker,
                         source_query=None,
-                        fetch_full_content=fetch_full_content,
                     )
                     if article is not None:
                         bucket.append(article)
@@ -351,8 +381,13 @@ class MacroNewsFetcher:
                         key=lambda a: a.get("publish_time") or "",
                         reverse=True,
                     )
-                    ticker_buckets[ticker] = bucket[:max_per_ticker]
+                    ticker_buckets[ticker] = self._keep_unique(
+                        bucket,
+                        max_per_ticker,
+                        fetch_full_content=fetch_full_content,
+                    )
             except Exception:
+                sources_failed += 1
                 logger.warning(
                     "Failed to fetch ticker news for %s",
                     ticker,
@@ -364,24 +399,44 @@ class MacroNewsFetcher:
             try:
                 result = self.search_client.search(query, max_results=8)
                 if result is None:
+                    sources_failed += 1
                     continue
-                for raw_article in result.get("news", []):
+                raw_news = result.get("news", [])
+                if not raw_news:
+                    sources_empty += 1
+                    continue
+                sources_delivering += 1
+                for raw_article in raw_news:
                     article = self._process_article(
                         raw_article,
                         seed_themes=seed_themes,
                         source_ticker=None,
                         source_query=query,
-                        fetch_full_content=fetch_full_content,
                     )
                     if article is not None:
                         search_articles.append(article)
             except Exception:
+                sources_failed += 1
                 logger.warning("Failed search news for '%s'", query, exc_info=True)
+
+        if sources_delivering == 0:
+            raise MacroNewsUnavailableError(
+                "No article from any macro news source: "
+                f"{sources_failed} failed, {sources_empty} empty "
+                f"of {len(MACRO_TICKERS) + len(MACRO_SEARCH_QUERIES)} sources"
+            )
 
         # 3. Merge: search-first, then capped ticker articles
         search_articles.sort(
             key=lambda a: a.get("publish_time") or "",
             reverse=True,
+        )
+        # Scraping is the cost, so stop at the cap; unscraped candidates are
+        # free to keep, which leaves them to the theme-diversity pass below.
+        search_articles = self._keep_unique(
+            search_articles,
+            search_cap if fetch_full_content else None,
+            fetch_full_content=fetch_full_content,
         )
 
         capped_ticker: list[dict[str, Any]] = []
@@ -392,11 +447,10 @@ class MacroNewsFetcher:
             reverse=True,
         )
 
-        # Give search articles priority (at least 40 % of budget)
-        search_budget = max(max_articles * 4 // 10, min(len(search_articles), 10))
-        ticker_budget = max_articles - min(search_budget, len(search_articles))
+        search_take = min(len(search_articles), search_cap)
+        ticker_budget = max(0, max_articles - search_take)
 
-        selected = search_articles[:search_budget] + capped_ticker[:ticker_budget]
+        selected = search_articles[:search_take] + capped_ticker[:ticker_budget]
 
         # 4. Theme-diversity pass: if any theme is missing, pull its
         #    best article from the remaining pool.
@@ -436,6 +490,62 @@ class MacroNewsFetcher:
 
     # -- private helpers ----------------------------------------------------
 
+    def _keep_unique(
+        self,
+        candidates: list[dict[str, Any]],
+        limit: int | None,
+        *,
+        fetch_full_content: bool,
+    ) -> list[dict[str, Any]]:
+        """Keep up to ``limit`` candidates whose titles were not kept before.
+
+        Titles are registered here and nowhere else, so an article rejected by
+        a filter or cut by the per-ticker cap never shadows a later copy of the
+        same story from another feed or from search.
+
+        With ``fetch_full_content`` the body is scraped here, in recency order,
+        and an article without a usable body is skipped. Scraping only until
+        ``limit`` is reached keeps unscrapable articles from using up the cap
+        and spares the fetches for candidates beyond it. That only saves work
+        when ``limit`` is no larger than what the later selection can take.
+        """
+        kept: list[dict[str, Any]] = []
+        for article in candidates:
+            if limit is not None and len(kept) >= limit:
+                break
+            if article["title"] in self._seen_titles:
+                continue
+            if fetch_full_content and not self._attach_full_content(article):
+                continue
+            self._seen_titles.add(article["title"])
+            kept.append(article)
+        return kept
+
+    def _attach_full_content(self, article: dict[str, Any]) -> bool:
+        """Scrape ``article`` and store the body under ``full_content``.
+
+        Returns:
+            ``True`` when the article now carries a body of at least
+            ``_MIN_FULL_CONTENT_CHARS`` characters, or when no scraper is
+            configured and so no article could ever get one. ``False`` when
+            the page could not be scraped or yielded only a stub.
+        """
+        if self.scraper is None:
+            return True
+        link = article.get("link")
+        if not link:
+            return False
+        try:
+            result = self.scraper.fetch(link)
+        except Exception:
+            logger.warning("Full-content scrape failed for %s", link, exc_info=True)
+            return False
+        text = result["content"] if result["success"] else None
+        if not text or len(text) < _MIN_FULL_CONTENT_CHARS:
+            return False
+        article["full_content"] = text
+        return True
+
     def _process_article(
         self,
         raw: dict[str, Any],
@@ -443,7 +553,6 @@ class MacroNewsFetcher:
         seed_themes: list[MacroTheme],
         source_ticker: str | None,
         source_query: str | None,
-        fetch_full_content: bool,
     ) -> dict[str, Any] | None:
         content = raw.get("content", raw)
 
@@ -455,10 +564,6 @@ class MacroNewsFetcher:
         if not _is_article_recent(pub_time):
             return None
 
-        if title in self._seen_titles:
-            return None
-        self._seen_titles.add(title)
-
         publisher = (
             content.get("provider", {}).get("displayName", "")
             if isinstance(content.get("provider"), dict)
@@ -466,6 +571,9 @@ class MacroNewsFetcher:
         )
 
         if publisher not in TRUSTED_PUBLISHERS:
+            return None
+
+        if title in self._seen_titles:
             return None
 
         link = (
@@ -500,14 +608,5 @@ class MacroNewsFetcher:
             "themes": themes_str,
             "snippet": snippet,
         }
-
-        if fetch_full_content and self.scraper is not None and link:
-            content_result = self.scraper.fetch(link)
-            if (
-                content_result["success"]
-                and content_result["content"]
-                and len(content_result["content"]) >= 200
-            ):
-                article["full_content"] = content_result["content"]
 
         return article

@@ -9,11 +9,17 @@ own — the caller injects one (sync).
 
 from __future__ import annotations
 
-from datetime import date
+import contextlib
+import threading
+import uuid
+from datetime import UTC, date, datetime
 
+import pytest
 from portopt_db.models import AgentDecision, AgentRun
+from sqlalchemy import event, select, update
 
 from fund.audit import AgentRunRepository
+from fund.audit.repository import RunNotOpenError
 
 
 def test_create_run_persists_and_returns_row(db_session):
@@ -63,6 +69,53 @@ def test_append_decision_auto_increments_index(db_session):
     assert len(rows) == 2
 
 
+def test_concurrent_appends_on_a_shared_session_get_distinct_indexes(db_session):
+    """Two tool calls of one assistant message run on a thread pool and share the
+    run's session; each must still get its own ``decision_index`` and neither may
+    poison the session."""
+    repo = AgentRunRepository(db_session)
+    run = repo.create_run(
+        portfolio_id=None,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=["AAPL"],
+        optimizer_config={},
+    )
+    # Hold every appender at the flush until both have chosen an index, which is
+    # the interleaving the thread pool produces under load. A serialised writer
+    # never reaches the barrier together, so the timeout keeps it from deadlocking.
+    barrier = threading.Barrier(2)
+
+    @event.listens_for(db_session, "before_flush")
+    def _rendezvous(session, flush_context, instances):
+        with contextlib.suppress(threading.BrokenBarrierError):
+            barrier.wait(timeout=0.3)
+
+    indexes: list[int] = []
+    errors: list[BaseException] = []
+
+    def _append() -> None:
+        try:
+            indexes.append(
+                repo.append_decision(
+                    run.id, agent="allocator", step="optimize_portfolio"
+                ).decision_index
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_append) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert sorted(indexes) == [0, 1]
+    # The session must stay usable for the run's later writes.
+    assert repo.append_decision(run.id, agent="pm", step="close").decision_index == 2
+
+
 def test_finalize_run_writes_weights_and_status(db_session):
     repo = AgentRunRepository(db_session)
     run = repo.create_run(
@@ -81,6 +134,120 @@ def test_finalize_run_writes_weights_and_status(db_session):
     assert finalized.status == "completed"
     assert finalized.weights == {"AAPL": 0.6, "MSFT": 0.4}
     assert finalized.finished_at is not None
+
+
+def test_finalize_run_records_the_error_of_a_failed_run(db_session):
+    repo = AgentRunRepository(db_session)
+    run = repo.create_run(
+        portfolio_id=None,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={},
+    )
+
+    finalized = repo.finalize_run(
+        run.id, weights={}, status="failed", error="TimeoutError: provider timed out"
+    )
+
+    assert finalized is not None
+    assert finalized.status == "failed"
+    assert finalized.error == "TimeoutError: provider timed out"
+
+
+def _new_run(repo: AgentRunRepository) -> AgentRun:
+    return repo.create_run(
+        portfolio_id=None,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=["AAPL"],
+        optimizer_config={},
+    )
+
+
+def _set_status_behind_the_session(db_session, run_id, status: str) -> None:
+    """What another transaction committing a status looks like to this session: the
+    row changes while the session's loaded copy still says what it read earlier."""
+    db_session.execute(
+        update(AgentRun).where(AgentRun.id == run_id).values(status=status)
+    )
+
+
+def test_finalize_run_refuses_a_run_that_is_already_finalised(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    repo.finalize_run(run.id, weights={}, status="rejected")
+
+    with pytest.raises(RunNotOpenError, match="rejected"):
+        repo.finalize_run(run.id, weights={"AAPL": 1.0}, status="completed")
+
+    db_session.refresh(run)
+    assert run.status == "rejected"
+    assert run.weights == {}
+
+
+def test_finalize_run_allows_replaying_the_same_outcome(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    repo.finalize_run(run.id, weights={"AAPL": 1.0}, status="completed")
+
+    replayed = repo.finalize_run(run.id, weights={"AAPL": 1.0}, status="completed")
+
+    assert replayed is not None
+    assert replayed.status == "completed"
+    assert replayed.weights == {"AAPL": 1.0}
+
+
+def test_finalize_run_sees_a_status_committed_since_the_run_was_loaded(db_session):
+    """A finalisation must not rely on the session's loaded copy of the run: another
+    transaction may have finalised it since (a reject or freeze racing an approve)."""
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    repo.mark_paused(run.id)
+    _set_status_behind_the_session(db_session, run.id, "rejected")
+
+    with pytest.raises(RunNotOpenError):
+        repo.finalize_run(run.id, weights={"AAPL": 1.0}, status="completed")
+
+    db_session.refresh(run)
+    assert run.status == "rejected"
+
+
+@pytest.mark.parametrize("status", ["paused", "responded"])
+def test_claim_for_resume_succeeds_for_a_run_at_a_live_gate(db_session, status):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    _set_status_behind_the_session(db_session, run.id, status)
+
+    assert repo.claim_for_resume(run.id) is True
+
+
+@pytest.mark.parametrize(
+    "status", ["pending", "completed", "rejected", "incomplete", "blocked", "failed"]
+)
+def test_claim_for_resume_refuses_a_run_that_is_not_at_a_live_gate(db_session, status):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    _set_status_behind_the_session(db_session, run.id, status)
+
+    assert repo.claim_for_resume(run.id) is False
+
+
+def test_claim_for_resume_refuses_a_run_finalised_since_it_was_loaded(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    repo.mark_paused(run.id)
+    loaded = repo.get_run(run.id)
+    assert loaded is not None and loaded.status == "paused"
+    _set_status_behind_the_session(db_session, run.id, "rejected")
+
+    assert repo.claim_for_resume(run.id) is False
+
+
+def test_claim_for_resume_returns_false_for_unknown_id(db_session):
+    import uuid
+
+    assert AgentRunRepository(db_session).claim_for_resume(uuid.uuid4()) is False
 
 
 def test_finalize_run_returns_none_for_unknown_id(db_session):
@@ -197,6 +364,33 @@ def test_list_decisions_joins_portfolio_and_filters(db_session):
     assert all(dec.step == "optimize_portfolio" for dec, _ in optimize)
 
 
+def test_list_decisions_orders_tied_timestamps_by_run_then_newest_step(db_session):
+    # Rows written before timestamps were stamped per statement share one
+    # created_at per transaction; the step sequence must still read newest-first.
+    import uuid
+    from datetime import datetime
+
+    repo = AgentRunRepository(db_session)
+    pid = uuid.UUID("aaaa0001-0000-4000-8000-000000000001")
+    run = repo.create_run(
+        portfolio_id=pid,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={},
+    )
+    steps = ["derive", "optimize", "review", "approve"]
+    tied = datetime(2026, 1, 2, 10, 0, 0)
+    for step in steps:
+        decision = repo.append_decision(run.id, agent="allocator", step=step)
+        decision.created_at = tied
+    db_session.flush()
+
+    rows = repo.list_decisions(portfolio_id=pid)
+
+    assert [dec.step for dec, _ in rows] == list(reversed(steps))
+
+
 # --- mark_responded + the pending-HITL query (barge-in keeps a run alive) -----
 
 
@@ -243,3 +437,264 @@ def test_list_paused_runs_includes_responded_but_not_terminal(db_session):
     assert paused.id in ids
     assert responded.id in ids
     assert done.id not in ids
+
+
+# --- bounded / streamed reads (the polled observe path) ----------------------
+
+_PID = uuid.UUID("aaaa2222-0000-4000-8000-000000000002")
+
+
+def _run_at(session, created_at, *, asof=date(2026, 1, 2), status="pending", pid=_PID):
+    """Insert a run with an explicit ``created_at`` so newest-first is deterministic."""
+    run = AgentRun(
+        portfolio_id=pid,
+        asof=asof,
+        universe=["AAA"],
+        optimizer_config={},
+        status=status,
+        created_at=created_at,
+    )
+    session.add(run)
+    session.flush()
+    return run
+
+
+def test_list_runs_for_portfolio_since_filters_on_asof_in_sql(db_session):
+    repo = AgentRunRepository(db_session)
+    _run_at(db_session, datetime(2026, 1, 3, tzinfo=UTC), asof=date(2026, 1, 2))
+    recent = _run_at(
+        db_session, datetime(2026, 2, 3, tzinfo=UTC), asof=date(2026, 2, 2)
+    )
+
+    runs = repo.list_runs_for_portfolio(_PID, since=date(2026, 2, 1))
+
+    assert [r.id for r in runs] == [recent.id]
+
+
+def test_list_runs_for_portfolio_limit_keeps_the_newest(db_session):
+    repo = AgentRunRepository(db_session)
+    _run_at(db_session, datetime(2026, 1, 3, tzinfo=UTC))
+    newest = _run_at(db_session, datetime(2026, 2, 3, tzinfo=UTC))
+
+    runs = repo.list_runs_for_portfolio(_PID, limit=1)
+
+    assert [r.id for r in runs] == [newest.id]
+
+
+def test_iter_runs_for_portfolio_streams_newest_first_and_filters_status(db_session):
+    repo = AgentRunRepository(db_session)
+    _run_at(db_session, datetime(2026, 1, 3, tzinfo=UTC), status="completed")
+    paused = _run_at(db_session, datetime(2026, 2, 3, tzinfo=UTC), status="paused")
+    newest_done = _run_at(
+        db_session, datetime(2026, 3, 3, tzinfo=UTC), status="completed"
+    )
+
+    everything = [r.id for r in repo.iter_runs_for_portfolio(_PID)]
+    completed = [r.id for r in repo.iter_runs_for_portfolio(_PID, status="completed")]
+
+    assert everything[:2] == [newest_done.id, paused.id]
+    assert len(everything) == 3
+    assert completed[0] == newest_done.id
+    assert paused.id not in completed
+
+
+def test_iter_optimizer_decisions_is_newest_run_then_newest_decision_first(db_session):
+    repo = AgentRunRepository(db_session)
+    older = _run_at(db_session, datetime(2026, 1, 3, tzinfo=UTC))
+    newer = _run_at(db_session, datetime(2026, 2, 3, tzinfo=UTC))
+    other = _run_at(db_session, datetime(2026, 3, 3, tzinfo=UTC), pid=uuid.uuid4())
+    repo.append_decision(older.id, agent="allocator", step="optimize_portfolio")
+    repo.append_decision(newer.id, agent="allocator", step="optimize_portfolio")
+    repo.append_decision(newer.id, agent="risk", step="risk_check")
+    repo.append_decision(newer.id, agent="allocator", step="optimize_portfolio")
+    repo.append_decision(other.id, agent="allocator", step="optimize_portfolio")
+
+    got = [(d.run_id, d.decision_index) for d in repo.iter_optimizer_decisions(_PID)]
+
+    assert got == [(newer.id, 2), (newer.id, 0), (older.id, 0)]
+
+
+# --- risk verdicts: recorded against a weights digest, read fail-closed -------
+
+
+def _run_for_verdicts(repo):
+    return repo.create_run(
+        portfolio_id=None,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=["AAPL", "MSFT"],
+        optimizer_config={},
+    )
+
+
+def test_weights_digest_is_order_free_and_value_sensitive():
+    digest = AgentRunRepository.weights_digest
+
+    assert digest({"AAPL": 0.6, "MSFT": 0.4}) == digest({"MSFT": 0.4, "AAPL": 0.6})
+    assert digest({"AAPL": 0.6, "MSFT": 0.4}) != digest({"AAPL": 0.5, "MSFT": 0.5})
+
+
+def test_risk_passed_fails_closed_without_a_usable_verdict(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _run_for_verdicts(repo)
+    weights = {"AAPL": 0.6, "MSFT": 0.4}
+
+    assert repo.risk_passed(run.id, weights) is False  # no verdict at all
+
+    repo.append_decision(run.id, agent="risk", step="risk_check")  # no payload
+    assert repo.risk_passed(run.id, weights) is False
+
+    repo.append_decision(
+        run.id, agent="risk", step="risk_check", llm_response="not json"
+    )
+    assert repo.risk_passed(run.id, weights) is False
+
+
+def test_risk_passed_needs_the_newest_verdict_to_pass_these_exact_weights(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _run_for_verdicts(repo)
+    first = {"AAPL": 0.6, "MSFT": 0.4}
+    second = {"AAPL": 0.5, "MSFT": 0.5}
+
+    repo.append_risk_verdict(run.id, weights=first, passed=True, violations=[])
+    assert repo.risk_passed(run.id, first) is True
+    assert repo.risk_passed(run.id, second) is False  # a different vector
+
+    repo.append_risk_verdict(
+        run.id,
+        weights=first,
+        passed=False,
+        violations=[{"type": "max_weight", "asset": "AAPL"}],
+    )
+    assert repo.risk_passed(run.id, first) is False  # the newest verdict wins
+
+    repo.append_risk_verdict(run.id, weights=second, passed=True, violations=[])
+    assert repo.risk_passed(run.id, second) is True
+    assert repo.risk_passed(run.id, first) is False  # superseded by the new vector
+
+
+def test_risk_gate_labels_the_newest_verdict_against_the_weights(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _run_for_verdicts(repo)
+    first = {"AAPL": 0.6, "MSFT": 0.4}
+    second = {"AAPL": 0.5, "MSFT": 0.5}
+    breach = {"type": "max_weight", "asset": "AAPL"}
+
+    assert repo.risk_gate(run.id, first)["status"] == "not_run"
+
+    repo.append_decision(run.id, agent="risk", step="risk_check", llm_response="no")
+    assert repo.risk_gate(run.id, first)["status"] == "not_run"
+
+    repo.append_risk_verdict(
+        run.id, weights=first, passed=True, violations=[], not_enforced=["drawdown"]
+    )
+    gate = repo.risk_gate(run.id, first)
+    assert gate["status"] == "passed"
+    assert gate["not_enforced"] == ["drawdown"]
+    assert repo.risk_gate(run.id, second)["status"] == "stale"  # a different vector
+
+    repo.append_risk_verdict(run.id, weights=first, passed=False, violations=[breach])
+    gate = repo.risk_gate(run.id, first)
+    assert gate["status"] == "failed"
+    assert gate["violations"] == [breach]
+
+
+def _portfolio_run(
+    repo: AgentRunRepository,
+    portfolio_id,
+    started_at: datetime,
+    *,
+    status: str,
+    step: str = "fund",
+) -> AgentRun:
+    run = repo.create_run(
+        portfolio_id=portfolio_id,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={"step": step},
+    )
+    run.started_at = started_at
+    run.status = status
+    repo.session.flush()
+    return run
+
+
+def test_newer_completed_rebalance_run_ignores_older_other_portfolios_and_profiler(
+    db_session,
+):
+    repo = AgentRunRepository(db_session)
+    pid, other = uuid.uuid4(), uuid.uuid4()
+    base = _portfolio_run(repo, pid, datetime(2026, 1, 5, 9), status="paused")
+    _portfolio_run(repo, pid, datetime(2026, 1, 4, 9), status="completed")  # older
+    _portfolio_run(repo, other, datetime(2026, 1, 6, 9), status="completed")
+    _portfolio_run(repo, pid, datetime(2026, 1, 6, 9), status="paused")  # not done
+    _portfolio_run(repo, pid, datetime(2026, 1, 6, 9), status="rejected")
+    _portfolio_run(
+        repo, pid, datetime(2026, 1, 6, 9), status="completed", step="profiler"
+    )
+    _portfolio_run(repo, pid, datetime(2026, 1, 5, 9), status="completed")  # tie
+
+    assert repo.newer_completed_rebalance_run(base) is None
+
+
+def test_newer_completed_rebalance_run_returns_the_latest_started(db_session):
+    repo = AgentRunRepository(db_session)
+    pid = uuid.uuid4()
+    base = _portfolio_run(repo, pid, datetime(2026, 1, 5, 9), status="paused")
+    _portfolio_run(repo, pid, datetime(2026, 1, 6, 9), status="completed")
+    latest = _portfolio_run(repo, pid, datetime(2026, 1, 7, 9), status="completed")
+
+    assert repo.newer_completed_rebalance_run(base).id == latest.id
+
+
+def test_newer_completed_rebalance_run_is_none_without_a_portfolio(db_session):
+    repo = AgentRunRepository(db_session)
+    base = _portfolio_run(repo, None, datetime(2026, 1, 5, 9), status="paused")
+    _portfolio_run(repo, None, datetime(2026, 1, 6, 9), status="completed")
+
+    assert repo.newer_completed_rebalance_run(base) is None
+
+
+# --- terminal statuses are never rewritten (a concurrent freeze must stick) ----
+
+
+def _stored_status(session, run_id) -> str:
+    return session.execute(
+        select(AgentRun.status).where(AgentRun.id == run_id)
+    ).scalar_one()
+
+
+def test_mark_paused_does_not_resurrect_a_concurrently_rejected_run(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    _set_status_behind_the_session(db_session, run.id, "rejected")
+
+    repo.mark_paused(run.id)
+
+    assert _stored_status(db_session, run.id) == "rejected"
+
+
+def test_mark_responded_does_not_resurrect_a_concurrently_rejected_run(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    repo.mark_paused(run.id)
+    _set_status_behind_the_session(db_session, run.id, "rejected")
+
+    repo.mark_responded(run.id)
+
+    assert _stored_status(db_session, run.id) == "rejected"
+
+
+def test_finalize_run_replaying_the_same_terminal_status_is_a_noop(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    first = repo.finalize_run(run.id, weights={"AAA": 1.0}, status="completed")
+    stamped = first.finished_at
+
+    replayed = repo.finalize_run(run.id, weights={"BBB": 1.0}, status="completed")
+
+    assert replayed is not None
+    assert replayed.status == "completed"
+    assert replayed.weights == {"AAA": 1.0}
+    assert replayed.finished_at == stamped

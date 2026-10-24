@@ -65,8 +65,11 @@ class GridSearchConfig:
             whose optimizer fails to solve on some folds is scored ``nan`` for
             those folds and demoted rather than aborting the whole search. This
             is the search-level analogue of skfolio 1.0's per-fold resilience
-            layer (``raise_on_failure=False`` / ``fallback=``). Set to
-            ``"raise"`` to fail fast instead.
+            layer (``raise_on_failure=False`` / ``fallback=``). If *every*
+            candidate scores ``nan`` there is nothing to select, so ``fit``
+            raises ``OptimizationError`` rather than returning an arbitrary
+            first candidate. Set to ``"raise"`` to fail fast on the first
+            error instead.
         refit: Whether to refit the best estimator on the whole dataset after
             the search. ``True`` (default) exposes ``best_estimator_``.
         verbose: Verbosity level forwarded to sklearn.

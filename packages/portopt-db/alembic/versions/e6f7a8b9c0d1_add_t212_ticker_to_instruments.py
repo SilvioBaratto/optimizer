@@ -3,7 +3,12 @@
 yfinance is now the universe source (SPEC D9/D13/D14): ``ticker`` holds the Yahoo
 ticker and a nullable ``t212_ticker`` carries the optional Trading 212 mapping.
 The backfill sets ``ticker = yfinance_ticker`` for existing rows so the column's
-meaning is consistent going forward.
+meaning is consistent going forward. ``uq_instrument_ticker_exchange`` is on
+``(ticker, exchange_id)`` while ``yfinance_ticker`` is not unique, so several
+Trading 212 lines on one exchange can share a Yahoo symbol. Only the oldest line
+of each such group is backfilled, and a row is also skipped when another row on
+its exchange already holds the symbol as its ``ticker``. Skipped rows keep their
+previous ticker, so the upgrade completes instead of aborting on the constraint.
 
 The backfill is one-way — ``downgrade`` only drops the new column and does not
 restore the previous ``ticker`` values (acceptable: pre-pivot universes are
@@ -33,10 +38,25 @@ def upgrade() -> None:
         sa.Column("t212_ticker", sa.String(length=100), nullable=True),
     )
     # ticker becomes the Yahoo ticker (D13). Backfill from yfinance_ticker where
-    # one exists so existing rows carry the new meaning.
+    # one exists so existing rows carry the new meaning. The constraint is
+    # checked row by row, so both guards must be decided from the pre-update
+    # state: the oldest row of a (exchange, Yahoo symbol) group wins, and a
+    # symbol already used as another row's ticker is never taken over.
     op.execute(
         "UPDATE instruments SET ticker = yfinance_ticker "
-        "WHERE yfinance_ticker IS NOT NULL AND yfinance_ticker <> ''"
+        "WHERE yfinance_ticker IS NOT NULL AND yfinance_ticker <> '' "
+        "AND NOT EXISTS ("
+        "SELECT 1 FROM instruments AS holder "
+        "WHERE holder.exchange_id = instruments.exchange_id "
+        "AND holder.ticker = instruments.yfinance_ticker "
+        "AND holder.id <> instruments.id) "
+        "AND NOT EXISTS ("
+        "SELECT 1 FROM instruments AS earlier "
+        "WHERE earlier.exchange_id = instruments.exchange_id "
+        "AND earlier.yfinance_ticker = instruments.yfinance_ticker "
+        "AND (earlier.created_at < instruments.created_at "
+        "OR (earlier.created_at = instruments.created_at "
+        "AND earlier.id < instruments.id)))"
     )
 
 

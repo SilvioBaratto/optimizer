@@ -2,16 +2,36 @@
 
 On-demand support for `universe-preselection`. Points to the theory; never copies it.
 
-## Filter enums (the LLM chooses; the pipeline applies)
+## What the bound tools take
+`universe_filter(universe)` and `estimate_moments(universe)` take only the ticker
+list. The run date, the ConstraintSet and every threshold come from the run, not from
+the LLM.
 
-| Filter | Knob | Theory |
+## Stages the filter applies (fixed defaults)
+
+Order: validate -> outliers -> drop incomplete history -> impute -> drop zero
+variance -> drop correlated. `top_k`, Pareto and expiry selection exist in the
+library but are off in the bound tool.
+
+| Stage | Setting | Theory |
 |---|---|---|
-| Liquidity floor | min ADV / price | screens: `13:160` |
-| Factor score / style | size, value, quality tilts | `09:100`, `09:116` |
-| Signal → alpha discipline | scale / trim / neutralize | `13:142` |
-| Drop-correlated | correlation cap (condition number) | `05:71`, `08:108` |
-| Sector caps | GICS group bounds | `13:108` |
-| K&E exclusions | no-complex / no-leverage (from the profile) | mifid ConstraintSet |
+| Drop-correlated | pairwise correlation cap 0.95 (fixed, not LLM-set) | `05:71`, `08:108` |
+| Incomplete history | assets with leading/trailing gaps are dropped | - |
+
+## Mandate screen (applied by the bound tool)
+After the stages above, `universe_filter` removes names that breach the client's
+ConstraintSet: ESG-excluded GICS sectors, and for a low-knowledge client the K&E
+no-complex / no-leverage instrument restrictions. An instrument whose sector cannot
+be classified fails closed. Removed names are returned as `mandate_excluded`.
+
+## Not modelled (do not claim these were applied)
+
+| Screen | Status | Theory |
+|---|---|---|
+| Liquidity floor (min ADV / price) | not available, no volume data is loaded | `13:160` |
+| Factor score / style tilts | not available in the filter | `09:100`, `09:116` |
+| Signal -> alpha discipline | not available in the filter | `13:142` |
+| Sector caps (GICS group bounds) | not available, no sector mapping is passed | `13:108` |
 
 ## Factor structure & conditioning
 Full covariance is ill-conditioned on ~8898 names → use factor structure + shrinkage:

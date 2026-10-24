@@ -27,8 +27,9 @@ class BargeInResult:
     Attributes:
         text: The adviser's free-text directive, threaded to the PM at the gate.
         remember: When ``True``, persist as a soft guardrail
-            (``PortfolioMandate.remembered_directives``, wired in T11); when ``False``,
-            a one-shot directive that seeds only the current round.
+            (``PortfolioMandate.remembered_directives``, stated in the PM seed of every
+            later round); when ``False``, a one-shot directive that seeds only the
+            current round.
     """
 
     text: str

@@ -26,6 +26,7 @@ from fund.performance import (
     _load_price_frame,
     _to_base_prices,
     build_nav_series,
+    holding_marks,
 )
 
 _D1 = dt.date(2026, 10, 1)
@@ -308,12 +309,10 @@ def test_nav_series_non_base_mandate_without_fx_coverage_raises(db_session):
         build_nav_series(_PID, session=db_session, base_currency="GBP")
 
 
-def test_nav_series_foreign_benchmark_without_fx_does_not_block(db_session):
-    """A foreign benchmark with no FX rate degrades; it must not block an all-base NAV.
+def _seed_eur_book_with_usd_benchmark(db_session, *, gbp_rates: bool = False):
+    """Seed an all-EUR single-stock book plus a USD-priced ``SPX`` benchmark.
 
-    The coverage guard considers holdings only — an all-EUR book with a USD
-    benchmark and an empty FX table still marks NAV (regression guard for the
-    benchmark-currency false positive).
+    ``gbp_rates`` adds an FX table that covers GBP only, so USD has no rate column.
     """
     ex = Exchange(name="X")
     db_session.add(ex)
@@ -344,6 +343,22 @@ def test_nav_series_foreign_benchmark_without_fx_does_not_block(db_session):
             ),
         ]
     )
+    if gbp_rates:
+        from portopt_db.repositories.market_data.fx_rates_repository import (
+            FxRatesRepository,
+        )
+
+        FxRatesRepository(db_session).upsert_rates(
+            [
+                {
+                    "base_currency": "EUR",
+                    "quote_currency": "GBP",
+                    "date": day,
+                    "rate": 1.17,
+                }
+                for day in (_D1, _D2)
+            ]
+        )
     db_session.add(
         PaperOrder(
             portfolio_id=_PID,
@@ -359,12 +374,39 @@ def test_nav_series_foreign_benchmark_without_fx_does_not_block(db_session):
     )
     db_session.flush()
 
+
+def test_nav_series_foreign_benchmark_without_fx_does_not_block(db_session):
+    """A foreign benchmark with no FX rate degrades; it must not block an all-base NAV.
+
+    The coverage guard considers holdings only — an all-EUR book with a USD
+    benchmark and an empty FX table still marks NAV (regression guard for the
+    benchmark-currency false positive).
+    """
+    _seed_eur_book_with_usd_benchmark(db_session)
+
     points = build_nav_series(
         _PID, session=db_session, base_currency="EUR", benchmark="SPX"
     )
     navs = {p.date: p.nav for p in points}
     assert navs[_D1] == pytest.approx(10000.0, rel=1e-6)  # pure-EUR NAV, not blocked
     assert navs[_D2] == pytest.approx(11000.0, rel=1e-6)  # 100 shares × 110
+
+
+@pytest.mark.parametrize("gbp_rates", [False, True], ids=["empty-fx", "gbp-only-fx"])
+def test_nav_series_unconverted_foreign_benchmark_is_not_emitted(db_session, gbp_rates):
+    """A benchmark whose currency has no FX column must not leak in as raw USD points.
+
+    Emitting 5000/5100 index points beside a EUR NAV would make excess return,
+    tracking error and beta compare two currencies with no FX return between them.
+    """
+    _seed_eur_book_with_usd_benchmark(db_session, gbp_rates=gbp_rates)
+
+    points = build_nav_series(
+        _PID, session=db_session, base_currency="EUR", benchmark="SPX"
+    )
+
+    assert points
+    assert all(p.benchmark is None for p in points)
 
 
 def test_nav_series_since_bounds_emitted_points(db_session):
@@ -468,6 +510,717 @@ def test_nav_series_uses_each_lines_own_fill_date(db_session):
     assert navs[d_a] == pytest.approx(6000.0 + 4000.0, rel=1e-6)
     # On d_b US2 fills: its shares (4000 / 210) mark at the d_b close (210) == notional.
     assert navs[d_b] == pytest.approx((6000.0 / 100.0) * 110.0 + 4000.0, rel=1e-6)
+
+
+_R1 = dt.date(2026, 11, 1)
+_R2 = dt.date(2026, 11, 2)
+_R3 = dt.date(2026, 11, 3)
+_R4 = dt.date(2026, 11, 4)
+
+
+def _seed_usd_closes(
+    db_session,
+    closes: dict[str, dict[dt.date, str]],
+    units: dict[str, str] | None = None,
+) -> None:
+    """Seed price rows for ``{ticker: {date: close}}``.
+
+    Prices are USD (base USD ⇒ no FX) unless ``units`` overrides the raw ``price_unit``
+    of a ticker.
+    """
+    ex = Exchange(name="RX")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, by_date in closes.items():
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        unit = (units or {}).get(ticker, "USD")
+        db_session.add_all(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=day,
+                close=Decimal(close),
+                price_unit=unit,
+            )
+            for day, close in by_date.items()
+        )
+    db_session.flush()
+
+
+def _add_ticket(
+    db_session,
+    *,
+    asof: dt.date,
+    key: str,
+    lines: dict[str, tuple[float, dt.date]],
+) -> None:
+    """Persist a paper ticket from ``{ticker: (notional, line_fill_date)}``."""
+    total = sum(n for n, _ in lines.values())
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=asof,
+            weights_hash=key,
+            weights={t: n / total for t, (n, _) in lines.items()},
+            fill_date=min(f for _, f in lines.values()),
+            lines=[
+                {
+                    "ticker": ticker,
+                    "notional": notional,
+                    "fill_date": fill.isoformat(),
+                }
+                for ticker, (notional, fill) in lines.items()
+            ],
+            notional=total,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+
+def test_nav_series_rebalance_into_same_weights_conserves_nav(db_session):
+    """A rebalance neither creates nor destroys value: NAV is continuous at the fill.
+
+    Every ticket is sized off the flat ticket notional, so a naive reconstruction
+    re-marks the book back to that notional on the new ticket's first bar — a
+    spurious one-day loss that also discards all accumulated P&L.
+    """
+    _seed_usd_closes(
+        db_session,
+        {"AAA": {_R1: "100", _R2: "110", _R3: "120", _R4: "130"}},
+    )
+    _add_ticket(
+        db_session,
+        asof=_R1 - dt.timedelta(days=1),
+        key="h1",
+        lines={"AAA": (10_000.0, _R1)},
+    )
+    _add_ticket(db_session, asof=_R2, key="h2", lines={"AAA": (10_000.0, _R3)})
+
+    points = build_nav_series(_PID, session=db_session, base_currency="USD")
+
+    navs = {p.date: p.nav for p in points}
+    assert navs[_R2] == pytest.approx(11_000.0)
+    assert navs[_R3] == pytest.approx(12_000.0)
+    assert navs[_R4] == pytest.approx(13_000.0)
+
+
+def test_nav_series_rebalance_carries_nav_into_new_weights(db_session):
+    """The new book is sized to the NAV in force, and ``since`` does not change it.
+
+    100% AAA doubles to 15,000 (+50%), then the portfolio rebalances to 50/50
+    AAA/BBB: the series must carry on from 15,000, and re-emitting only a recent
+    window must reproduce the same levels as the full backfill.
+    """
+    _seed_usd_closes(
+        db_session,
+        {
+            "AAA": {_R1: "100", _R2: "150", _R3: "150", _R4: "165"},
+            "BBB": {_R3: "100", _R4: "110"},
+        },
+    )
+    _add_ticket(
+        db_session,
+        asof=_R1 - dt.timedelta(days=1),
+        key="h1",
+        lines={"AAA": (10_000.0, _R1)},
+    )
+    _add_ticket(
+        db_session,
+        asof=_R2,
+        key="h2",
+        lines={"AAA": (5_000.0, _R3), "BBB": (5_000.0, _R3)},
+    )
+
+    full = {
+        p.date: p.nav
+        for p in build_nav_series(_PID, session=db_session, base_currency="USD")
+    }
+    assert full[_R2] == pytest.approx(15_000.0)
+    assert full[_R3] == pytest.approx(15_000.0)
+    # 1.5x scale on the 50/50 book: (5000/150*165 + 5000/100*110) * 1.5.
+    assert full[_R4] == pytest.approx(16_500.0)
+
+    recent = build_nav_series(_PID, session=db_session, base_currency="USD", since=_R4)
+    assert [p.date for p in recent] == [_R4]
+    assert recent[0].nav == pytest.approx(16_500.0)
+
+
+def test_nav_series_rebalance_with_staggered_new_line_stays_continuous(db_session):
+    """A not-yet-filled line of the new ticket must not distort the switch bar."""
+    _seed_usd_closes(
+        db_session,
+        {
+            "AAA": {_R1: "100", _R2: "150", _R3: "150", _R4: "165"},
+            "BBB": {_R3: "100", _R4: "110"},
+        },
+    )
+    _add_ticket(
+        db_session,
+        asof=_R1 - dt.timedelta(days=1),
+        key="h1",
+        lines={"AAA": (10_000.0, _R1)},
+    )
+    _add_ticket(
+        db_session,
+        asof=_R2,
+        key="h2",
+        lines={"AAA": (5_000.0, _R3), "BBB": (5_000.0, _R4)},
+    )
+
+    navs = {
+        p.date: p.nav
+        for p in build_nav_series(_PID, session=db_session, base_currency="USD")
+    }
+    assert navs[_R3] == pytest.approx(15_000.0)
+    # BBB fills at the R4 close (110): its 5000 notional is carried until then.
+    assert navs[_R4] == pytest.approx((5_000.0 / 150.0 * 165.0 + 5_000.0) * 1.5)
+
+
+def _seed_rebalanced_eur_book(
+    db_session,
+    closes: dict[str, list[float]],
+    tickets: list[tuple[int, dict[str, float]]],
+) -> list[dt.date]:
+    """Seed EUR instruments plus fixed-notional tickets; returns the bar dates.
+
+    ``tickets`` holds ``(bar index of the fill, weights)``; every ticket is sized at
+    the flat 100k notional ``place_orders`` applies, whatever the book is worth.
+    """
+    bars = [dt.date(2026, 10, 1) + dt.timedelta(days=i) for i in range(5)]
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, series in closes.items():
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        db_session.add_all(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=bar,
+                close=Decimal(str(close)),
+                price_unit="EUR",
+            )
+            for bar, close in zip(bars, series, strict=True)
+        )
+    for n, (bar_idx, weights) in enumerate(tickets):
+        db_session.add(
+            PaperOrder(
+                portfolio_id=_PID,
+                asof=bars[bar_idx] - dt.timedelta(days=1),
+                weights_hash=f"h{n}",
+                weights=weights,
+                fill_date=bars[bar_idx],
+                lines=[
+                    {
+                        "ticker": ticker,
+                        "notional": weight * 100_000.0,
+                        "fill_date": bars[bar_idx].isoformat(),
+                    }
+                    for ticker, weight in weights.items()
+                ],
+                notional=100_000.0,
+                total_commission=0.0,
+                total_slippage_cost=0.0,
+            )
+        )
+    db_session.flush()
+    return bars
+
+
+def test_nav_series_stays_continuous_across_a_same_weights_rebalance(db_session):
+    """A rebalance fill must not re-base NAV to the ticket's flat notional.
+
+    The book is worth 132k when the second 100k-notional ticket fills; the series has
+    to carry that value across the switch instead of dropping back to 100k, which
+    would print a fake loss and a fake drawdown for a monotonically rising asset.
+    """
+    _seed_rebalanced_eur_book(
+        db_session,
+        {"AAA": [100.0, 120.0, 120.0, 132.0, 132.0]},
+        [(0, {"AAA": 1.0}), (3, {"AAA": 1.0})],
+    )
+
+    points = build_nav_series(_PID, session=db_session, base_currency="EUR")
+
+    assert [p.nav for p in points] == pytest.approx(
+        [100_000.0, 120_000.0, 120_000.0, 132_000.0, 132_000.0]
+    )
+    summary = performance.portfolio_metrics(_PID, points)
+    assert summary.max_drawdown == pytest.approx(0.0, abs=1e-12)
+    assert summary.returns["max"] == pytest.approx(0.32)
+
+
+def test_nav_series_carries_accumulated_value_into_a_reweighted_book(db_session):
+    """Switching assets keeps NAV at the old book's value and compounds from there."""
+    _seed_rebalanced_eur_book(
+        db_session,
+        {
+            "AAA": [100.0, 110.0, 110.0, 110.0, 110.0],
+            "BBB": [50.0, 50.0, 50.0, 55.0, 55.0],
+        },
+        [(0, {"AAA": 1.0}), (2, {"BBB": 1.0})],
+    )
+
+    points = build_nav_series(_PID, session=db_session, base_currency="EUR")
+
+    assert [p.nav for p in points] == pytest.approx(
+        [100_000.0, 110_000.0, 110_000.0, 121_000.0, 121_000.0]
+    )
+
+
+def test_nav_series_since_keeps_the_rebalance_chain(db_session):
+    """Trimming with ``since`` must not drop the value carried over earlier switches."""
+    bars = _seed_rebalanced_eur_book(
+        db_session,
+        {"AAA": [100.0, 120.0, 120.0, 132.0, 132.0]},
+        [(0, {"AAA": 1.0}), (3, {"AAA": 1.0})],
+    )
+
+    points = build_nav_series(
+        _PID, session=db_session, base_currency="EUR", since=bars[4]
+    )
+
+    assert [(p.date, p.nav) for p in points] == [(bars[4], pytest.approx(132_000.0))]
+
+
+def test_holding_marks_value_matches_the_chain_linked_nav(db_session):
+    """Holdings are sized on the same chain as NAV, so they sum to the last NAV.
+
+    The second flat-100k ticket fills when the book is worth 130k; NAV carries that
+    value, so the holding must hold the shares that 130k buys (1000), not the 769 a
+    flat 100k would. Unrealized P&L is measured from the value carried in at the
+    rebalance (130k), on the same scale as NAV.
+    """
+    _seed_rebalanced_eur_book(
+        db_session,
+        {"AAA": [100.0, 120.0, 130.0, 150.0, 170.0]},
+        [(0, {"AAA": 1.0}), (2, {"AAA": 1.0})],
+    )
+
+    nav = build_nav_series(_PID, session=db_session, base_currency="EUR")[-1].nav
+    (mark,) = holding_marks(_PID, session=db_session, base_currency="EUR")
+
+    assert nav == pytest.approx(170_000.0)
+    assert mark.value == pytest.approx(nav)
+    assert mark.shares == pytest.approx(1000.0)
+    assert mark.unrealized_pnl == pytest.approx(170_000.0 - 130_000.0)
+
+
+def test_holding_marks_scale_every_line_of_a_reweighted_book(db_session):
+    """A reweighted ticket scales all its lines by the one carried-over factor."""
+    _seed_rebalanced_eur_book(
+        db_session,
+        {
+            "AAA": [100.0, 110.0, 120.0, 130.0, 140.0],
+            "BBB": [50.0, 50.0, 60.0, 60.0, 66.0],
+        },
+        [(0, {"AAA": 0.5, "BBB": 0.5}), (2, {"AAA": 0.25, "BBB": 0.75})],
+    )
+
+    nav = build_nav_series(_PID, session=db_session, base_currency="EUR")[-1].nav
+    marks = {
+        m.ticker: m
+        for m in holding_marks(_PID, session=db_session, base_currency="EUR")
+    }
+
+    # The old book is worth 120k at the switch, so the new one is sized 1.2x flat.
+    assert marks["AAA"].shares == pytest.approx(250.0)
+    assert marks["BBB"].shares == pytest.approx(1500.0)
+    assert sum(m.value for m in marks.values()) == pytest.approx(nav)
+    assert marks["AAA"].unrealized_pnl == pytest.approx(250.0 * 140.0 - 30_000.0)
+    assert marks["BBB"].unrealized_pnl == pytest.approx(1500.0 * 66.0 - 90_000.0)
+    assert marks["AAA"].weight == pytest.approx(35_000.0 / nav)
+
+
+def test_holding_marks_single_ticket_book_keeps_the_flat_notional(db_session):
+    """With no rebalance the chain is trivial: shares and P&L are the flat ticket's."""
+    _seed_rebalanced_eur_book(
+        db_session,
+        {"AAA": [100.0, 120.0, 130.0, 150.0, 170.0]},
+        [(0, {"AAA": 1.0})],
+    )
+
+    (mark,) = holding_marks(_PID, session=db_session, base_currency="EUR")
+
+    assert mark.shares == pytest.approx(1000.0)
+    assert mark.unrealized_pnl == pytest.approx(70_000.0)
+
+
+_DAYS = [dt.date(2026, 10, 1) + dt.timedelta(days=i) for i in range(5)]
+
+
+def _seed_usd_floats(
+    db_session,
+    series: dict[str, dict[dt.date, float]],
+    units: dict[str, str] | None = None,
+) -> None:
+    """Seed closes as ``{ticker: {date: float}}`` (USD unless ``units`` override)."""
+    _seed_usd_closes(
+        db_session,
+        {
+            ticker: {day: str(px) for day, px in closes.items()}
+            for ticker, closes in series.items()
+        },
+        units,
+    )
+
+
+def _add_flat_ticket(
+    db_session, *, fill: dt.date, notionals: dict[str, float], key: str = "h"
+) -> None:
+    """Persist one ticket whose lines all fill on ``fill`` (asof the day before)."""
+    _add_ticket(
+        db_session,
+        asof=fill - dt.timedelta(days=1),
+        key=key,
+        lines={ticker: (notional, fill) for ticker, notional in notionals.items()},
+    )
+
+
+def _set_ticket_gross(db_session, key: str, gross: float) -> None:
+    """Widen a ticket's flat paper notional beyond the sum of its lines."""
+    db_session.query(PaperOrder).filter(PaperOrder.weights_hash == key).update(
+        {"notional": gross}
+    )
+    db_session.flush()
+
+
+def test_nav_series_keeps_a_later_tickets_cash_weight(db_session):
+    """A rebalance into a half-invested book parks the other half in cash.
+
+    A rises 100 -> 140. A second ticket holds A at 50% of its 100k gross and fills at
+    130, when the book is worth 130,000: 65,000 goes into A and 65,000 stays in cash.
+    The level carries through the hand-over, and the last bar is 65,000 * 140/130 +
+    65,000 -- not the 140,000 a book scaled back up to fully invested would show.
+    """
+    prices = dict(zip(_DAYS, [100.0, 120.0, 130.0, 135.0, 140.0], strict=True))
+    _seed_usd_floats(db_session, {"A": prices})
+    _add_flat_ticket(db_session, fill=_DAYS[0], notionals={"A": 100_000.0}, key="h1")
+    _add_flat_ticket(db_session, fill=_DAYS[2], notionals={"A": 50_000.0}, key="h2")
+    _set_ticket_gross(db_session, "h2", 100_000.0)
+
+    points = build_nav_series(_PID, session=db_session, base_currency="USD")
+
+    navs = {p.date: p.nav for p in points}
+    assert navs[_DAYS[1]] == pytest.approx(120_000.0)
+    assert navs[_DAYS[2]] == pytest.approx(130_000.0)
+    assert navs[_DAYS[3]] == pytest.approx(65_000.0 * 135.0 / 130.0 + 65_000.0)
+    assert navs[_DAYS[4]] == pytest.approx(135_000.0)
+    assert performance.nav_return_series(points).iloc[1:].min() >= 0.0
+
+
+def test_nav_series_keeps_a_partly_invested_book_as_exposed_after_a_rebalance(
+    db_session,
+):
+    """Repeating a 90% ticket keeps 90% of total wealth in the market.
+
+    The first ticket's 10,000 of cash stays outside NAV (NAV starts at the 90,000
+    deployed) but is still part of the wealth the second ticket is sized on. Rebalancing
+    at 120, where wealth is 118,000, puts 106,200 in A and 11,800 in cash, so NAV is
+    continuous at 108,000 and then moves with 106,200 of exposure, not 108,000.
+    """
+    prices = dict(zip(_DAYS, [100.0, 105.0, 110.0, 120.0, 126.0], strict=True))
+    _seed_usd_floats(db_session, {"A": prices})
+    _add_flat_ticket(db_session, fill=_DAYS[0], notionals={"A": 90_000.0}, key="h1")
+    _add_flat_ticket(db_session, fill=_DAYS[3], notionals={"A": 90_000.0}, key="h2")
+    _set_ticket_gross(db_session, "h1", 100_000.0)
+    _set_ticket_gross(db_session, "h2", 100_000.0)
+
+    points = build_nav_series(_PID, session=db_session, base_currency="USD")
+
+    navs = {p.date: p.nav for p in points}
+    assert navs[_DAYS[0]] == pytest.approx(90_000.0)
+    assert navs[_DAYS[3]] == pytest.approx(108_000.0)
+    assert navs[_DAYS[4]] == pytest.approx(
+        106_200.0 * 126.0 / 120.0 + 11_800.0 - 10_000.0
+    )
+
+
+def test_nav_series_denominates_the_first_ticket_in_mandate_capital(db_session):
+    """NAV is on the mandate's capital, not the ticket's flat paper notional.
+
+    The ticket sizes weights against 100,000; with a 250,000 mandate the book starts
+    at 250,000 and then moves with the asset, rebalances included.
+    """
+    prices = dict(zip(_DAYS, [100.0, 105.0, 110.0, 120.0, 126.0], strict=True))
+    _seed_usd_floats(db_session, {"A": prices})
+    _add_flat_ticket(db_session, fill=_DAYS[0], notionals={"A": 100_000.0}, key="h1")
+    _add_flat_ticket(db_session, fill=_DAYS[3], notionals={"A": 100_000.0}, key="h2")
+
+    points = build_nav_series(
+        _PID, session=db_session, base_currency="USD", capital=250_000.0
+    )
+
+    navs = {p.date: p.nav for p in points}
+    assert navs[_DAYS[0]] == pytest.approx(250_000.0)
+    assert navs[_DAYS[1]] == pytest.approx(262_500.0)
+    assert navs[_DAYS[4]] == pytest.approx(315_000.0)
+
+
+def test_nav_series_capital_keeps_the_undeployed_cash_weight(db_session):
+    """A ticket weighted 90% in the market deploys 90% of the mandate capital."""
+    _seed_usd_floats(db_session, {"A": dict.fromkeys(_DAYS, 100.0)})
+    _add_flat_ticket(db_session, fill=_DAYS[0], notionals={"A": 90_000.0}, key="h1")
+    # The ticket's gross is its line sum here, so widen it to the 100k book it was
+    # sized against.
+    db_session.query(PaperOrder).update({"notional": 100_000.0})
+    db_session.flush()
+
+    points = build_nav_series(
+        _PID, session=db_session, base_currency="USD", capital=200_000.0
+    )
+
+    assert points[0].nav == pytest.approx(180_000.0)
+
+
+def _seed_eur_fx(db_session, quote: str, rates: dict[dt.date, float]) -> None:
+    """Persist EUR-base ``{date: rate}`` rows for one quote currency."""
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    FxRatesRepository(db_session).upsert_rates(
+        [
+            {
+                "base_currency": "EUR",
+                "quote_currency": quote,
+                "date": day,
+                "rate": rate,
+            }
+            for day, rate in rates.items()
+        ]
+    )
+    db_session.flush()
+
+
+def test_nav_series_keeps_a_holding_whose_first_fill_bar_has_no_fx_row(db_session):
+    """A missing FX row on the fill date is bridged from the prior day's rate.
+
+    The USD leg has FX on the day before the fill and from the day after, but not on
+    the fill bar itself. The rate loaded only from the first fill left nothing to carry
+    into that bar, so the USD line vanished and NAV read half the book.
+    """
+    d_prev, d1, d2, d3 = (dt.date(2026, 9, 30) + dt.timedelta(days=i) for i in range(4))
+    _seed_usd_floats(
+        db_session,
+        {
+            "EU1": {d1: 100.0, d2: 100.0, d3: 100.0},
+            "US1": {d1: 100.0, d2: 100.0, d3: 110.0},
+        },
+        units={"EU1": "EUR"},
+    )
+    _seed_eur_fx(db_session, "USD", {d_prev: 0.90, d2: 0.91, d3: 0.92})
+    _add_flat_ticket(db_session, fill=d1, notionals={"EU1": 50_000.0, "US1": 50_000.0})
+
+    points = build_nav_series(_PID, session=db_session, base_currency="EUR")
+
+    navs = {p.date: p.nav for p in points}
+    shares_us = 50_000.0 / (100.0 * 0.90)  # priced on the carried-in 0.90 rate
+    assert navs[d1] == pytest.approx(100_000.0)
+    assert navs[d2] == pytest.approx(50_000.0 + shares_us * 100.0 * 0.91)
+    assert navs[d3] == pytest.approx(50_000.0 + shares_us * 110.0 * 0.92)
+
+
+def test_nav_series_bridges_a_minor_unit_holding_over_a_missing_fx_bar(db_session):
+    """A GBp holding keeps its place in the book when the fill bar has no GBP rate."""
+    d_prev, d1, d2 = (dt.date(2026, 1, 3) + dt.timedelta(days=i) for i in range(3))
+    _seed_usd_floats(
+        db_session,
+        {"EU1": {d1: 10.0, d2: 10.0}, "VOD.L": {d1: 500.0, d2: 500.0}},
+        units={"EU1": "EUR", "VOD.L": "GBp"},
+    )
+    _seed_eur_fx(db_session, "GBP", {d_prev: 1.17, d2: 1.18})
+    _add_flat_ticket(
+        db_session, fill=d1, notionals={"EU1": 50_000.0, "VOD.L": 50_000.0}
+    )
+
+    points = build_nav_series(_PID, session=db_session, base_currency="EUR")
+
+    assert points[0].nav == pytest.approx(100_000.0)
+
+
+def _weekdays(start: dt.date, count: int) -> list[dt.date]:
+    """``count`` consecutive weekdays from ``start`` (FX horizon: business days)."""
+    days: list[dt.date] = []
+    day = start
+    while len(days) < count:
+        if day.weekday() < 5:
+            days.append(day)
+        day += dt.timedelta(days=1)
+    return days
+
+
+_STALE_DAYS = _weekdays(dt.date(2026, 10, 5), 16)
+_FX_LIVE_DAYS = _STALE_DAYS[:4]  # the feed stops here and never resumes
+_FX_HORIZON = 5  # bars a rate may be carried past its last live row
+# The last bar still priced: the horizon counts from the last live rate, once. A
+# second forward-fill stacked on an already-filled frame would double it.
+_LAST_PRICED_DAYS = _STALE_DAYS[: len(_FX_LIVE_DAYS) + _FX_HORIZON]
+
+
+def test_nav_series_does_not_freeze_a_holding_once_its_fx_rate_is_stale(db_session):
+    """A USD holding is marked while its rate is fresh, then left unpriced.
+
+    The rate feed stops after bar 4. The last converted price used to be carried
+    forward without limit, so NAV sat flat at its last value while the stock kept
+    climbing. The rate is carried for exactly five more bars, then the bar is
+    unpriced instead.
+    """
+    prices = {day: 100.0 * 1.01**i for i, day in enumerate(_STALE_DAYS)}
+    _seed_usd_floats(db_session, {"US1": prices})
+    _seed_eur_fx(db_session, "USD", dict.fromkeys(_FX_LIVE_DAYS, 0.90))
+    _add_flat_ticket(db_session, fill=_STALE_DAYS[0], notionals={"US1": 100_000.0})
+
+    points = build_nav_series(_PID, session=db_session, base_currency="EUR")
+
+    navs = {p.date: p.nav for p in points}
+    assert navs.keys() == set(_LAST_PRICED_DAYS)
+    for i, day in enumerate(_STALE_DAYS):
+        if day in navs:  # the rate is constant, so NAV tracks the stock exactly
+            assert navs[day] == pytest.approx(100_000.0 * 1.01**i)
+
+
+def test_nav_series_skips_a_bar_where_a_held_line_has_no_fresh_rate(db_session):
+    """A stale line blanks the bar; it is not dropped from a half-priced NAV.
+
+    The EUR line needs no rate. Marking only it once the USD rate expires would read
+    as a 50% drawdown, and the benchmark would freeze with the stale rate too.
+    """
+    prices = {day: 100.0 * 1.01**i for i, day in enumerate(_STALE_DAYS)}
+    _seed_usd_floats(
+        db_session,
+        {
+            "EU1": dict.fromkeys(_STALE_DAYS, 100.0),
+            "US1": prices,
+            "SPX": prices,
+        },
+        units={"EU1": "EUR"},
+    )
+    _seed_eur_fx(db_session, "USD", dict.fromkeys(_FX_LIVE_DAYS, 0.90))
+    _add_flat_ticket(
+        db_session,
+        fill=_STALE_DAYS[0],
+        notionals={"EU1": 50_000.0, "US1": 50_000.0},
+    )
+
+    points = build_nav_series(
+        _PID, session=db_session, base_currency="EUR", benchmark="SPX"
+    )
+
+    by_day = {p.date: p for p in points}
+    assert by_day.keys() == set(_LAST_PRICED_DAYS)
+    for i, day in enumerate(_STALE_DAYS):
+        if day in by_day:
+            assert by_day[day].nav == pytest.approx(50_000.0 * (1 + 1.01**i))
+            assert by_day[day].benchmark == pytest.approx(100.0 * 1.01**i * 0.90)
+
+
+def test_nav_series_raises_for_a_holding_with_no_resolvable_currency(db_session):
+    """A holding whose currency is unknown fails loud instead of passing as base.
+
+    With neither ``price_unit`` nor ``currency_code`` the converter had no entry for
+    the ticker and treated it as base currency, so a USD line in a EUR mandate was
+    marked unconverted with nothing to flag it.
+    """
+    _seed_usd_floats(
+        db_session,
+        {"EU1": dict.fromkeys(_DAYS, 100.0), "MYS": dict.fromkeys(_DAYS, 50.0)},
+        units={"EU1": "EUR", "MYS": None},
+    )
+    _add_flat_ticket(
+        db_session,
+        fill=_DAYS[0],
+        notionals={"EU1": 50_000.0, "MYS": 50_000.0},
+    )
+
+    with pytest.raises(performance.FxCoverageError, match="MYS"):
+        build_nav_series(_PID, session=db_session, base_currency="EUR")
+
+
+def test_nav_series_drops_a_benchmark_with_no_resolvable_currency(db_session, caplog):
+    """A benchmark of unknown currency is left out, not compared at face value.
+
+    It is a reference line rather than part of NAV, so it must not block marking —
+    but a level in an unknown currency would feed excess return, tracking error and
+    beta against a EUR NAV.
+    """
+    _seed_usd_floats(
+        db_session,
+        {"EU1": dict.fromkeys(_DAYS, 100.0), "IDX": dict.fromkeys(_DAYS, 4_000.0)},
+        units={"EU1": "EUR", "IDX": None},
+    )
+    _add_flat_ticket(db_session, fill=_DAYS[0], notionals={"EU1": 100_000.0})
+
+    with caplog.at_level("WARNING", logger="fund.performance"):
+        points = build_nav_series(
+            _PID, session=db_session, base_currency="EUR", benchmark="IDX"
+        )
+
+    assert points
+    assert all(p.benchmark is None for p in points)
+    assert any("IDX" in record.getMessage() for record in caplog.records)
+
+
+def test_nav_series_warns_when_the_benchmark_has_no_price_history(db_session, caplog):
+    """A benchmark that is no instrument leaves every point bare, so say so."""
+    _seed_usd_floats(
+        db_session, {"EU1": dict.fromkeys(_DAYS, 100.0)}, units={"EU1": "EUR"}
+    )
+    _add_flat_ticket(db_session, fill=_DAYS[0], notionals={"EU1": 100_000.0})
+
+    with caplog.at_level("WARNING", logger="fund.performance"):
+        points = build_nav_series(
+            _PID, session=db_session, base_currency="EUR", benchmark="SPY"
+        )
+
+    assert points
+    assert all(p.benchmark is None for p in points)
+    assert any("SPY" in record.getMessage() for record in caplog.records)
+
+
+def test_nav_series_warns_when_the_benchmark_cannot_be_converted(db_session, caplog):
+    """A USD benchmark with no EUR/USD rate is dropped, and the drop is reported."""
+    _seed_eur_book_with_usd_benchmark(db_session)
+
+    with caplog.at_level("WARNING", logger="fund.performance"):
+        points = build_nav_series(
+            _PID, session=db_session, base_currency="EUR", benchmark="SPX"
+        )
+
+    assert all(p.benchmark is None for p in points)
+    assert any("SPX" in record.getMessage() for record in caplog.records)
+
+
+def test_resolve_benchmark_matches_a_stored_ticker_ignoring_case(db_session):
+    _seed_usd_floats(db_session, {"SPY": dict.fromkeys(_DAYS, 500.0)})
+
+    assert performance.resolve_benchmark(db_session, "SPY") == "SPY"
+    assert performance.resolve_benchmark(db_session, "spy") == "SPY"
+    assert performance.resolve_benchmark(db_session, "QQQ") is None
+
+
+def test_nav_series_warns_when_a_ticket_line_cannot_be_priced(db_session, caplog):
+    """A line with no usable price is reported, not silently dropped from the book."""
+    _seed_usd_floats(db_session, {"A": dict.fromkeys(_DAYS, 100.0)})
+    _add_flat_ticket(
+        db_session,
+        fill=_DAYS[0],
+        notionals={"A": 60_000.0, "GHOST": 40_000.0},
+    )
+
+    with caplog.at_level("WARNING", logger="fund.performance"):
+        points = build_nav_series(_PID, session=db_session, base_currency="USD")
+
+    assert points[0].nav == pytest.approx(60_000.0)  # the priced line still marks
+    assert any("GHOST" in record.getMessage() for record in caplog.records)
 
 
 def _agent_stack_offenders(module) -> list[str]:

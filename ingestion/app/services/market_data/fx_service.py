@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from typing import Any
+from typing import Any, NoReturn
 
 import pandas as pd
 from sqlalchemy import select
 
-from app.services._shared import ProgressCallback, _noop
+from app.services._shared import FeedOutageError, ProgressCallback, _noop
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +114,29 @@ def _close_by_date(hist: pd.DataFrame | None) -> dict[dt.date, float]:
     return out
 
 
+def _utc_now_iso() -> str:
+    # A fresh reading per call: finished_at must mark when the run ended, not
+    # when it started.
+    return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+def _abort_without_rows(
+    on_progress: ProgressCallback, errors: list[str], message: str
+) -> NoReturn:
+    """Record the run's errors on the job, then fail it.
+
+    The errors go through ``on_progress`` before the raise because the scheduler's
+    own failed update carries no error list; without this the per-symbol reasons
+    would never reach ``background_job_errors``.
+
+    Raises:
+        FeedOutageError: Always, with ``message``.
+    """
+    logger.warning(message)
+    on_progress(errors=errors, result={"rows_total": 0, "error_count": len(errors)})
+    raise FeedOutageError(message)
+
+
 def run_fx_fetch(
     yf_client: Any,
     *,
@@ -127,8 +150,8 @@ def run_fx_fetch(
     the USD leg (``{CCY}USD=X``) for each currency plus the base, computes
     base-per-quote rates cross-via-USD on aligned dates, and upserts them. A
     failing or empty leg is logged and skipped rather than sinking the run; if
-    the base's own USD leg is unavailable nothing can be converted and the run
-    completes writing no rows.
+    the base's own USD leg is unavailable, or every leg fails, nothing can be
+    converted, so the run writes no rows and raises instead of reporting success.
 
     Args:
         yf_client: Configured yfinance client exposing ``fetch_history``.
@@ -138,6 +161,11 @@ def run_fx_fetch(
 
     Returns:
         Dict with ``rows_total`` (rows upserted) and ``error_count``.
+
+    Raises:
+        FeedOutageError: The base currency's USD leg could not be fetched, or
+            every attempted leg failed, so no rate could be computed. The
+            per-symbol errors are passed to ``on_progress`` before the raise.
     """
     from portopt_db.repositories.market_data.fx_rates_repository import (
         FxRatesRepository,
@@ -146,56 +174,63 @@ def run_fx_fetch(
     from app.database import database_manager
 
     base = base.upper()
-    now = dt.datetime.now(dt.timezone.utc)
     errors: list[str] = []
 
+    # The read session is closed before the Yahoo loop: the fetches run for
+    # minutes and a held session would sit idle in transaction on a pooled
+    # connection the whole time.
     with database_manager.get_session() as session:
         quotes = _distinct_currencies(session, base)
-        if not quotes:
-            result = {"rows_total": 0, "error_count": 0}
-            logger.info("fx_fetch: no quote currencies in the universe; nothing to do")
-            on_progress(status="completed", finished_at=now.isoformat(), result=result)
-            return result
+    if not quotes:
+        result = {"rows_total": 0, "error_count": 0}
+        logger.info("fx_fetch: no quote currencies in the universe; nothing to do")
+        on_progress(status="completed", finished_at=_utc_now_iso(), result=result)
+        return result
 
-        # Every currency needs its USD leg except USD itself (leg == 1).
-        needed = ({base} | quotes) - {"USD"}
-        on_progress(total=len(needed))
-        usd_legs: dict[str, dict[dt.date, float]] = {}
-        for idx, ccy in enumerate(sorted(needed), 1):
-            on_progress(current=idx, current_currency=ccy)
-            symbol = f"{ccy}USD=X"
-            try:
-                series = _close_by_date(yf_client.fetch_history(symbol, period=period))
-            except Exception as exc:  # one pair must not sink the rest
-                logger.warning("fx_fetch: failed %s: %s", symbol, exc)
-                errors.append(f"{symbol}: {exc}")
-                continue
-            if series:
-                usd_legs[ccy] = series
-            else:
-                logger.warning("fx_fetch: no data for %s", symbol)
-                errors.append(f"{symbol}: empty")
+    # Every currency needs its USD leg except USD itself (leg == 1).
+    needed = ({base} | quotes) - {"USD"}
+    on_progress(total=len(needed))
+    usd_legs: dict[str, dict[dt.date, float]] = {}
+    for idx, ccy in enumerate(sorted(needed), 1):
+        on_progress(current=idx, current_currency=ccy)
+        symbol = f"{ccy}USD=X"
+        try:
+            series = _close_by_date(yf_client.fetch_history(symbol, period=period))
+        except Exception as exc:  # one pair must not sink the rest
+            logger.warning("fx_fetch: failed %s: %s", symbol, exc)
+            errors.append(f"{symbol}: {exc}")
+            continue
+        if series:
+            usd_legs[ccy] = series
+        else:
+            logger.warning("fx_fetch: no data for %s", symbol)
+            errors.append(f"{symbol}: empty")
 
-        base_leg = None if base == "USD" else usd_legs.get(base)
-        base_dates = set(base_leg) if base_leg is not None else None
-        if base != "USD" and base_leg is None:
-            result = {"rows_total": 0, "error_count": len(errors)}
-            logger.warning(
-                "fx_fetch: base USD leg (%sUSD=X) unavailable; wrote no rows", base
-            )
-            on_progress(status="completed", finished_at=now.isoformat(), result=result)
-            return result
+    base_leg = None if base == "USD" else usd_legs.get(base)
+    base_dates = set(base_leg) if base_leg is not None else None
+    if base != "USD" and base_leg is None:
+        _abort_without_rows(
+            on_progress,
+            errors,
+            f"fx_fetch: base USD leg ({base}USD=X) unavailable; no rates written",
+        )
 
-        rows = _build_rows(base, quotes, usd_legs, base_leg, base_dates)
-        repo = FxRatesRepository(session)
-        written = repo.upsert_rates(rows)
+    rows = _build_rows(base, quotes, usd_legs, base_leg, base_dates)
+    if not rows and errors:
+        _abort_without_rows(
+            on_progress,
+            errors,
+            f"fx_fetch: {len(errors)} leg(s) failed and no rate could be computed",
+        )
+    with database_manager.get_session() as session:
+        written = FxRatesRepository(session).upsert_rates(rows)
         session.commit()
 
     result = {"rows_total": written, "error_count": len(errors)}
     logger.info("fx_fetch: upserted %d rate(s) for base %s", written, base)
     on_progress(
         status="completed",
-        finished_at=now.isoformat(),
+        finished_at=_utc_now_iso(),
         errors=errors,
         result=result,
     )

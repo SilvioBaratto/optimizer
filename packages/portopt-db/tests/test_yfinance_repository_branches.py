@@ -13,8 +13,11 @@ have no DB dependency and are tested directly.  ``get_staleness_info`` uses
 from __future__ import annotations
 
 import math
+import time
 import uuid
-from datetime import date, datetime
+from collections.abc import Callable, Iterator
+from datetime import date, datetime, timedelta, timezone
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -24,11 +27,22 @@ from portopt_db.models.market_data.yfinance_data import (
     AnalystPriceTarget,
     AnalystRecommendation,
     Dividend,
+    EarningsDate,
+    EarningsEstimate,
+    EarningsHistory,
+    EpsRevisions,
+    EpsTrend,
     FinancialStatement,
+    GrowthEstimate,
+    InsiderRosterHolder,
     InsiderTransaction,
     InstitutionalHolder,
     MutualFundHolder,
+    OptionContract,
     PriceHistory,
+    RevenueEstimate,
+    SecFiling,
+    SharesOutstanding,
     StockSplit,
     TickerNews,
     TickerProfile,
@@ -42,6 +56,22 @@ from portopt_db.repositories.market_data.yfinance_repository import (
     _safe_str,
     _safe_val,
 )
+
+
+@pytest.fixture
+def host_timezone(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[[str], None]]:
+    """Switch the process-local timezone, restoring it on teardown."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is unavailable on this platform")
+
+    def _set(name: str) -> None:
+        monkeypatch.setenv("TZ", name)
+        time.tzset()
+
+    yield _set
+    monkeypatch.undo()
+    time.tzset()
+
 
 # ---------------------------------------------------------------------------
 # Seed helpers
@@ -75,6 +105,14 @@ def _instrument(
 
 def _repo(session: Session) -> YFinanceRepository:
     return YFinanceRepository(session)
+
+
+def _transferred_listing(session: Session, symbol: str) -> Instrument:
+    """The retained, delisted row a venue transfer leaves behind (NYSE side)."""
+    inst = _instrument(session, _exchange(session, f"{symbol}-NYSE"), symbol, symbol)
+    inst.delisted_at = date(2024, 6, 1)
+    session.flush()
+    return inst
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +288,17 @@ class TestSafeDate:
         result = _safe_date(ts)
         assert isinstance(result, date)
 
+    def test_epoch_midnight_utc_is_that_utc_date_in_any_host_timezone(
+        self, host_timezone
+    ) -> None:
+        # Yahoo's exDividendDate is an epoch at 00:00 UTC; a host west of UTC
+        # must not read it as the previous calendar day.
+        host_timezone("America/New_York")
+        assert _safe_date(1715299200) == date(2024, 5, 10)
+
+    def test_epoch_beyond_platform_time_t_returns_none(self) -> None:
+        assert _safe_date(10**20) is None
+
     def test_nan_float_returns_none(self) -> None:
         # _safe_val returns None for NaN before the int/float branch
         assert _safe_date(float("nan")) is None
@@ -407,6 +456,20 @@ class TestGetPriceHistory:
 
         assert len(result) == 3
 
+    def test_limit_none_returns_every_bar(self, db_session: Session) -> None:
+        ex = _exchange(db_session)
+        inst = _instrument(db_session, ex)
+        self._seed_prices(
+            db_session,
+            inst,
+            [date(2024, 1, i) for i in range(1, 11)],
+        )
+
+        repo = _repo(db_session)
+        result = repo.get_price_history(inst.id, limit=None, ascending=True)
+
+        assert [r.date for r in result] == [date(2024, 1, i) for i in range(1, 11)]
+
     def test_ascending_limit_returns_earliest_bars(self, db_session: Session) -> None:
         ex = _exchange(db_session)
         inst = _instrument(db_session, ex)
@@ -433,6 +496,34 @@ class TestGetPriceHistory:
             date(2024, 1, 9),
             date(2024, 1, 8),
         ]
+
+    def test_no_hidden_row_cap_on_open_ended_queries(self, db_session: Session) -> None:
+        # ~20y of daily bars after a `--period max` backfill. A silent default
+        # cap drops the newest bars for ascending callers (stale NAV marks) and
+        # the oldest for descending ones.
+        ex = _exchange(db_session)
+        inst = _instrument(db_session, ex)
+        first = date(2000, 1, 1)
+        total = 5_010
+        db_session.add_all(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=first + timedelta(days=i),
+                close=100.0 + i,
+            )
+            for i in range(total)
+        )
+        db_session.flush()
+        last = first + timedelta(days=total - 1)
+
+        repo = _repo(db_session)
+        ascending = repo.get_price_history(inst.id, ascending=True)
+        descending = repo.get_price_history(inst.id)
+
+        assert len(ascending) == total
+        assert ascending[-1].date == last
+        assert len(descending) == total
+        assert descending[-1].date == first
 
 
 # ---------------------------------------------------------------------------
@@ -816,12 +907,103 @@ class TestGetNews:
 # ---------------------------------------------------------------------------
 
 
+class TestGetOldestPriceDate:
+    def test_when_no_prices_returns_none(self, db_session: Session) -> None:
+        repo = _repo(db_session)
+
+        assert repo.get_oldest_price_date(uuid.uuid4()) is None
+
+    def test_when_prices_exist_returns_earliest_bar_of_that_instrument(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session)
+        inst = _instrument(db_session, ex)
+        other = _instrument(db_session, ex, ticker="OTHR", yfinance_ticker="OTHR")
+        for d in [date(2024, 1, 1), date(2022, 3, 9), date(2023, 12, 31)]:
+            db_session.add(PriceHistory(instrument_id=inst.id, date=d, close=150.0))
+        db_session.add(
+            PriceHistory(instrument_id=other.id, date=date(2010, 1, 4), close=1.0)
+        )
+        db_session.flush()
+
+        repo = _repo(db_session)
+
+        assert repo.get_oldest_price_date(inst.id) == date(2022, 3, 9)
+
+
+class TestPruneOptionSnapshots:
+    @staticmethod
+    def _snapshot(
+        session: Session, instrument_id: uuid.UUID, as_of: date, n: int = 2
+    ) -> None:
+        for i in range(n):
+            session.add(
+                OptionContract(
+                    instrument_id=instrument_id,
+                    as_of=as_of,
+                    expiry=date(2026, 12, 18),
+                    option_type="call",
+                    strike=100 + i,
+                    contract_symbol=f"X{as_of:%y%m%d}C{i:08d}",
+                )
+            )
+        session.flush()
+
+    def _dates(self, session: Session, instrument_id: uuid.UUID) -> list[date]:
+        return sorted(
+            {
+                row.as_of
+                for row in session.query(OptionContract).filter_by(
+                    instrument_id=instrument_id
+                )
+            }
+        )
+
+    def test_keeps_only_the_newest_snapshot_dates_of_that_instrument(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session)
+        inst = _instrument(db_session, ex)
+        other = _instrument(db_session, ex, ticker="OTHR", yfinance_ticker="OTHR")
+        weeks = [date(2026, 8, 1) + timedelta(weeks=i) for i in range(5)]
+        for week in weeks:
+            self._snapshot(db_session, inst.id, week)
+        self._snapshot(db_session, other.id, weeks[0])
+
+        removed = _repo(db_session).prune_option_snapshots(inst.id, keep=2)
+        db_session.flush()
+
+        assert removed == 6
+        assert self._dates(db_session, inst.id) == weeks[-2:]
+        assert self._dates(db_session, other.id) == [weeks[0]]
+
+    def test_fewer_snapshots_than_the_limit_are_all_kept(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        self._snapshot(db_session, inst.id, date(2026, 8, 1))
+
+        assert _repo(db_session).prune_option_snapshots(inst.id, keep=4) == 0
+        assert self._dates(db_session, inst.id) == [date(2026, 8, 1)]
+
+    def test_a_non_positive_keep_is_rejected_instead_of_wiping_the_history(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        self._snapshot(db_session, inst.id, date(2026, 8, 1))
+
+        with pytest.raises(ValueError, match="keep"):
+            _repo(db_session).prune_option_snapshots(inst.id, keep=0)
+        assert self._dates(db_session, inst.id) == [date(2026, 8, 1)]
+
+
 class TestGetStalenessInfo:
     def test_when_no_data_all_none(self, db_session: Session) -> None:
         repo = _repo(db_session)
         info = repo.get_staleness_info(uuid.uuid4())
 
         assert info["price_max_date"] is None
+        assert info["price_min_date"] is None
         assert info["profile_updated_at"] is None
         assert info["financials_updated_at"] is None
         assert info["dividends_updated_at"] is None
@@ -852,6 +1034,7 @@ class TestGetStalenessInfo:
         info = repo.get_staleness_info(inst.id)
 
         assert info["price_max_date"] == date(2024, 6, 15)
+        assert info["price_min_date"] == date(2023, 12, 31)
 
     def test_when_profile_exists_updated_at_set(self, db_session: Session) -> None:
         ex = _exchange(db_session)
@@ -872,8 +1055,15 @@ class TestGetStalenessInfo:
 
         expected_keys = {
             "price_max_date",
+            "price_min_date",
             "profile_updated_at",
             "financials_updated_at",
+            "income_statement_annual_updated_at",
+            "income_statement_quarterly_updated_at",
+            "balance_sheet_annual_updated_at",
+            "balance_sheet_quarterly_updated_at",
+            "cashflow_annual_updated_at",
+            "cashflow_quarterly_updated_at",
             "dividends_updated_at",
             "splits_updated_at",
             "recommendations_updated_at",
@@ -882,8 +1072,203 @@ class TestGetStalenessInfo:
             "mutualfund_holders_updated_at",
             "insider_transactions_updated_at",
             "news_updated_at",
+            "valuation_measures_updated_at",
+            "eps_trend_updated_at",
+            "eps_revisions_updated_at",
+            "earnings_estimate_updated_at",
+            "revenue_estimate_updated_at",
+            "growth_estimates_updated_at",
+            "earnings_history_updated_at",
+            "earnings_dates_updated_at",
+            "sec_filings_updated_at",
+            "shares_outstanding_updated_at",
         }
         assert expected_keys == set(info.keys())
+
+
+class TestStatementStaleness:
+    """``financials_updated_at`` means "every statement is fresh".
+
+    It is the oldest per-group marker (NULL while any group is missing), not
+    MAX(updated_at) over the table, so one statement stored during a rate-limit
+    burst does not hide the statements that failed.
+    """
+
+    _GROUPS = (
+        ("income_statement", "annual"),
+        ("income_statement", "quarterly"),
+        ("balance_sheet", "annual"),
+        ("balance_sheet", "quarterly"),
+        ("cashflow", "annual"),
+        ("cashflow", "quarterly"),
+    )
+
+    def _seed(
+        self,
+        session: Session,
+        inst: Instrument,
+        stmt_type: str,
+        period_type: str,
+        updated_at: datetime,
+    ) -> None:
+        session.add(
+            FinancialStatement(
+                instrument_id=inst.id,
+                statement_type=stmt_type,
+                period_type=period_type,
+                period_date=date(2024, 12, 31),
+                line_item="TotalRevenue",
+                value=1.0,
+                updated_at=updated_at,
+            )
+        )
+        session.flush()
+
+    def test_when_only_some_statements_stored_then_financials_not_fresh(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        self._seed(db_session, inst, "income_statement", "annual", datetime(2025, 1, 5))
+
+        info = _repo(db_session).get_staleness_info(inst.id)
+
+        assert info["financials_updated_at"] is None
+        assert info["income_statement_annual_updated_at"] == datetime(2025, 1, 5)
+        assert info["balance_sheet_annual_updated_at"] is None
+        assert info["cashflow_quarterly_updated_at"] is None
+
+    def test_financials_updated_at_is_the_oldest_statement_group(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        for i, (stmt_type, period_type) in enumerate(self._GROUPS):
+            self._seed(
+                db_session, inst, stmt_type, period_type, datetime(2025, 1, 10 + i)
+            )
+
+        info = _repo(db_session).get_staleness_info(inst.id)
+
+        assert info["financials_updated_at"] == datetime(2025, 1, 10)
+        assert info["cashflow_quarterly_updated_at"] == datetime(2025, 1, 15)
+
+    def test_valuation_rows_do_not_make_statements_look_fresh(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        self._seed(
+            db_session,
+            inst,
+            "valuation_measures",
+            "point_in_time",
+            datetime(2025, 1, 5),
+        )
+
+        info = _repo(db_session).get_staleness_info(inst.id)
+
+        assert info["financials_updated_at"] is None
+
+    def test_bulk_matches_single_for_statement_staleness(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        for i, (stmt_type, period_type) in enumerate(self._GROUPS[:4]):
+            self._seed(
+                db_session, inst, stmt_type, period_type, datetime(2025, 2, 1 + i)
+            )
+        repo = _repo(db_session)
+
+        assert repo.get_staleness_info_bulk([inst.id])[inst.id] == (
+            repo.get_staleness_info(inst.id)
+        )
+
+
+_FUNDAMENTAL_SEEDS: dict[str, Any] = {
+    "eps_trend": lambda iid, ts: EpsTrend(
+        instrument_id=iid, period="0q", updated_at=ts
+    ),
+    "eps_revisions": lambda iid, ts: EpsRevisions(
+        instrument_id=iid, period="0q", updated_at=ts
+    ),
+    "earnings_estimate": lambda iid, ts: EarningsEstimate(
+        instrument_id=iid, period="0q", updated_at=ts
+    ),
+    "revenue_estimate": lambda iid, ts: RevenueEstimate(
+        instrument_id=iid, period="0q", updated_at=ts
+    ),
+    "growth_estimates": lambda iid, ts: GrowthEstimate(
+        instrument_id=iid, period="0q", updated_at=ts
+    ),
+    "earnings_history": lambda iid, ts: EarningsHistory(
+        instrument_id=iid, period_date=date(2024, 3, 31), updated_at=ts
+    ),
+    "earnings_dates": lambda iid, ts: EarningsDate(
+        instrument_id=iid, earnings_date=date(2024, 7, 25), updated_at=ts
+    ),
+    "sec_filings": lambda iid, ts: SecFiling(
+        instrument_id=iid,
+        filing_date=date(2024, 2, 1),
+        form_type="10-K",
+        title="Annual report",
+        updated_at=ts,
+    ),
+    "shares_outstanding": lambda iid, ts: SharesOutstanding(
+        instrument_id=iid, date=date(2024, 1, 1), shares=1_000, updated_at=ts
+    ),
+    "valuation_measures": lambda iid, ts: FinancialStatement(
+        instrument_id=iid,
+        statement_type="valuation_measures",
+        period_type="point_in_time",
+        period_date=date(2024, 12, 31),
+        line_item="MarketCap",
+        value=1.0,
+        updated_at=ts,
+    ),
+}
+
+
+class TestFundamentalsCategoryStaleness:
+    """Each fundamentals category reports the freshness of its own table.
+
+    The marker is independent of the statements', so a category whose fetch
+    failed is not hidden by the statements that succeeded.
+    """
+
+    @pytest.mark.parametrize("category", sorted(_FUNDAMENTAL_SEEDS))
+    def test_category_marker_reflects_only_its_own_table(
+        self, db_session: Session, category: str
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        stamp = datetime(2025, 3, 4, 5, 6)
+        db_session.add(_FUNDAMENTAL_SEEDS[category](inst.id, stamp))
+        db_session.flush()
+
+        info = _repo(db_session).get_staleness_info(inst.id)
+
+        assert info[f"{category}_updated_at"] == stamp
+        for other in _FUNDAMENTAL_SEEDS:
+            if other != category:
+                assert info[f"{other}_updated_at"] is None
+        assert info["financials_updated_at"] is None
+
+    @pytest.mark.parametrize("category", sorted(_FUNDAMENTAL_SEEDS))
+    def test_bulk_matches_single_for_category_marker(
+        self, db_session: Session, category: str
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        db_session.add(_FUNDAMENTAL_SEEDS[category](inst.id, datetime(2025, 3, 4)))
+        db_session.flush()
+        repo = _repo(db_session)
+
+        assert repo.get_staleness_info_bulk([inst.id])[inst.id] == (
+            repo.get_staleness_info(inst.id)
+        )
+
+    def test_category_list_covers_every_seeded_category(self) -> None:
+        from portopt_db.repositories.market_data.yfinance_repository import (
+            FUNDAMENTAL_CATEGORIES,
+        )
+
+        assert set(FUNDAMENTAL_CATEGORIES) == set(_FUNDAMENTAL_SEEDS)
 
 
 # ---------------------------------------------------------------------------
@@ -923,6 +1308,28 @@ class TestGetInstrumentsWithYfinanceTicker:
         assert null_inst.id not in ids
         assert empty_inst.id not in ids
 
+    def test_listing_superseded_by_a_venue_transfer_is_skipped(
+        self, db_session: Session
+    ) -> None:
+        old = _transferred_listing(db_session, "XFER")
+        new = _instrument(
+            db_session, _exchange(db_session, "XFER-NASDAQ"), "XFER", "XFER"
+        )
+
+        ids = [r.id for r in _repo(db_session).get_instruments_with_yfinance_ticker()]
+
+        assert ids.count(new.id) == 1
+        assert old.id not in ids
+
+    def test_delisted_symbol_without_an_active_listing_is_still_returned(
+        self, db_session: Session
+    ) -> None:
+        gone = _transferred_listing(db_session, "GONE")
+
+        ids = [r.id for r in _repo(db_session).get_instruments_with_yfinance_ticker()]
+
+        assert gone.id in ids
+
     def test_mix_returns_only_valid(self, db_session: Session) -> None:
         ex = _exchange(db_session, name="MixExchange")
         valid = _instrument(db_session, ex, ticker="GOOG", yfinance_ticker="GOOGL")
@@ -934,6 +1341,64 @@ class TestGetInstrumentsWithYfinanceTicker:
 
         ids = [r.id for r in result]
         assert valid.id in ids
+
+
+class TestVenueTransferDuplicates:
+    """A venue transfer leaves a delisted row and a live row sharing one
+    yfinance_ticker; readers must resolve to the live row, not crash."""
+
+    def _transfer(self, session: Session) -> tuple[Instrument, Instrument]:
+        old_ex = _exchange(session, name="OldVenue")
+        new_ex = _exchange(session, name="NewVenue")
+        old = _instrument(session, old_ex, ticker="ABC", yfinance_ticker="ABC")
+        old.delisted_at = date(2026, 10, 1)
+        new = _instrument(session, new_ex, ticker="ABC", yfinance_ticker="ABC")
+        session.flush()
+        return old, new
+
+    def test_lookup_by_ticker_prefers_live_row_over_delisted_duplicate(
+        self, db_session: Session
+    ) -> None:
+        _, new = self._transfer(db_session)
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("ABC")
+
+        assert result is not None
+        assert result.id == new.id
+
+    def test_lookup_by_ticker_resolves_delisted_row_when_no_live_row_exists(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session, name="GoneVenue")
+        gone = _instrument(db_session, ex, ticker="GONE", yfinance_ticker="GONE")
+        gone.delisted_at = date(2026, 9, 1)
+        db_session.flush()
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("GONE")
+
+        assert result is not None
+        assert result.id == gone.id
+
+    def test_sweep_lists_ticker_once_after_venue_transfer(
+        self, db_session: Session
+    ) -> None:
+        _, new = self._transfer(db_session)
+
+        result = _repo(db_session).get_instruments_with_yfinance_ticker()
+
+        assert [r.id for r in result if r.yfinance_ticker == "ABC"] == [new.id]
+
+    def test_sweep_keeps_delisted_row_that_nothing_superseded(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session, name="LoneVenue")
+        lone = _instrument(db_session, ex, ticker="LONE", yfinance_ticker="LONE")
+        lone.delisted_at = date(2026, 9, 1)
+        db_session.flush()
+
+        result = _repo(db_session).get_instruments_with_yfinance_ticker()
+
+        assert lone.id in [r.id for r in result]
 
 
 # ---------------------------------------------------------------------------
@@ -971,6 +1436,30 @@ class TestGetInstrumentByYfinanceTicker:
         # Access exchange without a second DB hit (eager loaded)
         assert result.exchange.name == "EagerEx"
 
+    def test_venue_transfer_resolves_to_the_active_listing(
+        self, db_session: Session
+    ) -> None:
+        _transferred_listing(db_session, "XFER")
+        new = _instrument(
+            db_session, _exchange(db_session, "XFER-NASDAQ"), "XFER", "XFER"
+        )
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("XFER")
+
+        assert result is not None
+        assert result.id == new.id
+        assert result.exchange.name == "XFER-NASDAQ"
+
+    def test_delisted_symbol_without_an_active_listing_is_still_found(
+        self, db_session: Session
+    ) -> None:
+        gone = _transferred_listing(db_session, "GONE")
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("GONE")
+
+        assert result is not None
+        assert result.id == gone.id
+
     def test_ticker_mismatch_returns_none(self, db_session: Session) -> None:
         ex = _exchange(db_session, name="MismatchEx")
         _instrument(db_session, ex, ticker="META", yfinance_ticker="META")
@@ -980,6 +1469,97 @@ class TestGetInstrumentByYfinanceTicker:
         result = repo.get_instrument_by_yfinance_ticker("FB")
 
         assert result is None
+
+
+class TestGetInstrumentByYfinanceTickerDuplicates:
+    """yfinance_ticker is only indexed, not unique: an exchange transfer leaves
+    the old (delisted) row next to the new active one."""
+
+    def _twin(
+        self,
+        db_session: Session,
+        *,
+        name: str,
+        delisted_at: date | None = None,
+        created_at: datetime | None = None,
+        ticker: str = "XYZ",
+    ) -> Instrument:
+        ex = _exchange(db_session, name=name)
+        inst = Instrument(
+            ticker=ticker,
+            short_name=ticker,
+            exchange=ex,
+            yfinance_ticker=ticker,
+            delisted_at=delisted_at,
+        )
+        if created_at is not None:
+            inst.created_at = created_at
+        db_session.add(inst)
+        db_session.flush()
+        return inst
+
+    def test_active_row_wins_over_delisted_twin(self, db_session: Session) -> None:
+        old = self._twin(db_session, name="OLDX", delisted_at=date(2024, 5, 1))
+        new = self._twin(db_session, name="NEWX")
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("XYZ")
+
+        assert result is not None
+        assert result.id == new.id
+        assert result.id != old.id
+
+    def test_active_row_wins_regardless_of_insert_order(
+        self, db_session: Session
+    ) -> None:
+        new = self._twin(db_session, name="NEWX2")
+        self._twin(db_session, name="OLDX2", delisted_at=date(2024, 5, 1))
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("XYZ")
+
+        assert result is not None
+        assert result.id == new.id
+
+    def test_lone_delisted_row_is_still_returned(self, db_session: Session) -> None:
+        only = self._twin(db_session, name="GONEX", delisted_at=date(2024, 5, 1))
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("XYZ")
+
+        assert result is not None
+        assert result.id == only.id
+
+    def test_most_recently_delisted_row_wins_when_none_active(
+        self, db_session: Session
+    ) -> None:
+        self._twin(db_session, name="GONE1", delisted_at=date(2023, 1, 1))
+        latest = self._twin(db_session, name="GONE2", delisted_at=date(2024, 6, 1))
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("XYZ")
+
+        assert result is not None
+        assert result.id == latest.id
+
+    def test_newest_active_row_wins_when_several_are_active(
+        self, db_session: Session
+    ) -> None:
+        self._twin(db_session, name="ACT1", created_at=datetime(2024, 1, 1))
+        newest = self._twin(db_session, name="ACT2", created_at=datetime(2024, 6, 1))
+        self._twin(db_session, name="ACT3", created_at=datetime(2024, 3, 1))
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("XYZ")
+
+        assert result is not None
+        assert result.id == newest.id
+
+    def test_exchange_stays_eager_loaded_on_the_chosen_row(
+        self, db_session: Session
+    ) -> None:
+        self._twin(db_session, name="OLDX3", delisted_at=date(2024, 5, 1))
+        self._twin(db_session, name="NEWX3")
+
+        result = _repo(db_session).get_instrument_by_yfinance_ticker("XYZ")
+
+        assert result is not None
+        assert result.exchange.name == "NEWX3"
 
 
 # ---------------------------------------------------------------------------
@@ -1036,6 +1616,46 @@ class TestUpsertEmptyInputGuards:
 # upsert_profile pre-processing branches (mocked _upsert — Postgres-only
 # ON CONFLICT not executable on SQLite; pre-processing logic is pure Python)
 # ---------------------------------------------------------------------------
+
+
+class TestUpsertProfileKeepsKnownIsin:
+    """The ISIN comes from a separate, flaky lookup that the caller injects into
+    ``info``; a refresh whose lookup failed carries none and must not erase the
+    ISIN already stored (the universe backfill copies it onto ``instruments``)."""
+
+    def _profile(self, session: Session, instrument_id: uuid.UUID) -> TickerProfile:
+        return session.query(TickerProfile).filter_by(instrument_id=instrument_id).one()
+
+    def test_refresh_without_an_isin_keeps_the_stored_one(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        repo = _repo(db_session)
+        repo.upsert_profile(inst.id, {"symbol": "AAPL", "isin": "US0378331005"})
+
+        repo.upsert_profile(inst.id, {"symbol": "AAPL", "shortName": "Apple"})
+
+        profile = self._profile(db_session, inst.id)
+        assert profile.isin == "US0378331005"
+        assert profile.short_name == "Apple"
+
+    def test_refresh_with_a_different_isin_replaces_the_stored_one(
+        self, db_session: Session
+    ) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+        repo = _repo(db_session)
+        repo.upsert_profile(inst.id, {"symbol": "AAPL", "isin": "US0378331005"})
+
+        repo.upsert_profile(inst.id, {"symbol": "AAPL", "isin": "US5949181045"})
+
+        assert self._profile(db_session, inst.id).isin == "US5949181045"
+
+    def test_first_load_without_an_isin_stores_none(self, db_session: Session) -> None:
+        inst = _instrument(db_session, _exchange(db_session))
+
+        _repo(db_session).upsert_profile(inst.id, {"symbol": "AAPL"})
+
+        assert self._profile(db_session, inst.id).isin is None
 
 
 class TestUpsertProfilePreprocessing:
@@ -1197,7 +1817,13 @@ class TestUpsertFinancialStatementsPreprocessing:
         repo = _repo(db_session)
         captured: list = []
 
-        def fake_upsert(model, rows, *, constraint_name, update_columns=None):
+        def fake_upsert(
+            model,
+            rows,
+            *,
+            constraint_name,
+            update_columns=None,
+        ):
             captured.extend(rows)
             return len(rows)
 
@@ -1273,13 +1899,52 @@ class TestUpsertFinancialStatementsPreprocessing:
         rows = self._call(db_session, df)
         assert rows == []
 
-    def test_nan_value_stored_as_none(self, db_session: Session) -> None:
+    def test_nan_value_is_not_written(self, db_session: Session) -> None:
         df = pd.DataFrame(
-            {"Revenue": [float("nan")]},
+            {"Revenue": [float("nan")], "NetIncome": [5.0]},
             index=[pd.Timestamp("2024-12-31")],
         ).T
         rows = self._call(db_session, df)
-        assert rows[0]["value"] is None
+        assert [r["line_item"] for r in rows] == ["NetIncome"]
+
+
+class TestUpsertFinancialStatementsCurrencyLabel:
+    """An unknown reporting currency never erases a label already stored."""
+
+    def _update_columns(
+        self, db_session: Session, currency_code: str | None
+    ) -> list[str] | None:
+        repo = _repo(db_session)
+        captured: dict[str, Any] = {}
+
+        def fake_upsert(model, rows, *, constraint_name, update_columns=None):
+            captured["update_columns"] = update_columns
+            return len(rows)
+
+        repo._upsert = fake_upsert  # type: ignore[method-assign]
+        df = pd.DataFrame({"Revenue": [1.0]}, index=[pd.Timestamp("2024-12-31")]).T
+        repo.upsert_financial_statements(
+            uuid.uuid4(),
+            df,
+            statement_type="income_statement",
+            period_type="annual",
+            currency_code=currency_code,
+        )
+        return captured["update_columns"]
+
+    def test_when_currency_is_unknown_then_conflict_update_leaves_label_alone(
+        self, db_session: Session
+    ) -> None:
+        columns = self._update_columns(db_session, None)
+        assert columns is not None
+        assert "currency_code" not in columns
+        assert {"value", "updated_at"} <= set(columns)
+
+    def test_when_currency_is_known_then_conflict_update_relabels_the_row(
+        self, db_session: Session
+    ) -> None:
+        columns = self._update_columns(db_session, "TWD")
+        assert columns is None or "currency_code" in columns
 
 
 # ---------------------------------------------------------------------------
@@ -1323,6 +1988,102 @@ class TestUpsertDividendsPreprocessing:
         s = pd.Series([], dtype=float)
         rows = self._call(db_session, s)
         assert rows == []
+
+
+class TestUpsertDividendsCurrencyFrame:
+    """yfinance returns a ``Dividends`` + ``currency`` DataFrame (not a Series)
+    when Yahoo tags payments with a currency."""
+
+    def _call(
+        self,
+        db_session: Session,
+        frame: pd.DataFrame,
+        price_currency: str | None = "GBp",
+    ) -> list:
+        repo = _repo(db_session)
+        captured: list = []
+
+        def fake_upsert(model, rows, *, constraint_name, update_columns=None):
+            captured.extend(rows)
+            return len(rows)
+
+        repo._upsert = fake_upsert  # type: ignore[method-assign]
+        repo.upsert_dividends(uuid.uuid4(), frame, price_currency=price_currency)
+        return captured
+
+    @staticmethod
+    def _frame(amounts: list[float], currencies: list[str]) -> pd.DataFrame:
+        index = pd.to_datetime(
+            ["2024-01-15", "2024-04-15", "2024-07-15", "2024-10-15"][: len(amounts)]
+        ).rename("Date")
+        return pd.DataFrame({"Dividends": amounts, "currency": currencies}, index=index)
+
+    def test_multi_row_frame_in_price_currency_is_stored(
+        self, db_session: Session
+    ) -> None:
+        rows = self._call(
+            db_session, self._frame([0.25, 0.30, 0.35], ["GBp", "GBp", "GBp"])
+        )
+        assert [r["amount"] for r in rows] == pytest.approx([0.25, 0.30, 0.35])
+        assert [r["date"] for r in rows] == [
+            date(2024, 1, 15),
+            date(2024, 4, 15),
+            date(2024, 7, 15),
+        ]
+
+    def test_single_row_frame_is_stored(self, db_session: Session) -> None:
+        rows = self._call(db_session, self._frame([0.25], ["GBp"]))
+        assert [r["amount"] for r in rows] == pytest.approx([0.25])
+
+    def test_listing_code_alias_matches_yahoo_sub_unit_code(
+        self, db_session: Session
+    ) -> None:
+        rows = self._call(
+            db_session, self._frame([0.25], ["GBp"]), price_currency="GBX"
+        )
+        assert len(rows) == 1
+
+    def test_blank_currency_is_treated_as_price_currency(
+        self, db_session: Session
+    ) -> None:
+        rows = self._call(db_session, self._frame([0.25, 0.30], ["", "GBp"]))
+        assert len(rows) == 2
+
+    def test_rows_paid_in_another_currency_are_not_stored_in_price_unit(
+        self, db_session: Session
+    ) -> None:
+        rows = self._call(
+            db_session, self._frame([0.25, 0.40, 0.35], ["GBp", "USD", "GBp"])
+        )
+        assert [r["amount"] for r in rows] == pytest.approx([0.25, 0.35])
+
+    def test_major_unit_payment_is_not_mistaken_for_sub_unit_price(
+        self, db_session: Session
+    ) -> None:
+        # GBP vs GBp differ by 100x, so the unit must match exactly.
+        rows = self._call(db_session, self._frame([0.25], ["GBP"]))
+        assert rows == []
+
+    def test_unknown_price_currency_skips_tagged_rows(
+        self, db_session: Session
+    ) -> None:
+        rows = self._call(
+            db_session, self._frame([0.25, 0.30], ["", "USD"]), price_currency=None
+        )
+        assert [r["amount"] for r in rows] == pytest.approx([0.25])
+
+    def test_frame_without_currency_column_uses_dividends_column(
+        self, db_session: Session
+    ) -> None:
+        frame = self._frame([0.25, 0.30], ["", ""]).drop(columns="currency")
+        rows = self._call(db_session, frame, price_currency=None)
+        assert len(rows) == 2
+
+    def test_frame_without_dividends_column_writes_nothing(
+        self, db_session: Session
+    ) -> None:
+        frame = self._frame([0.25], ["GBp"]).rename(columns={"Dividends": "Other"})
+        assert self._call(db_session, frame) == []
 
 
 # ---------------------------------------------------------------------------
@@ -1641,10 +2402,11 @@ class TestUpsertInsiderTransactionsPreprocessing:
         rows = self._call(db_session, df)
         assert rows == []
 
-    def test_name_present_but_no_tx_and_no_text_row_skipped(
+    def test_name_present_but_no_tx_and_no_text_row_kept_with_blank_type(
         self, db_session: Session
     ) -> None:
-        # name set, tx_type empty, Text also None → skip
+        # yfinance 1.3.x emits real grants/vestings with both Transaction and
+        # Text blank; dropping them silently understated insider share counts.
         df = pd.DataFrame(
             {
                 "Insider": ["Carol COO"],
@@ -1658,36 +2420,56 @@ class TestUpsertInsiderTransactionsPreprocessing:
             }
         )
         rows = self._call(db_session, df)
-        assert rows == []
+        assert len(rows) == 1
+        assert rows[0]["transaction_type"] == ""
+        assert rows[0]["shares"] == 100
 
-    def test_duplicate_key_rows_deduped_last_wins(self, db_session: Session) -> None:
-        # Same insider_name + start_date + transaction_type → last row wins
-        inst_id = uuid.uuid4()
+    def _same_day_lots_df(self, shares: list[int]) -> pd.DataFrame:
         d = pd.Timestamp("2024-01-10")
-        df = pd.DataFrame(
+        n = len(shares)
+        return pd.DataFrame(
             {
-                "Insider": ["Alice CEO", "Alice CEO"],
-                "Transaction": ["Buy", "Buy"],
-                "Text": ["", ""],
-                "Position": ["CEO", "CEO"],
-                "Shares": [1000, 2000],
-                "Value": [150_000, 300_000],
-                "Start Date": [d, d],
-                "Ownership": ["D", "D"],
+                "Insider": ["Alice CEO"] * n,
+                "Transaction": [""] * n,
+                "Text": ["Stock Award(Grant) at price 0.00 per share."] * n,
+                "Position": ["CEO"] * n,
+                "Shares": shares,
+                "Value": [None] * n,
+                "Start Date": [d] * n,
+                "Ownership": ["D"] * n,
             }
         )
-        repo = _repo(db_session)
-        captured: list = []
 
-        def fake_upsert(model, rows, *, constraint_name, update_columns=None):
-            captured.extend(rows)
-            return len(rows)
+    def test_same_key_lots_are_all_kept_with_distinct_lot_index(
+        self, db_session: Session
+    ) -> None:
+        # Two grants on one day render the same Text; collapsing them to one row
+        # would silently drop 12,000 of the 17,000 granted shares.
+        rows = self._call(db_session, self._same_day_lots_df([12_000, 5_000]))
 
-        repo._upsert = fake_upsert  # type: ignore[method-assign]
-        repo.upsert_insider_transactions(inst_id, df)
+        assert sorted(r["shares"] for r in rows) == [5_000, 12_000]
+        assert sorted(r["lot_index"] for r in rows) == [0, 1]
 
-        assert len(captured) == 1
-        assert captured[0]["shares"] == 2000
+    def test_lot_index_does_not_depend_on_source_row_order(
+        self, db_session: Session
+    ) -> None:
+        # Slot assignment must be stable across refetches, or re-ingesting the
+        # same lots in a different order would shuffle them between rows.
+        forward = self._call(db_session, self._same_day_lots_df([12_000, 5_000]))
+        backward = self._call(db_session, self._same_day_lots_df([5_000, 12_000]))
+
+        def by_shares(rows: list) -> dict[int, int]:
+            return {r["shares"]: r["lot_index"] for r in rows}
+
+        assert by_shares(forward) == by_shares(backward)
+
+    def test_distinct_keys_all_get_lot_index_zero(self, db_session: Session) -> None:
+        df = self._same_day_lots_df([1_000, 2_000])
+        df["Insider"] = ["Alice CEO", "Bob CFO"]
+
+        rows = self._call(db_session, df)
+
+        assert [r["lot_index"] for r in rows] == [0, 0]
 
     def test_sentinel_date_used_when_start_date_none(self, db_session: Session) -> None:
         from portopt_db.repositories.market_data.yfinance_repository import (
@@ -1732,9 +2514,483 @@ class TestUpsertInsiderTransactionsPreprocessing:
         assert len(rows) == 2
 
 
+class TestUpsertInsiderTransactionsPersistence:
+    """Real-row behaviour of the insider upsert (SQLite via the ON CONFLICT path)."""
+
+    @staticmethod
+    def _grant_df(shares: list, values: list | None = None) -> pd.DataFrame:
+        n = len(shares)
+        return pd.DataFrame(
+            {
+                "Insider": ["DOE JOHN"] * n,
+                "Transaction": [""] * n,
+                "Text": ["Stock Award(Grant) at price 0.00 per share."] * n,
+                "Position": ["Director"] * n,
+                "Shares": shares,
+                "Value": values if values is not None else [float("nan")] * n,
+                "Start Date": [pd.Timestamp("2025-09-15")] * n,
+                "Ownership": ["D"] * n,
+            }
+        )
+
+    def test_row_with_blank_transaction_and_text_is_persisted(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session, name="InsEx4")
+        inst = _instrument(db_session, ex, ticker="IN4", yfinance_ticker="IN4")
+        repo = _repo(db_session)
+        df = self._grant_df([99_878])
+        df["Text"] = [""]
+
+        repo.upsert_insider_transactions(inst.id, df)
+
+        stored = repo.get_insider_transactions(inst.id)
+        assert len(stored) == 1
+        assert stored[0].transaction_type == ""
+        assert stored[0].shares == 99_878
+
+
+class TestUpsertFinancialStatementsCurrencyPersistence:
+    """Real-row behaviour of the statement currency label across re-fetches."""
+
+    @staticmethod
+    def _statement(value: float = 1_000.0) -> pd.DataFrame:
+        return pd.DataFrame({pd.Timestamp("2024-12-31"): [value]}, index=["Revenue"])
+
+    @staticmethod
+    def _stored(db_session: Session, instrument_id: uuid.UUID) -> FinancialStatement:
+        db_session.expire_all()
+        return _repo(db_session).get_financial_statements(instrument_id)[0]
+
+    def _seed_instrument(self, db_session: Session, name: str) -> Instrument:
+        ex = _exchange(db_session, name=name)
+        return _instrument(db_session, ex, ticker=name, yfinance_ticker=name)
+
+    def test_unknown_currency_on_refetch_keeps_stored_label(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed_instrument(db_session, "FSCur1")
+        repo = _repo(db_session)
+        repo.upsert_financial_statements(
+            inst.id, self._statement(1_000.0), "income_stmt", "annual", "USD"
+        )
+
+        # Yahoo answered with a partial info dict (no financialCurrency), so the
+        # service passes None; the known label must survive while values refresh.
+        repo.upsert_financial_statements(
+            inst.id, self._statement(1_500.0), "income_stmt", "annual", None
+        )
+
+        stored = self._stored(db_session, inst.id)
+        assert stored.currency_code == "USD"
+        assert stored.value == pytest.approx(1_500.0)
+
+    def test_known_currency_on_refetch_replaces_stored_label(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed_instrument(db_session, "FSCur2")
+        repo = _repo(db_session)
+        repo.upsert_financial_statements(
+            inst.id, self._statement(), "income_stmt", "annual", "USD"
+        )
+
+        repo.upsert_financial_statements(
+            inst.id, self._statement(), "income_stmt", "annual", "EUR"
+        )
+
+        assert self._stored(db_session, inst.id).currency_code == "EUR"
+
+    def test_never_labelled_statement_stores_null_currency(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed_instrument(db_session, "FSCur3")
+        repo = _repo(db_session)
+
+        repo.upsert_financial_statements(
+            inst.id, self._statement(), "income_stmt", "annual", None
+        )
+
+        assert self._stored(db_session, inst.id).currency_code is None
+
+
+class TestUpsertFinancialStatementsKeepsStoredValues:
+    """Yahoo serves the period that just rolled out of its window almost entirely
+    as NaN. Such a refetch must not replace the figures stored while the period
+    was still complete: Yahoo no longer serves them, so they are gone for good."""
+
+    PERIOD = pd.Timestamp("2025-03-31")
+
+    def _frame(self, cells: dict[str, float]) -> pd.DataFrame:
+        return pd.DataFrame({self.PERIOD: cells})
+
+    def _seed(self, db_session: Session, name: str) -> Instrument:
+        ex = _exchange(db_session, name=name)
+        return _instrument(db_session, ex, ticker=name, yfinance_ticker=name)
+
+    @staticmethod
+    def _stored(db_session: Session, instrument_id: uuid.UUID) -> dict[str, Any]:
+        db_session.expire_all()
+        rows = _repo(db_session).get_financial_statements(instrument_id)
+        return {r.line_item: r.value for r in rows}
+
+    def test_nan_refetch_does_not_erase_a_stored_value(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed(db_session, "FSKeep1")
+        repo = _repo(db_session)
+        repo.upsert_financial_statements(
+            inst.id,
+            self._frame({"StockholdersEquity": 26.2e9, "NetIncome": 1.2e9}),
+            "balance_sheet",
+            "quarterly",
+        )
+
+        repo.upsert_financial_statements(
+            inst.id,
+            self._frame({"StockholdersEquity": float("nan"), "NetIncome": 1.3e9}),
+            "balance_sheet",
+            "quarterly",
+        )
+
+        stored = self._stored(db_session, inst.id)
+        assert stored["StockholdersEquity"] == pytest.approx(26.2e9)
+        assert stored["NetIncome"] == pytest.approx(1.3e9)
+
+    def test_non_nan_refetch_still_revises_a_stored_value(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed(db_session, "FSKeep2")
+        repo = _repo(db_session)
+        repo.upsert_financial_statements(
+            inst.id, self._frame({"Revenue": 100.0}), "income_stmt", "annual"
+        )
+
+        repo.upsert_financial_statements(
+            inst.id, self._frame({"Revenue": 110.0}), "income_stmt", "annual"
+        )
+
+        assert self._stored(db_session, inst.id)["Revenue"] == pytest.approx(110.0)
+
+    def test_all_nan_frame_with_dated_columns_does_not_warn_about_labels(
+        self, db_session: Session, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        inst = self._seed(db_session, "FSKeep3")
+        with caplog.at_level("WARNING"):
+            _repo(db_session).upsert_financial_statements(
+                inst.id,
+                self._frame({"Revenue": float("nan")}),
+                "income_stmt",
+                "annual",
+            )
+        assert "no column" not in caplog.text.lower()
+
+
+class TestUpsertEstimateCurrencyPersistence:
+    """Real-row behaviour of the estimate currency label across re-fetches."""
+
+    @staticmethod
+    def _frame(avg: float, currency: str | None) -> pd.DataFrame:
+        df = pd.DataFrame({"avg": [avg]}, index=["0q"])
+        if currency is not None:
+            df["currency"] = currency
+        return df
+
+    @staticmethod
+    def _stored(db_session: Session, instrument_id: uuid.UUID) -> EarningsEstimate:
+        db_session.expire_all()
+        return (
+            db_session.query(EarningsEstimate)
+            .filter_by(instrument_id=instrument_id)
+            .one()
+        )
+
+    def _seed(self, db_session: Session, name: str) -> Instrument:
+        ex = _exchange(db_session, name=name)
+        return _instrument(db_session, ex, ticker=name, yfinance_ticker=name)
+
+    def test_currency_is_stored_with_the_estimates(self, db_session: Session) -> None:
+        inst = self._seed(db_session, "EstCur1")
+
+        _repo(db_session).upsert_earnings_estimate(inst.id, self._frame(60.0, "TWD"))
+
+        assert self._stored(db_session, inst.id).currency == "TWD"
+
+    def test_refetch_without_a_currency_keeps_the_stored_label(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed(db_session, "EstCur2")
+        repo = _repo(db_session)
+        repo.upsert_earnings_estimate(inst.id, self._frame(60.0, "TWD"))
+
+        repo.upsert_earnings_estimate(inst.id, self._frame(62.0, None))
+
+        stored = self._stored(db_session, inst.id)
+        assert stored.currency == "TWD"
+        assert float(stored.avg) == pytest.approx(62.0)
+
+    def test_refetch_with_a_currency_relabels_the_row(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed(db_session, "EstCur3")
+        repo = _repo(db_session)
+        repo.upsert_earnings_estimate(inst.id, self._frame(60.0, "TWD"))
+
+        repo.upsert_earnings_estimate(inst.id, self._frame(2.0, "USD"))
+
+        assert self._stored(db_session, inst.id).currency == "USD"
+
+
+class TestUpsertEarningsDatesDropsMovedProjection:
+    """Yahoo lists an upcoming report as an estimate-only row and moves the date
+    when the company confirms it. The old projected date must not linger beside
+    the new one, or "next earnings date" resolves to a day that never happens."""
+
+    @staticmethod
+    def _today() -> date:
+        return datetime.now(timezone.utc).date()
+
+    @staticmethod
+    def _frame(*rows: tuple[date, float | None]) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "EPS Estimate": [2.97 for _ in rows],
+                "Reported EPS": [actual for _, actual in rows],
+                "Surprise(%)": [float("nan") for _ in rows],
+            },
+            index=pd.to_datetime([d.isoformat() for d, _ in rows]),
+        )
+
+    @staticmethod
+    def _stored_dates(db_session: Session, instrument_id: uuid.UUID) -> set[date]:
+        db_session.expire_all()
+        return {
+            r.earnings_date
+            for r in db_session.query(EarningsDate).filter_by(
+                instrument_id=instrument_id
+            )
+        }
+
+    def _seed(self, db_session: Session, name: str) -> Instrument:
+        ex = _exchange(db_session, name=name)
+        return _instrument(db_session, ex, ticker=name, yfinance_ticker=name)
+
+    def test_rescheduled_report_replaces_the_old_projected_date(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed(db_session, "EDMove1")
+        repo = _repo(db_session)
+        projected = self._today() + timedelta(days=7)
+        confirmed = self._today() + timedelta(days=12)
+        repo.upsert_earnings_dates(inst.id, self._frame((projected, None)))
+
+        repo.upsert_earnings_dates(inst.id, self._frame((confirmed, None)))
+
+        assert self._stored_dates(db_session, inst.id) == {confirmed}
+
+    def test_reported_history_absent_from_a_later_frame_is_kept(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed(db_session, "EDMove2")
+        repo = _repo(db_session)
+        reported = self._today() - timedelta(days=90)
+        upcoming = self._today() + timedelta(days=10)
+        repo.upsert_earnings_dates(
+            inst.id, self._frame((reported, 2.5), (upcoming, None))
+        )
+
+        repo.upsert_earnings_dates(inst.id, self._frame((upcoming, None)))
+
+        assert self._stored_dates(db_session, inst.id) == {reported, upcoming}
+
+    def test_projected_date_still_listed_is_kept(self, db_session: Session) -> None:
+        inst = self._seed(db_session, "EDMove3")
+        repo = _repo(db_session)
+        upcoming = self._today() + timedelta(days=10)
+        repo.upsert_earnings_dates(inst.id, self._frame((upcoming, None)))
+
+        repo.upsert_earnings_dates(inst.id, self._frame((upcoming, None)))
+
+        assert self._stored_dates(db_session, inst.id) == {upcoming}
+
+    def test_empty_frame_leaves_stored_projection_alone(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed(db_session, "EDMove4")
+        repo = _repo(db_session)
+        upcoming = self._today() + timedelta(days=10)
+        repo.upsert_earnings_dates(inst.id, self._frame((upcoming, None)))
+
+        repo.upsert_earnings_dates(inst.id, self._frame())
+
+        assert self._stored_dates(db_session, inst.id) == {upcoming}
+
+    def test_other_instruments_projections_are_untouched(
+        self, db_session: Session
+    ) -> None:
+        mine = self._seed(db_session, "EDMove5")
+        other = self._seed(db_session, "EDMove6")
+        repo = _repo(db_session)
+        upcoming = self._today() + timedelta(days=10)
+        repo.upsert_earnings_dates(other.id, self._frame((upcoming, None)))
+
+        repo.upsert_earnings_dates(
+            mine.id, self._frame((self._today() + timedelta(days=20), None))
+        )
+
+        assert self._stored_dates(db_session, other.id) == {upcoming}
+
+
 # ---------------------------------------------------------------------------
 # upsert_news — all format/branch variants (mocked _upsert)
 # ---------------------------------------------------------------------------
+
+
+class TestHolderSnapshotsDropDepartedNames:
+    """The holder and insider-roster tables mirror Yahoo's current list and keep
+    no history. A name that left the list must not stay behind with stale
+    figures, or sums over the table mix current and former holders."""
+
+    @staticmethod
+    def _holders(*names: str) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "Holder": list(names),
+                "Date Reported": pd.to_datetime(["2024-06-30"] * len(names)),
+                "Shares": [100] * len(names),
+                "Value": [1000] * len(names),
+                "pctHeld": [0.01] * len(names),
+            }
+        )
+
+    @staticmethod
+    def _roster(*names: str) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "Name": list(names),
+                "Position": ["Director"] * len(names),
+                "Shares Owned Directly": [500] * len(names),
+            }
+        )
+
+    def _seed(self, db_session: Session, name: str) -> Instrument:
+        ex = _exchange(db_session, name=name)
+        return _instrument(db_session, ex, ticker=name, yfinance_ticker=name)
+
+    @staticmethod
+    def _names(db_session: Session, model: Any, column: str, iid: uuid.UUID) -> set:
+        db_session.expire_all()
+        rows = db_session.query(model).filter_by(instrument_id=iid).all()
+        return {getattr(r, column) for r in rows}
+
+    @pytest.mark.parametrize(
+        ("method", "model", "column", "build"),
+        [
+            (
+                "upsert_institutional_holders",
+                InstitutionalHolder,
+                "holder_name",
+                _holders,
+            ),
+            ("upsert_mutualfund_holders", MutualFundHolder, "holder_name", _holders),
+            ("upsert_insider_roster", InsiderRosterHolder, "insider_name", _roster),
+        ],
+    )
+    def test_name_missing_from_the_new_list_is_removed(
+        self, db_session: Session, method, model, column, build
+    ) -> None:
+        inst = self._seed(db_session, f"Snap-{method}")
+        repo = _repo(db_session)
+        getattr(repo, method)(inst.id, build("X", "Y"))
+
+        getattr(repo, method)(inst.id, build("Y", "Z"))
+
+        assert self._names(db_session, model, column, inst.id) == {"Y", "Z"}
+
+    def test_empty_list_does_not_wipe_stored_holders(self, db_session: Session) -> None:
+        inst = self._seed(db_session, "SnapEmpty")
+        repo = _repo(db_session)
+        repo.upsert_institutional_holders(inst.id, self._holders("X"))
+
+        repo.upsert_institutional_holders(inst.id, self._holders())
+
+        assert self._names(db_session, InstitutionalHolder, "holder_name", inst.id) == {
+            "X"
+        }
+
+    def test_other_instruments_holders_are_untouched(self, db_session: Session) -> None:
+        mine = self._seed(db_session, "SnapMine")
+        other = self._seed(db_session, "SnapOther")
+        repo = _repo(db_session)
+        repo.upsert_institutional_holders(other.id, self._holders("X"))
+
+        repo.upsert_institutional_holders(mine.id, self._holders("Y"))
+
+        assert self._names(
+            db_session, InstitutionalHolder, "holder_name", other.id
+        ) == {"X"}
+
+
+# ---------------------------------------------------------------------------
+# upsert_news — all format/branch variants (mocked _upsert)
+# ---------------------------------------------------------------------------
+
+
+class TestUpsertNewsPersistence:
+    """Real-row behaviour of the news upsert (SQLite via the ON CONFLICT path)."""
+
+    @staticmethod
+    def _stored(db_session: Session, instrument_id: uuid.UUID) -> TickerNews:
+        db_session.expire_all()
+        return _repo(db_session).get_news(instrument_id)[0]
+
+    def test_failed_rescrape_keeps_previously_stored_full_content(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session, name="NewsPEx1")
+        inst = _instrument(db_session, ex, ticker="NP1", yfinance_ticker="NP1")
+        repo = _repo(db_session)
+        repo.upsert_news(inst.id, [{"uuid": "a", "full_content": "scraped body"}])
+
+        # Day 2: the article is still in the feed but the scrape failed, so the
+        # article dict carries no full_content key at all.
+        repo.upsert_news(inst.id, [{"uuid": "a", "title": "same story"}])
+
+        stored = self._stored(db_session, inst.id)
+        assert stored.full_content == "scraped body"
+        assert stored.title == "same story"
+
+    def test_explicit_none_full_content_also_keeps_stored_body(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session, name="NewsPEx2")
+        inst = _instrument(db_session, ex, ticker="NP2", yfinance_ticker="NP2")
+        repo = _repo(db_session)
+        repo.upsert_news(inst.id, [{"uuid": "a", "full_content": "scraped body"}])
+
+        repo.upsert_news(inst.id, [{"uuid": "a", "full_content": None}])
+
+        assert self._stored(db_session, inst.id).full_content == "scraped body"
+
+    def test_fresh_full_content_replaces_stored_body(self, db_session: Session) -> None:
+        ex = _exchange(db_session, name="NewsPEx3")
+        inst = _instrument(db_session, ex, ticker="NP3", yfinance_ticker="NP3")
+        repo = _repo(db_session)
+        repo.upsert_news(inst.id, [{"uuid": "a", "full_content": "old body"}])
+
+        repo.upsert_news(inst.id, [{"uuid": "a", "full_content": "revised body"}])
+
+        assert self._stored(db_session, inst.id).full_content == "revised body"
+
+    def test_article_never_scraped_stores_null_full_content(
+        self, db_session: Session
+    ) -> None:
+        ex = _exchange(db_session, name="NewsPEx4")
+        inst = _instrument(db_session, ex, ticker="NP4", yfinance_ticker="NP4")
+        repo = _repo(db_session)
+
+        repo.upsert_news(inst.id, [{"uuid": "a", "title": "headline only"}])
+
+        assert self._stored(db_session, inst.id).full_content is None
 
 
 class TestUpsertNewsPreprocessing:
@@ -1747,7 +3003,13 @@ class TestUpsertNewsPreprocessing:
         repo = _repo(db_session)
         captured: list = []
 
-        def fake_upsert(model, rows, *, constraint_name, update_columns=None):
+        def fake_upsert(
+            model,
+            rows,
+            *,
+            constraint_name,
+            update_columns=None,
+        ):
             captured.extend(rows)
             return len(rows)
 
@@ -1834,7 +3096,9 @@ class TestUpsertNewsPreprocessing:
         rows = self._call(db_session, inst.id, [article])
         assert rows[0]["link"] == "https://preview.example.com/1"
 
-    def test_pub_date_iso_string_parsed_tz_stripped(self, db_session: Session) -> None:
+    def test_pub_date_iso_string_converted_to_utc(self, db_session: Session) -> None:
+        # The column is timestamptz: a naive value would be read in the DB
+        # session's timezone, so the offset is applied and UTC is kept.
         ex = _exchange(db_session, name="NewsEx6")
         inst = _instrument(db_session, ex, ticker="N6", yfinance_ticker="N6")
         article = {
@@ -1842,8 +3106,42 @@ class TestUpsertNewsPreprocessing:
             "content": {"pubDate": "2024-06-15T14:30:00+05:00"},
         }
         rows = self._call(db_session, inst.id, [article])
-        assert rows[0]["publish_time"] is not None
-        assert rows[0]["publish_time"].tzinfo is None
+        assert rows[0]["publish_time"] == datetime(
+            2024, 6, 15, 9, 30, tzinfo=timezone.utc
+        )
+
+    def test_legacy_epoch_publish_time_is_utc_whatever_the_host_timezone(
+        self, db_session: Session, host_timezone
+    ) -> None:
+        ex = _exchange(db_session, name="NewsEx6b")
+        inst = _instrument(db_session, ex, ticker="N6b", yfinance_ticker="N6b")
+        host_timezone("America/New_York")
+        article = {"uuid": "legacy-epoch-uuid", "providerPublishTime": 1715299200}
+        rows = self._call(db_session, inst.id, [article])
+        assert rows[0]["publish_time"] == datetime(
+            2024, 5, 10, 0, 0, tzinfo=timezone.utc
+        )
+
+    def test_pub_date_zulu_string_stays_aware_utc(self, db_session: Session) -> None:
+        ex = _exchange(db_session, name="NewsEx6z")
+        inst = _instrument(db_session, ex, ticker="N6Z", yfinance_ticker="N6Z")
+        article = {
+            "id": "zulu-uuid",
+            "content": {"pubDate": "2026-10-22T15:00:00Z"},
+        }
+        rows = self._call(db_session, inst.id, [article])
+        assert rows[0]["publish_time"] == datetime(
+            2026, 10, 22, 15, 0, tzinfo=timezone.utc
+        )
+
+    def test_pub_date_without_offset_is_taken_as_utc(self, db_session: Session) -> None:
+        ex = _exchange(db_session, name="NewsEx6c")
+        inst = _instrument(db_session, ex, ticker="N6C", yfinance_ticker="N6C")
+        article = {"id": "naive-uuid", "content": {"pubDate": "2024-06-15T09:00:00"}}
+        rows = self._call(db_session, inst.id, [article])
+        assert rows[0]["publish_time"] == datetime(
+            2024, 6, 15, 9, 0, tzinfo=timezone.utc
+        )
 
     def test_pub_date_invalid_string_falls_through_to_provider_publish_time(
         self, db_session: Session

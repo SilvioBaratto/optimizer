@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from dateutil import parser as dateutil_parser
@@ -29,16 +29,28 @@ _MAX_AGE_DAYS = 60
 # ---------------------------------------------------------------------------
 
 
+def _to_utc(value: datetime) -> datetime:
+    """Return ``value`` as an aware UTC datetime; naive input is taken as UTC."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _parse_article_date(pub_time: Any) -> datetime | None:
+    """Parse an article time into an aware UTC datetime, or ``None`` if undated.
+
+    Epoch ints, ISO strings and datetimes all land on the same convention so the
+    values compare, sort and persist consistently regardless of the host timezone.
+    """
     if pub_time is None or pub_time == "N/A":
         return None
     try:
         if isinstance(pub_time, int):
-            return datetime.fromtimestamp(pub_time)
+            return datetime.fromtimestamp(pub_time, tz=timezone.utc)
         if isinstance(pub_time, str):
-            return dateutil_parser.isoparse(pub_time)
+            return _to_utc(dateutil_parser.isoparse(pub_time))
         if isinstance(pub_time, datetime):
-            return pub_time
+            return _to_utc(pub_time)
     except Exception:
         # Best-effort per-article date parse: a malformed pub_time is logged
         # and treated as undated (filtered out downstream), not fatal.
@@ -51,9 +63,7 @@ def _is_article_recent(pub_time: Any, max_days: int = _MAX_AGE_DAYS) -> bool:
     pub_date = _parse_article_date(pub_time)
     if pub_date is None:
         return False
-    if pub_date.tzinfo is not None:
-        pub_date = pub_date.replace(tzinfo=None)
-    cutoff_date = datetime.now() - timedelta(days=max_days)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=max_days)
     return pub_date >= cutoff_date
 
 
@@ -88,6 +98,9 @@ class CountryNewsFetcher:
             yf_client=self.yf_client,
             scraper=self.scraper,
         )
+        # NewsClient builds the default scraper; adopt it so full-content
+        # requests are honoured when the caller supplied none.
+        self.scraper = self._news_client.scraper
 
     # -- public interface ---------------------------------------------------
 

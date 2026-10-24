@@ -9,6 +9,7 @@ faster and matches live-trading semantics.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -62,6 +63,24 @@ class OnlineCovarianceForecastConfig:
     purged_size: int = 0
 
 
+def _validate_unique_names(
+    estimators: Sequence[tuple[str, BaseCovariance]],
+) -> None:
+    """Reject duplicate estimator names.
+
+    skfolio's comparison summary is keyed by name, so a repeated name
+    would silently overwrite the earlier candidate in the ranking.
+    """
+    counts = Counter(name for name, _ in estimators)
+    duplicated = [name for name, count in counts.items() if count > 1]
+    if duplicated:
+        joined = ", ".join(duplicated)
+        raise ConfigurationError(
+            f"Covariance forecast evaluation requires unique estimator "
+            f"names. Duplicated: {joined}"
+        )
+
+
 def _evaluate_offline(
     name: str,
     estimator: BaseCovariance,
@@ -106,9 +125,13 @@ def run_covariance_forecast_evaluation(
     Returns:
         Comparison object holding per-estimator evaluation results and
         summary statistics.
+
+    Raises:
+        ConfigurationError: If two candidates share a name.
     """
     if config is None:
         config = CovarianceForecastConfig()
+    _validate_unique_names(estimators)
     evaluations = [
         _evaluate_offline(name, estimator, X, config, params)
         for name, estimator in estimators
@@ -174,12 +197,13 @@ def run_online_covariance_forecast_evaluation(
         summary statistics.
 
     Raises:
-        ConfigurationError: If any estimator lacks ``partial_fit``. The
-            message lists every offending name so the caller can fix them
-            in one pass.
+        ConfigurationError: If any estimator lacks ``partial_fit`` or two
+            candidates share a name. The message lists every offending name
+            so the caller can fix them in one pass.
     """
     if config is None:
         config = OnlineCovarianceForecastConfig()
+    _validate_unique_names(estimators)
     _validate_partial_fit(estimators)
     evaluations = [
         _evaluate_online(name, estimator, X, config, params)

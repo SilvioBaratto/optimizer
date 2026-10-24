@@ -23,7 +23,9 @@ Data note
     `prices_to_returns`); cast DB ``Decimal``
     columns to float upstream.  Ragged history leaves ``NaN`` that can make an
     optimiser fail on some folds -- the ``error_score=nan`` default demotes
-    those candidates instead of aborting the whole search.
+    those candidates instead of aborting the whole search.  If every candidate
+    fails to score, ``fit`` raises ``OptimizationError`` instead of selecting an
+    arbitrary one.
 """
 
 from optimizer.tuning._config import GridSearchConfig, RandomizedSearchConfig

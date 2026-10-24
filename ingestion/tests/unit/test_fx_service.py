@@ -9,6 +9,7 @@ history); the bulk fetch is driven with a mocked yfinance client over the real
 from __future__ import annotations
 
 import datetime as dt
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -17,11 +18,13 @@ from portopt_db.models.market_data.fx_rates import FxRate
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
 
+from app.services._shared import FeedOutageError
 from app.services.market_data.fx_service import (
     _distinct_currencies,
     _to_major,
     run_fx_fetch,
 )
+from tests._fixtures.clock import FakeClock
 
 
 def _close_frame(dates, closes):
@@ -199,18 +202,121 @@ class TestRunFxFetch:
         assert "GBP" not in quotes
         assert result["error_count"] >= 1
 
-    def test_missing_base_leg_degrades_without_rows(self, fx_session) -> None:
-        """Without the base USD leg nothing can be converted; no rows, no raise."""
+    def test_missing_base_leg_writes_no_rows_and_raises_with_errors(
+        self, fx_session
+    ) -> None:
+        """Without the base USD leg nothing converts: no rows, error text kept, raise.
+
+        The error list is handed to ``on_progress`` before the raise so the job's
+        failure carries the per-symbol reasons.
+        """
         _seed_eur_usd_gbp(fx_session)
+        on_progress = MagicMock()
 
         yf = MagicMock()
         yf.fetch_history.side_effect = lambda symbol, **kw: (
             None if symbol == "EURUSD=X" else _close_frame([self._D1], [1.30])
         )
 
-        result = run_fx_fetch(yf, base="EUR")
+        with pytest.raises(FeedOutageError, match="EURUSD=X"):
+            run_fx_fetch(yf, base="EUR", on_progress=on_progress)
+
         assert fx_session.query(FxRate).count() == 0
-        assert result["rows_total"] == 0
+        persisted = [
+            c.kwargs["errors"]
+            for c in on_progress.call_args_list
+            if "errors" in c.kwargs
+        ]
+        assert persisted == [["EURUSD=X: empty"]]
+
+    def test_every_leg_failing_raises_instead_of_completing_empty(
+        self, fx_session
+    ) -> None:
+        """A USD-base run whose every leg fails is an outage, not an empty success."""
+        _seed_eur_usd_gbp(fx_session)
+        on_progress = MagicMock()
+        yf = MagicMock()
+        yf.fetch_history.side_effect = RuntimeError("429 Too Many Requests")
+
+        with pytest.raises(FeedOutageError):
+            run_fx_fetch(yf, base="USD", on_progress=on_progress)
+
+        assert fx_session.query(FxRate).count() == 0
+        persisted = [
+            c.kwargs["errors"]
+            for c in on_progress.call_args_list
+            if "errors" in c.kwargs
+        ]
+        assert [len(errors) for errors in persisted] == [2]
+        assert not any(
+            c.kwargs.get("status") == "completed" for c in on_progress.call_args_list
+        )
+
+    def test_partial_leg_failure_still_completes_with_errors(self, fx_session) -> None:
+        """One dead quote leg among working ones keeps the run completed."""
+        _seed_eur_usd_gbp(fx_session)
+        on_progress = MagicMock()
+
+        def _fetch(symbol, **kw):
+            if symbol == "GBPUSD=X":
+                raise RuntimeError("boom")
+            return _close_frame([self._D1], [1.10])
+
+        yf = MagicMock()
+        yf.fetch_history.side_effect = _fetch
+
+        result = run_fx_fetch(yf, base="USD", on_progress=on_progress)
+
+        assert result["rows_total"] == 1
+        final = on_progress.call_args_list[-1].kwargs
+        assert final["status"] == "completed"
+        assert final["errors"] == ["GBPUSD=X: boom"]
+
+    def test_no_session_is_held_while_fetching_from_yahoo(
+        self, fx_session, monkeypatch
+    ) -> None:
+        """Every Yahoo fetch runs with zero open DB sessions.
+
+        A session opened for the currency read would otherwise sit idle in
+        transaction on a pooled connection for the whole multi-minute fetch loop.
+        """
+        from contextlib import contextmanager
+
+        from app import database as db_module
+
+        real_get_session = db_module.database_manager.get_session
+        open_sessions = 0
+
+        @contextmanager
+        def _tracking():
+            nonlocal open_sessions
+            open_sessions += 1
+            try:
+                with real_get_session() as session:
+                    yield session
+            finally:
+                open_sessions -= 1
+
+        monkeypatch.setattr(db_module.database_manager, "get_session", _tracking)
+        _seed_eur_usd_gbp(fx_session)
+
+        open_during_fetch: list[int] = []
+        legs = {
+            "EURUSD=X": _close_frame([self._D1], [1.10]),
+            "GBPUSD=X": _close_frame([self._D1], [1.30]),
+        }
+
+        def _fetch(symbol, **kw):
+            open_during_fetch.append(open_sessions)
+            return legs.get(symbol)
+
+        yf = MagicMock()
+        yf.fetch_history.side_effect = _fetch
+
+        result = run_fx_fetch(yf, base="EUR")
+
+        assert open_during_fetch == [0, 0]
+        assert result["rows_total"] > 0
 
     def test_empty_universe_completes_without_rows(self, fx_session) -> None:
         """No instruments → no quotes → zero rows, no fetch, no raise."""
@@ -241,6 +347,80 @@ class TestRunFxFetch:
         assert rows[("GBP", self._D2)] == pytest.approx(1.28)
         assert fx_session.query(FxRate).filter_by(quote_currency="USD").count() == 0
         assert result["error_count"] == 0
+
+
+class TestFinishedAt:
+    """Every completion path stamps finished_at when the run ends, not starts."""
+
+    @staticmethod
+    def _run(yf, clock, on_progress):
+        patched_dt = SimpleNamespace(**{**vars(dt), "datetime": clock.datetime_cls})
+        with patch("app.services.market_data.fx_service.dt", patched_dt):
+            run_fx_fetch(yf, base="EUR", on_progress=on_progress)
+
+    def test_full_run(self, fx_session) -> None:
+        _seed_eur_usd_gbp(fx_session)
+        clock = FakeClock()
+        yf = MagicMock()
+        yf.fetch_history.side_effect = clock.advancing(
+            _close_frame([dt.date(2026, 10, 1)], [1.10])
+        )
+        on_progress = MagicMock()
+
+        self._run(yf, clock, on_progress)
+
+        clock.assert_finished_at_marks_run_end(on_progress)
+
+    def test_empty_universe(self, fx_session) -> None:
+        clock = FakeClock()
+        on_progress = MagicMock()
+
+        with patch(
+            "app.services.market_data.fx_service._distinct_currencies",
+            side_effect=clock.advancing(set()),
+        ):
+            self._run(MagicMock(), clock, on_progress)
+
+        clock.assert_finished_at_marks_run_end(on_progress)
+
+
+class TestDeadBaseLegJobOutcome:
+    """A dead base leg must surface in ``background_jobs``, not read as success."""
+
+    def test_step_marks_job_failed_and_stores_error_text(self, fx_session) -> None:
+        """``_run_step`` over a missing EURUSD=X leg ends failed with its errors."""
+        from portopt_db.models.jobs.background_job import (
+            BackgroundJob,
+            BackgroundJobError,
+        )
+        from sqlalchemy.orm import Session
+
+        from app.services.jobs.background_job import BackgroundJobService
+        from app.services.jobs.scheduler import _run_step
+
+        _seed_eur_usd_gbp(fx_session)
+        # Both sessions share one StaticPool connection; an uncommitted seed
+        # would be rolled back by the job service's first commit.
+        fx_session.commit()
+        engine = fx_session.get_bind()
+        job_svc = BackgroundJobService(
+            job_type="fx_fetch",
+            session_factory=lambda: Session(bind=engine),
+            heartbeat_cadence_seconds=0.05,
+        )
+        yf = MagicMock()
+        yf.fetch_history.side_effect = lambda symbol, **kw: (
+            None if symbol == "EURUSD=X" else _close_frame(["2026-10-01"], [1.30])
+        )
+
+        ok = _run_step("fx", job_svc, run_fx_fetch, yf)
+
+        with Session(bind=engine) as check:
+            job = check.query(BackgroundJob).one()
+            messages = [e.message for e in check.query(BackgroundJobError).all()]
+        assert ok is False
+        assert job.status == "failed"
+        assert messages == ["EURUSD=X: empty"]
 
 
 class TestSchedulerStep:

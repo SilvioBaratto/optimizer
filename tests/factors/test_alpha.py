@@ -6,7 +6,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from optimizer.factors import compute_gross_alpha, factor_scores_to_expected_returns
+from optimizer.factors import (
+    compute_gross_alpha,
+    compute_net_alpha,
+    factor_scores_to_expected_returns,
+)
+from optimizer.rebalancing import compute_rebalancing_cost, compute_turnover
 
 TICKERS = ["AAPL", "MSFT", "GOOG", "AMZN", "META"]
 GROUPS = ["value", "momentum", "quality"]
@@ -221,9 +226,21 @@ class TestLinearityInScores:
 
 class TestComputeGrossAlpha:
     def test_formula_correctness(self) -> None:
-        # net=0.03, turnover=0.5, cost=10bps → gross = 0.03 + 0.5*10/10000
+        # net=0.03, turnover=0.5, round-trip cost=10bps → gross = 0.03 + 0.5*10/10000
         result = compute_gross_alpha(0.03, 0.5, cost_bps=10.0)
         assert result == pytest.approx(0.03 + 0.5 * 10.0 / 10_000)
+
+    def test_round_trip_cost_matches_the_rebalancing_cost(self) -> None:
+        # Moving 50% of the book is 0.5 bought plus 0.5 sold. At 10 bps per unit
+        # traded that costs 10 bps, which is one-way turnover x a 20 bps
+        # round-trip (buy + sell) cost.
+        w0 = [0.5, 0.5, 0.0]
+        w1 = [0.0, 0.5, 0.5]
+        turnover = compute_turnover(w0, w1)
+        cost = compute_rebalancing_cost(w0, w1, 10.0 / 10_000)
+        result = compute_gross_alpha(0.0, turnover, cost_bps=20.0)
+        assert result == pytest.approx(cost)
+        assert result == pytest.approx(10.0 / 10_000)
 
     def test_zero_turnover(self) -> None:
         result = compute_gross_alpha(0.05, 0.0, cost_bps=10.0)
@@ -240,3 +257,24 @@ class TestComputeGrossAlpha:
     def test_returns_float(self) -> None:
         result = compute_gross_alpha(0.01, 0.3, cost_bps=5.0)
         assert isinstance(result, float)
+
+    def test_inverts_compute_net_alpha_cost_deduction(self) -> None:
+        """Adding the cost back recovers the gross alpha net alpha was built from.
+
+        Both functions price turnover with the same round-trip ``cost_bps`` and
+        the same number of rebalances per year, so they must be exact inverses.
+        """
+        dates = pd.date_range("2022-01-31", periods=4, freq="ME")
+        weights = pd.DataFrame(
+            [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, 1.0]],
+            index=dates,
+            columns=["A", "B"],
+        )
+        ic = pd.Series([0.04, 0.06, 0.05, 0.05])
+
+        net = compute_net_alpha(ic, weights, cost_bps=25.0, annualisation=12)
+        restored = compute_gross_alpha(
+            net.net_alpha, net.avg_turnover, cost_bps=25.0, annualisation=12
+        )
+
+        assert restored == pytest.approx(net.gross_alpha)

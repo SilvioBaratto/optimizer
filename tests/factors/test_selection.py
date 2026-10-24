@@ -94,6 +94,72 @@ class TestSelectFixedCount:
         result = select_fixed_count(scores, target_count=10)
         assert len(result) == 3
 
+    def test_buffer_never_evicts_incumbent_inside_target_set(self) -> None:
+        """A held name inside the top target_count outranks a held buffer name."""
+        scores = pd.Series([5.0, 4.0, 3.0, 2.0, 1.0], index=list("ABCDE"))
+        result = select_fixed_count(
+            scores,
+            target_count=3,
+            buffer_fraction=0.34,
+            current_members=pd.Index(list("ABCD")),
+        )
+        assert set(result) == {"A", "B", "C"}
+
+    def test_buffer_displaces_only_non_incumbent_entrants(self) -> None:
+        """Retained buffer members replace the lowest-ranked *non-held* entrants."""
+        idx = [f"T{i:02d}" for i in range(30)]
+        scores = pd.Series([float(30 - i) for i in range(30)], index=idx)
+        result = select_fixed_count(
+            scores,
+            target_count=10,
+            buffer_fraction=0.2,
+            current_members=pd.Index(idx[8:12]),
+        )
+        assert len(result) == 10
+        assert set(result) == set(idx[:6]) | set(idx[8:12])
+
+    def test_buffer_keeps_held_target_boundary_name_over_buffer_name(self) -> None:
+        scores = pd.Series([float(10 - i) for i in range(10)], index=list("ABCDEFGHIJ"))
+        result = select_fixed_count(
+            scores,
+            target_count=5,
+            buffer_fraction=0.2,
+            current_members=pd.Index(["E", "F"]),
+        )
+        assert set(result) == {"A", "B", "C", "E", "F"}
+
+    def test_buffer_with_wide_zone_retains_every_held_name(self) -> None:
+        scores = pd.Series([float(10 - i) for i in range(10)], index=list("ABCDEFGHIJ"))
+        result = select_fixed_count(
+            scores,
+            target_count=5,
+            buffer_fraction=0.4,
+            current_members=pd.Index(["E", "F", "G"]),
+        )
+        assert set(result) == {"A", "B", "E", "F", "G"}
+
+    def test_zero_buffer_fraction_returns_pure_top_n_despite_held_names(self) -> None:
+        scores = pd.Series([5.0, 4.0, 3.0, 2.0, 1.0], index=list("ABCDE"))
+        result = select_fixed_count(
+            scores,
+            target_count=3,
+            buffer_fraction=0.0,
+            current_members=pd.Index(["A", "B", "D"]),
+        )
+        assert list(result) == ["A", "B", "C"]
+
+    def test_zero_buffer_fraction_does_not_retain_held_rank_below_target(
+        self,
+    ) -> None:
+        scores = pd.Series([float(10 - i) for i in range(10)], index=list("ABCDEFGHIJ"))
+        result = select_fixed_count(
+            scores,
+            target_count=5,
+            buffer_fraction=0.0,
+            current_members=pd.Index(["F"]),
+        )
+        assert set(result) == set("ABCDE")
+
 
 class TestSelectQuantile:
     def test_selects_above_threshold(self, scores: pd.Series) -> None:
@@ -134,17 +200,15 @@ class TestApplySectorBalance:
         assert len(result) > 0
 
     def test_convergence_multi_sector_cascade(self) -> None:
-        """Single-pass leaves a violation; convergence loop fixes it (#280).
+        """Bands hold at the final size after a multi-sector cascade (#280).
 
         Universe: X=50%, Y=30%, Z=20% (100 stocks).
         Initial selection: 25 X, 5 Y, 0 Z = 30 selected.
 
-        Single-pass (old code, n_selected=30 fixed):
-          X: max_n=16, remove 9 → 16 X.  Y: add 3.  Z: add 4.
-          Final = 16X + 8Y + 4Z = 28.
-          At n=28: X max_n=round(15.4)=15, but X count=16 → VIOLATION.
-
-        Convergence loop catches the cascade and trims X to 15.
+        Trimming X to 16 and topping up Y (+3) and Z (+4) leaves 28 names,
+        which would violate the bands at n=28.  The selection is refilled
+        back to 30 from sectors with room, so the bands are checked at the
+        size the bands were derived from.
         """
         x_tickers = [f"X{i}" for i in range(50)]
         y_tickers = [f"Y{i}" for i in range(30)]
@@ -188,17 +252,17 @@ class TestApplySectorBalance:
             )
 
     def test_no_shrinkage_when_overweight_sector_trimmed(self) -> None:
-        """Trimming overweight sector must not shrink below target_count.
+        """Trimming an overweight sector must not shrink the selection.
 
         Regression test for #300.
 
         Universe: Tech=50%, Finance=30%, Energy=20% (20 stocks).
-        Initial: Tech=14, Finance=5, Energy=3 → 22 selected.
-        With tolerance=0.1, Tech max_n = round((0.5+0.1)*22)=13 → 1 removed.
-        Bug: n_selected then becomes 21, Finance min_n drops from 5→4, so
-        Finance is not topped up, leaving 21 stocks instead of 22.
-        Fix: n_target is snapshotted at 22 for the whole inner loop; Finance
-        min_n stays at 5 and the loop converges with the correct count.
+        Bug: the band limits were re-derived from the shrinking selection, so
+        every trim lowered the other sectors' minimums and they were not
+        topped up, leaving fewer names than were passed in.
+        Fix: the bands are sized once on the incoming selection and any
+        shortfall after trimming is refilled from sectors with room, so the
+        count is preserved and every sector stays inside its band.
         """
         tech = [f"TECH{i}" for i in range(10)]
         finance = [f"FIN{i}" for i in range(6)]
@@ -215,8 +279,8 @@ class TestApplySectorBalance:
             index=all_tickers,
         )
 
-        # Initial: 7 Tech, 3 Finance, 2 Energy = 12 selected; Tech is overweight
-        initial_selected = pd.Index(tech[:7] + finance[:3] + energy[:2])
+        # Tech max_n at n=12 is round(0.6 * 12) = 7, so one Tech name is trimmed.
+        initial_selected = pd.Index(tech[:8] + finance[:2] + energy[:2])
 
         result = apply_sector_balance(
             initial_selected,
@@ -226,8 +290,8 @@ class TestApplySectorBalance:
             tolerance=0.1,
         )
 
-        # Verify that every sector count is within tolerance of n_target
         n = len(result)
+        assert n == len(initial_selected)
         result_sectors = sector_labels.reindex(result).dropna()
         target_weights = (
             sector_labels.reindex(parent_universe).dropna().value_counts(normalize=True)
@@ -240,8 +304,8 @@ class TestApplySectorBalance:
                 f"Sector {sector}: count={count} not in [{min_n}, {max_n}] at n={n}"
             )
 
-    def test_already_balanced_single_iteration(self) -> None:
-        """A perfectly balanced selection converges with zero changes."""
+    def test_already_balanced_selection_is_unchanged(self) -> None:
+        """A perfectly balanced selection is returned unchanged."""
         tickers = [f"S{i}" for i in range(9)]
         sector_labels = pd.Series(
             ["X", "X", "X", "Y", "Y", "Y", "Z", "Z", "Z"], index=tickers
@@ -256,6 +320,142 @@ class TestApplySectorBalance:
             tolerance=0.05,
         )
         assert set(result) == {"S0", "S3", "S6"}
+
+
+class TestApplySectorBalanceKeepsTargetCount:
+    """Balancing must trade names between sectors, not change the holding count."""
+
+    @staticmethod
+    def _xyz_universe() -> tuple[pd.Series, pd.Series]:
+        tickers = [f"X{i}" for i in range(50)]
+        tickers += [f"Y{i}" for i in range(30)]
+        tickers += [f"Z{i}" for i in range(20)]
+        labels = pd.Series(["X"] * 50 + ["Y"] * 30 + ["Z"] * 20, index=tickers)
+        scores = pd.Series([float(100 - i) for i in range(100)], index=tickers)
+        return scores, labels
+
+    @pytest.mark.parametrize("target_count", [20, 40, 60])
+    def test_select_stocks_returns_exactly_target_count(
+        self, target_count: int
+    ) -> None:
+        scores, labels = self._xyz_universe()
+        config = SelectionConfig(target_count=target_count, sector_balance=True)
+        result = select_stocks(
+            scores,
+            config=config,
+            sector_labels=labels,
+            parent_universe=scores.index,
+        )
+        assert isinstance(result, pd.Index)
+        assert len(result) == target_count
+
+    def test_result_is_within_bands_and_best_scoring_per_sector(self) -> None:
+        scores, labels = self._xyz_universe()
+        n = 20
+        result = apply_sector_balance(
+            scores.nlargest(n).index,
+            scores,
+            labels,
+            parent_universe=scores.index,
+            tolerance=0.05,
+        )
+        assert len(result) == n
+        weights = labels.value_counts(normalize=True)
+        for sector, weight in weights.items():
+            members = [t for t in result if labels[t] == sector]
+            assert (
+                round((weight - 0.05) * n) <= len(members) <= round((weight + 0.05) * n)
+            )
+            ranked = scores[labels == sector].sort_values(ascending=False).index
+            assert set(members) == set(ranked[: len(members)])
+
+    def test_single_sector_selection_is_refilled_not_collapsed(self) -> None:
+        """A selection drawn entirely from one sector keeps its size."""
+        a = [f"A{i}" for i in range(30)]
+        b = [f"B{i}" for i in range(35)]
+        c = [f"C{i}" for i in range(35)]
+        tickers = a + b + c
+        labels = pd.Series(["A"] * 30 + ["B"] * 35 + ["C"] * 35, index=tickers)
+        scores = pd.Series([float(100 - i) for i in range(100)], index=tickers)
+        result = apply_sector_balance(
+            pd.Index(a[:20]),
+            scores,
+            labels,
+            parent_universe=pd.Index(tickers),
+            tolerance=0.05,
+        )
+        assert len(result) == 20
+        counts = labels.reindex(result).value_counts()
+        assert counts["A"] <= round(0.35 * 20)
+        assert counts["B"] >= round(0.30 * 20)
+        assert counts["C"] >= round(0.30 * 20)
+
+    def test_forced_additions_do_not_inflate_selection(self) -> None:
+        """Topping up an empty sector is paid for by trimming, not by growth."""
+        tickers = [f"{s}{i}" for s in "XYZ" for i in range(6)]
+        labels = pd.Series([t[0] for t in tickers], index=tickers)
+        scores = pd.Series([float(18 - i) for i in range(18)], index=tickers)
+        initial = pd.Index([f"X{i}" for i in range(5)] + [f"Y{i}" for i in range(5)])
+        result = apply_sector_balance(
+            initial,
+            scores,
+            labels,
+            parent_universe=pd.Index(tickers),
+            tolerance=0.05,
+        )
+        assert len(result) == 10
+        counts = labels.reindex(result).value_counts()
+        assert counts.min() >= 3
+        assert counts.max() <= 4
+
+
+class TestApplySectorBalanceUnlabeledTickers:
+    """Selected names without a sector must not inflate the sector bands."""
+
+    @staticmethod
+    def _universe(n_unlabeled: int = 5) -> tuple[pd.Series, pd.Series]:
+        tickers = [f"T{i:02d}" for i in range(50)]
+        sectors = [f"S{i % 4}" for i in range(50)]
+        scores = pd.Series([float(100 - i) for i in range(50)], index=tickers)
+        labels = pd.Series(sectors, index=tickers)
+        labels.iloc[:n_unlabeled] = np.nan
+        return scores, labels
+
+    def test_nan_labeled_top_names_keep_target_count(self) -> None:
+        scores, labels = self._universe()
+        result = select_stocks(
+            scores,
+            config=SelectionConfig(target_count=10, sector_balance=True),
+            sector_labels=labels,
+            parent_universe=scores.index,
+        )
+        assert len(result) == 10
+
+    def test_top_names_missing_from_labels_keep_target_count(self) -> None:
+        scores, labels = self._universe()
+        result = select_stocks(
+            scores,
+            config=SelectionConfig(target_count=10, sector_balance=True),
+            sector_labels=labels.iloc[5:],
+            parent_universe=scores.index[5:],
+        )
+        assert len(result) == 10
+
+    def test_unlabeled_members_are_kept_and_labeled_part_is_balanced(self) -> None:
+        scores, labels = self._universe()
+        result = apply_sector_balance(
+            scores.nlargest(10).index,
+            scores,
+            labels,
+            parent_universe=scores.index,
+            tolerance=0.05,
+        )
+        assert len(result) == 10
+        assert set(scores.index[:5]) <= set(result)
+        counts = labels.reindex(result).value_counts()
+        n_labeled = int(counts.sum())
+        assert counts.min() >= round(0.20 * n_labeled)
+        assert counts.max() <= round(0.30 * n_labeled)
 
 
 class TestApplySectorBalanceMaxPerSector:

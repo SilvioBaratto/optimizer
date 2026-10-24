@@ -1,8 +1,8 @@
 """SQLAlchemy models for agent-run audit trail (``agent_runs`` / ``agent_decisions``).
 
 A ``fund`` run is one allocator pass: the LLM chooses, the optimizer computes.
-``AgentRun`` is the run-level record (universe in, weights out, config + seed for
-determinism); ``AgentDecision`` is the ordered per-step trail (constraint/view
+``AgentRun`` is the run-level record (universe in, weights out, config + an audit seed
+label); ``AgentDecision`` is the ordered per-step trail (constraint/view
 snapshots, the LLM prompt/response-or-hash, any HITL decision). The model lives
 here in ``portopt_db`` — pure SQLAlchemy, no ``optimizer``/``deepagents`` import —
 while the ``AgentRunRepository`` behavior lives in ``fund``, mirroring the
@@ -30,10 +30,13 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from portopt_db.base import BaseModel
+from portopt_db.base import BaseModel, ClockTimestamp
 
 # Use JSONB on PostgreSQL, plain JSON elsewhere (e.g. SQLite in tests).
-_JSON = JSON().with_variant(JSONB, "postgresql")
+# ``none_as_null`` makes a Python ``None`` persist as SQL NULL; the default stores the
+# JSON literal ``null``, which ``IS NULL`` / ``IS NOT NULL`` filters on the nullable
+# columns would silently misclassify.
+_JSON = JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
 
 
 class AgentRun(BaseModel):
@@ -52,7 +55,8 @@ class AgentRun(BaseModel):
         UUID(as_uuid=True), nullable=True
     )
     asof: Mapped[date] = mapped_column(Date, nullable=False)
-    # RNG seed pinned so an identical run reproduces identical weights (D-determinism).
+    # Audit label for the run. The allocator path draws no random numbers, so identical
+    # inputs reproduce identical weights without it; it pins nothing.
     seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     universe: Mapped[list[str]] = mapped_column(_JSON, nullable=False)
     optimizer_config: Mapped[dict[str, Any]] = mapped_column(_JSON, nullable=False)
@@ -61,7 +65,10 @@ class AgentRun(BaseModel):
         String(20), nullable=False, server_default="pending"
     )
     started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
+        DateTime(timezone=True),
+        nullable=False,
+        default=ClockTimestamp(),
+        server_default=func.now(),
     )
     finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -70,10 +77,12 @@ class AgentRun(BaseModel):
     # LangGraph checkpointer thread id; defaults to ``str(run_id)``. Nullable — legacy rows predate per-run threading.
     thread_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # Lazy on purpose: every run query on the TUI's 2s poll path would otherwise
+    # drag each run's full decision trail (JSONB + LLM text) along with it.
     decisions: Mapped[list[AgentDecision]] = relationship(
         back_populates="run",
         cascade="all, delete-orphan",
-        lazy="selectin",
+        lazy="select",
         order_by="AgentDecision.decision_index",
     )
 
@@ -87,6 +96,9 @@ class AgentDecision(BaseModel):
             "run_id", "decision_index", name="uq_agent_decision_run_index"
         ),
         Index("ix_agent_decisions_run_id", "run_id"),
+        # The Audit timeline orders every decision by recency (ORDER BY created_at
+        # DESC LIMIT n); PostgreSQL walks this index backwards instead of sorting.
+        Index("ix_agent_decisions_created_at", "created_at"),
     )
 
     run_id: Mapped[uuid.UUID] = mapped_column(

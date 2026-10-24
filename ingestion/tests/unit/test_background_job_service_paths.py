@@ -24,7 +24,10 @@ from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
+from prometheus_client import REGISTRY
+from sqlalchemy.exc import OperationalError
 
+import app.metrics  # noqa: F401  # patch("app.metrics") needs the submodule loaded
 from app.services.jobs.background_job import BackgroundJobService
 
 M = "app.services.jobs.background_job"
@@ -113,7 +116,20 @@ class TestUpdateJob:
 
         assert any("no-op" in r.getMessage() for r in caplog.records)
 
-    def test_when_no_row_matched_but_status_terminal_then_silent(
+    def test_when_no_row_matched_and_status_terminal_then_warns(
+        self, svc: BackgroundJobService, caplog
+    ) -> None:
+        """A terminal write is fenced too, so its loss must be visible."""
+        import logging
+
+        with _repo() as repo:
+            repo.update.return_value = 0
+            with caplog.at_level(logging.WARNING, logger=M):
+                svc.update_job(JOB_ID, status="failed")
+
+        assert any("no-op" in r.getMessage() for r in caplog.records)
+
+    def test_when_no_row_matched_and_no_status_then_silent(
         self, svc: BackgroundJobService, caplog
     ) -> None:
         import logging
@@ -121,7 +137,7 @@ class TestUpdateJob:
         with _repo() as repo:
             repo.update.return_value = 0
             with caplog.at_level(logging.WARNING, logger=M):
-                svc.update_job(JOB_ID, status="failed")
+                svc.update_job(JOB_ID, current=3)
 
         assert not any("no-op" in r.getMessage() for r in caplog.records)
 
@@ -131,6 +147,38 @@ class TestUpdateJob:
             svc.update_job(JOB_ID, current=5)
 
         session.commit.assert_called_once()
+
+    def test_progress_write_db_error_is_logged_and_swallowed(
+        self, svc: BackgroundJobService, caplog
+    ) -> None:
+        """Telemetry must not abort a sweep whose data is already committed."""
+        import logging
+
+        with _repo() as repo:
+            repo.update.side_effect = OperationalError("UPDATE", {}, Exception("x"))
+            with caplog.at_level(logging.WARNING, logger=M):
+                svc.update_job(JOB_ID, current=5, current_ticker="AAPL")
+
+        assert any("progress update failed" in r.getMessage() for r in caplog.records)
+
+    def test_progress_write_commit_error_is_swallowed(
+        self, svc: BackgroundJobService, session: MagicMock
+    ) -> None:
+        session.commit.side_effect = OperationalError("COMMIT", {}, Exception("x"))
+
+        with _repo() as repo:
+            repo.update.return_value = 1
+            svc.update_job(JOB_ID, current=5)
+
+    @pytest.mark.parametrize("status", ["running", "completed", "failed"])
+    def test_status_transition_db_error_still_propagates(
+        self, svc: BackgroundJobService, status: str
+    ) -> None:
+        """A lost terminal write must stay loud so the step is marked failed."""
+        with _repo() as repo:
+            repo.update.side_effect = OperationalError("UPDATE", {}, Exception("x"))
+            with pytest.raises(OperationalError):
+                svc.update_job(JOB_ID, status=status)
 
 
 class TestIsAnyRunning:
@@ -201,6 +249,37 @@ class TestHeartbeatTick:
             svc._run_heartbeat(uuid.UUID(JOB_ID), stop, cadence=0.001)
 
         tick.assert_called_once()
+
+
+class _StopAfter:
+    """Stop-event double: ``wait`` reports "not stopped" for ``ticks`` calls."""
+
+    def __init__(self, ticks: int) -> None:
+        self._ticks = ticks
+
+    def wait(self, timeout: float | None = None) -> bool:
+        if self._ticks == 0:
+            return True
+        self._ticks -= 1
+        return False
+
+
+class TestRunHeartbeatRenewalGate:
+    def test_run_heartbeat_skips_the_lease_stamp_while_the_gate_is_closed(
+        self, svc: BackgroundJobService
+    ) -> None:
+        """A wedged worker must stop renewing so the reaper can claim its row."""
+        gate = iter([True, False, False, True])
+
+        with patch.object(svc, "_tick_heartbeat", return_value=True) as tick:
+            svc._run_heartbeat(
+                uuid.UUID(JOB_ID),
+                _StopAfter(4),  # type: ignore[arg-type]
+                cadence=0.001,
+                should_renew=lambda: next(gate),
+            )
+
+        assert tick.call_count == 2
 
 
 class TestExtractJobId:
@@ -304,6 +383,30 @@ class TestMetricsEmission:
 
         met.jobs_failed_total.labels.assert_called_with(domain="metrics_domain")
 
+    def test_when_terminal_write_matched_no_row_then_no_metrics_or_webhook(
+        self, session: MagicMock
+    ) -> None:
+        """A write fenced off by the reaper must not be counted a second time."""
+        svc = self._svc(session)
+
+        with (
+            _repo() as repo,
+            patch(f"{M}.settings") as st,
+            patch("app.metrics") as met,
+            patch("app.services._shared.notify_failure") as notify,
+        ):
+            repo.update.return_value = 0
+            st.enable_metrics = True
+            st.notification_webhook_url = "https://hooks.example/x"
+
+            svc.update_job(JOB_ID, status="completed")
+            svc.update_job(JOB_ID, status="failed", error="boom")
+
+        met.jobs_completed_total.labels.assert_not_called()
+        met.jobs_failed_total.labels.assert_not_called()
+        met.jobs_in_progress.labels.assert_not_called()
+        notify.assert_not_called()
+
     def test_non_lifecycle_update_emits_nothing(self, session: MagicMock) -> None:
         svc = self._svc(session)
 
@@ -332,6 +435,42 @@ class TestMetricsEmission:
         met.jobs_completed_total.labels.assert_not_called()
 
 
+class TestZeroSeriesPreRegistration:
+    """A labelled Prometheus metric exposes nothing until ``.labels()`` is called,
+    so the first job of a domain would appear as a series born at 1 and
+    ``increase()`` / ``rate()`` would miss that step."""
+
+    _SAMPLES = (
+        "jobs_started_total",
+        "jobs_completed_total",
+        "jobs_failed_total",
+        "jobs_in_progress",
+        "job_duration_seconds_count",
+    )
+
+    @staticmethod
+    def _build(domain: str, *, enabled: bool) -> None:
+        with patch(f"{M}.settings") as st:
+            st.enable_metrics = enabled
+            BackgroundJobService(job_type=domain, session_factory=MagicMock())
+
+    def test_when_service_is_built_then_every_series_exists_at_zero(self) -> None:
+        self._build("zero_series_enabled", enabled=True)
+
+        for sample in self._SAMPLES:
+            value = REGISTRY.get_sample_value(sample, {"domain": "zero_series_enabled"})
+            assert value == 0.0, sample
+
+    def test_when_metrics_disabled_then_no_series_is_created(self) -> None:
+        self._build("zero_series_disabled", enabled=False)
+
+        for sample in self._SAMPLES:
+            assert (
+                REGISTRY.get_sample_value(sample, {"domain": "zero_series_disabled"})
+                is None
+            ), sample
+
+
 class TestFailureWebhook:
     def _svc(self, session: MagicMock) -> BackgroundJobService:
         @contextmanager
@@ -358,6 +497,49 @@ class TestFailureWebhook:
 
         notify.assert_called_once_with(
             "https://hooks.example/x", "hook_domain", JOB_ID, "fred timed out"
+        )
+
+    def test_failure_reported_only_via_errors_list_still_names_the_reason(
+        self, session: MagicMock
+    ) -> None:
+        svc = self._svc(session)
+
+        with (
+            _repo() as repo,
+            patch(f"{M}.settings") as st,
+            patch("app.services._shared.notify_failure") as notify,
+        ):
+            repo.update.return_value = 1
+            st.enable_metrics = False
+            st.notification_webhook_url = "https://hooks.example/x"
+
+            svc.update_job(
+                JOB_ID, status="failed", errors=["IT: 503 upstream", "FR: timeout"]
+            )
+
+        notify.assert_called_once_with(
+            "https://hooks.example/x",
+            "hook_domain",
+            JOB_ID,
+            "IT: 503 upstream\nFR: timeout",
+        )
+
+    def test_explicit_error_wins_over_errors_list(self, session: MagicMock) -> None:
+        svc = self._svc(session)
+
+        with (
+            _repo() as repo,
+            patch(f"{M}.settings") as st,
+            patch("app.services._shared.notify_failure") as notify,
+        ):
+            repo.update.return_value = 1
+            st.enable_metrics = False
+            st.notification_webhook_url = "https://hooks.example/x"
+
+            svc.update_job(JOB_ID, status="failed", error="boom", errors=["detail"])
+
+        notify.assert_called_once_with(
+            "https://hooks.example/x", "hook_domain", JOB_ID, "boom"
         )
 
     def test_no_webhook_configured_then_no_post(self, session: MagicMock) -> None:

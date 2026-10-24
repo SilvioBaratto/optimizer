@@ -2,6 +2,7 @@
 
 import logging
 import uuid as uuid_mod
+from collections import defaultdict
 from collections.abc import Sequence
 from datetime import date
 from typing import Any
@@ -64,10 +65,13 @@ class UniverseRepository(RepositoryBase):
         """Upsert a batch of instruments for the given exchange.
 
         Matched on the ``uq_instrument_ticker_exchange`` constraint (ticker +
-        exchange). On conflict every mutable field is overwritten and
-        ``delisted_at``/``delisting_return`` are cleared so a re-listed
-        instrument is automatically re-activated. The session is flushed but
-        not committed.
+        exchange). On conflict the mutable fields are overwritten, except that
+        ``name``, ``isin`` and ``currency_code`` keep their stored value when the
+        batch row has none. ``delisted_at``/``delisting_return`` are cleared so a
+        re-listed instrument is automatically re-activated. A symbol that already
+        exists on another exchange is first re-homed onto ``exchange_id`` (see
+        :meth:`_rehome_moved_symbols`) so a venue change never yields a second
+        row. The session is flushed but not committed.
 
         Args:
             instruments_data: Raw attribute dicts as returned by the T212 API.
@@ -98,15 +102,22 @@ class UniverseRepository(RepositoryBase):
                 }
             )
 
+        self._rehome_moved_symbols([row["ticker"] for row in rows], exchange_id)
+
         stmt = pg_insert(Instrument).values(rows)
         stmt = stmt.on_conflict_do_update(
             constraint="uq_instrument_ticker_exchange",
             set_={
                 "short_name": stmt.excluded.short_name,
-                "name": stmt.excluded.name,
-                "isin": stmt.excluded.isin,
+                # The universe source does not carry an ISIN (it is backfilled
+                # from ticker profiles), so a missing value must not erase one
+                # that is already stored.
+                "name": func.coalesce(stmt.excluded.name, Instrument.name),
+                "isin": func.coalesce(stmt.excluded.isin, Instrument.isin),
                 "instrument_type": stmt.excluded.instrument_type,
-                "currency_code": stmt.excluded.currency_code,
+                "currency_code": func.coalesce(
+                    stmt.excluded.currency_code, Instrument.currency_code
+                ),
                 "yfinance_ticker": stmt.excluded.yfinance_ticker,
                 "asset_class": stmt.excluded.asset_class,
                 "fi_subclass": stmt.excluded.fi_subclass,
@@ -114,28 +125,77 @@ class UniverseRepository(RepositoryBase):
                 # Re-activating an instrument clears its delisting status.
                 "delisted_at": None,
                 "delisting_return": None,
+                # Column.onupdate does not fire for ON CONFLICT DO UPDATE.
+                "updated_at": func.now(),
             },
         )
         self.session.execute(stmt)
         self.session.flush()
         return len(rows)
 
+    def _rehome_moved_symbols(self, tickers: list[str], exchange_id: Any) -> None:
+        """Move rows for symbols that changed venue onto ``exchange_id``.
+
+        The unique key is (ticker, exchange), so upserting a symbol that moved
+        (e.g. a NASDAQ -> NYSE listing transfer) would insert a second row next
+        to the stale one. Ticker-keyed readers then hit ``MultipleResultsFound``
+        and the yfinance sweep fetches the symbol twice. Updating
+        ``exchange_id`` in place keeps the instrument id, so its price and
+        profile history stay attached.
+
+        A symbol is left alone when it already has a row on ``exchange_id`` (the
+        move would violate the unique key) or when several rows exist elsewhere
+        (no way to tell which one is the predecessor).
+        """
+        homed_here = set(
+            self.session.execute(
+                select(Instrument.ticker)
+                .where(Instrument.exchange_id == exchange_id)
+                .where(Instrument.ticker.in_(tickers))
+            ).scalars()
+        )
+        candidates = set(tickers) - homed_here
+        if not candidates:
+            return
+
+        ids_by_ticker: dict[str, list[Any]] = defaultdict(list)
+        for instrument_id, ticker in self.session.execute(
+            select(Instrument.id, Instrument.ticker)
+            .where(Instrument.exchange_id != exchange_id)
+            .where(Instrument.ticker.in_(candidates))
+        ):
+            ids_by_ticker[ticker].append(instrument_id)
+
+        moved_ids = [ids[0] for ids in ids_by_ticker.values() if len(ids) == 1]
+        if moved_ids:
+            self.session.execute(
+                update(Instrument)
+                .where(Instrument.id.in_(moved_ids))
+                .values(exchange_id=exchange_id)
+            )
+
     def mark_delisted(
         self,
         ticker: str,
         exchange_id: Any,
         delisted_at: date,
-        delisting_return: float = -0.30,
+        delisting_return: float | None = None,
     ) -> bool:
         """Mark an instrument as delisted.
 
+        Being absent from a universe snapshot is also what a still-trading name
+        looks like after a screener floor change, a truncated page or a flipped
+        canonical listing, so this method never invents a terminal return.
+
         Args:
-            ticker: Trading 212 ticker of the instrument.
+            ticker: Ticker of the instrument within ``exchange_id``.
             exchange_id: UUID of the exchange the instrument belongs to.
-            delisted_at: Date the instrument was last seen in the T212 universe.
-            delisting_return: Final return to assign. Defaults to the CRSP
-                convention (-30%). Pass -1.0 for bankruptcy or the actual
-                acquisition premium when known.
+            delisted_at: Date the instrument was first found missing from the
+                universe snapshot (a detection date, not a last trading date).
+            delisting_return: Realised terminal return when it is known, e.g.
+                -1.0 for bankruptcy or the actual acquisition premium. ``None``
+                leaves the column NULL so consumers resolve the unknown return
+                themselves instead of booking a fabricated loss.
 
         Returns:
             True if the row was updated, False if no matching active instrument
@@ -172,13 +232,28 @@ class UniverseRepository(RepositoryBase):
         rows = self.session.execute(stmt).all()
         return {r[0] for r in rows}
 
+    def get_active_listings(self) -> set[tuple[str, str]]:
+        """Return ``(ticker, exchange name)`` for every non-delisted instrument.
+
+        The universe build uses it to tell existing members from new entrants,
+        so members can be retained down to the lower exit band of the
+        investability floor instead of churning in and out at the entry band.
+        """
+        rows = self.session.execute(
+            select(Instrument.ticker, Exchange.name)
+            .join(Exchange, Instrument.exchange_id == Exchange.id)
+            .where(Instrument.delisted_at.is_(None))
+        ).all()
+        return {(ticker, exchange) for ticker, exchange in rows}
+
     def set_t212_ticker(
-        self, *, ticker: str, exchange_id: Any, t212_ticker: str
+        self, *, ticker: str, exchange_id: Any, t212_ticker: str | None
     ) -> bool:
         """Attach a Trading 212 ticker to a yfinance-sourced instrument.
 
-        Matched by ``(ticker, exchange_id)`` — the unique key. Returns ``True``
-        if a row was updated, ``False`` if none matched.
+        Matched by ``(ticker, exchange_id)`` — the unique key. Passing ``None``
+        clears a cross-reference that no longer holds. Returns ``True`` if a row
+        was updated, ``False`` if none matched.
         """
         result: CursorResult[Any] = self.session.execute(  # type: ignore[assignment]
             update(Instrument)
@@ -276,7 +351,8 @@ class UniverseRepository(RepositoryBase):
             limit: Maximum number of rows to return.
 
         Returns:
-            Instruments eager-loaded with their exchange, deduplicated.
+            Instruments eager-loaded with their exchange, deduplicated and
+            ordered by ticker (then id) so offset pages are stable.
         """
         stmt = select(Instrument).options(joinedload(Instrument.exchange))
         if exchange_name:
@@ -286,7 +362,9 @@ class UniverseRepository(RepositoryBase):
             stmt = stmt.where(
                 (Instrument.ticker.ilike(term)) | (Instrument.name.ilike(term))
             )
-        stmt = stmt.offset(skip).limit(limit)
+        # ticker alone repeats across exchanges, so id breaks ties; without a
+        # total order OFFSET pages can overlap or skip rows.
+        stmt = stmt.order_by(Instrument.ticker, Instrument.id).offset(skip).limit(limit)
         return self.session.execute(stmt).scalars().unique().all()
 
     def get_exchanges(self) -> Sequence[Exchange]:

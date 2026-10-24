@@ -3,7 +3,9 @@
 Runs each query against live yfinance search and asserts that:
 
 1. yfinance returns at least one result.
-2. At least one result passes the recency filter (<= 60 days old).
+2. At least one result passes the recency filter (<= 60 days old) and comes
+   from a publisher in ``TRUSTED_PUBLISHERS``, the same two filters the macro
+   news fetcher applies before keeping an article.
 
 Exits with status 1 if any query regresses, 0 otherwise.  Intended to be
 run manually when modifying MACRO_SEARCH_QUERIES or on a weekly schedule
@@ -22,6 +24,7 @@ live yfinance search endpoint, so it is safe to run ad hoc.
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import sys
 from datetime import datetime, timedelta
@@ -36,10 +39,21 @@ sys.path.insert(0, str(_REPO_ROOT / "ingestion"))
 import yfinance as yf
 from dateutil import parser as dateutil_parser
 
-from app.services.market_data.yfinance.news.macro_news import MACRO_SEARCH_QUERIES
+from app.services.market_data.yfinance.market.search import SearchClient
+from app.services.market_data.yfinance.news.macro_news import (
+    MACRO_SEARCH_QUERIES,
+    TRUSTED_PUBLISHERS,
+)
 
 _MAX_AGE_DAYS = 60
 _DEFAULT_MAX_RESULTS = 8
+
+# Production calls ``SearchClient.search`` with its default news window. Reading
+# it from the signature keeps the validator from seeing articles (yfinance's own
+# default is wider) that the fetcher never receives.
+_NEWS_COUNT: int = (
+    inspect.signature(SearchClient.search).parameters["news_count"].default
+)
 
 
 # Mirrors logic in app.services.market_data.yfinance.news aggregator/_process.
@@ -88,11 +102,15 @@ def evaluate_query(query: str, cutoff: datetime) -> dict[str, Any]:
             as recent.
 
     Returns:
-        Dict with keys ``total`` (int), ``recent`` (int), ``publishers``
-        (set[str]), and ``error`` (str or None if the query succeeded).
+        Dict with keys ``total`` (int), ``recent`` (int, articles that are both
+        newer than *cutoff* and from a trusted publisher), ``publishers``
+        (set[str], every publisher seen), and ``error`` (str or None if the
+        query succeeded).
     """
     try:
-        result = yf.Search(query, max_results=_DEFAULT_MAX_RESULTS)
+        result = yf.Search(
+            query, max_results=_DEFAULT_MAX_RESULTS, news_count=_NEWS_COUNT
+        )
         news = result.news or []
     except Exception as exc:
         return {
@@ -105,8 +123,11 @@ def evaluate_query(query: str, cutoff: datetime) -> dict[str, Any]:
     recent = 0
     publishers: set[str] = set()
     for raw in news:
-        publishers.add(_extract_publisher(raw))
-        if _is_recent(_extract_pub_time(raw), cutoff):
+        publisher = _extract_publisher(raw)
+        publishers.add(publisher)
+        if publisher in TRUSTED_PUBLISHERS and _is_recent(
+            _extract_pub_time(raw), cutoff
+        ):
             recent += 1
 
     return {

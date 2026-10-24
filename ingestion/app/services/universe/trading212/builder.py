@@ -1,6 +1,7 @@
+import logging
 from collections import defaultdict
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -9,6 +10,7 @@ from app.services.universe.trading212.classification import classify_instrument
 from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.trading212.filters.etf_screen import dedup_etfs_by_isin
 from app.services.universe.trading212.protocols import (
+    LiveSymbolReporter,
     TickerMapper,
     Trading212ApiClient,
     UniverseRepository,
@@ -38,6 +40,8 @@ class BuildResult:
     errors: list[str] = field(default_factory=list)
 
 
+logger = logging.getLogger(__name__)
+
 ProgressCallback = Callable[[BuildProgress], None]
 
 
@@ -66,6 +70,8 @@ class UniverseBuilder:
         default_factory=lambda: defaultdict(list), init=False
     )
     _errors: list[str] = field(default_factory=list, init=False)
+    _live_symbols: frozenset[str] = field(default_factory=frozenset, init=False)
+    _incomplete_types: frozenset[str] = field(default=frozenset(), init=False)
 
     def build(self) -> BuildResult:
         """Run a full universe build from the Trading 212 API.
@@ -77,6 +83,21 @@ class UniverseBuilder:
 
         exchanges = self.api_client.get_exchanges()
         instruments = self.api_client.get_instruments()
+        self._live_symbols = (
+            frozenset(self.api_client.get_live_symbols())
+            if isinstance(self.api_client, LiveSymbolReporter)
+            else frozenset()
+        )
+        # Read after get_instruments: a source that enumerates lazily only knows
+        # which instrument types it failed to list once it has loaded.
+        self._incomplete_types = frozenset(
+            getattr(self.api_client, "incomplete_instrument_types", ())
+        )
+        for incomplete_type in sorted(self._incomplete_types):
+            self._errors.append(
+                f"{incomplete_type} enumeration incomplete: delisting "
+                "reconciliation skipped"
+            )
 
         self._build_schedule_mappings(exchanges, instruments)
 
@@ -92,22 +113,23 @@ class UniverseBuilder:
         # Delisting reconciliation is scoped per instrument_type so the stock
         # and ETF passes over shared exchanges don't falsely mark each other's
         # instruments as delisted.
-        exchanges_saved, instruments_saved, total_processed = self._process_exchanges(
+        exchange_names, instruments_saved, total_processed = self._process_exchanges(
             exchange_stocks, total, instrument_type="STOCK"
         )
         if exchange_etfs:
-            ex_e, inst_e, proc_e = self._process_exchanges(
+            etf_exchange_names, inst_e, proc_e = self._process_exchanges(
                 exchange_etfs,
                 total,
                 current_offset=total_processed,
                 instrument_type="ETF",
             )
-            exchanges_saved += ex_e
+            # Both passes upsert the same exchange rows; count each row once.
+            exchange_names |= etf_exchange_names
             instruments_saved += inst_e
             total_processed += proc_e
 
         return BuildResult(
-            exchanges_saved=exchanges_saved,
+            exchanges_saved=len(exchange_names),
             instruments_saved=instruments_saved,
             total_processed=total_processed,
             filter_stats={},
@@ -216,14 +238,14 @@ class UniverseBuilder:
         total_stocks: int,
         current_offset: int = 0,
         instrument_type: str | None = None,
-    ) -> tuple[int, int, int]:
-        total_exchanges_saved = 0
+    ) -> tuple[set[str], int, int]:
+        saved_exchange_names: set[str] = set()
         total_instruments_saved = 0
         processed_here = 0
 
         for ex_data, instruments in exchange_stocks:
             exchange_dto = self.repository.save_exchange(ex_data)
-            total_exchanges_saved += 1
+            saved_exchange_names.add(ex_data["name"])
 
             # Snapshot before the build so absent tickers can be marked
             # delisted after; scoped per instrument_type so the stock and ETF
@@ -242,27 +264,67 @@ class UniverseBuilder:
             )
             processed_here += len(instruments)
 
-            tickers_saved: set[str] = set()
             if processed:
                 saved = self.repository.save_instruments_batch(
                     processed, exchange_dto.id
                 )
                 total_instruments_saved += saved
-                tickers_saved = {d.get("ticker", "") for d in processed}
 
+            if instrument_type in ex_data.get("incompleteTypes", ()):
+                # The source says this venue's list is short, so absence proves
+                # nothing; marking the gap delisted would stamp live names.
+                self._skip_reconciliation(
+                    ex_data["name"], instrument_type, "the source listing is incomplete"
+                )
+                continue
+
+            # With part of the source missing, "absent" no longer means "delisted".
+            if instrument_type in self._incomplete_types:
+                continue
+
+            # Every ticker the source returned counts as present, whatever
+            # happened to it in mapping: a mapper miss or a per-instrument
+            # error is not evidence that the instrument left the venue.
+            tickers_present = {i["ticker"] for i in instruments if i.get("ticker")}
             self._mark_delisted_instruments(
-                tickers_before, tickers_saved, exchange_dto.id
+                tickers_before,
+                tickers_present,
+                exchange_dto.id,
+                ex_data["name"],
+                instrument_type,
             )
 
-        return total_exchanges_saved, total_instruments_saved, processed_here
+        return saved_exchange_names, total_instruments_saved, processed_here
+
+    def _skip_reconciliation(
+        self, exchange_name: str, instrument_type: str | None, reason: str
+    ) -> None:
+        message = (
+            f"{exchange_name}: {instrument_type or 'all'} delisting reconciliation "
+            f"skipped; {reason}"
+        )
+        logger.warning(message)
+        self._errors.append(message)
 
     def _mark_delisted_instruments(
         self,
         tickers_before: set[str],
         tickers_seen: set[str],
         exchange_id: Any,
+        exchange_name: str,
+        instrument_type: str | None,
     ) -> None:
-        """Mark instruments that were active but absent from the latest T212 response."""
+        """Mark instruments that were active but absent from the latest run.
+
+        A ticker the source still reports as trading left the universe through
+        dedup, the floor or the venue allowlist, so it is stamped without a
+        terminal return; the default -30% is reserved for tickers that vanished.
+
+        Skipped, with a warning in ``BuildResult.errors``, when the absences
+        exceed ``config.max_delisting_fraction`` of the venue's active tickers:
+        that pattern is a truncated source answer, and marking it would flag
+        live instruments as delisted until the next complete build.
+        """
         if not hasattr(self.repository, "mark_delisted"):
             return
 
@@ -270,19 +332,31 @@ class UniverseBuilder:
         if not dropped:
             return
 
+        if (
+            len(tickers_before) >= self.config.delisting_guard_min_tickers
+            and len(dropped) / len(tickers_before) > self.config.max_delisting_fraction
+        ):
+            self._skip_reconciliation(
+                exchange_name,
+                instrument_type,
+                f"{len(dropped)} of {len(tickers_before)} active tickers are "
+                "missing, which looks like a partial source answer",
+            )
+            return
+
         today = date.today()
         for ticker in dropped:
+            still_trading: dict[str, Any] = (
+                {"delisting_return": None} if ticker in self._live_symbols else {}
+            )
             marked = self.repository.mark_delisted(
                 ticker=ticker,
                 exchange_id=exchange_id,
                 delisted_at=today,
+                **still_trading,
             )
             if marked:
-                import logging as _logging
-
-                _logging.getLogger(__name__).info(
-                    "Marked instrument %s as delisted on %s", ticker, today
-                )
+                logger.info("Marked instrument %s as delisted on %s", ticker, today)
 
     def _process_instruments(
         self,
@@ -294,7 +368,8 @@ class UniverseBuilder:
         processed = []
         local_count = 0
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        executor = ThreadPoolExecutor(max_workers=self.max_workers)
+        try:
             future_to_inst = {
                 executor.submit(
                     self._process_single_instrument, inst, exchange_name
@@ -310,6 +385,8 @@ class UniverseBuilder:
                     result, status, reason = future.result()
                     if result is not None:
                         processed.append(result)
+                    if status == "error":
+                        self._record_instrument_error(inst, reason)
 
                     if self.progress_callback:
                         progress = BuildProgress(
@@ -322,12 +399,15 @@ class UniverseBuilder:
                         )
                         self.progress_callback(progress)
 
+                except CancelledError:
+                    # The progress callback aborts a build whose job row was
+                    # reaped; recording that as a per-instrument error would
+                    # only trigger a second callback and a spurious error.
+                    raise
                 except Exception as e:
-                    # Per-instrument failure in a bulk build is surfaced (not
-                    # swallowed): appended to self._errors → BuildResult.errors
-                    # and reported via the progress callback below.
-                    error_msg = f"{inst.get('shortName', 'unknown')}: {e}"
-                    self._errors.append(error_msg)
+                    # The worker normally reports failures as an "error" row;
+                    # this catches anything that escaped it (or the callback).
+                    self._record_instrument_error(inst, str(e))
 
                     if self.progress_callback:
                         progress = BuildProgress(
@@ -339,8 +419,17 @@ class UniverseBuilder:
                             reason=str(e),
                         )
                         self.progress_callback(progress)
+        finally:
+            # Leaving the loop early (a reaped job) must drop the queued
+            # instruments instead of draining the whole pool on exit.
+            executor.shutdown(wait=True, cancel_futures=True)
 
         return processed
+
+    def _record_instrument_error(self, instrument: dict[str, Any], reason: str) -> None:
+        message = f"{instrument.get('shortName', 'unknown')}: {reason}"
+        logger.warning("Instrument failed during universe build: %s", message)
+        self._errors.append(message)
 
     def _process_single_instrument(
         self, instrument: dict[str, Any], exchange_name: str
@@ -382,6 +471,6 @@ class UniverseBuilder:
             return instrument_data, "passed", "Admitted (no filtering)"
 
         except Exception as e:
-            # Error is returned as the reason tuple, not swallowed: the caller
-            # appends it to self._errors (→ BuildResult.errors) for the row.
+            # Returned rather than raised so one bad row cannot abort the batch;
+            # _process_instruments records it into BuildResult.errors.
             return None, "error", str(e)

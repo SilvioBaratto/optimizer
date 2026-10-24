@@ -13,6 +13,8 @@ from typing import Any
 
 import pandas as pd
 
+from app.utils.currency import to_major_currency
+
 from .._base import BaseClient
 
 logger = logging.getLogger(__name__)
@@ -51,18 +53,21 @@ class FundsClient(BaseClient):
                 "nav": info.get("navPrice"),
                 "fund_family": info.get("fundFamily"),
                 "legal_type": info.get("legalType"),
-                # netExpenseRatio is the key Yahoo actually populates for ETFs
-                # (US-listed carry it; UCITS listings mostly do not). The other
-                # two are legacy mutual-fund keys kept as fallbacks.
-                "expense_ratio": (
-                    info.get("netExpenseRatio")
-                    or info.get("annualReportExpenseRatio")
-                    or info.get("expenseRatio")
-                ),
-                "base_currency": info.get("currency"),
+                "expense_ratio": _expense_ratio_fraction(info),
+                # navPrice/totalAssets are in the fund's own currency, which for
+                # a UCITS ETF differs from the quote currency in info["currency"]
+                # (IUSA.L quotes in GBp but its NAV is USD). financialCurrency is
+                # the fund's reporting currency, but Yahoo leaves it empty for
+                # many funds (BND, TDEM, UCITS); leaving those NULL beats
+                # mislabelling NAV/AUM with the listing code.
+                "base_currency": to_major_currency(info.get("financialCurrency")),
             }
             if not any(v is not None for v in profile.values()):
                 return None
+            if profile["base_currency"] is None:
+                # Applied only after the fund-data check so a bare equity quote
+                # cannot pass as a fund profile on the strength of its currency.
+                profile["base_currency"] = _us_listing_usd(info)
             return profile
 
         return self._fetch_with_resilience(
@@ -78,34 +83,75 @@ class FundsClient(BaseClient):
         if fd is None:
             return None
 
-        asset_classes = _as_dict(getattr(fd, "asset_classes", None))
-        sector_weightings = _as_dict(getattr(fd, "sector_weightings", None))
-        top_holdings = _parse_holdings(getattr(fd, "top_holdings", None))
-
-        if not asset_classes and not sector_weightings and not top_holdings:
-            return None
-
         description = getattr(fd, "description", None)
         if not isinstance(description, str):
             description = None
-        return {
-            "asset_classes": asset_classes,
-            "sector_weightings": sector_weightings,
-            "top_holdings": top_holdings,
+        payload: dict[str, Any] = {
+            "asset_classes": _as_dict(getattr(fd, "asset_classes", None)),
+            "sector_weightings": _as_dict(getattr(fd, "sector_weightings", None)),
+            "top_holdings": _parse_holdings(getattr(fd, "top_holdings", None)),
             # Metric-indexed DataFrames are flattened to {metric: value};
             # bond_ratings / fund_overview are already dict-shaped.
-            "equity_holdings": _first_col_dict(getattr(fd, "equity_holdings", None)),
+            "equity_holdings": _equity_holdings(getattr(fd, "equity_holdings", None)),
             "bond_holdings": _first_col_dict(getattr(fd, "bond_holdings", None)),
             "fund_operations": _first_col_dict(getattr(fd, "fund_operations", None)),
             "bond_ratings": _as_dict(getattr(fd, "bond_ratings", None)),
             "fund_overview": _as_dict(getattr(fd, "fund_overview", None)),
             "description": description,
         }
+        # The overview and description count: the category is stored from them
+        # alone for funds whose positions Yahoo does not report.
+        if not any(payload.values()):
+            return None
+        return payload
+
+
+def _us_listing_usd(info: dict[str, Any]) -> str | None:
+    """``"USD"`` for a USD-quoted fund on a US listing, else ``None``.
+
+    US-listed funds report NAV and AUM in dollars, so the quote currency is a
+    safe stand-in when ``financialCurrency`` is missing. Yahoo's ``market``
+    field marks the listing venue (``us_market`` / ``gb_market``); ``region``
+    cannot be used because it carries the fund's domicile and reads ``US`` for
+    London-listed UCITS ETFs on US indices.
+    """
+    if info.get("market") == "us_market" and info.get("currency") == "USD":
+        return "USD"
+    return None
+
+
+def _expense_ratio_fraction(info: dict[str, Any]) -> float | None:
+    """Annual expense ratio as a decimal fraction (0.0009 = 0.09% p.a.).
+
+    ``netExpenseRatio`` is the key Yahoo actually populates for ETFs, but it is
+    quoted in percent points (SPY 0.0945 = 0.0945%), whereas the legacy
+    mutual-fund keys ``annualReportExpenseRatio`` / ``expenseRatio`` are already
+    fractions. Normalising here keeps the stored column in a single unit. Keys
+    are tried in order on ``is not None`` so a genuine 0.0 (zero-fee fund) is
+    kept rather than read as missing.
+    """
+    net = info.get("netExpenseRatio")
+    if net is not None:
+        return float(net) / 100.0
+    for key in ("annualReportExpenseRatio", "expenseRatio"):
+        value = info.get(key)
+        if value is not None:
+            return float(value)
+    return None
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
+    """Copy a mapping into a plain dict, dropping entries whose value is ``None``.
+
+    yfinance pre-fills fixed key sets (``asset_classes`` always carries all six
+    positions, ``fund_overview`` all three labels) with ``None`` when Yahoo has
+    no figure. Keeping those shells would make an empty answer look populated
+    and defeat the "no fund data" check.
+    """
     try:
-        return dict(value) if value else {}
+        if not value:
+            return {}
+        return {k: v for k, v in dict(value).items() if v is not None}
     except Exception:
         return {}
 
@@ -125,6 +171,32 @@ def _first_col_dict(frame: Any) -> dict[str, float]:
             except (TypeError, ValueError):
                 continue
     return out
+
+
+# Yahoo serves these four fund valuation rows as reciprocals (earnings yield,
+# book/price, ...), unlike the genuine multiples in ``info``.
+_RECIPROCAL_VALUATION_KEYS = (
+    "Price/Earnings",
+    "Price/Book",
+    "Price/Sales",
+    "Price/Cashflow",
+)
+
+
+def _equity_holdings(frame: Any) -> dict[str, float]:
+    """Flatten ``equity_holdings`` and turn Yahoo's valuation reciprocals into
+    multiples (SPY P/E 0.04132 -> 24.2).
+
+    A value of 0.0 is Yahoo's "no data" sentinel (bond ETFs, negative
+    earnings), and a negative reciprocal has no meaningful multiple, so both
+    are dropped rather than stored as a misleading 0 / inverted figure.
+    """
+    metrics = _first_col_dict(frame)
+    for key in _RECIPROCAL_VALUATION_KEYS:
+        value = metrics.pop(key, None)
+        if value is not None and value > 0:
+            metrics[key] = 1.0 / value
+    return metrics
 
 
 def _parse_holdings(frame: Any) -> list[dict[str, Any]]:

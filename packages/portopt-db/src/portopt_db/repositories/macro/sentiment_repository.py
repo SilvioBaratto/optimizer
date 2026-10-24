@@ -1,11 +1,13 @@
 """Repository for sentiment-related database queries."""
 
 import logging
+import re
 from collections.abc import Sequence
 from datetime import datetime
+from itertools import islice
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import ColumnElement, or_, select
 from sqlalchemy.orm import Session
 
 from portopt_db.models.macro.macro_regime import MacroNews
@@ -30,9 +32,25 @@ _ETF_TO_SECTOR: dict[str, str] = {
     "XLC": "Communication Services",
 }
 
+# Below this length a ticker ("A", "T", "ON") collides with ordinary words and
+# initials, so the last-resort text search would return unrelated headlines.
+_MIN_TEXT_SEARCH_TICKER_LEN = 3
+
+_TEXT_SEARCH_BATCH_SIZE = 100
+
 _SECTOR_TO_ETFS: dict[str, set[str]] = {}
 for _etf, _sector in _ETF_TO_SECTOR.items():
     _SECTOR_TO_ETFS.setdefault(_sector, set()).add(_etf)
+
+
+# A symbol that moved venues has one instruments row per venue, the old one
+# delisted. Ordering by this puts the active listing first and, among delisted
+# rows only, the most recently delisted.
+_ACTIVE_LISTING_FIRST = (
+    Instrument.delisted_at.is_(None).desc(),
+    Instrument.delisted_at.desc(),
+    Instrument.id,
+)
 
 
 class SentimentRepository(RepositoryBase):
@@ -42,56 +60,103 @@ class SentimentRepository(RepositoryBase):
         super().__init__(session)
 
     def get_instrument_id_by_ticker(self, ticker: str) -> UUID | None:
-        """Return the instrument UUID for *ticker*, or ``None``."""
-        return self.session.execute(
-            select(Instrument.id).where(Instrument.ticker == ticker)
-        ).scalar_one_or_none()
+        """Return the instrument UUID for *ticker*, or ``None``.
+
+        A symbol that moved venues has one row per venue, the old one delisted.
+        The active listing wins; among delisted rows only, the most recently
+        delisted does.
+        """
+        return (
+            self.session.execute(
+                select(Instrument.id)
+                .where(Instrument.ticker == ticker)
+                .order_by(*_ACTIVE_LISTING_FIRST)
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
 
     def get_recent_news(
         self,
         instrument_id: UUID,
         cutoff: datetime,
+        as_of: datetime | None = None,
     ) -> Sequence[TickerNews]:
-        """Return news rows for an instrument published at or after a cutoff.
+        """Return news rows for an instrument published inside a time window.
 
         Args:
             instrument_id: Primary key of the instrument to query.
             cutoff: Lower bound (inclusive) on ``publish_time``.
+            as_of: Upper bound (inclusive) on ``publish_time``. ``None`` leaves
+                the window open; point-in-time callers pass the decision date so
+                later articles cannot leak in.
 
         Returns:
             Rows ordered by ``publish_time`` ascending; empty if none found.
         """
+        conditions = [
+            TickerNews.instrument_id == instrument_id,
+            TickerNews.title.isnot(None),
+            TickerNews.publish_time >= cutoff,
+        ]
+        if as_of is not None:
+            conditions.append(TickerNews.publish_time <= as_of)
         return (
             self.session.execute(
                 select(TickerNews)
-                .where(
-                    TickerNews.instrument_id == instrument_id,
-                    TickerNews.title.isnot(None),
-                    TickerNews.publish_time >= cutoff,
-                )
+                .where(*conditions)
                 .order_by(TickerNews.publish_time.asc())
             )
             .scalars()
             .all()
         )
 
+    def _newest_macro_news(
+        self, conditions: Sequence[ColumnElement[bool]], limit: int
+    ) -> Sequence[MacroNews]:
+        """Return the *limit* newest matching rows, oldest first.
+
+        Ordering descending before the LIMIT keeps the most recent articles of
+        the window; the final reversal restores the ascending contract.
+        """
+        rows = (
+            self.session.execute(
+                select(MacroNews)
+                .where(*conditions)
+                .order_by(MacroNews.publish_time.desc())
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+        return list(reversed(rows))
+
     def get_macro_news_fallback(
         self,
         ticker: str,
         cutoff: datetime,
         limit: int = 30,
+        as_of: datetime | None = None,
     ) -> Sequence[MacroNews]:
         """Search ``macro_news`` for articles relevant to *ticker*.
 
         Uses a cascading strategy, returning as soon as one yields results:
         direct ``source_ticker`` match, then sector-ETF feed match (resolves
-        the ticker's GICS sector to corresponding ETF tickers), then a
-        case-insensitive text search on title and full content.
+        the ticker's GICS sector to corresponding ETF tickers), then a text
+        search on title and full content. The text search only accepts the
+        ticker as a standalone, exactly-cased token (so ``NOW`` never matches
+        "now" or "know") and is skipped for tickers shorter than
+        ``_MIN_TEXT_SEARCH_TICKER_LEN``.
 
         Args:
             ticker: Equity ticker symbol to find relevant macro news for.
             cutoff: Only rows with ``publish_time`` at or after this value.
             limit: Maximum rows fetched per strategy attempt, not a total cap.
+                When more rows match, the newest *limit* are kept.
+            as_of: Upper bound (inclusive) on ``publish_time``. ``None`` leaves
+                the window open; point-in-time callers pass the decision date so
+                later articles cannot leak in.
 
         Returns:
             MacroNews rows ordered by ``publish_time`` ascending; empty if no
@@ -101,60 +166,73 @@ class SentimentRepository(RepositoryBase):
             MacroNews.title.isnot(None),
             MacroNews.publish_time >= cutoff,
         ]
+        if as_of is not None:
+            base_filters.append(MacroNews.publish_time <= as_of)
 
-        rows: Sequence[MacroNews] = (
-            self.session.execute(
-                select(MacroNews)
-                .where(MacroNews.source_ticker == ticker, *base_filters)
-                .order_by(MacroNews.publish_time.asc())
-                .limit(limit)
-            )
-            .scalars()
-            .all()
+        rows = self._newest_macro_news(
+            [MacroNews.source_ticker == ticker, *base_filters], limit
         )
         if rows:
             return rows
 
-        sector = self.session.execute(
-            select(TickerProfile.sector)
-            .join(Instrument, TickerProfile.instrument_id == Instrument.id)
-            .where(Instrument.ticker == ticker)
-        ).scalar_one_or_none()
+        sector = (
+            self.session.execute(
+                select(TickerProfile.sector)
+                .join(Instrument, TickerProfile.instrument_id == Instrument.id)
+                .where(Instrument.ticker == ticker)
+                .order_by(*_ACTIVE_LISTING_FIRST)
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
 
         if sector:
             etf_tickers = _SECTOR_TO_ETFS.get(sector, set())
             if etf_tickers:
-                rows = (
-                    self.session.execute(
-                        select(MacroNews)
-                        .where(
-                            MacroNews.source_ticker.in_(etf_tickers),
-                            *base_filters,
-                        )
-                        .order_by(MacroNews.publish_time.asc())
-                        .limit(limit)
-                    )
-                    .scalars()
-                    .all()
+                rows = self._newest_macro_news(
+                    [MacroNews.source_ticker.in_(etf_tickers), *base_filters], limit
                 )
                 if rows:
                     return rows
 
-        pattern = f"%{ticker}%"
-        rows = (
-            self.session.execute(
-                select(MacroNews)
-                .where(
-                    or_(
-                        MacroNews.title.ilike(pattern),
-                        MacroNews.full_content.ilike(pattern),
-                    ),
-                    *base_filters,
-                )
-                .order_by(MacroNews.publish_time.asc())
-                .limit(limit)
+        return self._newest_ticker_mentions(ticker, base_filters, limit)
+
+    def _newest_ticker_mentions(
+        self,
+        ticker: str,
+        conditions: Sequence[ColumnElement[bool]],
+        limit: int,
+    ) -> Sequence[MacroNews]:
+        """Return the *limit* newest articles that mention *ticker* as a token.
+
+        The SQL ``contains`` filter is only a cheap superset (LIKE cannot express
+        word boundaries portably), so candidates are streamed newest first and
+        confirmed in Python; ``limit`` therefore counts real mentions only.
+        """
+        if len(ticker) < _MIN_TEXT_SEARCH_TICKER_LEN:
+            return []
+
+        mention = re.compile(rf"(?<![A-Za-z0-9]){re.escape(ticker)}(?![A-Za-z0-9])")
+        result = self.session.execute(
+            select(MacroNews)
+            .where(
+                or_(
+                    MacroNews.title.icontains(ticker, autoescape=True),
+                    MacroNews.full_content.icontains(ticker, autoescape=True),
+                ),
+                *conditions,
             )
-            .scalars()
-            .all()
-        )
-        return rows
+            .order_by(MacroNews.publish_time.desc())
+            .execution_options(yield_per=_TEXT_SEARCH_BATCH_SIZE)
+        ).scalars()
+        try:
+            confirmed = (
+                row
+                for row in result
+                if mention.search(row.title or "")
+                or mention.search(row.full_content or "")
+            )
+            return list(reversed(list(islice(confirmed, limit))))
+        finally:
+            result.close()

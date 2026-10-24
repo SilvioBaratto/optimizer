@@ -62,6 +62,54 @@ def test_upsert_updates_nav_on_conflict(db_session):
     assert Decimal(str(got.benchmark)) == Decimal("11")
 
 
+def test_upsert_persists_and_overwrites_benchmark_ticker(db_session):
+    """The benchmark's identity travels with its level and follows a re-mark."""
+    repo = NavHistoryRepository(db_session)
+    d = dt.date(2026, 10, 1)
+    repo.upsert_navs(
+        [{**_row(_PID, d, 100.0, Decimal("450")), "benchmark_ticker": "SPY"}]
+    )
+    db_session.flush()
+    repo.upsert_navs(
+        [{**_row(_PID, d, 100.0, Decimal("90")), "benchmark_ticker": "ACWI"}]
+    )
+    db_session.flush()
+
+    got = db_session.query(NavHistory).one()
+    assert got.benchmark_ticker == "ACWI"
+
+
+def test_has_foreign_benchmark_flags_levels_of_another_or_unknown_benchmark(
+    db_session,
+):
+    """A persisted benchmark level is trusted only when tagged with the current one."""
+    repo = NavHistoryRepository(db_session)
+    d1, d2 = dt.date(2026, 10, 1), dt.date(2026, 10, 2)
+    repo.upsert_navs(
+        [{**_row(_PID, d1, 100.0, Decimal("450")), "benchmark_ticker": "SPY"}]
+    )
+    db_session.flush()
+
+    assert repo.has_foreign_benchmark(_PID, "SPY") is False
+    assert repo.has_foreign_benchmark(_PID, "ACWI") is True
+    assert repo.has_foreign_benchmark(_PID, None) is True
+
+    # An untagged (pre-migration) level has unknown identity: also foreign.
+    repo.upsert_navs([_row(_PID, d2, 101.0, Decimal("451"))])
+    db_session.flush()
+    assert repo.has_foreign_benchmark(_PID, "SPY") is True
+
+
+def test_has_foreign_benchmark_ignores_rows_without_a_level(db_session):
+    """Rows with no benchmark level cannot mix benchmarks, whatever their tag."""
+    repo = NavHistoryRepository(db_session)
+    repo.upsert_navs([_row(_PID, dt.date(2026, 10, 1), 100.0)])
+    db_session.flush()
+
+    assert repo.has_foreign_benchmark(_PID, "SPY") is False
+    assert repo.has_foreign_benchmark(_PID2, "SPY") is False
+
+
 def test_upsert_empty_returns_zero(db_session):
     """An empty payload writes nothing and returns zero."""
     assert NavHistoryRepository(db_session).upsert_navs([]) == 0
@@ -111,14 +159,43 @@ def test_get_navs_without_range_returns_full_series(db_session):
     assert [n.date for n in got] == [dt.date(2026, 10, 1), dt.date(2026, 10, 2)]
 
 
+def test_last_nav_before_returns_newest_strictly_earlier_row(db_session):
+    """The anchor row is the latest one before the bound, scoped to the portfolio."""
+    repo = NavHistoryRepository(db_session)
+    repo.upsert_navs(
+        [
+            _row(_PID, dt.date(2026, 10, 1), 101.0),
+            _row(_PID, dt.date(2026, 10, 5), 105.0),
+            _row(_PID, dt.date(2026, 10, 9), 109.0),
+            _row(_PID2, dt.date(2026, 10, 7), 999.0),
+        ]
+    )
+    db_session.flush()
+
+    got = repo.last_nav_before(_PID, dt.date(2026, 10, 9))
+
+    assert got is not None
+    assert got.date == dt.date(2026, 10, 5)
+    assert float(got.nav) == 105.0
+
+
+def test_last_nav_before_is_none_without_an_earlier_row(db_session):
+    repo = NavHistoryRepository(db_session)
+    repo.upsert_navs([_row(_PID, dt.date(2026, 10, 5), 105.0)])
+    db_session.flush()
+
+    assert repo.last_nav_before(_PID, dt.date(2026, 10, 5)) is None
+    assert repo.last_nav_before(_PID2, dt.date(2026, 10, 9)) is None
+
+
 def test_module_declares_no_agent_stack_imports():
     """The repo module's own imports reference no agent stack.
 
-    langgraph is pulled by the ``fund.audit`` package ``__init__`` (via
-    persistence) and is a known, shared cost; the scheduler stays agent-stack-free
-    by lazy-importing this repo inside the step. What must hold here is that this
-    module declares no ``deepagents`` / ``langgraph`` / ``fund.agents`` import of
-    its own, so the lazy import adds no deep-agent dependency.
+    The scheduler stays agent-stack-free by lazy-importing this repo inside the
+    step (``fund.audit`` loads its langgraph bootstrap on demand; see
+    ``test_audit_submodule_imports``). What must hold here is that this module
+    declares no ``deepagents`` / ``langgraph`` / ``fund.agents`` import of its own,
+    so the lazy import adds no deep-agent dependency.
     """
     forbidden = ("deepagents", "langgraph", "fund.agents")
     source = Path(nav_history_repository.__file__).read_text(encoding="utf-8")

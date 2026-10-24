@@ -11,6 +11,7 @@ privilege (Windows without Developer Mode).
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -90,6 +91,47 @@ def test_windows_writes_cmd_with_embedded_repo(tmp_path: Path) -> None:
     text = launcher.read_text(encoding="utf-8")
     assert str(path_install._repo_root()) in text
     assert "%~dp0.." not in text
+
+
+def _checkout_under_non_ascii_dir(root: Path) -> Path:
+    repo = root / "Zoë" / "optimizer"
+    (repo / "scripts").mkdir(parents=True)
+    shutil.copy(
+        path_install._repo_root() / "scripts" / "optimizer.cmd",
+        repo / "scripts" / "optimizer.cmd",
+    )
+    return repo
+
+
+def test_windows_launcher_encodes_a_non_ascii_repo_in_the_console_code_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """cmd.exe decodes a batch file with the console (OEM) code page, never UTF-8, so
+    a UTF-8 baked path such as C:\\Users\\Zoë turns to mojibake and the launcher
+    points at a directory that does not exist."""
+    monkeypatch.setattr(path_install, "_CMD_ENCODING", "cp850")
+    repo = _checkout_under_non_ascii_dir(tmp_path)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    data = path_install._install_windows(bin_dir, repo).read_bytes()
+    assert str(repo).encode("cp850") in data
+    assert "ë".encode() not in data
+    assert b"\n" not in data.replace(b"\r\n", b"")
+
+
+def test_windows_launcher_rejects_a_repo_path_the_code_page_cannot_encode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unrepresentable path must fail loudly instead of writing a launcher that
+    silently points nowhere, and must not clobber an existing working launcher."""
+    monkeypatch.setattr(path_install, "_CMD_ENCODING", "ascii")
+    repo = _checkout_under_non_ascii_dir(tmp_path)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "optimizer.cmd").write_text("old launcher", encoding="ascii")
+    with pytest.raises(path_install.PathInstallError, match="code page"):
+        path_install._install_windows(bin_dir, repo)
+    assert (bin_dir / "optimizer.cmd").read_text(encoding="ascii") == "old launcher"
 
 
 @pytest.mark.parametrize(
@@ -212,8 +254,10 @@ def test_resolve_repo_ignores_env_without_compose_file(
 def test_resolve_repo_falls_back_to_config_repo_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """With no env, a valid config ``repo_path`` self-heals a moved/relocated repo."""
+    """With no env and a cwd outside any checkout, a valid config ``repo_path``
+    self-heals a moved/relocated repo."""
     monkeypatch.delenv("OPTIMIZER_REPO", raising=False)
+    monkeypatch.chdir(tmp_path)
     repo = tmp_path / "clone"
     repo.mkdir()
     (repo / "docker-compose.yml").write_text("x", encoding="utf-8")
@@ -241,6 +285,41 @@ def test_resolve_repo_walks_up_from_cwd(
     (repo / "docker-compose.yml").write_text("x", encoding="utf-8")
     monkeypatch.chdir(repo / "sub")
     assert path_install.resolve_repo() == repo
+
+
+def test_resolve_repo_prefers_the_cwd_checkout_over_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _no_repo_env: None
+) -> None:
+    """Two valid checkouts: the one the operator is standing in wins over the persisted
+    ``repo_path``, so a worktree run does not silently drive the other checkout."""
+    configured = tmp_path / "configured"
+    configured.mkdir()
+    (configured / "docker-compose.yml").write_text("x", encoding="utf-8")
+    here = tmp_path / "worktree"
+    (here / "sub").mkdir(parents=True)
+    (here / "docker-compose.yml").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(
+        path_install.config_file,
+        "load_config",
+        lambda **kw: {"repo_path": str(configured)},
+    )
+    monkeypatch.chdir(here / "sub")
+    assert path_install.resolve_repo() == here
+
+
+def test_resolve_repo_prefers_env_over_the_cwd_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _no_repo_env: None
+) -> None:
+    """An explicit OPTIMIZER_REPO still outranks wherever the operator happens to be."""
+    pinned = tmp_path / "pinned"
+    pinned.mkdir()
+    (pinned / "docker-compose.yml").write_text("x", encoding="utf-8")
+    here = tmp_path / "worktree"
+    here.mkdir()
+    (here / "docker-compose.yml").write_text("x", encoding="utf-8")
+    monkeypatch.setenv("OPTIMIZER_REPO", str(pinned))
+    monkeypatch.chdir(here)
+    assert path_install.resolve_repo() == pinned
 
 
 def test_install_launcher_persists_repo_path(

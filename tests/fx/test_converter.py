@@ -413,6 +413,45 @@ class TestFxPriceConverterDecimalInput:
         )
         pd.testing.assert_series_equal(result["LLOY.L"], expected, check_names=False)
 
+    def test_decimal_fx_rates_converted(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        prices = pd.DataFrame({"LLOY.L": [50.0, 51.0, 52.0, 53.0]}, index=dates)
+        fx = pd.DataFrame({"GBP": [Decimal("1.16")] * 4}, index=dates)
+        assert fx["GBP"].dtype == object  # sanity: Decimal object dtype
+
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map={"LLOY.L": "GBP"}, fx_rates=fx
+        )
+        result = converter.fit_transform(prices)
+
+        expected = pd.Series([v * 1.16 for v in (50.0, 51.0, 52.0, 53.0)], index=dates)
+        pd.testing.assert_series_equal(result["LLOY.L"], expected, check_names=False)
+
+    def test_decimal_fx_rates_with_gap_still_forward_fill(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        prices = pd.DataFrame({"LLOY.L": [50.0] * 4}, index=dates)
+        fx = pd.DataFrame(
+            {"GBP": [Decimal("1.10"), None, None, Decimal("1.20")]}, index=dates
+        )
+
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map={"LLOY.L": "GBP"}, fx_rates=fx
+        )
+        result = converter.fit_transform(prices)
+
+        assert result["LLOY.L"].tolist() == pytest.approx([55.0, 55.0, 55.0, 60.0])
+
+    def test_non_numeric_fx_rates_raise_data_error(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=2)
+        prices = pd.DataFrame({"LLOY.L": [50.0, 51.0]}, index=dates)
+        fx = pd.DataFrame({"GBP": ["n/a", "n/a"]}, index=dates)
+
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map={"LLOY.L": "GBP"}, fx_rates=fx
+        )
+        with pytest.raises(DataError, match="numeric"):
+            converter.fit(prices)
+
 
 class TestFxPriceConverterFillLimitWarning:
     """Tests for fill_limit exhaustion NaN warning."""
@@ -525,3 +564,344 @@ class TestFxPriceConverterFillLimitWarning:
         # Warning must report correct total NaN count (6) and include hint
         assert any("6" in m for m in warning_messages)
         assert any("Consider increasing fill_limit" in m for m in warning_messages)
+
+
+class TestFxPriceConverterUnmappedTickers:
+    """A column with no known currency must never be silently valued as base."""
+
+    @staticmethod
+    def _prices() -> pd.DataFrame:
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        return pd.DataFrame(
+            {"VOD.L": [70.0, 71.0, 72.0, 73.0], "AAPL": [190.0] * 4}, index=dates
+        )
+
+    @staticmethod
+    def _fx(prices: pd.DataFrame) -> pd.DataFrame:
+        return pd.DataFrame({"USD": [0.9] * 4}, index=prices.index)
+
+    def test_ticker_absent_from_currency_map_is_flagged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        prices = self._prices()
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"AAPL": "USD"},
+            fx_rates=self._fx(prices),
+        )
+        with caplog.at_level(logging.WARNING, logger="optimizer.fx._converter"):
+            converter.fit(prices)
+
+        assert any(
+            "VOD.L" in r.message and r.levelno == logging.WARNING
+            for r in caplog.records
+        )
+        assert converter.unmapped_tickers_ == ["VOD.L"]
+        assert "AAPL" not in converter.unmapped_tickers_
+
+    def test_ticker_absent_from_currency_map_raises_when_full_coverage_required(
+        self,
+    ) -> None:
+        prices = self._prices()
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"AAPL": "USD"},
+            fx_rates=self._fx(prices),
+            require_full_coverage=True,
+        )
+        with pytest.raises(DataError, match=r"VOD\.L"):
+            converter.fit(prices)
+
+    @pytest.mark.parametrize("missing_code", [None, float("nan"), "", "  "])
+    def test_null_currency_code_is_unknown_not_a_bogus_currency(
+        self, missing_code: object
+    ) -> None:
+        prices = self._prices()
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"AAPL": "USD", "VOD.L": missing_code},  # type: ignore[dict-item]
+            fx_rates=self._fx(prices),
+        )
+        converter.fit(prices)
+
+        assert converter.unmapped_tickers_ == ["VOD.L"]
+        assert converter.missing_currencies_ == set()
+        assert "VOD.L" not in converter.foreign_tickers_
+
+    def test_null_currency_code_raises_unmapped_error_when_full_coverage_required(
+        self,
+    ) -> None:
+        prices = self._prices()
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"AAPL": "USD", "VOD.L": None},  # type: ignore[dict-item]
+            fx_rates=self._fx(prices),
+            require_full_coverage=True,
+        )
+        with pytest.raises(DataError, match=r"VOD\.L") as excinfo:
+            converter.fit(prices)
+        assert "NONE" not in str(excinfo.value)
+
+    def test_fully_mapped_frame_has_no_unmapped_tickers(
+        self,
+        local_prices: pd.DataFrame,
+        currency_map: dict[str, str],
+        fx_rates: pd.DataFrame,
+    ) -> None:
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map=currency_map,
+            fx_rates=fx_rates,
+            require_full_coverage=True,
+        )
+        converter.fit(local_prices)
+        assert converter.unmapped_tickers_ == []
+
+
+class TestFxPriceConverterTransformOtherWindow:
+    """transform() must convert any window the rate frame covers, not just the
+    window seen at fit time."""
+
+    def test_transform_converts_dates_outside_fit_window(
+        self,
+        local_prices: pd.DataFrame,
+        currency_map: dict[str, str],
+        fx_rates: pd.DataFrame,
+    ) -> None:
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map=currency_map, fx_rates=fx_rates
+        )
+        converter.fit(local_prices.iloc[:5])
+        result = converter.transform(local_prices.iloc[5:])
+
+        assert not result.isna().any().any()
+        expected = local_prices.iloc[5:]["LLOY.L"] * fx_rates["GBP"].iloc[5:]
+        pd.testing.assert_series_equal(result["LLOY.L"], expected, check_names=False)
+        expected_spy = local_prices.iloc[5:]["SPY"] * fx_rates["USD"].iloc[5:]
+        pd.testing.assert_series_equal(result["SPY"], expected_spy, check_names=False)
+
+    def test_fit_window_does_not_change_transform_output(
+        self,
+        local_prices: pd.DataFrame,
+        currency_map: dict[str, str],
+        fx_rates: pd.DataFrame,
+    ) -> None:
+        def make() -> FxPriceConverter:
+            return FxPriceConverter(
+                base_currency="EUR", currency_map=currency_map, fx_rates=fx_rates
+            )
+
+        fit_on_head = make().fit(local_prices.iloc[:5])
+        fit_on_all = make().fit(local_prices)
+
+        pd.testing.assert_frame_equal(
+            fit_on_head.transform(local_prices.iloc[5:]),
+            fit_on_all.transform(local_prices).iloc[5:],
+        )
+
+    def test_minor_unit_ticker_converted_outside_fit_window(self) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=10)
+        prices = pd.DataFrame({"AAA.L": np.linspace(5000.0, 5900.0, 10)}, index=dates)
+        rate = pd.Series(np.linspace(1.15, 1.17, 10), index=dates)
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"AAA.L": "GBp"},
+            fx_rates=pd.DataFrame({"GBP": rate}),
+        ).fit(prices.iloc[:5])
+
+        result = converter.transform(prices.iloc[5:])
+
+        expected = prices["AAA.L"].iloc[5:] / 100.0 * rate.iloc[5:]
+        pd.testing.assert_series_equal(result["AAA.L"], expected, check_names=False)
+
+
+class TestFxPriceConverterTransformColumns:
+    """Columns the converter never resolved at fit must not pass through raw."""
+
+    @staticmethod
+    def _make(prices: pd.DataFrame) -> FxPriceConverter:
+        rate = pd.DataFrame({"GBP": [1.15] * len(prices)}, index=prices.index)
+        return FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"A": "GBP", "B": "GBp"},
+            fx_rates=rate,
+        )
+
+    @staticmethod
+    def _prices() -> pd.DataFrame:
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        return pd.DataFrame({"A": [10.0] * 4, "B": [1000.0] * 4}, index=dates)
+
+    def test_column_unseen_at_fit_raises(self) -> None:
+        prices = self._prices()
+        converter = self._make(prices).fit(prices[["A"]])
+
+        with pytest.raises(DataError, match="not seen during fit"):
+            converter.transform(prices)
+
+    def test_subset_and_reordered_columns_still_convert(self) -> None:
+        prices = self._prices()
+        converter = self._make(prices).fit(prices)
+
+        reordered = converter.transform(prices[["B", "A"]])
+        only_b = converter.transform(prices[["B"]])
+
+        assert list(reordered.columns) == ["B", "A"]
+        assert reordered["B"].iloc[0] == pytest.approx(1000.0 / 100.0 * 1.15)
+        assert reordered["A"].iloc[0] == pytest.approx(10.0 * 1.15)
+        assert only_b["B"].iloc[0] == pytest.approx(1000.0 / 100.0 * 1.15)
+
+
+class TestFxPriceConverterInvalidRates:
+    """A zero or non-finite FX print is missing data, not a 0 or inf rate."""
+
+    @pytest.mark.parametrize("bad_rate", [0.0, np.inf, -1.2])
+    def test_bad_rate_yields_nan_price_and_warning(
+        self, bad_rate: float, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        dates = pd.bdate_range("2024-01-02", periods=3)
+        prices = pd.DataFrame({"LLOY.L": [50.0, 51.0, 52.0]}, index=dates)
+        fx = pd.DataFrame({"GBP": [bad_rate, 1.2, 1.2]}, index=dates)
+        converter = FxPriceConverter(
+            base_currency="EUR", currency_map={"LLOY.L": "GBP"}, fx_rates=fx
+        )
+        converter.fit(prices)
+
+        with caplog.at_level(logging.WARNING, logger="optimizer.fx._converter"):
+            result = converter.transform(prices)
+
+        assert np.isnan(result["LLOY.L"].iloc[0])
+        assert result["LLOY.L"].iloc[1:].tolist() == pytest.approx([61.2, 62.4])
+        assert any("NaN prices" in r.message for r in caplog.records)
+
+
+class TestFxPriceConverterTimezones:
+    """Prices and rates may differ in tz-awareness; dates still line up."""
+
+    @staticmethod
+    def _frames(
+        price_tz: str | None, fx_tz: str | None
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        dates = pd.bdate_range("2024-01-02", periods=5)
+        prices = pd.DataFrame({"LLOY.L": [50.0] * 5}, index=dates.tz_localize(price_tz))
+        fx = pd.DataFrame({"GBP": [1.2] * 5}, index=dates.tz_localize(fx_tz))
+        return prices, fx
+
+    @pytest.mark.parametrize(
+        ("price_tz", "fx_tz"), [("UTC", None), (None, "UTC"), ("Europe/London", None)]
+    )
+    def test_mixed_tz_awareness_converts_instead_of_all_nan(
+        self, price_tz: str | None, fx_tz: str | None
+    ) -> None:
+        prices, fx = self._frames(price_tz, fx_tz)
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"LLOY.L": "GBP"},
+            fx_rates=fx,
+            require_full_coverage=True,
+        )
+
+        result = converter.fit_transform(prices)
+
+        assert result["LLOY.L"].tolist() == pytest.approx([60.0] * 5)
+        assert result.index.equals(prices.index)
+
+
+class TestFxPriceConverterZeroFillLimit:
+    """fill_limit=0 is the valid way to ask for exact-date rates only."""
+
+    def test_zero_fill_limit_converts_on_rate_dates_and_flags_gaps(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        dates = pd.bdate_range("2024-01-02", periods=3)
+        prices = pd.DataFrame({"LLOY.L": [50.0, 51.0, 52.0]}, index=dates)
+        fx = pd.DataFrame({"GBP": [1.2, 1.3]}, index=dates[[0, 2]])
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"LLOY.L": "GBP"},
+            fx_rates=fx,
+            fill_limit=0,
+        )
+
+        with caplog.at_level(logging.WARNING, logger="optimizer.fx._converter"):
+            result = converter.fit(prices).transform(prices)
+
+        assert result["LLOY.L"].iloc[0] == pytest.approx(60.0)
+        assert np.isnan(result["LLOY.L"].iloc[1])
+        assert result["LLOY.L"].iloc[2] == pytest.approx(67.6)
+        assert any("NaN prices" in r.message for r in caplog.records)
+
+
+class TestFxPriceConverterUnlimitedFillLimit:
+    """fill_limit=None leaves the carried rate's age uncapped."""
+
+    def test_none_fill_limit_carries_the_last_rate_forward(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        dates = pd.to_datetime(["2024-01-31", "2024-02-29", "2024-12-31"])
+        prices = pd.DataFrame({"LLOY.L": [50.0, 51.0, 52.0]}, index=dates)
+        fx = pd.DataFrame({"GBP": [1.2]}, index=dates[:1])
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"LLOY.L": "GBP"},
+            fx_rates=fx,
+            fill_limit=None,  # type: ignore[arg-type]
+        )
+
+        with caplog.at_level(logging.WARNING, logger="optimizer.fx._converter"):
+            result = converter.fit(prices).transform(prices)
+
+        assert result["LLOY.L"].tolist() == pytest.approx([60.0, 61.2, 62.4])
+        assert not caplog.records
+
+    def test_none_fill_limit_gap_warning_does_not_break_logging(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        dates = pd.bdate_range("2024-01-02", periods=2)
+        prices = pd.DataFrame({"LLOY.L": [50.0, 51.0]}, index=dates)
+        fx = pd.DataFrame({"GBP": [1.2]}, index=pd.DatetimeIndex(["2024-01-03"]))
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"LLOY.L": "GBP"},
+            fx_rates=fx,
+            fill_limit=None,  # type: ignore[arg-type]
+        )
+
+        with caplog.at_level(logging.WARNING, logger="optimizer.fx._converter"):
+            result = converter.fit(prices).transform(prices)
+
+        assert np.isnan(result["LLOY.L"].iloc[0])
+        nan_records = [r for r in caplog.records if "NaN prices" in r.getMessage()]
+        assert nan_records
+        assert "fill_limit=None" in nan_records[0].getMessage()
+
+
+class TestFxPriceConverterMixedZones:
+    """Two tz-aware axes in different zones still pair up by local date."""
+
+    def test_different_zones_convert_at_the_same_days_rate(self) -> None:
+        naive = pd.bdate_range("2024-06-03", periods=3)
+        prices = pd.DataFrame(
+            {"LLOY.L": [50.0, 50.0, 50.0]}, index=naive.tz_localize("Europe/London")
+        )
+        fx = pd.DataFrame({"GBP": [1.1, 1.2, 1.3]}, index=naive.tz_localize("UTC"))
+        converter = FxPriceConverter(
+            base_currency="EUR",
+            currency_map={"LLOY.L": "GBP"},
+            fx_rates=fx,
+            fill_limit=0,
+        )
+
+        result = converter.fit_transform(prices)
+
+        assert result["LLOY.L"].tolist() == pytest.approx([55.0, 60.0, 65.0])

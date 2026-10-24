@@ -32,26 +32,26 @@ logger = logging.getLogger(__name__)
 
 
 class Trading212NotConfiguredError(RuntimeError):
-    """Raised when a universe build is requested without a Trading 212 API key."""
+    """Raised when a Trading 212 call is requested without both API credentials."""
 
 
 def build_trading212_client() -> Trading212Client:
     """Construct a Trading 212 client from settings.
 
-    Raises:
-        Trading212NotConfiguredError: when ``TRADING_212_API_KEY`` is unset.
-    """
-    from app.config import settings
+    Delegates to :meth:`Trading212Client.from_settings` so the "configured"
+    gate (API key *and* secret) has one definition.
 
-    if not settings.trading_212_api_key:
+    Raises:
+        Trading212NotConfiguredError: when ``TRADING_212_API_KEY`` or
+            ``TRADING_212_SECRET_KEY`` is unset.
+    """
+    client = Trading212Client.from_settings()
+    if client is None:
+        missing = " and ".join(Trading212Client.missing_credentials())
         raise Trading212NotConfiguredError(
-            "TRADING_212_API_KEY is not set — cannot build the instrument universe"
+            f"{missing} not set — Trading 212 is not configured"
         )
-    return Trading212Client(
-        api_key=settings.trading_212_api_key,
-        api_secret=settings.trading_212_secret_key,
-        mode=settings.trading_212_mode,
-    )
+    return client
 
 
 def run_universe_build(
@@ -75,9 +75,6 @@ def run_universe_build(
         ``total_processed``, ``filter_stats``, and ``errors``.
     """
     config = UniverseBuilderConfig()
-    source = YFinanceUniverseSource(
-        screener=get_yfinance_client().screener, config=config
-    )
 
     def _forward(p: BuildProgress) -> None:
         on_progress(
@@ -88,11 +85,17 @@ def run_universe_build(
         )
 
     with database_manager.get_session() as session:
+        repository = UniverseRepository(session)
+        source = YFinanceUniverseSource(
+            screener=get_yfinance_client().screener,
+            config=config,
+            member_lookup=repository.get_active_listings,
+        )
         builder = UniverseBuilder(
             config=config,
             api_client=source,
             ticker_mapper=PassThroughTickerMapper(),
-            repository=UniverseRepository(session),
+            repository=repository,
             max_workers=request.max_workers,
             only_exchanges=request.exchanges,
             progress_callback=_forward,

@@ -120,6 +120,27 @@ class TestFitFactorPrior:
         model = fit_factor_prior(asset_returns, f)
         assert hasattr(model, "return_distribution_")
 
+    def test_drops_infinite_periods(
+        self, asset_returns: pd.DataFrame, factor_returns: pd.DataFrame
+    ) -> None:
+        # pct_change on a zero price yields +/-inf; notna() lets it through
+        # and skfolio then rejects it, so it must be dropped like a NaN row.
+        x = asset_returns.copy()
+        x.iloc[5, 2] = np.inf
+        f = factor_returns.copy()
+        f.iloc[9, 1] = -np.inf
+        model = fit_factor_prior(x, f)
+        assert np.isfinite(np.asarray(model.return_distribution_.mu)).all()
+
+    def test_infinite_periods_count_against_min_observations(
+        self, asset_returns: pd.DataFrame, factor_returns: pd.DataFrame
+    ) -> None:
+        x = asset_returns.iloc[:14].copy()
+        x.iloc[:5, 0] = np.inf
+        cfg = FactorPriorConfig(min_observations=12)
+        with pytest.raises(DataError, match="fully-finite"):
+            fit_factor_prior(x, factor_returns.iloc[:14], cfg)
+
     def test_no_common_dates_raises(
         self, asset_returns: pd.DataFrame, factor_returns: pd.DataFrame
     ) -> None:
@@ -139,3 +160,23 @@ class TestFitFactorPrior:
     def test_empty_frame_raises(self, asset_returns: pd.DataFrame) -> None:
         with pytest.raises(DataError, match="non-empty"):
             fit_factor_prior(asset_returns.iloc[:0], asset_returns.iloc[:0])
+
+    def test_duplicate_dates_raise_data_error(
+        self, asset_returns: pd.DataFrame, factor_returns: pd.DataFrame
+    ) -> None:
+        # Duplicated labels make ``.loc[common]`` expand rows in one frame
+        # only, so the two frames would otherwise end up with different lengths.
+        dup = pd.concat([asset_returns, asset_returns.iloc[:5]])
+        with pytest.raises(DataError, match="duplicate"):
+            fit_factor_prior(dup, factor_returns)
+        dup_f = pd.concat([factor_returns, factor_returns.iloc[:5]])
+        with pytest.raises(DataError, match="duplicate"):
+            fit_factor_prior(asset_returns, dup_f)
+
+    def test_duplicate_dates_in_both_frames_raise_data_error(
+        self, asset_returns: pd.DataFrame, factor_returns: pd.DataFrame
+    ) -> None:
+        dup = pd.concat([asset_returns, asset_returns.iloc[:5]])
+        dup_f = pd.concat([factor_returns, factor_returns.iloc[:5]])
+        with pytest.raises(DataError, match="duplicate"):
+            fit_factor_prior(dup, dup_f)

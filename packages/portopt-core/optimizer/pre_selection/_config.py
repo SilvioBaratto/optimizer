@@ -42,19 +42,27 @@ class PreSelectionConfig:
         max_abs_return: Maximum absolute return before treating as a data
             error (DataValidator).
         winsorize_threshold: Z-score threshold for winsorisation
-            (OutlierTreater).
+            (OutlierTreater). Must be positive and below ``remove_threshold``:
+            a non-positive value clips every observation onto (or past) the
+            mean instead of only the tails.
         remove_threshold: Z-score threshold for removal as a data error
             (OutlierTreater).
         outlier_method: Outlier detection approach. Currently only
             ``"time_series"`` is supported (per-column z-scores).
         imputation_fallback: Fallback when sector data is unavailable.
-            ``"global_mean"`` uses the cross-sectional mean across all assets.
+            Only ``"global_mean"`` (the cross-sectional mean across all assets)
+            is supported; any other value is rejected rather than silently
+            ignored by the imputer.
         zero_variance_threshold: Variance below which an asset is treated as
             constant and dropped (``DropZeroVariance``). Must be non-negative.
         drop_internal_nan: Forwarded to
             ``SelectComplete.drop_assets_with_internal_nan``. When ``True``,
             assets carrying NaNs inside their history (not just leading/trailing
-            gaps) are also removed.
+            gaps) are also removed. Completeness is judged on the frame as
+            supplied, before cleaning, so only a NaN the caller passed in
+            counts: a value that validation or outlier treatment blanks later is
+            imputed like any other cleaning gap, because it is a bad observation
+            of a live asset rather than a missing history.
         correlation_threshold: Pairwise correlation above which an asset is
             dropped (``DropCorrelated``).
         correlation_absolute: If ``True``, use absolute correlation values.
@@ -70,7 +78,9 @@ class PreSelectionConfig:
         pareto_threshold: Domination threshold forwarded to
             ``SelectNonDominated.threshold`` (skfolio default ``-0.5``).
         use_non_expiring: If ``True``, apply ``SelectNonExpiring`` to remove
-            soon-expiring assets.
+            soon-expiring assets.  Requires ``expiration_lookahead`` here and
+            ``expiration_dates`` on the pipeline factory; building without
+            either raises ``ValueError``.
         expiration_lookahead: Number of calendar days to look ahead for
             expiring assets, forwarded to ``SelectNonExpiring`` as a
             ``timedelta``.
@@ -99,6 +109,15 @@ class PreSelectionConfig:
     is_log_normal: bool = True
 
     def __post_init__(self) -> None:
+        if self.imputation_fallback != "global_mean":
+            raise ValueError(
+                f"Unsupported imputation_fallback {self.imputation_fallback!r}. "
+                "Only 'global_mean' is currently supported."
+            )
+        if not self.winsorize_threshold > 0:
+            raise ValueError(
+                f"winsorize_threshold must be positive, got {self.winsorize_threshold}"
+            )
         if self.winsorize_threshold >= self.remove_threshold:
             raise ValueError(
                 f"winsorize_threshold ({self.winsorize_threshold}) must be "

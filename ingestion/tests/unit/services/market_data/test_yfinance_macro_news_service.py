@@ -17,7 +17,9 @@ Design
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import time
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -30,6 +32,7 @@ from app.services.market_data.yfinance.news.macro_news import (
     MACRO_TICKERS,
     TRUSTED_PUBLISHERS,
     MacroNewsFetcher,
+    MacroNewsUnavailableError,
     MacroTheme,
     _classify_themes,
     _make_news_id,
@@ -241,6 +244,373 @@ class TestMacroNewsFetcherFetchAll:
             scraper=MagicMock(),
         )
         fetcher._news_client = MagicMock()
-        fetcher._news_client.fetch.return_value = []
+        fetcher._news_client.fetch.return_value = [_trusted_article()]
         fetcher.fetch_all(max_articles=5)
         assert search_client.search.call_count == len(MACRO_SEARCH_QUERIES)
+
+
+class TestMacroNewsFetcherTotalOutage:
+    """A run where no source delivered anything must not look like a quiet day."""
+
+    def test_when_every_source_raises_then_outage_error_is_raised(self) -> None:
+        search_client = MagicMock()
+        search_client.search.side_effect = RuntimeError("search down")
+        fetcher = MacroNewsFetcher(
+            yf_client=MagicMock(),
+            search_client=search_client,
+            scraper=MagicMock(),
+        )
+        fetcher._news_client = MagicMock()
+        fetcher._news_client.fetch.side_effect = RuntimeError("feed down")
+
+        with pytest.raises(MacroNewsUnavailableError):
+            fetcher.fetch_all(max_articles=5)
+
+    def test_when_every_source_returns_nothing_then_outage_error_is_raised(
+        self,
+    ) -> None:
+        search_client = MagicMock()
+        search_client.search.return_value = None
+        fetcher = MacroNewsFetcher(
+            yf_client=MagicMock(),
+            search_client=search_client,
+            scraper=MagicMock(),
+        )
+        fetcher._news_client = MagicMock()
+        fetcher._news_client.fetch.return_value = []
+
+        with pytest.raises(MacroNewsUnavailableError):
+            fetcher.fetch_all(max_articles=5)
+
+    def test_when_outage_then_message_reports_failed_and_empty_source_counts(
+        self,
+    ) -> None:
+        search_client = MagicMock()
+        search_client.search.return_value = {"news": []}
+        fetcher = MacroNewsFetcher(
+            yf_client=MagicMock(),
+            search_client=search_client,
+            scraper=MagicMock(),
+        )
+        fetcher._news_client = MagicMock()
+        fetcher._news_client.fetch.side_effect = RuntimeError("feed down")
+
+        with pytest.raises(MacroNewsUnavailableError) as excinfo:
+            fetcher.fetch_all(max_articles=5)
+
+        message = str(excinfo.value)
+        assert f"{len(MACRO_TICKERS)} failed" in message
+        assert f"{len(MACRO_SEARCH_QUERIES)} empty" in message
+
+    def test_when_one_source_delivers_then_no_error_even_if_rest_fail(self) -> None:
+        search_client = MagicMock()
+        search_client.search.side_effect = RuntimeError("search down")
+        fetcher = MacroNewsFetcher(
+            yf_client=MagicMock(),
+            search_client=search_client,
+            scraper=MagicMock(),
+        )
+        fetcher._news_client = MagicMock()
+        fetcher._news_client.fetch.side_effect = [
+            [_trusted_article("Fed holds rates")],
+            *[RuntimeError("feed down")] * (len(MACRO_TICKERS) - 1),
+        ]
+
+        result = fetcher.fetch_all(max_articles=5)
+
+        assert [a["title"] for a in result] == ["Fed holds rates"]
+
+    def test_when_sources_deliver_only_filtered_articles_then_no_error(self) -> None:
+        fetcher = _build_macro_fetcher(news_articles=[_untrusted_article()])
+
+        assert fetcher.fetch_all(max_articles=5) == []
+
+
+class TestMacroNewsPublishTimeIsUtc:
+    """publish_time feeds a TIMESTAMPTZ column, so it must carry its offset."""
+
+    def test_when_search_article_has_epoch_time_then_publish_time_is_utc_iso(
+        self, host_timezone: Callable[[str], None]
+    ) -> None:
+        host_timezone("Asia/Tokyo")
+        epoch = int(time.time()) - 3600
+        article = {
+            "title": "Fed holds rates",
+            "providerPublishTime": epoch,
+            "publisher": "Reuters",
+            "link": "https://reuters.com/fed",
+        }
+        fetcher = _build_macro_fetcher(search_news=[article])
+
+        result = fetcher.fetch_all(max_articles=30)
+
+        expected = datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
+        assert [a["publish_time"] for a in result] == [expected]
+
+
+def _article(
+    title: str, *, age: timedelta, publisher: str = "Reuters"
+) -> dict[str, Any]:
+    published = datetime.now(timezone.utc) - age
+    return {
+        "title": title,
+        "pubDate": published.isoformat(),
+        "publisher": publisher,
+        "link": f"https://reuters.com/{title.replace(' ', '-')}",
+    }
+
+
+def _build_feed_fetcher(
+    ticker_feeds: dict[str, list[dict[str, Any]]],
+    search_feeds: dict[str, list[dict[str, Any]]],
+    scraper: Any = None,
+) -> MacroNewsFetcher:
+    """Build a fetcher whose feeds differ per ticker and per search query."""
+    search_client = MagicMock(name="search_client")
+    search_client.search.side_effect = lambda query, max_results=8: {
+        "news": search_feeds.get(query, [])
+    }
+    fetcher = MacroNewsFetcher(
+        yf_client=MagicMock(name="yf_client"),
+        search_client=search_client,
+        scraper=scraper,
+    )
+    fetcher._news_client = MagicMock()
+    fetcher._news_client.fetch.side_effect = lambda ticker: ticker_feeds.get(ticker, [])
+    return fetcher
+
+
+class TestMacroNewsFetcherSearchPriority:
+    def test_when_budget_below_search_count_then_search_keeps_forty_percent(
+        self,
+    ) -> None:
+        tickers = list(MACRO_TICKERS)[:3]
+        ticker_feeds = {
+            t: [
+                _article(f"{t} fresh story {i}", age=timedelta(minutes=i))
+                for i in range(3)
+            ]
+            for t in tickers
+        }
+        search_feeds = {
+            next(iter(MACRO_SEARCH_QUERIES)): [
+                _article(f"Search story {i}", age=timedelta(days=1, minutes=i))
+                for i in range(11)
+            ]
+        }
+        fetcher = _build_feed_fetcher(ticker_feeds, search_feeds)
+
+        result = fetcher.fetch_all(max_articles=5)
+
+        from_search = [a for a in result if a["source_query"] is not None]
+        assert len(from_search) >= 2
+
+
+class TestMacroNewsFetcherTitleDedup:
+    """Only articles that end up in the result may shadow a later duplicate."""
+
+    def test_when_untrusted_copy_seen_first_then_trusted_copy_is_kept(self) -> None:
+        first, second = list(MACRO_TICKERS)[:2]
+        title = "Fed holds rates steady"
+        ticker_feeds = {
+            first: [_article(title, age=timedelta(hours=1), publisher="Zacks")],
+            second: [_article(title, age=timedelta(hours=1))],
+        }
+        fetcher = _build_feed_fetcher(ticker_feeds, {})
+
+        result = fetcher.fetch_all(max_articles=30)
+
+        assert [(a["title"], a["publisher"]) for a in result] == [(title, "Reuters")]
+
+    def test_when_ticker_cap_cuts_title_then_search_copy_is_kept(self) -> None:
+        ticker = next(iter(MACRO_TICKERS))
+        ticker_feeds = {
+            ticker: [
+                _article(f"Story {i}", age=timedelta(hours=i)) for i in range(1, 6)
+            ]
+        }
+        search_feeds = {
+            next(iter(MACRO_SEARCH_QUERIES)): [
+                _article(f"Story {i}", age=timedelta(hours=i, minutes=1))
+                for i in (4, 5)
+            ]
+        }
+        fetcher = _build_feed_fetcher(ticker_feeds, search_feeds)
+
+        result = fetcher.fetch_all(max_articles=30, max_per_ticker=3)
+
+        assert {a["title"] for a in result} == {f"Story {i}" for i in range(1, 6)}
+
+    def test_when_title_repeats_across_feeds_then_it_is_returned_once(self) -> None:
+        first, second = list(MACRO_TICKERS)[:2]
+        title = "Fed holds rates steady"
+        ticker_feeds = {
+            first: [_article(title, age=timedelta(hours=1))],
+            second: [_article(title, age=timedelta(hours=1))],
+        }
+        search_feeds = {
+            next(iter(MACRO_SEARCH_QUERIES)): [_article(title, age=timedelta(hours=1))]
+        }
+        fetcher = _build_feed_fetcher(ticker_feeds, search_feeds)
+
+        result = fetcher.fetch_all(max_articles=30)
+
+        assert [a["title"] for a in result] == [title]
+
+
+class _FakeScraper:
+    """Scraper stub: links containing ``paywalled`` fail, ``stub`` is too short."""
+
+    def __init__(self) -> None:
+        self.fetched: list[str] = []
+
+    def fetch(self, url: str) -> dict[str, Any]:
+        self.fetched.append(url)
+        lowered = url.lower()
+        if "paywalled" in lowered:
+            return {"success": False, "content": None, "content_length": None}
+        text = "short" if "stub" in lowered else "body " * 60
+        return {"success": True, "content": text, "content_length": len(text)}
+
+
+class TestMacroNewsFetcherFullContentSelection:
+    """With full content requested, only scrapable articles use up the caps."""
+
+    def test_when_newest_articles_fail_to_scrape_then_scrapable_ones_fill_cap(
+        self,
+    ) -> None:
+        ticker = next(iter(MACRO_TICKERS))
+        feed = [
+            _article("Paywalled one", age=timedelta(hours=1)),
+            _article("Stub page", age=timedelta(hours=2)),
+            _article("Paywalled two", age=timedelta(hours=3)),
+            *(_article(f"Readable {i}", age=timedelta(hours=4 + i)) for i in range(3)),
+        ]
+        fetcher = _build_feed_fetcher({ticker: feed}, {}, scraper=_FakeScraper())
+
+        result = fetcher.fetch_all(
+            max_articles=30, fetch_full_content=True, max_per_ticker=3
+        )
+
+        assert sorted(a["title"] for a in result) == [f"Readable {i}" for i in range(3)]
+        assert all(a["full_content"] for a in result)
+
+    def test_when_ticker_cap_is_full_then_remaining_articles_are_not_scraped(
+        self,
+    ) -> None:
+        ticker = next(iter(MACRO_TICKERS))
+        feed = [_article(f"Story {i}", age=timedelta(hours=i)) for i in range(1, 9)]
+        scraper = _FakeScraper()
+        fetcher = _build_feed_fetcher({ticker: feed}, {}, scraper=scraper)
+
+        fetcher.fetch_all(max_articles=30, fetch_full_content=True, max_per_ticker=3)
+
+        assert len(scraper.fetched) == 3
+
+    def test_when_full_content_not_requested_then_unscraped_articles_are_kept(
+        self,
+    ) -> None:
+        ticker = next(iter(MACRO_TICKERS))
+        feed = [_article("Paywalled one", age=timedelta(hours=1))]
+        scraper = _FakeScraper()
+        fetcher = _build_feed_fetcher({ticker: feed}, {}, scraper=scraper)
+
+        result = fetcher.fetch_all(max_articles=30, fetch_full_content=False)
+
+        assert [a["title"] for a in result] == ["Paywalled one"]
+        assert scraper.fetched == []
+
+    def test_when_search_article_fails_to_scrape_then_it_is_dropped(self) -> None:
+        query = next(iter(MACRO_SEARCH_QUERIES))
+        search_feeds = {
+            query: [
+                _article("Paywalled search", age=timedelta(hours=1)),
+                _article("Readable search", age=timedelta(hours=2)),
+            ]
+        }
+        fetcher = _build_feed_fetcher({}, search_feeds, scraper=_FakeScraper())
+
+        result = fetcher.fetch_all(max_articles=30, fetch_full_content=True)
+
+        assert [a["title"] for a in result] == ["Readable search"]
+
+    def test_when_scraper_raises_then_that_article_is_skipped(self) -> None:
+        ticker = next(iter(MACRO_TICKERS))
+        feed = [
+            _article("Exploding page", age=timedelta(hours=1)),
+            _article("Readable one", age=timedelta(hours=2)),
+        ]
+        scraper = _FakeScraper()
+        original_fetch = scraper.fetch
+
+        def flaky_fetch(url: str) -> dict[str, Any]:
+            if "exploding" in url.lower():
+                raise RuntimeError("connection reset")
+            return original_fetch(url)
+
+        scraper.fetch = flaky_fetch  # type: ignore[method-assign]
+        fetcher = _build_feed_fetcher({ticker: feed}, {}, scraper=scraper)
+
+        result = fetcher.fetch_all(max_articles=30, fetch_full_content=True)
+
+        assert [a["title"] for a in result] == ["Readable one"]
+
+    @pytest.mark.parametrize(
+        ("max_articles", "expected_scrapes"), [(100, 40), (20, 10), (5, 5)]
+    )
+    def test_when_search_candidates_exceed_budget_then_only_budgeted_are_scraped(
+        self, max_articles: int, expected_scrapes: int
+    ) -> None:
+        """Search articles beyond what the budget can take are never fetched."""
+        query = next(iter(MACRO_SEARCH_QUERIES))
+        search_feeds = {
+            query: [
+                _article(f"Search story {i}", age=timedelta(hours=i + 1))
+                for i in range(60)
+            ]
+        }
+        scraper = _FakeScraper()
+        fetcher = _build_feed_fetcher({}, search_feeds, scraper=scraper)
+
+        result = fetcher.fetch_all(max_articles=max_articles, fetch_full_content=True)
+
+        assert len(scraper.fetched) == expected_scrapes
+        assert len(result) == expected_scrapes
+
+    def test_when_newest_search_candidates_fail_to_scrape_then_cap_still_fills(
+        self,
+    ) -> None:
+        """Failed scrapes do not count against the search budget."""
+        query = next(iter(MACRO_SEARCH_QUERIES))
+        feed = [
+            *(_article(f"Paywalled {i}", age=timedelta(hours=i + 1)) for i in range(3)),
+            *(
+                _article(f"Readable {i}", age=timedelta(hours=10 + i))
+                for i in range(10)
+            ),
+        ]
+        scraper = _FakeScraper()
+        fetcher = _build_feed_fetcher({}, {query: feed}, scraper=scraper)
+
+        result = fetcher.fetch_all(max_articles=5, fetch_full_content=True)
+
+        assert sorted(a["title"] for a in result) == [f"Readable {i}" for i in range(5)]
+        assert len(scraper.fetched) == 3 + 5
+
+    def test_when_full_content_not_requested_then_search_overflow_feeds_theme_pass(
+        self,
+    ) -> None:
+        """Unscraped search candidates cost nothing, so the budget never cuts them."""
+        fed, ism = list(MACRO_SEARCH_QUERIES)[:2]
+        search_feeds = {
+            fed: [
+                _article(f"Fed story {i}", age=timedelta(hours=i + 1))
+                for i in range(45)
+            ],
+            ism: [_article("Factory orders slip", age=timedelta(days=3))],
+        }
+        fetcher = _build_feed_fetcher({}, search_feeds, scraper=_FakeScraper())
+
+        result = fetcher.fetch_all(max_articles=100, fetch_full_content=False)
+
+        assert "Factory orders slip" in {a["title"] for a in result}

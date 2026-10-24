@@ -9,7 +9,11 @@ import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
-from optimizer.exceptions import DataError
+from optimizer.exceptions import ConfigurationError, DataError
+from optimizer.preprocessing._alignment import (
+    _align_to_fit_columns,
+    _fit_feature_names_out,
+)
 from optimizer.preprocessing._coerce import _coerce_numeric
 
 logger = logging.getLogger(__name__)
@@ -43,7 +47,16 @@ class DataValidator(BaseEstimator, TransformerMixin):
 
         Returns:
             The fitted transformer.
+
+        Raises:
+            ConfigurationError: If ``max_abs_return`` is not positive.
         """
+        # Checked at fit rather than in __init__ so set_params / grid-search
+        # sweeps, which bypass the config, are validated too (sklearn convention).
+        if not self.max_abs_return > 0:
+            raise ConfigurationError(
+                f"max_abs_return must be positive, got {self.max_abs_return}"
+            )
         X = self._validate_input(X)
         self.n_features_in_: int = X.shape[1]
         self.feature_names_in_: np.ndarray = np.asarray(X.columns)
@@ -53,13 +66,20 @@ class DataValidator(BaseEstimator, TransformerMixin):
         """Replace inf/-inf and extreme returns with NaN.
 
         Args:
-            X: Return DataFrame to clean.
+            X: Return DataFrame to clean; must carry the columns seen in fit, in
+                any order.
 
         Returns:
-            Copy of X with infinities and returns beyond max_abs_return set to NaN.
+            Copy of X with infinities and returns beyond max_abs_return set to
+            NaN, columns in fit order.
+
+        Raises:
+            DataError: If X lacks a fit column or has one unseen in fit.
         """
         check_is_fitted(self)
-        X = self._validate_input(X)
+        X = _align_to_fit_columns(
+            self._validate_input(X), self.feature_names_in_, "DataValidator"
+        )
 
         out = X.copy()
         out.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -70,13 +90,17 @@ class DataValidator(BaseEstimator, TransformerMixin):
         """Return feature names recorded during fit.
 
         Args:
-            input_features: Ignored; present for sklearn API compatibility.
+            input_features: Optional names to check against the fit columns,
+                as sklearn passes through ``Pipeline.get_feature_names_out``.
 
         Returns:
             Array of column names recorded during fit.
+
+        Raises:
+            ValueError: If *input_features* differs from the fit columns.
         """
         check_is_fitted(self)
-        return self.feature_names_in_
+        return _fit_feature_names_out(self.feature_names_in_, input_features)
 
     @staticmethod
     def _validate_input(X: pd.DataFrame) -> pd.DataFrame:

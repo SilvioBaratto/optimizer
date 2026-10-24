@@ -10,14 +10,24 @@ All network I/O is mocked. No time.sleep is exercised (patched throughout).
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
+import pytest
+from yfinance.exceptions import YFTickerMissingError
+
+from app.services.infrastructure.circuit_breaker import CircuitBreaker
+from app.services.market_data.yfinance import YFinanceClient
 from app.services.universe.trading212.builder import (
     UniverseBuilder,
 )
 from app.services.universe.trading212.cache.ticker_cache import TickerMappingCache
 from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.trading212.ticker_mapper import YFinanceTickerMapper
+from tests._fixtures.curl_errors import (
+    curl_connect_failure,
+    curl_dns_failure,
+    curl_timeout,
+)
 
 CFG = UniverseBuilderConfig()
 
@@ -160,68 +170,120 @@ class TestTickerMapperDiscoverNoExchangeNoCacheSave:
         assert cache.get_mapping("AAPL", "") is None
 
 
-class TestVerifyTickerRateLimitRetry:
-    """Covers: ticker_mapper.py lines 83-112 — retry paths in _verify_ticker."""
+_LIVE_INFO: dict[str, Any] = {
+    "currentPrice": 10.0,
+    "marketCap": 1e9,
+    "sector": "Industrials",
+    "industry": "Aerospace",
+    "exchange": "LSE",
+    "currency": "GBp",
+}
 
-    def test_rate_limit_on_all_retries_returns_false(self) -> None:
+
+class TestVerifyTickerThrottling:
+    """``fetch_info`` never raises: a throttled call comes back as ``None`` while
+    the shared circuit breaker is open, and a no-data answer as ``None`` with the
+    breaker closed."""
+
+    def _mapper(
+        self, results: list[Any], *, breaker_active: bool, max_retries: int = 3
+    ) -> tuple[YFinanceTickerMapper, MagicMock]:
         mock_yf = MagicMock()
-        mock_yf.fetch_info.side_effect = RuntimeError("rate limit exceeded")
+        mock_yf.fetch_info.side_effect = results
+        mock_yf.circuit_breaker.is_active = breaker_active
         mapper = YFinanceTickerMapper(
             config=CFG,
             cache=TickerMappingCache(),
             _yf_client=mock_yf,
-            max_retries=3,
+            max_retries=max_retries,
         )
-        with patch("app.services.universe.trading212.ticker_mapper.time.sleep"):
-            result = mapper._verify_ticker("AAPL")
-        assert result is False
+        return mapper, mock_yf
+
+    def test_throttled_on_every_attempt_returns_false_after_full_budget(self) -> None:
+        mapper, mock_yf = self._mapper([None] * 3, breaker_active=True)
+
+        assert mapper._verify_ticker("AAPL") is False
         assert mock_yf.fetch_info.call_count == 3
 
-    def test_not_found_error_immediately_returns_false(self) -> None:
-        mock_yf = MagicMock()
-        mock_yf.fetch_info.side_effect = RuntimeError("not found")
-        mapper = YFinanceTickerMapper(
-            config=CFG,
-            cache=TickerMappingCache(),
-            _yf_client=mock_yf,
-            max_retries=3,
-        )
-        result = mapper._verify_ticker("BADTICKER")
-        assert result is False
-        # not-found → returns on first attempt (no retry)
+    def test_throttled_then_recovered_verifies_the_ticker(self) -> None:
+        mapper, mock_yf = self._mapper([None, dict(_LIVE_INFO)], breaker_active=True)
+
+        assert mapper._verify_ticker("AAPL") is True
+        assert mock_yf.fetch_info.call_count == 2
+
+    def test_no_data_answer_with_closed_breaker_is_final(self) -> None:
+        mapper, mock_yf = self._mapper([None] * 3, breaker_active=False)
+
+        assert mapper._verify_ticker("BADTICKER") is False
         assert mock_yf.fetch_info.call_count == 1
 
-    def test_404_error_immediately_returns_false(self) -> None:
-        mock_yf = MagicMock()
-        mock_yf.fetch_info.side_effect = RuntimeError("404")
-        mapper = YFinanceTickerMapper(
-            config=CFG, cache=TickerMappingCache(), _yf_client=mock_yf, max_retries=3
-        )
-        result = mapper._verify_ticker("AAPL")
-        assert result is False
 
-    def test_generic_error_returns_false_immediately(self) -> None:
-        mock_yf = MagicMock()
-        mock_yf.fetch_info.side_effect = RuntimeError("unexpected json error")
-        mapper = YFinanceTickerMapper(
-            config=CFG, cache=TickerMappingCache(), _yf_client=mock_yf, max_retries=3
-        )
-        result = mapper._verify_ticker("AAPL")
-        assert result is False
+class TestDiscoverThroughRealYFinanceClient:
+    """The real facade swallows request errors, so the mapper must notice
+    throttling through the breaker the facade trips."""
 
-    def test_timeout_error_on_last_retry_returns_false(self) -> None:
-        mock_yf = MagicMock()
-        mock_yf.fetch_info.side_effect = RuntimeError("timed out")
-        mapper = YFinanceTickerMapper(
-            config=CFG,
-            cache=TickerMappingCache(),
-            _yf_client=mock_yf,
-            max_retries=2,
+    @staticmethod
+    def _client() -> YFinanceClient:
+        cache = MagicMock()
+        cache.get.return_value = None
+        return YFinanceClient(
+            cache=cache,
+            rate_limiter=MagicMock(),
+            circuit_breaker=CircuitBreaker(),
+            default_max_retries=3,
         )
-        with patch("app.services.universe.trading212.ticker_mapper.time.sleep"):
-            result = mapper._verify_ticker("AAPL")
-        assert result is False
-        assert mock_yf.fetch_info.call_count == 2
+
+    @staticmethod
+    def _ticker(info: PropertyMock) -> MagicMock:
+        ticker = MagicMock()
+        type(ticker).info = info
+        return ticker
+
+    @pytest.mark.parametrize(
+        "transient",
+        [
+            RuntimeError("429 Too Many Requests"),
+            curl_timeout(),
+            curl_dns_failure(),
+            curl_connect_failure(),
+        ],
+        ids=["rate-limit", "curl-timeout", "curl-dns", "curl-connect"],
+    )
+    def test_transient_failure_is_retried_after_breaker_cooldown(
+        self, transient: Exception
+    ) -> None:
+        client = self._client()
+        info = PropertyMock(side_effect=[transient, dict(_LIVE_INFO)])
+        mapper = YFinanceTickerMapper(
+            config=CFG, cache=TickerMappingCache(), _yf_client=client
+        )
+
+        with (
+            patch.object(client, "get_ticker", return_value=self._ticker(info)),
+            patch("time.sleep") as sleep,
+        ):
+            result = mapper.discover("BA", "London Stock Exchange")
+
+        assert result == "BA.L"
+        assert info.call_count == 2
+        assert any(call.args[0] > 60 for call in sleep.call_args_list)
+
+    def test_missing_ticker_is_not_retried(self) -> None:
+        client = self._client()
+        info = PropertyMock(side_effect=YFTickerMissingError("ZZZZ", ""))
+        mapper = YFinanceTickerMapper(
+            config=CFG, cache=TickerMappingCache(), _yf_client=client
+        )
+
+        with (
+            patch.object(client, "get_ticker", return_value=self._ticker(info)),
+            patch("time.sleep") as sleep,
+        ):
+            result = mapper.discover("ZZZZ", "NYSE")
+
+        assert result is None
+        assert info.call_count == 1
+        sleep.assert_not_called()
 
 
 # ===========================================================================

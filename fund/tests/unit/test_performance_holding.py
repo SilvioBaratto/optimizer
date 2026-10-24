@@ -16,7 +16,13 @@ from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.orders.paper_order import PaperOrder
 from portopt_db.models.universe.universe import Exchange, Instrument
 
-from fund.performance import FxCoverageError, holding_marks
+from fund.performance import (
+    _HOLDING_LOOKBACK_BARS,
+    FxCoverageError,
+    build_nav_series,
+    holding_marks,
+    marked_weights,
+)
 
 _PID = uuid.UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
 _D1 = dt.date(2026, 10, 2)  # fill bar
@@ -132,7 +138,10 @@ def test_holding_marks_fx_correct_value_and_pnl(db_session):
 
     assert us.return_1d == pytest.approx(101.2 / 90.0 - 1.0, rel=1e-6)
     assert lon.return_1d == pytest.approx(6.136 / 5.85 - 1.0, rel=1e-6)
-    assert us.contribution == pytest.approx(us.weight * us.return_1d, rel=1e-6)
+    # Contribution weights each mover by its share of the *prior* bar's value (0.6 /
+    # 0.4 at the fill bar), not by its post-move share.
+    assert us.contribution == pytest.approx(0.6 * us.return_1d, rel=1e-6)
+    assert lon.contribution == pytest.approx(0.4 * lon.return_1d, rel=1e-6)
 
     # Cost basis is the deployed base notional (shares × price_base@fill).
     assert us.unrealized_pnl == pytest.approx(us_value - 6000.0, rel=1e-6)
@@ -259,3 +268,983 @@ def test_holding_marks_returns_use_own_calendar_not_carry_forward(db_session):
     assert us2.return_1d != pytest.approx(0.0, abs=1e-9)
     # Value still marks on the carried-forward (asof) close: 20 shares × 210.
     assert us2.value == pytest.approx(20.0 * 210.0, rel=1e-6)
+
+
+def _seed_long_history(db_session, *, days: int) -> None:
+    """Add ``days`` of daily pre-fill bars + FX rows to the two-day ``_seed`` ledger."""
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+    from sqlalchemy import select
+
+    instruments = {
+        inst.yfinance_ticker: inst
+        for inst in db_session.execute(select(Instrument)).scalars()
+    }
+    units = {"US1": "USD", "LON.L": "GBp"}
+    closes = {"US1": "95", "LON.L": "480"}
+    bars = []
+    rates = []
+    for offset in range(1, days + 1):
+        day = _D1 - dt.timedelta(days=offset)
+        for ticker, unit in units.items():
+            bars.append(
+                PriceHistory(
+                    instrument_id=instruments[ticker].id,
+                    date=day,
+                    close=Decimal(closes[ticker]),
+                    price_unit=unit,
+                )
+            )
+        for quote, rate in (("USD", 0.88), ("GBP", 1.15)):
+            rates.append(
+                {
+                    "base_currency": "EUR",
+                    "quote_currency": quote,
+                    "date": day,
+                    "rate": rate,
+                }
+            )
+    db_session.add_all(bars)
+    FxRatesRepository(db_session).upsert_rates(rates)
+    db_session.flush()
+
+
+def _count_history_rows(monkeypatch) -> list[int]:
+    """Record how many price + FX rows each repository read pulls into memory."""
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+    from portopt_db.repositories.market_data.yfinance_repository import (
+        YFinanceRepository,
+    )
+
+    rows_read: list[int] = []
+    original_prices = YFinanceRepository.get_price_history
+    original_rates = FxRatesRepository.get_rates
+
+    def prices_spy(self, *args, **kwargs):
+        rows = original_prices(self, *args, **kwargs)
+        rows_read.append(len(rows))
+        return rows
+
+    def rates_spy(self, *args, **kwargs):
+        rows = original_rates(self, *args, **kwargs)
+        rows_read.append(len(rows))
+        return rows
+
+    monkeypatch.setattr(YFinanceRepository, "get_price_history", prices_spy)
+    monkeypatch.setattr(FxRatesRepository, "get_rates", rates_spy)
+    return rows_read
+
+
+def test_marked_weights_match_the_holding_marks_weights(db_session):
+    """The cheap weight read agrees with the full mark on the hand-built ledger."""
+    _seed(db_session)
+    expected = {
+        m.ticker: m.weight
+        for m in holding_marks(_PID, session=db_session, base_currency="EUR")
+    }
+
+    weights = marked_weights(_PID, session=db_session, base_currency="EUR")
+
+    assert weights == pytest.approx(expected, rel=1e-9)
+    assert sum(weights.values()) == pytest.approx(1.0)
+
+
+def test_marked_weights_read_only_the_bars_near_the_fill(db_session, monkeypatch):
+    """Years of pre-fill history must not be loaded just to weight the current book.
+
+    The drift poll calls this every couple of seconds on the TUI event loop, so the
+    read has to be bounded by the book's age, not by the instrument's listing age.
+    """
+    _seed(db_session)
+    _seed_long_history(db_session, days=300)
+    expected = {
+        m.ticker: m.weight
+        for m in holding_marks(_PID, session=db_session, base_currency="EUR")
+    }
+    rows_read = _count_history_rows(monkeypatch)
+
+    weights = marked_weights(_PID, session=db_session, base_currency="EUR")
+
+    assert weights == pytest.approx(expected, rel=1e-9)
+    # 2 tickers x 300 pre-fill bars + 2 FX quotes x 300 rates is 1200 rows unbounded.
+    assert sum(rows_read) < 200
+
+
+def test_marked_weights_none_without_a_paper_ticket(db_session):
+    assert marked_weights(_PID, session=db_session, base_currency="EUR") is None
+
+
+def test_marked_weights_none_when_a_holding_cannot_be_priced(db_session):
+    """Weights over only the priced holdings would misstate the book, so none."""
+    _seed(db_session, missing_price_holding=True)
+
+    assert marked_weights(_PID, session=db_session, base_currency="EUR") is None
+
+
+def test_marked_weights_fail_loud_without_fx_coverage(db_session):
+    _seed(db_session)
+
+    with pytest.raises(FxCoverageError):
+        marked_weights(_PID, session=db_session, base_currency="GBP")
+
+
+def test_holding_marks_scale_to_mandate_capital(db_session):
+    """Shares, value and P&L are on the mandate's capital, not the ticket's notional.
+
+    The ticket was sized against 10,000; marking against a 20,000 mandate doubles
+    every absolute figure while weights and returns stay put.
+    """
+    _seed(db_session)
+    plain = {
+        m.ticker: m
+        for m in holding_marks(_PID, session=db_session, base_currency="EUR")
+    }
+    scaled = {
+        m.ticker: m
+        for m in holding_marks(
+            _PID, session=db_session, base_currency="EUR", capital=20_000.0
+        )
+    }
+
+    for ticker in ("US1", "LON.L"):
+        assert scaled[ticker].shares == pytest.approx(2 * plain[ticker].shares)
+        assert scaled[ticker].value == pytest.approx(2 * plain[ticker].value)
+        assert scaled[ticker].weight == pytest.approx(plain[ticker].weight)
+        assert scaled[ticker].return_1d == pytest.approx(plain[ticker].return_1d)
+    cost_us = 2 * 6000.0
+    assert scaled["US1"].unrealized_pnl == pytest.approx(
+        scaled["US1"].value - cost_us, rel=1e-6
+    )
+
+
+def test_holding_marks_value_matches_nav_after_a_rebalance(db_session):
+    """After a rebalance the marked book is worth the NAV, not a fresh notional.
+
+    Asset A doubles, then a ticket switches the whole book into B. The holdings table
+    must total the chain-linked NAV (200,000), not the second ticket's flat 100,000.
+    """
+    d = [dt.date(2026, 10, 1) + dt.timedelta(days=i) for i in range(4)]
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, closes in (("A", [100.0, 150.0, 200.0, 200.0]), ("B", [50.0] * 4)):
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        db_session.add_all(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=day,
+                close=Decimal(str(px)),
+                price_unit="USD",
+            )
+            for day, px in zip(d, closes, strict=True)
+        )
+    for key, ticker, fill in (("h1", "A", d[0]), ("h2", "B", d[2])):
+        db_session.add(
+            PaperOrder(
+                portfolio_id=_PID,
+                asof=fill - dt.timedelta(days=1),
+                weights_hash=key,
+                weights={ticker: 1.0},
+                fill_date=fill,
+                lines=[
+                    {
+                        "ticker": ticker,
+                        "notional": 100_000.0,
+                        "fill_date": fill.isoformat(),
+                    }
+                ],
+                notional=100_000.0,
+                total_commission=0.0,
+                total_slippage_cost=0.0,
+            )
+        )
+    db_session.flush()
+
+    marks = holding_marks(_PID, session=db_session, base_currency="USD")
+
+    assert [m.ticker for m in marks] == ["B"]
+    assert marks[0].shares == pytest.approx(4_000.0)  # 200,000 carried / 50
+    assert marks[0].value == pytest.approx(200_000.0)
+    assert marks[0].unrealized_pnl == pytest.approx(0.0, abs=1e-6)
+
+
+def test_holding_marks_value_only_the_invested_part_of_a_half_cash_book(db_session):
+    """A holding is worth its share of the book, not the whole NAV, beside cash.
+
+    A rises 100 -> 130 and a second ticket then holds it at 50% of a 100,000 gross.
+    The book is worth 130,000 on the hand-over bar: 65,000 in A, 65,000 in cash. The
+    holdings table shows the 65,000 invested, bought at cost, with no P&L yet.
+    """
+    d = [dt.date(2026, 10, 1) + dt.timedelta(days=i) for i in range(3)]
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    inst = Instrument(ticker="A", short_name="A", exchange=ex, yfinance_ticker="A")
+    db_session.add(inst)
+    db_session.flush()
+    db_session.add_all(
+        PriceHistory(
+            instrument_id=inst.id, date=day, close=Decimal(str(px)), price_unit="USD"
+        )
+        for day, px in zip(d, [100.0, 115.0, 130.0], strict=True)
+    )
+    for key, notional, fill in (("h1", 100_000.0, d[0]), ("h2", 50_000.0, d[2])):
+        db_session.add(
+            PaperOrder(
+                portfolio_id=_PID,
+                asof=fill - dt.timedelta(days=1),
+                weights_hash=key,
+                weights={"A": notional / 100_000.0},
+                fill_date=fill,
+                lines=[
+                    {"ticker": "A", "notional": notional, "fill_date": fill.isoformat()}
+                ],
+                notional=100_000.0,
+                total_commission=0.0,
+                total_slippage_cost=0.0,
+            )
+        )
+    db_session.flush()
+
+    marks = holding_marks(_PID, session=db_session, base_currency="USD")
+
+    assert [m.ticker for m in marks] == ["A"]
+    assert marks[0].value == pytest.approx(65_000.0)
+    assert marks[0].shares == pytest.approx(500.0)  # 65,000 / 130
+    assert marks[0].unrealized_pnl == pytest.approx(0.0, abs=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("bars", "priced"),
+    [
+        (9, True),  # latest bar is the fifth past the last live rate: still usable
+        (10, False),  # the sixth: the rate has expired
+    ],
+)
+def test_holding_marks_degrades_a_holding_whose_fx_rate_is_stale(
+    db_session, bars, priced
+):
+    """A holding is valued on a carried rate for five bars, then degrades to ``None``.
+
+    The USD rate stops after bar 4 while the stock keeps climbing. The stale-rate
+    bars used to be filled with the last converted price without limit, so the mark
+    showed a value from many bars ago. The EUR holding is unaffected either way.
+    """
+    # Weekdays only: the FX staleness horizon is counted in business days.
+    days = [
+        day
+        for day in (
+            dt.date(2026, 10, 5) + dt.timedelta(days=i) for i in range(2 * bars)
+        )
+        if day.weekday() < 5
+    ][:bars]
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, unit, prices in (
+        ("EU1", "EUR", [100.0] * bars),
+        ("US1", "USD", [100.0 * 1.01**i for i in range(bars)]),
+    ):
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        db_session.add_all(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=day,
+                close=Decimal(str(px)),
+                price_unit=unit,
+            )
+            for day, px in zip(days, prices, strict=True)
+        )
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    FxRatesRepository(db_session).upsert_rates(
+        [
+            {
+                "base_currency": "EUR",
+                "quote_currency": "USD",
+                "date": day,
+                "rate": 0.90,
+            }
+            for day in days[:4]
+        ]
+    )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=days[0] - dt.timedelta(days=1),
+            weights_hash="h1",
+            weights={"EU1": 0.5, "US1": 0.5},
+            fill_date=days[0],
+            lines=[
+                {"ticker": "EU1", "notional": 5000.0, "fill_date": days[0].isoformat()},
+                {"ticker": "US1", "notional": 5000.0, "fill_date": days[0].isoformat()},
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+    marks = {
+        m.ticker: m
+        for m in holding_marks(_PID, session=db_session, base_currency="EUR")
+    }
+
+    assert marks["EU1"].value == pytest.approx(5000.0)
+    if priced:
+        # The rate is constant, so the mark tracks the stock exactly.
+        assert marks["US1"].value == pytest.approx(5000.0 * 1.01 ** (bars - 1))
+    else:
+        assert marks["US1"].value is None
+        assert marks["US1"].shares is None
+
+
+def test_holding_marks_price_the_latest_bar_of_a_history_past_the_row_cap(db_session):
+    """A long backfill is marked at today's close, not at its 5,000th-oldest bar.
+
+    The price read caps rows at 5,000 and, ordered oldest-first, kept the *earliest*
+    ones — so a ``--period max`` instrument was valued at a years-old price and its
+    fill bar fell outside the loaded frame, pinning unrealized P&L to exactly zero.
+    """
+    n = 5_010
+    last = dt.date(2026, 10, 3)
+    days = [last - dt.timedelta(days=n - 1 - i) for i in range(n)]
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    inst = Instrument(ticker="A", short_name="A", exchange=ex, yfinance_ticker="A")
+    db_session.add(inst)
+    db_session.flush()
+    db_session.add_all(
+        PriceHistory(
+            instrument_id=inst.id,
+            date=day,
+            close=Decimal(str(round(100.0 + 0.01 * i, 2))),
+            price_unit="USD",
+        )
+        for i, day in enumerate(days)
+    )
+    fill = days[-3]
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=fill - dt.timedelta(days=1),
+            weights_hash="h1",
+            weights={"A": 1.0},
+            fill_date=fill,
+            lines=[
+                {"ticker": "A", "notional": 10_000.0, "fill_date": fill.isoformat()}
+            ],
+            notional=10_000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+    (mark,) = holding_marks(_PID, session=db_session, base_currency="USD")
+
+    fill_price, latest_price = 100.0 + 0.01 * (n - 3), 100.0 + 0.01 * (n - 1)
+    assert mark.value == pytest.approx(10_000.0 * latest_price / fill_price)
+    assert mark.unrealized_pnl == pytest.approx(
+        10_000.0 * (latest_price / fill_price - 1.0)
+    )
+
+
+def test_holding_marks_raise_for_a_holding_with_no_resolvable_currency(db_session):
+    """A holding priced in an unknown currency is not marked as if it were base."""
+    _seed(db_session)
+    db_session.query(PriceHistory).filter(PriceHistory.price_unit == "USD").update(
+        {"price_unit": None}
+    )
+    db_session.flush()
+
+    with pytest.raises(FxCoverageError, match="US1"):
+        holding_marks(_PID, session=db_session, base_currency="EUR")
+
+
+@pytest.mark.parametrize("latest", ["AAA", "BBB"])
+def test_same_bar_tickets_resolve_to_the_latest_created_for_nav_and_holdings(
+    db_session, latest
+):
+    """Tickets sharing asof and fill_date supersede each other by creation time.
+
+    NAV and the holdings table must follow the *same* ticket, whichever physical
+    row order the database returns for the tied sort keys.
+    """
+    d1, d2, d3 = dt.date(2026, 10, 2), dt.date(2026, 10, 3), dt.date(2026, 10, 6)
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    paths = {"AAA": ("100", "105", "110"), "BBB": ("100", "100", "100")}
+    for ticker, closes in paths.items():
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        for day, close in zip((d1, d2, d3), closes, strict=True):
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=day,
+                    close=Decimal(close),
+                    price_unit="USD",
+                )
+            )
+    early = dt.datetime(2026, 10, 1, 9, 0, tzinfo=dt.UTC)
+    late = early + dt.timedelta(hours=1)
+    for ticker in ("AAA", "BBB"):
+        db_session.add(
+            PaperOrder(
+                portfolio_id=_PID,
+                asof=dt.date(2026, 10, 1),
+                weights_hash=f"h-{ticker}",
+                weights={ticker: 1.0},
+                fill_date=d1,
+                lines=[{"ticker": ticker, "notional": 10000.0, "fill_price": 100.0}],
+                notional=10000.0,
+                total_commission=0.0,
+                total_slippage_cost=0.0,
+                created_at=late if ticker == latest else early,
+            )
+        )
+    db_session.flush()
+
+    marks = holding_marks(_PID, session=db_session, base_currency="USD")
+    nav = build_nav_series(_PID, session=db_session, base_currency="USD")
+
+    assert [m.ticker for m in marks] == [latest]
+    expected_nav = 11000.0 if latest == "AAA" else 10000.0
+    assert nav[-1].nav == pytest.approx(expected_nav, rel=1e-9)
+
+
+def _add_instrument(db_session, ticker):
+    ex = Exchange(name=f"X-{ticker}")
+    db_session.add(ex)
+    db_session.flush()
+    inst = Instrument(
+        ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+    )
+    db_session.add(inst)
+    db_session.flush()
+    return inst
+
+
+def _seed_daily_history(db_session, inst, last_day, n_bars):
+    """Seed ``n_bars`` consecutive daily USD closes ending on ``last_day``.
+
+    Closes climb by 1 per bar, so every bar is distinguishable and a return over any
+    lookback has a closed form.
+    """
+    closes: dict[dt.date, float] = {}
+    for i in range(n_bars):
+        day = last_day - dt.timedelta(days=n_bars - 1 - i)
+        closes[day] = 100.0 + i
+        db_session.add(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=day,
+                close=Decimal(str(100.0 + i)),
+                price_unit="USD",
+            )
+        )
+    db_session.flush()
+    return closes
+
+
+def _ticket(fill_day, ticker="AAA", notional=10000.0):
+    return PaperOrder(
+        portfolio_id=_PID,
+        asof=fill_day,
+        weights_hash="h1",
+        weights={ticker: 1.0},
+        fill_date=fill_day,
+        lines=[{"ticker": ticker, "notional": notional, "fill_price": 100.0}],
+        notional=notional,
+        total_commission=0.0,
+        total_slippage_cost=0.0,
+    )
+
+
+def _spy_loaded_rows(monkeypatch):
+    """Record every price and FX row ``holding_marks`` reads from the repositories."""
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+    from portopt_db.repositories.market_data.yfinance_repository import (
+        YFinanceRepository,
+    )
+
+    prices: list[dt.date] = []
+    fx: list[dt.date] = []
+    original_prices = YFinanceRepository.get_price_history
+    original_fx = FxRatesRepository.get_rates
+
+    def price_spy(self, *args, **kwargs):
+        rows = original_prices(self, *args, **kwargs)
+        prices.extend(row.date for row in rows)
+        return rows
+
+    def fx_spy(self, *args, **kwargs):
+        rows = original_fx(self, *args, **kwargs)
+        fx.extend(row.date for row in rows)
+        return rows
+
+    monkeypatch.setattr(YFinanceRepository, "get_price_history", price_spy)
+    monkeypatch.setattr(FxRatesRepository, "get_rates", fx_spy)
+    return prices, fx
+
+
+def test_holding_marks_loads_a_bounded_trailing_window_not_the_whole_history(
+    db_session, monkeypatch
+):
+    """Only the newest bars the returns need are read, however long the history is."""
+    inst = _add_instrument(db_session, "AAA")
+    closes = _seed_daily_history(db_session, inst, _D2, 700)
+    db_session.add(_ticket(_D1))
+    db_session.flush()
+    prices, _ = _spy_loaded_rows(monkeypatch)
+
+    mark = holding_marks(_PID, session=db_session, base_currency="USD")[0]
+
+    assert len(prices) <= _HOLDING_LOOKBACK_BARS
+    assert min(closes) not in prices
+    year_ago = closes[_D2 - dt.timedelta(days=365)]
+    assert mark.return_1y == pytest.approx(closes[_D2] / year_ago - 1.0, rel=1e-9)
+
+
+def test_holding_marks_for_a_book_older_than_the_window_stays_bounded(
+    db_session, monkeypatch
+):
+    """A years-old book prices its shares at the fill but loads no history in between.
+
+    The fill bar lies beyond the newest-bars window, so it is read through a narrow
+    lookup around the fill date; the price and FX loads must not grow with book age.
+    """
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    n_bars = 900
+    inst = _add_instrument(db_session, "AAA")
+    closes = _seed_daily_history(db_session, inst, _D2, n_bars)
+    rates = {
+        day: 0.90 + 0.0001 * i for i, day in enumerate(sorted(closes))
+    }  # base-per-USD
+    FxRatesRepository(db_session).upsert_rates(
+        [
+            {"base_currency": "EUR", "quote_currency": "USD", "date": d, "rate": r}
+            for d, r in rates.items()
+        ]
+    )
+    fill_day = _D2 - dt.timedelta(days=600)
+    db_session.add(_ticket(fill_day))
+    db_session.flush()
+    prices, fx = _spy_loaded_rows(monkeypatch)
+
+    mark = holding_marks(_PID, session=db_session, base_currency="EUR")[0]
+
+    slack = 60  # the fill-date lookup and the FX margin on both windows
+    assert len(prices) <= _HOLDING_LOOKBACK_BARS + slack
+    assert len(fx) <= _HOLDING_LOOKBACK_BARS + slack
+    shares = 10000.0 / (closes[fill_day] * rates[fill_day])
+    assert mark.shares == pytest.approx(shares, rel=1e-9)
+    assert mark.value == pytest.approx(shares * closes[_D2] * rates[_D2], rel=1e-9)
+    year_ago_day = _D2 - dt.timedelta(days=365)
+    expected_1y = (closes[_D2] * rates[_D2]) / (
+        closes[year_ago_day] * rates[year_ago_day]
+    )
+    assert mark.return_1y == pytest.approx(expected_1y - 1.0, rel=1e-9)
+
+
+def test_holding_marks_chain_link_an_old_rebalance_without_loading_the_gap(
+    db_session, monkeypatch
+):
+    """Two tickets filled long before the newest-bars window still chain-link.
+
+    The switch bar of the second ticket lies in a narrow lookup around its fill, so the
+    holdings total the full-history NAV although the years between are never read.
+    """
+    n_bars = 900
+    aaa = _add_instrument(db_session, "AAA")
+    bbb = _add_instrument(db_session, "BBB")
+    _seed_daily_history(db_session, aaa, _D2, n_bars)
+    for i in range(n_bars):
+        db_session.add(
+            PriceHistory(
+                instrument_id=bbb.id,
+                date=_D2 - dt.timedelta(days=n_bars - 1 - i),
+                close=Decimal(str(50.0 + 0.5 * i)),
+                price_unit="USD",
+            )
+        )
+    first_fill = _D2 - dt.timedelta(days=600)
+    second_fill = _D2 - dt.timedelta(days=560)
+    db_session.add(_ticket(first_fill, "AAA"))
+    second = _ticket(second_fill, "BBB")
+    second.weights_hash = "h2"
+    db_session.add(second)
+    db_session.flush()
+    prices, _ = _spy_loaded_rows(monkeypatch)
+
+    marks = holding_marks(_PID, session=db_session, base_currency="USD")
+    marks_rows = len(prices)
+    nav = build_nav_series(_PID, session=db_session, base_currency="USD")
+
+    assert [m.ticker for m in marks] == ["BBB"]
+    assert marks[0].value == pytest.approx(nav[-1].nav, rel=1e-9)
+    # Two tickers, each read for its newest bars plus the narrow fill lookups.
+    assert marks_rows <= 2 * (_HOLDING_LOOKBACK_BARS + 60)
+
+
+def _seed_two_holdings(db_session, closes_a, closes_b, *, lines_extra=None):
+    """Seed a two-holding USD book filled at the first of three bars."""
+    d1, d2, d3 = dt.date(2026, 10, 2), dt.date(2026, 10, 3), dt.date(2026, 10, 6)
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, closes in (("AAA", closes_a), ("BBB", closes_b)):
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        for day, close in zip((d1, d2, d3), closes, strict=True):
+            if close is None:
+                continue
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=day,
+                    close=Decimal(close),
+                    price_unit="USD",
+                )
+            )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=dt.date(2026, 10, 1),
+            weights_hash="h1",
+            weights={"AAA": 0.5, "BBB": 0.5},
+            fill_date=d1,
+            lines=[
+                {"ticker": "AAA", "notional": 5000.0, "fill_price": 100.0},
+                {"ticker": "BBB", "notional": 5000.0, "fill_price": 100.0},
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+
+def test_holding_contribution_uses_beginning_of_period_weight(db_session):
+    """A +10% mover in a 50/50 book contributes 5.00%, not its 52.38% end weight."""
+    _seed_two_holdings(db_session, ("100", "100", "110"), ("100", "100", "100"))
+
+    marks = {
+        m.ticker: m
+        for m in holding_marks(_PID, session=db_session, base_currency="USD")
+    }
+
+    assert marks["AAA"].contribution == pytest.approx(0.05, rel=1e-9)
+    assert marks["BBB"].contribution == pytest.approx(0.0, abs=1e-12)
+    assert marks["AAA"].weight == pytest.approx(110.0 / 210.0, rel=1e-9)
+
+
+def test_holding_contributions_sum_to_the_portfolio_one_day_return(db_session):
+    """+10% and -10% movers in a 50/50 book net to 0, not to the end-weight +1%."""
+    _seed_two_holdings(db_session, ("100", "100", "110"), ("100", "100", "90"))
+
+    marks = holding_marks(_PID, session=db_session, base_currency="USD")
+
+    assert sum(m.contribution for m in marks) == pytest.approx(0.0, abs=1e-12)
+
+
+def _nav_one_day_return(db_session, base_currency):
+    nav = build_nav_series(_PID, session=db_session, base_currency=base_currency)
+    return nav[-1].nav / nav[-2].nav - 1.0
+
+
+def test_holding_contributions_reconcile_to_nav_one_day_return_across_fx(db_session):
+    """On the FX ledger the contributions add up to the NAV series' 1D return."""
+    _seed(db_session)
+
+    marks = holding_marks(_PID, session=db_session, base_currency="EUR")
+
+    assert sum(m.contribution for m in marks) == pytest.approx(
+        _nav_one_day_return(db_session, "EUR"), rel=1e-9
+    )
+
+
+def test_idle_holding_contributes_nothing_on_the_day_it_did_not_trade(db_session):
+    """NAV carries an idle holding flat, so its 1D contribution must be 0 as well.
+
+    Its own-calendar ``return_1d`` still shows the real last move; only the
+    contribution is restricted to the interval the NAV series measures.
+    """
+    d1, d2, d3 = dt.date(2026, 10, 2), dt.date(2026, 10, 3), dt.date(2026, 10, 6)
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, path in (
+        ("US1", {d1: "100", d2: "110", d3: "120"}),
+        ("US2", {d1: "200", d2: "210"}),  # idle on d3
+    ):
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        for day, close in path.items():
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=day,
+                    close=Decimal(close),
+                    price_unit="USD",
+                )
+            )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=dt.date(2026, 10, 1),
+            weights_hash="h1",
+            weights={"US1": 0.6, "US2": 0.4},
+            fill_date=d1,
+            lines=[
+                {"ticker": "US1", "notional": 6000.0, "fill_price": 100.0},
+                {"ticker": "US2", "notional": 4000.0, "fill_price": 200.0},
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+    marks = {
+        m.ticker: m
+        for m in holding_marks(_PID, session=db_session, base_currency="USD", asof=d3)
+    }
+
+    assert marks["US2"].return_1d == pytest.approx(210.0 / 200.0 - 1.0, rel=1e-9)
+    assert marks["US2"].contribution == pytest.approx(0.0, abs=1e-12)
+    # US1: 60 shares x (120 - 110) over a prior book of 6600 + 4200.
+    assert marks["US1"].contribution == pytest.approx(600.0 / 10800.0, rel=1e-9)
+    assert sum(m.contribution for m in marks.values()) == pytest.approx(
+        _nav_one_day_return(db_session, "USD"), rel=1e-9
+    )
+
+
+def test_line_filled_on_the_last_bar_contributes_nothing_that_day(db_session):
+    """A staggered line bought at the last close earned nothing from the prior move.
+
+    NAV carries it at book value until its fill, so its contribution is 0 and the
+    column still reconciles to the NAV 1D return.
+    """
+    d1, d2, d3 = dt.date(2026, 10, 2), dt.date(2026, 10, 3), dt.date(2026, 10, 6)
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, closes in (
+        ("AAA", ("100", "100", "110")),
+        ("BBB", ("100", "110", "120")),
+    ):
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        for day, close in zip((d1, d2, d3), closes, strict=True):
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=day,
+                    close=Decimal(close),
+                    price_unit="USD",
+                )
+            )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=dt.date(2026, 10, 1),
+            weights_hash="h1",
+            weights={"AAA": 0.5, "BBB": 0.5},
+            fill_date=d1,
+            lines=[
+                {"ticker": "AAA", "notional": 5000.0, "fill_price": 100.0},
+                {
+                    "ticker": "BBB",
+                    "notional": 5000.0,
+                    "fill_price": 120.0,
+                    "fill_date": d3.isoformat(),
+                },
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+    marks = {
+        m.ticker: m
+        for m in holding_marks(_PID, session=db_session, base_currency="USD")
+    }
+
+    assert marks["BBB"].contribution == pytest.approx(0.0, abs=1e-12)
+    assert marks["AAA"].contribution == pytest.approx(0.05, rel=1e-9)
+    assert sum(m.contribution for m in marks.values()) == pytest.approx(
+        _nav_one_day_return(db_session, "USD"), rel=1e-9
+    )
+
+
+def _seed_book_and_benchmark(db_session, paths):
+    """Seed ``{ticker: {day: close}}`` USD paths and a 50/50 AAA/BBB book at d1."""
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, path in paths.items():
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        for day, close in path.items():
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=day,
+                    close=Decimal(close),
+                    price_unit="USD",
+                )
+            )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=dt.date(2026, 10, 1),
+            weights_hash="h1",
+            weights={"AAA": 0.5, "BBB": 0.5},
+            fill_date=dt.date(2026, 10, 2),
+            lines=[
+                {"ticker": "AAA", "notional": 5000.0, "fill_price": 100.0},
+                {"ticker": "BBB", "notional": 5000.0, "fill_price": 100.0},
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+
+def _persist_navs(db_session, points):
+    """Persist NAV points the way the daily mark step does."""
+    from fund.audit.nav_history_repository import NavHistoryRepository
+
+    NavHistoryRepository(db_session).upsert_navs(
+        [
+            {
+                "portfolio_id": _PID,
+                "date": point.date,
+                "nav": point.nav,
+                "benchmark": point.benchmark,
+            }
+            for point in points
+        ]
+    )
+    db_session.flush()
+
+
+def test_contributions_reconcile_to_the_nav_when_the_benchmark_trades_later(
+    db_session,
+):
+    """A later benchmark bar makes the NAV's last interval a flat carried bar.
+
+    The holdings' own last bar still holds AAA's +10% move, but the persisted NAV
+    the strip reads shows 0 for that day, so the column must show 0 as well.
+    """
+    d1, d2, d3 = dt.date(2026, 10, 2), dt.date(2026, 10, 3), dt.date(2026, 10, 6)
+    _seed_book_and_benchmark(
+        db_session,
+        {
+            "AAA": {d1: "100", d2: "110"},
+            "BBB": {d1: "100", d2: "100"},
+            "BENCH": {d1: "100", d2: "101", d3: "102"},
+        },
+    )
+    nav = build_nav_series(
+        _PID, session=db_session, base_currency="USD", benchmark="BENCH"
+    )
+    _persist_navs(db_session, nav)
+    assert nav[-1].date == d3 and nav[-1].nav == nav[-2].nav  # flat carried bar
+
+    marks = {
+        m.ticker: m
+        for m in holding_marks(_PID, session=db_session, base_currency="USD")
+    }
+
+    assert sum(m.contribution for m in marks.values()) == pytest.approx(
+        nav[-1].nav / nav[-2].nav - 1.0, abs=1e-12
+    )
+    assert marks["AAA"].contribution == pytest.approx(0.0, abs=1e-12)
+    # return_1d keeps its own-calendar meaning: AAA's last real move.
+    assert marks["AAA"].return_1d == pytest.approx(0.10, rel=1e-9)
+
+
+def test_contributions_follow_the_nav_interval_across_a_calendar_union(db_session):
+    """The NAV's last interval can span two holding bars; contributions span it too."""
+    d1, d2, d3 = dt.date(2026, 10, 2), dt.date(2026, 10, 3), dt.date(2026, 10, 6)
+    _seed_book_and_benchmark(
+        db_session,
+        {
+            "AAA": {d1: "100", d2: "105", d3: "110"},
+            "BBB": {d1: "100", d2: "100", d3: "100"},
+        },
+    )
+    nav = build_nav_series(_PID, session=db_session, base_currency="USD")
+    # A NAV marked on d1 and d3 only: its last interval covers the d2 and d3 moves.
+    _persist_navs(db_session, [p for p in nav if p.date != d2])
+
+    marks = holding_marks(_PID, session=db_session, base_currency="USD")
+
+    assert sum(m.contribution for m in marks) == pytest.approx(
+        nav[-1].nav / nav[0].nav - 1.0, rel=1e-9
+    )
+
+
+def test_contributions_use_the_live_bars_when_the_nav_is_behind(db_session):
+    """A NAV not yet marked for the latest bar must not freeze the contributions."""
+    d1, d2, d3 = dt.date(2026, 10, 2), dt.date(2026, 10, 3), dt.date(2026, 10, 6)
+    _seed_book_and_benchmark(
+        db_session,
+        {
+            "AAA": {d1: "100", d2: "100", d3: "110"},
+            "BBB": {d1: "100", d2: "100", d3: "100"},
+        },
+    )
+    nav = build_nav_series(_PID, session=db_session, base_currency="USD")
+    _persist_navs(db_session, nav[:-1])  # the mark for d3 has not run yet
+
+    marks = holding_marks(_PID, session=db_session, base_currency="USD")
+
+    assert sum(m.contribution for m in marks) == pytest.approx(
+        nav[-1].nav / nav[-2].nav - 1.0, rel=1e-9
+    )

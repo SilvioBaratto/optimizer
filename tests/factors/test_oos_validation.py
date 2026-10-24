@@ -8,16 +8,18 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from optimizer.exceptions import ConfigurationError
 from optimizer.factors import (
     FactorOOSConfig,
     FactorOOSResult,
+    FactorValidationConfig,
     run_factor_oos_validation,
 )
 from optimizer.factors._oos_validation import _make_cpcv_folds, _make_folds
 from optimizer.validation._config import CPCVConfig
 
 _FACTORS = ["value", "momentum"]
-_TICKERS = [f"T{i:02d}" for i in range(20)]
+_TICKERS = [f"T{i:02d}" for i in range(30)]
 
 
 def _make_panel(
@@ -62,10 +64,26 @@ class TestFactorOOSConfig:
         assert cfg.val_periods == 12
         assert cfg.step_periods == 6
 
+    def test_min_observations_default_matches_factor_validation(self) -> None:
+        assert (
+            FactorOOSConfig().min_observations
+            == FactorValidationConfig().min_ic_observations
+        )
+
     def test_frozen(self) -> None:
         cfg = FactorOOSConfig()
         with pytest.raises(AttributeError):
             cfg.train_periods = 24  # type: ignore[misc]
+
+    @pytest.mark.parametrize("field", ["train_periods", "val_periods", "step_periods"])
+    @pytest.mark.parametrize("value", [0, -3])
+    def test_non_positive_window_is_rejected(self, field: str, value: int) -> None:
+        with pytest.raises(ConfigurationError, match=field):
+            FactorOOSConfig(**{field: value})
+
+    def test_minimum_window_is_accepted(self) -> None:
+        cfg = FactorOOSConfig(train_periods=1, val_periods=1, step_periods=1)
+        assert (cfg.train_periods, cfg.val_periods, cfg.step_periods) == (1, 1, 1)
 
     def test_custom_values(self) -> None:
         cfg = FactorOOSConfig(train_periods=24, val_periods=6, step_periods=3)
@@ -173,6 +191,46 @@ class TestRunFactorOOSValidation:
         assert isinstance(result.mean_oos_icir, pd.Series)
         assert list(result.mean_oos_icir.index) == _FACTORS
 
+    def test_zero_folds_gives_float_nan_ic_and_icir(self) -> None:
+        dates = pd.date_range("2019-01-31", periods=24, freq="ME")
+        scores, returns = _make_panel(dates, np.random.default_rng(0))
+        config = FactorOOSConfig(train_periods=36, val_periods=12, step_periods=6)
+
+        result = run_factor_oos_validation(scores, returns, config)
+
+        assert result.n_folds == 0
+        assert result.mean_oos_ic.dtype == float
+        assert result.mean_oos_icir.dtype == float
+        assert result.mean_oos_ic.isna().all()
+        assert result.mean_oos_icir.isna().all()
+        assert list(result.mean_oos_icir.index) == _FACTORS
+
+    def test_single_fold_has_no_icir(self) -> None:
+        """One fold IC cannot give a dispersion, so ICIR is undefined, not 0."""
+        dates = pd.date_range("2019-01-31", periods=48, freq="ME")
+        scores, returns = _make_panel(dates, np.random.default_rng(3))
+        config = FactorOOSConfig(train_periods=36, val_periods=12, step_periods=12)
+
+        result = run_factor_oos_validation(scores, returns, config)
+
+        assert result.n_folds == 1
+        assert result.mean_oos_ic.notna().all()
+        assert result.mean_oos_icir.isna().all()
+
+    def test_factor_without_valid_fold_ic_has_nan_icir_alongside_others(
+        self, panel_48: tuple[pd.DataFrame, pd.DataFrame]
+    ) -> None:
+        scores, returns = panel_48
+        scores = scores.assign(value=np.nan)
+        config = FactorOOSConfig(train_periods=36, val_periods=12, step_periods=6)
+
+        result = run_factor_oos_validation(scores, returns, config)
+
+        assert result.n_folds == 2
+        assert np.isnan(result.mean_oos_ic["value"])
+        assert np.isnan(result.mean_oos_icir["value"])
+        assert np.isfinite(result.mean_oos_icir["momentum"])
+
     def test_oos_ic_unaffected_by_train_data(
         self,
         panel_48: tuple[pd.DataFrame, pd.DataFrame],
@@ -214,6 +272,113 @@ class TestRunFactorOOSValidation:
         # floor((60-24)/12) = 3
         assert result.n_folds == 3
         assert result.per_fold_ic.shape == (3, len(_FACTORS))
+
+
+# ---------------------------------------------------------------------------
+# Thin cross-sections
+# ---------------------------------------------------------------------------
+
+
+def _thin_validation_dates(
+    scores: pd.DataFrame,
+    returns: pd.DataFrame,
+    dates: pd.DatetimeIndex,
+    n_names: int,
+    *,
+    drop: bool,
+) -> pd.DataFrame:
+    """Keep scores for only ``n_names`` tickers on ``dates``, rank-aligned.
+
+    The surviving scores are the returns themselves, so every thin date has a
+    perfect rank correlation (and the widest possible quantile spread).  With
+    ``drop=True`` the dates lose all scores instead.
+    """
+    out = scores.copy()
+    date_level = out.index.get_level_values(0)
+    ticker_level = out.index.get_level_values(1)
+    kept = set(_TICKERS[:n_names])
+    for date in dates:
+        on_date = date_level == date
+        out.loc[on_date, :] = np.nan
+        if drop:
+            continue
+        keep_rows = on_date & ticker_level.isin(kept)
+        out.loc[keep_rows, :] = np.repeat(
+            returns.loc[keep_rows].to_numpy(), out.shape[1], axis=1
+        )
+    return out
+
+
+class TestThinCrossSections:
+    _CONFIG = FactorOOSConfig(train_periods=36, val_periods=12, step_periods=6)
+
+    @pytest.fixture()
+    def thin_dates(self, dates_48: pd.DatetimeIndex) -> pd.DatetimeIndex:
+        return dates_48[40:43]
+
+    def test_ic_ignores_dates_below_min_observations(
+        self,
+        panel_48: tuple[pd.DataFrame, pd.DataFrame],
+        thin_dates: pd.DatetimeIndex,
+    ) -> None:
+        """Three-name rank ICs are +/-1 noise and must not enter the fold mean."""
+        scores, returns = panel_48
+        thinned = _thin_validation_dates(scores, returns, thin_dates, 3, drop=False)
+        dropped = _thin_validation_dates(scores, returns, thin_dates, 3, drop=True)
+
+        result = run_factor_oos_validation(thinned, returns, self._CONFIG)
+        reference = run_factor_oos_validation(dropped, returns, self._CONFIG)
+
+        pd.testing.assert_frame_equal(result.per_fold_ic, reference.per_fold_ic)
+
+    def test_spread_ignores_dates_below_min_observations(
+        self,
+        panel_48: tuple[pd.DataFrame, pd.DataFrame],
+        thin_dates: pd.DatetimeIndex,
+    ) -> None:
+        scores, returns = panel_48
+        thinned = _thin_validation_dates(scores, returns, thin_dates, 6, drop=False)
+        dropped = _thin_validation_dates(scores, returns, thin_dates, 6, drop=True)
+
+        result = run_factor_oos_validation(thinned, returns, self._CONFIG)
+        reference = run_factor_oos_validation(dropped, returns, self._CONFIG)
+
+        pd.testing.assert_frame_equal(result.per_fold_spread, reference.per_fold_spread)
+
+    def test_min_observations_is_configurable(
+        self,
+        panel_48: tuple[pd.DataFrame, pd.DataFrame],
+        thin_dates: pd.DatetimeIndex,
+    ) -> None:
+        scores, returns = panel_48
+        thinned = _thin_validation_dates(scores, returns, thin_dates, 3, drop=False)
+        dropped = _thin_validation_dates(scores, returns, thin_dates, 3, drop=True)
+        permissive = FactorOOSConfig(
+            train_periods=36, val_periods=12, step_periods=6, min_observations=3
+        )
+
+        loose = run_factor_oos_validation(thinned, returns, permissive)
+        guarded = run_factor_oos_validation(dropped, returns, permissive)
+
+        assert not np.allclose(
+            loose.per_fold_ic.iloc[0].to_numpy(),
+            guarded.per_fold_ic.iloc[0].to_numpy(),
+        )
+
+    def test_cpcv_path_applies_min_observations(
+        self,
+        panel_48: tuple[pd.DataFrame, pd.DataFrame],
+        thin_dates: pd.DatetimeIndex,
+    ) -> None:
+        scores, returns = panel_48
+        cpcv = CPCVConfig(n_folds=4, n_test_folds=1)
+        thinned = _thin_validation_dates(scores, returns, thin_dates, 3, drop=False)
+        dropped = _thin_validation_dates(scores, returns, thin_dates, 3, drop=True)
+
+        result = run_factor_oos_validation(thinned, returns, cpcv_config=cpcv)
+        reference = run_factor_oos_validation(dropped, returns, cpcv_config=cpcv)
+
+        pd.testing.assert_frame_equal(result.per_fold_ic, reference.per_fold_ic)
 
 
 # ---------------------------------------------------------------------------

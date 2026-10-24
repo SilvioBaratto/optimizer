@@ -35,6 +35,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import numpy as np
 from skfolio.moments import (
     OAS,
     DenoiseCovariance,
@@ -83,7 +84,6 @@ from optimizer.moments._config import (
 )
 
 if TYPE_CHECKING:
-    import numpy as np
     from skfolio.factor_exposure import BaseFactorExposure
 
 logger = logging.getLogger(__name__)
@@ -107,6 +107,41 @@ _REGIME_METHOD_MAP: dict[RegimeAdjustmentMethodType, RegimeAdjustmentMethod] = {
 }
 
 
+def _normalise_market_weights(market_weights: np.ndarray) -> np.ndarray:
+    """Validate market capitalisations and rescale them to sum to one.
+
+    ``EquilibriumMu`` computes ``risk_aversion * covariance @ weights`` without
+    normalising, so raw capitalisations (~1e12) would inflate the implied
+    returns by the same factor and a single NaN would poison every asset.
+
+    Args:
+        market_weights: Non-negative capitalisations or weights, one per asset.
+
+    Returns:
+        A float vector of the same length that sums to 1.
+
+    Raises:
+        ConfigurationError: If the input is not a non-empty 1-D array, holds
+            non-finite or negative values, or sums to zero.
+    """
+    weights = np.asarray(market_weights, dtype=float)
+    if weights.ndim != 1 or weights.size == 0:
+        raise ConfigurationError(
+            f"market_weights must be a non-empty 1-D array, got shape {weights.shape}"
+        )
+    if not np.isfinite(weights).all():
+        raise ConfigurationError(
+            "market_weights must be finite; drop or impute assets with a "
+            "missing market cap before building EquilibriumMu"
+        )
+    if (weights < 0).any():
+        raise ConfigurationError("market_weights must be non-negative")
+    total = float(weights.sum())
+    if total <= 0.0:
+        raise ConfigurationError("market_weights must have a positive sum")
+    return weights / total
+
+
 def build_mu_estimator(
     config: MomentEstimationConfig,
     *,
@@ -116,17 +151,24 @@ def build_mu_estimator(
 
     Args:
         config: Moment estimation configuration.
-        market_weights: Market-capitalisation weights (aligned to the
+        market_weights: Market capitalisations or weights (aligned to the
             asset-column order of the returns frame passed to ``fit``) for
             ``EquilibriumMu``'s reverse-optimisation. Sourced from the DB
             (``shares_outstanding`` x price, or
-            ``ticker_profiles.market_cap``); as a non-serialisable array it is
+            ``ticker_profiles.market_cap``); raw capitalisations are fine, they
+            are rescaled to sum to 1. As a non-serialisable array it is
             a factory keyword, never a config field. ``None`` falls back to
             skfolio's equal-weight default (i.e. a degenerate, non-cap-weighted
             equilibrium). Ignored for non-``EQUILIBRIUM`` estimators.
 
     Returns:
         A fitted-ready skfolio expected return estimator.
+
+    Raises:
+        ConfigurationError: If the mu estimator is unsupported, or
+            ``market_weights`` is supplied for ``EQUILIBRIUM`` but is not a
+            non-empty 1-D array of finite, non-negative values with a
+            positive sum.
     """
     match config.mu_estimator:
         case MuEstimatorType.EMPIRICAL:
@@ -145,7 +187,11 @@ def build_mu_estimator(
             # supplied market-cap weights (else equal-weight equilibrium).
             return EquilibriumMu(
                 risk_aversion=config.risk_aversion,
-                weights=market_weights,
+                weights=(
+                    None
+                    if market_weights is None
+                    else _normalise_market_weights(market_weights)
+                ),
                 covariance_estimator=build_cov_estimator(config),
             )
         case _:
@@ -254,6 +300,51 @@ def build_variance_estimator(config: MomentEstimationConfig) -> BaseVariance:
             )
 
 
+def _reject_equilibrium_factor_prior(config: MomentEstimationConfig) -> None:
+    """Raise if ``EquilibriumMu`` would be fit on a factor-return matrix.
+
+    A factor model fits its prior on the ``(n_obs, n_factors)`` factor frame,
+    so asset-aligned market weights cannot apply, and the equal-weight
+    fallback is a meaningless "market portfolio of factors" that replaces the
+    observed factor risk premia.
+
+    Raises:
+        ConfigurationError: If ``config.mu_estimator`` is ``EQUILIBRIUM``.
+    """
+    if config.mu_estimator is MuEstimatorType.EQUILIBRIUM:
+        raise ConfigurationError(
+            "mu_estimator=EQUILIBRIUM is not supported with a factor model: "
+            "the prior is fit on factor returns, not asset returns, so "
+            "asset-aligned market_weights cannot apply. Use an empirical, "
+            "EW or shrunk mu estimator, or put the equilibrium prior inside "
+            "a Black-Litterman prior instead."
+        )
+
+
+def _reject_horizon_scaled_factor_prior(config: MomentEstimationConfig) -> None:
+    """Raise if horizon scaling would reach only the factor prior.
+
+    skfolio scales the factor prior's moments to ``investment_horizon`` but
+    adds the idiosyncratic variance and intercepts at the per-period scale, so
+    the resulting asset mean and variance would live on different horizons.
+    ``investment_horizon`` without ``is_log_normal`` is rejected too: skfolio
+    refuses that pair at fit time, and the characteristics builder would
+    otherwise drop the horizon without a trace.
+
+    Raises:
+        ConfigurationError: If ``config.is_log_normal`` is ``True`` or
+            ``config.investment_horizon`` is set.
+    """
+    if config.is_log_normal or config.investment_horizon is not None:
+        raise ConfigurationError(
+            "is_log_normal/investment_horizon cannot be combined with a "
+            "factor model: the horizon scaling would apply to the "
+            "factor moments only, leaving idiosyncratic variance and "
+            "intercepts at the per-period scale. Fit the factor model on "
+            "per-period returns and scale the result instead."
+        )
+
+
 def build_prior(
     config: MomentEstimationConfig | None = None,
     *,
@@ -269,19 +360,25 @@ def build_prior(
     Args:
         config: Moment estimation configuration. Defaults to
             ``MomentEstimationConfig()`` (EmpiricalMu + LedoitWolf).
-        market_weights: Market-capitalisation weights forwarded to
+        market_weights: Market capitalisations or weights forwarded to
             ``build_mu_estimator`` for ``EquilibriumMu`` (see there). Only
-            used when ``config.mu_estimator`` is ``EQUILIBRIUM``.
+            used when ``config.mu_estimator`` is ``EQUILIBRIUM``, which a
+            factor model does not support.
 
     Returns:
         A fitted-ready skfolio prior estimator.
 
     Raises:
         ConfigurationError: If ``config.use_factor_model`` is ``True`` and
-            ``config.factor_model_type`` is ``CHARACTERISTICS`` — a
-            ``CharacteristicsFactorModel`` needs an ``AssetPanel`` and
-            factor-exposure estimators, so build it with
-            ``build_characteristics_factor_model`` instead.
+            any of the following holds. ``factor_model_type`` is
+            ``CHARACTERISTICS``: a ``CharacteristicsFactorModel`` needs an
+            ``AssetPanel`` and factor-exposure estimators, so build it with
+            ``build_characteristics_factor_model`` instead. ``mu_estimator``
+            is ``EQUILIBRIUM``: the prior is fit on factor returns, so
+            asset-aligned market weights cannot apply. ``is_log_normal`` is
+            ``True`` or ``investment_horizon`` is set: skfolio would scale
+            only the factor moments to the horizon and leave the idiosyncratic
+            variance per-period.
     """
     if config is None:
         config = MomentEstimationConfig()
@@ -303,6 +400,8 @@ def build_prior(
                 "use build_characteristics_factor_model(config, factors=...) "
                 "with an AssetPanel and factor-exposure estimators."
             )
+        _reject_equilibrium_factor_prior(config)
+        _reject_horizon_scaled_factor_prior(config)
         return TimeSeriesFactorModel(
             factor_prior_estimator=empirical_prior,
         )
@@ -316,7 +415,6 @@ def build_characteristics_factor_model(
     factors: list[tuple[str, BaseFactorExposure]],
     currency_factor: BaseFactorExposure | None = None,
     neutralize_against: dict[str, list[str]] | None = None,
-    market_weights: np.ndarray | None = None,
 ) -> CharacteristicsFactorModel:
     """Build a cross-sectional (BARRA-style) characteristics factor model.
 
@@ -344,19 +442,25 @@ def build_characteristics_factor_model(
         currency_factor: Optional currency factor-exposure estimator.
         neutralize_against: Optional map of factor name -> factors to
             neutralise it against (e.g. ``{"non_linear_size": ["size"]}``).
-        market_weights: Market-capitalisation weights forwarded to
-            ``build_mu_estimator`` for the factor prior's ``EquilibriumMu``
-            (see there). Only used when ``config.mu_estimator`` is
-            ``EQUILIBRIUM``.
 
     Returns:
         A fitted-ready cross-sectional factor model.
+
+    Raises:
+        ConfigurationError: If ``config.mu_estimator`` is ``EQUILIBRIUM``; the
+            factor prior is fit on factor returns, so asset-aligned market
+            weights cannot apply. Also if ``config.is_log_normal`` is ``True``
+            or ``config.investment_horizon`` is set: skfolio would scale only
+            the factor moments to the horizon and leave the idiosyncratic
+            variance per-period.
     """
     if config is None:
         config = MomentEstimationConfig()
+    _reject_equilibrium_factor_prior(config)
+    _reject_horizon_scaled_factor_prior(config)
 
     factor_prior = EmpiricalPrior(
-        mu_estimator=build_mu_estimator(config, market_weights=market_weights),
+        mu_estimator=build_mu_estimator(config),
         covariance_estimator=build_cov_estimator(config),
     )
 

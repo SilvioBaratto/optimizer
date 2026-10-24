@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import datetime as dt
 
+import pytest
+
 from portopt_db.models.market_data.market_summary import MarketSummary
 from portopt_db.repositories.market_data.market_summary_repository import (
     MarketSummaryRepository,
@@ -86,3 +88,36 @@ def test_get_latest_as_of_returns_none_when_no_rows(db_session) -> None:
     repo = MarketSummaryRepository(db_session)
     result = repo.get_latest_as_of("zz_market")
     assert result is None
+
+
+def test_get_latest_as_of_honours_on_or_before_bound(db_session) -> None:
+    """get_latest_as_of must ignore snapshots dated after the requested bound."""
+    repo = MarketSummaryRepository(db_session)
+    repo.upsert_summaries("us_market", _AS_OF, [_ROW])
+    repo.upsert_summaries("us_market", _AS_OF_2, [{**_ROW, "symbol": "^DJI"}])
+    db_session.flush()
+
+    assert repo.get_latest_as_of("us_market", on_or_before=_AS_OF) == _AS_OF
+    assert repo.get_latest_as_of("us_market", on_or_before=_AS_OF_2) == _AS_OF_2
+    assert (
+        repo.get_latest_as_of("us_market", on_or_before=_AS_OF - dt.timedelta(days=1))
+        is None
+    )
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_upsert_stores_non_finite_numbers_as_null(db_session, bad: float) -> None:
+    """NaN/inf quotes must be stored as NULL so they cannot poison aggregates."""
+    repo = MarketSummaryRepository(db_session)
+    repo.upsert_summaries(
+        "us_market",
+        _AS_OF,
+        [{**_ROW, "price": bad, "change": bad, "change_percent": bad}],
+    )
+    db_session.flush()
+
+    row = db_session.query(MarketSummary).one()
+    assert row.price is None
+    assert row.change is None
+    assert row.change_percent is None
+    assert float(row.previous_close) == 5588.2

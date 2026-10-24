@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import dataclasses
+from collections.abc import Callable
+
+import numpy as np
+import pandas as pd
 import pytest
 
+from optimizer import factors
+from optimizer.exceptions import ConfigurationError
 from optimizer.factors import (
     FACTOR_DIRECTION,
     FACTOR_GROUP_MAPPING,
@@ -26,7 +33,41 @@ from optimizer.factors import (
     StandardizationConfig,
     StandardizationMethod,
     WinsorizeMethod,
+    run_factor_validation,
 )
+
+# One alternative value per FactorValidationConfig field, chosen so that
+# run_factor_validation on _validation_inputs() produces a different report.
+_VALIDATION_PERTURBATIONS: dict[str, float] = {
+    "newey_west_lags": 1,
+    "t_stat_threshold": 1e6,
+    "fdr_alpha": 1.0,
+    "n_quantiles": 3,
+    # 30 tickers per cross-section, so a floor of 31 drops every date.
+    "composite_min_observations": 31,
+    "min_ic_observations": 31,
+}
+
+
+def _validation_inputs() -> tuple[dict[str, pd.DataFrame], pd.DataFrame, pd.DataFrame]:
+    rng = np.random.default_rng(3)
+    n_dates, n_tickers = 48, 30
+    dates = pd.date_range("2020-01-31", periods=n_dates, freq="ME")
+    tickers = [f"T{i:02d}" for i in range(n_tickers)]
+
+    def frame(values: np.ndarray) -> pd.DataFrame:
+        return pd.DataFrame(values, index=dates, columns=tickers)
+
+    shape = (n_dates, n_tickers)
+    signal = rng.normal(size=shape)
+    factor_history = {
+        "signal": frame(signal),
+        "weak": frame(0.15 * signal + rng.normal(size=shape)),
+        "noise": frame(rng.normal(size=shape)),
+    }
+    returns = frame(0.6 * signal + rng.normal(size=shape))
+    composite = frame(signal + rng.normal(size=shape))
+    return factor_history, returns, composite
 
 
 class TestEnums:
@@ -159,6 +200,34 @@ class TestPublicationLagConfig:
         assert lag.analyst_days == 30
         assert lag.macro_days == 30
 
+    def test_annual_lag_feeds_align_to_pit(self) -> None:
+        import pandas as pd
+
+        from optimizer.factors import align_to_pit
+
+        statements = pd.DataFrame(
+            {
+                "ticker": ["A", "A"],
+                "period_date": ["2023-12-31", "2024-12-31"],
+                "net_income": [1.0, 2.0],
+            }
+        )
+        as_of = "2025-03-31"
+        default = align_to_pit(
+            statements,
+            "period_date",
+            as_of,
+            lag_days=PublicationLagConfig().annual_days,
+        )
+        slower = align_to_pit(
+            statements,
+            "period_date",
+            as_of,
+            lag_days=PublicationLagConfig(annual_days=120).annual_days,
+        )
+        assert default.loc["A", "net_income"] == 2.0
+        assert slower.loc["A", "net_income"] == 1.0
+
     def test_custom_values(self) -> None:
         lag = PublicationLagConfig(annual_days=120, analyst_days=2)
         assert lag.annual_days == 120
@@ -174,31 +243,81 @@ class TestFactorConstructionConfig:
         assert len(cfg.factors) == 11
         assert cfg.momentum_lookback == 252
         assert cfg.momentum_skip == 21
-        assert isinstance(cfg.publication_lag, PublicationLagConfig)
-        assert cfg.publication_lag.annual_days == 90
-        assert cfg.publication_lag.quarterly_days == 45
-        assert cfg.publication_lag.analyst_days == 5
-        assert cfg.publication_lag.macro_days == 63
 
     def test_frozen(self) -> None:
         cfg = FactorConstructionConfig()
         with pytest.raises(AttributeError):
             cfg.momentum_lookback = 126  # type: ignore[misc]
 
-    def test_publication_lag_int_converted_to_config(self) -> None:
-        """Passing a plain int converts to PublicationLagConfig.uniform(n)."""
-        cfg = FactorConstructionConfig(publication_lag=100)  # type: ignore[arg-type]
-        assert isinstance(cfg.publication_lag, PublicationLagConfig)
-        assert cfg.publication_lag.annual_days == 100
-        assert cfg.publication_lag.quarterly_days == 100
-        assert cfg.publication_lag.analyst_days == 100
-        assert cfg.publication_lag.macro_days == 100
+    def test_min_observations_default(self) -> None:
+        assert FactorConstructionConfig().min_observations == 20
 
-    def test_publication_lag_config_accepted(self) -> None:
-        lag = PublicationLagConfig(annual_days=60, analyst_days=3)
-        cfg = FactorConstructionConfig(publication_lag=lag)
-        assert cfg.publication_lag.annual_days == 60
-        assert cfg.publication_lag.analyst_days == 3
+    @pytest.mark.parametrize("bad", [1, 0, -5])
+    def test_min_observations_below_two_rejected(self, bad: int) -> None:
+        with pytest.raises(ConfigurationError, match="min_observations"):
+            FactorConstructionConfig(min_observations=bad)
+
+    def test_publication_lag_is_not_a_construction_option(self) -> None:
+        import dataclasses
+
+        # compute_* receive cross-sectional fundamentals with no period dates,
+        # so a lag stored here could never be applied and would only suggest
+        # point-in-time protection. Lags belong to align_to_pit(lag_days=...).
+        names = {f.name for f in dataclasses.fields(FactorConstructionConfig)}
+        assert "publication_lag" not in names
+        with pytest.raises(TypeError):
+            FactorConstructionConfig(publication_lag=120)  # type: ignore[call-arg]
+
+    @pytest.mark.parametrize("lag", [90, PublicationLagConfig(annual_days=60)])
+    def test_publication_lag_is_rejected_because_construction_cannot_apply_it(
+        self, lag: object
+    ) -> None:
+        """Construction never filters by date, so a lag knob would be silent.
+
+        A caller who sets it would believe look-ahead is handled while the
+        factors consume every row they are given.  Lags belong to
+        ``align_to_pit`` upstream; the config must fail loudly instead.
+        """
+        assert "publication_lag" not in {
+            f.name for f in dataclasses.fields(FactorConstructionConfig)
+        }
+        with pytest.raises(TypeError):
+            FactorConstructionConfig(publication_lag=lag)  # type: ignore[call-arg]
+
+    @pytest.mark.parametrize(
+        "field_name",
+        [
+            "momentum_lookback",
+            "volatility_lookback",
+            "beta_lookback",
+            "amihud_lookback",
+        ],
+    )
+    @pytest.mark.parametrize("value", [0, -5])
+    def test_non_positive_lookback_rejected(self, field_name: str, value: int) -> None:
+        with pytest.raises(ConfigurationError, match=field_name):
+            FactorConstructionConfig(**{field_name: value})  # type: ignore[arg-type]
+
+    def test_negative_momentum_skip_rejected(self) -> None:
+        with pytest.raises(ConfigurationError, match="momentum_skip"):
+            FactorConstructionConfig(momentum_skip=-3)
+
+    @pytest.mark.parametrize(
+        ("lookback", "skip"),
+        [(63, 126), (21, 21), (21, 20)],
+    )
+    def test_momentum_skip_must_leave_a_non_empty_window(
+        self, lookback: int, skip: int
+    ) -> None:
+        # skip >= lookback - 1 makes the start and end prices coincide (zero
+        # momentum) or reverse them, and a larger skip raises IndexError later.
+        with pytest.raises(ConfigurationError, match="momentum_skip"):
+            FactorConstructionConfig(momentum_lookback=lookback, momentum_skip=skip)
+
+    def test_momentum_skip_zero_and_narrow_window_accepted(self) -> None:
+        assert FactorConstructionConfig(momentum_skip=0).momentum_skip == 0
+        cfg = FactorConstructionConfig(momentum_lookback=22, momentum_skip=20)
+        assert cfg.momentum_lookback == 22
 
     def test_for_core_factors(self) -> None:
         cfg = FactorConstructionConfig.for_core_factors()
@@ -373,6 +492,46 @@ class TestCompositeScoringConfig:
         assert hash(cfg) is not None
 
 
+class TestCompositeScoringConfigValidation:
+    @pytest.mark.parametrize("ic_lookback", [0, -1, -6])
+    def test_non_positive_ic_lookback_raises(self, ic_lookback: int) -> None:
+        with pytest.raises(ConfigurationError, match="ic_lookback"):
+            CompositeScoringConfig(
+                method=CompositeMethod.IC_WEIGHTED, ic_lookback=ic_lookback
+            )
+
+    def test_ic_lookback_of_one_is_accepted(self) -> None:
+        assert CompositeScoringConfig(ic_lookback=1).ic_lookback == 1
+
+    @pytest.mark.parametrize(
+        ("core_weight", "supplementary_weight", "match"),
+        [
+            (-1.0, 0.5, "core_weight"),
+            (1.0, -0.5, "supplementary_weight"),
+            (float("nan"), 0.5, "core_weight"),
+            (0.0, 0.0, "tier weights"),
+        ],
+    )
+    def test_invalid_tier_weights_raise(
+        self, core_weight: float, supplementary_weight: float, match: str
+    ) -> None:
+        with pytest.raises(ConfigurationError, match=match):
+            CompositeScoringConfig(
+                core_weight=core_weight, supplementary_weight=supplementary_weight
+            )
+
+    @pytest.mark.parametrize(
+        ("core_weight", "supplementary_weight"), [(1.0, 0.0), (0.0, 1.0), (2.0, 0.5)]
+    )
+    def test_single_tier_weight_may_be_zero(
+        self, core_weight: float, supplementary_weight: float
+    ) -> None:
+        cfg = CompositeScoringConfig(
+            core_weight=core_weight, supplementary_weight=supplementary_weight
+        )
+        assert cfg.core_weight == core_weight
+
+
 class TestSelectionConfigMaxPerSector:
     def test_default_max_per_sector_is_zero(self) -> None:
         cfg = SelectionConfig()
@@ -409,6 +568,62 @@ class TestSelectionConfig:
         cfg = SelectionConfig.for_low_tracking_error()
         assert cfg.sector_tolerance == 0.03
         assert cfg.target_count == 100
+
+
+class TestSelectionConfigValidation:
+    @pytest.mark.parametrize("target_count", [0, -1, -5])
+    def test_non_positive_target_count_raises(self, target_count: int) -> None:
+        with pytest.raises(ConfigurationError, match="target_count"):
+            SelectionConfig(target_count=target_count)
+
+    @pytest.mark.parametrize(
+        ("field_name", "value"),
+        [
+            ("target_quantile", 1.5),
+            ("target_quantile", -0.1),
+            ("target_quantile", float("nan")),
+            ("exit_quantile", -0.1),
+            ("buffer_fraction", -0.5),
+            ("buffer_fraction", float("nan")),
+            ("sector_tolerance", -0.01),
+            ("sector_tolerance", 1.5),
+        ],
+    )
+    def test_out_of_range_fraction_raises(self, field_name: str, value: float) -> None:
+        with pytest.raises(ConfigurationError, match=field_name):
+            SelectionConfig(**{field_name: value})  # type: ignore[arg-type]
+
+    def test_exit_quantile_above_target_quantile_raises(self) -> None:
+        with pytest.raises(ConfigurationError, match="exit_quantile"):
+            SelectionConfig(target_quantile=0.7, exit_quantile=0.8)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"target_count": 1},
+            {"target_quantile": 1.0, "exit_quantile": 1.0},
+            {"target_quantile": 0.0, "exit_quantile": 0.0},
+            {"buffer_fraction": 0.0, "sector_tolerance": 0.0},
+            {"sector_tolerance": 1.0},
+        ],
+    )
+    def test_boundary_values_are_accepted(self, kwargs: dict[str, float]) -> None:
+        SelectionConfig(**kwargs)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize(
+        "preset",
+        [
+            SelectionConfig.for_top_100,
+            SelectionConfig.for_top_quintile,
+            SelectionConfig.for_top_20,
+            SelectionConfig.for_concentrated,
+            SelectionConfig.for_low_tracking_error,
+        ],
+    )
+    def test_presets_satisfy_validation(
+        self, preset: Callable[[], SelectionConfig]
+    ) -> None:
+        assert isinstance(preset(), SelectionConfig)
 
 
 class TestRegimeTiltConfig:
@@ -470,6 +685,31 @@ class TestRegimeThresholdConfig:
         # Unaffected fields stay at defaults
         assert cfg.pmi_expansion == 52.0
 
+    def test_for_rolling_percentile_keeps_conventional_inversion_threshold(
+        self,
+    ) -> None:
+        import pandas as pd
+
+        spread = pd.Series([-0.5, 0.2, 0.8, 1.2, 2.0])
+        cfg = RegimeThresholdConfig.for_rolling_percentile(spread_series=spread)
+        # Only the steepness cut-off is distribution-based; inversion is the
+        # structural 10Y-2Y = 0 point, not the 35th percentile of the history.
+        assert cfg.spread_2s10s_steep == pytest.approx(spread.quantile(0.65))
+        assert cfg.spread_2s10s_inversion == 0.0
+
+    def test_for_rolling_percentile_upward_sloping_curve_is_not_inverted(
+        self,
+    ) -> None:
+        import pandas as pd
+
+        from optimizer.factors import classify_regime_composite
+
+        spread = pd.Series([0.1, 0.4, 0.8, 1.2, 1.6, 2.0])
+        cfg = RegimeThresholdConfig.for_rolling_percentile(spread_series=spread)
+        macro = pd.DataFrame({"spread_2s10s": [0.3]})
+        baseline = classify_regime_composite(macro, RegimeThresholdConfig())
+        assert classify_regime_composite(macro, cfg) == baseline
+
     def test_custom_values(self) -> None:
         cfg = RegimeThresholdConfig(hy_oas_risk_on=300.0, pmi_expansion=53.0)
         assert cfg.hy_oas_risk_on == 300.0
@@ -489,6 +729,66 @@ class TestFactorValidationConfig:
         assert cfg.t_stat_threshold == 3.0
         assert cfg.fdr_alpha == 0.01
 
+    def test_periods_per_year_defaults_to_monthly(self) -> None:
+        assert FactorValidationConfig().periods_per_year == 12
+
+    @pytest.mark.parametrize("bad", [0, -1])
+    def test_non_positive_periods_per_year_raises(self, bad: int) -> None:
+        with pytest.raises(ConfigurationError, match="periods_per_year"):
+            FactorValidationConfig(periods_per_year=bad)
+
+    @pytest.mark.parametrize(
+        "field", [f.name for f in dataclasses.fields(FactorValidationConfig)]
+    )
+    def test_every_field_changes_the_validation_report(self, field: str) -> None:
+        # A knob nothing reads (e.g. mimicking-leg fractions, which the
+        # mimicking builder takes as its own ``quantile`` argument) would let a
+        # caller believe a stricter setting was applied. A field added without
+        # an entry in _VALIDATION_PERTURBATIONS fails here on purpose.
+        if field == "periods_per_year":
+            pytest.skip(
+                "only scales the benchmark comparison of factors that have a "
+                "published spread; covered in tests/factors/test_validation.py"
+            )
+        assert field in _VALIDATION_PERTURBATIONS, (
+            f"add a perturbation for FactorValidationConfig.{field}"
+        )
+        factor_history, returns, composite = _validation_inputs()
+        base = FactorValidationConfig()
+        perturbed = dataclasses.replace(
+            base, **{field: _VALIDATION_PERTURBATIONS[field]}
+        )
+
+        def report_repr(config: FactorValidationConfig) -> str:
+            # repr, not ==: the report holds NaN fields and NaN != NaN.
+            return repr(
+                run_factor_validation(
+                    factor_history,
+                    returns,
+                    config=config,
+                    composite_scores_history=composite,
+                )
+            )
+
+        assert report_repr(perturbed) != report_repr(base)
+
+    @pytest.mark.parametrize("removed", ["fmp_top_pct", "fmp_bottom_pct"])
+    def test_removed_mimicking_leg_fractions_fail_loudly(self, removed: str) -> None:
+        with pytest.raises(TypeError):
+            FactorValidationConfig(**{removed: 0.1})
+
+    def test_unconsumed_group_ic_aggregation_api_is_not_public(self) -> None:
+        # No code path aggregates group ICs by t-stat weight or negative-IC
+        # filter, so exporting the switches would make them silent no-ops.
+        for name in (
+            "GroupICAggregationConfig",
+            "GroupICResult",
+            "ICWeightingMethod",
+            "ICNegativeFilterPolicy",
+        ):
+            assert name not in factors.__all__
+            assert not hasattr(factors, name)
+
 
 class TestFactorIntegrationConfig:
     def test_defaults(self) -> None:
@@ -504,3 +804,14 @@ class TestFactorIntegrationConfig:
     def test_for_black_litterman(self) -> None:
         cfg = FactorIntegrationConfig.for_black_litterman()
         assert cfg.use_black_litterman is True
+
+    def test_does_not_advertise_an_unenforced_weight_cap(self) -> None:
+        """The integration returns a prior, never an optimizer, so it cannot cap.
+
+        A silently ignored risk limit is worse than none: weight caps belong to
+        ``MeanRiskConfig.max_weights``.
+        """
+        names = {f.name for f in dataclasses.fields(FactorIntegrationConfig)}
+        assert "max_weight" not in names
+        with pytest.raises(TypeError):
+            FactorIntegrationConfig(max_weight=0.05)  # type: ignore[call-arg]

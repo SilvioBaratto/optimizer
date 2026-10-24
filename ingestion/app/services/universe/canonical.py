@@ -27,11 +27,15 @@ import logging
 import re
 import unicodedata
 from collections import defaultdict
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
+from typing import TypeVar
 
-from app.utils.currency import MINOR_TO_MAJOR
+from app.utils.currency import minor_unit_major
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 _NON_ALNUM = re.compile(r"[^A-Z0-9]+")
 
@@ -58,15 +62,17 @@ def normalize_name(name: str | None) -> str:
 def split_currency(code: str | None) -> tuple[str | None, float]:
     """``currency`` → ``(major_unit_code, divisor)``.
 
-    ``GBX``/``GBp`` → ``("GBP", 100)``, ``ILA`` → ``("ILS", 100)``, ``ZAC`` →
-    ``("ZAR", 100)``; any already-major or unknown code → ``(code, 1)`` (fail-open,
-    caller warns on unknown sub-units). The divisor applies to PRICE-derived
-    quantities only — never to share or volume counts.
+    ``GBX``/``GBp`` → ``("GBP", 100)``, ``ILA`` → ``("ILS", 100)``, ``ZAc`` →
+    ``("ZAR", 100)`` (and the other spellings of each); any already-major or
+    unknown code → ``(code, 1)`` (fail-open, caller warns on unknown sub-units).
+    The divisor applies to PRICE-derived quantities only — never to share or
+    volume counts.
     """
     if code is None:
         return None, 1.0
-    if code in MINOR_TO_MAJOR:
-        return MINOR_TO_MAJOR[code], _SUBUNIT_DIVISOR
+    major = minor_unit_major(code)
+    if major is not None:
+        return major, _SUBUNIT_DIVISOR
     return code, 1.0
 
 
@@ -110,6 +116,10 @@ class IngestionFloorConfig:
     # dual-class line only if it clears this (high) ADDV bar — recovers GOOG next
     # to GOOGL while dropping the illiquid BRK-A next to BRK-B.
     dual_class_min_addv_usd: float = 10_000_000.0
+    # An incumbent canonical listing is displaced only by a line more liquid by
+    # this factor, so a near-tie between venues cannot flip the winner (and with
+    # it the persisted ticker) on 3-month-average noise.
+    incumbent_addv_margin: float = 1.5
 
 
 @dataclass(frozen=True)
@@ -205,9 +215,12 @@ def derive_metrics(listing: Listing, usd_per_major: dict[str, float]) -> Metrics
     # structured product or bond has NONE of these — verified: the screener carries
     # no financialCurrency / marketCap / netAssets / sharesOutstanding for them. This
     # is what distinguishes them from equities, by nature — not a name pattern.
+    # Evaluated on local-currency quantities: a failed FX lookup must not turn a
+    # real security into a "certificate" (the floor is fail-open on missing FX).
     has_fundamentals = (
         listing.financial_currency is not None
-        or mcap_usd is not None
+        or _positive(listing.market_cap) is not None
+        or (shares is not None and price_major is not None)
         or _positive(listing.net_assets) is not None
     )
 
@@ -227,13 +240,17 @@ def _rank_key(
 
     Primary: USD ADDV (dollar liquidity — collapses by orders of magnitude off the
     primary listing and is robust to the GBp mis-scaling). Tiebreaks: home listing
-    (currency == financial_currency), USD market cap, shorter symbol (the common
-    beats warrants/units/rights, which carry longer symbols), then a deterministic
-    exchange preference order.
+    (quote currency in major units == financial_currency), USD market cap, shorter
+    symbol (the common beats warrants/units/rights, which carry longer symbols),
+    then a deterministic exchange preference order.
     """
+    # Unknown ADDV means no traded volume (a missing FX rate aborts earlier in
+    # dedup_canonical), so a dead line must rank below every liquid one.
     addv = metrics.addv_usd if metrics.addv_usd is not None else -1.0
+    # Compare major units: an LSE line quotes in GBp/GBX but reports in GBP.
     home = int(
-        listing.currency is not None and listing.currency == listing.financial_currency
+        listing.currency is not None
+        and split_currency(listing.currency)[0] == listing.financial_currency
     )
     mcap = metrics.mcap_usd if metrics.mcap_usd is not None else -1.0
     pref = (
@@ -244,6 +261,86 @@ def _rank_key(
     return (addv, home, mcap, -len(listing.symbol), -pref)
 
 
+def _fx_blocked_currency(
+    listing: Listing, usd_per_major: dict[str, float]
+) -> str | None:
+    """Major currency whose missing rate is the ONLY thing hiding this line's ADDV.
+
+    A line that has price and volume but whose currency has no usable FX rate is
+    liquid-but-unrankable, unlike a dead line (no volume) that legitimately ranks
+    last. Returns ``None`` when ADDV is derivable or hopeless for another reason.
+    """
+    major, _ = split_currency(listing.currency)
+    if major is None or _positive(usd_per_major.get(major)) is not None:
+        return None
+    if _positive(listing.price) is None or _positive(listing.avg_volume) is None:
+        return None
+    return major
+
+
+def _name_key(listing: Listing) -> str:
+    """Dedup grouping key; a name-less listing keys on its own symbol so it is
+    never merged with another."""
+    return normalize_name(listing.long_name or listing.short_name) or (
+        f"\x00sym\x00{listing.symbol}"
+    )
+
+
+def _split_by_currency(
+    members: list[tuple[Listing, _T]],
+) -> list[list[tuple[Listing, _T]]]:
+    """Partition one same-name cluster by reporting currency.
+
+    Yahoo omits ``financialCurrency`` on many thin cross-listings, so ``None`` is a
+    wildcard: it joins the cluster whenever at most one distinct non-``None``
+    currency is present. Two or more distinct currencies already prove the name is
+    shared by different companies, and a ``None`` line cannot be attributed to
+    either, so each value (including ``None``) then stays its own group.
+    """
+    currencies = {
+        lst.financial_currency
+        for lst, _ in members
+        if lst.financial_currency is not None
+    }
+    if len(currencies) <= 1:
+        return [members]
+    by_currency: dict[str | None, list[tuple[Listing, _T]]] = defaultdict(list)
+    for lst, metrics in members:
+        by_currency[lst.financial_currency].append((lst, metrics))
+    return list(by_currency.values())
+
+
+def _pick_winner(
+    ranked: list[tuple[Listing, Metrics]],
+    incumbents: Collection[str],
+    config: IngestionFloorConfig,
+) -> tuple[Listing, Metrics]:
+    """Best-ranked line, unless an incumbent is within the hysteresis margin.
+
+    ``ranked`` is sorted best-first. Only the best-ranked incumbent can hold: a
+    lower-ranked one is already further behind. An incumbent with unknown ADDV
+    cannot be compared, so it holds nothing. It must also still clear the floor as
+    a member: the build drops a canonical line that fails it, so holding one that
+    does not would delete an entity a challenger can carry.
+    """
+    challenger = ranked[0]
+    if challenger[0].symbol in incumbents:
+        return challenger
+    for member in ranked[1:]:
+        if member[0].symbol not in incumbents:
+            continue
+        held_addv, challenger_addv = member[1].addv_usd, challenger[1].addv_usd
+        if (
+            held_addv is not None
+            and challenger_addv is not None
+            and challenger_addv <= held_addv * config.incumbent_addv_margin
+            and passes_floor(member[1], config, is_member=True)
+        ):
+            return member
+        break
+    return challenger
+
+
 def dedup_canonical(
     listings: list[Listing],
     usd_per_major: dict[str, float],
@@ -251,40 +348,70 @@ def dedup_canonical(
     config: IngestionFloorConfig | None = None,
     exchange_pref: tuple[str, ...] = (),
     keep_dual_class: bool = True,
+    incumbents: Collection[str] = (),
 ) -> list[Listing]:
     """Collapse cross-listings to one canonical listing per entity.
 
-    Grouping key: ``(normalize_name(longName|shortName), financial_currency)`` — the
-    ``financial_currency`` guard prevents merging two genuinely different companies
-    that share a normalized name (0/348 real clusters violated it in validation).
-    A name-less listing falls back to its own symbol so it is never merged away.
+    Grouping key: ``normalize_name(longName|shortName)``, split by
+    ``financial_currency`` — the guard prevents merging two genuinely different
+    companies that share a normalized name (0/348 real clusters violated it in
+    validation). A missing ``financial_currency`` is compatible with any single
+    one (see :func:`_split_by_currency`). A name-less listing falls back to its own
+    symbol so it is never merged away.
     Within a group the max-``_rank_key`` line is canonical; when ``keep_dual_class``
     is set, same-exchange siblings clearing ``dual_class_min_addv_usd`` are also kept
-    (recovers GOOG beside GOOGL). Order of survivors is deterministic.
+    (recovers GOOG beside GOOGL) when quoted in the winner's major currency: a second
+    currency line on one exchange is the same security again (a UCITS ETF listed in
+    USD and GBp), not another share class. ``incumbents`` are the symbols persisted by the
+    previous build: one keeps its place unless a challenger beats its ADDV by
+    ``incumbent_addv_margin`` or it no longer clears the member floor (see
+    :func:`_pick_winner`). Order of survivors is deterministic.
+
+    Raises:
+        ValueError: A cross-listing group contains a line with price and volume
+            whose currency has no FX rate in ``usd_per_major``. Its USD ADDV is
+            unknowable, and ranking it below known lines would silently demote the
+            real primary listing, so the caller must resolve the rate and retry.
     """
     cfg = config or IngestionFloorConfig()
     enriched = [(lst, derive_metrics(lst, usd_per_major)) for lst in listings]
 
-    groups: dict[tuple[str, str | None], list[tuple[Listing, Metrics]]] = defaultdict(
-        list
-    )
+    by_name: dict[str, list[tuple[Listing, Metrics]]] = defaultdict(list)
     for lst, metrics in enriched:
-        name_key = normalize_name(lst.long_name or lst.short_name)
-        if not name_key:
-            name_key = f"\x00sym\x00{lst.symbol}"  # never merge an unnamed listing
-        groups[(name_key, lst.financial_currency)].append((lst, metrics))
+        by_name[_name_key(lst)].append((lst, metrics))
+
+    groups = [
+        group for members in by_name.values() for group in _split_by_currency(members)
+    ]
+
+    unresolved = {
+        major
+        for members in groups
+        if len(members) > 1
+        for lst, _ in members
+        if (major := _fx_blocked_currency(lst, usd_per_major)) is not None
+    }
+    if unresolved:
+        msg = (
+            "cannot rank cross-listings: no USD rate for "
+            f"{', '.join(sorted(unresolved))}"
+        )
+        raise ValueError(msg)
 
     survivors: list[Listing] = []
-    for members in groups.values():
+    for members in groups:
         members.sort(
             key=lambda lm: _rank_key(lm[0], lm[1], exchange_pref), reverse=True
         )
-        winner, _ = members[0]
+        winner, winner_metrics = _pick_winner(members, incumbents, cfg)
         survivors.append(winner)
         if keep_dual_class:
-            for sibling, sib_metrics in members[1:]:
+            for sibling, sib_metrics in members:
+                if sibling is winner:
+                    continue
                 if (
                     sibling.exchange == winner.exchange
+                    and sib_metrics.major_ccy == winner_metrics.major_ccy
                     and sib_metrics.addv_usd is not None
                     and sib_metrics.addv_usd >= cfg.dual_class_min_addv_usd
                 ):
@@ -292,6 +419,44 @@ def dedup_canonical(
     # Stable output independent of input ordering (reproducible builds).
     survivors.sort(key=lambda lst: lst.symbol)
     return survivors
+
+
+def carried_by_sibling(
+    carriers: Sequence[Listing], lines: Sequence[Listing]
+) -> frozenset[str]:
+    """Symbols of ``lines`` whose entity is carried by a line in ``carriers``.
+
+    Groups exactly as :func:`dedup_canonical` does (normalized name, split by
+    reporting currency), so a line that a data gap kept out of the dedup is still
+    recognised as a sibling of the line that carries its entity. Such a line is
+    still trading and its position rolls into the carrier, like a dedup loser.
+    A line whose group has no carrier is the whole entity vanishing, not a
+    sibling, and is not returned.
+    """
+    by_name: dict[str, list[tuple[Listing, bool]]] = defaultdict(list)
+    for lst in carriers:
+        by_name[_name_key(lst)].append((lst, True))
+    for lst in lines:
+        by_name[_name_key(lst)].append((lst, False))
+    carried: set[str] = set()
+    for members in by_name.values():
+        for group in _split_by_currency(members):
+            if any(is_carrier for _, is_carrier in group):
+                carried.update(
+                    lst.symbol for lst, is_carrier in group if not is_carrier
+                )
+    return frozenset(carried)
+
+
+def is_real_security_line(metrics: Metrics) -> bool:
+    """Per-line existence gate: a quote that is priced and carries a fundamentals
+    signal. Missing data here is a gap in ONE venue's quote, not a property of the
+    entity, so it must be applied before canonical selection — otherwise the most
+    liquid line's gap deletes the whole entity even when a sibling is complete.
+    """
+    if metrics.price_major is None:  # unpriced / non-existent line
+        return False
+    return metrics.has_fundamentals  # False: certificate / structured product / bond
 
 
 def passes_floor(
@@ -302,9 +467,7 @@ def passes_floor(
     does. ``is_member`` selects the (lower) exit thresholds for existing members
     so a name doesn't churn out on a noisy month.
     """
-    if metrics.price_major is None:  # unpriced / non-existent line
-        return False
-    if not metrics.has_fundamentals:  # certificate / structured product / bond
+    if not is_real_security_line(metrics):
         return False
     mcap_below = (
         metrics.mcap_usd is not None

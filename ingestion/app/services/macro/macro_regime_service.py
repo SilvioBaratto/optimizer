@@ -6,6 +6,13 @@ per-source ``except`` logs and accumulates the failure into an ``errors`` /
 ``all_errors`` list, then continues — one failing source or country must not
 abort the whole macro refresh. Those lists are returned to the caller, so every
 drop is surfaced, not silent.
+
+Every independent write group (one source, one FRED series) runs in its own
+SAVEPOINT. Postgres aborts the whole transaction on a failed statement, so
+without that scope one bad write would make the later writes fail and the
+caller's commit would silently discard the groups that had already succeeded.
+Counts are recorded only after their group's savepoint is released, so they
+never claim rows that were rolled back.
 """
 
 import datetime
@@ -25,6 +32,36 @@ from app.services.macro.scrapers.tradingeconomics_scraper import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Trailing window an incremental FRED fetch re-requests behind the latest stored
+# date. FRED restates observations after the first print (GDP advance, second and
+# third estimates plus annual revisions, monthly OECD CLI revisions, NBER
+# recession dates assigned up to ~21 months late) and the upsert overwrites
+# ``value`` on conflict, so re-pulling the window is what stores the restatement.
+FRED_REVISION_LOOKBACK_DAYS = 730
+_FRED_REVISION_LOOKBACK = datetime.timedelta(days=FRED_REVISION_LOOKBACK_DAYS)
+
+# Errors quoted in a failed job's one-line ``error`` summary; the full list is
+# persisted separately.
+_ERROR_SUMMARY_LIMIT = 3
+
+# Countries IlSole publishes a forecast row for. For these a ``None`` from the
+# scraper means the page was unreachable or its structure drifted; for any other
+# country it just means there is nothing to fetch.
+_ILSOLE_FORECAST_COUNTRIES = frozenset(IlSoleScraper.COUNTRY_MAP_FORECAST.values())
+
+# Numeric columns of an IlSole forecast row. ``reference_date`` and ``timestamp``
+# are metadata and must not count as usable data.
+_ILSOLE_VALUE_FIELDS = (
+    "last_inflation",
+    "inflation_6m",
+    "inflation_10y_avg",
+    "gdp_growth_6m",
+    "earnings_12m",
+    "eps_expected_12m",
+    "peg_ratio",
+    "lt_rate_forecast",
+)
 
 
 class MacroRegimeService:
@@ -135,24 +172,46 @@ class MacroRegimeService:
         today = datetime.date.today()
         try:
             forecast_data = self.ilsole_scraper.get_forecasts(country)
-            if forecast_data:
-                counts["ilsole_forecast"] = self.repo.upsert_economic_indicator(
-                    country=country,
-                    data=forecast_data,
+            if forecast_data and all(
+                forecast_data.get(field) is None for field in _ILSOLE_VALUE_FIELDS
+            ):
+                # The country row was found but no cell parsed (renamed cell
+                # ids, masked paywall overlay). Upserting it would replace the
+                # last good snapshot with NULLs, so skip the write and report.
+                counts["ilsole_forecast"] = 0
+                counts["ilsole_observations"] = 0
+                errors.append(
+                    "ilsole_forecast: row found but no forecast value parsed "
+                    "(page structure may have drifted)"
                 )
-                counts["ilsole_observations"] = (
-                    self.repo.upsert_economic_indicator_observation(
+                logger.warning("IlSole forecasts for %s parsed to all-None", country)
+            elif forecast_data:
+                with self.repo.session.begin_nested():
+                    n_forecast = self.repo.upsert_economic_indicator(
+                        country=country,
+                        data=forecast_data,
+                    )
+                    n_forecast_obs = self.repo.upsert_economic_indicator_observation(
                         country=country,
                         snapshot_date=today,
                         data=forecast_data,
                     )
-                )
+                counts["ilsole_forecast"] = n_forecast
+                counts["ilsole_observations"] = n_forecast_obs
             else:
                 counts["ilsole_forecast"] = 0
                 counts["ilsole_observations"] = 0
-                logger.info("No IlSole forecasts for %s", country)
+                if country in _ILSOLE_FORECAST_COUNTRIES:
+                    errors.append(
+                        "ilsole_forecast: no data returned (page unreachable "
+                        "or table structure changed)"
+                    )
+                    logger.warning("IlSole returned no forecasts for %s", country)
+                else:
+                    logger.info("No IlSole forecasts for %s", country)
         except Exception as e:
             errors.append(f"ilsole_forecast: {e}")
+            counts.setdefault("ilsole_forecast", 0)
             counts.setdefault("ilsole_observations", 0)
             logger.warning("Failed IlSole forecasts for %s: %s", country, e)
 
@@ -164,15 +223,17 @@ class MacroRegimeService:
             if te_data.get("status") == "success":
                 indicators = te_data.get("indicators", {})
                 if indicators:
-                    counts["te_indicators"] = self.repo.upsert_te_indicators(
-                        country=country,
-                        indicators_dict=indicators,
-                    )
-                    n_obs = self.repo.upsert_te_observations(
-                        country=country,
-                        snapshot_date=today,
-                        indicators_dict=indicators,
-                    )
+                    with self.repo.session.begin_nested():
+                        n_indicators = self.repo.upsert_te_indicators(
+                            country=country,
+                            indicators_dict=indicators,
+                        )
+                        n_obs = self.repo.upsert_te_observations(
+                            country=country,
+                            snapshot_date=today,
+                            indicators_dict=indicators,
+                        )
+                    counts["te_indicators"] = n_indicators
                     counts["te_observations"] = n_obs
                 else:
                     counts["te_indicators"] = 0
@@ -185,17 +246,32 @@ class MacroRegimeService:
                     )
 
                 if include_bonds:
+                    # The indicators fetch can succeed while the separate bond page
+                    # fails (the scraper reports it as an otherwise successful result
+                    # carrying only ``bond_yields_error``); without surfacing it the
+                    # job would finish "completed" with the yield tables silently
+                    # stale.
+                    if "bond_yields_error" in te_data:
+                        bond_error = te_data["bond_yields_error"] or "Unknown error"
+                        errors.append(f"trading_economics_bonds: {bond_error}")
+                        logger.warning(
+                            "Trading Economics bond yields failed for %s: %s",
+                            country,
+                            bond_error,
+                        )
                     bond_yields = te_data.get("bond_yields", {})
                     if bond_yields:
-                        counts["bond_yields"] = self.repo.upsert_bond_yields(
-                            country=country,
-                            yields_dict=bond_yields,
-                        )
-                        n_bond_obs = self.repo.upsert_bond_yield_observations(
-                            country=country,
-                            snapshot_date=today,
-                            yields_dict=bond_yields,
-                        )
+                        with self.repo.session.begin_nested():
+                            n_bonds = self.repo.upsert_bond_yields(
+                                country=country,
+                                yields_dict=bond_yields,
+                            )
+                            n_bond_obs = self.repo.upsert_bond_yield_observations(
+                                country=country,
+                                snapshot_date=today,
+                                yields_dict=bond_yields,
+                            )
+                        counts["bond_yields"] = n_bonds
                         counts["bond_yield_observations"] = n_bond_obs
                     else:
                         counts["bond_yields"] = 0
@@ -232,7 +308,9 @@ class MacroRegimeService:
 
         Args:
             series_ids: Series to fetch. ``None`` means all ``FRED_SERIES`` keys.
-            incremental: When ``True``, fetch only observations newer than last stored.
+            incremental: When ``True``, fetch from ``FRED_REVISION_LOOKBACK_DAYS``
+                before the last stored date, so recent restatements are refreshed
+                along with new observations.
             on_progress: Callback invoked once per series with ``current``,
                 ``total``, and ``current_country`` (the FRED series ID).
 
@@ -265,7 +343,7 @@ class MacroRegimeService:
                 if incremental:
                     latest = self.repo.get_fred_latest_date(series_id)
                     if latest is not None:
-                        start_date = (latest + datetime.timedelta(days=1)).isoformat()
+                        start_date = (latest - _FRED_REVISION_LOOKBACK).isoformat()
 
                 result = scraper.get_series_observations(
                     series_id, start_date=start_date
@@ -273,7 +351,8 @@ class MacroRegimeService:
 
                 if result["status"] == "success":
                     observations = result.get("observations", [])
-                    n = self.repo.upsert_fred_observations(series_id, observations)
+                    with self.repo.session.begin_nested():
+                        n = self.repo.upsert_fred_observations(series_id, observations)
                     counts[series_id] = n
                     logger.info(
                         "FRED %s: upserted %d observations (start_date=%s)",
@@ -290,7 +369,12 @@ class MacroRegimeService:
                         result.get("error"),
                     )
 
+                # Per series, so a forced exit mid-sweep keeps the series already
+                # fetched and the connection is not pinned for the whole run.
+                self.repo.session.commit()
+
             except Exception as exc:
+                self.repo.session.rollback()
                 counts[series_id] = 0
                 errors.append(f"{series_id}: {exc}")
                 logger.error("FRED fetch exception for %s: %s", series_id, exc)
@@ -307,7 +391,10 @@ class MacroRegimeService:
         Args:
             max_articles: Maximum number of articles to fetch.
             fetch_full_content: Whether to scrape full article body in addition
-                to the headline snippet.
+                to the headline snippet. When ``True``, articles whose body
+                could not be scraped are skipped; when ``False``, articles are
+                stored with their snippet only and a body scraped by an earlier
+                run for the same article is kept.
 
         Returns:
             Dict with ``"count"`` and ``"errors"`` keys.
@@ -370,7 +457,12 @@ class MacroRegimeService:
                 }
             )
 
-        rows = [r for r in rows if r.get("full_content")]
+        # Drop articles with nothing to analyse. In scrape mode a failed body
+        # scrape leaves only the headline, which is not worth storing; in
+        # snippet-only mode the body is never fetched, so the snippet is the
+        # content and requiring full_content would discard every article.
+        body_field = "full_content" if fetch_full_content else "snippet"
+        rows = [r for r in rows if r.get(body_field)]
 
         try:
             count = self.repo.upsert_macro_news(rows)
@@ -389,6 +481,28 @@ class MacroRegimeService:
 # ---------------------------------------------------------------------------
 # Standalone bulk functions (called from the scheduler and CLI)
 # ---------------------------------------------------------------------------
+
+
+def _final_progress(errors: list[str], result: dict[str, Any]) -> dict[str, Any]:
+    """Build the terminal ``on_progress`` kwargs for a bulk fetch.
+
+    A partial failure (e.g. one country's Trading Economics circuit breaker
+    tripping) must not produce a ``completed`` status, because callers rely on
+    the status to detect gaps in the dataset. ``error`` carries a one-line
+    summary since the failure webhook reads it and would otherwise post a blank
+    alert.
+    """
+    progress: dict[str, Any] = {
+        "status": "failed" if errors else "completed",
+        "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "errors": errors,
+        "result": result,
+    }
+    if errors:
+        shown = "; ".join(errors[:_ERROR_SUMMARY_LIMIT])
+        hidden = len(errors) - _ERROR_SUMMARY_LIMIT
+        progress["error"] = f"{shown} (+{hidden} more)" if hidden > 0 else shown
+    return progress
 
 
 def run_bulk_macro_fetch(
@@ -447,16 +561,7 @@ def run_bulk_macro_fetch(
             "counts": total_counts,
             "error_count": len(all_errors),
         }
-        # A partial failure (e.g. one country's Trading Economics circuit
-        # breaker tripping) must not produce a "completed" status — callers
-        # rely on the status to detect gaps in the macro dataset.
-        had_errors = len(all_errors) > 0
-        on_progress(
-            status="failed" if had_errors else "completed",
-            finished_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            errors=all_errors,
-            result=result_dict,
-        )
+        on_progress(**_final_progress(all_errors, result_dict))
         logger.info(
             "Bulk macro fetch finished: %d countries, %d error(s)",
             total,
@@ -473,12 +578,17 @@ def run_bulk_fred_fetch(
 ) -> dict[str, Any]:
     """Execute bulk FRED time-series fetch.
 
+    The job ends ``failed`` when any series errored; rows fetched before the
+    failure are kept. A missing API key also fails here, but ``run_fred_step``
+    skips an unconfigured install before it claims a job slot.
+
     Args:
         request: ``FredFetchRequest`` with ``series_ids`` and ``incremental``.
         on_progress: Optional callback for progress updates.
 
     Returns:
-        Result dict with ``series_fetched`` and ``error_count``.
+        Result dict with ``series_fetched`` (series that returned rows),
+        ``observations_upserted`` and ``error_count``.
     """
     from app.database import database_manager
 
@@ -495,19 +605,16 @@ def run_bulk_fred_fetch(
 
         counts = result.get("counts", {})
         errors = result.get("errors", [])
+        observations_upserted = sum(counts.values())
         result_dict = {
-            "series_fetched": sum(counts.values()),
+            "series_fetched": sum(1 for n in counts.values() if n),
+            "observations_upserted": observations_upserted,
             "error_count": len(errors),
         }
-        on_progress(
-            status="completed",
-            finished_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            errors=errors,
-            result=result_dict,
-        )
+        on_progress(**_final_progress(errors, result_dict))
         logger.info(
-            "Bulk FRED fetch completed: %d observations across %d series",
-            result_dict["series_fetched"],
+            "Bulk FRED fetch finished: %d observations across %d series",
+            observations_upserted,
             len(counts),
         )
 
@@ -521,12 +628,18 @@ def run_macro_news_fetch(
 ) -> dict[str, Any]:
     """Execute macro news fetch in the service layer.
 
+    The job ends ``failed`` when the fetch or the upsert reported an error.
+
     Args:
         request: ``MacroNewsFetchRequest`` with ``max_articles`` and ``fetch_full_content``.
         on_progress: Optional callback for progress updates.
 
     Returns:
         Result dict with ``articles_stored`` and ``errors``.
+
+    Raises:
+        RuntimeError: When the fetch reported errors (upstream outage or a
+            failed upsert), so the scheduler records the job as failed.
     """
     from app.database import database_manager
 
@@ -539,11 +652,19 @@ def run_macro_news_fetch(
         )
         session.commit()
 
+        errors = result.get("errors", [])
         result_dict = {"articles_stored": result.get("count", 0)}
+        if errors:
+            # Raise rather than only report status="failed": an exception reaches
+            # every caller of this function and the step runner stores its text on
+            # the job row, so a swallowed outage is visible in the job history.
+            on_progress(errors=errors, result=result_dict)
+            raise RuntimeError("Macro news fetch failed: " + "; ".join(errors))
+
         on_progress(
             status="completed",
             finished_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            errors=result.get("errors", []),
+            errors=errors,
             result=result_dict,
         )
         logger.info("Macro news fetch completed: %d articles", result.get("count", 0))

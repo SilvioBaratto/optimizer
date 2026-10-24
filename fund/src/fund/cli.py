@@ -2,9 +2,10 @@
 
 The complete headless human driver, mirroring ``ingestion/app/cli.py``. Every
 command is a thin wrapper over :mod:`fund.observe` (the model-free read model),
-``run_fund`` / ``run_profiler`` / ``resume_run`` (the orchestration; ``resume_run``
-dispatches a paused run to the profiler or rebalance resumer by its gate), and the
-``fund.audit`` repositories. The seven commands span one cycle::
+:func:`fund.actions.apply_action` (the audited path for every human mutation, shared
+with the TUI: it drives ``run_fund`` / ``run_profiler`` / ``resume_run`` and appends
+the ``human_audit_log`` row), and the ``fund.audit`` repositories. The seven commands
+span one cycle::
 
     mandate set|show   persist / display the per-portfolio mandate (no model)
     profile            drive the MiFID profiler to its approval gate
@@ -14,47 +15,53 @@ dispatches a paused run to the profiler or rebalance resumer by its gate), and t
     status             runs + statuses + awaiting-HITL flag (no model)
     report             tabular audit of one run (no model)
 
+plus ``nav-mark [--rebuild]``, the daily NAV mark run on demand (``--rebuild``
+re-marks the whole history, e.g. after the NAV construction changes).
+
 **Transactions:** each command owns its session — ``with get_session() as
-session:`` — and commits (writes) or rolls back (reads); the repositories never
-``commit``. ``run`` / ``profile`` / ``approve`` / ``reject`` also open the
-LangGraph persistence via :func:`setup_langgraph` and **close its pool** in a
-``finally`` (the caller owns the pool's lifetime).
+session:`` — and commits (writes) or rolls back (reads); the repositories and
+``apply_action`` never ``commit``, so an action and its audit row land together.
+``run`` / ``profile`` / ``approve`` / ``reject`` also open the LangGraph persistence
+via :func:`setup_langgraph` and **close its pool** in a ``finally`` (the caller owns
+the pool's lifetime).
 
 **Model:** ``profile`` / ``run`` / ``approve`` / ``reject`` build the chat model
 lazily via :func:`build_primary`; a missing ``OLLAMA_API_KEY`` raises a clear
 ``RuntimeError`` surfaced as a non-zero exit. ``mandate`` / ``status`` / ``report``
-build no model. Importing this module reads no environment (``load_dotenv`` runs
-first, then the model/pool are built per command).
+build no model. Importing this module reads no environment (``load_project_env``
+runs first, then the model/pool are built per command).
 """
 
 from __future__ import annotations
 
-# Load .env FIRST, before importing anything that reads settings at import time.
-# override=True so the project .env wins over ambient shell pollution (e.g. a conda
-# env exporting SSL_CERT_FILE to a cacert.pem without the corporate CA).
-from dotenv import load_dotenv
+# Load .env FIRST, before importing anything that reads settings at import time. An
+# exported variable keeps precedence over the .env (see ``load_project_env``).
+from fund.config import load_project_env
 
-load_dotenv(override=True)
+load_project_env()
 
 import datetime as dt
+import getpass
 import logging
+import sys
 import uuid
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Any, NoReturn
 
 import typer
+from portopt_db.models import AgentRun, PaperOrder
 
 from fund import observe
-from fund.agents.graph import resume_run, run_fund
-from fund.agents.model import build_primary
-from fund.agents.profiler import run_profiler
+from fund.actions import ActionResult, apply_action
+from fund.agents.model import build_fallback, build_primary
 from fund.audit import (
     AgentRunRepository,
-    MandateRepository,
     OrderRepository,
     setup_langgraph,
 )
-from fund.config import settings
+from fund.audit.orders_repository import weights_hash
+from fund.config import settings, silence_http_request_logs
 from fund.database import get_session
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
 
@@ -69,7 +76,9 @@ mandate_app = typer.Typer(
 )
 app.add_typer(mandate_app, name="mandate")
 
-_PAST = {"approve": "approved", "reject": "rejected"}
+# Provenance stamped on every audit row the CLI writes, so the Audit view tells a
+# headless action from a TUI one.
+_SOURCE = "cli"
 
 # Module-level typer option (B008: a list-typed default must be a shared singleton,
 # not an inline call); the gated-tool flag is identical for `mandate set` and `run`.
@@ -87,6 +96,7 @@ def _boot() -> None:
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+    silence_http_request_logs()
 
 
 def _exit(ok: bool) -> None:
@@ -94,6 +104,9 @@ def _exit(ok: bool) -> None:
 
 
 def _fail(message: str) -> NoReturn:
+    # typer.Exit subclasses RuntimeError, so a command that wraps this in
+    # `except RuntimeError` must re-raise typer.Exit first or the handler re-reports
+    # it as a second, empty "error: " line.
     typer.echo(f"error: {message}", err=True)
     raise typer.Exit(code=1)
 
@@ -118,6 +131,41 @@ def _build_model() -> Any:
         return build_primary(settings)
     except RuntimeError as exc:
         _fail(str(exc))
+
+
+def _build_fallback() -> Any | None:
+    """Build the model the subagents retry on, or ``None`` when it cannot be built.
+
+    The retry model is a resilience extra: a command that already has its primary
+    model must still run when only the fallback is unconfigured.
+    """
+    try:
+        return build_fallback(settings)
+    except RuntimeError as exc:
+        logger.warning("no fallback model for this command: %s", exc)
+        return None
+
+
+def _actor() -> str:
+    """The OS user driving the CLI, recorded as the audit actor."""
+    try:
+        return getpass.getuser()
+    except (OSError, KeyError, ImportError):
+        return "human"
+
+
+def _check_drift(drift: float | None) -> None:
+    """Reject a ``--drift`` outside ``(0, 2)``, e.g. ``5`` typed for "5%".
+
+    The mandate schema enforces the same bound; checking here first gives a unit hint
+    and fails before the model is built or the stored mandate is read.
+    """
+    limit = PortfolioMandate.MAX_DRIFT_L1
+    if drift is not None and not 0 < drift < limit:
+        _fail(
+            f"invalid --drift {drift}: the L1 weight drift lies in (0, {limit:g}), "
+            "so pass a fraction (0.05 for 5%)"
+        )
 
 
 def _to_decimal(capital: float) -> Decimal:
@@ -164,6 +212,9 @@ def _build_mandate(
         else (existing.hitl_gates if existing else ("place_orders",))
     )
     triggers = existing.triggers if existing else RunTriggers(cron=True, drift=True)
+    # The adviser saves these from the TUI and no CLI flag can express them, so a
+    # rebuild that omitted them would silently erase the persisted source of truth.
+    directives = existing.remembered_directives if existing else ()
     return PortfolioMandate(
         portfolio_id=str(portfolio_id),
         capital=capital_val,
@@ -172,6 +223,31 @@ def _build_mandate(
         hitl_gates=gates,
         triggers=triggers,
         benchmark=benchmark_val,
+        remembered_directives=directives,
+    )
+
+
+def _echo_warnings(result: ActionResult) -> None:
+    """Print the warnings an action attached to its result, if any."""
+    for warning in (result.detail or {}).get("warnings", ()):
+        typer.echo(f"warning: {warning}", err=True)
+
+
+def _save_mandate(
+    session: Any,
+    portfolio_id: uuid.UUID,
+    existing: PortfolioMandate | None,
+    mandate: PortfolioMandate,
+) -> ActionResult:
+    """Persist ``mandate`` through the audited action path (no commit)."""
+    return apply_action(
+        "mandate_edit" if existing is not None else "new_portfolio",
+        session=session,
+        portfolio_id=portfolio_id,
+        mandate=mandate,
+        prev_value=existing.model_dump(mode="json") if existing is not None else None,
+        actor=_actor(),
+        source=_SOURCE,
     )
 
 
@@ -181,30 +257,48 @@ def _build_mandate(
 @mandate_app.command("set")
 def mandate_set(
     portfolio_id: str = typer.Argument(..., help="Portfolio UUID."),
-    capital: float = typer.Option(..., "--capital", help="Positive notional."),
-    base_currency: str = typer.Option("EUR", "--base-currency", help="ISO-4217 code."),
-    drift: float = typer.Option(0.1, "--drift", help="L1 drift threshold (>0)."),
+    capital: float | None = typer.Option(
+        None, "--capital", help="Positive notional; required for a new mandate."
+    ),
+    base_currency: str | None = typer.Option(
+        None, "--base-currency", help="ISO-4217 code; default EUR for a new mandate."
+    ),
+    drift: float | None = typer.Option(
+        None,
+        "--drift",
+        help="L1 drift threshold in (0, 2), 0.05 = 5%; default 0.1 for a new mandate.",
+    ),
     benchmark: str | None = typer.Option(
         None, "--benchmark", help="Tracking benchmark."
     ),
     interrupt_on: list[str] | None = _INTERRUPT_ON,
 ) -> None:
-    """Upsert the per-portfolio mandate (one row per portfolio)."""
+    """Upsert the per-portfolio mandate (one row per portfolio).
+
+    Only the flags given are changed on an existing mandate; everything else
+    (triggers, gates, benchmark, remembered directives) is carried over.
+    """
     _boot()
     pid = _uuid(portfolio_id, label="portfolio id")
-    mandate = _build_mandate(
-        pid,
-        None,
-        capital=capital,
-        base_currency=base_currency,
-        drift=drift,
-        benchmark=benchmark,
-        interrupt_on=interrupt_on,
-    )
-    with get_session() as session:
-        MandateRepository(session).upsert(mandate)
-        session.commit()
+    _check_drift(drift)
+    try:
+        with get_session() as session:
+            existing = observe.get_mandate(session, pid)
+            mandate = _build_mandate(
+                pid,
+                existing,
+                capital=capital,
+                base_currency=base_currency,
+                drift=drift,
+                benchmark=benchmark,
+                interrupt_on=interrupt_on,
+            )
+            saved = _save_mandate(session, pid, existing, mandate)
+            session.commit()
+    except ValueError as exc:  # e.g. the base currency is locked by ledger history
+        _fail(str(exc))
     typer.echo(f"mandate saved for portfolio {pid}")
+    _echo_warnings(saved)
     _exit(True)
 
 
@@ -237,11 +331,48 @@ def mandate_show(
 # --- profile ----------------------------------------------------------------
 
 
+def _read_answers(answers: str | None, answers_file: str | None) -> str:
+    """The questionnaire text from exactly one of ``--answers`` / ``--answers-file``.
+
+    ``--answers-file -`` reads stdin. The file route exists because an argv value is
+    visible in shell history and to every local user through the process list.
+    """
+    if answers is not None:
+        if answers_file is not None:
+            _fail("pass only one of --answers or --answers-file")
+        return answers
+    if answers_file is None:
+        _fail("pass exactly one of --answers or --answers-file")
+    try:
+        text = (
+            sys.stdin.read()
+            if answers_file == "-"
+            else Path(answers_file).read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeDecodeError) as exc:
+        _fail(f"cannot read --answers-file: {exc}")
+    text = text.strip()
+    if not text:
+        _fail("--answers-file is empty")
+    return text
+
+
 @app.command()
 def profile(
     portfolio_id: str = typer.Argument(..., help="Portfolio UUID."),
-    answers: str = typer.Option(
-        ..., "--answers", help="Free-text MiFID questionnaire answers."
+    answers: str | None = typer.Option(
+        None,
+        "--answers",
+        help=(
+            "Free-text MiFID questionnaire answers (read by the LLM), or a "
+            "MiFIDAnswers JSON used verbatim with no LLM extraction. Visible in "
+            "shell history and the process list; prefer --answers-file."
+        ),
+    ),
+    answers_file: str | None = typer.Option(
+        None,
+        "--answers-file",
+        help="File holding the answers, in the same forms; '-' reads stdin.",
     ),
     base_currency: str | None = typer.Option(None, "--base-currency"),
     asof: str | None = typer.Option(None, "--asof", help="ISO date; default today."),
@@ -249,28 +380,39 @@ def profile(
     """Drive the MiFID profiler to its adviser-approval gate, then detach."""
     _boot()
     pid = _uuid(portfolio_id, label="portfolio id")
+    questionnaire = _read_answers(answers, answers_file)
     run_asof = _parse_date(asof) if asof else None
     model = _build_model()
+    fallback = _build_fallback()
     persistence = setup_langgraph(settings)
     try:
         with get_session() as session:
-            run = run_profiler(
-                model,
-                answers,
-                portfolio_id=pid,
+            result = apply_action(
+                "profile",
                 session=session,
+                portfolio_id=pid,
+                questionnaire=questionnaire,
+                model=model,
+                fallback=fallback,
                 checkpointer=persistence.saver,
                 store=persistence.store,
                 base_currency=base_currency,
                 asof=run_asof,
+                actor=_actor(),
+                source=_SOURCE,
+                config=settings,
             )
             session.commit()
+    except typer.Exit:
+        raise
     except (RuntimeError, ValueError, LookupError) as exc:
         _fail(str(exc))
     finally:
         persistence.pool.close()
-    typer.echo(f"profiler run {run.run_id} status=paused (awaiting approval)")
-    _exit(True)
+    typer.echo(result.message)
+    # A suitability block is committed as a recorded outcome, but nothing is awaiting
+    # approval, so a script must not read the exit as a successful profile.
+    _exit(not (result.detail or {}).get("blocked"))
 
 
 # --- run --------------------------------------------------------------------
@@ -282,7 +424,9 @@ def run(
     asof: str = typer.Option(..., "--asof", help="Decision bar (ISO date)."),
     capital: float | None = typer.Option(None, "--capital"),
     base_currency: str | None = typer.Option(None, "--base-currency"),
-    drift: float | None = typer.Option(None, "--drift"),
+    drift: float | None = typer.Option(
+        None, "--drift", help="L1 drift threshold in (0, 2), 0.05 = 5%."
+    ),
     benchmark: str | None = typer.Option(None, "--benchmark"),
     interrupt_on: list[str] | None = _INTERRUPT_ON,
 ) -> None:
@@ -291,6 +435,7 @@ def run(
     _boot()
     pid = _uuid(portfolio_id, label="portfolio id")
     run_asof = _parse_date(asof)
+    _check_drift(drift)
     flags_given = (
         capital is not None
         or base_currency is not None
@@ -299,6 +444,7 @@ def run(
         or bool(interrupt_on)
     )
     model = _build_model()
+    fallback = _build_fallback()
     persistence = setup_langgraph(settings)
     try:
         with get_session() as session:
@@ -307,6 +453,17 @@ def run(
                 _fail(
                     f"no mandate for portfolio {pid}; run 'mandate set' first "
                     f"or pass --capital"
+                )
+            paused = AgentRunRepository(session).list_paused_runs(pid)
+            if paused:
+                # The scheduler skips such a portfolio too: a second round would
+                # leave two approvable runs, and the older one can later overwrite
+                # the newer holdings.
+                ids = ", ".join(str(r.id) for r in paused)
+                _fail(
+                    f"portfolio {pid} already has a paused run awaiting a decision "
+                    f"({ids}); 'fund approve' or 'fund reject' it before starting "
+                    f"another"
                 )
             if existing is not None and not flags_given:
                 mandate = existing
@@ -320,23 +477,33 @@ def run(
                     benchmark=benchmark,
                     interrupt_on=interrupt_on,
                 )
-                MandateRepository(session).upsert(mandate)
-            fund_run = run_fund(
-                model,
-                mandate,
-                portfolio_id=pid,
-                asof=run_asof,
+                saved = _save_mandate(session, pid, existing, mandate)
+                _echo_warnings(saved)
+            result = apply_action(
+                "run",
                 session=session,
+                portfolio_id=pid,
+                mandate=mandate,
+                asof=run_asof,
+                model=model,
+                fallback=fallback,
                 checkpointer=persistence.saver,
                 store=persistence.store,
+                actor=_actor(),
+                source=_SOURCE,
+                config=settings,
             )
             session.commit()
+    except typer.Exit:
+        raise
     except (RuntimeError, ValueError, LookupError) as exc:
         _fail(str(exc))
     finally:
         persistence.pool.close()
-    typer.echo(f"run {fund_run.run_id} status={fund_run.status} (HITL gate)")
-    _exit(True)
+    typer.echo(result.message)
+    # A run that finalised without a gate left nothing to approve; a cron caller
+    # must be able to tell that from a successful pause.
+    _exit((result.detail or {}).get("status") == "paused")
 
 
 # --- approve / reject -------------------------------------------------------
@@ -352,24 +519,39 @@ def _resume(run_id: str, decision: str) -> None:
     _boot()
     rid = _uuid(run_id, label="run id")
     model = _build_model()
+    fallback = _build_fallback()
     persistence = setup_langgraph(settings)
     try:
         with get_session() as session:
-            resume_run(
-                rid,
+            result = apply_action(
                 decision,
                 session=session,
+                run_id=rid,
                 checkpointer=persistence.saver,
                 store=persistence.store,
                 model=model,
+                fallback=fallback,
+                actor=_actor(),
+                source=_SOURCE,
+                # Resolving a run is terminal: keying on (run, decision), as the TUI
+                # does, makes a repeat replay the first outcome instead of re-resuming.
+                idempotency_key=f"{rid}:{decision}",
+                config=settings,
             )
             session.commit()
+            run = AgentRunRepository(session).get_run(rid)
+            ticketed = decision != "approve" or (
+                run is not None and run.status == "completed"
+            )
+    except typer.Exit:
+        raise
     except (RuntimeError, ValueError, LookupError) as exc:
         _fail(str(exc))
     finally:
         persistence.pool.close()
-    typer.echo(f"run {rid} {_PAST[decision]}")
-    _exit(True)
+    typer.echo(result.message)
+    # An approve that placed no ticket is a failed approve for a script driving this.
+    _exit(ticketed)
 
 
 @app.command()
@@ -400,7 +582,7 @@ def status(
         if portfolio_id is None:
             for r in AgentRunRepository(session).list_paused_runs():
                 lines.append(
-                    f"{r.id}\tpaused\tportfolio={r.portfolio_id}\tasof={r.asof}"
+                    f"{r.id}\t{r.status}\tportfolio={r.portfolio_id}\tasof={r.asof}"
                 )
         else:
             pid = _uuid(portfolio_id, label="portfolio id")
@@ -412,6 +594,23 @@ def status(
         session.rollback()
     typer.echo("\n".join(lines) if lines else "(no runs)")
     _exit(True)
+
+
+def _run_ticket(session: Any, run: AgentRun) -> PaperOrder | None:
+    """The paper ticket ``run``'s approval placed or reused, else ``None``.
+
+    ``paper_orders`` carries no run id, so the ticket is found by the same
+    ``(portfolio, asof, weights_hash)`` key ``place_orders`` writes. Only a completed
+    run has one: a paused, rejected or incomplete run placed nothing, whatever the
+    portfolio's newest ticket is.
+    """
+    if run.status != "completed" or not run.weights or run.portfolio_id is None:
+        return None
+    return OrderRepository(session).get_by_key(
+        portfolio_id=run.portfolio_id,
+        asof=run.asof,
+        weights_hash=weights_hash(run.weights),
+    )
 
 
 @app.command()
@@ -435,24 +634,25 @@ def report(run_id: str = typer.Argument(..., help="Run UUID.")) -> None:
         if pid is not None:
             mandate = observe.get_mandate(session, pid)
             if mandate is not None:
+                # Runs do not snapshot their mandate, so only the live one can be shown.
                 lines.append(
-                    f"mandate: capital={mandate.capital} {mandate.base_currency} "
-                    f"drift={mandate.drift_l1_threshold}"
+                    f"current mandate: capital={mandate.capital} "
+                    f"{mandate.base_currency} drift={mandate.drift_l1_threshold}"
                 )
-            state = observe.portfolio_state(session, pid)
-            if state.metrics:
+            metrics = observe.run_metrics(run)
+            if metrics:
                 lines.append(
                     "metrics: "
-                    + ", ".join(
-                        f"{k}={v:.4f}" for k, v in sorted(state.metrics.items())
-                    )
+                    + ", ".join(f"{k}={v:.4f}" for k, v in sorted(metrics.items()))
                 )
-            ticket = OrderRepository(session).latest_for_portfolio(pid)
+            ticket = _run_ticket(session, run)
             if ticket is not None:
                 lines.append(
                     f"ticket {ticket.id}  status={ticket.status}  "
                     f"notional={ticket.notional}"
                 )
+            else:
+                lines.append("no ticket for this run")
         lines.append("decisions:")
         for d in run.decisions:
             hitl = f"  hitl={d.hitl_decision}" if d.hitl_decision else ""
@@ -460,6 +660,29 @@ def report(run_id: str = typer.Argument(..., help="Run UUID.")) -> None:
         session.rollback()
     typer.echo("\n".join(lines))
     _exit(True)
+
+
+# --- nav-mark ---------------------------------------------------------------
+
+
+@app.command("nav-mark")
+def nav_mark(
+    rebuild: bool = typer.Option(
+        False,
+        "--rebuild",
+        help="Re-mark every portfolio from its first fill, overwriting stored NAV.",
+    ),
+) -> None:
+    """Mark every active mandate's NAV into ``nav_history`` now (no model).
+
+    The daily scheduler step, run by hand. ``--rebuild`` re-emits the whole series
+    rather than the recent window: use it once when the NAV construction changes, so
+    rows persisted under the old scale do not sit beside the new ones.
+    """
+    _boot()
+    from fund.scheduler import run_nav_mark
+
+    _exit(run_nav_mark(full=rebuild))
 
 
 if __name__ == "__main__":

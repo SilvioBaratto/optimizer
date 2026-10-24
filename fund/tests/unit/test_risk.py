@@ -20,16 +20,22 @@ from __future__ import annotations
 import datetime as dt
 import math
 
+import numpy as np
+import pytest
+from optimizer.preprocessing import prices_to_returns
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
+from skfolio import Portfolio
 
+from fund.tools._base import MIN_RETURN_OBSERVATIONS
+from fund.tools.prices import load_price_frame
 from fund.tools.risk import backtest, risk_check
 
 _START = dt.date(2024, 1, 1)
-_N_DAYS = 60
+_N_DAYS = 80
 _ASOF = _START + dt.timedelta(days=_N_DAYS - 1)
-# Deterministic per-ticker (start, drift, wave) — no RNG, so the whole path is
-# reproducible and identical-seed determinism is trivially testable.
+# Each ticker maps to a start level, a drift and a wave amplitude. There is no RNG,
+# so the whole path is reproducible and determinism is trivially testable.
 _SERIES = {
     "AAA": (100.0, 0.0008, 0.015),
     "BBB": (50.0, 0.0004, 0.030),
@@ -71,6 +77,22 @@ def _seed_panel(db_session) -> None:
     db_session.flush()
 
 
+def _seed_closes(db_session, ticker: str, closes: dict[dt.date, float]) -> None:
+    """Seed ``ticker`` with exactly the given ``{date: close}`` bars."""
+    inst = _seed_instrument(db_session, ticker)
+    for day, close in closes.items():
+        db_session.add(
+            PriceHistory(instrument_id=inst.id, date=day, close=close, volume=1000)
+        )
+    db_session.flush()
+
+
+def _crash_then_climb(i: int) -> float:
+    """A 36% crash over the first 10 bars, then a steady climb (never a new low)."""
+    level = 100.0 * (1.0 - 0.04 * i) if i < 10 else 64.0 * (1.0 + 0.003 * (i - 9))
+    return round(level * (1.0 + 0.0005 * math.sin(i)), 6)
+
+
 def _seed_single_day(db_session) -> None:
     """Seed one close per ticker — a panel too short to derive returns (<2 obs)."""
     for ticker, params in _SERIES.items():
@@ -78,6 +100,58 @@ def _seed_single_day(db_session) -> None:
         db_session.add(
             PriceHistory(
                 instrument_id=inst.id, date=_START, close=params[0], volume=1000
+            )
+        )
+    db_session.flush()
+
+
+def _seed_consecutive_closes(db_session, ticker: str, closes: list[float]) -> None:
+    """Seed one explicit close per consecutive day, the last one on ``_ASOF``.
+
+    Ending on the decision bar keeps the ticker live: the price panel excludes an
+    instrument whose last bar is stale against ``asof``.
+    """
+    inst = _seed_instrument(db_session, ticker)
+    for i, close in enumerate(closes):
+        db_session.add(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=_ASOF - dt.timedelta(days=len(closes) - 1 - i),
+                close=close,
+                volume=1000,
+            )
+        )
+    db_session.flush()
+
+
+_RAGGED_LONG_DAYS = 120
+_RAGGED_YOUNG_DAYS = 6
+_RAGGED_ASOF = _START + dt.timedelta(days=_RAGGED_LONG_DAYS - 1)
+
+
+def _seed_ragged_panel(db_session, young_days: int = _RAGGED_YOUNG_DAYS) -> None:
+    """Seed AAA/BBB/CCC with a long history plus NEW, listed only for the last bars."""
+    for ticker, (start, drift, wave) in _SERIES.items():
+        inst = _seed_instrument(db_session, ticker)
+        for i in range(_RAGGED_LONG_DAYS):
+            close = start * (1.0 + drift * i + wave * math.sin(i / 5.0))
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=_START + dt.timedelta(days=i),
+                    close=round(close, 6),
+                    volume=1000,
+                )
+            )
+    young = _seed_instrument(db_session, "NEW")
+    for i in range(_RAGGED_LONG_DAYS - young_days, _RAGGED_LONG_DAYS):
+        close = 40.0 * (1.0 + 0.001 * i + 0.025 * math.sin(i / 3.0))
+        db_session.add(
+            PriceHistory(
+                instrument_id=young.id,
+                date=_START + dt.timedelta(days=i),
+                close=round(close, 6),
+                volume=1000,
             )
         )
     db_session.flush()
@@ -159,6 +233,103 @@ class TestRiskCheck:
 
         assert risk_check(weights) == risk_check(weights)
 
+    def test_drawdown_past_the_hard_ceiling_is_a_violation(self) -> None:
+        result = risk_check(
+            {"AAA": 0.6, "BBB": 0.4},
+            constraints={
+                "nu1": 0.05,
+                "nu2": 0.10,
+                "nu3": 0.20,
+                "observed_drawdown": 0.12,
+            },
+        )
+
+        data = result["data"]
+        assert data["passed"] is False
+        assert any(
+            v["type"] == "drawdown_nu2" and v["limit"] == 0.10
+            for v in data["violations"]
+        )
+
+    def test_drawdown_past_the_absolute_stop_names_the_nu3_tier(self) -> None:
+        result = risk_check(
+            {"AAA": 0.6, "BBB": 0.4},
+            constraints={
+                "nu1": 0.05,
+                "nu2": 0.10,
+                "nu3": 0.20,
+                "observed_drawdown": 0.25,
+            },
+        )
+
+        data = result["data"]
+        assert data["passed"] is False
+        assert any(v["type"] == "drawdown_nu3" for v in data["violations"])
+
+    def test_drawdown_between_soft_and_hard_tier_warns_without_blocking(self) -> None:
+        result = risk_check(
+            {"AAA": 0.6, "BBB": 0.4},
+            constraints={
+                "nu1": 0.05,
+                "nu2": 0.10,
+                "nu3": 0.20,
+                "observed_drawdown": 0.07,
+            },
+        )
+
+        data = result["data"]
+        assert data["passed"] is True
+        assert [w["type"] for w in data["warnings"]] == ["drawdown_nu1"]
+
+    def test_drawdown_inside_every_tier_is_clean(self) -> None:
+        result = risk_check(
+            {"AAA": 0.6, "BBB": 0.4},
+            constraints={
+                "nu1": 0.05,
+                "nu2": 0.10,
+                "nu3": 0.20,
+                "observed_drawdown": 0.02,
+            },
+        )
+
+        data = result["data"]
+        assert data["passed"] is True
+        assert data["warnings"] == []
+
+    def test_non_finite_drawdown_is_blocked_not_silently_passed(self) -> None:
+        result = risk_check(
+            {"AAA": 0.6, "BBB": 0.4},
+            constraints={
+                "nu1": 0.05,
+                "nu2": 0.10,
+                "nu3": 0.20,
+                "observed_drawdown": float("nan"),
+            },
+        )
+
+        data = result["data"]
+        assert data["passed"] is False
+        assert any(v["type"] == "drawdown_unverified" for v in data["violations"])
+
+    def test_weight_on_an_esg_excluded_asset_is_a_violation(self) -> None:
+        result = risk_check(
+            {"AAA": 0.6, "BBB": 0.4}, constraints={"excluded_assets": ["BBB"]}
+        )
+
+        data = result["data"]
+        assert data["passed"] is False
+        assert any(
+            v["type"] == "esg_exclusion" and v["asset"] == "BBB"
+            for v in data["violations"]
+        )
+
+    def test_zero_weight_on_an_esg_excluded_asset_is_allowed(self) -> None:
+        result = risk_check(
+            {"AAA": 1.0, "BBB": 0.0}, constraints={"excluded_assets": ["BBB"]}
+        )
+
+        assert result["data"]["passed"] is True
+
 
 class TestBacktest:
     def test_reports_metrics_full_sample_default(self, db_session) -> None:
@@ -169,15 +340,170 @@ class TestBacktest:
         assert result["ok"] is True
         data = result["data"]
         metrics = data["metrics"]
-        assert {"mean", "standard_deviation", "sharpe_ratio", "max_drawdown"} <= set(
-            metrics
-        )
+        assert set(metrics) == {
+            "annualized_mean",
+            "annualized_standard_deviation",
+            "annualized_sharpe_ratio",
+            "max_drawdown",
+        }
         # The default walk-forward window is far larger than the seed → no split is
         # possible, so the tool falls back to the full sample.
         assert data["n_folds"] == 0
         assert data["n_observations"] == _N_DAYS - 1
         # Fall-back metrics are in-sample, not walk-forward — flagged truthfully.
         assert data["out_of_sample"] is False
+
+    def test_full_sample_drawdown_covers_history_before_the_first_test_block(
+        self, db_session
+    ) -> None:
+        # A crash inside the initial training block is excluded from the walk-forward
+        # test blocks, yet the fixed weights lived through it: the full-sample figure
+        # is the worst drawdown the weights would have suffered, which a drawdown
+        # ceiling must be judged against.
+        days = [_START + dt.timedelta(days=i) for i in range(_N_DAYS)]
+        _seed_closes(
+            db_session, "AAA", {d: _crash_then_climb(i) for i, d in enumerate(days)}
+        )
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 1.0},
+            window={"train_size": 20, "test_size": 10, "purged_size": 0},
+        )
+
+        data = result["data"]
+        assert data["n_folds"] >= 1
+        assert data["metrics"]["max_drawdown"] < 0.1
+        assert data["full_sample_max_drawdown"] > 0.3
+
+    def test_full_sample_drawdown_equals_the_window_drawdown_without_folds(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+
+        data = backtest(db_session, _ASOF, {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})["data"]
+
+        assert data["n_folds"] == 0
+        assert data["full_sample_max_drawdown"] == data["metrics"]["max_drawdown"]
+
+    def test_percent_style_weights_are_rejected_against_the_budget(
+        self, db_session
+    ) -> None:
+        # 50/30/20 would inflate every metric 100x if replayed as portfolio weights.
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 50.0, "BBB": 30.0, "CCC": 20.0},
+            budget=1.0,
+        )
+
+        assert result["ok"] is False
+        assert "sum" in result["error"]
+
+    def test_partially_invested_weights_are_rejected_against_the_budget(
+        self, db_session
+    ) -> None:
+        # Weights summing to 0.7 against a fully invested budget would be replayed as
+        # 30% idle cash, so the reported risk would understate the proposal.
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 0.4, "BBB": 0.2, "CCC": 0.1},
+            budget=1.0,
+        )
+
+        assert result["ok"] is False
+        assert "sum" in result["error"]
+
+    def test_non_finite_weight_sum_is_rejected_against_the_budget(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": float("nan"), "BBB": 0.5, "CCC": 0.5},
+            budget=1.0,
+        )
+
+        assert result["ok"] is False
+        assert "sum" in result["error"]
+
+    def test_weights_matching_a_non_default_budget_are_evaluated(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 0.25, "BBB": 0.15, "CCC": 0.1},
+            budget=0.5,
+        )
+
+        assert result["ok"] is True
+
+    def test_weights_matching_the_budget_are_evaluated(self, db_session) -> None:
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+            budget=1.0,
+        )
+
+        assert result["ok"] is True
+
+    def test_max_drawdown_is_the_compounded_nav_decline(self, db_session) -> None:
+        # One asset held at weight 1: the backtest NAV is the price path itself. A
+        # 40-day +1%/day rally then 15 days of -1%/day is a 1 - 0.99**15 decline;
+        # summing the daily returns would report 0.15 instead.
+        inst = _seed_instrument(db_session, "AAA")
+        close = 100.0
+        for i in range(56):
+            close *= 1.01 if i <= 40 else 0.99
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=_START + dt.timedelta(days=i),
+                    close=round(close, 6),
+                    volume=1000,
+                )
+            )
+        db_session.flush()
+
+        result = backtest(db_session, _START + dt.timedelta(days=55), {"AAA": 1.0})
+
+        assert result["ok"] is True
+        assert result["data"]["metrics"]["max_drawdown"] == pytest.approx(
+            1.0 - 0.99**15, rel=1e-4
+        )
+        # The optimizer's nu1/nu2/nu3 ceilings sit on the additive return path, so the
+        # basis is part of the result rather than something the caller must assume.
+        assert result["data"]["drawdown_basis"] == "compounded"
+
+    def test_metrics_are_annualised_from_per_period_values(self, db_session) -> None:
+        _seed_panel(db_session)
+        weights = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
+        frame, _ = load_price_frame(db_session, _ASOF, list(weights))
+        daily = Portfolio(prices_to_returns(frame), np.array(list(weights.values())))
+
+        metrics = backtest(db_session, _ASOF, weights)["data"]["metrics"]
+
+        assert metrics["annualized_mean"] == pytest.approx(daily.mean * 252)
+        assert metrics["annualized_standard_deviation"] == pytest.approx(
+            daily.standard_deviation * math.sqrt(252)
+        )
+        assert metrics["annualized_sharpe_ratio"] == pytest.approx(
+            daily.sharpe_ratio * math.sqrt(252)
+        )
 
     def test_full_sample_fallback_flagged_in_sample(self, db_session) -> None:
         # Default window → min_needed (824) ≫ the 59 seeded return rows, exactly the
@@ -208,6 +534,44 @@ class TestBacktest:
         assert data["n_folds"] >= 1
         assert data["out_of_sample"] is True
 
+    def test_weights_fit_inside_the_test_blocks_are_flagged_in_sample(
+        self, db_session
+    ) -> None:
+        # Weights estimated on every bar up to ``_ASOF`` have already seen each
+        # walk-forward test block, so scoring them there is not out-of-sample.
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+            window={"train_size": 20, "test_size": 10, "purged_size": 0},
+            fit_end=_ASOF,
+        )
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["n_folds"] >= 1
+        assert data["out_of_sample"] is False
+
+    def test_weights_fit_before_the_first_test_block_stay_out_of_sample(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+            window={"train_size": 20, "test_size": 10, "purged_size": 0},
+            fit_end=_START + dt.timedelta(days=15),
+        )
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["n_folds"] >= 1
+        assert data["out_of_sample"] is True
+
     def test_walk_forward_out_of_sample_respects_temporal_order(
         self, db_session
     ) -> None:
@@ -228,10 +592,74 @@ class TestBacktest:
         assert data["n_observations"] < _N_DAYS - 1
         assert data["window_start"] > data["sample_start"]
 
-    def test_missing_ticker_flagged_not_raised(self, db_session) -> None:
+    def test_max_drawdown_is_peak_to_trough_of_compounded_curve(
+        self, db_session
+    ) -> None:
+        # 100 -> 200 -> 150 -> 100 is a 50% peak-to-trough loss. skfolio's default
+        # arithmetic drawdown sums the simple returns instead and reads 58.3%.
+        # A flat lead-in clears the common-sample floor without touching the drawdown.
+        _seed_consecutive_closes(
+            db_session, "AAA", [100.0] * 25 + [100.0, 200.0, 150.0, 100.0]
+        )
+
+        result = backtest(db_session, _ASOF, {"AAA": 1.0})
+
+        assert result["ok"] is True
+        assert result["data"]["metrics"]["max_drawdown"] == pytest.approx(0.5)
+
+    def test_walk_forward_max_drawdown_is_compounded_over_test_block(
+        self, db_session
+    ) -> None:
+        # The fold's test block holds the whole 100 -> 200 -> 100 slide; the drawdown
+        # is read on the compounded curve of the concatenated test returns.
+        # The flat lead-in (20 bars) clears the common-sample floor and keeps the slide
+        # whole inside one test block.
+        closes = [100.0] * 20 + [100.0, 100.0, 100.0, 200.0, 150.0, 100.0, 100.0, 100.0]
+        _seed_consecutive_closes(db_session, "AAA", closes)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 1.0},
+            window={"train_size": 2, "test_size": 5, "purged_size": 0},
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["out_of_sample"] is True
+        assert result["data"]["metrics"]["max_drawdown"] == pytest.approx(0.5)
+
+    def test_rising_book_reports_positive_zero_drawdown(self, db_session) -> None:
+        _seed_consecutive_closes(
+            db_session, "AAA", [100.0 + 0.5 * i for i in range(30)]
+        )
+
+        result = backtest(db_session, _ASOF, {"AAA": 1.0})
+
+        assert result["ok"] is True
+        drawdown = result["data"]["metrics"]["max_drawdown"]
+        assert drawdown == 0.0
+        assert math.copysign(1.0, drawdown) == 1.0
+
+    def test_unpriced_weighted_ticker_is_an_error_not_a_partial_book(
+        self, db_session
+    ) -> None:
+        # Dropping ZZZ's 40% would evaluate 0.6 * AAA plus implicit idle cash, whose
+        # volatility and drawdown understate the proposal's by the dropped share.
         _seed_panel(db_session)
 
         result = backtest(db_session, _ASOF, {"AAA": 0.6, "ZZZ": 0.4})
+
+        assert result["ok"] is False
+        assert "ZZZ" in result["error"]
+
+    def test_unpriced_ticker_with_zero_weight_is_flagged_not_rejected(
+        self, db_session
+    ) -> None:
+        # A zero weight carries no capital, so dropping the ticker leaves the
+        # evaluated portfolio identical to the proposal.
+        _seed_panel(db_session)
+
+        result = backtest(db_session, _ASOF, {"AAA": 0.5, "BBB": 0.5, "ZZZ": 0.0})
 
         assert result["ok"] is True
         assert result["data"]["missing"] == ["ZZZ"]
@@ -256,6 +684,74 @@ class TestBacktest:
 
         assert result["ok"] is False
         assert "error" in result
+
+    def test_returns_frame_emptied_by_a_young_listing_is_an_error(
+        self, db_session
+    ) -> None:
+        # ``prices_to_returns`` trims every row before the youngest asset's first
+        # bar, so a weighted ticker priced only on the last day leaves no returns.
+        # The tool must refuse rather than hand back NaN metrics inside ``ok``.
+        old = {_START + dt.timedelta(days=i): 100.0 + i for i in range(_N_DAYS)}
+        _seed_closes(db_session, "OLD", old)
+        _seed_closes(db_session, "NEW", {_ASOF: 10.0})
+
+        result = backtest(db_session, _ASOF, {"OLD": 0.5, "NEW": 0.5})
+
+        assert result["ok"] is False
+        assert "history" in result["error"]
+
+    def test_single_return_row_is_an_error(self, db_session) -> None:
+        # One return observation has no dispersion: std/sharpe are NaN.
+        old = {_START + dt.timedelta(days=i): 100.0 + i for i in range(_N_DAYS)}
+        _seed_closes(db_session, "OLD", old)
+        _seed_closes(
+            db_session,
+            "NEW",
+            {_ASOF - dt.timedelta(days=1): 10.0, _ASOF: 11.0},
+        )
+
+        result = backtest(db_session, _ASOF, {"OLD": 0.5, "NEW": 0.5})
+
+        assert result["ok"] is False
+
+    def test_non_finite_metrics_are_an_error_not_a_success(self, db_session) -> None:
+        # A flat price series has zero variance, so the Sharpe ratio is undefined;
+        # NaN/inf are not valid JSON for the risk agent's tool message.
+        flat = {_START + dt.timedelta(days=i): 100.0 for i in range(_N_DAYS)}
+        _seed_closes(db_session, "FLAT", flat)
+
+        result = backtest(db_session, _ASOF, {"FLAT": 1.0})
+
+        assert result["ok"] is False
+        assert "finite" in result["error"]
+
+    def test_young_listing_collapsing_the_sample_is_error(self, db_session) -> None:
+        # The youngest listing truncates every asset's returns to its own few bars;
+        # a "backtest" over 5 rows is an in-sample artefact, not evidence.
+        _seed_ragged_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _RAGGED_ASOF,
+            {"AAA": 0.3, "BBB": 0.3, "CCC": 0.2, "NEW": 0.2},
+        )
+
+        assert result["ok"] is False
+        assert "NEW" in result["error"]
+
+    def test_listing_below_the_common_sample_floor_still_collapses_the_sample(
+        self, db_session
+    ) -> None:
+        _seed_ragged_panel(db_session, young_days=MIN_RETURN_OBSERVATIONS)
+
+        result = backtest(
+            db_session,
+            _RAGGED_ASOF,
+            {"AAA": 0.3, "BBB": 0.3, "CCC": 0.2, "NEW": 0.2},
+        )
+
+        assert result["ok"] is False
+        assert "NEW" in result["error"]
 
     def test_unknown_window_key_is_ignored(self, db_session) -> None:
         # Unrecognized window keys are filtered out, so the tool falls back to the

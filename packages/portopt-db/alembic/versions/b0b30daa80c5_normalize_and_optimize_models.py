@@ -11,13 +11,37 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-from alembic import op
+from alembic import context, op
 
 # revision identifiers, used by Alembic.
 revision: str = "b0b30daa80c5"
 down_revision: str | Sequence[str] | None = "ecf0a9a2bfdc"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+
+
+def _backfill_insider_start_dates() -> None:
+    """Give every NULL ``start_date`` the sentinel date without breaking the key.
+
+    ``uq_insider_tx_row`` treats NULLs as distinct, so a populated table can
+    hold several NULL-date rows of one insider and transaction type; moving them
+    all onto one sentinel date violates the constraint and aborts the upgrade.
+    Only the lowest-id row of each such group survives, and a NULL-date row is
+    dropped when its key already has a row on the sentinel date.
+    """
+    op.execute(
+        "DELETE FROM insider_transactions WHERE start_date IS NULL AND EXISTS ("
+        "SELECT 1 FROM insider_transactions AS kept "
+        "WHERE kept.instrument_id = insider_transactions.instrument_id "
+        "AND kept.insider_name = insider_transactions.insider_name "
+        "AND kept.transaction_type = insider_transactions.transaction_type "
+        "AND (kept.start_date = '1970-01-01' "
+        "OR (kept.start_date IS NULL AND kept.id < insider_transactions.id)))"
+    )
+    op.execute(
+        "UPDATE insider_transactions SET start_date = '1970-01-01' "
+        "WHERE start_date IS NULL"
+    )
 
 
 def upgrade() -> None:
@@ -99,13 +123,16 @@ def upgrade() -> None:
         )
 
     # ----------------------------------------------------------------
-    # 8. Change Numeric(30,6) → Numeric(20,6) on financial_statements.value
+    # 8. Change Numeric(30,6) → Numeric(38,6) on financial_statements.value
+    #    6b106e82ce20 widens the column to 38,6 right after this revision, so
+    #    narrowing it to 20,6 here only breaks a populated table holding a
+    #    value of 1e14 or more (numeric field overflow) for no lasting change.
     # ----------------------------------------------------------------
     op.alter_column(
         "financial_statements",
         "value",
         existing_type=sa.NUMERIC(precision=30, scale=6),
-        type_=sa.Numeric(precision=20, scale=6),
+        type_=sa.Numeric(precision=38, scale=6),
         existing_nullable=True,
     )
 
@@ -117,9 +144,11 @@ def upgrade() -> None:
     # drops and recreates them from scratch.  Guard each section so
     # this migration is idempotent on both fresh and existing databases.
     # ----------------------------------------------------------------
-    conn = op.get_bind()
-    inspector = sa.inspect(conn)
-    existing_tables = set(inspector.get_table_names())
+    # An offline (--sql) render has no connection to inspect. None of the macro
+    # tables is created by an earlier revision of the chain, so the render skips
+    # sections 9-11 exactly as a database built by the chain would.
+    inspector = None if context.is_offline_mode() else sa.inspect(op.get_bind())
+    existing_tables = set(inspector.get_table_names()) if inspector else set()
 
     macro_tables = (
         "economic_indicators",
@@ -170,9 +199,7 @@ def upgrade() -> None:
     # 12. Make insider_transactions.start_date NOT NULL
     #     First backfill NULLs with sentinel date 1970-01-01.
     # ----------------------------------------------------------------
-    op.execute(
-        "UPDATE insider_transactions SET start_date = '1970-01-01' WHERE start_date IS NULL"
-    )
+    _backfill_insider_start_dates()
     op.alter_column(
         "insider_transactions",
         "start_date",
@@ -192,60 +219,62 @@ def downgrade() -> None:
         nullable=True,
     )
 
+    # 9-11. The upgrade only touched the macro tables that already existed, and a
+    # database built by the chain has none of them at this revision. An offline
+    # render cannot inspect, so it emits every macro section and a script applied
+    # to a chain-built database fails loudly on the missing table; skipping them
+    # instead would leave a legacy database silently half reverted.
+    macro_tables_present = (
+        {"bond_yields", "economic_indicators", "trading_economics_indicators"}
+        if op.get_context().as_sql
+        else set(sa.inspect(op.get_bind()).get_table_names())
+    )
+
     # 11. Revert reference_date back to VARCHAR(100)
-    op.execute(
-        "ALTER TABLE bond_yields "
-        "ALTER COLUMN reference_date TYPE varchar(100) "
-        "USING CASE "
-        "  WHEN reference_date IS NULL THEN NULL "
-        "  ELSE to_char(reference_date, 'Mon YYYY') "
-        "END"
-    )
-    op.execute(
-        "ALTER TABLE economic_indicators "
-        "ALTER COLUMN reference_date TYPE varchar(100) "
-        "USING CASE "
-        "  WHEN reference_date IS NULL THEN NULL "
-        "  ELSE to_char(reference_date, 'Mon YYYY') "
-        "END"
-    )
+    if "bond_yields" in macro_tables_present:
+        op.execute(
+            "ALTER TABLE bond_yields "
+            "ALTER COLUMN reference_date TYPE varchar(100) "
+            "USING CASE "
+            "  WHEN reference_date IS NULL THEN NULL "
+            "  ELSE to_char(reference_date, 'Mon YYYY') "
+            "END"
+        )
+    if "economic_indicators" in macro_tables_present:
+        op.execute(
+            "ALTER TABLE economic_indicators "
+            "ALTER COLUMN reference_date TYPE varchar(100) "
+            "USING CASE "
+            "  WHEN reference_date IS NULL THEN NULL "
+            "  ELSE to_char(reference_date, 'Mon YYYY') "
+            "END"
+        )
 
     # 10. Restore scraped_at on all 3 macro tables
-    op.add_column(
+    for table in (
         "bond_yields",
-        sa.Column(
-            "scraped_at",
-            postgresql.TIMESTAMP(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-    )
-    op.add_column(
         "trading_economics_indicators",
-        sa.Column(
-            "scraped_at",
-            postgresql.TIMESTAMP(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-    )
-    op.add_column(
         "economic_indicators",
-        sa.Column(
-            "scraped_at",
-            postgresql.TIMESTAMP(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-    )
+    ):
+        if table in macro_tables_present:
+            op.add_column(
+                table,
+                sa.Column(
+                    "scraped_at",
+                    postgresql.TIMESTAMP(timezone=True),
+                    server_default=sa.text("now()"),
+                    nullable=False,
+                ),
+            )
 
     # 9. Drop country indexes on macro tables
-    op.drop_index("ix_bond_yields_country", table_name="bond_yields")
-    op.drop_index(
-        "ix_trading_economics_indicators_country",
-        table_name="trading_economics_indicators",
-    )
-    op.drop_index("ix_economic_indicators_country", table_name="economic_indicators")
+    for table in (
+        "bond_yields",
+        "trading_economics_indicators",
+        "economic_indicators",
+    ):
+        if table in macro_tables_present:
+            op.drop_index(f"ix_{table}_country", table_name=table)
 
     # 8. Revert financial_statements.value to Numeric(30,6)
     op.alter_column(

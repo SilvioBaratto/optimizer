@@ -39,27 +39,36 @@ pytest tests/ --cov=optimizer --cov-report=term-missing
 ## Code Quality
 
 ```bash
-# Lint
-ruff check optimizer/ tests/
+# Lint (the library plus ingestion/, fund/ and packages/portopt-db/)
+ruff check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/
 
 # Auto-fix lint issues
-ruff check optimizer/ tests/ --fix
+ruff check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/ --fix
 
 # Format
-ruff format optimizer/ tests/
+ruff format packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/
 
 # Type check
-mypy optimizer/
+mypy packages/portopt-core/optimizer/
 ```
 
-Or use the Makefile:
+Or use the Makefile, which runs through `uv` (run `make sync` once to build the
+workspace venv):
 
 ```bash
-make lint        # ruff check + format check
-make typecheck   # mypy
-make test        # pytest with coverage
-make all         # lint + typecheck + test
+make lint            # ruff check + format check (core, ingestion, fund and portopt-db)
+make typecheck       # mypy on portopt-core, plus strict mypy on portopt-db and ingestion
+make pyright         # pyright over all four implementation trees
+make test            # portopt-core pytest with the 90% coverage floor
+make test-db         # portopt-db pytest with the 90% coverage floor
+make test-ingestion  # ingestion pytest with the 80% coverage floor
+make test-fund       # fund pytest with the 80% coverage floor
+make all             # every target above: a local mirror of the CI jobs
 ```
+
+`make all` gates every workspace member, so it runs far longer than the
+portopt-core slice. It leaves out `pip-audit` and the Python 3.12/3.13 matrix, which
+only CI runs.
 
 ## Coding Standards
 
@@ -106,7 +115,7 @@ def build_my_estimator(config: MyConfig, **kwargs):
 
 1. Create a feature branch from `main`
 2. Make your changes with tests
-3. Ensure all checks pass: `make all`
+3. Ensure all checks pass: `make all` (or the targets for the packages you touched)
 4. Update `CHANGELOG.md` under `[Unreleased]`
 5. Submit a pull request
 
@@ -115,7 +124,7 @@ def build_my_estimator(config: MyConfig, **kwargs):
 - [ ] Tests added/updated for new functionality
 - [ ] `ruff check` passes with no errors
 - [ ] `ruff format --check` passes
-- [ ] `mypy optimizer/` passes
+- [ ] `make typecheck` passes
 - [ ] `CHANGELOG.md` updated
 
 ### Commit Messages
@@ -137,7 +146,9 @@ Use conventional commit style:
 3. Commit: `git commit -m "release: v0.x.0"`
 4. Tag: `git tag v0.x.0`
 5. Push: `git push origin main --tags`
-6. The release workflow will automatically publish to PyPI
+6. The release workflow rejects the tag unless its commit is on `main` and the tag
+   equals `v` plus the `pyproject.toml` version, re-runs the full CI workflow, and
+   only then publishes `portopt-core` to PyPI
 
 ## Questions?
 

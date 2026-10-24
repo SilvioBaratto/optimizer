@@ -45,6 +45,19 @@ def _isolate_agent_fs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(backend_mod, "_AGENT_FS_ROOT", tmp_path / "agent-fs")
 
 
+@pytest.fixture(autouse=True)
+def _fresh_exposure_cache() -> None:
+    """Start every test with an empty macro-exposure memo.
+
+    ``estimate_exposures`` memoises fits process-wide on their input content, so a
+    test that patches ``fit_factor_prior`` or counts its calls would otherwise be
+    short-circuited by an identical fit an earlier test left behind.
+    """
+    from fund.attribution import clear_exposure_cache
+
+    clear_exposure_cache()
+
+
 @pytest.fixture(scope="session")
 def test_engine() -> Generator[Engine, None, None]:
     engine = create_engine(
@@ -80,3 +93,23 @@ def db_session(test_engine: Engine) -> Generator[Session, None, None]:
         session.close()
         transaction.rollback()
         connection.close()
+
+
+@pytest.fixture(scope="function")
+def committing_session() -> Generator[Session, None, None]:
+    """A session over its own in-memory engine: commits and rollbacks are real.
+
+    ``db_session`` wraps a SAVEPOINT that SQLite's driver turns into a real commit
+    on the shared engine once app code commits, so rows leak into sibling tests.
+    Tests that exercise what happens *after* a commit (the Store cache that follows
+    it, a transaction lost to a rollback) need a session of their own.
+    """
+    engine = create_engine(
+        TEST_DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    with Session(bind=engine) as session:
+        yield session
+    engine.dispose()

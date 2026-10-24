@@ -3,7 +3,8 @@
 On-demand support for `macro-regime-read`. Points to the theory; never copies it.
 
 ## Regime enum
-`calm | normal | turbulent | stress` — chosen from the statistics below, not vibes.
+`calm | normal | turbulent | stress`, plus `unknown` when a data gap leaves a cue
+unobservable (see SKILL.md, step 4) — chosen from the statistics below, not vibes.
 
 ## What the optimizer computes (the LLM only reads it)
 
@@ -17,13 +18,15 @@ On-demand support for `macro-regime-read`. Points to the theory; never copies it
 
 | Signal | Read as | Theory |
 |---|---|---|
-| Yield-curve slope | inversion → recession risk | `29:26`, `29:42` |
-| Credit spreads / excess bond premium | widening → stress | `29:56` |
-| Realised volatility | vol-timing signal | `29:74` |
-| Dynamic macro factors | compress many series into a few | `29:90` |
+| Yield-curve slope | inversion → recession risk | `29:30`, `29:42` |
+| Credit spreads / excess bond premium | widening → stress | `29:74` |
+| Realised volatility | vol-timing signal | `29:100` |
+| Dynamic macro factors | compress many series into a few | `29:124` |
 
 ## Regime → cross-section / views
-Regimes drive momentum/value tilts and the Black-Litterman bridge:
-`26:20` (market states & momentum), `26:88` (shared regime engine across allocation
-and selection), `21:114` (four interpretable regimes), `21:128` (nowcasting the
-macro state), `21:152` (regime → BL view).
+Regimes inform momentum/value tilts and the economist's qualitative views. Those
+views are advisory (no bound tool passes them to the optimizer), so the
+Black-Litterman references below are theory only:
+`26:20` (market states & momentum), `26:104` (shared regime engine across allocation
+and selection), `21:154` (four interpretable regimes), `21:172` (nowcasting the
+macro state), `21:210` (regime → BL view).

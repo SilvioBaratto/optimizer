@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+from yfinance.scrapers.funds import FundsData
 
 from app.services.market_data.yfinance._facade import YFinanceClient
 from app.services.market_data.yfinance.funds import FundsClient
@@ -36,7 +37,7 @@ def _funds_data() -> MagicMock:
     # funds_data depth DataFrames are indexed by yfinance's human display labels
     # (Title Case, spaces, slashes) — not camelCase field names.
     fd.equity_holdings = pd.DataFrame(
-        {"JAGA.DE": [15.0, 2.0]},
+        {"JAGA.DE": [0.05, 0.5]},
         index=["Price/Earnings", "Price/Book"],
     )
     fd.bond_holdings = pd.DataFrame(
@@ -55,6 +56,31 @@ def _funds_data() -> MagicMock:
     }
     fd.description = "A short-duration bond ETF."
     return fd
+
+
+def _yfinance_funds_data(
+    *,
+    top_holdings: dict,
+    fund_profile: dict,
+    description: str = "",
+) -> FundsData:
+    """A real ``FundsData`` parsed from a stubbed quoteSummary payload, so the
+    tests see yfinance's own None-filled shapes rather than hand-built dicts."""
+    payload = {
+        "quoteSummary": {
+            "result": [
+                {
+                    "quoteType": {"quoteType": "ETF"},
+                    "summaryProfile": {"longBusinessSummary": description},
+                    "topHoldings": top_holdings,
+                    "fundProfile": fund_profile,
+                }
+            ]
+        }
+    }
+    data = MagicMock()
+    data.get_raw_json.return_value = payload
+    return FundsData(data, "FUND")
 
 
 class TestFetchFundsData:
@@ -81,12 +107,82 @@ class TestFetchFundsData:
             out = client.fetch_funds_data("JAGA.DE")
 
         assert out is not None
-        assert out["equity_holdings"]["Price/Earnings"] == 15.0
+        assert out["equity_holdings"]["Price/Earnings"] == pytest.approx(20.0)
+        assert out["equity_holdings"]["Price/Book"] == pytest.approx(2.0)
         assert out["bond_holdings"]["Duration"] == 5.5
         assert out["fund_operations"]["Annual Report Expense Ratio"] == 0.001
         assert out["bond_ratings"]["aaa"] == 0.5
         assert out["fund_overview"]["categoryName"] == "Ultrashort Bond"
         assert out["description"] == "A short-duration bond ETF."
+
+    def test_valuation_reciprocals_are_inverted_into_multiples(
+        self, client: FundsClient
+    ) -> None:
+        """Yahoo serves fund Price/Earnings, /Book, /Sales and /Cashflow as
+        reciprocals (SPY P/E 0.04132 ~ 1/24.2); consumers read them as multiples."""
+        fd = _funds_data()
+        fd.equity_holdings = pd.DataFrame(
+            {"SPY": [0.04132, 0.19034, 0.27459, 0.05326, 2.5e11, 0.12]},
+            index=[
+                "Price/Earnings",
+                "Price/Book",
+                "Price/Sales",
+                "Price/Cashflow",
+                "Median Market Cap",
+                "3 Year Earnings Growth",
+            ],
+        )
+        ticker = MagicMock()
+        ticker.funds_data = fd
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_funds_data("SPY")
+
+        assert out is not None
+        eq = out["equity_holdings"]
+        assert eq["Price/Earnings"] == pytest.approx(24.2, abs=0.05)
+        assert eq["Price/Book"] == pytest.approx(5.254, abs=0.01)
+        assert eq["Price/Sales"] == pytest.approx(3.642, abs=0.01)
+        assert eq["Price/Cashflow"] == pytest.approx(18.78, abs=0.05)
+        assert eq["Median Market Cap"] == 2.5e11
+        assert eq["3 Year Earnings Growth"] == 0.12
+
+    def test_zero_valuation_sentinel_is_dropped_not_stored_as_a_multiple(
+        self, client: FundsClient
+    ) -> None:
+        """Yahoo emits 0.0 for 'no data' (bond ETFs, negative-earnings equity
+        ETFs); a stored 0.0 would read as P/E = 0."""
+        fd = _funds_data()
+        fd.equity_holdings = pd.DataFrame(
+            {"ARKK": [0.0, 0.16675]},
+            index=["Price/Earnings", "Price/Book"],
+        )
+        ticker = MagicMock()
+        ticker.funds_data = fd
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_funds_data("ARKK")
+
+        assert out is not None
+        assert "Price/Earnings" not in out["equity_holdings"]
+        assert out["equity_holdings"]["Price/Book"] == pytest.approx(6.0, abs=0.01)
+
+    def test_all_zero_equity_valuation_leaves_no_equity_holdings(
+        self, client: FundsClient
+    ) -> None:
+        fd = _funds_data()
+        fd.equity_holdings = pd.DataFrame(
+            {"AGG": [0.0, 0.0, 0.0, 0.0]},
+            index=["Price/Earnings", "Price/Book", "Price/Sales", "Price/Cashflow"],
+        )
+        ticker = MagicMock()
+        ticker.funds_data = fd
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_funds_data("AGG")
+
+        assert out is not None
+        assert out["equity_holdings"] == {}
 
     def test_equity_ticker_with_empty_funds_data_returns_none(
         self, client: FundsClient
@@ -100,6 +196,61 @@ class TestFetchFundsData:
 
         with patch.object(client, "_get_ticker", return_value=ticker):
             assert client.fetch_funds_data("AAPL") is None
+
+    def test_fund_with_no_positions_and_empty_profile_returns_none(
+        self, client: FundsClient
+    ) -> None:
+        """yfinance builds asset_classes as a six-key dict of None (and a
+        fund_overview of three None keys) when Yahoo has no data; those truthy
+        shells must not count as fund data, or an all-NULL payload reaches the
+        store and overwrites good rows."""
+        ticker = MagicMock()
+        ticker.funds_data = _yfinance_funds_data(
+            top_holdings={"maxAge": 1}, fund_profile={"maxAge": 1}
+        )
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            assert client.fetch_funds_data("TDEM.L") is None
+
+    def test_unreported_allocation_is_dropped_but_populated_profile_is_kept(
+        self, client: FundsClient
+    ) -> None:
+        """A fund with a fund profile but no reported positions still yields its
+        category/description, with an empty (not None-filled) allocation."""
+        ticker = MagicMock()
+        ticker.funds_data = _yfinance_funds_data(
+            top_holdings={"maxAge": 1},
+            fund_profile={
+                "categoryName": "Global Bond",
+                "family": "Acme",
+                "legalType": "Exchange Traded Fund",
+            },
+            description="A bond ETF.",
+        )
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_funds_data("AGGB.L")
+
+        assert out is not None
+        assert out["asset_classes"] == {}
+        assert out["fund_overview"]["categoryName"] == "Global Bond"
+        assert "legalType" in out["fund_overview"]
+        assert out["description"] == "A bond ETF."
+
+    def test_partially_reported_allocation_keeps_only_reported_positions(
+        self, client: FundsClient
+    ) -> None:
+        ticker = MagicMock()
+        ticker.funds_data = _yfinance_funds_data(
+            top_holdings={"stockPosition": {"raw": 0.6}, "bondPosition": {"raw": 0.0}},
+            fund_profile={"maxAge": 1},
+        )
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_funds_data("VT")
+
+        assert out is not None
+        assert out["asset_classes"] == {"stockPosition": 0.6, "bondPosition": 0.0}
 
     def test_none_funds_data_returns_none(self, client: FundsClient) -> None:
         ticker = MagicMock()
@@ -127,6 +278,7 @@ class TestFetchFundProfile:
             "legalType": "Exchange Traded Fund",
             "annualReportExpenseRatio": 0.0025,
             "currency": "EUR",
+            "financialCurrency": "USD",
         }
 
         with patch.object(client, "_get_ticker", return_value=ticker):
@@ -137,19 +289,212 @@ class TestFetchFundProfile:
         assert out["nav"] == 193.93
         assert out["fund_family"] == "JPMorgan"
         assert out["expense_ratio"] == 0.0025
-        assert out["base_currency"] == "EUR"
+        assert out["base_currency"] == "USD"
 
     def test_expense_ratio_prefers_net_expense_ratio(self, client: FundsClient) -> None:
         """netExpenseRatio is the key Yahoo actually populates for ETFs (SPY/AGG);
         the legacy mutual-fund keys are fallbacks and must not shadow it."""
         ticker = MagicMock()
-        ticker.info = {"navPrice": 1.0, "netExpenseRatio": 0.0945}
+        ticker.info = {
+            "navPrice": 1.0,
+            "netExpenseRatio": 0.0945,
+            "annualReportExpenseRatio": 0.5,
+        }
 
         with patch.object(client, "_get_ticker", return_value=ticker):
             out = client.fetch_fund_profile("SPY")
 
         assert out is not None
-        assert out["expense_ratio"] == 0.0945
+        assert out["expense_ratio"] == pytest.approx(0.000945)
+
+    def test_net_expense_ratio_percent_points_become_a_decimal_fraction(
+        self, client: FundsClient
+    ) -> None:
+        """Yahoo quotes netExpenseRatio in percent points (SPY 0.0945 = 0.0945%)
+        while the legacy keys are already fractions; the stored column is a
+        fraction, so the percent value is divided by 100."""
+        ticker = MagicMock()
+        ticker.info = {"navPrice": 96.0, "netExpenseRatio": 0.03}
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("AGG")
+
+        assert out is not None
+        assert out["expense_ratio"] == pytest.approx(0.0003)
+
+    def test_net_and_fraction_keys_agree_on_the_same_fee(
+        self, client: FundsClient
+    ) -> None:
+        """A mutual fund exposing both keys (VFIAX 0.04 vs 0.0004) must yield the
+        same stored value whichever key is read."""
+        net_only = MagicMock()
+        net_only.info = {"navPrice": 1.0, "netExpenseRatio": 0.04}
+        fraction_only = MagicMock()
+        fraction_only.info = {"navPrice": 1.0, "annualReportExpenseRatio": 0.0004}
+
+        with patch.object(client, "_get_ticker", return_value=net_only):
+            from_net = client.fetch_fund_profile("VFIAX")
+        with patch.object(client, "_get_ticker", return_value=fraction_only):
+            from_fraction = client.fetch_fund_profile("VFIAX")
+
+        assert from_net is not None and from_fraction is not None
+        assert from_net["expense_ratio"] == pytest.approx(
+            from_fraction["expense_ratio"]
+        )
+
+    @pytest.mark.parametrize(
+        "info",
+        [
+            {"navPrice": 50.3, "netExpenseRatio": 0.0},
+            {"navPrice": 1.0, "netExpenseRatio": 0.0, "annualReportExpenseRatio": 0.0},
+            {"navPrice": 1.0, "annualReportExpenseRatio": 0.0},
+            {
+                "navPrice": 1.0,
+                "netExpenseRatio": 0.0,
+                "annualReportExpenseRatio": 0.0025,
+            },
+        ],
+        ids=["net-only", "net-and-annual", "annual-only", "zero-net-beats-gross"],
+    )
+    def test_zero_expense_ratio_is_stored_as_zero_not_unknown(
+        self, client: FundsClient, info: dict[str, float]
+    ) -> None:
+        """A zero-fee fund is a real 0.0, not NULL ('unknown'): a truthiness
+        chain would drop it and exclude the cheapest funds from cost screens."""
+        ticker = MagicMock()
+        ticker.info = info
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("FZROX")
+
+        assert out is not None
+        assert out["expense_ratio"] == 0.0
+
+    def test_listing_currency_is_not_reported_as_the_fund_base_currency(
+        self, client: FundsClient
+    ) -> None:
+        """navPrice/totalAssets are in the fund's own currency, not the quote
+        currency: IUSA.L is quoted in pence but its NAV is USD. Mislabelling
+        NAV/AUM with the listing code ('GBp') would feed FX the wrong pair."""
+        ticker = MagicMock()
+        ticker.info = {
+            "currency": "GBp",
+            "navPrice": 76.3169,
+            "totalAssets": 22_874_429_440,
+        }
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("IUSA.L")
+
+        assert out is not None
+        assert out["base_currency"] is None
+
+    def test_base_currency_comes_from_financial_currency_as_major_unit(
+        self, client: FundsClient
+    ) -> None:
+        ticker = MagicMock()
+        ticker.info = {"navPrice": 96.1, "currency": "USD", "financialCurrency": "GBp"}
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("AGG")
+
+        assert out is not None
+        assert out["base_currency"] == "GBP"
+
+    def test_quote_currency_alone_does_not_make_an_equity_look_like_a_fund(
+        self, client: FundsClient
+    ) -> None:
+        ticker = MagicMock()
+        ticker.info = {"currency": "USD", "quoteType": "EQUITY"}
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            assert client.fetch_fund_profile("AAPL") is None
+
+    def test_us_listed_usd_fund_without_financial_currency_is_labelled_usd(
+        self, client: FundsClient
+    ) -> None:
+        """Yahoo leaves financialCurrency empty for many US-listed funds (BND,
+        TDEM, FAAA) though they quote and report in USD; those must not lose
+        their base currency."""
+        ticker = MagicMock()
+        ticker.info = {
+            "navPrice": 72.4,
+            "totalAssets": 3.2e11,
+            "currency": "USD",
+            "market": "us_market",
+            "exchange": "NGM",
+            "financialCurrency": None,
+        }
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("BND")
+
+        assert out is not None
+        assert out["base_currency"] == "USD"
+
+    def test_usd_quote_on_a_non_us_listing_is_not_assumed_to_be_the_nav_currency(
+        self, client: FundsClient
+    ) -> None:
+        """A UCITS share class quoted in USD on the LSE says nothing certain
+        about its NAV currency, so only a US listing earns the fallback."""
+        ticker = MagicMock()
+        ticker.info = {
+            "navPrice": 600.0,
+            "currency": "USD",
+            "market": "gb_market",
+            "exchange": "LSE",
+        }
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("CSPX.L")
+
+        assert out is not None
+        assert out["base_currency"] is None
+
+    def test_us_listing_quoted_in_another_currency_is_not_assumed_usd(
+        self, client: FundsClient
+    ) -> None:
+        ticker = MagicMock()
+        ticker.info = {"navPrice": 50.0, "currency": "EUR", "market": "us_market"}
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("XYZ")
+
+        assert out is not None
+        assert out["base_currency"] is None
+
+    def test_financial_currency_wins_over_the_us_listing_fallback(
+        self, client: FundsClient
+    ) -> None:
+        ticker = MagicMock()
+        ticker.info = {
+            "navPrice": 50.0,
+            "currency": "USD",
+            "market": "us_market",
+            "financialCurrency": "EUR",
+        }
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            out = client.fetch_fund_profile("XYZ")
+
+        assert out is not None
+        assert out["base_currency"] == "EUR"
+
+    def test_us_listed_equity_with_only_quote_currency_is_still_not_a_fund(
+        self, client: FundsClient
+    ) -> None:
+        """The US-listing fallback must not by itself turn a bare equity quote
+        into a fund profile."""
+        ticker = MagicMock()
+        ticker.info = {
+            "currency": "USD",
+            "market": "us_market",
+            "exchange": "NMS",
+            "quoteType": "EQUITY",
+        }
+
+        with patch.object(client, "_get_ticker", return_value=ticker):
+            assert client.fetch_fund_profile("AAPL") is None
 
     def test_aum_falls_back_to_net_assets(self, client: FundsClient) -> None:
         """Some UCITS listings expose netAssets but not totalAssets."""

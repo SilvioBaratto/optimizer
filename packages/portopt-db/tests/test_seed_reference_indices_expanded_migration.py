@@ -193,6 +193,12 @@ class TestIndicesCatalogue:
         mod = _load_migration()
         assert all(row[0] != "SPY" for row in mod.INDICES)
 
+    def test_vgk_isin_is_the_vanguard_ftse_europe_etf_code(self) -> None:
+        """US9220428745 embeds CUSIP 922042874; the earlier code belonged to another fund."""
+        mod = _load_migration()
+        isin_by_ticker = {row[0]: row[3] for row in mod.INDICES}
+        assert isin_by_ticker["VGK"] == "US9220428745"
+
 
 class TestUpgradeSQLContent:
     """Every INSERT must carry the guard + the named ON CONFLICT clause."""

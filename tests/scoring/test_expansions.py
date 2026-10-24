@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from skfolio.measures import PerfMeasure, RatioMeasure, RiskMeasure
-from skfolio.optimization import EqualWeighted
+from skfolio.optimization import EqualWeighted, MeanRisk
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.optimization import RatioMeasureType, RiskMeasureType
@@ -16,6 +16,7 @@ from optimizer.scoring import (
     PerfMeasureType,
     ScorerConfig,
     build_online_measure,
+    build_online_portfolio_params,
     build_scorer,
 )
 from optimizer.scoring._factory import _build_ir_scorer
@@ -57,6 +58,24 @@ class TestRiskFreeRateWiring:
         scorer = build_scorer(ScorerConfig.for_sharpe())
         expected = float(fitted.predict(returns).sharpe_ratio)
         assert scorer(fitted, returns) == pytest.approx(expected)
+
+    def test_explicit_zero_rf_overrides_estimator_rf(
+        self, returns: pd.DataFrame
+    ) -> None:
+        # The estimator carries rf=0.001 into the predicted portfolio. An
+        # explicit scorer rate of 0.0 must still win, otherwise candidates with
+        # different estimator rates are scored against different yardsticks.
+        model = MeanRisk(risk_free_rate=0.001).fit(returns)
+        reference = MeanRisk(risk_free_rate=0.0).fit(returns)
+        score = build_scorer(ScorerConfig(risk_free_rate=0.0))(model, returns)
+        assert score == pytest.approx(float(reference.predict(returns).sharpe_ratio))
+
+    def test_failed_portfolio_scores_nan_at_default_rf(
+        self, returns: pd.DataFrame
+    ) -> None:
+        with pytest.warns(UserWarning, match="failed"):
+            model = MeanRisk(raise_on_failure=False, min_weights=0.5).fit(returns)
+        assert np.isnan(build_scorer(ScorerConfig())(model, returns))
 
     def test_rf_does_not_mutate_across_calls(
         self, fitted: EqualWeighted, returns: pd.DataFrame
@@ -191,6 +210,64 @@ class TestIRAlignment:
 
 
 # ---------------------------------------------------------------------------
+# explicit greater_is_better
+# ---------------------------------------------------------------------------
+
+
+class TestGreaterIsBetterOverride:
+    def test_false_flips_ratio_scorer(
+        self, fitted: EqualWeighted, returns: pd.DataFrame
+    ) -> None:
+        auto = build_scorer(ScorerConfig())(fitted, returns)
+        flipped = build_scorer(ScorerConfig(greater_is_better=False))(fitted, returns)
+        assert flipped == pytest.approx(-auto)
+
+    def test_false_flips_perf_scorer(
+        self, fitted: EqualWeighted, returns: pd.DataFrame
+    ) -> None:
+        cfg = ScorerConfig(
+            ratio_measure=None,
+            perf_measure=PerfMeasureType.MEAN,
+            greater_is_better=False,
+        )
+        assert build_scorer(cfg)(fitted, returns) == pytest.approx(
+            -fitted.predict(returns).mean
+        )
+
+    def test_true_keeps_risk_scorer_unflipped(
+        self, fitted: EqualWeighted, returns: pd.DataFrame
+    ) -> None:
+        cfg = ScorerConfig(
+            ratio_measure=None,
+            risk_measure=RiskMeasureType.VARIANCE,
+            greater_is_better=True,
+        )
+        assert build_scorer(cfg)(fitted, returns) == pytest.approx(
+            fitted.predict(returns).variance
+        )
+
+    def test_false_flips_information_ratio_scorer(
+        self, fitted: EqualWeighted, returns: pd.DataFrame
+    ) -> None:
+        bm = pd.Series(np.zeros(N_OBS), index=DATES)
+        ir_cfg = ScorerConfig.for_information_ratio()
+        flipped_cfg = ScorerConfig(
+            ratio_measure=RatioMeasureType.INFORMATION_RATIO, greater_is_better=False
+        )
+        auto = build_scorer(ir_cfg, benchmark_returns=bm)(fitted, returns)
+        flipped = build_scorer(flipped_cfg, benchmark_returns=bm)(fitted, returns)
+        assert flipped == pytest.approx(-auto)
+
+    def test_unset_keeps_family_default(
+        self, fitted: EqualWeighted, returns: pd.DataFrame
+    ) -> None:
+        cfg = ScorerConfig.for_risk_measure(RiskMeasureType.VARIANCE)
+        assert build_scorer(cfg)(fitted, returns) == pytest.approx(
+            -fitted.predict(returns).variance
+        )
+
+
+# ---------------------------------------------------------------------------
 # online measure helper
 # ---------------------------------------------------------------------------
 
@@ -220,3 +297,33 @@ class TestBuildOnlineMeasure:
         cfg = ScorerConfig.for_custom()
         with pytest.raises(ConfigurationError, match="custom"):
             build_online_measure(cfg)
+
+    def test_non_default_risk_free_rate_rejected_not_silently_dropped(self) -> None:
+        # A bare measure cannot carry the rate, so accepting it would score the
+        # online search at the estimator's rate while the config says otherwise.
+        with pytest.raises(ConfigurationError, match="risk_free_rate"):
+            build_online_measure(ScorerConfig.for_sharpe_with_rf(0.0003))
+
+    def test_non_default_annualization_factor_rejected(self) -> None:
+        cfg = ScorerConfig(
+            ratio_measure=RatioMeasureType.ANNUALIZED_SHARPE_RATIO,
+            annualization_factor=12,
+        )
+        with pytest.raises(ConfigurationError, match="annualization_factor"):
+            build_online_measure(cfg)
+
+
+class TestBuildOnlinePortfolioParams:
+    def test_default_carries_zero_risk_free_rate_only(self) -> None:
+        assert build_online_portfolio_params() == {"risk_free_rate": 0.0}
+
+    def test_rf_and_annualization_factor_carried(self) -> None:
+        cfg = ScorerConfig(
+            ratio_measure=RatioMeasureType.ANNUALIZED_SHARPE_RATIO,
+            risk_free_rate=0.0002,
+            annualization_factor=12,
+        )
+        assert build_online_portfolio_params(cfg) == {
+            "risk_free_rate": 0.0002,
+            "annualization_factor": 12,
+        }

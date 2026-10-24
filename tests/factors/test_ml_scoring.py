@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.linear_model import RidgeCV
 
-from optimizer.exceptions import ConfigurationError
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.factors import (
     CompositeMethod,
     CompositeScoringConfig,
@@ -286,6 +288,104 @@ class TestPredictCompositeScores:
         result = predict_composite_scores(model, scores)
         assert pd.isna(result.iloc[2])
 
+    def test_partially_missing_ticker_is_still_scored(self) -> None:
+        """Only tickers with every factor missing are masked, as documented."""
+        rng = np.random.default_rng(21)
+        cols = ["a", "b", "c"]
+        train = pd.DataFrame(rng.normal(0, 1, (80, 3)), columns=cols)
+        returns = pd.Series(rng.normal(0, 1, 80))
+        model = fit_ridge_composite(train, returns)
+        scores = pd.DataFrame(
+            rng.normal(0, 1, (12, 3)),
+            index=[f"S{i}" for i in range(12)],
+            columns=cols,
+        )
+        scores.iloc[2, 1] = float("nan")
+        scores.iloc[5, 0] = float("nan")
+        scores.iloc[5, 2] = float("nan")
+        scores.iloc[7, :] = float("nan")
+
+        result = predict_composite_scores(model, scores)
+
+        assert result.drop("S7").notna().all()
+        assert pd.isna(result["S7"])
+
+    def test_standardised_over_the_tickers_that_are_scored(self) -> None:
+        """Masked tickers must not contribute to the zero-mean/unit-variance fit."""
+        rng = np.random.default_rng(22)
+        cols = ["a", "b", "c"]
+        train = pd.DataFrame(rng.normal(0, 1, (80, 3)), columns=cols)
+        returns = pd.Series(train["a"] + rng.normal(0, 0.1, 80))
+        model = fit_ridge_composite(train, returns)
+        scores = pd.DataFrame(
+            rng.normal(0, 1, (20, 3)),
+            index=[f"S{i}" for i in range(20)],
+            columns=cols,
+        )
+        scores.iloc[0, 0] = float("nan")
+        scores.iloc[1, 2] = float("nan")
+        scores.iloc[2:6, :] = float("nan")
+
+        result = predict_composite_scores(model, scores)
+
+        scored = result.dropna()
+        assert len(scored) == 16
+        assert abs(scored.mean()) < 1e-10
+        assert abs(scored.std(ddof=0) - 1.0) < 1e-10
+
+    @pytest.mark.parametrize("fit", [fit_ridge_composite, fit_gbt_composite])
+    def test_factor_missing_for_every_ticker_is_scored_neutrally(self, fit) -> None:
+        """A factor with no observation this period must not abort the composite."""
+        rng = np.random.default_rng(24)
+        cols = ["a", "b", "c"]
+        train = pd.DataFrame(rng.normal(0, 1, (120, 3)), columns=cols)
+        returns = pd.Series(train["a"] + rng.normal(0, 0.1, 120))
+        model = fit(train, returns)
+        scores = pd.DataFrame(
+            rng.normal(0, 1, (15, 3)),
+            index=[f"S{i}" for i in range(15)],
+            columns=cols,
+        )
+        scores["b"] = float("nan")
+
+        result = predict_composite_scores(model, scores)
+
+        assert result.notna().all()
+        assert abs(result.mean()) < 1e-10
+        assert abs(result.std(ddof=0) - 1.0) < 1e-10
+
+    def test_factor_missing_for_every_ticker_matches_zero_filled_factor(
+        self,
+    ) -> None:
+        """The neutral z-score (0.0) stands in for a factor nobody reports."""
+        rng = np.random.default_rng(25)
+        cols = ["a", "b", "c"]
+        train = pd.DataFrame(rng.normal(0, 1, (120, 3)), columns=cols)
+        returns = pd.Series(train["a"] + train["b"] + rng.normal(0, 0.1, 120))
+        model = fit_ridge_composite(train, returns)
+        scores = pd.DataFrame(
+            rng.normal(0, 1, (15, 3)),
+            index=[f"S{i}" for i in range(15)],
+            columns=cols,
+        )
+
+        missing = predict_composite_scores(model, scores.assign(b=float("nan")))
+        neutral = predict_composite_scores(model, scores.assign(b=0.0))
+
+        pd.testing.assert_series_equal(missing, neutral)
+
+    def test_all_rows_missing_returns_all_nan(self) -> None:
+        rng = np.random.default_rng(23)
+        cols = ["a", "b"]
+        train = pd.DataFrame(rng.normal(0, 1, (40, 2)), columns=cols)
+        model = fit_ridge_composite(train, pd.Series(rng.normal(0, 1, 40)))
+        scores = pd.DataFrame(np.nan, index=["x", "y", "z"], columns=cols)
+
+        result = predict_composite_scores(model, scores)
+
+        assert result.isna().all()
+        assert list(result.index) == ["x", "y", "z"]
+
     def test_index_preserved(
         self,
         training_scores: pd.DataFrame,
@@ -295,6 +395,47 @@ class TestPredictCompositeScores:
         model = fit_ridge_composite(training_scores, training_returns)
         result = predict_composite_scores(model, current_scores)
         pd.testing.assert_index_equal(result.index, current_scores.index)
+
+    @pytest.mark.parametrize("fit", [fit_ridge_composite, fit_gbt_composite])
+    def test_columns_matched_by_name_not_position(self, fit) -> None:
+        """A prediction frame with reordered columns scores identically."""
+        rng = np.random.default_rng(11)
+        cols = ["a", "b", "c"]
+        train = pd.DataFrame(rng.normal(0, 1, (300, 3)), columns=cols)
+        returns = pd.Series(
+            train["a"] - train["c"] + rng.normal(0, 0.01, len(train)),
+        )
+        model = fit(train, returns)
+        current = pd.DataFrame(
+            rng.normal(0, 1, (40, 3)),
+            index=[f"S{i}" for i in range(40)],
+            columns=cols,
+        )
+
+        expected = predict_composite_scores(model, current)
+        reordered = predict_composite_scores(model, current[["c", "b", "a"]])
+
+        pd.testing.assert_series_equal(reordered, expected)
+
+    def test_missing_factor_column_raises_data_error(self) -> None:
+        rng = np.random.default_rng(12)
+        cols = ["a", "b", "c"]
+        train = pd.DataFrame(rng.normal(0, 1, (100, 3)), columns=cols)
+        model = fit_ridge_composite(train, pd.Series(rng.normal(0, 1, 100)))
+        current = pd.DataFrame(rng.normal(0, 1, (10, 3)), columns=cols)
+
+        with pytest.raises(DataError, match=r"missing.*'c'"):
+            predict_composite_scores(model, current[["a", "b"]])
+
+    def test_unexpected_factor_column_raises_data_error(self) -> None:
+        rng = np.random.default_rng(13)
+        cols = ["a", "b", "c"]
+        train = pd.DataFrame(rng.normal(0, 1, (100, 3)), columns=cols)
+        model = fit_ridge_composite(train, pd.Series(rng.normal(0, 1, 100)))
+        current = pd.DataFrame(rng.normal(0, 1, (10, 3)), columns=cols)
+
+        with pytest.raises(DataError, match=r"unexpected.*'d'"):
+            predict_composite_scores(model, current.assign(d=0.0))
 
     def test_single_ticker_returns_zero(
         self,
@@ -370,6 +511,74 @@ class TestComputeMLComposite:
         )
         assert abs(result.mean()) < 1e-10
         assert abs(result.std(ddof=0) - 1.0) < 1e-10
+
+
+class TestComputeMLCompositeColumnAlignment:
+    """Current factors are matched to the training columns by name."""
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            CompositeScoringConfig.for_ridge_weighted(),
+            CompositeScoringConfig.for_gbt_weighted(),
+        ],
+        ids=["ridge", "gbt"],
+    )
+    def test_column_order_of_current_factors_does_not_change_scores(
+        self,
+        current_scores: pd.DataFrame,
+        training_scores: pd.DataFrame,
+        training_returns: pd.Series,
+        config: CompositeScoringConfig,
+    ) -> None:
+        expected = compute_ml_composite(
+            current_scores, training_scores, training_returns, config
+        )
+        shuffled = current_scores[list(reversed(current_scores.columns))]
+        result = compute_ml_composite(
+            shuffled, training_scores, training_returns, config
+        )
+        pd.testing.assert_series_equal(result, expected)
+
+    def test_ridge_scores_follow_the_factor_the_model_was_trained_on(
+        self,
+        current_scores: pd.DataFrame,
+        training_scores: pd.DataFrame,
+        training_returns: pd.Series,
+    ) -> None:
+        config = CompositeScoringConfig.for_ridge_weighted()
+        shuffled = current_scores[["momentum_12_1", *current_scores.columns[:-1]]]
+        result = compute_ml_composite(
+            shuffled, training_scores, training_returns, config
+        )
+        corr = np.corrcoef(result.to_numpy(), current_scores["book_to_price"])[0, 1]
+        assert corr > 0.99
+
+    def test_missing_factor_column_raises_naming_it(
+        self,
+        current_scores: pd.DataFrame,
+        training_scores: pd.DataFrame,
+        training_returns: pd.Series,
+    ) -> None:
+        config = CompositeScoringConfig.for_ridge_weighted()
+        with pytest.raises(ConfigurationError, match="momentum_12_1"):
+            compute_ml_composite(
+                current_scores.drop(columns="momentum_12_1"),
+                training_scores,
+                training_returns,
+                config,
+            )
+
+    def test_unseen_factor_column_raises_naming_it(
+        self,
+        current_scores: pd.DataFrame,
+        training_scores: pd.DataFrame,
+        training_returns: pd.Series,
+    ) -> None:
+        config = CompositeScoringConfig.for_ridge_weighted()
+        renamed = current_scores.rename(columns={"momentum_12_1": "volatility"})
+        with pytest.raises(ConfigurationError, match="volatility"):
+            compute_ml_composite(renamed, training_scores, training_returns, config)
 
 
 # ---------------------------------------------------------------------------
@@ -476,3 +685,60 @@ class TestComputeCompositeScoreDispatch:
             training_returns=training_returns,
         )
         assert isinstance(result, pd.Series)
+
+
+class TestMLCompositeIgnoresGroupWeightsLoudly:
+    """ML composites learn per-factor weights, so group tilts cannot apply.
+
+    Dropping them silently would hide a regime overlay the caller asked for.
+    """
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            CompositeScoringConfig.for_ridge_weighted(),
+            CompositeScoringConfig.for_gbt_weighted(),
+        ],
+        ids=["ridge", "gbt"],
+    )
+    def test_group_weights_warn_and_leave_scores_unchanged(
+        self,
+        config: CompositeScoringConfig,
+        current_scores: pd.DataFrame,
+        coverage: pd.DataFrame,
+        training_scores: pd.DataFrame,
+        training_returns: pd.Series,
+    ) -> None:
+        kwargs = {
+            "config": config,
+            "training_scores": training_scores,
+            "training_returns": training_returns,
+        }
+        baseline = compute_composite_score(current_scores, coverage, **kwargs)
+        with pytest.warns(UserWarning, match="group_weights.*ignored"):
+            tilted = compute_composite_score(
+                current_scores,
+                coverage,
+                group_weights={"value": 0.0, "momentum": 5.0},
+                **kwargs,
+            )
+        assert isinstance(tilted, pd.Series)
+        assert isinstance(baseline, pd.Series)
+        pd.testing.assert_series_equal(tilted, baseline)
+
+    def test_no_warning_without_group_weights(
+        self,
+        current_scores: pd.DataFrame,
+        coverage: pd.DataFrame,
+        training_scores: pd.DataFrame,
+        training_returns: pd.Series,
+    ) -> None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            compute_composite_score(
+                current_scores,
+                coverage,
+                config=CompositeScoringConfig.for_ridge_weighted(),
+                training_scores=training_scores,
+                training_returns=training_returns,
+            )

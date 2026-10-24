@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from pathlib import Path
 
 import userpath
@@ -21,6 +22,11 @@ from app.setup import config_file
 _logger = logging.getLogger(__name__)
 
 _BIN_DIR = Path.home() / ".local" / "bin"
+
+# cmd.exe decodes a batch file with the console's code page (OEM by default), never
+# UTF-8, so the baked repo path has to be written in that encoding to survive a
+# non-ASCII directory name. "oem" is a Windows-only codec.
+_CMD_ENCODING = "oem" if sys.platform == "win32" else "utf-8"
 
 # The env var the front doors (setup.sh/.ps1/.cmd) export so an out-of-repo tool-venv
 # install of `portopt` (uv tool install --from .) can still locate the checkout.
@@ -36,7 +42,8 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def _is_repo(path: Path) -> bool:
+def is_repo(path: Path) -> bool:
+    """Whether ``path`` is an optimizer checkout (it owns ``docker-compose.yml``)."""
     return (path / "docker-compose.yml").is_file()
 
 
@@ -46,11 +53,12 @@ def resolve_repo(repo: Path | None = None) -> Path:
     ``uv tool install --from .`` installs ``portopt`` into an out-of-repo tool venv,
     so ``_repo_root()`` (derived from ``__file__``) no longer points at the checkout.
     Resolution therefore prefers, in order: an explicit ``repo`` argument, the
-    ``OPTIMIZER_REPO`` env the front doors export, the ``repo_path`` persisted to
-    ``~/.portopt/config.toml`` (the moved-repo self-heal), the current directory or
-    one of its parents (a direct ``portopt setup`` run from inside the checkout, with
-    no env set), then the ``__file__`` root (correct only for an in-repo editable
-    install).
+    ``OPTIMIZER_REPO`` env the front doors export, the current directory or one of
+    its parents (a direct ``portopt`` run from inside a checkout, so a worktree is
+    never overridden by the other checkout recorded in config), the ``repo_path``
+    persisted to ``~/.portopt/config.toml`` (the moved-repo self-heal, for a run from
+    outside any checkout), then the ``__file__`` root (correct only for an in-repo
+    editable install).
 
     Args:
         repo: An explicit checkout path that short-circuits resolution.
@@ -61,16 +69,27 @@ def resolve_repo(repo: Path | None = None) -> Path:
     if repo is not None:
         return repo
     env = os.environ.get(_REPO_ENV)
-    if env and _is_repo(Path(env)):
+    if env and is_repo(Path(env)):
         return Path(env)
-    configured = config_file.load_config().get("repo_path")
-    if configured and _is_repo(Path(str(configured))):
-        return Path(str(configured))
     cwd = Path.cwd()
     for base in (cwd, *cwd.parents):
-        if _is_repo(base):
+        if is_repo(base):
             return base
+    configured = config_file.load_config().get("repo_path")
+    if configured and is_repo(Path(str(configured))):
+        return Path(str(configured))
     return _repo_root()
+
+
+def locate_repo() -> Path | None:
+    """Return the checkout that owns ``docker-compose.yml``, or ``None`` without one.
+
+    Unlike ``resolve_repo`` this never hands back a path that has no compose file: the
+    ``__file__``-derived fallback points into site-packages for a ``uv tool install``
+    with no clone, where compose can only fail with "no configuration file provided".
+    """
+    repo = resolve_repo()
+    return repo if is_repo(repo) else None
 
 
 def install_launcher(*, repo: Path | None = None, bin_dir: Path | None = None) -> Path:
@@ -135,10 +154,23 @@ def _install_posix(bin_dir: Path, repo: Path) -> Path:
 
 
 def _install_windows(bin_dir: Path, repo: Path) -> Path:
-    """Write ``bin_dir/optimizer.cmd`` with the repo path baked in (not ``%~dp0``)."""
+    """Write ``bin_dir/optimizer.cmd`` with the repo path baked in (not ``%~dp0``).
+
+    Raises:
+        PathInstallError: If the repo path has characters the console code page
+            cannot represent. The existing launcher is left untouched.
+    """
     template = (repo / "scripts" / "optimizer.cmd").read_text(encoding="utf-8")
     launcher = bin_dir / "optimizer.cmd"
-    launcher.write_text(template.replace("%~dp0..", str(repo)), encoding="utf-8")
+    baked = template.replace("%~dp0..", str(repo)).replace("\n", "\r\n")
+    try:
+        payload = baked.encode(_CMD_ENCODING)
+    except UnicodeEncodeError as exc:
+        raise PathInstallError(
+            f"{repo} has characters the console code page ({_CMD_ENCODING}) cannot "
+            "represent; move the checkout to an ASCII-only path."
+        ) from exc
+    launcher.write_bytes(payload)
     return launcher
 
 

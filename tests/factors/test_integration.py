@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import warnings
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.base import clone
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.factors import (
@@ -82,6 +84,154 @@ class TestBuildFactorBLViews:
         assert len(views) == 2
 
 
+def _bl_posterior_mu(
+    scores: pd.Series, config: FactorIntegrationConfig | None = None
+) -> np.ndarray:
+    """Fit the factor BL prior on synthetic daily returns, return posterior mu."""
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame(rng.normal(0.0004, 0.01, (500, len(scores))), columns=scores.index)
+    prior, _ = build_factor_integration(
+        config=config or FactorIntegrationConfig.for_black_litterman(),
+        composite_scores=scores,
+        standardized_factors=pd.DataFrame(),
+        selected_tickers=scores.index,
+    )
+    assert prior is not None
+    prior.fit(X)
+    return np.asarray(prior.return_distribution_.mu)
+
+
+class TestBlackLittermanScoreOrdering:
+    """The view level carries the score; confidence must not undo its ordering."""
+
+    def test_neutral_score_view_keeps_positive_confidence(self) -> None:
+        config = FactorIntegrationConfig.for_black_litterman()
+        scores = pd.Series([-2.0, 0.0, 2.0], index=["A", "B", "C"])
+        _views, confidences = build_factor_bl_views(scores, scores.index, config)
+        assert all(c > 0.0 for c in confidences)
+
+    def test_posterior_mu_is_monotonic_in_score(self) -> None:
+        scores = pd.Series(
+            [-2.0, -1.0, 0.0, 0.3, 1.0, 2.0], index=list("ABCDEF"), name="composite"
+        )
+        mu = _bl_posterior_mu(scores)
+        assert np.all(np.diff(mu) > 0.0), f"mu not increasing in score: {mu}"
+
+
+class TestBlackLittermanRiskFreeConvention:
+    """Views are excess returns; the risk-free rate is added back uniformly."""
+
+    def test_view_is_excess_return_over_risk_free_rate(self) -> None:
+        config = FactorIntegrationConfig.for_black_litterman()
+        scores = pd.Series([0.0], index=["A"])
+        views, _ = build_factor_bl_views(scores, scores.index, config)
+        expected = config.market_risk_premium / 252.0
+        assert views == (f"A == {expected:.8f}",)
+
+    def test_risk_free_rate_shifts_every_posterior_mu_equally(self) -> None:
+        scores = pd.Series(
+            [-2.0, -1.0, 0.0, 0.3, 1.0, 2.0], index=list("ABCDEF"), name="composite"
+        )
+        with_rf = _bl_posterior_mu(
+            scores, FactorIntegrationConfig(use_black_litterman=True)
+        )
+        no_rf = _bl_posterior_mu(
+            scores,
+            FactorIntegrationConfig(use_black_litterman=True, risk_free_rate=0.0),
+        )
+        np.testing.assert_allclose(with_rf - no_rf, 0.04 / 252.0, rtol=1e-6)
+
+
+class TestBlackLittermanViewsOnDroppedAssets:
+    """A view on an asset that pre-selection removed must not abort the fit.
+
+    The views are built once for the selected tickers, but the pipeline drops
+    assets (near-duplicates, short histories) at every fit, so some views name
+    an asset that is not in the fitted frame.  An asset that is not held cannot
+    carry a view; the remaining views still apply.
+    """
+
+    @staticmethod
+    def _panel() -> pd.DataFrame:
+        rng = np.random.default_rng(3)
+        X = pd.DataFrame(
+            rng.normal(0.0004, 0.01, (400, 8)),
+            columns=[f"S{i}" for i in range(8)],
+            index=pd.bdate_range("2022-01-03", periods=400),
+        )
+        # A near-duplicate that DropCorrelated removes at the default threshold.
+        X["S8"] = X["S0"] + rng.normal(0.0, 1e-5, 400)
+        return X
+
+    @staticmethod
+    def _prior(tickers: pd.Index, scores: pd.Series) -> Any:
+        prior, _ = build_factor_integration(
+            config=FactorIntegrationConfig.for_black_litterman(),
+            composite_scores=scores,
+            standardized_factors=pd.DataFrame(),
+            selected_tickers=tickers,
+        )
+        assert prior is not None
+        return prior
+
+    def test_pipeline_fit_survives_a_view_on_an_asset_it_dropped(self) -> None:
+        from optimizer.pre_selection import build_portfolio_pipeline
+
+        X = self._panel()
+        scores = pd.Series(np.linspace(-1.0, 1.0, X.shape[1]), index=X.columns)
+        optimizer = build_mean_risk(prior_estimator=self._prior(X.columns, scores))
+
+        pipe = build_portfolio_pipeline(optimizer)
+        pipe.fit(X)
+
+        assert pipe[-1].weights_.shape == (X.shape[1] - 1,)
+
+    def test_views_on_absent_assets_are_ignored_and_the_rest_still_apply(
+        self,
+    ) -> None:
+        X = self._panel()
+        scores = pd.Series(np.linspace(-1.0, 1.0, X.shape[1]), index=X.columns)
+        kept = X.drop(columns=["S3", "S5"])
+
+        wide = self._prior(X.columns, scores)
+        wide.fit(kept)
+        narrow = self._prior(kept.columns, scores)
+        narrow.fit(kept)
+
+        np.testing.assert_allclose(
+            wide.return_distribution_.mu,
+            narrow.return_distribution_.mu,
+        )
+        np.testing.assert_allclose(
+            wide.return_distribution_.covariance,
+            narrow.return_distribution_.covariance,
+        )
+
+    def test_no_surviving_view_leaves_the_unviewed_prior(self) -> None:
+        X = self._panel()
+        scores = pd.Series(np.linspace(-1.0, 1.0, X.shape[1]), index=X.columns)
+        prior = self._prior(X.columns, scores)
+        other = X.set_axis([f"Z{i}" for i in range(X.shape[1])], axis=1)
+
+        prior.fit(other)
+
+        inner = clone(prior.black_litterman.prior_estimator).fit(other)
+        np.testing.assert_allclose(
+            prior.return_distribution_.mu,
+            inner.return_distribution_.mu + 0.04 / 252.0,
+        )
+
+    def test_prior_can_be_cloned(self) -> None:
+        X = self._panel()
+        scores = pd.Series(np.linspace(-1.0, 1.0, X.shape[1]), index=X.columns)
+        prior = self._prior(X.columns, scores)
+
+        copy = clone(prior)
+
+        copy.fit(X)
+        assert copy.return_distribution_.mu.shape == (X.shape[1],)
+
+
 class TestBuildFactorIntegration:
     def test_bl_path_returns_prior(
         self, composite_scores: pd.Series, factor_scores: pd.DataFrame
@@ -108,6 +258,158 @@ class TestBuildFactorIntegration:
         )
         assert prior is None
         assert isinstance(constraints, FactorExposureConstraints)
+
+    def test_default_bounds_are_feasible_for_a_score_selected_portfolio(
+        self,
+    ) -> None:
+        from scipy.optimize import linprog
+
+        rng = np.random.default_rng(7)
+        n_assets = 400
+        tickers = pd.Index([f"T{i:03d}" for i in range(n_assets)])
+        common = rng.normal(0, 1, (n_assets, 1))
+        raw = 0.5 * common + rng.normal(0, 1, (n_assets, 4))
+        z = pd.DataFrame(
+            (raw - raw.mean(axis=0)) / raw.std(axis=0),
+            index=tickers,
+            columns=["value", "momentum", "quality", "low_vol"],
+        )
+        composite = z.mean(axis=1)
+        selected = composite.nlargest(40).index
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            _prior, constraints = build_factor_integration(
+                config=FactorIntegrationConfig.for_linear_mapping(),
+                composite_scores=composite,
+                standardized_factors=z,
+                selected_tickers=selected,
+            )
+
+        assert constraints is not None
+        n_selected = len(selected)
+        res = linprog(
+            c=np.zeros(n_selected),
+            A_ub=constraints.left_inequality,
+            b_ub=constraints.right_inequality,
+            A_eq=np.ones((1, n_selected)),
+            b_eq=np.array([1.0]),
+            bounds=[(0.0, None)] * n_selected,
+        )
+        assert res.status == 0
+
+    def test_exposure_band_keeps_configured_width_around_selection(
+        self, factor_scores: pd.DataFrame
+    ) -> None:
+        selected = factor_scores.index[:8]
+        config = FactorIntegrationConfig(
+            exposure_lower_bound=-0.3, exposure_upper_bound=0.7
+        )
+        _prior, constraints = build_factor_integration(
+            config=config,
+            composite_scores=factor_scores.mean(axis=1),
+            standardized_factors=factor_scores,
+            selected_tickers=selected,
+        )
+        assert constraints is not None
+        centre = factor_scores.loc[selected].mean().to_numpy()
+        np.testing.assert_allclose(constraints.lower_bounds, centre - 0.3)
+        np.testing.assert_allclose(constraints.upper_bounds, centre + 0.7)
+
+    def test_full_universe_selection_keeps_absolute_bounds(self) -> None:
+        tickers = pd.Index(["A", "B", "C", "D"])
+        z = pd.DataFrame(
+            {"value": [-1.0, -0.5, 0.5, 1.0], "momentum": [1.0, -1.0, 1.0, -1.0]},
+            index=tickers,
+        )
+        _prior, constraints = build_factor_integration(
+            config=FactorIntegrationConfig.for_linear_mapping(),
+            composite_scores=z.mean(axis=1),
+            standardized_factors=z,
+            selected_tickers=tickers,
+        )
+        assert constraints is not None
+        np.testing.assert_allclose(constraints.lower_bounds, [-0.5, -0.5])
+        np.testing.assert_allclose(constraints.upper_bounds, [0.5, 0.5])
+
+
+class TestConstraintColumnsMatchSelectedTickers:
+    """left_inequality columns must line up with the optimizer's asset set."""
+
+    TICKERS = ("AAA", "BBB", "CCC", "DDD", "EEE")
+
+    def _panel(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "v": [1.0, 0.5, -0.5, -1.0, 0.2],
+                "m": [0.3, -0.8, 0.7, -0.4, -0.6],
+            },
+            index=list(self.TICKERS),
+        )
+
+    def _integrate(
+        self, panel: pd.DataFrame, selected: tuple[str, ...] | None = None
+    ) -> FactorExposureConstraints | None:
+        _, cons = build_factor_integration(
+            FactorIntegrationConfig(),
+            panel.mean(axis=1),
+            panel,
+            pd.Index(self.TICKERS if selected is None else selected),
+        )
+        return cons
+
+    def test_ticker_with_all_nan_scores_keeps_its_column(self) -> None:
+        panel = self._panel()
+        panel.loc["BBB"] = np.nan
+        cons = self._integrate(panel)
+        assert cons is not None
+        assert cons.left_inequality.shape == (4, len(self.TICKERS))
+        assert np.all(cons.left_inequality[:, 1] == 0.0)
+
+    def test_ticker_absent_from_factor_panel_keeps_its_column(self) -> None:
+        panel = self._panel().drop(index="EEE")
+        cons = self._integrate(panel)
+        assert cons is not None
+        assert cons.left_inequality.shape == (4, len(self.TICKERS))
+        assert np.all(cons.left_inequality[:, 4] == 0.0)
+
+    def test_columns_follow_selected_ticker_order(self) -> None:
+        # Neither the panel's own order nor alphabetical order, so a reindex to
+        # either would pass a check against the wrong column layout.
+        panel = self._panel()
+        selected = ("DDD", "BBB", "EEE", "AAA", "CCC")
+        cons = self._integrate(panel, selected)
+        assert cons is not None
+        np.testing.assert_allclose(
+            cons.left_inequality[1], panel["v"].loc[list(selected)].to_numpy()
+        )
+        np.testing.assert_allclose(
+            cons.left_inequality[3], panel["m"].loc[list(selected)].to_numpy()
+        )
+
+    def test_constraints_fit_mean_risk_on_full_asset_set(self) -> None:
+        panel = self._panel()
+        panel.loc["BBB"] = np.nan
+        cons = self._integrate(panel)
+        assert cons is not None
+        rng = np.random.default_rng(11)
+        X = pd.DataFrame(
+            rng.normal(0, 0.01, (120, len(self.TICKERS))), columns=list(self.TICKERS)
+        )
+        optimizer = build_mean_risk(factor_exposure_constraints=cons)
+        optimizer.fit(X)
+        assert optimizer.weights_.shape == (len(self.TICKERS),)
+
+    def test_no_factor_data_at_all_returns_nothing(self) -> None:
+        panel = self._panel() * np.nan
+        prior, cons = build_factor_integration(
+            FactorIntegrationConfig(),
+            pd.Series(dtype=float),
+            panel,
+            pd.Index(self.TICKERS),
+        )
+        assert prior is None
+        assert cons is None
 
 
 class TestBuildFactorExposureConstraints:
@@ -199,6 +501,57 @@ class TestBuildFactorExposureConstraints:
         )
         optimizer.fit(X)
         assert optimizer.weights_ is not None
+
+
+class TestPartiallyMissingFactorScores:
+    """A missing standardised score is a neutral (zero) exposure, never NaN."""
+
+    @staticmethod
+    def _sparse_panel() -> tuple[pd.DataFrame, list[str]]:
+        tickers = ["AAA", "BBB", "CCC", "DDD", "EEE"]
+        panel = pd.DataFrame(
+            {
+                "v": [1.0, 0.5, -0.5, -1.0, 0.2],
+                "m": [0.3, np.nan, 0.7, -0.4, -0.6],
+            },
+            index=tickers,
+        )
+        return panel, tickers
+
+    def test_constraint_matrices_are_finite(self) -> None:
+        panel, _ = self._sparse_panel()
+        result = build_factor_exposure_constraints(panel, bounds=(-0.5, 0.5))
+        assert np.isfinite(result.left_inequality).all()
+        assert np.isfinite(result.right_inequality).all()
+
+    def test_missing_score_is_neutral_exposure(self) -> None:
+        panel, _ = self._sparse_panel()
+        result = build_factor_exposure_constraints(panel, bounds=(-0.5, 0.5))
+        m_row = result.factor_names.index("m")
+        assert result.left_inequality[2 * m_row + 1][1] == 0.0
+        assert result.left_inequality[2 * m_row][1] == 0.0
+
+    def test_no_nan_equal_weight_warning(self) -> None:
+        panel, _ = self._sparse_panel()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            build_factor_exposure_constraints(panel, bounds=(-5.0, 5.0))
+
+    def test_integration_constraints_fit_mean_risk(self) -> None:
+        panel, tickers = self._sparse_panel()
+        composite = panel.mean(axis=1)
+        _, cons = build_factor_integration(
+            FactorIntegrationConfig(),
+            composite,
+            panel,
+            pd.Index(tickers),
+        )
+        assert cons is not None
+        rng = np.random.default_rng(3)
+        X = pd.DataFrame(rng.normal(0, 0.01, (120, len(tickers))), columns=tickers)
+        optimizer = build_mean_risk(factor_exposure_constraints=cons)
+        optimizer.fit(X)
+        assert optimizer.weights_.shape == (len(tickers),)
 
 
 class TestBuildMeanRiskWithFactorExposure:
@@ -349,8 +702,10 @@ class TestComputeNetAlpha:
     def test_total_cost_formula(
         self, ic_series: pd.Series, weights_history: pd.DataFrame
     ) -> None:
-        result = compute_net_alpha(ic_series, weights_history, cost_bps=10.0)
-        expected_cost = result.avg_turnover * 10.0 / 10_000.0
+        result = compute_net_alpha(
+            ic_series, weights_history, cost_bps=10.0, annualisation=12
+        )
+        expected_cost = result.avg_turnover * 10.0 / 10_000.0 * 12
         assert result.total_cost == pytest.approx(expected_cost)
 
     # -- net_alpha = gross_alpha - total_cost ----------------------------------
@@ -402,3 +757,58 @@ class TestComputeNetAlpha:
         constant_ic = pd.Series([0.05] * N_PERIODS)
         result = compute_net_alpha(constant_ic, weights_history)
         assert result.net_icir == pytest.approx(0.0)
+
+    # -- cost is annualised like the alpha it is netted against ---------------
+
+    def test_total_cost_is_annualised_by_rebalances_per_year(self) -> None:
+        """A monthly rebalance paying 100 bps on full turnover costs 12% a year."""
+        dates = pd.date_range("2022-01-31", periods=4, freq="ME")
+        flip = pd.DataFrame(
+            [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, 1.0]],
+            index=dates,
+            columns=["A", "B"],
+        )
+        monthly_ic = pd.Series([0.04, 0.06, 0.05, 0.05])
+
+        result = compute_net_alpha(monthly_ic, flip, cost_bps=100.0, annualisation=12)
+
+        assert result.avg_turnover == pytest.approx(1.0)
+        assert result.total_cost == pytest.approx(1.0 * 100.0 / 10_000.0 * 12)
+        assert result.net_alpha == pytest.approx(result.gross_alpha - result.total_cost)
+
+    def test_cost_drag_grows_with_rebalance_frequency(
+        self, ic_series: pd.Series, weights_history: pd.DataFrame
+    ) -> None:
+        """Same per-rebalance turnover, more rebalances a year, more drag."""
+        monthly = compute_net_alpha(
+            ic_series, weights_history, cost_bps=10.0, annualisation=12
+        )
+        daily = compute_net_alpha(
+            ic_series, weights_history, cost_bps=10.0, annualisation=252
+        )
+
+        assert daily.total_cost == pytest.approx(monthly.total_cost * 252 / 12)
+
+    # -- assets not held on a date are NaN in the history, i.e. zero weight ----
+
+    def test_missing_weights_are_treated_as_not_held(self) -> None:
+        """A changing universe leaves NaN holes that must not poison turnover."""
+        history = pd.DataFrame(
+            [
+                {"A": 0.5, "B": 0.5},
+                {"A": 0.4, "B": 0.4, "C": 0.2},
+                {"A": 0.3, "C": 0.7},
+            ]
+        )
+        ic = pd.Series([0.04, 0.06, 0.05])
+
+        result = compute_net_alpha(ic, history, cost_bps=10.0, annualisation=12)
+        dense = compute_net_alpha(
+            ic, history.fillna(0.0), cost_bps=10.0, annualisation=12
+        )
+
+        assert result.avg_turnover == pytest.approx(0.35)
+        assert result.avg_turnover == pytest.approx(dense.avg_turnover)
+        assert np.isfinite(result.total_cost)
+        assert np.isfinite(result.net_alpha)
+        assert np.isfinite(result.net_icir)

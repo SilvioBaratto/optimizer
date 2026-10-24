@@ -8,8 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 > **Most entries below concern the repository's ingestion service (`ingestion/`,
-> formerly `api/`) and its tooling.** The one exception is the library breaking
-> change in **Removed** immediately below.
+> formerly `api/`) and its tooling.** The exceptions are the library breaking
+> changes in **Removed (BREAKING — library)** and **Changed (BREAKING — library)**
+> immediately below.
 
 ### Removed (BREAKING — library)
 
@@ -23,6 +24,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rebalancing decisions, persistence) now belongs to the planned `fund/` bridge,
   keeping `optimizer` DB-agnostic. Compose runs from primitives:
   `build_portfolio_pipeline(optimizer)` + `optimizer.validation.run_cross_val`.
+- **`optimizer.factors` config knobs that no code path read.** Setting them
+  changed nothing while implying a protection or a switch, so they are removed
+  and passing them now raises `TypeError` (or `ImportError` for the names).
+  - `FactorIntegrationConfig.max_weight` — never applied; cap positions with
+    `MeanRiskConfig.max_weights`.
+  - `FactorConstructionConfig.publication_lag` — never read, so it gave no
+    point-in-time protection; shift fundamentals with
+    `align_to_pit(lag_days=...)`, taking the lag from the matching
+    `PublicationLagConfig` field, before computing factors.
+  - `FactorValidationConfig.fmp_top_pct` / `fmp_bottom_pct` — mimicking-portfolio
+    legs are set through the builder's `quantile` argument.
+  - `GroupICAggregationConfig`, `ICWeightingMethod`, `ICNegativeFilterPolicy`,
+    `GroupICResult` — no group-IC aggregation by t-stat weight or negative-IC
+    filter existed.
+
+### Changed (BREAKING — library)
+
+- **`optimizer.factors` configs now validate at construction and raise
+  `ConfigurationError`** for values that previously failed late or produced
+  silently wrong output:
+  - `FactorConstructionConfig`: every lookback must be `>= 1` and
+    `0 <= momentum_skip < momentum_lookback - 1`.
+  - `CompositeScoringConfig`: `ic_lookback >= 1`, tier weights finite and
+    non-negative with a positive sum.
+  - `SelectionConfig`: `target_count >= 1`, quantiles and `sector_tolerance` in
+    `[0, 1]`, `exit_quantile <= target_quantile`, `buffer_fraction >= 0`.
+  - `SectorRegimeBandsConfig`: repeated `(regime, sector)` rows are rejected, and
+    a regime listing all 11 sectors must have caps summing to at least 1.0.
+- **`ICIR` composite weighting now honours `ic_lookback` and
+  `ic_decay_halflife`**, as `IC_WEIGHTED` already did. With the default
+  `ic_lookback=36`, group IC histories longer than 36 periods are trimmed, so
+  existing ICIR-weighted composites change; set a larger `ic_lookback` to keep
+  the old whole-history behaviour.
+- **Factor exposure band is relative to the selected set.**
+  `FactorIntegrationConfig.exposure_lower_bound` / `exposure_upper_bound` now
+  bound the exposure around the equal-weight exposure of the selected tickers,
+  not around the universe mean (z-score 0). The old absolute bounds were
+  infeasible for any top-N selection; a full-universe selection is unchanged.
+- **`resolve_sector_bands` honours `SectorRegimeBandsConfig.enable`.** A disabled
+  config (`SectorRegimeBandsConfig.disabled()`) now yields no sector constraints
+  instead of an 11-sector, 33%-floor set, and an enabled config with no bands is
+  filled with the default regime matrix instead of a flat 3%-16% band.
+- **`standardize_factor` honours `neutralize_country` on its own.**
+  `neutralize_country=True` with `neutralize_sector=False` now demeans within
+  each country instead of returning un-neutralized scores.
+- **`RegimeThresholdConfig.for_rolling_percentile` keeps
+  `spread_2s10s_inversion` at its default of 0**; only the steep threshold is
+  percentile-based, so a normal upward-sloping curve is no longer classified as
+  inverted.
 
 ### Added
 
@@ -97,6 +147,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **docker**: `docker-compose.yml` now pins the project name with a top-level
+  `name: optimizer`. Without it Compose took the name from the checkout
+  directory, so re-cloning or unzipping under another basename (for example
+  `optimizer-development`) created a new, empty `<basename>_postgres_data`
+  volume: the database looked wiped and a full refetch started. The pin matches
+  the `optimizer_postgres_data` volume of installs cloned as `optimizer` (what
+  the README says to do), which need no action. **Upgrade note — checkouts
+  under any other name:** their data lives in `<basename>_postgres_data`, and
+  the old containers still hold the fixed `container_name`s (`optimizer_db`,
+  …), so the next `portopt start` would either fail with a name conflict or
+  come up on an empty database. Before upgrading, either
+  - keep the old project: set `COMPOSE_PROJECT_NAME=<basename>` (it overrides
+    `name:`, as does `-p`) and nothing moves; or
+  - move to the pinned name: run `docker compose -p <basename> --profile
+    ingestion --profile fund --profile tools down` (it frees the container names
+    and keeps the volume; never use `down -v`, which deletes the database), then
+    copy the data across with `docker volume create optimizer_postgres_data &&
+    docker run --rm -v <basename>_postgres_data:/from -v
+    optimizer_postgres_data:/to postgres:16-alpine cp -a /from/. /to/`. Compose
+    may warn that it did not create `optimizer_postgres_data`; it still uses it
 - **api**: synchronous scheduler steps now run a heartbeat companion. Only the
   heartbeat stamps `last_heartbeat_at`, so a step running in the scheduler thread
   went silent to the orphan reaper and was failed mid-run once it outlived the

@@ -11,9 +11,29 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.linear_model import RidgeCV
 from sklearn.preprocessing import StandardScaler
 
+from optimizer.exceptions import DataError
+
 logger = logging.getLogger(__name__)
 
 FittedMLModel: TypeAlias = RidgeCV | GradientBoostingRegressor
+
+
+def _training_matrix(
+    scores: pd.DataFrame,
+    forward_returns: pd.Series,
+) -> tuple[pd.DataFrame, np.ndarray]:
+    """Return complete-case training rows as a named-column frame and targets.
+
+    The frame keeps factor names so sklearn records ``feature_names_in_``,
+    which ``predict_composite_scores`` uses to align prediction columns.
+    """
+    common = scores.index.intersection(forward_returns.index)
+    X = scores.loc[common].astype(float)
+    X.columns = X.columns.map(str)
+    y = forward_returns.loc[common].to_numpy(dtype=float)
+
+    valid = ~(np.isnan(X.to_numpy()).any(axis=1) | np.isnan(y))
+    return X.loc[valid], y[valid]
 
 
 def fit_ridge_composite(
@@ -34,12 +54,7 @@ def fit_ridge_composite(
     Returns:
         Fitted ridge model. Call ``predict(scores)`` for new data.
     """
-    common = scores.index.intersection(forward_returns.index)
-    X = scores.loc[common].values.astype(float)
-    y = forward_returns.loc[common].values.astype(float)
-
-    valid = ~(np.isnan(X).any(axis=1) | np.isnan(y))
-    X, y = X[valid], y[valid]
+    X, y = _training_matrix(scores, forward_returns)
 
     model = RidgeCV(alphas=[alpha], fit_intercept=True)
     model.fit(X, y)
@@ -66,12 +81,7 @@ def fit_gbt_composite(
     Returns:
         Fitted GBT model.
     """
-    common = scores.index.intersection(forward_returns.index)
-    X = scores.loc[common].values.astype(float)
-    y = forward_returns.loc[common].values.astype(float)
-
-    valid = ~(np.isnan(X).any(axis=1) | np.isnan(y))
-    X, y = X[valid], y[valid]
+    X, y = _training_matrix(scores, forward_returns)
 
     model = GradientBoostingRegressor(
         max_depth=max_depth,
@@ -80,6 +90,35 @@ def fit_gbt_composite(
     )
     model.fit(X, y)
     return model
+
+
+def _align_to_training_columns(
+    model: FittedMLModel,
+    scores: pd.DataFrame,
+) -> pd.DataFrame:
+    """Reorder prediction columns to the model's training columns.
+
+    Models fitted without factor names (e.g. on a bare array) keep the
+    positional contract, so ``scores`` is returned unchanged.
+
+    Raises:
+        DataError: If ``scores`` lacks a training factor or carries an extra one.
+    """
+    trained = getattr(model, "feature_names_in_", None)
+    if trained is None:
+        return scores
+
+    columns = [str(c) for c in trained]
+    frame = scores.copy()
+    frame.columns = frame.columns.map(str)
+    missing = [c for c in columns if c not in frame.columns]
+    unexpected = [c for c in frame.columns if c not in columns]
+    if missing or unexpected:
+        raise DataError(
+            "Prediction factors do not match the training factors: "
+            f"missing {missing!r}, unexpected {unexpected!r}"
+        )
+    return frame.loc[:, columns]
 
 
 def predict_composite_scores(
@@ -94,22 +133,55 @@ def predict_composite_scores(
     Args:
         model: A model returned by `fit_ridge_composite` or
             `fit_gbt_composite`.
-        scores: Current-period tickers x factors matrix.
+        scores: Current-period tickers x factors matrix.  Columns are matched
+            to the training factors by name, so their order may differ from
+            the training frame.
 
     Returns:
-        Normalised composite score per ticker (zero mean, unit variance).
-        Tickers with all-NaN factor rows receive ``NaN``.
+        Normalised composite score per ticker (zero mean, unit variance over
+        the scored tickers).  Tickers missing only some factors are scored with
+        the cross-sectional mean standing in for the missing values, and a
+        factor missing for every ticker is treated as the neutral score 0.0;
+        tickers with all-NaN factor rows receive ``NaN``.
+
+    Raises:
+        DataError: If ``scores`` lacks a factor the model was trained on or
+            carries one it was not.
     """
-    X = scores.values.astype(float)
-    row_has_nan = np.isnan(X).any(axis=1)
+    frame = _align_to_training_columns(model, scores)
+    X = frame.to_numpy(dtype=float)
 
-    # sklearn predictors reject NaN; fill with column means so predictions cover
-    # every ticker, then re-apply the missing-row mask in the output.
-    col_means = np.nanmean(X, axis=0)
-    nan_mask = np.isnan(X)
-    X_filled = np.where(nan_mask, col_means, X)
+    result = pd.Series(np.nan, index=scores.index, dtype=float)
+    scorable = ~np.isnan(X).all(axis=1)
+    if not scorable.any():
+        return result
+    X = X[scorable]
 
-    raw: np.ndarray = model.predict(X_filled)
+    # sklearn predictors reject NaN, so a ticker covering only some factors
+    # takes the cross-sectional column mean (neutral for standardised inputs)
+    # for the rest.  Masked rows are excluded before this and before scaling
+    # so they cannot shift the statistics of the tickers that are scored.  A
+    # factor nobody reports has no mean, so it falls back to the neutral 0.0
+    # instead of leaving NaN for the model to reject.
+    observed = ~np.isnan(X)
+    counts = observed.sum(axis=0)
+    col_means = np.divide(
+        np.where(observed, X, 0.0).sum(axis=0),
+        counts,
+        out=np.zeros(X.shape[1]),
+        where=counts > 0,
+    )
+    X_filled = np.where(observed, X, col_means)
+
+    # Feeding a frame to a model fitted on a bare array (or vice versa) makes
+    # sklearn warn about mismatched feature names.
+    X_in = (
+        pd.DataFrame(X_filled, columns=frame.columns)
+        if hasattr(model, "feature_names_in_")
+        else X_filled
+    )
+
+    raw: np.ndarray = model.predict(X_in)
 
     scaler = StandardScaler()
     raw_2d = raw.reshape(-1, 1)
@@ -118,6 +190,5 @@ def predict_composite_scores(
     else:
         normalised = np.zeros_like(raw)
 
-    result = pd.Series(normalised, index=scores.index, dtype=float)
-    result[row_has_nan] = np.nan
+    result[scorable] = normalised
     return result

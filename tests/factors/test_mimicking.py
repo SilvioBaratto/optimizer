@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from optimizer.exceptions import ConfigurationError
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.factors import (
     build_all_factor_mimicking_portfolios,
     build_factor_mimicking_portfolios,
@@ -254,6 +254,56 @@ class TestQuantileValidation:
         assert r50["factor_return"].notna().all()
 
 
+class TestHalfQuantileOddUniverse:
+    """quantile=0.5 is documented as valid and must also work for odd universes."""
+
+    @staticmethod
+    def _panel(n_assets: int, n_dates: int = 15) -> tuple[pd.DataFrame, pd.DataFrame]:
+        rng = np.random.default_rng(3)
+        dates = pd.date_range("2021-01-31", periods=n_dates, freq="ME")
+        cols = [f"S{i}" for i in range(n_assets)]
+        sc = pd.DataFrame(
+            rng.standard_normal((n_dates, n_assets)), index=dates, columns=cols
+        )
+        rt = pd.DataFrame(
+            rng.normal(0.0, 0.02, (n_dates, n_assets)), index=dates, columns=cols
+        )
+        return sc, rt
+
+    @pytest.mark.parametrize("n_assets", [3, 5, 7, 11])
+    def test_odd_asset_count_is_not_nan(self, n_assets: int) -> None:
+        sc, rt = self._panel(n_assets)
+        result = build_factor_mimicking_portfolios(sc, rt, quantile=0.5)
+        assert result["factor_return"].notna().all()
+
+    def test_odd_universe_legs_are_floor_half_and_disjoint(self) -> None:
+        sc, rt = self._panel(5, n_dates=2)
+        result = build_factor_mimicking_portfolios(sc, rt, quantile=0.5)
+        date = sc.index[0]
+        ranked = sc.loc[date].sort_values(ascending=False).index
+        expected = rt.loc[date, ranked[:2]].mean() - rt.loc[date, ranked[-2:]].mean()
+        assert result.loc[date, "factor_return"] == pytest.approx(expected)
+
+    def test_ragged_universe_has_no_parity_dependent_gaps(self) -> None:
+        sc, rt = self._panel(8)
+        sc.iloc[::2, 0] = np.nan
+        result = build_factor_mimicking_portfolios(sc, rt, quantile=0.5)
+        assert result["factor_return"].notna().all()
+
+    def test_beta_neutral_odd_universe_is_not_nan(self) -> None:
+        sc, rt = self._panel(5)
+        market = rt.mean(axis=1)
+        result = build_factor_mimicking_portfolios(
+            sc, rt, quantile=0.5, beta_neutral=True, market_returns=market
+        )
+        assert result["factor_return"].notna().all()
+
+    def test_single_valid_asset_is_still_nan(self) -> None:
+        sc, rt = self._panel(1, n_dates=3)
+        result = build_factor_mimicking_portfolios(sc, rt, quantile=0.5)
+        assert result["factor_return"].isna().all()
+
+
 # ---------------------------------------------------------------------------
 # Multi-factor concatenation
 # ---------------------------------------------------------------------------
@@ -407,6 +457,75 @@ class TestBetaNeutral:
             scores, returns, beta_neutral=False, market_returns=market_returns
         )
         pd.testing.assert_frame_equal(standard, explicit_false)
+
+    def test_non_overlapping_market_index_raises(
+        self, scores: pd.DataFrame, returns: pd.DataFrame, market_returns: pd.Series
+    ) -> None:
+        """A market series that shares no dates must not yield an unhedged series."""
+        tz_aware = market_returns.copy()
+        tz_aware.index = tz_aware.index.tz_localize("UTC")
+        with pytest.raises(DataError, match="market_returns"):
+            build_factor_mimicking_portfolios(
+                scores, returns, beta_neutral=True, market_returns=tz_aware
+            )
+
+    def test_two_observation_overlap_raises(
+        self, scores: pd.DataFrame, returns: pd.DataFrame, market_returns: pd.Series
+    ) -> None:
+        """A beta estimated from two points is exactly determined, not a hedge."""
+        with pytest.raises(DataError, match="market_returns"):
+            build_factor_mimicking_portfolios(
+                scores,
+                returns,
+                beta_neutral=True,
+                market_returns=market_returns.iloc[:2],
+            )
+
+    def test_constant_market_returns_raises(
+        self, scores: pd.DataFrame, returns: pd.DataFrame, market_returns: pd.Series
+    ) -> None:
+        flat = pd.Series(0.01, index=market_returns.index)
+        with pytest.raises(DataError, match="variance"):
+            build_factor_mimicking_portfolios(
+                scores, returns, beta_neutral=True, market_returns=flat
+            )
+
+    def test_disjoint_scores_and_returns_give_empty_frame(
+        self, scores: pd.DataFrame, returns: pd.DataFrame, market_returns: pd.Series
+    ) -> None:
+        """An empty factor panel is not a market_returns problem."""
+        shifted = scores.copy()
+        shifted.index = shifted.index + pd.DateOffset(years=10)
+        unhedged = build_factor_mimicking_portfolios(shifted, returns)
+        hedged = build_factor_mimicking_portfolios(
+            shifted, returns, beta_neutral=True, market_returns=market_returns
+        )
+        assert hedged.empty
+        pd.testing.assert_frame_equal(hedged, unhedged)
+
+    def test_all_nan_legs_give_nan_frame(
+        self, scores: pd.DataFrame, returns: pd.DataFrame, market_returns: pd.Series
+    ) -> None:
+        """No date with enough valid assets mirrors the unhedged NaN output."""
+        blank = scores.copy()
+        blank.iloc[:, :] = np.nan
+        unhedged = build_factor_mimicking_portfolios(blank, returns)
+        hedged = build_factor_mimicking_portfolios(
+            blank, returns, beta_neutral=True, market_returns=market_returns
+        )
+        assert hedged["factor_return"].isna().all()
+        pd.testing.assert_frame_equal(hedged, unhedged)
+
+    def test_build_all_propagates_hedge_data_error(
+        self, scores: pd.DataFrame, returns: pd.DataFrame, market_returns: pd.Series
+    ) -> None:
+        with pytest.raises(DataError, match="market_returns"):
+            build_all_factor_mimicking_portfolios(
+                {"value": scores},
+                returns,
+                beta_neutral=True,
+                market_returns=market_returns.iloc[:2],
+            )
 
 
 class TestBuildAllFactorMimickingPortfolios:

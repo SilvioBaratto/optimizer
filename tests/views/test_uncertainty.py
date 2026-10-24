@@ -156,3 +156,20 @@ class TestCalibrateOmegaFromTrackRecord:
         view_h, ret_h = _make_histories(n_obs=5)
         omega = calibrate_omega_from_track_record(view_h, ret_h)
         assert omega.shape == (N_VIEWS, N_VIEWS)
+
+    def test_each_view_uses_its_own_history(self) -> None:
+        """A short-history view must not truncate the sample of the other views."""
+        view_h, ret_h = _make_histories(n_obs=24, seed=3)
+        view_h.loc[view_h.index[:18], "view_B"] = np.nan
+        omega = calibrate_omega_from_track_record(view_h, ret_h)
+        errors = view_h - ret_h
+        expected = [errors[name].dropna().var(ddof=1) for name in VIEW_NAMES]
+        np.testing.assert_allclose(np.diag(omega), expected, rtol=1e-12)
+        assert errors["view_A"].count() == 24
+
+    def test_raises_naming_the_view_with_too_little_history(self) -> None:
+        """Only the under-sampled view fails, and the error says which one."""
+        view_h, ret_h = _make_histories(n_obs=24, seed=3)
+        view_h.loc[view_h.index[:21], "view_B"] = np.nan
+        with pytest.raises(DataError, match="view_B"):
+            calibrate_omega_from_track_record(view_h, ret_h)

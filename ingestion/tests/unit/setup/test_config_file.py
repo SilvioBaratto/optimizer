@@ -77,3 +77,17 @@ def test_update_config_still_rejects_secret_keys(tmp_path: Path) -> None:
     """The secret-key guard applies to merged updates too."""
     with pytest.raises(ValueError, match="secret"):
         config_file.update_config({"fred_api_key": "x"}, path=tmp_path / "config.toml")
+
+
+def test_update_config_none_value_removes_the_key(tmp_path: Path) -> None:
+    """``None`` is the deletion marker: merge cannot otherwise unset a stale key."""
+    path = tmp_path / "config.toml"
+    config_file.save_config(
+        {"llm_provider": "ollama", "llm_base_url": "http://x", "repo_path": "/r"},
+        path=path,
+    )
+    config_file.update_config({"llm_base_url": None, "llm_model": None}, path=path)
+    assert config_file.load_config(path=path) == {
+        "llm_provider": "ollama",
+        "repo_path": "/r",
+    }

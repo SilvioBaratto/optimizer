@@ -23,6 +23,7 @@ Locally (from the workspace root):
 
 ```bash
 uv sync --all-packages --all-extras
+export DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db   # alembic reads only this variable, never .env
 (cd packages/portopt-db && alembic upgrade head)   # migration owner
 uv run --package portopt python -m app.worker      # blocks until SIGTERM/SIGINT
 ```
@@ -31,12 +32,12 @@ uv run --package portopt python -m app.worker      # blocks until SIGTERM/SIGINT
 
 | Job | Default | What it does |
 |-----|---------|--------------|
-| `daily_pipeline` | `0 7 * * *` | yfinance → macro → news |
+| `daily_pipeline` | `0 7 * * *` | fx → yfinance → macro → daily FRED series → news → digest |
 | `midday_news` | `0 14 * * *` | news (afternoon refresh) |
-| `universe_build` | `0 2 * * sat` | Trading 212 instrument universe (Saturday) |
+| `universe_build` | `0 2 * * sat` | instrument universe from the yfinance Screener, then Trading 212 tickers via `t212_annotate` when keyed (Saturday) |
 | `weekly_refetch` | `0 3 * * sat` | full yfinance + macro rebuild (5y), Saturday after Friday close |
 | `weekly_market_wide` | `0 4 * * sat` | sector/industry structure, calendars, market summaries, full option chains |
-| `fred_monthly` | `0 8 1 * *` | FRED economic series |
+| `fred_monthly` | `0 8 1 * *` | every FRED series (daily-frequency ones also run in `daily_pipeline`) |
 | `orphan_reaper` | every 300s | fails (or reclaims) jobs whose heartbeat lease expired |
 
 `daily_pipeline` gates news on the yfinance step succeeding, so a failed fetch skips the
@@ -57,18 +58,22 @@ docker compose exec scheduler python -m app.cli refetch-all
 docker compose exec scheduler python -m app.cli yfinance --mode full --period 5y
 docker compose exec scheduler python -m app.cli universe
 docker compose exec scheduler python -m app.cli macro
+docker compose exec scheduler python -m app.cli fx
 docker compose exec scheduler python -m app.cli fred
 docker compose exec scheduler python -m app.cli news
-docker compose exec scheduler python -m app.cli reference-indices
 docker compose exec scheduler python -m app.cli market-structure
 docker compose exec scheduler python -m app.cli calendars
 docker compose exec scheduler python -m app.cli market-summary
 docker compose exec scheduler python -m app.cli options
+docker compose exec scheduler python -m app.cli daily-events
+docker compose exec scheduler python -m app.cli daily-events --backfill 2026-01-01:2026-09-30
 ```
 
 Single-step commands exit non-zero when the step did not complete, so shell drivers can gate
-on them. `scheduler/fetch.sh` and `scheduler/refetch_all.sh` are thin wrappers over `daily`
-and `refetch-all`.
+on them. The composite commands `daily` and `refetch-all` always exit 0, even when a step
+failed or was refused, so read the logs or `background_jobs` for per-step outcomes.
+`scheduler/fetch.sh` and `scheduler/refetch_all.sh` are thin wrappers over them and hand that
+exit status through unchanged, so they are not a failure signal either.
 
 ## Observability
 
@@ -91,9 +96,11 @@ Set `NOTIFICATION_WEBHOOK_URL` for a Discord/Slack POST on job failure.
   `SCHEDULER_HEARTBEAT_CADENCE_SECONDS` (30s); the orphan reaper only touches a claim once the
   lease TTL (`SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS`, 300s = 10× cadence) elapses with no
   renewal. It is the renewal — not a flat timeout — that keeps a long synchronous step (the
-  multi-minute yfinance fetch, the reference-index seed) from being falsely reaped. Host and
+  multi-minute yfinance fetch, the full option-chain sweep) from being falsely reaped. Host and
   PID are no longer part of the decision, so the daemon is portable (Windows/macOS dev) and
-  two daemons never reap each other's live jobs.
+  two daemons never reap each other's live jobs. The renewal also needs progress: a step that
+  reports none for `SCHEDULER_STEP_STALL_TIMEOUT_SECONDS` (3600s) stops renewing, so a step
+  wedged on a lock is reaped instead of holding its job slot until the next restart.
 - **Orphan strategy — `SCHEDULER_ORPHAN_STRATEGY` (`fail` | `reclaim`, default `fail`).**
   `fail` marks a dead-worker job failed; the next cron re-runs it. `reclaim` additionally
   re-dispatches the step immediately (at-least-once self-healing), capped by
@@ -104,15 +111,18 @@ Set `NOTIFICATION_WEBHOOK_URL` for a Discord/Slack POST on job failure.
   container `stop_grace_period` / `terminationGracePeriodSeconds` above that (compose ships
   `60s`; the compose default is only 10s) so the drain is not SIGKILLed mid-write. Raise both
   together to drain long fetches cleanly.
-- **`TRADING_212_API_KEY` absent** ⇒ `universe_build` skips without claiming a job slot. That
-  is a configuration state, not a failure — but nothing will refresh `instruments`.
+- **`TRADING_212_API_KEY` or `TRADING_212_SECRET_KEY` absent** ⇒ the `t212_annotate` step
+  (the follow-on to `universe_build`) skips without claiming a job slot; Basic auth needs
+  both. That is a configuration state, not a failure: `universe_build` itself needs neither
+  and keeps refreshing `instruments` from the yfinance Screener, only the T212 ticker
+  mapping goes stale.
 - **Migration `d1e2f3a4b5c6` is one-way.** It drops the 17 non-ingestion tables and its
   `downgrade()` raises. Restore from a dump taken before the upgrade.
 
 ## Scaling
 
 One daemon per database is the design now. The workload is a few dozen long-running jobs a
-day (a yfinance fetch over thousands of tickers, a reference-index seed); the cost is network
+day (a yfinance fetch over thousands of tickers, a full option-chain sweep); the cost is network
 latency to the sources, which a bigger scheduler does not remove — so a distributed task
 queue would add operational weight for no gain.
 
@@ -137,9 +147,9 @@ app/
   database.py      thin factory: builds DbConfig from settings → portopt_db.DatabaseManager
   services/
     jobs/          APScheduler wiring + BackgroundJobService
-    market_data/   yfinance client, bulk fetch, reference-index seeding
+    market_data/   yfinance client + bulk fetch, FX, calendars, market structure/summary, options
     macro/         FRED / Il Sole / Trading Economics scrapers, macro news scraping
-    universe/      Trading 212 universe build
+    universe/      yfinance-Screener universe build + Trading 212 ticker annotation
     infrastructure/ circuit breaker, rate limiter, retry, TTL cache
   repositories/
     jobs/          BackgroundJobRepository (behavior stays here); domain repos re-exported
@@ -155,7 +165,7 @@ app/
 
 ```bash
 pytest                                              # in ingestion/
-pytest --cov=app --cov-branch --cov-fail-under=80   # CI gate (line ≥80% and branch ≥0.80)
+pytest --cov=app --cov-branch --cov-fail-under=80   # CI gate: one blended statement+branch floor
 ```
 
 SQLite in-memory, SAVEPOINT-per-test. There is no `client` fixture — tests drive service,

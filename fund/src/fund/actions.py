@@ -15,18 +15,25 @@ keyless import.
 
 Transaction discipline (D1): :func:`apply_action` opens no session of its own and
 never commits — the caller injects a sync session and owns the transaction boundary
-(the TUI worker commits once the action lands, exactly like ``resume_run``).
+(the TUI worker commits once the action lands, exactly like ``resume_run``). The one
+exception is a ``profile`` action that hits a MiFID suitability breach:
+``run_profiler`` then rolls the session back and commits only the blocked run's
+trail (see its docstring), so the staged work of that action sequence is discarded.
 """
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from fund.config import FundConfig, settings
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from portopt_db.models import HumanAuditLog
@@ -45,6 +52,20 @@ _RESUME_DECISION = {
     "respond": "respond",
     "killswitch": "reject",
 }
+
+# Actions that settle in the DB alone, so a caller needs no model, store or
+# checkpointer to drive them (the human's emergency stop must not depend on the LLM
+# provider being up).
+MODEL_FREE_ACTIONS = frozenset({"reject", "killswitch"})
+
+# A run in one of these states is finished; resuming or re-rejecting it would rewrite
+# a terminal outcome (mirrors the guard in ``resume_fund``).
+_FINAL_STATUSES = ("completed", "rejected", "incomplete", "blocked", "failed")
+
+# Resolution of the weights the shell shows and the adviser edits (4 decimals).
+_EDIT_RESOLUTION = 1e-4
+# Float noise on the headroom comparison, so a residual exactly at capacity is absorbed.
+_ROUNDING_EPS = 1e-12
 
 # Past-tense verb per action, for the status line the shell reports.
 _PAST = {
@@ -68,8 +89,11 @@ class ActionResult:
         portfolio_id: The affected portfolio, or ``None`` for a fund-wide action.
         audit_id: Primary key of the ``human_audit_log`` row written.
         message: A one-line summary for the status bar.
-        detail: The underlying driver's return value (e.g. ``resume_run``'s result),
-            or ``None`` when the action produces none.
+        detail: The underlying driver's return value (e.g. ``resume_run``'s result;
+            ``{"status": ...}`` for ``run``), a ``{"blocked": True, "reason": ...}``
+            marker for a ``profile`` stopped by a suitability breach,
+            ``{"warnings": [...]}`` for a mandate saved with a benchmark that cannot
+            be priced, or ``None`` when the action produces none.
     """
 
     action: str
@@ -89,6 +113,7 @@ def apply_action(
     checkpointer: Any | None = None,
     store: Any | None = None,
     model: Any | None = None,
+    fallback: Any | None = None,
     mandate: Any | None = None,
     questionnaire: Any | None = None,
     asof: dt.date | None = None,
@@ -115,12 +140,14 @@ def apply_action(
     rebalance → approve — funnels through one audited path. Opens no session and never
     commits: the caller injects ``session`` and owns the transaction (D1).
 
-    ``approve`` / ``reject`` resume the paused run via
-    :func:`fund.agents.graph.resume_run` (dispatched by gate); ``respond`` threads the
-    adviser's ``pm_directive`` back to the PM at the ``place_orders`` gate (the run
-    re-gates as ``responded`` or finalises incomplete) and, like every action here, is
-    recorded with its own ``human_audit_log`` row; ``killswitch`` finalises a paused run
-    through the same reject path but is logged under its own action (no paired undo).
+    ``approve`` resumes the paused run via :func:`fund.agents.graph.resume_run`
+    (dispatched by gate); ``reject`` finalises it rejected in the DB alone, so the
+    emergency stop needs no model, store or checkpointer (:data:`MODEL_FREE_ACTIONS`).
+    ``respond`` threads the adviser's ``pm_directive`` back to the PM at the
+    ``place_orders`` gate (the run re-gates as ``responded`` or finalises incomplete)
+    and, like every action here, is recorded with its own ``human_audit_log`` row;
+    ``killswitch`` finalises a paused run through the same reject path but is logged
+    under its own action (no paired undo).
     ``edit`` validates the adviser-supplied ``new_value`` weights against the risk
     invariants, logs them as a fresh allocator decision, and resumes via the approve
     path so the ticket/positions/run all commit the edited allocation (⚑ override).
@@ -144,11 +171,16 @@ def apply_action(
         checkpointer: LangGraph checkpointer for the resume / drive flows.
         store: LangGraph store for the resume / drive flows.
         model: Chat model the resumed or driven run uses.
+        fallback: Chat model its subagents retry on when the primary raises, or
+            ``None`` for no retry. The scheduler always supplies one; a human-driven
+            drive should too.
         mandate: The ``fund.schemas.mandate.PortfolioMandate`` to upsert
             (``mandate_edit`` / ``new_portfolio``) or run (``run``).
-        questionnaire: Free-text/typed MiFID answers the profiler normalises
-            (``profile`` only).
-        asof: Decision bar for a ``profile`` / ``run`` drive; defaults to today.
+        questionnaire: MiFID answers for the profiler (``profile`` only): free text it
+            normalises via the LLM, or a ``MiFIDAnswers`` (instance or JSON) it uses
+            verbatim.
+        asof: Decision bar for a ``profile`` / ``run`` drive; a ``run`` defaults to
+            the newest bar with a stored close after it (``default_decision_bar``).
         base_currency: Reporting currency override for the ``profile`` drive.
         target: The field or guardrail the action touched (edit/override).
         prev_value: Prior value recorded on the audit row (edit/override).
@@ -175,7 +207,11 @@ def apply_action(
             ``portfolio_id`` for ``profile`` / ``run``).
         LookupError: ``run_id`` names no run (propagated from ``resume_run``).
         RuntimeError: ``run`` on a portfolio with no active ``ConstraintSet``
-            (propagated from ``run_fund`` — profile it first).
+            (propagated from ``run_fund`` — profile it first); or ``approve`` /
+            ``respond`` / ``edit`` on a gate whose fund or portfolio is FROZEN (only
+            ``reject`` / ``killswitch`` still close it).
+        sqlalchemy.exc.DBAPIError: A resume-style action whose ``idempotency_key`` is
+            held by a concurrent in-flight submit; that submit owns the action.
     """
     if idempotency_key is not None:
         replay = _replayed_action(session, idempotency_key)
@@ -191,6 +227,7 @@ def apply_action(
             checkpointer=checkpointer,
             store=store,
             model=model,
+            fallback=fallback,
             pm_directive=pm_directive,
             actor=actor,
             source=source,
@@ -208,6 +245,7 @@ def apply_action(
             checkpointer=checkpointer,
             store=store,
             model=model,
+            fallback=fallback,
             new_value=new_value,
             actor=actor,
             source=source,
@@ -221,14 +259,10 @@ def apply_action(
             scope=scope,
             run_id=run_id,
             portfolio_id=portfolio_id,
-            checkpointer=checkpointer,
-            store=store,
-            model=model,
             actor=actor,
             source=source,
             idempotency_key=idempotency_key,
             rationale=rationale,
-            config=config,
         )
     if action == "rearm":
         return _apply_rearm(
@@ -281,6 +315,7 @@ def apply_action(
             portfolio_id=portfolio_id,
             questionnaire=questionnaire,
             model=model,
+            fallback=fallback,
             checkpointer=checkpointer,
             store=store,
             base_currency=base_currency,
@@ -297,6 +332,7 @@ def apply_action(
             portfolio_id=portfolio_id,
             mandate=mandate,
             model=model,
+            fallback=fallback,
             checkpointer=checkpointer,
             store=store,
             asof=asof,
@@ -319,6 +355,7 @@ def _apply_resume(
     checkpointer: Any | None,
     store: Any | None,
     model: Any | None,
+    fallback: Any | None,
     pm_directive: str | None,
     actor: str,
     source: str | None,
@@ -328,7 +365,7 @@ def _apply_resume(
     rationale: str | None,
     config: FundConfig,
 ) -> ActionResult:
-    """Resume a paused run by its gate, then log the decision.
+    """Log the decision (claiming its idempotency key), then resume the paused run.
 
     ``decision`` is the ``resume_run`` verb (``approve`` / ``reject`` / ``respond``);
     ``action`` is what gets logged — they coincide for approve/reject/respond but
@@ -336,44 +373,115 @@ def _apply_resume(
     the adviser's ``pm_directive`` (required) back to the PM at the ``place_orders``
     gate. The agent stack is imported here, never at module scope.
     """
-    from fund.agents.graph import resume_run
-
     if run_id is None:
         raise ValueError(f"{action!r} requires a run_id")
     if action == "respond" and not pm_directive:
         raise ValueError("'respond' requires a pm_directive")
     rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
-    result = resume_run(
-        rid,
-        decision,
-        session=session,
-        checkpointer=checkpointer,
-        store=store,
-        model=model,
-        pm_directive=pm_directive,
-        config=config,
-    )
     pid = portfolio_id if portfolio_id is not None else _portfolio_of(session, rid)
+    ticketed = _ticketed_weights(session, rid) if decision == "approve" else None
+    # Claim the idempotency key before resuming: the checkpointer commits on its own
+    # connection, so once the graph has moved nothing rolls it back, and the audit row's
+    # unique key is the only thing that can turn a concurrent duplicate submit away.
     row = _append_audit(
         session,
         action=action,
         run_id=rid,
         portfolio_id=pid,
         actor=actor,
+        target="weights" if ticketed else None,
+        new_value=ticketed,
         source=source,
         override_flag=override_flag,
         suitability_flag=suitability_flag,
         idempotency_key=idempotency_key,
         rationale=rationale,
     )
+    result: dict[str, Any] | None = None
+    if decision == "reject":
+        _reject_at_gate(session, rid)
+    else:
+        from fund.agents.graph import resume_run
+
+        result = resume_run(
+            rid,
+            decision,
+            session=session,
+            checkpointer=checkpointer,
+            store=store,
+            model=model,
+            fallback=fallback,
+            pm_directive=pm_directive,
+            config=config,
+        )
     return ActionResult(
         action=action,
         run_id=rid,
         portfolio_id=pid,
         audit_id=row.id,
-        message=f"run {rid} {_PAST.get(action, action)}",
+        message=resume_message(session, rid, action, result),
         detail=result,
     )
+
+
+def resume_message(
+    session: Session, run_id: uuid.UUID, action: str, result: dict[str, Any] | None
+) -> str:
+    """The status line for a resumed run, honest about what the resume really did.
+
+    ``place_orders`` reports a missing fill bar or unknown ticker as a soft failure, so
+    the resume itself succeeds. An approve/edit whose run did not end ``completed``
+    (finalised ``incomplete``, or re-gated and left ``paused`` / ``responded``) placed
+    no paper ticket; claiming plain success would hide that from the adviser. A respond
+    the PM answered without re-gating is reported ``incomplete``, not ``responded``.
+    A PM follow-up turn that failed after the gate was consumed (``resume_error``) is
+    appended: the decision stands, but the adviser should know the model did not finish.
+
+    Args:
+        session: A sync session that sees the resume's writes; not committed here.
+        run_id: The resumed run.
+        action: The logged action (``approve`` / ``edit`` / ``reject`` / ...).
+        result: The ``resume_run`` return value, or ``None``.
+
+    Returns:
+        The one-line status message.
+    """
+    from fund.audit.repository import AgentRunRepository
+
+    message = f"run {run_id} {_PAST.get(action, action)}"
+    if action in ("approve", "edit"):
+        run = AgentRunRepository(session).get_run(run_id)
+        if run is not None and run.status != "completed":
+            message += f", but no paper ticket was placed (run is {run.status})"
+    elif action == "respond":
+        run = AgentRunRepository(session).get_run(run_id)
+        if run is not None and run.status == "incomplete":
+            # The PM answered without re-gating, so the run was finalised: "responded"
+            # alone would send the adviser to wait for a gate that never appears.
+            message = (
+                f"run {run_id} incomplete (the PM did not re-gate after the response)"
+            )
+    error = (result or {}).get("resume_error")
+    if error:
+        message += f" (PM follow-up failed: {error})"
+    return message
+
+
+def _ticketed_weights(session: Session, run_id: uuid.UUID) -> dict[str, Any] | None:
+    """The allocation an approve will ticket, in the shape the audit row records.
+
+    The gated ``place_orders`` ignores the PM's own ``weights`` argument and trades the
+    allocator's audited optimizer weights, so those (not what the gate echoed) are what
+    the adviser's approval commits. ``None`` when the run has no allocator proposal,
+    e.g. a profiler gate.
+    """
+    from fund.audit.orders_repository import weights_hash
+    from fund.audit.repository import AgentRunRepository
+
+    weights = AgentRunRepository(session).latest_optimizer_weights(run_id)
+    if not weights:
+        return None
+    return {"weights": weights, "weights_hash": weights_hash(weights)}
 
 
 def _apply_edit(
@@ -384,6 +492,7 @@ def _apply_edit(
     checkpointer: Any | None,
     store: Any | None,
     model: Any | None,
+    fallback: Any | None,
     new_value: Any | None,
     actor: str,
     source: str | None,
@@ -393,55 +502,81 @@ def _apply_edit(
 ) -> ActionResult:
     """Commit adviser-edited weights, then resume the paused run via ``approve``.
 
-    The edit never touches the gated tool's args. It validates ``new_value`` (the
-    ``{ticker: weight}`` the adviser typed) against the long-only / fully-invested
-    invariants with ``risk_check``, then appends a fresh **allocator /
-    optimize_portfolio** decision carrying the edited weights and resumes through the
-    existing approve path. ``_place_orders_impl`` re-reads ``latest_optimizer_weights``
-    on resume, so that appended row is the single source every downstream record (the
-    paper ticket + ``weights_hash``, ``agent_runs.weights``, and the positions
-    snapshot) derives from — no graph change, no divergence. The audit row is stamped
-    ⚑ ``override_flag`` since the human overrode the optimizer's allocation.
+    The edit never touches the gated tool's args. It resolves ``new_value`` (the
+    ``{ticker: weight}`` the adviser typed) onto the tickers the run's allocator
+    proposed (case/whitespace-insensitive; anything else is refused), validates it
+    against the same gate the risk agent's ``risk_check`` applies (long-only /
+    fully-invested bounds, the K&E position cap, the ESG and instrument screen; a book
+    that misses the budget only by display rounding is nudged onto it first, see
+    :func:`_absorb_rounding`), confirms every line can fill, then appends a fresh
+    **allocator / optimize_portfolio** decision carrying the edited weights and resumes
+    through the existing approve path.
+    ``_place_orders_impl`` re-reads ``latest_optimizer_weights`` on resume, so that
+    appended row is the single source every downstream record (the paper ticket +
+    ``weights_hash``, ``agent_runs.weights``, and the positions snapshot) derives
+    from — no graph change, no divergence. The audit row is stamped ⚑
+    ``override_flag`` since the human overrode the optimizer's allocation.
 
     Raises:
-        ValueError: ``run_id`` or ``new_value`` is missing, or the edited weights
-            fail the risk invariants (the structured ``violations`` are reported).
+        ValueError: ``run_id`` or ``new_value`` is missing, a ticker is outside the
+            run's allocator universe (or listed twice), the edited weights fail the
+            risk invariants (the structured ``violations`` are reported), or a line
+            has no fill bar.
+        LookupError: ``run_id`` names no run.
     """
     from fund.agents.graph import resume_run
+    from fund.agents.toolsets import (
+        RunContext,
+        check_weights_against_mandate,
+        mandate_bounds,
+    )
     from fund.audit.repository import AgentRunRepository
-    from fund.tools.risk import risk_check
+    from fund.tools.orders import fill_shortfalls
 
     if run_id is None:
         raise ValueError("'edit' requires a run_id")
     if not new_value:
         raise ValueError("'edit' requires new_value (the edited weights)")
     rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
-    edited = {str(k): float(v) for k, v in dict(new_value).items()}
 
-    check = risk_check(edited)
+    run_repo = AgentRunRepository(session)
+    run = run_repo.get_run(rid)
+    if run is None:
+        raise LookupError(f"no agent_run {rid}")
+    if run.portfolio_id is None:
+        raise ValueError(f"agent_run {rid} has no portfolio_id")
+    # Every allocator row, not just the latest: a prior edit may have dropped a name
+    # the adviser now wants back.
+    universe = {
+        ticker
+        for decision in run.decisions
+        if decision.agent == "allocator" and decision.step == "optimize_portfolio"
+        for ticker in run_repo.decode_weights(decision)
+    }
+    edited = _canonical_weights(new_value, universe)
+    ctx = RunContext(
+        session=session,
+        asof=run.asof,
+        store=store,
+        config=config,
+        run_id=rid,
+        portfolio_id=run.portfolio_id,
+    )
+    edited = _absorb_rounding(edited, mandate_bounds(ctx))
+    check = check_weights_against_mandate(ctx, edited)
     if not check.get("ok"):
         raise ValueError(f"'edit' rejected: {check.get('error')}")
     report = check["data"]
     if not report["passed"]:
         raise ValueError(f"'edit' violates risk invariants: {report['violations']}")
+    shortfalls = fill_shortfalls(session, run.asof, edited)
+    if shortfalls:
+        raise ValueError(f"'edit' cannot be ticketed: {'; '.join(shortfalls)}")
 
-    AgentRunRepository(session).append_decision(
-        rid,
-        agent="allocator",
-        step="optimize_portfolio",
-        llm_response=json.dumps({"weights": edited}),
-        hitl_decision={"decision": "edit", "human_override": True},
-    )
-    result = resume_run(
-        rid,
-        "approve",
-        session=session,
-        checkpointer=checkpointer,
-        store=store,
-        model=model,
-        config=config,
-    )
-    pid = portfolio_id if portfolio_id is not None else _portfolio_of(session, rid)
+    # Claimed before the resume: the checkpointer commits on its own connection, so a
+    # second submit of the same keyed action must be turned away by the unique
+    # idempotency key before it can drive the same gate again.
+    pid = portfolio_id if portfolio_id is not None else run.portfolio_id
     row = _append_audit(
         session,
         action="edit",
@@ -456,32 +591,197 @@ def _apply_edit(
         idempotency_key=idempotency_key,
         rationale=rationale,
     )
+    run_repo.append_decision(
+        rid,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": edited}),
+        hitl_decision={"decision": "edit", "human_override": True},
+    )
+    # The bound ``place_orders`` refuses weights the risk gate has not passed. The
+    # edit just cleared the same mandate check ``risk_check`` applies, so record that
+    # as the verdict, labelled as the adviser's.
+    run_repo.append_risk_verdict(
+        rid, weights=edited, passed=True, violations=[], source="adviser_edit"
+    )
+    result = resume_run(
+        rid,
+        "approve",
+        session=session,
+        checkpointer=checkpointer,
+        store=store,
+        model=model,
+        fallback=fallback,
+        config=config,
+    )
     return ActionResult(
         action="edit",
         run_id=rid,
         portfolio_id=pid,
         audit_id=row.id,
-        message=f"run {rid} {_PAST['edit']}",
+        message=resume_message(session, rid, "edit", result),
         detail=result,
     )
+
+
+def _absorb_rounding(
+    weights: dict[str, float], bounds: dict[str, float] | None
+) -> dict[str, float]:
+    """Spread a display-rounding residual over ``weights`` without breaching ``bounds``.
+
+    The shell shows and parses weights at :data:`_EDIT_RESOLUTION`, so a book that is
+    economically fully invested (a third each) comes back summing to 0.9999, which the
+    risk gate's 1e-6 budget tolerance would bounce. Each name is only known to within
+    half a step, so the residual is shared out in proportion to how far each held name
+    can move in the needed direction: at most half a step, never past its min/max
+    bound, and a name the adviser dropped stays dropped. A residual that headroom
+    cannot cover is a real hole in the book and is left for ``risk_check`` to refuse.
+    """
+    limits = bounds or {}
+    residual = limits.get("budget", 1.0) - sum(weights.values())
+    half_step = _EDIT_RESOLUTION / 2
+    if residual > 0:
+        ceiling = limits.get("max_weights", 1.0)
+        room = {
+            ticker: min(half_step, max(ceiling - weight, 0.0)) if weight > 0 else 0.0
+            for ticker, weight in weights.items()
+        }
+    else:
+        floor = limits.get("min_weights", 0.0)
+        room = {
+            ticker: min(half_step, max(weight - floor, 0.0))
+            for ticker, weight in weights.items()
+        }
+    capacity = sum(room.values())
+    # ``not 0 < ...`` also turns a NaN residual (a non-finite weight) away.
+    if capacity <= 0 or not 0 < abs(residual) <= capacity + _ROUNDING_EPS:
+        return weights
+    share = max(-1.0, min(1.0, residual / capacity))
+    return {ticker: weight + share * room[ticker] for ticker, weight in weights.items()}
+
+
+def _canonical_weights(new_value: Any, universe: set[str]) -> dict[str, float]:
+    """Map the adviser's typed ``{ticker: weight}`` onto the allocator's own tickers.
+
+    Matching ignores case and surrounding whitespace so ``" aaa "`` lands on ``AAA``
+    instead of becoming a phantom position. Tickers outside ``universe`` bypass the
+    run's universe screen and are refused, as is one name spelled two ways (the later
+    weight would silently win).
+
+    Raises:
+        ValueError: A ticker is outside ``universe`` or appears twice.
+    """
+    canonical = {ticker.strip().upper(): ticker for ticker in universe}
+    edited: dict[str, float] = {}
+    unknown: list[str] = []
+    for raw, weight in dict(new_value).items():
+        ticker = canonical.get(str(raw).strip().upper())
+        if ticker is None:
+            unknown.append(str(raw))
+        elif ticker in edited:
+            raise ValueError(f"'edit' lists {ticker!r} twice")
+        else:
+            edited[ticker] = float(weight)
+    if unknown:
+        raise ValueError(
+            f"'edit' rejected: {sorted(unknown)} not in the run's allocator universe "
+            f"{sorted(universe)}"
+        )
+    return edited
 
 
 _FREEZE_SCOPES = ("run", "portfolio", "fund")
 _REARM_SCOPES = ("portfolio", "fund")
 
 
-def _reject_live_runs(session: Session, portfolio_id: uuid.UUID | None) -> None:
-    """Finalise any paused/responded runs in scope as rejected (DB-level halt).
+def _reject_at_gate(
+    session: Session, run_id: uuid.UUID, *, via: str | None = None
+) -> None:
+    """Finalise one paused run as rejected straight in the DB — no graph, no model.
 
-    A portfolio/fund freeze halts in-flight runs: each live gate is marked rejected
-    without a graph resume (an emergency stop needs no model/checkpointer). Scoped to
-    ``portfolio_id`` when given, else fund-wide. No commit (the caller owns it).
+    Reject / killswitch / run-scope freeze are the human's emergency stop, so they must
+    work with the provider down or the portfolio's ConstraintSet gone. Resuming the
+    graph cannot promise that (it rebuilds the PM agent, re-guards the ConstraintSet and
+    takes a post-reject model turn), and a failure there consumes the checkpoint's
+    interrupt without recording the reject. The standing interrupt is left alone, as a
+    portfolio/fund freeze leaves it: the finalised status keeps ``resume_fund`` from
+    ever re-driving it. Writes the same decision row the graph path logs for the gate,
+    tagged with ``via`` when something other than the adviser's own reject closed it.
+    No commit (the caller owns it).
+
+    Raises:
+        LookupError: ``run_id`` names no run.
+        ValueError: The run is already finalised.
     """
     from fund.audit.repository import AgentRunRepository
 
     repo = AgentRunRepository(session)
+    run = repo.get_run(run_id)
+    if run is None:
+        raise LookupError(f"no agent_run {run_id}")
+    if run.status in _FINAL_STATUSES:
+        raise ValueError(
+            f"agent_run {run_id} is {run.status!r}, already finalised and not "
+            "rejectable (it completed, failed, or was rejected/frozen/blocked since "
+            "the gate opened)"
+        )
+    repo.reject_gate(run_id, via=via)
+
+
+def _reject_live_runs(
+    session: Session, portfolio_id: uuid.UUID | None
+) -> list[uuid.UUID]:
+    """Finalise any paused/responded runs in scope as rejected (DB-level halt).
+
+    A portfolio/fund freeze halts in-flight runs: each live gate is marked rejected
+    without a graph resume (an emergency stop needs no model/checkpointer), with a
+    decision tagged ``via="freeze"`` so the run's own trail says why. Scoped to
+    ``portfolio_id`` when given, else fund-wide. No commit (the caller owns it).
+
+    Returns:
+        The ids of the runs halted, for the freeze's audit row.
+    """
+    from fund.audit.repository import AgentRunRepository
+
+    repo = AgentRunRepository(session)
+    halted: list[uuid.UUID] = []
     for run in repo.list_paused_runs(portfolio_id=portfolio_id):
-        repo.finalize_run(run.id, weights={}, status="rejected")
+        # A resolver that finalised the run since the listing (an approve in flight)
+        # won the race (a ``ValueError``: the run is no longer open); its outcome must
+        # stand instead of being rewritten to rejected.
+        with contextlib.suppress(ValueError):
+            _reject_at_gate(session, run.id, via="freeze")
+            halted.append(run.id)
+    return halted
+
+
+def halt_run_if_frozen(
+    session: Session, run_id: uuid.UUID, portfolio_id: uuid.UUID | None
+) -> bool:
+    """Reject a round's just-opened gate when its scope froze while the round ran.
+
+    A freeze halts live runs by rejecting the *committed* paused gates, but a round in
+    flight holds its run row uncommitted, so the freeze cannot see it and the round
+    would go on to commit an approvable gate on a frozen scope. Call this at the point
+    a round reaches its gate, before the caller commits: it re-reads the fund and
+    portfolio posture and, when either is frozen, finalises the run ``rejected`` exactly
+    as the freeze would have. No commit (the caller owns the transaction).
+
+    Args:
+        session: The round's session, still holding its uncommitted run row.
+        run_id: The run that just reached its gate.
+        portfolio_id: The run's portfolio (fund scope is always checked).
+
+    Returns:
+        ``True`` when the run was halted (finalised ``rejected``), else ``False``.
+    """
+    from fund.audit.autonomy_repository import AutonomyRepository
+    from fund.audit.repository import AgentRunRepository
+
+    if AutonomyRepository(session).frozen_scope(portfolio_id) is None:
+        return False
+    AgentRunRepository(session).finalize_run(run_id, weights={}, status="rejected")
+    return True
 
 
 def _apply_freeze(
@@ -490,21 +790,18 @@ def _apply_freeze(
     scope: str | None,
     run_id: uuid.UUID | str | None,
     portfolio_id: uuid.UUID | None,
-    checkpointer: Any | None,
-    store: Any | None,
-    model: Any | None,
     actor: str,
     source: str | None,
     idempotency_key: str | None,
     rationale: str | None,
-    config: FundConfig,
 ) -> ActionResult:
     """Freeze autonomy at ``scope`` (``run`` / ``portfolio`` / ``fund``) and audit it.
 
-    ``run`` keeps the killswitch semantics — reject-finalise the paused run, touching
-    no autonomy posture. ``portfolio`` / ``fund`` flip the autonomy row FROZEN (via
-    :class:`AutonomyRepository`, recording ``rationale`` as the frozen reason) and halt
-    any live run in scope. Every path appends one ⚑ ``human_audit_log`` row.
+    ``run`` keeps the killswitch semantics — reject-finalise the paused run in the DB
+    (no model needed), touching no autonomy posture. ``portfolio`` / ``fund`` flip the
+    autonomy row FROZEN (via :class:`AutonomyRepository`, recording ``rationale`` as the
+    frozen reason) and halt any live run in scope. Every path appends one ⚑
+    ``human_audit_log`` row.
 
     Raises:
         ValueError: ``scope`` is not one of ``run`` / ``portfolio`` / ``fund``, or the
@@ -514,20 +811,9 @@ def _apply_freeze(
         raise ValueError(f"'freeze' requires scope in {_FREEZE_SCOPES}, got {scope!r}")
 
     if scope == "run":
-        from fund.agents.graph import resume_run
-
         if run_id is None:
             raise ValueError("'freeze' scope='run' requires a run_id")
         rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
-        result = resume_run(
-            rid,
-            "reject",
-            session=session,
-            checkpointer=checkpointer,
-            store=store,
-            model=model,
-            config=config,
-        )
         pid = portfolio_id if portfolio_id is not None else _portfolio_of(session, rid)
         row = _append_audit(
             session,
@@ -542,13 +828,13 @@ def _apply_freeze(
             idempotency_key=idempotency_key,
             rationale=rationale,
         )
+        _reject_at_gate(session, rid)
         return ActionResult(
             action="freeze",
             run_id=rid,
             portfolio_id=pid,
             audit_id=row.id,
             message=f"run {rid} {_PAST['freeze']}",
-            detail=result,
         )
 
     from fund.audit.autonomy_repository import (
@@ -571,7 +857,7 @@ def _apply_freeze(
             reason=rationale,
         )
         pid = portfolio_id
-    _reject_live_runs(session, pid)
+    halted = _reject_live_runs(session, pid)
     row = _append_audit(
         session,
         action="freeze",
@@ -579,7 +865,11 @@ def _apply_freeze(
         portfolio_id=pid,
         actor=actor,
         target=scope,
-        new_value={"state": "frozen", "reason": rationale},
+        new_value={
+            "state": "frozen",
+            "reason": rationale,
+            "halted_runs": [str(run_id) for run_id in halted],
+        },
         source=source,
         override_flag=False,
         suitability_flag=False,
@@ -591,7 +881,7 @@ def _apply_freeze(
         run_id=None,
         portfolio_id=pid,
         audit_id=row.id,
-        message=f"{scope} {_PAST['freeze']}",
+        message=f"{_scope_subject(scope, pid)} {_PAST['freeze']}",
     )
 
 
@@ -654,8 +944,19 @@ def _apply_rearm(
         run_id=None,
         portfolio_id=pid,
         audit_id=row.id,
-        message=f"{scope} {_PAST['rearm']}",
+        message=f"{_scope_subject(scope, pid)} {_PAST['rearm']}",
     )
+
+
+def _scope_subject(scope: str, portfolio_id: uuid.UUID | None) -> str:
+    """The status-line subject of an autonomy change: the portfolio it hit, else scope.
+
+    Naming the portfolio matters because the Decisions queue is fund-wide, so the
+    portfolio a freeze lands on need not be the one the header is focused on.
+    """
+    if scope == "portfolio" and portfolio_id is not None:
+        return f"portfolio {portfolio_id}"
+    return scope
 
 
 def _portfolio_of(session: Session, run_id: uuid.UUID) -> uuid.UUID | None:
@@ -673,7 +974,9 @@ def _replayed_action(session: Session, idempotency_key: str) -> ActionResult | N
     keyed action (a double-submitted approve, a retried drive) neither re-invokes
     ``resume_run`` / the profiler / the rebalance nor creates an orphan run — it replays
     the first audit row's outcome. The row carries no stored ``detail``, so a replay's
-    :attr:`ActionResult.detail` is ``None``.
+    :attr:`ActionResult.detail` is ``None``. This read only sees committed rows; the
+    resume-style actions additionally claim the key by writing their audit row before
+    any side effect, so a submit racing an in-flight one is stopped by the unique key.
     """
     from fund.audit.human_audit_repository import HumanAuditLogRepository
 
@@ -707,8 +1010,8 @@ def _append_audit(
 ) -> HumanAuditLog:
     """Append one ``human_audit_log`` row and return it.
 
-    Imports the repo from its submodule (never the ``fund.audit`` root, which pulls
-    the langgraph persistence bootstrap).
+    Imports the repo from its submodule, keeping ``fund.actions`` free of the
+    ``fund.audit`` package at import time.
     """
     from fund.audit.human_audit_repository import HumanAuditLogRepository
 
@@ -726,6 +1029,39 @@ def _append_audit(
         idempotency_key=idempotency_key,
         rationale=rationale,
     )
+
+
+def _check_benchmark(session: Session, mandate: Any) -> tuple[Any, list[str]]:
+    """Canonicalise the mandate's benchmark to the stored ticker, or warn about it.
+
+    A benchmark that names no instrument with price history is saved anyway (the
+    adviser may be about to add it), but every NAV point would then carry no
+    benchmark, so the caller reports the warning instead of staying silent.
+
+    Returns:
+        The mandate (with the benchmark's case fixed when it differs from the stored
+        ticker) and the warnings to surface.
+    """
+    benchmark = mandate.benchmark
+    if not benchmark:
+        return mandate, []
+    from fund.performance import resolve_benchmark
+
+    resolved = resolve_benchmark(session, benchmark)
+    if resolved is None:
+        warning = (
+            f"benchmark {benchmark!r} matches no instrument with price history, "
+            "so NAV points will carry no benchmark"
+        )
+        logger.warning("actions: %s", warning)
+        return mandate, [warning]
+    if resolved != benchmark:
+        mandate = mandate.model_copy(update={"benchmark": resolved})
+    return mandate, []
+
+
+def _with_warnings(message: str, warnings: list[str]) -> str:
+    return "; ".join([message, *(f"warning: {w}" for w in warnings)])
 
 
 def _apply_mandate_edit(
@@ -749,8 +1085,9 @@ def _apply_mandate_edit(
         raise ValueError("'mandate_edit' requires a mandate")
     from fund.audit.mandate_repository import MandateRepository
 
-    MandateRepository(session).upsert(mandate)
-    pid = portfolio_id if portfolio_id is not None else uuid.UUID(mandate.portfolio_id)
+    checked, warnings = _check_benchmark(session, mandate)
+    MandateRepository(session).upsert(checked)
+    pid = portfolio_id if portfolio_id is not None else uuid.UUID(checked.portfolio_id)
     row = _append_audit(
         session,
         action="mandate_edit",
@@ -759,7 +1096,7 @@ def _apply_mandate_edit(
         actor=actor,
         target="run_policy",
         prev_value=prev_value,
-        new_value=mandate.model_dump(mode="json"),
+        new_value=checked.model_dump(mode="json"),
         source=source,
         override_flag=False,
         suitability_flag=False,
@@ -771,7 +1108,8 @@ def _apply_mandate_edit(
         run_id=None,
         portfolio_id=pid,
         audit_id=row.id,
-        message=f"mandate updated for {pid}",
+        message=_with_warnings(f"mandate updated for {pid}", warnings),
+        detail={"warnings": warnings} if warnings else None,
     )
 
 
@@ -841,8 +1179,9 @@ def _apply_new_portfolio(
         raise ValueError("'new_portfolio' requires a mandate")
     from fund.audit.mandate_repository import MandateRepository
 
-    MandateRepository(session).upsert(mandate)
-    pid = portfolio_id if portfolio_id is not None else uuid.UUID(mandate.portfolio_id)
+    checked, warnings = _check_benchmark(session, mandate)
+    MandateRepository(session).upsert(checked)
+    pid = portfolio_id if portfolio_id is not None else uuid.UUID(checked.portfolio_id)
     row = _append_audit(
         session,
         action="new_portfolio",
@@ -850,7 +1189,7 @@ def _apply_new_portfolio(
         portfolio_id=pid,
         actor=actor,
         target="portfolio",
-        new_value=mandate.model_dump(mode="json"),
+        new_value=checked.model_dump(mode="json"),
         source=source,
         override_flag=False,
         suitability_flag=False,
@@ -862,7 +1201,8 @@ def _apply_new_portfolio(
         run_id=None,
         portfolio_id=pid,
         audit_id=row.id,
-        message=f"portfolio {pid} created",
+        message=_with_warnings(f"portfolio {pid} created", warnings),
+        detail={"warnings": warnings} if warnings else None,
     )
 
 
@@ -872,6 +1212,7 @@ def _apply_profile(
     portfolio_id: uuid.UUID | None,
     questionnaire: Any | None,
     model: Any | None,
+    fallback: Any | None,
     checkpointer: Any | None,
     store: Any | None,
     base_currency: str | None,
@@ -889,22 +1230,64 @@ def _apply_profile(
     ``SuitabilityAssessment``, and pauses at the always-confirm gate — approving it
     later (through ``apply_action("approve", ...)``) persists the profile and caches
     the active set. The agent stack is imported here, never at module scope.
+
+    A hard suitability breach (ESG exclusions covering every sector) does not raise:
+    the blocked run is audited and returned as an :class:`ActionResult` whose
+    ``detail`` is ``{"blocked": True, "reason": ...}``.
+
+    Raises:
+        ValueError: ``portfolio_id`` is missing.
+        RuntimeError: The profiler ended without pausing at the gate, so there is
+            nothing to approve (the run is finalised ``incomplete``).
     """
     if portfolio_id is None:
         raise ValueError("'profile' requires a portfolio_id")
-    from fund.agents.profiler import run_profiler
+    from fund.agents.profiler import SuitabilityBreachError, run_profiler
 
-    run = run_profiler(
-        model,
-        questionnaire,
-        portfolio_id=portfolio_id,
-        session=session,
-        checkpointer=checkpointer,
-        store=store,
-        base_currency=base_currency,
-        asof=asof,
-        config=config,
-    )
+    try:
+        run = run_profiler(
+            model,
+            questionnaire,
+            portfolio_id=portfolio_id,
+            session=session,
+            checkpointer=checkpointer,
+            store=store,
+            base_currency=base_currency,
+            asof=asof,
+            fallback=fallback,
+            config=config,
+        )
+    except SuitabilityBreachError as exc:
+        # A hard breach is a terminal business outcome, not a failure: returning (not
+        # raising) lets the caller commit the blocked run and this audit row, which
+        # an exception would roll back with the rest of the transaction.
+        row = _append_audit(
+            session,
+            action="profile",
+            run_id=exc.run_id,
+            portfolio_id=portfolio_id,
+            actor=actor,
+            target="mifid_profile",
+            new_value={"outcome": "blocked", "reason": str(exc)},
+            source=source,
+            override_flag=False,
+            suitability_flag=True,
+            idempotency_key=idempotency_key,
+            rationale=rationale,
+        )
+        return ActionResult(
+            action="profile",
+            run_id=exc.run_id,
+            portfolio_id=portfolio_id,
+            audit_id=row.id,
+            message=f"profile blocked by a suitability breach: {exc}",
+            detail={"blocked": True, "reason": str(exc)},
+        )
+    if run.interrupt is None:
+        raise RuntimeError(
+            f"profiler run {run.run_id} ended without reaching the approval gate; "
+            "no profile was saved and there is nothing to approve"
+        )
     row = _append_audit(
         session,
         action="profile",
@@ -927,12 +1310,57 @@ def _apply_profile(
     )
 
 
+def append_run_audit(
+    session: Session,
+    *,
+    run_id: uuid.UUID,
+    portfolio_id: uuid.UUID | None,
+    actor: str = "human",
+    source: str | None = None,
+    idempotency_key: str | None = None,
+    rationale: str | None = None,
+) -> HumanAuditLog:
+    """Append the ``human_audit_log`` ``run`` row for a rebalance a human launched.
+
+    The blocking ``run`` action and the live-streamed round (which drives
+    ``stream_fund`` itself so it can push each step to the timeline) both record the
+    request through this one row shape, so the Audit view shows who triggered a round
+    whichever launchpad they used. No commit (the caller owns the transaction).
+
+    Args:
+        session: The round's session; the row joins its transaction.
+        run_id: The run the round opened.
+        portfolio_id: The portfolio the round rebalanced.
+        actor: Who launched the round.
+        source: Provenance tag recorded with the row.
+        idempotency_key: Dedup key; a repeat returns the first row.
+        rationale: Free-text reason recorded with the action.
+
+    Returns:
+        The flushed audit row.
+    """
+    return _append_audit(
+        session,
+        action="run",
+        run_id=run_id,
+        portfolio_id=portfolio_id,
+        actor=actor,
+        target="rebalance",
+        source=source,
+        override_flag=False,
+        suitability_flag=False,
+        idempotency_key=idempotency_key,
+        rationale=rationale,
+    )
+
+
 def _apply_run(
     *,
     session: Session,
     portfolio_id: uuid.UUID | None,
     mandate: Any | None,
     model: Any | None,
+    fallback: Any | None,
     checkpointer: Any | None,
     store: Any | None,
     asof: dt.date | None,
@@ -947,43 +1375,55 @@ def _apply_run(
     Invocation-only over ``run_fund`` (no API change): it resolves the portfolio's
     active ``ConstraintSet`` from the Store (a missing one raises ``RuntimeError`` —
     the portfolio must be profiled first), runs the PM pipeline, and pauses at the
-    HITL gate for approval. The agent stack is imported here, never at module scope.
+    HITL gate for approval. A pipeline that ends before the gate finalises
+    ``incomplete``; the returned ``detail["status"]`` tells the two apart. The agent
+    stack is imported here, never at module scope.
     """
     if portfolio_id is None:
         raise ValueError("'run' requires a portfolio_id")
     if mandate is None:
         raise ValueError("'run' requires a mandate")
+    from fund import observe
     from fund.agents.graph import run_fund
 
     run = run_fund(
         model,
         mandate,
         portfolio_id=portfolio_id,
-        asof=asof if asof is not None else dt.date.today(),
+        asof=asof if asof is not None else observe.default_decision_bar(session),
         session=session,
         checkpointer=checkpointer,
         store=store,
+        fallback=fallback,
         config=config,
     )
-    row = _append_audit(
+    # ``run_fund`` itself rejects a round whose scope froze before the gate opened; a
+    # freeze that lands after it returned a paused run is caught by the second check.
+    halted = run.status == "rejected" or (
+        run.status == "paused" and halt_run_if_frozen(session, run.run_id, portfolio_id)
+    )
+    row = append_run_audit(
         session,
-        action="run",
         run_id=run.run_id,
         portfolio_id=portfolio_id,
         actor=actor,
-        target="rebalance",
         source=source,
-        override_flag=False,
-        suitability_flag=False,
         idempotency_key=idempotency_key,
         rationale=rationale,
     )
+    outcome = "awaiting approval" if run.status == "paused" else "no ticket to approve"
+    status = "rejected" if halted else run.status
     return ActionResult(
         action="run",
         run_id=run.run_id,
         portfolio_id=portfolio_id,
         audit_id=row.id,
-        message=f"run {run.run_id} {run.status} (awaiting approval)",
+        message=(
+            f"run {run.run_id} rejected: autonomy was frozen while it ran"
+            if halted
+            else f"run {run.run_id} {run.status} ({outcome})"
+        ),
+        detail={"status": status},
     )
 
 
@@ -1018,4 +1458,12 @@ def is_within_suitability_band(proposed_band: str, suitability_band: str) -> boo
     )
 
 
-__all__ = ["ActionResult", "apply_action", "is_within_suitability_band"]
+__all__ = [
+    "MODEL_FREE_ACTIONS",
+    "ActionResult",
+    "append_run_audit",
+    "apply_action",
+    "halt_run_if_frozen",
+    "is_within_suitability_band",
+    "resume_message",
+]

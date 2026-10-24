@@ -17,6 +17,8 @@ directly (no compiled graph, no model), asserting:
   completed run's weights, else the latest allocator proposal) with the right drift,
   and ``metrics`` stay best-effort (never fabricated);
 * ``get_mandate`` rehydrates the pydantic ``PortfolioMandate`` from the JSON column;
+* ``default_decision_bar`` picks the day before the bar the universe has reached, so
+  the next close ``place_orders`` fills at is already stored;
 * ``import fund.observe`` drags in no ``deepagents`` / ``langchain`` / ``langgraph``.
 """
 
@@ -33,17 +35,20 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.checkpoint.base import empty_checkpoint
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Interrupt
-from portopt_db.models import AgentRun
+from portopt_db.models import AgentRun, Exchange, Instrument, PriceHistory
 from portopt_db.repositories.market_data.market_journal_repository import (
     MarketJournalRepository,
 )
 from portopt_db.repositories.orders.portfolio_journal_repository import (
     PortfolioJournalRepository,
 )
+from sqlalchemy import event
 
 from fund import observe
 from fund.audit.mandate_repository import MandateRepository
@@ -138,6 +143,81 @@ def _seed_thread(
         saver.put_writes(saved, writes, "task-1")
 
 
+class _DelegatingModel(BaseChatModel):
+    """Scripted chat model: the PM delegates once to ``economist``, then finishes.
+
+    The economist subagent (recognised by its system prompt) answers with
+    ``narrative``. No network, no tools beyond deepagents' built-in ``task``.
+    """
+
+    narrative: str = "economist read"
+    subagent: str = "economist"
+
+    @property
+    def _llm_type(self) -> str:
+        return "scripted-delegating"
+
+    def bind_tools(self, tools: Any, **_: Any) -> _DelegatingModel:
+        return self
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        system = next(
+            (str(m.content) for m in messages if isinstance(m, SystemMessage)), ""
+        )
+        if "SUBAGENT-PROMPT" in system:
+            reply = AIMessage(content=self.narrative)
+        elif any(isinstance(m, ToolMessage) for m in messages):
+            reply = AIMessage(content="allocation done")
+        else:
+            reply = AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "task",
+                        "args": {
+                            "description": "Run the analysis.",
+                            "subagent_type": self.subagent,
+                        },
+                        "id": "call_delegate",
+                    }
+                ],
+            )
+        return ChatResult(generations=[ChatGeneration(message=reply)])
+
+
+def _run_real_deep_agent(
+    saver: MemorySaver,
+    thread_id: str,
+    *,
+    narrative: str = "economist read",
+    subagent: str = "economist",
+) -> None:
+    """Drive a real ``create_deep_agent`` graph so the checkpoint has production shape.
+
+    deepagents keeps ``messages`` in a ``DeltaChannel``: the saver stores only
+    per-step writes (no ``channel_values['messages']``), and a subagent's report
+    reaches the PM thread as ``ToolMessage(name='task')``. Hand-built checkpoints
+    cannot reproduce either, so the read-model tests that matter run against this.
+    """
+    from deepagents import create_deep_agent
+
+    agent = create_deep_agent(
+        model=_DelegatingModel(narrative=narrative, subagent=subagent),
+        subagents=[
+            {
+                "name": subagent,
+                "description": f"The fund's {subagent}.",
+                "system_prompt": "SUBAGENT-PROMPT",
+            }
+        ],
+        checkpointer=saver,
+    )
+    agent.invoke(
+        {"messages": [HumanMessage(content="Produce an allocation.")]},
+        {"configurable": {"thread_id": thread_id}},
+    )
+
+
 def _mandate(portfolio_id: str) -> PortfolioMandate:
     return PortfolioMandate(
         portfolio_id=portfolio_id,
@@ -170,6 +250,27 @@ def test_drift_l1_handles_empty_sides():
     assert observe.drift_l1({"AAA": 0.3}, {}) == 0.3
 
 
+def _capture_sql(session: Any):
+    """Context manager collecting every SQL statement the session's connection runs."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _cm():
+        statements: list[str] = []
+
+        def _record(conn, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+
+        bind = session.get_bind()
+        event.listen(bind, "before_cursor_execute", _record)
+        try:
+            yield statements
+        finally:
+            event.remove(bind, "before_cursor_execute", _record)
+
+    return _cm()
+
+
 # --- list_portfolio_runs ----------------------------------------------------
 
 
@@ -199,6 +300,71 @@ def test_list_portfolio_runs_newest_first_with_awaiting_hitl(db_session):
     assert completed.awaiting_hitl is False
     assert completed.n_weights == 1
     assert completed.finished_at == older.finished_at
+
+
+def test_list_portfolio_runs_does_not_load_agent_decisions(db_session):
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 1, 10, tzinfo=UTC),
+    )
+    AgentRunRepository(db_session).append_decision(
+        run.id, agent="allocator", step="optimize_portfolio", llm_response="{}"
+    )
+    db_session.expunge_all()
+
+    with _capture_sql(db_session) as statements:
+        summaries = observe.list_portfolio_runs(db_session, _PID)
+
+    assert len(summaries) == 1
+    assert not [s for s in statements if "agent_decisions" in s]
+
+
+def test_list_portfolio_runs_limit_keeps_only_the_newest(db_session):
+    _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        created_at=datetime(2026, 1, 10, tzinfo=UTC),
+    )
+    newest = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+
+    summaries = observe.list_portfolio_runs(db_session, _PID, limit=1)
+
+    assert [s.run_id for s in summaries] == [newest.id]
+
+
+def test_list_portfolio_runs_flags_responded_run_as_awaiting_hitl(db_session):
+    # A barge-in ``respond`` that re-gated the PM leaves the run "responded": it is
+    # still in the Approve queue (``list_paused_runs``), so the history flag agrees.
+    responded = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="responded",
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="rejected",
+        created_at=datetime(2026, 1, 10, tzinfo=UTC),
+    )
+
+    summaries = observe.list_portfolio_runs(db_session, _PID)
+
+    by_id = {s.run_id: s for s in summaries}
+    assert by_id[responded.id].awaiting_hitl is True
+    assert [r.id for r in AgentRunRepository(db_session).list_paused_runs(_PID)] == [
+        responded.id
+    ]
+    assert [s.awaiting_hitl for s in summaries] == [True, False]
 
 
 def test_list_portfolio_runs_empty_for_unknown_portfolio(db_session):
@@ -400,6 +566,90 @@ def test_load_run_transcript_interleaves_messages_and_decisions_in_order(db_sess
     assert order.payload == {"hitl_decision": {"decision": "pending"}}
 
 
+def test_load_run_transcript_anchors_each_redelegation_to_its_own_message(db_session):
+    # Risk rejects, the PM re-delegates to the allocator: the second proposal must
+    # follow the rejection that caused it, not pile up at the first delegation.
+    saver = MemorySaver()
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="thread-redelegate",
+    )
+    audit = AgentRunRepository(db_session)
+    for weights in ({"AAA": 0.9, "BBB": 0.1}, {"AAA": 0.6, "BBB": 0.4}):
+        audit.append_decision(
+            run.id,
+            agent="allocator",
+            step="optimize_portfolio",
+            llm_response=json.dumps({"weights": weights}),
+        )
+    db_session.expire(run, ["decisions"])
+    _seed_thread(
+        saver,
+        "thread-redelegate",
+        [
+            HumanMessage(content="Produce an allocation."),
+            _task_msg("allocator"),
+            ToolMessage(content="proposal 1", tool_call_id="call_allocator"),
+            _task_msg("risk"),
+            ToolMessage(content="REJECT: concentration", tool_call_id="call_risk"),
+            _task_msg("allocator"),
+            ToolMessage(content="proposal 2", tool_call_id="call_allocator"),
+            _task_msg("risk"),
+            ToolMessage(content="PASS", tool_call_id="call_risk"),
+        ],
+    )
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    assert [(e.source, e.index) for e in entries] == [
+        ("message", 0),  # human
+        ("message", 1),  # task(allocator) #1
+        ("decision", 0),
+        ("message", 2),  # proposal 1
+        ("message", 3),  # task(risk) #1
+        ("message", 4),  # REJECT
+        ("message", 5),  # task(allocator) #2
+        ("decision", 1),
+        ("message", 6),  # proposal 2
+        ("message", 7),  # task(risk) #2
+        ("message", 8),  # PASS
+    ]
+
+
+def test_load_run_transcript_keeps_all_rows_of_a_single_delegation_together(
+    db_session,
+):
+    saver = MemorySaver()
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="thread-multi-row",
+    )
+    audit = AgentRunRepository(db_session)
+    for _ in range(2):
+        audit.append_decision(run.id, agent="allocator", step="optimize_portfolio")
+    db_session.expire(run, ["decisions"])
+    _seed_thread(
+        saver,
+        "thread-multi-row",
+        [_task_msg("allocator"), _task_msg("risk")],
+    )
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    assert [(e.source, e.index) for e in entries] == [
+        ("message", 0),
+        ("decision", 0),
+        ("decision", 1),
+        ("message", 1),
+    ]
+
+
 def test_load_run_transcript_trails_unanchored_decisions(db_session):
     saver = MemorySaver()
     run = _make_run(
@@ -434,6 +684,182 @@ def test_load_run_transcript_empty_when_thread_absent(db_session):
         thread_id="ghost",
     )
     assert observe.load_run_transcript(db_session, saver, run) == []
+
+
+def test_load_run_transcript_reads_messages_from_a_real_deep_agent_checkpoint(
+    db_session,
+):
+    saver = MemorySaver()
+    _run_real_deep_agent(saver, "real-thread", narrative="risk-on tilt")
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="real-thread",
+    )
+    db_session.expire(run, ["decisions"])
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    texts = [e.text for e in entries if e.source == "message"]
+    assert texts == [
+        "Produce an allocation.",
+        "",  # the PM's task delegation
+        "risk-on tilt",  # the subagent report
+        "allocation done",
+    ]
+
+
+def test_load_run_transcript_unwraps_a_delta_snapshot_at_the_target_checkpoint(
+    db_session,
+):
+    from langgraph.checkpoint.serde.types import _DeltaSnapshot
+
+    saver = MemorySaver()
+    config = {"configurable": {"thread_id": "snap-thread", "checkpoint_ns": ""}}
+    checkpoint = empty_checkpoint()
+    checkpoint["channel_values"]["messages"] = _DeltaSnapshot(
+        [HumanMessage(content="first"), AIMessage(content="second")]
+    )
+    checkpoint["channel_versions"]["messages"] = _CHANNEL_VERSION
+    saver.put(
+        config,
+        checkpoint,
+        {"source": "loop", "step": 1},
+        {"messages": _CHANNEL_VERSION},
+    )
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="snap-thread",
+    )
+    db_session.expire(run, ["decisions"])
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    assert [(e.agent, e.text) for e in entries] == [
+        ("human", "first"),
+        ("ai", "second"),
+    ]
+
+
+def test_load_run_transcript_folds_writes_onto_the_nearest_delta_snapshot(db_session):
+    from langgraph.checkpoint.serde.types import _DeltaSnapshot
+
+    saver = MemorySaver()
+    config = {"configurable": {"thread_id": "chain-thread", "checkpoint_ns": ""}}
+    first = empty_checkpoint()
+    first["channel_values"]["messages"] = _DeltaSnapshot(
+        [HumanMessage(content="first", id="m1")]
+    )
+    first["channel_versions"]["messages"] = _CHANNEL_VERSION
+    saved = saver.put(
+        config,
+        first,
+        {"source": "loop", "step": 1},
+        {"messages": _CHANNEL_VERSION},
+    )
+    # The step run from checkpoint 1 wrote an AI turn; checkpoint 2 omits the channel,
+    # exactly as langgraph stores a DeltaChannel between snapshots.
+    saver.put_writes(saved, [("messages", [AIMessage(content="second", id="m2")])], "t")
+    second = empty_checkpoint()
+    second["channel_versions"]["messages"] = "00000000000000000000000000000002.0.1"
+    saver.put(
+        saved,
+        second,
+        {"source": "loop", "step": 2},
+        {"messages": "00000000000000000000000000000002.0.1"},
+    )
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="chain-thread",
+    )
+    db_session.expire(run, ["decisions"])
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    assert [(e.agent, e.text) for e in entries] == [
+        ("human", "first"),
+        ("ai", "second"),
+    ]
+
+
+@pytest.mark.parametrize("subagent", ["economist", "allocator", "risk"])
+def test_load_run_transcript_attributes_a_task_report_to_its_subagent(
+    db_session, subagent
+):
+    # Production never names the subagent's report: it reaches the PM thread as a
+    # ToolMessage(name='task'), tied to its delegation only by ``tool_call_id``.
+    saver = MemorySaver()
+    _run_real_deep_agent(
+        saver, f"attr-{subagent}", narrative="the report", subagent=subagent
+    )
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id=f"attr-{subagent}",
+    )
+    db_session.expire(run, ["decisions"])
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    reports = [e for e in entries if e.text == "the report"]
+    assert [e.agent for e in reports] == [subagent]
+
+
+def test_load_run_transcript_keeps_the_tool_name_for_a_non_task_tool_message(
+    db_session,
+):
+    saver = MemorySaver()
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="attr-other-tool",
+    )
+    db_session.expire(run, ["decisions"])
+    _seed_thread(
+        saver,
+        "attr-other-tool",
+        [
+            _task_msg("economist"),
+            ToolMessage(content="ordered", name="place_orders", tool_call_id="x"),
+            ToolMessage(content="orphan", name="task", tool_call_id="unknown"),
+        ],
+    )
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    # An unmatched task result keeps the tool name rather than guessing a subagent.
+    assert [e.agent for e in entries] == ["ai", "place_orders", "task"]
+
+
+def test_daily_brief_reads_the_economist_from_a_real_deep_agent_run(db_session):
+    saver = MemorySaver()
+    _run_real_deep_agent(saver, "brief-real", narrative="risk-on, tilt to tech")
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 1, 30, tzinfo=UTC),
+        thread_id="brief-real",
+    )
+
+    brief = observe.daily_brief(db_session, saver, _PID, asof=date(2026, 2, 2))
+
+    assert brief.economist_read == "risk-on, tilt to tech"
+    assert brief.economist_read_date == _ASOF
+    assert brief.deliberation_run_id == run.id
 
 
 # --- portfolio_state --------------------------------------------------------
@@ -486,6 +912,266 @@ def test_portfolio_state_target_falls_back_to_latest_allocator_proposal(db_sessi
     assert state.drift_l1 == pytest.approx(0.6)
 
 
+@pytest.mark.parametrize("status", ["rejected", "incomplete", "blocked", "failed"])
+def test_portfolio_state_ignores_proposal_of_a_run_that_ended_without_approval(
+    db_session, status
+):
+    # A run that ended rejected/incomplete/blocked/failed leaves its allocator
+    # proposal in the audit trail, but that proposal was never adopted: with nothing
+    # held, adopting it as the target reads as drift 1.0 and re-triggers a rebalance.
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status=status,
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    AgentRunRepository(db_session).append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"AAA": 0.6, "BBB": 0.4}}),
+    )
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.current == {}
+    assert state.target == {}
+    assert state.drift_l1 == 0.0
+
+
+def test_portfolio_state_target_fallback_keeps_a_responded_runs_proposal(db_session):
+    # ``responded`` is a live HITL gate like ``paused`` (a barge-in that re-gated), so
+    # its pending proposal is still the target the adviser is looking at.
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="responded",
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    AgentRunRepository(db_session).append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"AAA": 0.5, "BBB": 0.5}}),
+    )
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.target == {"AAA": 0.5, "BBB": 0.5}
+
+
+def test_portfolio_state_proposal_fallback_skips_ended_runs_for_a_live_gate(
+    db_session,
+):
+    # A newer rejected run must not shadow an older run still awaiting a decision.
+    live = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 1, 10, tzinfo=UTC),
+    )
+    ended = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="rejected",
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    audit = AgentRunRepository(db_session)
+    audit.append_decision(
+        live.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"LIVE": 1.0}}),
+    )
+    audit.append_decision(
+        ended.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"DECLINED": 1.0}}),
+    )
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.target == {"LIVE": 1.0}
+
+
+def _seed_eur_book(
+    db_session,
+    *,
+    aaa_close_now: float,
+    bbb_close_now: float,
+    pre_fill_days: int = 0,
+) -> None:
+    """An approved 60/40 EUR book filled at 100/100, re-priced to the given closes.
+
+    ``pre_fill_days`` adds that many daily bars (at 90) before the fill, the listing
+    history a real instrument carries long before the book was built.
+    """
+    from portopt_db.models.market_data.yfinance_data import PriceHistory
+    from portopt_db.models.orders.paper_order import PaperOrder
+    from portopt_db.models.universe.universe import Exchange, Instrument
+
+    fill_day, now_day = date(2026, 1, 5), date(2026, 1, 29)
+    exchange = Exchange(name="X")
+    db_session.add(exchange)
+    db_session.flush()
+    for ticker, close_now in (("AAA", aaa_close_now), ("BBB", bbb_close_now)):
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=exchange, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        db_session.add_all(
+            [
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=fill_day,
+                    close=Decimal("100"),
+                    price_unit="EUR",
+                ),
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=now_day,
+                    close=Decimal(str(close_now)),
+                    price_unit="EUR",
+                ),
+            ]
+        )
+        db_session.add_all(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=fill_day - timedelta(days=offset),
+                close=Decimal("90"),
+                price_unit="EUR",
+            )
+            for offset in range(1, pre_fill_days + 1)
+        )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=date(2026, 1, 4),
+            weights_hash="h1",
+            weights={"AAA": 0.6, "BBB": 0.4},
+            fill_date=fill_day,
+            lines=[
+                {"ticker": "AAA", "notional": 6000.0, "fill_price": 100.0},
+                {"ticker": "BBB", "notional": 4000.0, "fill_price": 100.0},
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    PositionRepository(db_session).set_holdings(
+        _PID,
+        [{"ticker": "AAA", "weight": 0.6}, {"ticker": "BBB", "weight": 0.4}],
+        asof=_ASOF,
+    )
+    _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 0.6, "BBB": 0.4},
+        created_at=datetime(2026, 1, 4, tzinfo=UTC),
+    )
+    db_session.flush()
+
+
+def test_portfolio_state_current_is_marked_to_market_so_a_rally_shows_as_drift(
+    db_session,
+):
+    _seed_eur_book(db_session, aaa_close_now=130.0, bbb_close_now=100.0)
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    # 60 sh x 130 = 7800 vs 40 sh x 100 = 4000 -> 66.1% / 33.9% against a 60/40 target.
+    assert state.current["AAA"] == pytest.approx(7800 / 11800)
+    assert state.current["BBB"] == pytest.approx(4000 / 11800)
+    assert state.drift_l1 == pytest.approx(2 * (7800 / 11800 - 0.6))
+    assert state.drift_l1 > 0.1
+
+
+def test_portfolio_state_marks_from_the_bars_since_the_fill_not_the_full_history(
+    db_session, monkeypatch
+):
+    """The TUI polls ``portfolio_state`` on its event loop, so it must stay bounded."""
+    from portopt_db.repositories.market_data.yfinance_repository import (
+        YFinanceRepository,
+    )
+
+    _seed_eur_book(
+        db_session, aaa_close_now=130.0, bbb_close_now=100.0, pre_fill_days=400
+    )
+    rows_read: list[int] = []
+    original = YFinanceRepository.get_price_history
+
+    def spy(self, *args, **kwargs):
+        rows = original(self, *args, **kwargs)
+        rows_read.append(len(rows))
+        return rows
+
+    monkeypatch.setattr(YFinanceRepository, "get_price_history", spy)
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.current["AAA"] == pytest.approx(7800 / 11800)
+    assert state.drift_l1 > 0.1
+    # 2 tickers x 400 pre-fill bars is 800+ rows when the whole history is loaded.
+    assert sum(rows_read) < 150
+
+
+def test_portfolio_state_without_a_priced_book_keeps_the_positions_snapshot(
+    db_session,
+):
+    PositionRepository(db_session).set_holdings(
+        _PID, [{"ticker": "AAA", "weight": 1.0}], asof=_ASOF
+    )
+    _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.current == {"AAA": 1.0}
+    assert state.drift_l1 == pytest.approx(0.0)
+
+
+def test_portfolio_state_marks_a_proposal_nobody_approved_as_unapproved(db_session):
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    AgentRunRepository(db_session).append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"AAA": 0.6, "BBB": 0.4}}),
+    )
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.target == {"AAA": 0.6, "BBB": 0.4}  # still shown for display
+    assert state.target_approved is False
+
+
+def test_portfolio_state_marks_a_completed_runs_weights_as_approved(db_session):
+    _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+
+    assert observe.portfolio_state(db_session, _PID).target_approved is True
+
+
 def test_portfolio_state_reads_best_effort_metrics_when_present(db_session):
     run = _make_run(
         db_session,
@@ -508,12 +1194,401 @@ def test_portfolio_state_reads_best_effort_metrics_when_present(db_session):
     assert state.metrics == {"sharpe": 1.2, "vol": 0.18}
 
 
+def _portfolio_state_statement_count(db_session, n_runs: int) -> int:
+    """SQL statements ``portfolio_state`` issues over ``n_runs`` proposal-less runs."""
+    pid = uuid.uuid4()
+    for i in range(n_runs):
+        run = _make_run(
+            db_session,
+            portfolio_id=pid,
+            status="paused",
+            created_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(days=i),
+        )
+        AgentRunRepository(db_session).append_decision(
+            run.id, agent="pm", step="note", llm_response="x"
+        )
+    db_session.expunge_all()
+
+    with _capture_sql(db_session) as statements:
+        observe.portfolio_state(db_session, pid)
+    return len(statements)
+
+
+def test_portfolio_state_query_count_does_not_grow_with_run_history(db_session):
+    few = _portfolio_state_statement_count(db_session, 3)
+    many = _portfolio_state_statement_count(db_session, 12)
+
+    assert many == few
+
+
+def _append_proposal(db_session, run, weights, metrics=None) -> None:
+    body: dict[str, Any] = {"weights": weights}
+    if metrics is not None:
+        body["metrics"] = metrics
+    AgentRunRepository(db_session).append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps(body),
+    )
+
+
+def test_portfolio_state_metrics_come_from_the_run_that_supplied_the_target(
+    db_session,
+):
+    completed = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    _append_proposal(db_session, completed, {"AAA": 1.0}, {"sharpe": 1.0})
+    pending = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 2, 11, tzinfo=UTC),
+    )
+    _append_proposal(db_session, pending, {"BBB": 1.0}, {"sharpe": 9.9})
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.target == {"AAA": 1.0}
+    assert state.metrics == {"sharpe": 1.0}
+
+
+def test_portfolio_state_metrics_empty_when_the_target_run_persisted_none(
+    db_session,
+):
+    completed = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    _append_proposal(db_session, completed, {"AAA": 1.0})
+    pending = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 2, 11, tzinfo=UTC),
+    )
+    _append_proposal(db_session, pending, {"BBB": 1.0}, {"sharpe": 9.9})
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.metrics == {}
+
+
+def test_portfolio_state_metrics_follow_a_pending_proposal_that_is_the_target(
+    db_session,
+):
+    pending = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 2, 11, tzinfo=UTC),
+    )
+    _append_proposal(db_session, pending, {"BBB": 1.0}, {"sharpe": 2.5})
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.target == {"BBB": 1.0}
+    assert state.metrics == {"sharpe": 2.5}
+
+
+def test_run_metrics_reads_the_requested_runs_proposal_not_the_newest_run(
+    db_session,
+):
+    older = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    _append_proposal(db_session, older, {"AAA": 1.0}, {"sharpe": 1.0})
+    newer = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 2, 11, tzinfo=UTC),
+    )
+    _append_proposal(db_session, newer, {"BBB": 1.0}, {"sharpe": 9.9})
+
+    assert observe.run_metrics(older) == {"sharpe": 1.0}
+    assert observe.run_metrics(newer) == {"sharpe": 9.9}
+
+
+def test_run_metrics_empty_when_the_run_has_no_allocator_proposal(db_session):
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+
+    assert observe.run_metrics(run) == {}
+
+
 def test_portfolio_state_empty_portfolio(db_session):
     state = observe.portfolio_state(db_session, uuid.uuid4())
     assert state.current == {}
     assert state.target == {}
     assert state.drift_l1 == 0.0
     assert state.metrics == {}
+
+
+def _seed_marked_book(
+    db_session,
+    *,
+    last_aaa: str,
+    fx_rate: float | None = 1.0,
+    weight: float = 0.5,
+    stale_rows: int = 0,
+):
+    """Seed an approved AAA/BBB book (positions == run target) + its prices.
+
+    Both lines hold ``weight`` of a 10 000 book and fill at 100 on 10-02; on 10-03 AAA
+    closes at ``last_aaa`` and BBB is unchanged, so the market weights drift away from
+    the stored target snapshot. ``weight`` below 0.5 leaves a cash residual (a
+    ``Bounds.budget`` below 1). ``stale_rows`` adds that many closes per ticker (and
+    FX rows) a year *before* the fill, i.e. history the mark never needs.
+    """
+    from portopt_db.models.market_data.yfinance_data import PriceHistory
+    from portopt_db.models.orders.paper_order import PaperOrder
+    from portopt_db.models.universe.universe import Exchange, Instrument
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    d1, d2 = date(2026, 10, 2), date(2026, 10, 3)
+    stale_days = [d1 - timedelta(days=365 + i) for i in range(stale_rows)]
+    closes = {"AAA": ("100", last_aaa), "BBB": ("100", "100")}
+    for ticker, (first, last) in closes.items():
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        db_session.add_all(
+            [
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=d1,
+                    close=Decimal(first),
+                    price_unit="USD",
+                ),
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=d2,
+                    close=Decimal(last),
+                    price_unit="USD",
+                ),
+                *(
+                    PriceHistory(
+                        instrument_id=inst.id,
+                        date=d,
+                        close=Decimal("1"),
+                        price_unit="USD",
+                    )
+                    for d in stale_days
+                ),
+            ]
+        )
+    if fx_rate is not None:
+        FxRatesRepository(db_session).upsert_rates(
+            [
+                {
+                    "base_currency": "EUR",
+                    "quote_currency": "USD",
+                    "date": d,
+                    "rate": fx_rate,
+                }
+                for d in (d1, d2, *stale_days)
+            ]
+        )
+    weights = {"AAA": weight, "BBB": weight}
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=date(2026, 10, 1),
+            weights_hash="h1",
+            weights=weights,
+            fill_date=d1,
+            lines=[
+                {
+                    "ticker": t,
+                    "weight": weight,
+                    "notional": 10000.0 * weight,
+                    "fill_price": 100.0,
+                }
+                for t in weights
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    PositionRepository(db_session).set_holdings(
+        _PID,
+        [{"ticker": t, "weight": w} for t, w in weights.items()],
+        asof=d1,
+    )
+    _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights=weights,
+        created_at=datetime(2026, 10, 1, tzinfo=UTC),
+    )
+    db_session.flush()
+
+
+def test_portfolio_state_drift_reflects_market_moves_after_approval(db_session):
+    # After an approval the stored snapshot equals the target by construction, so
+    # drift must come from the marked book: AAA +40% -> 0.5833 / 0.4167 vs 0.5 / 0.5.
+    _seed_marked_book(db_session, last_aaa="140")
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.target == {"AAA": 0.5, "BBB": 0.5}
+    assert state.current["AAA"] == pytest.approx(7000 / 12000)
+    assert state.current["BBB"] == pytest.approx(5000 / 12000)
+    assert state.drift_l1 == pytest.approx(2 * (7000 / 12000 - 0.5))
+
+
+def test_portfolio_state_drift_is_zero_when_market_has_not_moved(db_session):
+    _seed_marked_book(db_session, last_aaa="100")
+
+    assert observe.portfolio_state(db_session, _PID).drift_l1 == pytest.approx(0.0)
+
+
+def test_portfolio_state_falls_back_to_snapshot_when_book_is_unpriceable(db_session):
+    # Foreign holdings with zero FX coverage cannot be marked; the stored snapshot is
+    # the honest fallback rather than a fabricated or crashing figure.
+    _seed_marked_book(db_session, last_aaa="140", fx_rate=None)
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.current == {"AAA": 0.5, "BBB": 0.5}
+    assert state.drift_l1 == pytest.approx(0.0)
+
+
+def test_portfolio_state_marks_only_the_window_since_the_ticket_fill(
+    db_session, monkeypatch
+):
+    # portfolio_state runs on the TUI's synchronous poll tick, so marking must not
+    # read each holding's whole price/FX history: a year of pre-fill rows exists, but
+    # only the fill-to-now window may be loaded.
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+    from portopt_db.repositories.market_data.yfinance_repository import (
+        YFinanceRepository,
+    )
+
+    _seed_marked_book(db_session, last_aaa="140", stale_rows=40)
+    price_reads: list[tuple[date | None, list[date]]] = []
+    fx_starts: list[date | None] = []
+    real_prices = YFinanceRepository.get_price_history
+    real_rates = FxRatesRepository.get_rates
+
+    def spy_prices(self, instrument_id, **kwargs):
+        rows = real_prices(self, instrument_id, **kwargs)
+        price_reads.append((kwargs.get("start_date"), [r.date for r in rows]))
+        return rows
+
+    def spy_rates(self, base, quotes=None, start=None, end=None):
+        fx_starts.append(start)
+        return real_rates(self, base, quotes, start, end)
+
+    monkeypatch.setattr(YFinanceRepository, "get_price_history", spy_prices)
+    monkeypatch.setattr(FxRatesRepository, "get_rates", spy_rates)
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.current["AAA"] == pytest.approx(7000 / 12000)
+    window_floor = date(2026, 9, 1)
+    assert price_reads
+    assert all(start is not None and start >= window_floor for start, _ in price_reads)
+    assert all(d >= window_floor for _, dates in price_reads for d in dates)
+    assert fx_starts
+    assert all(start is not None and start >= window_floor for start in fx_starts)
+
+
+def test_portfolio_state_survives_a_marking_failure(db_session, monkeypatch):
+    # The mark is best-effort: any failure inside it must degrade to the snapshot
+    # rather than abort portfolio_state (which would blind the attention bus).
+    _seed_marked_book(db_session, last_aaa="140")
+
+    def exploding_mark(*args, **kwargs):
+        raise RuntimeError("price feed exploded")
+
+    monkeypatch.setattr("fund.performance.marked_weights", exploding_mark)
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.current == {"AAA": 0.5, "BBB": 0.5}
+    assert state.drift_l1 == pytest.approx(0.0)
+
+
+def test_portfolio_state_rolls_a_failed_mark_back_to_its_own_savepoint(
+    db_session, monkeypatch
+):
+    # On Postgres a failed statement poisons the whole transaction; the mark must run
+    # in a SAVEPOINT so the snapshot fallback read can still use the session.
+    from sqlalchemy import event
+
+    _seed_marked_book(db_session, last_aaa="140")
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, *args):
+        statements.append(statement)
+
+    def exploding_mark(*args, **kwargs):
+        raise RuntimeError("price feed exploded")
+
+    monkeypatch.setattr("fund.performance.marked_weights", exploding_mark)
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", record)
+    try:
+        observe.portfolio_state(db_session, _PID)
+    finally:
+        event.remove(bind, "before_cursor_execute", record)
+
+    assert any("ROLLBACK TO SAVEPOINT" in statement for statement in statements)
+
+
+def test_portfolio_state_budget_below_one_has_no_phantom_drift(db_session):
+    # Bounds.budget < 1 leaves a cash residual, so the approved weights sum to 0.8.
+    # Marking against NAV *including* that cash keeps ``current`` on the target's
+    # basis; normalising by the invested total alone would read 0.5/0.5 vs 0.4/0.4
+    # and report a permanent L1 drift of 0.2 with no market move.
+    _seed_marked_book(db_session, last_aaa="100", weight=0.4)
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.target == {"AAA": 0.4, "BBB": 0.4}
+    assert state.current["AAA"] == pytest.approx(0.4)
+    assert state.current["BBB"] == pytest.approx(0.4)
+    assert state.drift_l1 == pytest.approx(0.0)
+
+
+def test_portfolio_state_budget_below_one_still_shows_market_drift(db_session):
+    # AAA +40%: lines 5600 / 4000 plus 2000 cash = 11600 NAV against a 0.4 / 0.4 target.
+    _seed_marked_book(db_session, last_aaa="140", weight=0.4)
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.current["AAA"] == pytest.approx(5600 / 11600)
+    assert state.current["BBB"] == pytest.approx(4000 / 11600)
+    assert state.drift_l1 == pytest.approx(1600 / 11600)
 
 
 # --- get_mandate (JSON → pydantic rehydration) ------------------------------
@@ -528,6 +1603,22 @@ def test_get_mandate_rehydrates_pydantic_from_json(db_session):
 
     assert isinstance(fetched, PortfolioMandate)
     assert fetched == mandate
+
+
+def test_get_mandate_clamps_a_legacy_over_bound_drift_threshold(db_session):
+    # A row saved before the schema capped the threshold at the L1 bound of 2 must
+    # keep loading (clamped) rather than raising on every read.
+    pid = uuid.uuid4()
+    row = MandateRepository(db_session).upsert(_mandate(str(pid)))
+    row.mandate = {**row.mandate, "drift_l1_threshold": 5.0}
+    row.drift_l1_threshold = 5.0
+    db_session.flush()
+
+    fetched = observe.get_mandate(db_session, pid)
+
+    assert fetched is not None
+    assert fetched.drift_l1_threshold == pytest.approx(2.0)
+    assert fetched.drift_l1_threshold < 2.0  # the schema's open bound
 
 
 def test_get_mandate_none_for_unknown_portfolio(db_session):
@@ -637,6 +1728,38 @@ def test_load_run_transcript_decision_payload_carries_constraint_and_views(db_se
     }
 
 
+def test_load_run_transcript_decision_payload_carries_applied_optimizer_config(
+    db_session,
+):
+    """The config the allocator ACTUALLY ran with reaches the read-out payload."""
+    saver = MemorySaver()
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="thread-oc",
+    )
+    AgentRunRepository(db_session).append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=(
+            '{"optimizer_config": {"objective": "minimize_risk"},'
+            ' "weights": {"AAA": 1.0}}'
+        ),
+    )
+    db_session.expire(run, ["decisions"])
+    _seed_thread(saver, "thread-oc", [HumanMessage(content="narrative")])
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    assert entries[-1].payload == {
+        "weights": {"AAA": 1.0},
+        "optimizer_config": {"objective": "minimize_risk"},
+    }
+
+
 def test_load_run_transcript_decision_payload_none_for_unparseable_response(db_session):
     saver = MemorySaver()
     run = _make_run(
@@ -724,6 +1847,79 @@ def test_metrics_uses_newest_allocator_decision_within_a_run(db_session):
 
     # Newest allocator proposal's metrics (1.5), not the first proposal's stale 0.8.
     assert state.metrics == {"sharpe": 1.5}
+
+
+def test_metrics_are_not_carried_over_from_a_superseded_proposal(db_session):
+    # An adviser edit appends an allocator decision with no metrics (the optimizer's
+    # in-sample figures describe the weights it solved, not the edited vector). The
+    # state panel must not show the earlier proposal's metrics beside the edit.
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    audit = AgentRunRepository(db_session)
+    audit.append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"AAA": 0.5}, "metrics": {"sharpe": 0.8}}),
+    )
+    audit.append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"AAA": 1.0}}),
+        hitl_decision={"decision": "edit", "human_override": True},
+    )
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.metrics == {}
+
+
+def test_run_metrics_never_borrows_another_runs_numbers(db_session):
+    # `portfolio_state.metrics` falls back across the portfolio's runs; `run_metrics`
+    # is for per-run readers and must report only the run's own allocator proposal.
+    older = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 1, tzinfo=UTC),
+    )
+    newer = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    AgentRunRepository(db_session).append_decision(
+        older.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"AAA": 1.0}, "metrics": {"sharpe": 0.8}}),
+    )
+    db_session.refresh(older)
+    db_session.refresh(newer)
+
+    assert observe.run_metrics(older) == {"sharpe": 0.8}
+    assert observe.run_metrics(newer) == {}  # not the older run's 0.8
+
+
+def test_every_public_observe_function_is_exported():
+    public = {
+        name
+        for name, value in vars(observe).items()
+        if not name.startswith("_")
+        and callable(value)
+        and getattr(value, "__module__", None) == observe.__name__
+    }
+
+    assert public <= set(observe.__all__)
 
 
 def test_message_text_stringifies_non_str_non_list_content():
@@ -845,6 +2041,95 @@ def test_audit_timeline_filters_compose(db_session):
     assert len(observe.audit_timeline(db_session, portfolio_id=_AUDIT_PID_B)) == 1
 
 
+def test_audit_timeline_carries_the_target_and_rationale_of_human_rows(db_session):
+    from fund.audit.human_audit_repository import HumanAuditLogRepository
+
+    HumanAuditLogRepository(db_session).append(
+        action="rearm",
+        target="fund",
+        new_value={"state": "armed"},
+        rationale="drawdown reviewed with the risk committee",
+    )
+
+    (row,) = observe.audit_timeline(db_session, kind="human")
+
+    assert row.target == "fund"
+    assert row.rationale == "drawdown reviewed with the risk committee"
+
+
+def test_audit_timeline_agent_rows_carry_no_target_or_rationale(db_session):
+    _seed_audit(db_session)
+
+    (agent_row,) = observe.audit_timeline(db_session, kind="agent")
+
+    assert agent_row.target is None
+    assert agent_row.rationale is None
+
+
+def _seed_one_transaction_run(db_session, steps: list[str]) -> None:
+    """Append ``steps`` as one run's decisions, all stamped with the same instant.
+
+    Postgres ``now()`` is the transaction start time, so every decision a run flushes
+    inside one caller-owned transaction carries an identical ``created_at``.
+    """
+    from portopt_db.models import AgentDecision
+    from sqlalchemy import update
+
+    repo = AgentRunRepository(db_session)
+    run = repo.create_run(
+        portfolio_id=_AUDIT_PID_A,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={},
+    )
+    for step in steps:
+        repo.append_decision(run.id, agent="allocator", step=step)
+    db_session.execute(
+        update(AgentDecision).values(created_at=datetime(2026, 1, 2, 9, 0, tzinfo=UTC))
+    )
+    db_session.flush()
+    db_session.expire_all()
+
+
+def test_audit_timeline_orders_same_instant_decisions_newest_step_first(db_session):
+    steps = ["optimize_portfolio", "place_orders", "report"]
+    _seed_one_transaction_run(db_session, steps)
+
+    rows = observe.audit_timeline(db_session, kind="agent")
+
+    assert [row.action for row in rows] == list(reversed(steps))
+
+
+def test_audit_timeline_limit_keeps_the_latest_step_of_a_same_instant_run(db_session):
+    _seed_one_transaction_run(
+        db_session, ["optimize_portfolio", "place_orders", "report"]
+    )
+
+    rows = observe.audit_timeline(db_session, kind="agent", limit=1)
+
+    assert [row.action for row in rows] == ["report"]
+
+
+def test_audit_timeline_entries_carry_a_stable_unique_identity(db_session):
+    _seed_audit(db_session)
+
+    first = observe.audit_timeline(db_session)
+    again = observe.audit_timeline(db_session)
+
+    ids = [row.entry_id for row in first]
+    assert len(set(ids)) == len(ids) == 3
+    assert {i.split(":")[0] for i in ids} == {"agent", "human"}
+    assert sorted(ids) == sorted(row.entry_id for row in again)
+
+
+def test_audit_timeline_limit_caps_the_merge_and_none_lifts_it(db_session):
+    _seed_audit(db_session)
+
+    assert len(observe.audit_timeline(db_session, limit=2)) == 2
+    assert len(observe.audit_timeline(db_session, limit=None)) == 3
+
+
 def test_import_fund_observe_is_agent_stack_free():
     code = textwrap.dedent(
         """
@@ -903,6 +2188,155 @@ def test_performance_summary_empty_is_graceful(db_session):
     assert summary.portfolio_id == _PID
     assert summary.volatility is None
     assert summary.returns["max"] is None
+
+
+def _seed_benchmark_switch(db_session):
+    """Ten NAV marks whose benchmark changed from SPY to ACWI after the sixth.
+
+    Mirrors a mandate benchmark edit followed by a 7-day re-mark: the older rows keep
+    SPY's level (~450) tagged ``SPY``, the recent ones carry ACWI's (~100).
+    """
+    rows = []
+    for i in range(10):
+        spy = i < 6
+        rows.append(
+            {
+                "portfolio_id": _PID,
+                "date": date(2026, 10, 1) + timedelta(days=i),
+                "nav": Decimal(str(100 + i)),
+                "benchmark": Decimal(str(450 + 2 * i if spy else 100 + (i - 6))),
+                "benchmark_ticker": "SPY" if spy else "ACWI",
+            }
+        )
+    NavHistoryRepository(db_session).upsert_navs(rows)
+    MandateRepository(db_session).upsert(
+        PortfolioMandate(
+            portfolio_id=str(_PID),
+            capital=Decimal("100000"),
+            base_currency="EUR",
+            benchmark="ACWI",
+            drift_l1_threshold=0.1,
+            triggers=RunTriggers(cron=True, drift=False),
+        )
+    )
+    db_session.flush()
+
+
+def test_performance_summary_ignores_levels_of_a_previous_benchmark(db_session):
+    """Excess is measured on the current benchmark's window, not across the switch."""
+    _seed_benchmark_switch(db_session)
+
+    summary = observe.performance_summary(db_session, _PID)
+
+    # Only the four ACWI marks (nav 106..109, benchmark 100..103) are comparable.
+    expected = (109.0 / 106.0 - 1.0) - (103.0 / 100.0 - 1.0)
+    assert summary.excess["max"] == pytest.approx(expected, rel=1e-6)
+
+
+def test_macro_attribution_summary_ignores_levels_of_a_previous_benchmark(
+    db_session, monkeypatch
+):
+    """The attribution never sees SPY levels once the mandate benchmarks ACWI."""
+    import fund.attribution as attribution_mod
+
+    _seed_benchmark_switch(db_session)
+    seen = {}
+
+    def _capture(points, **_kwargs):
+        seen["levels"] = [p.benchmark for p in points]
+
+    monkeypatch.setattr(attribution_mod, "attribution_from_nav_points", _capture)
+
+    observe.macro_attribution_summary(db_session, _PID)
+
+    assert seen["levels"] == [None] * 6 + [100.0, 101.0, 102.0, 103.0]
+
+
+def test_untagged_benchmark_levels_are_kept_when_identity_is_unknown(db_session):
+    """Pre-migration rows carry no ticker; they stay readable until re-marked."""
+    _seed_navs(db_session, [100.0, 101.0, 102.0])  # benchmark None, ticker None
+    NavHistoryRepository(db_session).upsert_navs(
+        [
+            {
+                "portfolio_id": _PID,
+                "date": date(2026, 10, 1) + timedelta(days=i),
+                "nav": Decimal(str(100 + i)),
+                "benchmark": Decimal(str(200 + i)),
+            }
+            for i in range(3)
+        ]
+    )
+    MandateRepository(db_session).upsert(
+        PortfolioMandate(
+            portfolio_id=str(_PID),
+            capital=Decimal("100000"),
+            base_currency="EUR",
+            benchmark="SPY",
+            drift_l1_threshold=0.1,
+            triggers=RunTriggers(cron=True, drift=False),
+        )
+    )
+    db_session.flush()
+
+    summary = observe.performance_summary(db_session, _PID)
+
+    assert summary.excess["max"] is not None
+
+
+def _seed_benchmark_levels(db_session, levels):
+    """Upsert ten-ish NAV marks for _PID carrying the given benchmark levels."""
+    NavHistoryRepository(db_session).upsert_navs(
+        [
+            {
+                "portfolio_id": _PID,
+                "date": date(2026, 10, 1) + timedelta(days=i),
+                "nav": Decimal(str(100 + i)),
+                "benchmark": None if level is None else Decimal(str(level)),
+            }
+            for i, level in enumerate(levels)
+        ]
+    )
+    db_session.flush()
+
+
+def _attributed_benchmark_levels(db_session, monkeypatch):
+    """Benchmark levels ``macro_attribution_summary`` hands the attribution engine."""
+    import fund.attribution as attribution_mod
+
+    seen = {}
+
+    def _capture(points, **_kwargs):
+        seen["levels"] = [p.benchmark for p in points]
+
+    monkeypatch.setattr(attribution_mod, "attribution_from_nav_points", _capture)
+    observe.macro_attribution_summary(db_session, _PID)
+    return seen["levels"]
+
+
+def test_macro_attribution_summary_leaves_trailing_benchmark_nulls_absent(
+    db_session, monkeypatch
+):
+    """Rows marked after the benchmark was cleared never inherit its last level.
+
+    A flat carried-forward level would give the equity factor a fabricated zero
+    return on every such day while the NAV keeps moving.
+    """
+    _seed_benchmark_levels(db_session, [450, 452, 454, 456, None, None, None])
+
+    levels = _attributed_benchmark_levels(db_session, monkeypatch)
+
+    assert levels == [450.0, 452.0, 454.0, 456.0, None, None, None]
+
+
+def test_macro_attribution_summary_still_fills_an_interior_benchmark_gap(
+    db_session, monkeypatch
+):
+    """A null bracketed by benchmark levels is bridged so no return spans the hole."""
+    _seed_benchmark_levels(db_session, [None, 450, None, None, 456, 458, None])
+
+    levels = _attributed_benchmark_levels(db_session, monkeypatch)
+
+    assert levels == [None, 450.0, 450.0, 450.0, 456.0, 458.0, None]
 
 
 # --- holdings_summary (Phase 08 T1) -----------------------------------------
@@ -990,6 +2424,16 @@ def test_holdings_summary_uses_mandate_base_currency(db_session):
 
     assert [m.ticker for m in marks] == ["US1"]
     assert marks[0].value is not None
+
+
+def test_holdings_summary_marks_in_the_mandate_capital(db_session):
+    """Holdings are valued on the mandate's capital, not the ticket's paper notional."""
+    _seed_holding_book(db_session, with_mandate=True)  # ticket 9,000; capital 100,000
+
+    marks = observe.holdings_summary(db_session, _PID)
+
+    # shares 100000/90 marked at 110*0.92 = 101.2 base.
+    assert marks[0].value == pytest.approx((100_000.0 / 90.0) * 101.2, rel=1e-6)
 
 
 def test_holdings_summary_unmarked_is_empty(db_session):
@@ -1188,6 +2632,95 @@ def test_daily_brief_economist_tie_break_prefers_later_created_at(db_session):
     assert brief.deliberation_run_id == later.id
 
 
+def _seed_profiler_run(db_session, saver, *, asof, created_at, thread_id):
+    """A profiling attempt: same portfolio, ``step == 'profiler'``, no economist."""
+    run = AgentRun(
+        portfolio_id=_PID,
+        asof=asof,
+        seed=1,
+        universe=[],
+        optimizer_config={"step": "profiler"},
+        status="completed",
+        weights={},
+        thread_id=thread_id,
+        created_at=created_at,
+        finished_at=created_at,
+    )
+    db_session.add(run)
+    db_session.flush()
+    _seed_thread(saver, thread_id, [HumanMessage(content="Profile this client.")])
+    return run
+
+
+def test_daily_brief_economist_read_skips_a_later_profiler_run(db_session):
+    """A re-profile after the last rebalance must not shadow its economist read."""
+    saver = MemorySaver()
+    fund_run = _seed_economist_run(
+        db_session,
+        saver,
+        asof=date(2026, 10, 1),
+        created_at=datetime(2026, 10, 1, tzinfo=UTC),
+        thread_id="brief-fund",
+        narrative="watch ECB on rates",
+    )
+    _seed_profiler_run(
+        db_session,
+        saver,
+        asof=date(2026, 10, 23),
+        created_at=datetime(2026, 10, 23, tzinfo=UTC),
+        thread_id="brief-profiler",
+    )
+
+    brief = observe.daily_brief(db_session, saver, _PID, asof=date(2026, 10, 23))
+
+    assert brief.economist_read == "watch ECB on rates"
+    assert brief.economist_read_date == date(2026, 10, 1)
+    assert brief.deliberation_run_id == fund_run.id
+
+
+def test_daily_brief_economist_read_skips_a_same_day_profiler_run(db_session):
+    """A profiler run created after a same-asof fund run is not its tie-break winner."""
+    saver = MemorySaver()
+    day = date(2026, 10, 3)
+    fund_run = _seed_economist_run(
+        db_session,
+        saver,
+        asof=day,
+        created_at=datetime(2026, 10, 3, 9, tzinfo=UTC),
+        thread_id="brief-same-fund",
+        narrative="rebalance read",
+    )
+    _seed_profiler_run(
+        db_session,
+        saver,
+        asof=day,
+        created_at=datetime(2026, 10, 3, 17, tzinfo=UTC),
+        thread_id="brief-same-profiler",
+    )
+
+    brief = observe.daily_brief(db_session, saver, _PID, asof=day)
+
+    assert brief.economist_read == "rebalance read"
+    assert brief.deliberation_run_id == fund_run.id
+
+
+def test_daily_brief_economist_read_blank_when_only_profiler_runs_exist(db_session):
+    saver = MemorySaver()
+    _seed_profiler_run(
+        db_session,
+        saver,
+        asof=date(2026, 10, 2),
+        created_at=datetime(2026, 10, 2, tzinfo=UTC),
+        thread_id="brief-only-profiler",
+    )
+
+    brief = observe.daily_brief(db_session, saver, _PID, asof=date(2026, 10, 4))
+
+    assert brief.economist_read is None
+    assert brief.economist_read_date is None
+    assert brief.deliberation_run_id is None
+
+
 def test_daily_brief_blank_economist_read_when_never_run(db_session):
     """A portfolio that never ran yields no read, date, or deliberation id."""
     saver = MemorySaver()
@@ -1198,6 +2731,80 @@ def test_daily_brief_blank_economist_read_when_never_run(db_session):
     assert brief.economist_read is None
     assert brief.economist_read_date is None
     assert brief.deliberation_run_id is None
+
+
+def test_daily_brief_survives_a_checkpointer_failure_in_the_economist_read(
+    db_session,
+):
+    """An unreadable checkpoint blanks only the read; the DB-derived sections stay.
+
+    The checkpointer has its own connection pool, so a timeout or a corrupt blob
+    there must not take the NAV, attribution and events down with it.
+    """
+
+    class _BrokenSaver(MemorySaver):
+        def get_tuple(self, config):
+            raise RuntimeError("checkpointer pool timeout")
+
+    saver = _BrokenSaver()
+    _seed_navs_and_fred(db_session)
+    day = date(2026, 1, 24)
+    run = _seed_economist_run(
+        db_session,
+        MemorySaver(),
+        asof=day,
+        created_at=datetime(2026, 1, 24, 10, tzinfo=UTC),
+        thread_id="brief-broken-saver",
+        narrative="never read",
+    )
+
+    brief = observe.daily_brief(db_session, saver, _PID, asof=day)
+
+    assert brief.performance is not None
+    assert brief.attribution is not None
+    assert brief.economist_read is None
+    assert brief.economist_read_date is None
+    assert brief.deliberation_run_id == run.id
+
+
+def test_daily_brief_attribution_covers_only_the_briefed_day(db_session):
+    """The brief's "today" attribution explains that day's NAV return only."""
+    saver = MemorySaver()
+    _seed_navs_and_fred(db_session)  # nav = 100 + i + (i % 3), one mark per day
+
+    latest = observe.daily_brief(db_session, saver, _PID, asof=date(2026, 1, 24))
+    prior = observe.daily_brief(db_session, saver, _PID, asof=date(2026, 1, 23))
+
+    assert latest.attribution is not None and prior.attribution is not None
+    assert latest.attribution.total_return == pytest.approx(120.0 / 118.0 - 1.0)
+    assert prior.attribution.total_return == pytest.approx(118.0 / 119.0 - 1.0)
+    for brief in (latest, prior):
+        recon = sum(brief.attribution.contributions.values()) + (
+            brief.attribution.residual
+        )
+        assert recon == pytest.approx(brief.attribution.total_return, abs=1e-12)
+
+
+def test_daily_brief_repeat_poll_does_not_refit_the_exposures(db_session, monkeypatch):
+    """The cockpit polls the brief every tick; unchanged data must not refit."""
+    import optimizer.factors as factors_mod
+
+    saver = MemorySaver()
+    _seed_navs_and_fred(db_session)
+    real = factors_mod.fit_factor_prior
+    fits: list[int] = []
+
+    def counting(*args, **kwargs):
+        fits.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(factors_mod, "fit_factor_prior", counting)
+
+    first = observe.daily_brief(db_session, saver, _PID, asof=date(2026, 1, 24))
+    second = observe.daily_brief(db_session, saver, _PID, asof=date(2026, 1, 24))
+
+    assert len(fits) == 1
+    assert second.attribution == first.attribution
 
 
 def test_daily_brief_unmarked_day_degrades_without_crash(db_session):
@@ -1233,3 +2840,85 @@ def test_daily_brief_is_public_and_reachable():
     assert "daily_brief" in observe.__all__
     assert "DailyBrief" in observe.__all__
     assert callable(observe.daily_brief)
+
+
+# --- default_decision_bar ---------------------------------------------------
+
+_TODAY = date(2026, 10, 24)  # Saturday; the panel below ends Friday 10-23
+_FRI = date(2026, 10, 23)
+
+
+def _seed_bars(session, last_bar: date, *, n_bars: int = 5, n: int = 1) -> None:
+    """Seed ``n`` instruments with ``n_bars`` consecutive daily closes ending at
+    ``last_bar``; each call adds fresh instruments."""
+    exchange = Exchange(name=f"EX-{uuid.uuid4().hex[:8]}")
+    session.add(exchange)
+    session.flush()
+    for _ in range(n):
+        inst = Instrument(
+            ticker=uuid.uuid4().hex[:8],
+            short_name="X",
+            exchange_id=exchange.id,
+            instrument_type="EQUITY",
+            asset_class="equity",
+        )
+        session.add(inst)
+        session.flush()
+        for i in range(n_bars):
+            session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=last_bar - timedelta(days=n_bars - 1 - i),
+                    close=100.0 + i,
+                )
+            )
+    session.flush()
+
+
+def test_default_decision_bar_is_the_day_before_the_latest_stored_bar(db_session):
+    _seed_bars(db_session, _FRI, n=3)
+
+    bar = observe.default_decision_bar(db_session, today=_TODAY)
+
+    assert bar == _FRI - timedelta(days=1)  # the Friday close is the fill bar
+
+
+def test_default_decision_bar_ignores_a_bar_only_one_instrument_has(db_session):
+    _seed_bars(db_session, _FRI, n=9)
+    _seed_bars(db_session, _TODAY, n_bars=1, n=1)  # a lone weekend (e.g. crypto) bar
+
+    bar = observe.default_decision_bar(db_session, today=_TODAY)
+
+    assert bar == _FRI - timedelta(days=1)  # the other 9 would have no later bar
+
+
+def test_default_decision_bar_tolerates_a_small_lagging_share(db_session):
+    _seed_bars(db_session, _FRI, n=9)
+    _seed_bars(db_session, _FRI - timedelta(days=1), n=1)  # one market on holiday
+
+    bar = observe.default_decision_bar(db_session, today=_TODAY)
+
+    assert bar == _FRI - timedelta(days=1)
+
+
+def test_default_decision_bar_waits_for_a_large_lagging_share(db_session):
+    _seed_bars(db_session, _FRI, n=5)
+    _seed_bars(db_session, _FRI - timedelta(days=1), n=5)  # half not yet ingested
+
+    bar = observe.default_decision_bar(db_session, today=_TODAY)
+
+    assert bar == _FRI - timedelta(days=2)  # every ticker has a bar after it
+
+
+def test_default_decision_bar_ignores_dormant_and_future_bars(db_session):
+    _seed_bars(db_session, _FRI, n=3)
+    _seed_bars(db_session, _FRI - timedelta(days=60), n=5)  # delisted: no recent bar
+    _seed_bars(db_session, _TODAY + timedelta(days=3), n_bars=1, n=10)  # after today
+
+    bar = observe.default_decision_bar(db_session, today=_TODAY)
+
+    assert bar == _FRI - timedelta(days=1)
+
+
+def test_default_decision_bar_falls_back_to_today_without_recent_prices(db_session):
+    assert observe.default_decision_bar(db_session, today=_TODAY) == _TODAY

@@ -100,7 +100,8 @@ submodule's source and docstrings under `packages/portopt-core/optimizer/`.
 - **Docker + the `docker compose` v2 plugin** — only for the ingestion daemon
   and the fund bridge (they need PostgreSQL 16). Not needed for the library.
 - Optional API keys (ingestion): `TRADING_212_API_KEY` (+ secret),
-  `FRED_API_KEY`. Absent Trading 212 ⇒ the universe-build step skips cleanly.
+  `FRED_API_KEY`. Absent Trading 212 ⇒ only the `t212_annotate` step skips cleanly;
+  the universe itself is built from the yfinance Screener either way.
 
 ---
 
@@ -109,17 +110,22 @@ submodule's source and docstrings under `packages/portopt-core/optimizer/`.
 ### 1. The optimization library only (no Docker, no DB)
 
 ```bash
-# From a clone, into the current environment:
-pip install -e packages/portopt-core        # editable install of dist `portopt-core`
+# From a clone, into the current environment (the repo root declares `portopt-core`):
+pip install -e .                            # editable install of dist `portopt-core`
 ```
 
-Then `import optimizer` works with nothing else running.
+Then `import optimizer` works with nothing else running. The library has no
+sibling-package dependencies, so plain pip is safe here. The daemon and the fund
+bridge are not: they depend on `portopt-db` / `portopt-core`, which exist only as
+workspace paths that uv resolves (pip ignores `[tool.uv.sources]` and would look
+those unpublished names up on PyPI), so install those two through uv.
 
 ### 2. The full platform (ingestion daemon)
 
-The daemon ships an install wizard. The one-line bootstrap installs `uv`, installs
-the `portopt` CLI straight from this repo — **nothing here is published to PyPI** —
-then launches the wizard:
+The daemon ships an install wizard. The one-line bootstrap needs **git**: it clones
+this repo, installs `uv`, installs the `portopt` CLI straight from it (the CLI and the
+daemon are never published to PyPI; `release.yml` builds only the `portopt-core`
+library), then launches the wizard:
 
 ```bash
 # macOS / Linux
@@ -129,32 +135,55 @@ powershell -c "irm https://raw.githubusercontent.com/SilvioBaratto/optimizer/dev
 ```
 
 Both scripts pull from the `development` branch by default; set `PORTOPT_REF`
-(or `PORTOPT_REPO`) before running to install a different ref or fork.
+(a branch, tag or commit SHA) or `PORTOPT_REPO` before running to install a
+different ref or fork.
 
-Equivalently, by hand:
+`portopt` runs `docker compose` and renders its plaintext secrets inside a **checkout**
+of this repo (it owns `docker-compose.yml`), and installing the CLI into a `uv` tool
+venv does not provide one. The scripts therefore clone into `~/optimizer`
+(`%USERPROFILE%\optimizer` on Windows; set `PORTOPT_HOME` to choose elsewhere, which
+`install.sh` also accepts as `PORTOPT_DIR`), reuse that directory if it already holds a
+checkout, and export `OPTIMIZER_REPO` for the wizard, which then remembers the location
+in `~/.portopt/config.toml`. `install.sh` also launches the wizard from inside the
+checkout and, on a re-run, updates an existing git checkout to `PORTOPT_REF`; it refuses
+to touch a directory that is a checkout of some other repo. Without a checkout,
+`portopt setup` stops with "Cannot locate the optimizer checkout" before it persists
+anything.
+
+Equivalently, by hand — clone first, then run the from-clone front door:
+
+```bash
+git clone https://github.com/SilvioBaratto/optimizer && cd optimizer
+./setup.sh      # setup.cmd / setup.ps1 on Windows; interactive wizard (see below)
+```
+
+To install the CLI yourself, point it at an existing checkout:
 
 ```bash
 uv tool install "git+https://github.com/SilvioBaratto/optimizer.git@development#subdirectory=ingestion"
-portopt setup   # interactive wizard (see below)
+OPTIMIZER_REPO=/path/to/optimizer portopt setup
 ```
 
 **`portopt setup`** verifies Docker + the compose plugin, validates your
 Trading 212 / FRED keys live, encrypts them (Fernet + scrypt) to
 `~/.portopt/secrets.enc` (mode `0600`, passphrase never persisted), brings up
-PostgreSQL (`docker compose up -d --wait db`), and runs `alembic upgrade head`.
+PostgreSQL (`docker compose up -d --wait db`), and applies the Alembic migrations.
 It seeds no data. Re-run any time with `portopt setup`.
 
 Lifecycle:
 
 ```bash
 portopt start     # decrypt secrets → render as compose secrets → docker compose --profile fund up -d --wait
-portopt stop      # docker compose down + delete the rendered plaintext secret files
+portopt stop      # stop the fund engine + delete its plaintext LLM keys (daemon + db keep running)
+portopt stop --all  # stop the whole stack + delete every rendered plaintext secret
 portopt status    # report Docker + service health (non-zero exit if anything is down)
 ```
 
 > `portopt start` renders the encrypted secrets into git-ignored
-> `./secrets/<name>` files only for the lifetime of the stack; `portopt stop`
-> deletes them.
+> `./secrets/<name>` files. `portopt stop` deletes the LLM keys only the fund
+> mounts, but keeps the three the ingestion daemon mounts (Trading 212 key and
+> secret, FRED key): the daemon restarts on its own and needs them. Run
+> `portopt stop --all` to stop the daemon too and leave no plaintext on disk.
 
 ### 3. Developer setup (all four packages)
 
@@ -163,6 +192,7 @@ git clone https://github.com/SilvioBaratto/optimizer
 cd optimizer
 uv sync --all-packages --all-extras     # one venv with every member + every extra
 docker compose --profile ingestion up -d # PostgreSQL (54320) + Adminer (18081) + scheduler (metrics 9000)
+export DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db   # alembic reads only this variable, never .env
 cd packages/portopt-db && alembic upgrade head   # apply migrations (single owner)
 ```
 
@@ -237,9 +267,10 @@ docker compose exec scheduler python -m app.cli yfinance --mode full --period 5y
 ```
 
 Full CLI surface (`portopt <command>` or `python -m app.cli <command>`):
-`daily`, `refetch-all`, `universe`, `yfinance`, `macro`, `fred`, `news`,
-`market-structure`, `calendars`, `market-summary`, `options`, plus the lifecycle
-commands `setup`, `start`, `stop`, `status`.
+`daily`, `refetch-all`, `universe`, `yfinance`, `macro`, `fx`, `fred`, `news`,
+`market-structure`, `calendars`, `market-summary`, `options`, `daily-events`
+(`--backfill START:END` rebuilds a date range), plus the lifecycle commands
+`setup`, `start`, `stop`, `status`.
 
 ### The fund manager (`fund`)
 
@@ -249,7 +280,8 @@ model is chosen by `LLM_PROVIDER` from a ten-provider registry (ollama, openai,
 openrouter, anthropic, google, groq, nvidia, huggingface, aws, microsoft); set
 nothing and it stays on the verified default — DeepSeek on Ollama Cloud. Install
 a provider's SDK with the matching extra (`uv sync --package portopt-fund
---extra <provider>`, or `--extra all-llm`). CLI (`fund <command>`):
+--extra <provider>`, or `--extra all-llm`; `openrouter` and `microsoft` use
+`--extra openai`, `ollama` needs none). CLI (`fund <command>`):
 
 | Command | What it does |
 |---|---|
@@ -269,21 +301,21 @@ TUI).
 Each member declares its own; the single shared venv installs one version of
 each shared pin. Exact runtime pins:
 
-**`portopt-core`** (library): `numpy==2.5.2`, `pandas==3.0.5`, `scipy==1.18.1`,
-`scikit-learn==1.9.0`, `skfolio==1.4.9`, `jinja2==3.1.6`.
+**`portopt-core`** (library): `numpy==2.5.3`, `pandas==3.0.6`, `scipy==1.18.1`,
+`scikit-learn==1.9.1`, `skfolio==1.4.11`, `jinja2==3.1.6`.
 *(`arch` is **not** declared — it reaches bootstrap uncertainty-set classes
 transitively via skfolio. Code importing it directly must guard with
 `try/except ImportError` or declare it.)*
 
 **`portopt-db`** (DB layer): `SQLAlchemy==2.0.52`, `psycopg2-binary==2.9.12`,
-`alembic==1.19.1`, `pandas==3.0.5`, `pydantic==2.13.4`. Owns the SQLAlchemy pin
+`alembic==1.19.1`, `pandas==3.0.6`, `pydantic==2.13.4`. Owns the SQLAlchemy pin
 the whole workspace inherits.
 
-**`portopt`** (ingestion): `yfinance==1.6.0`, `scikit-learn==1.9.0` (declared,
-for DBSCAN price-repair), `numpy==2.5.2`, `pandas==3.0.5`, `APScheduler==3.11.3`,
+**`portopt`** (ingestion): `yfinance==1.6.0`, `scikit-learn==1.9.1` (declared,
+for DBSCAN price-repair), `numpy==2.5.3`, `pandas==3.0.6`, `APScheduler==3.11.3`,
 `SQLAlchemy==2.0.52`, `exchange_calendars==4.13.2`, `httpx==0.28.1`,
 `beautifulsoup4==4.15.0`, `requests==2.34.2`, `prometheus-client==0.26.0`,
-`typer==0.27.1`, `questionary==2.1.1`, `rich==15.0.0`, `cryptography==45.0.7`,
+`typer==0.27.1`, `questionary==2.1.1`, `rich==15.0.0`, `cryptography==50.0.1`,
 `pydantic==2.13.4`, `pydantic-settings==2.15.0`, `python-dotenv==1.2.3`, plus
 `portopt-db` (workspace; psycopg2-binary/alembic arrive transitively).
 
@@ -306,29 +338,38 @@ uv run --package portopt-core ruff check packages/portopt-core/optimizer/ tests/
 uv run --package portopt-core mypy packages/portopt-core/optimizer/
 uv run pyright                              # scoped to the library via [tool.pyright]
 
-# Ingestion daemon (portopt)
-uv run --package portopt pytest
+# Ingestion daemon (portopt) — member suites run from the member directory
+cd ingestion && uv run pytest tests/
 
 # Shared DB layer (portopt-db)
-uv run --package portopt-db pytest
-cd packages/portopt-db && alembic upgrade head     # head: c4d5e6f7a8b9
+cd packages/portopt-db && uv run pytest
+cd packages/portopt-db && DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db alembic upgrade head   # head: a7c9e1b3d5f2
 
 # Fund bridge (portopt-fund)
-uv run --package portopt-fund pytest
+cd fund && uv run pytest tests/
 ```
 
-There is a root `Makefile` (`make lint | format | typecheck | test | all`), but
-note that it and the CI `lint`/`typecheck` jobs currently pass the bare path
-`optimizer/`, which no longer exists after the library moved to
-`packages/portopt-core/optimizer/`. Use the explicit paths above until that is
-fixed.
+`--package` only selects the dependency set; it does not change the working
+directory. Run from the repo root, `pytest` always collects the root
+`testpaths = ["tests"]` (the library suite), so a member suite must be started
+from its own directory, exactly as CI does.
 
-**CI** (`.github/workflows/ci.yml`, push/PR to `main`, Ubuntu, Python 3.12 &
-3.13, uv-driven) runs seven jobs: `lint` (ruff check → ruff format --check →
-pip-audit), `typecheck` (mypy), `pyright` (pinned `1.1.398`), `test`
+The root `Makefile` (`make lint | format | typecheck | test | all`) runs the same
+ruff and mypy gates as the CI `lint`/`typecheck` jobs: ruff over the library,
+`ingestion/`, `fund/` and `packages/portopt-db/`, and mypy over the library,
+`portopt-db` and `ingestion`. `make test` runs only the library
+suite.
+
+**CI** (`.github/workflows/ci.yml`, push/PR to `main` and `development`, Ubuntu, Python 3.12 &
+3.13, uv-driven) runs nine jobs: `lint` (ruff check → ruff format --check on
+all four members → shellcheck → pip-audit), `typecheck` (mypy), `pyright` (pinned `1.1.398`), `test`
 (`--cov=optimizer` ≥ 90%), `ingestion-test` (`--cov=app` ≥ 80%),
-`portopt-db-test` (`--cov=portopt_db` ≥ 90%), and `fund-test` (`--cov=fund` ≥
-80%). `release.yml` builds `portopt-core` on `v*` tags.
+`portopt-db-test` (`--cov=portopt_db` ≥ 90%), `fund-test` (`--cov=fund` ≥
+80%), `postgres-integration` (the Alembic upgrade to head on a real PostgreSQL plus
+the `integration`-marked tests), and `docker-images` (compose config + build of
+both images). `release.yml` publishes `portopt-core` to PyPI on `v*` tags, but only
+after checking that the tagged commit is on `main`, that the tag equals
+`v<pyproject version>`, and that the whole CI workflow passes on it.
 
 ---
 

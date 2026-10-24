@@ -1,16 +1,46 @@
+# Applied to every build whose context is the repo root and that has no
+# `<dockerfile>.dockerignore` of its own (the scheduler image). A `.dockerignore`
+# next to the Dockerfile is NOT read, and a pattern without `**/` only matches at
+# the context root, so everything below that must hold for nested member trees
+# (ingestion/.env, packages/*/__pycache__, ...) is written recursively.
+
 .git/
+**/.git/
 .github/
 .vscode/
 .idea/
 .claude/
 tests/
+**/tests/
 *.md
 !README.md
-.env
-.env.*
-__pycache__/
-*.pyc
-.mypy_cache/
-.ruff_cache/
-.pytest_cache/
-*.egg-info/
+
+# Secrets & machine-local config. Docker ignore patterns are anchored at the build
+# context root and are not recursive, so the `**/` prefix is what keeps a
+# developer's ingestion/.env or fund/.env out of the image layers the member
+# trees are COPY'd into. The `secrets/` files are rendered in plaintext by
+# `portopt start` and reach containers only as runtime mounts.
+**/.env
+**/.env.*
+!**/.env.example
+**/.certs/
+**/secrets/
+
+**/__pycache__/
+**/*.pyc
+**/.mypy_cache/
+**/.ruff_cache/
+**/.pytest_cache/
+**/.hypothesis/
+**/.coverage
+**/.coverage.*
+**/coverage.xml
+**/*.egg-info/
+**/.venv/
+
+# Gitignored build and test output that accumulates in a working checkout; the
+# member trees are COPY'd whole, so it would otherwise land in the image layers.
+**/build/
+**/dist/
+**/.coverage*
+**/htmlcov/

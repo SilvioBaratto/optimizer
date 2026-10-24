@@ -123,7 +123,9 @@ class OnlineGridSearchConfig:
 
     The ``scoring`` for online portfolio search is resolved from
     ``base.scorer_config`` to a skfolio ``BaseMeasure`` (e.g. Sharpe),
-    because online portfolio evaluation rejects ``make_scorer`` objects.
+    because online portfolio evaluation rejects ``make_scorer`` objects. The
+    scorer's ``risk_free_rate`` and ``annualization_factor`` are forwarded as
+    the search's ``portfolio_params``.
     """
 
     base: GridSearchConfig = field(default_factory=_default_grid_search)

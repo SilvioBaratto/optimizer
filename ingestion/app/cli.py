@@ -7,7 +7,7 @@ already running that step.
 
     python -m app.cli daily                       # full daily pipeline
     python -m app.cli refetch-all                 # universe + yfinance + macro + fred
-    python -m app.cli universe                    # Trading 212 universe rebuild
+    python -m app.cli universe                    # instrument universe rebuild (yfinance)
     python -m app.cli yfinance --mode full --period 5y
     python -m app.cli macro
     python -m app.cli fx                           # daily FX rates into fx_rates
@@ -42,6 +42,7 @@ import typer
 
 from app.config import settings
 from app.database import init_db
+from app.utils.log_redaction import install_secret_redaction
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +60,31 @@ class FetchMode(str, Enum):
 
 
 def _boot() -> None:
-    """Configure logging and the DB engine — every command needs both."""
+    """Configure logging, yfinance and the DB engine — every command needs them."""
+    from app.services.market_data.yfinance import configure_yfinance
+
     logging.basicConfig(
         level=getattr(logging, settings.log_level.upper()),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+    install_secret_redaction()
+    configure_yfinance(log_level=settings.yfinance_log_level)
     init_db()
+
+
+def _check_period(value: str) -> str:
+    """Reject a period yfinance would answer with an empty frame, before booting."""
+    from pydantic import ValidationError
+
+    from app.schemas.market_data.yfinance_data import YFinanceFetchRequest
+
+    try:
+        YFinanceFetchRequest(period=value)
+    except ValidationError as exc:
+        raise typer.BadParameter(
+            f"{value!r} is not a yfinance period (use e.g. 60d, 6mo, 5y, ytd, max)"
+        ) from exc
+    return value
 
 
 def _exit(ok: bool) -> NoReturn:
@@ -73,7 +93,7 @@ def _exit(ok: bool) -> NoReturn:
 
 @app.command()
 def daily() -> None:
-    """Run the full daily pipeline: ref-indices, yfinance, macro, news."""
+    """Run the full daily pipeline: fx, yfinance, macro, fred, news, digest."""
     _boot()
     from app.services.jobs.scheduler import run_daily_pipeline
 
@@ -85,14 +105,14 @@ def refetch_all() -> None:
     """Full rebuild: universe, then yfinance + macro (5y), then FRED."""
     _boot()
     from app.services.jobs.scheduler import (
-        run_fred_monthly,
+        run_fred_step,
         run_universe_build,
         run_weekly_refetch,
     )
 
     run_universe_build()
     run_weekly_refetch()
-    run_fred_monthly()
+    run_fred_step(incremental=False)
 
 
 @app.command()
@@ -110,7 +130,14 @@ def yfinance(
         FetchMode.INCREMENTAL,
         help="'incremental' fetches only what is missing; 'full' re-downloads.",
     ),
-    period: str = typer.Option("5y", help="Lookback window for mode=full."),
+    period: str = typer.Option(
+        "5y",
+        callback=_check_period,
+        help=(
+            "Minimum lookback window for mode=full; stored bars older than it "
+            "are refetched too."
+        ),
+    ),
     workers: int = typer.Option(
         settings.yfinance_fetch_workers,
         min=1,
@@ -147,7 +174,10 @@ def fx() -> None:
 def fred(
     incremental: bool = typer.Option(
         True,
-        help="Fetch only observations newer than what is stored.",
+        help=(
+            "Re-fetch a trailing window behind the latest stored date (to pick "
+            "up restated values) instead of the full history."
+        ),
     ),
 ) -> None:
     """Fetch FRED economic series into economic_indicators / fred_observations."""
@@ -233,7 +263,12 @@ def _run_daily_events_backfill(spec: str, *, force: bool = False) -> bool:
     Runs the builder directly rather than the slotted ``run_daily_events_step``:
     a historical backfill can span hundreds of sessions, so it skips the per-day
     job slot and heartbeat the single-day path uses. Each day is an idempotent
-    upsert, so re-running the range is safe.
+    upsert built from observations dated on or before that day, so re-running the
+    range rewrites a row with the same content. The bound is the observation date,
+    not the release date, so lagged FRED series (monthly, quarterly) can carry a
+    reading published after the digest's date, and the upsert replaces the row the
+    daily pipeline built at the time. An END later than today is clamped to
+    today: a digest for a future date would be stamped with today's data.
 
     A per-day build failure is caught and logged, and the backfill continues over
     the remaining days rather than aborting the whole range on one bad day (and
@@ -246,8 +281,9 @@ def _run_daily_events_backfill(spec: str, *, force: bool = False) -> bool:
 
     Returns:
         ``True`` when the range parsed and every session built (or the range held
-        no sessions); ``False`` on a malformed/reversed range, an over-cap range
-        without ``force``, or any per-day build failure.
+        no sessions); ``False`` on a malformed or reversed range, a START later
+        than today, an over-cap range without ``force``, or any per-day build
+        failure.
     """
     from datetime import date
 
@@ -275,6 +311,20 @@ def _run_daily_events_backfill(spec: str, *, force: bool = False) -> bool:
             err=True,
         )
         return False
+
+    today = date.today()
+    if start > today:
+        typer.echo(
+            f"Invalid --backfill range {spec!r}: START is in the future.",
+            err=True,
+        )
+        return False
+    if end > today:
+        typer.echo(
+            f"daily-events backfill: END {end.isoformat()} is in the future; "
+            f"clamping to {today.isoformat()}."
+        )
+        end = today
 
     days = iter_trading_days(start, end)
     if not days:
@@ -317,30 +367,54 @@ def setup(
     non_interactive: bool = typer.Option(
         False,
         "--non-interactive",
-        help="Run without prompts (CI); requires the flags below + PORTOPT_PASSPHRASE.",
+        help=(
+            "Run without prompts (CI); credentials come from the flags below or, "
+            "preferably, their env vars. Also requires PORTOPT_PASSPHRASE."
+        ),
     ),
-    t212_key: str | None = typer.Option(None, "--t212-key", help="Trading212 API key."),
+    t212_key: str | None = typer.Option(
+        None,
+        "--t212-key",
+        envvar="TRADING_212_API_KEY",
+        help="Trading212 API key. Prefer the env var: a flag shows up in `ps`.",
+    ),
     t212_secret: str | None = typer.Option(
-        None, "--t212-secret", help="Trading212 secret key."
+        None,
+        "--t212-secret",
+        envvar="TRADING_212_SECRET_KEY",
+        help="Trading212 secret key. Prefer the env var: a flag shows up in `ps`.",
     ),
-    fred_key: str | None = typer.Option(None, "--fred-key", help="FRED API key."),
+    fred_key: str | None = typer.Option(
+        None,
+        "--fred-key",
+        envvar="FRED_API_KEY",
+        help="FRED API key. Prefer the env var: a flag shows up in `ps`.",
+    ),
     llm_provider: str | None = typer.Option(
         None,
         "--llm-provider",
         help="Fund LLM provider (ollama, openai, anthropic, ...).",
     ),
     llm_model: str | None = typer.Option(
-        None, "--llm-model", help="Fund LLM model id."
+        None,
+        "--llm-model",
+        help="Fund LLM model id ('-' clears the stored one; omitted keeps it).",
     ),
     llm_base_url: str | None = typer.Option(
         None,
         "--llm-base-url",
-        help="Override the hosted default (local ollama, self-hosted NIM, proxy).",
+        help=(
+            "Override the hosted default (local ollama, self-hosted NIM, proxy). "
+            "'-' clears the stored one; omitted keeps it."
+        ),
     ),
     llm_key: str | None = typer.Option(
         None,
         "--llm-key",
-        help="LLM provider API key (or the provider's own env var, e.g. OPENAI_API_KEY).",
+        help=(
+            "LLM provider API key. Prefer the provider's own env var (e.g. "
+            "OPENAI_API_KEY): a flag shows up in `ps`."
+        ),
     ),
     corp_ca: bool = typer.Option(
         False,
@@ -370,13 +444,8 @@ def setup(
 ) -> None:
     """Install wizard: verify Docker, validate keys live, encrypt secrets, migrate the DB."""
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
-    from app.setup import (
-        ca_bundle,
-        compose_env,
-        compose_secrets,
-        docker_bootstrap,
-        wizard,
-    )
+    install_secret_redaction()
+    from app.setup import ca_bundle, docker_bootstrap, wizard
     from app.setup.ca_bundle import CABundleError
     from app.setup.prompts import PromptError, make_prompter
     from app.setup.validators import ValidationNetworkError
@@ -388,7 +457,9 @@ def setup(
         if corp_ca:
             # Generate the merged bundle first and point this process's TLS stack at
             # it, so the live key validation below trusts the corporate proxy's root.
-            bundle = ca_bundle.generate()
+            bundle = ca_bundle.generate(
+                path=docker_bootstrap.compose_dir() / ca_bundle.DEFAULT_BUNDLE_PATH
+            )
             os.environ["SSL_CERT_FILE"] = str(bundle)
             os.environ["REQUESTS_CA_BUNDLE"] = str(bundle)
             typer.echo(f"Corporate CA bundle written to {bundle}.")
@@ -421,10 +492,10 @@ def setup(
         PromptError,
         CABundleError,
     ) as exc:
-        # All-or-nothing: wipe any plaintext secret/env files a partial run rendered so
-        # a failed setup never leaves decrypted credentials on disk.
-        compose_secrets.cleanup()
-        compose_env.cleanup()
+        # Setup renders no plaintext files before it can fail, so anything under
+        # ./secrets or .env.fund was written by an earlier `portopt start` and is still
+        # bind-mounted by the running scheduler; deleting it would make Docker plant
+        # empty directories there on the next container restart.
         typer.echo(f"Setup failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     _print_post_install_note()
@@ -453,6 +524,7 @@ def start(
 ) -> None:
     """Decrypt secrets, mount them as compose secrets, and launch the stack."""
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
+    install_secret_redaction()
     from app.setup import lifecycle
     from app.setup.docker_bootstrap import DockerError
     from app.setup.prompts import PromptError, make_prompter
@@ -475,17 +547,26 @@ def start(
 
 
 @app.command()
-def stop() -> None:
+def stop(
+    all_services: bool = typer.Option(
+        False,
+        "--all",
+        help="Stop the whole stack (daemon + db too) and wipe every rendered secret.",
+    ),
+) -> None:
     """Stop the fund decision engine (the ingestion daemon + db keep running)."""
     from app.setup import lifecycle
     from app.setup.docker_bootstrap import DockerError
 
     try:
-        lifecycle.run_stop()
-    except DockerError as exc:
+        lifecycle.run_stop(all_services=all_services)
+    except (lifecycle.LifecycleError, DockerError) as exc:
         typer.echo(f"Stop failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-    typer.echo("fund stopped (ingestion daemon still running).")
+    if all_services:
+        typer.echo("stack stopped; rendered secrets removed.")
+    else:
+        typer.echo("fund stopped (ingestion daemon still running).")
 
 
 @app.command()
@@ -493,7 +574,11 @@ def status() -> None:
     """Report Docker + service health (exit non-zero if anything is down)."""
     from app.setup import lifecycle
 
-    report = lifecycle.run_status()
+    try:
+        report = lifecycle.run_status()
+    except lifecycle.LifecycleError as exc:
+        typer.echo(f"Status failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     for name, ok in report.items():
         typer.echo(f"{name}: {'ok' if ok else 'down'}")
     _exit(all(report.values()))

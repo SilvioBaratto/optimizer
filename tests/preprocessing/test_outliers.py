@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
 
 import numpy as np
@@ -9,8 +10,12 @@ import pandas as pd
 import pytest
 from sklearn.utils.validation import check_is_fitted
 
-from optimizer.exceptions import DataError
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.preprocessing import OutlierTreater
+from optimizer.preprocessing._delisting import (
+    apply_delisting_returns,
+    delisting_protection_mask,
+)
 
 
 @pytest.fixture()
@@ -229,10 +234,11 @@ class TestProtectedMask:
         assert out.iloc[-1, 0] == pytest.approx(-0.50)
 
     def test_protected_cell_excluded_from_moments(self) -> None:
-        df = self._spiked(spike=-0.50)
+        # Below remove_threshold robust sigmas, so only the mask can exempt it.
+        df = self._spiked(spike=-0.15)
         with_spike = OutlierTreater().fit(df)
         without = OutlierTreater(protected_mask=self._mask_last(df)).fit(df)
-        # Dropping the -0.50 from the fit shrinks sigma and pulls mu to ~0.
+        # Dropping the -0.15 from the fit shrinks sigma and pulls mu to ~0.
         assert without.sigma_["X"] < with_spike.sigma_["X"]
         assert abs(without.mu_["X"]) < abs(with_spike.mu_["X"])
 
@@ -261,3 +267,243 @@ class TestProtectedMask:
         mask = self._mask_last(df)
         ot = OutlierTreater(protected_mask=mask)
         assert ot.get_params()["protected_mask"] is mask
+
+
+class TestDelistingPadding:
+    """Synthetic post-delisting 0.0 padding must not distort the column scale."""
+
+    N_REAL = 250
+    N_PAD = 1000
+
+    def _delisted_panel(
+        self, mean: float = 0.0, scale: float = 0.013
+    ) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray]:
+        rng = np.random.default_rng(7)
+        n = self.N_REAL + self.N_PAD
+        index = pd.date_range("2015-01-01", periods=n, freq="B")
+        real = mean + scale * rng.standard_t(df=5, size=self.N_REAL)
+        raw = pd.DataFrame(
+            {
+                "A": rng.normal(0.0, 0.0155, size=n),
+                "B": rng.normal(0.0, 0.0155, size=n),
+                "F": np.r_[real, np.full(self.N_PAD, np.nan)],
+            },
+            index=index,
+        )
+        delisting = {"F": -0.30}
+        mask = delisting_protection_mask(raw, delisting)
+        return apply_delisting_returns(raw, delisting), mask, real[:-1]
+
+    def test_sigma_ignores_zero_padding(self) -> None:
+        df, mask, genuine = self._delisted_panel()
+        ot = OutlierTreater(protected_mask=mask).fit(df)
+        assert ot.sigma_["F"] == pytest.approx(genuine.std(ddof=1))
+        assert ot.mu_["F"] == pytest.approx(genuine.mean())
+
+    def test_genuine_history_is_not_clipped_by_padding(self) -> None:
+        df, mask, genuine = self._delisted_panel()
+        out = OutlierTreater(protected_mask=mask).fit_transform(df)
+        treated = out["F"].iloc[: self.N_REAL - 1]
+        changed = ~np.isclose(treated.to_numpy(), genuine) | treated.isna().to_numpy()
+        # Only the t(5) tails beyond 3 sigma may be winsorised, never a quarter
+        # of the history as when the padding shrinks sigma.
+        assert changed.mean() < 0.05
+
+    def test_padding_cells_pass_through_untouched(self) -> None:
+        # A strictly positive drift makes 0.0 look like a big negative z-score
+        # against the genuine history; the padding is not a data point.
+        df, mask, _ = self._delisted_panel(mean=0.004, scale=0.001)
+        out = OutlierTreater(protected_mask=mask).fit_transform(df)
+        assert (out["F"].iloc[self.N_REAL :] == 0.0).all()
+        assert out["F"].iloc[self.N_REAL - 1] == pytest.approx(-0.30)
+
+    def test_zeros_after_a_mid_history_protected_cell_are_real_data(self) -> None:
+        # Only a run of zeros reaching the end of the frame is padding; real
+        # returns that follow a protected event keep informing the scale.
+        rng = np.random.default_rng(5)
+        col = rng.normal(0.0, 0.02, size=200)
+        col[100] = -0.40
+        df = pd.DataFrame({"X": col}, index=pd.date_range("2024-01-01", periods=200))
+        mask = pd.DataFrame(False, index=df.index, columns=df.columns)
+        mask.iloc[100, 0] = True
+        ot = OutlierTreater(protected_mask=mask).fit(df)
+        expected = np.delete(col, 100)
+        assert ot.sigma_["X"] == pytest.approx(expected.std(ddof=1))
+
+
+class TestScaleEstimateRobustToErrors:
+    """A gross data error must not inflate the scale that is meant to catch it."""
+
+    @staticmethod
+    def _with_bad_tick(n: int, tick: float = 5.0) -> pd.DataFrame:
+        rng = np.random.default_rng(0)
+        col = rng.normal(0.0, 0.01, size=n)
+        col[n // 2] = tick
+        return pd.DataFrame({"X": col}, index=pd.date_range("2024-01-01", periods=n))
+
+    @pytest.mark.parametrize("n", [30, 60, 100, 126, 252])
+    def test_bad_tick_is_removed_whatever_the_window_length(self, n: int) -> None:
+        df = self._with_bad_tick(n)
+        out = OutlierTreater().fit_transform(df)
+        assert np.isnan(out.iloc[n // 2, 0])
+        assert out["X"].notna().sum() == n - 1
+
+    def test_scale_is_estimated_without_the_bad_tick(self) -> None:
+        df = self._with_bad_tick(60)
+        clean = np.delete(df["X"].to_numpy(), 30)
+        ot = OutlierTreater().fit(df)
+        assert ot.sigma_["X"] == pytest.approx(clean.std(ddof=1))
+        assert ot.mu_["X"] == pytest.approx(clean.mean())
+
+    def test_clean_column_statistics_are_plain_mean_and_std(
+        self, normal_returns: pd.DataFrame
+    ) -> None:
+        ot = OutlierTreater().fit(normal_returns)
+        pd.testing.assert_series_equal(ot.mu_, normal_returns.mean())
+        pd.testing.assert_series_equal(ot.sigma_, normal_returns.std())
+
+    def test_column_with_zero_mad_keeps_all_observations_in_the_scale(self) -> None:
+        # More than half the cells equal the median, so the robust scale is 0
+        # and cannot screen anything; every non-median cell must not be
+        # mistaken for an error.
+        col = [0.0] * 60 + [0.01, -0.01] * 10
+        df = pd.DataFrame({"X": col}, index=pd.date_range("2024-01-01", periods=80))
+        ot = OutlierTreater().fit(df)
+        assert ot.sigma_["X"] == pytest.approx(np.std(col, ddof=1))
+
+
+class TestScreenWithStaleZeroReturns:
+    """Forward-filled prices give illiquid tickers many exact-zero returns.
+
+    Just below a 50% zero share the MAD of the whole column is tiny but not
+    zero, so a screen built on it would call genuine returns gross errors.
+    """
+
+    @staticmethod
+    def _column(zero_share: float, *, vol: float = 0.02, n: int = 756) -> np.ndarray:
+        rng = np.random.default_rng(7)
+        col = rng.normal(0.0, vol, size=n)
+        col[rng.permutation(n)[: round(zero_share * n)]] = 0.0
+        return col
+
+    @staticmethod
+    def _frame(col: np.ndarray) -> pd.DataFrame:
+        return pd.DataFrame(
+            {"X": col}, index=pd.date_range("2020-01-01", periods=len(col))
+        )
+
+    @pytest.mark.parametrize("zero_share", [0.30, 0.44, 0.46, 0.48, 0.499])
+    def test_clean_column_keeps_plain_mean_and_std(self, zero_share: float) -> None:
+        col = self._column(zero_share)
+        ot = OutlierTreater().fit(self._frame(col))
+        assert ot.sigma_["X"] == pytest.approx(np.std(col, ddof=1))
+        assert ot.mu_["X"] == pytest.approx(np.mean(col))
+
+    @pytest.mark.parametrize("zero_share", [0.45, 0.48, 0.499])
+    def test_genuine_returns_are_never_deleted(self, zero_share: float) -> None:
+        df = self._frame(self._column(zero_share))
+        out = OutlierTreater().fit_transform(df)
+        assert out["X"].notna().all()
+
+    @pytest.mark.parametrize("zero_share", [0.30, 0.48, 0.60])
+    def test_bad_tick_is_still_screened_out_of_the_scale(
+        self, zero_share: float
+    ) -> None:
+        col = self._column(zero_share, vol=0.01)
+        col[10] = 5.0
+        df = self._frame(col)
+        ot = OutlierTreater().fit(df)
+        assert ot.sigma_["X"] == pytest.approx(np.delete(col, 10).std(ddof=1))
+        assert np.isnan(ot.transform(df).iloc[10, 0])
+
+
+class TestScreenWithVolatilityRegimes:
+    """A calm-regime robust scale must not label crisis-day returns as errors."""
+
+    @staticmethod
+    def _regime_frame(seed: int) -> pd.DataFrame:
+        # 10% of days at ten times the volatility of the other 90%.
+        rng = np.random.default_rng(seed)
+        vol = np.where(rng.random(756) < 0.10, 0.10, 0.01)
+        return pd.DataFrame(
+            {"X": rng.normal(0.0, 1.0, size=756) * vol},
+            index=pd.date_range("2020-01-01", periods=756),
+        )
+
+    @pytest.mark.parametrize("seed", range(8))
+    def test_crisis_days_do_not_collapse_the_scale(self, seed: int) -> None:
+        df = self._regime_frame(seed)
+        ot = OutlierTreater().fit(df)
+        assert ot.sigma_["X"] >= 0.8 * df["X"].std()
+
+    @pytest.mark.parametrize("seed", range(8))
+    def test_few_crisis_days_are_deleted(self, seed: int) -> None:
+        df = self._regime_frame(seed)
+        out = OutlierTreater().fit_transform(df)
+        assert out["X"].isna().sum() <= 2
+
+
+class TestProtectedMaskLabelMismatch:
+    """A mask that shares no labels with X would silently protect nothing."""
+
+    @staticmethod
+    def _panel() -> tuple[pd.DataFrame, pd.DataFrame]:
+        rng = np.random.default_rng(1)
+        col = [*rng.normal(0.0, 0.02, size=199).tolist(), -0.50]
+        df = pd.DataFrame({"X": col}, index=pd.date_range("2024-01-01", periods=200))
+        mask = pd.DataFrame(False, index=df.index, columns=df.columns)
+        mask.iloc[-1, 0] = True
+        return df, mask
+
+    def test_aligned_mask_protects_the_cell(self) -> None:
+        df, mask = self._panel()
+        out = OutlierTreater(protected_mask=mask).fit_transform(df)
+        assert out.iloc[-1, 0] == pytest.approx(-0.50)
+
+    @pytest.mark.parametrize(
+        "relabel",
+        [
+            pytest.param(lambda m: m.tz_localize("UTC", level=0), id="tz-aware"),
+            pytest.param(lambda m: m.set_axis(m.index.strftime("%Y-%m-%d")), id="str"),
+            pytest.param(lambda m: m.reset_index(drop=True), id="range-index"),
+        ],
+    )
+    def test_mask_with_no_index_overlap_raises(
+        self, relabel: Callable[[pd.DataFrame], pd.DataFrame]
+    ) -> None:
+        df, mask = self._panel()
+        mismatched = relabel(mask)
+        with pytest.raises(DataError, match="protected_mask"):
+            OutlierTreater(protected_mask=mismatched).fit(df)
+
+    def test_mask_with_no_column_overlap_raises(self) -> None:
+        df, mask = self._panel()
+        with pytest.raises(DataError, match="protected_mask"):
+            OutlierTreater(protected_mask=mask.rename(columns={"X": "Y"})).fit(df)
+
+    def test_partial_overlap_is_still_allowed(self) -> None:
+        # A CV fold only sees a slice of the mask's dates and columns.
+        df, mask = self._panel()
+        wide = mask.assign(Z=False)
+        fold = df.iloc[100:]
+        out = OutlierTreater(protected_mask=wide).fit_transform(fold)
+        assert out.iloc[-1, 0] == pytest.approx(-0.50)
+
+    def test_empty_mask_is_not_a_mismatch(self) -> None:
+        df, _ = self._panel()
+        empty = pd.DataFrame(dtype=bool)
+        OutlierTreater(protected_mask=empty).fit(df)
+
+
+class TestThresholdValidation:
+    @pytest.mark.parametrize(
+        ("winsorize", "remove"), [(5.0, 3.0), (3.0, 3.0), (0.0, 3.0), (-1.0, 3.0)]
+    )
+    def test_invalid_thresholds_raise_on_fit(
+        self, normal_returns: pd.DataFrame, winsorize: float, remove: float
+    ) -> None:
+        # With winsorize >= remove the clipping band is unreachable and every
+        # beyond-remove observation is deleted instead of clipped.
+        ot = OutlierTreater(winsorize_threshold=winsorize, remove_threshold=remove)
+        with pytest.raises(ConfigurationError, match="winsorize_threshold"):
+            ot.fit(normal_returns)

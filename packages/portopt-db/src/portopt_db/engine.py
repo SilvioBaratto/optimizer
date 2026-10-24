@@ -11,7 +11,12 @@ from collections.abc import Generator
 from contextlib import contextmanager
 
 from sqlalchemy import Engine, create_engine, text
-from sqlalchemy.exc import DisconnectionError, OperationalError, SQLAlchemyError
+from sqlalchemy.exc import (
+    DBAPIError,
+    DisconnectionError,
+    OperationalError,
+    SQLAlchemyError,
+)
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool
 
@@ -20,12 +25,43 @@ from portopt_db.config import DbConfig
 
 logger = logging.getLogger(__name__)
 
+_MAX_LOGGED_ERROR_CHARS = 300
+
+
+def summarize_db_error(exc: BaseException) -> str:
+    """Return a short, single-line description of *exc* that is safe to log.
+
+    ``str()`` of a SQLAlchemy ``DBAPIError`` embeds the full statement and its
+    bound parameters; a 1,300-row multi-row upsert makes that ~300 KB per
+    failure. For a driver error only the driver's own exception class and the
+    first line of its message are kept (the part that names the cause).
+
+    Args:
+        exc: Any exception raised inside a database session.
+
+    Returns:
+        ``"<DriverError>: <first message line>"`` for a ``DBAPIError``, else
+        ``str(exc)``, cut to a bounded length.
+    """
+    orig = exc.orig if isinstance(exc, DBAPIError) else None
+    if orig is not None:
+        lines = str(orig).strip().splitlines()
+        message = f"{type(orig).__name__}: {lines[0] if lines else ''}"
+    else:
+        message = str(exc)
+    if len(message) > _MAX_LOGGED_ERROR_CHARS:
+        return message[:_MAX_LOGGED_ERROR_CHARS] + "..."
+    return message
+
 
 class DatabaseManager:
     """Connection pooling, health check, and session context manager.
 
     Thread-safe; lazy-initializes on first `get_session` if `initialize`
-    was not called at startup.
+    was not called at startup. `close` is terminal for lazy initialization: a
+    closed manager raises from `get_session` instead of quietly building a
+    fresh engine nothing would dispose, and only an explicit `initialize`
+    reopens it.
     """
 
     def __init__(self, config: DbConfig):
@@ -38,6 +74,7 @@ class DatabaseManager:
         self._engine: Engine | None = None
         self._session_factory: sessionmaker[Session] | None = None
         self._is_initialized: bool = False
+        self._closed: bool = False
         self._lock = threading.RLock()
         self._last_health_check: float = 0
         self._last_health_check_result: bool = False
@@ -55,6 +92,7 @@ class DatabaseManager:
                 self._create_session_factory()
                 self._test_connection()
                 self._is_initialized = True
+                self._closed = False
                 logger.info("Database initialization successful")
             except Exception as e:
                 logger.error(f"Database initialization failed: {e}")
@@ -132,30 +170,43 @@ class DatabaseManager:
 
     @contextmanager
     def get_session(self) -> Generator[Session, None, None]:
-        """Session with rollback-on-error, disconnect-invalidate, always-close."""
-        if not self._is_initialized:
-            self.initialize()
+        """Session with rollback-on-error and always-close.
 
-        session = self._session_factory()  # type: ignore[misc]
+        Dead connections are not invalidated here: SQLAlchemy discards them
+        itself on a disconnect error, and `pool_pre_ping` screens the rest at
+        checkout. After `rollback()` the session holds no connection, so a
+        manual invalidate would only check out and throw away a healthy one.
+
+        Raises:
+            RuntimeError: The manager was closed and not re-initialized.
+        """
+        # Check, lazy init and session creation share one critical section so a
+        # concurrent `close()` cannot null the factory between them.
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("Database manager is closed")
+            if not self._is_initialized:
+                self.initialize()
+            factory = self._session_factory
+            if factory is None:
+                raise RuntimeError("Session factory not initialized")
+            session = factory()
         try:
             yield session
         except (DisconnectionError, OperationalError) as e:
-            logger.error(f"Database connection error: {e}")
+            logger.error(f"Database connection error: {summarize_db_error(e)}")
             if hasattr(session, "rollback"):
                 session.rollback()
-            try:
-                if hasattr(session, "connection"):
-                    session.connection().invalidate()
-            except Exception as recovery_error:
-                logger.debug(f"Connection invalidation failed: {recovery_error}")
             raise
         except SQLAlchemyError as e:
-            logger.error(f"Database error: {e}")
+            logger.error(f"Database error: {summarize_db_error(e)}")
             if hasattr(session, "rollback"):
                 session.rollback()
             raise
         except Exception as e:
-            logger.error(f"Unexpected error in database session: {e}")
+            logger.error(
+                f"Unexpected error in database session: {summarize_db_error(e)}"
+            )
             if hasattr(session, "rollback"):
                 session.rollback()
             raise
@@ -174,8 +225,12 @@ class DatabaseManager:
         logger.info("Database tables created successfully")
 
     def close(self) -> None:
-        """Dispose the engine + reset state (idempotent, thread-safe)."""
+        """Dispose the engine + reset state (idempotent, thread-safe).
+
+        Afterwards `get_session` raises until `initialize` is called again.
+        """
         with self._lock:
+            self._closed = True
             if not self._is_initialized:
                 return
             try:

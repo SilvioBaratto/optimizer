@@ -11,15 +11,19 @@ Postgres, no live LLM).
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import MifidProfile
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from fund.audit import (
     MifidProfileRepository,
     put_constraint_set,
+    put_constraint_set_after_commit,
     resolve_constraint_set,
 )
 from fund.schemas import ConstraintSet, ConstraintSetRef
@@ -156,3 +160,210 @@ def test_resolve_returns_none_when_ref_is_unknown():
     ref = ConstraintSetRef(portfolio_id="pf-missing", store_key="constraint_set")
 
     assert resolve_constraint_set(store, ref) is None
+
+
+# --- Store helper: write deferred until the session's transaction commits ----
+
+
+def _cached(store: InMemoryStore, cs: ConstraintSet) -> bool:
+    return store.get((cs.portfolio_id,), "constraint_set") is not None
+
+
+def _touch(session: Session) -> None:
+    """Open the transaction the way a repo write would."""
+    session.execute(text("select 1"))
+
+
+def test_deferred_put_waits_for_the_commit(committing_session):
+    store, cs = InMemoryStore(), _constraint_set("pf-d1")
+    _touch(committing_session)
+
+    put_constraint_set_after_commit(
+        committing_session, store, cs, store_key="constraint_set"
+    )
+    assert not _cached(store, cs)
+
+    committing_session.commit()
+
+    assert (
+        resolve_constraint_set(
+            store, ConstraintSetRef(portfolio_id="pf-d1", store_key="constraint_set")
+        )
+        == cs
+    )
+
+
+def test_deferred_put_is_dropped_by_a_rollback(committing_session):
+    store, cs = InMemoryStore(), _constraint_set("pf-d2")
+    _touch(committing_session)
+
+    put_constraint_set_after_commit(
+        committing_session, store, cs, store_key="constraint_set"
+    )
+    committing_session.rollback()
+    committing_session.commit()
+
+    assert not _cached(store, cs)
+
+
+def test_deferred_put_is_dropped_when_the_session_closes_uncommitted(
+    committing_session,
+):
+    store, cs = InMemoryStore(), _constraint_set("pf-d3")
+    _touch(committing_session)
+
+    put_constraint_set_after_commit(
+        committing_session, store, cs, store_key="constraint_set"
+    )
+    committing_session.close()
+    _touch(committing_session)
+    committing_session.commit()
+
+    assert not _cached(store, cs)
+
+
+def test_a_released_savepoint_is_not_a_commit(committing_session):
+    store, cs = InMemoryStore(), _constraint_set("pf-d4")
+    _touch(committing_session)
+
+    savepoint = committing_session.begin_nested()
+    put_constraint_set_after_commit(
+        committing_session, store, cs, store_key="constraint_set"
+    )
+    savepoint.commit()
+    assert not _cached(store, cs)  # the outer transaction can still roll back
+
+    committing_session.rollback()
+    assert not _cached(store, cs)
+
+
+def test_a_released_savepoint_publishes_with_the_outer_commit(committing_session):
+    store, cs = InMemoryStore(), _constraint_set("pf-d5")
+    _touch(committing_session)
+
+    savepoint = committing_session.begin_nested()
+    put_constraint_set_after_commit(
+        committing_session, store, cs, store_key="constraint_set"
+    )
+    savepoint.commit()
+    committing_session.commit()
+
+    assert _cached(store, cs)
+
+
+def test_a_rolled_back_savepoint_drops_only_its_own_puts(committing_session):
+    store = InMemoryStore()
+    outer, inner = _constraint_set("pf-outer"), _constraint_set("pf-inner")
+    _touch(committing_session)
+
+    put_constraint_set_after_commit(
+        committing_session, store, outer, store_key="constraint_set"
+    )
+    savepoint = committing_session.begin_nested()
+    put_constraint_set_after_commit(
+        committing_session, store, inner, store_key="constraint_set"
+    )
+    savepoint.rollback()
+    committing_session.commit()
+
+    assert _cached(store, outer)
+    assert not _cached(store, inner)
+
+
+def test_a_missing_store_is_a_no_op(committing_session):
+    _touch(committing_session)
+
+    put_constraint_set_after_commit(
+        committing_session, None, _constraint_set("pf-d6"), store_key="constraint_set"
+    )
+
+    committing_session.commit()  # nothing to publish, nothing to fail
+
+
+def test_a_failing_store_never_breaks_the_commit(committing_session, caplog):
+    class _BrokenStore:
+        def put(self, *args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("store unreachable")
+
+    _touch(committing_session)
+    put_constraint_set_after_commit(
+        committing_session, _BrokenStore(), _constraint_set("pf-d7"), store_key="k"
+    )
+
+    with caplog.at_level(logging.ERROR):
+        committing_session.commit()  # the DB commit already happened; it must not raise
+
+    assert "pf-d7" in caplog.text
+
+
+def test_each_commit_publishes_only_what_was_queued_before_it(committing_session):
+    store = InMemoryStore()
+    first, second = _constraint_set("pf-first"), _constraint_set("pf-second")
+    _touch(committing_session)
+    put_constraint_set_after_commit(
+        committing_session, store, first, store_key="constraint_set"
+    )
+    committing_session.commit()
+    store.delete(("pf-first",), "constraint_set")
+
+    _touch(committing_session)
+    put_constraint_set_after_commit(
+        committing_session, store, second, store_key="constraint_set"
+    )
+    committing_session.commit()
+
+    assert _cached(store, second)
+    assert not _cached(store, first)  # a published put is never replayed
+
+
+# --- the profile row is the system of record: a lost cache entry is refilled ----
+
+
+def test_resolve_reseeds_a_lost_cache_entry_from_the_profile_row(committing_session):
+    pid = uuid.uuid4()
+    cs = _constraint_set(portfolio_id=str(pid))
+    _add(
+        MifidProfileRepository(committing_session),
+        pid,
+        constraint_set=cs.model_dump(mode="json"),
+    )
+    store = InMemoryStore()  # e.g. the langgraph schema was recreated
+    ref = ConstraintSetRef(portfolio_id=str(pid), store_key="constraint_set")
+
+    resolved = resolve_constraint_set(store, ref, session=committing_session)
+
+    assert resolved == cs
+    # Re-seeded like every other cache write: only once the row's transaction commits.
+    assert store.get((str(pid),), "constraint_set") is None
+    committing_session.commit()
+    assert store.get((str(pid),), "constraint_set") is not None
+
+
+def test_repeated_misses_queue_one_refill(committing_session):
+    pid = uuid.uuid4()
+    _add(
+        MifidProfileRepository(committing_session),
+        pid,
+        constraint_set=_constraint_set(portfolio_id=str(pid)).model_dump(mode="json"),
+    )
+    store = InMemoryStore()
+    ref = ConstraintSetRef(portfolio_id=str(pid), store_key="constraint_set")
+
+    for _ in range(3):
+        resolve_constraint_set(store, ref, session=committing_session)
+
+    publisher = committing_session.info["fund.constraint_set_publisher"]
+    assert len(publisher.pending) == 1
+
+
+def test_resolve_with_session_still_misses_when_no_profile_exists(db_session):
+    store = InMemoryStore()
+    ref = ConstraintSetRef(portfolio_id=str(uuid.uuid4()), store_key="constraint_set")
+
+    assert resolve_constraint_set(store, ref, session=db_session) is None
+
+
+def test_resolve_with_session_tolerates_a_non_uuid_portfolio_id(db_session):
+    ref = ConstraintSetRef(portfolio_id="pf-missing", store_key="constraint_set")
+
+    assert resolve_constraint_set(InMemoryStore(), ref, session=db_session) is None

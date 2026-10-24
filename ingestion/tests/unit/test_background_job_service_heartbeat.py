@@ -136,7 +136,11 @@ class TestHeartbeatLoop:
             )
             _track(stop, th)
             th.start()
-            time.sleep(0.15)
+            # A fixed sleep is not enough: a GC pause or a loaded host can stall
+            # the first tick (it formats a traceback) past the whole window.
+            deadline = time.monotonic() + 5.0
+            while repo.update_heartbeat.call_count < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
             assert th.is_alive()
             stop.set()
             th.join(timeout=0.5)

@@ -10,8 +10,9 @@ from fund.tools.moments import estimate_moments
 from fund.tools.optimize import optimize_portfolio
 from fund.tools.orders import place_orders
 from fund.tools.prices import get_prices
+from fund.tools.regime import get_regime_stats
 from fund.tools.risk import backtest, risk_check
-from fund.tools.universe import universe_filter
+from fund.tools.universe import list_universe, universe_filter
 
 __all__ = [
     "backtest",
@@ -20,6 +21,8 @@ __all__ = [
     "get_portfolio_history",
     "get_prices",
     "get_recent_events",
+    "get_regime_stats",
+    "list_universe",
     "optimize_portfolio",
     "place_orders",
     "risk_check",

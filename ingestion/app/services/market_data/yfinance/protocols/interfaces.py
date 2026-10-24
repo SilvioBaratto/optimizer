@@ -16,6 +16,8 @@ class CacheProtocol(Protocol):
 
     def put(self, key: str, value: Any, ttl: float | None = None) -> None: ...
 
+    def delete(self, key: str) -> None: ...
+
     def clear(self) -> None: ...
 
     def size(self) -> int: ...
@@ -58,6 +60,9 @@ class ArticleScraperProtocol(Protocol):
 @runtime_checkable
 class YFinanceClientProtocol(Protocol):
     """Core yfinance client — price history, ticker info, and bulk downloads."""
+
+    @property
+    def circuit_breaker(self) -> CircuitBreakerProtocol: ...
 
     def get_ticker(self, symbol: str) -> Any: ...
 
@@ -110,6 +115,8 @@ class YFinanceClientProtocol(Protocol):
         auto_adjust: bool = True,
         progress: bool = False,
         max_retries: int | None = None,
+        *,
+        repair: bool = True,
     ) -> pd.DataFrame | None: ...
 
     def fetch_prices_dataframe(
@@ -223,7 +230,7 @@ class CorporateActionsClientProtocol(Protocol):
 
     def fetch_dividends(
         self, symbol: str, max_retries: int | None = None
-    ) -> pd.Series | None: ...
+    ) -> pd.Series | pd.DataFrame | None: ...
 
     def fetch_splits(
         self, symbol: str, max_retries: int | None = None
@@ -246,7 +253,13 @@ class CorporateActionsClientProtocol(Protocol):
 class MetadataClientProtocol(Protocol):
     """Fetches ticker-level metadata from yfinance."""
 
-    def fetch_isin(self, symbol: str, max_retries: int | None = None) -> str | None: ...
+    def fetch_isin(
+        self,
+        symbol: str,
+        max_retries: int | None = None,
+        *,
+        raise_on_lost: bool = False,
+    ) -> str | None: ...
 
     def fetch_fast_info(
         self, symbol: str, max_retries: int | None = None
@@ -311,16 +324,17 @@ class ScreenerClientProtocol(Protocol):
         *,
         size: int = 25,
         offset: int = 0,
+        count: int | None = None,
         sort_field: str | None = None,
-        sort_asc: bool = True,
+        sort_asc: bool | None = None,
         max_retries: int | None = None,
-    ) -> dict[str, Any] | None: ...
+    ) -> dict[str, Any]: ...
 
     def screen_predefined(
         self,
         name: str,
         *,
-        size: int = 25,
+        count: int = 25,
         offset: int = 0,
         max_retries: int | None = None,
     ) -> dict[str, Any] | None: ...

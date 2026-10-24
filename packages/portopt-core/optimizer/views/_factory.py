@@ -4,18 +4,20 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from skfolio.prior import (
     BlackLitterman,
+    EmpiricalPrior,
     EntropyPooling,
     OpinionPooling,
     TimeSeriesFactorModel,
 )
 from skfolio.prior._base import BasePrior, ReturnDistribution
+from sklearn.base import clone
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.moments._config import MomentEstimationConfig
@@ -41,12 +43,26 @@ class _EmpiricalOmegaBlackLitterman(BlackLitterman):
     empirical omega in place of the He-Litterman or Idzorek-derived one.
     """
 
+    # sklearn derives get_params()/clone() from the explicit __init__ signature and
+    # skips **kwargs, so every parent parameter must be spelled out here.
     def __init__(
         self,
+        views: npt.ArrayLike,
         empirical_omega: npt.NDArray[np.float64],
-        **kwargs: Any,
+        groups: dict[str, list[str]] | npt.ArrayLike | None = None,
+        prior_estimator: BasePrior | None = None,
+        tau: float = 0.05,
+        view_confidences: npt.ArrayLike | None = None,
+        risk_free_rate: float = 0,
     ) -> None:
-        super().__init__(**kwargs)
+        super().__init__(
+            views=views,
+            groups=groups,
+            prior_estimator=prior_estimator,
+            tau=tau,
+            view_confidences=view_confidences,
+            risk_free_rate=risk_free_rate,
+        )
         self.empirical_omega = empirical_omega
 
     def fit(
@@ -90,11 +106,86 @@ class _EmpiricalOmegaBlackLitterman(BlackLitterman):
         return self
 
 
+class AvailableAssetViewsPrior(BasePrior):
+    """Black-Litterman prior that applies only the views on assets it is fitted on.
+
+    The views are built once for a fixed set of assets, but a pipeline's
+    pre-selection drops assets at every fit, and skfolio rejects a view naming
+    an asset that is absent from ``X``. An asset that is not held cannot carry a
+    view, so at fit the views on absent assets are set aside and the rest are
+    applied unchanged. With none left the result is the unviewed posterior.
+
+    Args:
+        black_litterman: Template prior holding every view.
+        view_assets: Asset named by each view of ``black_litterman``, in the
+            same order.
+    """
+
+    def __init__(
+        self, black_litterman: BlackLitterman, view_assets: tuple[str, ...]
+    ) -> None:
+        self.black_litterman = black_litterman
+        self.view_assets = view_assets
+
+    def get_metadata_routing(self) -> Any:
+        """Route fit metadata exactly as the wrapped prior would."""
+        return self.black_litterman.get_metadata_routing()
+
+    def fit(
+        self, X: Any, y: None = None, **fit_params: Any
+    ) -> AvailableAssetViewsPrior:
+        """Fit the prior on the views whose asset is a column of ``X``.
+
+        Args:
+            X: Asset returns with the asset names as columns.
+            y: Ignored; present for sklearn API compatibility.
+            **fit_params: Forwarded to the underlying estimators.
+
+        Returns:
+            The fitted prior.
+        """
+        template = self.black_litterman
+        present = set(getattr(X, "columns", ()))
+        keep = [i for i, asset in enumerate(self.view_assets) if asset in present]
+
+        fitted: BasePrior
+        if keep:
+            params: dict[str, Any] = {"views": [template.views[i] for i in keep]}
+            if template.view_confidences is not None:
+                params["view_confidences"] = [
+                    template.view_confidences[i] for i in keep
+                ]
+            fitted = clone(template).set_params(**params)
+            fitted.fit(X, y, **fit_params)
+            self.return_distribution_ = fitted.return_distribution_
+        else:
+            inner = template.prior_estimator
+            fitted = (
+                cast("BasePrior", clone(inner))
+                if inner is not None
+                else EmpiricalPrior()
+            )
+            fitted.fit(X, y, **fit_params)
+            base = fitted.return_distribution_
+            # What BlackLitterman computes when no view constrains the posterior.
+            self.return_distribution_ = ReturnDistribution(
+                mu=base.mu + template.risk_free_rate,
+                covariance=(1.0 + template.tau) * base.covariance,
+                returns=base.returns,
+            )
+        self.n_features_in_ = int(np.shape(X)[1])
+        if hasattr(fitted, "feature_names_in_"):
+            self.feature_names_in_ = fitted.feature_names_in_
+        return self
+
+
 def build_black_litterman(
     config: BlackLittermanConfig,
     view_history: pd.DataFrame | None = None,
     return_history: pd.DataFrame | None = None,
     omega: npt.NDArray[np.float64] | None = None,
+    *,
+    market_weights: npt.NDArray[np.float64] | None = None,
 ) -> BasePrior:
     """Build a skfolio Black-Litterman prior from *config*.
 
@@ -108,6 +199,11 @@ def build_black_litterman(
         omega: Pre-computed diagonal omega matrix. When provided and method is
             ``EMPIRICAL_TRACK_RECORD``, used directly (skipping the history
             computation).
+        market_weights: Market-capitalisation weights, aligned to the columns the
+            prior is fitted on, forwarded to the equilibrium prior. Without them
+            skfolio falls back to equal weights, which is a degenerate
+            (non cap-weighted) equilibrium. Only used when the inner prior's
+            ``mu_estimator`` is ``EQUILIBRIUM``.
 
     Returns:
         A fitted-ready `BlackLitterman` (or `_EmpiricalOmegaBlackLitterman`
@@ -119,7 +215,7 @@ def build_black_litterman(
         if config.prior_config is not None
         else MomentEstimationConfig.for_equilibrium_ledoitwolf()
     )
-    inner_prior = build_prior(prior_cfg)
+    inner_prior = build_prior(prior_cfg, market_weights=market_weights)
 
     shared_kwargs: dict[str, Any] = {
         "views": list(config.views),
@@ -141,8 +237,10 @@ def build_black_litterman(
             empirical_omega=omega, **shared_kwargs
         )
     elif config.uncertainty_method == ViewUncertaintyMethod.IDZOREK:
+        # skfolio does np.asarray(view_confidences); an all-int input yields an int
+        # array, so its 0 -> 1e-16 floor truncates back to 0 and 1/0 poisons mu.
         view_confidences = (
-            list(config.view_confidences)
+            [float(c) for c in config.view_confidences]
             if config.view_confidences is not None
             else None
         )
@@ -182,14 +280,22 @@ def build_entropy_pooling(
         config: Entropy Pooling configuration.
         prior_moments: ``(mu, cov)`` arrays from a fitted prior. Required when
             ``config.relative_mean_views`` or ``config.relative_variance_views``
-            are set.
+            are set. Each relative view becomes ``asset == multiplier * prior``,
+            with the prior mean (or variance) read from these arrays; a zero
+            prior mean therefore stays zero for any multiplier.
         asset_names: Asset names corresponding to rows/columns of *prior_moments*.
             Required together with *prior_moments*.
 
     Returns:
-        A fitted-ready `EntropyPooling`.
+        A fitted-ready `EntropyPooling`.  Its ``prior_estimator`` is ``None``
+        unless ``config.prior_config`` is set, so the result can be used as an
+        `OpinionPooling` expert (which forbids per-expert priors).
     """
-    inner_prior = build_prior(config.prior_config)
+    # OpinionPooling rejects experts that carry their own prior_estimator, so an
+    # unset prior_config must stay None and fall back to skfolio's EmpiricalPrior().
+    inner_prior = (
+        build_prior(config.prior_config) if config.prior_config is not None else None
+    )
     merged_mean_views = _merge_mean_views(config)
 
     variance_views = list(config.variance_views) if config.variance_views else None
@@ -213,7 +319,7 @@ def build_entropy_pooling(
                 merged_mean_views = []
             for asset, multiplier in config.relative_mean_views:
                 idx = name_to_idx[asset]
-                abs_val = float(mu[idx]) + multiplier
+                abs_val = float(mu[idx]) * multiplier
                 merged_mean_views.append(f"{asset} == {abs_val}")
 
         if config.relative_variance_views is not None:

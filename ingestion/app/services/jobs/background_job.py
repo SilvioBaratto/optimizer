@@ -12,6 +12,7 @@ import logging
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from app.config import settings
@@ -52,6 +53,10 @@ class BackgroundJobService:
         self._heartbeat_cadence = heartbeat_cadence_seconds
         self._start_times: dict[str, float] = {}
         self._metrics_lock = threading.Lock()
+        if settings.enable_metrics:
+            from app import metrics
+
+            metrics.register_domain(job_type)
 
     # ------------------------------------------------------------------
     # Public interface (backwards-compatible)
@@ -134,28 +139,12 @@ class BackgroundJobService:
             else {}
         )
 
-        # Test conftest may return a nested CM instead of a plain Session.
-        session_or_cm = self._session_factory()
-
-        if hasattr(session_or_cm, "__enter__") and not hasattr(
-            session_or_cm, "execute"
-        ):
-            with session_or_cm as potential_session:
-                if hasattr(potential_session, "__enter__") and not hasattr(
-                    potential_session, "execute"
-                ):
-                    with potential_session as session:
-                        return self._resolve(
-                            *self._execute_create_job(session, extra, attempt)
-                        )
-                else:
-                    session = potential_session
-                    return self._resolve(
-                        *self._execute_create_job(session, extra, attempt)
-                    )
-        else:
-            session = session_or_cm
-            return self._resolve(*self._execute_create_job(session, extra, attempt))
+        with self._get_session_context_manager() as session:
+            outcome = self._execute_create_job(session, extra, attempt)
+        # Resolved after the session scope exits: ``get_session`` logs every
+        # exception crossing it as a database ERROR, and a skipped run is
+        # expected control flow rather than a database failure.
+        return self._resolve(*outcome)
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:
         """Return a dict representation of the job, or ``None``.
@@ -178,24 +167,41 @@ class BackgroundJobService:
     def update_job(self, job_id: str, **kwargs: Any) -> None:
         """Update an existing job.  No-op if the job does not exist.
 
-        Logs WARNING when the underlying status-guarded UPDATE matched no
-        row and the requested status is not terminal — typically the
-        worker-vs-reaper race closure (the row was already failed by the
-        orphan reaper before this write landed).
+        Transition metrics and the failure webhook fire only when the UPDATE
+        matched a row: a write fenced off because the orphan reaper already
+        failed the row was counted by the reaper, so counting it again would
+        double-book the job and push ``jobs_in_progress`` negative.
+
+        Logs WARNING when the status-guarded UPDATE matched no row for a
+        status change — the worker-vs-reaper race closure (the row was
+        already failed by the orphan reaper before this write landed).
+
+        Raises:
+            Exception: Any database error from a write that carries a
+                ``status``. Pure progress writes (no ``status``) are
+                best-effort telemetry: a database error is logged at WARNING
+                and swallowed so it cannot abort a long sweep whose data is
+                already committed.
         """
         try:
             uid = uuid.UUID(job_id)
         except ValueError:
             return
 
-        self._emit_transition(job_id, kwargs)
+        try:
+            with self._get_session_context_manager() as session:
+                repo = BackgroundJobRepository(session)
+                rowcount = repo.update(uid, **kwargs)
+                session.commit()
+        except Exception:
+            if "status" in kwargs:
+                raise
+            logger.warning("progress update failed for %s", job_id, exc_info=True)
+            return
 
-        with self._get_session_context_manager() as session:
-            repo = BackgroundJobRepository(session)
-            rowcount = repo.update(uid, **kwargs)
-            session.commit()
-
-        if rowcount == 0 and kwargs.get("status") not in ("failed", "completed", None):
+        if rowcount == 1:
+            self._emit_transition(job_id, kwargs)
+        elif rowcount == 0 and kwargs.get("status") is not None:
             logger.warning(
                 "update_job no-op for %s: row reaped or absent (kwargs=%s)",
                 job_id,
@@ -272,6 +278,7 @@ class BackgroundJobService:
         job_id: uuid.UUID,
         stop_event: threading.Event,
         cadence: float,
+        should_renew: Callable[[], bool] | None = None,
     ) -> None:
         """Refresh ``last_heartbeat_at`` on each cadence tick.
 
@@ -279,8 +286,21 @@ class BackgroundJobService:
         (``update_heartbeat`` returns False) or when a DB error occurs.
         DB errors are logged at WARNING and swallowed so a transient DB
         hiccup does not kill the worker.
+
+        Args:
+            job_id: Row whose lease is renewed.
+            stop_event: Set by the owner when the worker finishes, or by this
+                loop when the row has been reaped.
+            cadence: Seconds between ticks.
+            should_renew: Optional gate evaluated every tick. While it returns
+                ``False`` the stamp is skipped but the loop keeps running, so a
+                worker that stopped making progress lets its lease lapse (the
+                reaper can then claim it) yet renewal resumes if the worker
+                recovers before the row is reaped.
         """
         while not stop_event.wait(timeout=cadence):
+            if should_renew is not None and not should_renew():
+                continue
             if not self._tick_heartbeat(job_id, stop_event):
                 return
 
@@ -358,7 +378,15 @@ class BackgroundJobService:
             if webhook_url:
                 from app.services._shared import notify_failure
 
-                error_text = str(kwargs.get("error") or "")
+                # Services report failures through ``errors`` (a list) as often
+                # as through ``error``; without the fallback the alert reads
+                # "(no error message)" for every service-reported failure.
+                errors = kwargs.get("errors")
+                error_text = str(kwargs.get("error") or "") or (
+                    "\n".join(str(e) for e in errors)
+                    if isinstance(errors, list)
+                    else ""
+                )
                 notify_failure(webhook_url, self._job_type, job_id, error_text)
 
     @staticmethod

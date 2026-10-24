@@ -160,14 +160,24 @@ def fit_factor_prior(
         The fitted prior.
 
     Raises:
-        DataError: If either frame is empty, they share no dates, or fewer
-            than ``config.min_observations`` fully-finite aligned periods remain.
+        DataError: If either frame is empty or has duplicate dates, they share
+            no dates, or fewer than ``config.min_observations`` fully-finite
+            aligned periods remain.
     """
     if config is None:
         config = FactorPriorConfig.for_default()
 
     if asset_returns.empty or factor_returns.empty:
         raise DataError("asset_returns and factor_returns must both be non-empty")
+
+    # ``.loc[common]`` expands repeated labels in whichever frame holds them,
+    # leaving x and f with different lengths or double-counted periods.
+    for name, frame in (
+        ("asset_returns", asset_returns),
+        ("factor_returns", factor_returns),
+    ):
+        if not frame.index.is_unique:
+            raise DataError(f"{name} has duplicate dates in its index")
 
     common = asset_returns.index.intersection(factor_returns.index)
     if len(common) == 0:
@@ -176,7 +186,11 @@ def fit_factor_prior(
     x = asset_returns.loc[common]
     f = factor_returns.loc[common]
 
-    finite = x.notna().all(axis=1).to_numpy() & f.notna().all(axis=1).to_numpy()
+    # notna() is True for +/-inf (e.g. pct_change off a zero price), which
+    # skfolio rejects just like NaN.
+    x_ok = np.isfinite(x.to_numpy(dtype=float, na_value=np.nan)).all(axis=1)
+    f_ok = np.isfinite(f.to_numpy(dtype=float, na_value=np.nan)).all(axis=1)
+    finite = x_ok & f_ok
     n_finite = int(np.count_nonzero(finite))
     if n_finite < config.min_observations:
         raise DataError(

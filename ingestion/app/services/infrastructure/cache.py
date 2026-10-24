@@ -29,6 +29,22 @@ class LRUCache:
     def _is_expired(self, expiry: float | None) -> bool:
         return expiry is not None and time.monotonic() > expiry
 
+    def _purge_expired(self) -> None:
+        """Drop every expired entry; the caller must hold the lock.
+
+        Expiry is otherwise noticed only when the same key is read again, so
+        entries nobody asks for twice would stay resident until capacity
+        evicted them.
+        """
+        now = time.monotonic()
+        expired = [
+            key
+            for key, (_, expiry) in self._cache.items()
+            if expiry is not None and now > expiry
+        ]
+        for key in expired:
+            del self._cache[key]
+
     def get(self, key: str) -> Any | None:
         """Return the cached value for *key*, or ``None`` on miss or expiry."""
         with self._lock:
@@ -56,12 +72,18 @@ class LRUCache:
         expiry = time.monotonic() + effective_ttl if effective_ttl is not None else None
 
         with self._lock:
+            self._purge_expired()
             if key in self._cache:
                 self._cache.move_to_end(key)
             self._cache[key] = (value, expiry)
 
             if len(self._cache) > self._capacity:
                 self._cache.popitem(last=False)
+
+    def delete(self, key: str) -> None:
+        """Evict *key* if present; an absent key is ignored."""
+        with self._lock:
+            self._cache.pop(key, None)
 
     def clear(self) -> None:
         """Evict all entries."""
@@ -71,6 +93,7 @@ class LRUCache:
     def size(self) -> int:
         """Return the current number of non-expired entries."""
         with self._lock:
+            self._purge_expired()
             return len(self._cache)
 
     @property
@@ -92,12 +115,5 @@ class LRUCache:
     def keys(self) -> list[str]:
         """Return a snapshot of all non-expired keys."""
         with self._lock:
-            now = time.monotonic()
-            expired = [
-                k
-                for k, (_, expiry) in self._cache.items()
-                if expiry is not None and now > expiry
-            ]
-            for k in expired:
-                del self._cache[k]
+            self._purge_expired()
             return list(self._cache.keys())

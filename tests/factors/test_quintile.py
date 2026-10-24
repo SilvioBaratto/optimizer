@@ -216,6 +216,34 @@ class TestAnnualisation:
         if not np.isnan(result.t_stat) and result.annualised_mean != 0:
             assert np.sign(result.t_stat) == np.sign(result.annualised_mean)
 
+    def test_monthly_annualisation_scales_mean_by_periods_per_year(
+        self, scores: pd.DataFrame, returns: pd.DataFrame
+    ) -> None:
+        result = compute_quintile_spread(scores, returns, annualisation=12)
+        expected = float(result.spread_returns.dropna().mean()) * 12
+        assert pytest.approx(result.annualised_mean, rel=1e-9) == expected
+
+    def test_monthly_annualisation_scales_sharpe_by_sqrt_periods(
+        self, scores: pd.DataFrame, returns: pd.DataFrame
+    ) -> None:
+        result = compute_quintile_spread(scores, returns, annualisation=12)
+        valid = result.spread_returns.dropna()
+        expected = float(valid.mean()) * math.sqrt(12) / float(valid.std(ddof=1))
+        assert pytest.approx(result.sharpe, rel=1e-9) == expected
+
+    def test_annualisation_does_not_change_t_stat(
+        self, scores: pd.DataFrame, returns: pd.DataFrame
+    ) -> None:
+        daily = compute_quintile_spread(scores, returns)
+        monthly = compute_quintile_spread(scores, returns, annualisation=12)
+        assert pytest.approx(daily.t_stat, rel=1e-12) == monthly.t_stat
+
+    def test_non_positive_annualisation_raises(
+        self, scores: pd.DataFrame, returns: pd.DataFrame
+    ) -> None:
+        with pytest.raises(ConfigurationError, match="annualisation"):
+            compute_quintile_spread(scores, returns, annualisation=0)
+
 
 # ---------------------------------------------------------------------------
 # Ordering: high-score bucket beats low-score bucket when predictive
@@ -294,6 +322,28 @@ class TestEdgeCases:
         )
         result = compute_quintile_spread(sc, rt, n_quantiles=5)
         assert result.quintile_returns.isna().all(axis=None)
+
+    def test_disjoint_dates_yield_empty_frame_with_nan_statistics(
+        self, scores: pd.DataFrame, returns: pd.DataFrame
+    ) -> None:
+        shifted = returns.copy()
+        shifted.index = shifted.index + pd.DateOffset(years=10)
+        result = compute_quintile_spread(scores, shifted)
+        assert list(result.quintile_returns.columns) == [
+            f"Q{i}" for i in range(1, N_QUANTILES + 1)
+        ]
+        assert result.quintile_returns.empty
+        assert result.spread_returns.empty
+        assert np.isnan(result.annualised_mean)
+        assert np.isnan(result.t_stat)
+        assert np.isnan(result.sharpe)
+
+    def test_empty_scores_slice_yields_empty_frame(
+        self, scores: pd.DataFrame, returns: pd.DataFrame
+    ) -> None:
+        result = compute_quintile_spread(scores.iloc[:0], returns)
+        assert result.quintile_returns.shape == (0, N_QUANTILES)
+        assert np.isnan(result.sharpe)
 
     def test_decile_output_shape(
         self, scores: pd.DataFrame, returns: pd.DataFrame

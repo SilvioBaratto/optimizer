@@ -1,18 +1,21 @@
-import time
+import logging
 from dataclasses import dataclass, field
 
 from app.services.market_data.yfinance import YFinanceClient
 from app.services.universe.trading212.cache.ticker_cache import TickerMappingCache
 from app.services.universe.trading212.config import UniverseBuilderConfig
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class YFinanceTickerMapper:
     """Maps Trading 212 symbols to verified yfinance tickers.
 
-    Attempts the exchange-suffixed form first (e.g. ``AAPL.L``), then
-    the bare symbol. Uses the in-memory ``TickerMappingCache`` to avoid
-    redundant yfinance round-trips within a single universe build job.
+    Resolves the exchange-suffixed form (e.g. ``AAPL.L``); only venues whose
+    Yahoo suffix is empty, or that have no suffix mapping, use the bare
+    symbol. Uses the in-memory ``TickerMappingCache`` to avoid redundant
+    yfinance round-trips within a single universe build job.
     """
 
     config: UniverseBuilderConfig
@@ -34,8 +37,9 @@ class YFinanceTickerMapper:
         """Return the verified yfinance ticker for a T212 symbol, or ``None``.
 
         Checks the cache before issuing any yfinance request. On a miss,
-        tries the exchange-suffixed form then the bare symbol. A verified
-        ticker is written back to the cache for the remainder of the build.
+        verifies the ticker built from the symbol and the exchange's Yahoo
+        suffix. A verified ticker is written back to the cache for the
+        remainder of the build.
 
         Args:
             symbol: The T212 ``shortName`` (e.g. ``AAPL_US_EQ``).
@@ -66,65 +70,46 @@ class YFinanceTickerMapper:
 
         except Exception:
             # Best-effort per-ticker discovery inside a bulk universe build:
-            # _verify_ticker already classifies known yfinance errors, so an
-            # unexpected failure degrades to "no mapping" and the row is
-            # skipped (surfaced via BuildResult.errors), never fatal.
+            # an unexpected failure degrades to "no mapping" and the row is
+            # skipped, never fatal.
             return None
 
     def _build_ticker_attempts(
         self, clean_symbol: str, exchange_name: str | None
     ) -> list[str]:
-        attempts = []
+        suffix = self.config.get_yahoo_suffix(exchange_name) if exchange_name else None
 
-        if exchange_name:
-            suffix = self.config.get_yahoo_suffix(exchange_name)
-            if suffix is not None:
-                preferred_ticker = clean_symbol + suffix
-                attempts.append(preferred_ticker)
+        # Verification only checks that Yahoo returns a price, so a bare-symbol
+        # fallback on a suffixed venue would accept an unrelated security that
+        # shares the short symbol (BA.L is BAE Systems, bare BA is Boeing in USD).
+        if suffix:
+            return [clean_symbol + suffix]
 
-        if clean_symbol not in attempts:
-            attempts.append(clean_symbol)
-
-        return attempts
+        return [clean_symbol]
 
     def _verify_ticker(self, ticker: str) -> bool:
-        for retry in range(self.max_retries):
-            try:
-                info = self.yf_client.fetch_info(ticker, max_retries=1, min_fields=5)
+        """Report whether Yahoo returns a live price for *ticker*.
 
+        ``fetch_info`` swallows every request error and returns ``None``, so a
+        throttled call is told apart from a no-data answer by the shared
+        circuit breaker it trips. While throttled the call is repeated; the
+        breaker blocks the next ``fetch_info`` until its cooldown ends, so no
+        sleep is needed here. A no-data answer is final.
+        """
+        for _ in range(self.max_retries):
+            info = self.yf_client.fetch_info(ticker, max_retries=1, min_fields=5)
+
+            if info is not None:
                 return bool(
-                    info
-                    and len(info) > 5
+                    len(info) > 5
                     and ("currentPrice" in info or "regularMarketPrice" in info)
                 )
 
-            except Exception as e:
-                # Per-ticker verification in a bulk build: the error string is
-                # classified (rate-limit → backoff/retry, not-found → reject) and
-                # the ticker degrades to unverified. No raise — one bad ticker
-                # must not abort the universe build.
-                error_str = str(e).lower()
-
-                if any(
-                    x in error_str
-                    for x in ["rate limit", "too many requests", "timeout", "timed out"]
-                ):
-                    if retry < self.max_retries - 1:
-                        wait_times = [60, 300, 900, 1800, 3600]
-                        wait_time = (
-                            wait_times[retry] if retry < len(wait_times) else 3600
-                        )
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        return False
-
-                if any(
-                    x in error_str
-                    for x in ["not found", "404", "invalid crumb", "unauthorized"]
-                ):
-                    return False
-
+            if not self.yf_client.circuit_breaker.is_active:
                 return False
 
+        logger.warning(
+            "yfinance stayed throttled while verifying %s; treating it as unmapped",
+            ticker,
+        )
         return False

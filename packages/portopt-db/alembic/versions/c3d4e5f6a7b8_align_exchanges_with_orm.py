@@ -13,7 +13,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "c3d4e5f6a7b8"
 down_revision: str | Sequence[str] | None = "b2c3d4e5f6a7"
@@ -22,6 +22,12 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # The initial revision already creates exchanges in ORM shape; only
+    # databases that predate the chain need the renames below, and those need a
+    # live inspector that an offline (--sql) render does not have.
+    if context.is_offline_mode():
+        return
+
     conn = op.get_bind()
     inspector = sa.inspect(conn)
     cols = {c["name"] for c in inspector.get_columns("exchanges")}
@@ -81,6 +87,21 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # The upgrade returns early on a table that already has the ORM shape, as the
+    # initial revision creates it, and that table's unique key on name is the
+    # unnamed one from that revision. Only a legacy conversion creates
+    # uq_exchanges_name, so without it there is nothing to reverse. An offline
+    # render cannot inspect, so it emits the whole legacy reversal and a script
+    # applied to a chain-built database fails loudly on the missing constraint;
+    # skipping it instead would leave a legacy database silently half reverted.
+    if not op.get_context().as_sql:
+        unique_names = {
+            c["name"]
+            for c in sa.inspect(op.get_bind()).get_unique_constraints("exchanges")
+        }
+        if "uq_exchanges_name" not in unique_names:
+            return
+
     # Reverse: restore old column names, constraints, and columns
     op.drop_constraint("uq_exchanges_name", "exchanges", type_="unique")
 

@@ -19,11 +19,17 @@ so reading config in a test does not drag in the DB driver.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+# Rolling 3y (~756 trading days) moments/backtest lookback. A run records it and the
+# drill-down replay re-reads it, so both must share one value or a replayed backtest
+# trains on a different window than the risk gate evaluated.
+DEFAULT_LOOKBACK_DAYS = 756
 
 
 @dataclass(frozen=True)
@@ -48,6 +54,12 @@ class FundConfig:
     agent_virtual_mode: bool = True
     preload_theory: bool = True
 
+    # --- Server-side `lock_timeout` (ms) for ORM sessions: a writer queued behind
+    # another transaction's row lock fails after this long instead of pinning a
+    # pool connection forever. 0 disables it. Shares the ingestion daemon's
+    # DATABASE_LOCK_TIMEOUT_MS knob. ---
+    db_lock_timeout_ms: int = 60_000
+
     # --- D3 LangGraph persistence: dedicated `langgraph` schema via search_path ---
     langgraph_schema: str = "langgraph"
     pool_autocommit: bool = True
@@ -59,6 +71,10 @@ class FundConfig:
     # DeepSeek-on-Ollama-Cloud path byte-for-byte (SPEC "Switchable LLM Backends").
     llm_provider: str = "ollama"
     ollama_base_url: str = "https://ollama.com"
+    # Context window requested from a *local* Ollama server. Its own default is a
+    # few thousand tokens and it truncates silently, which would cut the deep-agent
+    # system prompt and tool schemas; Ollama Cloud sizes the window itself.
+    ollama_num_ctx: int = 32768
     primary_model: str = "deepseek-v4.1-flash:cloud"
     fallback_model: str = "deepseek-v4-pro:cloud"
     model_temperature: float = 0.0
@@ -66,6 +82,8 @@ class FundConfig:
     # deepagents depends on reliable tool-calling (SPEC D4).
     model_reasoning: bool = False
     # `json_schema` fell through in probing; `function_calling` round-tripped.
+    # `load_config` swaps in a per-provider method where function calling is
+    # unavailable (see `_PROVIDER_STRUCTURED_OUTPUT_METHOD`).
     structured_output_method: str = "function_calling"
 
     # --- D4 provider registry: per-provider keys/endpoints. Each stays None (or
@@ -80,9 +98,13 @@ class FundConfig:
     anthropic_api_key: str | None = None
     google_api_key: str | None = None
     groq_api_key: str | None = None
-    # nvidia — hosted (NVIDIA_API_KEY) vs self-hosted NIM (NVIDIA_BASE_URL set)
+    # nvidia — NVIDIA_API_KEY authenticates to NVIDIA's hosted API. A custom
+    # NVIDIA_BASE_URL (self-hosted NIM or gateway) receives it only when
+    # `nvidia_base_url_send_key` is set: that variable usually holds a hosted key,
+    # and the config cannot tell it apart from a key meant for the gateway.
     nvidia_api_key: str | None = None
     nvidia_base_url: str | None = None
+    nvidia_base_url_send_key: bool = False
     # huggingface — cloud only in this delivery; `hf_mode == "local"` is deferred
     hf_api_token: str | None = None
     hf_mode: str = "cloud"
@@ -93,11 +115,20 @@ class FundConfig:
     azure_openai_endpoint: str | None = None
     azure_openai_api_version: str | None = None
     azure_openai_deployment_name: str | None = None
+    # Azure routes by deployment, so the fallback only differs from the primary when
+    # it is built on its own deployment (same resource, endpoint and key). Applied by
+    # `build_fallback` whatever the two model ids are; unset keeps a same-deployment
+    # retry.
+    azure_openai_fallback_deployment_name: str | None = None
 
     # --- D22 guards: LOW explicit recursion_limit + PM round cap (library
     # default 9999 is NOT a safety bound). ---
     recursion_limit: int = 50
     max_pm_rounds: int = 10
+    # Per-delegation model-call cap for every subagent. Neither ``recursion_limit``
+    # nor ``max_pm_rounds`` reaches a subagent graph (each carries langgraph's own
+    # 9999 bound), so this is what stops a subagent that keeps retrying a tool.
+    max_subagent_model_calls: int = 25
 
     # --- D10 HITL: tools gated behind interrupt_on (checkpointer required) ---
     interrupt_on: tuple[str, ...] = field(default=("place_orders",))
@@ -108,20 +139,40 @@ class FundConfig:
 
     # --- Phase-9 daemon: scheduler cadences + heartbeat-lease + drain (OQ3). ---
     # Cron uses the weekday NAME `sat`; a bare `0` fires Monday under APScheduler
-    # ``from_crontab`` (0=Mon..6=Sun).
-    fund_rebalance_cron: str = "0 3 * * sat"
+    # ``from_crontab`` (0=Mon..6=Sun). The sweep reads ``price_history`` with no
+    # freshness gate, so it sits after the Saturday ingestion chain (universe
+    # 02:00, refetch 03:00, market-wide 04:00, daily pipeline 07:00) and the
+    # 08:00 NAV mark, not on top of the refetch that is still rewriting history.
+    fund_rebalance_cron: str = "0 12 * * sat"
     fund_drift_interval_seconds: int = 900
+    # After a rebalance the adviser rejected (or that ended without an order), the
+    # drift monitor leaves the portfolio alone this long instead of re-driving a
+    # full LLM round on every tick. The weekly sweep is unaffected.
+    fund_drift_cooldown_seconds: int = 86400
     fund_heartbeat_cadence_seconds: int = 30
     fund_orphan_timeout_seconds: int = 300
     fund_shutdown_drain_timeout_seconds: int = 30
+    # How late a job may start and still run. The executor has one worker, so a job
+    # queued behind a multi-minute LLM round starts late; APScheduler's default 1s
+    # would silently drop it (a weekly sweep lost for 7 days). Hours, not seconds.
+    fund_misfire_grace_time_seconds: int = 21600
     # Daily NAV mark at 08:00 UTC — after the 07:00 ingestion pipeline (prices + FX
     # fresh). Pure compute, agent-stack-free; backfills + idempotent upsert.
     fund_nav_mark_cron: str = "0 8 * * *"
 
-    # --- Phase-9 agent hardening: annual re-profiling marker + summarization pin
-    # (mirrors the deepagents built-in defaults so the daemon can override them). ---
+    # --- HITL staleness: how long a paused gate may wait before an approve is refused.
+    # A ticket fills at the first close after the run's ``asof``, so an approval that
+    # arrives later than the rebalance cadence would backdate the fill with hindsight.
+    # The default matches the weekly ``fund_rebalance_cron``. ---
+    approval_max_age_days: int = 7
+
+    # --- Phase-9 agent hardening: annual re-profiling marker + summarization
+    # override. ``summary_token_threshold=None`` keeps deepagents' model-aware
+    # default (a fraction of the model's context, else 170000 tokens); a value pins
+    # the trigger for every agent so transcripts stay inside a small-context model.
+    # ``summary_messages_to_keep`` only applies together with a threshold. ---
     reprofile_interval_days: int = 365
-    summary_token_threshold: int = 170000
+    summary_token_threshold: int | None = None
     summary_messages_to_keep: int = 6
 
     def langgraph_pool_kwargs(self) -> dict[str, Any]:
@@ -144,6 +195,14 @@ class FundConfig:
     def interrupt_on_map(self) -> dict[str, bool]:
         """deepagents ``interrupt_on={tool: True}`` map from the gated-tool tuple."""
         return dict.fromkeys(self.interrupt_on, True)
+
+
+def _optional_int(env: Mapping[str, str], name: str) -> int | None:
+    """Parse ``env[name]`` as an int, treating an absent or blank value as unset."""
+    raw = env.get(name)
+    if raw is None or not raw.strip():
+        return None
+    return int(raw)
 
 
 def _read_secret(env: Mapping[str, str], name: str) -> str | None:
@@ -170,6 +229,63 @@ def _read_secret(env: Mapping[str, str], name: str) -> str | None:
     return env.get(name) or None
 
 
+# Endpoint overrides the provider SDKs read from ``os.environ`` on their own. They
+# keep a blank value verbatim (`is None` checks, not truthiness), so an exported
+# `OPENAI_BASE_URL=` would become an empty base URL instead of "use the default host".
+_SDK_ENDPOINT_ENV_VARS = ("OPENAI_BASE_URL", "NVIDIA_BASE_URL")
+
+
+def _drop_blank_sdk_endpoint_env() -> None:
+    """Unset blank SDK endpoint overrides so the SDK falls back to its own host."""
+    for name in _SDK_ENDPOINT_ENV_VARS:
+        if name in os.environ and not os.environ[name].strip():
+            del os.environ[name]
+
+
+# Variables where the project ``.env`` beats the ambient shell. A conda-activated
+# shell exports SSL_CERT_FILE to a stock cacert.pem lacking the corporate CA, which
+# would otherwise shadow the correct ``.env`` value and break TLS to Ollama Cloud.
+_DOTENV_OVERRIDE_KEYS = frozenset({"SSL_CERT_FILE"})
+
+
+def load_project_env() -> None:
+    """Load the project ``.env`` into ``os.environ`` without displacing exports.
+
+    The process environment keeps precedence, matching Alembic and the ingestion
+    daemon: an operator who exports ``DATABASE_URL`` to run ``alembic upgrade``
+    against a scratch database gets that same database from ``fund``. The one
+    exception is :data:`_DOTENV_OVERRIDE_KEYS`, where the ``.env`` value wins over
+    ambient shell pollution. A missing ``.env`` is a no-op.
+    """
+    from dotenv import dotenv_values, load_dotenv
+
+    load_dotenv(override=False)
+    for key, value in dotenv_values().items():
+        if key in _DOTENV_OVERRIDE_KEYS and value is not None:
+            os.environ[key] = value
+
+
+# langchain-huggingface raises NotImplementedError when a pydantic schema is bound
+# with method="function_calling", and every structured step here passes one.
+_PROVIDER_STRUCTURED_OUTPUT_METHOD: Mapping[str, str] = {"huggingface": "json_schema"}
+
+
+def silence_http_request_logs() -> None:
+    """Keep ``httpx`` / ``httpcore`` at WARNING under a root logger set to INFO.
+
+    httpx logs every request as ``HTTP Request: POST <full url>`` at INFO, so a
+    provider URL that carries credentials, or any query token, would be written to
+    the daemon log on every model call.
+    """
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
+def _env_flag(env: Mapping[str, str], name: str) -> bool:
+    """Return whether ``name`` holds a truthy word (``1``/``true``/``yes``/``on``)."""
+    return env.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def load_config(
     *,
     env: Mapping[str, str] | None = None,
@@ -189,13 +305,8 @@ def load_config(
     """
     if env is None:
         if load_dotenv_file:
-            from dotenv import load_dotenv
-
-            # override=True: the project .env is authoritative over ambient shell
-            # pollution. Notably a conda-activated env exports SSL_CERT_FILE to a
-            # stock cacert.pem lacking the corporate CA; without override that
-            # shadows the correct .env value and breaks TLS to Ollama Cloud.
-            load_dotenv(override=True)
+            load_project_env()
+        _drop_blank_sdk_endpoint_env()
         env = os.environ
 
     defaults = FundConfig()
@@ -205,12 +316,23 @@ def load_config(
         fred_api_key=_read_secret(env, "FRED_API_KEY"),
         # NOT a secret file: SSL_CERT_FILE is itself the CA-bundle path (verbatim).
         ssl_cert_file=env.get("SSL_CERT_FILE"),
+        db_lock_timeout_ms=int(
+            env.get("DATABASE_LOCK_TIMEOUT_MS", defaults.db_lock_timeout_ms)
+        ),
         # D4 provider registry: LLM_PROVIDER + shared model ids + Ollama base_url;
         # missing → dataclass default (env-free load stays on DeepSeek/Ollama Cloud).
         llm_provider=env.get("LLM_PROVIDER", defaults.llm_provider),
         primary_model=env.get("FUND_PRIMARY_MODEL", defaults.primary_model),
         fallback_model=env.get("FUND_FALLBACK_MODEL", defaults.fallback_model),
+        structured_output_method=(
+            env.get("FUND_STRUCTURED_OUTPUT_METHOD", "").strip()
+            or _PROVIDER_STRUCTURED_OUTPUT_METHOD.get(
+                env.get("LLM_PROVIDER", defaults.llm_provider),
+                defaults.structured_output_method,
+            )
+        ),
         ollama_base_url=env.get("OLLAMA_BASE_URL", defaults.ollama_base_url),
+        ollama_num_ctx=int(env.get("FUND_OLLAMA_NUM_CTX", defaults.ollama_num_ctx)),
         # Per-provider secret keys → _read_secret (file-based docker secret wins);
         # non-secret endpoints/urls/region stay plain env.get (absent → None).
         openai_api_key=_read_secret(env, "OPENAI_API_KEY"),
@@ -221,6 +343,7 @@ def load_config(
         groq_api_key=_read_secret(env, "GROQ_API_KEY"),
         nvidia_api_key=_read_secret(env, "NVIDIA_API_KEY"),
         nvidia_base_url=env.get("NVIDIA_BASE_URL"),
+        nvidia_base_url_send_key=_env_flag(env, "NVIDIA_BASE_URL_SEND_KEY"),
         hf_api_token=_read_secret(env, "HUGGINGFACEHUB_API_TOKEN"),
         hf_mode=env.get("FUND_HF_MODE", defaults.hf_mode),
         aws_region=env.get("AWS_REGION"),
@@ -228,12 +351,18 @@ def load_config(
         azure_openai_endpoint=env.get("AZURE_OPENAI_ENDPOINT"),
         azure_openai_api_version=env.get("OPENAI_API_VERSION"),
         azure_openai_deployment_name=env.get("AZURE_OPENAI_DEPLOYMENT_NAME"),
+        azure_openai_fallback_deployment_name=env.get(
+            "AZURE_OPENAI_FALLBACK_DEPLOYMENT_NAME"
+        ),
         # Phase-9 daemon knobs: `FUND_*` aliases; missing → dataclass default.
         fund_rebalance_cron=env.get(
             "FUND_REBALANCE_CRON", defaults.fund_rebalance_cron
         ),
         fund_drift_interval_seconds=int(
             env.get("FUND_DRIFT_INTERVAL_SECONDS", defaults.fund_drift_interval_seconds)
+        ),
+        fund_drift_cooldown_seconds=int(
+            env.get("FUND_DRIFT_COOLDOWN_SECONDS", defaults.fund_drift_cooldown_seconds)
         ),
         fund_heartbeat_cadence_seconds=int(
             env.get(
@@ -244,6 +373,12 @@ def load_config(
         fund_orphan_timeout_seconds=int(
             env.get("FUND_ORPHAN_TIMEOUT_SECONDS", defaults.fund_orphan_timeout_seconds)
         ),
+        fund_misfire_grace_time_seconds=int(
+            env.get(
+                "FUND_MISFIRE_GRACE_TIME_SECONDS",
+                defaults.fund_misfire_grace_time_seconds,
+            )
+        ),
         fund_nav_mark_cron=env.get("FUND_NAV_MARK_CRON", defaults.fund_nav_mark_cron),
         fund_shutdown_drain_timeout_seconds=int(
             env.get(
@@ -251,12 +386,13 @@ def load_config(
                 defaults.fund_shutdown_drain_timeout_seconds,
             )
         ),
+        approval_max_age_days=int(
+            env.get("FUND_APPROVAL_MAX_AGE_DAYS", defaults.approval_max_age_days)
+        ),
         reprofile_interval_days=int(
             env.get("FUND_REPROFILE_INTERVAL_DAYS", defaults.reprofile_interval_days)
         ),
-        summary_token_threshold=int(
-            env.get("FUND_SUMMARY_TOKEN_THRESHOLD", defaults.summary_token_threshold)
-        ),
+        summary_token_threshold=_optional_int(env, "FUND_SUMMARY_TOKEN_THRESHOLD"),
         summary_messages_to_keep=int(
             env.get("FUND_SUMMARY_MESSAGES_TO_KEEP", defaults.summary_messages_to_keep)
         ),
@@ -266,4 +402,10 @@ def load_config(
 # Module-level singleton: cheap to import, secrets validated when used.
 settings: FundConfig = load_config()
 
-__all__ = ["FundConfig", "load_config", "settings"]
+__all__ = [
+    "DEFAULT_LOOKBACK_DAYS",
+    "FundConfig",
+    "load_config",
+    "load_project_env",
+    "settings",
+]

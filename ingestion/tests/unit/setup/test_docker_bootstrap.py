@@ -6,13 +6,20 @@ with a hint; `bring_up_db` runs `docker compose up -d --wait db`; `migrate` runs
 Docker in the unit suite.
 """
 
+import re
+import shutil
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.setup import ca_bundle
 from app.setup import docker_bootstrap as db
+
+# unit -> setup -> tests -> ingestion -> repo root (docker-compose.yml owner).
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _cp(returncode: int, stderr: str = "") -> subprocess.CompletedProcess:
@@ -90,6 +97,24 @@ def test_migrate_runs_alembic_from_db_package(
 
 @patch("app.setup.docker_bootstrap._find_db_package")
 @patch("app.setup.docker_bootstrap.subprocess.run")
+def test_migrate_targets_the_compose_db_despite_an_ambient_database_url(
+    mock_run: MagicMock,
+    mock_find: MagicMock,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The wizard just started the compose db for exactly this migration; a
+    DATABASE_URL exported for another project (or production) must not redirect
+    `alembic upgrade head` onto that database."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://prod-user:secret@prod.example/app")
+    mock_find.return_value = tmp_path
+    mock_run.return_value = _cp(0)
+    db.migrate()
+    assert mock_run.call_args.kwargs["env"]["DATABASE_URL"] == db._HOST_DB_URL
+
+
+@patch("app.setup.docker_bootstrap._find_db_package")
+@patch("app.setup.docker_bootstrap.subprocess.run")
 def test_migrate_failure_is_best_effort(
     mock_run: MagicMock, mock_find: MagicMock, tmp_path, capsys
 ) -> None:
@@ -130,6 +155,26 @@ def test_stop_services_failure_raises(mock_run: MagicMock) -> None:
     mock_run.return_value = _cp(1, "stop boom")
     with pytest.raises(db.DockerError):
         db.stop_services(["fund"])
+
+
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_restart_services_restarts_named_services(mock_run: MagicMock) -> None:
+    mock_run.return_value = _cp(0)
+    db.restart_services(["fund", "scheduler"])
+    assert mock_run.call_args[0][0] == [
+        "docker",
+        "compose",
+        "restart",
+        "fund",
+        "scheduler",
+    ]
+
+
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_restart_services_failure_raises(mock_run: MagicMock) -> None:
+    mock_run.return_value = _cp(1, "restart boom")
+    with pytest.raises(db.DockerError):
+        db.restart_services(["fund"])
 
 
 @patch("app.setup.docker_bootstrap.subprocess.run")
@@ -230,6 +275,12 @@ class TestVersionGates:
 
 class TestBuildAndUp:
     """`build_and_up` builds only when an image is absent, then `up -d --wait`."""
+
+    @pytest.fixture(autouse=True)
+    def _checkout(self, tmp_path, monkeypatch: pytest.MonkeyPatch):
+        """Pin the checkout to a tmp dir so the real repo is never written to."""
+        monkeypatch.setattr(db, "compose_dir", lambda: tmp_path)
+        return tmp_path
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
     @patch("app.setup.docker_bootstrap._image_exists", return_value=False)
@@ -333,6 +384,46 @@ class TestBuildAndUp:
         assert {"fund", "ingestion"} <= set(up)
 
 
+class TestComposeRunsFromTheRepo:
+    """With a checkout given, every compose call is anchored to it, so the files
+    `portopt start` rendered there are the ones compose mounts."""
+
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap._image_exists", return_value=False)
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_build_and_up_pins_build_and_up_to_the_repo(
+        self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock, tmp_path
+    ) -> None:
+        mock_run.return_value = _cp(0)
+        db.build_and_up(profiles=("fund",), repo=tmp_path)
+        assert len(mock_run.call_args_list) == 2  # build, then up
+        for call in mock_run.call_args_list:
+            argv = call[0][0]
+            assert argv[argv.index("--project-directory") + 1] == str(tmp_path)
+            assert call.kwargs["cwd"] == str(tmp_path)
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_stop_services_runs_from_the_repo(
+        self, mock_run: MagicMock, tmp_path
+    ) -> None:
+        mock_run.return_value = _cp(0)
+        db.stop_services(["fund"], repo=tmp_path)
+        argv = mock_run.call_args[0][0]
+        assert argv[argv.index("--project-directory") + 1] == str(tmp_path)
+        assert argv[-2:] == ["stop", "fund"]
+        assert mock_run.call_args.kwargs["cwd"] == str(tmp_path)
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_running_services_runs_from_the_repo(
+        self, mock_run: MagicMock, tmp_path
+    ) -> None:
+        mock_run.return_value = _cp(0)
+        db.running_services(repo=tmp_path)
+        argv = mock_run.call_args[0][0]
+        assert argv[argv.index("--project-directory") + 1] == str(tmp_path)
+        assert mock_run.call_args.kwargs["cwd"] == str(tmp_path)
+
+
 class TestImageExists:
     """`_image_exists` reports whether a local image is present."""
 
@@ -346,3 +437,195 @@ class TestImageExists:
     def test_false_when_inspect_fails(self, mock_run: MagicMock) -> None:
         mock_run.return_value = _cp(1, "No such image")
         assert db._image_exists("absent:latest") is False
+
+
+class TestComposeRunsFromTheCheckout:
+    """Compose resolves `docker-compose.yml` and `./secrets/*` relative to the cwd, so
+    every compose call must be pinned to the checkout, never to wherever the operator
+    happens to be (a `uv tool install` user runs `portopt` from `~`)."""
+
+    @pytest.fixture
+    def checkout(self, tmp_path, monkeypatch: pytest.MonkeyPatch):
+        repo = tmp_path / "checkout"
+        repo.mkdir()
+        (repo / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.setenv("OPTIMIZER_REPO", str(repo))
+        monkeypatch.chdir(elsewhere)
+        return repo
+
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap._image_exists", return_value=False)
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_every_compose_command_runs_in_the_checkout(
+        self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock, checkout
+    ) -> None:
+        mock_run.return_value = _cp(0)
+        db.bring_up_db()
+        db.stop_services(["fund"])
+        db.running_services()
+        db.build_and_up(profiles=("fund",))
+        compose_calls = [
+            c for c in mock_run.call_args_list if c[0][0][:2] == ["docker", "compose"]
+        ]
+        assert len(compose_calls) >= 5  # up db, stop, ps, build, up
+        assert {c.kwargs.get("cwd") for c in compose_calls} == {str(checkout)}
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_no_checkout_fails_before_any_compose_call(
+        self,
+        mock_run: MagicMock,
+        tmp_path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A `uv tool install` with no clone has no compose file anywhere: fail with
+        guidance instead of letting compose answer 'no configuration file'."""
+        from app.setup import path_install
+
+        bare = tmp_path / "bare"
+        bare.mkdir()
+        monkeypatch.delenv("OPTIMIZER_REPO", raising=False)
+        monkeypatch.chdir(bare)
+        monkeypatch.setattr(path_install.config_file, "load_config", lambda **kw: {})
+        monkeypatch.setattr(path_install, "_repo_root", lambda: bare)
+        with pytest.raises(db.DockerError, match="OPTIMIZER_REPO"):
+            db.bring_up_db()
+        mock_run.assert_not_called()
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_running_services_is_empty_without_a_checkout(
+        self, mock_run: MagicMock, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.setup import path_install
+
+        bare = tmp_path / "bare"
+        bare.mkdir()
+        monkeypatch.delenv("OPTIMIZER_REPO", raising=False)
+        monkeypatch.chdir(bare)
+        monkeypatch.setattr(path_install.config_file, "load_config", lambda **kw: {})
+        monkeypatch.setattr(path_install, "_repo_root", lambda: bare)
+        assert db.running_services() == set()
+        mock_run.assert_not_called()
+
+
+class TestCaBundleBuildSecret:
+    """The image builds read an optional `ca_bundle` secret. Compose stats the secret
+    file before building, so the file it names must exist on a fresh clone; the
+    generated corporate bundle is swapped in through `CA_BUNDLE_FILE` instead of
+    being created at a path the committed compose file hard-codes."""
+
+    @pytest.fixture
+    def checkout(self, tmp_path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(db, "compose_dir", lambda: tmp_path)
+        monkeypatch.delenv("CA_BUNDLE_FILE", raising=False)
+        return tmp_path
+
+    @staticmethod
+    def _compose_env(mock_run: MagicMock) -> dict[str, str] | None:
+        """Env passed to the last compose call (None means 'inherit')."""
+        return mock_run.call_args.kwargs["env"]
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_a_generated_bundle_is_handed_to_compose(
+        self, mock_run: MagicMock, checkout: Path
+    ) -> None:
+        bundle = checkout / ca_bundle.DEFAULT_BUNDLE_PATH
+        bundle.parent.mkdir()
+        bundle.write_text("CORP BUNDLE", encoding="utf-8")
+        mock_run.return_value = _cp(0)
+        db.bring_up_db()
+        env = self._compose_env(mock_run)
+        assert env is not None
+        assert env["CA_BUNDLE_FILE"] == str(bundle)
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    @pytest.mark.parametrize("content", [None, ""])
+    def test_without_a_real_bundle_compose_keeps_its_committed_default(
+        self, mock_run: MagicMock, checkout: Path, content: str | None
+    ) -> None:
+        if content is not None:
+            bundle = checkout / ca_bundle.DEFAULT_BUNDLE_PATH
+            bundle.parent.mkdir()
+            bundle.write_text(content, encoding="utf-8")
+        mock_run.return_value = _cp(0)
+        db.bring_up_db()
+        env = self._compose_env(mock_run)
+        assert env is None or "CA_BUNDLE_FILE" not in env
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_an_operator_supplied_bundle_wins(
+        self, mock_run: MagicMock, checkout: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bundle = checkout / ca_bundle.DEFAULT_BUNDLE_PATH
+        bundle.parent.mkdir()
+        bundle.write_text("CORP BUNDLE", encoding="utf-8")
+        monkeypatch.setenv("CA_BUNDLE_FILE", "/operator/bundle.pem")
+        mock_run.return_value = _cp(0)
+        db.bring_up_db()
+        env = self._compose_env(mock_run)
+        assert env is None or env["CA_BUNDLE_FILE"] == "/operator/bundle.pem"
+
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap._image_exists", return_value=False)
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_build_and_up_writes_nothing_into_the_checkout(
+        self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock, checkout: Path
+    ) -> None:
+        """The committed default makes a placeholder unnecessary, and a stray
+        `.certs/ca-bundle.pem` would shadow nothing but still litter the clone."""
+        mock_run.return_value = _cp(0)
+        db.build_and_up(profiles=("fund",))
+        assert list(checkout.iterdir()) == []
+
+
+def _compose_doc() -> dict:
+    yaml = pytest.importorskip("yaml")
+    return yaml.safe_load((_REPO_ROOT / "docker-compose.yml").read_text("utf-8"))
+
+
+@pytest.mark.parametrize("service", ["scheduler", "fund"])
+def test_compose_passes_the_ca_bundle_secret_to_each_image_build(
+    service: str,
+) -> None:
+    """Without `build.secrets` the Dockerfiles' optional `--mount=type=secret` is
+    always empty, so `uv sync` still cannot verify PyPI behind a TLS-inspecting
+    proxy even after `portopt setup --corp-ca` produced a bundle."""
+    build = _compose_doc()["services"][service]["build"]
+    assert "ca_bundle" in build["secrets"]
+
+
+_SECRET_FILE = re.compile(r"^\$\{CA_BUNDLE_FILE:-(?P<default>[^}]+)\}$")
+
+
+def _ca_bundle_default() -> Path:
+    declared = _compose_doc()["secrets"]["ca_bundle"]["file"]
+    match = _SECRET_FILE.match(declared)
+    assert match, f"ca_bundle.file must default through CA_BUNDLE_FILE: {declared!r}"
+    return _REPO_ROOT / match["default"]
+
+
+def test_ca_bundle_secret_default_is_not_the_generated_bundle() -> None:
+    """The generated path is git-ignored, so a default pointing at it would be
+    missing on a fresh clone."""
+    assert _ca_bundle_default() != _REPO_ROOT / ca_bundle.DEFAULT_BUNDLE_PATH
+
+
+def test_ca_bundle_secret_default_exists_on_a_fresh_clone() -> None:
+    """Compose aborts `build` and `up` when a `file:` secret is missing, and the
+    generated `.certs/` is git-ignored: the default must be a committed, empty
+    file so a plain `docker compose up` works before `portopt setup` ever ran."""
+    default = _ca_bundle_default()
+    assert default.is_file()
+    assert default.stat().st_size == 0
+    git = shutil.which("git")
+    if git is None or not (_REPO_ROOT / ".git").exists():
+        pytest.skip("not a git checkout")
+    tracked = subprocess.run(  # noqa: S603 - resolved git path, static argv
+        [git, "ls-files", "--error-unmatch", str(default.relative_to(_REPO_ROOT))],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert tracked.returncode == 0, tracked.stderr

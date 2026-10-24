@@ -17,6 +17,7 @@ none of the agent stack (deepagents/langchain/langgraph) nor the ingestion daemo
 
 from __future__ import annotations
 
+import dataclasses
 import subprocess
 import sys
 import textwrap
@@ -28,6 +29,7 @@ from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+from fund.config import settings
 from fund.scheduler import (
     JOB_DRIFT_MONITOR,
     JOB_NAV_MARK,
@@ -45,7 +47,7 @@ _INTERVAL_JOBS = {JOB_DRIFT_MONITOR, JOB_ORPHAN_REAPER}
 _ALL_JOBS = _CRON_JOBS | _INTERVAL_JOBS
 
 
-def _build_scheduler(jobstore_calls: list[dict] | None = None):
+def _build_scheduler(jobstore_calls: list[dict] | None = None, config=settings):
     dm = MagicMock()
     dm.engine = MagicMock()  # non-None
 
@@ -55,7 +57,7 @@ def _build_scheduler(jobstore_calls: list[dict] | None = None):
         return MemoryJobStore()
 
     with patch(_DM, dm), patch(_JOBSTORE, _fake_jobstore):
-        return create_scheduler()
+        return create_scheduler(config)
 
 
 def test_registers_exactly_the_four_fund_jobs():
@@ -119,6 +121,25 @@ def test_executor_is_single_worker():
         create_scheduler()
 
     assert recorded["max_workers"] == 1
+
+
+def test_jobs_wait_behind_the_single_worker_instead_of_being_dropped_as_missed():
+    # One worker runs one step at a time, so a job queued behind a multi-minute LLM
+    # round starts late. APScheduler's default 1s misfire grace would discard it as
+    # "missed" (a skipped weekly sweep, NAV mark or reaper tick), so every job must
+    # carry its own generous grace.
+    scheduler = _build_scheduler()
+    for job in scheduler.get_jobs():
+        grace = getattr(job, "misfire_grace_time", None)
+        assert grace is not None and grace >= 3600, (
+            f"{job.id} falls back to APScheduler's 1s misfire grace"
+        )
+
+
+def test_misfire_grace_comes_from_the_config_knob():
+    config = dataclasses.replace(settings, fund_misfire_grace_time_seconds=7200)
+    scheduler = _build_scheduler(config=config)
+    assert {job.misfire_grace_time for job in scheduler.get_jobs()} == {7200}
 
 
 def test_raises_when_engine_is_none():

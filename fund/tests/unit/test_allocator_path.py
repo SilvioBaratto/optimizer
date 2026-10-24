@@ -20,17 +20,25 @@ from __future__ import annotations
 import datetime as dt
 import math
 
+import pytest
 from optimizer.moments import CovEstimatorType, MomentEstimationConfig
+from optimizer.optimization import MeanRiskConfig, build_mean_risk
+from optimizer.preprocessing import prices_to_returns
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
 
+from fund.agents.toolsets import _optimizer_constraints
 from fund.audit.repository import AgentRunRepository
+from fund.schemas import ConstraintSet
+from fund.schemas.constraint_set import Bounds, UniverseFilters
+from fund.schemas.enums import Horizon, ObjectiveChoice, RiskMeasureChoice
+from fund.tools._base import MIN_RETURN_OBSERVATIONS
 from fund.tools.moments import estimate_moments
-from fund.tools.optimize import optimize_portfolio
-from fund.tools.prices import get_prices
+from fund.tools.optimize import _CONSTRAINT_FIELDS, optimize_portfolio
+from fund.tools.prices import get_prices, load_price_frame
 
 _START = dt.date(2024, 1, 1)
-_N_DAYS = 60
+_N_DAYS = 80
 _ASOF = _START + dt.timedelta(days=_N_DAYS - 1)
 _UNIVERSE = ["AAA", "BBB", "CCC"]
 # Deterministic per-ticker starting prices and drift/wave params — no RNG, so the
@@ -59,11 +67,11 @@ def _seed_instrument(db_session, ticker: str) -> Instrument:
     return inst
 
 
-def _seed_panel(db_session) -> None:
-    """Seed a complete ``_N_DAYS`` x 3 close panel with distinct, drifting series."""
+def _seed_panel(db_session, n_days: int = _N_DAYS) -> None:
+    """Seed a complete ``n_days`` x 3 close panel with distinct, drifting series."""
     for ticker, (start, drift, wave) in _SERIES.items():
         inst = _seed_instrument(db_session, ticker)
-        for i in range(_N_DAYS):
+        for i in range(n_days):
             close = start * (1.0 + drift * i + wave * math.sin(i / 5.0))
             db_session.add(
                 PriceHistory(
@@ -76,6 +84,27 @@ def _seed_panel(db_session) -> None:
     db_session.flush()
 
 
+def _seed_listing(
+    db_session, ticker: str, *, first_day: int, n_bars: int, phase: float = 0.0
+) -> None:
+    """Seed ``n_bars`` closes for ``ticker`` starting ``first_day`` days in.
+
+    ``phase`` shifts the price wave so several listings do not share one series.
+    """
+    inst = _seed_instrument(db_session, ticker)
+    for i in range(first_day, first_day + n_bars):
+        close = 40.0 * (1.0 + 0.0006 * i + 0.025 * math.sin(i / 4.0 + phase))
+        db_session.add(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=_START + dt.timedelta(days=i),
+                close=round(close, 6),
+                volume=1000,
+            )
+        )
+    db_session.flush()
+
+
 def _seed_single_day(db_session) -> None:
     """Seed one close per ticker — a panel too short to derive returns (<2 obs)."""
     for ticker, params in _SERIES.items():
@@ -83,6 +112,43 @@ def _seed_single_day(db_session) -> None:
         db_session.add(
             PriceHistory(
                 instrument_id=inst.id, date=_START, close=params[0], volume=1000
+            )
+        )
+    db_session.flush()
+
+
+_RAGGED_LONG_DAYS = 120
+_RAGGED_YOUNG_DAYS = 6
+_RAGGED_ASOF = _START + dt.timedelta(days=_RAGGED_LONG_DAYS - 1)
+
+
+def _seed_ragged_panel(db_session, young_days: int = _RAGGED_YOUNG_DAYS) -> None:
+    """Seed AAA/BBB/CCC with a long history plus NEW, listed only for the last bars.
+
+    The common return sample of the four is bounded by NEW's ``young_days`` bars,
+    however much history the other three carry.
+    """
+    for ticker, (start, drift, wave) in _SERIES.items():
+        inst = _seed_instrument(db_session, ticker)
+        for i in range(_RAGGED_LONG_DAYS):
+            close = start * (1.0 + drift * i + wave * math.sin(i / 5.0))
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=_START + dt.timedelta(days=i),
+                    close=round(close, 6),
+                    volume=1000,
+                )
+            )
+    young = _seed_instrument(db_session, "NEW")
+    for i in range(_RAGGED_LONG_DAYS - young_days, _RAGGED_LONG_DAYS):
+        close = 40.0 * (1.0 + 0.001 * i + 0.025 * math.sin(i / 3.0))
+        db_session.add(
+            PriceHistory(
+                instrument_id=young.id,
+                date=_START + dt.timedelta(days=i),
+                close=round(close, 6),
+                volume=1000,
             )
         )
     db_session.flush()
@@ -104,6 +170,8 @@ class TestEstimateMoments:
         assert all(len(row) == len(_UNIVERSE) for row in cov)
         assert data["n_observations"] == _N_DAYS - 1
         assert data["cov_estimator"] == "ledoit_wolf"
+        # mu / cov are per daily bar; the unit is stated so they are not read as annual.
+        assert data["periods_per_year"] == 252
 
     def test_covariance_is_symmetric(self, db_session) -> None:
         _seed_panel(db_session)
@@ -136,6 +204,108 @@ class TestEstimateMoments:
         assert result["ok"] is False
         assert "error" in result
 
+    def test_young_listing_is_dropped_instead_of_truncating_the_sample(
+        self, db_session
+    ) -> None:
+        # A 10-bar listing beside 60-bar assets must not shrink everyone's
+        # return sample to its own 9 observations.
+        _seed_panel(db_session)
+        _seed_listing(db_session, "NEW", first_day=_N_DAYS - 10, n_bars=10)
+
+        result = estimate_moments(db_session, _ASOF, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["assets"] == _UNIVERSE
+        assert data["dropped"] == ["NEW"]
+        assert data["n_observations"] == _N_DAYS - 1
+        assert len(data["cov"]) == len(_UNIVERSE)
+
+    def test_single_bar_listing_is_flagged_dropped(self, db_session) -> None:
+        # A one-bar listing has no return at all; it must be reported rather than
+        # vanish from both ``assets`` and ``dropped``.
+        _seed_panel(db_session)
+        _seed_listing(db_session, "ONE", first_day=_N_DAYS - 1, n_bars=1)
+
+        result = estimate_moments(db_session, _ASOF, [*_UNIVERSE, "ONE"])
+
+        assert result["ok"] is True
+        assert result["data"]["assets"] == _UNIVERSE
+        assert result["data"]["dropped"] == ["ONE"]
+
+    def test_listing_past_the_absolute_floor_is_dropped_when_shallow_for_the_panel(
+        self, db_session
+    ) -> None:
+        # 25 bars clears a flat one-month floor, yet beside 60-bar assets it would
+        # still cut everyone's sample to 24 rows.
+        _seed_panel(db_session)
+        _seed_listing(db_session, "NEW", first_day=_N_DAYS - 25, n_bars=25)
+
+        result = estimate_moments(db_session, _ASOF, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["assets"] == _UNIVERSE
+        assert data["dropped"] == ["NEW"]
+        assert data["n_observations"] == _N_DAYS - 1
+
+    def test_listing_is_judged_against_the_panel_depth_not_a_fixed_count(
+        self, db_session
+    ) -> None:
+        # 40 bars is past any flat floor, but next to 300-bar assets keeping it would
+        # truncate their sample from 299 return rows to 39.
+        deep_days = 300
+        _seed_panel(db_session, n_days=deep_days)
+        _seed_listing(db_session, "NEW", first_day=deep_days - 40, n_bars=40)
+        asof = _START + dt.timedelta(days=deep_days - 1)
+
+        result = estimate_moments(db_session, asof, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["assets"] == _UNIVERSE
+        assert data["dropped"] == ["NEW"]
+        assert data["n_observations"] == deep_days - 1
+
+    def test_modestly_younger_listing_is_kept(self, db_session) -> None:
+        # 60 of 80 bars costs the panel a quarter of its sample, not most of it, so
+        # the asset stays in.
+        _seed_panel(db_session)
+        _seed_listing(db_session, "NEW", first_day=_N_DAYS - 60, n_bars=60)
+
+        result = estimate_moments(db_session, _ASOF, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["assets"] == [*_UNIVERSE, "NEW"]
+        assert data["dropped"] == []
+        assert data["n_observations"] == 59
+
+    def test_universe_wider_than_the_sample_supports_is_error(self, db_session) -> None:
+        # 14 assets with 25 bars each: no asset is young next to the others, but 24
+        # return rows cannot condition a 14 x 14 covariance (need 2 per asset).
+        tickers = [f"T{i:02d}" for i in range(14)]
+        for i, ticker in enumerate(tickers):
+            _seed_listing(db_session, ticker, first_day=0, n_bars=25, phase=i)
+        asof = _START + dt.timedelta(days=24)
+
+        result = estimate_moments(db_session, asof, tickers)
+
+        assert result["ok"] is False
+        assert "insufficient" in result["error"]
+        assert "28" in result["error"]
+
+    def test_sample_below_the_observation_floor_is_error(self, db_session) -> None:
+        # Every asset has only 10 bars: after dropping the short ones nothing is
+        # left to estimate moments from.
+        for ticker in _UNIVERSE:
+            _seed_listing(db_session, ticker, first_day=_N_DAYS - 10, n_bars=10)
+
+        result = estimate_moments(db_session, _ASOF, _UNIVERSE)
+
+        assert result["ok"] is False
+        assert "insufficient" in result["error"]
+
     def test_custom_config_is_honored(self, db_session) -> None:
         # Passing an explicit config exercises the `config is not None` branch and
         # swaps the covariance estimator away from the Ledoit-Wolf default.
@@ -164,6 +334,44 @@ class TestEstimateMoments:
 
         assert first == second
 
+    @pytest.mark.parametrize("young_days", [_RAGGED_YOUNG_DAYS, 30])
+    def test_young_listing_is_dropped_not_allowed_to_collapse_the_sample(
+        self, db_session, young_days
+    ) -> None:
+        # One recent listing would truncate every asset's returns to its own few
+        # bars, so a covariance fit on them is noise. It is dropped and reported
+        # instead of cutting the panel, and the long-history assets keep their sample.
+        _seed_ragged_panel(db_session, young_days=young_days)
+
+        result = estimate_moments(db_session, _RAGGED_ASOF, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is True
+        assert result["data"]["dropped"] == ["NEW"]
+        assert result["data"]["n_observations"] == _RAGGED_LONG_DAYS - 1
+
+    def test_listing_with_enough_depth_is_kept_and_sets_the_common_sample(
+        self, db_session
+    ) -> None:
+        # 61 bars is 60 return rows: at half the panel's median depth, so NEW stays
+        # in and the shared sample is bounded by its history.
+        _seed_ragged_panel(db_session, young_days=61)
+
+        result = estimate_moments(db_session, _RAGGED_ASOF, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is True
+        assert result["data"]["assets"] == [*_UNIVERSE, "NEW"]
+        assert result["data"]["n_observations"] == 60
+
+    def test_long_history_subset_of_a_ragged_panel_is_unaffected(
+        self, db_session
+    ) -> None:
+        _seed_ragged_panel(db_session)
+
+        result = estimate_moments(db_session, _RAGGED_ASOF, _UNIVERSE)
+
+        assert result["ok"] is True
+        assert result["data"]["n_observations"] == _RAGGED_LONG_DAYS - 1
+
 
 class TestOptimizePortfolio:
     def test_weights_are_long_only_and_sum_to_one(self, db_session) -> None:
@@ -177,14 +385,29 @@ class TestOptimizePortfolio:
         assert all(w >= -1e-9 for w in weights.values())  # long-only
         assert math.isclose(sum(weights.values()), 1.0, abs_tol=1e-6)
 
-    def test_reports_metrics(self, db_session) -> None:
+    def test_reports_annualised_metrics_not_per_period_ones(self, db_session) -> None:
+        # skfolio's mean / std / Sharpe are per daily bar; unlabelled they read as
+        # "mean 0.00, vol 0.01" and invite comparison against annual thresholds.
         _seed_panel(db_session)
+        frame, _ = load_price_frame(db_session, _ASOF, _UNIVERSE)
+        returns = prices_to_returns(frame)
+        model = build_mean_risk(MeanRiskConfig()).fit(returns)
+        daily = model.predict(returns)
 
         metrics = optimize_portfolio(db_session, _ASOF, _UNIVERSE)["data"]["metrics"]
 
-        assert "mean" in metrics
-        assert "standard_deviation" in metrics
-        assert "sharpe_ratio" in metrics
+        assert set(metrics) == {
+            "annualized_mean",
+            "annualized_standard_deviation",
+            "annualized_sharpe_ratio",
+        }
+        assert metrics["annualized_mean"] == pytest.approx(daily.mean * 252)
+        assert metrics["annualized_standard_deviation"] == pytest.approx(
+            daily.standard_deviation * math.sqrt(252)
+        )
+        assert metrics["annualized_sharpe_ratio"] == pytest.approx(
+            daily.sharpe_ratio * math.sqrt(252)
+        )
 
     def test_empty_universe_is_error(self, db_session) -> None:
         result = optimize_portfolio(db_session, _ASOF, [])
@@ -231,6 +454,61 @@ class TestOptimizePortfolio:
         weights = result["data"]["weights"]
         assert all(w <= 0.4 + 1e-6 for w in weights.values())
 
+    def test_objective_and_risk_measure_strings_reach_the_optimizer(
+        self, db_session
+    ) -> None:
+        # A string value is coerced to the optimizer enum; a dropped key would
+        # leave the minimum-variance default and reproduce its weights.
+        _seed_panel(db_session)
+
+        default = optimize_portfolio(db_session, _ASOF, _UNIVERSE)["data"]["weights"]
+        result = optimize_portfolio(
+            db_session,
+            _ASOF,
+            _UNIVERSE,
+            constraints={"objective": "maximize_ratio", "risk_measure": "cvar"},
+        )
+
+        assert result["ok"] is True
+        weights = result["data"]["weights"]
+        assert max(abs(weights[t] - default[t]) for t in _UNIVERSE) > 1e-3
+
+    def test_cap_too_tight_for_the_universe_names_the_minimum_assets(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+
+        result = optimize_portfolio(
+            db_session, _ASOF, _UNIVERSE, constraints={"max_weights": 0.2}
+        )
+
+        assert result["ok"] is False
+        assert "at least 5 assets" in result["error"]
+
+    def test_cap_exactly_filling_the_budget_is_feasible(self, db_session) -> None:
+        _seed_panel(db_session)
+
+        result = optimize_portfolio(
+            db_session, _ASOF, _UNIVERSE, constraints={"max_weights": 1 / 3}
+        )
+
+        assert result["ok"] is True
+
+    def test_floor_too_high_for_the_universe_is_an_actionable_error(
+        self, db_session
+    ) -> None:
+        # 3 names at a 50% floor need 150% of the budget: infeasible, which the
+        # solver reports only as an opaque failure.
+        _seed_panel(db_session)
+
+        result = optimize_portfolio(
+            db_session, _ASOF, _UNIVERSE, constraints={"min_weights": 0.5}
+        )
+
+        assert result["ok"] is False
+        assert "floor" in result["error"]
+        assert "Solver" not in result["error"]
+
     def test_unknown_constraint_keys_are_ignored(self, db_session) -> None:
         # Unrecognized keys are filtered out, so the result matches the default.
         _seed_panel(db_session)
@@ -264,6 +542,145 @@ class TestOptimizePortfolio:
         second = optimize_portfolio(db_session, _ASOF, _UNIVERSE)["data"]["weights"]
 
         assert first == second
+
+    def test_young_listing_collapsing_the_sample_is_error(self, db_session) -> None:
+        _seed_ragged_panel(db_session)
+
+        result = optimize_portfolio(db_session, _RAGGED_ASOF, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is False
+        assert "NEW" in result["error"]
+
+    def test_listing_below_the_common_sample_floor_still_collapses_the_sample(
+        self, db_session
+    ) -> None:
+        _seed_ragged_panel(db_session, young_days=MIN_RETURN_OBSERVATIONS)
+
+        result = optimize_portfolio(db_session, _RAGGED_ASOF, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is False
+        assert "NEW" in result["error"]
+
+    def test_supplied_config_replaces_the_default_min_variance_objective(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+        config = MeanRiskConfig.for_max_sharpe()
+        frame, _ = load_price_frame(db_session, _ASOF, _UNIVERSE)
+        expected = build_mean_risk(config).fit(prices_to_returns(frame)).weights_
+
+        default = optimize_portfolio(db_session, _ASOF, _UNIVERSE)["data"]["weights"]
+        result = optimize_portfolio(
+            db_session,
+            _ASOF,
+            _UNIVERSE,
+            constraints={name: getattr(config, name) for name in _CONSTRAINT_FIELDS},
+        )
+
+        assert result["ok"] is True
+        weights = result["data"]["weights"]
+        assert [weights[t] for t in _UNIVERSE] == pytest.approx(list(expected))
+        assert weights != default
+
+    def test_aggressive_client_with_a_position_cap_stays_under_it(
+        self, db_session
+    ) -> None:
+        # Max-Sharpe at low risk aversion piles into one name; the K&E cap must
+        # still bind on the weights the optimiser hands out.
+        _seed_panel(db_session)
+        aggressive = _client(
+            objective=ObjectiveChoice.MAX,
+            a_gamma=1.0,
+            universe_filters=UniverseFilters(max_position_cap=0.4),
+        )
+        uncapped = optimize_portfolio(
+            db_session,
+            _ASOF,
+            _UNIVERSE,
+            constraints=_optimizer_constraints(_client(objective=ObjectiveChoice.MAX)),
+        )["data"]["weights"]
+        assert max(uncapped.values()) > 0.4 + 1e-3  # the cap is what changes this
+
+        result = optimize_portfolio(
+            db_session, _ASOF, _UNIVERSE, constraints=_optimizer_constraints(aggressive)
+        )
+
+        assert result["ok"] is True
+        assert all(w <= 0.4 + 1e-6 for w in result["data"]["weights"].values())
+
+    def test_cap_too_tight_for_the_universe_is_a_clear_error(self, db_session) -> None:
+        # 3 names at <=20% each can never sum to 100%; say so instead of
+        # surfacing an opaque solver failure the agent would retry.
+        _seed_panel(db_session)
+
+        result = optimize_portfolio(
+            db_session, _ASOF, _UNIVERSE, constraints={"max_weights": 0.2}
+        )
+
+        assert result["ok"] is False
+        assert "max_weights" in result["error"]
+        assert "Solver" not in result["error"]
+
+
+def _client(**overrides: object) -> ConstraintSet:
+    kwargs: dict[str, object] = {
+        "portfolio_id": "pf-1",
+        "base_currency": "EUR",
+        "a_gamma": 2.5,
+        "objective": ObjectiveChoice.GROWTH,
+        "risk_measure": RiskMeasureChoice.VARIANCE,
+        "nu1": 0.05,
+        "nu2": 0.10,
+        "nu3": 0.20,
+        "horizon": Horizon.LONG,
+    }
+    kwargs.update(overrides)
+    return ConstraintSet(**kwargs)  # type: ignore[arg-type]
+
+
+class TestOptimizerConstraintsFromConstraintSet:
+    def test_carries_the_mifid_mapped_knobs(self) -> None:
+        cs = _client(
+            objective=ObjectiveChoice.MAX,
+            risk_measure=RiskMeasureChoice.CVAR,
+            a_gamma=7.0,
+            beta=0.99,
+        )
+
+        constraints = _optimizer_constraints(cs)
+
+        assert constraints["objective"].value == "maximize_ratio"
+        assert constraints["risk_measure"].value == "cvar"
+        assert constraints["risk_aversion"] == 7.0
+        assert constraints["cvar_beta"] == 0.99
+
+    def test_annual_risk_free_rate_is_converted_to_the_daily_return_frequency(
+        self,
+    ) -> None:
+        # The optimizer works on daily returns, so a quoted annual 4% must not be
+        # handed over as a 4% daily rate.
+        constraints = _optimizer_constraints(_client(risk_free_rate=0.04))
+
+        assert constraints["risk_free_rate"] == pytest.approx(1.04 ** (1 / 252) - 1)
+
+    def test_absent_risk_free_rate_stays_zero(self) -> None:
+        assert _optimizer_constraints(_client())["risk_free_rate"] == 0.0
+
+    def test_position_cap_tightens_the_max_weight_bound(self) -> None:
+        cs = _client(universe_filters=UniverseFilters(max_position_cap=0.4))
+
+        assert _optimizer_constraints(cs)["max_weights"] == 0.4
+
+    def test_position_cap_never_loosens_a_tighter_bound(self) -> None:
+        cs = _client(
+            bounds=Bounds(max_weights=0.3),
+            universe_filters=UniverseFilters(max_position_cap=0.4),
+        )
+
+        assert _optimizer_constraints(cs)["max_weights"] == 0.3
+
+    def test_without_a_position_cap_the_bound_is_untouched(self) -> None:
+        assert _optimizer_constraints(_client())["max_weights"] == 1.0
 
 
 class TestWalkingSkeleton:
@@ -314,3 +731,213 @@ class TestWalkingSkeleton:
         second = optimize_portfolio(db_session, _ASOF, _UNIVERSE)["data"]["weights"]
 
         assert first == second
+
+
+def _synthetic_returns(seed: int = 0):
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(seed)
+    n = 8
+    mu = rng.uniform(2e-4, 1.2e-3, n)
+    loadings = rng.normal(size=(n, n)) * 0.004
+    cov = loadings @ loadings.T + np.diag(rng.uniform(1e-4, 3e-4, n))
+    return pd.DataFrame(
+        rng.multivariate_normal(mu, cov, size=750),
+        columns=[f"T{i}" for i in range(n)],
+    )
+
+
+def _utility_config(measure, risk_aversion):
+    from dataclasses import replace
+
+    from optimizer.optimization import MeanRiskConfig, ObjectiveFunctionType
+
+    return replace(
+        MeanRiskConfig(),
+        objective=ObjectiveFunctionType.MAXIMIZE_UTILITY,
+        risk_measure=measure,
+        risk_aversion=risk_aversion,
+    )
+
+
+class TestRiskAversionCalibration:
+    """``a_gamma`` is quoted for variance utility; other measures need rescaling."""
+
+    @pytest.mark.parametrize("measure", ["cvar", "cdar", "max_drawdown"])
+    def test_equal_weight_pays_the_same_penalty_as_under_variance(
+        self, measure: str
+    ) -> None:
+        import numpy as np
+        from optimizer.optimization import RiskMeasureType
+        from skfolio import Portfolio
+
+        from fund.tools.optimize import _calibrate_risk_aversion
+
+        returns = _synthetic_returns()
+        config = _utility_config(RiskMeasureType(measure), 5.0)
+
+        calibrated = _calibrate_risk_aversion(config, returns)
+
+        reference = Portfolio(X=returns, weights=np.full(returns.shape[1], 1 / 8))
+        assert calibrated.risk_aversion * getattr(reference, measure) == pytest.approx(
+            5.0 * reference.variance
+        )
+        assert calibrated.risk_aversion < 0.1
+
+    @pytest.mark.parametrize("measure", ["variance", "semi_variance"])
+    def test_second_moment_measures_keep_the_quoted_scale(self, measure: str) -> None:
+        from optimizer.optimization import RiskMeasureType
+
+        from fund.tools.optimize import _calibrate_risk_aversion
+
+        config = _utility_config(RiskMeasureType(measure), 5.0)
+
+        assert _calibrate_risk_aversion(config, _synthetic_returns()) == config
+
+    def test_objectives_that_ignore_risk_aversion_are_untouched(self) -> None:
+        from dataclasses import replace
+
+        from optimizer.optimization import MeanRiskConfig, RiskMeasureType
+
+        from fund.tools.optimize import _calibrate_risk_aversion
+
+        config = replace(MeanRiskConfig(), risk_measure=RiskMeasureType.CVAR)
+
+        assert _calibrate_risk_aversion(config, _synthetic_returns()) == config
+
+    @pytest.mark.parametrize("measure", ["cvar", "cdar", "max_drawdown"])
+    def test_more_aversion_stays_closer_to_the_minimum_risk_portfolio(
+        self, measure: str
+    ) -> None:
+        from dataclasses import replace
+
+        import numpy as np
+        from optimizer.optimization import (
+            MeanRiskConfig,
+            ObjectiveFunctionType,
+            RiskMeasureType,
+            build_mean_risk,
+        )
+
+        from fund.tools.optimize import _calibrate_risk_aversion
+
+        returns = _synthetic_returns()
+        risk_measure = RiskMeasureType(measure)
+
+        def weights(config: MeanRiskConfig) -> np.ndarray:
+            model = build_mean_risk(_calibrate_risk_aversion(config, returns))
+            model.fit(returns)
+            return np.asarray(model.weights_)
+
+        protection = weights(
+            replace(
+                MeanRiskConfig(),
+                objective=ObjectiveFunctionType.MINIMIZE_RISK,
+                risk_measure=risk_measure,
+            )
+        )
+        distances = [
+            float(np.abs(weights(_utility_config(risk_measure, a)) - protection).sum())
+            for a in (12.0, 5.0, 1.0)
+        ]
+
+        assert 0.05 < distances[0] < distances[1] < distances[2]
+
+
+def test_optimize_reports_the_risk_aversion_it_ran_with(db_session) -> None:
+    from optimizer.optimization import RiskMeasureType
+
+    _seed_panel(db_session)
+    config = _utility_config(RiskMeasureType.CVAR, 5.0)
+
+    result = optimize_portfolio(
+        db_session, _ASOF, _UNIVERSE, constraints=_as_constraints(config)
+    )
+
+    assert 0.0 < result["data"]["risk_aversion"] < config.risk_aversion
+
+
+def _as_constraints(config) -> dict:
+    """A ``MeanRiskConfig`` as the ``constraints`` dict the tool consumes."""
+    from fund.tools.optimize import _CONSTRAINT_FIELDS
+
+    return {name: getattr(config, name) for name in _CONSTRAINT_FIELDS}
+
+
+def _prices_from_returns(returns):
+    import pandas as pd
+
+    prices = 100 * (1 + returns).cumprod()
+    prices.index = pd.bdate_range("2020-01-01", periods=len(prices))
+    return prices
+
+
+class TestSolverNoiseIsCleaned:
+    """The optimizer's own output must clear the deterministic ``risk_check`` gate.
+
+    ``MAXIMIZE_UTILITY`` under a binding cap returns raw weights carrying ~1e-9
+    solver noise (a slightly negative weight, or a cap hit exceeded by a hair),
+    which a ``1e-9`` weight tolerance reads as a breach.
+    """
+
+    # Seeds whose raw skfolio solution breaches a 1e-9 tolerance under the 0.3 cap.
+    @pytest.mark.parametrize("seed", [0, 3, 6, 8, 9, 11])
+    def test_capped_utility_weights_pass_risk_check(
+        self, monkeypatch: pytest.MonkeyPatch, seed: int
+    ) -> None:
+        from optimizer.optimization import (
+            MeanRiskConfig,
+            ObjectiveFunctionType,
+            RiskMeasureType,
+        )
+
+        from fund.tools import optimize as optimize_mod
+        from fund.tools.risk import risk_check
+
+        frame = _prices_from_returns(_synthetic_returns(seed))
+        monkeypatch.setattr(
+            optimize_mod, "load_price_frame", lambda *_a, **_k: (frame, [])
+        )
+        config = MeanRiskConfig(
+            objective=ObjectiveFunctionType.MAXIMIZE_UTILITY,
+            risk_measure=RiskMeasureType.VARIANCE,
+            max_weights=0.3,
+            risk_aversion=1.0,
+        )
+
+        result = optimize_portfolio(
+            None, _ASOF, list(frame.columns), constraints=_as_constraints(config)
+        )
+
+        weights = result["data"]["weights"]
+        assert all(0.0 <= w <= 0.3 for w in weights.values())
+        assert math.isclose(sum(weights.values()), 1.0, abs_tol=1e-8)
+        verdict = risk_check(
+            weights, constraints={"min_weights": 0.0, "max_weights": 0.3, "budget": 1.0}
+        )
+        assert verdict["data"]["violations"] == []
+        assert verdict["data"]["passed"] is True
+
+    def test_reported_metrics_describe_the_cleaned_weights(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from skfolio import Portfolio
+
+        from fund.tools import optimize as optimize_mod
+
+        returns = _synthetic_returns(0)
+        frame = _prices_from_returns(returns)
+        monkeypatch.setattr(
+            optimize_mod, "load_price_frame", lambda *_a, **_k: (frame, [])
+        )
+
+        data = optimize_portfolio(None, _ASOF, list(frame.columns))["data"]
+
+        replayed = Portfolio(
+            X=optimize_mod.prices_to_returns(frame),
+            weights=[data["weights"][a] for a in data["assets"]],
+        )
+        assert data["metrics"]["annualized_standard_deviation"] == pytest.approx(
+            replayed.standard_deviation * math.sqrt(252)
+        )

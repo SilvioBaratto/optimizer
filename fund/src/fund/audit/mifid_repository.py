@@ -25,17 +25,22 @@ LangGraph runtime dependency.
 
 from __future__ import annotations
 
+import logging
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from portopt_db.models import MifidProfile
 from portopt_db.repository import RepositoryBase
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 
 from fund.schemas import ConstraintSet, ConstraintSetRef
 
 if TYPE_CHECKING:  # runtime only needs the store's put/get, not the class
     from langgraph.store.base import BaseStore
+    from sqlalchemy.orm import Session, SessionTransaction
+
+logger = logging.getLogger(__name__)
 
 
 class MifidProfileRepository(RepositoryBase):
@@ -148,29 +153,184 @@ def put_constraint_set(
     )
 
 
+@dataclass
+class _PendingPut:
+    store: Any
+    constraint_set: ConstraintSet
+    store_key: str
+    # The innermost SAVEPOINT open when the put was queued (``None`` at the root):
+    # rolling that SAVEPOINT back, or any transaction enclosing it, voids the put.
+    origin: SessionTransaction | None
+
+
+class _CommitPublisher:
+    """Per-session queue of Store writes that are released once the root commits.
+
+    The Store has its own connection, so a put cannot join the session's database
+    transaction: written eagerly, it outlives a rollback of the row it caches. This
+    queue holds each put back until the root transaction has really committed.
+
+    A SAVEPOINT release also fires ``after_commit`` while the outer transaction can
+    still roll back, and there is no way to tell the two apart from that event
+    alone. The flag therefore only counts when it survives to the end of the *root*
+    transaction: every transaction end clears it, so a commit that is followed by
+    a nested release, a rollback or a bare ``close()`` is never mistaken for one.
+    """
+
+    def __init__(self) -> None:
+        self.pending: list[_PendingPut] = []
+        self._committed = False
+
+    def on_commit(self, session: Session) -> None:
+        self._committed = True
+
+    def on_soft_rollback(
+        self, session: Session, previous_transaction: SessionTransaction
+    ) -> None:
+        self._committed = False
+        if previous_transaction.parent is None:
+            self.pending.clear()
+            return
+        self.pending = [
+            put
+            for put in self.pending
+            if not _encloses(previous_transaction, put.origin)
+        ]
+
+    def on_transaction_end(
+        self, session: Session, transaction: SessionTransaction
+    ) -> None:
+        committed, self._committed = self._committed, False
+        if transaction.parent is not None:
+            return
+        pending, self.pending = self.pending, []
+        if not committed:
+            return
+        for put in pending:
+            try:
+                put_constraint_set(
+                    put.store, put.constraint_set, store_key=put.store_key
+                )
+            except Exception:
+                # The database commit already happened and cannot be undone here;
+                # raising would only make the caller believe it failed.
+                logger.exception(
+                    "committed, but caching the ConstraintSet for portfolio %s in "
+                    "the Store failed; re-profile or re-run the profiler to heal it",
+                    put.constraint_set.portfolio_id,
+                )
+
+
+def _encloses(
+    transaction: SessionTransaction, inner: SessionTransaction | None
+) -> bool:
+    """Whether ``inner`` is ``transaction`` or nested anywhere beneath it."""
+    while inner is not None:
+        if inner is transaction:
+            return True
+        inner = inner.parent
+    return False
+
+
+_PUBLISHER_KEY = "fund.constraint_set_publisher"
+
+
+def put_constraint_set_after_commit(
+    session: Session,
+    store: BaseStore | None,
+    constraint_set: ConstraintSet,
+    *,
+    store_key: str,
+) -> None:
+    """Cache ``constraint_set`` in the Store only once ``session`` commits.
+
+    The Store is a cache of the ``mifid_profiles`` row, so it must never get ahead
+    of it: an approval whose database transaction is lost (commit failure, killed
+    process) would otherwise leave a risk profile that ``fund run`` resolves with no
+    record behind it. The put is queued and runs after the root transaction commits;
+    a rollback of the session, or of the SAVEPOINT it was queued in, drops it. A
+    ``None`` store is a no-op. A Store failure after the commit is logged, never
+    raised.
+
+    Args:
+        session: The session whose commit makes the cached profile durable.
+        store: LangGraph store instance, or ``None`` when there is nothing to cache.
+        constraint_set: The active constraint set to publish.
+        store_key: Key under which the set is stored.
+    """
+    if store is None:
+        return
+    publisher = session.info.get(_PUBLISHER_KEY)
+    if publisher is None:
+        publisher = _CommitPublisher()
+        session.info[_PUBLISHER_KEY] = publisher
+        event.listen(session, "after_commit", publisher.on_commit)
+        event.listen(session, "after_soft_rollback", publisher.on_soft_rollback)
+        event.listen(session, "after_transaction_end", publisher.on_transaction_end)
+    origin = session.get_nested_transaction()
+    # A cache miss is refilled on every resolve; one identical queued put is enough.
+    if any(
+        put.store is store
+        and put.store_key == store_key
+        and put.origin is origin
+        and put.constraint_set == constraint_set
+        for put in publisher.pending
+    ):
+        return
+    publisher.pending.append(
+        _PendingPut(
+            store=store,
+            constraint_set=constraint_set,
+            store_key=store_key,
+            origin=origin,
+        )
+    )
+
+
 def resolve_constraint_set(
-    store: BaseStore, ref: ConstraintSetRef
+    store: BaseStore, ref: ConstraintSetRef, *, session: Session | None = None
 ) -> ConstraintSet | None:
     """Resolve a ``ConstraintSetRef`` back to its persisted ``ConstraintSet``.
 
     Reads the Store item at namespace ``(ref.portfolio_id,)`` / key
-    ``ref.store_key``; ``None`` when nothing is cached for that reference.
+    ``ref.store_key``. When the Store has nothing and a ``session`` is given, the
+    portfolio's active ``mifid_profiles`` row (the system of record) is used instead
+    and the Store entry is re-seeded once ``session`` commits, so a lost or recreated
+    cache never strands a profiled portfolio.
 
     Args:
         store: LangGraph store instance to query.
         ref: Reference produced by a prior ``put_constraint_set`` call.
+        session: Optional session enabling the fallback to the profile row.
 
     Returns:
-        The cached constraint set, or ``None`` if the reference is stale or missing.
+        The constraint set, or ``None`` if the reference is stale or missing (and,
+        with a ``session``, the portfolio has no profile).
     """
     item = store.get((ref.portfolio_id,), ref.store_key)
-    if item is None:
+    if item is not None:
+        return ConstraintSet.model_validate(item.value)
+    if session is None:
         return None
-    return ConstraintSet.model_validate(item.value)
+    try:
+        portfolio_id = uuid.UUID(ref.portfolio_id)
+    except ValueError:
+        return None
+    profile = MifidProfileRepository(session).get_active(portfolio_id)
+    if profile is None:
+        return None
+    constraint_set = ConstraintSet.model_validate(profile.constraint_set)
+    # Deferred like every other cache write: the row read here may belong to a
+    # transaction that is still open and could yet roll back.
+    put_constraint_set_after_commit(
+        session, store, constraint_set, store_key=ref.store_key
+    )
+    return constraint_set
 
 
 __all__ = [
     "MifidProfileRepository",
     "put_constraint_set",
+    "put_constraint_set_after_commit",
     "resolve_constraint_set",
 ]

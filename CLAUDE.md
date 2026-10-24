@@ -28,7 +28,7 @@ Supporting dirs: `tests/` (library suite, mirrors `optimizer/` + `tests/schedule
 
 ## Build & Run Commands
 
-uv workspace — `uv sync` resolves all four members into one venv. Run tools per-package with `uv run --package <name>` (`portopt-core`, `portopt`, `portopt-db`, `portopt-fund`). `pip install -e` still works per-package.
+uv workspace — `uv sync` resolves all four members into one venv. Run tools per-package with `uv run --package <name>` (`portopt-core`, `portopt`, `portopt-db`, `portopt-fund`). Install through uv only: `ingestion` and `fund` reach their siblings (`portopt-db`, `portopt-core`) through `[tool.uv.sources]`, which pip ignores — a bare `pip install` of either would look those unpublished names up on PyPI. Only `portopt-core` and `portopt-db` (no sibling deps) are safe to pip-install on their own: `pip install -e .` from the repo root (the root `pyproject.toml` declares the `portopt-core` dist; `packages/portopt-core/optimizer/` is only its source tree, with no `pyproject.toml` beside it) and `pip install -e packages/portopt-db`.
 
 ```bash
 # Infrastructure
@@ -44,23 +44,27 @@ uv run --package portopt-core ruff check packages/portopt-core/optimizer/ tests/
 uv run --package portopt-core mypy packages/portopt-core/optimizer/
 uv run pyright                                       # scoped via [tool.pyright] include
 
+# Member suites run FROM THE MEMBER DIRECTORY (as CI does). `--package` only picks the
+# dependency set, never the cwd: from the repo root every `pytest` run collects the
+# root `testpaths = ["tests"]`, i.e. the optimizer library suite, whatever `--package` says.
+
 # Shared DB layer (package portopt-db)
-uv run --package portopt-db pytest
-cd packages/portopt-db && alembic upgrade head      # single migration owner; head: d8f0b2c4e6a1
+cd packages/portopt-db && uv run pytest
+cd packages/portopt-db && DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db alembic upgrade head   # single migration owner (env.py reads only DATABASE_URL); head: a7c9e1b3d5f2
 
 # Ingestion daemon (package portopt)
-uv run --package portopt pytest
+cd ingestion && uv run pytest tests/
 uv run --package portopt python -m app.worker       # Run the daemon (blocks; SIGTERM to stop)
 
 # Fund bridge (package portopt-fund)
-uv run --package portopt-fund pytest
+cd fund && uv run pytest tests/
 uv run --package portopt-fund python -m fund.worker # Drift-monitor daemon (fund-worker)
 
 # Manual ingestion runs (same job-slot / heartbeat path as scheduler)
 docker compose exec scheduler python -m app.cli daily
 docker compose exec scheduler python -m app.cli refetch-all
 docker compose exec scheduler python -m app.cli yfinance --mode full --period 5y
-# also: universe | macro | fred | news | market-structure | calendars | market-summary | options
+# also: universe | macro | fx | fred | news | market-structure | calendars | market-summary | options | daily-events (--backfill START:END)
 # lifecycle: setup | start | stop | status   (there is NO `reference-indices` command)
 
 # Fund CLI (package portopt-fund)
@@ -69,11 +73,11 @@ fund run <portfolio_id> --asof DATE  # run a decision round for a rebalance bar
 fund approve <run_id> | reject <run_id> | status [portfolio_id] | report <run_id>
 ```
 
-> **Gotcha — CI only gates `main`.** The `Makefile` (`make lint | typecheck`) and CI jobs now target `packages/portopt-core/optimizer/` (repointed in `570a01b`), but `ci.yml` still triggers only `on: push/pull_request: branches: [main]`. Work on `development` (the active integration branch) is **not** gated until merged — a green local run does not mean CI has seen it. Verify on a `main`-targeted PR before relying on the pipeline.
+> **Gotcha — CI gates `main` and `development`.** `ci.yml` triggers on push/PR to both, so work on the integration branch is checked before it reaches `main`. It does not run on other branches until a PR targets one of these two; the `Makefile` (`make lint | typecheck`) and CI jobs target `packages/portopt-core/optimizer/` (repointed in `570a01b`).
 
 ## CI Pipeline
 
-`.github/workflows/ci.yml` — push/PR to `main`, Ubuntu, Python **3.12 & 3.13**, uv-driven (`uv sync --all-packages --all-extras`). **Seven jobs**: `lint` (ruff check → ruff format --check → pip-audit --strict), `typecheck` (`mypy optimizer/` + `cd packages/portopt-db && mypy src/portopt_db`), `pyright` (`uv run pyright`, scoped via config, pinned **1.1.398**), `test` (matrix 3.12/3.13, `pytest tests/ --cov=optimizer --cov-fail-under=90`), `ingestion-test` (`--cov=app --cov-fail-under=80`), `portopt-db-test` (`--cov=portopt_db --cov-fail-under=90`), `fund-test` (matrix 3.12/3.13, `--cov=fund --cov-fail-under=80`). Other: `release.yml` (on `v*`, builds `portopt-core`). No `smoke.yml`.
+`.github/workflows/ci.yml` — push/PR to `main` and `development`, Ubuntu, Python **3.12 & 3.13**, uv-driven (`uv sync --all-packages --all-extras`). **Nine jobs**: `lint` (ruff check → ruff format --check over the library, `ingestion/`, `fund/` and `packages/portopt-db/` → shellcheck → pip-audit --strict), `typecheck` (`mypy packages/portopt-core/optimizer/` + `cd packages/portopt-db && mypy src/portopt_db` + `cd ingestion && mypy app`), `pyright` (`uv run pyright`, scoped via config, pinned **1.1.398**), `test` (matrix 3.12/3.13, `pytest tests/ --cov=optimizer --cov-fail-under=90`), `ingestion-test` (`--cov=app --cov-fail-under=80`), `portopt-db-test` (`--cov=portopt_db --cov-fail-under=90`), `fund-test` (matrix 3.12/3.13, `--cov=fund --cov-fail-under=80`), `postgres-integration` (postgres:16 service, the Alembic upgrade to head on an empty DB, then `fund` `-m integration`), `docker-images` (`docker compose config` + `build` of both images). Other: `release.yml` (on `v*`: verifies the tag is on `main` and equals `v<pyproject version>`, calls `ci.yml` via `workflow_call`, then builds and publishes `portopt-core`). No `smoke.yml`.
 
 **Deps**: each member declares its own. Library runtime → root `pyproject.toml`; DB layer → `packages/portopt-db/pyproject.toml` (SQLAlchemy, psycopg2-binary, alembic, pandas, pydantic); daemon → `ingestion/pyproject.toml` (`portopt-db` is a `[tool.uv.sources]` workspace dep; psycopg2-binary/alembic arrive transitively); bridge → `fund/pyproject.toml` (`portopt-core` + `portopt-db` workspace deps; `deepagents==0.7.14` + langgraph/langchain-ollama/psycopg). No `requirements.txt`. `requires-python >= 3.12` across all **four**.
 
@@ -114,9 +118,8 @@ Per-submodule detail (configs, presets, factories, shape contracts, exact estima
 
 Full tables and internals live in the `portopt_db` models and the ingestion service/scheduler source. Load-bearing points:
 
-- **DB layer (`portopt-db`)**: single schema + connection manager + Alembic tree (**head `d8f0b2c4e6a1`**, runs from `packages/portopt-db`). Pure structural extraction, no sklearn/optimizer import (guarded). `background_jobs` *model* lives here but `BackgroundJobRepository` *behavior* stays in `ingestion/app/repositories/jobs/`. Coverage floor line ≥ 90%
+- **DB layer (`portopt-db`)**: single schema + connection manager + Alembic tree (**head `a7c9e1b3d5f2`**, runs from `packages/portopt-db`). Pure structural extraction, no sklearn/optimizer import (guarded). `background_jobs` *model* lives here but `BackgroundJobRepository` *behavior* stays in `ingestion/app/repositories/jobs/`. Coverage floor ≥ 90% (blended statement+branch)
 - **Daemon layering**: Scheduler/CLI → Services → Repositories → Models, `_shared/` per layer. Models + most repos live in `portopt_db`; ingestion keeps only the `jobs` repo. No HTTP API. Sync SQLAlchemy sessions — everything opens its own via `database_manager.get_session`. PostgreSQL 16 on port **54320**. **Do not reintroduce `optimizer` as an ingestion dep**
-- **Import-cycle gotcha**: `app/services/_shared/__init__.py` must NOT re-export `bootstrap_benchmarks` — import from `app.services._shared._benchmark_bootstrap`
 - **Scheduler**: APScheduler in-process in `worker.py`, `SQLAlchemyJobStore`. **Seven jobs**: `daily_pipeline` (daily 07:00), `midday_news` (daily 14:00), `universe_build` (**Sat** 02:00), `weekly_refetch` (**Sat** 03:00), `weekly_market_wide` (**Sat** 04:00), `fred_monthly` (1st 08:00), `orphan_reaper` (interval). `universe_build` runs **before** `weekly_refetch` (every step iterates `instruments`, a stale universe caps yfinance). One public step function each in `scheduler.py` — **add new work as a step, not a CLI-only branch**
 - **Gotcha — sync steps need an explicit heartbeat**: only the heartbeat thread stamps `last_heartbeat_at`. A sync step outliving `SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS` (300s) gets falsely reaped and flips to `failed` mid-run. Wrap work in `scheduler._heartbeat()`
 - **Gotcha — reaper is a heartbeat lease** (NOT host-scoped): `reconcile_orphans` fails any active `(pending|running)` row whose `last_heartbeat_at` is NULL or older than the lease TTL — there is **no** `worker_host`/`worker_pid` reap predicate (those columns are observability-only; the removed host-scoped design is stale). Run exactly one daemon per DB
@@ -124,13 +127,13 @@ Full tables and internals live in the `portopt_db` models and the ingestion serv
 - **Gotcha — transient-error detection** (`infrastructure/retry.py`): case-sensitive substring match. `"Too Many Requests"` trips the breaker; `"too many requests"` does not
 - **Cron weekday gotcha**: APScheduler `from_crontab` numbers days `0=Mon..6=Sun`. Use weekday names (`sat`); a bare `0` fires Monday
 
-Key env vars: `DATABASE_URL`, `TRADING_212_API_KEY` (absent ⇒ `universe_build` skips without claiming a slot), `FRED_API_KEY`, `METRICS_PORT` (9000), `YFINANCE_FETCH_WORKERS` (1-16, default 4). The full list + `SCHEDULER_*` crons are documented in `ingestion/.env.example` and `app/config.py`.
+Key env vars: `DATABASE_URL`, `TRADING_212_API_KEY` + `TRADING_212_SECRET_KEY` (either absent ⇒ the `t212_annotate` step skips without claiming a slot; `universe_build` itself needs neither), `FRED_API_KEY`, `METRICS_PORT` (9000), `YFINANCE_FETCH_WORKERS` (1-16, default 4). The full list + `SCHEDULER_*` crons are documented in `ingestion/.env.example` and `app/config.py`.
 
 ## Fund bridge (`fund/`, LIVE)
 
-The bridge where an LLM makes decisions and delegates numerics to `optimizer`, persisting to Postgres via `portopt_db`. Only member that may import both `optimizer` and `portopt_db`; `deepagents`/`langgraph` are confined here. Model path: a **switchable provider registry** selected by `LLM_PROVIDER` over any LangChain chat model — ten providers (`ollama`/`openai`/`openrouter`/`anthropic`/`google`/`groq`/`nvidia`/`huggingface` [cloud-only]/`aws` [Bedrock]/`microsoft` [Azure]); env-free default stays DeepSeek on Ollama Cloud via `langchain-ollama`. Non-default provider SDKs are opt-in extras (`uv sync --package portopt-fund --extra <provider>`, or `--extra all-llm`); builders lazy-import so a bare `import fund.agents.model` pulls no provider SDK. Durable checkpointer + store on a **dedicated `langgraph` Postgres schema** (`langgraph-checkpoint-postgres` over `psycopg`). Deep spec: `SPEC.md` + `todo/deep_agent.md`.
+The bridge where an LLM makes decisions and delegates numerics to `optimizer`, persisting to Postgres via `portopt_db`. Only member that may import both `optimizer` and `portopt_db`; `deepagents`/`langgraph` are confined here. Model path: a **switchable provider registry** selected by `LLM_PROVIDER` over any LangChain chat model — ten providers (`ollama`/`openai`/`openrouter`/`anthropic`/`google`/`groq`/`nvidia`/`huggingface` [cloud-only]/`aws` [Bedrock]/`microsoft` [Azure]); env-free default stays DeepSeek on Ollama Cloud via `langchain-ollama`. Non-default provider SDKs are opt-in extras (`uv sync --package portopt-fund --extra <provider>`, or `--extra all-llm`; `openrouter`/`microsoft` ride on `--extra openai`, `ollama` needs none); builders lazy-import so a bare `import fund.agents.model` pulls no provider SDK. Durable checkpointer + store on a **dedicated `langgraph` Postgres schema** (`langgraph-checkpoint-postgres` over `psycopg`). Deep spec: `SPEC.md` + `todo/deep_agent.md`.
 
-- **Gotcha — importing `fund.audit` pulls langgraph** via `__init__ → persistence`. Keep audit repos **lazy** (the `observe` pattern) so a module's bare import stays agent-stack-free (needed to keep `worker.py`/`scheduler.py` importable without the agent stack)
+- **Gotcha — `fund.audit` loads `persistence` (langgraph) lazily**: `fund/audit/__init__.py` resolves `LangGraphPersistence`/`setup_langgraph` through a PEP 562 `__getattr__`, so importing the package or any repository submodule stays agent-stack-free; only touching those two names (or `fund.audit.persistence`) pulls langgraph. Keep audit repos **lazy** anyway (the `observe` pattern) as defence in depth so a module's bare import stays agent-stack-free (needed to keep `worker.py`/`scheduler.py` importable without the agent stack). Guard: `fund/tests/unit/hygiene/test_audit_submodule_imports.py` (fresh-interpreter probe per repository submodule)
 - **Gotcha — test UUID/SQLite affinity**: seed `agent_runs.portfolio_id` with a **letter-bearing** UUID (not all-decimal), or SQLite REAL-coerces it and the UUID result processor crashes
 - **Gotcha — committing repos + shared session**: `FundJobRepository` commits; the shared SAVEPOINT `db_session` leaks commits across the session-scoped engine — use a private function-scoped engine (`job_session`) in tests, and `synchronize_session=False` on the reaper UPDATE. The fund worker's job slot is a **heartbeat lease**, mirroring the ingestion reaper
 - **Theory-consultation protocol**: the `THEORY_CONSULTATION_PROTOCOL` is wired onto all agent prompts and the profiler (openwiki-first). The `openwiki` MCP server backs it — if it fails to connect, note that rather than assuming the capability is absent
@@ -143,4 +146,4 @@ The bridge where an LLM makes decisions and delegates numerics to `optimizer`, p
 - **mypy**: strict, `python_version = "3.12"`, `ignore_missing_imports = true`. Overrides relax `disallow_subclassing_any` for sklearn/skfolio bases. `portopt-db` has its own strict `[tool.mypy]` gate (`mypy src/portopt_db`)
 - **pyright**: run in CI as `uv run pyright`, pinned **`pyright[nodejs]==1.1.398`**, `pythonVersion = "3.10"`, `include` covers all four implementation trees (`packages/portopt-core/optimizer`, `packages/portopt-db/src/portopt_db`, `ingestion/app`, `fund/src/fund`); `build/` excluded. Must stay 0 errors / 0 warnings
 - **Runtime deps** (root `pyproject.toml`): `numpy==2.5.3`, `pandas==3.0.6`, `scipy==1.18.1`, `scikit-learn==1.9.1`, `skfolio==1.4.11`, `jinja2==3.1.6`. `arch` is NOT declared — it reaches bootstrap uncertainty-set classes transitively via skfolio. Code importing it directly must guard with `try/except ImportError` or declare it explicitly
-- Coverage floors (line `--cov-fail-under`): `portopt-core` ≥ 90, `portopt-db` ≥ 90, `ingestion` ≥ 80, `fund` ≥ 80. `--cov-branch` data is collected but there is no separate branch-rate gate
+- Coverage floors (one blended statement+branch percentage: CI passes `--cov-branch` with a single `--cov-fail-under`): `portopt-core` ≥ 90, `portopt-db` ≥ 90, `ingestion` ≥ 80, `fund` ≥ 80. There is no separate line or branch-rate gate

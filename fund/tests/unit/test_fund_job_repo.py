@@ -33,10 +33,12 @@ import socket
 import uuid
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock, patch
 
 import pytest
 from portopt_db.models import BackgroundJob, Base
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, false
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -129,6 +131,33 @@ def test_claim_or_create_returns_uuid_then_none_for_double_claim(job_session):
         .all()
     )
     assert len(rows) == 1  # the second claim never inserted a row
+
+
+def test_claim_returns_none_when_a_concurrent_claimer_won_the_race(job_session):
+    """The unique index, not NOT EXISTS, is the atomicity guarantee.
+
+    Under READ COMMITTED a racing claimer cannot see the winner's uncommitted
+    row, so its NOT EXISTS passes; blinding the check reproduces that and leaves
+    only the database to refuse the second row. The slot must read as busy
+    (``None``), not raise, and the session must stay usable.
+    """
+    repo = FundJobRepository(job_session)
+    first = repo.claim_or_create("fund_rebalance_sweep")
+    assert first is not None
+
+    blind_check = MagicMock()
+    blind_check.where.return_value = false()
+    with patch("fund.audit.fund_job_repository.exists", return_value=blind_check):
+        second = repo.claim_or_create("fund_rebalance_sweep")
+
+    assert second is None
+    rows = (
+        job_session.query(BackgroundJob)
+        .filter_by(job_type="fund_rebalance_sweep")
+        .all()
+    )
+    assert [r.id for r in rows] == [first]
+    assert repo.claim_or_create("fund_drift_monitor") is not None
 
 
 def test_claim_stamps_pending_heartbeat_and_worker_identity(job_session):
@@ -272,7 +301,7 @@ def test_reap_orphans_fails_stale_and_null_leaves_fresh(job_session):
         job_session, job_type="fund_drift_monitor", status="running", heartbeat="stale"
     )
     null_hb = _insert_job(
-        job_session, job_type="fund_drift_monitor", status="pending", heartbeat="none"
+        job_session, job_type="fund_nav_mark", status="pending", heartbeat="none"
     )
 
     reaped = repo.reap_orphans("lease expired", heartbeat_timeout_seconds=300)
@@ -330,3 +359,174 @@ def test_reap_orphans_predicate_has_no_host_or_pid_clause():
     src = inspect.getsource(FundJobRepository.reap_orphans)
     assert "worker_host" not in src
     assert "worker_pid" not in src
+
+
+# --- shared work session: a failed flush must not wedge the slot -------------
+
+
+def _poison_session(session, existing_job_id: uuid.UUID) -> None:
+    """Fail a flush (duplicate primary key) so the session needs a rollback."""
+    session.add(BackgroundJob(id=existing_job_id, job_type="fund_nav_mark"))
+    with pytest.raises(IntegrityError):
+        session.flush()
+    assert session.is_active is False
+
+
+def test_mark_done_recovers_a_session_poisoned_by_a_failed_flush(job_session):
+    repo = FundJobRepository(job_session)
+    job_id = repo.claim_or_create("fund_rebalance_sweep")
+    repo.mark_running(job_id)
+    _poison_session(job_session, job_id)
+
+    assert repo.mark_done(job_id, status="failed", error="boom") is True
+
+    job_session.expire_all()
+    row = repo.get(job_id)
+    assert row.status == "failed"
+    assert row.error == "boom"
+
+
+def test_mark_running_recovers_a_session_poisoned_by_a_failed_flush(job_session):
+    repo = FundJobRepository(job_session)
+    job_id = repo.claim_or_create("fund_drift_monitor")
+    _poison_session(job_session, job_id)
+
+    assert repo.mark_running(job_id) is True
+
+    job_session.expire_all()
+    assert repo.get(job_id).status == "running"
+
+
+def test_claim_or_create_recovers_a_session_poisoned_by_a_failed_flush(job_session):
+    repo = FundJobRepository(job_session)
+    first = repo.claim_or_create("fund_rebalance_sweep")
+    _poison_session(job_session, first)
+
+    assert repo.claim_or_create("fund_drift_monitor") is not None
+
+
+# --- claim_or_create under concurrent PostgreSQL claimants ------------------
+
+
+@pytest.fixture
+def pg_claim_trace() -> Generator[tuple[Session, list[tuple[str, str]]], None, None]:
+    """A SQLite session that poses as PostgreSQL and records slot-claim SQL.
+
+    SQLite serialises writers so it cannot show the READ COMMITTED race itself;
+    what *is* observable is the statement order. ``pg_advisory_xact_lock`` and
+    ``hashtext`` are registered as recording stubs so the PostgreSQL-only guard
+    can run, and the dialect name is flipped so the repository takes that branch.
+    """
+    trace: list[tuple[str, str]] = []
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    @event.listens_for(engine, "connect")
+    def _register(dbapi_conn, _record):
+        dbapi_conn.create_function("hashtext", 1, lambda key: key)
+        dbapi_conn.create_function(
+            "pg_advisory_xact_lock",
+            2,
+            lambda ns, key: trace.append(("lock", str(key))),
+        )
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def _record(_conn, _cursor, statement, _params, _context, _many):
+        if statement.startswith("INSERT INTO background_jobs"):
+            trace.append(("insert", ""))
+
+    Base.metadata.create_all(bind=engine)
+    engine.dialect.name = "postgresql"
+    session = Session(bind=engine)
+    try:
+        yield session, trace
+    finally:
+        session.close()
+        engine.dispose()
+
+
+def test_claim_or_create_takes_a_per_job_type_lock_before_the_guarded_insert(
+    pg_claim_trace,
+):
+    session, trace = pg_claim_trace
+
+    job_id = FundJobRepository(session).claim_or_create("fund_rebalance_sweep")
+
+    assert job_id is not None
+    # Without the lock, two READ COMMITTED claimants both pass NOT EXISTS and insert.
+    assert trace == [("lock", "fund_rebalance_sweep"), ("insert", "")]
+
+
+# --- one clock for the heartbeat lease --------------------------------------
+
+
+class _AppClockAheadOfDb(datetime):
+    """``datetime`` whose ``now()`` runs an hour ahead of the database clock."""
+
+    @classmethod
+    def now(cls, tz=None):
+        return datetime.now(tz) + timedelta(hours=1)
+
+
+def test_heartbeating_slot_survives_the_reaper_when_app_and_db_clocks_skew(
+    job_session, monkeypatch
+):
+    monkeypatch.setattr("fund.audit.fund_job_repository.datetime", _AppClockAheadOfDb)
+    repo = FundJobRepository(job_session)
+    job_id = repo.claim_or_create("fund_rebalance_sweep")
+    repo.mark_running(job_id)
+    assert repo.update_heartbeat(job_id) is True
+
+    reaped = repo.reap_orphans("lease expired", heartbeat_timeout_seconds=300)
+    job_session.expire_all()
+
+    # The lease is stamped and compared on one clock, so skew cannot expire it.
+    assert reaped == 0
+    assert repo.get(job_id).status == "running"
+
+
+# --- finished_at is the wall-clock moment of the transition -----------------
+
+_WALL_CLOCK = datetime(2031, 1, 1, 12, 0, tzinfo=UTC)
+
+
+class _FrozenDatetime(datetime):
+    """``datetime`` pinned to :data:`_WALL_CLOCK` (a fixed point, not a txn start)."""
+
+    @classmethod
+    def now(cls, tz=None):
+        return _WALL_CLOCK.astimezone(tz)
+
+
+def test_mark_done_stamps_the_wall_clock_moment_not_the_transaction_start(
+    job_session, monkeypatch
+):
+    repo = FundJobRepository(job_session)
+    job_id = repo.claim_or_create("fund_rebalance_sweep")
+    repo.mark_running(job_id)
+
+    monkeypatch.setattr("fund.audit.fund_job_repository.datetime", _FrozenDatetime)
+    assert repo.mark_done(job_id, status="completed") is True
+
+    job_session.expire_all()
+    row = repo.get(job_id)
+    assert _naive(row.finished_at) == _naive(_WALL_CLOCK)
+    assert _naive(row.updated_at) == _naive(_WALL_CLOCK)
+
+
+def test_reap_orphans_stamps_the_wall_clock_moment_on_failed_slots(
+    job_session, monkeypatch
+):
+    repo = FundJobRepository(job_session)
+    stale = _insert_job(
+        job_session, job_type="fund_drift_monitor", status="running", heartbeat="stale"
+    )
+
+    monkeypatch.setattr("fund.audit.fund_job_repository.datetime", _FrozenDatetime)
+    assert repo.reap_orphans("lease expired", heartbeat_timeout_seconds=300) == 1
+    job_session.expire_all()
+
+    assert _naive(repo.get(stale.id).finished_at) == _naive(_WALL_CLOCK)

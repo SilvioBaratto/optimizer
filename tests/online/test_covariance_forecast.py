@@ -82,3 +82,19 @@ def test_when_comparison_names_mismatch_then_raises(returns: pd.DataFrame) -> No
     ew = run_covariance_forecast_evaluation(EWCovariance(half_life=40.0), returns)
     with pytest.raises(ConfigurationError, match="names length"):
         build_covariance_forecast_comparison([ew], names=["a", "b"])
+
+
+def test_when_comparison_names_duplicated_then_raises(returns: pd.DataFrame) -> None:
+    ew = run_covariance_forecast_evaluation(EWCovariance(half_life=40.0), returns)
+    other = run_covariance_forecast_evaluation(EWCovariance(half_life=20.0), returns)
+    with pytest.raises(ConfigurationError, match=r"unique.*Duplicated: a"):
+        build_covariance_forecast_comparison([ew, other], names=["a", "a"])
+
+
+def test_when_comparison_default_names_collide_then_raises(
+    returns: pd.DataFrame,
+) -> None:
+    ew = run_covariance_forecast_evaluation(EWCovariance(half_life=40.0), returns)
+    twin = run_covariance_forecast_evaluation(EWCovariance(half_life=40.0), returns)
+    with pytest.raises(ConfigurationError, match="unique"):
+        build_covariance_forecast_comparison([ew, twin])

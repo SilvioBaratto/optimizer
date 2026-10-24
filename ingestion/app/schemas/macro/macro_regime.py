@@ -20,10 +20,6 @@ class MacroFetchRequest(BaseModel):
         default=True,
         description="Whether to include bond yield data from Trading Economics.",
     )
-    include_fred: bool = Field(
-        default=True,
-        description="Whether to fetch FRED time-series data during bulk fetch.",
-    )
 
 
 class FredFetchRequest(BaseModel):
@@ -35,7 +31,10 @@ class FredFetchRequest(BaseModel):
     )
     incremental: bool = Field(
         default=True,
-        description="When True, only fetch observations newer than last stored date.",
+        description=(
+            "When True, re-fetch a trailing window behind the last stored date "
+            "(to pick up restated values) instead of the full history."
+        ),
     )
 
 

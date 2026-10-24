@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
+import tracemalloc
+from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 
 from optimizer.factors import (
@@ -17,6 +20,7 @@ from optimizer.factors import (
     classify_regime_composite,
     get_regime_tilts,
 )
+from optimizer.factors import _regime as regime_module
 
 
 class TestClassifyRegime:
@@ -407,9 +411,10 @@ class TestBoundedTilts:
         )
         weights = self._weights()
         result = apply_regime_tilts(weights, MacroRegime.RECESSION, config)
-        # momentum raw = 0.40 * 0.01 = 0.004, floored to 0.10 * 1.0 = 0.10
-        # Pre-renorm: 0.30, 0.10, 0.30 → 0.70, scale = 1.0/0.70
-        assert result[FactorGroupType.MOMENTUM] > 0.0
+        # momentum raw = 0.40 * 0.01 = 0.004, held at 0.10 * 1.0 = 0.10; the
+        # other two groups share the remaining 0.90 equally.
+        assert abs(result[FactorGroupType.MOMENTUM] - 0.10) < 1e-10
+        assert abs(result[FactorGroupType.VALUE] - 0.45) < 1e-10
         assert abs(sum(result.values()) - sum(weights.values())) < 1e-10
 
     def test_floor_zero_allows_full_suppression(self) -> None:
@@ -617,3 +622,426 @@ class TestRegimeTiltBranchCoverage:
         # group is preserved and stays at 0.0 (no division-by-zero).
         assert set(result) == set(weights)
         assert all(value == 0.0 for value in result.values())
+
+
+class TestCompositeUsesLastValidObservation:
+    """A NaN in the newest row must not erase an indicator's latest print."""
+
+    def _monthly_pmi_frame(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "pmi": [45.0, float("nan")],
+                "spread_2s10s": [1.5, 1.5],
+                "hy_oas": [420.0, 420.0],
+            },
+            index=pd.date_range("2024-03-01", periods=2),
+        )
+
+    def test_missing_monthly_pmi_on_latest_row_carries_last_print(self) -> None:
+        """PMI=45 (-1), spread=1.5 (+1), HY=420 (0) → S_t=0 → SLOWDOWN."""
+        macro = self._monthly_pmi_frame()
+        assert classify_regime_composite(macro.iloc[:1]) == MacroRegime.SLOWDOWN
+        assert classify_regime_composite(macro) == MacroRegime.SLOWDOWN
+        assert classify_regime(macro) == MacroRegime.SLOWDOWN
+
+    def test_regime_does_not_flip_between_release_and_non_release_days(
+        self,
+    ) -> None:
+        """Expanding windows over a daily frame with one monthly print agree."""
+        macro = pd.DataFrame(
+            {
+                "pmi": [45.0] + [float("nan")] * 4,
+                "spread_2s10s": [1.5] * 5,
+                "hy_oas": [420.0] * 5,
+            },
+            index=pd.date_range("2024-03-01", periods=5),
+        )
+        regimes = {classify_regime(macro.iloc[: i + 1]) for i in range(len(macro))}
+        assert regimes == {MacroRegime.SLOWDOWN}
+
+    def test_sentiment_gap_on_latest_row_carries_last_reading(self) -> None:
+        """Sentiment follows the same last-valid rule as the macro indicators."""
+        macro = pd.DataFrame(
+            {
+                "pmi": [50.0, 50.0],
+                "spread_2s10s": [0.5, 0.5],
+                "hy_oas": [420.0, 420.0],
+                "sentiment": [-0.5, float("nan")],
+            },
+            index=pd.date_range("2024-03-01", periods=2),
+        )
+        # S_t=0, s_sent=-1 carried → S_aug=-1 → RECOVERY (not SLOWDOWN).
+        assert classify_regime_composite(macro) == MacroRegime.RECOVERY
+
+
+class TestLastValidLookupCost:
+    """Point-in-time validation classifies every expanding window, so finding
+    the latest print must not cost a pass over the whole history."""
+
+    @staticmethod
+    def _long_macro(rows: int) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "pmi": [55.0] * rows,
+                "spread_2s10s": [1.5] * rows,
+                "hy_oas": [300.0] * rows,
+                "sentiment": [0.5] * rows,
+            },
+            index=pd.date_range("2000-01-03", periods=rows, freq="B"),
+        )
+
+    @staticmethod
+    def _peak_allocation(macro: pd.DataFrame) -> int:
+        tracemalloc.start()
+        try:
+            tracemalloc.reset_peak()
+            classify_regime(macro)
+            return tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+    def test_classification_cost_does_not_grow_with_history_length(self) -> None:
+        short = self._long_macro(1_000)
+        long = self._long_macro(500_000)
+        # Warm pandas' internal caches so they are not billed to either call.
+        classify_regime(short)
+        classify_regime(long)
+        extra = self._peak_allocation(long) - self._peak_allocation(short)
+        # One boolean mask over the long column alone would take ~500 kB.
+        assert extra < 50_000
+
+    def test_each_indicator_is_resolved_once_per_classification(self) -> None:
+        macro = self._long_macro(50)
+        with patch.object(
+            regime_module, "_last_valid", wraps=regime_module._last_valid
+        ) as lookup:
+            assert classify_regime(macro) == MacroRegime.EXPANSION
+        columns = sorted(call.args[1] for call in lookup.call_args_list)
+        assert columns == ["hy_oas", "pmi", "sentiment", "spread_2s10s"]
+
+    def test_latest_print_is_found_at_any_distance_from_the_end(self) -> None:
+        rows = 300
+        for gap in (0, 1, 15, 16, 17, 47, 48, 49, 150, 299):
+            values = np.full(rows, np.nan)
+            values[0] = 40.0
+            values[rows - 1 - gap] = 51.5
+            macro = pd.DataFrame(
+                {"pmi": values},
+                index=pd.date_range("2000-01-03", periods=rows, freq="B"),
+            )
+            assert regime_module._last_valid(macro, "pmi") == 51.5, gap
+
+    def test_column_without_any_print_has_no_latest_value(self) -> None:
+        macro = pd.DataFrame(
+            {"pmi": [np.nan] * 300},
+            index=pd.date_range("2000-01-03", periods=300, freq="B"),
+        )
+        assert regime_module._last_valid(macro, "pmi") is None
+        assert regime_module._last_valid(macro, "not_a_column") is None
+
+    def test_nullable_and_object_columns_are_read_as_floats(self) -> None:
+        index = pd.date_range("2024-01-01", periods=3)
+        nullable = pd.DataFrame(
+            {"pmi": pd.array([47.0, pd.NA, pd.NA], dtype="Float64")}, index=index
+        )
+        mixed = pd.DataFrame({"pmi": [47.0, None, None]}, index=index, dtype=object)
+        assert regime_module._last_valid(nullable, "pmi") == 47.0
+        assert regime_module._last_valid(mixed, "pmi") == 47.0
+
+
+class TestCompositeWithoutUsableIndicators:
+    """No observed composite indicator means no information, not SLOWDOWN."""
+
+    nan = float("nan")
+
+    def test_all_nan_composite_row_returns_unknown(self) -> None:
+        macro = _composite(pmi=self.nan, spread_2s10s=self.nan, hy_oas=self.nan)
+        assert classify_regime(macro) == MacroRegime.UNKNOWN
+        assert classify_regime_composite(macro) == MacroRegime.UNKNOWN
+
+    def test_leading_all_nan_rows_are_unknown_until_first_print(self) -> None:
+        macro = pd.DataFrame(
+            {
+                "pmi": [self.nan, self.nan, 54.0],
+                "spread_2s10s": [self.nan, self.nan, 1.5],
+                "hy_oas": [self.nan, self.nan, 300.0],
+            },
+            index=pd.date_range("2024-01-01", periods=3),
+        )
+        regimes = [classify_regime(macro.iloc[: i + 1]) for i in range(len(macro))]
+        assert regimes == [
+            MacroRegime.UNKNOWN,
+            MacroRegime.UNKNOWN,
+            MacroRegime.EXPANSION,
+        ]
+
+    def test_nan_composite_columns_fall_through_to_gdp_path(self) -> None:
+        macro = pd.DataFrame(
+            {"pmi": [self.nan] * 4, "gdp_growth": [2.0, 2.5, 3.0, 3.5]},
+            index=pd.date_range("2023-01-01", periods=4, freq="QE"),
+        )
+        assert classify_regime(macro) == MacroRegime.EXPANSION
+
+    def test_nan_composite_columns_fall_through_to_yield_spread(self) -> None:
+        macro = _composite(pmi=self.nan, yield_spread=-1.0)
+        assert classify_regime(macro) == MacroRegime.RECESSION
+
+    def test_sentiment_alone_does_not_drive_the_regime(self) -> None:
+        bullish = _composite(pmi=self.nan, sentiment=0.5)
+        bearish = _composite(pmi=self.nan, sentiment=-0.5)
+        assert classify_regime(bullish) == MacroRegime.UNKNOWN
+        assert classify_regime(bearish) == MacroRegime.UNKNOWN
+        assert classify_regime_composite(bullish) == MacroRegime.UNKNOWN
+        assert classify_regime_composite(_composite(sentiment=-0.5)) == (
+            MacroRegime.UNKNOWN
+        )
+
+    def test_unknown_logs_warning(self, caplog: logging.LogRecord) -> None:
+        macro = _composite(pmi=self.nan)
+        with caplog.at_level(logging.WARNING):
+            classify_regime_composite(macro)
+        assert "MacroRegime.UNKNOWN" in caplog.text
+
+
+class TestTiltFloorScope:
+    """The floor protects compressed groups; it must not reshape the rest."""
+
+    def test_unknown_regime_is_identity_for_groups_below_the_floor(self) -> None:
+        weights = {
+            FactorGroupType.VALUE: 0.90,
+            FactorGroupType.MOMENTUM: 0.08,
+            FactorGroupType.SENTIMENT: 0.02,
+        }
+        result = apply_regime_tilts(
+            weights, MacroRegime.UNKNOWN, RegimeTiltConfig(enable=True)
+        )
+        for group, weight in weights.items():
+            assert abs(result[group] - weight) < 1e-12
+
+    def test_zero_weight_group_stays_excluded(self) -> None:
+        weights = {
+            FactorGroupType.VALUE: 0.5,
+            FactorGroupType.MOMENTUM: 0.5,
+            FactorGroupType.LIQUIDITY: 0.0,
+        }
+        config = RegimeTiltConfig(enable=True)
+        for regime in MacroRegime:
+            result = apply_regime_tilts(weights, regime, config)
+            assert result[FactorGroupType.LIQUIDITY] == 0.0, regime
+            assert abs(sum(result.values()) - 1.0) < 1e-12
+
+    def test_untilted_small_group_is_not_boosted_by_other_tilts(self) -> None:
+        weights = {
+            FactorGroupType.VALUE: 0.5,
+            FactorGroupType.LOW_RISK: 0.48,
+            FactorGroupType.DIVIDEND: 0.02,
+        }
+        config = RegimeTiltConfig(
+            enable=True, recession_tilts=(("low_risk", 1.5), ("value", 0.8))
+        )
+        result = apply_regime_tilts(weights, MacroRegime.RECESSION, config)
+        scale = 1.0 / (0.5 * 0.8 + 0.48 * 1.5 + 0.02)
+        assert abs(result[FactorGroupType.DIVIDEND] - 0.02 * scale) < 1e-12
+
+    def test_floor_never_lifts_a_compressed_group_above_its_base_weight(
+        self,
+    ) -> None:
+        weights = {
+            FactorGroupType.VALUE: 0.97,
+            FactorGroupType.MOMENTUM: 0.03,
+        }
+        config = RegimeTiltConfig(
+            enable=True,
+            min_post_tilt_weight=0.10,
+            recession_tilts=(("momentum", 0.5),),
+        )
+        result = apply_regime_tilts(weights, MacroRegime.RECESSION, config)
+        # Floor (0.10) exceeds the base weight (0.03): a compressed group is
+        # held at its base weight, never raised past it.
+        assert abs(result[FactorGroupType.MOMENTUM] - 0.03) < 1e-12
+        assert abs(result[FactorGroupType.VALUE] - 0.97) < 1e-12
+
+    def test_strict_bounds_does_not_raise_small_or_empty_groups_to_the_floor(
+        self,
+    ) -> None:
+        weights = {
+            FactorGroupType.VALUE: 0.50,
+            FactorGroupType.LOW_RISK: 0.40,
+            FactorGroupType.DIVIDEND: 0.06,
+            FactorGroupType.SENTIMENT: 0.04,
+            FactorGroupType.LIQUIDITY: 0.0,
+        }
+        result = apply_regime_tilts(
+            weights, MacroRegime.RECESSION, RegimeTiltConfig.for_strict_bounds()
+        )
+        assert result[FactorGroupType.DIVIDEND] < 0.10
+        assert result[FactorGroupType.SENTIMENT] < 0.10
+        assert result[FactorGroupType.LIQUIDITY] == 0.0
+        assert abs(sum(result.values()) - 1.0) < 1e-12
+
+
+class TestGdpHeuristicTiesAndSign:
+    """The GDP fallback must not read steady growth as a recession or a
+    still-contracting economy as an expansion."""
+
+    @staticmethod
+    def _gdp(values: list[float]) -> pd.DataFrame:
+        return pd.DataFrame(
+            {"gdp_growth": values},
+            index=pd.date_range("2023-01-01", periods=len(values), freq="QE"),
+        )
+
+    def test_steady_positive_growth_is_expansion(self) -> None:
+        assert classify_regime(self._gdp([3.0, 3.0, 3.0, 3.0])) == MacroRegime.EXPANSION
+
+    def test_steady_growth_is_not_split_by_float_rounding(self) -> None:
+        for level in (0.1, 2.9, 3.3, 1.7):
+            regime = classify_regime(self._gdp([level] * 6))
+            assert regime == MacroRegime.EXPANSION, level
+
+    def test_steady_contraction_is_recession(self) -> None:
+        assert classify_regime(self._gdp([-1.0, -1.0, -1.0, -1.0])) == (
+            MacroRegime.RECESSION
+        )
+
+    def test_contraction_that_is_improving_is_recovery_not_expansion(self) -> None:
+        macro = self._gdp([-2.0, -1.5, -1.0, -0.5])
+        assert classify_regime(macro) == MacroRegime.RECOVERY
+
+    def test_contraction_above_trend_but_worsening_is_recession(self) -> None:
+        macro = self._gdp([-3.0, -2.0, -1.0, -1.5])
+        assert classify_regime(macro) == MacroRegime.RECESSION
+
+    def test_contraction_is_not_masked_by_rising_unemployment_override(self) -> None:
+        macro = self._gdp([-2.0, -1.5, -1.0, -0.5])
+        macro["unemployment_rate"] = [4.0, 4.2, 4.5, 4.9]
+        assert classify_regime(macro) == MacroRegime.RECOVERY
+
+    def test_sharp_positive_deceleration_stays_recession(self) -> None:
+        assert classify_regime(self._gdp([3.0, 2.0, 1.0, 0.5])) == (
+            MacroRegime.RECESSION
+        )
+
+    def test_mild_deceleration_below_trend_is_a_slowdown_not_a_recession(
+        self,
+    ) -> None:
+        for values in (
+            [3.0, 3.0, 3.0, 2.99],
+            [3.0, 3.0, 3.0, 2.9],
+            [2.5, 3.0, 2.8, 2.4],
+        ):
+            regime = classify_regime(self._gdp(values))
+            assert regime == MacroRegime.SLOWDOWN, values
+
+    def test_a_vanishing_dip_does_not_jump_from_expansion_to_recession(
+        self,
+    ) -> None:
+        steady = classify_regime(self._gdp([3.0, 3.0, 3.0, 3.0]))
+        dipped = classify_regime(self._gdp([3.0, 3.0, 3.0, 3.0 - 1e-6]))
+        assert steady == MacroRegime.EXPANSION
+        assert dipped == MacroRegime.SLOWDOWN
+
+    def test_deceleration_to_under_half_of_trend_is_the_recession_cut(self) -> None:
+        # For [4, 4, 4, x] the four-print trend is 3 + x / 4, so growth sits
+        # under half of it once x < 12 / 7 (about 1.71).
+        assert classify_regime(self._gdp([4.0, 4.0, 4.0, 1.6])) == (
+            MacroRegime.RECESSION
+        )
+        assert classify_regime(self._gdp([4.0, 4.0, 4.0, 1.8])) == (
+            MacroRegime.SLOWDOWN
+        )
+
+    def test_flat_growth_below_trend_is_a_slowdown(self) -> None:
+        assert classify_regime(self._gdp([4.0, 4.0, 2.5, 2.5])) == (
+            MacroRegime.SLOWDOWN
+        )
+
+
+class TestTiltFloorSurvivesRenormalisation:
+    """``min_post_tilt_weight`` bounds the weight a group ends with, not the
+    weight it had before the total was restored."""
+
+    @staticmethod
+    def _protected_floor(
+        base: dict[FactorGroupType, float],
+        config: RegimeTiltConfig,
+        regime: MacroRegime,
+    ) -> dict[FactorGroupType, float]:
+        tilts = get_regime_tilts(regime, config)
+        total = sum(base.values())
+        floor = config.min_post_tilt_weight * total
+        out: dict[FactorGroupType, float] = {}
+        for group, weight in base.items():
+            tilt = min(tilts.get(group, 1.0), config.max_tilt_multiplier)
+            if tilt < 1.0 or weight >= floor:
+                out[group] = min(weight, floor)
+        return out
+
+    def test_strict_bounds_recession_keeps_momentum_at_ten_percent(self) -> None:
+        weights = {
+            FactorGroupType.VALUE: 0.25,
+            FactorGroupType.MOMENTUM: 0.10,
+            FactorGroupType.LOW_RISK: 0.25,
+            FactorGroupType.PROFITABILITY: 0.25,
+            FactorGroupType.DIVIDEND: 0.15,
+        }
+        result = apply_regime_tilts(
+            weights, MacroRegime.RECESSION, RegimeTiltConfig.for_strict_bounds()
+        )
+        assert result[FactorGroupType.MOMENTUM] >= 0.10 - 1e-12
+        assert abs(sum(result.values()) - 1.0) < 1e-12
+
+    def test_compressed_groups_hold_the_floor_across_nine_equal_groups(self) -> None:
+        weights = dict.fromkeys(FactorGroupType, 1.0 / 9.0)
+        result = apply_regime_tilts(
+            weights, MacroRegime.RECESSION, RegimeTiltConfig.for_strict_bounds()
+        )
+        assert result[FactorGroupType.VALUE] >= 0.10 - 1e-12
+        assert result[FactorGroupType.MOMENTUM] >= 0.10 - 1e-12
+        assert abs(sum(result.values()) - 1.0) < 1e-12
+
+    def test_untilted_group_above_floor_is_not_pushed_under_it_by_boosts(
+        self,
+    ) -> None:
+        weights = {
+            FactorGroupType.VALUE: 0.12,
+            FactorGroupType.MOMENTUM: 0.44,
+            FactorGroupType.LOW_RISK: 0.44,
+        }
+        config = RegimeTiltConfig(
+            enable=True,
+            min_post_tilt_weight=0.10,
+            expansion_tilts=(("momentum", 2.0), ("low_risk", 2.0)),
+        )
+        result = apply_regime_tilts(weights, MacroRegime.EXPANSION, config)
+        assert result[FactorGroupType.VALUE] >= 0.10 - 1e-12
+        assert abs(sum(result.values()) - 1.0) < 1e-12
+        # The remainder keeps its tilted proportions.
+        assert (
+            abs(result[FactorGroupType.MOMENTUM] - result[FactorGroupType.LOW_RISK])
+            < 1e-12
+        )
+
+    def test_floor_holds_for_random_weights_and_tilts(self) -> None:
+        import numpy as np
+
+        rng = np.random.default_rng(11)
+        groups = list(FactorGroupType)
+        for _ in range(300):
+            raw = rng.dirichlet(np.ones(len(groups)))
+            weights = {g: float(w) for g, w in zip(groups, raw, strict=True)}
+            tilts = tuple(
+                (g.value, float(rng.uniform(0.0, 2.5)))
+                for g in groups
+                if rng.random() < 0.7
+            )
+            config = RegimeTiltConfig(
+                enable=True,
+                min_post_tilt_weight=float(rng.choice([0.0, 0.03, 0.05, 0.10])),
+                recession_tilts=tilts,
+            )
+            result = apply_regime_tilts(weights, MacroRegime.RECESSION, config)
+            assert abs(sum(result.values()) - 1.0) < 1e-9
+            protected = self._protected_floor(weights, config, MacroRegime.RECESSION)
+            for group, minimum in protected.items():
+                assert result[group] >= minimum - 1e-9, (group, weights, tilts)

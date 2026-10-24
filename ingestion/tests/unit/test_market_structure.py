@@ -13,17 +13,23 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pytest
 from portopt_db.repositories.market_data.market_structure_repository import (
     MarketStructureRepository,
 )
+from yfinance.data import YfData
+from yfinance.exceptions import YFDataException, YFRateLimitError
 
 from app.services.market_data.market_structure_service import (
+    DEFAULT_REGIONS,
     run_market_structure_fetch,
 )
+from app.services.market_data.yfinance import is_no_data_error
 from app.services.market_data.yfinance.market.sectors import (
     SECTOR_KEYS,
     SectorsClient,
 )
+from tests._fixtures.clock import FakeClock
 
 _AS_OF = dt.date(2026, 8, 27)
 
@@ -74,6 +80,149 @@ class TestSectorsClient:
         }
         assert {c["symbol"] for c in out["top_companies"]} == {"AAPL", "MSFT"}
         assert out["top_companies"][0]["weight"] == 0.07
+
+    def test_swallowed_fetch_failure_is_raised_not_returned_as_a_hollow_sector(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # yfinance (hide_exceptions=True) swallows the rate-limit error and leaves
+        # every Sector field None; that must not come back as a truthy dict.
+        monkeypatch.setattr(
+            "app.services.infrastructure.retry.time.sleep", lambda _: None
+        )
+        client = SectorsClient(
+            rate_limiter=MagicMock(),
+            circuit_breaker=MagicMock(),
+            default_max_retries=2,
+        )
+        with patch.object(
+            YfData, "get_raw_json", side_effect=YFRateLimitError()
+        ) as fetch:
+            with pytest.raises(YFDataException):
+                client.fetch_sector("technology", region="US")
+
+        # The empty payload is a final answer, so the failed fetch is not retried:
+        # one attempt reads the overview and probes the name, nothing more.
+        assert fetch.call_count == 2
+        client.circuit_breaker.reset.assert_not_called()
+
+    def test_unrated_constituents_come_back_as_none_not_nan(self) -> None:
+        # yfinance leaves NaN in the frame for a constituent without an analyst
+        # rating; NaN is truthy, so it used to flow on as if it were a rating.
+        nan = float("nan")
+        sec = SimpleNamespace(
+            key="healthcare",
+            name="Healthcare",
+            symbol="^YH206",
+            overview={"companies_count": 3},
+            industries=None,
+            top_companies=pd.DataFrame(
+                {
+                    "name": ["Eli Lilly", nan, "Medline"],
+                    "rating": ["Strong Buy", "Buy", nan],
+                    "market weight": [0.12, nan, 0.0],
+                },
+                index=["LLY", "XYZ", "MDLN"],
+            ),
+        )
+        with patch(
+            "app.services.market_data.yfinance.market.sectors.yf.Sector",
+            return_value=sec,
+        ):
+            out = _sector_client().fetch_sector("healthcare", region="US")
+
+        assert out is not None
+        by_symbol = {c["symbol"]: c for c in out["top_companies"]}
+        assert by_symbol["LLY"]["rating"] == "Strong Buy"
+        assert by_symbol["MDLN"]["rating"] is None
+        assert by_symbol["XYZ"]["name"] is None
+        assert by_symbol["XYZ"]["weight"] is None
+        # A genuine zero is data, not a missing value.
+        assert by_symbol["MDLN"]["weight"] == 0.0
+
+    def test_unrated_constituent_is_stored_with_a_null_rating(self, db_session) -> None:
+        sec = SimpleNamespace(
+            key="healthcare",
+            name="Healthcare",
+            symbol="^YH206",
+            overview={"companies_count": 2},
+            industries=None,
+            top_companies=pd.DataFrame(
+                {"name": ["Eli Lilly", "Medline"], "rating": ["Buy", float("nan")]},
+                index=["LLY", "MDLN"],
+            ),
+        )
+        with patch(
+            "app.services.market_data.yfinance.market.sectors.yf.Sector",
+            return_value=sec,
+        ):
+            out = _sector_client().fetch_sector("healthcare", region="US")
+        assert out is not None
+
+        repo = MarketStructureRepository(db_session)
+        repo.upsert_top_companies("healthcare", "US", _AS_OF, out["top_companies"])
+        db_session.flush()
+
+        from portopt_db.models.market_data.market_structure import SectorTopCompany
+
+        stored = {r.symbol: r.rating for r in db_session.query(SectorTopCompany).all()}
+        assert stored == {"LLY": "Buy", "MDLN": None}
+
+
+def _empty_sector() -> SimpleNamespace:
+    """What ``yf.Sector`` exposes once yfinance has swallowed a failed fetch."""
+    return SimpleNamespace(
+        key=None,
+        name=None,
+        symbol=None,
+        overview={},
+        industries=pd.DataFrame(),
+        top_companies=pd.DataFrame(),
+    )
+
+
+class TestSwallowedYahooFailure:
+    def test_empty_sector_payload_raises_a_final_no_data_error(self) -> None:
+        client = SectorsClient(
+            rate_limiter=MagicMock(),
+            circuit_breaker=MagicMock(),
+            default_max_retries=3,
+        )
+        with patch(
+            "app.services.market_data.yfinance.market.sectors.yf.Sector",
+            return_value=_empty_sector(),
+        ) as sector_cls:
+            with pytest.raises(YFDataException) as excinfo:
+                client.fetch_sector("technology", region="GB")
+
+        assert is_no_data_error(excinfo.value)
+        assert sector_cls.call_count == 1
+
+    def test_sweep_writes_nothing_and_reports_the_failures(self) -> None:
+        repo = MagicMock(name="repo")
+        yf = SimpleNamespace(
+            sectors=SectorsClient(
+                rate_limiter=MagicMock(),
+                circuit_breaker=MagicMock(),
+                default_max_retries=1,
+            )
+        )
+        with (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+            patch(
+                "app.services.market_data.yfinance.market.sectors.yf.Sector",
+                return_value=_empty_sector(),
+            ),
+        ):
+            result = run_market_structure_fetch(yf, regions=("GB",))  # type: ignore[arg-type]
+
+        repo.upsert_sector_snapshot.assert_not_called()
+        assert result["sectors_written"] == 0
+        assert result["error_count"] == len(SECTOR_KEYS)
 
 
 class TestRepository:
@@ -129,13 +278,14 @@ class TestBulkFetch:
         repo.upsert_industries.return_value = 2
         repo.upsert_top_companies.return_value = 3
         yf = MagicMock()
-        yf.sectors.fetch_sector.return_value = {
-            "key": "technology",
+        top = {"US": "AAPL", "GB": "SHEL.L"}
+        yf.sectors.fetch_sector.side_effect = lambda key, region: {
+            "key": key,
             "name": "Technology",
             "symbol": "^YH311",
             "overview": {"market_cap": 1.0, "companies_count": 10},
             "industries": [{"key": "semiconductors", "name": "Semis"}],
-            "top_companies": [{"symbol": "AAPL", "name": "Apple", "weight": 0.07}],
+            "top_companies": [{"symbol": top[region], "name": "X", "weight": 0.07}],
         }
         with (
             patch(
@@ -170,6 +320,256 @@ class TestBulkFetch:
 
         assert result["sectors_written"] == 0
         assert result["error_count"] == len(SECTOR_KEYS)
+
+    def test_sector_without_data_is_recorded_as_an_error_and_not_persisted(
+        self,
+    ) -> None:
+        repo = MagicMock(name="repo")
+        yf = MagicMock()
+        yf.sectors.fetch_sector.return_value = None
+        with (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        ):
+            result = run_market_structure_fetch(yf, regions=("US",))
+
+        assert result["sectors_written"] == 0
+        assert result["error_count"] == len(SECTOR_KEYS)
+        repo.upsert_sector_snapshot.assert_not_called()
+
+    def test_region_mirroring_the_us_list_is_not_persisted(self) -> None:
+        # Yahoo answers regions it does not scope (NL, CH) with the US rollup;
+        # storing it under that region would label US names as Dutch.
+        def sector(symbols: list[str]) -> dict:
+            return {
+                "key": "technology",
+                "name": "Technology",
+                "symbol": "^YH311",
+                "overview": {"companies_count": 10},
+                "industries": [],
+                "top_companies": [{"symbol": sym, "name": sym} for sym in symbols],
+            }
+
+        by_region = {
+            "US": sector(["NVDA", "AAPL", "MSFT"]),
+            "NL": sector(["NVDA", "AAPL", "MSFT"]),
+            "GB": sector(["SHEL.L", "AZN.L"]),
+        }
+        repo = MagicMock(name="repo")
+        repo.upsert_industries.return_value = 0
+        repo.upsert_top_companies.return_value = 3
+        yf = MagicMock()
+        yf.sectors.fetch_sector.side_effect = lambda key, region: by_region[region]
+        with (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        ):
+            result = run_market_structure_fetch(yf, regions=("US", "NL", "GB"))
+
+        written_regions = {c.args[1] for c in repo.upsert_top_companies.call_args_list}
+        assert written_regions == {"US", "GB"}
+        snapshot_regions = {
+            c.args[1] for c in repo.upsert_sector_snapshot.call_args_list
+        }
+        assert snapshot_regions == {"US", "GB"}
+        assert result["sectors_written"] == 2 * len(SECTOR_KEYS)
+        assert result["skipped_unscoped"] == [f"{k}/NL" for k in SECTOR_KEYS]
+        assert result["error_count"] == 0
+
+    def test_default_regions_exclude_regions_yahoo_does_not_scope(self) -> None:
+        assert "US" in DEFAULT_REGIONS
+        assert {"NL", "CH"}.isdisjoint(DEFAULT_REGIONS)
+
+
+class TestFailedFetchAccounting:
+    @staticmethod
+    def _patches(repo: MagicMock):
+        return (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        )
+
+    def test_none_from_the_client_is_counted_as_an_error(self) -> None:
+        repo = MagicMock(name="repo")
+        yf = MagicMock()
+        yf.sectors.fetch_sector.return_value = None
+        progress = MagicMock()
+        repo_patch, dbm_patch = self._patches(repo)
+        with repo_patch, dbm_patch:
+            result = run_market_structure_fetch(
+                yf, regions=("GB",), on_progress=progress
+            )
+
+        repo.upsert_sector_snapshot.assert_not_called()
+        assert result["sectors_written"] == 0
+        assert result["error_count"] == len(SECTOR_KEYS)
+        errors = progress.call_args_list[-1].kwargs["errors"]
+        assert "technology/GB: no data" in errors
+
+
+class TestRolledBackPairsAreNotCounted:
+    @staticmethod
+    def _client() -> MagicMock:
+        yf = MagicMock()
+        yf.sectors.fetch_sector.return_value = {
+            "key": "technology",
+            "name": "Technology",
+            "symbol": "^YH311",
+            "overview": {"market_cap": 1.0},
+            "industries": [{"key": "semiconductors", "name": "Semis"}],
+            "top_companies": [{"symbol": "AAPL", "name": "Apple"}],
+        }
+        return yf
+
+    def test_later_upsert_failure_leaves_every_counter_at_zero(self) -> None:
+        repo = MagicMock(name="repo")
+        repo.upsert_industries.return_value = 2
+        repo.upsert_top_companies.side_effect = RuntimeError("constraint")
+        with (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        ):
+            result = run_market_structure_fetch(self._client(), regions=("US",))
+
+        assert result["error_count"] == len(SECTOR_KEYS)
+        assert result["sectors_written"] == 0
+        assert result["industries_written"] == 0
+        assert result["top_companies_written"] == 0
+
+    def test_commit_failure_leaves_every_counter_at_zero(self) -> None:
+        repo = MagicMock(name="repo")
+        repo.upsert_industries.return_value = 2
+        repo.upsert_top_companies.return_value = 3
+        session = MagicMock(name="session")
+        session.commit.side_effect = RuntimeError("connection lost")
+
+        @contextmanager
+        def _cm():
+            yield session
+
+        dbm = MagicMock()
+        dbm.get_session = _cm
+        with (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", dbm),
+        ):
+            result = run_market_structure_fetch(self._client(), regions=("US",))
+
+        assert result["error_count"] == len(SECTOR_KEYS)
+        assert result["sectors_written"] == 0
+        assert result["industries_written"] == 0
+        assert result["top_companies_written"] == 0
+
+
+class TestSectorOverviewScope:
+    """Yahoo's overview figures are global, so only one region row may carry them."""
+
+    @staticmethod
+    def _sweep(regions: tuple[str, ...]) -> MagicMock:
+        repo = MagicMock(name="repo")
+        repo.upsert_industries.return_value = 1
+        repo.upsert_top_companies.return_value = 1
+        yf = MagicMock()
+        yf.sectors.fetch_sector.return_value = {
+            "key": "technology",
+            "name": "Technology",
+            "symbol": "^YH311",
+            "overview": {
+                "market_cap": 2.8e13,
+                "market_weight": 0.32,
+                "companies_count": 866,
+                "industries_count": 12,
+                "employee_count": 5_000_000,
+            },
+            "industries": [],
+            "top_companies": [],
+        }
+        with (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        ):
+            run_market_structure_fetch(yf, regions=regions)
+        return repo
+
+    def test_overview_is_stored_once_not_under_every_region(self) -> None:
+        repo = self._sweep(("US", "GB", "IT"))
+
+        carriers = {
+            call.args[1]
+            for call in repo.upsert_sector_snapshot.call_args_list
+            if call.kwargs["market_cap"] is not None
+        }
+        assert carriers == {"US"}
+
+    def test_non_us_rows_keep_identity_but_drop_every_overview_column(self) -> None:
+        repo = self._sweep(("GB",))
+
+        kwargs = repo.upsert_sector_snapshot.call_args.kwargs
+        assert kwargs["name"] == "Technology"
+        assert kwargs["symbol"] == "^YH311"
+        for column in (
+            "market_cap",
+            "market_weight",
+            "companies_count",
+            "industries_count",
+            "employee_count",
+        ):
+            assert kwargs[column] is None
+
+    def test_us_row_keeps_the_overview(self) -> None:
+        repo = self._sweep(("US",))
+
+        kwargs = repo.upsert_sector_snapshot.call_args.kwargs
+        assert kwargs["market_cap"] == 2.8e13
+        assert kwargs["companies_count"] == 866
+
+
+class TestFinishedAt:
+    def test_finished_at_is_stamped_at_completion_not_at_start(self) -> None:
+        repo = MagicMock(name="repo")
+        yf = MagicMock()
+        clock = FakeClock()
+        yf.sectors.fetch_sector.side_effect = clock.advancing(None)
+        on_progress = MagicMock()
+        with (
+            patch(
+                "portopt_db.repositories.market_data.market_structure_repository."
+                "MarketStructureRepository",
+                return_value=repo,
+            ),
+            patch(
+                "app.services.market_data.market_structure_service.datetime",
+                clock.datetime_cls,
+            ),
+            patch("app.database.database_manager", _fake_dbm()),
+        ):
+            run_market_structure_fetch(yf, regions=("US",), on_progress=on_progress)
+
+        clock.assert_finished_at_marks_run_end(on_progress)
 
 
 class TestSchedulerStep:
