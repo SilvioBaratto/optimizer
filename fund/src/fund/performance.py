@@ -121,9 +121,12 @@ class HoldingMark:
         return_1d: Trailing 1-day price return, or ``None`` with too little data.
         return_1m: Trailing ~1-month price return, or ``None``.
         return_1y: Trailing ~1-year price return, or ``None``.
-        contribution: ``prior-bar weight × return_1d`` (contribution to the
-            portfolio's 1-day return, so the column sums to it), or ``None`` when
-            either input is unavailable.
+        contribution: Value change over the NAV series' last return interval as a
+            share of the book value at its start, so the column sums to that NAV
+            return (``start weight × return`` on the NAV's carried-forward prices).
+            The interval is the persisted NAV's last step; the holdings' own last two
+            bars stand in when no NAV is persisted or it lags the latest bar. ``None``
+            when no start-of-interval value exists.
         unrealized_pnl: Current value minus FX-correct cost basis, or ``None``.
     """
 
@@ -1333,6 +1336,66 @@ def _marked_value(
     return qty, qty * float(latest)
 
 
+def _nav_last_interval(
+    session: Any,
+    portfolio_id: uuid.UUID,
+    asof: dt.date | None,
+    *,
+    last_bar: dt.date,
+) -> tuple[dt.date, dt.date] | None:
+    """The persisted NAV series' last return interval, when it covers ``last_bar``.
+
+    The Performance strip's 1D return is the last step of ``nav_history``, whose bar
+    calendar is the union of every ticket's tickers and the benchmark, so it can end
+    later than the active book's own bars (a benchmark that trades after the holdings)
+    or step over several of them. Contributions measured over this interval add up to
+    that return.
+
+    Args:
+        session: Open SQLAlchemy session (reader).
+        portfolio_id: Portfolio whose NAV series to read.
+        asof: Upper date bound for the NAV dates; ``None`` leaves it open.
+        last_bar: The holdings' latest bar date; a NAV that ends before it has not
+            been marked for it yet and would freeze the contributions on a stale day.
+
+    Returns:
+        ``(prior date, last date)`` of the last NAV step; ``None`` with fewer than two
+        persisted points or a NAV that lags ``last_bar`` (callers then use the
+        holdings' own last two bars).
+    """
+    from portopt_db.models import NavHistory
+    from sqlalchemy import select
+
+    stmt = select(NavHistory.date).where(NavHistory.portfolio_id == portfolio_id)
+    if asof is not None:
+        stmt = stmt.where(NavHistory.date <= asof)
+    dates = list(
+        session.execute(stmt.order_by(NavHistory.date.desc()).limit(2)).scalars()
+    )
+    if len(dates) < 2 or dates[0] < last_bar:
+        return None
+    return dates[1], dates[0]
+
+
+def _line_value_on(
+    prices: pd.DataFrame,
+    ticker: str,
+    qty: float,
+    line_fill: dt.date,
+    notional: float,
+    day: dt.date,
+) -> float | None:
+    """A line's base-currency value on ``day``, mirroring the NAV loop.
+
+    A line not yet filled on ``day`` is carried at its notional; a filled one is marked
+    at the last base price at or before ``day``. ``None`` when no such price exists.
+    """
+    if line_fill > day:
+        return notional
+    price = _price_asof(prices, ticker, pd.Timestamp(day))
+    return None if price is None else qty * price
+
+
 def holding_marks(
     portfolio_id: uuid.UUID,
     *,
@@ -1347,9 +1410,10 @@ def holding_marks(
     re-derives FX-correct shares (``notional_base / price_base@fill``, ignoring the
     stored currency-mixed ``lines.shares``), and marks each holding with its latest
     base-currency close. Per holding it reports value, portfolio weight, trailing
-    1D/1M/1Y price returns, 1-day contribution (prior-bar weight × ``return_1d``),
-    and unrealized P&L (value minus the deployed base cost basis). A holding with no
-    usable price degrades to ``None`` fields rather than raising.
+    1D/1M/1Y price returns, 1-day contribution (start-of-interval weight × the move
+    over the NAV series' last interval), and unrealized P&L (value minus the deployed
+    base cost basis). A holding with no usable price degrades to ``None`` fields
+    rather than raising.
 
     Shares, value and cost basis are rescaled by the same factor
     :func:`build_nav_series` applies to the current ticket (its chain-linked entry
@@ -1358,8 +1422,13 @@ def holding_marks(
 
     Value marks on the carried-forward (``asof``) close, but returns are computed
     on each holding's *own* real closes, so a carry-forward over a day the holding
-    did not trade cannot manufacture a 0 % move. Like :func:`build_nav_series`,
-    value and P&L are gross of the modelled slippage/commission.
+    did not trade cannot manufacture a 0 % move. The contribution is the exception:
+    it follows the carried-forward bars NAV uses, over the interval of the persisted
+    NAV's last return (whose calendar also holds the benchmark and earlier tickets),
+    so the column reconciles to the NAV 1D return the strip shows and an idle holding
+    contributes 0. While no NAV is persisted, or it lags the latest bar, the
+    holdings' own last two bars stand in. Like :func:`build_nav_series`, value and P&L
+    are gross of the modelled slippage/commission.
 
     The trailing returns need a year of closes, so this reads each holding's whole
     price history; a caller that only needs the book's weights (the drift poll) should
@@ -1444,16 +1513,33 @@ def holding_marks(
 
     total = sum(value for _, value, _ in computed.values())
 
-    # Contribution weights each return by the holding's share of the book at the START
-    # of the period (the prior bar), the only weighting under which the per-holding
-    # figures sum to the portfolio return.
+    # Contribution is each holding's value change over one interval divided by the
+    # book's value at the START of it: the only weighting under which the column sums
+    # to the NAV return over that interval. The interval is the one the persisted NAV
+    # series measures last (its calendar also carries the benchmark and earlier
+    # tickets, so it can differ from the holdings' own bars). Values run on the ffilled
+    # bars NAV uses, so a holding idle over it contributes 0, and a line filled inside
+    # it is carried at its notional beforehand (as in the NAV loop) so it earns nothing
+    # for the move that preceded its purchase.
+    interval = _nav_last_interval(
+        session, portfolio_id, asof, last_bar=base_prices.index[-1].date()
+    )
+    if interval is None and len(base_prices.index) >= 2:
+        interval = (base_prices.index[-2].date(), base_prices.index[-1].date())
     prior_values: dict[str, float] = {}
-    if len(base_prices.index) >= 2:
-        prior_row = base_prices.iloc[-2]
-        for ticker, (qty, _, _) in computed.items():
-            prior_price = prior_row[ticker]
-            if pd.notna(prior_price):
-                prior_values[ticker] = qty * float(prior_price)
+    end_values: dict[str, float] = {}
+    if interval is not None:
+        for ticker in computed:
+            qty, line_fill, notional = current_book[ticker]
+            prior = _line_value_on(
+                base_prices, ticker, qty, line_fill, notional, interval[0]
+            )
+            end = _line_value_on(
+                base_prices, ticker, qty, line_fill, notional, interval[1]
+            )
+            if prior is not None and end is not None:
+                prior_values[ticker] = prior
+                end_values[ticker] = end
     prior_total = sum(prior_values.values())
 
     marks: list[HoldingMark] = []
@@ -1466,8 +1552,8 @@ def holding_marks(
         return_1d, return_1m, return_1y = _series_returns(series)
         prior_value = prior_values.get(ticker)
         contribution = (
-            prior_value / prior_total * return_1d
-            if prior_value is not None and prior_total and return_1d is not None
+            (end_values[ticker] - prior_value) / prior_total
+            if prior_value is not None and prior_total
             else None
         )
         notional = line_by_ticker[ticker].get("notional")

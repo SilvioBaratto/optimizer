@@ -975,3 +975,276 @@ def test_holding_contributions_sum_to_the_portfolio_one_day_return(db_session):
     marks = holding_marks(_PID, session=db_session, base_currency="USD")
 
     assert sum(m.contribution for m in marks) == pytest.approx(0.0, abs=1e-12)
+
+
+def _nav_one_day_return(db_session, base_currency):
+    nav = build_nav_series(_PID, session=db_session, base_currency=base_currency)
+    return nav[-1].nav / nav[-2].nav - 1.0
+
+
+def test_holding_contributions_reconcile_to_nav_one_day_return_across_fx(db_session):
+    """On the FX ledger the contributions add up to the NAV series' 1D return."""
+    _seed(db_session)
+
+    marks = holding_marks(_PID, session=db_session, base_currency="EUR")
+
+    assert sum(m.contribution for m in marks) == pytest.approx(
+        _nav_one_day_return(db_session, "EUR"), rel=1e-9
+    )
+
+
+def test_idle_holding_contributes_nothing_on_the_day_it_did_not_trade(db_session):
+    """NAV carries an idle holding flat, so its 1D contribution must be 0 as well.
+
+    Its own-calendar ``return_1d`` still shows the real last move; only the
+    contribution is restricted to the interval the NAV series measures.
+    """
+    d1, d2, d3 = dt.date(2026, 10, 2), dt.date(2026, 10, 3), dt.date(2026, 10, 6)
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, path in (
+        ("US1", {d1: "100", d2: "110", d3: "120"}),
+        ("US2", {d1: "200", d2: "210"}),  # idle on d3
+    ):
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        for day, close in path.items():
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=day,
+                    close=Decimal(close),
+                    price_unit="USD",
+                )
+            )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=dt.date(2026, 10, 1),
+            weights_hash="h1",
+            weights={"US1": 0.6, "US2": 0.4},
+            fill_date=d1,
+            lines=[
+                {"ticker": "US1", "notional": 6000.0, "fill_price": 100.0},
+                {"ticker": "US2", "notional": 4000.0, "fill_price": 200.0},
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+    marks = {
+        m.ticker: m
+        for m in holding_marks(_PID, session=db_session, base_currency="USD", asof=d3)
+    }
+
+    assert marks["US2"].return_1d == pytest.approx(210.0 / 200.0 - 1.0, rel=1e-9)
+    assert marks["US2"].contribution == pytest.approx(0.0, abs=1e-12)
+    # US1: 60 shares x (120 - 110) over a prior book of 6600 + 4200.
+    assert marks["US1"].contribution == pytest.approx(600.0 / 10800.0, rel=1e-9)
+    assert sum(m.contribution for m in marks.values()) == pytest.approx(
+        _nav_one_day_return(db_session, "USD"), rel=1e-9
+    )
+
+
+def test_line_filled_on_the_last_bar_contributes_nothing_that_day(db_session):
+    """A staggered line bought at the last close earned nothing from the prior move.
+
+    NAV carries it at book value until its fill, so its contribution is 0 and the
+    column still reconciles to the NAV 1D return.
+    """
+    d1, d2, d3 = dt.date(2026, 10, 2), dt.date(2026, 10, 3), dt.date(2026, 10, 6)
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, closes in (
+        ("AAA", ("100", "100", "110")),
+        ("BBB", ("100", "110", "120")),
+    ):
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        for day, close in zip((d1, d2, d3), closes, strict=True):
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=day,
+                    close=Decimal(close),
+                    price_unit="USD",
+                )
+            )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=dt.date(2026, 10, 1),
+            weights_hash="h1",
+            weights={"AAA": 0.5, "BBB": 0.5},
+            fill_date=d1,
+            lines=[
+                {"ticker": "AAA", "notional": 5000.0, "fill_price": 100.0},
+                {
+                    "ticker": "BBB",
+                    "notional": 5000.0,
+                    "fill_price": 120.0,
+                    "fill_date": d3.isoformat(),
+                },
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+    marks = {
+        m.ticker: m
+        for m in holding_marks(_PID, session=db_session, base_currency="USD")
+    }
+
+    assert marks["BBB"].contribution == pytest.approx(0.0, abs=1e-12)
+    assert marks["AAA"].contribution == pytest.approx(0.05, rel=1e-9)
+    assert sum(m.contribution for m in marks.values()) == pytest.approx(
+        _nav_one_day_return(db_session, "USD"), rel=1e-9
+    )
+
+
+def _seed_book_and_benchmark(db_session, paths):
+    """Seed ``{ticker: {day: close}}`` USD paths and a 50/50 AAA/BBB book at d1."""
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, path in paths.items():
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        for day, close in path.items():
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=day,
+                    close=Decimal(close),
+                    price_unit="USD",
+                )
+            )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=dt.date(2026, 10, 1),
+            weights_hash="h1",
+            weights={"AAA": 0.5, "BBB": 0.5},
+            fill_date=dt.date(2026, 10, 2),
+            lines=[
+                {"ticker": "AAA", "notional": 5000.0, "fill_price": 100.0},
+                {"ticker": "BBB", "notional": 5000.0, "fill_price": 100.0},
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+
+def _persist_navs(db_session, points):
+    """Persist NAV points the way the daily mark step does."""
+    from fund.audit.nav_history_repository import NavHistoryRepository
+
+    NavHistoryRepository(db_session).upsert_navs(
+        [
+            {
+                "portfolio_id": _PID,
+                "date": point.date,
+                "nav": point.nav,
+                "benchmark": point.benchmark,
+            }
+            for point in points
+        ]
+    )
+    db_session.flush()
+
+
+def test_contributions_reconcile_to_the_nav_when_the_benchmark_trades_later(
+    db_session,
+):
+    """A later benchmark bar makes the NAV's last interval a flat carried bar.
+
+    The holdings' own last bar still holds AAA's +10% move, but the persisted NAV
+    the strip reads shows 0 for that day, so the column must show 0 as well.
+    """
+    d1, d2, d3 = dt.date(2026, 10, 2), dt.date(2026, 10, 3), dt.date(2026, 10, 6)
+    _seed_book_and_benchmark(
+        db_session,
+        {
+            "AAA": {d1: "100", d2: "110"},
+            "BBB": {d1: "100", d2: "100"},
+            "BENCH": {d1: "100", d2: "101", d3: "102"},
+        },
+    )
+    nav = build_nav_series(
+        _PID, session=db_session, base_currency="USD", benchmark="BENCH"
+    )
+    _persist_navs(db_session, nav)
+    assert nav[-1].date == d3 and nav[-1].nav == nav[-2].nav  # flat carried bar
+
+    marks = {
+        m.ticker: m
+        for m in holding_marks(_PID, session=db_session, base_currency="USD")
+    }
+
+    assert sum(m.contribution for m in marks.values()) == pytest.approx(
+        nav[-1].nav / nav[-2].nav - 1.0, abs=1e-12
+    )
+    assert marks["AAA"].contribution == pytest.approx(0.0, abs=1e-12)
+    # return_1d keeps its own-calendar meaning: AAA's last real move.
+    assert marks["AAA"].return_1d == pytest.approx(0.10, rel=1e-9)
+
+
+def test_contributions_follow_the_nav_interval_across_a_calendar_union(db_session):
+    """The NAV's last interval can span two holding bars; contributions span it too."""
+    d1, d2, d3 = dt.date(2026, 10, 2), dt.date(2026, 10, 3), dt.date(2026, 10, 6)
+    _seed_book_and_benchmark(
+        db_session,
+        {
+            "AAA": {d1: "100", d2: "105", d3: "110"},
+            "BBB": {d1: "100", d2: "100", d3: "100"},
+        },
+    )
+    nav = build_nav_series(_PID, session=db_session, base_currency="USD")
+    # A NAV marked on d1 and d3 only: its last interval covers the d2 and d3 moves.
+    _persist_navs(db_session, [p for p in nav if p.date != d2])
+
+    marks = holding_marks(_PID, session=db_session, base_currency="USD")
+
+    assert sum(m.contribution for m in marks) == pytest.approx(
+        nav[-1].nav / nav[0].nav - 1.0, rel=1e-9
+    )
+
+
+def test_contributions_use_the_live_bars_when_the_nav_is_behind(db_session):
+    """A NAV not yet marked for the latest bar must not freeze the contributions."""
+    d1, d2, d3 = dt.date(2026, 10, 2), dt.date(2026, 10, 3), dt.date(2026, 10, 6)
+    _seed_book_and_benchmark(
+        db_session,
+        {
+            "AAA": {d1: "100", d2: "100", d3: "110"},
+            "BBB": {d1: "100", d2: "100", d3: "100"},
+        },
+    )
+    nav = build_nav_series(_PID, session=db_session, base_currency="USD")
+    _persist_navs(db_session, nav[:-1])  # the mark for d3 has not run yet
+
+    marks = holding_marks(_PID, session=db_session, base_currency="USD")
+
+    assert sum(m.contribution for m in marks) == pytest.approx(
+        nav[-1].nav / nav[-2].nav - 1.0, rel=1e-9
+    )
