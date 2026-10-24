@@ -377,8 +377,9 @@ def test_when_valuation_columns_are_yfinance_strings_then_rows_are_persisted() -
     result, rows = _persisted_valuation_rows(_yfinance_valuation_frame())
 
     after = datetime.now(timezone.utc).date()
-    assert result["counts"]["valuation_measures"] == 9
-    assert len(rows) == 9
+    # One of the nine cells (6/30/2025 Trailing P/E) is NaN and is not written.
+    assert result["counts"]["valuation_measures"] == 8
+    assert len(rows) == 8
     dates = {row["period_date"] for row in rows}
     assert date(2025, 9, 30) in dates
     assert date(2025, 6, 30) in dates

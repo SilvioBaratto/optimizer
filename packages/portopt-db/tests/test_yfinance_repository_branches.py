@@ -1831,13 +1831,13 @@ class TestUpsertFinancialStatementsPreprocessing:
         rows = self._call(db_session, df)
         assert rows == []
 
-    def test_nan_value_stored_as_none(self, db_session: Session) -> None:
+    def test_nan_value_is_not_written(self, db_session: Session) -> None:
         df = pd.DataFrame(
-            {"Revenue": [float("nan")]},
+            {"Revenue": [float("nan")], "NetIncome": [5.0]},
             index=[pd.Timestamp("2024-12-31")],
         ).T
         rows = self._call(db_session, df)
-        assert rows[0]["value"] is None
+        assert [r["line_item"] for r in rows] == ["NetIncome"]
 
 
 class TestUpsertFinancialStatementsCurrencyLabel:
@@ -2543,6 +2543,78 @@ class TestUpsertFinancialStatementsCurrencyPersistence:
         )
 
         assert self._stored(db_session, inst.id).currency_code is None
+
+
+class TestUpsertFinancialStatementsKeepsStoredValues:
+    """Yahoo serves the period that just rolled out of its window almost entirely
+    as NaN. Such a refetch must not replace the figures stored while the period
+    was still complete: Yahoo no longer serves them, so they are gone for good."""
+
+    PERIOD = pd.Timestamp("2025-03-31")
+
+    def _frame(self, cells: dict[str, float]) -> pd.DataFrame:
+        return pd.DataFrame({self.PERIOD: cells})
+
+    def _seed(self, db_session: Session, name: str) -> Instrument:
+        ex = _exchange(db_session, name=name)
+        return _instrument(db_session, ex, ticker=name, yfinance_ticker=name)
+
+    @staticmethod
+    def _stored(db_session: Session, instrument_id: uuid.UUID) -> dict[str, Any]:
+        db_session.expire_all()
+        rows = _repo(db_session).get_financial_statements(instrument_id)
+        return {r.line_item: r.value for r in rows}
+
+    def test_nan_refetch_does_not_erase_a_stored_value(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed(db_session, "FSKeep1")
+        repo = _repo(db_session)
+        repo.upsert_financial_statements(
+            inst.id,
+            self._frame({"StockholdersEquity": 26.2e9, "NetIncome": 1.2e9}),
+            "balance_sheet",
+            "quarterly",
+        )
+
+        repo.upsert_financial_statements(
+            inst.id,
+            self._frame({"StockholdersEquity": float("nan"), "NetIncome": 1.3e9}),
+            "balance_sheet",
+            "quarterly",
+        )
+
+        stored = self._stored(db_session, inst.id)
+        assert stored["StockholdersEquity"] == pytest.approx(26.2e9)
+        assert stored["NetIncome"] == pytest.approx(1.3e9)
+
+    def test_non_nan_refetch_still_revises_a_stored_value(
+        self, db_session: Session
+    ) -> None:
+        inst = self._seed(db_session, "FSKeep2")
+        repo = _repo(db_session)
+        repo.upsert_financial_statements(
+            inst.id, self._frame({"Revenue": 100.0}), "income_stmt", "annual"
+        )
+
+        repo.upsert_financial_statements(
+            inst.id, self._frame({"Revenue": 110.0}), "income_stmt", "annual"
+        )
+
+        assert self._stored(db_session, inst.id)["Revenue"] == pytest.approx(110.0)
+
+    def test_all_nan_frame_with_dated_columns_does_not_warn_about_labels(
+        self, db_session: Session, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        inst = self._seed(db_session, "FSKeep3")
+        with caplog.at_level("WARNING"):
+            _repo(db_session).upsert_financial_statements(
+                inst.id,
+                self._frame({"Revenue": float("nan")}),
+                "income_stmt",
+                "annual",
+            )
+        assert "no column" not in caplog.text.lower()
 
 
 # ---------------------------------------------------------------------------

@@ -934,6 +934,7 @@ class YFinanceRepository(RepositoryBase):
             Number of rows written.
         """
         rows = []
+        periods_parsed = 0
         for col_pos, col in enumerate(df.columns):
             period_date: date | None
             if (
@@ -946,10 +947,17 @@ class YFinanceRepository(RepositoryBase):
                 period_date = _safe_date(col)
             if period_date is None:
                 continue
+            periods_parsed += 1
             # Positional access: label lookup returns an array, not a scalar,
             # when a line-item label repeats.
             for row_pos, line_item in enumerate(df.index):
                 val = _safe_float(df.iat[row_pos, col_pos])
+                # The period that just left Yahoo's window comes back almost
+                # all NaN. Writing those cells would overwrite the figures
+                # stored while it was complete, and Yahoo cannot serve them
+                # again.
+                if val is None:
+                    continue
                 rows.append(
                     {
                         "instrument_id": instrument_id,
@@ -966,7 +974,7 @@ class YFinanceRepository(RepositoryBase):
         # an already-correct label into NULL.
         update_columns = None if currency_code is not None else ["value", "updated_at"]
 
-        if not rows and len(df.index) and len(df.columns):
+        if not periods_parsed and len(df.index) and len(df.columns):
             logger.warning(
                 "No column of the %s/%s frame parsed as a period date "
                 "(labels: %s); nothing stored",
