@@ -92,7 +92,7 @@ Set `NOTIFICATION_WEBHOOK_URL` for a Discord/Slack POST on job failure.
   `SCHEDULER_HEARTBEAT_CADENCE_SECONDS` (30s); the orphan reaper only touches a claim once the
   lease TTL (`SCHEDULER_ORPHAN_HEARTBEAT_TIMEOUT_SECONDS`, 300s = 10× cadence) elapses with no
   renewal. It is the renewal — not a flat timeout — that keeps a long synchronous step (the
-  multi-minute yfinance fetch, the reference-index seed) from being falsely reaped. Host and
+  multi-minute yfinance fetch, the full option-chain sweep) from being falsely reaped. Host and
   PID are no longer part of the decision, so the daemon is portable (Windows/macOS dev) and
   two daemons never reap each other's live jobs. The renewal also needs progress: a step that
   reports none for `SCHEDULER_STEP_STALL_TIMEOUT_SECONDS` (3600s) stops renewing, so a step
@@ -118,7 +118,7 @@ Set `NOTIFICATION_WEBHOOK_URL` for a Discord/Slack POST on job failure.
 ## Scaling
 
 One daemon per database is the design now. The workload is a few dozen long-running jobs a
-day (a yfinance fetch over thousands of tickers, a reference-index seed); the cost is network
+day (a yfinance fetch over thousands of tickers, a full option-chain sweep); the cost is network
 latency to the sources, which a bigger scheduler does not remove — so a distributed task
 queue would add operational weight for no gain.
 
@@ -143,7 +143,7 @@ app/
   database.py      thin factory: builds DbConfig from settings → portopt_db.DatabaseManager
   services/
     jobs/          APScheduler wiring + BackgroundJobService
-    market_data/   yfinance client, bulk fetch, reference-index seeding
+    market_data/   yfinance client + bulk fetch, FX, calendars, market structure/summary, options
     macro/         FRED / Il Sole / Trading Economics scrapers, macro news scraping
     universe/      yfinance-Screener universe build + Trading 212 ticker annotation
     infrastructure/ circuit breaker, rate limiter, retry, TTL cache
@@ -161,7 +161,7 @@ app/
 
 ```bash
 pytest                                              # in ingestion/
-pytest --cov=app --cov-branch --cov-fail-under=80   # CI gate (line ≥80% and branch ≥0.80)
+pytest --cov=app --cov-branch --cov-fail-under=80   # CI gate: one blended statement+branch floor
 ```
 
 SQLite in-memory, SAVEPOINT-per-test. There is no `client` fixture — tests drive service,

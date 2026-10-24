@@ -9,6 +9,7 @@ re-stating it.
 
 from __future__ import annotations
 
+import ast
 import configparser
 import re
 import shlex
@@ -23,6 +24,13 @@ _CLAUDE_MD = _REPO_ROOT / "CLAUDE.md"
 _README = _REPO_ROOT / "README.md"
 _ROOT_DOCS = [_CLAUDE_MD, _README]
 _INGESTION = _REPO_ROOT / "ingestion"
+_ALEMBIC_VERSIONS = _REPO_ROOT / "packages" / "portopt-db" / "alembic" / "versions"
+_PYPROJECTS = [
+    _REPO_ROOT / "pyproject.toml",
+    _REPO_ROOT / "packages" / "portopt-db" / "pyproject.toml",
+    _INGESTION / "pyproject.toml",
+    _REPO_ROOT / "fund" / "pyproject.toml",
+]
 
 # ``uv run --package <dist>`` only selects the dependency set; it never changes
 # the working directory. Maps each workspace dist to the suite it must run.
@@ -220,6 +228,7 @@ _T212_SOURCE_CLAIM_FILES = [
     _INGESTION / "README.md",
     _INGESTION / "app" / "cli.py",
     _INGESTION / "app" / "config.py",
+    _INGESTION / "app" / "services" / "__init__.py",
     _INGESTION / "app" / "services" / "jobs" / "scheduler.py",
     _INGESTION / "app" / "services" / "universe" / "__init__.py",
     _INGESTION / "app" / "setup" / "compose_secrets.py",
@@ -299,3 +308,189 @@ def test_guard_flags_the_old_claim_that_a_missing_key_skips_the_universe_build()
     assert _T212_SOURCES_UNIVERSE.search("Trading 212 instrument-universe build.")
     assert _T212_SOURCES_UNIVERSE.search("secrets (Trading212 universe + FRED macro)")
     assert not _T212_SOURCES_UNIVERSE.search("Trading 212 ticker annotation")
+
+
+# --- Facts that must track the repo: alembic head, pins, gates, module paths ---
+
+_HEAD_MENTION = re.compile(r"\bhead\W{0,6}([0-9a-f]{12})\b")
+# `name==1.2.3` or `name[extra]==1.2.3` in backticks, as the docs quote pins.
+_PIN_TOKEN = re.compile(r"`([A-Za-z0-9_.\-]+)(?:\[[^\]]*\])?==([0-9][^`,\s)]*)`")
+_PIN_REQUIREMENT = re.compile(r"^([A-Za-z0-9_.\-]+)(?:\[[^\]]*\])?==(.+)$")
+_BARE_LINT_TARGET = re.compile(r"\b(?:ruff check|ruff format|mypy)\s+optimizer/")
+_LINE_ONLY_GATE = re.compile(
+    r"\bline\b[^.\n|]{0,40}?(?:--cov-fail-under|≥|>=)", re.IGNORECASE
+)
+_BRANCH_GATE = re.compile(
+    r"\bbranch(?:-rate)?\b[^.\n|]{0,20}?(?:≥|>=)\s*0?\.?\d|independent branch",
+    re.IGNORECASE,
+)
+_INGESTION_MODULE = re.compile(r"`(app[./]services[./][A-Za-z0-9_./]*)`")
+_RETIRED_TERMS = re.compile(r"reference[- ]ind(?:ex|ices)", re.IGNORECASE)
+
+
+def _alembic_heads() -> set[str]:
+    """Return the revisions of the alembic tree that no other revision follows."""
+    revisions: set[str] = set()
+    parents: set[str] = set()
+    for path in _ALEMBIC_VERSIONS.glob("*.py"):
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            target = node.targets[0] if isinstance(node, ast.Assign) else node.target
+            name = getattr(target, "id", None)
+            if name not in ("revision", "down_revision") or node.value is None:
+                continue
+            value = ast.literal_eval(node.value)
+            if name == "revision":
+                revisions.add(value)
+            elif isinstance(value, (tuple, list)):
+                parents.update(value)
+            elif value is not None:
+                parents.add(value)
+    return revisions - parents
+
+
+def _declared_pins() -> dict[str, set[str]]:
+    """Return every exact (``==``) dependency pin declared by a workspace member."""
+    pins: dict[str, set[str]] = {}
+    for pyproject in _PYPROJECTS:
+        project = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]
+        requirements = [
+            *project.get("dependencies", []),
+            *(
+                r
+                for group in project.get("optional-dependencies", {}).values()
+                for r in group
+            ),
+        ]
+        for requirement in requirements:
+            match = _PIN_REQUIREMENT.match(requirement)
+            if match:
+                name = match.group(1).lower().replace("_", "-")
+                pins.setdefault(name, set()).add(match.group(2))
+    return pins
+
+
+def _stale_pins(text: str) -> list[str]:
+    """Return documented ``name==version`` pins that differ from the pyprojects."""
+    declared = _declared_pins()
+    stale = []
+    for match in _PIN_TOKEN.finditer(text):
+        name = match.group(1).lower().replace("_", "-")
+        if declared.get(name) != {match.group(2)}:
+            stale.append(match.group(0))
+    return stale
+
+
+def _missing_ingestion_modules(text: str) -> list[str]:
+    """Return documented ``app.services...`` paths that do not exist in ingestion/."""
+    missing = []
+    for token in _INGESTION_MODULE.findall(text):
+        relative = Path(*re.split(r"[./]", token.removesuffix(".py").strip("./")))
+        if not (
+            (_INGESTION / relative).is_dir()
+            or (_INGESTION / relative).with_suffix(".py").is_file()
+        ):
+            missing.append(token)
+    return missing
+
+
+def test_alembic_tree_has_a_single_head() -> None:
+    """Assert the revision graph the docs quote a head for is linear at the tip."""
+    assert len(_alembic_heads()) == 1
+
+
+@pytest.mark.parametrize("doc", _ROOT_DOCS, ids=_doc_id)
+def test_documented_alembic_head_is_the_actual_head(doc: Path) -> None:
+    """Assert every alembic head quoted in the docs is the tree's real head."""
+    quoted = set(_HEAD_MENTION.findall(doc.read_text(encoding="utf-8")))
+    assert quoted == _alembic_heads()
+
+
+@pytest.mark.parametrize("doc", _ROOT_DOCS, ids=_doc_id)
+def test_documented_dependency_pins_match_the_pyprojects(doc: Path) -> None:
+    """Assert each ``name==version`` quoted in the docs is what a pyproject pins."""
+    assert _stale_pins(doc.read_text(encoding="utf-8")) == []
+
+
+@pytest.mark.parametrize("doc", _ROOT_DOCS, ids=_doc_id)
+def test_docs_do_not_pass_a_bare_optimizer_path_to_lint_tools(doc: Path) -> None:
+    """Assert docs never show ruff/mypy run on the removed root ``optimizer/`` dir."""
+    assert _BARE_LINT_TARGET.findall(doc.read_text(encoding="utf-8")) == []
+
+
+def test_readme_does_not_claim_the_makefile_and_ci_use_a_bare_path() -> None:
+    """Assert the README no longer says the build config targets ``optimizer/``.
+
+    ``tests/test_build_config_paths.py`` guarantees the Makefile and CI already
+    use the src-layout path, so a caveat saying otherwise is simply wrong.
+    """
+    text = " ".join(_README.read_text(encoding="utf-8").split())
+    assert "bare path" not in text
+
+
+@pytest.mark.parametrize(
+    "path",
+    [_CLAUDE_MD, _INGESTION / "README.md", _REPO_ROOT / "fund" / "pyproject.toml"],
+    ids=_doc_id,
+)
+def test_coverage_floor_is_documented_as_one_blended_gate(path: Path) -> None:
+    """Assert docs describe the coverage floor as CI enforces it.
+
+    Each CI job passes ``--cov-branch`` with a single ``--cov-fail-under``, which
+    coverage.py applies to the blended statement+branch percentage; there is no
+    separate line gate and no separate branch gate.
+    """
+    text = path.read_text(encoding="utf-8")
+    assert _LINE_ONLY_GATE.findall(text) + _BRANCH_GATE.findall(text) == []
+
+
+def test_ci_gates_coverage_with_one_floor_per_job() -> None:
+    """Assert the premise of the check above: one ``--cov-fail-under`` per command."""
+    workflow = (_REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+    gated = [line for line in workflow.splitlines() if "--cov-fail-under" in line]
+    assert gated
+    assert all(line.count("--cov-fail-under") == 1 for line in gated)
+
+
+@pytest.mark.parametrize("doc", _ROOT_DOCS, ids=_doc_id)
+def test_documented_ingestion_module_paths_exist(doc: Path) -> None:
+    """Assert every ``app.services...`` path quoted in the docs resolves to code."""
+    assert _missing_ingestion_modules(doc.read_text(encoding="utf-8")) == []
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        _README,
+        _INGESTION / "README.md",
+        _INGESTION / "app" / "services" / "__init__.py",
+        _INGESTION / "app" / "services" / "jobs" / "scheduler.py",
+        _INGESTION / "app" / "repositories" / "jobs" / "background_job_repository.py",
+    ],
+    ids=_doc_id,
+)
+def test_retired_reference_index_feature_is_not_documented(path: Path) -> None:
+    """Assert docs no longer cite the reference-index seed removed from the daemon.
+
+    CLAUDE.md is exempt: it deliberately says there is no ``reference-indices``
+    command so nobody goes looking for one.
+    """
+    assert _RETIRED_TERMS.findall(path.read_text(encoding="utf-8")) == []
+
+
+def test_guards_catch_the_old_wording() -> None:
+    """The matchers flag each pre-fix phrasing (guards the guards)."""
+    assert _LINE_ONLY_GATE.search("Coverage floors (line `--cov-fail-under`)")
+    assert _LINE_ONLY_GATE.search("Coverage floor line ≥ 90%")
+    assert _BRANCH_GATE.search("CI gate (line ≥80% and branch ≥0.80)")
+    assert _BRANCH_GATE.search("plus the independent branch-rate 0.80 check")
+    assert _HEAD_MENTION.findall("# head: c4d5e6f7a8b9") == ["c4d5e6f7a8b9"]
+    assert _HEAD_MENTION.findall("(**head `d8f0b2c4e6a1`**,") == ["d8f0b2c4e6a1"]
+    assert _stale_pins("`numpy==0.0.1`") == ["`numpy==0.0.1`"]
+    assert _missing_ingestion_modules("`app.services._shared._gone`") == [
+        "app.services._shared._gone"
+    ]
+    assert _missing_ingestion_modules("`app/services/_shared/__init__.py`") == []

@@ -367,7 +367,7 @@ class BackgroundJobRepository(RepositoryBase):
         only once the lease TTL (``heartbeat_timeout_seconds``, a multiple of the
         cadence — default 300s = 10x) has elapsed with no renewal. It is the
         lease *renewal* that protects long synchronous steps (the multi-minute
-        yfinance fetch, the reference-index seed) from being falsely reaped while
+        yfinance fetch, the full option-chain sweep) from being falsely reaped while
         alive. Host-scope and the Linux-``/proc`` PID probe were removed: they
         false-reaped across a container/host change and were inert off Linux
         (``worker_host`` / ``worker_pid`` are still recorded for observability).

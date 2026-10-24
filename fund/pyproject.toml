@@ -104,8 +104,8 @@ include = ["fund*"]
 [tool.setuptools.package-data]
 fund = ["py.typed"]
 
-# Coverage measured with `--cov=fund`. Branch data is collected, but the CI
-# `fund-test` job gates on line coverage only (--cov-fail-under=80).
+# Coverage measured with `--cov=fund`. Branch on; the CI `fund-test` job gates one
+# blended statement+branch percentage (--cov-fail-under=80), not separate rates.
 [tool.coverage.run]
 branch = true
 source = ["fund"]

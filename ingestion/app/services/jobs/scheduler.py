@@ -220,8 +220,8 @@ def _heartbeat(
     heartbeat thread stamps ``last_heartbeat_at`` — ``update_job`` never does —
     so without this any step outliving the orphan-reaper timeout (300s) is
     falsely reaped mid-run and its row flips to ``failed`` while the work is
-    still going. Both the multi-minute yfinance fetch and the reference-index
-    seed exceed that.
+    still going. Both the multi-minute yfinance fetch and the full option-chain
+    sweep exceed that.
 
     When *watch* is given, the lease is renewed only while the step has
     reported progress within the stall timeout, so a step wedged on a lock does

@@ -299,21 +299,21 @@ TUI).
 Each member declares its own; the single shared venv installs one version of
 each shared pin. Exact runtime pins:
 
-**`portopt-core`** (library): `numpy==2.5.2`, `pandas==3.0.5`, `scipy==1.18.1`,
-`scikit-learn==1.9.0`, `skfolio==1.4.9`, `jinja2==3.1.6`.
+**`portopt-core`** (library): `numpy==2.5.3`, `pandas==3.0.6`, `scipy==1.18.1`,
+`scikit-learn==1.9.1`, `skfolio==1.4.11`, `jinja2==3.1.6`.
 *(`arch` is **not** declared — it reaches bootstrap uncertainty-set classes
 transitively via skfolio. Code importing it directly must guard with
 `try/except ImportError` or declare it.)*
 
 **`portopt-db`** (DB layer): `SQLAlchemy==2.0.52`, `psycopg2-binary==2.9.12`,
-`alembic==1.19.1`, `pandas==3.0.5`, `pydantic==2.13.4`. Owns the SQLAlchemy pin
+`alembic==1.19.1`, `pandas==3.0.6`, `pydantic==2.13.4`. Owns the SQLAlchemy pin
 the whole workspace inherits.
 
-**`portopt`** (ingestion): `yfinance==1.6.0`, `scikit-learn==1.9.0` (declared,
-for DBSCAN price-repair), `numpy==2.5.2`, `pandas==3.0.5`, `APScheduler==3.11.3`,
+**`portopt`** (ingestion): `yfinance==1.6.0`, `scikit-learn==1.9.1` (declared,
+for DBSCAN price-repair), `numpy==2.5.3`, `pandas==3.0.6`, `APScheduler==3.11.3`,
 `SQLAlchemy==2.0.52`, `exchange_calendars==4.13.2`, `httpx==0.28.1`,
 `beautifulsoup4==4.15.0`, `requests==2.34.2`, `prometheus-client==0.26.0`,
-`typer==0.27.1`, `questionary==2.1.1`, `rich==15.0.0`, `cryptography==45.0.7`,
+`typer==0.27.1`, `questionary==2.1.1`, `rich==15.0.0`, `cryptography==50.0.1`,
 `pydantic==2.13.4`, `pydantic-settings==2.15.0`, `python-dotenv==1.2.3`, plus
 `portopt-db` (workspace; psycopg2-binary/alembic arrive transitively).
 
@@ -341,7 +341,7 @@ cd ingestion && uv run pytest tests/
 
 # Shared DB layer (portopt-db)
 cd packages/portopt-db && uv run pytest
-cd packages/portopt-db && alembic upgrade head     # head: c4d5e6f7a8b9
+cd packages/portopt-db && alembic upgrade head     # head: a6f1c8d3e2b7
 
 # Fund bridge (portopt-fund)
 cd fund && uv run pytest tests/
@@ -355,7 +355,8 @@ from its own directory, exactly as CI does.
 The root `Makefile` (`make lint | format | typecheck | test | all`) runs the same
 ruff and mypy gates as the CI `lint`/`typecheck` jobs: ruff over the library,
 `ingestion/`, `fund/` and `packages/portopt-db/`, and mypy over the library,
-`portopt-db` and `ingestion`.
+`portopt-db` and `ingestion`. `make test` runs only the library
+suite.
 
 **CI** (`.github/workflows/ci.yml`, push/PR to `main` and `development`, Ubuntu, Python 3.12 &
 3.13, uv-driven) runs nine jobs: `lint` (ruff check → ruff format --check on
