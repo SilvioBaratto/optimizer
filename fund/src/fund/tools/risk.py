@@ -134,6 +134,7 @@ def backtest(
     window: dict[str, Any] | None = None,
     base_currency: str | None = None,
     fit_end: dt.date | str | None = None,
+    budget: float | None = None,
 ) -> ToolResult:
     """Backtest fixed ``weights`` over prices up to ``asof``.
 
@@ -159,6 +160,10 @@ def backtest(
             string). A walk-forward test block that reaches back to ``fit_end`` lies
             inside the weights' own estimation sample, so its metrics are in-sample.
             ``None`` asserts the weights were fixed independently of this panel.
+        budget: Total weight the proposal must sum to (``risk_check``'s ``budget``).
+            When given, weights summing elsewhere (percent-style, partially
+            invested, non-finite) are rejected instead of being replayed as a
+            scaled or part-cash book. ``None`` evaluates the vector as given.
 
     Returns:
         ``ok`` with ``metrics`` (``mean`` / ``standard_deviation`` /
@@ -172,10 +177,10 @@ def backtest(
         evaluated, or when the weights were fitted on the test blocks — the metrics
         are then in-sample), ``sample_start`` / ``window_start`` / ``window_end`` (ISO
         dates), and ``missing`` (zero-weight tickers absent from the panel). ``err`` on
-        empty ``weights``, no priced assets, a non-zero weight on a ticker with no
-        prices (the proposal cannot be evaluated as given), fewer than two return rows
-        once the assets' histories are aligned, a bad ``window``, or metrics that are
-        not finite.
+        empty ``weights``, weights that do not sum to ``budget``, no priced assets, a
+        non-zero weight on a ticker with no prices (the proposal cannot be evaluated as
+        given), fewer than two return rows once the assets' histories are aligned, a
+        bad ``window``, or metrics that are not finite.
 
         ``max_drawdown`` is the peak-to-trough decline of the **compounded** wealth
         path (``drawdown_basis == "compounded"``), the loss an investor holding the
@@ -187,6 +192,11 @@ def backtest(
     """
     if not weights:
         return err("empty weights")
+    if budget is not None:
+        total = math.fsum(float(weight) for weight in weights.values())
+        # Written as a negated ``<=`` so a NaN sum is rejected too.
+        if not abs(total - budget) <= _BUDGET_TOL:
+            return err(f"weights sum to {total:g}, not the budget {budget:g}")
 
     config = _resolve_window(window)
     frame, missing = load_price_frame(

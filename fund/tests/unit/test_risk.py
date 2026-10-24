@@ -230,6 +230,80 @@ class TestBacktest:
         assert data["n_folds"] == 0
         assert data["full_sample_max_drawdown"] == data["metrics"]["max_drawdown"]
 
+    def test_percent_style_weights_are_rejected_against_the_budget(
+        self, db_session
+    ) -> None:
+        # 50/30/20 would inflate every metric 100x if replayed as portfolio weights.
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 50.0, "BBB": 30.0, "CCC": 20.0},
+            budget=1.0,
+        )
+
+        assert result["ok"] is False
+        assert "sum" in result["error"]
+
+    def test_partially_invested_weights_are_rejected_against_the_budget(
+        self, db_session
+    ) -> None:
+        # Weights summing to 0.7 against a fully invested budget would be replayed as
+        # 30% idle cash, so the reported risk would understate the proposal.
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 0.4, "BBB": 0.2, "CCC": 0.1},
+            budget=1.0,
+        )
+
+        assert result["ok"] is False
+        assert "sum" in result["error"]
+
+    def test_non_finite_weight_sum_is_rejected_against_the_budget(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": float("nan"), "BBB": 0.5, "CCC": 0.5},
+            budget=1.0,
+        )
+
+        assert result["ok"] is False
+        assert "sum" in result["error"]
+
+    def test_weights_matching_a_non_default_budget_are_evaluated(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 0.25, "BBB": 0.15, "CCC": 0.1},
+            budget=0.5,
+        )
+
+        assert result["ok"] is True
+
+    def test_weights_matching_the_budget_are_evaluated(self, db_session) -> None:
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+            budget=1.0,
+        )
+
+        assert result["ok"] is True
+
     def test_max_drawdown_is_the_compounded_nav_decline(self, db_session) -> None:
         # One asset held at weight 1: the backtest NAV is the price path itself. A
         # 40-day +1%/day rally then 15 days of -1%/day is a 1 - 0.99**15 decline;

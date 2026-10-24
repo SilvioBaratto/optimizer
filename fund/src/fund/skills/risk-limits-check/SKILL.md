@@ -25,7 +25,9 @@ the ConstraintSet limits and decides pass/block. It never edits weights itself.
    exclusions, complex/leveraged-instrument restrictions; an instrument it cannot
    classify is a violation, not a pass). It does not evaluate the drawdown ceilings
    nu1/nu2/nu3 — `backtest` in step 2 does.
-2. Call `backtest()` (also no arguments) walk-forward (`shuffle=False`). It returns
+2. Call `backtest()` (also no arguments) walk-forward (`shuffle=False`). It errors,
+   rather than evaluating a different portfolio, when the proposal does not sum to
+   the budget or holds a ticker with no prices. It returns
    `drawdown_tiers`: the client's ceilings nu1 (soft warning), nu2 (hard ceiling) and
    nu3 (absolute stop), the worst drawdown over the whole history
    (`full_sample_max_drawdown`, not the walk-forward window's `max_drawdown`, which

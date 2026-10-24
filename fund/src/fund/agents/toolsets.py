@@ -478,6 +478,9 @@ def _backtest_impl(ctx: RunContext) -> ToolResult:
     # ``optimize_portfolio``, which fits on every bar up to ``asof``, so each test
     # block is inside their estimation sample: ``fit_end`` makes the result report
     # in-sample instead of passing the optimizer's own fit off as validation.
+    # Without a stored constraint set the gate's own default applies: fully invested.
+    cs = _resolve_constraint_set(ctx)
+    budget = cs.bounds.budget if cs is not None else 1.0
     result = _tools.backtest(
         ctx.session,
         ctx.asof,
@@ -485,8 +488,8 @@ def _backtest_impl(ctx: RunContext) -> ToolResult:
         window={"train_size": ctx.lookback_days},
         base_currency=ctx.base_currency,
         fit_end=ctx.asof,
+        budget=budget,
     )
-    cs = _resolve_constraint_set(ctx)
     if cs is None or not result.get("ok"):
         return result
     # The drawdown ceilings are compared to the optimizer's number here, in code,

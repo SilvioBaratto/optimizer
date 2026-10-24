@@ -48,7 +48,7 @@ from fund.audit import AgentRunRepository, put_constraint_set
 from fund.audit.orders_repository import weights_hash
 from fund.config import settings
 from fund.schemas import ConstraintSet
-from fund.schemas.constraint_set import EsgPolicy, UniverseFilters
+from fund.schemas.constraint_set import Bounds, EsgPolicy, UniverseFilters
 from fund.schemas.enums import GicsSector, Horizon, ObjectiveChoice, RiskMeasureChoice
 
 _START = dt.date(2024, 1, 1)
@@ -706,6 +706,36 @@ def test_bound_backtest_judges_drawdown_tiers_over_the_full_history(db_session) 
 
     assert "nu3" in tiers["breached"]
     assert tiers["max_drawdown"] > 0.3
+
+
+def test_bound_backtest_rejects_an_audited_proposal_that_misses_the_budget(
+    db_session,
+) -> None:
+    # A partially invested proposal would be replayed as idle cash and understate the
+    # drawdown the ceilings are compared against.
+    _seed_panel(db_session)
+    ctx = _make_context(db_session, store=_store_with_cs(_constraint_set()))
+    _audit_proposal(ctx, {"AAA": 0.4, "BBB": 0.2, "CCC": 0.1})
+    backtest = _find(bind_toolset("risk", ctx), "backtest")
+
+    result = backtest.invoke({})
+
+    assert result["ok"] is False
+    assert "budget" in result["error"]
+
+
+def test_bound_backtest_honours_a_non_default_constraint_set_budget(
+    db_session,
+) -> None:
+    _seed_panel(db_session)
+    cs = _constraint_set(bounds=Bounds(budget=0.5))
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    _audit_proposal(ctx, {"AAA": 0.25, "BBB": 0.15, "CCC": 0.1})
+    backtest = _find(bind_toolset("risk", ctx), "backtest")
+
+    result = backtest.invoke({})
+
+    assert result["ok"] is True
 
 
 def test_bound_backtest_without_a_constraint_set_has_no_tier_verdict(
