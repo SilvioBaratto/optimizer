@@ -41,6 +41,16 @@ class Settings(BaseSettings):
     database_pool_pre_ping: bool = Field(default=True)
     database_echo: bool = Field(default=False)
     database_pool_reset_on_return: str = Field(default="rollback")
+    # Server-side caps, 0 = off (PostgreSQL waits forever). The lock timeout is on
+    # by default so a writer queued behind another transaction's row lock fails
+    # instead of pinning a pool connection indefinitely; lock waits in healthy
+    # runs are sub-second, so 60s only trips on a genuine stall. The statement
+    # timeout stays opt-in because it would cancel legitimate bulk writes.
+    # Deliberately no idle-in-transaction knob: a ticker is one transaction
+    # spanning its Yahoo calls, so that timeout would discard the ticker's writes
+    # mid-fetch.
+    database_lock_timeout_ms: int = Field(default=60_000, ge=0)
+    database_statement_timeout_ms: int = Field(default=0, ge=0)
 
     log_level: str = Field(default="INFO")
     log_format: str = Field(default="json")

@@ -32,6 +32,8 @@ def _build_config() -> DbConfig:
         pool_pre_ping=settings.database_pool_pre_ping,
         pool_reset_on_return=settings.database_pool_reset_on_return,
         application_name=f"app-api-{settings.environment}",
+        lock_timeout_ms=settings.database_lock_timeout_ms,
+        statement_timeout_ms=settings.database_statement_timeout_ms,
     )
 
 

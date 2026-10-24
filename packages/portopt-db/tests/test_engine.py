@@ -75,6 +75,13 @@ class TestInitialize:
         assert kwargs["max_overflow"] == 13
         assert kwargs["pool_pre_ping"] is True
 
+    def test_server_timeouts_reach_the_driver_connect_args(self) -> None:
+        mgr, engine = _make_manager(cfg=_cfg(lock_timeout_ms=4_000))
+        with patch(f"{M}.create_engine", return_value=engine) as create:
+            mgr.initialize()
+        options = create.call_args.kwargs["connect_args"]["options"]
+        assert options == "-c lock_timeout=4000"
+
     def test_is_idempotent(self) -> None:
         mgr, engine = _make_manager()
         with patch(f"{M}.create_engine", return_value=engine) as create:

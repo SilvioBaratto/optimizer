@@ -48,6 +48,12 @@ class FundConfig:
     agent_virtual_mode: bool = True
     preload_theory: bool = True
 
+    # --- Server-side `lock_timeout` (ms) for ORM sessions: a writer queued behind
+    # another transaction's row lock fails after this long instead of pinning a
+    # pool connection forever. 0 disables it. Shares the ingestion daemon's
+    # DATABASE_LOCK_TIMEOUT_MS knob. ---
+    db_lock_timeout_ms: int = 60_000
+
     # --- D3 LangGraph persistence: dedicated `langgraph` schema via search_path ---
     langgraph_schema: str = "langgraph"
     pool_autocommit: bool = True
@@ -222,6 +228,9 @@ def load_config(
         fred_api_key=_read_secret(env, "FRED_API_KEY"),
         # NOT a secret file: SSL_CERT_FILE is itself the CA-bundle path (verbatim).
         ssl_cert_file=env.get("SSL_CERT_FILE"),
+        db_lock_timeout_ms=int(
+            env.get("DATABASE_LOCK_TIMEOUT_MS", defaults.db_lock_timeout_ms)
+        ),
         # D4 provider registry: LLM_PROVIDER + shared model ids + Ollama base_url;
         # missing → dataclass default (env-free load stays on DeepSeek/Ollama Cloud).
         llm_provider=env.get("LLM_PROVIDER", defaults.llm_provider),
