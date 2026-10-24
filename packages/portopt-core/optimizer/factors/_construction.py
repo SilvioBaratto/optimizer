@@ -350,6 +350,7 @@ def _compute_amihud_illiquidity(
     lookback: int = 252,
     min_obs: int = DEFAULT_MIN_OBSERVATIONS,
     fx_converter: FxPriceConverter | None = None,
+    traded_price_history: pd.DataFrame | None = None,
 ) -> pd.Series:
     """Amihud illiquidity ratio (avg |return| / dollar volume).
 
@@ -362,12 +363,19 @@ def _compute_amihud_illiquidity(
     ``fx_converter`` expresses the prices used for dollar volume in one base
     currency (rescaling GBp/ZAc/ILA minor units first); returns are always
     taken from the local-currency prices, where the unit cancels.
+
+    Dollar volume also needs the price actually paid.  Dividend-adjusted
+    closes understate it at old dates, so ``traded_price_history`` supplies
+    as-traded closes for the turnover while returns still come from
+    ``price_history`` (total return).
     """
     returns = _simple_returns(price_history)
     traded_price = price_history
+    if traded_price_history is not None:
+        traded_price = traded_price_history.reindex(columns=price_history.columns)
     if fx_converter is not None:
         # Cloned so the caller's converter is never fitted in place.
-        traded_price = clone(fx_converter).fit_transform(price_history)
+        traded_price = clone(fx_converter).fit_transform(traded_price)
     dollar_vol = (traded_price * volume_history).reindex(returns.index)
 
     tail_ret = returns.iloc[-lookback:]
@@ -486,6 +494,7 @@ def compute_factor(
     config: FactorConstructionConfig | None = None,
     market_returns: pd.Series | None = None,
     fx_converter: FxPriceConverter | None = None,
+    traded_price_history: pd.DataFrame | None = None,
 ) -> pd.Series:
     """Compute a single factor.
 
@@ -508,6 +517,13 @@ def compute_factor(
             ``AMIHUD_ILLIQUIDITY``, whose dollar volume depends on the price
             unit; without it ``price_history`` must already share one major
             currency or the factor ranks by quotation currency.
+        traded_price_history: As-traded (not dividend-adjusted) closes,
+            dates x tickers in the same unit as ``price_history``.  Used only
+            by ``AMIHUD_ILLIQUIDITY`` for dollar volume.  The stored
+            ``price_history`` closes are yfinance ``auto_adjust=True``, which
+            shrinks old closes by every later dividend; build this panel with
+            ``optimizer.preprocessing.unadjust_close``.  Defaults to
+            ``price_history``.
 
     Returns:
         Factor values indexed by ticker.
@@ -547,6 +563,7 @@ def compute_factor(
                 lookback=config.amihud_lookback,
                 min_obs=config.min_observations,
                 fx_converter=fx_converter,
+                traded_price_history=traded_price_history,
             )
         case FactorType.RECOMMENDATION_CHANGE:
             return _compute_recommendation_change(analyst_data)
@@ -565,6 +582,7 @@ def compute_all_factors(
     config: FactorConstructionConfig | None = None,
     market_returns: pd.Series | None = None,
     fx_converter: FxPriceConverter | None = None,
+    traded_price_history: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Compute all configured factors.
 
@@ -592,6 +610,8 @@ def compute_all_factors(
             See `compute_factor` for details.
         fx_converter: Base-currency price converter for the dollar-volume
             based factors.  See `compute_factor` for details.
+        traded_price_history: As-traded closes for the dollar-volume based
+            factors.  See `compute_factor` for details.
 
     Returns:
         Tickers x factors matrix.
@@ -611,6 +631,7 @@ def compute_all_factors(
             config=config,
             market_returns=market_returns,
             fx_converter=fx_converter,
+            traded_price_history=traded_price_history,
         )
         if len(series) > 0:
             results[factor_type.value] = series

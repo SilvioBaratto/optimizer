@@ -1592,3 +1592,160 @@ class TestAmihudCurrencyInvariance:
             fx_converter=converter,
         )
         assert not hasattr(converter, "fx_aligned_")
+
+
+class TestAmihudAsTradedPrice:
+    """Dollar volume is built from as-traded prices, not dividend-adjusted ones.
+
+    yfinance ``auto_adjust=True`` closes shrink at old dates by every later
+    dividend, so adjusted price x volume understates old turnover and a
+    dividend payer looks less liquid than a non-payer with identical trading.
+    Returns keep coming from the adjusted panel (total return); only the
+    price level used for turnover comes from ``traded_price_history``.
+    """
+
+    @pytest.fixture()
+    def _panel(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        rng = np.random.default_rng(11)
+        dates = pd.bdate_range("2022-01-03", periods=120)
+        raw = pd.DataFrame(
+            {"PAYER": 40 * np.exp(rng.normal(0, 0.01, len(dates)).cumsum())},
+            index=dates,
+        )
+        dividends = pd.DataFrame(0.0, index=dates, columns=["PAYER"])
+        # About 4% a year in four instalments, so the oldest closes are
+        # scaled down by roughly a percent per later ex-date.
+        for i in (20, 50, 80, 110):
+            dividends.iloc[i, 0] = 0.4
+        factor = pd.Series(1.0, index=dates)
+        running = 1.0
+        for i in range(len(dates) - 1, 0, -1):
+            running *= 1.0 - dividends.iloc[i, 0] / raw.iloc[i - 1, 0]
+            factor.iloc[i - 1] = running
+        adjusted = raw.mul(factor, axis=0)
+        volume = pd.DataFrame(
+            {"PAYER": rng.integers(1_000_000, 2_000_000, len(dates)).astype(float)},
+            index=dates,
+        )
+        return raw, adjusted, dividends, volume
+
+    @staticmethod
+    def _expected(
+        raw: pd.DataFrame, adjusted: pd.DataFrame, volume: pd.DataFrame
+    ) -> pd.Series:
+        returns = adjusted.pct_change().dropna()
+        dollar_volume = (raw * volume).reindex(returns.index)
+        return (returns.abs() / dollar_volume).mean()
+
+    def test_traded_price_history_replaces_adjusted_close_in_dollar_volume(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame],
+        _dummy: pd.DataFrame,
+    ) -> None:
+        """Amihud is |r| / (as-traded price x volume), not the adjusted one."""
+        raw, adjusted, _, volume = _panel
+        expected = self._expected(raw, adjusted, volume)
+
+        result = compute_factor(
+            FactorType.AMIHUD_ILLIQUIDITY,
+            _dummy,
+            adjusted,
+            volume_history=volume,
+            traded_price_history=raw,
+        )
+        biased = compute_factor(
+            FactorType.AMIHUD_ILLIQUIDITY, _dummy, adjusted, volume_history=volume
+        )
+
+        assert result.loc["PAYER"] == pytest.approx(expected.loc["PAYER"], rel=1e-9)
+        assert biased.loc["PAYER"] > result.loc["PAYER"] * 1.02
+
+    def test_unadjust_close_output_is_a_valid_traded_price_history(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame],
+        _dummy: pd.DataFrame,
+    ) -> None:
+        """Stored adjusted closes plus stored dividends are enough to fix it."""
+        from optimizer.preprocessing import unadjust_close
+
+        raw, adjusted, dividends, volume = _panel
+        expected = self._expected(raw, adjusted, volume)
+
+        result = compute_factor(
+            FactorType.AMIHUD_ILLIQUIDITY,
+            _dummy,
+            adjusted,
+            volume_history=volume,
+            traded_price_history=unadjust_close(adjusted, dividends),
+        )
+
+        assert result.loc["PAYER"] == pytest.approx(expected.loc["PAYER"], rel=1e-9)
+
+    def test_compute_all_factors_forwards_traded_price_history(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame],
+    ) -> None:
+        """The panel-level entry point passes the traded prices on."""
+        raw, adjusted, _, volume = _panel
+        fundamentals = pd.DataFrame(
+            {"market_cap": [1.0e9]}, index=pd.Index(["PAYER"], name="ticker")
+        )
+        config = FactorConstructionConfig(factors=(FactorType.AMIHUD_ILLIQUIDITY,))
+        expected = self._expected(raw, adjusted, volume)
+
+        out = compute_all_factors(
+            fundamentals,
+            adjusted,
+            volume_history=volume,
+            config=config,
+            traded_price_history=raw,
+        )
+
+        assert out.loc["PAYER", "amihud_illiquidity"] == pytest.approx(
+            expected.loc["PAYER"], rel=1e-9
+        )
+
+    def test_fx_converter_is_applied_to_the_traded_prices(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame],
+        _dummy: pd.DataFrame,
+    ) -> None:
+        """Base-currency conversion acts on the price level that sets turnover."""
+        from optimizer.fx import FxPriceConverter
+
+        raw, adjusted, _, volume = _panel
+        expected = self._expected(raw, adjusted, volume)
+        fx_rates = pd.DataFrame({"JPY": 1.0 / 150.0}, index=raw.index)
+        converter = FxPriceConverter(
+            base_currency="USD", currency_map={"PAYER": "JPY"}, fx_rates=fx_rates
+        )
+
+        result = compute_factor(
+            FactorType.AMIHUD_ILLIQUIDITY,
+            _dummy,
+            adjusted * 150.0,
+            volume_history=volume,
+            fx_converter=converter,
+            traded_price_history=raw * 150.0,
+        )
+
+        assert result.loc["PAYER"] == pytest.approx(expected.loc["PAYER"], rel=1e-9)
+
+    def test_traded_prices_for_other_tickers_do_not_add_result_rows(
+        self,
+        _panel: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame],
+        _dummy: pd.DataFrame,
+    ) -> None:
+        """Only tickers present in price_history are scored."""
+        raw, adjusted, _, volume = _panel
+        traded = raw.assign(OTHER=raw["PAYER"])
+
+        result = compute_factor(
+            FactorType.AMIHUD_ILLIQUIDITY,
+            _dummy,
+            adjusted,
+            volume_history=volume,
+            traded_price_history=traded,
+        )
+
+        assert list(result.index) == ["PAYER"]

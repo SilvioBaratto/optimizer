@@ -63,7 +63,10 @@ def compute_addv(
             `InvestabilityScreenConfig` and no conversion happens here, so
             ``price_history.price_unit`` minor-unit normalisation and FX
             conversion must be applied upstream via `fx` (e.g.
-            `FxPriceConverter` with a USD base).
+            `FxPriceConverter` with a USD base).  Must also be as-traded:
+            ingestion stores dividend-adjusted closes, which understate old
+            turnover by every later dividend, so pass them through
+            ``optimizer.preprocessing.unadjust_close`` first.
         volume_history: Volume matrix (dates x tickers), aligned with
             price_history.
         window: Number of trailing trading days.
@@ -303,7 +306,9 @@ def apply_investability_screens(
             upstream via `fx` (e.g. `FxPriceConverter` with a USD base) before
             calling this function.
         price_history: Price matrix (dates x tickers), USD-normalised major
-            units; drives the USD ADDV screens.
+            units; drives the USD ADDV screens.  The ADDV screens multiply it
+            by volume, so it must be as-traded rather than dividend-adjusted;
+            see `compute_addv`.
         volume_history: Volume matrix (dates x tickers).
         financial_statements: Statement-level data with ``ticker``,
             ``period_type``, and optionally ``period_date`` columns.

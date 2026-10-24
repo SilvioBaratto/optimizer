@@ -7,6 +7,8 @@ across assets (axis=1). They are not interchangeable.
 
 ``prices_to_returns`` / ``to_returns`` convert a price panel to linear
 returns and run *outside* the pipeline (they change data semantics).
+``unadjust_close`` rebuilds as-traded closes from dividend-adjusted ones for
+dollar-volume measures, which need the price level actually paid.
 ``make_cleaning_pipeline`` assembles the axis=0 transformers into a
 single ``sklearn.pipeline.Pipeline``; ``make_cs_transformer`` builds a
 cross-sectional transformer from a serialisable config.
@@ -35,6 +37,7 @@ from optimizer.preprocessing._imputation import SectorImputer
 from optimizer.preprocessing._outliers import OutlierTreater
 from optimizer.preprocessing._regression_imputer import RegressionImputer
 from optimizer.preprocessing._returns import JoinMethod, ReturnsConfig, to_returns
+from optimizer.preprocessing._unadjust import unadjust_close
 from optimizer.preprocessing._validation import DataValidator
 
 __all__ = [
@@ -60,4 +63,5 @@ __all__ = [
     "make_cs_transformer",
     "prices_to_returns",
     "to_returns",
+    "unadjust_close",
 ]

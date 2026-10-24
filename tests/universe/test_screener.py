@@ -1127,3 +1127,30 @@ class TestEtfFinancialStatementExemption:
             financial_statements=statements,
         )
         assert "SMALLETF" not in result
+
+
+class TestAddvAsTradedPrice:
+    """ADDV is traded value, so it needs as-traded rather than adjusted closes."""
+
+    def test_unadjusted_prices_restore_as_traded_addv(self) -> None:
+        """Adjusted closes understate old turnover by every later dividend."""
+        from optimizer.preprocessing import unadjust_close
+
+        dates = pd.bdate_range("2023-01-02", periods=100)
+        raw = pd.DataFrame({"PAYER": np.full(len(dates), 50.0)}, index=dates)
+        dividends = pd.DataFrame(0.0, index=dates, columns=["PAYER"])
+        dividends.iloc[40, 0] = 2.0
+        dividends.iloc[80, 0] = 2.0
+        factor = pd.Series(1.0, index=dates)
+        running = 1.0
+        for i in range(len(dates) - 1, 0, -1):
+            running *= 1.0 - dividends.iloc[i, 0] / raw.iloc[i - 1, 0]
+            factor.iloc[i - 1] = running
+        adjusted = raw.mul(factor, axis=0)
+        volume = pd.DataFrame({"PAYER": np.full(len(dates), 100_000.0)}, index=dates)
+
+        biased = compute_addv(adjusted, volume, window=100)
+        restored = compute_addv(unadjust_close(adjusted, dividends), volume, window=100)
+
+        assert restored["PAYER"] == pytest.approx(50.0 * 100_000.0, rel=1e-9)
+        assert biased["PAYER"] < restored["PAYER"] * 0.98
