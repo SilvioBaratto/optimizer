@@ -221,6 +221,8 @@ def _build_regressor(method: RegressionMethod) -> BaseEstimator:
     if method is RegressionMethod.HUBER:
         return HuberRegressor(fit_intercept=True, max_iter=500)
     if method is RegressionMethod.RIDGE:
+        # The default alpha=1.0 is a penalty on raw coefficients, so it is only sane on
+        # unit-variance inputs; estimate_exposures standardises the factors for this.
         return Ridge(fit_intercept=True)
     return LinearRegression(fit_intercept=True)
 
@@ -382,11 +384,16 @@ def _estimate_exposures(
     insufficient = n_obs < 3 * (n_factors + 1)
     method_used = RegressionMethod.OLS if insufficient else config.method
     estimator = LoadingMatrixRegression(linear_regressor=_build_regressor(method_used))
+    # Factor returns sit at ~1e-2 scale, where a fixed ridge penalty would shrink every
+    # beta to ~0 and push the whole return into the residual. Regress on unit-variance
+    # factors and map the betas back (zero variance was dropped above, so std > 0).
+    factor_scale = fac_f.std(ddof=0) if method_used is RegressionMethod.RIDGE else None
+    fit_factors = fac_f if factor_scale is None else fac_f / factor_scale
 
     try:
         model = fit_factor_prior(
             nav_f.to_frame(name="nav"),
-            fac_f,
+            fit_factors,
             config=FactorPriorConfig(min_observations=config.min_observations),
             loading_matrix_estimator=estimator,
         )
@@ -396,6 +403,8 @@ def _estimate_exposures(
 
     fitted = model.loading_matrix_estimator_
     betas = np.asarray(fitted.loading_matrix_[0], dtype=float)
+    if factor_scale is not None:
+        betas = betas / factor_scale.to_numpy(dtype=float)
     alpha = float(fitted.intercepts_[0])
     # The loading matrix row is positionally aligned to the fitted factor columns
     # (verified against skfolio 1.4.11), so the fit frame's column order names them.

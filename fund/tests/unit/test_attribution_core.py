@@ -86,6 +86,29 @@ def test_attribution_core_method_selectable(method):
     assert set(result.exposures) == {"rates", "credit"}
 
 
+def test_attribution_core_ridge_recovers_betas_on_return_scale_factors():
+    """RIDGE on ~1e-2 scale factors keeps the exposures instead of shrinking to zero."""
+    truth = {"rates": 0.8, "credit": -0.3, "equity": 0.9}
+    nav, factors = _synthetic(n=250, betas=truth, alpha=5e-4)
+
+    ridge = estimate_exposures(
+        nav,
+        factors,
+        config=MacroAttributionConfig.for_default(method=RegressionMethod.RIDGE),
+    )
+    ols = estimate_exposures(
+        nav,
+        factors,
+        config=MacroAttributionConfig.for_default(method=RegressionMethod.OLS),
+    )
+
+    assert ridge.method_used is RegressionMethod.RIDGE
+    for name, beta in truth.items():
+        assert ridge.exposures[name] == pytest.approx(beta, abs=0.05)
+        assert ridge.exposures[name] == pytest.approx(ols.exposures[name], abs=0.02)
+    assert ridge.r2 is not None and ridge.r2 > 0.95
+
+
 def test_attribution_core_ols_fallback_on_short_history():
     """n_obs < 3·(K+1) forces the closed-form OLS fallback and flags it; no raise."""
     # Four factors with the default floor of twelve: the fallback band spans
