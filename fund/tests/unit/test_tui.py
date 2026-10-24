@@ -14,6 +14,7 @@ fund.tui.app`` is checked (in a stripped subprocess env) to need no
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -3657,6 +3658,208 @@ async def test_notification_bus_preserves_state_on_read_error(
         await pilot.pause()
         assert app._awaiting_count == 1
         assert len(app.last_attention) == seen
+
+
+def _seed_breaching_portfolio(env, pid) -> None:
+    # No positions, so drift = sum of target weights = 1.0, over the 0.1 threshold.
+    with env.get_session() as session:
+        repo = AgentRunRepository(session)
+        run = repo.create_run(
+            portfolio_id=pid,
+            asof=date(2026, 1, 2),
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        repo.finalize_run(run.id, weights={"AAA": 1.0}, status="completed")
+        MandateRepository(session).upsert(make_mandate(pid))
+        session.commit()
+
+
+def _corrupt_mandate(env, pid) -> None:
+    with env.get_session() as session:
+        repo = MandateRepository(session)
+        repo.upsert(make_mandate(pid))
+        row = repo.get(pid)
+        row.mandate = {**row.mandate, "capital": "not-a-number"}
+        session.commit()
+
+
+@pytest.mark.asyncio
+async def test_unreadable_mandate_does_not_blind_the_gate_alerts(shell_env) -> None:
+    from _fund_fakes import seed_paused_fund_run
+
+    _corrupt_mandate(shell_env, _PID_B)
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        seed_paused_fund_run(
+            shell_env.get_session,
+            shell_env.persistence.saver,
+            shell_env.persistence.store,
+        )
+        app._poll_attention()
+        await pilot.pause()
+
+        assert app._awaiting_count == 1
+        assert any("gate awaiting" in message for message in app.last_attention)
+        assert str(app.query_one("#hdr-attention", Static).render()) == "⏸1 awaiting"
+
+
+@pytest.mark.asyncio
+async def test_unreadable_mandate_does_not_blind_other_portfolios_breaches(
+    shell_env,
+) -> None:
+    _seed_breaching_portfolio(shell_env, _PID_A)
+    _corrupt_mandate(shell_env, _PID_B)
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        app._poll_attention()
+        await pilot.pause()
+
+        assert [m for m in app.last_attention if "drift breach" in m] == [
+            f"◐ drift breach · {str(_PID_A)[:8]}"
+        ]
+
+
+@pytest.mark.asyncio
+async def test_gate_read_failure_does_not_blind_the_breach_alerts(
+    shell_env, monkeypatch
+) -> None:
+    _seed_breaching_portfolio(shell_env, _PID_A)
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("gate read failed")
+
+    monkeypatch.setattr(observe, "pending_hitl", _boom)
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        app._poll_attention()
+        await pilot.pause()
+
+        assert any("drift breach" in message for message in app.last_attention)
+
+
+@pytest.mark.asyncio
+async def test_attention_feed_flags_itself_degraded_until_every_read_succeeds(
+    shell_env,
+) -> None:
+    _corrupt_mandate(shell_env, _PID_B)
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        feed = app.query_one("#hdr-feed", Static)
+        app._poll_attention()
+        await pilot.pause()
+        assert feed.display
+        assert "degraded" in str(feed.render())
+
+        with shell_env.get_session() as session:
+            MandateRepository(session).upsert(make_mandate(_PID_B))  # repaired
+            session.commit()
+        app._poll_attention()
+        await pilot.pause()
+        assert not feed.display
+
+
+@pytest.mark.asyncio
+async def test_unreadable_portfolio_keeps_its_alerted_breach_quiet(
+    shell_env, monkeypatch
+) -> None:
+    _seed_breaching_portfolio(shell_env, _PID_A)
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        app._poll_attention()
+        await pilot.pause()
+        alerted = len(app.last_attention)
+        assert alerted == 1
+
+        original = ShellApp._is_drift_breach
+
+        def _flaky(self, session, portfolio_id):
+            if portfolio_id == _PID_A:
+                raise RuntimeError("drift read failed")
+            return original(self, session, portfolio_id)
+
+        monkeypatch.setattr(ShellApp, "_is_drift_breach", _flaky)
+        app._poll_attention()  # A's state is unknown, not "cleared"
+        monkeypatch.undo()
+        app._poll_attention()  # recovery: the breach is still the one already alerted
+        await pilot.pause()
+
+        assert len(app.last_attention) == alerted
+
+
+def _attention_warnings(caplog) -> list[logging.LogRecord]:
+    return [
+        r
+        for r in caplog.records
+        if r.name == "fund.tui.app" and r.levelno >= logging.WARNING
+    ]
+
+
+@pytest.mark.asyncio
+async def test_unreadable_portfolio_is_logged_once_per_failure_episode(
+    shell_env, caplog
+) -> None:
+    # The header only says "feed degraded"; the log is how an operator learns which
+    # portfolio is failing. A persistent failure must not write a line every tick.
+    with shell_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate(_PID_B))
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        caplog.clear()
+
+        _corrupt_mandate(shell_env, _PID_B)
+        app._poll_attention()
+        app._poll_attention()  # still failing: same episode, no second line
+        await pilot.pause()
+
+        records = _attention_warnings(caplog)
+        assert len(records) == 1
+        assert str(_PID_B) in records[0].getMessage()
+        assert records[0].exc_info is not None  # the traceback says why it failed
+
+        with shell_env.get_session() as session:
+            MandateRepository(session).upsert(make_mandate(_PID_B))  # repaired
+            session.commit()
+        app._poll_attention()
+        assert len(_attention_warnings(caplog)) == 1  # recovery is quiet
+
+        _corrupt_mandate(shell_env, _PID_B)  # a recurrence is a new episode
+        app._poll_attention()
+        assert len(_attention_warnings(caplog)) == 2
+
+
+@pytest.mark.asyncio
+async def test_gate_and_roster_read_failures_are_logged(
+    shell_env, monkeypatch, caplog
+) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        caplog.clear()
+
+        def _gate_boom(*_a, **_k):
+            raise RuntimeError("gate read failed")
+
+        def _roster_boom(*_a, **_k):
+            raise RuntimeError("roster read failed")
+
+        monkeypatch.setattr(observe, "pending_hitl", _gate_boom)
+        monkeypatch.setattr(observe, "list_portfolios", _roster_boom)
+        app._poll_attention()
+        await pilot.pause()
+
+        messages = [r.getMessage() for r in _attention_warnings(caplog)]
+        assert len(messages) == 2
+        assert any("gate" in m for m in messages)
+        assert any("roster" in m for m in messages)
 
 
 # --- Daily brief (Phase 07 T3) ----------------------------------------------

@@ -28,9 +28,11 @@ from __future__ import annotations
 
 import datetime as dt
 import functools
+import logging
 import threading
 import uuid
 from contextlib import suppress
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Concatenate, ParamSpec
 
 from textual import work
@@ -79,6 +81,8 @@ if TYPE_CHECKING:
     from textual.worker import Worker
 
     from fund.tui.questionnaire import OnboardingSubmission
+
+logger = logging.getLogger(__name__)
 
 
 class ConfirmScreen(ModalScreen[bool]):
@@ -440,6 +444,38 @@ _NARROW_WIDTH = 80  # below this terminal width the sidebar collapses to a rail
 # a toast away.
 _ATTENTION_TOAST_TIMEOUT_S = 24 * 60 * 60.0
 
+_AttentionKey = tuple[str, uuid.UUID]
+
+
+@dataclass(frozen=True)
+class _AttentionRead:
+    """One tick's read of the fund-wide attention feed, with what could not be read.
+
+    Attributes:
+        items: ``(key, message)`` for every gate / breach the tick could see.
+        unknown_kinds: Item kinds (``"gate"`` / ``"breach"``) whose whole read failed,
+            so their prior state is neither confirmed nor cleared.
+        unreadable_breaches: Portfolios whose drift check failed on its own while the
+            rest of the roster read fine.
+    """
+
+    items: list[tuple[_AttentionKey, str]]
+    unknown_kinds: frozenset[str] = frozenset()
+    unreadable_breaches: frozenset[uuid.UUID] = frozenset()
+
+    @property
+    def degraded(self) -> bool:
+        """Whether any part of the feed could not be read this tick."""
+        return bool(self.unknown_kinds or self.unreadable_breaches)
+
+    def is_unknown(self, key: _AttentionKey) -> bool:
+        """Whether ``key``'s state is undetermined, so it must not be cleared."""
+        kind, ident = key
+        return kind in self.unknown_kinds or (
+            kind == "breach" and ident in self.unreadable_breaches
+        )
+
+
 _P = ParamSpec("_P")
 
 
@@ -513,6 +549,7 @@ class ShellApp(App[None]):
     .hdr-picker { height: 1; }
     .hdr-picker > SelectCurrent,
     .hdr-picker:focus > SelectCurrent { height: 1; border: none; padding: 0 1; }
+    #hdr-feed { display: none; color: $warning; }
     .shell-body { height: 1fr; }
     .sidebar { width: 22; border-right: solid $accent; }
     .sidebar.narrow { width: 5; }
@@ -628,8 +665,12 @@ class ShellApp(App[None]):
         self._action_lock = threading.Lock()
         # Notification bus (poll-diff): attention keys already alerted, so a
         # still-pending gate/breach never re-toasts on the next tick.
-        self._seen_attention: set[tuple[str, uuid.UUID]] = set()
+        self._seen_attention: set[_AttentionKey] = set()
         self._awaiting_count = 0
+        self._attention_degraded = False
+        # Failing feed reads already logged, so a read that fails on every ~2s tick
+        # writes one line per failure episode instead of one per tick.
+        self._logged_attention_failures: set[str] = set()
         self.last_attention: list[str] = []  # headless-test hook (mirrors last_status)
 
     # --- layout -------------------------------------------------------------
@@ -648,6 +689,7 @@ class ShellApp(App[None]):
             yield Static("● ARMED", id="hdr-mode")
             yield Static(self._runstate, id="hdr-runstate")
             yield Static("⏸0 awaiting", id="hdr-attention")
+            yield Static("⚠ feed degraded", id="hdr-feed")
         with Horizontal(id="shell-body", classes="shell-body"):
             yield ListView(
                 *(ListItem(Label(title), id=f"nav-{key}") for key, title in VIEW_SPECS),
@@ -880,44 +922,98 @@ class ShellApp(App[None]):
         bumps the header ``⏸N awaiting`` counter. A still-pending item stays in the
         seen-set, so it is not re-toasted; a resolved item drops out and would re-alert
         only if it genuinely recurs.
+
+        A read that failed is *unknown*, not *empty*: the items it would have covered
+        keep their prior seen-state and the awaiting counter keeps its last value, so a
+        DB hiccup neither re-toasts every still-pending gate on the next good tick nor
+        flickers the counter to zero. Reads fail independently — one portfolio's
+        unreadable mandate must not silence the gates or the other portfolios — and
+        the header flags the feed as degraded while any of them is failing.
         """
-        current = self._read_attention()
-        if current is None:
-            # A read error, not an empty fund: leave the seen-set and counter untouched
-            # so a transient DB hiccup neither re-toasts every still-pending gate on the
-            # next good tick nor flickers the "awaiting" counter to zero.
-            return
-        for key, message in current:
+        read = self._read_attention()
+        for key, message in read.items:
             if key not in self._seen_attention:
                 self._raise_attention(message)
-        self._seen_attention = {key for key, _ in current}
-        self._awaiting_count = sum(1 for (kind, _), _ in current if kind == "gate")
+        carried = {key for key in self._seen_attention if read.is_unknown(key)}
+        self._seen_attention = {key for key, _ in read.items} | carried
+        if "gate" not in read.unknown_kinds:
+            self._awaiting_count = sum(
+                1 for (kind, _), _ in read.items if kind == "gate"
+            )
+        self._attention_degraded = read.degraded
         self._paint_attention()
 
-    def _read_attention(self) -> list[tuple[tuple[str, uuid.UUID], str]] | None:
+    def _read_attention(self) -> _AttentionRead:
         """The current fund-wide attention items: awaiting gates + drift breaches.
 
         Each item is ``((kind, id), message)`` where ``kind`` is ``"gate"`` (keyed by
-        run id) or ``"breach"`` (keyed by portfolio id). Returns ``None`` on any read
-        error — distinct from an empty list — so the poll can leave prior state intact
-        rather than mistaking a hiccup for a cleared fund.
+        run id) or ``"breach"`` (keyed by portfolio id). The gate read, the roster read
+        and each portfolio's drift check are isolated from one another; whatever
+        failed is reported on the result instead of being folded into "no items", and
+        logged (once per failure episode) so the header's degraded flag can be traced
+        to the read behind it.
         """
-        items: list[tuple[tuple[str, uuid.UUID], str]] = []
+        items: list[tuple[_AttentionKey, str]] = []
+        unknown: set[str] = set()
+        unreadable: set[uuid.UUID] = set()
+        failing: set[str] = set()
         try:
             with self._session_factory() as session:
                 saver = self._persistence.saver
-                for row in observe.pending_hitl(session, saver, None):
-                    short = str(row.run_id)[:8]
-                    items.append((("gate", row.run_id), f"⏸ gate awaiting · {short}"))
-                for pid in observe.list_portfolios(session):
-                    if self._is_drift_breach(session, pid):
+                try:
+                    for row in observe.pending_hitl(session, saver, None):
+                        short = str(row.run_id)[:8]
                         items.append(
-                            (("breach", pid), f"◐ drift breach · {str(pid)[:8]}")
+                            (("gate", row.run_id), f"⏸ gate awaiting · {short}")
+                        )
+                except Exception:  # unknown gates, not "no gates"
+                    session.rollback()
+                    unknown.add("gate")
+                    self._log_attention_failure(failing, "gate", "pending gates")
+                try:
+                    roster = observe.list_portfolios(session)
+                except Exception:  # unknown breaches, not "no breaches"
+                    session.rollback()
+                    unknown.add("breach")
+                    self._log_attention_failure(failing, "roster", "portfolio roster")
+                    roster = []
+                for pid in roster:
+                    try:
+                        if self._is_drift_breach(session, pid):
+                            items.append(
+                                (("breach", pid), f"◐ drift breach · {str(pid)[:8]}")
+                            )
+                    except Exception:  # only this portfolio (e.g. a bad mandate)
+                        session.rollback()
+                        unreadable.add(pid)
+                        self._log_attention_failure(
+                            failing, f"breach:{pid}", f"drift check for portfolio {pid}"
                         )
                 session.rollback()
-        except Exception:  # a transient read error — signal "unknown", not "empty"
-            return None
-        return items
+        except Exception:  # the session itself failed: nothing read can be trusted
+            self._log_attention_failure(failing, "session", "database session")
+            self._logged_attention_failures &= failing
+            return _AttentionRead([], frozenset({"gate", "breach"}))
+        self._logged_attention_failures &= failing
+        return _AttentionRead(items, frozenset(unknown), frozenset(unreadable))
+
+    def _log_attention_failure(self, failing: set[str], key: str, what: str) -> None:
+        """Note a failed feed read for this tick; log it if it just started failing.
+
+        Called from inside the ``except`` that caught the error, so ``exc_info`` carries
+        the traceback. A read that stops failing drops out of the logged set (see
+        :meth:`_read_attention`), so a recurrence is logged again.
+
+        Args:
+            failing: This tick's failing-read keys, extended with ``key``.
+            key: Stable identity of the read (the gate read, the roster read, or one
+                portfolio's drift check).
+            what: Human description of the read, naming the portfolio where relevant.
+        """
+        failing.add(key)
+        if key not in self._logged_attention_failures:
+            self._logged_attention_failures.add(key)
+            logger.warning("attention feed: %s unreadable", what, exc_info=True)
 
     def _is_drift_breach(self, session: Session, portfolio_id: uuid.UUID) -> bool:
         """Whether ``portfolio_id``'s L1 drift breaches its mandate threshold.
@@ -937,11 +1033,12 @@ class ShellApp(App[None]):
         self.notify(message, timeout=_ATTENTION_TOAST_TIMEOUT_S)
 
     def _paint_attention(self) -> None:
-        """Repaint the header ``⏸N awaiting`` counter from the bus's awaiting count."""
+        """Repaint the header ``⏸N awaiting`` counter and the feed-degraded flag."""
         with suppress(NoMatches):
             self.query_one("#hdr-attention", Static).update(
                 f"⏸{self._awaiting_count} awaiting"
             )
+            self.query_one("#hdr-feed", Static).display = self._attention_degraded
 
     # --- decisions actions (worker thread) ---------------------------------
 
