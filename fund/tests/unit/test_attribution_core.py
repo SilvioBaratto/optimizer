@@ -172,6 +172,44 @@ def test_attribution_infinite_period_without_exposures_stays_finite():
     assert result.residual == pytest.approx(result.total_return)
 
 
+@pytest.mark.parametrize("method", list(RegressionMethod))
+@pytest.mark.parametrize("level", [0.0, 1e-4])
+def test_attribution_flat_nav_degrades_instead_of_raising(method, level):
+    """A NAV that never moves (zero-variance returns) degrades, never raises.
+
+    A constant non-zero return is as unidentifiable as a zero one; it must not fit
+    near-zero betas under any regressor.
+    """
+    _, factors = _synthetic(n=40, betas={"rates": 0.5, "equity": 0.9})
+    flat_nav = pd.Series(level, index=factors.index, name="nav")
+
+    result = estimate_exposures(
+        flat_nav, factors, config=MacroAttributionConfig.for_default(method=method)
+    )
+
+    assert result.exposures == {}
+    assert result.insufficient_history
+    assert result.r2 is None
+    assert result.n_obs == 40
+
+
+def test_attribution_unrelated_value_error_from_the_fit_propagates(monkeypatch):
+    """Only a flat NAV is degraded; any other ValueError is a defect and surfaces.
+
+    skfolio/sklearn raise ValueError for shape and alignment bugs too, so swallowing
+    it would silently turn a broken fit into a "no data" attribution.
+    """
+    nav, factors = _synthetic(n=40, betas={"rates": 0.5, "equity": 0.9})
+
+    def _broken_fit(*args, **kwargs):
+        raise ValueError("operands could not be broadcast together")
+
+    monkeypatch.setattr("optimizer.factors.fit_factor_prior", _broken_fit)
+
+    with pytest.raises(ValueError, match="broadcast"):
+        estimate_exposures(nav, factors, config=MacroAttributionConfig.for_default())
+
+
 def test_attribution_all_factors_missing_residual_equals_total():
     """With no exposures the whole period return is idiosyncratic residual."""
     nav, _ = _synthetic(n=30, betas={"rates": 0.5})

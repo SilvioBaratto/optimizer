@@ -225,12 +225,21 @@ def _aligned_finite(
     return nav[mask], fac[mask]
 
 
+# Population variance at or below which a return series is treated as constant.
+_FLAT_VARIANCE = 1e-18
+
+
 def _drop_degenerate(fac: pd.DataFrame) -> pd.DataFrame:
     """Drop ~zero-variance columns: a constant factor is collinear with alpha."""
     if fac.empty or fac.shape[1] == 0:
         return fac
-    keep = [col for col, var in fac.var(ddof=0).items() if float(var) > 1e-18]
+    keep = [col for col, var in fac.var(ddof=0).items() if float(var) > _FLAT_VARIANCE]
     return fac.loc[:, keep]
+
+
+def _is_flat(returns: pd.Series) -> bool:
+    """Whether the returns are ~constant (a flat or stale-marked book)."""
+    return float(np.var(returns.to_numpy(dtype=float))) <= _FLAT_VARIANCE
 
 
 def _empty_exposure(n_obs: int, method_used: RegressionMethod) -> ExposureResult:
@@ -263,8 +272,9 @@ def estimate_exposures(
     sets :attr:`ExposureResult.insufficient_history`. A factor whose return is
     constant over the window (zero variance ≡ collinear with the intercept, with an
     unidentifiable beta) is dropped — its effect folds into the residual. When the
-    sample is below ``config.min_observations``, no factor survives, or the fit fails
-    on degenerate data, it returns an empty, flagged estimate rather than raising.
+    sample is below ``config.min_observations``, no factor survives, the NAV return is
+    itself constant, or the fit fails on degenerate data, it returns an empty, flagged
+    estimate rather than raising.
 
     Args:
         nav_returns: Date-indexed portfolio simple returns (the regression target).
@@ -284,7 +294,10 @@ def estimate_exposures(
     n_obs = len(nav_f)
     n_factors = fac_f.shape[1]
 
-    if n_factors == 0 or n_obs < config.min_observations:
+    # A constant NAV has no identifiable exposure, and skfolio rejects it with a bare
+    # ValueError (zero residual variance) that cannot be told apart from a real
+    # input-validation bug, so it is screened out here instead of being caught.
+    if n_factors == 0 or n_obs < config.min_observations or _is_flat(nav_f):
         return _empty_exposure(n_obs, config.method)
 
     insufficient = n_obs < 3 * (n_factors + 1)
