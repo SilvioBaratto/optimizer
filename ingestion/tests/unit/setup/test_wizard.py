@@ -1349,6 +1349,8 @@ def _model_default_after(
     Returns the model default that was offered and the model that got staged.
     """
     monkeypatch.setattr(wizard.config_file, "load_config", lambda **k: dict(stored))
+    # A reconfigure opens the existing store, whose passphrase is not length-policed.
+    monkeypatch.setattr(wizard.secret_store, "store_exists", lambda **kw: True)
     prompter = _DefaultTakingPrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
