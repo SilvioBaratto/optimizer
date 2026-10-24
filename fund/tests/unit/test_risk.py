@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 
+import pytest
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
 
@@ -178,6 +179,34 @@ class TestBacktest:
         assert data["n_observations"] == _N_DAYS - 1
         # Fall-back metrics are in-sample, not walk-forward — flagged truthfully.
         assert data["out_of_sample"] is False
+
+    def test_max_drawdown_is_the_compounded_nav_decline(self, db_session) -> None:
+        # One asset held at weight 1: the backtest NAV is the price path itself. A
+        # 40-day +1%/day rally then 15 days of -1%/day is a 1 - 0.99**15 decline;
+        # summing the daily returns would report 0.15 instead.
+        inst = _seed_instrument(db_session, "AAA")
+        close = 100.0
+        for i in range(56):
+            close *= 1.01 if i <= 40 else 0.99
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=_START + dt.timedelta(days=i),
+                    close=round(close, 6),
+                    volume=1000,
+                )
+            )
+        db_session.flush()
+
+        result = backtest(db_session, _START + dt.timedelta(days=55), {"AAA": 1.0})
+
+        assert result["ok"] is True
+        assert result["data"]["metrics"]["max_drawdown"] == pytest.approx(
+            1.0 - 0.99**15, rel=1e-4
+        )
+        # The optimizer's nu1/nu2/nu3 ceilings sit on the additive return path, so the
+        # basis is part of the result rather than something the caller must assume.
+        assert result["data"]["drawdown_basis"] == "compounded"
 
     def test_full_sample_fallback_flagged_in_sample(self, db_session) -> None:
         # Default window → min_needed (824) ≫ the 59 seeded return rows, exactly the

@@ -18,6 +18,8 @@ through:
   from a skfolio ``Portfolio``. When the panel is too short for even one fold the
   tool falls back to the full IN-SAMPLE series (``n_folds == 0``); those metrics
   are then in-sample, not walk-forward, and are flagged ``out_of_sample=False``.
+  ``metrics.max_drawdown`` is the **compounded** wealth-path decline (see
+  :func:`backtest`), flagged ``drawdown_basis="compounded"``.
 
 Contract (via ``tool_envelope``): every failure — empty weights, no priced
 assets, a bad constraint value, an invalid walk-forward window — is returned as
@@ -160,14 +162,22 @@ def backtest(
 
     Returns:
         ``ok`` with ``metrics`` (``mean`` / ``standard_deviation`` /
-        ``sharpe_ratio`` / ``max_drawdown``), ``n_observations`` (evaluated rows),
-        ``n_folds``, ``out_of_sample`` (``True`` iff at least one walk-forward fold
-        was produced and every test bar falls after ``fit_end``; ``False`` when the
-        panel was too short and the full IN-SAMPLE series was evaluated, or when the
-        weights were fitted on the test blocks — the metrics are then in-sample),
-        ``sample_start`` / ``window_start`` / ``window_end`` (ISO dates), and
-        ``missing`` (weighted tickers absent from the panel). ``err`` on empty
-        ``weights``, no priced assets, too little history, or a bad ``window``.
+        ``sharpe_ratio`` / ``max_drawdown``), ``drawdown_basis``, ``n_observations``
+        (evaluated rows), ``n_folds``, ``out_of_sample`` (``True`` iff at least one
+        walk-forward fold was produced and every test bar falls after ``fit_end``;
+        ``False`` when the panel was too short and the full IN-SAMPLE series was
+        evaluated, or when the weights were fitted on the test blocks — the metrics
+        are then in-sample), ``sample_start`` / ``window_start`` / ``window_end`` (ISO
+        dates), and ``missing`` (weighted tickers absent from the panel). ``err`` on
+        empty ``weights``, no priced assets, too little history, or a bad ``window``.
+
+        ``max_drawdown`` is the peak-to-trough decline of the **compounded** wealth
+        path (``drawdown_basis == "compounded"``), the loss an investor holding the
+        weights would have seen. The ``nu1`` / ``nu2`` / ``nu3`` drawdown ceilings
+        the optimizer enforces are measured on the **additive** cumulative-return
+        path (skfolio's convention), so the two can differ: treat this figure as the
+        realised decline, not a like-for-like reading of those ceilings, and do not
+        block or pass on a margin smaller than that basis gap.
     """
     if not weights:
         return err("empty weights")
@@ -206,7 +216,9 @@ def backtest(
     if splits and fit_end is not None:
         out_of_sample = oos.index.min().date() > coerce_date(fit_end)
 
-    portfolio = Portfolio(oos, weight_vector)
+    # Compounded so max_drawdown is the wealth-path peak-to-trough decline, not the
+    # additive-return one the optimizer's ceilings use; ``drawdown_basis`` says so.
+    portfolio = Portfolio(oos, weight_vector, compounded=True)
     metrics = {
         "mean": float(portfolio.mean),
         "standard_deviation": float(portfolio.standard_deviation),
@@ -217,6 +229,7 @@ def backtest(
     return ok(
         {
             "metrics": metrics,
+            "drawdown_basis": "compounded",
             "n_observations": int(oos.shape[0]),
             "n_folds": len(splits),
             "out_of_sample": out_of_sample,

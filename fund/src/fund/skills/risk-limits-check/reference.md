@@ -13,6 +13,12 @@ drawdown (`M <= nu1*C`, `A <= nu2*C`, `Delta_alpha <= nu3*C`: `20:31`, `20:42`,
 tool evaluates; do not read nu2 / nu3 as average-drawdown or CDaR limits. Roadmap
 anchor: `20:75`.
 
+Basis gap: the optimizer enforces these ceilings on the additive cumulative-return
+path (skfolio), while `backtest` reports `max_drawdown` on the compounded wealth path
+(`drawdown_basis: "compounded"`). The figures differ by the compounding effect over
+the drawdown window, so a backtest reading close to a ceiling is not by itself a
+breach.
+
 ## Coherent risk & tail
 - Coherent risk axioms (monotonicity, subadditivity, ...): `04:18`.
 - CVaR as a coherent objective: `16:28`, `16:121`.

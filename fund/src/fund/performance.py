@@ -785,6 +785,9 @@ def _risk_measures(
 
     Volatility and Sharpe need at least two returns (sample dispersion); max
     drawdown needs one. Any NaN or failure degrades the affected field to ``None``.
+    The returns are NAV-to-NAV simple returns, so the drawdown is taken on the
+    compounded wealth path; skfolio's default sums returns, which overstates the
+    decline of a compounding NAV.
     """
     from skfolio import BasePortfolio
 
@@ -793,6 +796,7 @@ def _risk_measures(
             returns=np.asarray(returns, dtype=float),
             observations=list(dates),
             annualization_factor=annualization_factor,
+            compounded=True,
         )
         max_drawdown = _finite(float(portfolio.max_drawdown))
         if len(returns) >= 2:

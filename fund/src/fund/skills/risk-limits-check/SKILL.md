@@ -34,6 +34,10 @@ the ConstraintSet limits and decides pass/block. It never edits weights itself.
    test blocks cover (always the case for the allocator's optimizer weights) — so do
    NOT count them as walk-forward validation of robustness; treat them as a
    consistency check only.
+   `max_drawdown` is the compounded wealth-path decline (`drawdown_basis`), while the
+   optimizer enforces nu1/nu2/nu3 on the additive return path — read it as the
+   realised decline, not an exact ceiling comparison, and do not block or pass on a
+   margin inside that gap.
 3. Confirm the ESG hard gate: any excluded GICS name present → immediate BLOCK.
 4. For prudent profiles, confirm the robust uncertainty set was applied.
 5. Emit pass, or block with the specific violations for the allocator to fix.

@@ -34,18 +34,41 @@ def _returns(values):
     return arr[1:] / arr[:-1] - 1.0
 
 
+def _nav_max_drawdown(values):
+    """Worst peak-to-trough decline of a NAV path, as a non-negative fraction."""
+    nav = np.asarray(values, dtype=float)
+    return float(np.max(1.0 - nav / np.maximum.accumulate(nav)))
+
+
 def test_metrics_vol_sharpe_maxdd_match_independent_numpy():
     """vol/Sharpe/maxDD match a numpy hand computation to tolerance."""
     summary = portfolio_metrics(_PID, _points(_NAVS))
     rets = _returns(_NAVS)
     exp_vol = float(np.std(rets, ddof=1) * np.sqrt(252.0))
     exp_sharpe = float((rets.mean() / np.std(rets, ddof=1)) * np.sqrt(252.0))
-    cum = np.cumsum(rets)
-    exp_maxdd = float(np.max(np.maximum.accumulate(cum) - cum))
+    exp_maxdd = _nav_max_drawdown(_NAVS)
 
     assert summary.volatility == pytest.approx(exp_vol, rel=1e-6)
     assert summary.sharpe == pytest.approx(exp_sharpe, rel=1e-6)
     assert summary.max_drawdown == pytest.approx(exp_maxdd, rel=1e-6)
+
+
+def test_metrics_max_drawdown_compounds_consecutive_losses():
+    """Two -10% days are a 19% NAV drawdown, not the 20% a return sum would give."""
+    summary = portfolio_metrics(_PID, _points([100.0, 90.0, 81.0, 89.1]))
+
+    assert summary.max_drawdown == pytest.approx(0.19, rel=1e-9)
+
+
+def test_metrics_max_drawdown_after_a_long_run_up_is_the_nav_decline():
+    """A summed-return path would overstate the decline that follows a long rally."""
+    navs = [100.0 * 1.01**i for i in range(141)]
+    navs += [navs[-1] * 0.99**i for i in range(1, 37)]
+
+    summary = portfolio_metrics(_PID, _points(navs))
+
+    assert summary.max_drawdown == pytest.approx(_nav_max_drawdown(navs), rel=1e-9)
+    assert summary.max_drawdown == pytest.approx(1.0 - 0.99**36, rel=1e-9)
 
 
 def test_metrics_trailing_returns():
