@@ -954,3 +954,24 @@ def test_records_seed_temperature_and_lookback(db_session) -> None:
         portfolio_id=_PORTFOLIO_ID,
     )
     assert ctx.lookback_days == created.optimizer_config["lookback_days"]
+
+
+def test_default_run_seed_fits_postgres_signed_integer(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``agent_runs.seed`` is an int4 on Postgres; SQLite hides an overflowing seed.
+
+    Pinning the entropy source to its maximum makes the worst-case draw
+    deterministic, so a seed range wider than 31 bits fails here instead of only
+    on roughly every second production run.
+    """
+    import secrets
+
+    monkeypatch.setattr(secrets, "randbits", lambda k: (1 << k) - 1)
+    _seed_panel(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights={}, risk_passes=False)
+
+    run = _run(model, db_session, store=_store_with_cs())
+
+    created = AgentRunRepository(db_session).get_run(run.run_id)
+    assert 0 <= created.seed <= 2**31 - 1

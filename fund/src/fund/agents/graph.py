@@ -1089,7 +1089,9 @@ def _prepare_fund_run(
             f"first to establish a risk profile."
         )
 
-    run_seed = seed if seed is not None else secrets.randbits(32)
+    # 31 bits: ``agent_runs.seed`` is a signed int4 on Postgres, and a 32-bit draw
+    # overflows it on about half of all runs.
+    run_seed = seed if seed is not None else secrets.randbits(31)
     active_profile = MifidProfileRepository(session).get_active(pid_uuid)
     audit = AgentRunRepository(session)
     run = audit.create_run(
