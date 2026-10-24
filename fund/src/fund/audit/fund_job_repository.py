@@ -222,13 +222,19 @@ class FundJobRepository(RepositoryBase):
         row moved. Commits so the slot re-opens for the next scheduled run.
         """
         self._recover_session()
+        # Wall clock, not ``func.now()``: PostgreSQL's now() is the *transaction*
+        # start, and the shared work session's transaction opens when the step
+        # starts, so a long sweep would record a ~0s duration.
+        finished = datetime.now(UTC)
         stmt = (
             update(BackgroundJob)
             .where(
                 BackgroundJob.id == job_id,
                 BackgroundJob.status.in_(_ACTIVE_STATUSES),
             )
-            .values(status=status, error=error, finished_at=func.now())
+            .values(
+                status=status, error=error, finished_at=finished, updated_at=finished
+            )
         )
         result = self.session.execute(stmt)
         self.session.commit()
@@ -250,7 +256,8 @@ class FundJobRepository(RepositoryBase):
         live long-running step). Scoped to :data:`FUND_JOB_TYPES` so a stale
         ingestion job is never touched. Caller owns the commit.
         """
-        cutoff = datetime.now(UTC) - timedelta(seconds=heartbeat_timeout_seconds)
+        now = datetime.now(UTC)
+        cutoff = now - timedelta(seconds=heartbeat_timeout_seconds)
         stale_active = (
             BackgroundJob.job_type.in_(FUND_JOB_TYPES),
             BackgroundJob.status.in_(_ACTIVE_STATUSES),
@@ -262,7 +269,7 @@ class FundJobRepository(RepositoryBase):
         stmt = (
             update(BackgroundJob)
             .where(*stale_active)
-            .values(status="failed", error=error_msg, finished_at=func.now())
+            .values(status="failed", error=error_msg, finished_at=now, updated_at=now)
         )
         # A bulk maintenance sweep: don't synchronise the caller's identity map
         # (callers re-read after the caller-owned commit). This also keeps the

@@ -486,3 +486,47 @@ def test_heartbeating_slot_survives_the_reaper_when_app_and_db_clocks_skew(
     # The lease is stamped and compared on one clock, so skew cannot expire it.
     assert reaped == 0
     assert repo.get(job_id).status == "running"
+
+
+# --- finished_at is the wall-clock moment of the transition -----------------
+
+_WALL_CLOCK = datetime(2031, 1, 1, 12, 0, tzinfo=UTC)
+
+
+class _FrozenDatetime(datetime):
+    """``datetime`` pinned to :data:`_WALL_CLOCK` (a fixed point, not a txn start)."""
+
+    @classmethod
+    def now(cls, tz=None):
+        return _WALL_CLOCK.astimezone(tz)
+
+
+def test_mark_done_stamps_the_wall_clock_moment_not_the_transaction_start(
+    job_session, monkeypatch
+):
+    repo = FundJobRepository(job_session)
+    job_id = repo.claim_or_create("fund_rebalance_sweep")
+    repo.mark_running(job_id)
+
+    monkeypatch.setattr("fund.audit.fund_job_repository.datetime", _FrozenDatetime)
+    assert repo.mark_done(job_id, status="completed") is True
+
+    job_session.expire_all()
+    row = repo.get(job_id)
+    assert _naive(row.finished_at) == _naive(_WALL_CLOCK)
+    assert _naive(row.updated_at) == _naive(_WALL_CLOCK)
+
+
+def test_reap_orphans_stamps_the_wall_clock_moment_on_failed_slots(
+    job_session, monkeypatch
+):
+    repo = FundJobRepository(job_session)
+    stale = _insert_job(
+        job_session, job_type="fund_drift_monitor", status="running", heartbeat="stale"
+    )
+
+    monkeypatch.setattr("fund.audit.fund_job_repository.datetime", _FrozenDatetime)
+    assert repo.reap_orphans("lease expired", heartbeat_timeout_seconds=300) == 1
+    job_session.expire_all()
+
+    assert _naive(repo.get(stale.id).finished_at) == _naive(_WALL_CLOCK)
