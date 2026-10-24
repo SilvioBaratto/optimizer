@@ -774,7 +774,10 @@ class SectorRegimeBandsConfig:
         bands: Serialisable flat representation of the band matrix. Each entry
             is ``(regime_value, sector_name, floor, cap)`` with
             ``0.0 <= floor <= cap <= 1.0``. Left empty on an enabled config,
-            it is filled with the default ``SECTOR_REGIME_BANDS`` matrix.
+            it is filled with the default ``SECTOR_REGIME_BANDS`` matrix. Each
+            ``(regime_value, sector_name)`` pair may appear once; per regime the
+            floors must sum to at most 1.0 and, when all 11 sectors are listed,
+            the caps must sum to at least 1.0.
 
     Examples:
         >>> cfg = SectorRegimeBandsConfig.for_default()
@@ -799,6 +802,9 @@ class SectorRegimeBandsConfig:
 
         valid_regimes = {r.value for r in MacroRegime}
         regime_floors: dict[str, float] = {}
+        regime_caps: dict[str, float] = {}
+        regime_sector_counts: dict[str, int] = {}
+        seen: set[tuple[str, str]] = set()
 
         for entry in self.bands:
             if len(entry) != 4:
@@ -823,13 +829,37 @@ class SectorRegimeBandsConfig:
                     f"require 0.0 <= floor <= cap <= 1.0, "
                     f"got floor={floor}, cap={cap}"
                 )
+            # resolve_sector_bands keeps only the last row per key, so a repeat
+            # would be summed here but silently dropped at resolution time.
+            if (regime_val, sector) in seen:
+                raise ConfigurationError(
+                    f"Duplicate band for ({regime_val!r}, {sector!r}); "
+                    f"each regime/sector pair may appear only once."
+                )
+            seen.add((regime_val, sector))
             regime_floors[regime_val] = regime_floors.get(regime_val, 0.0) + floor
+            regime_caps[regime_val] = regime_caps.get(regime_val, 0.0) + cap
+            regime_sector_counts[regime_val] = (
+                regime_sector_counts.get(regime_val, 0) + 1
+            )
 
         for regime_val, total_floor in regime_floors.items():
             if total_floor > 1.0 + 1e-9:
                 raise ConfigurationError(
                     f"Sector floors for regime {regime_val!r} sum to "
                     f"{total_floor:.4f} > 1.0; bands are infeasible."
+                )
+
+        # Sectors a regime omits are unconstrained and can absorb the residual
+        # weight, so caps can only be proven infeasible once every sector is
+        # listed.
+        for regime_val, total_cap in regime_caps.items():
+            covers_all = regime_sector_counts[regime_val] == len(ALL_11_SECTORS)
+            if covers_all and total_cap < 1.0 - 1e-9:
+                raise ConfigurationError(
+                    f"Sector caps for regime {regime_val!r} sum to "
+                    f"{total_cap:.4f} < 1.0; a fully invested portfolio cannot "
+                    f"satisfy them, so bands are infeasible."
                 )
 
     @classmethod

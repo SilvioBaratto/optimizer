@@ -183,6 +183,52 @@ def test_floor_sum_greater_than_one_raises() -> None:
         SectorRegimeBandsConfig(enable=True, bands=tuple(bands))
 
 
+def test_caps_summing_below_full_investment_raise() -> None:
+    """A regime capping all 11 sectors below 100% in total cannot be fully invested."""
+    bands = tuple(("recession", sector, 0.0, 0.05) for sector in ALL_11_SECTORS)
+    with pytest.raises(ConfigurationError, match=r"caps.*infeasible"):
+        SectorRegimeBandsConfig(enable=True, bands=bands)
+
+
+def test_caps_summing_to_exactly_full_investment_are_accepted() -> None:
+    cap = 1.0 / len(ALL_11_SECTORS)
+    bands = tuple(("recession", sector, 0.0, cap) for sector in ALL_11_SECTORS)
+    cfg = SectorRegimeBandsConfig(enable=True, bands=bands)
+    assert len(cfg.bands) == len(ALL_11_SECTORS)
+
+
+def test_partial_regime_with_low_caps_is_accepted() -> None:
+    """Sectors a regime does not list are unconstrained, so they absorb the rest."""
+    bands = (
+        ("recession", "Energy", 0.0, 0.05),
+        ("recession", "Utilities", 0.0, 0.05),
+    )
+    cfg = SectorRegimeBandsConfig(enable=True, bands=bands)
+    assert resolve_sector_bands(MacroRegime.RECESSION, cfg) == {
+        "Energy": (0.0, 0.05),
+        "Utilities": (0.0, 0.05),
+    }
+
+
+def test_duplicate_regime_sector_rows_raise() -> None:
+    """The resolver keeps only the last row, so a repeated key is ambiguous."""
+    bands = (
+        ("recession", "Energy", 0.40, 0.50),
+        ("recession", "Energy", 0.30, 0.50),
+    )
+    with pytest.raises(ConfigurationError, match=r"[Dd]uplicate"):
+        SectorRegimeBandsConfig(enable=True, bands=bands)
+
+
+def test_same_sector_in_different_regimes_is_not_a_duplicate() -> None:
+    bands = (
+        ("recession", "Energy", 0.0, 0.10),
+        ("recovery", "Energy", 0.0, 0.20),
+    )
+    cfg = SectorRegimeBandsConfig(enable=True, bands=bands)
+    assert resolve_sector_bands(MacroRegime.RECOVERY, cfg)["Energy"] == (0.0, 0.20)
+
+
 def test_invalid_regime_value_raises() -> None:
     with pytest.raises(ConfigurationError, match="regime"):
         SectorRegimeBandsConfig(
