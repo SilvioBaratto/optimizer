@@ -120,29 +120,31 @@ def _subagent(
     root-relative skills; never sets ``interrupt_on``. When ``fallback`` is given
     (critical roles only), attaches a single ``ModelFallbackMiddleware`` so a
     primary-model failure retries on the fallback (a langchain middleware, not a
-    hand-rolled ``.with_fallbacks``). ``summarization`` carries the operator's
-    override from :func:`fund.agents.summarization.summarization_override`; a
-    declarative subagent inherits no middleware from the PM, so it is attached to
-    each spec explicitly.
+    hand-rolled ``.with_fallbacks``). Every role also carries the per-delegation
+    model-call cap (:func:`_subagent_call_cap_middleware`). ``summarization`` carries
+    the operator's override from
+    :func:`fund.agents.summarization.summarization_override`; a declarative subagent
+    inherits no middleware from the PM, so it is attached to each spec explicitly.
     """
     from fund.agents.toolsets import bind_toolset
 
-    sub: dict[str, Any] = {
-        "name": role,
-        "description": description,
-        "system_prompt": system_prompt,
-        "tools": bind_toolset(role, ctx),
-        "skills": skill_sources(role),
-    }
     middleware: list[Any] = []
     if fallback is not None:
         from langchain.agents.middleware import ModelFallbackMiddleware
 
         middleware.append(ModelFallbackMiddleware(fallback))
+    middleware.append(
+        _subagent_call_cap_middleware(ctx.config.max_subagent_model_calls)
+    )
     middleware.extend(summarization)
-    if middleware:
-        sub["middleware"] = middleware
-    return sub
+    return {
+        "name": role,
+        "description": description,
+        "system_prompt": system_prompt,
+        "tools": bind_toolset(role, ctx),
+        "skills": skill_sources(role),
+        "middleware": middleware,
+    }
 
 
 def build_economist_subagent(
@@ -211,6 +213,46 @@ def build_executor_subagent(
         fallback=fallback,
         summarization=summarization,
     )
+
+
+def _subagent_call_cap_middleware(max_model_calls: int) -> Any:
+    """Bound one subagent delegation to ``max_model_calls`` model calls.
+
+    The PM's ``recursion_limit`` and :func:`_pm_round_cap_middleware` count only PM
+    supersteps, and the ``task`` tool runs a subagent graph that carries langgraph's
+    own 9999 bound (the subagent's bound config wins over the parent's), so a
+    subagent that keeps retrying a failing tool would otherwise run for thousands
+    of model calls inside a single PM round. ``run_limit`` resets on every ``task``
+    invocation; ``exit_behavior="end"`` hands the PM a final "limits exceeded"
+    message instead of raising across the delegation. Imported lazily to keep a
+    bare ``import fund.agents.graph`` agent-stack-free.
+    """
+    from langchain.agents.middleware import ModelCallLimitMiddleware
+
+    return ModelCallLimitMiddleware(run_limit=max_model_calls, exit_behavior="end")
+
+
+def _general_purpose_subagent(
+    config: FundConfig, *, summarization: Sequence[Any] = ()
+) -> dict[str, Any]:
+    """Explicit ``general-purpose`` spec carrying the same call cap as the roles.
+
+    deepagents auto-adds its own ``general-purpose`` subagent to the ``task`` tool
+    unless the caller supplies one by that name, and the auto-added spec has no
+    model-call bound. Supplying the stock spec (prompt, description, inherited PM
+    tools and skills) plus the cap keeps the default behaviour while closing that
+    runaway path.
+    """
+    from deepagents.middleware.subagents import GENERAL_PURPOSE_SUBAGENT
+
+    return {
+        **GENERAL_PURPOSE_SUBAGENT,
+        "skills": skill_sources("orchestrator"),
+        "middleware": [
+            _subagent_call_cap_middleware(config.max_subagent_model_calls),
+            *summarization,
+        ],
+    }
 
 
 def _pm_round_cap_middleware(max_pm_rounds: int) -> Any:
@@ -288,7 +330,9 @@ def build_fund_agent(
     mandate's ``hitl_gates`` in), else the config default (``place_orders``). It
     delegates through the built-in ``task`` tool to the four subagents in pipeline
     order (economist → allocator → risk → executor); the critical three carry the
-    ``fallback`` middleware when one is supplied. Skills are the root-relative
+    ``fallback`` middleware when one is supplied, and every delegation target (the
+    ``general-purpose`` one included) is bounded by the per-delegation model-call
+    cap. Skills are the root-relative
     staged sources (Risk R1) resolved through the ``virtual_mode`` ``backend``.
     ``temperature=0`` / the DeepSeek route ride on ``model`` (built from
     ``FundConfig``), not passed here.
@@ -308,6 +352,7 @@ def build_fund_agent(
         build_allocator_subagent(ctx, fallback=fallback, summarization=summarization()),
         build_risk_subagent(ctx, fallback=fallback, summarization=summarization()),
         build_executor_subagent(ctx, fallback=fallback, summarization=summarization()),
+        _general_purpose_subagent(config, summarization=summarization()),
     ]
     return create_deep_agent(
         model=model,

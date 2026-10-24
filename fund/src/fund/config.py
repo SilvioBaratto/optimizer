@@ -109,6 +109,10 @@ class FundConfig:
     # default 9999 is NOT a safety bound). ---
     recursion_limit: int = 50
     max_pm_rounds: int = 10
+    # Per-delegation model-call cap for every subagent. Neither ``recursion_limit``
+    # nor ``max_pm_rounds`` reaches a subagent graph (each carries langgraph's own
+    # 9999 bound), so this is what stops a subagent that keeps retrying a tool.
+    max_subagent_model_calls: int = 25
 
     # --- D10 HITL: tools gated behind interrupt_on (checkpointer required) ---
     interrupt_on: tuple[str, ...] = field(default=("place_orders",))

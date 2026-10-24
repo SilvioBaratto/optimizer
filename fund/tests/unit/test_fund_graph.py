@@ -4,7 +4,9 @@ Assert on the **constructed shapes**, never an LLM call (SPEC §5 — no network
 CI). The four subagent builders return well-formed ``SubAgent`` dicts
 (name/description/system_prompt/tools/skills) that never set ``interrupt_on``; the
 critical roles (allocator → risk → executor) carry a ``ModelFallbackMiddleware``
-when a fallback is supplied while the economist never does. ``build_fund_agent``
+when a fallback is supplied while the economist never does, and every subagent
+(plus the explicit ``general-purpose`` spec) carries the model-call cap.
+``build_fund_agent``
 wires the PM ``create_deep_agent`` with the orchestrator toolset (the top-level
 gated ``place_orders``), the four subagents in pipeline order, the root-relative
 skills (Risk R1), the ``virtual_mode`` backend, the checkpointer/store, and
@@ -22,8 +24,16 @@ from typing import Any
 import deepagents
 import pytest
 from _fund_fakes import ScriptedFundModel
-from langchain.agents.middleware import ModelFallbackMiddleware
+from langchain.agents.middleware import (
+    ModelCallLimitMiddleware,
+    ModelFallbackMiddleware,
+)
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import BaseTool
+from langgraph.checkpoint.memory import MemorySaver
+from pydantic import Field
 
 from fund.agents import graph
 from fund.agents.prompts import (
@@ -110,23 +120,37 @@ def test_executor_subagent_binds_no_tools() -> None:
 # --- fallback middleware on critical roles only --------------------------------
 
 
+def _fallbacks(sub: dict[str, Any]) -> list[Any]:
+    return [m for m in sub["middleware"] if isinstance(m, ModelFallbackMiddleware)]
+
+
+def _call_caps(sub: dict[str, Any]) -> list[ModelCallLimitMiddleware]:
+    return [m for m in sub["middleware"] if isinstance(m, ModelCallLimitMiddleware)]
+
+
 def test_critical_roles_attach_fallback_middleware_when_supplied() -> None:
     for role in ("allocator", "risk", "executor"):
         sub = _build(role, fallback=_FALLBACK)
-        middleware = sub["middleware"]
-        assert len(middleware) == 1
-        assert isinstance(middleware[0], ModelFallbackMiddleware)
+        assert len(_fallbacks(sub)) == 1
 
 
 def test_economist_never_attaches_fallback_middleware() -> None:
     sub = graph.build_economist_subagent(_ctx())
-    assert "middleware" not in sub
+    assert _fallbacks(sub) == []
 
 
-def test_critical_roles_without_fallback_have_no_middleware() -> None:
+def test_critical_roles_without_fallback_have_no_fallback_middleware() -> None:
     for role in ("allocator", "risk", "executor"):
         sub = _build(role, fallback=None)
-        assert "middleware" not in sub
+        assert _fallbacks(sub) == []
+
+
+def test_every_role_carries_the_configured_model_call_cap() -> None:
+    for role in _ROLES:
+        sub = _build(role, fallback=_FALLBACK)
+        (cap,) = _call_caps(sub)
+        assert cap.run_limit == settings.max_subagent_model_calls
+        assert cap.exit_behavior == "end"
 
 
 # --- build_fund_agent: PM create_deep_agent kwargs (spy, no LLM) ---------------
@@ -195,13 +219,113 @@ def test_build_fund_agent_wires_four_subagents_in_pipeline_order(
     )
 
     subs = captured["subagents"]
-    assert [s["name"] for s in subs] == ["economist", "allocator", "risk", "executor"]
+    # The explicit general-purpose spec replaces deepagents' uncapped auto-added one.
+    assert [s["name"] for s in subs] == [
+        "economist",
+        "allocator",
+        "risk",
+        "executor",
+        "general-purpose",
+    ]
     # No subagent gates itself; the critical three carry the fallback middleware.
     assert all("interrupt_on" not in s for s in subs)
     by_name = {s["name"]: s for s in subs}
-    assert "middleware" not in by_name["economist"]
+    assert _fallbacks(by_name["economist"]) == []
+    assert _fallbacks(by_name["general-purpose"]) == []
     for role in ("allocator", "risk", "executor"):
-        assert isinstance(by_name[role]["middleware"][0], ModelFallbackMiddleware)
+        assert len(_fallbacks(by_name[role])) == 1
+    # Every delegation target, the general-purpose one included, is call-capped.
+    assert all(len(_call_caps(s)) == 1 for s in subs)
+
+
+# --- subagent runaway bound ------------------------------------------------------
+
+_PM_SEED = "start the round"
+_SUB_SEED = "loop forever"
+
+
+class _LoopingSubagentModel(BaseChatModel):
+    """The PM delegates once; the subagent then calls ``loop_tool`` until stopped.
+
+    The subagent only stops on its own after ``runaway_after`` model calls, so a
+    missing bound shows up as a call count far above the cap instead of a hang.
+    ``sub_calls`` is a one-element list so the (frozen) model can count in place.
+    """
+
+    subagent_type: str
+    loop_tool: str
+    runaway_after: int = 200
+    sub_calls: list[int] = Field(default_factory=lambda: [0])
+
+    @property
+    def _llm_type(self) -> str:
+        return "looping-subagent"
+
+    def bind_tools(self, tools: Any, **_: Any) -> _LoopingSubagentModel:
+        return self
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any | None = None,
+        **_: Any,
+    ) -> ChatResult:
+        first = next(m for m in messages if isinstance(m, HumanMessage))
+        if first.content == _PM_SEED:
+            reply = self._pm_turn(messages)
+        else:
+            reply = self._subagent_turn()
+        return ChatResult(generations=[ChatGeneration(message=reply)])
+
+    def _pm_turn(self, messages: list[BaseMessage]) -> AIMessage:
+        if any(isinstance(m, ToolMessage) for m in messages):
+            return AIMessage(content="delegation finished")
+        call = {
+            "name": "task",
+            "args": {"description": _SUB_SEED, "subagent_type": self.subagent_type},
+            "id": "call_task",
+        }
+        return AIMessage(content="", tool_calls=[call])
+
+    def _subagent_turn(self) -> AIMessage:
+        self.sub_calls[0] += 1
+        n = self.sub_calls[0]
+        if n > self.runaway_after:
+            return AIMessage(content="giving up")
+        call = {"name": self.loop_tool, "args": {}, "id": f"call_loop_{n}"}
+        return AIMessage(content="", tool_calls=[call])
+
+
+@pytest.mark.parametrize(
+    ("subagent_type", "loop_tool"),
+    [
+        ("economist", "get_recent_events"),
+        ("allocator", "universe_filter"),
+        ("general-purpose", "get_portfolio_history"),
+    ],
+)
+def test_a_looping_subagent_is_stopped_by_the_model_call_cap(
+    subagent_type: str, loop_tool: str
+) -> None:
+    """The PM's ``recursion_limit`` and round cap count only PM supersteps, and a
+    subagent graph carries langgraph's own 9999 bound, so without its own cap a
+    subagent that keeps retrying a tool spins until the model gives up."""
+    model = _LoopingSubagentModel(subagent_type=subagent_type, loop_tool=loop_tool)
+    agent = graph.build_fund_agent(
+        model, checkpointer=MemorySaver(), store=None, ctx=_ctx()
+    )
+
+    result = agent.invoke(
+        {"messages": [{"role": "user", "content": _PM_SEED}]},
+        config={
+            "configurable": {"thread_id": f"loop-{subagent_type}"},
+            "recursion_limit": settings.recursion_limit,
+        },
+    )
+
+    assert model.sub_calls[0] <= settings.max_subagent_model_calls
+    assert result["messages"][-1].content == "delegation finished"
 
 
 # --- summarization override: FUND_SUMMARY_* bound the PM and every subagent ---
@@ -237,7 +361,14 @@ def test_summary_override_reaches_the_pm_and_every_subagent(tmp_path, monkeypatc
 
     stacks = {"pm": captured["middleware"]}
     stacks.update({s["name"]: s.get("middleware", []) for s in captured["subagents"]})
-    assert set(stacks) == {"pm", "economist", "allocator", "risk", "executor"}
+    assert set(stacks) == {
+        "pm",
+        "economist",
+        "allocator",
+        "risk",
+        "executor",
+        "general-purpose",
+    }
     for name, stack in stacks.items():
         (summarizer,) = _summarizers(stack)
         assert summarizer._lc_helper.trigger == ("tokens", 24000), name
