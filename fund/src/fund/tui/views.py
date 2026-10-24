@@ -901,6 +901,7 @@ _RUN_AWAITING: frozenset[str] = frozenset({"paused", "responded"})
 _HEALTH_OK: tuple[str, str] = ("●", "ok")
 _HEALTH_WARN: tuple[str, str] = ("◐", "warn")
 _HEALTH_BREACH: tuple[str, str] = ("●", "breach")
+_HEALTH_UNREADABLE: tuple[str, str] = ("?", "error")
 
 
 def _run_glyph(status: str | None) -> str:
@@ -1019,14 +1020,15 @@ class PostureView(ShellView):
     def _read_roster(self) -> tuple[list[_RosterRow], str]:
         """Read every portfolio's roster row + the fund-strip summary in one session.
 
-        Returns ``([], "0 pf")`` on any read error so the poll loop stays alive. The
-        strip mirrors the fund autonomy posture (ARMED/FROZEN) so it surfaces here too,
-        not only in the header.
+        Returns ``([], "0 pf")`` when the portfolio list itself cannot be read, so the
+        poll loop stays alive; a single unreadable portfolio degrades to an ``error``
+        row instead. The strip mirrors the fund autonomy posture (ARMED/FROZEN) so it
+        surfaces here too, not only in the header.
         """
         try:
             with self.read_session() as session:
                 rows = [
-                    self._roster_row(session, pid)
+                    self._roster_row_or_error(session, pid)
                     for pid in observe.list_portfolios(session)
                 ]
                 posture = self._read_autonomy(session)
@@ -1041,6 +1043,21 @@ class PostureView(ShellView):
         # Read-only (``fund_posture`` never inserts) so a poll tick never mutates.
         posture = AutonomyRepository(session).fund_posture()
         return "❄ FROZEN" if posture == AutonomyState.FROZEN.value else "● ARMED"
+
+    def _roster_row_or_error(self, session: Session, pid: uuid.UUID) -> _RosterRow:
+        """One portfolio's roster row, or an ``error`` row when its read fails.
+
+        A stored mandate that no longer validates must not hide every healthy
+        portfolio, so the failure stays scoped to its own row.
+        """
+        try:
+            return self._roster_row(session, pid)
+        except Exception:  # keep the roster alive on one bad portfolio
+            # A database-level error leaves the transaction aborted, which would fail
+            # every later portfolio in this session too.
+            session.rollback()
+            dot, label = _HEALTH_UNREADABLE
+            return _RosterRow(pid, None, "?", dot, label)
 
     def _roster_row(self, session: Session, pid: uuid.UUID) -> _RosterRow:
         runs = observe.list_portfolio_runs(session, pid, limit=1)
@@ -1089,10 +1106,12 @@ def _fund_strip(rows: list[_RosterRow]) -> str:
     n_awaiting = sum(1 for row in rows if row.run_status in _RUN_AWAITING)
     n_running = sum(1 for row in rows if row.run_status in _RUN_RUNNING)
     n_warning = sum(1 for row in rows if (row.dot, row.label) == _HEALTH_WARN)
-    return (
+    strip = (
         f"{len(rows)} pf · ⏸{n_awaiting} awaiting · "
         f"▶{n_running} running · ◐{n_warning} warning"
     )
+    n_unreadable = sum(1 for row in rows if (row.dot, row.label) == _HEALTH_UNREADABLE)
+    return f"{strip} · ?{n_unreadable} error" if n_unreadable else strip
 
 
 def _render_posture_detail(session: Session, pid: uuid.UUID) -> str:

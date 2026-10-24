@@ -2581,6 +2581,44 @@ async def test_posture_roster_lists_portfolios_and_aggregates(shell_env) -> None
 
 
 @pytest.mark.asyncio
+async def test_posture_roster_degrades_one_unreadable_portfolio(shell_env) -> None:
+    # One stored mandate that no longer validates must not blank the whole control
+    # tower: the healthy portfolio keeps its row and the broken one reads as an error.
+    from portopt_db.models import PortfolioMandate as PortfolioMandateModel
+
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1, status="paused")
+        _seed_run(session, _PID_B, seed=2)
+        session.add(
+            PortfolioMandateModel(
+                portfolio_id=_PID_B,
+                base_currency="EUR",
+                capital=1000.0,
+                drift_l1_threshold=0.1,
+                mandate={"not": "a mandate"},
+                status="active",
+            )
+        )
+        session.commit()
+
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        table = view.query_one("#posture-roster", DataTable)
+        assert table.row_count == 2
+        health = {
+            table.get_row_at(i)[0]: str(table.get_row_at(i)[2])
+            for i in range(table.row_count)
+        }
+        assert "error" in health[_PID_B.hex[:8]]
+        assert "ok" in health[_PID_A.hex[:8]]
+        strip = str(view.query_one("#posture-strip", Static).render())
+        assert "2 pf" in strip
+        assert "1 awaiting" in strip  # the healthy gate is still counted
+        assert "?1 error" in strip  # the unreadable portfolio is not silently dropped
+
+
+@pytest.mark.asyncio
 async def test_posture_empty_portfolio_shows_profile_hint(shell_env) -> None:
     # A portfolio with a mandate but no runs: roster lists it; focusing shows the
     # "no runs yet · p profile to start" empty-state in the detail pane.
