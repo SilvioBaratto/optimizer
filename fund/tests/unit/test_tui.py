@@ -25,6 +25,7 @@ from contextlib import contextmanager, suppress
 from datetime import date, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from _fund_fakes import (
@@ -3483,6 +3484,166 @@ async def test_barge_in_at_gate_responds_and_regates(tui_env) -> None:
         rows = HumanAuditLogRepository(session).list_recent(action="respond")
         assert len(rows) == 1
         assert rows[0].run_id == run_id
+
+
+def _stream_held_after_first_step(
+    monkeypatch, run_id: uuid.UUID, *, reaches_gate: bool
+) -> threading.Event:
+    """Stand in for ``stream_fund``: one step, then block until the returned event."""
+    release = threading.Event()
+    events = _scripted_stream(run_id)
+
+    def fake_stream_fund(*_args, **_kwargs):
+        yield events[0]
+        release.wait(timeout=10)
+        yield from events[1:] if reaches_gate else events[1:2]
+
+    monkeypatch.setattr("fund.agents.graph.stream_fund", fake_stream_fund)
+    return release
+
+
+def _record_actions(monkeypatch) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+
+    def fake_apply_action(action, **kwargs):
+        calls.append({"action": action, **kwargs})
+        return SimpleNamespace(message=f"{action} done")
+
+    monkeypatch.setattr("fund.actions.apply_action", fake_apply_action)
+    return calls
+
+
+async def _send_barge_in_mid_stream(app, pilot, run_id: uuid.UUID, directive: str):
+    view = app.query_one("#view-deliberation", DeliberationView)
+    for _ in range(200):
+        if view.live_run_id == run_id:
+            break
+        await pilot.pause(0.05)
+    assert view.live_run_id == run_id
+    app.action_barge_in()
+    await pilot.pause()
+    screen = app.screen
+    assert isinstance(screen, BargeInScreen)
+    screen.query_one("#bargein-text", Input).value = directive
+    screen._submit()
+    await pilot.pause(0.3)
+
+
+@pytest.mark.asyncio
+async def test_barge_in_mid_stream_is_delivered_after_the_gate_commits(
+    tui_env, monkeypatch
+) -> None:
+    """The run row is only flushed until the stream worker commits at the end of the
+    round, so a ``respond`` dispatched mid-stream cannot see it (``no agent_run``) and
+    the directive is lost; it has to wait for the committed gate."""
+    _seed_mandate(tui_env)
+    run_id = uuid.uuid4()
+    release = _stream_held_after_first_step(monkeypatch, run_id, reaches_gate=True)
+    calls = _record_actions(monkeypatch)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        stream = app.last_worker
+        try:
+            await _send_barge_in_mid_stream(app, pilot, run_id, "Trim AAA.")
+            assert calls == []
+            assert "queued" in app.last_status
+        finally:
+            release.set()
+        await stream.wait()
+        await pilot.pause()
+        await app.last_worker.wait()
+        assert [c["action"] for c in calls] == ["respond"]
+        assert calls[0]["run_id"] == run_id
+        assert calls[0]["portfolio_id"] == PORTFOLIO_ID
+        assert calls[0]["pm_directive"] == "Trim AAA."
+
+
+@pytest.mark.asyncio
+async def test_barge_in_queued_mid_stream_is_dropped_when_no_gate_is_reached(
+    tui_env, monkeypatch
+) -> None:
+    _seed_mandate(tui_env)
+    run_id = uuid.uuid4()
+    release = _stream_held_after_first_step(monkeypatch, run_id, reaches_gate=False)
+    calls = _record_actions(monkeypatch)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        stream = app.last_worker
+        try:
+            await _send_barge_in_mid_stream(app, pilot, run_id, "Trim AAA.")
+            assert calls == []
+        finally:
+            release.set()
+        await stream.wait()
+        await pilot.pause()
+        assert calls == []
+        assert "dropped" in app.last_status
+
+
+@pytest.mark.asyncio
+async def test_barge_in_queued_mid_stream_keeps_the_stream_failure_reason(
+    tui_env, monkeypatch
+) -> None:
+    """A stream that dies drops the queued directive, but the one-line status must
+    still say why the run failed, not only that the directive was dropped."""
+    _seed_mandate(tui_env)
+    run_id = uuid.uuid4()
+    release = threading.Event()
+    events = _scripted_stream(run_id)
+
+    def failing_stream_fund(*_args, **_kwargs):
+        yield events[0]
+        release.wait(timeout=10)
+        raise RuntimeError("provider exploded")
+
+    monkeypatch.setattr("fund.agents.graph.stream_fund", failing_stream_fund)
+    calls = _record_actions(monkeypatch)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        stream = app.last_worker
+        try:
+            await _send_barge_in_mid_stream(app, pilot, run_id, "Trim AAA.")
+        finally:
+            release.set()
+        await stream.wait()
+        await pilot.pause()
+        assert calls == []
+        assert "provider exploded" in app.last_status
+        assert "dropped" in app.last_status
+
+
+@pytest.mark.asyncio
+async def test_second_barge_in_mid_stream_says_it_replaces_the_queued_one(
+    tui_env, monkeypatch
+) -> None:
+    """Only one directive can wait for the gate, so a second one replaces the first;
+    the status says so and only the latest text is delivered."""
+    _seed_mandate(tui_env)
+    run_id = uuid.uuid4()
+    release = _stream_held_after_first_step(monkeypatch, run_id, reaches_gate=True)
+    calls = _record_actions(monkeypatch)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        stream = app.last_worker
+        try:
+            await _send_barge_in_mid_stream(app, pilot, run_id, "Trim AAA.")
+            assert "replac" not in app.last_status
+            await _send_barge_in_mid_stream(app, pilot, run_id, "Keep 5% cash.")
+            assert "replac" in app.last_status
+        finally:
+            release.set()
+        await stream.wait()
+        await pilot.pause()
+        await app.last_worker.wait()
+        assert [c["pm_directive"] for c in calls] == ["Keep 5% cash."]
 
 
 # --- Decisions e/edit + s/steer (view-scoped bindings) (T9) -------------------

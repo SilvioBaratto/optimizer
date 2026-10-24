@@ -85,6 +85,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class _QueuedDirective:
+    """A barge-in directive held back until its run reaches the committed gate."""
+
+    run_id: uuid.UUID
+    portfolio_id: uuid.UUID | None
+    text: str
+    remember: bool
+
+
 class ConfirmScreen(ModalScreen[bool]):
     """A modal stating an irreversible consequence, awaiting a deliberate choice.
 
@@ -666,6 +676,11 @@ class ShellApp(App[None]):
         self._stream_resume.set()
         # Serialises the gate-mutating workers (see ``_single_flight``).
         self._action_lock = threading.Lock()
+        # A directive sent while the round is still streaming. ``respond`` needs the
+        # run row committed and parked at its gate, neither of which holds until the
+        # stream worker finishes, so it waits here and ``_deliver_queued_directive``
+        # sends it (or drops it) once the stream ends.
+        self._queued_directive: _QueuedDirective | None = None
         # Notification bus (poll-diff): attention keys already alerted, so a
         # still-pending gate/breach never re-toasts on the next tick.
         self._seen_attention: set[_AttentionKey] = set()
@@ -1665,7 +1680,9 @@ class ShellApp(App[None]):
         showing. Holds the stream at the next step boundary, pushes the directive
         overlay (showing where it paused), and on Send threads the directive to the PM
         at the gate via ``respond``; Cancel resumes the stream unchanged. Both paths
-        re-arm the stream so the hold is never left standing.
+        re-arm the stream so the hold is never left standing. A directive sent while
+        the round is still streaming is queued and delivered when the stream ends at
+        its gate, since only then is the run committed and awaiting an answer.
         """
         view = self._deliberation_view()
         if (
@@ -1690,11 +1707,45 @@ class ShellApp(App[None]):
             if result is None:
                 self._set_status("barge-in cancelled")
                 return
+            if self._streaming:
+                replaced = self._queued_directive is not None
+                self._queued_directive = _QueuedDirective(
+                    run_id, portfolio_id, result.text, result.remember
+                )
+                self._set_status(
+                    "directive queued"
+                    + (" (replaces the earlier one)" if replaced else "")
+                    + " — sent when the run reaches its gate"
+                )
+                return
             self.last_worker = self._barge_in_worker(
                 run_id, portfolio_id, result.text, result.remember
             )
 
         self.push_screen(BargeInScreen(paused_at), _resolved)
+
+    def _deliver_queued_directive(
+        self, gate_run_id: uuid.UUID | None, *, failure: str | None = None
+    ) -> None:
+        """Send the directive queued during a stream, now that the stream has ended.
+
+        Runs on the main thread after the stream worker finished. ``gate_run_id`` is
+        the run the stream left paused at its gate, or ``None`` when the round ended
+        without one; a directive with no matching gate to answer is dropped with a
+        status line rather than sent to a run that cannot take it. ``failure`` is the
+        status the stream ended with when it errored: the drop notice is appended to it
+        so the single status line keeps the reason the round died.
+        """
+        queued, self._queued_directive = self._queued_directive, None
+        if queued is None:
+            return
+        if gate_run_id != queued.run_id:
+            reason = failure or "run ended without a gate"
+            self._set_status(f"{reason} — queued directive dropped")
+            return
+        self.last_worker = self._barge_in_worker(
+            queued.run_id, queued.portfolio_id, queued.text, queued.remember
+        )
 
     def action_expand_readout(self) -> None:
         """Recompute the selected step's live read-out (the Deliberation ``x`` binding).
@@ -1898,6 +1949,7 @@ class ShellApp(App[None]):
             self.call_from_thread(self._set_status, f"model unavailable: {exc}")
             return
         last_kind: str | None = None
+        gate_run_id: uuid.UUID | None = None
         try:
             with self._session_factory() as session:
                 mandate = observe.get_mandate(session, portfolio_id)
@@ -1926,19 +1978,26 @@ class ShellApp(App[None]):
                         self.call_from_thread(self._enter_live_runstate)
                     self.call_from_thread(view.ingest_event, event)
                     last_kind = event.kind
+                    gate_run_id = event.run_id
                     # Suspend the graph generator at this step boundary while a barge-in
                     # is open; the overlay re-sets the flag on resolve.
                     self._stream_resume.wait()
                 session.commit()
         except Exception as exc:  # surface a clean message, never crash the App
-            self.call_from_thread(self._set_status, f"action failed: {exc}")
+            failure = f"action failed: {exc}"
+            self.call_from_thread(self._set_status, failure)
             self.call_from_thread(view.end_live)
             self.call_from_thread(self._exit_live_runstate)
+            self.call_from_thread(self._deliver_queued_directive, None, failure=failure)
             return
         if last_kind != "paused":
             # A no-ticket / incomplete end has nothing to act on — drop to replay.
             self.call_from_thread(view.end_live)
         self.call_from_thread(self._exit_live_runstate)
+        self.call_from_thread(
+            self._deliver_queued_directive,
+            gate_run_id if last_kind == "paused" else None,
+        )
 
     @work(thread=True, group="action")
     @_single_flight("steering the PM")
