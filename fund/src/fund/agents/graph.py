@@ -970,7 +970,10 @@ class FundRun:
         from its persisted row for the approve/reject path, and so are the audited
         weights: the vector captured at the pause may have been superseded by the time
         the adviser decides (a ``respond`` can make the PM re-optimise), and
-        finalisation must record what ``place_orders`` placed.
+        finalisation must record what ``place_orders`` placed. They are read *before*
+        the resume, because the gated ``place_orders`` is the first thing the resume
+        runs and a PM that re-runs the allocator afterwards would move the latest
+        optimizer decision off the weights the ticket was placed with.
         """
         from fund.audit import AgentRunRepository
 
@@ -980,6 +983,7 @@ class FundRun:
         _require_resumable(run)
         if run.portfolio_id is None:
             raise ValueError(f"agent_run {self.run_id} has no portfolio_id")
+        approved_weights = _optimizer_weights(self.session, self.run_id)
         result = _resume_agent(self.agent, self.thread_config, decision, pm_directive)
         if decision == "respond":
             _finalize_respond(
@@ -994,7 +998,7 @@ class FundRun:
             run_id=self.run_id,
             portfolio_id=run.portfolio_id,
             asof=run.asof,
-            weights=_optimizer_weights(self.session, self.run_id),
+            weights=approved_weights,
             decision=decision,
             result=result,
         )
@@ -1818,6 +1822,10 @@ def resume_fund(
         "configurable": {"thread_id": resolved_thread_id},
         "recursion_limit": config.recursion_limit,
     }
+    # Read before the resume: the gated ``place_orders`` runs first and places these
+    # weights, while a PM that re-runs the allocator afterwards moves the latest
+    # optimizer decision off the weights the ticket was placed with.
+    approved_weights = _optimizer_weights(session, rid)
     try:
         result = _resume_agent(agent, thread_config, decision, pm_directive)
     except Exception as exc:
@@ -1842,7 +1850,7 @@ def resume_fund(
         run_id=rid,
         portfolio_id=portfolio_id,
         asof=run.asof,
-        weights=_optimizer_weights(session, rid),
+        weights=approved_weights,
         decision=decision,
         result=result,
     )

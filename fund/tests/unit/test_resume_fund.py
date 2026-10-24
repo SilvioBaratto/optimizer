@@ -967,6 +967,76 @@ def test_resume_fund_approve_when_risk_never_checked_finalises_incomplete(
     assert {"decision": "incomplete", "reason": "place_orders_failed"} in closing
 
 
+class _ReallocatingModel(ScriptedFundModel):
+    """A PM that, once the gate has placed the ticket, delegates to the allocator again.
+
+    The re-run optimises a narrower universe, so the audit trail's latest optimizer
+    weights drift away from the weights the ticket was placed (and approved) with.
+    """
+
+    def _pm_turn(self, messages):
+        n_task = _count_tool_calls(messages, "task")
+        if _count_tool_calls(messages, "place_orders") >= 1 and n_task == 4:
+            object.__setattr__(self, "universe", UNIVERSE[:2])
+            return _task_call("allocator", n_task)
+        return super()._pm_turn(messages)
+
+
+def _assert_finalised_with_ticket_weights(db_session, run_id, expected) -> None:
+    # the model really did re-run the allocator after the ticket was placed
+    assert AgentRunRepository(db_session).latest_optimizer_weights(run_id) != expected
+    orders = _paper_orders(db_session)
+    assert len(orders) == 1
+    assert orders[0].weights == expected
+    row = AgentRunRepository(db_session).get_run(run_id)
+    assert row.status == "completed"
+    assert row.weights == expected
+    assert _positions_map(db_session) == expected
+
+
+def test_resume_fund_approve_finalises_with_the_placed_ticket_weights(
+    db_session,
+) -> None:
+    """A post-approval allocator re-run must not change what is finalised: the run's
+    weights and the positions snapshot are the approved ticket's, not whatever the
+    audit trail's latest optimizer decision says afterwards."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=_ReallocatingModel(universe=UNIVERSE, weights=expected),
+    )
+
+    _assert_finalised_with_ticket_weights(db_session, run.run_id, expected)
+
+
+def test_fundrun_resume_approve_finalises_with_the_placed_ticket_weights(
+    db_session,
+) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    run = _run_to_gate(
+        _ReallocatingModel(universe=UNIVERSE, weights=expected),
+        db_session,
+        MemorySaver(),
+        _store_with_cs(),
+    )
+
+    run.resume("approve")
+
+    _assert_finalised_with_ticket_weights(db_session, run.run_id, expected)
+
+
 # --- _finalize_hitl unit surface: order_lines enrich the snapshot ------------
 
 
