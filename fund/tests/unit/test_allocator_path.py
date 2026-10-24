@@ -60,11 +60,11 @@ def _seed_instrument(db_session, ticker: str) -> Instrument:
     return inst
 
 
-def _seed_panel(db_session) -> None:
-    """Seed a complete ``_N_DAYS`` x 3 close panel with distinct, drifting series."""
+def _seed_panel(db_session, n_days: int = _N_DAYS) -> None:
+    """Seed a complete ``n_days`` x 3 close panel with distinct, drifting series."""
     for ticker, (start, drift, wave) in _SERIES.items():
         inst = _seed_instrument(db_session, ticker)
-        for i in range(_N_DAYS):
+        for i in range(n_days):
             close = start * (1.0 + drift * i + wave * math.sin(i / 5.0))
             db_session.add(
                 PriceHistory(
@@ -74,6 +74,27 @@ def _seed_panel(db_session) -> None:
                     volume=1000,
                 )
             )
+    db_session.flush()
+
+
+def _seed_listing(
+    db_session, ticker: str, *, first_day: int, n_bars: int, phase: float = 0.0
+) -> None:
+    """Seed ``n_bars`` closes for ``ticker`` starting ``first_day`` days in.
+
+    ``phase`` shifts the price wave so several listings do not share one series.
+    """
+    inst = _seed_instrument(db_session, ticker)
+    for i in range(first_day, first_day + n_bars):
+        close = 40.0 * (1.0 + 0.0006 * i + 0.025 * math.sin(i / 4.0 + phase))
+        db_session.add(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=_START + dt.timedelta(days=i),
+                close=round(close, 6),
+                volume=1000,
+            )
+        )
     db_session.flush()
 
 
@@ -136,6 +157,108 @@ class TestEstimateMoments:
 
         assert result["ok"] is False
         assert "error" in result
+
+    def test_young_listing_is_dropped_instead_of_truncating_the_sample(
+        self, db_session
+    ) -> None:
+        # A 10-bar listing beside 60-bar assets must not shrink everyone's
+        # return sample to its own 9 observations.
+        _seed_panel(db_session)
+        _seed_listing(db_session, "NEW", first_day=_N_DAYS - 10, n_bars=10)
+
+        result = estimate_moments(db_session, _ASOF, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["assets"] == _UNIVERSE
+        assert data["dropped"] == ["NEW"]
+        assert data["n_observations"] == _N_DAYS - 1
+        assert len(data["cov"]) == len(_UNIVERSE)
+
+    def test_single_bar_listing_is_flagged_dropped(self, db_session) -> None:
+        # A one-bar listing has no return at all; it must be reported rather than
+        # vanish from both ``assets`` and ``dropped``.
+        _seed_panel(db_session)
+        _seed_listing(db_session, "ONE", first_day=_N_DAYS - 1, n_bars=1)
+
+        result = estimate_moments(db_session, _ASOF, [*_UNIVERSE, "ONE"])
+
+        assert result["ok"] is True
+        assert result["data"]["assets"] == _UNIVERSE
+        assert result["data"]["dropped"] == ["ONE"]
+
+    def test_listing_past_the_absolute_floor_is_dropped_when_shallow_for_the_panel(
+        self, db_session
+    ) -> None:
+        # 25 bars clears a flat one-month floor, yet beside 60-bar assets it would
+        # still cut everyone's sample to 24 rows.
+        _seed_panel(db_session)
+        _seed_listing(db_session, "NEW", first_day=_N_DAYS - 25, n_bars=25)
+
+        result = estimate_moments(db_session, _ASOF, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["assets"] == _UNIVERSE
+        assert data["dropped"] == ["NEW"]
+        assert data["n_observations"] == _N_DAYS - 1
+
+    def test_listing_is_judged_against_the_panel_depth_not_a_fixed_count(
+        self, db_session
+    ) -> None:
+        # 40 bars is past any flat floor, but next to 300-bar assets keeping it would
+        # truncate their sample from 299 return rows to 39.
+        deep_days = 300
+        _seed_panel(db_session, n_days=deep_days)
+        _seed_listing(db_session, "NEW", first_day=deep_days - 40, n_bars=40)
+        asof = _START + dt.timedelta(days=deep_days - 1)
+
+        result = estimate_moments(db_session, asof, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["assets"] == _UNIVERSE
+        assert data["dropped"] == ["NEW"]
+        assert data["n_observations"] == deep_days - 1
+
+    def test_modestly_younger_listing_is_kept(self, db_session) -> None:
+        # 40 of 60 bars costs the panel a third of its sample, not most of it, so
+        # the asset stays in.
+        _seed_panel(db_session)
+        _seed_listing(db_session, "NEW", first_day=_N_DAYS - 40, n_bars=40)
+
+        result = estimate_moments(db_session, _ASOF, [*_UNIVERSE, "NEW"])
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["assets"] == [*_UNIVERSE, "NEW"]
+        assert data["dropped"] == []
+        assert data["n_observations"] == 39
+
+    def test_universe_wider_than_the_sample_supports_is_error(self, db_session) -> None:
+        # 14 assets with 25 bars each: no asset is young next to the others, but 24
+        # return rows cannot condition a 14 x 14 covariance (need 2 per asset).
+        tickers = [f"T{i:02d}" for i in range(14)]
+        for i, ticker in enumerate(tickers):
+            _seed_listing(db_session, ticker, first_day=0, n_bars=25, phase=i)
+        asof = _START + dt.timedelta(days=24)
+
+        result = estimate_moments(db_session, asof, tickers)
+
+        assert result["ok"] is False
+        assert "insufficient" in result["error"]
+        assert "28" in result["error"]
+
+    def test_sample_below_the_observation_floor_is_error(self, db_session) -> None:
+        # Every asset has only 10 bars: after dropping the short ones nothing is
+        # left to estimate moments from.
+        for ticker in _UNIVERSE:
+            _seed_listing(db_session, ticker, first_day=_N_DAYS - 10, n_bars=10)
+
+        result = estimate_moments(db_session, _ASOF, _UNIVERSE)
+
+        assert result["ok"] is False
+        assert "insufficient" in result["error"]
 
     def test_custom_config_is_honored(self, db_session) -> None:
         # Passing an explicit config exercises the `config is not None` branch and
