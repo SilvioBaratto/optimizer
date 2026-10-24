@@ -180,3 +180,43 @@ def test_skills_do_not_claim_the_optimizer_prices_views(name: str):
 def test_optimization_objective_map_has_factories():
     factories = _SKILLS_DIR / "optimization-objective-map" / "factories.py"
     assert factories.read_text(encoding="utf-8").strip(), "empty factories.py"
+
+
+# --- fund-orchestration: only promise what the PM can actually see -----------
+
+
+def test_orchestration_reads_mandate_and_limits_from_the_run_instruction():
+    # The ConstraintSet lives in the langgraph Store and no PM tool reads it, so a
+    # skill that tells the PM to "read the ConstraintSet" invites invented limits.
+    # The only legitimate source is the digest the run instruction carries.
+    body = _read("fund-orchestration", "SKILL.md")
+
+    assert "run instruction" in body
+    assert "verbatim" in body
+    assert "Confirm an active `ConstraintSet` exists" not in body
+
+
+# --- executor inputs: one name for the band, and a source for current holdings ---
+
+
+def test_skills_name_the_band_the_way_the_run_instruction_does():
+    # The seed calls the mandate threshold "drift band (L1)". A skill that sends the
+    # executor to "the profile's no-trade band" names a limit it is never shown.
+    rebalancing = _read("rebalancing-execution", "SKILL.md")
+    objective_map = _read("optimization-objective-map", "SKILL.md")
+
+    assert "drift band (L1)" in rebalancing
+    assert "drift band" in objective_map
+    assert "no-trade band" not in rebalancing
+    assert "no-trade band" not in objective_map
+
+
+def test_executor_is_told_where_current_holdings_come_from():
+    # The executor binds no tools, so the drift test needs the holdings relayed: the
+    # PM reads them (get_portfolio_history) and both skills must say so.
+    orchestration = _read("fund-orchestration", "SKILL.md")
+    rebalancing = _read("rebalancing-execution", "SKILL.md")
+
+    for body in (orchestration, rebalancing):
+        assert "current_holdings" in body
+        assert "get_portfolio_history" in body

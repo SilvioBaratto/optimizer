@@ -2,7 +2,7 @@
 
 On-demand support for `rebalancing-execution`. Points to the theory; never copies it.
 
-## When to trade: no-trade band + turnover
+## When to trade: drift band (no-trade band) + turnover
 - Portfolio instability → revise only when worthwhile: `07:70`, `07:82`, `07:197`.
 - Turnover from signal decay; trade PARTIALLY toward the aim portfolio: `11:14`,
   `11:133`, `11:135`, `11:155`.

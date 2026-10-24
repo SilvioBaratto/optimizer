@@ -28,12 +28,16 @@ moments + optimize) → risk (validate, BLOCKING) → executor (orders, HITL). T
 profile/universe is fixed for the whole run.
 
 ## Procedure
-1. Confirm an active `ConstraintSet` exists for the portfolio (else route to the
-   profiler). Read the mandate: capital, base currency, drift band, HITL, benchmark.
-2. Delegate each step with the `task` tool, passing the ConstraintSet + the prior
-   step's report as complete instructions. The executor binds no tool: read
-   `current_holdings` with `get_portfolio_history` and pass them with the target
-   weights.
+1. Read the mandate and the `ConstraintSet` digest from the run instruction:
+   capital, base currency, benchmark, drift band, HITL gates; objective, risk
+   measure, bounds, drawdown ceilings, ESG exclusions. That text is the only copy of
+   the limits you can see (the harness refuses to start a run without an active
+   `ConstraintSet`, and the tools resolve the real one server-side) — never invent,
+   round or recall a limit from memory.
+2. Delegate each step with the `task` tool, passing the run instruction's Mandate and
+   ConstraintSet text verbatim plus the prior step's report as complete instructions.
+   The executor binds no tool, so for it also read `current_holdings` with
+   `get_portfolio_history` and pass them with the target weights.
 3. Enforce the round cap: stop at `max_pm_rounds` / `recursion_limit`; if hit, mark
    the run INCOMPLETE and raise a HITL checkpoint rather than looping.
 4. On a risk-gate BLOCK, return to the allocator with the violations — never override.

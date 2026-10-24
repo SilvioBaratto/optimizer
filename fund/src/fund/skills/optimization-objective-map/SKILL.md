@@ -24,7 +24,7 @@ The LLM emits ONLY a structured optimizer config. NEVER weights, mu, or covarian
 2. Map objective → cone / risk measure (table in reference.md; call skeletons in
    factories.py). Long-only, sum-to-one, no leverage by default.
 3. Apply the cardinality cap + min-weight, a robust uncertainty set if the profile is
-   prudent, and any turnover penalty tied to the executor's no-trade band.
+   prudent, and any turnover penalty tied to the mandate's drift band (L1).
 4. Call `optimize_portfolio(returns_asof, universe, constraints)`; hand weights +
    metrics to `risk-limits-check` BEFORE any execution.
 

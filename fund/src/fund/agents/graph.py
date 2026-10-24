@@ -720,11 +720,37 @@ def _directives_block(mandate: PortfolioMandate) -> str:
     )
 
 
+def _constraint_digest(constraint_set: ConstraintSet) -> str:
+    """One-line read-only digest of the limits the PM must relay to its subagents.
+
+    The ``ConstraintSet`` lives in the langgraph Store, which no agent tool can
+    read, so the seed turn is the only place the PM can learn the objective,
+    bounds and drawdown ceilings the skills tell it to pass on. It is rendered
+    from the resolved set, never model-authored, so the risk and executor steps
+    compare against the real limits instead of invented ones.
+    """
+    bounds = constraint_set.bounds
+    exclusions = ", ".join(s.value for s in constraint_set.esg.exclusions) or "none"
+    position_cap = constraint_set.universe_filters.max_position_cap
+    cap = "" if position_cap is None else f", per-name position cap {position_cap}"
+    return (
+        f"ConstraintSet: objective {constraint_set.objective.value}, "
+        f"risk measure {constraint_set.risk_measure.value}, "
+        f"risk aversion {constraint_set.a_gamma}, tail beta {constraint_set.beta}, "
+        f"weight bounds [{bounds.min_weights}, {bounds.max_weights}]{cap}, "
+        f"budget {bounds.budget}, drawdown ceilings (fractions of capital) "
+        f"nu1 {constraint_set.nu1} / nu2 {constraint_set.nu2} / "
+        f"nu3 {constraint_set.nu3}, ESG exclusions {exclusions}."
+    )
+
+
 def _run_instruction(
     mandate: PortfolioMandate,
     portfolio_id: str,
     asof: dt.date,
     history_summary: str = "",
+    *,
+    constraint_set: ConstraintSet | None = None,
 ) -> str:
     """The human turn that drives the PM through one paper rebalance.
 
@@ -732,17 +758,22 @@ def _run_instruction(
     the PM sees the portfolio's recent allocation/trades and the latest market
     digest before deciding; an empty summary (first run) yields the bare seed.
     The mandate's ``remembered_directives`` follow as one bullet each: the adviser
-    saved them to steer every later round, including unattended scheduled ones.
+    saved them to steer every later round, including unattended scheduled ones. The
+    mandate line carries the drift band and HITL gates, and a given ``constraint_set``
+    adds its limits digest, so the PM can pass real numbers to the subagents rather
+    than guessing them.
     """
     benchmark = f", benchmark {mandate.benchmark}" if mandate.benchmark else ""
     history = f"{history_summary}\n\n" if history_summary else ""
+    gates = ", ".join(mandate.hitl_gates) or "none"
+    limits = f" {_constraint_digest(constraint_set)}" if constraint_set else ""
     return (
         f"{history}{_directives_block(mandate)}Produce an allocation for portfolio "
         f"{portfolio_id} as of {asof.isoformat()}. Mandate: capital {mandate.capital} "
-        f"{mandate.base_currency}{benchmark}. No-trade band (L1 drift threshold): "
-        f"{mandate.drift_l1_threshold}. Delegate in order economist -> "
-        f"allocator -> risk -> executor, then commit the risk-approved trades "
-        f"through place_orders."
+        f"{mandate.base_currency}{benchmark}, no-trade band (drift band (L1)) "
+        f"{mandate.drift_l1_threshold}, HITL gates {gates}.{limits} Delegate in "
+        f"order economist -> allocator -> risk -> executor, then commit the "
+        f"risk-approved trades through place_orders."
     )
 
 
@@ -1116,7 +1147,11 @@ def _prepare_fund_run(
             {
                 "role": "user",
                 "content": _run_instruction(
-                    mandate, pid_str, asof, _history_summary(session, pid_uuid, asof)
+                    mandate,
+                    pid_str,
+                    asof,
+                    _history_summary(session, pid_uuid, asof),
+                    constraint_set=constraint_set,
                 ),
             }
         ]

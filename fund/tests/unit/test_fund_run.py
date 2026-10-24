@@ -41,7 +41,13 @@ from fund.agents.toolsets import RunContext, _optimizer_constraints
 from fund.audit import AgentRunRepository, put_constraint_set
 from fund.config import settings
 from fund.schemas import ConstraintSet
-from fund.schemas.enums import Horizon, ObjectiveChoice, RiskMeasureChoice
+from fund.schemas.constraint_set import EsgPolicy
+from fund.schemas.enums import (
+    GicsSector,
+    Horizon,
+    ObjectiveChoice,
+    RiskMeasureChoice,
+)
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
 from fund.tools.optimize import optimize_portfolio
 
@@ -600,6 +606,61 @@ class TestRunInstruction:
 
         assert "directive" not in seed.lower()
 
+    def test_mandate_line_carries_drift_band_and_hitl_gates(self) -> None:
+        """The skills tell the PM to read the drift band and HITL gates; the seed is
+        the only place it can."""
+        seed = _run_instruction(_mandate(), str(_PORTFOLIO_ID), _ASOF)
+
+        assert "drift band" in seed
+        assert "0.1" in seed
+        assert "place_orders" in seed.split("Delegate in order")[0]
+
+    def test_constraint_set_digest_exposes_ceilings_bounds_and_exclusions(
+        self,
+    ) -> None:
+        """The ConstraintSet lives in the Store, unreachable by any agent tool, so a
+        digest of the limits rides on the seed for the PM to relay verbatim."""
+        cs = _constraint_set()
+
+        seed = _run_instruction(
+            _mandate(), str(_PORTFOLIO_ID), _ASOF, constraint_set=cs
+        )
+
+        assert "ConstraintSet:" in seed
+        assert f"nu1 {cs.nu1}" in seed
+        assert f"nu2 {cs.nu2}" in seed
+        assert f"nu3 {cs.nu3}" in seed
+        assert f"objective {cs.objective.value}" in seed
+        assert f"risk measure {cs.risk_measure.value}" in seed
+        assert "ESG exclusions none" in seed
+
+    def test_constraint_set_digest_lists_esg_exclusions(self) -> None:
+        cs = _constraint_set().model_copy(
+            update={"esg": EsgPolicy(exclusions=(GicsSector.ENERGY,))}
+        )
+
+        seed = _run_instruction(
+            _mandate(), str(_PORTFOLIO_ID), _ASOF, constraint_set=cs
+        )
+
+        assert f"ESG exclusions {GicsSector.ENERGY.value}" in seed
+
+
+def test_run_fund_seed_exposes_mandate_and_constraint_limits(db_session) -> None:
+    """End to end: the first message the PM sees carries the drift band, HITL gates
+    and the resolved ConstraintSet limits, not just capital/currency/benchmark."""
+    _seed_panel(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=_expected_weights(db_session))
+
+    run = _run(model, db_session, store=_store_with_cs())
+
+    messages = run.agent.get_state(run.thread_config).values["messages"]
+    seed = messages[0].content
+    cs = _constraint_set()
+    assert "drift band" in seed
+    assert f"nu1 {cs.nu1}" in seed
+    assert f"nu3 {cs.nu3}" in seed
+
 
 def test_run_fund_seed_references_prior_history(
     db_session, monkeypatch: pytest.MonkeyPatch
@@ -612,8 +673,8 @@ def test_run_fund_seed_references_prior_history(
     captured: dict[str, str] = {}
     original = graph_mod._run_instruction
 
-    def _spy(mandate, portfolio_id, asof, history_summary=""):
-        seed = original(mandate, portfolio_id, asof, history_summary)
+    def _spy(mandate, portfolio_id, asof, history_summary="", **kwargs):
+        seed = original(mandate, portfolio_id, asof, history_summary, **kwargs)
         captured["seed"] = seed
         return seed
 
@@ -638,8 +699,8 @@ def test_run_fund_seed_carries_the_mandates_remembered_directives(
     captured: dict[str, str] = {}
     original = graph_mod._run_instruction
 
-    def _spy(mandate, portfolio_id, asof, history_summary=""):
-        seed = original(mandate, portfolio_id, asof, history_summary)
+    def _spy(mandate, portfolio_id, asof, history_summary="", **kwargs):
+        seed = original(mandate, portfolio_id, asof, history_summary, **kwargs)
         captured["seed"] = seed
         return seed
 
