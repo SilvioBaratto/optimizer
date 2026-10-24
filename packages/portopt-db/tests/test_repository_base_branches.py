@@ -41,13 +41,15 @@ def _make_repo(session: Session) -> BaseRepository[BackgroundJob, JobCreate, Job
     return BaseRepository(BackgroundJob, session)
 
 
-def _seed_job(session: Session, job_type: str = "base_branch_test") -> BackgroundJob:
+def _seed_job(
+    session: Session, job_type: str = "base_branch_test", status: str = "pending"
+) -> BackgroundJob:
     repo = _make_repo(session)
     return repo.create_from_dict(
         {
             "id": uuid.uuid4(),
             "job_type": job_type,
-            "status": "pending",
+            "status": status,
             "current": 0,
             "total": 0,
         }
@@ -179,7 +181,8 @@ class TestGetByField:
     def test_when_field_is_not_unique_then_returns_first_row_deterministically(
         self, db_session: Session
     ) -> None:
-        rows = [_seed_job(db_session, "gbf_dup") for _ in range(3)]
+        # Terminal rows only: the schema allows one active row per job_type.
+        rows = [_seed_job(db_session, "gbf_dup", "completed") for _ in range(3)]
         repo = _make_repo(db_session)
         result = repo.get_by_field("job_type", "gbf_dup")
         assert result is not None
