@@ -38,7 +38,7 @@ from _profiler_fakes import (
 from _profiler_fakes import make_model as make_profiler_model
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import Base, PaperOrder
+from portopt_db.models import Base, FundAutonomyState, PaperOrder
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -988,6 +988,29 @@ def test_freeze_fund_sets_frozen_state_and_logs(clean_db) -> None:
     rows = HumanAuditLogRepository(clean_db).list_recent(action="freeze")
     assert len(rows) == 1
     assert rows[0].target == "fund"
+
+
+def test_freeze_with_an_overlong_rationale_fits_the_column_and_audits_it_in_full(
+    clean_db,
+) -> None:
+    """``frozen_reason`` is a bounded column; a long rationale must not block a freeze.
+
+    Postgres rejects an over-length value (SQLite does not), which would abort the
+    killswitch itself. The audit row's rationale is unbounded, so the full text lives
+    there.
+    """
+    rationale = "halt: " + "x" * 600
+    limit = FundAutonomyState.__table__.c.frozen_reason.type.length
+
+    apply_action("freeze", session=clean_db, scope="fund", rationale=rationale)
+    clean_db.commit()
+
+    state = AutonomyRepository(clean_db).fund_state()
+    assert state.state == "frozen"
+    assert len(state.frozen_reason) <= limit
+    assert state.frozen_reason.startswith("halt: xxx")
+    (row,) = HumanAuditLogRepository(clean_db).list_recent(action="freeze")
+    assert row.rationale == rationale
 
 
 def test_rearm_portfolio_restores_armed(clean_db) -> None:

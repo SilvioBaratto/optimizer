@@ -27,6 +27,18 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import CursorResult
 
+# ``fund_autonomy_state.frozen_reason`` is VARCHAR(500). Postgres rejects a longer
+# value outright (SQLite stores it silently), so an oversized reason would abort the
+# very freeze that carries it.
+_FROZEN_REASON_MAX = 500
+
+
+def _fit_frozen_reason(reason: str | None) -> str | None:
+    """Clip ``reason`` to the column width, marking the cut with an ellipsis."""
+    if reason is None or len(reason) <= _FROZEN_REASON_MAX:
+        return reason
+    return reason[: _FROZEN_REASON_MAX - 1] + "\u2026"
+
 
 class AutonomyScope(str, Enum):
     """The two autonomy scopes; fund scope wins over portfolio scope."""
@@ -146,6 +158,7 @@ class AutonomyRepository(RepositoryBase):
                 single fund row.
             state: The posture to set (``ARMED`` or ``FROZEN``).
             reason: Free-text reason recorded when freezing; ignored on re-arm.
+                Clipped to the column width, so keep the full text in the audit log.
 
         Returns:
             The updated, flushed row.
@@ -154,7 +167,7 @@ class AutonomyRepository(RepositoryBase):
         row.state = state.value
         if state is AutonomyState.FROZEN:
             row.frozen_at = dt.datetime.now(dt.timezone.utc)
-            row.frozen_reason = reason
+            row.frozen_reason = _fit_frozen_reason(reason)
         else:
             row.frozen_at = None
             row.frozen_reason = None
