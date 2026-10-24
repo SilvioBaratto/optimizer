@@ -346,3 +346,88 @@ def test_iter_optimizer_decisions_is_newest_run_then_newest_decision_first(db_se
     got = [(d.run_id, d.decision_index) for d in repo.iter_optimizer_decisions(_PID)]
 
     assert got == [(newer.id, 2), (newer.id, 0), (older.id, 0)]
+
+
+# --- risk verdicts: recorded against a weights digest, read fail-closed -------
+
+
+def _run_for_verdicts(repo):
+    return repo.create_run(
+        portfolio_id=None,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=["AAPL", "MSFT"],
+        optimizer_config={},
+    )
+
+
+def test_weights_digest_is_order_free_and_value_sensitive():
+    digest = AgentRunRepository.weights_digest
+
+    assert digest({"AAPL": 0.6, "MSFT": 0.4}) == digest({"MSFT": 0.4, "AAPL": 0.6})
+    assert digest({"AAPL": 0.6, "MSFT": 0.4}) != digest({"AAPL": 0.5, "MSFT": 0.5})
+
+
+def test_risk_passed_fails_closed_without_a_usable_verdict(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _run_for_verdicts(repo)
+    weights = {"AAPL": 0.6, "MSFT": 0.4}
+
+    assert repo.risk_passed(run.id, weights) is False  # no verdict at all
+
+    repo.append_decision(run.id, agent="risk", step="risk_check")  # no payload
+    assert repo.risk_passed(run.id, weights) is False
+
+    repo.append_decision(
+        run.id, agent="risk", step="risk_check", llm_response="not json"
+    )
+    assert repo.risk_passed(run.id, weights) is False
+
+
+def test_risk_passed_needs_the_newest_verdict_to_pass_these_exact_weights(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _run_for_verdicts(repo)
+    first = {"AAPL": 0.6, "MSFT": 0.4}
+    second = {"AAPL": 0.5, "MSFT": 0.5}
+
+    repo.append_risk_verdict(run.id, weights=first, passed=True, violations=[])
+    assert repo.risk_passed(run.id, first) is True
+    assert repo.risk_passed(run.id, second) is False  # a different vector
+
+    repo.append_risk_verdict(
+        run.id,
+        weights=first,
+        passed=False,
+        violations=[{"type": "max_weight", "asset": "AAPL"}],
+    )
+    assert repo.risk_passed(run.id, first) is False  # the newest verdict wins
+
+    repo.append_risk_verdict(run.id, weights=second, passed=True, violations=[])
+    assert repo.risk_passed(run.id, second) is True
+    assert repo.risk_passed(run.id, first) is False  # superseded by the new vector
+
+
+def test_risk_gate_labels_the_newest_verdict_against_the_weights(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _run_for_verdicts(repo)
+    first = {"AAPL": 0.6, "MSFT": 0.4}
+    second = {"AAPL": 0.5, "MSFT": 0.5}
+    breach = {"type": "max_weight", "asset": "AAPL"}
+
+    assert repo.risk_gate(run.id, first)["status"] == "not_run"
+
+    repo.append_decision(run.id, agent="risk", step="risk_check", llm_response="no")
+    assert repo.risk_gate(run.id, first)["status"] == "not_run"
+
+    repo.append_risk_verdict(
+        run.id, weights=first, passed=True, violations=[], not_enforced=["drawdown"]
+    )
+    gate = repo.risk_gate(run.id, first)
+    assert gate["status"] == "passed"
+    assert gate["not_enforced"] == ["drawdown"]
+    assert repo.risk_gate(run.id, second)["status"] == "stale"  # a different vector
+
+    repo.append_risk_verdict(run.id, weights=first, passed=False, violations=[breach])
+    gate = repo.risk_gate(run.id, first)
+    assert gate["status"] == "failed"
+    assert gate["violations"] == [breach]

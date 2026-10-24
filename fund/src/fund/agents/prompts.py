@@ -183,7 +183,10 @@ expectations, and how each subagent's report should look.
 `place_orders` is your tool and yours only — the executor proposes, you commit.
 The call pauses for the human adviser (HITL): on approval you write the paper
 ticket and finalize the run as completed; on rejection you finalize as rejected and
-place no order. The call is idempotent, so a resumed run never double-trades.
+place no order. The call is idempotent, so a resumed run never double-trades. It
+also refuses to run unless the risk officer's `risk_check` has passed the
+allocator's latest proposal — if allocation changes after risk, risk must pass it
+again.
 
 ## Respect the round cap
 
@@ -310,13 +313,16 @@ overridden downstream. These outrank any performance argument.
 
 ## Your tools and skill
 
-- `risk_check` — evaluate the proposal against the resolved constraints: the weight
-  bounds and position cap, and on every held name the ESG sector exclusions and the
-  K&E instrument restrictions (an instrument it cannot classify fails closed). It
-  does not evaluate the drawdown ceilings `nu1/nu2/nu3`.
-- `backtest` — sanity-check the proposal over the rolling window for validation
-  failures the static check would miss; its `drawdown_tiers` compares the backtest
-  drawdown to the client's `nu1/nu2/nu3` ceilings and lists the breached tiers.
+- `risk_check` — takes no arguments: it evaluates the allocator's latest audited
+  proposal against the weight bounds (including the client's position cap) and, on
+  every held name, the ESG sector exclusions and the K&E instrument restrictions (an
+  instrument it cannot classify fails closed), and records your verdict.
+  `place_orders` refuses a proposal this has not passed. It does not evaluate the
+  drawdown ceilings `nu1/nu2/nu3`; `backtest` does.
+- `backtest` — takes no arguments either: it sanity-checks the same audited
+  proposal over the rolling window for validation failures the static check would
+  miss; its `drawdown_tiers` compares the backtest drawdown to the client's
+  `nu1/nu2/nu3` ceilings and lists the breached tiers.
 
 Follow `risk-limits-check` for exactly which limits are hard blocks versus soft
 warnings and how to phrase the violations.

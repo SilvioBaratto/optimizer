@@ -401,10 +401,22 @@ def _check_weights_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResul
 @tool_envelope
 @_serialised
 def _risk_check_impl(ctx: RunContext) -> ToolResult:
+    from fund.audit import AgentRunRepository
+
     weights = _audited_weights(ctx)
     if not weights:
         return err(_NO_PROPOSAL)
-    return _check_weights_impl(ctx, weights)
+    result = _check_weights_impl(ctx, weights)
+    if result.get("ok"):
+        data = result["data"]
+        # Persisted so the adviser sees the verdict and ``place_orders`` can require it.
+        AgentRunRepository(ctx.session).append_risk_verdict(
+            ctx.run_id,
+            weights=weights,
+            passed=data["passed"],
+            violations=data["violations"],
+        )
+    return result
 
 
 def check_weights_against_mandate(
@@ -463,7 +475,17 @@ def _place_orders_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult
     # run's audit trail (the single source of weights). No audited proposal ⇒ empty
     # weights ⇒ the frozen tool returns ``err("no weights to place")`` (safe
     # no-ticket outcome).
+    from fund.audit import AgentRunRepository
+
     audited = _audited_weights(ctx)
+    # The risk gate is blocking, not advisory: it is enforced here because prompt
+    # text alone cannot stop a PM that skips the step or is steered past a failure.
+    if audited and not AgentRunRepository(ctx.session).risk_passed(ctx.run_id, audited):
+        return err(
+            "the risk gate has not passed the latest audited proposal; the risk "
+            "officer must run risk_check on it, and it must pass, before orders "
+            "can be placed"
+        )
     cs = _resolve_constraint_set(ctx)
     if cs is not None and audited:
         # The mandate can change between the audited proposal and the order (a

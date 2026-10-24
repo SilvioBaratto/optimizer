@@ -40,6 +40,7 @@ from fund.agents import graph as graph_mod
 from fund.agents.graph import (
     FundRun,
     _finalize_hitl,
+    _settle_hitl,
     resume_fund,
     resume_run,
     run_fund,
@@ -47,6 +48,7 @@ from fund.agents.graph import (
 from fund.audit import (
     AgentRunRepository,
     MandateRepository,
+    OrderRepository,
     PositionRepository,
     put_constraint_set,
 )
@@ -474,7 +476,72 @@ def test_resume_fund_reraises_when_the_gate_was_not_consumed(
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
 
 
+# --- approve of a refused place_orders must not read as a completed rebalance -
+
+
+def test_resume_fund_approve_when_risk_never_checked_finalises_incomplete(
+    db_session,
+) -> None:
+    """The adviser approving cannot make a refused placement real: with no risk
+    verdict ``place_orders`` writes no ticket, so the rebuilt-to-resume run must
+    end ``incomplete`` and leave the holdings alone, like ``FundRun.resume``."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected, risk_checks=False),
+        db_session,
+        saver,
+        store,
+    )
+
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected, risk_checks=False),
+    )
+
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "incomplete"
+    assert not row.weights
+    assert _paper_orders(db_session) == []
+    assert _positions_map(db_session) == {}
+    closing = [
+        d.hitl_decision
+        for d in _decisions(db_session, run.run_id)
+        if d.agent == "orchestrator"
+    ]
+    assert {"decision": "incomplete", "reason": "place_orders_failed"} in closing
+
+
 # --- _finalize_hitl unit surface: order_lines enrich the snapshot ------------
+
+
+def _place_ticket(db_session, weights: dict[str, float]) -> None:
+    """Leave the paper ticket ``place_orders`` writes for ``weights`` on the bar."""
+    OrderRepository(db_session).create(
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        weights_hash=AgentRunRepository.weights_digest(weights),
+        weights=weights,
+        fill_date=ASOF,
+        lines=[],
+        notional=100000.0,
+        total_commission=0.0,
+        total_slippage_cost=0.0,
+    )
+
+
+def _clear_risk_and_place(db_session, run_id, weights: dict[str, float]) -> None:
+    """Reach the state an approved, accepted ``place_orders`` call leaves behind."""
+    AgentRunRepository(db_session).append_risk_verdict(
+        run_id, weights=weights, passed=True, violations=[]
+    )
+    _place_ticket(db_session, weights)
 
 
 def test_finalize_hitl_approve_uses_order_lines_when_given(db_session) -> None:
@@ -486,6 +553,7 @@ def test_finalize_hitl_approve_uses_order_lines_when_given(db_session) -> None:
         portfolio_id=PORTFOLIO_ID, asof=ASOF, seed=1, universe=[], optimizer_config={}
     )
     weights = {"AAA": 0.6, "BBB": 0.4}
+    _clear_risk_and_place(db_session, run.id, weights)
     order_lines = [
         {"ticker": "AAA", "weight": 0.6, "shares": 12.0, "notional": 60000.0},
         {"ticker": "BBB", "weight": 0.4, "shares": 34.0, "notional": 40000.0},
@@ -510,6 +578,33 @@ def test_finalize_hitl_approve_uses_order_lines_when_given(db_session) -> None:
     row = audit.get_run(run.id)
     assert row.status == "completed"
     assert row.weights == weights
+
+
+def test_settle_hitl_approve_ignores_a_ticket_this_run_never_cleared(
+    db_session,
+) -> None:
+    """A ticket an earlier run left on the same bar and weights is not proof that
+    this run placed anything: with no risk pass on this run the approval is
+    refused, so the run ends ``incomplete`` and the holdings stay untouched."""
+    audit = AgentRunRepository(db_session)
+    run = audit.create_run(
+        portfolio_id=PORTFOLIO_ID, asof=ASOF, seed=1, universe=[], optimizer_config={}
+    )
+    weights = {"AAA": 0.6, "BBB": 0.4}
+    _place_ticket(db_session, weights)
+
+    _settle_hitl(
+        db_session,
+        run_id=run.id,
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        weights=weights,
+        decision="approve",
+        result=None,
+    )
+
+    assert audit.get_run(run.id).status == "incomplete"
+    assert _positions_map(db_session) == {}
 
 
 # --- respond (barge-in): thread a free-text directive, keep the run alive ------

@@ -18,8 +18,11 @@ The scripted pipeline:
   recursion limit trips (the round-cap path).
 * **allocator** — calls the real bound ``optimize_portfolio(universe)`` once (which
   computes the load-bearing weights + logs the audit decision), then reports.
-* **economist / risk / executor** — return a narrative report (no side effects
-  needed; the risk gate is governed by the PM's ``risk_passes`` flag).
+* **risk** — calls the real bound ``risk_check`` once (which records the verdict
+  ``place_orders`` requires), then reports; the PM's ``risk_passes`` flag decides
+  whether the run proceeds past it. With ``risk_checks=False`` it only reports, so
+  no verdict exists — a risk step that was skipped.
+* **economist / executor** — return a narrative report (no side effects needed).
 
 Not a ``test_*`` module, so pytest does not collect it; the fund-run test file
 imports the helpers from here.
@@ -101,14 +104,16 @@ class ScriptedFundModel(BaseChatModel):
     Configured per run with the allocator's ``universe`` and the optimizer
     ``weights`` the PM commits (the test computes both from the same deterministic
     ``optimize_portfolio``, so the ticket, the audit, and the finalised run all
-    agree). ``risk_passes`` and ``overrun`` select the non-happy paths; ``max_orders``
-    (default 1) lets the PM re-gate — call ``place_orders`` again after a respond
-    barge-in — so a re-gating resume can be scripted.
+    agree). ``risk_passes``, ``risk_checks`` and ``overrun`` select the non-happy
+    paths; ``max_orders`` (default 1) lets the PM re-gate — call ``place_orders``
+    again after a respond barge-in or a refused approval — so a re-gating resume can
+    be scripted.
     """
 
     universe: list[str] = Field(default_factory=list)
     weights: dict[str, float] = Field(default_factory=dict)
     risk_passes: bool = True
+    risk_checks: bool = True
     overrun: bool = False
     max_orders: int = 1
     generate_calls: int = 0
@@ -139,6 +144,8 @@ class ScriptedFundModel(BaseChatModel):
             return self._pm_turn(messages)
         if role == "allocator":
             return self._allocator_turn(messages)
+        if role == "risk":
+            return self._risk_turn(messages)
         return AIMessage(content=f"{role} report: analysis complete.")
 
     def _pm_turn(self, messages: list[BaseMessage]) -> AIMessage:
@@ -187,6 +194,15 @@ class ScriptedFundModel(BaseChatModel):
                 ],
             )
         return AIMessage(content="allocator report: candidate weights ready.")
+
+    def _risk_turn(self, messages: list[BaseMessage]) -> AIMessage:
+        # Call the real bound risk gate once (it records the verdict), then report.
+        if self.risk_checks and _count_tool_calls(messages, "risk_check") == 0:
+            return AIMessage(
+                content="",
+                tool_calls=[{"name": "risk_check", "args": {}, "id": "call_risk"}],
+            )
+        return AIMessage(content="risk report: proposal checked.")
 
 
 class PmFailsAfterOrderModel(ScriptedFundModel):

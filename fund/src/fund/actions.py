@@ -475,12 +475,19 @@ def _apply_edit(
     if not report["passed"]:
         raise ValueError(f"'edit' violates risk invariants: {report['violations']}")
 
-    AgentRunRepository(session).append_decision(
+    run_repo = AgentRunRepository(session)
+    run_repo.append_decision(
         rid,
         agent="allocator",
         step="optimize_portfolio",
         llm_response=json.dumps({"weights": edited}),
         hitl_decision={"decision": "edit", "human_override": True},
+    )
+    # The bound ``place_orders`` refuses weights the risk gate has not passed. The
+    # edit just cleared the same mandate check ``risk_check`` applies, so record that
+    # as the verdict, labelled as the adviser's.
+    run_repo.append_risk_verdict(
+        rid, weights=edited, passed=True, violations=[], source="adviser_edit"
     )
     result = resume_run(
         rid,

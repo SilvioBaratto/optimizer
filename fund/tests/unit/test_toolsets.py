@@ -48,6 +48,7 @@ from fund.config import settings
 from fund.schemas import ConstraintSet
 from fund.schemas.constraint_set import EsgPolicy, UniverseFilters
 from fund.schemas.enums import GicsSector, Horizon, ObjectiveChoice, RiskMeasureChoice
+from fund.tools import orders as fund_orders
 
 _START = dt.date(2024, 1, 1)
 _N_DAYS = 40
@@ -761,6 +762,7 @@ def test_bound_place_orders_appends_executor_decision(db_session) -> None:
     optimized = _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
         {"universe": _UNIVERSE}
     )
+    _find(bind_toolset("risk", ctx), "risk_check").invoke({})
     place = _find(bind_toolset("orchestrator", ctx), "place_orders")
 
     result = place.invoke({"weights": _WEIGHTS})
@@ -791,6 +793,7 @@ def test_place_orders_idempotent_rerun_appends_once(db_session) -> None:
     _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
         {"universe": _UNIVERSE}
     )
+    _find(bind_toolset("risk", ctx), "risk_check").invoke({})
     place = _find(bind_toolset("orchestrator", ctx), "place_orders")
 
     first = place.invoke({"weights": _WEIGHTS})
@@ -1010,6 +1013,7 @@ def test_place_orders_refuses_weights_that_breach_the_current_mandate(
     _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
         {"universe": _UNIVERSE}
     )
+    _find(bind_toolset("risk", ctx), "risk_check").invoke({})
     # The client is re-profiled with an Energy exclusion after the audited proposal.
     put_constraint_set(
         store, _energy_exclusion(), store_key=settings.constraint_set_store_key
@@ -1136,3 +1140,113 @@ def test_parallel_optimize_calls_each_append_one_distinct_decision(
         .all()
     )
     assert sorted(indexes) == [0, 1]
+
+
+# --- the blocking risk gate is recorded and enforced -------------------------
+
+
+def _risk_rows(db_session) -> list[AgentDecision]:
+    return list(
+        db_session.execute(
+            select(AgentDecision)
+            .where(AgentDecision.agent == "risk")
+            .order_by(AgentDecision.decision_index)
+        )
+        .scalars()
+        .all()
+    )
+
+
+def _executor_rows(db_session) -> list[AgentDecision]:
+    return list(
+        db_session.execute(
+            select(AgentDecision).where(AgentDecision.agent == "executor")
+        )
+        .scalars()
+        .all()
+    )
+
+
+def test_risk_check_records_its_verdict_against_the_audited_weights(
+    db_session,
+) -> None:
+    _seed_panel(db_session)
+    ctx = _make_context(db_session, store=_store_with_cs(_constraint_set()))
+    optimized = _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
+        {"universe": _UNIVERSE}
+    )
+
+    result = _find(bind_toolset("risk", ctx), "risk_check").invoke({})
+
+    assert result["data"]["passed"] is True
+    (row,) = _risk_rows(db_session)
+    assert row.step == "risk_check"
+    verdict = json.loads(row.llm_response)
+    assert verdict["passed"] is True
+    assert verdict["violations"] == []
+    # Same canonical hash as the paper ticket, so verdict and ticket cross-reference.
+    assert verdict["weights_hash"] == fund_orders._weights_hash(
+        optimized["data"]["weights"]
+    )
+    assert row.llm_response_hash is not None
+
+
+def test_failed_risk_check_is_recorded_as_a_failed_verdict(db_session) -> None:
+    cs = _constraint_set(universe_filters=UniverseFilters(max_position_cap=0.4))
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    _audit_proposal(ctx, _WEIGHTS)  # AAA = 0.5 > 0.4
+
+    _find(bind_toolset("risk", ctx), "risk_check").invoke({})
+
+    (row,) = _risk_rows(db_session)
+    verdict = json.loads(row.llm_response)
+    assert verdict["passed"] is False
+    assert [v["type"] for v in verdict["violations"]] == ["max_weight"]
+
+
+def test_place_orders_refuses_when_risk_never_checked_the_proposal(db_session) -> None:
+    _seed_panel(db_session)
+    ctx = _make_context(db_session, store=_store_with_cs(_constraint_set()))
+    _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
+        {"universe": _UNIVERSE}
+    )
+    place = _find(bind_toolset("orchestrator", ctx), "place_orders")
+
+    result = place.invoke({"weights": _WEIGHTS})
+
+    assert result["ok"] is False
+    assert "risk" in result["error"]
+    assert _executor_rows(db_session) == []  # nothing was placed or audited
+
+
+def test_place_orders_refuses_after_a_failed_risk_verdict(db_session) -> None:
+    _seed_panel(db_session)
+    cs = _constraint_set(universe_filters=UniverseFilters(max_position_cap=0.4))
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    _audit_proposal(ctx, _WEIGHTS)
+    assert (
+        _find(bind_toolset("risk", ctx), "risk_check").invoke({})["data"]["passed"]
+        is False
+    )
+    place = _find(bind_toolset("orchestrator", ctx), "place_orders")
+
+    result = place.invoke({"weights": _WEIGHTS})
+
+    assert result["ok"] is False
+    assert _executor_rows(db_session) == []
+
+
+def test_place_orders_refuses_a_proposal_risk_did_not_check(db_session) -> None:
+    """A verdict covers the weights it was computed on: a re-optimised proposal
+    that supersedes the checked one needs its own pass."""
+    _seed_panel(db_session)
+    ctx = _make_context(db_session)
+    _audit_proposal(ctx, {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})
+    _find(bind_toolset("risk", ctx), "risk_check").invoke({})
+    _audit_proposal(ctx, {"AAA": 0.2, "BBB": 0.3, "CCC": 0.5})
+    place = _find(bind_toolset("orchestrator", ctx), "place_orders")
+
+    result = place.invoke({"weights": _WEIGHTS})
+
+    assert result["ok"] is False
+    assert _executor_rows(db_session) == []

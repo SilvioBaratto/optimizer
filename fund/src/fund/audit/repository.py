@@ -9,6 +9,7 @@ session (D1). No ``commit``: the caller owns the transaction boundary.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from collections.abc import Iterator, Sequence
@@ -154,6 +155,122 @@ class AgentRunRepository(RepositoryBase):
             return {}
         weights = payload.get("weights") or {}
         return {str(k): float(v) for k, v in weights.items()}
+
+    @staticmethod
+    def weights_digest(weights: dict[str, float]) -> str:
+        """sha256 of the canonical weights JSON, order-free.
+
+        Deliberately the same canonical form as a paper ticket's ``weights_hash``
+        (``fund.tools.orders``), so a risk verdict and the ticket it cleared
+        cross-reference. Duplicated rather than imported: ``fund.tools`` pulls the
+        optimizer, which this agent-stack-free layer must not.
+        """
+        canonical = json.dumps(weights, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def append_risk_verdict(
+        self,
+        run_id: uuid.UUID,
+        *,
+        weights: dict[str, float],
+        passed: bool,
+        violations: Sequence[dict[str, Any]],
+        not_enforced: Sequence[str] = (),
+        source: str = "risk_check",
+    ) -> AgentDecision:
+        """Record the risk gate's verdict on ``weights`` as an audited decision.
+
+        Args:
+            run_id: The run the verdict belongs to.
+            weights: The vector the gate evaluated; only its digest is stored, so the
+                verdict is bound to exactly these weights.
+            passed: Whether the gate passed them.
+            violations: The structured breach records (empty when ``passed``).
+            not_enforced: Suitability inputs the gate cannot enforce yet, so a pass
+                is not read as full suitability.
+            source: What produced the verdict (``"risk_check"`` for the bound tool,
+                ``"adviser_edit"`` for an adviser's weight edit).
+
+        Returns:
+            The appended ``agent="risk"`` / ``step="risk_check"`` decision.
+        """
+        payload = json.dumps(
+            {
+                "passed": passed,
+                "violations": list(violations),
+                "not_enforced": list(not_enforced),
+                "weights_hash": self.weights_digest(weights),
+                "source": source,
+            },
+            sort_keys=True,
+            default=str,
+        )
+        return self.append_decision(
+            run_id,
+            agent="risk",
+            step="risk_check",
+            llm_response=payload,
+            llm_response_hash=hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+        )
+
+    def risk_gate(self, run_id: uuid.UUID, weights: dict[str, float]) -> dict[str, Any]:
+        """The run's newest risk verdict, read against exactly ``weights``.
+
+        Args:
+            run_id: The run whose verdicts to read.
+            weights: The vector the verdict must have judged to count.
+
+        Returns:
+            ``{"status", "violations", "not_enforced", "source"}`` where ``status`` is
+            ``"passed"`` (the newest verdict passed these weights), ``"failed"`` (it
+            judged these weights and found breaches), ``"stale"`` (it judged a
+            different vector, so a superseded proposal) or ``"not_run"`` (no usable
+            verdict). Anything but ``"passed"`` is a closed gate.
+        """
+        stmt = (
+            select(AgentDecision)
+            .where(
+                AgentDecision.run_id == run_id,
+                AgentDecision.agent == "risk",
+                AgentDecision.step == "risk_check",
+            )
+            .order_by(AgentDecision.decision_index.desc())
+        )
+        row = self.session.execute(stmt).scalars().first()
+        not_run: dict[str, Any] = {
+            "status": "not_run",
+            "violations": [],
+            "not_enforced": [],
+            "source": None,
+        }
+        if row is None or not row.llm_response:
+            return not_run
+        try:
+            verdict = json.loads(row.llm_response)
+        except (ValueError, TypeError):
+            return not_run
+        if not isinstance(verdict, dict):
+            return not_run
+        if verdict.get("weights_hash") != self.weights_digest(weights):
+            status = "stale"
+        elif verdict.get("passed") is True:
+            status = "passed"
+        else:
+            status = "failed"
+        return {
+            "status": status,
+            "violations": list(verdict.get("violations") or []),
+            "not_enforced": list(verdict.get("not_enforced") or []),
+            "source": verdict.get("source"),
+        }
+
+    def risk_passed(self, run_id: uuid.UUID, weights: dict[str, float]) -> bool:
+        """Whether the run's newest risk verdict passed exactly ``weights``.
+
+        Fails closed: no verdict, an unparseable one, a failed one, or one computed
+        on a different vector (a superseded proposal) all return ``False``.
+        """
+        return self.risk_gate(run_id, weights)["status"] == "passed"
 
     def latest_profiler_answers(self, run_id: uuid.UUID) -> str | None:
         """The typed ``MiFIDAnswers`` JSON the profiler logged at ``normalize_answers``.

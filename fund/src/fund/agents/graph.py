@@ -526,21 +526,30 @@ def _finalize_hitl(
 
 
 def _ticket_placed(
-    session: Any, *, portfolio_id: uuid.UUID, asof: dt.date, weights: dict[str, float]
+    session: Any,
+    *,
+    run_id: uuid.UUID,
+    portfolio_id: uuid.UUID,
+    asof: dt.date,
+    weights: dict[str, float],
 ) -> bool:
-    """Whether a paper ticket exists for exactly this bar's audited ``weights``.
+    """Whether this run's approved ``place_orders`` call left a ticket for ``weights``.
 
-    ``place_orders`` can decline an approved gate (a missing fill bar, or the current
-    mandate no longer admits the audited weights) and still return normally to the
-    graph, so a resume that completed without raising proves nothing about the ticket.
-    The ticket row, keyed ``(portfolio_id, asof, weights_hash)`` like the tool's own
-    idempotency lookup, is the only evidence that the book moved; an idempotent re-run
-    that returned the stored ticket counts as placed.
+    ``place_orders`` can decline an approved gate (a missing fill bar, the current
+    mandate no longer admits the audited weights, or the risk gate had not passed
+    them) and still return normally to the graph, so a resume that completed without
+    raising proves nothing about the ticket. The ticket row, keyed
+    ``(portfolio_id, asof, weights_hash)`` like the tool's own idempotency lookup, is
+    the only evidence that the book moved; an idempotent re-run that returned the
+    stored ticket counts as placed. The tool is refused unless the risk gate passed
+    exactly these weights, so a ticket an earlier run left on the same bar does not
+    count when risk never passed this one. No weights means nothing could have been
+    placed.
     """
-    from fund.audit import OrderRepository
+    from fund.audit import AgentRunRepository, OrderRepository
     from fund.tools.orders import _weights_hash
 
-    if not weights:
+    if not weights or not AgentRunRepository(session).risk_passed(run_id, weights):
         return False
     ticket = OrderRepository(session).get_by_key(
         portfolio_id=portfolio_id, asof=asof, weights_hash=_weights_hash(weights)
@@ -570,7 +579,7 @@ def _settle_hitl(
     a ticketed approve go through :func:`_finalize_hitl`. No commit.
     """
     if decision != "approve" or _ticket_placed(
-        session, portfolio_id=portfolio_id, asof=asof, weights=weights
+        session, run_id=run_id, portfolio_id=portfolio_id, asof=asof, weights=weights
     ):
         _finalize_hitl(
             session,
@@ -725,19 +734,22 @@ class FundRun:
         ``approve`` runs the gated ``place_orders`` tool (the paper ticket is written
         and the executor decision logged inside the closure), then finalises the run
         as completed with the optimizer's weights — unless ``place_orders`` placed no
-        ticket (a missing fill bar, or the audited weights breach the current mandate),
-        in which case nothing is booked and the run ends ``incomplete`` (or stays
-        ``responded`` if the PM re-gated). ``reject`` writes no order, records the HITL
-        choice, and finalises rejected. ``respond`` threads ``pm_directive`` back to the
-        PM and lets it continue: if it re-gates the run stays alive as ``"responded"``
-        (still awaiting approval), else it finalises ``incomplete`` — delegated to
-        :func:`_finalize_respond`.
+        ticket (a missing fill bar, the audited weights breach the current mandate, or
+        the risk gate had not passed them), in which case nothing is booked and the run
+        ends ``incomplete`` (or stays ``responded`` if the PM re-gated). ``reject``
+        writes no order, records the HITL choice, and finalises rejected. ``respond``
+        threads ``pm_directive`` back to the PM and lets it continue: if it re-gates
+        the run stays alive as ``"responded"`` (still awaiting approval), else it
+        finalises ``incomplete`` — delegated to :func:`_finalize_respond`.
 
         Approve/reject finalisation is delegated to the shared :func:`_settle_hitl`,
         and respond to :func:`_finalize_respond`, so this in-process path and the
         cross-process :func:`resume_fund` cannot diverge — both stamp the audit trail
         identically. The run's ``portfolio_id`` / ``asof`` (which ``FundRun`` does not
-        carry) are read back from its persisted row for the approve/reject path.
+        carry) are read back from its persisted row for the approve/reject path, and
+        so are the audited weights: the vector captured at the pause may have been
+        superseded by the time the adviser decides, and finalisation must record what
+        ``place_orders`` placed.
         """
         from fund.audit import AgentRunRepository
 
@@ -763,7 +775,7 @@ class FundRun:
             run_id=self.run_id,
             portfolio_id=run.portfolio_id,
             asof=run.asof,
-            weights=self.weights,
+            weights=_optimizer_weights(self.session, self.run_id),
             decision=decision,
             result=result,
         )

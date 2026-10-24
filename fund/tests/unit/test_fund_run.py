@@ -214,6 +214,124 @@ def test_approve_writes_ticket_and_completes(db_session) -> None:
     assert executor[0].hitl_decision == {"decision": "approve"}
 
 
+# --- approve of a refused place_orders must not read as a completed rebalance -
+
+
+def _assert_nothing_committed(db_session, run_id, *, status: str) -> None:
+    """The run is ``status`` and no ticket, holding or journal row was written."""
+    from portopt_db.models import PortfolioJournal
+
+    from fund.audit import PositionRepository
+
+    run = AgentRunRepository(db_session).get_run(run_id)
+    assert run.status == status
+    assert not run.weights
+    assert _paper_orders(db_session) == []
+    assert PositionRepository(db_session).get_holdings(_PORTFOLIO_ID) == []
+    assert db_session.query(PortfolioJournal).all() == []
+    assert [d for d in _decisions(db_session, run_id) if d.agent == "executor"] == []
+
+
+def test_approve_finalises_the_vector_place_orders_actually_placed(
+    db_session,
+) -> None:
+    """The weights captured when the gate opened can be superseded before the
+    approval lands; the run and its holdings must record what was placed."""
+    import json
+
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=expected)
+    run = _run(model, db_session, store=_store_with_cs())
+    revised = {"AAA": 0.2, "BBB": 0.3, "CCC": 0.5}
+    assert revised != expected
+    audit = AgentRunRepository(db_session)
+    audit.append_decision(
+        run.run_id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": revised}),
+    )
+    audit.append_risk_verdict(run.run_id, weights=revised, passed=True, violations=[])
+
+    run.resume("approve")
+
+    finalized = audit.get_run(run.run_id)
+    assert finalized.status == "completed"
+    assert finalized.weights == revised
+    assert _paper_orders(db_session)[0].weights == revised
+
+
+def test_approve_when_risk_never_checked_does_not_complete_the_run(
+    db_session,
+) -> None:
+    """The adviser approving at the gate cannot make a refused placement real: with
+    no risk verdict ``place_orders`` writes no ticket, so the run must not be
+    finalised ``completed`` nor swap the holdings for unvetted weights."""
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=expected, risk_checks=False)
+    run = _run(model, db_session, store=_store_with_cs())
+    assert run.status == "paused"
+
+    run.resume("approve")
+
+    _assert_nothing_committed(db_session, run.run_id, status="incomplete")
+    closing = [
+        d.hitl_decision
+        for d in _decisions(db_session, run.run_id)
+        if d.agent == "orchestrator"
+    ]
+    assert {"decision": "incomplete", "reason": "place_orders_failed"} in closing
+
+
+def test_approve_after_a_failed_risk_verdict_does_not_complete_the_run(
+    db_session,
+) -> None:
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=expected)
+    run = _run(model, db_session, store=_store_with_cs())
+    AgentRunRepository(db_session).append_risk_verdict(
+        run.run_id,
+        weights=expected,
+        passed=False,
+        violations=[{"type": "max_weight", "asset": "AAA"}],
+    )
+
+    run.resume("approve")
+
+    _assert_nothing_committed(db_session, run.run_id, status="incomplete")
+
+
+def test_refused_approval_that_regates_stays_alive_until_risk_passes(
+    db_session,
+) -> None:
+    """A PM that retries after the refusal opens a fresh gate; the run must stay
+    resumable there rather than be finalised over the standing interrupt."""
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = ScriptedFundModel(
+        universe=_UNIVERSE, weights=expected, risk_checks=False, max_orders=2
+    )
+    run = _run(model, db_session, store=_store_with_cs())
+
+    regated = run.resume("approve")
+
+    assert regated.get("__interrupt__")
+    _assert_nothing_committed(db_session, run.run_id, status="responded")
+
+    AgentRunRepository(db_session).append_risk_verdict(
+        run.run_id, weights=expected, passed=True, violations=[]
+    )
+    run.resume("approve")
+
+    finalized = AgentRunRepository(db_session).get_run(run.run_id)
+    assert finalized.status == "completed"
+    assert finalized.weights == expected
+    assert len(_paper_orders(db_session)) == 1
+
+
 # --- approve → portfolio_journal overlay (T7) --------------------------------
 
 
