@@ -361,6 +361,36 @@ def test_run_prints_run_id_and_detaches(harness, monkeypatch) -> None:
     assert harness.pool.closed >= 1  # pool released after the run detaches
 
 
+def test_run_that_reached_no_gate_says_so_and_exits_nonzero(
+    harness, monkeypatch
+) -> None:
+    expected = _seed(harness)
+    monkeypatch.setattr(
+        cli,
+        "build_primary",
+        lambda *a, **k: ScriptedFundModel(
+            universe=UNIVERSE, weights=expected, risk_passes=False
+        ),
+    )
+    _set_mandate(harness)
+
+    res = harness.runner.invoke(
+        cli.app, ["run", str(PORTFOLIO_ID), "--asof", _ASOF_STR]
+    )
+
+    assert res.exit_code == 1, res.output
+    assert "incomplete" in res.output
+    assert "HITL gate" not in res.output
+    assert "awaiting approval" not in res.output
+    with harness.read() as session:
+        repo = AgentRunRepository(session)
+        assert repo.list_paused_runs(PORTFOLIO_ID) == []
+        (row,) = _audit_rows(harness, "run")
+        assert row["run_id"] is not None
+        assert str(row["run_id"]) in res.output
+        session.rollback()
+
+
 def test_run_with_override_flags_keeps_remembered_directives(
     harness, monkeypatch
 ) -> None:

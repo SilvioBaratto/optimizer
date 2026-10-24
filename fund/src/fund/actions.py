@@ -68,8 +68,8 @@ class ActionResult:
         portfolio_id: The affected portfolio, or ``None`` for a fund-wide action.
         audit_id: Primary key of the ``human_audit_log`` row written.
         message: A one-line summary for the status bar.
-        detail: The underlying driver's return value (e.g. ``resume_run``'s result),
-            or ``None`` when the action produces none.
+        detail: The underlying driver's return value (e.g. ``resume_run``'s result;
+            ``{"status": ...}`` for ``run``), or ``None`` when the action produces none.
     """
 
     action: str
@@ -1088,7 +1088,9 @@ def _apply_run(
     Invocation-only over ``run_fund`` (no API change): it resolves the portfolio's
     active ``ConstraintSet`` from the Store (a missing one raises ``RuntimeError`` —
     the portfolio must be profiled first), runs the PM pipeline, and pauses at the
-    HITL gate for approval. The agent stack is imported here, never at module scope.
+    HITL gate for approval. A pipeline that ends before the gate finalises
+    ``incomplete``; the returned ``detail["status"]`` tells the two apart. The agent
+    stack is imported here, never at module scope.
     """
     if portfolio_id is None:
         raise ValueError("'run' requires a portfolio_id")
@@ -1120,6 +1122,7 @@ def _apply_run(
         rationale=rationale,
     )
     outcome = "awaiting approval" if run.status == "paused" else "no ticket to approve"
+    status = "rejected" if halted else run.status
     return ActionResult(
         action="run",
         run_id=run.run_id,
@@ -1130,6 +1133,7 @@ def _apply_run(
             if halted
             else f"run {run.run_id} {run.status} ({outcome})"
         ),
+        detail={"status": status},
     )
 
 

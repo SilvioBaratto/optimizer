@@ -426,8 +426,10 @@ def run(
         _fail(str(exc))
     finally:
         persistence.pool.close()
-    typer.echo(f"{result.message} (HITL gate)")
-    _exit(True)
+    typer.echo(result.message)
+    # A run that finalised without a gate left nothing to approve; a cron caller
+    # must be able to tell that from a successful pause.
+    _exit((result.detail or {}).get("status") == "paused")
 
 
 # --- approve / reject -------------------------------------------------------
