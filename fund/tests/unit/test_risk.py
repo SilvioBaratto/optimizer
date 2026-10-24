@@ -345,10 +345,26 @@ class TestBacktest:
         assert data["n_observations"] < _N_DAYS - 1
         assert data["window_start"] > data["sample_start"]
 
-    def test_missing_ticker_flagged_not_raised(self, db_session) -> None:
+    def test_unpriced_weighted_ticker_is_an_error_not_a_partial_book(
+        self, db_session
+    ) -> None:
+        # Dropping ZZZ's 40% would evaluate 0.6 * AAA plus implicit idle cash, whose
+        # volatility and drawdown understate the proposal's by the dropped share.
         _seed_panel(db_session)
 
         result = backtest(db_session, _ASOF, {"AAA": 0.6, "ZZZ": 0.4})
+
+        assert result["ok"] is False
+        assert "ZZZ" in result["error"]
+
+    def test_unpriced_ticker_with_zero_weight_is_flagged_not_rejected(
+        self, db_session
+    ) -> None:
+        # A zero weight carries no capital, so dropping the ticker leaves the
+        # evaluated portfolio identical to the proposal.
+        _seed_panel(db_session)
+
+        result = backtest(db_session, _ASOF, {"AAA": 0.5, "BBB": 0.5, "ZZZ": 0.0})
 
         assert result["ok"] is True
         assert result["data"]["missing"] == ["ZZZ"]

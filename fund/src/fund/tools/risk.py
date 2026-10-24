@@ -171,10 +171,11 @@ def backtest(
         ``False`` when the panel was too short and the full IN-SAMPLE series was
         evaluated, or when the weights were fitted on the test blocks — the metrics
         are then in-sample), ``sample_start`` / ``window_start`` / ``window_end`` (ISO
-        dates), and ``missing`` (weighted tickers absent from the panel). ``err`` on
-        empty ``weights``, no priced assets, fewer than two return rows once the
-        assets' histories are aligned, a bad ``window``, or metrics that are not
-        finite.
+        dates), and ``missing`` (zero-weight tickers absent from the panel). ``err`` on
+        empty ``weights``, no priced assets, a non-zero weight on a ticker with no
+        prices (the proposal cannot be evaluated as given), fewer than two return rows
+        once the assets' histories are aligned, a bad ``window``, or metrics that are
+        not finite.
 
         ``max_drawdown`` is the peak-to-trough decline of the **compounded** wealth
         path (``drawdown_basis == "compounded"``), the loss an investor holding the
@@ -193,6 +194,11 @@ def backtest(
     )
     if frame.shape[1] == 0:
         return err("no priced assets for weights")
+    # A dropped weight would be evaluated as idle cash, understating volatility and
+    # drawdown by the dropped share; only a zero weight can be dropped losslessly.
+    unpriced = [ticker for ticker in missing if float(weights[ticker]) != 0.0]
+    if unpriced:
+        return err(f"no prices for weighted tickers: {', '.join(unpriced)}")
     if frame.shape[0] < 2:
         return err("insufficient price history to backtest")
 
