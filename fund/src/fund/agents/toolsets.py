@@ -173,7 +173,7 @@ def _resolve_constraint_set(ctx: RunContext) -> ConstraintSet | None:
         portfolio_id=str(ctx.portfolio_id),
         store_key=ctx.config.constraint_set_store_key,
     )
-    return resolve_constraint_set(ctx.store, ref)
+    return resolve_constraint_set(ctx.store, ref, session=ctx.session)
 
 
 def _bounds_args(cs: ConstraintSet) -> dict[str, Any]:

@@ -1670,6 +1670,7 @@ def _prepare_fund_run(
         ConstraintSetRef(
             portfolio_id=pid_str, store_key=config.constraint_set_store_key
         ),
+        session=session,
     )
     if constraint_set is None:
         raise RuntimeError(
@@ -2278,6 +2279,7 @@ def resume_fund(
             ConstraintSetRef(
                 portfolio_id=pid_str, store_key=config.constraint_set_store_key
             ),
+            session=session,
         )
     if constraint_set is None:
         raise RuntimeError(

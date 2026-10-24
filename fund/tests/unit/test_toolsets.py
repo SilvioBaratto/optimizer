@@ -53,7 +53,7 @@ from fund.agents import prompts as fund_prompts
 from fund.agents import toolsets as toolsets_module
 from fund.agents.skills import SKILLS_BY_AGENT, SKILLS_DIR
 from fund.agents.toolsets import TOOLS_BY_AGENT, RunContext, bind_toolset
-from fund.audit import AgentRunRepository, put_constraint_set
+from fund.audit import AgentRunRepository, MifidProfileRepository, put_constraint_set
 from fund.audit.orders_repository import weights_hash
 from fund.config import settings
 from fund.schemas import ConstraintSet
@@ -1177,6 +1177,30 @@ def test_growth_over_a_tail_measure_is_not_collapsed_into_minimum_risk(
     )
 
     assert _l1(aggressive, protection) > 0.05
+
+
+def test_optimize_resolves_the_profile_when_the_store_entry_is_lost(
+    db_session,
+) -> None:
+    _seed_panel(db_session)
+    cs = _constraint_set(risk_measure=RiskMeasureChoice.CVAR, a_gamma=7.0)
+    MifidProfileRepository(db_session).add_version(
+        portfolio_id=_PORTFOLIO_ID,
+        questionnaire={},
+        constraint_set=cs.model_dump(mode="json"),
+        suitability={},
+        store_key=settings.constraint_set_store_key,
+    )
+    ctx = _make_context(db_session, store=InMemoryStore())  # empty cache
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+
+    result = optimize.invoke({"universe": _UNIVERSE})
+
+    assert result["ok"] is True
+    decision = db_session.execute(
+        select(AgentDecision).where(AgentDecision.agent == "allocator")
+    ).scalar_one()
+    assert decision.constraint_set["a_gamma"] == 7.0
 
 
 def test_optimize_without_store_uses_default_constraints(db_session) -> None:

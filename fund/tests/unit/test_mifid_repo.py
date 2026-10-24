@@ -314,3 +314,56 @@ def test_each_commit_publishes_only_what_was_queued_before_it(committing_session
 
     assert _cached(store, second)
     assert not _cached(store, first)  # a published put is never replayed
+
+
+# --- the profile row is the system of record: a lost cache entry is refilled ----
+
+
+def test_resolve_reseeds_a_lost_cache_entry_from_the_profile_row(committing_session):
+    pid = uuid.uuid4()
+    cs = _constraint_set(portfolio_id=str(pid))
+    _add(
+        MifidProfileRepository(committing_session),
+        pid,
+        constraint_set=cs.model_dump(mode="json"),
+    )
+    store = InMemoryStore()  # e.g. the langgraph schema was recreated
+    ref = ConstraintSetRef(portfolio_id=str(pid), store_key="constraint_set")
+
+    resolved = resolve_constraint_set(store, ref, session=committing_session)
+
+    assert resolved == cs
+    # Re-seeded like every other cache write: only once the row's transaction commits.
+    assert store.get((str(pid),), "constraint_set") is None
+    committing_session.commit()
+    assert store.get((str(pid),), "constraint_set") is not None
+
+
+def test_repeated_misses_queue_one_refill(committing_session):
+    pid = uuid.uuid4()
+    _add(
+        MifidProfileRepository(committing_session),
+        pid,
+        constraint_set=_constraint_set(portfolio_id=str(pid)).model_dump(mode="json"),
+    )
+    store = InMemoryStore()
+    ref = ConstraintSetRef(portfolio_id=str(pid), store_key="constraint_set")
+
+    for _ in range(3):
+        resolve_constraint_set(store, ref, session=committing_session)
+
+    publisher = committing_session.info["fund.constraint_set_publisher"]
+    assert len(publisher.pending) == 1
+
+
+def test_resolve_with_session_still_misses_when_no_profile_exists(db_session):
+    store = InMemoryStore()
+    ref = ConstraintSetRef(portfolio_id=str(uuid.uuid4()), store_key="constraint_set")
+
+    assert resolve_constraint_set(store, ref, session=db_session) is None
+
+
+def test_resolve_with_session_tolerates_a_non_uuid_portfolio_id(db_session):
+    ref = ConstraintSetRef(portfolio_id="pf-missing", store_key="constraint_set")
+
+    assert resolve_constraint_set(InMemoryStore(), ref, session=db_session) is None

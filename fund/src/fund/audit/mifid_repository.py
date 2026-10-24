@@ -267,35 +267,65 @@ def put_constraint_set_after_commit(
         event.listen(session, "after_commit", publisher.on_commit)
         event.listen(session, "after_soft_rollback", publisher.on_soft_rollback)
         event.listen(session, "after_transaction_end", publisher.on_transaction_end)
+    origin = session.get_nested_transaction()
+    # A cache miss is refilled on every resolve; one identical queued put is enough.
+    if any(
+        put.store is store
+        and put.store_key == store_key
+        and put.origin is origin
+        and put.constraint_set == constraint_set
+        for put in publisher.pending
+    ):
+        return
     publisher.pending.append(
         _PendingPut(
             store=store,
             constraint_set=constraint_set,
             store_key=store_key,
-            origin=session.get_nested_transaction(),
+            origin=origin,
         )
     )
 
 
 def resolve_constraint_set(
-    store: BaseStore, ref: ConstraintSetRef
+    store: BaseStore, ref: ConstraintSetRef, *, session: Session | None = None
 ) -> ConstraintSet | None:
     """Resolve a ``ConstraintSetRef`` back to its persisted ``ConstraintSet``.
 
     Reads the Store item at namespace ``(ref.portfolio_id,)`` / key
-    ``ref.store_key``; ``None`` when nothing is cached for that reference.
+    ``ref.store_key``. When the Store has nothing and a ``session`` is given, the
+    portfolio's active ``mifid_profiles`` row (the system of record) is used instead
+    and the Store entry is re-seeded once ``session`` commits, so a lost or recreated
+    cache never strands a profiled portfolio.
 
     Args:
         store: LangGraph store instance to query.
         ref: Reference produced by a prior ``put_constraint_set`` call.
+        session: Optional session enabling the fallback to the profile row.
 
     Returns:
-        The cached constraint set, or ``None`` if the reference is stale or missing.
+        The constraint set, or ``None`` if the reference is stale or missing (and,
+        with a ``session``, the portfolio has no profile).
     """
     item = store.get((ref.portfolio_id,), ref.store_key)
-    if item is None:
+    if item is not None:
+        return ConstraintSet.model_validate(item.value)
+    if session is None:
         return None
-    return ConstraintSet.model_validate(item.value)
+    try:
+        portfolio_id = uuid.UUID(ref.portfolio_id)
+    except ValueError:
+        return None
+    profile = MifidProfileRepository(session).get_active(portfolio_id)
+    if profile is None:
+        return None
+    constraint_set = ConstraintSet.model_validate(profile.constraint_set)
+    # Deferred like every other cache write: the row read here may belong to a
+    # transaction that is still open and could yet roll back.
+    put_constraint_set_after_commit(
+        session, store, constraint_set, store_key=ref.store_key
+    )
+    return constraint_set
 
 
 __all__ = [

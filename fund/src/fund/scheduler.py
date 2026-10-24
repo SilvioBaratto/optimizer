@@ -272,6 +272,7 @@ def _drive_rebalance(
         ConstraintSetRef(
             portfolio_id=pid_str, store_key=settings.constraint_set_store_key
         ),
+        session=session,
     )
     if constraint_set is None:
         logger.warning(

@@ -45,7 +45,7 @@ from sqlalchemy.orm import Session
 import fund.observe as observe
 from fund.audit.fund_job_repository import FundJobRepository
 from fund.audit.mandate_repository import MandateRepository
-from fund.audit.mifid_repository import put_constraint_set
+from fund.audit.mifid_repository import MifidProfileRepository, put_constraint_set
 from fund.audit.positions_repository import PositionRepository
 from fund.audit.repository import AgentRunRepository
 from fund.config import settings
@@ -932,6 +932,43 @@ def test_drive_rebalance_skips_missing_constraint_set(session_factory, monkeypat
         )
 
     assert called == []  # no active ConstraintSet → run_fund never invoked
+
+
+def test_drive_rebalance_refills_a_lost_store_entry_from_the_profile(
+    session_factory, monkeypatch
+):
+    _seed_mandate(session_factory, PID_A, cron=True, drift=False)
+    with session_factory() as session:
+        MifidProfileRepository(session).add_version(
+            portfolio_id=PID_A,
+            questionnaire={},
+            constraint_set=make_constraint_set(PID_A).model_dump(mode="json"),
+            suitability={},
+            store_key=settings.constraint_set_store_key,
+        )
+        session.commit()
+    store = InMemoryStore()  # the langgraph schema was recreated: cache is empty
+    persistence = SimpleNamespace(store=store, saver=MemorySaver())
+
+    fake_run = MagicMock()
+    fake_run.run_id = uuid.uuid4()
+    fake_run.status = "paused"
+    called: list[int] = []
+    monkeypatch.setattr(
+        "fund.agents.graph.run_fund", lambda *a, **k: called.append(1) or fake_run
+    )
+
+    with session_factory() as session:
+        _drive_rebalance(
+            PID_A,
+            ASOF,
+            session=session,
+            persistence=persistence,
+            model=object(),
+            fallback=None,
+        )
+
+    assert called == [1]  # the persisted profile, not the cache, gates the run
 
 
 def test_drive_rebalance_reaches_gate_but_never_resumes(session_factory, monkeypatch):

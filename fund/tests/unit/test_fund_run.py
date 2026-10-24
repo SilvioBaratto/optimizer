@@ -56,7 +56,7 @@ from fund.agents.graph import (
     stream_fund,
 )
 from fund.agents.toolsets import RunContext, _optimizer_constraints
-from fund.audit import AgentRunRepository, put_constraint_set
+from fund.audit import AgentRunRepository, MifidProfileRepository, put_constraint_set
 from fund.audit.autonomy_repository import AutonomyRepository
 from fund.config import settings
 from fund.schemas import ConstraintSet
@@ -1005,6 +1005,25 @@ def test_missing_constraint_set_raises(db_session) -> None:
 
     # Fail-fast before any run row is opened.
     assert db_session.query(AgentRun).count() == 0
+
+
+def test_lost_store_entry_is_refilled_from_the_persisted_profile(db_session) -> None:
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    MifidProfileRepository(db_session).add_version(
+        portfolio_id=_PORTFOLIO_ID,
+        questionnaire={},
+        constraint_set=_constraint_set().model_dump(mode="json"),
+        suitability={},
+        store_key=settings.constraint_set_store_key,
+    )
+    store = InMemoryStore()  # the langgraph schema was recreated: cache is empty
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=expected)
+
+    run = _run(model, db_session, store=store)
+
+    assert run.status == "paused"
+    assert run.constraint_set == _constraint_set()
 
 
 def test_missing_store_raises(db_session) -> None:
