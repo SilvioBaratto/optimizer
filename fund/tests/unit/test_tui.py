@@ -8038,6 +8038,64 @@ async def test_ask_action_reject_confirms_then_rejects(tui_env) -> None:
         assert AgentRunRepository(session).get_run(tui_env.run_id).status == "rejected"
 
 
+async def _type_ask_turn(view: AskView, pilot, turn: str) -> None:
+    """Submit ``turn`` through the real Input, as an adviser would."""
+    inp = view.query_one("#ask-input", Input)
+    inp.focus()
+    inp.value = turn
+    await pilot.pause()
+    await pilot.press("enter")
+    await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_ask_action_read_failure_is_reported_not_fatal(
+    tui_env, monkeypatch
+) -> None:
+    """A DB/checkpointer error while resolving an action turn logs 'ask failed'.
+
+    The read runs on the UI thread inside the Input handler, so an unguarded raise
+    would take the whole TUI (and the conversation) down.
+    """
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("server closed the connection unexpectedly")
+
+    monkeypatch.setattr(observe, "pending_hitl", _boom)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        await _type_ask_turn(view, pilot, "approve the gate")
+        assert app.is_running
+        assert "ask failed" in app.last_status
+        assert "server closed the connection" in app.last_status
+        log = str(view.query_one("#ask-log", Static).render())
+        assert "ask failed" in log
+        assert not isinstance(app.screen, ConfirmScreen)  # nothing was confirmed
+        assert app.last_worker is None
+
+
+@pytest.mark.asyncio
+async def test_ask_pending_followup_read_failure_is_reported_not_fatal(
+    shell_env, monkeypatch
+) -> None:
+    """The disambiguation follow-up shares the guard: a read error never crashes."""
+    app = _make_shell(shell_env)  # fund-wide: 'freeze it' is scope-ambiguous
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        await _type_ask_turn(view, pilot, "freeze it")
+        assert view.pending_action is not None
+
+        def _boom(*_a, **_k):
+            raise RuntimeError("checkpointer connection lost")
+
+        monkeypatch.setattr(tui_app.ask, "resolve_pending", _boom)
+        await _type_ask_turn(view, pilot, "the fund")
+        assert app.is_running
+        assert "ask failed" in app.last_status
+        assert view.pending_action is None  # single-shot, never lingers
+
+
 @pytest.mark.asyncio
 async def test_ask_action_freeze_fund_confirms_then_freezes(shell_env) -> None:
     """'freeze the fund' confirms, then flips fund autonomy FROZEN via apply_action."""

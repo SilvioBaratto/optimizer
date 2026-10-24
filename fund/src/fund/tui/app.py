@@ -2298,12 +2298,18 @@ class ShellApp(App[None]):
         view = self._active_ask_view()
         if view is None:
             return
-        if view.pending_action is not None:
-            self._resolve_pending(view, turn)
-        elif ask.classify(turn) == "query":
-            self.ask_query(turn)
-        else:
-            self.ask_action(turn)
+        # Action turns read the database and the checkpointer on the UI thread; an
+        # unhandled error here would end the whole TUI and lose the conversation.
+        try:
+            if view.pending_action is not None:
+                self._resolve_pending(view, turn)
+            elif ask.classify(turn) == "query":
+                self.ask_query(turn)
+            else:
+                self.ask_action(turn)
+        except Exception as exc:  # surface a clean message, never crash the App
+            self._set_status(f"ask failed: {exc}")
+            view.append_log("ask", f"(ask failed: {exc})")
 
     def ask_query(self, turn: str) -> None:
         """Dispatch the Ask query-summarize worker for ``turn``.
