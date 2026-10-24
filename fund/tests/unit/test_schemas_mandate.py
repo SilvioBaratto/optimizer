@@ -97,6 +97,27 @@ def test_benchmark_can_be_set():
     assert m.benchmark == "^GSPC"
 
 
+def _mandate_with_benchmark(benchmark: str) -> PortfolioMandate:
+    return PortfolioMandate(
+        portfolio_id="pf-001",
+        capital=Decimal("1000"),
+        base_currency="USD",
+        drift_l1_threshold=0.1,
+        triggers=RunTriggers(cron=False, drift=True),
+        benchmark=benchmark,
+    )
+
+
+def test_benchmark_longer_than_the_mirrored_column_is_rejected_by_the_schema():
+    from portopt_db.models import PortfolioMandate as PortfolioMandateRow
+
+    width = PortfolioMandateRow.__table__.c.benchmark.type.length
+
+    assert _mandate_with_benchmark("S" * width).benchmark == "S" * width
+    with pytest.raises(pydantic.ValidationError):
+        _mandate_with_benchmark("S" * (width + 1))
+
+
 def test_both_models_are_frozen():
     m = _valid_mandate()
     with pytest.raises(pydantic.ValidationError):

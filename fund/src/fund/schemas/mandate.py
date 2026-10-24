@@ -48,7 +48,9 @@ class PortfolioMandate(BaseModel):
     drift_l1_threshold: float = Field(gt=0)
     hitl_gates: tuple[str, ...] = ("place_orders",)
     triggers: RunTriggers
-    benchmark: str | None = None
+    # Mirrored into portfolio_mandates.benchmark (VARCHAR(32)); PostgreSQL rejects a
+    # longer value at flush, so reject it here as a clean validation error instead.
+    benchmark: str | None = Field(default=None, max_length=32)
     remembered_directives: tuple[str, ...] = ()
 
 
