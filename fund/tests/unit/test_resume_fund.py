@@ -27,6 +27,8 @@ from _fund_fakes import (
     UNIVERSE,
     PmFailsAfterOrderModel,
     ScriptedFundModel,
+    _count_tool_calls,
+    _task_call,
     classify_instruments,
     expected_weights,
     make_constraint_set,
@@ -34,9 +36,11 @@ from _fund_fakes import (
     make_mandate,
     seed_panel,
 )
+from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision, PaperOrder
+from pydantic import Field
 
 from fund import observe
 from fund.agents import graph as graph_mod
@@ -1443,3 +1447,115 @@ def test_a_placed_ticket_still_completes_the_run_after_the_refusal_guard(
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
     assert len(_paper_orders(db_session)) == 1
     assert _positions_map(db_session) == expected
+
+
+class _ReoptimizingModel(ScriptedFundModel):
+    """After a respond barge-in the PM re-delegates the allocator on a narrower
+    universe and re-gates, so the run's latest audited optimizer weights change."""
+
+    narrow_universe: list[str] = Field(default_factory=list)
+
+    def _pm_turn(self, messages: list[BaseMessage]) -> AIMessage:
+        n_task = _count_tool_calls(messages, "task")
+        n_orders = _count_tool_calls(messages, "place_orders")
+        if n_orders == 1 and n_task == 4:
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "task",
+                        "args": {
+                            "description": "Re-run the allocator NARROW as directed.",
+                            "subagent_type": "allocator",
+                        },
+                        "id": "call_task_narrow",
+                    }
+                ],
+            )
+        if n_orders == 1 and n_task == 5:
+            # A risk pass is bound to one weight vector, so the narrower proposal
+            # must be judged again before place_orders will commit it.
+            return _task_call("risk", 5)
+        if n_orders == 1 and n_task == 6:
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "place_orders",
+                        "args": {"weights": self.weights},
+                        "id": "call_place_orders_regate",
+                    }
+                ],
+            )
+        return super()._pm_turn(messages)
+
+    def _allocator_turn(self, messages: list[BaseMessage]) -> AIMessage:
+        if _count_tool_calls(messages, "optimize_portfolio") == 0:
+            narrow = any(
+                "NARROW" in str(m.content) for m in messages if m.type == "human"
+            )
+            universe = self.narrow_universe if narrow else self.universe
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "optimize_portfolio",
+                        "args": {"universe": universe},
+                        "id": "call_optimize",
+                    }
+                ],
+            )
+        return super()._allocator_turn(messages)
+
+
+def test_fundrun_resume_approve_finalises_with_weights_reoptimised_after_respond(
+    db_session,
+) -> None:
+    """The live handle's weights are captured before the pause; a respond that makes
+    the PM re-optimise changes the audited weights the ticket is placed from, so the
+    approve must finalise with those, not the stale pre-pause ones."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    model = _ReoptimizingModel(
+        universe=UNIVERSE,
+        weights=expected,
+        narrow_universe=["AAA", "BBB"],
+        max_orders=2,
+    )
+    run = _run_to_gate(model, db_session, MemorySaver(), _store_with_cs())
+    assert set(run.weights) == set(UNIVERSE)
+
+    run.resume("respond", pm_directive="Drop CCC and re-optimise.")
+    run.resume("approve")
+
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    orders = _paper_orders(db_session)
+    assert len(orders) == 1
+    assert set(orders[0].weights) == {"AAA", "BBB"}
+    assert row.status == "completed"
+    assert row.weights == orders[0].weights
+    assert _positions_map(db_session) == orders[0].weights
+
+
+def test_fundrun_resume_refuses_a_run_finalised_since_the_gate_opened(
+    db_session,
+) -> None:
+    """An external freeze finalises the row without resolving the checkpoint; the
+    in-process handle must not blindly re-drive ``place_orders`` against it."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        db_session,
+        MemorySaver(),
+        _store_with_cs(),
+    )
+    AgentRunRepository(db_session).finalize_run(
+        run.run_id, weights={}, status="rejected"
+    )
+
+    with pytest.raises(ValueError, match="already finalised"):
+        run.resume("approve")
+
+    assert _paper_orders(db_session) == []
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"

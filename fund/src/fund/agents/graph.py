@@ -899,6 +899,31 @@ def _run_instruction(
     )
 
 
+_FINALISED_STATUSES = ("completed", "rejected", "incomplete", "blocked")
+
+
+def _require_resumable(run: Any) -> None:
+    """Refuse to resume a run that is already finalised.
+
+    An external freeze marks live gates "rejected" at the DB without resolving the
+    checkpoint (a completed / incomplete / blocked run, or a stale observer racing a
+    concurrent approve, is the same shape): the LangGraph checkpoint is left standing,
+    so without this guard a blind ``Command(resume=…)`` would re-drive
+    ``place_orders`` and ship live orders against a halted run. Pre-gate states
+    (pending/paused/responded) stay resumable. Shared by :meth:`FundRun.resume` and
+    :func:`resume_fund`.
+
+    Raises:
+        ValueError: ``run`` carries a terminal status.
+    """
+    if run.status in _FINALISED_STATUSES:
+        raise ValueError(
+            f"agent_run {run.id} is {run.status!r}, already finalised and not "
+            "resumable (it completed, or was rejected/frozen/blocked since the gate "
+            "opened)"
+        )
+
+
 @dataclass(frozen=True)
 class FundRun:
     """Handle for one fund run paused at the ``place_orders`` adviser gate.
@@ -940,14 +965,21 @@ class FundRun:
         Approve/reject finalisation is delegated to the shared :func:`_settle_hitl`,
         and respond to :func:`_finalize_respond`, so this in-process path and the
         cross-process :func:`resume_fund` cannot diverge — both stamp the audit trail
-        identically. The run's ``portfolio_id`` / ``asof`` (which ``FundRun`` does not
-        carry) are read back from its persisted row for the approve/reject path, and
-        so are the audited weights: the vector captured at the pause may have been
-        superseded by the time the adviser decides, and finalisation must record what
-        ``place_orders`` placed.
+        identically, and both refuse a run that is already finalised. The run's
+        ``portfolio_id`` / ``asof`` (which ``FundRun`` does not carry) are read back
+        from its persisted row for the approve/reject path, and so are the audited
+        weights: the vector captured at the pause may have been superseded by the time
+        the adviser decides (a ``respond`` can make the PM re-optimise), and
+        finalisation must record what ``place_orders`` placed.
         """
         from fund.audit import AgentRunRepository
 
+        run = AgentRunRepository(self.session).get_run(self.run_id)
+        if run is None:
+            raise LookupError(f"no agent_run {self.run_id}")
+        _require_resumable(run)
+        if run.portfolio_id is None:
+            raise ValueError(f"agent_run {self.run_id} has no portfolio_id")
         result = _resume_agent(self.agent, self.thread_config, decision, pm_directive)
         if decision == "respond":
             _finalize_respond(
@@ -957,11 +989,6 @@ class FundRun:
                 pm_directive=pm_directive,
             )
             return result
-        run = AgentRunRepository(self.session).get_run(self.run_id)
-        if run is None:
-            raise LookupError(f"no agent_run {self.run_id}")
-        if run.portfolio_id is None:
-            raise ValueError(f"agent_run {self.run_id} has no portfolio_id")
         _settle_hitl(
             self.session,
             run_id=self.run_id,
@@ -1707,17 +1734,7 @@ def resume_fund(
         raise LookupError(f"no agent_run {rid}")
     if run.portfolio_id is None:
         raise ValueError(f"agent_run {rid} has no portfolio_id")
-    # A run already finalised must not be resumed. An external freeze marks live gates
-    # "rejected" at the DB without resolving the checkpoint (a completed / incomplete /
-    # blocked run, or a stale observer racing a concurrent approve, is the same shape):
-    # the LangGraph checkpoint is left standing, so without this guard a blind
-    # Command(resume=…) would re-drive place_orders and ship live orders against a
-    # halted run. Pre-gate states (pending/paused/responded) stay resumable.
-    if run.status in ("completed", "rejected", "incomplete", "blocked"):
-        raise ValueError(
-            f"agent_run {rid} is {run.status!r}, already finalised and not resumable "
-            "(it completed, or was rejected/frozen/blocked since the gate opened)"
-        )
+    _require_resumable(run)
 
     # set_holdings replaces the whole snapshot, so approving a round that started before
     # an already-completed one would silently roll the book back to older weights.
