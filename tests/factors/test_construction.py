@@ -353,6 +353,44 @@ class TestAlignToPit:
         result = align_to_pit(data, "period_date", as_of, lag_days=90)
         assert result.empty
 
+    def test_latest_record_is_not_spliced_across_periods_when_field_is_nan(
+        self,
+    ) -> None:
+        """A NaN line item in the newest filing stays NaN, not the older value."""
+        data = pd.DataFrame(
+            [
+                {
+                    "ticker": "A",
+                    "period_date": "2022-12-31",
+                    "net_income": 100.0,
+                    "total_assets": 1000.0,
+                },
+                {
+                    "ticker": "A",
+                    "period_date": "2023-12-31",
+                    "net_income": np.nan,
+                    "total_assets": 2000.0,
+                },
+            ]
+        )
+        result = align_to_pit(data, "period_date", "2024-06-30", lag_days=45)
+        assert pd.Timestamp(result.loc["A", "period_date"]) == pd.Timestamp(
+            "2023-12-31"
+        )
+        assert result.loc["A", "total_assets"] == 2000.0
+        assert np.isnan(result.loc["A", "net_income"])
+
+    def test_most_recent_record_wins_regardless_of_input_order(self) -> None:
+        """Rows supplied newest-first still resolve to the newest filing."""
+        data = pd.DataFrame(
+            [
+                {"ticker": "A", "period_date": "2023-09-30", "earnings": 3.0},
+                {"ticker": "A", "period_date": "2023-03-31", "earnings": 1.0},
+            ]
+        )
+        result = align_to_pit(data, "period_date", "2023-12-31", lag_days=45)
+        assert result.loc["A", "earnings"] == 3.0
+
     def test_accepts_string_as_of_date(self) -> None:
         """align_to_pit accepts a string for as_of_date."""
         data = _make_annual_data(

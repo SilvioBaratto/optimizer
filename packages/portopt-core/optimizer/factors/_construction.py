@@ -61,10 +61,14 @@ def align_to_pit(
 
     if ticker_col in available.columns:
         available["_sort_date"] = pd.to_datetime(available[period_date_col])
+        # tail(1) keeps the newest row intact; groupby().last() would skip NaN
+        # per column and splice a stale field into a newer period's row.
         result = (
-            available.sort_values("_sort_date")
+            available.sort_values("_sort_date", kind="stable")
             .groupby(ticker_col)
-            .last()
+            .tail(1)
+            .set_index(ticker_col)
+            .sort_index()
             .drop(columns=["_sort_date"])
         )
         return result
