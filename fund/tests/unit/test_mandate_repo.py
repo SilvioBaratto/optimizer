@@ -4,10 +4,14 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from portopt_db.models import AgentRun
+import pytest
+from portopt_db.models import AgentRun, PaperOrder
 from portopt_db.models import PortfolioMandate as PortfolioMandateModel
 
 from fund.audit import AgentRunRepository, MandateRepository
+from fund.audit.mandate_repository import BaseCurrencyLockedError
+from fund.audit.nav_history_repository import NavHistoryRepository
+from fund.audit.positions_repository import PositionRepository
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
 
 
@@ -128,6 +132,113 @@ def test_upsert_round_trips_remembered_directives(db_session):
 def test_get_returns_none_for_unknown_portfolio(db_session):
     repo = MandateRepository(db_session)
     assert repo.get(uuid.uuid4()) is None
+
+
+# --- MandateRepository base-currency lock ------------------------------------
+#
+# ``nav_history`` / ``positions`` / ``paper_orders`` store no currency, so re-basing
+# a portfolio that already has any of them would mix currencies in one series.
+
+
+def _add_nav(session, pid: uuid.UUID) -> None:
+    NavHistoryRepository(session).upsert_navs(
+        [
+            {
+                "portfolio_id": pid,
+                "date": date(2026, 1, 2),
+                "nav": Decimal("100000"),
+                "benchmark": None,
+            }
+        ]
+    )
+
+
+def _add_position(session, pid: uuid.UUID) -> None:
+    PositionRepository(session).set_holdings(
+        pid, [{"ticker": "AAA", "weight": 1.0}], asof=date(2026, 1, 2)
+    )
+
+
+def _add_paper_order(session, pid: uuid.UUID) -> None:
+    session.add(
+        PaperOrder(
+            portfolio_id=pid,
+            asof=date(2026, 1, 2),
+            weights_hash="h1",
+            weights={"AAA": 1.0},
+            fill_date=date(2026, 1, 3),
+            lines=[],
+            notional=1000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    session.flush()
+
+
+@pytest.mark.parametrize("seed", [_add_nav, _add_position, _add_paper_order])
+def test_upsert_rejects_a_base_currency_change_once_the_ledger_has_history(
+    db_session, seed
+):
+    pid = uuid.uuid4()
+    repo = MandateRepository(db_session)
+    repo.upsert(_mandate(str(pid), base_currency="EUR"))
+    seed(db_session, pid)
+
+    with pytest.raises(BaseCurrencyLockedError, match="EUR"):
+        repo.upsert(_mandate(str(pid), base_currency="USD"))
+
+    row = repo.get(pid)
+    assert row is not None
+    assert row.base_currency == "EUR"
+    assert row.mandate["base_currency"] == "EUR"
+
+
+def test_base_currency_lock_error_is_a_value_error():
+    # Every caller already turns ``ValueError`` into a clean message.
+    assert issubclass(BaseCurrencyLockedError, ValueError)
+
+
+@pytest.mark.parametrize("seed", [_add_nav, _add_position, _add_paper_order])
+def test_upsert_allows_other_edits_on_a_portfolio_with_history(db_session, seed):
+    pid = uuid.uuid4()
+    repo = MandateRepository(db_session)
+    repo.upsert(_mandate(str(pid), base_currency="EUR", drift=0.1))
+    seed(db_session, pid)
+
+    row = repo.upsert(_mandate(str(pid), base_currency="EUR", drift=0.3))
+
+    assert row.drift_l1_threshold == 0.3
+
+
+def test_upsert_allows_a_base_currency_change_before_any_history(db_session):
+    pid = uuid.uuid4()
+    repo = MandateRepository(db_session)
+    repo.upsert(_mandate(str(pid), base_currency="EUR"))
+
+    row = repo.upsert(_mandate(str(pid), base_currency="USD"))
+
+    assert row.base_currency == "USD"
+
+
+def test_upsert_history_of_another_portfolio_does_not_lock_this_one(db_session):
+    pid, other = uuid.uuid4(), uuid.uuid4()
+    repo = MandateRepository(db_session)
+    repo.upsert(_mandate(str(pid), base_currency="EUR"))
+    _add_nav(db_session, other)
+
+    assert repo.upsert(_mandate(str(pid), base_currency="USD")).base_currency == "USD"
+
+
+@pytest.mark.parametrize("seed", [_add_nav, _add_position, _add_paper_order])
+def test_has_ledger_history_reflects_each_ledger_table(db_session, seed):
+    pid = uuid.uuid4()
+    repo = MandateRepository(db_session)
+    assert repo.has_ledger_history(pid) is False
+
+    seed(db_session, pid)
+
+    assert repo.has_ledger_history(pid) is True
 
 
 # --- MandateRepository.list_active ------------------------------------------

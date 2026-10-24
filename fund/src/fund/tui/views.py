@@ -654,6 +654,9 @@ class MandateView(ShellView):
         mandate: The focused portfolio's current run-policy, or ``None``.
         suitability_band: The active assessment's ``RiskToleranceBand`` value (the
             ceiling), or ``None`` when the portfolio has no profile yet.
+        currency_locked: ``True`` once the portfolio has NAV history, positions or
+            paper orders; the base currency is then read-only (none of them stores a
+            currency).
     """
 
     # View-scoped so ``x`` removes a directive only while Mandate holds focus.
@@ -669,6 +672,7 @@ class MandateView(ShellView):
         super().__init__(view_key, view_title, **kwargs)
         self.mandate: Any = None
         self.suitability_band: str | None = None
+        self.currency_locked = False
         self._directives: list[str] = []
         # Value each editable widget was last painted with, to tell an adviser edit
         # from a stale repaint; reset whenever the focused portfolio changes.
@@ -730,15 +734,17 @@ class MandateView(ShellView):
             subtitle.update("(no portfolio focused — pick one in the header)")
             self.mandate = None
             self.suitability_band = None
+            self.currency_locked = False
             self._paint_policy(None)
             self._paint_guardrails(None, "")
             self._paint_gates(None)
             self._paint_directives(None)
             return
         subtitle.update(f"portfolio {_short(pid)}")
-        mandate, band, caps = self._read(pid)
+        mandate, band, caps, marked = self._read(pid)
         self.mandate = mandate
         self.suitability_band = band
+        self.currency_locked = marked
         self._paint_policy(mandate)
         self._paint_guardrails(band, caps)
         self._paint_gates(mandate)
@@ -749,16 +755,24 @@ class MandateView(ShellView):
 
         Returns ``None`` when there is no current mandate to edit. Raises
         ``pydantic.ValidationError`` on an out-of-contract edit (e.g. a non-positive
-        capital) — the App surfaces that as a status line instead of saving.
+        capital) and ``ValueError`` when the base currency is changed on a portfolio
+        that already has ledger history — the App surfaces either as a status line
+        instead of saving.
         """
         if self.mandate is None:
             return None
         from fund.schemas.mandate import PortfolioMandate
 
+        base_currency = self.query_one("#mandate-base-currency", Input).value
+        if self.currency_locked and base_currency != self.mandate.base_currency:
+            raise ValueError(
+                "base currency cannot change once the portfolio has NAV history, "
+                "positions or paper orders (none of them carries a currency)"
+            )
         data = {
             **self.mandate.model_dump(mode="json"),
             "capital": self.query_one("#mandate-capital", Input).value,
-            "base_currency": self.query_one("#mandate-base-currency", Input).value,
+            "base_currency": base_currency,
             "drift_l1_threshold": self.query_one("#mandate-drift", Input).value,
             "benchmark": self.query_one("#mandate-benchmark", Input).value or None,
             "hitl_gates": self._proposed_gates(),
@@ -794,18 +808,29 @@ class MandateView(ShellView):
         value = self.query_one("#mandate-band", Select).value
         return None if value is Select.NULL else str(value)
 
-    def _read(self, pid: uuid.UUID) -> tuple[Any, str | None, str]:
-        """Read the mandate + active guardrails in one short session.
+    def _read(self, pid: uuid.UUID) -> tuple[Any, str | None, str, bool]:
+        """Read the mandate, active guardrails and NAV-marked flag in one session.
 
-        Returns ``(None, None, "")`` on any read error so the poll loop stays alive.
+        Returns ``(None, None, "", False)`` on any read error so the poll loop stays
+        alive.
         """
         try:
             with self.read_session() as session:
                 mandate = observe.get_mandate(session, pid)
                 band, caps = self._read_guardrails(session, pid)
-                return mandate, band, caps
+                return mandate, band, caps, self._has_ledger_history(session, pid)
         except Exception:  # keep the poll loop alive on any read error
-            return None, None, ""
+            return None, None, "", False
+
+    @staticmethod
+    def _has_ledger_history(session: Session, pid: uuid.UUID) -> bool:
+        """Whether ``pid`` has NAV points, positions or paper orders (no currency).
+
+        Imports the repo from its submodule so the view stays agent-stack-free.
+        """
+        from fund.audit.mandate_repository import MandateRepository
+
+        return MandateRepository(session).has_ledger_history(pid)
 
     def _read_guardrails(
         self, session: Session, pid: uuid.UUID
@@ -886,6 +911,7 @@ class MandateView(ShellView):
         for key, field, text in persisted:
             if self._take_persisted(key, field.value, text):
                 field.value = text
+        base_currency.disabled = self.currency_locked
         if mandate is None:
             triggers.update("(no mandate — profile the portfolio first)")
             return

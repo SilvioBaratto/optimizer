@@ -1001,3 +1001,70 @@ def test_profile_that_never_reaches_the_gate_fails(harness, monkeypatch) -> None
     assert "approval gate" in res.output
     with harness.read() as session:
         assert AgentRunRepository(session).list_paused_runs(PORTFOLIO_ID) == []
+
+
+def _seed_nav_for(harness) -> None:
+    from datetime import date
+    from decimal import Decimal
+
+    from fund.audit.nav_history_repository import NavHistoryRepository
+
+    with harness.read() as session:
+        NavHistoryRepository(session).upsert_navs(
+            [
+                {
+                    "portfolio_id": PORTFOLIO_ID,
+                    "date": date(2026, 1, 2),
+                    "nav": Decimal("100000"),
+                    "benchmark": None,
+                }
+            ]
+        )
+        session.commit()
+
+
+def test_mandate_set_refuses_to_rebase_a_marked_portfolio(harness) -> None:
+    _set_mandate(harness)  # EUR
+    _seed_nav_for(harness)
+
+    res = harness.runner.invoke(
+        cli.app,
+        [
+            "mandate",
+            "set",
+            str(PORTFOLIO_ID),
+            "--capital",
+            "100000",
+            "--base-currency",
+            "USD",
+        ],
+    )
+
+    assert res.exit_code == 1
+    assert "base currency" in res.output.lower()
+    assert "Traceback" not in res.output
+    with harness.read() as session:
+        assert observe.get_mandate(session, PORTFOLIO_ID).base_currency == "EUR"
+
+
+def test_run_refuses_to_rebase_a_marked_portfolio(harness, monkeypatch) -> None:
+    monkeypatch.setattr(cli, "build_primary", lambda *a, **k: object())
+    _set_mandate(harness)  # EUR
+    _seed_nav_for(harness)
+
+    res = harness.runner.invoke(
+        cli.app,
+        [
+            "run",
+            str(PORTFOLIO_ID),
+            "--asof",
+            _ASOF_STR,
+            "--base-currency",
+            "USD",
+        ],
+    )
+
+    assert res.exit_code == 1
+    assert "base currency" in res.output.lower()
+    with harness.read() as session:
+        assert observe.get_mandate(session, PORTFOLIO_ID).base_currency == "EUR"

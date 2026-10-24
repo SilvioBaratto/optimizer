@@ -778,6 +778,42 @@ def test_mandate_edit_persists_via_upsert_and_logs(clean_db) -> None:
     assert rows[0].new_value["drift_l1_threshold"] == 0.25
 
 
+def test_mandate_edit_rejects_a_base_currency_change_once_nav_exists(clean_db) -> None:
+    """The base-currency lock holds on the action path, not only in the TUI view."""
+    from datetime import date
+    from decimal import Decimal
+
+    from fund.audit.nav_history_repository import NavHistoryRepository
+
+    original = make_mandate()
+    MandateRepository(clean_db).upsert(original)
+    NavHistoryRepository(clean_db).upsert_navs(
+        [
+            {
+                "portfolio_id": PORTFOLIO_ID,
+                "date": date(2026, 1, 2),
+                "nav": Decimal("100000"),
+                "benchmark": None,
+            }
+        ]
+    )
+    proposed = original.model_copy(update={"base_currency": "USD"})
+
+    with pytest.raises(ValueError, match="base currency"):
+        apply_action(
+            "mandate_edit",
+            session=clean_db,
+            portfolio_id=PORTFOLIO_ID,
+            mandate=proposed,
+            prev_value=original.model_dump(mode="json"),
+        )
+
+    assert HumanAuditLogRepository(clean_db).list_recent(action="mandate_edit") == []
+    reloaded = observe.get_mandate(clean_db, PORTFOLIO_ID)
+    assert reloaded is not None
+    assert reloaded.base_currency == "EUR"
+
+
 def test_mandate_edit_requires_a_mandate(clean_db) -> None:
     """``mandate_edit`` without a mandate payload raises before touching the DB."""
     with pytest.raises(ValueError, match="requires a mandate"):

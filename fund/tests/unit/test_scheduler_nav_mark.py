@@ -620,18 +620,22 @@ def test_nav_mark_remarks_history_older_than_the_window_for_a_back_dated_ticket(
     )
 
 
-def test_nav_mark_remarks_history_older_than_the_window_after_a_base_currency_edit(
+def test_nav_mark_history_stays_in_one_currency_because_the_base_cannot_change(
     session_factory,
 ):
-    """Changing the mandate base currency re-marks the whole persisted series.
+    """Re-basing a marked portfolio is refused, so rows never mix two currencies.
 
-    Rows older than the incremental window would otherwise stay in the previous
-    currency next to recent rows in the new one.
+    Paper tickets store their notionals without a currency, so a re-based mandate would
+    read old EUR amounts as USD; the mandate repository therefore locks the base
+    currency once the ledger has history, and the persisted series stays whole.
     """
+    from fund.audit.mandate_repository import BaseCurrencyLockedError
+
     _seed_long_history(session_factory)
     assert run_nav_mark(session_factory=session_factory, asof=_HIST_END) is True
+    before = _navs(session_factory)
 
-    with session_factory() as session:
+    with session_factory() as session, pytest.raises(BaseCurrencyLockedError):
         MandateRepository(session).upsert(
             PortfolioMandate(
                 portfolio_id=str(_PID),
@@ -641,11 +645,11 @@ def test_nav_mark_remarks_history_older_than_the_window_after_a_base_currency_ed
                 triggers=RunTriggers(cron=True, drift=False),
             )
         )
-        session.commit()
-    assert run_nav_mark(session_factory=session_factory, asof=_HIST_END) is True
 
+    assert run_nav_mark(session_factory=session_factory, asof=_HIST_END) is True
+    assert _navs(session_factory) == pytest.approx(before)
     assert _navs(session_factory) == pytest.approx(
-        _recomputed_navs(session_factory, "USD"), rel=1e-6
+        _recomputed_navs(session_factory, "EUR"), rel=1e-6
     )
 
 

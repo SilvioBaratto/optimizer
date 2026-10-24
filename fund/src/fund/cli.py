@@ -259,19 +259,22 @@ def mandate_set(
     _boot()
     pid = _uuid(portfolio_id, label="portfolio id")
     _check_drift(drift)
-    with get_session() as session:
-        existing = observe.get_mandate(session, pid)
-        mandate = _build_mandate(
-            pid,
-            existing,
-            capital=capital,
-            base_currency=base_currency,
-            drift=drift,
-            benchmark=benchmark,
-            interrupt_on=interrupt_on,
-        )
-        _save_mandate(session, pid, existing, mandate)
-        session.commit()
+    try:
+        with get_session() as session:
+            existing = observe.get_mandate(session, pid)
+            mandate = _build_mandate(
+                pid,
+                existing,
+                capital=capital,
+                base_currency=base_currency,
+                drift=drift,
+                benchmark=benchmark,
+                interrupt_on=interrupt_on,
+            )
+            _save_mandate(session, pid, existing, mandate)
+            session.commit()
+    except ValueError as exc:  # e.g. the base currency is locked by ledger history
+        _fail(str(exc))
     typer.echo(f"mandate saved for portfolio {pid}")
     _exit(True)
 

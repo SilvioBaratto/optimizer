@@ -9616,3 +9616,117 @@ async def test_mandate_directives_render_verbatim_not_as_markup(shell_env) -> No
         view = await _open_mandate(app, pilot)
         labels = view.query("#mandate-directives ListItem Label")
         assert [str(label.visual) for label in labels] == list(directives)
+
+
+def _seed_nav(env, pid=PORTFOLIO_ID) -> None:
+    """Persist one NAV point so the portfolio counts as already marked."""
+    from fund.audit.nav_history_repository import NavHistoryRepository
+
+    with env.get_session() as session:
+        NavHistoryRepository(session).upsert_navs(
+            [
+                {
+                    "portfolio_id": pid,
+                    "date": date(2025, 1, 2),
+                    "nav": Decimal("100000"),
+                    "benchmark": None,
+                }
+            ]
+        )
+        session.commit()
+
+
+@pytest.mark.asyncio
+async def test_mandate_base_currency_is_locked_once_nav_history_exists(
+    shell_env,
+) -> None:
+    # nav_history carries no currency column: re-basing a marked portfolio would leave
+    # the old rows in the old currency next to a re-marked tail in the new one.
+    _seed_mandate_and_profile(shell_env)
+    _seed_nav(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        currency = view.query_one("#mandate-base-currency", Input)
+        assert currency.disabled is True
+        currency.value = "USD"
+        with pytest.raises(ValueError, match="base currency"):
+            view.proposed_mandate()
+        app.action_save_mandate()
+        await pilot.pause()
+        assert app.last_worker is None
+        assert "base currency" in app.last_status
+    with shell_env.get_session() as session:
+        assert observe.get_mandate(session, PORTFOLIO_ID).base_currency == "EUR"
+
+
+@pytest.mark.asyncio
+async def test_mandate_locked_base_currency_still_saves_other_edits(shell_env) -> None:
+    _seed_mandate_and_profile(shell_env)
+    _seed_nav(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = "0.2"
+        app.action_save_mandate()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        reloaded = observe.get_mandate(session, PORTFOLIO_ID)
+        assert reloaded.drift_l1_threshold == 0.2
+        assert reloaded.base_currency == "EUR"
+
+
+@pytest.mark.asyncio
+async def test_mandate_base_currency_is_editable_before_first_nav_mark(
+    shell_env,
+) -> None:
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        currency = view.query_one("#mandate-base-currency", Input)
+        assert currency.disabled is False
+        currency.value = "USD"
+        assert view.proposed_mandate().base_currency == "USD"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ledger", ["position", "paper_order"])
+async def test_mandate_base_currency_is_locked_by_positions_or_orders_too(
+    shell_env, ledger
+) -> None:
+    # A portfolio can hold positions or paper orders before its first daily NAV mark;
+    # re-basing it then would still mark that ledger in the wrong currency.
+    from fund.audit.positions_repository import PositionRepository
+
+    _seed_mandate_and_profile(shell_env)
+    with shell_env.get_session() as session:
+        if ledger == "position":
+            PositionRepository(session).set_holdings(
+                PORTFOLIO_ID, [{"ticker": "AAA", "weight": 1.0}], asof=date(2025, 1, 2)
+            )
+        else:
+            session.add(
+                PaperOrder(
+                    portfolio_id=PORTFOLIO_ID,
+                    asof=date(2025, 1, 2),
+                    weights_hash="h1",
+                    weights={"AAA": 1.0},
+                    fill_date=date(2025, 1, 3),
+                    lines=[],
+                    notional=1000.0,
+                    total_commission=0.0,
+                    total_slippage_cost=0.0,
+                )
+            )
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        currency = view.query_one("#mandate-base-currency", Input)
+        assert currency.disabled is True
+        currency.value = "USD"
+        with pytest.raises(ValueError, match="base currency"):
+            view.proposed_mandate()
