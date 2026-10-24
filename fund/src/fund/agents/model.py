@@ -29,6 +29,7 @@ lazily; the first request happens later at call time.
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from fund.config import FundConfig, settings
@@ -324,8 +325,10 @@ def _build_microsoft(config: FundConfig, model_name: str) -> BaseChatModel:
     Unlike public OpenAI, Azure is wired from **four** env vars, each *required*
     (``AZURE_OPENAI_API_KEY``, ``AZURE_OPENAI_ENDPOINT``, ``OPENAI_API_VERSION``,
     ``AZURE_OPENAI_DEPLOYMENT_NAME``); a missing one raises via :func:`_require`
-    naming it. ``model`` / ``api_key`` / ``api_version`` / ``azure_deployment`` are
-    the class's accepted aliases, so this stays consistent with the other builders.
+    naming it. The deployment is always the one in ``config``; ``build_fallback``
+    swaps in ``AZURE_OPENAI_FALLBACK_DEPLOYMENT_NAME`` (see :func:`_fallback_config`).
+    ``model`` / ``api_key`` / ``api_version`` / ``azure_deployment`` are the class's
+    accepted aliases, so this stays consistent with the other builders.
     ``temperature=0`` threads the D4 contract except for o-series reasoning models,
     which reject it; ``reasoning=`` is Ollama-only and is never passed here.
     """
@@ -467,11 +470,35 @@ def build_chat_model(config: FundConfig, *, model_name: str) -> BaseChatModel:
         ) from exc
 
 
+def _fallback_config(config: FundConfig) -> FundConfig:
+    """Return the config the fallback model is built from.
+
+    Azure routes a request by the deployment in the URL path and treats the model
+    label as metadata, so the fallback only differs from the primary when it is built
+    on its own deployment. The role is known here and not in the builder, which sees
+    only a model label that may legitimately equal the primary's: the same model on a
+    second deployment is the usual Azure resilience setup.
+    """
+    if (
+        config.llm_provider == "microsoft"
+        and config.azure_openai_fallback_deployment_name
+    ):
+        return replace(
+            config,
+            azure_openai_deployment_name=config.azure_openai_fallback_deployment_name,
+        )
+    return config
+
+
 def build_primary(config: FundConfig = settings) -> BaseChatModel:
     """Build the primary model (``config.primary_model``)."""
     return build_chat_model(config, model_name=config.primary_model)
 
 
 def build_fallback(config: FundConfig = settings) -> BaseChatModel:
-    """Build the fallback model (``config.fallback_model``)."""
-    return build_chat_model(config, model_name=config.fallback_model)
+    """Build the fallback model (``config.fallback_model``).
+
+    On Azure a configured ``AZURE_OPENAI_FALLBACK_DEPLOYMENT_NAME`` replaces the
+    primary deployment for this model, whatever the two model ids are.
+    """
+    return build_chat_model(_fallback_config(config), model_name=config.fallback_model)

@@ -310,6 +310,12 @@ def test_provider_keys_and_endpoints_sourced_from_env():
     assert cfg.azure_openai_deployment_name == "gpt4o-deploy"
 
 
+def test_azure_fallback_deployment_is_env_sourced_and_optional():
+    assert load_config(env={}).azure_openai_fallback_deployment_name is None
+    cfg = load_config(env={"AZURE_OPENAI_FALLBACK_DEPLOYMENT_NAME": "gpt4o-mini-dep"})
+    assert cfg.azure_openai_fallback_deployment_name == "gpt4o-mini-dep"
+
+
 def test_provider_fields_default_safe_so_bare_import_never_fails():
     # Every provider key/endpoint stays None with no env; hf_mode defaults to
     # "cloud". A bare load must not require any secret.

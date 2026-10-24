@@ -668,6 +668,77 @@ def test_microsoft_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):
     assert "reasoning" not in llm.kwargs
 
 
+def test_microsoft_fallback_model_targets_its_own_deployment(monkeypatch):
+    # Azure routes by deployment, not by the `model` label: a fallback built on the
+    # primary's deployment would just retry the deployment that already failed.
+    _install_fake_chat_class(
+        monkeypatch, "langchain_openai", class_name="AzureChatOpenAI"
+    )
+    cfg = _azure_cfg(
+        primary_model="gpt-4o",
+        fallback_model="gpt-4o-mini",
+        azure_openai_deployment_name="dep-primary",
+        azure_openai_fallback_deployment_name="dep-fallback",
+    )
+
+    primary = model.build_primary(cfg)
+    fallback = model.build_fallback(cfg)
+
+    assert primary.kwargs["azure_deployment"] == "dep-primary"
+    assert fallback.kwargs["azure_deployment"] == "dep-fallback"
+
+
+def test_microsoft_fallback_keeps_the_primary_deployment_when_none_is_configured(
+    monkeypatch,
+):
+    _install_fake_chat_class(
+        monkeypatch, "langchain_openai", class_name="AzureChatOpenAI"
+    )
+    cfg = _azure_cfg(primary_model="gpt-4o", fallback_model="gpt-4o-mini")
+
+    fallback = model.build_fallback(cfg)
+
+    assert fallback.kwargs["azure_deployment"] == "my-deploy"
+
+
+def test_microsoft_fallback_deployment_applies_when_both_roles_use_the_same_model(
+    monkeypatch,
+):
+    # The usual Azure resilience setup is one model on a second deployment, and the
+    # setup wizard mirrors the primary model id into FUND_FALLBACK_MODEL. Which
+    # deployment serves a role cannot depend on the two model labels differing.
+    _install_fake_chat_class(
+        monkeypatch, "langchain_openai", class_name="AzureChatOpenAI"
+    )
+    cfg = _azure_cfg(
+        primary_model="gpt-4o",
+        fallback_model="gpt-4o",
+        azure_openai_fallback_deployment_name="dep-fallback",
+    )
+
+    assert model.build_primary(cfg).kwargs["azure_deployment"] == "my-deploy"
+    assert model.build_fallback(cfg).kwargs["azure_deployment"] == "dep-fallback"
+
+
+def test_microsoft_build_chat_model_alone_always_uses_the_primary_deployment(
+    monkeypatch,
+):
+    # `build_chat_model` is role-agnostic: only build_fallback opts into the
+    # fallback deployment.
+    _install_fake_chat_class(
+        monkeypatch, "langchain_openai", class_name="AzureChatOpenAI"
+    )
+    cfg = _azure_cfg(
+        primary_model="gpt-4o",
+        fallback_model="gpt-4o-mini",
+        azure_openai_fallback_deployment_name="dep-fallback",
+    )
+
+    llm = model.build_chat_model(cfg, model_name="gpt-4o-mini")
+
+    assert llm.kwargs["azure_deployment"] == "my-deploy"
+
+
 @pytest.mark.parametrize(
     ("missing_field", "env_name"),
     [

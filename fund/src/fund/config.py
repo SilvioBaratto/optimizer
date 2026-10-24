@@ -108,6 +108,11 @@ class FundConfig:
     azure_openai_endpoint: str | None = None
     azure_openai_api_version: str | None = None
     azure_openai_deployment_name: str | None = None
+    # Azure routes by deployment, so the fallback only differs from the primary when
+    # it is built on its own deployment (same resource, endpoint and key). Applied by
+    # `build_fallback` whatever the two model ids are; unset keeps a same-deployment
+    # retry.
+    azure_openai_fallback_deployment_name: str | None = None
 
     # --- D22 guards: LOW explicit recursion_limit + PM round cap (library
     # default 9999 is NOT a safety bound). ---
@@ -310,6 +315,9 @@ def load_config(
         azure_openai_endpoint=env.get("AZURE_OPENAI_ENDPOINT"),
         azure_openai_api_version=env.get("OPENAI_API_VERSION"),
         azure_openai_deployment_name=env.get("AZURE_OPENAI_DEPLOYMENT_NAME"),
+        azure_openai_fallback_deployment_name=env.get(
+            "AZURE_OPENAI_FALLBACK_DEPLOYMENT_NAME"
+        ),
         # Phase-9 daemon knobs: `FUND_*` aliases; missing → dataclass default.
         fund_rebalance_cron=env.get(
             "FUND_REBALANCE_CRON", defaults.fund_rebalance_cron
