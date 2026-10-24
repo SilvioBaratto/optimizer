@@ -218,8 +218,11 @@ class AgentRunRepository(RepositoryBase):
         decision: dict[str, Any] = {"decision": "reject"}
         if via is not None:
             decision["via"] = via
+        # Finalised first: the compare-and-set refuses a run another resolver already
+        # settled, and the decision row must not be left behind for a reject that lost.
+        finalized = self.finalize_run(run_id, weights={}, status="rejected")
         self.append_decision(run_id, agent=agent, step=step, hitl_decision=decision)
-        return self.finalize_run(run_id, weights={}, status="rejected")
+        return finalized
 
     def latest_optimizer_weights(self, run_id: uuid.UUID) -> dict[str, float]:
         """The single authoritative read of a run's optimizer weights.

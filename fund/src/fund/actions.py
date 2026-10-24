@@ -712,21 +712,31 @@ def _reject_at_gate(
     repo.reject_gate(run_id, via=via)
 
 
-def _reject_live_runs(session: Session, portfolio_id: uuid.UUID | None) -> None:
+def _reject_live_runs(
+    session: Session, portfolio_id: uuid.UUID | None
+) -> list[uuid.UUID]:
     """Finalise any paused/responded runs in scope as rejected (DB-level halt).
 
     A portfolio/fund freeze halts in-flight runs: each live gate is marked rejected
-    without a graph resume (an emergency stop needs no model/checkpointer). Scoped to
+    without a graph resume (an emergency stop needs no model/checkpointer), with a
+    decision tagged ``via="freeze"`` so the run's own trail says why. Scoped to
     ``portfolio_id`` when given, else fund-wide. No commit (the caller owns it).
+
+    Returns:
+        The ids of the runs halted, for the freeze's audit row.
     """
-    from fund.audit.repository import AgentRunRepository, RunNotOpenError
+    from fund.audit.repository import AgentRunRepository
 
     repo = AgentRunRepository(session)
+    halted: list[uuid.UUID] = []
     for run in repo.list_paused_runs(portfolio_id=portfolio_id):
         # A resolver that finalised the run since the listing (an approve in flight)
-        # won the race; its outcome must stand instead of being rewritten to rejected.
-        with contextlib.suppress(RunNotOpenError):
-            repo.finalize_run(run.id, weights={}, status="rejected")
+        # won the race (a ``ValueError``: the run is no longer open); its outcome must
+        # stand instead of being rewritten to rejected.
+        with contextlib.suppress(ValueError):
+            _reject_at_gate(session, run.id, via="freeze")
+            halted.append(run.id)
+    return halted
 
 
 def halt_run_if_frozen(
@@ -831,7 +841,7 @@ def _apply_freeze(
             reason=rationale,
         )
         pid = portfolio_id
-    _reject_live_runs(session, pid)
+    halted = _reject_live_runs(session, pid)
     row = _append_audit(
         session,
         action="freeze",
@@ -839,7 +849,11 @@ def _apply_freeze(
         portfolio_id=pid,
         actor=actor,
         target=scope,
-        new_value={"state": "frozen", "reason": rationale},
+        new_value={
+            "state": "frozen",
+            "reason": rationale,
+            "halted_runs": [str(run_id) for run_id in halted],
+        },
         source=source,
         override_flag=False,
         suitability_flag=False,

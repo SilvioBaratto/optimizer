@@ -2148,3 +2148,34 @@ def test_run_action_reports_a_run_halted_by_a_mid_round_freeze(clean_db) -> None
 
     assert "frozen" in result.message
     assert "awaiting approval" not in result.message
+
+
+@pytest.mark.parametrize("scope", ["portfolio", "fund"])
+def test_a_freeze_records_every_run_it_halted(clean_db, scope) -> None:
+    """A halted run is just a ``rejected`` row with nothing saying why. Each needs its
+    own decision naming the freeze, and the audit row has to list the runs it halted,
+    or an auditor cannot tell a freeze from a human or a bug rejecting them."""
+    fund_run = _paused_run(clean_db)
+    profiler_run = _paused_run(clean_db, step="profiler")
+
+    apply_action(
+        "freeze",
+        session=clean_db,
+        scope=scope,
+        portfolio_id=PORTFOLIO_ID if scope == "portfolio" else None,
+        rationale="drawdown breach",
+    )
+    clean_db.commit()
+
+    runs = AgentRunRepository(clean_db)
+    expected_gate = {fund_run: "place_orders", profiler_run: "save_profile"}
+    for run_id, step in expected_gate.items():
+        run = runs.get_run(run_id)
+        assert run.status == "rejected"
+        assert [(d.step, d.hitl_decision) for d in run.decisions] == [
+            (step, {"decision": "reject", "via": "freeze"})
+        ]
+    row = HumanAuditLogRepository(clean_db).list_recent(action="freeze")[0]
+    assert row.new_value["state"] == "frozen"
+    assert row.new_value["reason"] == "drawdown breach"
+    assert sorted(row.new_value["halted_runs"]) == sorted(map(str, expected_gate))
