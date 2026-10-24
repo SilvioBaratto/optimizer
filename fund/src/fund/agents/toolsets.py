@@ -34,6 +34,12 @@ The whole closure body degrades through :func:`~fund.tools._base.tool_envelope`,
 so a mis-resolved profile or a failed audit write returns ``{ok: false, error}``
 instead of raising across the tool boundary.
 
+Every body also runs alone (a per-run lock) and inside a SAVEPOINT. LangGraph
+dispatches the parallel tool calls of one model turn on worker threads, but a run
+shares one non-thread-safe ``Session``; a failed call rolls back only its own
+savepoint, so it cannot poison the transaction every later tool and the run's own
+rows live in.
+
 The langchain import (``langchain_core.tools.tool``) lives **inside**
 :func:`bind_toolset`'s builders, so ``import fund.agents.toolsets`` pulls in no
 agent-stack runtime (keeping the bare package import agent-stack-free).
@@ -42,10 +48,13 @@ agent-stack runtime (keeping the bare package import agent-stack-free).
 from __future__ import annotations
 
 import dataclasses
+import functools
 import hashlib
 import json
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+import threading
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec
 
 from fund import tools as _tools
 from fund.tools._base import ToolResult, err, ok, tool_envelope
@@ -114,6 +123,11 @@ class RunContext:
     # default keeps existing callers unchanged.
     lookback_days: int = 756
     base_currency: str | None = None
+    # Held for the whole body of every bound tool: the parallel tool calls of one
+    # model turn run on worker threads, but ``session`` is not thread-safe.
+    lock: threading.RLock = field(
+        default_factory=threading.RLock, repr=False, compare=False
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -243,18 +257,53 @@ def _append_executor_decision(ctx: RunContext, ticket: dict[str, Any]) -> None:
 # Each is wrapped by ``tool_envelope`` so the closure never raises.
 # ---------------------------------------------------------------------------
 
+P = ParamSpec("P")
+
+
+def _serialised(
+    fn: Callable[Concatenate[RunContext, P], ToolResult],
+) -> Callable[Concatenate[RunContext, P], ToolResult]:
+    """Run a bound tool body alone on the run's session, inside a SAVEPOINT.
+
+    A raised exception or an ``ok: false`` result rolls back the body's own writes
+    and nothing else, so a swallowed failure (the envelope returns it to the model)
+    leaves the run's transaction usable for the next tool.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(ctx: RunContext, *args: P.args, **kwargs: P.kwargs) -> ToolResult:
+        with ctx.lock:
+            savepoint = ctx.session.begin_nested()
+            try:
+                result = fn(ctx, *args, **kwargs)
+                if result.get("ok") is False:
+                    savepoint.rollback()
+                else:
+                    savepoint.commit()
+            except BaseException:
+                # A failed flush leaves the savepoint inactive but still current;
+                # only an explicit rollback hands the session back usable.
+                savepoint.rollback()
+                raise
+            return result
+
+    return wrapper
+
 
 @tool_envelope
+@_serialised
 def _get_prices_impl(ctx: RunContext, tickers: list[str]) -> ToolResult:
     return _tools.get_prices(ctx.session, ctx.asof, tickers)
 
 
 @tool_envelope
+@_serialised
 def _get_macro_impl(ctx: RunContext, names: list[str]) -> ToolResult:
     return _tools.get_macro_series(ctx.session, names, ctx.asof)
 
 
 @tool_envelope
+@_serialised
 def _universe_filter_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
     cs = _resolve_constraint_set(ctx)
     excluded: dict[str, list[str]] = {}
@@ -276,6 +325,7 @@ def _universe_filter_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
 
 
 @tool_envelope
+@_serialised
 def _estimate_moments_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
     # ``ctx.lookback_days`` is recorded on the run but inert here — the frozen
     # ``estimate_moments`` takes no start bound, so moments use full history up to
@@ -286,6 +336,7 @@ def _estimate_moments_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
 
 
 @tool_envelope
+@_serialised
 def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
     cs = _resolve_constraint_set(ctx)
     if cs is not None:
@@ -314,6 +365,7 @@ def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
 
 
 @tool_envelope
+@_serialised
 def _risk_check_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
     cs = _resolve_constraint_set(ctx)
     constraints = _bounds_args(cs) if cs is not None else None
@@ -341,6 +393,7 @@ def check_weights_against_mandate(
 
 
 @tool_envelope
+@_serialised
 def _backtest_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
     # Bound the walk-forward training block to the run's 3y rolling lookback
     # (the one frozen tool that accepts a window). A panel shorter than the window
@@ -371,6 +424,7 @@ def _backtest_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
 
 
 @tool_envelope
+@_serialised
 def _place_orders_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
     # Load-bearing invariant: skfolio computes the weights, never the LLM. The
     # ``weights`` arg is the model's *proposal* only — the paper ticket is placed
@@ -407,6 +461,7 @@ def _place_orders_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult
 
 
 @tool_envelope
+@_serialised
 def _get_regime_stats_impl(ctx: RunContext, tickers: list[str]) -> ToolResult:
     return _tools.get_regime_stats(
         ctx.session, ctx.asof, tickers, window=ctx.lookback_days
@@ -414,11 +469,13 @@ def _get_regime_stats_impl(ctx: RunContext, tickers: list[str]) -> ToolResult:
 
 
 @tool_envelope
+@_serialised
 def _get_recent_events_impl(ctx: RunContext, window: int = 14) -> ToolResult:
     return _tools.get_recent_events(ctx.session, ctx.asof, window=window)
 
 
 @tool_envelope
+@_serialised
 def _get_portfolio_history_impl(ctx: RunContext, lookback: int = 90) -> ToolResult:
     # ``portfolio_id`` is bound from the run context, never chosen by the model —
     # an agent reads only its own portfolio's history.

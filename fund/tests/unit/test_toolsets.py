@@ -17,11 +17,15 @@ LangGraph store:
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import datetime as dt
 import json
 import math
+import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from langchain_core.tools import BaseTool
@@ -903,3 +907,111 @@ def test_place_orders_refuses_weights_that_breach_the_current_mandate(
         .all()
         == []
     )
+
+
+# --- one Session shared by every bound tool of a run ------------------------
+
+
+def test_bound_tool_bodies_of_one_run_are_serialised(db_session, monkeypatch) -> None:
+    """LangGraph dispatches parallel tool calls on worker threads; the run's single
+    Session is not thread-safe, so no two bound tool bodies may overlap."""
+    state = {"active": 0, "peak": 0}
+    guard = threading.Lock()
+
+    def slow_tool(*_args: object, **_kwargs: object) -> dict[str, object]:
+        with guard:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+        time.sleep(0.05)
+        with guard:
+            state["active"] -= 1
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(fund_tools, "get_prices", slow_tool)
+    monkeypatch.setattr(fund_tools, "get_macro_series", slow_tool)
+    monkeypatch.setattr(fund_tools, "get_recent_events", slow_tool)
+    ctx = _make_context(db_session)
+    economist = bind_toolset("economist", ctx)
+    calls = [
+        (_find(economist, "get_prices"), {"tickers": _UNIVERSE}),
+        (_find(economist, "get_macro_series"), {"names": ["T10Y2Y"]}),
+        (_find(economist, "get_recent_events"), {}),
+        (_find(economist, "get_prices"), {"tickers": _UNIVERSE}),
+    ]
+
+    with ThreadPoolExecutor(max_workers=len(calls)) as pool:
+        results = list(pool.map(lambda call: call[0].invoke(call[1]), calls))
+
+    assert all(result["ok"] for result in results)
+    assert state["peak"] == 1
+
+
+def test_a_failed_tool_call_does_not_poison_the_shared_session(
+    db_session, monkeypatch
+) -> None:
+    """A swallowed flush error must roll back only that call, not leave every later
+    tool returning ``PendingRollbackError`` and the run's own rows lost."""
+    _seed_panel(db_session)
+    ctx = _make_context(db_session)
+
+    def colliding_append(self: AgentRunRepository, run_id: uuid.UUID, **_kw: object):
+        for _ in range(2):  # same (run_id, decision_index): flush raises IntegrityError
+            self.session.add(
+                AgentDecision(run_id=run_id, decision_index=99, agent="a", step="s")
+            )
+        self.session.flush()
+
+    monkeypatch.setattr(AgentRunRepository, "append_decision", colliding_append)
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+    get_prices = _find(bind_toolset("economist", ctx), "get_prices")
+
+    failed = optimize.invoke({"universe": _UNIVERSE})
+    later = get_prices.invoke({"tickers": _UNIVERSE})
+
+    assert failed["ok"] is False
+    assert later["ok"] is True
+    # The run row created before the tool ran survives the failed call.
+    assert AgentRunRepository(db_session).get_run(ctx.run_id) is not None
+
+
+def test_parallel_optimize_calls_each_append_one_distinct_decision(
+    db_session, monkeypatch
+) -> None:
+    """Two optimize calls in one model turn must not collide on decision_index.
+
+    ``append_decision`` derives the next index from a ``count()`` and inserts later.
+    The rendezvous below parks each caller between the two until the other arrives,
+    so without the run lock both would hold the same count and collide. Under the
+    lock the second caller can never arrive while the first waits; the barrier times
+    out and the calls simply run one after the other.
+    """
+    _seed_panel(db_session)
+    ctx = _make_context(db_session, store=_store_with_cs(_constraint_set()))
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+    rendezvous = threading.Barrier(2, timeout=0.3)
+    original_add = db_session.add
+
+    def add_after_rendezvous(instance: object, *args: object, **kwargs: object):
+        if isinstance(instance, AgentDecision):
+            with contextlib.suppress(threading.BrokenBarrierError):
+                rendezvous.wait()
+        return original_add(instance, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "add", add_after_rendezvous)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(
+            pool.map(lambda _: optimize.invoke({"universe": _UNIVERSE}), range(2))
+        )
+
+    assert [r["ok"] for r in results] == [True, True]
+    indexes = (
+        db_session.execute(
+            select(AgentDecision.decision_index).where(
+                AgentDecision.agent == "allocator"
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert sorted(indexes) == [0, 1]
