@@ -3636,6 +3636,60 @@ async def test_freeze_mid_stream_leaves_no_approvable_gate(
 
 
 @pytest.mark.asyncio
+async def test_stream_ending_incomplete_reports_why_on_the_status_bar(
+    tui_env, monkeypatch
+) -> None:
+    """A round that ends with no ticket drops to replay but says why it ended."""
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    reason = "delegation round cap reached before a ticket"
+
+    def _stream(model, mandate, *, portfolio_id, asof, session, **_kwargs):
+        repo = AgentRunRepository(session)
+        run = repo.create_run(
+            portfolio_id=portfolio_id,
+            asof=asof,
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        repo.finalize_run(run.id, weights={}, status="incomplete")
+        yield StreamEvent(
+            kind="step",
+            run_id=run.id,
+            index=0,
+            agent="economist",
+            step="report",
+            status=StepStatus.LIVE,
+            text="macro read",
+        )
+        yield StreamEvent(
+            kind="incomplete",
+            run_id=run.id,
+            index=1,
+            agent="orchestrator",
+            step="place_orders",
+            status=StepStatus.PENDING,
+            text=reason,
+        )
+
+    monkeypatch.setattr("fund.agents.graph.stream_fund", _stream)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert view.live_run_id is None  # nothing to act on: back to replay
+        assert reason in app.last_status
+        assert reason in str(app.query_one("#status-bar", Static).render())
+
+
+@pytest.mark.asyncio
 async def test_quit_with_barge_in_open_releases_the_stream_thread(
     shell_env, monkeypatch
 ) -> None:

@@ -1965,6 +1965,7 @@ class ShellApp(App[None]):
             self.call_from_thread(self._set_status, f"model unavailable: {exc}")
             return
         last_kind: str | None = None
+        last_text = ""
         gate_run_id: uuid.UUID | None = None
         halted = False
         try:
@@ -1995,6 +1996,7 @@ class ShellApp(App[None]):
                         self.call_from_thread(self._enter_live_runstate)
                     self.call_from_thread(view.ingest_event, event)
                     last_kind = event.kind
+                    last_text = event.text
                     gate_run_id = event.run_id
                     # Suspend the graph generator at this step boundary while a barge-in
                     # is open; the overlay re-sets the flag on resolve.
@@ -2017,6 +2019,12 @@ class ShellApp(App[None]):
         if halted:
             self.call_from_thread(
                 self._set_status, "round halted — autonomy was frozen while it ran"
+            )
+        if last_kind == "incomplete":
+            # The replay view that follows has no trace of why the round produced no
+            # ticket, and the status bar is the only place left to say so.
+            self.call_from_thread(
+                self._set_status, f"round ended with no ticket — {last_text}"
             )
         if last_kind != "paused" or halted:
             # A no-ticket / incomplete / halted end has nothing to act on — drop to
