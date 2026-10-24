@@ -16,6 +16,7 @@ import sys
 import uuid
 from contextlib import contextmanager
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from _fund_fakes import (
@@ -37,6 +38,7 @@ from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision, AgentRun, Base
+from pydantic import Field
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -54,6 +56,18 @@ from fund.tui.stream import StepStatus, StreamEvent
 
 # The four subagents report in fixed pipeline order, then the PM commits.
 _EXPECTED_AGENTS = ["economist", "allocator", "risk", "executor", "orchestrator"]
+
+
+class _FreezeMidRoundModel(ScriptedFundModel):
+    """Scripted PM that has a freeze land after its first delegation."""
+
+    freeze: Any = Field(default=None, exclude=True)
+
+    def _pm_turn(self, messages):
+        if self.freeze is not None and _count_tool_calls(messages, "task"):
+            freeze, self.freeze = self.freeze, None
+            freeze()
+        return super()._pm_turn(messages)
 
 
 @pytest.fixture
@@ -268,6 +282,39 @@ def test_stream_fund_halts_at_the_gate_when_frozen_while_in_flight(
         run = AgentRunRepository(session).get_run(terminal.run_id)
         assert run is not None
         assert run.status == "rejected"
+
+
+def test_stream_fund_halts_instead_of_pausing_when_a_freeze_lands_after_a_delegation(
+    stream_env,
+) -> None:
+    """A freeze committed once the pipeline is under way found no gate to reject; the
+    stream must end on a halted run, not publish a live gate in the frozen fund."""
+    with stream_env.get_session() as session:
+        model = _FreezeMidRoundModel(
+            universe=UNIVERSE,
+            weights=stream_env.expected,
+            freeze=lambda: AutonomyRepository(session).set_state(
+                AutonomyScope.FUND, None, AutonomyState.FROZEN, reason="halt"
+            ),
+        )
+        events = list(
+            stream_fund(
+                model,
+                make_mandate(),
+                portfolio_id=PORTFOLIO_ID,
+                asof=ASOF,
+                session=session,
+                checkpointer=stream_env.saver,
+                store=stream_env.store,
+            )
+        )
+
+        terminal = events[-1]
+        assert terminal.kind == "incomplete"
+        assert not [e for e in events if e.kind == "paused"]
+        runs = AgentRunRepository(session)
+        assert runs.get_run(terminal.run_id).status == "rejected"
+        assert runs.list_paused_runs() == []
 
 
 @pytest.mark.parametrize(

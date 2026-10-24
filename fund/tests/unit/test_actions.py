@@ -2130,3 +2130,21 @@ def test_an_approve_does_not_complete_a_run_a_freeze_rejected_meanwhile(
     with env.get_session() as session:
         assert AgentRunRepository(session).get_run(env.run_id).status == "rejected"
         assert PositionRepository(session).get_holdings(PORTFOLIO_ID) == []
+
+
+def test_run_action_reports_a_run_halted_by_a_mid_round_freeze(clean_db) -> None:
+    """A round that ends ``rejected`` because a freeze landed has no gate awaiting
+    approval; the status line must not claim one."""
+    run_id = _paused_run(clean_db, status="rejected")
+    halted = SimpleNamespace(run_id=run_id, status="rejected")
+
+    with mock.patch("fund.agents.graph.run_fund", return_value=halted):
+        result = apply_action(
+            "run",
+            session=clean_db,
+            portfolio_id=PORTFOLIO_ID,
+            mandate=make_mandate(),
+        )
+
+    assert "frozen" in result.message
+    assert "awaiting approval" not in result.message

@@ -678,7 +678,9 @@ _FREEZE_SCOPES = ("run", "portfolio", "fund")
 _REARM_SCOPES = ("portfolio", "fund")
 
 
-def _reject_at_gate(session: Session, run_id: uuid.UUID) -> None:
+def _reject_at_gate(
+    session: Session, run_id: uuid.UUID, *, via: str | None = None
+) -> None:
     """Finalise one paused run as rejected straight in the DB — no graph, no model.
 
     Reject / killswitch / run-scope freeze are the human's emergency stop, so they must
@@ -687,7 +689,8 @@ def _reject_at_gate(session: Session, run_id: uuid.UUID) -> None:
     takes a post-reject model turn), and a failure there consumes the checkpoint's
     interrupt without recording the reject. The standing interrupt is left alone, as a
     portfolio/fund freeze leaves it: the finalised status keeps ``resume_fund`` from
-    ever re-driving it. Writes the same decision row the graph path logs for the gate.
+    ever re-driving it. Writes the same decision row the graph path logs for the gate,
+    tagged with ``via`` when something other than the adviser's own reject closed it.
     No commit (the caller owns it).
 
     Raises:
@@ -706,14 +709,7 @@ def _reject_at_gate(session: Session, run_id: uuid.UUID) -> None:
             "rejectable (it completed, failed, or was rejected/frozen/blocked since "
             "the gate opened)"
         )
-    if (run.optimizer_config or {}).get("step") == "profiler":
-        agent, step = "profiler", "save_profile"
-    else:
-        agent, step = "orchestrator", "place_orders"
-    repo.append_decision(
-        run_id, agent=agent, step=step, hitl_decision={"decision": "reject"}
-    )
-    repo.finalize_run(run_id, weights={}, status="rejected")
+    repo.reject_gate(run_id, via=via)
 
 
 def _reject_live_runs(session: Session, portfolio_id: uuid.UUID | None) -> None:
@@ -1330,8 +1326,10 @@ def _apply_run(
         store=store,
         config=config,
     )
-    halted = run.status == "paused" and halt_run_if_frozen(
-        session, run.run_id, portfolio_id
+    # ``run_fund`` itself rejects a round whose scope froze before the gate opened; a
+    # freeze that lands after it returned a paused run is caught by the second check.
+    halted = run.status == "rejected" or (
+        run.status == "paused" and halt_run_if_frozen(session, run.run_id, portfolio_id)
     )
     row = append_run_audit(
         session,

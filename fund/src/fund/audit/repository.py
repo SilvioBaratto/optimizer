@@ -197,6 +197,30 @@ class AgentRunRepository(RepositoryBase):
         )
         return bool(cast("CursorResult[Any]", result).rowcount == 1)
 
+    def reject_gate(
+        self, run_id: uuid.UUID, *, via: str | None = None
+    ) -> AgentRun | None:
+        """Finalise a run rejected at its HITL gate, recording the decision behind it.
+
+        Appends the gate's reject decision (the profiler's ``save_profile`` or the PM's
+        ``place_orders``, by the run's recorded step) and finalises the run
+        ``rejected`` with no weights. ``via`` names what rejected it when it was not
+        the adviser's own reject (e.g. ``"freeze"``), so the trail can tell the two
+        apart. The caller guards the run's state; ``None`` if the run is absent.
+        """
+        run = self.get_run(run_id)
+        if run is None:
+            return None
+        if (run.optimizer_config or {}).get("step") == "profiler":
+            agent, step = "profiler", "save_profile"
+        else:
+            agent, step = "orchestrator", "place_orders"
+        decision: dict[str, Any] = {"decision": "reject"}
+        if via is not None:
+            decision["via"] = via
+        self.append_decision(run_id, agent=agent, step=step, hitl_decision=decision)
+        return self.finalize_run(run_id, weights={}, status="rejected")
+
     def latest_optimizer_weights(self, run_id: uuid.UUID) -> dict[str, float]:
         """The single authoritative read of a run's optimizer weights.
 

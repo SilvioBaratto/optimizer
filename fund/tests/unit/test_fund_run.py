@@ -25,6 +25,7 @@ import math
 import re
 import uuid
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from _fund_fakes import (
@@ -32,6 +33,7 @@ from _fund_fakes import (
     BrokenPlaceOrdersFundModel,
     FreezeMidRunModel,
     ScriptedFundModel,
+    _count_tool_calls,
 )
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
@@ -44,6 +46,7 @@ from portopt_db.repositories.market_data.market_journal_repository import (
 from portopt_db.repositories.orders.portfolio_journal_repository import (
     PortfolioJournalRepository,
 )
+from pydantic import Field
 
 from fund.agents.graph import (
     FundRun,
@@ -892,6 +895,48 @@ def test_run_fund_halts_at_the_gate_when_frozen_while_in_flight(db_session) -> N
     row = AgentRunRepository(db_session).get_run(run.run_id)
     assert row.status == "rejected"
     assert _paper_orders(db_session) == []
+
+
+class _FreezeAfterDelegationModel(ScriptedFundModel):
+    """Scripted PM that has a freeze land after its first delegation."""
+
+    freeze: Any = Field(default=None, exclude=True)
+
+    def _pm_turn(self, messages):
+        if self.freeze is not None and _count_tool_calls(messages, "task"):
+            freeze, self.freeze = self.freeze, None
+            freeze()
+        return super()._pm_turn(messages)
+
+
+def test_a_freeze_landing_after_a_delegation_rejects_the_run_instead_of_opening_a_gate(
+    db_session,
+) -> None:
+    """The freeze committed while the round was running, so it found no gate to
+    reject. The round must not then publish a live gate in the frozen fund."""
+    _seed_panel(db_session)
+    expected = _expected_weights(db_session)
+    model = _FreezeAfterDelegationModel(
+        universe=_UNIVERSE,
+        weights=expected,
+        freeze=lambda: _freeze_fund_from_another_session(db_session),
+    )
+
+    run = _run(model, db_session, store=_store_with_cs())
+
+    assert run.status == "rejected"
+    assert run.interrupt is None
+    runs = AgentRunRepository(db_session)
+    finalized = runs.get_run(run.run_id)
+    assert finalized.status == "rejected"
+    assert finalized.weights == {}
+    assert runs.list_paused_runs() == []
+    assert _paper_orders(db_session) == []
+    assert [
+        d.hitl_decision
+        for d in _decisions(db_session, run.run_id)
+        if d.hitl_decision and d.hitl_decision.get("decision") == "halted"
+    ] == [{"decision": "halted", "reason": "frozen", "scope": "fund"}]
 
 
 def test_gate_shows_the_audited_weights_not_the_pm_typed_ones(db_session) -> None:

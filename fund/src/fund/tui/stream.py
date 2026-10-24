@@ -53,7 +53,8 @@ class StreamEvent:
     Attributes:
         kind: ``"step"`` for a pipeline step, or a single terminal marker ending the
             stream — ``"paused"`` (the ``place_orders`` gate is live and awaiting the
-            adviser), ``"incomplete"`` (the pipeline ended with no ticket), or
+            adviser), ``"incomplete"`` (no gate opened: the pipeline ended with no
+            ticket, or autonomy froze mid-round and the run was rejected), or
             ``"completed"``.
         run_id: The streamed run.
         index: Zero-based position in the emission order.
