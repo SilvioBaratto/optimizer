@@ -16,7 +16,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 from portopt_db.models import AgentDecision, AgentRun
-from sqlalchemy import event, update
+from sqlalchemy import event, select, update
 
 from fund.audit import AgentRunRepository
 from fund.audit.repository import RunNotOpenError
@@ -654,3 +654,47 @@ def test_newer_completed_rebalance_run_is_none_without_a_portfolio(db_session):
     _portfolio_run(repo, None, datetime(2026, 1, 6, 9), status="completed")
 
     assert repo.newer_completed_rebalance_run(base) is None
+
+
+# --- terminal statuses are never rewritten (a concurrent freeze must stick) ----
+
+
+def _stored_status(session, run_id) -> str:
+    return session.execute(
+        select(AgentRun.status).where(AgentRun.id == run_id)
+    ).scalar_one()
+
+
+def test_mark_paused_does_not_resurrect_a_concurrently_rejected_run(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    _set_status_behind_the_session(db_session, run.id, "rejected")
+
+    repo.mark_paused(run.id)
+
+    assert _stored_status(db_session, run.id) == "rejected"
+
+
+def test_mark_responded_does_not_resurrect_a_concurrently_rejected_run(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    repo.mark_paused(run.id)
+    _set_status_behind_the_session(db_session, run.id, "rejected")
+
+    repo.mark_responded(run.id)
+
+    assert _stored_status(db_session, run.id) == "rejected"
+
+
+def test_finalize_run_replaying_the_same_terminal_status_is_a_noop(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    first = repo.finalize_run(run.id, weights={"AAA": 1.0}, status="completed")
+    stamped = first.finished_at
+
+    replayed = repo.finalize_run(run.id, weights={"BBB": 1.0}, status="completed")
+
+    assert replayed is not None
+    assert replayed.status == "completed"
+    assert replayed.weights == {"AAA": 1.0}
+    assert replayed.finished_at == stamped

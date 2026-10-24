@@ -19,7 +19,7 @@ from typing import Any, TypeVar, cast
 
 from portopt_db.models import AgentDecision, AgentRun
 from portopt_db.repository import RepositoryBase
-from sqlalchemy import Select, func, or_, select, update
+from sqlalchemy import Select, func, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
@@ -165,8 +165,8 @@ class AgentRunRepository(RepositoryBase):
         it unset. A terminal status is final: the write is a compare-and-set on the
         stored status, not on the session's loaded copy, so a resolver that lost a race
         (an approve overtaken by a reject or a freeze, or the reverse) cannot overwrite
-        the winner's outcome. Re-stamping the *same* outcome is an idempotent replay
-        and still succeeds.
+        the winner's outcome. Re-stamping the *same* outcome is an idempotent replay:
+        it succeeds and leaves the first finalisation's weights and timestamp alone.
 
         Raises:
             RunNotOpenError: The run was already finalised with a different outcome.
@@ -185,15 +185,14 @@ class AgentRunRepository(RepositoryBase):
         self.session.flush()
         result = self.session.execute(
             update(AgentRun)
-            .where(
-                AgentRun.id == run_id,
-                or_(AgentRun.status.in_(_OPEN_RUN_STATUSES), AgentRun.status == status),
-            )
+            .where(AgentRun.id == run_id, AgentRun.status.in_(_OPEN_RUN_STATUSES))
             .values(**values)
             .execution_options(synchronize_session=False)
         )
         self.session.refresh(run)
-        if cast("CursorResult[Any]", result).rowcount != 1:
+        # A replay of the outcome the run already holds changes nothing: the first
+        # finalisation's weights and timestamp stand.
+        if cast("CursorResult[Any]", result).rowcount != 1 and run.status != status:
             raise RunNotOpenError(
                 f"agent_run {run_id} is {run.status!r}, already finalised; cannot "
                 f"finalise it {status!r}"
@@ -462,14 +461,12 @@ class AgentRunRepository(RepositoryBase):
         return run
 
     def mark_paused(self, run_id: uuid.UUID) -> AgentRun | None:
-        """Flip the run to ``"paused"`` at a HITL gate; ``None`` if not found."""
-        run = self.get_run(run_id)
-        if run is None:
-            return None
-        run.status = "paused"
-        self.session.flush()
-        self.session.refresh(run)
-        return run
+        """Flip the run to ``"paused"`` at a HITL gate; ``None`` if not found.
+
+        A run already finalised (a concurrent reject or freeze) keeps its outcome and
+        is never resurrected to a live gate.
+        """
+        return self._set_live_status(run_id, "paused")
 
     def mark_responded(self, run_id: uuid.UUID) -> AgentRun | None:
         """Flip the run to ``"responded"`` after a barge-in re-gate; ``None`` if absent.
@@ -481,13 +478,19 @@ class AgentRunRepository(RepositoryBase):
         :meth:`list_paused_runs`, still awaiting approval. A run that is no longer at a
         live gate (finalised by a concurrent reject or freeze) keeps its outcome.
         """
+        return self._set_live_status(run_id, "responded")
+
+    def _set_live_status(self, run_id: uuid.UUID, status: str) -> AgentRun | None:
+        """Move a run to a live-gate ``status`` unless it has already been finalised.
+
+        A compare-and-set on the stored status, not on the loaded copy: the caller read
+        the run before a long agent turn, so a freeze or reject that committed
+        ``rejected`` meanwhile must stay final instead of being flipped back to a live
+        gate (last-writer-wins would re-open a halted run).
+        """
         run = self.get_run(run_id)
         if run is None:
             return None
-        # A compare-and-set on the stored status, not on the loaded copy: the respond
-        # read the run before the PM's turn, so a freeze or reject that committed
-        # ``rejected`` meanwhile must stay final instead of being flipped back to a
-        # live gate (last-writer-wins would re-open a halted run).
         self.session.flush()
         self.session.execute(
             update(AgentRun)
@@ -495,7 +498,7 @@ class AgentRunRepository(RepositoryBase):
                 AgentRun.id == run_id,
                 AgentRun.status.in_(_OPEN_RUN_STATUSES),
             )
-            .values(status="responded")
+            .values(status=status)
             .execution_options(synchronize_session=False)
         )
         self.session.refresh(run)

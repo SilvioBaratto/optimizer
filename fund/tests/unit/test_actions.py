@@ -2215,3 +2215,38 @@ def test_a_freeze_records_every_run_it_halted(clean_db, scope) -> None:
     assert row.new_value["state"] == "frozen"
     assert row.new_value["reason"] == "drawdown breach"
     assert sorted(row.new_value["halted_runs"]) == sorted(map(str, expected_gate))
+
+
+def test_freeze_does_not_rewrite_a_run_an_approve_already_completed(
+    clean_db, monkeypatch
+) -> None:
+    """The killswitch must still complete when a run it listed as live was approved
+    first: that run keeps its ``completed`` status and the other runs are halted."""
+    from portopt_db.models import AgentRun
+    from sqlalchemy import update
+
+    repo = AgentRunRepository(clean_db)
+    approved = _paused_run(clean_db)
+    live = _paused_run(clean_db)
+    clean_db.commit()
+    # Listed as live, then approved by another session before the freeze finalises.
+    monkeypatch.setattr(
+        AgentRunRepository,
+        "list_paused_runs",
+        lambda self, portfolio_id=None: [repo.get_run(approved), repo.get_run(live)],
+    )
+    clean_db.execute(
+        update(AgentRun)
+        .where(AgentRun.id == approved)
+        .values(status="completed")
+        .execution_options(synchronize_session=False)
+    )
+
+    apply_action("freeze", session=clean_db, scope="fund")
+
+    stored = {
+        row.id: row.status for row in clean_db.query(AgentRun.id, AgentRun.status)
+    }
+    assert stored[approved] == "completed"
+    assert stored[live] == "rejected"
+    assert AutonomyRepository(clean_db).fund_posture() == "frozen"
