@@ -151,14 +151,21 @@ def _compute_gross_profitability(fundamentals: pd.DataFrame) -> pd.Series:
 
 
 def _compute_roe(fundamentals: pd.DataFrame) -> pd.Series:
-    """Return on equity = net income / total equity."""
+    """Return on equity = net income / total equity.
+
+    ROE is only meaningful for positive book equity: a loss-making firm with
+    negative equity would otherwise get a positive ratio (negative / negative)
+    and rank alongside the most profitable names.  Non-positive equity yields
+    NaN, the convention used by Fama-French RMW and AQR QMJ.
+    """
     ni = fundamentals.get("net_income")
     equity = fundamentals.get("total_equity", fundamentals.get("book_value"))
     if ni is None or equity is None:
         return pd.Series(dtype=float)
     ni_s = cast(pd.Series, ni)
     equity_s = cast(pd.Series, equity)
-    return (ni_s / equity_s).replace([np.inf, -np.inf], np.nan)
+    positive_equity = equity_s.where(equity_s > 0)
+    return (ni_s / positive_equity).replace([np.inf, -np.inf], np.nan)
 
 
 def _compute_accruals(fundamentals: pd.DataFrame) -> pd.Series:

@@ -1146,6 +1146,31 @@ class TestMinimumObservations:
             assert strict[["A", "B", "C"]].notna().all(), factor
 
 
+class TestNonPositiveDenominators:
+    """Ratios with a sign-sensitive denominator are undefined at <= 0."""
+
+    @pytest.fixture()
+    def _frame(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "market_cap": [1.0e9] * 5,
+                "net_income": [100.0, -100.0, 100.0, 100.0, 100.0],
+                "total_equity": [500.0, -50.0, -50.0, 0.0, 50.0],
+            },
+            index=pd.Index(["ok", "neg_ni_neg_eq", "pos_ni_neg_eq", "zero", "x"]),
+        )
+
+    def test_roe_is_nan_for_non_positive_equity(
+        self, _frame: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        result = compute_factor(FactorType.ROE, _frame, _tiny_prices)
+        assert result["ok"] == pytest.approx(0.2)
+        assert np.isnan(result["neg_ni_neg_eq"])
+        assert np.isnan(result["pos_ni_neg_eq"])
+        assert np.isnan(result["zero"])
+        assert result["x"] == pytest.approx(2.0)
+
+
 class TestBetaDegenerateMarket:
     """A near-zero market variance produces NaN betas rather than huge values."""
 
