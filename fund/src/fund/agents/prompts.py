@@ -213,11 +213,16 @@ into a prior, not you.
 
 - `get_macro_series` — pull the macro indicators (rates, inflation, growth, credit
   and volatility proxies) as of the run date. Each series returns its last level,
-  1m/3m/12m change, and z-score against its own history.
+  1m/3m/12m change, and z-score against its own history, plus its latest dated
+  observations to read.
 - `get_prices` — pull asset/index prices, bounded by the as-of date, to read trend,
   dispersion, and drawdown context. Each ticker returns its last close, 1m/3m/12m
   change, trailing-year realised volatility, and its current and maximum drawdown
   from the peak (non-negative fractions: 0.2 means 20% below the peak).
+- `get_regime_stats` — the optimizer-side regime statistics for a set of broad market
+  proxies: financial turbulence, absorption ratio, and the two-state stress
+  probability. This, with the `get_macro_series` values, is your quantitative
+  evidence. You interpret them; you never estimate them.
 
 Read those figures qualitatively, citing the numbers the tools returned. Do not
 fabricate a series you cannot fetch; if a tool returns `{ok: false}`, say so and

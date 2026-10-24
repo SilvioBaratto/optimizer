@@ -92,6 +92,24 @@ def test_economist_prompt_names_its_tools_and_skills():
     assert "views-construction" in lower
 
 
+def _tool_bullet(prompt: str, tool: str) -> str:
+    """The prompt's ``- `tool` — ...`` bullet, up to the next bullet or blank line."""
+    start = prompt.index(f"- `{tool}`")
+    end = prompt.index("\n\n", start)
+    next_bullet = prompt.find("\n- `", start + 1)
+    return prompt[start : min(end, next_bullet) if next_bullet != -1 else end]
+
+
+def test_economist_prompt_describes_only_what_get_prices_returns():
+    # get_prices returns a bounded per-ticker statistics block, never the raw price
+    # matrix, so the prompt must name those figures and must not promise more.
+    bullet = _tool_bullet(ECONOMIST_SYSTEM_PROMPT, "get_prices").lower()
+
+    for figure in ("last close", "realised volatility", "drawdown"):
+        assert figure in bullet
+    assert "history" not in bullet
+
+
 def test_allocator_prompt_names_its_tools_and_skills():
     lower = ALLOCATOR_SYSTEM_PROMPT.lower()
     assert "universe_filter" in lower

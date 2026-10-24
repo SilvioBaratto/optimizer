@@ -34,7 +34,7 @@ _BUILTINS = frozenset(
     }
 )
 
-# The 10 real @tools; kept in sync with fund.tools.__all__ by a test below.
+# The 11 real @tools; kept in sync with fund.tools.__all__ by a test below.
 # ``get_recent_events`` / ``get_portfolio_history`` are the Phase-4 history tools
 # (economist / orchestrator) — available but not mandated by any skill prompt, so
 # they are absent from ``_EXPECTED_TOOLS``.
@@ -43,6 +43,7 @@ _REAL_TOOLS = frozenset(
         "get_prices",
         "get_macro_series",
         "get_recent_events",
+        "get_regime_stats",
         "estimate_moments",
         "optimize_portfolio",
         "universe_filter",
@@ -58,7 +59,7 @@ _REAL_TOOLS = frozenset(
 _EXPECTED_TOOLS: dict[str, frozenset[str]] = {
     "fund-orchestration": frozenset({"task"}),
     "mifid-profiling": frozenset(),
-    "macro-regime-read": frozenset({"get_macro_series"}),
+    "macro-regime-read": frozenset({"get_macro_series", "get_regime_stats"}),
     "views-construction": frozenset(),
     "universe-preselection": frozenset({"universe_filter", "estimate_moments"}),
     "optimization-objective-map": frozenset({"optimize_portfolio"}),

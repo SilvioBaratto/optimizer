@@ -21,10 +21,14 @@ mixture probability); the LLM only INTERPRETS them into a label and a narrative.
 Never invent a probability, an expected return, or a weight.
 
 ## Procedure
-1. Pull the series with `get_macro_series(names, asof)` (yield curve, credit
-   spreads, realised vol, ...). Large frames stay in the tool; read the per-series
-   `stats` (last level, 1m/3m/12m change, z-score against its history).
-2. Read the optimizer regime output (turbulence / absorption ratio / mixture prob).
+1. Pull the series with `get_macro_series(names)` (yield curve, credit spreads,
+   realised vol, ...). Large frames stay in the tool; read the per-series `stats`
+   (last level, 1m/3m/12m change, z-score against its history) and the `latest` and
+   `recent` dated values, not the coverage fields alone.
+2. Call `get_regime_stats(tickers)` over broad market proxies and read the
+   optimizer's turbulence (with its percentile), absorption ratio (with its change
+   over a quarter) and mixture stress probability. If it returns `{ok: false}`, say
+   the regime statistics are unavailable instead of estimating them.
 3. Map to a regime enum (see reference.md): calm / normal / turbulent / stress.
 4. Emit a typed regime read (label + drivers + confidence) for `views-construction`.
 

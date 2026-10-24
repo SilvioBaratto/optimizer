@@ -3,7 +3,8 @@
 The macro tool feeds the regime/views agents. These tests pin its contract as a
 pure function of a seeded SQLite DB of FRED observations:
 
-* it hands back a shape/coverage **summary**, never the raw observation frame;
+* it hands back a shape/coverage **summary** plus a bounded view of the latest
+  observed values, never the raw observation frame;
 * it respects the ``asof`` upper bound (no look-ahead);
 * an unknown series / a series with no observations is **flagged**, not raised;
 * empty ``names`` degrades to ``{ok: false}``;
@@ -229,6 +230,72 @@ class TestGetMacroSeriesPublicationLag:
 
         assert on_own_date["data"]["rows"] == 0
         assert next_day["data"]["rows"] == 1
+
+
+class TestGetMacroSeriesObservedValues:
+    def test_latest_is_the_last_observation_per_series(self, db_session) -> None:
+        _two_series_panel(db_session)
+
+        data = get_macro_series(db_session, ["T10Y2Y", "VIXCLS"], _ASOF)["data"]
+
+        assert data["latest"] == {
+            "T10Y2Y": {"date": "2024-01-04", "value": 0.11},
+            "VIXCLS": {"date": "2024-01-04", "value": 12.5},
+        }
+
+    def test_latest_ignores_observations_after_asof(self, db_session) -> None:
+        _seed_series(
+            db_session,
+            "T10Y2Y",
+            {dt.date(2024, 1, 3): 0.12, dt.date(2024, 1, 10): 9.99},
+        )
+
+        data = get_macro_series(db_session, ["T10Y2Y"], _ASOF)["data"]
+
+        assert data["latest"]["T10Y2Y"] == {"date": "2024-01-03", "value": 0.12}
+
+    def test_latest_is_per_series_when_dates_do_not_align(self, db_session) -> None:
+        _seed_series(db_session, "AAA", {dt.date(2024, 1, 2): 1.0})
+        _seed_series(db_session, "BBB", {dt.date(2024, 1, 3): 2.0})
+
+        data = get_macro_series(db_session, ["AAA", "BBB"], _ASOF)["data"]
+
+        assert data["latest"]["AAA"]["date"] == "2024-01-02"
+        assert data["latest"]["BBB"]["date"] == "2024-01-03"
+
+    def test_recent_tail_is_bounded_and_oldest_first(self, db_session) -> None:
+        days = [dt.date(2023, 12, 1) + dt.timedelta(days=i) for i in range(30)]
+        _seed_series(db_session, "VIXCLS", {d: float(i) for i, d in enumerate(days)})
+
+        data = get_macro_series(db_session, ["VIXCLS"], _ASOF, tail=5)["data"]
+
+        recent = data["recent"]["VIXCLS"]
+        assert [point["value"] for point in recent] == [25.0, 26.0, 27.0, 28.0, 29.0]
+        assert recent[-1] == data["latest"]["VIXCLS"]
+
+    def test_default_tail_never_exceeds_twelve_points(self, db_session) -> None:
+        days = [dt.date(2023, 12, 1) + dt.timedelta(days=i) for i in range(30)]
+        _seed_series(db_session, "VIXCLS", {d: float(i) for i, d in enumerate(days)})
+
+        data = get_macro_series(db_session, ["VIXCLS"], _ASOF)["data"]
+
+        assert len(data["recent"]["VIXCLS"]) == 12
+
+    def test_tail_is_capped_so_the_reply_stays_bounded(self, db_session) -> None:
+        days = [dt.date(2023, 1, 1) + dt.timedelta(days=i) for i in range(200)]
+        _seed_series(db_session, "VIXCLS", {d: float(i) for i, d in enumerate(days)})
+
+        data = get_macro_series(db_session, ["VIXCLS"], _ASOF, tail=10_000)["data"]
+
+        assert len(data["recent"]["VIXCLS"]) == 60
+
+    def test_missing_series_has_no_observed_values(self, db_session) -> None:
+        _two_series_panel(db_session)
+
+        data = get_macro_series(db_session, ["T10Y2Y", "NOPE"], _ASOF)["data"]
+
+        assert "NOPE" not in data["latest"]
+        assert "NOPE" not in data["recent"]
 
 
 class TestGetMacroSeriesFlagsAndErrors:

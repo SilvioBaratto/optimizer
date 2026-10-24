@@ -7,7 +7,7 @@ model-facing args (never a ``Session``) — mirroring the profiler's
 LangGraph store:
 
 * ``TOOLS_BY_AGENT`` keys equal the skill registry's, and its values partition the
-  eight real ``fund.tools`` exports (a bijection);
+  real ``fund.tools`` exports (a bijection);
 * every bound tool is a ``BaseTool`` whose args schema omits ``session``;
 * the closures return the ``{ok, data}`` envelope and never raise;
 * the resolved ``ConstraintSet`` is translated into the tools' existing arg dicts;
@@ -27,6 +27,7 @@ import pytest
 from langchain_core.tools import BaseTool
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision
+from portopt_db.models.macro.macro_regime import FredObservation
 from portopt_db.models.market_data.yfinance_data import PriceHistory, TickerProfile
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repositories.market_data.market_journal_repository import (
@@ -79,6 +80,34 @@ def _seed_panel(db_session) -> None:
         db_session.add(inst)
         db_session.flush()
         for i in range(_N_DAYS):
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=_START + dt.timedelta(days=i),
+                    close=_close_on(start, phase, i),
+                    volume=1000,
+                )
+            )
+    db_session.flush()
+
+
+def _seed_long_panel(db_session, n_days: int = 160) -> None:
+    """Seed ``n_days`` bars per ticker; the run date is ``_ASOF`` (bar 29)."""
+    for ticker, (start, phase) in _SERIES.items():
+        ex = Exchange(name=f"EX-{ticker}")
+        db_session.add(ex)
+        db_session.flush()
+        inst = Instrument(
+            ticker=ticker,
+            short_name=ticker,
+            exchange_id=ex.id,
+            instrument_type="EQUITY",
+            asset_class="equity",
+            yfinance_ticker=ticker,
+        )
+        db_session.add(inst)
+        db_session.flush()
+        for i in range(n_days):
             db_session.add(
                 PriceHistory(
                     instrument_id=inst.id,
@@ -238,6 +267,56 @@ def test_bound_macro_flags_missing_series(db_session) -> None:
 
     assert result["ok"] is True
     assert result["data"]["missing"] == ["CPIAUCSL"]
+
+
+def test_bound_macro_returns_observed_values_for_the_economist(db_session) -> None:
+    for day, value in {dt.date(2024, 1, 25): 0.31, dt.date(2024, 1, 26): -0.05}.items():
+        db_session.add(FredObservation(series_id="T10Y2Y", date=day, value=value))
+    db_session.flush()
+    ctx = _make_context(db_session)
+    macro = _find(bind_toolset("economist", ctx), "get_macro_series")
+
+    result = macro.invoke({"names": ["T10Y2Y"]})
+
+    assert result["ok"] is True
+    assert result["data"]["latest"]["T10Y2Y"] == {"date": "2024-01-26", "value": -0.05}
+    assert [p["value"] for p in result["data"]["recent"]["T10Y2Y"]] == [0.31, -0.05]
+
+
+def test_economist_binds_the_regime_statistics_tool(db_session) -> None:
+    ctx = _make_context(db_session)
+    tools = bind_toolset("economist", ctx)
+
+    regime = _find(tools, "get_regime_stats")
+
+    assert "session" not in regime.args
+    assert set(regime.args) == {"tickers"}
+
+
+def test_bound_regime_stats_runs_over_the_run_date_panel(db_session) -> None:
+    _seed_long_panel(db_session)
+    asof = _START + dt.timedelta(days=119)
+    ctx = dataclasses.replace(_make_context(db_session), asof=asof)
+    regime = _find(bind_toolset("economist", ctx), "get_regime_stats")
+
+    result = regime.invoke({"tickers": _UNIVERSE})
+
+    assert result["ok"] is True
+    assert result["data"]["asof"] == asof.isoformat()
+    assert result["data"]["window_end"] == asof.isoformat()
+    assert "turbulence" in result["data"]
+    assert "absorption_ratio" in result["data"]
+
+
+def test_bound_regime_stats_degrades_via_envelope_on_thin_history(db_session) -> None:
+    _seed_panel(db_session)  # 29 priced bars before the run date: too few
+    ctx = _make_context(db_session)
+    regime = _find(bind_toolset("economist", ctx), "get_regime_stats")
+
+    result = regime.invoke({"tickers": _UNIVERSE})
+
+    assert result["ok"] is False
+    assert "observations" in result["error"]
 
 
 # --- history tools: role binding + envelope round-trips (T9) ------------------

@@ -3,9 +3,9 @@
 Reads FRED observations out of the shared ``portopt_db`` layer via
 :class:`~portopt_db.repositories.macro.macro_regime_repository.MacroRegimeRepository`
 and hands the agent a JSON-serialisable shape/coverage **summary** plus a bounded
-set of per-series statistics (level, horizon changes, z-score) — never the raw
-observation matrix. The tool is a pure function of ``(session,
-names, asof)``: same seeded data + same args ⇒ identical output.
+set of per-series statistics (level, horizon changes, z-score) and the latest observed
+values — never the raw observation matrix. The tool is a pure function of
+``(session, names, asof)``: same seeded data + same args ⇒ identical output.
 
 Contract (via :func:`fund.tools._base.tool_envelope`):
 
@@ -25,7 +25,7 @@ import datetime as dt
 import itertools
 import statistics
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 from portopt_db.repositories.macro.macro_regime_repository import (
@@ -44,6 +44,11 @@ from fund.tools._stats import level_stats
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+
+# Trailing observations returned per series; the cap keeps the reply bounded however
+# long the stored history is, so a regime read gets numbers without a raw matrix.
+_DEFAULT_TAIL = 12
+_MAX_TAIL = 60
 
 # FRED stores each observation under its period-start date, but the value only
 # exists once the statistical agency has published it. ``fred_observations``
@@ -157,11 +162,34 @@ def load_macro_frame(
     return frame, missing
 
 
+def _observed_values(
+    frame: pd.DataFrame, tail: int
+) -> tuple[dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    """The latest and trailing-``tail`` non-null observations of each series.
+
+    Series with different frequencies or publication lags are read independently,
+    so each ``latest`` is that series' own last observation, not the panel's last row.
+    """
+    latest: dict[str, dict[str, Any]] = {}
+    recent: dict[str, list[dict[str, Any]]] = {}
+    for name in frame.columns:
+        observed = frame[name].dropna().tail(tail)
+        points = [
+            {"date": index.date().isoformat(), "value": float(value)}
+            for index, value in observed.items()
+        ]
+        recent[str(name)] = points
+        latest[str(name)] = dict(points[-1])
+    return latest, recent
+
+
 @tool_envelope
 def get_macro_series(
     session: Session,
     names: Sequence[str],
     asof: dt.date | str,
+    *,
+    tail: int = _DEFAULT_TAIL,
 ) -> ToolResult:
     """Return a macro-series-panel summary and per-series statistics as of ``asof``.
 
@@ -173,14 +201,18 @@ def get_macro_series(
             published by it, are excluded (no look-ahead). Live reads are lagged
             too, so the newest monthly and quarterly prints may be absent. Accepts
             a ``date`` or an ISO ``YYYY-MM-DD`` string.
+        tail: Trailing observations to return per series; clamped to
+            ``[1, 60]``.
 
     Returns:
         ``ok`` with a shape/coverage summary of the wide macro frame, plus
         ``asof``, ``requested``, ``missing`` (requested series absent from the
-        panel) and ``stats``: per populated series its ``last`` level and
+        panel), ``stats`` (per populated series its ``last`` level and
         ``last_date``, the level differences ``change_1m``/``change_3m``/
         ``change_12m`` and the ``zscore`` of the last level against the series'
-        history to ``asof``. ``err`` on empty ``names``.
+        history to ``asof``), ``latest`` (each series' last observation as
+        ``{date, value}``) and ``recent`` (its trailing ``tail`` observations, oldest
+        first). ``err`` on empty ``names``.
     """
     if not names:
         return err("no series requested")
@@ -192,6 +224,9 @@ def get_macro_series(
     summary["requested"] = list(names)
     summary["missing"] = missing
     summary["stats"] = level_stats(frame)
+    summary["latest"], summary["recent"] = _observed_values(
+        frame, max(1, min(tail, _MAX_TAIL))
+    )
     return ok(summary)
 
 

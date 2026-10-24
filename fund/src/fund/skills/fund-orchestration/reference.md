@@ -7,7 +7,7 @@ On-demand support for `fund-orchestration`. Points to the theory; never copies i
 | # | Step | Agent | Emits (structured) | Tool surface |
 |---|---|---|---|---|
 | 0 | Profile | profiler | ConstraintSet | mifid mapping (once / annual) |
-| 1 | Regime + views | economist | regime label, ViewSet | get_macro_series |
+| 1 | Regime + views | economist | regime label, ViewSet | get_macro_series, get_regime_stats |
 | 2 | Universe + optimize | allocator | filters, optimizer config, weights | universe_filter, estimate_moments, optimize_portfolio |
 | 3 | Validate | risk | passed / violations (BLOCKING) | risk_check, backtest |
 | 4 | Execute | executor | paper orders (HITL) | place_orders |

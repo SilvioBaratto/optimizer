@@ -63,18 +63,23 @@ if TYPE_CHECKING:
     from fund.schemas import ConstraintSet
 
 # Canonical role → tool-name map. Keys are the ``skills.SKILLS_BY_AGENT`` role
-# keys verbatim; the values **partition** the eight real ``fund.tools`` exports
+# keys verbatim; the values **partition** the real ``fund.tools`` exports
 # (a bijection — every tool assigned to exactly one role, none twice). The
-# economist reads the market/macro panels narratively (D-regime), the allocator
-# owns the critical path, the risk agent owns the blocking gate, and the PM
-# commits orders (``place_orders`` is a top-level PM tool behind the HITL gate —
+# economist reads the market/macro panels and the regime statistics (D-regime), the
+# allocator owns the critical path, the risk agent owns the blocking gate, and the
+# PM commits orders (``place_orders`` is a top-level PM tool behind the HITL gate —
 # the executor *proposes*, the PM *commits*). The profiler's ``save_profile`` is
-# built separately (not one of these eight), so ``profiler``/``executor`` bind no
-# tool from this set.
+# built separately (not one of these), so ``profiler``/``executor`` bind no tool
+# from this set.
 TOOLS_BY_AGENT: dict[str, tuple[str, ...]] = {
     "orchestrator": ("place_orders", "get_portfolio_history"),
     "profiler": (),
-    "economist": ("get_macro_series", "get_prices", "get_recent_events"),
+    "economist": (
+        "get_macro_series",
+        "get_prices",
+        "get_recent_events",
+        "get_regime_stats",
+    ),
     "allocator": ("universe_filter", "estimate_moments", "optimize_portfolio"),
     "risk": ("risk_check", "backtest"),
     "executor": (),
@@ -103,9 +108,10 @@ class RunContext:
     portfolio_id: uuid.UUID
     # The moments/backtest lookback — 3y rolling (~756 trading days), a
     # run-config value (never a ``ConstraintSet`` field). Wired into ``backtest``
-    # (which accepts a ``window``); ``estimate_moments`` / ``optimize_portfolio``
-    # take no start bound in the frozen Phase-3 backbone, so it is recorded on the
-    # run but inert there. Additive default keeps existing callers unchanged.
+    # (which accepts a ``window``) and ``get_regime_stats``;
+    # ``estimate_moments`` / ``optimize_portfolio`` take no start bound in the frozen
+    # Phase-3 backbone, so it is recorded on the run but inert there. Additive
+    # default keeps existing callers unchanged.
     lookback_days: int = 756
     base_currency: str | None = None
 
@@ -401,6 +407,13 @@ def _place_orders_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult
 
 
 @tool_envelope
+def _get_regime_stats_impl(ctx: RunContext, tickers: list[str]) -> ToolResult:
+    return _tools.get_regime_stats(
+        ctx.session, ctx.asof, tickers, window=ctx.lookback_days
+    )
+
+
+@tool_envelope
 def _get_recent_events_impl(ctx: RunContext, window: int = 14) -> ToolResult:
     return _tools.get_recent_events(ctx.session, ctx.asof, window=window)
 
@@ -442,7 +455,8 @@ def _bind_get_macro(ctx: RunContext) -> BaseTool:
     def get_macro_series(names: list[str]) -> ToolResult:
         """Macro-series statistics for the FRED ``names`` as of the run date.
         Returns the ``{ok, data}`` envelope: per series the last level, its
-        1m/3m/12m change and z-score against its history, plus a coverage summary.
+        1m/3m/12m change and z-score against its history, its ``latest`` observation
+        and a short ``recent`` tail of dated values, plus a coverage summary.
         Observations appear only after an estimated publication lag, so the newest
         monthly/quarterly prints may be absent and the NBER recession flags
         (``USREC``/``USRECDM``) are never shown. Absent series are flagged in
@@ -536,6 +550,22 @@ def _bind_place_orders(ctx: RunContext) -> BaseTool:
     return place_orders
 
 
+def _bind_get_regime_stats(ctx: RunContext) -> BaseTool:
+    from langchain_core.tools import tool
+
+    @tool
+    def get_regime_stats(tickers: list[str]) -> ToolResult:
+        """Regime statistics for the joint behaviour of ``tickers`` (use broad
+        market proxies) up to the run date: financial turbulence with its window
+        percentile, the absorption ratio and its change over a quarter, and the
+        two-state stress probability. The optimizer side computes them — you only
+        interpret. Returns the ``{ok, data}`` envelope; needs two priced assets and
+        ~60 trading days."""
+        return _get_regime_stats_impl(ctx, tickers)
+
+    return get_regime_stats
+
+
 def _bind_get_recent_events(ctx: RunContext) -> BaseTool:
     from langchain_core.tools import tool
 
@@ -566,6 +596,7 @@ _BUILDERS: dict[str, Any] = {
     "get_prices": _bind_get_prices,
     "get_macro_series": _bind_get_macro,
     "get_recent_events": _bind_get_recent_events,
+    "get_regime_stats": _bind_get_regime_stats,
     "universe_filter": _bind_universe_filter,
     "estimate_moments": _bind_estimate_moments,
     "optimize_portfolio": _bind_optimize,
