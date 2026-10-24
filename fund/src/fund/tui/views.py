@@ -2369,6 +2369,26 @@ def _pct(value: float | None) -> str:
     return f"{value:+.2%}" if value is not None else "—"
 
 
+def _unsigned_pct(value: float | None) -> str:
+    """An unsigned-percent cell for a magnitude metric (volatility, tracking error).
+
+    These are non-negative by construction, so a ``+`` would only imply a gain.
+    """
+    return f"{value:.2%}" if value is not None else "—"
+
+
+def _drawdown_pct(value: float | None) -> str:
+    """A drawdown cell shown as the loss it is (``-6.00%``), or ``—`` when unavailable.
+
+    ``PerformanceSummary.max_drawdown`` is a non-negative magnitude, so the sign is
+    applied here; a drawdown that rounds to zero stays unsigned rather than ``-0.00%``.
+    """
+    if value is None:
+        return "—"
+    shown = f"{abs(value):.2%}"
+    return shown if shown == "0.00%" else f"-{shown}"
+
+
 def _ratio(value: float | None) -> str:
     """A 2-dp ratio cell (sharpe / beta), or ``—`` when unavailable."""
     return f"{value:.2f}" if value is not None else "—"
@@ -2536,9 +2556,10 @@ class PerformanceView(ShellView):
             f"{h} {_pct(summary.excess.get(h))}" for h in _PERF_HORIZONS
         )
         risk_line = (
-            f"RISK  sharpe {_ratio(summary.sharpe)} · vol {_pct(summary.volatility)} · "
-            f"max-dd {_pct(summary.max_drawdown)} · "
-            f"TE {_pct(summary.tracking_error)} · β {_ratio(summary.beta)}\n"
+            f"RISK  sharpe {_ratio(summary.sharpe)} · "
+            f"vol {_unsigned_pct(summary.volatility)} · "
+            f"max-dd {_drawdown_pct(summary.max_drawdown)} · "
+            f"TE {_unsigned_pct(summary.tracking_error)} · β {_ratio(summary.beta)}\n"
             f"EXCESS  {excess}"
         )
         returns_widget.update(returns_line)

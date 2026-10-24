@@ -7583,6 +7583,48 @@ async def test_daily_brief_poll_result_for_a_departed_day_is_dropped(
         assert view.brief.asof == date(2026, 10, 5)  # not clobbered by the stale read
 
 
+@pytest.mark.asyncio
+async def test_performance_risk_strip_shows_drawdown_as_loss_and_risk_unsigned(
+    shell_env, monkeypatch
+) -> None:
+    """Drawdown reads as a loss (-x%); volatility and tracking error carry no sign.
+
+    ``PerformanceSummary.max_drawdown`` is a non-negative magnitude, so a bare signed
+    format would print a 6% drawdown as ``+6.00%`` — indistinguishable from a gain.
+    """
+    from fund.performance import PerformanceSummary
+
+    def _summary(max_drawdown: float) -> PerformanceSummary:
+        return PerformanceSummary(
+            portfolio_id=_PID_A,
+            returns={"1D": -0.01, "1M": None, "YTD": None, "1Y": None, "max": -0.06},
+            excess={"1D": None, "1M": None, "YTD": None, "1Y": None, "max": None},
+            tracking_error=0.02,
+            max_drawdown=max_drawdown,
+            volatility=0.4815,
+            sharpe=-0.5,
+            beta=1.1,
+        )
+
+    monkeypatch.setattr(
+        observe, "performance_summary", lambda *_a, **_k: _summary(0.06)
+    )
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        assert "max-dd -6.00%" in view.summary_text
+        assert "vol 48.15%" in view.summary_text
+        assert "TE 2.00%" in view.summary_text
+        assert "+" not in view.summary_text.split("RISK", 1)[1].split("EXCESS")[0]
+
+        monkeypatch.setattr(
+            observe, "performance_summary", lambda *_a, **_k: _summary(0.0)
+        )
+        app._refresh()
+        await pilot.pause()
+        assert "max-dd 0.00%" in view.summary_text
+
+
 # --- Posture NAV tile (Phase 08 T3) -----------------------------------------
 
 
