@@ -69,6 +69,8 @@ def render_readout(
     step: str | None,
     payload: Mapping[str, Any] | None,
     compute: ResultsCompute | RiskCompute | None = None,
+    *,
+    expandable: bool = True,
 ) -> str | None:
     """Render an agent step's recorded artifacts as plain-text sub-panels.
 
@@ -79,6 +81,10 @@ def render_readout(
         compute: The worker's recompute result — a ``ResultsCompute`` for an allocator
             step or a ``RiskCompute`` for a risk step — which fills the frontier /
             backtest / verdict / sector lines. ``None`` leaves them as pending markers.
+        expandable: Whether the surface can recompute on demand. A risk step with no
+            ``compute`` is nothing but pending markers, so where nothing can resolve
+            them (the live stream) it yields no read-out rather than advertise an
+            action the adviser cannot take.
 
     Returns:
         The rendered sub-panels joined by newlines, or ``None`` when the step has no
@@ -87,7 +93,7 @@ def render_readout(
     if agent == _ALLOCATOR_AGENT and (payload or compute is not None):
         safe = payload or {}
         return "\n".join([*_build_block(safe), *_results_block(safe, compute)])
-    if agent == _RISK_AGENT:
+    if agent == _RISK_AGENT and (expandable or compute is not None):
         return "\n".join(_risk_block(compute))
     return None
 

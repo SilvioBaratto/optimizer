@@ -2149,22 +2149,28 @@ def _stream_detail(event: StreamEvent) -> str:
     lines = [f"{event.agent} · {event.step or event.kind} · #{event.index}"]
     if event.text:
         lines.append(event.text)
-    body = _detail_payload(event.agent, event.step, event.payload)
+    body = _detail_payload(event.agent, event.step, event.payload, expandable=False)
     if body:
         lines.append(body)
     return "\n".join(lines)
 
 
 def _detail_payload(
-    agent: str, step: str | None, payload: dict[str, Any] | None, compute: Any = None
+    agent: str,
+    step: str | None,
+    payload: dict[str, Any] | None,
+    compute: Any = None,
+    *,
+    expandable: bool = True,
 ) -> str:
     """Structured read-out for an allocator/risk step, else the raw JSON dump (or "").
 
     A risk step carries no payload, so :func:`render_readout` is always consulted; only
     an unmapped step with a payload falls back to the JSON dump. ``compute`` fills the
-    recomputed frontier/backtest/verdict/sector lines when present.
+    recomputed frontier/backtest/verdict/sector lines when present. ``expandable`` is
+    ``False`` on the live stream, where the expand key does nothing.
     """
-    readout = render_readout(agent, step, payload, compute)
+    readout = render_readout(agent, step, payload, compute, expandable=expandable)
     if readout is not None:
         return readout
     if payload:

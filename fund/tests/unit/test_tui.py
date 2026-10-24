@@ -10841,3 +10841,38 @@ async def test_questionnaire_enter_in_a_text_field_submits(shell_env) -> None:
         assert not isinstance(app.screen, QuestionnaireScreen)
     assert len(results) == 1
     assert results[0].capital == Decimal("100000")
+
+
+def test_live_risk_event_does_not_advertise_a_recompute_it_cannot_run() -> None:
+    """Recompute is replay-only, so a live risk report must show its own text, not a
+    'compute to view' verdict the adviser has no key to resolve."""
+    from fund.tui.views import _stream_detail
+
+    event = StreamEvent(
+        kind="step",
+        run_id=uuid.uuid4(),
+        index=3,
+        agent="risk",
+        step="report",
+        status=StepStatus.LIVE,
+        text="all names inside the mandate bounds",
+    )
+    detail = _stream_detail(event)
+    assert "all names inside the mandate bounds" in detail
+    assert "compute to view" not in detail
+    assert "pending" not in detail
+
+
+def test_readout_risk_skips_pending_markers_where_recompute_is_unavailable() -> None:
+    """A surface that cannot expand gets no read-out for a risk step (the caller keeps
+    the raw text), but a recompute that is already in hand still renders."""
+    from fund import readouts_compute
+    from fund.tui.readouts import render_readout
+
+    assert render_readout("risk", "report", None, expandable=False) is None
+    compute = readouts_compute.RiskCompute(
+        passed=True, violations=(), sector_exposures=None, error=None
+    )
+    text = render_readout("risk", "risk_check", None, compute, expandable=False)
+    assert text is not None
+    assert "● ok" in text
