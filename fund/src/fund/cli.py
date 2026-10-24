@@ -133,6 +133,20 @@ def _actor() -> str:
         return "human"
 
 
+def _check_drift(drift: float | None) -> None:
+    """Reject a ``--drift`` outside ``(0, 2)``, e.g. ``5`` typed for "5%".
+
+    The mandate schema enforces the same bound; checking here first gives a unit hint
+    and fails before the model is built or the stored mandate is read.
+    """
+    limit = PortfolioMandate.MAX_DRIFT_L1
+    if drift is not None and not 0 < drift < limit:
+        _fail(
+            f"invalid --drift {drift}: the L1 weight drift lies in (0, {limit:g}), "
+            "so pass a fraction (0.05 for 5%)"
+        )
+
+
 def _to_decimal(capital: float) -> Decimal:
     try:
         return Decimal(str(capital))
@@ -223,7 +237,9 @@ def mandate_set(
         None, "--base-currency", help="ISO-4217 code; default EUR for a new mandate."
     ),
     drift: float | None = typer.Option(
-        None, "--drift", help="L1 drift threshold (>0); default 0.1 for a new mandate."
+        None,
+        "--drift",
+        help="L1 drift threshold in (0, 2), 0.05 = 5%; default 0.1 for a new mandate.",
     ),
     benchmark: str | None = typer.Option(
         None, "--benchmark", help="Tracking benchmark."
@@ -237,6 +253,7 @@ def mandate_set(
     """
     _boot()
     pid = _uuid(portfolio_id, label="portfolio id")
+    _check_drift(drift)
     with get_session() as session:
         existing = observe.get_mandate(session, pid)
         mandate = _build_mandate(
@@ -334,7 +351,9 @@ def run(
     asof: str = typer.Option(..., "--asof", help="Decision bar (ISO date)."),
     capital: float | None = typer.Option(None, "--capital"),
     base_currency: str | None = typer.Option(None, "--base-currency"),
-    drift: float | None = typer.Option(None, "--drift"),
+    drift: float | None = typer.Option(
+        None, "--drift", help="L1 drift threshold in (0, 2), 0.05 = 5%."
+    ),
     benchmark: str | None = typer.Option(None, "--benchmark"),
     interrupt_on: list[str] | None = _INTERRUPT_ON,
 ) -> None:
@@ -343,6 +362,7 @@ def run(
     _boot()
     pid = _uuid(portfolio_id, label="portfolio id")
     run_asof = _parse_date(asof)
+    _check_drift(drift)
     flags_given = (
         capital is not None
         or base_currency is not None

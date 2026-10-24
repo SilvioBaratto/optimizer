@@ -1529,6 +1529,22 @@ async def test_mandate_save_run_policy_persists_and_logs(shell_env) -> None:
 
 
 @pytest.mark.asyncio
+async def test_mandate_save_rejects_an_unbreachable_drift_threshold(shell_env) -> None:
+    # `5` typed for "5%" exceeds the L1 maximum of 2: the trigger would never fire.
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = "5"
+        app.action_save_mandate()
+        await pilot.pause()
+        assert "invalid mandate" in app.last_status
+    with shell_env.get_session() as session:
+        assert observe.get_mandate(session, PORTFOLIO_ID).drift_l1_threshold == 0.1
+        assert HumanAuditLogRepository(session).list_recent(action="mandate_edit") == []
+
+
+@pytest.mark.asyncio
 async def test_mandate_invalid_capital_reports_on_status_line_without_crashing(
     shell_env,
 ) -> None:

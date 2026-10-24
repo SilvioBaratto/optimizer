@@ -268,6 +268,31 @@ def test_nav_mark_skips_mandate_without_fx_coverage(session_factory):
     assert len(slots) == 1 and slots[0].status == "completed"
 
 
+def test_nav_mark_survives_a_stored_mandate_that_no_longer_validates(session_factory):
+    """A mandate stored before the ``(0, 2)`` drift bound must not stop other marks."""
+    _seed(session_factory)
+    stale_pid = uuid.UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")  # sorts before _PID
+    with session_factory() as session:
+        repo = MandateRepository(session)
+        row = repo.upsert(
+            PortfolioMandate(
+                portfolio_id=str(stale_pid),
+                capital=Decimal("10000"),
+                base_currency="EUR",
+                drift_l1_threshold=0.1,
+                triggers=RunTriggers(cron=True, drift=False),
+            )
+        )
+        row.mandate = {**row.mandate, "drift_l1_threshold": 5.0}
+        session.commit()
+
+    assert run_nav_mark(session_factory=session_factory, asof=_ASOF) is True
+
+    assert set(_navs(session_factory)) == {_FILL, _NEXT}  # _PID still marked
+    slots = _slots(session_factory)
+    assert len(slots) == 1 and slots[0].status == "completed"
+
+
 def test_nav_mark_incremental_extends_without_rewriting(session_factory):
     """A later run picks up a new bar and leaves the prior bars' values stable."""
     _seed(session_factory)

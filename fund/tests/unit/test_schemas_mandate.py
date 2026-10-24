@@ -150,8 +150,10 @@ def test_rejects_non_positive_capital(bad_capital: Decimal):
         )
 
 
-@pytest.mark.parametrize("bad_threshold", [0.0, -0.01])
-def test_rejects_non_positive_drift_threshold(bad_threshold: float):
+@pytest.mark.parametrize(
+    "bad_threshold", [0.0, -0.01, 2.0, 5.0, float("nan"), float("inf")]
+)
+def test_rejects_drift_threshold_outside_the_l1_range(bad_threshold: float):
     with pytest.raises(pydantic.ValidationError):
         PortfolioMandate(
             portfolio_id="pf-001",
@@ -160,6 +162,18 @@ def test_rejects_non_positive_drift_threshold(bad_threshold: float):
             drift_l1_threshold=bad_threshold,
             triggers=RunTriggers(cron=True, drift=True),
         )
+
+
+@pytest.mark.parametrize("threshold", [0.0001, 0.05, 1.99])
+def test_accepts_drift_threshold_inside_the_l1_range(threshold: float):
+    m = PortfolioMandate(
+        portfolio_id="pf-001",
+        capital=Decimal("1000"),
+        base_currency="EUR",
+        drift_l1_threshold=threshold,
+        triggers=RunTriggers(cron=True, drift=True),
+    )
+    assert m.drift_l1_threshold == threshold
 
 
 def test_json_round_trip():

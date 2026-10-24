@@ -132,6 +132,16 @@ def _seed_mandate(
         session.commit()
 
 
+def _seed_pre_bound_mandate(factory: SessionFactory, pid: uuid.UUID) -> None:
+    """A stored mandate whose drift threshold predates the ``(0, 2)`` schema bound."""
+    _seed_mandate(factory, pid, cron=True, drift=True)
+    with factory() as session:
+        row = MandateRepository(session).get(pid)
+        row.mandate = {**row.mandate, "drift_l1_threshold": 5.0}
+        row.drift_l1_threshold = 5.0
+        session.commit()
+
+
 def _seed_paused_run(factory: SessionFactory, pid: uuid.UUID) -> None:
     with factory() as session:
         repo = AgentRunRepository(session)
@@ -252,6 +262,25 @@ def test_sweep_survives_one_portfolio_error(session_factory, monkeypatch):
 
     assert ok is True  # one portfolio erroring never aborts the sweep
     assert driven == [PID_B]
+    assert _job_rows(session_factory, "fund_rebalance_sweep")[0].status == "completed"
+
+
+def test_sweep_survives_a_stored_mandate_that_no_longer_validates(
+    session_factory, monkeypatch
+):
+    _seed_pre_bound_mandate(session_factory, PID_A)
+    _seed_mandate(session_factory, PID_B, cron=True, drift=False)
+
+    driven: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "fund.scheduler._drive_rebalance",
+        lambda pid, asof, **_kw: driven.append(pid),
+    )
+
+    ok = run_rebalance_sweep(session_factory=session_factory, asof=ASOF)
+
+    assert ok is True
+    assert driven == [PID_B]  # A's unreadable mandate is skipped, B still rebalances
     assert _job_rows(session_factory, "fund_rebalance_sweep")[0].status == "completed"
 
 
@@ -1084,6 +1113,27 @@ def test_drift_monitor_survives_one_portfolio_error(session_factory, monkeypatch
 
     assert ok is True  # A erroring does not abort the monitor
     assert driven == []  # A errored (no enqueue); B in-band (no enqueue)
+
+
+def test_drift_monitor_survives_a_stored_mandate_that_no_longer_validates(
+    session_factory, monkeypatch
+):
+    _seed_pre_bound_mandate(session_factory, PID_A)
+    _seed_mandate(session_factory, PID_B, cron=False, drift=True, threshold=0.1)
+
+    monkeypatch.setattr(observe, "portfolio_state", lambda s, pid: _state(pid, 0.5))
+    monkeypatch.setattr(observe, "reprofile_status", _not_due)
+    driven: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "fund.scheduler._drive_rebalance",
+        lambda pid, asof, **_kw: driven.append(pid),
+    )
+
+    ok = run_drift_monitor(session_factory=session_factory, asof=ASOF)
+
+    assert ok is True
+    assert driven == [PID_B]  # B's breach is still acted on
+    assert _job_rows(session_factory, "fund_drift_monitor")[0].status == "completed"
 
 
 def test_heartbeat_thread_pulses_repeatedly(session_factory):

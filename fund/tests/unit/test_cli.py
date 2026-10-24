@@ -297,6 +297,45 @@ def test_mandate_set_audits_creation_then_edit(harness, cli_actor) -> None:
     assert Decimal(edit["new_value"]["capital"]) == Decimal("250000")
 
 
+@pytest.mark.parametrize("drift", ["0", "-0.5", "2", "2.5", "5", "nan", "inf"])
+def test_mandate_set_rejects_an_unbreachable_or_non_positive_drift(
+    harness, drift
+) -> None:
+    res = harness.runner.invoke(
+        cli.app,
+        ["mandate", "set", str(PORTFOLIO_ID), "--capital", "1000", "--drift", drift],
+    )
+    assert res.exit_code == 1, res.output
+    assert "--drift" in res.output
+    with harness.read() as session:
+        assert observe.get_mandate(session, PORTFOLIO_ID) is None
+        session.rollback()
+
+
+@pytest.mark.parametrize("drift", ["0.0001", "0.05", "1.99"])
+def test_mandate_set_accepts_drift_below_the_l1_maximum(harness, drift) -> None:
+    res = harness.runner.invoke(
+        cli.app,
+        ["mandate", "set", str(PORTFOLIO_ID), "--capital", "1000", "--drift", drift],
+    )
+    assert res.exit_code == 0, res.output
+    assert _stored_mandate(harness).drift_l1_threshold == float(drift)
+
+
+def test_run_rejects_a_drift_that_could_never_be_breached(harness, monkeypatch) -> None:
+    _seed(harness)
+    _persist_mandate(harness, _rich_mandate())
+    monkeypatch.setattr(
+        cli, "build_primary", lambda *a, **k: ScriptedFundModel(universe=UNIVERSE)
+    )
+    res = harness.runner.invoke(
+        cli.app, ["run", str(PORTFOLIO_ID), "--asof", _ASOF_STR, "--drift", "5"]
+    )
+    assert res.exit_code == 1, res.output
+    assert "--drift" in res.output
+    assert _stored_mandate(harness).drift_l1_threshold == 0.05  # untouched
+
+
 def test_mandate_show_missing_errors(harness) -> None:
     res = harness.runner.invoke(cli.app, ["mandate", "show", str(PORTFOLIO_ID)])
     assert res.exit_code != 0

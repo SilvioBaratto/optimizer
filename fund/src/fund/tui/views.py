@@ -480,7 +480,7 @@ class MandateView(ShellView):
                 yield Label("RUN POLICY", classes="mandate-section")
                 yield Input(placeholder="capital", id="mandate-capital")
                 yield Input(placeholder="base currency", id="mandate-base-currency")
-                yield Input(placeholder="drift L1 threshold", id="mandate-drift")
+                yield Input(placeholder="drift L1 threshold (0-2)", id="mandate-drift")
                 yield Input(placeholder="benchmark", id="mandate-benchmark")
                 yield Static("", id="mandate-triggers", classes="mandate-readonly")
             with Vertical(classes="mandate-guardrails"):
