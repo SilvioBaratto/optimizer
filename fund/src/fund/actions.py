@@ -1002,6 +1002,50 @@ def _apply_profile(
     )
 
 
+def append_run_audit(
+    session: Session,
+    *,
+    run_id: uuid.UUID,
+    portfolio_id: uuid.UUID | None,
+    actor: str = "human",
+    source: str | None = None,
+    idempotency_key: str | None = None,
+    rationale: str | None = None,
+) -> HumanAuditLog:
+    """Append the ``human_audit_log`` ``run`` row for a rebalance a human launched.
+
+    The blocking ``run`` action and the live-streamed round (which drives
+    ``stream_fund`` itself so it can push each step to the timeline) both record the
+    request through this one row shape, so the Audit view shows who triggered a round
+    whichever launchpad they used. No commit (the caller owns the transaction).
+
+    Args:
+        session: The round's session; the row joins its transaction.
+        run_id: The run the round opened.
+        portfolio_id: The portfolio the round rebalanced.
+        actor: Who launched the round.
+        source: Provenance tag recorded with the row.
+        idempotency_key: Dedup key; a repeat returns the first row.
+        rationale: Free-text reason recorded with the action.
+
+    Returns:
+        The flushed audit row.
+    """
+    return _append_audit(
+        session,
+        action="run",
+        run_id=run_id,
+        portfolio_id=portfolio_id,
+        actor=actor,
+        target="rebalance",
+        source=source,
+        override_flag=False,
+        suitability_flag=False,
+        idempotency_key=idempotency_key,
+        rationale=rationale,
+    )
+
+
 def _apply_run(
     *,
     session: Session,
@@ -1044,16 +1088,12 @@ def _apply_run(
     halted = run.status == "paused" and halt_run_if_frozen(
         session, run.run_id, portfolio_id
     )
-    row = _append_audit(
+    row = append_run_audit(
         session,
-        action="run",
         run_id=run.run_id,
         portfolio_id=portfolio_id,
         actor=actor,
-        target="rebalance",
         source=source,
-        override_flag=False,
-        suitability_flag=False,
         idempotency_key=idempotency_key,
         rationale=rationale,
     )
@@ -1104,6 +1144,7 @@ def is_within_suitability_band(proposed_band: str, suitability_band: str) -> boo
 
 __all__ = [
     "ActionResult",
+    "append_run_audit",
     "apply_action",
     "halt_run_if_frozen",
     "is_within_suitability_band",

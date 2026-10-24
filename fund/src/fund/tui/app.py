@@ -1948,13 +1948,14 @@ class ShellApp(App[None]):
         ``call_from_thread`` (``start_live`` on the first, ``ingest_event`` per step).
         A ``paused`` gate leaves the timeline standing — the adviser just watched it
         build and acts on it in Decisions — while a no-ticket / error end falls back to
-        the replay transcript. ``view`` is resolved by the caller on the event loop and
-        passed in — this thread never queries the DOM, touching the view only through
-        ``call_from_thread``. The agent stack is imported lazily so the module import
-        stays agent-stack-light; one stream per worker (``stream_fund`` is not
-        thread-safe). Model/stream errors surface as a status line, never a crash.
+        the replay transcript. Like the blocking run it appends the human ``run`` audit
+        row in the round's own transaction. ``view`` is resolved by the caller on the
+        event loop and passed in — this thread never queries the DOM, touching the view
+        only through ``call_from_thread``. The agent stack is imported lazily so the
+        module import stays agent-stack-light; one stream per worker (``stream_fund`` is
+        not thread-safe). Model/stream errors surface as a status line, never a crash.
         """
-        from fund.actions import halt_run_if_frozen
+        from fund.actions import append_run_audit, halt_run_if_frozen
         from fund.agents.graph import stream_fund
 
         self._stream_resume.set()  # clear any stale barge-in hold from a prior round
@@ -2001,6 +2002,10 @@ class ShellApp(App[None]):
                         return  # quit / superseded: abandon the round uncommitted
                 if last_kind == "paused" and gate_run_id is not None:
                     halted = halt_run_if_frozen(session, gate_run_id, portfolio_id)
+                if gate_run_id is not None:
+                    append_run_audit(
+                        session, run_id=gate_run_id, portfolio_id=portfolio_id
+                    )
                 session.commit()
         except Exception as exc:  # surface a clean message, never crash the App
             failure = f"action failed: {exc}"

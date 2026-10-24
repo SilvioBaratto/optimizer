@@ -3406,6 +3406,31 @@ async def test_run_in_flight_from_posture_refuses_deliberation_and_ask_runs(
         await first.wait()
 
 
+@pytest.mark.asyncio
+async def test_deliberation_u_stream_appends_a_run_audit_row(tui_env) -> None:
+    """A streamed round leaves the same human ``run`` audit row a blocking one does."""
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        streamed_run_id = view.live_run_id
+        assert streamed_run_id is not None
+    with tui_env.get_session() as session:
+        rows = HumanAuditLogRepository(session).list_recent(action="run")
+        assert [(row.run_id, row.target, row.actor) for row in rows] == [
+            (streamed_run_id, "rebalance", "human")
+        ]
+        assert rows[0].portfolio_id == PORTFOLIO_ID
+
+
 def _held_stream(calls: list[uuid.UUID], release: threading.Event):
     """A ``stream_fund`` stand-in: one live step, then blocked until ``release``.
 
