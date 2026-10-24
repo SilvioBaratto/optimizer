@@ -79,6 +79,10 @@ __all__ = [
     "stream_fund",
 ]
 
+# Cap on the error text stored with a failed run; provider errors can embed whole
+# response bodies.
+_RUN_ERROR_MAX_CHARS = 2000
+
 # The moments/backtest lookback recorded on every run (the ``RunContext.lookback_days``
 # default — 3y rolling, ~756 trading days).
 _LOOKBACK_DAYS = DEFAULT_LOOKBACK_DAYS
@@ -1319,6 +1323,7 @@ class _FundRunSetup:
     seed_input: dict[str, Any] = field(repr=False, compare=False)
     audit: Any = field(repr=False, compare=False)
     ctx: Any = field(repr=False, compare=False)
+    first_round: bool = field(default=False, repr=False, compare=False)
 
 
 def _prepare_fund_run(
@@ -1425,7 +1430,8 @@ def _prepare_fund_run(
         notional=float(mandate.capital),
     )
     effective_gates = _effective_gates(config, mandate)
-    if autonomy.consume_first_round(pid_uuid):
+    first_round = autonomy.consume_first_round(pid_uuid)
+    if first_round:
         # A portfolio's first round forces every PM gate for maximum oversight,
         # overriding the mandate; the flag is now consumed, so later rounds respect
         # the mandate's gate set.
@@ -1465,7 +1471,38 @@ def _prepare_fund_run(
         seed_input=seed_input,
         audit=audit,
         ctx=ctx,
+        first_round=first_round,
     )
+
+
+def _finalize_failed(setup: _FundRunSetup, exc: Exception) -> None:
+    """Finalise a round that errored before reaching the gate as ``failed``.
+
+    Without it the run row stays ``pending`` for good: nothing else ever closes it, and
+    the scheduler sweep commits that half-written state after logging the error. The
+    error text lands in ``agent_runs.error``. A first-round gate the round consumed is
+    handed back, since no adviser reviewed anything. Best effort: a broken session (a
+    failed flush awaits a rollback) must not mask the error being propagated, and the
+    caller's rollback discards the half-written round in that case anyway. No commit.
+    """
+    run_id = setup.run.id
+    reason = f"{type(exc).__name__}: {exc}"[:_RUN_ERROR_MAX_CHARS]
+    try:
+        setup.audit.append_decision(
+            run_id,
+            agent="orchestrator",
+            step="place_orders",
+            hitl_decision={"decision": "failed", "reason": type(exc).__name__},
+        )
+        setup.audit.finalize_run(run_id, weights={}, status="failed", error=reason)
+        if setup.first_round:
+            from fund.audit.autonomy_repository import AutonomyRepository
+
+            AutonomyRepository(setup.ctx.session).restore_first_round(
+                setup.ctx.portfolio_id
+            )
+    except Exception:
+        _log.exception("could not finalise failed fund run %s", run_id)
 
 
 def run_fund(
@@ -1497,7 +1534,8 @@ def run_fund(
     risk verdict, or the delegation round cap tripping the recursion limit — the run
     is finalised ``incomplete`` (no ticket) and surfaced for review instead. A freeze
     committed while the round was running finalises it ``rejected`` rather than
-    opening a gate under a FROZEN posture.
+    opening a gate under a FROZEN posture. Any other error (provider outage, tool or
+    DB failure) finalises the run ``failed`` with the error recorded, then propagates.
 
     ``model`` must be a tool-calling chat model. Every write goes through the injected
     ``session`` (caller owns the transaction) and, when given, the ``store``.
@@ -1540,6 +1578,9 @@ def run_fund(
             session=session,
             ctx=setup.ctx,
         )
+    except Exception as exc:
+        _finalize_failed(setup, exc)
+        raise
 
     interrupt = _extract_interrupt(result)
     weights = _optimizer_weights(session, run.id)
@@ -1634,7 +1675,8 @@ def stream_fund(
     stream ends on exactly one terminal event: ``paused`` once the ``place_orders`` HITL
     gate is live (the run is flipped ``paused`` so the Decisions queue finds it), or
     ``incomplete`` on a round-cap / no-order end (the run is finalised ``incomplete``)
-    or when a freeze landed mid-round (the run is finalised ``rejected``).
+    or when a freeze landed mid-round (the run is finalised ``rejected``). Any other
+    error finalises the run ``failed`` with the error recorded, then propagates.
 
     The agent stack and the ``StreamEvent`` DTO are imported lazily, so a bare
     ``import fund.agents.graph`` stays agent-stack-free. Every write goes through
@@ -1729,6 +1771,9 @@ def stream_fund(
             text="round cap reached before a ticket",
         )
         return
+    except Exception as exc:
+        _finalize_failed(setup, exc)
+        raise
 
     if interrupt_value is None:
         reason = "pm_round_cap" if pm_round_cap_reached else "no_order"

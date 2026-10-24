@@ -24,7 +24,7 @@ import uuid
 from decimal import Decimal
 
 import pytest
-from _fund_fakes import FreezeMidRunModel, ScriptedFundModel
+from _fund_fakes import AllocatorTimesOutFundModel, FreezeMidRunModel, ScriptedFundModel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision, AgentRun, PaperOrder
@@ -40,6 +40,7 @@ from portopt_db.repositories.orders.portfolio_journal_repository import (
 from fund.agents.graph import FundRun, _history_summary, _run_instruction, run_fund
 from fund.agents.toolsets import RunContext, _optimizer_constraints
 from fund.audit import AgentRunRepository, put_constraint_set
+from fund.audit.autonomy_repository import AutonomyRepository
 from fund.config import settings
 from fund.schemas import ConstraintSet
 from fund.schemas.constraint_set import EsgPolicy
@@ -1041,6 +1042,50 @@ def test_summary_override_still_pauses_at_the_gate(db_session) -> None:
 
     assert run.status == "paused"
     assert run.weights == expected
+
+
+# --- a round that errors before the gate → failed, never an orphan pending -----
+
+
+def _run_that_errors(db_session) -> None:
+    _seed_panel(db_session)
+    model = AllocatorTimesOutFundModel(universe=_UNIVERSE, weights={"AAA": 1.0})
+    with pytest.raises(TimeoutError):
+        _run(model, db_session, store=_store_with_cs())
+
+
+def test_a_round_that_errors_is_finalised_failed_with_the_error(db_session) -> None:
+    """The scheduler sweep logs a failed round and carries on with the same session, so
+    the run row it leaves behind is what operators see: it must say the round failed
+    and why, not sit at ``pending`` as if it were still running."""
+    _run_that_errors(db_session)
+
+    (row,) = db_session.query(AgentRun).all()
+    assert row.status == "failed"
+    assert row.finished_at is not None
+    assert "TimeoutError" in row.error
+    assert "provider timed out" in row.error
+    assert row.weights == {}
+
+
+def test_a_round_that_errors_leaves_the_first_round_gate_armed(db_session) -> None:
+    """The one-time first-round gate is spent only by a round that reaches the adviser;
+    a round that dies before the gate must not use it up."""
+    _run_that_errors(db_session)
+
+    state = AutonomyRepository(db_session).portfolio_state(_PORTFOLIO_ID)
+    assert state.first_round_gated is True
+
+
+def test_a_round_that_errors_does_not_rearm_an_already_spent_first_round_gate(
+    db_session,
+) -> None:
+    AutonomyRepository(db_session).consume_first_round(_PORTFOLIO_ID)
+
+    _run_that_errors(db_session)
+
+    state = AutonomyRepository(db_session).portfolio_state(_PORTFOLIO_ID)
+    assert state.first_round_gated is False
 
 
 # --- reproducibility: seed + temperature=0 + 3y lookback -----------

@@ -113,6 +113,18 @@ def test_consume_first_round_flips_the_flag(db_session):
     assert repo.portfolio_state(pid).first_round_gated is False
 
 
+def test_restore_first_round_rearms_a_consumed_gate(db_session):
+    """A round that never reached the adviser hands the gate back for the next one."""
+    repo = AutonomyRepository(db_session)
+    pid = uuid.uuid4()
+    assert repo.consume_first_round(pid) is True
+
+    repo.restore_first_round(pid)
+
+    assert repo.portfolio_state(pid).first_round_gated is True
+    assert repo.consume_first_round(pid) is True
+
+
 def test_consume_first_round_is_portfolio_scoped(db_session):
     """Consuming one portfolio's first round leaves another's untouched."""
     repo = AutonomyRepository(db_session)

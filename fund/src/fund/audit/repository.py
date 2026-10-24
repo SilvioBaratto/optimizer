@@ -109,14 +109,21 @@ class AgentRunRepository(RepositoryBase):
         weights: dict[str, float],
         status: str = "completed",
         finished_at: datetime | None = None,
+        error: str | None = None,
     ) -> AgentRun | None:
-        """Stamp the run's output weights + terminal status; ``None`` if not found."""
+        """Stamp the run's output weights + terminal status; ``None`` if not found.
+
+        ``error`` records why a run ended ``"failed"``; successful finalisations leave
+        it unset.
+        """
         run = self.get_run(run_id)
         if run is None:
             return None
         run.weights = weights
         run.status = status
         run.finished_at = finished_at or datetime.now(UTC)
+        if error is not None:
+            run.error = error
         self.session.flush()
         self.session.refresh(run)
         return run

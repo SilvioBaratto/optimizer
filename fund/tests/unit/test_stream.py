@@ -22,6 +22,7 @@ from _fund_fakes import (
     ASOF,
     PORTFOLIO_ID,
     UNIVERSE,
+    AllocatorTimesOutFundModel,
     FreezeMidRunModel,
     ScriptedFundModel,
     expected_weights,
@@ -31,7 +32,7 @@ from _fund_fakes import (
 )
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import AgentDecision, Base
+from portopt_db.models import AgentDecision, AgentRun, Base
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -246,6 +247,33 @@ def test_status_text_pairs_the_glyph_with_a_word(
     )
 
     assert event.status_text == expected
+
+
+def test_stream_fund_finalises_a_round_that_errors_as_failed(stream_env) -> None:
+    """An error mid-stream propagates, but the run row must not be left ``pending``
+    forever: it is finalised ``failed`` with the error, and the portfolio's one-time
+    first-round gate stays armed because no round reached the adviser."""
+    model = AllocatorTimesOutFundModel(universe=UNIVERSE, weights={"AAA": 1.0})
+
+    with stream_env.get_session() as session:
+        with pytest.raises(TimeoutError):
+            list(
+                stream_fund(
+                    model,
+                    make_mandate(),
+                    portfolio_id=PORTFOLIO_ID,
+                    asof=ASOF,
+                    session=session,
+                    checkpointer=stream_env.saver,
+                    store=stream_env.store,
+                )
+            )
+
+        (row,) = session.query(AgentRun).all()
+        assert row.status == "failed"
+        assert "provider timed out" in row.error
+        state = AutonomyRepository(session).portfolio_state(PORTFOLIO_ID)
+        assert state.first_round_gated is True
 
 
 def test_import_stream_is_agent_stack_light() -> None:

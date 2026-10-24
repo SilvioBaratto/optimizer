@@ -245,6 +245,13 @@ class FreezeMidRunModel(ScriptedFundModel):
         return super()._generate(messages, stop, run_manager, **kwargs)
 
 
+class AllocatorTimesOutFundModel(ScriptedFundModel):
+    """A provider outage: the allocator's model call times out mid-pipeline."""
+
+    def _allocator_turn(self, messages: list[BaseMessage]) -> AIMessage:
+        raise TimeoutError("provider timed out")
+
+
 def _task_call(subagent: str, index: int) -> AIMessage:
     """A PM assistant turn delegating to ``subagent`` via the built-in ``task``."""
     return AIMessage(

@@ -84,6 +84,25 @@ def test_finalize_run_writes_weights_and_status(db_session):
     assert finalized.finished_at is not None
 
 
+def test_finalize_run_records_the_error_of_a_failed_run(db_session):
+    repo = AgentRunRepository(db_session)
+    run = repo.create_run(
+        portfolio_id=None,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={},
+    )
+
+    finalized = repo.finalize_run(
+        run.id, weights={}, status="failed", error="TimeoutError: provider timed out"
+    )
+
+    assert finalized is not None
+    assert finalized.status == "failed"
+    assert finalized.error == "TimeoutError: provider timed out"
+
+
 def test_finalize_run_returns_none_for_unknown_id(db_session):
     import uuid
 
