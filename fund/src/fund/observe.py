@@ -806,30 +806,38 @@ def _economist_read_asof(
 ) -> tuple[str | None, dt.date | None, uuid.UUID | None]:
     """Return the carried-forward economist read as ``(text, run_date, run_id)``.
 
-    Picks the run with the greatest ``asof <= day`` (tie-broken by ``created_at`` so a
-    same-day re-run supersedes — ``list_portfolio_runs`` sorts by ``created_at``, not
-    ``asof``), re-fetches its ORM row for the thread id, and takes the last economist
-    ``message`` turn. All-None when the portfolio has no run on-or-before ``day``.
+    Picks the fund run with the greatest ``asof <= day`` (tie-broken by ``created_at``
+    so a same-day re-run supersedes — ``list_runs_for_portfolio`` sorts by
+    ``created_at``, not ``asof``) and takes the last economist ``message`` turn of its
+    transcript. Profiling runs share the portfolio's run history but have no economist,
+    so they are skipped: a later re-profile must not shadow the last rebalance's read.
+    All-None when the portfolio has no fund run on-or-before ``day``.
     """
     from fund.audit.repository import AgentRunRepository
 
-    eligible = [s for s in list_portfolio_runs(session, portfolio_id) if s.asof <= day]
+    eligible = [
+        run
+        for run in AgentRunRepository(session).list_runs_for_portfolio(portfolio_id)
+        if run.asof <= day and not _is_profiler_run(run)
+    ]
     if not eligible:
         return None, None, None
-    # list_portfolio_runs is newest-created first, so the first run at the greatest
+    # list_runs_for_portfolio is newest-created first, so the first run at the greatest
     # asof is the tie-break winner — no created_at compare (dodges naive/aware mixing).
-    max_asof = max(summary.asof for summary in eligible)
-    chosen = next(summary for summary in eligible if summary.asof == max_asof)
-    run = AgentRunRepository(session).get_run(chosen.run_id)
-    if run is None:
-        return None, None, chosen.run_id
+    max_asof = max(run.asof for run in eligible)
+    chosen = next(run for run in eligible if run.asof == max_asof)
     economist = [
         entry
-        for entry in load_run_transcript(session, saver, run)
+        for entry in load_run_transcript(session, saver, chosen)
         if entry.source == "message" and entry.agent == "economist"
     ]
     text = economist[-1].text if economist else None
-    return text, chosen.asof, chosen.run_id
+    return text, chosen.asof, chosen.id
+
+
+def _is_profiler_run(run: Any) -> bool:
+    """Whether ``run`` is a MiFID profiling attempt rather than a rebalance round."""
+    return (run.optimizer_config or {}).get("step") == "profiler"
 
 
 def audit_timeline(

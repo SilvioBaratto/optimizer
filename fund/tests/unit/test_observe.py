@@ -1792,6 +1792,95 @@ def test_daily_brief_economist_tie_break_prefers_later_created_at(db_session):
     assert brief.deliberation_run_id == later.id
 
 
+def _seed_profiler_run(db_session, saver, *, asof, created_at, thread_id):
+    """A profiling attempt: same portfolio, ``step == 'profiler'``, no economist."""
+    run = AgentRun(
+        portfolio_id=_PID,
+        asof=asof,
+        seed=1,
+        universe=[],
+        optimizer_config={"step": "profiler"},
+        status="completed",
+        weights={},
+        thread_id=thread_id,
+        created_at=created_at,
+        finished_at=created_at,
+    )
+    db_session.add(run)
+    db_session.flush()
+    _seed_thread(saver, thread_id, [HumanMessage(content="Profile this client.")])
+    return run
+
+
+def test_daily_brief_economist_read_skips_a_later_profiler_run(db_session):
+    """A re-profile after the last rebalance must not shadow its economist read."""
+    saver = MemorySaver()
+    fund_run = _seed_economist_run(
+        db_session,
+        saver,
+        asof=date(2026, 10, 1),
+        created_at=datetime(2026, 10, 1, tzinfo=UTC),
+        thread_id="brief-fund",
+        narrative="watch ECB on rates",
+    )
+    _seed_profiler_run(
+        db_session,
+        saver,
+        asof=date(2026, 10, 23),
+        created_at=datetime(2026, 10, 23, tzinfo=UTC),
+        thread_id="brief-profiler",
+    )
+
+    brief = observe.daily_brief(db_session, saver, _PID, asof=date(2026, 10, 23))
+
+    assert brief.economist_read == "watch ECB on rates"
+    assert brief.economist_read_date == date(2026, 10, 1)
+    assert brief.deliberation_run_id == fund_run.id
+
+
+def test_daily_brief_economist_read_skips_a_same_day_profiler_run(db_session):
+    """A profiler run created after a same-asof fund run is not its tie-break winner."""
+    saver = MemorySaver()
+    day = date(2026, 10, 3)
+    fund_run = _seed_economist_run(
+        db_session,
+        saver,
+        asof=day,
+        created_at=datetime(2026, 10, 3, 9, tzinfo=UTC),
+        thread_id="brief-same-fund",
+        narrative="rebalance read",
+    )
+    _seed_profiler_run(
+        db_session,
+        saver,
+        asof=day,
+        created_at=datetime(2026, 10, 3, 17, tzinfo=UTC),
+        thread_id="brief-same-profiler",
+    )
+
+    brief = observe.daily_brief(db_session, saver, _PID, asof=day)
+
+    assert brief.economist_read == "rebalance read"
+    assert brief.deliberation_run_id == fund_run.id
+
+
+def test_daily_brief_economist_read_blank_when_only_profiler_runs_exist(db_session):
+    saver = MemorySaver()
+    _seed_profiler_run(
+        db_session,
+        saver,
+        asof=date(2026, 10, 2),
+        created_at=datetime(2026, 10, 2, tzinfo=UTC),
+        thread_id="brief-only-profiler",
+    )
+
+    brief = observe.daily_brief(db_session, saver, _PID, asof=date(2026, 10, 4))
+
+    assert brief.economist_read is None
+    assert brief.economist_read_date is None
+    assert brief.deliberation_run_id is None
+
+
 def test_daily_brief_blank_economist_read_when_never_run(db_session):
     """A portfolio that never ran yields no read, date, or deliberation id."""
     saver = MemorySaver()
