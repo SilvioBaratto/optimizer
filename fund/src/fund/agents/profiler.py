@@ -1061,6 +1061,7 @@ def build_profiler_agent(
     store: Any | None = None,
     interrupt_config: dict[str, Any] | None = None,
     config: FundConfig = settings,
+    run_id: uuid.UUID | str | None = None,
 ) -> Any:
     """Assemble the ``deepagents`` profiler agent (SPEC §8.5).
 
@@ -1075,14 +1076,16 @@ def build_profiler_agent(
     ``mifid-profiling`` skill through it (Risk R1), so the consultation protocol in
     ``PROFILER_SYSTEM_PROMPT`` can reach ``optimizer-theory/`` — the profiler is
     step 0 and must ground its suitability reasoning in the staged theory, not
-    parametric memory, like every other role.
+    parametric memory, like every other role. ``run_id`` scopes the agent's writable
+    scratch area to its audit run so one portfolio's offloaded transcripts are never
+    visible to another run.
     """
     from deepagents import create_deep_agent
 
     # bool | InterruptOnConfig (a langchain TypedDict) — kept Any to avoid a
     # top-level import of the agent stack (the module stays import-light).
     gate: Any = interrupt_config if interrupt_config else True
-    backend = build_backend(config)
+    backend = build_backend(config, run_id=run_id)
     return create_deep_agent(
         model=model,
         tools=tools,
@@ -1212,6 +1215,7 @@ def run_profiler(
         store=store,
         interrupt_config=interrupt_config,
         config=config,
+        run_id=run.id,
     )
     thread_config = {
         "configurable": {"thread_id": resolved_thread_id},
@@ -1368,6 +1372,7 @@ def resume_profiler(
         store=store,
         interrupt_config=interrupt_config,
         config=config,
+        run_id=rid,
     )
     thread_config = {
         "configurable": {"thread_id": resolved_thread_id},

@@ -14,9 +14,9 @@ knowledge:
   ``SkillsMiddleware`` loads skills **through this backend** (no direct filesystem
   access), and the backend runs in ``virtual_mode`` — which blocks any absolute
   path outside its root. So the skills every role loads must live *under* the
-  staged root and be addressed by the root-relative
+  staged root and be addressed by the virtual-path
   :func:`fund.agents.skills.skill_sources` (Risk R1). The per-role layout lets one
-  source dir (``skills/<role>``) load only that role's skills.
+  source dir (``/skills/<role>``) load only that role's skills.
 
 The theory tree is the *committed* in-repo ``optimizerwiki/`` canonical source;
 the skills tree is the *committed* ``fund/src/fund/skills`` resource tree. The
@@ -26,6 +26,11 @@ only a stale or hand-edited one is rewritten. Every agent build stages the one s
 workdir while other runs (worker sweep, TUI, CLI) read it lazily through their own
 backend, so the reconcile runs under a cross-process lock and never wipes a tree that
 is already correct. ``fund/.runtime/`` is gitignored — nothing staged here is committed.
+
+Everything an agent *writes* (offloaded transcripts and tool results carry one
+portfolio's profile, holdings and orders) goes to a per-run scratch dir under
+``runs/<run_id>`` instead of the shared workdir, so one portfolio's data is never
+visible from another run's backend; see :func:`build_backend`.
 
 ``deepagents`` is imported **inside** :func:`build_backend` so a bare
 ``import fund.agents.backend`` drags in no agent stack and needs no environment
@@ -38,17 +43,19 @@ import hashlib
 import os
 import shutil
 import sys
+import time
+import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import IO, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, Any
 
 from fund.agents.skills import SKILLS_BY_AGENT, SKILLS_DIR, STAGED_SKILLS_ROOT
 from fund.config import FundConfig, settings
 
 if TYPE_CHECKING:
     from deepagents import FilesystemPermission
-    from deepagents.backends import FilesystemBackend
+    from deepagents.backends import CompositeBackend, FilesystemBackend
 
 __all__ = ["build_backend", "read_only_permissions", "stage_theory"]
 
@@ -72,6 +79,12 @@ _STAGE_SUBDIR = "optimizer-theory"
 # Editor/VCS/CI cruft never copied into the staged tree (the OpenWiki repo carries
 # a ``.github`` workflow dir and ``.obsidian`` vault config that are not theory).
 _STAGE_IGNORE = shutil.ignore_patterns(".git", ".github", ".obsidian")
+
+# Per-run writable scratch dirs live under ``<workdir>/runs/<run_id>``. Runs that
+# never reach a terminal state (crash, abandoned gate) cannot be released
+# explicitly, so a dir untouched for this long is reclaimed by the next build.
+_RUNS_SUBDIR = "runs"
+_SCRATCH_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 
 # Lives in the workdir root, which staging never wipes (only the two subtrees below
 # it), so the lock survives every restage.
@@ -253,25 +266,92 @@ def stage_theory(
     return root
 
 
-def build_backend(config: FundConfig = settings) -> FilesystemBackend:
-    """Build the ``virtual_mode`` ``FilesystemBackend`` rooted at the staged workdir.
+def _run_scratch_dir(root: Path, run_id: uuid.UUID | str) -> Path:
+    """Create the private scratch dir for ``run_id`` and reclaim stale ones.
+
+    The dir is owner-only (``0700``) because the transcripts and tool results
+    deepagents offloads into it carry one portfolio's profile, holdings and orders.
+    Touching it on every build keeps a run that pauses at a gate and is resumed later
+    from being mistaken for an abandoned one.
+
+    Raises:
+        ValueError: If ``run_id`` is not a UUID — it becomes a directory name, so
+            anything else could point outside the runs root.
+    """
+    try:
+        name = str(uuid.UUID(str(run_id)))
+    except ValueError as exc:
+        raise ValueError(f"run_id must be a UUID, got {run_id!r}") from exc
+
+    runs = root / _RUNS_SUBDIR
+    scratch = runs / name
+    runs.mkdir(mode=0o700, exist_ok=True)
+    scratch.mkdir(mode=0o700, exist_ok=True)
+    runs.chmod(0o700)
+    scratch.chmod(0o700)
+    os.utime(scratch)
+
+    cutoff = time.time() - _SCRATCH_MAX_AGE_SECONDS
+    for entry in runs.iterdir():
+        if entry == scratch:
+            continue
+        try:
+            stale = entry.stat().st_mtime < cutoff
+        except OSError:
+            continue
+        if stale:
+            shutil.rmtree(entry, ignore_errors=True)
+    return scratch
+
+
+def build_backend(
+    config: FundConfig = settings, *, run_id: uuid.UUID | str | None = None
+) -> FilesystemBackend | CompositeBackend:
+    """Build the ``virtual_mode`` agent backend over the staged workdir.
 
     ``deepagents`` is imported here (not at module top) so importing this module
     needs no agent stack; ``virtual_mode`` blocks path traversal outside the root.
 
+    With a ``run_id`` the agent gets a composite view: its own private, writable
+    scratch dir is the root (so offloaded transcripts and tool results are neither
+    listable nor readable from another run), with the shared staged
+    ``optimizer-theory/`` and ``skills/`` trees mounted beside it at their usual
+    paths. Without one the backend is rooted at the shared workdir itself, which is
+    only suitable for inspecting the staged trees.
+
     Args:
         config: Frozen run config; ``preload_theory`` gates theory/skills staging
             and ``agent_virtual_mode`` controls path-traversal enforcement.
+        run_id: The audit run the agent serves; selects the scratch area.
 
     Returns:
-        A ``FilesystemBackend`` rooted at the staged workdir, ready to pass to a
-        deepagents role constructor.
-    """
-    from deepagents.backends import FilesystemBackend
+        A backend ready to pass to a deepagents role constructor.
 
-    return FilesystemBackend(
-        root_dir=stage_theory(config),
-        virtual_mode=config.agent_virtual_mode,
+    Raises:
+        ValueError: If ``run_id`` is not a UUID.
+    """
+    from deepagents.backends import CompositeBackend, FilesystemBackend
+
+    root = stage_theory(config)
+    if run_id is None:
+        return FilesystemBackend(root_dir=root, virtual_mode=config.agent_virtual_mode)
+
+    # Routed backends receive prefix-stripped paths, which only resolve against
+    # their root in virtual mode.
+    routes: dict[str, Any] = (
+        {
+            f"/{sub}/": FilesystemBackend(root_dir=root / sub, virtual_mode=True)
+            for sub in (_STAGE_SUBDIR, STAGED_SKILLS_ROOT)
+        }
+        if config.preload_theory
+        else {}
+    )
+    return CompositeBackend(
+        default=FilesystemBackend(
+            root_dir=_run_scratch_dir(root, run_id),
+            virtual_mode=config.agent_virtual_mode,
+        ),
+        routes=routes,
     )
 
 

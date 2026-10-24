@@ -170,14 +170,21 @@ def test_build_fund_agent_wires_the_pm_create_deep_agent(tmp_path, monkeypatch) 
     # Avoid staging the gitignored theory tree in CI: return a real virtual-mode
     # backend rooted at a temp dir so the virtual_mode assertion stays honest.
     fake_backend = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
-    monkeypatch.setattr(graph, "build_backend", lambda config: fake_backend)
+    scratch_owners: list[Any] = []
+
+    def _backend_for(config: Any, run_id: Any = None) -> FilesystemBackend:
+        scratch_owners.append(run_id)
+        return fake_backend
+
+    monkeypatch.setattr(graph, "build_backend", _backend_for)
 
     model = object()
+    ctx = _ctx()
     agent = graph.build_fund_agent(
         model,
         checkpointer="CKPT",
         store="STORE",
-        ctx=_ctx(),
+        ctx=ctx,
         fallback=_FALLBACK,
     )
 
@@ -195,6 +202,8 @@ def test_build_fund_agent_wires_the_pm_create_deep_agent(tmp_path, monkeypatch) 
     assert captured["skills"] == skill_sources("orchestrator")
     assert captured["backend"] is fake_backend
     assert captured["backend"].virtual_mode is True
+    # The writable scratch area is scoped to this run, not shared across runs.
+    assert scratch_owners == [ctx.run_id]
     assert captured["checkpointer"] == "CKPT"
     assert captured["store"] == "STORE"
 
@@ -209,7 +218,9 @@ def test_build_fund_agent_wires_four_subagents_in_pipeline_order(
         deepagents, "create_deep_agent", lambda *a, **k: captured.update(k)
     )
     fake_backend = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
-    monkeypatch.setattr(graph, "build_backend", lambda config: fake_backend)
+    monkeypatch.setattr(
+        graph, "build_backend", lambda config, run_id=None: fake_backend
+    )
 
     graph.build_fund_agent(
         object(),
@@ -597,7 +608,7 @@ def _spy_create_deep_agent(monkeypatch, tmp_path) -> dict[str, Any]:
         deepagents, "create_deep_agent", lambda *a, **k: captured.update(k) or "PM"
     )
     backend = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
-    monkeypatch.setattr(graph, "build_backend", lambda config: backend)
+    monkeypatch.setattr(graph, "build_backend", lambda config, run_id=None: backend)
     return captured
 
 

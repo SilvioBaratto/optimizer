@@ -526,6 +526,27 @@ def test_breach_commits_the_blocked_trail_but_not_the_callers_staged_work(
         assert decisions[0].llm_response == answers.model_dump_json()
 
 
+def test_run_profiler_scopes_the_agent_scratch_to_its_audit_run(
+    db_session, monkeypatch
+):
+    from fund.agents import profiler as profiler_mod
+
+    scratch_owners: list[object] = []
+    real_build_backend = profiler_mod.build_backend
+
+    def _spy(config, run_id=None):
+        scratch_owners.append(run_id)
+        return real_build_backend(config, run_id=run_id)
+
+    monkeypatch.setattr(profiler_mod, "build_backend", _spy)
+    pid = uuid.uuid4()
+    model = make_model(make_answers(), portfolio_id=str(pid))
+
+    run = _run(model, db_session, portfolio_id=pid)
+
+    assert scratch_owners == [run.run_id]
+
+
 # --- build_profiler_agent: create_deep_agent kwargs (spy, no LLM) ------------
 
 
@@ -550,10 +571,17 @@ def test_build_profiler_agent_wires_the_theory_backend_and_skill(tmp_path, monke
     # Avoid staging the real theory tree: a real virtual-mode backend at a temp dir
     # keeps the virtual_mode assertion honest without touching fund/.runtime.
     fake_backend = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
-    monkeypatch.setattr(profiler_mod, "build_backend", lambda config: fake_backend)
+    scratch_owners: list[object] = []
 
+    def _backend_for(config: object, run_id: object = None) -> FilesystemBackend:
+        scratch_owners.append(run_id)
+        return fake_backend
+
+    monkeypatch.setattr(profiler_mod, "build_backend", _backend_for)
+
+    run_id = uuid.uuid4()
     agent = profiler_mod.build_profiler_agent(
-        object(), [], checkpointer="CKPT", store="STORE"
+        object(), [], checkpointer="CKPT", store="STORE", run_id=run_id
     )
 
     assert agent == "PROFILER_AGENT"
@@ -561,6 +589,7 @@ def test_build_profiler_agent_wires_the_theory_backend_and_skill(tmp_path, monke
     assert captured["skills"] == skill_sources("profiler")
     assert captured["backend"] is fake_backend
     assert captured["backend"].virtual_mode is True
+    assert scratch_owners == [run_id]
     # The always-on HITL save gate + persistence handles are still threaded through.
     assert captured["interrupt_on"] == {"save_profile": True}
     assert captured["checkpointer"] == "CKPT"
@@ -585,7 +614,9 @@ def test_build_profiler_agent_applies_the_summary_override(tmp_path, monkeypatch
 
     monkeypatch.setattr(deepagents, "create_deep_agent", _spy)
     fake_backend = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
-    monkeypatch.setattr(profiler_mod, "build_backend", lambda config: fake_backend)
+    monkeypatch.setattr(
+        profiler_mod, "build_backend", lambda config, run_id=None: fake_backend
+    )
     config = dataclasses.replace(
         settings, summary_token_threshold=24000, summary_messages_to_keep=4
     )
@@ -618,7 +649,9 @@ def test_build_profiler_agent_keeps_deepagents_summarization_without_override(
         deepagents, "create_deep_agent", lambda *a, **k: captured.update(k)
     )
     fake_backend = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
-    monkeypatch.setattr(profiler_mod, "build_backend", lambda config: fake_backend)
+    monkeypatch.setattr(
+        profiler_mod, "build_backend", lambda config, run_id=None: fake_backend
+    )
 
     profiler_mod.build_profiler_agent(
         ScriptedProfilerModel(), [], checkpointer="CKPT", store=None

@@ -11,11 +11,16 @@ staged workdir; construction only, no agent invocation and no network.
 
 from __future__ import annotations
 
+import os
+import sys
+import time
+import uuid
 from pathlib import Path
 
 import pytest
 
 from fund.agents import backend
+from fund.agents.skills import SKILLS_BY_AGENT, skill_sources
 from fund.config import FundConfig
 
 _PRELOAD = FundConfig(preload_theory=True)
@@ -357,3 +362,108 @@ def test_concurrent_staging_never_fails_or_exposes_a_missing_file(tmp_path):
 
     assert errors == []
     assert missing_reads == []
+
+
+# --- Per-run scratch area -------------------------------------------------------
+# deepagents offloads transcripts and oversized tool results, and the agents can
+# write notes, into the backend. Those files hold one portfolio's profile, holdings
+# and orders, so they must not be listable or readable from another run's backend.
+
+
+@pytest.fixture
+def staged_workdir(tmp_path, monkeypatch):
+    dest = tmp_path / "agent-fs"
+    monkeypatch.setattr(backend, "_THEORY_SRC", _fake_theory(tmp_path / "canonical"))
+    monkeypatch.setattr(backend, "_AGENT_FS_ROOT", dest)
+    return dest
+
+
+def test_runs_get_separate_writable_scratch_areas(staged_workdir):
+    run_a, run_b = uuid.uuid4(), uuid.uuid4()
+    fs_a = backend.build_backend(_PRELOAD, run_id=run_a)
+    fs_b = backend.build_backend(_PRELOAD, run_id=run_b)
+
+    assert fs_a.write("/conversation_history/s.md", "CLIENT A").error is None
+
+    assert fs_b.ls("/conversation_history").entries in (None, [])
+    assert "CLIENT A" not in str(fs_b.grep("CLIENT A", "/").matches)
+    assert fs_a.read("/conversation_history/s.md").file_data["content"] == "CLIENT A"
+
+
+def test_every_run_backend_reads_the_shared_theory_and_skills(staged_workdir):
+    fs = backend.build_backend(_PRELOAD, run_id=uuid.uuid4())
+
+    theory = fs.read("/optimizer-theory/openwiki/index.md")
+    skill = fs.read("/skills/risk/risk-limits-check/SKILL.md")
+
+    assert theory.error is None
+    assert skill.error is None
+    paths = {entry["path"] for entry in fs.ls("/").entries}
+    assert {"/optimizer-theory/", "/skills/"} <= paths
+
+
+@pytest.mark.parametrize("role", sorted(SKILLS_BY_AGENT))
+def test_every_role_loads_its_skills_through_the_run_backend(staged_workdir, role):
+    """Drive deepagents' ``SkillsMiddleware`` with the sources the graph passes.
+
+    A source the composite does not route falls through to the scratch backend and
+    loads nothing (only a logged warning), so reading ``/skills/...`` directly is
+    not enough to prove the agents get their skill guidance.
+    """
+    from deepagents.middleware.skills import SkillsMiddleware
+
+    fs = backend.build_backend(_PRELOAD, run_id=uuid.uuid4())
+    middleware = SkillsMiddleware(backend=fs, sources=skill_sources(role))
+
+    update = middleware.before_agent({}, None, {})
+
+    assert update is not None
+    assert update.get("skills_load_errors") is None
+    assert {s["name"] for s in update["skills_metadata"]} == set(SKILLS_BY_AGENT[role])
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_run_scratch_is_private_to_the_owning_user(staged_workdir):
+    fs = backend.build_backend(_PRELOAD, run_id=uuid.uuid4())
+
+    scratch = Path(fs.default.cwd)
+    assert scratch.stat().st_mode & 0o777 == 0o700
+    assert scratch.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_stale_run_scratch_is_purged_and_live_runs_are_kept(
+    staged_workdir, monkeypatch
+):
+    monkeypatch.setattr(backend, "_SCRATCH_MAX_AGE_SECONDS", 3600)
+    old = Path(backend.build_backend(_PRELOAD, run_id=uuid.uuid4()).default.cwd)
+    recent = Path(backend.build_backend(_PRELOAD, run_id=uuid.uuid4()).default.cwd)
+    (old / "conversation_history").mkdir()
+    long_ago = time.time() - 7200
+    os.utime(old, (long_ago, long_ago))
+
+    backend.build_backend(_PRELOAD, run_id=uuid.uuid4())
+
+    assert not old.exists()
+    assert recent.is_dir()
+
+
+def test_rebuilding_a_run_backend_keeps_its_scratch_and_refreshes_its_age(
+    staged_workdir, monkeypatch
+):
+    monkeypatch.setattr(backend, "_SCRATCH_MAX_AGE_SECONDS", 3600)
+    run_id = uuid.uuid4()
+    first = backend.build_backend(_PRELOAD, run_id=run_id)
+    first.write("/notes.md", "kept across a resume")
+    scratch = Path(first.default.cwd)
+    long_ago = time.time() - 7200
+    os.utime(scratch, (long_ago, long_ago))
+
+    resumed = backend.build_backend(_PRELOAD, run_id=run_id)
+
+    assert resumed.read("/notes.md").file_data["content"] == "kept across a resume"
+    assert time.time() - scratch.stat().st_mtime < 3600
+
+
+def test_scratch_dir_name_cannot_escape_the_runs_root(staged_workdir):
+    with pytest.raises(ValueError, match="run_id"):
+        backend.build_backend(_PRELOAD, run_id="../../etc")

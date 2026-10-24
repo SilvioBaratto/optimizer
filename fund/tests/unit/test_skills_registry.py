@@ -55,19 +55,19 @@ def test_skill_paths_unknown_role_raises():
         skill_paths("no-such-role")
 
 
-# --- backend-root-relative skill sources ----------------------------------------
+# --- backend virtual-path skill sources ----------------------------------------
 # deepagents' SkillsMiddleware reads sources through the (virtual_mode) backend, so
-# a skill source MUST be root-relative — an absolute path outside the staged root
-# is blocked. ``skill_sources`` returns the per-role staged source dir.
+# a skill source MUST be a virtual path under the staged root — an absolute
+# filesystem path outside it is blocked, and a slashless path is not routed by the
+# per-run composite backend. ``skill_sources`` returns the per-role staged source dir.
 
 
 @pytest.mark.parametrize("role", sorted(SKILLS_BY_AGENT))
-def test_skill_sources_are_root_relative_per_role(role: str):
+def test_skill_sources_are_virtual_paths_per_role(role: str):
     sources = skill_sources(role)
-    assert sources == [f"{STAGED_SKILLS_ROOT}/{role}"]
+    assert sources == [f"/{STAGED_SKILLS_ROOT}/{role}"]
     for src in sources:
-        assert not Path(src).is_absolute()
-        assert src.startswith(f"{STAGED_SKILLS_ROOT}/")
+        assert src.startswith(f"/{STAGED_SKILLS_ROOT}/")
 
 
 def test_skill_sources_unknown_role_raises():

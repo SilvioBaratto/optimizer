@@ -350,7 +350,7 @@ def build_fund_agent(
     from fund.agents.toolsets import bind_toolset, build_gate_weights_middleware
 
     gates = interrupt_on if interrupt_on is not None else config.interrupt_on_map()
-    backend = build_backend(config)
+    backend = build_backend(config, run_id=ctx.run_id)
 
     def summarization() -> list[Any]:
         return summarization_override(model, backend, config)

@@ -306,6 +306,39 @@ def test_resume_fund_prices_the_ticket_at_the_run_capital_after_a_mandate_edit(
     assert order.notional == pytest.approx(40_000.0)
 
 
+def test_run_and_resume_build_their_agents_over_the_same_run_scratch(
+    db_session, monkeypatch
+) -> None:
+    from fund.agents import graph as graph_mod
+
+    scratch_owners: list[object] = []
+    real_build_backend = graph_mod.build_backend
+
+    def _spy(config, run_id=None):
+        scratch_owners.append(run_id)
+        return real_build_backend(config, run_id=run_id)
+
+    monkeypatch.setattr(graph_mod, "build_backend", _spy)
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    assert scratch_owners == [run.run_id, run.run_id]
+
+
 # --- resume_fund reject: no order, no positions, rejected --------------------
 
 
