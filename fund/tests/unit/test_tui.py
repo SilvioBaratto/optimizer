@@ -2749,6 +2749,38 @@ async def test_deliberation_expand_renders_recomputed_risk_verdict(
 
 
 @pytest.mark.asyncio
+async def test_deliberation_expand_replaces_recomputing_status_when_done(
+    shell_env, monkeypatch
+) -> None:
+    """The ``recomputing read-out…`` status must not outlive the compute: left in
+    place it reads as a hung computation long after the numbers painted in."""
+    from fund import readouts_compute
+
+    canned = readouts_compute.RiskCompute(
+        passed=True, violations=(), sector_exposures=None, error=None
+    )
+    monkeypatch.setattr(readouts_compute, "compute_risk", lambda *_a, **_k: canned)
+    with shell_env.get_session() as session:
+        run_id = _seed_allocator_run(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(1)  # the risk step
+        await pilot.pause()
+        app.action_expand_readout()
+        assert "recomputing" in app.last_status
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert "recomputing" not in app.last_status
+        assert "read-out ready" in app.last_status
+
+
+@pytest.mark.asyncio
 async def test_deliberation_expand_scopes_to_selected_allocator_step(
     shell_env, monkeypatch
 ) -> None:

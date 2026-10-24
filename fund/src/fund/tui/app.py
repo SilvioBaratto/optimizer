@@ -1780,7 +1780,8 @@ class ShellApp(App[None]):
         (latest) allocation. ``view`` is resolved by the caller on the event loop and
         passed in — this thread never queries the DOM, touching the view only through
         ``call_from_thread``. The result marshals back that way, unless a newer expand
-        has cancelled this worker. Any failure surfaces as a status line.
+        has cancelled this worker, and replaces the ``recomputing`` status with a ready
+        line. Any failure surfaces as a status line.
         """
         from textual.worker import get_current_worker
 
@@ -1842,6 +1843,7 @@ class ShellApp(App[None]):
         # the paint so a slow stale result never clobbers the newer one in the view.
         if not get_current_worker().is_cancelled:
             self.call_from_thread(view.paint_readout, run_id, agent, key, result)
+            self.call_from_thread(self._set_status, "read-out ready")
 
     @work(thread=True, exclusive=True, group="drive")
     def _onboard_worker(
