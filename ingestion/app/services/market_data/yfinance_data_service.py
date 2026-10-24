@@ -40,6 +40,7 @@ from portopt_db.repositories.market_data.yfinance_repository import (
     YFinanceRepository,
     statement_staleness_key,
 )
+from sqlalchemy.exc import StatementError
 
 from app.services._shared import (
     ProgressCallback,
@@ -178,6 +179,9 @@ DEFAULT_THRESHOLDS = StalenessThresholds()
 # forgotten before the next daily run could use it.
 SHARED_EMPTY_FETCHES = EmptyFetchMemory()
 
+# Longest per-category error text kept in logs and the job's error rows.
+_MAX_ERROR_CHARS = 300
+
 # Sentinel: distinguishes "caller did not supply staleness" (query it) from
 # "caller supplied None" (no data yet → treat as stale) on fetch_and_store.
 _UNSET: Any = object()
@@ -200,6 +204,31 @@ def _prices_are_current(
     if isinstance(price_max_date, datetime):
         price_max_date = price_max_date.date()
     return price_max_date >= last_completed_session(exchange_name, today)
+
+
+def _describe_statement_error(exc: StatementError) -> str:
+    """Return the cause of a failed statement without the statement itself.
+
+    SQLAlchemy's message embeds the whole SQL text, and a multi-row upsert of a
+    5y price history runs to ~300 KB. Kept as is, one such error per category
+    would flood the container log, the sweep's in-memory error list and the
+    job's stored error rows.
+
+    Args:
+        exc: The failed-statement error raised by a repository write.
+
+    Returns:
+        ``"<DriverError>: <message>"`` on one line, cut to ``_MAX_ERROR_CHARS``.
+    """
+    cause: Any = exc.orig
+    if cause is None:
+        text = str(exc.args[0]) if exc.args else type(exc).__name__
+    else:
+        text = f"{type(cause).__name__}: {cause}"
+    text = " ".join(text.split())
+    if len(text) > _MAX_ERROR_CHARS:
+        text = text[: _MAX_ERROR_CHARS - 3] + "..."
+    return text
 
 
 def _is_fresh(
@@ -414,9 +443,17 @@ class YFinanceDataService:
 
         Returns:
             Whatever *write* returns (the number of rows it stored).
+
+        Raises:
+            RuntimeError: When the database rejected the statement. The message
+                is the driver's cause, without the SQL text; the original error
+                stays on ``__cause__``.
         """
-        with self.repo.session.begin_nested():
-            return write(*args, **kwargs)
+        try:
+            with self.repo.session.begin_nested():
+                return write(*args, **kwargs)
+        except StatementError as exc:
+            raise RuntimeError(_describe_statement_error(exc)) from exc
 
     def _overlap_was_readjusted(
         self,

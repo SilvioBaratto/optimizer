@@ -151,3 +151,31 @@ def test_failed_etf_write_rolls_back_the_whole_etf_snapshot(db_session) -> None:
     assert [e.split(":")[0] for e in result["errors"]] == ["etf_metadata"]
     assert etf_repo.get_metadata(inst.id) is None
     assert etf_repo.get_asset_classes(inst.id) is None
+
+
+def test_failed_write_error_text_is_bounded_and_keeps_the_cause(
+    db_session, caplog
+) -> None:
+    """A rejected multi-row INSERT is reported by its cause, not its statement."""
+    import logging
+
+    inst = _instrument(db_session)
+    repo = YFinanceRepository(db_session)
+
+    def _rejected_insert(*_args: Any, **_kwargs: Any) -> int:
+        rows = ",".join(f"({n}, 'row-{n}')" for n in range(20_000))
+        db_session.execute(text(f"INSERT INTO table_that_does_not_exist VALUES {rows}"))
+        return 1
+
+    repo.upsert_institutional_holders = _rejected_insert  # type: ignore[method-assign]
+    service = YFinanceDataService(repo, _yf_client())
+
+    with caplog.at_level(logging.WARNING):
+        result = service.fetch_and_store(
+            inst.id, "SVPT", period="1mo", mode="full", asset_class="equity"
+        )
+
+    (error,) = [e for e in result["errors"] if e.startswith("institutional_holders")]
+    assert "no such table: table_that_does_not_exist" in error
+    assert len(error) < 500
+    assert all(len(r.getMessage()) < 500 for r in caplog.records)
