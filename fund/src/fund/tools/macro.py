@@ -15,6 +15,8 @@ Contract (via :func:`fund.tools._base.tool_envelope`):
 * an observation counts as known on ``asof`` only once its publication lag has
   elapsed (see :func:`load_macro_frame`). The lag applies to live reads
   (``asof`` = today) exactly as to replays;
+* a blank or non-string series name ⇒ **flagged** in ``data["missing"]`` without
+  querying, since the repository reads an empty id as "every series";
 * every other failure (e.g. a malformed ``asof``) is caught by the envelope and
   returned as ``{ok: false, error}``.
 """
@@ -119,7 +121,8 @@ def load_macro_frame(
     Shared loader behind :func:`get_macro_series`: one column per *populated*
     series (in requested order) on a sorted ``DatetimeIndex``; ``missing`` lists
     requested series with no stored observation or only null values as of
-    ``asof``. The caller validates non-empty ``names``.
+    ``asof``, and any blank or non-string name. The caller validates non-empty
+    ``names``.
 
     Args:
         session: A sync ``portopt_db`` session; the loader does not own it.
@@ -150,6 +153,10 @@ def load_macro_frame(
 
     series_by_name: dict[str, pd.Series] = {}
     for name in names:
+        # The repository treats a falsy ``series_id`` as "no filter", so a blank
+        # name would merge every stored series into one plausible-looking column.
+        if not isinstance(name, str) or not name.strip():
+            continue
         rows = repo.get_fred_observations(
             series_id=name, start_date=start_date, end_date=end_date
         )

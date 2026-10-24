@@ -317,6 +317,28 @@ class TestGetMacroSeriesFlagsAndErrors:
         assert result["data"]["missing"] == ["EMPTY"]
         assert result["data"]["columns"] == []
 
+    def test_blank_name_is_flagged_instead_of_matching_every_series(
+        self, db_session
+    ) -> None:
+        # The repository treats a falsy series id as "no filter"; a blank name
+        # must not pull the whole table into one bogus column.
+        _two_series_panel(db_session)
+
+        result = get_macro_series(db_session, ["", "T10Y2Y"], _ASOF)
+
+        assert result["ok"] is True
+        assert result["data"]["columns"] == ["T10Y2Y"]
+        assert result["data"]["missing"] == [""]
+
+    def test_only_blank_names_yield_an_empty_panel(self, db_session) -> None:
+        _two_series_panel(db_session)
+
+        result = get_macro_series(db_session, ["", None, "  "], _ASOF)  # type: ignore[list-item]
+
+        assert result["ok"] is True
+        assert result["data"]["columns"] == []
+        assert result["data"]["missing"] == ["", None, "  "]
+
     def test_empty_names_is_error(self, db_session) -> None:
         result = get_macro_series(db_session, [], _ASOF)
 
