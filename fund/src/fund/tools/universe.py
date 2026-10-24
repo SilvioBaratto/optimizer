@@ -29,6 +29,10 @@ Contract (via ``tool_envelope``):
   closed) and reported in ``excluded_by_esg``;
 * a criterion the tool cannot apply is never silently dropped behind ``ok``: its
   key is listed in ``ignored_criteria`` so the caller knows it was not enforced.
+
+``list_universe`` is the DB-side counterpart: the allocator picks its candidates from
+the instruments the database holds (active, priced on the bar, outside the client's
+ESG exclusions) instead of from model memory.
 """
 
 from __future__ import annotations
@@ -36,20 +40,24 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import re
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import TYPE_CHECKING, Any
 
 from optimizer.pre_selection import PreSelectionConfig, build_preselection_pipeline
 from optimizer.preprocessing import prices_to_returns
+from portopt_db.models.market_data.yfinance_data import PriceHistory, TickerProfile
+from portopt_db.models.universe.universe import Instrument
 from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
+from sqlalchemy import exists, func, or_, select
 
 from fund.schemas.enums import GicsSector
-from fund.tools._base import ToolResult, ok, tool_envelope
+from fund.tools._base import ToolResult, coerce_date, err, ok, tool_envelope
 from fund.tools.prices import load_price_frame
 
 if TYPE_CHECKING:
     import pandas as pd
     from sklearn.pipeline import Pipeline
+    from sqlalchemy import Select
     from sqlalchemy.orm import Session
 
 # ``PreSelectionConfig`` field names; the other criterion the tool applies is
@@ -72,16 +80,54 @@ _MAX_STALE_BARS = 5
 # ``DropCorrelated`` raises on fewer than two, where there is nothing to compare.
 _PAIRWISE_STEP = "drop_correlated"
 
-# ``TickerProfile.sector`` carries Yahoo's sector labels (normalised to snake case);
-# the ones that differ from GICS are mapped here. GICS-named labels pass through.
-_YAHOO_SECTOR_TO_GICS: dict[str, GicsSector] = {
-    "basic_materials": GicsSector.MATERIALS,
-    "consumer_cyclical": GicsSector.CONSUMER_DISCRETIONARY,
-    "consumer_defensive": GicsSector.CONSUMER_STAPLES,
-    "healthcare": GicsSector.HEALTH_CARE,
-    "financial_services": GicsSector.FINANCIALS,
-    "technology": GicsSector.INFORMATION_TECHNOLOGY,
+# ``TickerProfile.sector`` holds Yahoo's sector names, the same eleven the optimizer's
+# sector bands use; they map one-to-one onto the GICS sectors a client can exclude.
+_SECTOR_NAME_BY_GICS: dict[GicsSector, str] = {
+    GicsSector.ENERGY: "Energy",
+    GicsSector.MATERIALS: "Basic Materials",
+    GicsSector.INDUSTRIALS: "Industrials",
+    GicsSector.CONSUMER_DISCRETIONARY: "Consumer Cyclical",
+    GicsSector.CONSUMER_STAPLES: "Consumer Defensive",
+    GicsSector.HEALTH_CARE: "Healthcare",
+    GicsSector.FINANCIALS: "Financial Services",
+    GicsSector.INFORMATION_TECHNOLOGY: "Technology",
+    GicsSector.COMMUNICATION_SERVICES: "Communication Services",
+    GicsSector.UTILITIES: "Utilities",
+    GicsSector.REAL_ESTATE: "Real Estate",
 }
+
+# The same names normalised to snake case, the form ``_gics_sector`` looks labels up
+# in. A GICS-named label that is not in this table still resolves by its value.
+_YAHOO_SECTOR_TO_GICS: dict[str, GicsSector] = {
+    "_".join(name.lower().split()): gics for gics, name in _SECTOR_NAME_BY_GICS.items()
+}
+
+# One page never exceeds this, so a single call cannot flood the model's context
+# with the whole (~9k-name) universe.
+_MAX_PAGE_SIZE = 500
+
+
+def _label(name: str) -> str:
+    """Fold case and the space/hyphen separators of a sector name to snake case."""
+    return "_".join(name.replace("-", " ").lower().split())
+
+
+def _labels_of(sectors: Collection[GicsSector]) -> set[str]:
+    """Every stored spelling (GICS value or Yahoo label) of the given sectors."""
+    return {sector.value for sector in sectors} | {
+        label for label, gics in _YAHOO_SECTOR_TO_GICS.items() if gics in sectors
+    }
+
+
+def _resolve_sector(name: str) -> GicsSector | None:
+    """The GICS sector a caller's sector filter names, in any spelling or case."""
+    label = _label(name)
+    if label in _YAHOO_SECTOR_TO_GICS:
+        return _YAHOO_SECTOR_TO_GICS[label]
+    try:
+        return GicsSector(label)
+    except ValueError:
+        return None
 
 
 def _resolve_config(criteria: dict[str, Any] | None) -> PreSelectionConfig:
@@ -249,4 +295,118 @@ def universe_filter(
     )
 
 
-__all__ = ["universe_filter"]
+def _investable(asof: dt.date, exclusions: Collection[GicsSector | str]) -> Select[Any]:
+    """Select ``(ticker, name, sector, market_cap)`` of every investable instrument.
+
+    Investable on ``asof`` means: it has a yfinance ticker, it had not been delisted
+    by that bar (a later delisting does not retroactively make it uninvestable) and
+    it has a price on or before it. A non-empty ``exclusions`` additionally drops
+    the excluded sectors and every instrument whose sector is unknown — a hard ESG
+    block must fail closed rather than let an unclassified name through. The sector
+    and market cap come from the latest ``ticker_profiles`` snapshot, not from
+    ``asof``.
+    """
+    priced = exists().where(
+        PriceHistory.instrument_id == Instrument.id, PriceHistory.date <= asof
+    )
+    stmt = (
+        select(
+            Instrument.yfinance_ticker,
+            func.coalesce(Instrument.name, Instrument.short_name),
+            TickerProfile.sector,
+            TickerProfile.market_cap,
+        )
+        .outerjoin(TickerProfile, TickerProfile.instrument_id == Instrument.id)
+        .where(
+            Instrument.yfinance_ticker.is_not(None),
+            or_(Instrument.delisted_at.is_(None), Instrument.delisted_at > asof),
+            priced,
+        )
+    )
+    if exclusions:
+        label = func.lower(
+            func.replace(func.replace(TickerProfile.sector, " ", "_"), "-", "_")
+        )
+        excluded = _labels_of({GicsSector(e) for e in exclusions})
+        known = _labels_of(set(GicsSector))
+        stmt = stmt.where(
+            TickerProfile.sector.is_not(None),
+            label.in_(known),
+            label.not_in(excluded),
+        )
+    return stmt
+
+
+@tool_envelope
+def list_universe(
+    session: Session,
+    asof: dt.date | str,
+    *,
+    exclusions: Collection[GicsSector | str] = (),
+    sector: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> ToolResult:
+    """List one page of the investable universe as of ``asof``.
+
+    Membership is point-in-time: listing, delisting and first price are judged on
+    ``asof``. ``sector`` and ``market_cap`` are not: ``ticker_profiles`` keeps only the
+    latest snapshot, so for a past ``asof`` the ordering ranks names by their current
+    size and the sector is today's classification.
+
+    Args:
+        session: A sync ``portopt_db`` session; the tool does not own it.
+        asof: Decision bar; delistings and prices after it are ignored.
+        exclusions: The client's ESG-excluded GICS sectors, removed from the list.
+        sector: Keep only this sector: a stored sector name (``Technology``) or the
+            matching GICS name (``information_technology``), in any case.
+        limit: Page size, clamped to ``1..500``.
+        offset: Rows to skip, for paging.
+
+    Returns:
+        ``ok`` with ``{total, offset, limit, instruments}``, the instruments ordered
+        by market cap (largest first, unknown last) as ``{ticker, name, sector,
+        market_cap}`` rows. ``err`` naming the valid sectors when ``sector`` is not
+        one of them, so a typo is never read as an empty universe.
+    """
+    page = max(1, min(int(limit), _MAX_PAGE_SIZE))
+    start = max(0, int(offset))
+    stmt = _investable(coerce_date(asof), exclusions)
+    if sector and sector.strip():
+        wanted = _resolve_sector(sector)
+        if wanted is None:
+            stored = ", ".join(sorted(_SECTOR_NAME_BY_GICS.values()))
+            gics = ", ".join(g.value for g in _SECTOR_NAME_BY_GICS)
+            return err(
+                f"unknown sector {sector!r}; use one of: {stored} "
+                f"(or the GICS names: {gics})"
+            )
+        label = func.lower(
+            func.replace(func.replace(TickerProfile.sector, " ", "_"), "-", "_")
+        )
+        stmt = stmt.where(label.in_(_labels_of({wanted})))
+
+    total = session.execute(
+        select(func.count()).select_from(stmt.subquery())
+    ).scalar_one()
+    rows = session.execute(
+        stmt.order_by(
+            TickerProfile.market_cap.desc().nulls_last(), Instrument.yfinance_ticker
+        )
+        .limit(page)
+        .offset(start)
+    ).all()
+    return ok(
+        {
+            "total": total,
+            "offset": start,
+            "limit": page,
+            "instruments": [
+                {"ticker": t, "name": n, "sector": sec, "market_cap": cap}
+                for t, n, sec, cap in rows
+            ],
+        }
+    )
+
+
+__all__ = ["list_universe", "universe_filter"]

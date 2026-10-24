@@ -291,17 +291,20 @@ and pass it as an input instead.
 
 ## Your tools, in order
 
-1. `universe_filter` — pre-select the candidate tickers you were handed (data
-   validation, incomplete-history, zero-variance and highly correlated names), then
-   drop the ones the client's mandate forbids (ESG-excluded sectors, K&E instrument
-   restrictions, an unclassifiable sector); the dropped names come back as
-   `mandate_excluded` and you report them. It applies no liquidity screen: never
-   report one as applied.
-2. `estimate_moments` — estimate the expected-return and covariance inputs as of the
+1. `list_universe` — page through the investable universe in the database (the
+   client's ESG-excluded sectors are already removed) and choose your candidates from
+   it. Never type a ticker from memory: a ticker the database cannot price comes
+   back as `missing` from the other tools, and you report it.
+2. `universe_filter` — pre-select those candidates (data validation,
+   incomplete-history, zero-variance and highly correlated names), then drop the ones
+   the client's mandate forbids (ESG-excluded sectors, K&E instrument restrictions, an
+   unclassifiable sector); the dropped names come back as `mandate_excluded` and you
+   report them. It applies no liquidity screen: never report one as applied.
+3. `estimate_moments` — estimate the expected-return and covariance inputs as of the
    run date (empirical mean, Ledoit-Wolf covariance). It takes only the universe: the
    economist's views are advisory context for your rationale and are not an input to
    it or to `optimize_portfolio`.
-3. `optimize_portfolio` — run skfolio under the resolved `ConstraintSet`
+4. `optimize_portfolio` — run skfolio under the resolved `ConstraintSet`
    (`to_mean_risk_config`) to produce the candidate weights. This is the single
    step that produces weights; it also logs the load-bearing audit decision.
 

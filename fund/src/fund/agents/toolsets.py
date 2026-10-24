@@ -94,7 +94,12 @@ TOOLS_BY_AGENT: dict[str, tuple[str, ...]] = {
         "get_recent_events",
         "get_regime_stats",
     ),
-    "allocator": ("universe_filter", "estimate_moments", "optimize_portfolio"),
+    "allocator": (
+        "list_universe",
+        "universe_filter",
+        "estimate_moments",
+        "optimize_portfolio",
+    ),
     "risk": ("risk_check", "backtest"),
     "executor": (),
 }
@@ -351,6 +356,24 @@ def _get_prices_impl(ctx: RunContext, tickers: list[str]) -> ToolResult:
 @_serialised
 def _get_macro_impl(ctx: RunContext, names: list[str]) -> ToolResult:
     return _tools.get_macro_series(ctx.session, names, ctx.asof)
+
+
+@tool_envelope
+@_serialised
+def _list_universe_impl(
+    ctx: RunContext, sector: str | None = None, limit: int = 100, offset: int = 0
+) -> ToolResult:
+    # The ESG exclusions are bound from the run's ConstraintSet, never chosen by the
+    # model: a listed name is one the client may hold.
+    cs = _resolve_constraint_set(ctx)
+    return _tools.list_universe(
+        ctx.session,
+        ctx.asof,
+        exclusions=tuple(cs.esg.exclusions) if cs is not None else (),
+        sector=sector,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @tool_envelope
@@ -721,16 +744,45 @@ def _bind_get_macro(ctx: RunContext) -> BaseTool:
     return get_macro_series
 
 
+def _bind_list_universe(ctx: RunContext) -> BaseTool:
+    from langchain_core.tools import tool
+
+    @tool
+    def list_universe(
+        sector: str | None = None, limit: int = 100, offset: int = 0
+    ) -> ToolResult:
+        """List one page of the investable universe, largest market cap first, as
+        ``{ticker, name, sector, market_cap}`` rows. Names in the client's
+        ESG-excluded sectors are already removed (a complex or leveraged product is
+        dropped later, by ``universe_filter``). Which names are listed is judged on
+        the run date, but ``sector`` and ``market_cap`` are the latest snapshot, so
+        for a past run date the size ranking is today's, not that date's. Page with
+        ``offset`` / ``limit`` (at most 500); ``total`` counts the whole list. Narrow
+        with ``sector``: one of Basic Materials, Communication Services, Consumer
+        Cyclical, Consumer Defensive, Energy, Financial Services, Healthcare,
+        Industrials, Real Estate, Technology, Utilities, or the GICS name energy,
+        materials, industrials, consumer_discretionary, consumer_staples,
+        health_care, financials, information_technology, communication_services,
+        utilities, real_estate; any other name is an error that lists the valid
+        ones. Pick candidates from here: the other
+        allocator tools report any ticker the database cannot price as
+        ``missing``. Returns the ``{ok, data}`` envelope."""
+        return _list_universe_impl(ctx, sector, limit, offset)
+
+    return list_universe
+
+
 def _bind_universe_filter(ctx: RunContext) -> BaseTool:
     from langchain_core.tools import tool
 
     @tool
     def universe_filter(universe: list[str]) -> ToolResult:
-        """Prune ``universe`` with the pre-selection stack, dropping any name the
-        client's mandate forbids (ESG-excluded sector, complex or leveraged product
-        for a restricted client, or an unclassifiable instrument). Returns the
-        ``{ok, data}`` envelope with the surviving tickers, in requested order, and
-        ``mandate_excluded`` naming each dropped ticker and why."""
+        """Prune ``universe`` (tickers taken from ``list_universe``) with the
+        pre-selection stack, dropping any name the client's mandate forbids
+        (ESG-excluded sector, complex or leveraged product for a restricted client,
+        or an unclassifiable instrument). Returns the ``{ok, data}`` envelope with
+        the surviving tickers, in requested order, and ``mandate_excluded`` naming
+        each dropped ticker and why."""
         return _universe_filter_impl(ctx, universe)
 
     return universe_filter
@@ -925,6 +977,7 @@ _BUILDERS: dict[str, Any] = {
     "get_macro_series": _bind_get_macro,
     "get_recent_events": _bind_get_recent_events,
     "get_regime_stats": _bind_get_regime_stats,
+    "list_universe": _bind_list_universe,
     "universe_filter": _bind_universe_filter,
     "estimate_moments": _bind_estimate_moments,
     "optimize_portfolio": _bind_optimize,

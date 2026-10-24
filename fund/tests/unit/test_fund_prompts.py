@@ -161,6 +161,8 @@ def test_economist_prompt_describes_only_what_get_prices_returns():
 
 def test_allocator_prompt_names_its_tools_and_skills():
     lower = ALLOCATOR_SYSTEM_PROMPT.lower()
+    assert "list_universe" in lower
+    assert "list_universe" in lower
     assert "universe_filter" in lower
     assert "estimate_moments" in lower
     assert "optimize_portfolio" in lower

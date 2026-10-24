@@ -529,6 +529,80 @@ def test_universe_filter_without_exclusions(db_session) -> None:
     assert set(result["data"]).issubset(set(_UNIVERSE))
 
 
+# --- the allocator's universe: listed from the DB, validated on every call ---
+
+
+def test_bound_list_universe_applies_the_clients_esg_exclusions(db_session) -> None:
+    _seed_panel(db_session)
+    _classify(db_session, "AAA", sector="Technology")
+    _classify(db_session, "BBB", sector="Energy")
+    _classify(db_session, "CCC", sector="Healthcare")
+    cs = _constraint_set(esg=EsgPolicy(exclusions=(GicsSector.ENERGY,)))
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    list_universe = _find(bind_toolset("allocator", ctx), "list_universe")
+
+    result = list_universe.invoke({})
+
+    # The exclusions are bound from the run's ConstraintSet, never a model argument.
+    assert set(list_universe.args) == {"sector", "limit", "offset"}
+    assert result["ok"] is True
+    assert [row["ticker"] for row in result["data"]["instruments"]] == ["AAA", "CCC"]
+
+
+def test_bound_list_universe_tells_the_model_the_sector_names_and_the_snapshot(
+    db_session,
+) -> None:
+    from fund.tools.universe import _SECTOR_NAME_BY_GICS
+
+    ctx = _make_context(db_session)
+    list_universe = _find(bind_toolset("allocator", ctx), "list_universe")
+
+    description = " ".join(list_universe.description.split())
+
+    # A model that guesses a sector name must be able to read the valid ones, and
+    # must not take the market-cap ordering for a point-in-time ranking.
+    for gics, stored in _SECTOR_NAME_BY_GICS.items():
+        assert gics.value in description
+        assert stored in description
+    assert "snapshot" in description
+
+
+def test_list_universe_belongs_to_the_allocator_alone() -> None:
+    assert "list_universe" in TOOLS_BY_AGENT["allocator"]
+    others = [r for r, names in TOOLS_BY_AGENT.items() if "list_universe" in names]
+    assert others == ["allocator"]
+
+
+_DOCUMENTED_CALL = re.compile(r"`([a-z_]+)\(([^`)]*)\)`")
+
+
+def test_skills_document_each_bound_tool_with_its_real_arguments(db_session) -> None:
+    ctx = _make_context(db_session)
+    bound = {t.name: t for role in TOOLS_BY_AGENT for t in bind_toolset(role, ctx)}
+
+    for role, skills in SKILLS_BY_AGENT.items():
+        for skill in skills:
+            text = (SKILLS_DIR / skill / "SKILL.md").read_text(encoding="utf-8")
+            for name, raw_args in _DOCUMENTED_CALL.findall(text):
+                if name not in bound:
+                    continue
+                schema = bound[name].get_input_schema().model_json_schema()
+                real = set(schema.get("properties", {}))
+                required = set(schema.get("required", []))
+                documented = {
+                    a.split("=")[0].strip() for a in raw_args.split(",") if a.strip()
+                }
+                assert documented <= real, (
+                    f"{role}/{skill}: `{name}` documents "
+                    f"{sorted(documented - real)}, which the bound tool does not take "
+                    f"(it takes {sorted(real)})"
+                )
+                assert required <= documented, (
+                    f"{role}/{skill}: `{name}` omits required "
+                    f"{sorted(required - documented)}"
+                )
+
+
 def test_bound_risk_check_is_pure_and_omits_session(db_session) -> None:
     cs = _constraint_set()
     ctx = _make_context(db_session, store=_store_with_cs(cs))

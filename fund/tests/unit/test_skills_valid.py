@@ -49,6 +49,7 @@ _REAL_TOOLS = frozenset(
         "get_macro_series",
         "get_recent_events",
         "get_regime_stats",
+        "list_universe",
         "estimate_moments",
         "optimize_portfolio",
         "universe_filter",
@@ -66,7 +67,9 @@ _EXPECTED_TOOLS: dict[str, frozenset[str]] = {
     "mifid-profiling": frozenset(),
     "macro-regime-read": frozenset({"get_macro_series", "get_regime_stats"}),
     "views-construction": frozenset(),
-    "universe-preselection": frozenset({"universe_filter", "estimate_moments"}),
+    "universe-preselection": frozenset(
+        {"list_universe", "universe_filter", "estimate_moments"}
+    ),
     "optimization-objective-map": frozenset({"optimize_portfolio"}),
     "risk-limits-check": frozenset({"risk_check", "backtest"}),
     "rebalancing-execution": frozenset({"place_orders"}),
