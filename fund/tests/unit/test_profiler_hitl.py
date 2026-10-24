@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from _profiler_fakes import (
     ScriptedProfilerModel,
     final_reply,
@@ -137,6 +138,38 @@ def test_reject_records_hitl_decision_in_audit(db_session):
         d.hitl_decision and d.hitl_decision.get("decision") == "reject"
         for d in decisions
     )
+
+
+# --- a decided run cannot be decided again ----------------------------------
+
+
+def test_resume_after_approve_cannot_reject_the_live_profile(db_session):
+    pid = uuid.uuid4()
+    model = make_model(make_answers(), portfolio_id=str(pid))
+
+    run = _run(model, db_session, portfolio_id=pid, store=InMemoryStore())
+    run.resume("approve")
+
+    with pytest.raises(ValueError, match="completed"):
+        run.resume("reject")
+
+    # The audit trail still agrees with the live profile.
+    assert MifidProfileRepository(db_session).get_active(pid) is not None
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
+
+
+def test_resume_after_reject_cannot_approve(db_session):
+    pid = uuid.uuid4()
+    model = make_model(make_answers(), portfolio_id=str(pid))
+
+    run = _run(model, db_session, portfolio_id=pid, store=InMemoryStore())
+    run.resume("reject")
+
+    with pytest.raises(ValueError, match="rejected"):
+        run.resume("approve")
+
+    assert MifidProfileRepository(db_session).get_active(pid) is None
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
 
 
 # --- the closing model turn cannot undo an approved write -------------------

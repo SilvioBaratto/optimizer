@@ -616,11 +616,16 @@ class ProfilerRun:
 
         ``approve`` runs the gated ``save_profile`` tool (the write happens inside
         it). Any other decision writes nothing but records the HITL choice in the
-        audit trail and finalises the run as rejected.
+        audit trail and finalises the run as rejected. A run that is no longer at
+        its gate (already decided, frozen, or never gated) raises ``ValueError``.
         """
         from fund.audit import AgentRunRepository
 
         audit = AgentRunRepository(self.session)
+        run = audit.get_run(self.run_id)
+        if run is None:
+            raise LookupError(f"no agent_run {self.run_id}")
+        _require_live_gate(run, self.run_id)
         result = _resume_at_gate(
             self.agent,
             self.thread_config,

@@ -567,6 +567,80 @@ def test_resume_profiler_refuses_a_run_that_never_reached_its_gate(db_session) -
     assert MifidProfileRepository(db_session).get_active(pid) is None
 
 
+def test_resume_profiler_cannot_reject_an_already_approved_run(db_session) -> None:
+    pid = uuid.uuid4()
+    saver, store = MemorySaver(), InMemoryStore()
+    run = _run_to_gate(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        saver,
+        store,
+        portfolio_id=pid,
+    )
+    resume_profiler(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=_resume_model(),
+    )
+
+    # A stale observer re-deciding the run must not flip 'completed' to 'rejected'
+    # while the profile stays active.
+    with pytest.raises(ValueError, match="completed"):
+        resume_profiler(
+            run.run_id,
+            "reject",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=_resume_model(),
+        )
+
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
+    assert MifidProfileRepository(db_session).get_active(pid) is not None
+
+
+def test_resume_profiler_cannot_approve_an_already_rejected_run(db_session) -> None:
+    pid = uuid.uuid4()
+    saver, store = MemorySaver(), InMemoryStore()
+    run = _run_to_gate(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        saver,
+        store,
+        portfolio_id=pid,
+    )
+    resume_profiler(
+        run.run_id,
+        "reject",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=_resume_model(),
+    )
+
+    with pytest.raises(ValueError, match="rejected"):
+        resume_profiler(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=_resume_model(),
+        )
+
+    assert MifidProfileRepository(db_session).get_active(pid) is None
+    # No phantom human 'approve' is recorded for a decision that applied nothing.
+    approvals = [
+        d
+        for d in _decisions(db_session, run.run_id)
+        if d.hitl_decision and d.hitl_decision.get("decision") == "approve"
+    ]
+    assert approvals == []
+
+
 # --- resume_run dispatches by the run's step --------------------------------
 
 
