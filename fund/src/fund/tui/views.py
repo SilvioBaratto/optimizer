@@ -2194,6 +2194,8 @@ class AskView(ShellView):
         """Yield the title, the scrollable conversation log, the input, and the hint."""
         yield Label(self.view_title, classes="view-title")
         with VerticalScroll(id="ask-log-wrap", classes="ask-log-wrap"):
+            # markup=False: the log holds LLM answers and exception text, whose
+            # "[AAPL]" / "[/INST]" fragments the markup parser would drop or reject.
             yield Static(
                 "ask about the fund — e.g. “how are we doing?” or “approve the gate”",
                 id="ask-log",

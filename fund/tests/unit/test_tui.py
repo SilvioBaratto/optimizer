@@ -5842,6 +5842,20 @@ async def test_ask_superseded_query_never_paints_its_stale_reply(
 
 
 @pytest.mark.asyncio
+async def test_ask_log_renders_bracketed_answer_verbatim(shell_env) -> None:
+    """Bracketed tickers/values and a stray ``[/x]`` in an answer neither vanish nor
+    crash the log; the screen shows exactly what the markdown export keeps."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        answer = "top holdings: [AAPL], [MSFT]; cash [5%]; stray [/INST] tag"
+        view.set_answer(answer)
+        await pilot.pause()
+        shown = str(view.query_one("#ask-log", Static).render())
+        assert shown == f"ask: {answer}"
+
+
+@pytest.mark.asyncio
 async def test_ask_query_without_model_degrades_to_status(shell_env) -> None:
     """No model configured → a status line + log note, never a crash, no answer."""
     with shell_env.get_session() as session:
