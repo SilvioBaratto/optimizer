@@ -103,6 +103,7 @@ def test_daemon_fields_default_to_the_phase9_contract():
     # APScheduler `from_crontab` (0=Mon..6=Sun).
     assert cfg.fund_rebalance_cron == "0 12 * * sat"
     assert cfg.fund_drift_interval_seconds == 900
+    assert cfg.fund_drift_cooldown_seconds == 86400
     assert cfg.fund_heartbeat_cadence_seconds == 30
     assert cfg.fund_orphan_timeout_seconds == 300
     assert cfg.fund_shutdown_drain_timeout_seconds == 30
@@ -120,6 +121,7 @@ def test_daemon_fields_parse_from_fund_env_aliases():
         env={
             "FUND_REBALANCE_CRON": "0 4 * * sun",
             "FUND_DRIFT_INTERVAL_SECONDS": "1800",
+            "FUND_DRIFT_COOLDOWN_SECONDS": "7200",
             "FUND_HEARTBEAT_CADENCE_SECONDS": "45",
             "FUND_ORPHAN_TIMEOUT_SECONDS": "600",
             "FUND_SHUTDOWN_DRAIN_TIMEOUT_SECONDS": "60",
@@ -132,6 +134,7 @@ def test_daemon_fields_parse_from_fund_env_aliases():
 
     assert cfg.fund_rebalance_cron == "0 4 * * sun"
     assert cfg.fund_drift_interval_seconds == 1800
+    assert cfg.fund_drift_cooldown_seconds == 7200
     assert cfg.fund_heartbeat_cadence_seconds == 45
     assert cfg.fund_orphan_timeout_seconds == 600
     assert cfg.fund_shutdown_drain_timeout_seconds == 60

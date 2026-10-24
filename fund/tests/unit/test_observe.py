@@ -694,6 +694,38 @@ def test_portfolio_state_without_a_priced_book_keeps_the_positions_snapshot(
     assert state.drift_l1 == pytest.approx(0.0)
 
 
+def test_portfolio_state_marks_a_proposal_nobody_approved_as_unapproved(db_session):
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="rejected",
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+    AgentRunRepository(db_session).append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"AAA": 0.6, "BBB": 0.4}}),
+    )
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.target == {"AAA": 0.6, "BBB": 0.4}  # still shown for display
+    assert state.target_approved is False
+
+
+def test_portfolio_state_marks_a_completed_runs_weights_as_approved(db_session):
+    _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+
+    assert observe.portfolio_state(db_session, _PID).target_approved is True
+
+
 def test_portfolio_state_reads_best_effort_metrics_when_present(db_session):
     run = _make_run(
         db_session,

@@ -80,6 +80,10 @@ class PortfolioState:
     target: dict[str, float]
     drift_l1: float
     metrics: dict[str, float]  # best-effort — empty when none persisted (never faked)
+    # ``False`` when ``target`` is only an unapproved allocator proposal (or absent):
+    # a never-invested book has nothing to drift from, so drift triggers must not
+    # treat that proposal as the weights the portfolio is supposed to hold.
+    target_approved: bool = True
 
 
 @dataclass(frozen=True)
@@ -324,13 +328,14 @@ def portfolio_state(session: Any, portfolio_id: uuid.UUID) -> PortfolioState:
         holdings = PositionRepository(session).get_holdings(portfolio_id)
         current = {p.ticker: p.weight for p in holdings}
     run_repo = AgentRunRepository(session)
-    target = _target_weights(run_repo, portfolio_id)
+    target, target_approved = _target_weights(run_repo, portfolio_id)
     return PortfolioState(
         portfolio_id=portfolio_id,
         current=current,
         target=target,
         drift_l1=drift_l1(current, target),
         metrics=_latest_optimizer_metrics(run_repo, portfolio_id),
+        target_approved=target_approved,
     )
 
 
@@ -1085,15 +1090,19 @@ def _decision_entry(decision: Any) -> TranscriptEntry:
     )
 
 
-def _target_weights(run_repo: Any, portfolio_id: uuid.UUID) -> dict[str, float]:
-    """Latest completed run's weights, else the latest allocator proposal, else {}.
+def _target_weights(
+    run_repo: Any, portfolio_id: uuid.UUID
+) -> tuple[dict[str, float], bool]:
+    """``(weights, approved)``: latest completed run's, else latest proposal, else {}.
 
-    Both reads stream newest-first and stop at the first hit, so a portfolio with a
-    long history costs a handful of rows rather than the whole trail.
+    ``approved`` is ``True`` only for a ``completed`` run's weights; a proposal from a
+    rejected, incomplete or still-pending run is returned for display with
+    ``approved=False``. Both reads stream newest-first and stop at the first hit, so a
+    portfolio with a long history costs a handful of rows rather than the whole trail.
     """
     for run in run_repo.iter_runs_for_portfolio(portfolio_id, status="completed"):
         if run.weights:
-            return {str(k): float(v) for k, v in run.weights.items()}
+            return {str(k): float(v) for k, v in run.weights.items()}, True
     seen_runs: set[uuid.UUID] = set()
     for decision in run_repo.iter_optimizer_decisions(portfolio_id):
         # Only a run's newest proposal counts, matching latest_optimizer_weights.
@@ -1102,8 +1111,8 @@ def _target_weights(run_repo: Any, portfolio_id: uuid.UUID) -> dict[str, float]:
         seen_runs.add(decision.run_id)
         weights: dict[str, float] = run_repo.decode_weights(decision)
         if weights:
-            return weights
-    return {}
+            return weights, False
+    return {}, False
 
 
 def _latest_optimizer_metrics(

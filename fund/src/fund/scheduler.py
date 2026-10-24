@@ -482,6 +482,29 @@ def _monitor_drift_mandates(
             session.rollback()
 
 
+# Run outcomes that mean "a rebalance was attempted and nobody acted on it".
+_DISCARDED_RUN_STATUSES = frozenset({"rejected", "incomplete", "blocked", "failed"})
+
+
+def _in_discard_cooldown(
+    session: Session, portfolio_id: uuid.UUID, *, cooldown_seconds: int
+) -> bool:
+    """Whether the portfolio's newest run was discarded less than the cooldown ago.
+
+    Drift persists after a rejected or order-less round, so without this the
+    monitor would re-drive the full LLM pipeline on every tick and override the
+    adviser's rejection within one interval.
+    """
+    runs = observe.list_portfolio_runs(session, portfolio_id)
+    if not runs or runs[0].status not in _DISCARDED_RUN_STATUSES:
+        return False
+    ended = runs[0].finished_at or runs[0].created_at
+    if ended.tzinfo is None:
+        # SQLite drops the offset; stored timestamps are UTC.
+        ended = ended.replace(tzinfo=UTC)
+    return datetime.now(UTC) - ended < dt.timedelta(seconds=cooldown_seconds)
+
+
 def _check_drift(
     portfolio_id: uuid.UUID,
     mandate: PortfolioMandate,
@@ -510,6 +533,14 @@ def _check_drift(
         )
 
     state = observe.portfolio_state(session, portfolio_id)
+    if not state.target_approved:
+        logger.info(
+            "drift monitor: portfolio %s has no approved target yet; "
+            "drift does not apply",
+            pid_str,
+        )
+        return
+
     if state.drift_l1 <= mandate.drift_l1_threshold:
         logger.info(
             "drift monitor: portfolio %s in band (%.6f <= %.6f)",
@@ -522,6 +553,16 @@ def _check_drift(
     if AgentRunRepository(session).list_paused_runs(portfolio_id):
         logger.info(
             "drift monitor: portfolio %s breached but already awaits HITL; skipping",
+            pid_str,
+        )
+        return
+
+    if _in_discard_cooldown(
+        session, portfolio_id, cooldown_seconds=config.fund_drift_cooldown_seconds
+    ):
+        logger.info(
+            "drift monitor: portfolio %s breached but its last rebalance was "
+            "discarded within the cooldown; skipping",
             pid_str,
         )
         return

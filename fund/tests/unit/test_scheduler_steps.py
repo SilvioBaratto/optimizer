@@ -23,6 +23,7 @@ is safe.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
@@ -37,7 +38,7 @@ import pytest
 from _fund_fakes import ASOF, make_constraint_set, seed_panel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import BackgroundJob, Base
+from portopt_db.models import AgentRun, BackgroundJob, Base
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -45,6 +46,7 @@ import fund.observe as observe
 from fund.audit.fund_job_repository import FundJobRepository
 from fund.audit.mandate_repository import MandateRepository
 from fund.audit.mifid_repository import put_constraint_set
+from fund.audit.positions_repository import PositionRepository
 from fund.audit.repository import AgentRunRepository
 from fund.config import settings
 from fund.scheduler import (
@@ -137,6 +139,41 @@ def _seed_paused_run(factory: SessionFactory, pid: uuid.UUID) -> None:
             portfolio_id=pid, asof=ASOF, seed=1, universe=[], optimizer_config={}
         )
         repo.mark_paused(run.id)
+        session.commit()
+
+
+def _seed_run(
+    factory: SessionFactory,
+    pid: uuid.UUID,
+    *,
+    status: str,
+    ended_ago: timedelta,
+    weights: dict[str, float] | None = None,
+    proposal: dict[str, float] | None = None,
+) -> None:
+    """A finished run that ended ``ended_ago`` ago, optionally with a proposal."""
+    ended = datetime.now(UTC) - ended_ago
+    with factory() as session:
+        run = AgentRun(
+            portfolio_id=pid,
+            asof=ASOF,
+            seed=1,
+            universe=["AAA", "BBB"],
+            optimizer_config={},
+            status=status,
+            weights=weights,
+            created_at=ended - timedelta(minutes=5),
+            finished_at=ended,
+        )
+        session.add(run)
+        session.flush()
+        if proposal is not None:
+            AgentRunRepository(session).append_decision(
+                run.id,
+                agent="allocator",
+                step="optimize_portfolio",
+                llm_response=json.dumps({"weights": proposal}),
+            )
         session.commit()
 
 
@@ -439,6 +476,91 @@ def test_drift_monitor_skips_already_paused(session_factory, monkeypatch):
 
     assert ok is True
     assert driven == []  # breached but already paused → skipped (no stacking)
+
+
+def test_drift_monitor_ignores_a_proposal_no_adviser_approved(
+    session_factory, monkeypatch
+):
+    _seed_mandate(session_factory, PID_A, cron=False, drift=True, threshold=0.1)
+    # Never invested: the only run was rejected, but its allocator proposal survives.
+    _seed_run(
+        session_factory,
+        PID_A,
+        status="rejected",
+        ended_ago=timedelta(days=30),
+        proposal={"AAA": 0.6, "BBB": 0.4},
+    )
+    monkeypatch.setattr(observe, "reprofile_status", _not_due)
+    driven: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "fund.scheduler._drive_rebalance",
+        lambda pid, asof, **_kw: driven.append(pid),
+    )
+
+    ok = run_drift_monitor(session_factory=session_factory, asof=ASOF)
+
+    assert ok is True
+    assert driven == []  # an uninvested book has no approved target to drift from
+
+
+def _seed_drifted_invested_portfolio(
+    factory: SessionFactory, *, discarded_ago: timedelta
+) -> None:
+    """Approved 60/40 target, book held 100/0 (breach), then a rejected re-run."""
+    _seed_mandate(factory, PID_A, cron=False, drift=True, threshold=0.1)
+    _seed_run(
+        factory,
+        PID_A,
+        status="completed",
+        ended_ago=timedelta(days=60),
+        weights={"AAA": 0.6, "BBB": 0.4},
+    )
+    with factory() as session:
+        PositionRepository(session).set_holdings(
+            PID_A, [{"ticker": "AAA", "weight": 1.0}], asof=ASOF
+        )
+        session.commit()
+    _seed_run(
+        factory,
+        PID_A,
+        status="rejected",
+        ended_ago=discarded_ago,
+        proposal={"AAA": 0.5, "BBB": 0.5},
+    )
+
+
+def test_drift_monitor_waits_out_the_cooldown_after_a_rejected_rebalance(
+    session_factory, monkeypatch
+):
+    _seed_drifted_invested_portfolio(session_factory, discarded_ago=timedelta(hours=1))
+    monkeypatch.setattr(observe, "reprofile_status", _not_due)
+    driven: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "fund.scheduler._drive_rebalance",
+        lambda pid, asof, **_kw: driven.append(pid),
+    )
+
+    ok = run_drift_monitor(session_factory=session_factory, asof=ASOF)
+
+    assert ok is True
+    assert driven == []  # the adviser's rejection is not overridden on the next tick
+
+
+def test_drift_monitor_retries_once_the_cooldown_has_elapsed(
+    session_factory, monkeypatch
+):
+    _seed_drifted_invested_portfolio(session_factory, discarded_ago=timedelta(days=3))
+    monkeypatch.setattr(observe, "reprofile_status", _not_due)
+    driven: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "fund.scheduler._drive_rebalance",
+        lambda pid, asof, **_kw: driven.append(pid),
+    )
+
+    ok = run_drift_monitor(session_factory=session_factory, asof=ASOF)
+
+    assert ok is True
+    assert driven == [PID_A]
 
 
 def test_drift_monitor_logs_reprofile_marker_when_due(
