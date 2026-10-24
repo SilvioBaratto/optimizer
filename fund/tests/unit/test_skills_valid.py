@@ -220,6 +220,39 @@ def test_orchestration_forbids_place_orders_before_risk_passes():
     assert "Never call `place_orders` unless the risk gate passed" in body
 
 
+# --- risk gate: skills must match the tools' real (weight-free) signatures ----
+
+
+def test_orchestration_requires_a_fresh_risk_pass_after_each_allocator_run():
+    # A risk pass is bound to one weight vector; re-running the allocator replaces
+    # the weights place_orders would commit, so the pass must be earned again.
+    body = _read("fund-orchestration", "SKILL.md")
+
+    assert "delegate to risk again" in body
+    assert "refuses weights whose newest recorded risk verdict" in body
+
+
+_WEIGHT_FREE_TOOL_CALL_RE = re.compile(r"`(risk_check|backtest)\(([^)]*)\)`")
+
+
+@pytest.mark.parametrize("name", _SKILL_DIRS)
+def test_skills_call_risk_tools_without_a_weights_argument(name: str):
+    # ``risk_check`` / ``backtest`` judge the allocator's audited weights and accept
+    # no arguments; a skill that tells the risk officer to pass ``weights`` makes it
+    # relay (and round) a vector the gate must never trust.
+    text = _read(name, "SKILL.md") + "\n" + _read(name, "reference.md")
+
+    for tool, args in _WEIGHT_FREE_TOOL_CALL_RE.findall(text):
+        assert args.strip() == "", f"{name}: `{tool}({args})` takes no arguments"
+
+
+def test_risk_skill_records_a_verdict_from_the_audited_weights():
+    body = _read("risk-limits-check", "SKILL.md")
+
+    assert "`risk_check()`" in body
+    assert "audited" in body
+
+
 # --- executor inputs: one name for the band, and a source for current holdings ---
 
 

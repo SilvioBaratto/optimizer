@@ -113,6 +113,16 @@ def test_pm_prompt_commits_only_after_risk_passed():
     assert "only after the risk gate" in section
 
 
+def test_risk_prompt_says_the_gate_reads_the_audited_weights():
+    # risk_check takes no weights and place_orders refuses an unjudged vector, so
+    # the officer must not be invited to relay a retyped copy of the proposal.
+    lower = RISK_SYSTEM_PROMPT.lower()
+
+    assert "takes no arguments" in lower
+    assert "latest audited" in lower
+    assert "`place_orders` refuses" in lower
+
+
 def test_economist_prompt_names_its_tools_and_skills():
     lower = ECONOMIST_SYSTEM_PROMPT.lower()
     assert "get_macro_series" in lower

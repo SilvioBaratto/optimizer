@@ -43,12 +43,17 @@ profile/universe is fixed for the whole run.
    escalation tool, so never loop to dodge the cap and never call `place_orders` to
    flag an open issue.
 4. On a risk-gate BLOCK, return to the allocator with the violations — never override.
+   Every allocator run replaces the weights under review, so delegate to risk again
+   before `place_orders`: a pass never carries over to a different weight vector.
 5. Gate `place_orders` behind HITL; record every decision in the audit trail.
 
 ## Boundaries
 - Never compute or edit weights; never bypass the risk gate or the HITL gate.
 - Never call `place_orders` unless the risk gate passed for the allocator's latest
-  weights — it is the commit step, not an escalation channel.
+  weights — it is the commit step, not an escalation channel. The tool enforces this:
+  it refuses weights whose newest recorded risk verdict is missing or failed.
+- `risk_check` and `backtest` take no weights; they judge the allocator's latest
+  audited optimizer weights, so never relay or retype a weight vector to risk.
 - Never accept a subagent report that carries hand-made weights — reject and re-task.
 
 ## Deeper detail

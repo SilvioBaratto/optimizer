@@ -19,7 +19,10 @@ constraints per fold) — a run is single-regime.
 ## Guardrails
 - Round cap = `max_pm_rounds`; graph `recursion_limit`. On hit → the harness finalises
   the run INCOMPLETE with no ticket (no gate is raised).
-- Risk gate is blocking (MiFID / ESG). HITL default gates `place_orders`.
+- Risk gate is blocking (MiFID / ESG). `risk_check` judges the allocator's latest
+  audited weights (it takes none) and records a verdict keyed to their digest;
+  `place_orders` refuses weights without a passing verdict. HITL default gates
+  `place_orders`.
 - Subagents are stateless: delegate with complete instructions, collect the report.
 
 ## Theory
