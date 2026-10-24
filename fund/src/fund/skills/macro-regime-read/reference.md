@@ -3,7 +3,8 @@
 On-demand support for `macro-regime-read`. Points to the theory; never copies it.
 
 ## Regime enum
-`calm | normal | turbulent | stress` — chosen from the statistics below, not vibes.
+`calm | normal | turbulent | stress`, plus `unknown` when a data gap leaves a cue
+unobservable (see SKILL.md, step 4) — chosen from the statistics below, not vibes.
 
 ## What the optimizer computes (the LLM only reads it)
 

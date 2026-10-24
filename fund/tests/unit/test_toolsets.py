@@ -1277,31 +1277,41 @@ def test_optimize_resolves_the_profile_when_the_store_entry_is_lost(
     assert decision.constraint_set["a_gamma"] == 7.0
 
 
-def test_optimize_applies_no_turnover_term_even_when_the_mandate_maps_one(
+def test_a_mapped_l1_coef_cannot_move_a_long_only_book_and_no_cost_is_set(
     db_session,
 ) -> None:
-    """The rebalancing-execution skill says no turnover control is applied. Pin it:
-    a mapped ``l1_coef`` never reaches the optimizer and no transaction cost is set,
-    so nothing in the optimize step trades off turnover against the book."""
+    """The rebalancing-execution skill says no turnover control is applied. Pin it: a
+    mapped ``l1_coef`` reaches the optimizer but the L1 norm of a long-only, fully
+    invested book is constant, so it leaves the weights unchanged, and no transaction
+    cost is set, so nothing in the optimize step trades off turnover."""
     _seed_panel(db_session)
-    cs = _constraint_set(l1_coef=0.5)
-    ctx = _make_context(db_session, store=_store_with_cs(cs))
 
-    result = _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
-        {"universe": _UNIVERSE}
-    )
-
-    assert result["ok"] is True
-    (decision,) = (
-        db_session.execute(
-            select(AgentDecision).where(AgentDecision.agent == "allocator")
+    def _weights(l1_coef: float) -> tuple[dict[str, float], dict[str, float]]:
+        cs = _constraint_set(l1_coef=l1_coef)
+        ctx = _make_context(db_session, store=_store_with_cs(cs))
+        result = _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
+            {"universe": _UNIVERSE}
         )
-        .scalars()
-        .all()
-    )
-    logged = json.loads(decision.llm_response)["optimizer_config"]
-    assert logged["l1_coef"] == 0.0
+        assert result["ok"] is True
+        decision = (
+            db_session.execute(
+                select(AgentDecision)
+                .where(AgentDecision.run_id == ctx.run_id)
+                .where(AgentDecision.agent == "allocator")
+            )
+            .scalars()
+            .one()
+        )
+        return result["data"]["weights"], json.loads(decision.llm_response)[
+            "optimizer_config"
+        ]
+
+    plain, _ = _weights(0.0)
+    penalised, logged = _weights(0.5)
+
+    assert logged["l1_coef"] == 0.5
     assert logged["transaction_costs"] == 0.0
+    assert penalised == pytest.approx(plain, abs=1e-4)
 
 
 def test_optimize_without_store_uses_default_constraints(db_session) -> None:
