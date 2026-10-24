@@ -211,7 +211,7 @@ def _resolve_scope(verb: str, turn: str, focus: uuid.UUID | None) -> TargetResol
         action = ResolvedAction(verb, None, None, "fund")
         return TargetResolution("resolved", action, (), f"{verb} the whole fund")
     if focus is not None:
-        action = ResolvedAction(verb, focus, focus, "portfolio")
+        action = ResolvedAction(verb, None, focus, "portfolio")
         return TargetResolution(
             "resolved", action, (), f"{verb} portfolio {_short(focus)}"
         )
@@ -226,7 +226,7 @@ def _resolve_rebalance(focus: uuid.UUID | None) -> TargetResolution:
         return TargetResolution(
             "ambiguous", None, (), "run which portfolio — focus one first"
         )
-    action = ResolvedAction("run", focus, focus, None)
+    action = ResolvedAction("run", None, focus, None)
     return TargetResolution(
         "resolved", action, (), f"run a rebalance for {_short(focus)}"
     )

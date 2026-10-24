@@ -2648,13 +2648,18 @@ _ASK_CONSEQUENCE: dict[str, str] = {
 }
 
 
+# The verbs that act on one paused gate (a run); every other verb targets a scope or
+# the focused portfolio, whatever ``run_id`` happens to hold.
+_ASK_GATE_VERBS: frozenset[str] = frozenset({"approve", "reject", "killswitch"})
+
+
 def _ask_confirm_prompt(action: Any) -> str:
     """The spelled-out confirm prompt for a resolved Ask ``action``."""
     verb = action.verb
-    if action.run_id is not None:
-        target = f"gate #{str(action.run_id)[:8]}"
-    elif action.scope == "fund":
+    if action.scope == "fund":
         target = "the whole fund"
+    elif verb in _ASK_GATE_VERBS and action.run_id is not None:
+        target = f"gate #{str(action.run_id)[:8]}"
     elif action.portfolio_id is not None:
         target = f"portfolio {str(action.portfolio_id)[:8]}"
     else:

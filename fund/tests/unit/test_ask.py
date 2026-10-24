@@ -204,6 +204,18 @@ def test_resolve_target_freeze_substring_fund_stays_on_focus(db_session):
     assert res.action.scope == "portfolio" and res.action.portfolio_id == _PID_A
 
 
+def test_resolve_target_scope_and_run_verbs_carry_no_gate_run_id(db_session):
+    """Only resume verbs name a gate: a focused freeze / rearm / run resolves with
+    ``run_id=None`` rather than smuggling the portfolio id into the gate slot."""
+    for turn in ("freeze it", "re-arm it", "run a rebalance"):
+        res = ask.resolve_target(turn, db_session, MemorySaver(), _PID_A)
+
+        assert res.status == "resolved", turn
+        assert res.action is not None
+        assert res.action.run_id is None, turn
+        assert res.action.portfolio_id == _PID_A, turn
+
+
 def test_resolve_target_rearm_fund_scope(db_session):
     """'re-arm the fund' resolves to the fund-scope rearm verb."""
     res = ask.resolve_target("re-arm the fund", db_session, MemorySaver(), None)

@@ -6065,6 +6065,46 @@ async def test_ask_action_freeze_fund_confirms_then_freezes(shell_env) -> None:
         assert AutonomyRepository(session).fund_posture() == AutonomyState.FROZEN.value
 
 
+@pytest.mark.parametrize(
+    ("turn", "expected"),
+    [
+        ("freeze it", "FREEZE autonomy (halts runs) portfolio aaaa0001?"),
+        ("re-arm it", "Re-arm autonomy portfolio aaaa0001?"),
+        ("run a rebalance", "Run a paper rebalance for portfolio aaaa0001?"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_ask_confirm_names_the_focused_portfolio_not_a_gate(
+    shell_env, turn, expected
+) -> None:
+    """A focused freeze / re-arm / run names the portfolio in its confirm; only a
+    resume verb (approve / reject / killswitch) talks about a gate."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn(turn)
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        prompt = str(app.screen.query_one(".confirm-prompt", Static).render())
+        assert prompt == expected
+        assert "gate" not in prompt
+
+
+def test_ask_confirm_prompt_keys_the_target_on_the_verb() -> None:
+    from fund.tui.ask import ResolvedAction
+
+    run_id = uuid.UUID("dddd0004-0000-4000-8000-000000000004")
+    # A resume verb names its gate; a run verb never does, even if run_id is populated.
+    assert (
+        tui_app._ask_confirm_prompt(ResolvedAction("approve", run_id, _PID_A, None))
+        == "Approve and execute gate #dddd0004?"
+    )
+    assert (
+        tui_app._ask_confirm_prompt(ResolvedAction("run", _PID_A, _PID_A, None))
+        == "Run a paper rebalance for portfolio aaaa0001?"
+    )
+
+
 # --- Ask disambiguation (Phase 08 T7) ---------------------------------------
 
 
