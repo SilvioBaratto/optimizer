@@ -1,9 +1,10 @@
 # Optimizer
 
-> A portfolio-optimization platform in one **uv workspace**: a composable
-> optimization **library**, a headless market-data **ingestion daemon**, a shared
-> **database layer**, and an agentic **fund manager** — four packages, one shared
-> virtual environment.
+> Portfolio optimization in one **uv workspace**: a composable skfolio /
+> scikit-learn optimization **library**, a scheduled market-data **ingestion
+> daemon** that keeps PostgreSQL fresh, a shared **database layer**, and an agentic
+> **fund** where an LLM chooses, the optimizer computes, and paper trades wait
+> behind human approval gates — four packages, one shared virtual environment.
 
 ![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
 ![License](https://img.shields.io/badge/license-PolyForm--Noncommercial--1.0.0-orange)
@@ -275,7 +276,9 @@ Full CLI surface (`portopt <command>` or `python -m app.cli <command>`):
 ### The fund manager (`fund`)
 
 The `fund` bridge lets an LLM make portfolio decisions and delegate the numeric
-work to `optimizer`, persisting runs to PostgreSQL via `portopt_db`. The chat
+work to `optimizer`, persisting runs to PostgreSQL via `portopt_db`. Orders are
+paper tickets, and by default a round pauses at a human-in-the-loop gate before
+`place_orders` (each portfolio's mandate sets its gates). The chat
 model is chosen by `LLM_PROVIDER` from a ten-provider registry (ollama, openai,
 openrouter, anthropic, google, groq, nvidia, huggingface, aws, microsoft); set
 nothing and it stays on the verified default — DeepSeek on Ollama Cloud. Install
@@ -286,13 +289,23 @@ a provider's SDK with the matching extra (`uv sync --package portopt-fund
 | Command | What it does |
 |---|---|
 | `fund profile <portfolio_id>` | Build/refresh an investor profile from a questionnaire |
+| `fund mandate set <portfolio_id>` / `fund mandate show <portfolio_id>` | Write or display a portfolio's mandate (capital, base currency, drift threshold, benchmark) |
 | `fund run <portfolio_id> --asof <date>` | Run a decision round for a rebalance bar |
 | `fund approve <run_id>` / `fund reject <run_id>` | Resolve a paused (human-in-the-loop) run |
 | `fund status [portfolio_id]` | Show the paused-run queue |
 | `fund report <run_id>` | Tabular audit of one run |
+| `fund nav-mark [--rebuild]` | Mark every active mandate's NAV now (the daily step, run by hand) |
 
-Also ships `fund-worker` (the drift-monitoring daemon) and `fund-tui` (a watch
-TUI).
+Two more entry points ship with it:
+
+- **`fund-worker`** — the daemon: a weekly rebalance sweep, an interval drift
+  monitor, a daily NAV mark and an orphan-job reaper (a heartbeat lease, like the
+  ingestion reaper).
+- **`fund-tui`** — a Textual oversight cockpit with eight views (Posture,
+  Deliberation, Decisions, Mandate, Audit, Performance, Ask, Daily brief). Every
+  action it takes (approve, reject, freeze, mandate edits) goes through a confirm
+  and lands in the audit log; **Ask** answers questions about the fund in plain
+  language. Press `?` for the key map.
 
 ---
 
@@ -336,7 +349,7 @@ uv run --package portopt-core pytest tests/ -v
 uv run --package portopt-core pytest -k "test_name"
 uv run --package portopt-core ruff check packages/portopt-core/optimizer/ tests/
 uv run --package portopt-core mypy packages/portopt-core/optimizer/
-uv run pyright                              # scoped to the library via [tool.pyright]
+uv run pyright                              # all four packages, via [tool.pyright] include
 
 # Ingestion daemon (portopt) — member suites run from the member directory
 cd ingestion && uv run pytest tests/
@@ -385,7 +398,9 @@ optimizer/
 ├── fund/                          # the `portopt-fund` bridge (import `fund`)
 ├── tests/                         # library test suite (mirrors optimizer/ + scheduler/)
 ├── scheduler/                     # shell wrappers over the CLI
-└── docker-compose.yml             # db + adminer + scheduler
+├── install.sh / install.ps1       # one-line bootstrap (clone + uv + the setup wizard)
+├── setup.sh / .cmd / .ps1         # the from-clone setup front door
+└── docker-compose.yml             # db + adminer + scheduler + fund (every service profile-gated)
 ```
 
 ---
