@@ -1591,6 +1591,163 @@ async def test_mandate_edits_reset_when_the_focused_portfolio_changes(
         assert view.query_one("#mandate-drift", Input).value == ""
 
 
+# --- Mandate polling must not repaint over unsaved edits ----------------------
+
+_FAST_POLL = 0.2
+_SETTLE = 0.9  # several poll ticks at _FAST_POLL
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_keeps_unsaved_run_policy_edit(shell_env) -> None:
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = "0.25"
+        view.query_one("#gate-place-orders", Checkbox).value = False
+        await pilot.pause(_SETTLE)
+        assert view.query_one("#mandate-drift", Input).value == "0.25"
+        assert view.query_one("#gate-place-orders", Checkbox).value is False
+        proposed = view.proposed_mandate()
+        assert proposed.drift_l1_threshold == 0.25
+        assert proposed.hitl_gates == ()
+        app.action_save_mandate()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        assert observe.get_mandate(session, PORTFOLIO_ID).drift_l1_threshold == 0.25
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_keeps_unsaved_band_pick_for_override(shell_env) -> None:
+    _seed_mandate_and_profile(shell_env, band="balanced")
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-band", Select).value = "aggressive"
+        await pilot.pause(_SETTLE)
+        assert view.proposed_band() == "aggressive"
+        app.action_override_guardrail()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+    with shell_env.get_session() as session:
+        rows = HumanAuditLogRepository(session).list_recent(action="guardrail_override")
+        assert len(rows) == 1
+        assert rows[0].prev_value == "balanced"
+        assert rows[0].new_value == "aggressive"
+        assert rows[0].override_flag is True
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_keeps_removed_directive_removed(shell_env) -> None:
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"remembered_directives": ("Trim AAA", "Keep 5% cash")}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-directives", ListView).index = 0
+        view.action_remove_directive()
+        await pilot.pause(_SETTLE)
+        assert view._directives == ["Keep 5% cash"]
+        assert view.proposed_mandate().remembered_directives == ("Keep 5% cash",)
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_still_repaints_fields_the_user_did_not_edit(
+    shell_env,
+) -> None:
+    """Only a dirty field is protected: an external change to a clean field lands."""
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-benchmark", Input).value = "SPY"  # unsaved edit
+        with shell_env.get_session() as session:
+            external = observe.get_mandate(session, PORTFOLIO_ID).model_copy(
+                update={"drift_l1_threshold": 0.3}
+            )
+            MandateRepository(session).upsert(external)
+            session.commit()
+        await pilot.pause(_SETTLE)
+        assert view.query_one("#mandate-drift", Input).value == "0.3"
+        assert view.query_one("#mandate-benchmark", Input).value == "SPY"
+
+
+@pytest.mark.asyncio
+async def test_mandate_saved_field_is_released_even_if_typed_text_is_not_canonical(
+    shell_env,
+) -> None:
+    """A save lands the typed value, but the persisted rendering can differ from the
+    typed text (``0.20`` is stored as ``0.2``). The field must still be released, or
+    an external change never reaches it and a later save overwrites that change."""
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        drift = view.query_one("#mandate-drift", Input)
+        drift.value = "0.20"
+        app.action_save_mandate()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause(_SETTLE)
+        assert drift.value == "0.2"
+        with shell_env.get_session() as session:
+            external = observe.get_mandate(session, PORTFOLIO_ID).model_copy(
+                update={"drift_l1_threshold": 0.3}
+            )
+            MandateRepository(session).upsert(external)
+            session.commit()
+        await pilot.pause(_SETTLE)
+        assert drift.value == "0.3"
+
+
+@pytest.mark.asyncio
+async def test_mandate_save_ack_keeps_text_typed_while_the_save_was_in_flight(
+    shell_env,
+) -> None:
+    """Only the fields still holding the submitted value are released: a keystroke
+    typed between ctrl+s and the commit acknowledgement must not be repainted away."""
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        drift = view.query_one("#mandate-drift", Input)
+        capital = view.query_one("#mandate-capital", Input)
+        drift.value = "0.20"
+        capital.value = "250000"
+        submitted = view.proposed_mandate()
+        drift.value = "0.205"
+        view.mark_saved(submitted)
+        assert "capital" not in view._painted  # still the submitted value: released
+        assert "drift" in view._painted  # typed again since: still guarded
+        await pilot.pause(_SETTLE)
+        assert drift.value == "0.205"
+
+
+@pytest.mark.asyncio
+async def test_mandate_edit_made_after_a_save_is_still_protected(shell_env) -> None:
+    """Releasing the saved fields must not make the next edit vulnerable again."""
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        drift = view.query_one("#mandate-drift", Input)
+        drift.value = "0.20"
+        app.action_save_mandate()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause(_SETTLE)
+        drift.value = "0.35"
+        await pilot.pause(_SETTLE)
+        assert drift.value == "0.35"
+
+
 # --- Posture view: fund roster + fund strip + focused detail (T6) -------------
 
 _PID_C = uuid.UUID("cccc0003-0000-4000-8000-000000000003")

@@ -147,14 +147,6 @@ class ShellView(Vertical):
         """
         self.render_count += 1
 
-    def has_unsaved_edits(self) -> bool:
-        """Whether the view holds input the adviser has typed but not yet saved.
-
-        The poll timer skips a repaint while this is true, so a tick cannot overwrite
-        in-progress edits with the stored state. Read-only views never hold edits.
-        """
-        return False
-
     # --- context seam -------------------------------------------------------
 
     @property
@@ -386,6 +378,18 @@ def _format_caps(constraint_set: dict[str, Any]) -> str:
     return " · ".join(parts)
 
 
+# Edit-guard key of each run-policy widget -> the ``PortfolioMandate`` field a save
+# writes it to; the band has no entry because a mandate save never persists it.
+_SAVED_FIELDS: tuple[tuple[str, str], ...] = (
+    ("capital", "capital"),
+    ("base_currency", "base_currency"),
+    ("drift", "drift_l1_threshold"),
+    ("benchmark", "benchmark"),
+    ("gate", "hitl_gates"),
+    ("directives", "remembered_directives"),
+)
+
+
 class MandateView(ShellView):
     """Per-portfolio policy editor: run-policy (persisted) + guardrails (audit-only).
 
@@ -403,6 +407,13 @@ class MandateView(ShellView):
     ``MifidProfileRepository.get_active`` over a short read session); the writes go
     through ``fund.actions`` on a worker thread dispatched by the App.
 
+    The poll repaints the editor every tick, but an editable widget the adviser has
+    changed since its last paint keeps that unsaved value: the save and override
+    actions read the live widgets, so a repaint would silently revert them to the
+    persisted values. A field is released as soon as it matches the persisted value
+    again, once :meth:`mark_saved` reports that a save landed it, or when the focused
+    portfolio changes.
+
     Attributes:
         mandate: The focused portfolio's current run-policy, or ``None``.
         suitability_band: The active assessment's ``RiskToleranceBand`` value (the
@@ -419,9 +430,10 @@ class MandateView(ShellView):
         self.mandate: Any = None
         self.suitability_band: str | None = None
         self._directives: list[str] = []
-        # Editor values as last painted from the read model; the difference against the
-        # live widgets is what counts as an unsaved edit.
-        self._painted_state: tuple[Any, ...] | None = None
+        # Value each editable widget was last painted with, to tell an adviser edit
+        # from a stale repaint; reset whenever the focused portfolio changes.
+        self._painted: dict[str, Any] = {}
+        self._painted_pid: uuid.UUID | None = None
 
     def compose(self) -> ComposeResult:
         """Yield the title, the run-policy | guardrails split, and the key hint."""
@@ -470,6 +482,9 @@ class MandateView(ShellView):
         """Repaint the editor from the focused portfolio's mandate + active profile."""
         self.render_count += 1
         pid = self.shell._portfolio_id
+        if pid != self._painted_pid:
+            self._painted.clear()
+            self._painted_pid = pid
         subtitle = self.query_one("#mandate-subtitle", Label)
         if pid is None:
             subtitle.update("(no portfolio focused — pick one in the header)")
@@ -479,7 +494,6 @@ class MandateView(ShellView):
             self._paint_guardrails(None, "")
             self._paint_gates(None)
             self._paint_directives(None)
-            self._painted_state = self._edit_state()
             return
         subtitle.update(f"portfolio {_short(pid)}")
         mandate, band, caps = self._read(pid)
@@ -489,26 +503,6 @@ class MandateView(ShellView):
         self._paint_guardrails(band, caps)
         self._paint_gates(mandate)
         self._paint_directives(mandate)
-        self._painted_state = self._edit_state()
-
-    def has_unsaved_edits(self) -> bool:
-        """Whether any editor widget differs from what the last repaint put there."""
-        return (
-            self._painted_state is not None
-            and self._edit_state() != self._painted_state
-        )
-
-    def _edit_state(self) -> tuple[Any, ...]:
-        """The values of every editable widget, in a stable order."""
-        return (
-            self.query_one("#mandate-capital", Input).value,
-            self.query_one("#mandate-base-currency", Input).value,
-            self.query_one("#mandate-drift", Input).value,
-            self.query_one("#mandate-benchmark", Input).value,
-            self.query_one("#mandate-band", Select).value,
-            self.query_one("#gate-place-orders", Checkbox).value,
-            tuple(self._directives),
-        )
 
     def proposed_mandate(self) -> Any:
         """Build a ``PortfolioMandate`` from the edited run-policy inputs, re-validated.
@@ -580,21 +574,72 @@ class MandateView(ShellView):
         band = (profile.suitability or {}).get("band")
         return band, _format_caps(profile.constraint_set or {})
 
+    def _take_persisted(self, key: str, current: Any, persisted: Any) -> bool:
+        """Whether ``key``'s widget may be repainted with the ``persisted`` value.
+
+        ``False`` only when the adviser changed the widget since it was last painted
+        and it still differs from ``persisted`` — that unsaved edit must survive the
+        poll. Otherwise the field is clean (or just saved), so it is released and its
+        painted baseline advances to ``persisted``.
+        """
+        edited = key in self._painted and current != self._painted[key]
+        if edited and current != persisted:
+            return False
+        self._painted[key] = persisted
+        return True
+
+    def mark_saved(self, saved: Any) -> None:
+        """Release the run-policy widgets that still hold what ``saved`` persisted.
+
+        A save stores the typed value but the next read can render it differently
+        (``0.20`` comes back as ``0.2``), so comparing text with the persisted text
+        would keep the field "unsaved" forever: an external change could never reach
+        it and a later save would overwrite that change. Equality is therefore judged
+        on the validated model, once, at save time — not per poll, where treating
+        ``0.20`` as equal to ``0.2`` would repaint the field mid-keystroke. A widget
+        the adviser edited again after pressing save keeps its protection, and the
+        pending band pick is untouched (the band is not part of the mandate).
+
+        Args:
+            saved: The ``PortfolioMandate`` whose upsert just committed.
+        """
+        from pydantic import ValidationError
+
+        try:
+            current = self.proposed_mandate()
+        except ValidationError:
+            return
+        if current is None:
+            return
+        for key, attribute in _SAVED_FIELDS:
+            if getattr(current, attribute) == getattr(saved, attribute):
+                self._painted.pop(key, None)
+
     def _paint_policy(self, mandate: Any) -> None:
         capital = self.query_one("#mandate-capital", Input)
         base_currency = self.query_one("#mandate-base-currency", Input)
         drift = self.query_one("#mandate-drift", Input)
         benchmark = self.query_one("#mandate-benchmark", Input)
         triggers = self.query_one("#mandate-triggers", Static)
+        persisted = (
+            ("capital", capital, ""),
+            ("base_currency", base_currency, ""),
+            ("drift", drift, ""),
+            ("benchmark", benchmark, ""),
+        )
+        if mandate is not None:
+            persisted = (
+                ("capital", capital, str(mandate.capital)),
+                ("base_currency", base_currency, mandate.base_currency),
+                ("drift", drift, str(mandate.drift_l1_threshold)),
+                ("benchmark", benchmark, mandate.benchmark or ""),
+            )
+        for key, field, text in persisted:
+            if self._take_persisted(key, field.value, text):
+                field.value = text
         if mandate is None:
-            for field in (capital, base_currency, drift, benchmark):
-                field.value = ""
             triggers.update("(no mandate — profile the portfolio first)")
             return
-        capital.value = str(mandate.capital)
-        base_currency.value = mandate.base_currency
-        drift.value = str(mandate.drift_l1_threshold)
-        benchmark.value = mandate.benchmark or ""
         triggers.update(
             f"triggers cron {_tick(mandate.triggers.cron)} "
             f"drift {_tick(mandate.triggers.drift)} · "
@@ -610,19 +655,31 @@ class MandateView(ShellView):
             caps_widget.update("")
             return
         suitability.update(f"suitability band {band} (ceiling)")
-        if band in _RISK_BANDS:
+        if band in _RISK_BANDS and self._take_persisted(
+            "band", self.proposed_band(), band
+        ):
             select.value = band
         caps_widget.update(caps)
 
     def _paint_gates(self, mandate: Any) -> None:
         """Reflect the mandate's PM gates into the toggleable ``place_orders`` box."""
         checkbox = self.query_one("#gate-place-orders", Checkbox)
-        checkbox.value = mandate is not None and "place_orders" in mandate.hitl_gates
+        persisted = mandate is not None and "place_orders" in mandate.hitl_gates
+        if self._take_persisted("gate", checkbox.value, persisted):
+            checkbox.value = persisted
 
     def _paint_directives(self, mandate: Any) -> None:
-        """Repopulate the removable directives list from the mandate each tick."""
-        self._directives = list(mandate.remembered_directives) if mandate else []
-        self._refill_directives()
+        """Repopulate the removable directives list from the mandate.
+
+        The rows are rebuilt only when the list actually changes: a rebuild resets the
+        ListView highlight, which ``x`` relies on to pick the directive to drop.
+        """
+        persisted = list(mandate.remembered_directives) if mandate else []
+        if not self._take_persisted("directives", self._directives, persisted):
+            return
+        if self._directives != persisted:
+            self._directives = list(persisted)
+            self._refill_directives()
 
     def _refill_directives(self) -> None:
         """Rebuild the directives ``ListView`` rows from :attr:`_directives`."""

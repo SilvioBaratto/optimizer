@@ -809,30 +809,22 @@ class ShellApp(App[None]):
         """
         self._refresh_runstate()
         self._sync_picker()
-        self._refresh(preserve_edits=True)
+        self._refresh()
 
-    def _refresh(self, *, preserve_edits: bool = False) -> None:
+    def _refresh(self) -> None:
         """Repaint the active view from the read model — synchronous, test-callable.
 
         A single sync entry point a headless test can call directly instead of racing
         the poll timer. Runs the cross-portfolio notification bus first (fund-wide,
         independent of the active view), then delegates to the visible
-        :class:`~fund.tui.views.ShellView` for its repaint.
-
-        Args:
-            preserve_edits: Skip the repaint when the view holds unsaved input. The
-                timer passes this so a tick never overwrites what the adviser is
-                typing; an explicit navigation, refocus or post-action repaint does
-                not, since those deliberately reset the view.
+        :class:`~fund.tui.views.ShellView` for its repaint. A view that hosts editable
+        inputs is responsible for keeping an unsaved edit across this repaint.
         """
         self._poll_attention()
         current = self.query_one(ContentSwitcher).current
         if current is None:
             return
-        view = self.query_one(f"#{current}", ShellView)
-        if preserve_edits and view.has_unsaved_edits():
-            return
-        view.refresh_view()
+        self.query_one(f"#{current}", ShellView).refresh_view()
 
     def focus_portfolio(self, portfolio_id: uuid.UUID) -> None:
         """Focus the shell on a portfolio picked inside a content view (Posture roster).
@@ -1469,7 +1461,28 @@ class ShellApp(App[None]):
         except Exception as exc:  # surface a clean message, never crash the App
             self.call_from_thread(self._set_status, f"action failed: {exc}")
             return
-        self.call_from_thread(self._after_action, result.message)
+        self.call_from_thread(
+            self._after_mandate_saved, result.message, portfolio_id, mandate
+        )
+
+    def _after_mandate_saved(
+        self, message: str, portfolio_id: uuid.UUID | None, saved: Any
+    ) -> None:
+        """On the main thread once a mandate save committed: release its edit guard.
+
+        The Mandate view is looked up whether or not it is the active pane — the
+        adviser may have switched away while the worker ran, and the guard would
+        otherwise keep the saved fields frozen on return. A save for a portfolio that
+        is no longer focused has nothing to release: the focus change already reset it.
+        """
+        if portfolio_id == self._portfolio_id:
+            try:
+                view = self.query_one("#view-mandate", ShellView)
+            except NoMatches:
+                view = None
+            if isinstance(view, MandateView):
+                view.mark_saved(saved)
+        self._after_action(message)
 
     @work(thread=True, exclusive=True, group="mandate")
     def _guardrail_worker(
