@@ -922,3 +922,62 @@ def test_nav_mark_stays_incremental_while_the_benchmark_is_unchanged(session_fac
     run_nav_mark(session_factory=session_factory, asof=date(2026, 10, 12))
 
     assert _benchmark_rows(session_factory)[date(2026, 10, 1)][0] == pytest.approx(1.0)
+
+
+def _restate_closes_before(
+    factory: SessionFactory, ticker: str, ex_date: date, factor: str
+) -> None:
+    """Scale the stored closes before ``ex_date``, as a dividend-adjusted refetch."""
+    with factory() as session:
+        inst = session.query(Instrument).filter_by(yfinance_ticker=ticker).one()
+        rows = session.query(PriceHistory).filter(
+            PriceHistory.instrument_id == inst.id, PriceHistory.date < ex_date
+        )
+        for row in rows:
+            row.close = row.close * Decimal(factor)
+        session.commit()
+
+
+def _nav_rows(factory: SessionFactory) -> dict[date, float]:
+    with factory() as session:
+        rows = session.query(NavHistory).filter_by(portfolio_id=_PID).all()
+        return {r.date: float(r.nav) for r in rows}
+
+
+def test_nav_mark_rebuilds_when_a_distribution_restates_the_benchmark_history(
+    session_factory,
+):
+    """A restated benchmark must not leave older rows on the pre-dividend basis.
+
+    The benchmark is stored as a level, so rows older than the re-mark window that
+    keep the unadjusted price sit beside window rows on the adjusted one, and the
+    seam reads as a day of benchmark return.
+    """
+    _seed_benchmark_book(session_factory, benchmark="SPY")
+    assert run_nav_mark(session_factory=session_factory, asof=date(2026, 10, 12))
+    ex_date = date(2026, 10, 11)
+    _restate_closes_before(session_factory, "SPY", ex_date, "0.99")
+
+    assert run_nav_mark(session_factory=session_factory, asof=date(2026, 10, 12))
+
+    rows = _benchmark_rows(session_factory)
+    for i in range(12):
+        day = date(2026, 10, 1) + timedelta(days=i)
+        factor = 0.99 if day < ex_date else 1.0
+        assert rows[day][0] == pytest.approx(0.9 * (400 + i) * factor), day
+
+
+def test_nav_mark_rebuilds_when_a_distribution_restates_a_holding(session_factory):
+    """NAV rows persisted before the dividend refetch are rewritten, not left behind."""
+    _seed_benchmark_book(session_factory, benchmark="SPY")
+    assert run_nav_mark(session_factory=session_factory, asof=date(2026, 10, 12))
+    ex_date = date(2026, 10, 3)
+    _restate_closes_before(session_factory, "US1", ex_date, "0.99")
+
+    assert run_nav_mark(session_factory=session_factory, asof=date(2026, 10, 12))
+
+    navs = _nav_rows(session_factory)
+    for i in range(12):
+        day = date(2026, 10, 1) + timedelta(days=i)
+        adjusted = (100 + i) * (0.99 if day < ex_date else 1.0)
+        assert navs[day] == pytest.approx(10_000.0 * adjusted / 99.0, rel=1e-6), day

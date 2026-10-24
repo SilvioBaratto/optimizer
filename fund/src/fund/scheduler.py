@@ -796,21 +796,37 @@ def _nav_row_changed(
 _NAV_ANCHOR_REL_TOL = 1e-6
 
 
+def _levels_match(recomputed: float, persisted: Any) -> bool:
+    return math.isclose(
+        recomputed,
+        float(persisted),
+        rel_tol=_NAV_ANCHOR_REL_TOL,
+        abs_tol=_NAV_ANCHOR_REL_TOL,
+    )
+
+
 def _anchor_drifted(anchor: Any, points: list[Any]) -> bool:
-    """Whether the freshly computed NAV disagrees with the persisted anchor row.
+    """Whether the freshly computed series disagrees with the persisted anchor row.
+
+    Compares the NAV and, when both sides hold one, the benchmark level. The
+    benchmark is a price level, so a distribution that restates the stored history
+    changes it for every older bar while the incremental mark rewrites only the
+    recent ones, and the seam would read as a day of benchmark return.
 
     A recomputed series that has no bar on the anchor's date cannot be compared and
     is not treated as drift: a stale row would otherwise force a full re-mark on every
     run, since the upsert never deletes it.
     """
     for point in points:
-        if point.date == anchor.date:
-            return not math.isclose(
-                float(point.nav),
-                float(anchor.nav),
-                rel_tol=_NAV_ANCHOR_REL_TOL,
-                abs_tol=_NAV_ANCHOR_REL_TOL,
-            )
+        if point.date != anchor.date:
+            continue
+        if not _levels_match(float(point.nav), anchor.nav):
+            return True
+        return (
+            point.benchmark is not None
+            and anchor.benchmark is not None
+            and not _levels_match(float(point.benchmark), anchor.benchmark)
+        )
     return False
 
 
@@ -832,12 +848,12 @@ def _nav_points_to_persist(
     chain-linked), and the whole series is rebuilt rather than leaving a seam at the
     window boundary.
 
-    The anchor check sees only the NAV level, so a mandate benchmark edit would go
-    unnoticed and leave older rows on the previous benchmark's level, stitching two
-    benchmarks into one series with a phantom return at the join. Each row therefore
-    records which benchmark its level came from, and any persisted level that is not
-    the mandate's current benchmark's (including an untagged legacy one) rebuilds the
-    whole series.
+    The anchor check cannot tell which benchmark a level came from, so a mandate
+    benchmark edit would go unnoticed and leave older rows on the previous
+    benchmark's level, stitching two benchmarks into one series with a phantom
+    return at the join. Each row therefore records which benchmark its level came
+    from, and any persisted level that is not the mandate's current benchmark's
+    (including an untagged legacy one) rebuilds the whole series.
     """
     from fund.performance import build_nav_series
 
