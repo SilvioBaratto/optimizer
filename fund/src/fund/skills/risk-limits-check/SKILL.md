@@ -20,11 +20,12 @@ The optimizer / validation computes the risk numbers; the LLM only compares them
 the ConstraintSet limits and decides pass/block. It never edits weights itself.
 
 ## Procedure
-1. Call `risk_check(weights)` → passed + violations (weight bounds and position
-   cap, ESG sector exclusions, complex/leveraged-instrument restrictions; an
-   instrument it cannot classify is a violation, not a pass). It does not evaluate the
-   drawdown ceilings nu1/nu2/nu3 — `backtest` in step 2 does.
-2. Call `backtest(weights, window)` walk-forward (`shuffle=False`). It returns
+1. Call `risk_check()` — it takes no arguments and judges the allocator's latest audited
+   proposal → passed + violations (weight bounds and position cap, ESG sector
+   exclusions, complex/leveraged-instrument restrictions; an instrument it cannot
+   classify is a violation, not a pass). It does not evaluate the drawdown ceilings
+   nu1/nu2/nu3 — `backtest` in step 2 does.
+2. Call `backtest()` (also no arguments) walk-forward (`shuffle=False`). It returns
    `drawdown_tiers`: the client's ceilings nu1 (soft warning), nu2 (hard ceiling) and
    nu3 (absolute stop), the backtest `max_drawdown`, and the `breached` tiers — a
    breach of nu2 or nu3 is a BLOCK, nu1 is a warning to report. Check

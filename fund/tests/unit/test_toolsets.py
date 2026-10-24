@@ -187,6 +187,17 @@ def _classify(
     db_session.flush()
 
 
+def _audit_proposal(ctx: RunContext, weights: dict[str, float]) -> None:
+    """Append an allocator ``optimize_portfolio`` decision carrying ``weights``, as
+    the bound optimizer (or an adviser edit) would."""
+    AgentRunRepository(ctx.session).append_decision(
+        ctx.run_id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": weights}),
+    )
+
+
 def _find(tools: list[BaseTool], name: str) -> BaseTool:
     (match,) = [t for t in tools if t.name == name]
     return match
@@ -436,33 +447,110 @@ def test_universe_filter_without_exclusions(db_session) -> None:
 def test_bound_risk_check_is_pure_and_omits_session(db_session) -> None:
     cs = _constraint_set()
     ctx = _make_context(db_session, store=_store_with_cs(cs))
+    _audit_proposal(ctx, _WEIGHTS)
     risk = _find(bind_toolset("risk", ctx), "risk_check")
 
     assert "session" not in risk.args
-    result = risk.invoke({"weights": _WEIGHTS})
+    result = risk.invoke({})
 
     assert result["ok"] is True
     assert result["data"]["passed"] is True
 
 
+def test_bound_risk_check_judges_the_audited_proposal(db_session) -> None:
+    _seed_panel(db_session)
+    cs = _constraint_set()
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
+        {"universe": _UNIVERSE}
+    )
+    risk = _find(bind_toolset("risk", ctx), "risk_check")
+
+    result = risk.invoke({})
+
+    assert result["ok"] is True
+    assert result["data"]["passed"] is True
+
+
+def test_risk_check_and_backtest_take_no_model_supplied_weights(db_session) -> None:
+    ctx = _make_context(db_session)
+    risk_tools = bind_toolset("risk", ctx)
+
+    assert "weights" not in _find(risk_tools, "risk_check").args
+    assert "weights" not in _find(risk_tools, "backtest").args
+
+
+def test_risk_check_ignores_a_retyped_weight_vector(db_session) -> None:
+    """The risk officer only sees weights as prose and re-types them; a rounded
+    copy misses the budget tolerance and used to fail a sound proposal."""
+    ctx = _make_context(db_session)
+    third = 1.0 / 3.0
+    _audit_proposal(ctx, {"AAA": third, "BBB": third, "CCC": 1.0 - 2.0 * third})
+    risk = _find(bind_toolset("risk", ctx), "risk_check")
+
+    result = risk.invoke({"weights": {"AAA": 0.3333, "BBB": 0.3333, "CCC": 0.3333}})
+
+    assert result["ok"] is True
+    assert result["data"]["passed"] is True
+
+
+def test_risk_check_follows_the_latest_audited_proposal(db_session) -> None:
+    cs = _constraint_set(universe_filters=UniverseFilters(max_position_cap=0.4))
+    ctx = _make_context(db_session, store=_store_with_cs(cs))
+    risk = _find(bind_toolset("risk", ctx), "risk_check")
+
+    _audit_proposal(ctx, {"AAA": 0.4, "BBB": 0.3, "CCC": 0.3})
+    assert risk.invoke({})["data"]["passed"] is True
+
+    # A re-optimised proposal supersedes the first: the gate must judge it, not
+    # whatever vector an earlier step was shown.
+    _audit_proposal(ctx, {"AAA": 0.7, "BBB": 0.2, "CCC": 0.1})
+    result = risk.invoke({})
+
+    assert result["data"]["passed"] is False
+    assert [v["type"] for v in result["data"]["violations"]] == ["max_weight"]
+
+
+def test_risk_check_errs_when_no_proposal_was_audited(db_session) -> None:
+    ctx = _make_context(db_session)
+    risk = _find(bind_toolset("risk", ctx), "risk_check")
+
+    result = risk.invoke({})
+
+    assert result["ok"] is False
+    assert "optimize_portfolio" in result["error"]
+
+
 def test_bound_backtest_returns_metrics(db_session) -> None:
     _seed_panel(db_session)
     ctx = _make_context(db_session)
+    _audit_proposal(ctx, _WEIGHTS)
     backtest = _find(bind_toolset("risk", ctx), "backtest")
 
-    result = backtest.invoke({"weights": _WEIGHTS})
+    result = backtest.invoke({})
 
     assert result["ok"] is True
     assert "sharpe_ratio" in result["data"]["metrics"]
+
+
+def test_backtest_errs_when_no_proposal_was_audited(db_session) -> None:
+    ctx = _make_context(db_session)
+    backtest = _find(bind_toolset("risk", ctx), "backtest")
+
+    result = backtest.invoke({})
+
+    assert result["ok"] is False
+    assert "optimize_portfolio" in result["error"]
 
 
 def test_bound_backtest_reports_which_drawdown_tiers_are_breached(db_session) -> None:
     _seed_panel(db_session)
     cs = _constraint_set(nu1=0.0001, nu2=0.0002, nu3=0.0003)  # any drawdown breaches
     ctx = _make_context(db_session, store=_store_with_cs(cs))
+    _audit_proposal(ctx, _WEIGHTS)
     backtest = _find(bind_toolset("risk", ctx), "backtest")
 
-    result = backtest.invoke({"weights": _WEIGHTS})
+    result = backtest.invoke({})
 
     assert result["ok"] is True
     tiers = result["data"]["drawdown_tiers"]
@@ -475,9 +563,10 @@ def test_bound_backtest_reports_no_breach_inside_every_ceiling(db_session) -> No
     _seed_panel(db_session)
     cs = _constraint_set(nu1=0.9, nu2=0.95, nu3=1.0)
     ctx = _make_context(db_session, store=_store_with_cs(cs))
+    _audit_proposal(ctx, _WEIGHTS)
     backtest = _find(bind_toolset("risk", ctx), "backtest")
 
-    result = backtest.invoke({"weights": _WEIGHTS})
+    result = backtest.invoke({})
 
     assert result["data"]["drawdown_tiers"]["breached"] == []
 
@@ -487,9 +576,10 @@ def test_bound_backtest_without_a_constraint_set_has_no_tier_verdict(
 ) -> None:
     _seed_panel(db_session)
     ctx = _make_context(db_session, store=None)
+    _audit_proposal(ctx, _WEIGHTS)
     backtest = _find(bind_toolset("risk", ctx), "backtest")
 
-    result = backtest.invoke({"weights": _WEIGHTS})
+    result = backtest.invoke({})
 
     assert result["ok"] is True
     assert "drawdown_tiers" not in result["data"]
@@ -631,9 +721,10 @@ def test_optimize_reports_cap_infeasible_for_a_too_small_universe(db_session) ->
 def test_risk_check_flags_a_weight_above_the_position_cap(db_session) -> None:
     cs = _constraint_set(universe_filters=UniverseFilters(max_position_cap=0.4))
     ctx = _make_context(db_session, store=_store_with_cs(cs))
+    _audit_proposal(ctx, {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})
     risk = _find(bind_toolset("risk", ctx), "risk_check")
 
-    result = risk.invoke({"weights": {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}})
+    result = risk.invoke({})
 
     assert result["ok"] is True
     assert result["data"]["passed"] is False
@@ -727,7 +818,7 @@ def test_place_orders_idempotent_rerun_appends_once(db_session) -> None:
         ("universe_filter", "allocator", {"universe": _UNIVERSE}),
         ("estimate_moments", "allocator", {"universe": _UNIVERSE}),
         ("optimize_portfolio", "allocator", {"universe": _UNIVERSE}),
-        ("backtest", "risk", {"weights": _WEIGHTS}),
+        ("backtest", "risk", {}),
     ],
 )
 def test_bound_allocator_tools_forward_the_run_base_currency(
@@ -741,6 +832,7 @@ def test_bound_allocator_tools_forward_the_run_base_currency(
 
     monkeypatch.setattr(fund_tools, tool_name, _spy)
     ctx = dataclasses.replace(_make_context(db_session), base_currency="EUR")
+    _audit_proposal(ctx, _WEIGHTS)
 
     _find(bind_toolset(role, ctx), tool_name).invoke(args)
 
@@ -796,7 +888,8 @@ def _classify_all(db_session, sectors: dict[str, str]) -> None:
 
 def _risk_check(db_session, cs: ConstraintSet, weights: dict[str, float]) -> dict:
     ctx = _make_context(db_session, store=_store_with_cs(cs))
-    return _find(bind_toolset("risk", ctx), "risk_check").invoke({"weights": weights})
+    _audit_proposal(ctx, weights)
+    return _find(bind_toolset("risk", ctx), "risk_check").invoke({})
 
 
 def _energy_exclusion() -> ConstraintSet:

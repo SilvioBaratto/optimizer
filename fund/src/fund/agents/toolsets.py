@@ -364,9 +364,27 @@ def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
     return result
 
 
+def _audited_weights(ctx: RunContext) -> dict[str, float]:
+    """The run's latest audited ``optimize_portfolio`` weights (``{}`` if none).
+
+    The single vector the risk gate, the backtest and the paper ticket all read, so
+    what is checked is exactly what would be placed — never a copy the model
+    re-typed (rounding breaks the budget tolerance) or a superseded proposal.
+    """
+    from fund.audit import AgentRunRepository
+
+    return AgentRunRepository(ctx.session).latest_optimizer_weights(ctx.run_id)
+
+
+_NO_PROPOSAL = (
+    "no audited optimizer weights for this run; the allocator must run "
+    "optimize_portfolio first"
+)
+
+
 @tool_envelope
 @_serialised
-def _risk_check_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
+def _check_weights_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
     cs = _resolve_constraint_set(ctx)
     constraints = _bounds_args(cs) if cs is not None else None
     result = _tools.risk_check(weights, constraints=constraints)
@@ -380,6 +398,15 @@ def _risk_check_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
     )
 
 
+@tool_envelope
+@_serialised
+def _risk_check_impl(ctx: RunContext) -> ToolResult:
+    weights = _audited_weights(ctx)
+    if not weights:
+        return err(_NO_PROPOSAL)
+    return _check_weights_impl(ctx, weights)
+
+
 def check_weights_against_mandate(
     ctx: RunContext, weights: dict[str, float]
 ) -> ToolResult:
@@ -387,14 +414,18 @@ def check_weights_against_mandate(
 
     The adviser ``edit`` action validates typed weights with this so a human override
     is held to the same bounds, position cap and ESG / K&E screen the risk agent's
-    tool applies, not to the bare long-only defaults.
+    tool applies, not to the bare long-only defaults. The agent's own ``risk_check``
+    takes no weights; it judges the audited proposal through the same verdict.
     """
-    return _risk_check_impl(ctx, weights)
+    return _check_weights_impl(ctx, weights)
 
 
 @tool_envelope
 @_serialised
-def _backtest_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
+def _backtest_impl(ctx: RunContext) -> ToolResult:
+    weights = _audited_weights(ctx)
+    if not weights:
+        return err(_NO_PROPOSAL)
     # Bound the walk-forward training block to the run's 3y rolling lookback
     # (the one frozen tool that accepts a window). A panel shorter than the window
     # falls back to the full sample inside ``backtest`` (no leakage either way).
@@ -432,9 +463,7 @@ def _place_orders_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult
     # run's audit trail (the single source of weights). No audited proposal ⇒ empty
     # weights ⇒ the frozen tool returns ``err("no weights to place")`` (safe
     # no-ticket outcome).
-    from fund.audit import AgentRunRepository
-
-    audited = AgentRunRepository(ctx.session).latest_optimizer_weights(ctx.run_id)
+    audited = _audited_weights(ctx)
     cs = _resolve_constraint_set(ctx)
     if cs is not None and audited:
         # The mandate can change between the audited proposal and the order (a
@@ -569,12 +598,14 @@ def _bind_risk_check(ctx: RunContext) -> BaseTool:
     from langchain_core.tools import tool
 
     @tool
-    def risk_check(weights: dict[str, float]) -> ToolResult:
-        """Validate ``weights`` against the run's risk profile: weight bounds and
-        position cap, ESG sector exclusions and low-K&E instrument restrictions on
-        every held name. Returns the ``{ok, data}`` envelope with ``passed`` and
-        structured ``violations``."""
-        return _risk_check_impl(ctx, weights)
+    def risk_check() -> ToolResult:
+        """Validate the allocator's latest audited proposal against the run's risk
+        profile: weight bounds and position cap, ESG sector exclusions and low-K&E
+        instrument restrictions on every held name. Takes no weights: the optimizer's
+        audited vector is checked, so the verdict covers exactly what would be placed.
+        Returns the ``{ok, data}`` envelope with ``passed`` and structured
+        ``violations``."""
+        return _risk_check_impl(ctx)
 
     return risk_check
 
@@ -583,13 +614,13 @@ def _bind_backtest(ctx: RunContext) -> BaseTool:
     from langchain_core.tools import tool
 
     @tool
-    def backtest(weights: dict[str, float]) -> ToolResult:
-        """Backtest fixed ``weights`` out-of-sample over prices up to the run date
-        (walk-forward, no leakage). Returns the ``{ok, data}`` envelope with
-        ``metrics`` and ``drawdown_tiers``: the client's ``nu1`` (soft warning),
-        ``nu2`` (hard ceiling) and ``nu3`` (absolute stop) drawdown ceilings, the
-        backtest ``max_drawdown``, and the ``breached`` tiers."""
-        return _backtest_impl(ctx, weights)
+    def backtest() -> ToolResult:
+        """Backtest the allocator's latest audited proposal out-of-sample over prices
+        up to the run date (walk-forward, no leakage). Takes no weights. Returns the
+        ``{ok, data}`` envelope with ``metrics`` and ``drawdown_tiers``: the client's
+        ``nu1`` (soft warning), ``nu2`` (hard ceiling) and ``nu3`` (absolute stop)
+        drawdown ceilings, the backtest ``max_drawdown``, and the ``breached`` tiers."""
+        return _backtest_impl(ctx)
 
     return backtest
 
