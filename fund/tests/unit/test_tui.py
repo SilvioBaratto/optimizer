@@ -2658,6 +2658,49 @@ def test_parse_weights_rejects_garbage_and_parses_pairs() -> None:
         _parse_weights("AAA:oops")
 
 
+def test_parse_weights_resolves_tickers_against_the_proposed_tickers() -> None:
+    from fund.tui.app import _parse_weights
+
+    allowed = {"AAA", "BBB", "CCC"}
+    # A lowercase entry resolves to the canonical ticker instead of a phantom name.
+    assert _parse_weights("aaa:0.6, Bbb:0.4", allowed=allowed) == {
+        "AAA": 0.6,
+        "BBB": 0.4,
+    }
+    with pytest.raises(
+        ValueError, match="unknown ticker 'ZZZ'; not among the proposed tickers"
+    ):
+        _parse_weights("AAA:0.8, ZZZ:0.2", allowed=allowed)
+    # The same name twice would let the second weight silently replace the first.
+    with pytest.raises(ValueError, match="duplicate ticker 'AAA'"):
+        _parse_weights("AAA:0.5, aaa:0.5", allowed=allowed)
+
+
+@pytest.mark.asyncio
+async def test_decisions_edit_with_unknown_ticker_keeps_editor_open(tui_env) -> None:
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_edit_decision()
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, OrderEditScreen)
+        # Sums to 1 and is long-only, so risk_check alone would wave it through.
+        screen.query_one("#edit-weights", Input).value = "AAA:0.5, BBB:0.3, ZZZ:0.2"
+        screen._submit()
+        await pilot.pause()
+        assert app.screen is screen  # the editor stays open on the typo
+        error = str(screen.query_one("#edit-error", Static).render())
+        assert "ZZZ" in error
+        assert "proposed tickers" in error
+        assert app.last_worker is None  # nothing was dispatched
+    with tui_env.get_session() as session:
+        run = AgentRunRepository(session).get_run(tui_env.run_id)
+        assert run.status == "paused"
+
+
 # --- Remember persistence: barge-in/steer remember flag (T11) -----------------
 
 

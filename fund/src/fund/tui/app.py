@@ -69,7 +69,7 @@ from fund.tui.views import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Collection
     from contextlib import AbstractContextManager
 
     from sqlalchemy.orm import Session
@@ -124,26 +124,44 @@ class ConfirmScreen(ModalScreen[bool]):
         self.dismiss(False)
 
 
-def _parse_weights(raw: str) -> dict[str, float]:
+def _parse_weights(
+    raw: str, *, allowed: Collection[str] | None = None
+) -> dict[str, float]:
     """Parse a ``"ticker:weight, …"`` edit string into a weights mapping.
 
     Args:
         raw: Comma-separated ``ticker:weight`` pairs the adviser typed.
+        allowed: The tickers an edit may name (the gate's proposed names). When
+            given, each typed ticker is resolved to its canonical spelling (exact
+            match first, then case-insensitive) and anything outside the set is
+            rejected, so a typo can never reach the order path as a phantom holding.
 
     Returns:
         The parsed ``{ticker: weight}`` mapping (risk invariants are left to
-        ``apply_action("edit")``; this only guards the textual shape).
+        ``apply_action("edit")``; this guards the textual shape and the ticker set).
 
     Raises:
-        ValueError: A pair is missing its ``ticker``/``weight`` or the weight is
-            not a float — surfaced inline so a typo never dismisses the editor.
+        ValueError: A pair is missing its ``ticker``/``weight``, the weight is not a
+            float, the ticker is not in ``allowed`` or appears twice — surfaced
+            inline so a typo never dismisses the editor.
     """
+    known = frozenset(allowed) if allowed is not None else None
+    folded = {name.upper(): name for name in known} if known is not None else {}
     weights: dict[str, float] = {}
     for part in raw.split(","):
         ticker, _, weight = part.partition(":")
         ticker = ticker.strip()
         if not ticker or not weight.strip():
             raise ValueError(f"bad entry {part.strip()!r}; use ticker:weight")
+        if known is not None and ticker not in known:
+            resolved = folded.get(ticker.upper())
+            if resolved is None:
+                raise ValueError(
+                    f"unknown ticker {ticker!r}; not among the proposed tickers"
+                )
+            ticker = resolved
+        if ticker in weights:
+            raise ValueError(f"duplicate ticker {ticker!r}")
         try:
             weights[ticker] = float(weight)
         except ValueError:
@@ -157,8 +175,10 @@ class OrderEditScreen(ModalScreen["dict[str, float] | None"]):
     Pre-fills the optimizer's proposed ``{ticker: weight}`` as an editable line; on
     Commit (or ``↵``) it parses the text and — if well-formed — dismisses the edited
     mapping, which the caller threads through ``apply_action("edit")``. A parse error
-    surfaces inline (the editor stays open); Cancel / ``escape`` / empty dismiss
-    ``None``. Risk invariants (long-only, fully-invested) are enforced downstream.
+    or a ticker outside the proposed set surfaces inline (the editor stays open);
+    Cancel / ``escape`` / empty dismiss ``None``. The proposed tickers are the only
+    names an edit may use. Risk invariants (long-only, fully-invested) are enforced
+    downstream.
 
     Args:
         weights: The proposed target weights to pre-fill.
@@ -223,7 +243,7 @@ class OrderEditScreen(ModalScreen["dict[str, float] | None"]):
             self.dismiss(None)
             return
         try:
-            edited = _parse_weights(raw)
+            edited = _parse_weights(raw, allowed=self._weights)
         except ValueError as exc:
             self.query_one("#edit-error", Static).update(f"⚠ {exc}")
             return
